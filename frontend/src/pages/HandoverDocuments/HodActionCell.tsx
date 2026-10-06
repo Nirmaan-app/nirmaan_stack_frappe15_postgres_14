@@ -1,10 +1,10 @@
-// The Actions cell of one handover document: Edit, Preview, Download and a ⋯ menu holding the upload
-// (owner 2026-09-24; the ⋯ menu added 2026-10-06).
+// The Actions cell of one handover document: Edit, Preview, Download (owner 2026-09-24). The per-document
+// upload and its ⋯ menu (2026-10-06) were removed the same day -- uploads are package-wise.
 //
-//   Edit     -> opens the document: the form, the From Nirmaan records, or a library text's part picks --
-//               and, on every one, its uploaded file. Every row has it since 2026-10-06 (a library text,
-//               O&M Manual / Do's & Don'ts, went without it from 2026-09-24); a library text's TEXT is
-//               still the library's, edited in Packages Settings.
+//   Edit     -> opens the document: the form, the From Nirmaan records, or a library text's part picks.
+//               Every row has it since 2026-10-06 (a library text, O&M Manual / Do's & Don'ts, went
+//               without it from 2026-09-24); a library text's TEXT is still the library's, edited in
+//               Packages Settings.
 //   Preview  -> the "HOD Document" print of this row, on screen. Every one of the 16 has one: a From
 //               Nirmaan document prints the page that LISTS the records it hands over.
 //               Building the REAL merged records here instead was tried on 2026-09-25 and reverted the
@@ -13,37 +13,16 @@
 //   Download -> the same document as a file. For a From Nirmaan document that means the records
 //               themselves, built on the server (with no selection saved yet, Edit opens first).
 //
-//   ⋯        -> Upload ("Replace" once a file is there) and Remove upload, on EVERY document (owner
-//               2026-10-06): the project's own file -- the signed copy, say -- REPLACES what Nirmaan
-//               generates in Preview, Download and the binder. Only for users who can edit.
-//
 // The status (Not Started / WIP / Done) is NOT here -- it is the Status column; the checklist's YES / NO
 // is the Enable / Disable switch.
 
-import {
-  Download,
-  Eye,
-  FileEdit,
-  Loader2,
-  MoreHorizontal,
-  Replace,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import { Download, Eye, FileEdit, Loader2 } from "lucide-react";
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { ReportPreviewDialog } from "@/pages/CommissionReport/components/ReportPreviewDialog";
 
-import { HOD_UPLOAD_ACCEPT } from "./hodApi";
 import { hodDocumentPdfUrl } from "./hodDownloads";
-import { uploadedFile } from "./hodRules";
 import type { HodDocumentMeta, HodRow } from "./types";
 
 export interface HodActionCellProps {
@@ -60,10 +39,6 @@ export interface HodActionCellProps {
   onOpen: () => void;
   /** Download the document (From Nirmaan documents: the reports themselves, built on the server). */
   onDownload: () => void;
-  /** Upload the project's own file in place of what Nirmaan generates (any document). */
-  onUpload: (file: File) => void;
-  /** Back to what Nirmaan generates. */
-  onRemoveUpload: () => void;
 }
 
 export const HodActionCell: React.FC<HodActionCellProps> = ({
@@ -74,12 +49,8 @@ export const HodActionCell: React.FC<HodActionCellProps> = ({
   working,
   onOpen,
   onDownload,
-  onUpload,
-  onRemoveUpload,
 }) => {
   const [preview, setPreview] = React.useState(false);
-  const fileInput = React.useRef<HTMLInputElement>(null);
-  const uploaded = uploadedFile(row);
 
   if (row.disabled) {
     return (
@@ -118,56 +89,6 @@ export const HodActionCell: React.FC<HodActionCellProps> = ({
       {btn(FileEdit, canEdit ? "Edit" : "View", onOpen)}
       {btn(Eye, "Preview", () => setPreview(true))}
       {btn(Download, "Download", onDownload, true)}
-      {canEdit && (
-        <>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild disabled={busy}>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 w-7 p-0 text-gray-500"
-                disabled={busy}
-                title={`More for ${meta.title}`}
-                aria-label={`More for ${meta.title}`}
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem
-                className="gap-2 text-sm"
-                onClick={() => fileInput.current?.click()}
-              >
-                {uploaded ? (
-                  <Replace className="h-4 w-4" />
-                ) : (
-                  <Upload className="h-4 w-4" />
-                )}
-                {uploaded ? "Replace" : "Upload"}
-              </DropdownMenuItem>
-              {uploaded && (
-                <DropdownMenuItem
-                  className="gap-2 text-sm text-red-600 focus:text-red-600"
-                  onClick={onRemoveUpload}
-                >
-                  <Trash2 className="h-4 w-4" /> Remove upload
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <input
-            ref={fileInput}
-            type="file"
-            accept={HOD_UPLOAD_ACCEPT}
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) onUpload(file);
-            }}
-          />
-        </>
-      )}
 
       {preview && (
         <ReportPreviewDialog

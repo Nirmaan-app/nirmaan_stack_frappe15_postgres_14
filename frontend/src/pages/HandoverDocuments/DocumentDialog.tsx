@@ -1,7 +1,7 @@
 // One handover document of one package, opened from its checklist row: the typed forms, the
 // library-backed templates (part picks + blanks), or the read-only records of a from-app document.
 // "Mark as Done" (owner 2026-10-06, was Save) writes the row's `form_data` and makes it Done in the same
-// write (update_row). The uploaded file is NOT shown here (owner 2026-10-06): it lives in the row's ⋯ menu.
+// write (update_row).
 
 import { CheckCircle2, Loader2 } from "lucide-react";
 import * as React from "react";
@@ -91,9 +91,8 @@ function finalize(
       .map((s) => s.trim())
       .filter(Boolean);
   }
-  if (key === "recommended_tools" && out.tool_remarks !== undefined) {
-    out.tool_remarks = compactTextMap(out.tool_remarks);
-  }
+  // The tools take no remarks any more (owner 2026-10-06): Mark as Done clears any saved earlier.
+  if (key === "recommended_tools") delete out.tool_remarks;
   if (key === "maintenance_checklist") {
     if (out.checks !== undefined) out.checks = compactMaintenanceChecks(out.checks);
     if (out.dates !== undefined) {
@@ -187,13 +186,9 @@ export const DocumentDialog: React.FC<DocumentDialogProps> = ({
   const save = async () => {
     setSaving(true);
     try {
-      const out = finalize(meta.key, draft, { warrantyDate, included: effectiveIncluded });
-      // Carry the row's CURRENT upload from the LIVE row: the ⋯ menu writes one the moment it is chosen,
-      // so this draft (taken when the dialog opened) may not know about it -- and Mark as Done must
-      // neither drop a file uploaded since nor bring back one removed since.
-      if (row.form_data?.upload === undefined) delete out.upload;
-      else out.upload = row.form_data.upload;
-      await onSave(out);
+      await onSave(
+        finalize(meta.key, draft, { warrantyDate, included: effectiveIncluded }),
+      );
       onOpenChange(false);
     } catch (error: any) {
       toast({
@@ -243,9 +238,7 @@ export const DocumentDialog: React.FC<DocumentDialogProps> = ({
         body = <InventoryForm {...formProps} />;
         break;
       case "recommended_tools":
-        body = (
-          <ToolsForm {...formProps} tools={library?.system.tools ?? []} />
-        );
+        body = <ToolsForm tools={library?.system.tools ?? []} />;
         break;
       case "equipment_warranty":
         body = (

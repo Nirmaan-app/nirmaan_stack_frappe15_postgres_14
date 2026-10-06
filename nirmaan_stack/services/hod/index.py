@@ -11,14 +11,13 @@ receives the same list from the API instead of keeping its own copy.
 keys, in this order -- pinned by test). `no` is the S.No printed on the checklist before
 switched-off rows are removed and the rest renumbered.
 
-`fill` marks a document that gives users something to fill in (a form, the maintenance results, remarks on the
-tools, certificate dates); `fill` is what the screen leads with "Fill Form" for, and what gives the row its
+`fill` marks a document that gives users something to fill in (a form, the maintenance results, certificate
+dates -- the Recommended Tools List stopped taking remarks on 2026-10-06, so it is not one); `fill` is what the screen leads with "Fill Form" for, and what gives the row its
 editor. It does NOT gate the YES answer -- a form prints from its own layout whether or not anyone typed in
 it, so only a FROM NIRMAAN document has to be saved first (see `checklist.needs_saving`).
 
-EVERY document may be REPLACED by a file of the project's own (owner 2026-10-06 -- the signed copy, say):
-an uploaded file is what Preview, Download and the binder then hand over instead of what Nirmaan
-generates. The one reader is `checklist.uploaded_file`.
+No document takes an upload of its own: the per-document upload of 2026-10-06 was removed the same day
+(owner -- uploads are package-wise).
 
 Kinds:
   form      -- the project types everything (stored in `form_data`)
@@ -51,7 +50,7 @@ DOCUMENTS = (
     {"key": "dos_donts", "no": 6, "title": "Do's & Don'ts", "kind": TEMPLATE, "library": LIB_DOS},
     {"key": "maintenance_checklist", "no": 7, "title": "Maintenance Checklist", "kind": TEMPLATE, "library": LIB_MAINT, "fill": True},
     {"key": "inventory_list", "no": 8, "title": "Inventory List / Asset List", "kind": FORM, "landscape": True, "fill": True},
-    {"key": "recommended_tools", "no": 9, "title": "Recommended Tools List", "kind": TEMPLATE, "fill": True},
+    {"key": "recommended_tools", "no": 9, "title": "Recommended Tools List", "kind": TEMPLATE},
     {"key": "attic_stock_list", "no": 10, "title": "Attic Stock List", "kind": FORM, "fill": True},
     {"key": "key_list", "no": 11, "title": "Key List", "kind": FORM, "fill": True},
     {"key": "equipment_warranty", "no": 12, "title": "Equipment Warranty", "kind": TEMPLATE, "fill": True},

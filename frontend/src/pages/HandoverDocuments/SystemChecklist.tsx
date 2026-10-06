@@ -9,11 +9,14 @@
 import {
   AlertTriangle,
   BookOpenText,
+  FileSignature,
   FileText,
   Loader2,
   MoreHorizontal,
   Pencil,
+  Replace,
   Trash2,
+  Upload,
 } from "lucide-react";
 import * as React from "react";
 
@@ -36,7 +39,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import SITEURL from "@/constants/siteURL";
 import { cn } from "@/lib/utils";
+import { formatDate } from "@/utils/FormatDate";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 import { BinderDialog } from "./BinderDialog";
@@ -46,7 +51,7 @@ import { HodActionCell } from "./HodActionCell";
 import { ReportPreviewDialog } from "@/pages/CommissionReport/components/ReportPreviewDialog";
 import {
   SHOW_BINDER_BUTTON,
-  useHodFileUpload,
+  SIGNED_COPY_ACCEPT,
   type HodRowPatch,
 } from "./hodApi";
 import {
@@ -63,16 +68,15 @@ import {
   needsSaving,
   rowEditable,
   STATUS_STYLE,
-  uploadedFile,
 } from "./hodRules";
 import type {
   HodCounts,
   HodDocumentMeta,
   HodProjectInfo,
   HodRow,
+  HodSignedCopy,
   HodStatus,
   HodSystemOption,
-  HodUpload,
 } from "./types";
 import type { BinderProgress, HodJob } from "./useHodBinder";
 
@@ -80,13 +84,13 @@ import type { BinderProgress, HodJob } from "./useHodBinder";
 const STATUSES: HodStatus[] = ["Not Started", "WIP", "Done"];
 
 /** What "save it first" means. Only a From Nirmaan document can be refused (`needsSaving`): its records
- *  have to be ticked -- or its own file uploaded. */
+ *  have to be ticked. */
 const DONE_HINT =
-  "Open the records, tick what goes into the handover and Mark as Done — or upload the document from the ⋯ menu.";
+  "Open the records, tick what goes into the handover and Mark as Done.";
 
 /** One document's progress: the current status with an edit icon, changed from a small dropdown. Done is
  *  the one that costs something -- it puts the document's pages in the binder -- so on a From Nirmaan
- *  document it is refused until its records are ticked or a file is uploaded, and the refusal says what
+ *  document it is refused until its records are ticked, and the refusal says what
  *  to do. Only users who can edit the row get the dropdown. */
 const StatusCell: React.FC<{
   row: HodRow;
@@ -132,7 +136,7 @@ const StatusCell: React.FC<{
               {s === "Done"
                 ? !needsSaving(meta) || isSaved(row)
                   ? "— its pages go into the binder"
-                  : "— tick records or upload first"
+                  : "— tick its records first"
                 : "— on the checklist, no pages yet"}
             </span>
           </DropdownMenuItem>
@@ -157,6 +161,10 @@ export interface SystemChecklistProps {
   progress: BinderProgress | null;
   /** Start a build: the binder (`document` null) or one document's content. */
   onBuild: (document: string | null, title: string) => void;
+  /** The package's signed handover copy, if one was uploaded (owner 2026-10-06). Stored only. */
+  signedCopy: HodSignedCopy | null;
+  /** Store (or replace) the package's signed copy. */
+  onUploadSignedCopy: (file: File) => Promise<void>;
 }
 
 export const SystemChecklist: React.FC<SystemChecklistProps> = ({
@@ -171,6 +179,8 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   job,
   progress,
   onBuild,
+  signedCopy,
+  onUploadSignedCopy,
 }) => {
   const metaByKey = React.useMemo(
     () => new Map(documents.map((d) => [d.key, d])),
@@ -186,7 +196,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   );
   const [savingRow, setSavingRow] = React.useState<string | null>(null);
   const [openRow, setOpenRow] = React.useState<string | null>(null);
-  // The From Nirmaan document someone tried to mark Done with nothing ticked or uploaded.
+  // The From Nirmaan document someone tried to mark Done with nothing ticked.
   const [doneBlocked, setDoneBlocked] = React.useState<{
     row: HodRow;
     meta: HodDocumentMeta;
@@ -199,8 +209,14 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   // "Download binder" first lists what goes in and what is skipped (owner 2026-10-06).
   const [confirmBinder, setConfirmBinder] = React.useState(false);
   const [removing, setRemoving] = React.useState(false);
+  const signedInput = React.useRef<HTMLInputElement>(null);
+  const [uploadingSigned, setUploadingSigned] = React.useState(false);
+  const signedHref = signedCopy
+    ? signedCopy.url.startsWith("http")
+      ? signedCopy.url
+      : SITEURL + signedCopy.url
+    : "";
   const { busyKey, download } = usePdfDownload();
-  const { uploadToRow } = useHodFileUpload();
 
   const building = job !== null;
   const buildingBinderHere = job?.hodSystem === system.name && !job.document;
@@ -220,6 +236,8 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   const doneCount = counts?.completed ?? 0;
   const binderEnabled = !!counts && counts.needed > 0;
   const touched = counts?.touched ?? 0;
+  // Removing the package deletes its entries AND its signed copy, so either one asks first.
+  const hasEntries = touched > 0 || !!signedCopy;
 
   const patch = React.useCallback(
     async (row: HodRow, p: HodRowPatch) => {
@@ -259,8 +277,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
   };
 
   const downloadRow = (row: HodRow, meta: HodDocumentMeta) => {
-    // An uploaded file IS the document (owner 2026-10-06): `document_pdf` serves it, on every kind.
-    if (meta.kind === "app" && !uploadedFile(row)) {
+    if (meta.kind === "app") {
       const mine =
         job?.hodSystem === system.name && job.document === row.document;
       if (mine) return; // already being prepared for this row; the button shows it
@@ -287,8 +304,8 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
    *  the data being saved, never against what was on the row a moment ago.
    *
    *  A form or a library text is always ready, so it always becomes Done. A FROM NIRMAAN document must
-   *  have records ticked or a file uploaded (`checklist.can_be_done`), so a save with neither only
-   *  stores; the server would refuse Done. */
+   *  have records ticked (`checklist.can_be_done`), so a save that ticks nothing only stores; the server
+   *  would refuse Done. */
   const saveMarksDone = (
     meta: HodDocumentMeta,
     form_data: Record<string, unknown>,
@@ -296,8 +313,8 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
 
   /** The status dropdown. WIP and Not Started go straight through, and so does Done on a form or a
    *  library text -- it prints from its own layout with nothing filled in (owner 2026-09-28). Only a From
-   *  Nirmaan document is refused until its records are ticked or a file is uploaded; the server refuses
-   *  it too (`checklist.can_be_done`), this is the message that explains it. */
+   *  Nirmaan document is refused until its records are ticked; the server refuses it too
+   *  (`checklist.can_be_done`), this is the message that explains it. */
   const pickStatus = async (
     row: HodRow,
     meta: HodDocumentMeta,
@@ -309,59 +326,6 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
       return;
     }
     await patch(row, { status }).catch(() => undefined);
-  };
-
-  /** The project's own file REPLACES what Nirmaan generates for the document (any of the 16, owner
-   *  2026-10-06): Preview, Download and the binder hand it over from now on. An upload marks the document
-   *  Done (`saveMarksDone`; on a From Nirmaan document the file counts as saved content). Returns what was
-   *  stored, or null when it failed (the toast already said why). */
-  const uploadFile = async (
-    row: HodRow,
-    meta: HodDocumentMeta,
-    file: File,
-  ): Promise<HodUpload | null> => {
-    setSavingRow(row.name);
-    try {
-      const upload = await uploadToRow(row.name, file);
-      const form_data = { ...(row.form_data || {}), upload };
-      const done = saveMarksDone(meta, form_data);
-      await updateRow(row.name, done ? { form_data, status: "Done" } : { form_data });
-      toast({
-        title: done ? "Uploaded and marked Done" : "Uploaded",
-        description: `${meta.title} now hands over ${upload.file_name}.`,
-        variant: "success",
-      });
-      return upload;
-    } catch (error) {
-      toast({
-        title: "Upload failed",
-        description: getFrappeError(error),
-        variant: "destructive",
-      });
-      return null;
-    } finally {
-      setSavingRow(null);
-    }
-  };
-
-  /** Back to the generated document. The answer is left as it is. */
-  const removeUpload = async (
-    row: HodRow,
-    meta: HodDocumentMeta,
-  ): Promise<boolean> => {
-    const form_data = { ...(row.form_data || {}) };
-    delete form_data.upload;
-    try {
-      await patch(row, { form_data });
-    } catch {
-      return false; // `patch` already showed the error
-    }
-    toast({
-      title: "Upload removed",
-      description: `${meta.title} is generated by Nirmaan again.`,
-      variant: "success",
-    });
-    return true;
   };
 
   /** Keep the ticked reports on the row (so the binder takes the same ones), then build the download. */
@@ -448,6 +412,26 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                 )}
               </div>
             )}
+            {/* The package's signed copy, stored only -- Download binder always builds from the
+                current documents (owner 2026-10-06). */}
+            {signedCopy && (
+              <p className="flex flex-wrap items-center gap-1 text-xs text-gray-600">
+                <FileSignature className="h-3.5 w-3.5 text-green-600" />
+                Signed copy:
+                <a
+                  href={signedHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="max-w-[16rem] truncate font-medium text-blue-700 hover:underline"
+                  title={signedCopy.file_name}
+                >
+                  {signedCopy.file_name}
+                </a>
+                <span className="text-gray-400">
+                  · uploaded {formatDate(signedCopy.uploaded_on)}
+                </span>
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {/* Shown first, saved from inside the preview -- the same way a row's Preview works
@@ -481,28 +465,75 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                 Download binder
               </Button>
             )}
-            {canEdit && (
+            {(canEdit || signedCopy) && (
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
+                <DropdownMenuTrigger asChild disabled={uploadingSigned}>
                   <Button
                     variant="ghost"
                     size="sm"
                     className="h-8 w-8 p-0 text-gray-500"
+                    disabled={uploadingSigned}
                     title={`More options for ${system.display_name}`}
                     aria-label={`More options for ${system.display_name}`}
                   >
-                    <MoreHorizontal className="h-4 w-4" />
+                    {uploadingSigned ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <MoreHorizontal className="h-4 w-4" />
+                    )}
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem
-                    className="gap-2 text-sm text-red-600 focus:text-red-600"
-                    onClick={() => setConfirmRemove(true)}
-                  >
-                    <Trash2 className="h-4 w-4" /> Remove package
-                  </DropdownMenuItem>
+                <DropdownMenuContent align="end" className="w-52">
+                  {canEdit && (
+                    <DropdownMenuItem
+                      className="gap-2 text-sm"
+                      onClick={() => signedInput.current?.click()}
+                    >
+                      {signedCopy ? (
+                        <Replace className="h-4 w-4" />
+                      ) : (
+                        <Upload className="h-4 w-4" />
+                      )}
+                      {signedCopy ? "Replace signed copy" : "Upload signed copy"}
+                    </DropdownMenuItem>
+                  )}
+                  {signedCopy && (
+                    <DropdownMenuItem
+                      className="gap-2 text-sm"
+                      onClick={() => window.open(signedHref, "_blank", "noopener")}
+                    >
+                      <FileSignature className="h-4 w-4" /> View signed copy
+                    </DropdownMenuItem>
+                  )}
+                  {canEdit && (
+                    <DropdownMenuItem
+                      className="gap-2 text-sm text-red-600 focus:text-red-600"
+                      onClick={() => setConfirmRemove(true)}
+                    >
+                      <Trash2 className="h-4 w-4" /> Remove package
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
+            )}
+            {canEdit && (
+              <input
+                ref={signedInput}
+                type="file"
+                accept={SIGNED_COPY_ACCEPT}
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (!file) return;
+                  setUploadingSigned(true);
+                  try {
+                    await onUploadSignedCopy(file);
+                  } finally {
+                    setUploadingSigned(false);
+                  }
+                }}
+              />
             )}
           </div>
         </div>
@@ -608,8 +639,6 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                         working={rowBusy}
                         onOpen={() => setOpenRow(row.name)}
                         onDownload={() => downloadRow(row, meta)}
-                        onUpload={(file) => void uploadFile(row, meta, file)}
-                        onRemoveUpload={() => void removeUpload(row, meta)}
                       />
                     </td>
                   </tr>
@@ -724,7 +753,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
               <div className="space-y-2 text-sm text-gray-600">
                 <p>
                   <b>{doneBlocked?.meta.title}</b> has no records ticked for the
-                  handover and no uploaded file yet, so it cannot be marked Done.
+                  handover yet, so it cannot be marked Done.
                 </p>
                 <p>{DONE_HINT}</p>
               </div>
@@ -753,14 +782,14 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              {touched > 0 && (
+              {hasEntries && (
                 <AlertTriangle className="h-5 w-5 text-amber-500" />
               )}
               Remove {system.display_name}?
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2">
-                {touched > 0 ? (
+                {touched > 0 && (
                   <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
                     <span className="font-semibold">
                       {touched} document{touched !== 1 ? "s" : ""} already{" "}
@@ -770,7 +799,14 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                     documents. Removing the package deletes all of it, and it
                     cannot be undone.
                   </p>
-                ) : (
+                )}
+                {signedCopy && (
+                  <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800">
+                    Its <span className="font-semibold">signed copy</span> (
+                    {signedCopy.file_name}) is removed from the package too.
+                  </p>
+                )}
+                {!hasEntries && (
                   <p>
                     Its 16 handover documents are removed from this project.
                     Nothing has been entered on them yet.
@@ -789,7 +825,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
                 e.preventDefault();
                 setRemoving(true);
                 try {
-                  await onRemoveSystem(touched > 0);
+                  await onRemoveSystem(hasEntries);
                   setConfirmRemove(false);
                 } catch {
                   // the caller already showed the error; keep the dialog open
@@ -799,7 +835,7 @@ export const SystemChecklist: React.FC<SystemChecklistProps> = ({
               }}
             >
               {removing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {touched > 0 ? "Remove anyway" : "Remove"}
+              {hasEntries ? "Remove anyway" : "Remove"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

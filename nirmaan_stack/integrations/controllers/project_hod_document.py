@@ -10,7 +10,7 @@ Handover Documents screen:
    until it is switched back on. Switching it on or off is always allowed;
 4. `status` is the document's progress, Not Started / WIP / Done (owner 2026-10-06, replacing the
    YES / NO / NA answer of 2026-09-24 -- the checklist's YES / NO is now the on/off switch). The controller
-   GUARDS it: **Done is refused on a FROM NIRMAAN document with no records ticked and no file uploaded**
+   GUARDS it: **Done is refused on a FROM NIRMAAN document with no records ticked**
    (`checklist.can_be_done`), so a Desk edit and the Handover Documents screen are held to the same rule.
    A form or a library text needs no save -- it prints from its own layout (owner 2026-09-28). WIP and
    Not Started are always allowed.
@@ -46,8 +46,8 @@ def validate(doc, method=None):
 	doc.status = status
 	if status == checklist.STATUS_DONE and not checklist.can_be_done(doc.document, doc.form_data):
 		frappe.throw(
-			_("{0} has no records ticked and no file uploaded yet, so it cannot be marked Done. Open it, "
-			  "tick what it hands over and Mark as Done -- or upload the document from the ⋯ menu.").format(
+			_("{0} has no records ticked yet, so it cannot be marked Done. Open it, tick what it hands "
+			  "over and Mark as Done.").format(
 				index.get(doc.document)["title"]
 			)
 		)

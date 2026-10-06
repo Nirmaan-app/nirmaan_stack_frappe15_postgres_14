@@ -3,8 +3,8 @@
 
 export type HodDocumentKind = "form" | "template" | "app";
 /** The document's progress (owner 2026-10-06, replacing the YES / NO / NA answer). Done is set by
- *  "Mark as Done" (or an upload) and is what puts pages in the binder; it is refused only on a From
- *  Nirmaan document with nothing ticked and nothing uploaded. The checklist's YES / NO is the row's
+ *  "Mark as Done" and is what puts pages in the binder; it is refused only on a From Nirmaan document
+ *  with nothing ticked. The checklist's YES / NO is the row's
  *  on/off switch (`disabled`). Mirrors `services/hod/checklist.STATUSES`. */
 export type HodStatus = "Not Started" | "WIP" | "Done";
 
@@ -32,13 +32,6 @@ export interface HodRow {
   form_data: Record<string, unknown>;
   modified: string;
   creation: string;
-}
-
-/** `form_data.upload`: the project's own file, which replaces what Nirmaan generates for the document
- *  (any of the 16, owner 2026-10-06). Read it through `hodRules.uploadedFile`, never inline. */
-export interface HodUpload {
-  url: string;
-  file_name: string;
 }
 
 export interface HodSystemOption {
@@ -73,6 +66,15 @@ export interface HodProjectInfo {
   customer_name: string;
 }
 
+/** A package's signed handover copy (owner 2026-10-06): stored only, one per package, replaceable.
+ *  `api/hod/package_files.signed_copies`. */
+export interface HodSignedCopy {
+  url: string;
+  file_name: string;
+  uploaded_on: string;
+  uploaded_by: string;
+}
+
 export interface HodPayload {
   project: HodProjectInfo;
   documents: HodDocumentMeta[];
@@ -86,7 +88,10 @@ export interface HodPayload {
   /** No HOD System exists yet — the library has not been loaded on this site. */
   library_empty: boolean;
   /** May create HOD Systems / library content (the "Edit library" screens). */
+  /** Admins only (owner 2026-10-06): offers "Edit library". */
   can_edit_library: boolean;
+  /** Keyed by package (HOD System); a package with none is absent. */
+  signed_copies: Record<string, HodSignedCopy>;
 }
 
 export interface HodLibraryBlock {

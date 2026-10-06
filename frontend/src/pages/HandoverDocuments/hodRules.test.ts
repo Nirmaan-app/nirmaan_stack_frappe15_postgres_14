@@ -8,9 +8,7 @@ import {
   documentChip,
   levelLabel,
   binderContents,
-  isSaved,
   needsSaving,
-  uploadedFile,
   inventoryTotals,
   printedNumbers,
   maintenanceDate,
@@ -185,40 +183,13 @@ describe("documentChip", () => {
 });
 
 describe("needsSaving", () => {
-  // `hasEditor` (which rows get Edit / View) is gone: since 2026-10-06 every document takes an upload,
-  // so every row opens. `needsSaving` was always the separate question -- the Done gate.
+  // Every row opens (Edit / View) since 2026-10-06; `needsSaving` is the separate question -- the Done gate.
   it("gates Done on a From Nirmaan document ONLY", () => {
     expect(needsSaving({ kind: "app", fill: false })).toBe(true);
     // a form prints from its own layout with nothing filled in (owner 2026-09-28)
     expect(needsSaving({ kind: "form", fill: true })).toBe(false);
     expect(needsSaving({ kind: "template", fill: true })).toBe(false);
     expect(needsSaving({ kind: "template", fill: false })).toBe(false);
-  });
-
-});
-
-describe("uploadedFile", () => {
-  // Mirrors `services/hod/checklist.uploaded_file`: the ONE reader of `form_data.upload`.
-  const file = { url: "/private/files/om.pdf", file_name: "om.pdf" };
-
-  it("reads the upload", () => {
-    expect(uploadedFile({ form_data: { upload: file } })).toEqual(file);
-    expect(uploadedFile({ form_data: { upload: { url: " /f/x.pdf " } } })).toEqual({
-      url: "/f/x.pdf",
-      file_name: "Uploaded file",
-    });
-  });
-
-  it("is null when nothing usable is uploaded -- the generated document stays", () => {
-    expect(uploadedFile({ form_data: {} })).toBeNull();
-    expect(uploadedFile({ form_data: { included: ["all"] } })).toBeNull();
-    expect(uploadedFile({ form_data: { upload: { url: "  " } } })).toBeNull();
-    expect(uploadedFile({ form_data: { upload: "/f/x.pdf" } })).toBeNull();
-  });
-
-  it("lets a From Nirmaan document be Done -- the file is its content", () => {
-    expect(isSaved({ form_data: {} })).toBe(false);
-    expect(isSaved({ form_data: { upload: file } })).toBe(true);
   });
 });
 

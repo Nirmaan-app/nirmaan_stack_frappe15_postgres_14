@@ -6,7 +6,8 @@
  "engine": "InnoDB",
  "field_order": [
   "project",
-  "header_roles"
+  "header_roles",
+  "package_files"
  ],
  "fields": [
   {
@@ -25,11 +26,18 @@
    "fieldname": "header_roles",
    "fieldtype": "Small Text",
    "label": "Header Roles"
+  },
+  {
+   "description": "Each package's signed handover copy (owner 2026-10-06): one row per package, uploaded and replaced from the package's ... menu on the Handover Documents tab. Stored only -- the binder is always built from the current documents.",
+   "fieldname": "package_files",
+   "fieldtype": "Table",
+   "label": "Package Signed Copies",
+   "options": "Project HOD Package File"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-25 10:00:00.000000",
+ "modified": "2026-10-06 20:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project HOD Setting",

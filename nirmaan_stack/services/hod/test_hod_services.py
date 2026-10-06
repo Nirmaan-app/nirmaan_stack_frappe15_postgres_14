@@ -182,7 +182,8 @@ class TestChecklist(unittest.TestCase):
 	def test_fill_flag_marks_exactly_the_fillable_documents(self):
 		self.assertEqual(
 			{d["key"] for d in index.DOCUMENTS if d.get("fill")},
-			{"escalation_chart", "maintenance_checklist", "inventory_list", "recommended_tools",
+			# not recommended_tools: it takes no remarks since 2026-10-06 (owner) -- the list is read-only
+			{"escalation_chart", "maintenance_checklist", "inventory_list",
 			 "attic_stock_list", "key_list", "equipment_warranty", "completion_certificate"},
 		)
 
@@ -325,9 +326,25 @@ class TestHeaderLogos(unittest.TestCase):
 		meta = json.load(open(path))
 		self.assertEqual(meta["autoname"], "field:project")  # one row per project, by construction
 		fields = {f["fieldname"]: f for f in meta["fields"]}
-		self.assertEqual(set(fields), {"project", "header_roles"})
+		self.assertEqual(set(fields), {"project", "header_roles", "package_files"})
 		self.assertEqual(fields["project"]["options"], "Projects")
 		self.assertTrue(fields["project"]["unique"])
+
+	def test_each_package_stores_one_signed_copy(self):
+		"""Owner 2026-10-06: a package's signed copy is a row of `package_files` -- a real Attach field on a
+		child table, not JSON -- keyed by the package."""
+		path = os.path.join(_DOCTYPE_DIR, "project_hod_setting", "project_hod_setting.json")
+		fields = {f["fieldname"]: f for f in json.load(open(path))["fields"]}
+		self.assertEqual(fields["package_files"]["fieldtype"], "Table")
+		self.assertEqual(fields["package_files"]["options"], "Project HOD Package File")
+		path = os.path.join(_DOCTYPE_DIR, "project_hod_package_file", "project_hod_package_file.json")
+		child = json.load(open(path))
+		self.assertEqual(child["istable"], 1)
+		cf = {f["fieldname"]: f for f in child["fields"]}
+		self.assertEqual(set(cf), {"hod_system", "signed_copy"})
+		self.assertEqual((cf["hod_system"]["fieldtype"], cf["hod_system"]["options"]), ("Link", "HOD System"))
+		self.assertEqual(cf["signed_copy"]["fieldtype"], "Attach")
+		self.assertTrue(cf["hod_system"]["reqd"] and cf["signed_copy"]["reqd"])
 
 
 class TestBlanks(unittest.TestCase):
@@ -549,40 +566,18 @@ class TestBinder(unittest.TestCase):
 		self.assertEqual(kinds["commissioning_report"], checklist.PART_SOURCES)
 		self.assertEqual(kinds["snag_list"], checklist.PART_SOURCES)
 
-	def test_there_is_no_uploaded_part_any_more(self):
-		"""A row's part is decided by its KIND alone. The upload that came back on 2026-10-06 does not bring
-		back a part of its own: every row keeps its kind's part and the binder reads the file through
-		`uploaded_file` instead."""
+	def test_no_document_takes_an_upload(self):
+		"""Owner 2026-10-06: the per-document upload is gone (uploads are package-wise). A row's part is
+		decided by its KIND alone, and a From Nirmaan document needs ticked records to be Done."""
 		self.assertFalse(hasattr(checklist, "PART_UPLOAD"))
-		upload = {"upload": {"url": "/private/files/x.pdf", "file_name": "x.pdf"}}
-		rows = [_row(k, form_data=upload) for k in index.KEYS]
+		self.assertFalse(hasattr(checklist, "uploaded_file"))
+		rows = [_row(k) for k in index.KEYS]
 		kinds = {r["document"]: part for _, r, part in checklist.binder_parts(rows)}
 		self.assertEqual(kinds["key_list"], checklist.PART_PAGE)
 		self.assertEqual(kinds["om_manual"], checklist.PART_PAGE)
 		self.assertEqual(kinds["demo_training"], checklist.PART_SOURCES)
-
-	def test_uploaded_file_reads_the_upload_of_every_document(self):
-		f = checklist.uploaded_file
-		upload = {"upload": {"url": "/private/files/om.pdf", "file_name": "om.pdf"}}
-		for key in index.KEYS:  # owner 2026-10-06: every document, not just the library texts
-			self.assertEqual(f(key, upload), "/private/files/om.pdf", key)
-		self.assertEqual(f("dos_donts", json.dumps(upload)), "/private/files/om.pdf")
-		# the generated document stays when nothing (or nothing usable) is uploaded
-		self.assertIsNone(f("om_manual", {}))
-		self.assertIsNone(f("om_manual", None))
-		self.assertIsNone(f("om_manual", {"included": ["all"]}))
-		self.assertIsNone(f("om_manual", {"upload": {"url": "  "}}))
-		self.assertIsNone(f("om_manual", {"upload": "/private/files/om.pdf"}))
-		# a row that is not a handover document has nothing to hand over
-		self.assertIsNone(f("not_a_document", upload))
-
-	def test_an_upload_counts_as_entries_and_lets_a_from_nirmaan_document_be_done(self):
-		upload = {"upload": {"url": "/private/files/x.pdf", "file_name": "x.pdf"}}
-		self.assertTrue(checklist.can_be_done("om_manual", upload))
-		self.assertFalse(checklist.is_untouched(_row("om_manual", form_data=upload), False))
-		# a From Nirmaan document with no records ticked may be Done once its file is uploaded
 		self.assertFalse(checklist.can_be_done("commissioning_report", {}))
-		self.assertTrue(checklist.can_be_done("commissioning_report", upload))
+		self.assertTrue(checklist.can_be_done("commissioning_report", {"selected": ["REPORT-1"]}))
 
 	def test_commission_task_pick_order(self):
 		pick = sources.commission_binder_source

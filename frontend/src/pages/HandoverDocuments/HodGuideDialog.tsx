@@ -10,7 +10,6 @@ import {
   FileText,
   Library,
   MousePointerClick,
-  Upload,
 } from "lucide-react";
 import * as React from "react";
 
@@ -64,11 +63,10 @@ const KINDS: Array<{
     kind: "You fill it",
     tone: "bg-blue-50 text-blue-700",
     documents:
-      "1 Escalation Chart · 7 Maintenance Checklist (result, remarks, comments) · 8 Inventory List / Asset List · 9 Recommended Tools (remarks) · 10 Attic Stock List · 11 Key List · 12 Equipment Warranty · 13 Completion Certificate",
+      "1 Escalation Chart · 7 Maintenance Checklist (result, remarks, comments) · 8 Inventory List / Asset List · 10 Attic Stock List · 11 Key List · 12 Equipment Warranty · 13 Completion Certificate",
     todo: (
       <>
-        <b>Fill Form</b> → <b>Download</b> → get it signed →{" "}
-        <b>⋯ → Upload</b>
+        <b>Fill Form</b> → <b>Mark as Done</b>
       </>
     ),
   },
@@ -76,10 +74,11 @@ const KINDS: Array<{
     kind: "Same for every project",
     tone: "bg-violet-50 text-violet-700",
     documents:
-      "5 O&M Manual and 6 Do's & Don'ts — and the items inside the Maintenance Checklist and the Tools list",
+      "5 O&M Manual · 6 Do's & Don'ts · 9 Recommended Tools List — and the items inside the Maintenance Checklist",
     todo: (
       <>
-        Nothing to fill: <b>Download</b> → sign → <b>⋯ → Upload</b>
+        Nothing to fill: <b>Edit</b> → <b>Mark as Done</b> (pick the parts
+        where it offers them)
       </>
     ),
   },
@@ -90,8 +89,7 @@ const KINDS: Array<{
       "2 Demo & Training · 3 Commissioning Report · 4 Material TDS · 14 Factory Test Reports · 15 Snag List · 16 As Built Drawings",
     todo: (
       <>
-        <b>Select &amp; Download</b> the records you need → sign →{" "}
-        <b>⋯ → Upload</b>
+        <b>Select</b> the records it hands over → <b>Mark as Done</b>
       </>
     ),
   },
@@ -107,8 +105,7 @@ export const HodGuideDialog: React.FC<{
         <DialogTitle>How Handover Documents work</DialogTitle>
         <DialogDescription>
           Every package this project hands over gets the same 16 documents. Fill
-          them, mark them Done, upload any signed copies — then download one
-          binder for the client.
+          them and mark them Done — then download one binder for the client.
         </DialogDescription>
       </DialogHeader>
 
@@ -160,7 +157,7 @@ export const HodGuideDialog: React.FC<{
             </li>
             <li>
               <Pill className="bg-green-600 text-white">Done</Pill> finished —
-              set by <b>Mark as Done</b> in the document, or by an upload
+              set by <b>Mark as Done</b> in the document
             </li>
           </ul>
           <p>
@@ -171,8 +168,7 @@ export const HodGuideDialog: React.FC<{
           <p>
             <b>A form can be marked Done with nothing filled in</b> — its sheet
             prints from its own layout, ready to be written in by hand. Only a
-            From Nirmaan document waits: tick the records it hands over, or
-            upload its file, first.
+            From Nirmaan document waits: tick the records it hands over first.
           </p>
         </Section>
 
@@ -181,7 +177,7 @@ export const HodGuideDialog: React.FC<{
             <b>Edit</b> opens the document — the form, or the records a From
             Nirmaan document reads — and its <b>Mark as Done</b> button saves
             it as Done. <b>Preview</b> shows it on screen. <b>Download</b> saves
-            it. The <b>⋯</b> menu holds the upload.
+            it.
           </p>
           <p>
             For a From Nirmaan document, <b>Preview</b> shows the page listing
@@ -212,20 +208,10 @@ export const HodGuideDialog: React.FC<{
           </p>
         </Section>
 
-        <Section icon={Upload} title="6. Your own file wins">
-          <p>
-            Every document has a <b>⋯</b> menu: <b>Upload</b> puts your own PDF
-            or picture — the signed copy, say — in place of what Nirmaan
-            generates, and Preview, Download and the binder hand over that file
-            instead. It reads <b>Replace</b> once a file is there, and{" "}
-            <b>Remove upload</b> goes back.
-          </p>
-        </Section>
-
         <Section
           icon={Download}
           title={
-            SHOW_BINDER_BUTTON ? "7. Checklist and binder" : "7. Checklist PDF"
+            SHOW_BINDER_BUTTON ? "6. Checklist and binder" : "6. Checklist PDF"
           }
         >
           <p>
@@ -246,9 +232,16 @@ export const HodGuideDialog: React.FC<{
             by itself — about a minute for a big binder.
           </p>
           )}
+          <p>
+            <b>Signed copy</b> — once the handover is signed, scan it and use{" "}
+            <b>Upload signed copy</b> in the package&apos;s <b>&hellip;</b>{" "}
+            menu (<b>Replace signed copy</b> swaps it later). It is only
+            stored: <b>Download binder</b> always builds from the current
+            documents.
+          </p>
         </Section>
 
-        <Section icon={Library} title="8. Where the standard text lives">
+        <Section icon={Library} title="7. Where the standard text lives">
           <p>
             The O&amp;M manuals, Do&apos;s &amp; Don&apos;ts, maintenance
             checks, tools and warranty equipment are kept once per package in the

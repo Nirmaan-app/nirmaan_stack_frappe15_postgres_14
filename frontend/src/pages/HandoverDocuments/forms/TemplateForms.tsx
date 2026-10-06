@@ -181,14 +181,10 @@ export const LibraryForm: React.FC<
 
 // ------------------------------------------------------------------------ Recommended Tools
 
-/** The system's tool list (library) with this project's remark per tool, printed in the Remarks column.
- *  Stored as `form_data.tool_remarks`, keyed by the tool's text. */
-export const ToolsForm: React.FC<FormProps & { tools: string[] }> = ({
-  value,
-  onChange,
-  readOnly,
-  tools,
-}) => {
+/** The package's tool list (from the library), READ-ONLY (owner 2026-10-06): nothing is filled here -- the
+ *  dialog lists the tools and the document is just marked Done. The printed sheet keeps an empty Remarks
+ *  column, written in by hand. (It took a remark per tool, `form_data.tool_remarks`, until then.) */
+export const ToolsForm: React.FC<{ tools: string[] }> = ({ tools }) => {
   if (!tools.length) {
     return (
       <p className="rounded-md border border-dashed px-4 py-6 text-center text-sm text-gray-500">
@@ -197,51 +193,36 @@ export const ToolsForm: React.FC<FormProps & { tools: string[] }> = ({
       </p>
     );
   }
-  const remarks = (
-    value.tool_remarks && typeof value.tool_remarks === "object"
-      ? value.tool_remarks
-      : {}
-  ) as Record<string, unknown>;
   return (
-    <div className="overflow-x-auto rounded-md border">
-      <table className="w-full min-w-[560px] border-collapse">
-        <thead>
-          <tr>
-            <th className="w-14 border-b bg-gray-50 px-2 py-1.5 text-center text-xs font-semibold text-gray-600">
-              Sl No
-            </th>
-            <th className="border-b bg-gray-50 px-2 py-1.5 text-left text-xs font-semibold text-gray-600">
-              Recommended Tools
-            </th>
-            <th className="w-72 border-b bg-gray-50 px-2 py-1.5 text-left text-xs font-semibold text-gray-600">
-              Remarks
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {tools.map((tool, i) => (
-            <tr key={`${i}-${tool}`} className="border-b last:border-b-0">
-              <td className="px-2 py-1 text-center text-sm text-gray-500">
-                {i + 1}
-              </td>
-              <td className="px-2 py-1 text-sm text-gray-700">{tool}</td>
-              <td className="px-1 py-1">
-                <Input
-                  className="h-8 rounded-sm border-gray-200 px-2 text-sm"
-                  value={asString(remarks[tool])}
-                  disabled={readOnly}
-                  onChange={(e) =>
-                    onChange({
-                      ...value,
-                      tool_remarks: { ...remarks, [tool]: e.target.value },
-                    })
-                  }
-                />
-              </td>
+    <div className="space-y-2">
+      <div className="overflow-x-auto rounded-md border">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr>
+              <th className="w-14 border-b bg-gray-50 px-2 py-1.5 text-center text-xs font-semibold text-gray-600">
+                Sl No
+              </th>
+              <th className="border-b bg-gray-50 px-2 py-1.5 text-left text-xs font-semibold text-gray-600">
+                Recommended Tools
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {tools.map((tool, i) => (
+              <tr key={`${i}-${tool}`} className="border-b last:border-b-0">
+                <td className="px-2 py-1.5 text-center text-sm text-gray-500">
+                  {i + 1}
+                </td>
+                <td className="px-2 py-1.5 text-sm text-gray-700">{tool}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[11px] text-gray-500">
+        Nothing to fill here — the printed sheet keeps a Remarks column to write
+        in by hand.
+      </p>
     </div>
   );
 };

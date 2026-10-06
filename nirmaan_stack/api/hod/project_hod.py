@@ -18,8 +18,10 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.api.hod.from_app import commission_categories, system_meta
+from nirmaan_stack.api.hod.package_files import drop_signed_copy, has_signed_copy, signed_copies
 from nirmaan_stack.api.hod.project_info import as_dict, project_info
 from nirmaan_stack.services.hod import blanks, checklist, index, sources
+from nirmaan_stack.services.role_profiles import is_nirmaan_admin
 
 DOCTYPE = "Project HOD Document"
 ROW_FIELDS = ["name", "hod_system", "document", "status", "disabled", "remarks", "form_data", "modified", "creation"]
@@ -115,10 +117,14 @@ def get_payload(project: str) -> dict:
 		"added": added,
 		"rows": by_system,
 		"counts": {name: _counts(name, sys_rows) for name, sys_rows in by_system.items()},
+		# Each package's signed handover copy, stored only (owner 2026-10-06; `api/hod/package_files`).
+		"signed_copies": signed_copies(project),
 		"can_edit": bool(frappe.has_permission(DOCTYPE, "write")),
 		# No HOD System yet -> the tab points whoever may create one to the library screens.
 		"library_empty": not frappe.db.count("HOD System"),
-		"can_edit_library": bool(frappe.has_permission("HOD System", "create")),
+		# "Edit library" is offered to Admins only (owner 2026-10-06) -- the same rule as the library
+		# screen's own `can_edit` (`api/hod/library.get_hod_library`).
+		"can_edit_library": is_nirmaan_admin(frappe.session.user),
 	}
 
 
@@ -185,14 +191,16 @@ def remove_system(project: str, hod_system: str, force=False) -> dict:
 		frappe.throw(_("{0} is not added to this project.").format(hod_system))
 	off = checklist.default_disabled_keys(system_meta(hod_system).default_disabled_documents)
 	touched = [r for r in rows if not checklist.is_untouched(r, r.document in off)]
-	if touched and not frappe.utils.cint(force):
+	signed = has_signed_copy(project, hod_system)
+	if (touched or signed) and not frappe.utils.cint(force):
 		frappe.throw(
-			_("{0} document(s) of {1} already have entries. Confirm the removal to delete them.").format(
-				len(touched), hod_system
+			_("{0} already has entries{1}. Confirm the removal to delete them.").format(
+				hod_system, " and a signed copy" if signed else ""
 			)
 		)
 	for r in rows:
 		frappe.delete_doc(DOCTYPE, r.name)
+	drop_signed_copy(project, hod_system)
 	frappe.db.commit()
 	_publish(project)
 	return get_payload(project)

@@ -319,10 +319,9 @@ def hod_print_context(doc) -> dict:
 			sheet["date"] = _fmt(sheet["date"])
 	elif key == "recommended_tools":
 		ctx["tools"] = checklist.parse_lines(system.tools)
-		# Remarks per tool (`form_data.tool_remarks`, keyed by the tool's text so an edited library line never
-		# inherits a neighbour's remark).
-		remarks = fd.get("tool_remarks") if isinstance(fd.get("tool_remarks"), dict) else {}
-		ctx["tool_rows"] = [{"tool": t, "remarks": str(remarks.get(t) or "").strip()} for t in ctx["tools"]]
+		# The Remarks column prints EMPTY, written in by hand (owner 2026-10-06): the screen no longer takes a
+		# remark per tool, so an old `form_data.tool_remarks` is not printed either.
+		ctx["tool_rows"] = [{"tool": t, "remarks": ""} for t in ctx["tools"]]
 	elif key == "equipment_warranty":
 		equipment = fd.get("equipment") if isinstance(fd.get("equipment"), list) else None
 		ctx["equipment"] = equipment if equipment is not None else checklist.parse_lines(system.warranty_equipment)

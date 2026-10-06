@@ -19,7 +19,7 @@ import json
 from nirmaan_stack.services.hod import index
 
 # THE document's progress (owner 2026-10-06, replacing the hand-picked YES / NO / NA of 2026-09-24).
-# Done is set by "Mark as Done" in the document's dialog (or an upload); WIP and Not Started are picked
+# Done is set by "Mark as Done" in the document's dialog; WIP and Not Started are picked
 # from the Status dropdown. Only DONE documents put pages in the binder.
 STATUS_NOT_STARTED = "Not Started"  # the default a row is created with
 STATUS_WIP = "WIP"
@@ -103,23 +103,6 @@ def is_saved(form_data) -> bool:
 	return has_user_input(data)
 
 
-def uploaded_file(document: str, form_data) -> str | None:
-	"""The file a project uploaded to REPLACE what Nirmaan generates for this document, or None.
-
-	THE reader of `form_data.upload` (`{"url", "file_name"}`), used by the binder and the single-document
-	PDF. Every document may carry one (owner 2026-10-06). Mirrored by `hodRules.uploadedFile`.
-
-	An upload also counts as the document being SAVED (`is_saved` sees it as user input), so a From Nirmaan
-	document with a file and no ticked records may still be Done -- the file is its content.
-	"""
-	if not index.is_valid(document):
-		return None
-	data = _as_data(form_data)
-	upload = data.get("upload") if isinstance(data, dict) else None
-	url = upload.get("url") if isinstance(upload, dict) else None
-	return url.strip() if isinstance(url, str) and url.strip() else None
-
-
 def needs_saving(document: str) -> bool:
 	"""Does this document have to be SAVED before it can be Done?
 
@@ -131,18 +114,15 @@ def needs_saving(document: str) -> bool:
 	in it -- a blank Key List or Attic Stock List is a real handover page, written in by hand on site --
 	and a library text carries the library's content, edited centrally in Packages Settings. Holding
 	either to a save left every document that needs no filling permanently un-answerable.
-
-	An uploaded file counts as saved content (`is_saved`), so a From Nirmaan document with its own file can
-	be Done without ticking records.
 	"""
 	entry = index.get(document) or {}
 	return entry.get("kind") == index.FROM_APP
 
 
 def can_be_done(document: str, form_data) -> bool:
-	"""May this row be Done? A FROM NIRMAAN document must have its records ticked and saved, or a file
-	uploaded (`needs_saving`); a form or a library text is ready as it stands, because its sheet prints
-	from its own layout (owner 2026-09-28). WIP and Not Started are always allowed."""
+	"""May this row be Done? A FROM NIRMAAN document must have its records ticked and saved
+	(`needs_saving`); a form or a library text is ready as it stands, because its sheet prints from its
+	own layout (owner 2026-09-28). WIP and Not Started are always allowed."""
 	return is_saved(form_data) if needs_saving(document) else True
 
 
@@ -186,8 +166,8 @@ def printable_rows(rows) -> list:
 
 
 # How the binder takes each switched-on document (owner rulings 2026-09-21; the uploaded-copy part was
-# retired with the upload itself on 2026-09-24). The upload that came back on 2026-10-06 is NOT a part of
-# its own: a row keeps its kind's part, and the binder takes the file from `uploaded_file` instead.
+# retired with the upload itself on 2026-09-24, and the per-document upload of 2026-10-06 removed the
+# same day -- a row's part is decided by its kind alone).
 PART_PAGE = "page"  # the "HOD Document" print of the row
 PART_SOURCES = "sources"  # the records the document reads from Nirmaan (no index page since 2026-09-25)
 

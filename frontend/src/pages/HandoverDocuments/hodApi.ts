@@ -12,9 +12,9 @@ import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 import type {
   HodPayload,
   HodRow,
+  HodSignedCopy,
   HodSources,
   HodSystemLibrary,
-  HodUpload,
 } from "./types";
 
 const API = "nirmaan_stack.api.hod";
@@ -28,6 +28,7 @@ export const HOD_METHODS = {
   getFromAppSources: `${API}.from_app.get_from_app_sources`,
   getHeaderRoles: `${API}.header_roles.get_header_roles`,
   setHeaderRoles: `${API}.header_roles.set_header_roles`,
+  setSignedCopy: `${API}.package_files.set_signed_copy`,
   enqueueBinder: `${API}.binder.enqueue_binder`,
   jobStatus: `${API}.binder.get_job_status`,
 } as const;
@@ -167,21 +168,30 @@ export const useHodMutations = () => {
   };
 };
 
-/** What a document's own file may be: a PDF, or a picture the server fits onto an A4 page. */
-export const HOD_UPLOAD_ACCEPT = "application/pdf,image/png,image/jpeg";
+/** A package's signed copy: a PDF or a scanned picture. */
+export const SIGNED_COPY_ACCEPT = "application/pdf,image/png,image/jpeg";
 
-/** Put a file on one handover row (PRIVATE, attached to the row) and return what `form_data.upload`
- *  stores. Only the File is created here -- the row itself is written by `updateRow`. */
-export const useHodFileUpload = () => {
+/** Upload a package's signed copy (owner 2026-10-06) -- stored only, Download binder never reads it. The
+ *  file is uploaded PRIVATE against the project's `Project HOD Setting` (named after the project, so the
+ *  name is known before the setting exists), then `set_signed_copy` records it on the package's row,
+ *  replacing any earlier one. */
+export const useHodSignedCopy = () => {
   const { upload } = useFrappeFileUpload();
+  const record = useFrappePostCall<{ message: HodSignedCopy }>(
+    HOD_METHODS.setSignedCopy,
+  );
   return {
-    uploadToRow: async (rowName: string, file: File): Promise<HodUpload> => {
+    uploadSignedCopy: async (project: string, hodSystem: string, file: File) => {
       const res = await upload(file, {
-        doctype: "Project HOD Document",
-        docname: rowName,
+        doctype: "Project HOD Setting",
+        docname: project,
         isPrivate: true,
       });
-      return { url: res.file_url, file_name: res.file_name || file.name };
+      return record.call({
+        project,
+        hod_system: hodSystem,
+        file_url: res.file_url,
+      });
     },
   };
 };

@@ -12,10 +12,6 @@
 A document's CONTENT (`_content_steps`), owner rulings 2026-09-22 (the signed-upload case was retired
 with the upload itself, 2026-09-24):
     a form / template                            -> its "HOD Document" print
-    any document with an uploaded file           -> that file instead (`checklist.uploaded_file`) -- in
-                                                    the BINDER only; the one-document job below still
-                                                    builds the records ("Download selected"), and the
-                                                    row's own Preview / Download serve the file directly
     Demo & Training / Commissioning / Factory    -> each Commission task's signed copy, else its filled report
                                                     (Commission print format), else its uploaded file
     Material TDS                                 -> the project's OWN TDS report over the ticked items
@@ -140,15 +136,10 @@ def _tds_step(label, project, hod_system, form_data):
 	return {"label": label, "kind": "tds", "args": (project, hod_system, form_data)}
 
 
-def _content_steps(project: str, hod_system: str, row, system, use_upload: bool = True) -> tuple[list, str | None]:
-	"""The steps that make one switched-on document's content, and why it is empty when there are none.
-
-	`use_upload`: an uploaded file replaces what Nirmaan generates (owner 2026-10-06)."""
+def _content_steps(project: str, hod_system: str, row, system) -> tuple[list, str | None]:
+	"""The steps that make one switched-on document's content, and why it is empty when there are none."""
 	entry = index.get(row.document)
 	title = entry["title"]
-	uploaded = checklist.uploaded_file(row.document, row.form_data) if use_upload else None
-	if uploaded:
-		return [_file_step(title, uploaded)], None
 	if entry["kind"] != index.FROM_APP:
 		key = entry["key"]
 		if entry.get("library"):
@@ -241,9 +232,7 @@ def build_plan(project: str, hod_system: str, document: str | None = None) -> tu
 	sections, empty = [], []
 	for sno, row, _part in parts:
 		title = index.get(row.document)["title"]
-		# One document's own job is the "Download selected" of its dialog: it builds the RECORDS that were
-		# ticked, even when a file is uploaded (the row's Download serves the file through `document_pdf`).
-		steps, reason = _content_steps(project, hod_system, row, system, use_upload=not document)
+		steps, reason = _content_steps(project, hod_system, row, system)
 		if steps:
 			sections.append({"sno": sno, "document": row.document, "title": title, "steps": steps})
 		else:

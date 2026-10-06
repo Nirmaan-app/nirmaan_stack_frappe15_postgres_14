@@ -65,6 +65,20 @@ export const BinderDialog: React.FC<{
   progress,
   onDownload,
 }) => {
+  // Once a build starts, the dialog keeps its PROGRESS view until it is gone: the build's end closes it, and
+  // Radix keeps the content mounted while it fades out -- without this latch that fade showed the lists
+  // again (bug 5, 2026-10-06, caught frame by frame). Cleared when the dialog is opened afresh.
+  const [latched, setLatched] = React.useState(false);
+  const wasOpen = React.useRef(open);
+  React.useLayoutEffect(() => {
+    if (building) setLatched(true);
+  }, [building]);
+  React.useLayoutEffect(() => {
+    if (open && !wasOpen.current && !building) setLatched(false);
+    wasOpen.current = open;
+  }, [open, building]);
+  const showProgress = building || latched;
+
   const { included, skipped, off } = React.useMemo(
     () => binderContents(rows, documents),
     [rows, documents],
@@ -83,7 +97,7 @@ export const BinderDialog: React.FC<{
         </DialogHeader>
 
         <div className="-mr-2 min-h-0 flex-1 overflow-y-auto pr-2">
-          {building ? (
+          {showProgress ? (
             // While the binder builds, its progress TAKES THE PLACE of the lists (owner 2026-10-06).
             <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -161,15 +175,15 @@ export const BinderDialog: React.FC<{
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {building ? "Close" : "Cancel"}
+            {showProgress ? "Close" : "Cancel"}
           </Button>
-          <Button onClick={onDownload} disabled={building}>
-            {building ? (
+          <Button onClick={onDownload} disabled={showProgress}>
+            {showProgress ? (
               <Loader2 className="mr-1 h-4 w-4 animate-spin" />
             ) : (
               <BookOpenText className="mr-1 h-4 w-4" />
             )}
-            {building ? "Building…" : "Download binder"}
+            {showProgress ? "Building…" : "Download binder"}
           </Button>
         </DialogFooter>
       </DialogContent>

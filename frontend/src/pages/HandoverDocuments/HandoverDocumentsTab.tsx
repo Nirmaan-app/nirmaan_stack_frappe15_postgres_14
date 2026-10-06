@@ -39,6 +39,7 @@ import { AddSystemDialog } from "./AddSystemDialog";
 import {
   HOD_ROWS_CHANGED_EVENT,
   useHodMutations,
+  useHodSignedCopy,
   useProjectHod,
 } from "./hodApi";
 import { HeaderLogosDialog } from "./HeaderLogosDialog";
@@ -59,6 +60,7 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
   const { payload, isLoading, error, mutate } = useProjectHod(projectId);
   const { addSystems, removeSystem, updateRow } = useHodMutations();
   const { build, job, progress } = useHodBinder();
+  const { uploadSignedCopy } = useHodSignedCopy();
   const [showGuide, setShowGuide] = React.useState(false);
   const [showLogos, setShowLogos] = React.useState(false);
   const { socket } = React.useContext(FrappeContext) as FrappeConfig;
@@ -111,6 +113,25 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
         variant: "destructive",
       });
       throw e;
+    }
+  };
+
+  /** A package's signed copy: stored (or replaced) on the project's HOD Setting (owner 2026-10-06). */
+  const handleSignedCopy = async (system: string, file: File) => {
+    try {
+      await uploadSignedCopy(projectId, system, file);
+      await mutate();
+      toast({
+        title: "Signed copy saved",
+        description: `${file.name} is stored for ${system}.`,
+        variant: "success",
+      });
+    } catch (e: any) {
+      toast({
+        title: "Could not save the signed copy",
+        description: getFrappeError(e),
+        variant: "destructive",
+      });
     }
   };
 
@@ -277,6 +298,8 @@ export const HandoverDocumentsTab: React.FC<HandoverDocumentsTabProps> = ({
                   canEdit={canEdit}
                   updateRow={handleUpdateRow}
                   onRemoveSystem={(force) => handleRemove(name, force)}
+                  signedCopy={payload.signed_copies?.[name] ?? null}
+                  onUploadSignedCopy={(file) => handleSignedCopy(name, file)}
                   job={job}
                   progress={job?.hodSystem === name ? progress : null}
                   onBuild={(document, title) =>
