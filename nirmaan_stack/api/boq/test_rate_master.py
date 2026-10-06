@@ -12729,11 +12729,13 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                          # Insulation; v7 predates it and ADP declares it nowhere (pinned below).
                          - {"panel_controls", "override_when", "second_key", "unit_factors",
                             "size_match", "compose", "label_attr", "number_defaults",
-                            "typed_cladding", "panel_notes", "family_when_none", "value_map"})
+                            "typed_cladding", "panel_notes", "family_when_none", "value_map",
+                            "panel_readonly"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         self.assertNotIn("family_when_none", pr)
         self.assertNotIn("value_map", pr)
+        self.assertNotIn("panel_readonly", pr)
         def refused(mutate, needle):
             bad = copy.deepcopy(base)
             mutate(bad["list_spec"]["pricing"])
@@ -18285,3 +18287,49 @@ class TestSlice12d1aValueMap(FrappeTestCase):
             msg = self._refused(self._cfg(vm))
             self.assertIsNotNone(msg, f"accepted a bad value_map: {vm!r}")
             self.assertIn(needle, msg, f"{vm!r} refused for the wrong reason: {msg}")
+
+
+class TestSlice12d1aPanelReadonly(FrappeTestCase):
+    """SLICE 12d-1a (owner R7) -- `list_spec.pricing.panel_readonly`: item attributes the panel shows READ-ONLY.
+    Each must be a `text` item definition that NO pricing rule reads (not a `numbers` source, not a SKU
+    attribute) -- a brand is recorded, never matched. Refused by name otherwise."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.asset = json.load(fh)
+        cls.ins = next(c for c in cls.asset["category_configs"] if c["category_id"] == "hvac_insulation")
+
+    def _cfg(self, readonly, add_brand=True):
+        c = copy.deepcopy(self.ins)
+        c.setdefault("discipline", self.asset["discipline"])
+        if add_brand:
+            c["list_spec"]["attribute_definitions"].append(
+                {"id": "brand", "label": "Brand", "type": "text", "note": "The make the row names, copied as written."})
+        c["list_spec"]["pricing"]["panel_readonly"] = readonly
+        return c
+
+    def _refused(self, cfg):
+        try:
+            config_validation._validate_config(cfg)
+        except Exception as exc:          # noqa: BLE001
+            return str(exc)
+        return None
+
+    def test_r7_01_a_text_def_nothing_prices_on_may_be_read_only(self):
+        self.assertIsNone(self._refused(self._cfg(["brand"])))
+
+    def test_r7_02_refused_by_name(self):
+        cases = [
+            (self._cfg([]), "panel_readonly must be a non-empty list"),
+            (self._cfg("brand"), "panel_readonly must be a non-empty list"),
+            (self._cfg(["brand"], add_brand=False), "names 'brand', which is not an item attribute"),
+            (self._cfg(["thickness_mm"]), "'thickness_mm' is read by the pricing"),
+            (self._cfg(["cladding"]), "'cladding' is read by the pricing"),
+            (self._cfg(["item"]), "'item' is read by the pricing"),
+        ]
+        for cfg, needle in cases:
+            msg = self._refused(cfg)
+            self.assertIsNotNone(msg, f"accepted: {needle}")
+            self.assertIn(needle, msg, f"refused for the wrong reason: {msg}")

@@ -1218,6 +1218,13 @@ function ItemListBlocks({
               Not mentioned on the BoQ: {b.familyDefaulted.rule}
             </p>
           )}
+          {/* SLICE 12d-1a (owner R7): read-only attributes the model read (a brand) -- shown, never a
+              field, never used to choose a catalogue row. Present only where the config declares them. */}
+          {b.readOnly.map((r) => (
+            <p key={r.id} className="pl-1 text-[11px] leading-tight text-muted-foreground" data-testid={`item-readonly-${r.id}`}>
+              <span className="font-medium">{r.label} (BoQ):</span> {r.value}
+            </p>
+          ))}
           {picker?.mode === "change" && picker.index === i && familyPicker("Change to…")}
           {b.fields.map((f) => {
             const tone = f.blank

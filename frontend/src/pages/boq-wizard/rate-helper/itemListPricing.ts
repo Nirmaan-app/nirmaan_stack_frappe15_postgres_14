@@ -233,6 +233,13 @@ export interface ItemListPricingSpec {
   /** SLICE 12d-1a (owner R4): a stated value that prices as another value of its attribute, or
    * refuses, per family. ABSENT => nothing maps and every row is byte-identical to before. */
   value_map?: ValueMapRule[];
+  /** SLICE 12d-1a (owner R7): item attributes the panel shows READ-ONLY -- recorded by the model, never
+   * a field, never matched (a brand). ABSENT => nothing is shown and every block is byte-identical. */
+  panel_readonly?: string[];
+  /** SLICE 12d-1a (owner R6): the family definition's LABEL ("Item family", "Insulation material"),
+   * filled by `itemListPricingSpec` from `list_spec.attribute_definitions`, so a missing family
+   * refuses in the category's own words and no category is named in code. */
+  family_label?: string;
   /** SLICE 8 (owner M-b): the overrides, applied AFTER the defaults and `derive_when_none` so they win over
    * both. ABSENT => nothing overrides and every row is byte-identical to before this slice. */
   override_when?: OverrideWhen[];
@@ -371,11 +378,17 @@ export function itemListPricingSpec(config: RateCategoryConfig | null | undefine
   // carried in here so the module reads ONE object (the `default_pipelines` precedent).
   const qtyAttr = (config as { list_spec?: { qty_attribute_id?: unknown } } | null | undefined)?.list_spec?.qty_attribute_id;
   const famAttr = (config as { list_spec?: { family_attribute_id?: unknown } } | null | undefined)?.list_spec?.family_attribute_id;
+  // SLICE 12d-1a (owner R6): the family def's LABEL rides in, so the "could not be told" sentence speaks
+  // the category's own words ("item family", "insulation material") -- no category named in code.
+  const defs = (config as { list_spec?: { attribute_definitions?: Array<{ id?: unknown; label?: unknown }> } } | null | undefined)?.list_spec?.attribute_definitions;
+  const famDef = Array.isArray(defs) ? defs.find((d) => d && d.id === (typeof famAttr === "string" && famAttr ? famAttr : "family")) : undefined;
+  const famLabel = typeof famDef?.label === "string" && famDef.label.trim() ? famDef.label.trim() : undefined;
   return {
     ...(spec as ItemListPricingSpec),
     default_pipelines: pipelines,
     ...(typeof qtyAttr === "string" && qtyAttr ? { qty_attribute_id: qtyAttr } : {}),
     ...(typeof famAttr === "string" && famAttr ? { family_attribute_id: famAttr } : {}),
+    ...(famLabel ? { family_label: famLabel } : {}),
   };
 }
 
@@ -1003,7 +1016,9 @@ function priceOneItem(
     out.familyDefaulted = ruled;
     out.familyRaw = ruled.value;
   }
-  if (out.familyRaw === null || out.familyRaw === "None") return blank("no ADP kind could be told for this item");
+  // SLICE 12d-1a (owner R6): category-NEUTRAL -- the sentence names the family in the config's own label
+  // ("no item family could be told", "no insulation material could be told"); it used to say "ADP kind".
+  if (out.familyRaw === null || out.familyRaw === "None") return blank(`no ${(spec.family_label ?? "item family").toLowerCase()} could be told for this item`);
   const family = spec.family_alias?.[out.familyRaw] ?? out.familyRaw;
   out.family = family;
   if (spec.family_alias?.[out.familyRaw]) out.working.push(`'${out.familyRaw}' prices as ${family} (R3)`);

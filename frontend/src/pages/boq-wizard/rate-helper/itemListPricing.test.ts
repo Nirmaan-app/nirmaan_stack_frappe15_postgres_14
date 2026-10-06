@@ -391,7 +391,11 @@ describe("slice 5 / R8 -- panel ratio, diameter, neck, slot count missing = blan
     expect(one("Nos", { family: "round diffuser", damper: "with" }).reason).toBe("no diameter stated");
     expect(one("Nos", { family: "square diffuser", damper: "with" }).reason).toBe("no neck size stated");
     expect(one("Rmt", { family: "slot diffuser", damper: "with" }).reason).toBe("no slot count stated");
-    expect(one("Nos", { family: null, dia_mm: "200" }).reason).toBe("no ADP kind could be told for this item");
+    // SLICE 12d-1a (owner R6, pin INVERTED): the sentence is category-NEUTRAL now -- ADP's family def is
+    // labelled "Item family", so it reads "no item family ..."; the old "ADP kind" wording must be GONE.
+    const missingFamily = one("Nos", { family: null, dia_mm: "200" }).reason;
+    expect(missingFamily).toBe("no item family could be told for this item");
+    expect(missingFamily).not.toMatch(/ADP/);
   });
   it("NEGATIVE: with the key present each prices (the same rows, keyed)", () => {
     expect(one("Nos", { family: "control panel", panel_ratio: "1:4" }).priced).toBe(true);

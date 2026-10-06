@@ -298,7 +298,10 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  # SLICE 12d-1a (owner R4): a STATED value that prices as another value of its
                  # attribute for named families, or refuses -- foil on a pipe is 26G, foil on an
                  # acoustic row refuses. Arrives WITH its shape check (`_validate_value_map`).
-                 "value_map"}
+                 "value_map",
+                 # SLICE 12d-1a (owner R7): item attributes the panel shows READ-ONLY (a brand) --
+                 # text definitions NO pricing rule reads. Arrives WITH its check (`_validate_panel_readonly`).
+                 "panel_readonly"}
 _PRICING_FWN_KEYS = {"by_unit_class", "when_words", "rule"}
 _PRICING_FWN_WORD_KEYS = {"unit_class", "words", "family"}
 _PRICING_VALUE_MAP_KEYS = {"attr", "families", "from", "to", "refuse", "rule", "display"}
@@ -898,6 +901,22 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     # SLICE 12d-1a (owner R4): `value_map` -- presence before the `or []` idiom, as above.
     if "value_map" in pr:
         _validate_value_map(pr["value_map"], by_id, choice_attrs, fams)
+    # SLICE 12d-1a (owner R7): `panel_readonly` -- each a `text` item definition that NO pricing rule
+    # reads (not a SKU attribute, not a `numbers` source): recorded and shown, never matched.
+    if "panel_readonly" in pr:
+        ro = pr["panel_readonly"]
+        if not isinstance(ro, list) or not ro or not all(isinstance(x, str) and x.strip() for x in ro):
+            _vthrow("list_spec.pricing.panel_readonly must be a non-empty list of item attribute ids.")
+        read_by_pricing = set(sku_attrs) | {src for n in numbers.values() for src in (n.get("from") or [])}
+        if spec.get("family_attribute_id"):
+            read_by_pricing.add(spec["family_attribute_id"])
+        for x in ro:
+            if x not in by_id:
+                _vthrow(f"list_spec.pricing.panel_readonly names '{x}', which is not an item attribute of this category.")
+            if x in read_by_pricing:
+                _vthrow(f"list_spec.pricing.panel_readonly: '{x}' is read by the pricing and cannot be read-only.")
+            if by_id[x].get("type") != "text":
+                _vthrow(f"list_spec.pricing.panel_readonly: '{x}' must be a text definition.")
     # defaults: applied only over a "None" answer, so only an allow_none choice may carry one
     dfl = pr.get("defaults") or {}
     if not isinstance(dfl, dict):

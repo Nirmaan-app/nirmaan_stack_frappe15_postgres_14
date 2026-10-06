@@ -1791,6 +1791,10 @@ export interface ItemBlockView {
    * other block is byte-identical; the panel shows it amber with the rule, like every other default. */
   familyDefaulted?: { value: string; rule: string };
   fields: ItemFieldView[];
+  /** SLICE 12d-1a (owner R7): the attributes the config declares READ-ONLY (`panel_readonly`) that the
+   * model answered on this item -- shown under the def's label, never a field, never matched. Empty
+   * where the config declares none or the model answered none. */
+  readOnly: Array<{ id: string; label: string; value: string }>;
   qty: string;
   /** SLICE 6c: the quantity shown is the ASSUMED 1 -- the pricer typed nothing -- so the panel marks it amber
    * with the same "default" tag every other assumed value carries. It is the one field that never refuses, so
@@ -2163,6 +2167,14 @@ function itemBlockView(
     // the pricer picked themselves is theirs, exactly as a typed field is never marked as a default.
     ...(res.familyDefaulted && edit.family === null ? { familyDefaulted: res.familyDefaulted } : {}),
     fields,
+    // SLICE 12d-1a (owner R7): read-only attributes -- declared in config, read off the assembled item,
+    // shown under the definition's label. A value the model did not give is simply absent.
+    readOnly: (spec.panel_readonly ?? []).flatMap((id) => {
+      const raw = assembled.attributes[id]?.value;
+      if (raw === null || raw === undefined || raw === "None" || String(raw).trim() === "") return [];
+      const def = defs.find((d) => d.id === id);
+      return [{ id, label: def?.label ?? id, value: String(raw) }];
+    }),
     // SLICE 6d: what the field shows -- the pricer's typed value, else the count the MODEL read, else code's 1
     qty: edit.qty ?? String(res.qty),
     qtyDefaulted: edit.qty === undefined && res.qtyDefaulted,

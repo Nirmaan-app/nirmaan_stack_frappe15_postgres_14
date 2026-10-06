@@ -5743,14 +5743,17 @@ describe("SLICE 12c FINISH -- the family is written under the attribute the conf
     const wrong = assembleItemsFam(addedEdit(FAMILY), [], "family");   // what the code used to do
     const priced = priceItemListFam(insSpec, asset.items, "mts", wrong);
     expect(priced.priced).toBe(false);
-    expect(priced.reason ?? "").toMatch(/kind could be told/);
+    // SLICE 12d-1a (owner R6, pin INVERTED): the refusal now speaks the family def's own label --
+    // "no insulation material could be told" -- and the old "kind" wording must be GONE.
+    expect(priced.reason ?? "").toBe("no insulation material could be told for this item");
+    expect(priced.reason ?? "").not.toMatch(/ADP|kind could be told/);
   });
 
   it("and writing it under `item` gets past that refusal -- the fields are what remain", () => {
     const right = assembleItemsFam(addedEdit(FAMILY), [], "item");
     const priced = priceItemListFam(insSpec, asset.items, "mts", right);
     // it may still want a cladding / size, but it must NOT be the "no kind" refusal any more
-    expect(priced.reason ?? "").not.toMatch(/kind could be told/);
+    expect(priced.reason ?? "").not.toMatch(/could be told/);
   });
 
   it("ABSENT defaults to `family`, so ADP and every existing caller are byte-identical", () => {
@@ -6200,5 +6203,75 @@ describe("SLICE 12d-1a / R2 -- headings reach the pricer; the ruled family is ma
     expect(v.items[0].family).toBe(TN);
     expect(v.items[0].familyDefaulted).toBeUndefined();
     expect("familyDefaulted" in v.items[0]).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// SLICE 12d-1a (owner R6 / R7): the family refusal is category-neutral (the family def's own label), and a
+// config may declare attributes the panel shows READ-ONLY (brand) -- recorded, never matched, never a field.
+// ---------------------------------------------------------------------------------------------------------
+describe("SLICE 12d-1a / R6 + R7 -- a neutral 'could not be told'; brand shown read-only where a category declares it", () => {
+  type Cfg = RateCategoryConfig & { list_spec: { attribute_definitions: Array<Record<string, unknown>>; pricing: Record<string, unknown> } };
+  const V26 = HVAC_V26 as unknown as { items: RateMasterItem[]; category_configs: RateCategoryConfig[] };
+  const INS = V26.category_configs.find((c) => c.category_id === "hvac_insulation") as unknown as Cfg;
+  const CAT = "hvac_insulation";
+  const TN = "Thermal Nitrile Insulation";
+  const BRAND_DEF = { id: "brand", label: "Brand", type: "text", note: "The make the row names, copied as written." };
+  const cfg: Cfg = {
+    ...INS,
+    list_spec: {
+      ...INS.list_spec,
+      attribute_definitions: [...INS.list_spec.attribute_definitions, BRAND_DEF],
+      pricing: {
+        ...INS.list_spec.pricing,
+        panel_readonly: ["brand"],
+        defaults: { cladding: { value: "No", rule: "R1 cladding not mentioned -> without cladding", absent_as_none: false } },
+      },
+    },
+  };
+  const ext = (attrs: Record<string, string>) => ({
+    excelRow: 64, description: "Thermal insulation of ducts", attributes: {},
+    items: [{ attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v, confidence: 1 }])) }],
+  });
+  const helper = (c: Cfg, attrs: Record<string, string>) =>
+    makePricingSheetHelper({
+      configsByCategory: new Map([[CAT, c]]),
+      items: V26.items,
+      extractionByRow: new Map([[64, ext(attrs) as unknown as ExtractionRow]]),
+      admitCalculatorOnly: true,
+    });
+  const ctx = (): RateHelperRowContext =>
+    ({ excelRow: 64, description: "Thermal insulation of ducts", nodeType: "Line Item", category: CAT, discipline: "HVAC",
+       rateKinds: [...DISPLAY_RATE_KINDS], unit: "Sqm" }) as unknown as RateHelperRowContext;
+  const view = (r: HelperResult) => (r as ItemListSuggestion).itemList!;
+  const BRAND = "K-flex / Insulflex / Arma-flex /Superlon / thermo break";
+
+  it("POSITIVE (R7): the brand the model read is shown read-only on the block -- under the def's label, never as a field, and the price is untouched (383 / 154)", () => {
+    const v = view(helper(cfg, { item: TN, cladding: "No", thickness_mm: "9.0 mm", brand: BRAND }).compute(ctx()));
+    expect(v.rowPriced).toBe(true);
+    expect(v.items[0].readOnly).toEqual([{ id: "brand", label: "Brand", value: BRAND }]);
+    expect(v.items[0].fields.some((f) => f.id === "brand")).toBe(false);
+    expect(v.totals).toEqual({ supply_rate: 383, install_rate: 154, combined_rate: 537 });
+  });
+
+  it("NEGATIVE (R7): no brand answered -> nothing read-only is shown; no block declared -> the key is absent on every block", () => {
+    const v = view(helper(cfg, { item: TN, cladding: "No", thickness_mm: "9.0 mm" }).compute(ctx()));
+    expect(v.items[0].readOnly).toEqual([]);
+    const undeclared = view(helper(INS, { item: TN, cladding: "No", thickness_mm: "9.0 mm", brand: BRAND }).compute(ctx()));
+    expect(undeclared.items[0].readOnly).toEqual([]);
+  });
+
+  it("NEGATIVE (R7): the brand is NEVER matched -- two rows differing only in brand price identically, and the SKU is the same", () => {
+    const a = view(helper(cfg, { item: TN, cladding: "No", thickness_mm: "9.0 mm", brand: "Armaflex" }).compute(ctx()));
+    const b = view(helper(cfg, { item: TN, cladding: "No", thickness_mm: "9.0 mm", brand: "Some brand nobody stocks" }).compute(ctx()));
+    expect(a.totals).toEqual(b.totals);
+    expect(a.items[0].skuLine).toEqual(b.items[0].skuLine);
+  });
+
+  it("POSITIVE (R6): a missing family refuses in the family def's OWN words -- 'no insulation material could be told for this item' here, 'no item family ...' on ADP", () => {
+    const v = view(helper(cfg, { cladding: "No", thickness_mm: "9.0 mm" }).compute(ctx()));
+    expect(v.rowPriced).toBe(false);
+    expect(v.reason).toBe("no insulation material could be told for this item");
+    expect(v.reason).not.toMatch(/ADP/);
   });
 });
