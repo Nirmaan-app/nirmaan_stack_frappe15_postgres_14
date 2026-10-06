@@ -42,6 +42,11 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq import rate_master
+# SLICE 12c-T: ONE purge for every rate-master suite, imported rather than copied. Two copies on
+# either side of a shared live database is exactly the disagreement-at-the-worst-moment the BCS
+# import-direction law forbids, and the thing they would disagree about is whether a discipline was
+# cleaned up.
+from nirmaan_stack.api.boq.test_rate_master import _purge_test_disciplines
 from nirmaan_stack.services.boq_rate_master import (
     config_validation,
     csv_exporter,
@@ -83,15 +88,8 @@ class TestSpecReader(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for disc in cls._disciplines:
-            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
-            for dt in (CONFIG, ITEM, "BoQ Rate Master Retirement"):
-                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
-                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
-            frappe.db.delete(ITEM, {"discipline": disc})
-            frappe.db.delete(CONFIG, {"discipline": disc})
-            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
-        frappe.db.commit()
+        # SLICE 12c-T: ONE purge, abort-proof -- see `_purge_test_disciplines`.
+        _purge_test_disciplines(cls._disciplines)
         super().tearDownClass()
 
     @classmethod

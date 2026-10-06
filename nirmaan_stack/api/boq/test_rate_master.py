@@ -633,6 +633,55 @@ def _obj(value):
     return value if isinstance(value, (dict, list)) else json.loads(value)
 
 
+# The rate-master doctypes a scratch discipline can leave rows in. A SUPERSET on purpose: a
+# discipline that never wrote a snapshot or a retirement simply has none to delete, and a purge that
+# names fewer doctypes than the suite can create is how residue starts.
+PURGE_DOCTYPES = ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement")
+
+
+def _purge_test_disciplines(disciplines):
+    """SLICE 12c-T -- THE ONE PURGE. Remove every row these scratch disciplines created, and leave
+    nothing behind EVEN WHEN A TEST HAS POISONED THE TRANSACTION.
+
+    ⚠️ THE ROLLBACK IS THE WHOLE MECHANISM, NOT TIDINESS, AND THE COST OF ITS ABSENCE IS MEASURED.
+    A primary-key violation ABORTS the postgres transaction -- "current transaction is aborted,
+    commands ignored until end of transaction block" -- and `FrappeTestCase` has NO per-test
+    rollback: its only rollback is `addClassCleanup(_rollback_db)`, which runs AFTER
+    `tearDownClass`. So in a purge written as one unguarded block the FIRST delete raises and EVERY
+    discipline after it is stranded, silently, in the LIVE dev database. That is exactly how 861
+    configs, 103,135 items and 348 retirements across 90 scratch disciplines accumulated. The class
+    that carries the dup probe already knows the shape of this: `test_f18` rolls back to a savepoint
+    "because without it every subsequent test in this class fails at its first write -- measured: 18
+    cascading errors plus tearDownClass."
+
+    Hence: roll back FIRST, then purge each discipline inside its OWN try/except and commit per
+    discipline, so one failure can never strand the rest. Failures are REPORTED, never swallowed --
+    a purge that quietly gave up is the defect, not the remedy.
+
+    Versions go BEFORE the docs they describe (RM-4a: audited edits create Version rows under
+    `track_changes`, and an orphan Version is residue too).
+    """
+    # a poisoned transaction would make every delete below raise -- see the note above
+    frappe.db.rollback()
+    problems = []
+    for disc in sorted(disciplines):
+        try:
+            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
+            for dt in PURGE_DOCTYPES:
+                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
+                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r["name"]})
+            for dt in PURGE_DOCTYPES:
+                frappe.db.delete(dt, {"discipline": disc})
+            frappe.db.commit()
+        except Exception as exc:                      # noqa: BLE001 -- reported, never swallowed
+            frappe.db.rollback()
+            problems.append("%s: %s" % (disc, exc))
+    if problems:
+        print("WARNING -- test discipline purge INCOMPLETE, rows left in the live DB: %s"
+              % "; ".join(problems))
+    return problems
+
+
 class TestRateMaster(FrappeTestCase):
     @classmethod
     def setUpClass(cls):
@@ -660,16 +709,8 @@ class TestRateMaster(FrappeTestCase):
         # so without this every run of this suite would leave synthetic rows behind in the LIVE DB.
         # SLICE 4: BoQ Rate Master Snapshot joins the purge for the same reason -- the export test
         # writes one per scratch discipline, and this suite runs against the LIVE site DB.
-        for disc in cls._disciplines:
-            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
-            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item",
-                       "BoQ Rate Master Retirement"):
-                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
-                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
-            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
-        frappe.db.commit()
+        # SLICE 12c-T: ONE purge, abort-proof -- see `_purge_test_disciplines`.
+        _purge_test_disciplines(cls._disciplines)
         super().tearDownClass()
 
     # ---- helpers ----
@@ -2221,6 +2262,28 @@ class TestRateMaster(FrappeTestCase):
             "BoQ Rate Category Config",
             {"discipline": disc, "category_id": "earthing", "active": 1}, "name")
         blob = _obj(frappe.db.get_value("BoQ Rate Category Config", cfg_name, "config"))
+        # SLICE 12c-T (item 5): RESTORE THE BLOB AS SOON AS THIS TEST IS DONE.
+        #
+        # ⚠️ THIS IS THE ROW THAT FAILED `test_27_live_configs_all_validate`. That test validates
+        # EVERY config with `active=1` and NO discipline filter -- which is the right scope, since
+        # its job is to prove the live editor can save them -- so a deliberately-invalid config left
+        # behind here is read as a live config that does not validate. The failure then has nothing
+        # to do with the code at the tip and reproduces at any commit while the row exists (it did:
+        # `live config 'earthing' does not validate: Unknown top-level config key(s):
+        # a_key_nothing_knows_about`, on discipline TEST_RM_adabe958).
+        #
+        # The class purge DID cover it -- but only at tearDownClass, and only if the transaction is
+        # still usable (see `_purge_test_disciplines`). Purging THIS discipline the moment the test
+        # ends takes the junk out of reach of every later test in every module. Defence in depth
+        # with the class purge, deliberately: this one is about BLAST RADIUS, not tidying up.
+        #
+        # ⚠️ IT PURGES THE DISCIPLINE RATHER THAN RESTORING THE BLOB, AND THE FIRST DRAFT PROVED WHY.
+        # `frappe.db.get_value` PARSES a JSON field, so capturing the blob and handing it back to
+        # `set_value` emitted `SET "config"={'category_id': ...}` -- a python dict literal -- which
+        # postgres rejected with `syntax error at or near "{"`. That aborted the transaction and took
+        # out the next 66 tests in this class, which is precisely the cascade this slice is about.
+        # Deleting the scratch discipline needs no round trip through a value at all.
+        self.addCleanup(lambda: _purge_test_disciplines({disc}))
         blob["a_key_nothing_knows_about"] = {"nested": [1, 2, {"deep": True}], "why": "verbatim"}
         frappe.db.set_value("BoQ Rate Category Config", cfg_name, "config",
                             json.dumps(blob), update_modified=False)
@@ -6618,16 +6681,8 @@ class TestRateMasterFreeze(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for disc in cls._disciplines:
-            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
-            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item",
-                       "BoQ Rate Master Retirement"):
-                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
-                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
-            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
-        frappe.db.commit()
+        # SLICE 12c-T: ONE purge, abort-proof -- see `_purge_test_disciplines`.
+        _purge_test_disciplines(cls._disciplines)
         super().tearDownClass()
 
     # ---- helpers ----
@@ -9370,13 +9425,8 @@ class TestBrandColumnProjection(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for disc in cls._disciplines:
-            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item"):
-                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
-                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
-            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
-        frappe.db.commit()
+        # SLICE 12c-T: ONE purge, abort-proof -- see `_purge_test_disciplines`.
+        _purge_test_disciplines(cls._disciplines)
         super().tearDownClass()
 
     # ---- helpers ----
@@ -11107,15 +11157,8 @@ class TestValidationGaps(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for disc in cls._disciplines:
-            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
-            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
-                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
-                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
-            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
-        frappe.db.commit()
+        # SLICE 12c-T: ONE purge, abort-proof -- see `_purge_test_disciplines`.
+        _purge_test_disciplines(cls._disciplines)
         super().tearDownClass()
 
     def _new_disc(self):
@@ -11644,15 +11687,8 @@ class TestHvacAssetSlice1b(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for disc in cls._disciplines:
-            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
-            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
-                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
-                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
-            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
-        frappe.db.commit()
+        # SLICE 12c-T: ONE purge, abort-proof -- see `_purge_test_disciplines`.
+        _purge_test_disciplines(cls._disciplines)
         super().tearDownClass()
 
     def _new_disc(self):
@@ -12004,15 +12040,8 @@ class TestHvacVendorQuoteSlice2(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for disc in cls._disciplines:
-            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
-            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
-                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
-                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
-            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
-        frappe.db.commit()
+        # SLICE 12c-T: ONE purge, abort-proof -- see `_purge_test_disciplines`.
+        _purge_test_disciplines(cls._disciplines)
         super().tearDownClass()
 
     def _new_disc(self):
@@ -12219,15 +12248,8 @@ class TestHvacAliasSlice3(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for disc in cls._disciplines:
-            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
-            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
-                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
-                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
-            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
-        frappe.db.commit()
+        # SLICE 12c-T: ONE purge, abort-proof -- see `_purge_test_disciplines`.
+        _purge_test_disciplines(cls._disciplines)
         super().tearDownClass()
 
     def _new_disc(self):
@@ -12429,15 +12451,8 @@ class TestHvacItemListSlice4(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for disc in cls._disciplines:
-            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
-            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
-                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
-                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
-            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
-        frappe.db.commit()
+        # SLICE 12c-T: ONE purge, abort-proof -- see `_purge_test_disciplines`.
+        _purge_test_disciplines(cls._disciplines)
         super().tearDownClass()
 
     def _new_disc(self):
@@ -12669,15 +12684,8 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for disc in cls._disciplines:
-            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
-            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
-                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
-                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
-            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
-        frappe.db.commit()
+        # SLICE 12c-T: ONE purge, abort-proof -- see `_purge_test_disciplines`.
+        _purge_test_disciplines(cls._disciplines)
         super().tearDownClass()
 
     def _new_disc(self):
@@ -12942,15 +12950,8 @@ class TestHvacAdpLiveSlice6(FrappeTestCase):
     def tearDownClass(cls):
         for name in cls._events:
             frappe.db.delete(rate_master.EVENT_DOCTYPE, {"name": name})
-        for disc in cls._disciplines:
-            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
-            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item", "BoQ Rate Master Retirement"):
-                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
-                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
-            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
-        frappe.db.commit()
+        # SLICE 12c-T: ONE purge, abort-proof -- see `_purge_test_disciplines`.
+        _purge_test_disciplines(cls._disciplines)
         super().tearDownClass()
 
     def _new_disc(self):
@@ -14377,16 +14378,8 @@ class TestInsulationCatalogueSlice12a(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for disc in cls._disciplines:
-            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
-            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item",
-                       "BoQ Rate Master Retirement"):
-                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
-                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r["name"]})
-            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
-        frappe.db.commit()
+        # SLICE 12c-T: ONE purge, abort-proof -- see `_purge_test_disciplines`.
+        _purge_test_disciplines(cls._disciplines)
         super().tearDownClass()
 
     KIND = "hvac_insulation_item"
@@ -14603,16 +14596,8 @@ class TestFormulaRoundTripSlice12a(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for disc in cls._disciplines:
-            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
-            for dt in ("BoQ Rate Category Config", "BoQ Rate Master Item",
-                       "BoQ Rate Master Retirement"):
-                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
-                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r["name"]})
-            frappe.db.delete("BoQ Rate Master Item", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Category Config", {"discipline": disc})
-            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
-        frappe.db.commit()
+        # SLICE 12c-T: ONE purge, abort-proof -- see `_purge_test_disciplines`.
+        _purge_test_disciplines(cls._disciplines)
         super().tearDownClass()
 
     # One synthetic discipline per source asset, loaded ONCE and reused -- a full Electrical load is

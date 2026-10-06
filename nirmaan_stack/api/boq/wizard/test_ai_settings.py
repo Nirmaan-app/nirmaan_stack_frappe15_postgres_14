@@ -13,6 +13,8 @@ Covers the two reader helpers + the encryption-at-rest invariant on the key fiel
 No API key value appears anywhere in this file -- the secret is entered manually
 via the Frappe UI after this lands.
 """
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -34,20 +36,78 @@ class TestAISettings(FrappeTestCase):
         into every CI log, run log and triage file that captured it. A test that reads a secret must assert
         on a DERIVED FACT about it, never on the secret itself: here, the one bit that is actually under
         test is "set" vs "unset", so that is all that is compared and all a failure can reveal.
+
+        ⚠️ AND THE UNSET STATE IS NOW SUPPLIED, NOT HOPED FOR (slice 12c-T, item 6). The assertion was
+        a statement about THE SITE, so on the owner's own site -- which has a key configured -- it
+        failed for a reason that has nothing to do with the code. What is under test is the READER's
+        fail-closed behaviour, so the absence is injected at the one seam the reader uses
+        (`frappe.utils.password.get_decrypted_password`, imported inside the function) and the real
+        stored secret is NEVER READ, never written and never restored -- there is nothing to restore,
+        because the setting is untouched. That is strictly safer than capture-and-restore here: a
+        capture would have to read the key.
         """
-        state = "unset" if get_boq_ai_api_key() is None else "set"
+        with patch("frappe.utils.password.get_decrypted_password", return_value=None):
+            state = "unset" if get_boq_ai_api_key() is None else "set"
         self.assertEqual(state, "unset",
                          "an unset Anthropic key must read back as None (fail-closed); "
                          "the key reads as SET on this site")
 
+    def test_get_boq_ai_api_key_reads_as_set_when_one_is_stored(self):
+        """NEGATIVE half of the above (slice 12c-T): the reader is not simply always None.
+
+        Without this, patching the seam to None would make the positive test vacuous -- it would pass
+        against a reader that had been broken to return None unconditionally. The stand-in value is a
+        literal in this file and is NOT a credential; the real stored key is never read.
+
+        ⚠️ EVERY ASSERTION BELOW TAKES A LOCAL OR A DERIVED BOOLEAN, NEVER THE GETTER'S RESULT, AND
+        THE T5 PIN CAUGHT THE FIRST DRAFT OF THIS VERY TEST DOING OTHERWISE. The rule is absolute on
+        purpose -- it carves out no exception for "the value here is a harmless stand-in", because
+        the next person to copy the shape will not be inside a patch. So the value is read into a
+        local and only comparisons are asserted: a failure can print True/False and nothing else.
+        """
+        with patch("frappe.utils.password.get_decrypted_password", return_value="  not-a-real-key  "):
+            got = get_boq_ai_api_key()
+        self.assertEqual("unset" if got is None else "set", "set")
+        # and it is stripped -- the reader's own contract
+        self.assertEqual(got == "not-a-real-key", True, "the reader must strip surrounding whitespace")
+        # whitespace only is still UNSET (fail-closed), not a key made of spaces
+        with patch("frappe.utils.password.get_decrypted_password", return_value="   "):
+            blank = get_boq_ai_api_key()
+        self.assertEqual("unset" if blank is None else "set", "unset")
+
     def test_get_boq_ai_settings_defaults(self):
         """On an unset Single the settings reader returns the fail-closed shape:
-        enabled False + request_timeout_seconds present."""
+        enabled False + request_timeout_seconds present.
+
+        ⚠️ THE UNSET SINGLE IS SET UP AND RESTORED HERE (slice 12c-T, item 6). This asserted
+        `enabled is False` against WHATEVER the live site happened to hold, and the owner's site has
+        the AI pass switched ON -- so it failed on a true setting, not a defect. The two fields the
+        assertion reads are therefore blanked for the duration and the site's ORIGINAL values are put
+        back.
+
+        ⚠️ PER THE STANDING SINGLE-DOCTYPE RULE: the originals are CAPTURED and those are what get
+        restored -- never a hardcoded constant. `set_single_value` bypasses the doc lifecycle and
+        writes NO Version row, so a hardcoded restore would silently rewrite the owner's real setting
+        and no audit could see it.
+        """
+        orig_enabled = frappe.db.get_single_value(SETTINGS_DOCTYPE, "enabled")
+        orig_timeout = frappe.db.get_single_value(SETTINGS_DOCTYPE, "request_timeout_seconds")
+
+        def _restore():
+            frappe.db.set_single_value(SETTINGS_DOCTYPE, "enabled", orig_enabled)
+            frappe.db.set_single_value(SETTINGS_DOCTYPE, "request_timeout_seconds", orig_timeout)
+
+        self.addCleanup(_restore)
+        frappe.db.set_single_value(SETTINGS_DOCTYPE, "enabled", None)
+        frappe.db.set_single_value(SETTINGS_DOCTYPE, "request_timeout_seconds", None)
+
         settings = get_boq_ai_settings()
         self.assertIsInstance(settings, dict)
         self.assertFalse(settings["enabled"], "enabled must default to False")
         self.assertIn("request_timeout_seconds", settings,
                       "request_timeout_seconds must always be present")
+        self.assertEqual(settings["request_timeout_seconds"], 120,
+                         "an unset timeout must fall back to the fail-closed 120s")
 
     def test_get_boq_ai_settings_reads_non_secret_fields(self):
         """Setting non-secret fields is reflected by the reader."""
