@@ -43947,3 +43947,147 @@ on-screen confirmation, not the result.
 Full record: `2026-10-06_12cP_Report.md` and `2026-10-06_12cP_Ledger.md` on the Desktop; the
 per-divergence detail (inputs, both figures, both item lists, both reasons, the first differing step)
 is in the report's §3; screenshots in `2026-10-06_12cP_Screens/`.
+
+---
+
+## Slice 12c-F — PARITY FIXES B AND C, AND THE NOTE BOX MADE PROMINENT (2026-10-06) — SHIPPED
+
+**Commits** `d68c30eb5` (fix) + `8c0891fd0` (style) + the docs commit. Branch
+`feature/boq-pricing-helper`, from `7d6407ecc`. No config, no asset, no doctype, no new HVAC version.
+
+Owner rulings this slice executes: **R-A** cause A accepted ("A is ok - nothin gto be done");
+**R-B** fix B; **R-C** fix C, settled mid-slice as **option (A)** ("sq.ft is an area spelling; the
+ruling was 'priced by area, never by number'"); **R-D** cause D accepted ("its ok. let it be");
+**R-E** the blue boxes; **R-F** the skipped 12c-P on-screen checks go to 12d-2, not here.
+
+### Fix B — a model-read value prices only through the option it means
+
+The 12c-P cert photographed the defect: the extraction read `"2 slot"`, the Slots dropdown offers
+`2` and `3`, and a controlled select with no matching option falls back to its placeholder — so the
+field read *"— select —"* beside a row priced at 1160 / 352 / 1512 **from the raw string**. The figure
+was right; the screen could not say where it came from, and a pricer reproducing the row in the
+calculator could only pick `2` with no way to know that was the same answer.
+
+`matchStatedToOption(stated, options, reader)` (in `itemListPricing.ts`, beside the one number
+reader) states the rule in order: no options → no match; same TEXT (trimmed, whitespace-collapsed,
+case-insensitive); same NUMBER read with the SAME `readNumber` the pricing uses. That takes
+`"3 Slot"` → `3`, `"200 Dia"` → `200`, `"6mm"` → `6`, `"1:6"` → `6`.
+
+⚠️ **IT DEFINES NO SECOND PARSER, AND THAT IS THE WHOLE DESIGN.** `readNumber` is already how the
+PRICING understood `"2 slot"` — which is precisely why the row priced correctly while the field sat
+blank. A private parser here could read a value the pricing does not, and the field would then show a
+number the rate was not computed from: the same defect inverted.
+
+⚠️ **IT NEVER INVENTS.** An unstocked 225 against 300 / 375 / 450 matches NOTHING and is left alone,
+so the ladder still buys the next rung and the field still shows it. Matching and laddering are
+different questions and this answers only the first. Proven live in the browser:
+`matchStatedToOption("225", ["300","375","450"], …)` → `null`.
+
+⚠️ **A VALUE THE PRICER TYPED IS NEVER REWRITTEN** — `edit.attrs` is theirs, and an "Other…" entry is
+deliberately unstocked; rewriting it would be the substitution 12c-S forbids.
+
+The second half is the owner's rule that *a row must never price from a value its field cannot show*.
+`fieldCannotShowValue` asks that of a priced row, and **three mechanisms answer it first because each
+SUPPLIES the shown value**: a ladder hop, a ruled default, a config override.
+
+⚠️ **THE FIRST DRAFT LACKED THAT AND REFUSED FOUR ROWS FOR `Damper: None`.** `"None"` is POSITIVE
+ABSENCE — the answer the ruled defaults consume ("damper not mentioned = without") — so the field
+shows `without` and nothing is hidden. The test is **what the field will DISPLAY**, not what the model
+wrote. Caught by the corpus sweep, not by a unit test.
+
+⚠️ **NO PRICING FUNCTION WAS TOUCHED.** The match runs on the assembled attributes before
+`priceItemList`; the refusal is read off its result, exactly as the stale-pick rule already withholds
+a cleared value.
+
+### Fix C — the picker offers the units the pricing can convert into
+
+A `unit_factors` unit belongs to a class AND scales the rate (sq.ft → sq.m × 0.0929). It was offered
+nowhere, so a BoQ row written in sq.ft priced on the panel and was unreachable in the calculator.
+`unitChoicesOf` now appends it — **one spelling per unit** (ADP declares four spellings of the same
+square foot), filtered through the SAME `allowed` set the native classes are.
+
+⚠️ **IT ADDS A SPELLING, NEVER A CLASS**, which is what keeps `units_not_offered` the only thing
+deciding classes. Double-skin plenum gains sq.ft and still offers **no Nos** — owner option (A).
+
+### Measured, both paths, before and after
+
+Over all 96 stored runs (10,460 rows, 4,695 input classes), by stashing the three product files and
+re-running the identical sweep:
+
+* **PANEL OUTCOMES: zero diff lines.** Not one row, either discipline. No Electrical row changed.
+* **UNIT CHOICES: the only diff is `sqft`**, calculator-side, on every area-priced family.
+* cause **B 11 → 0**: eight rows now agree to the rupee; the other three were never value problems and
+  are reclassified C.
+* cause **C 5 → 5**: the three sq.ft rows now agree; the two always-unit-shaped remain, joined by the
+  three from B.
+* The parity list drops **97 → 86 classes**; `STATUS_BY_CAUSE` records A and D as ACCEPTED BY OWNER.
+
+**The five still awaiting, by name** — every one is "the row's unit is one its family cannot be priced
+in at all", and **none is the double-skin Nos case**, which is a FAMILY-level observation with no row
+in this corpus and is left for 12d:
+
+| Row | Family | Row unit | What differs |
+|---|---|---|---|
+| `BRSR-26-01311#25` | spigot | `Rmt` | spigot is per-number only; panel refuses *"no SKU per metre for spigot"*, the calculator prices in a unit it can offer |
+| `BRSR-26-01311#27` | spigot | `Rmt` | same |
+| `BRSR-26-01311#52` | actuator | `Sqm` | actuator is per-number only; panel refuses *"no SKU per sq.m for actuator"* |
+| `BRSR-26-01312#51` | butterfly damper | `R/O` | `"R/O"` is not a unit at all — panel refuses *"unit 'R/O' is not a count, area or length unit (R12)"* |
+| `BRSR-26-01369#43` | round diffuser | *(none)* | the row carries no unit — panel refuses *"no unit on this row (R12)"* |
+
+**No row now refuses under fix B.** The refusal is a backstop: after the matcher, every corpus value
+that could price also matches an option. It is tested as a predicate rather than left unreachable and
+unexercised.
+
+### R-E — the note box
+
+Was a 40%-opacity accent tint with ordinary foreground text; now a solid blue box, blue text, info
+icon, both themes. Raw `blue-*` utilities **deliberately**: this panel's other annotation tones are
+already raw colours (the amber default fill, the amber rule line) because these are MEANINGS, not
+theme roles — and `accent` IS a theme role, the same token hover states use, which is why the box
+vanished into the card. The two call sites (Electrical's attribute notes, HVAC's item-list field
+notes) were two identical hand-written strings free to drift; they now share ONE exported
+declaration, which 12c-S's "the two disciplines must not read in two different colours" ruling
+requires and could not previously enforce.
+
+### Tests
+
+New `modelValueMatching.test.ts` (19) and `noteBoxStyle.test.ts` (3); the parity suite grew to 33.
+Six pins were **INVERTED, never deleted**, each keeping its negative half: the `panel_ratio` record
+(`"1:6"` → `6`), the `150MM DIA` silence, the note-box class count, and three unit lists including the
+double-skin one the owner ruled on by name.
+
+Vacuity, each applied and reverted: disabling the numeric match → 7 red; disabling fix C → 7 red;
+disabling the refusal predicate → 1 red; reverting the blue box → 3 red.
+
+### Browser live cert
+
+De-stale in full. `kill -TERM` did not take honcho (the documented 2026-09-29 behaviour) — escalated
+to `-9`; a `<defunct>` row remained and `NOLISTENERS` confirmed all three ports free, which is why the
+rule is *check listeners, not process rows*. Bench first, polled to **ANSWERING** (~80 s), then vite.
+PROOF 1: the served `RateHelperPanel.tsx` carries `NOTE_BOX_CLASS` ×3 and `bg-blue-50` ×1 with
+**`bg-accent` = 0**. PROOF 2: a runtime `await import()` ran `matchStatedToOption("2 slot",["2","3"])`
+→ `"2"` and `("225",["300","375","450"])` → `null` in the browser.
+
+| Step | Expected | Seen |
+|---|---|---|
+| E2E-1 `BOQ-26-00071/276` | Slots `3`, 2204 / 352 / 2556 | panel: Slots **3** + *"BoQ says 3 Slot → 3"*, **2204 / 352 / 2556**; calculator at slots 3: **identical** |
+| fix-B no-match row | a row refusing by name | **none exists** — after the matcher no corpus value both prices and fails to match. Reported, not faked |
+| fix C `BOQ-26-00210/83` | sq.ft offered, equal to panel | panel **728 / 179 / 907** per Sqft via *"per sq.ft: sq.m rate x 0.0929"*; calculator at `sqft`: **728 / 179 / 907** |
+| double-skin plenum | no Nos | offers `sqm, sqft`, **no Nos** |
+| blue boxes | panel + calculator, both disciplines | HVAC panel ✓, Electrical panel ✓ (2 boxes, row 148), HVAC calculator ✓ (2 boxes, Insulation) |
+| samples unchanged | Electrical + ADP | db_switchgear row 94 **19630 / 3930**; ADP row 82 **1160 / 352 / 1512** |
+| counts / checksums | unchanged | configs `d017732c773cf03b`; Electrical 1,402 `ae386e014ca9d001`; HVAC 331 `e85bb49cc3b181ac`; 96 runs; 37,702 cell-pricing rows |
+
+⚠️ **ONE AUTHORISED WRITE.** `BOQ-26-00071 / LOW SIDE WORKS` had its category gate shut, so no
+rate-suggestion badge renders and E2E-1's named row was unreachable read-only. Owner authorisation of
+2026-10-06 was used: **"Override the check" applied at 2026-10-06 13:24:26 IST by `admins@nirmaan.app`**,
+reason *"12c-F parity cert (owner-authorised 2026-10-06) -- read-only, no rate written"*. It is the
+most recent of 84 such overrides in the database and the only one from this slice. **It was left in
+place** (the standing rule is to report, not repair). No rate, item, config or run was written —
+`BoQ Cell Pricing` is unchanged at 37,702 rows and "Use this value" was never pressed.
+
+Fast render needed no restoring: it is session-only page state with no `localStorage` key, and every
+fresh page load reads "on".
+
+Full record: `2026-10-06_12cF_Report.md` and `2026-10-06_12cF_Ledger.md` on the Desktop; screenshots
+in `2026-10-06_12cF_Screens/`.

@@ -1215,6 +1215,30 @@ reading — so `3/4"` would have been refused on the real screen. Before certify
 change, READ THE LIVE CONFIG, not the asset; and remember a host edit does not fire the container's
 inotify, so vite serves stale modules until it is restarted with `node_modules/.vite` purged.
 
+**⚠️ A MODEL-READ VALUE PRICES ONLY THROUGH THE DROPDOWN OPTION IT MATCHES; NO MATCH -> REFUSE
+(owner R-B, 2026-10-06).** A controlled `<select>` can display only its own options, so a row priced
+from anything else is a figure whose provenance the screen CANNOT STATE -- the 12c-P cert photographed
+exactly that: a blank Slots select above a row priced 1160/352/1512 from the string `"2 slot"`. The
+value the model read is therefore matched to the option it MEANS, before anything prices, by
+`itemListPricing.matchStatedToOption` -- same text (trimmed, whitespace-collapsed, case-insensitive),
+else same number **read with the SAME `readNumber` the pricing uses**. ⚠️ **IT DEFINES NO SECOND
+PARSER**: `readNumber` is already how the pricing understood `"2 slot"`, which is why the row priced
+while the field sat blank; a private parser could read a value the pricing does not, and the field
+would then show a number the rate was not computed from -- the same defect inverted. ⚠️ **IT NEVER
+INVENTS**: an unstocked size matches nothing and is left for the LADDER, which still buys the next
+rung and still shows it; matching and laddering are different questions. ⚠️ **A VALUE THE PRICER TYPED
+IS NEVER REWRITTEN** -- an "Other..." entry is deliberately unstocked. The refusal half
+(`pricingSheetHelper.fieldCannotShowValue`) asks only of a PRICED row, and **three mechanisms answer
+it first because each SUPPLIES the shown value: a ladder hop, a ruled default, a config override** --
+the first draft lacked that and refused four rows for `Damper: None`, where `"None"` is POSITIVE
+ABSENCE that the defaults turn into `without`. **The test is what the field will DISPLAY, never what
+the model wrote.** No pricing function is touched: the match runs on the assembled attributes, the
+refusal is read off the result. ⚠️ **AND THE CALCULATOR OFFERS THE UNITS THE PRICING CAN CONVERT INTO
+ONE THE ITEM IS SOLD IN** (owner R-C + option A): a `unit_factors` spelling rides beside the class it
+converts into, ONE spelling per unit -- it adds a SPELLING, never a CLASS, so `units_not_offered`
+stays the only thing deciding classes (a plenum gains sq.ft and still offers no Nos, because the
+ruling is "priced by area, never by number").
+
 **⚠️ EVERY CATEGORY SHIPS WITH A CALCULATOR = PANEL PARITY TEST OVER BOTH REAL PATHS, AND NEVER ONE
 PATH COMPARED WITH ITSELF (owner P1, standing: the two must always give the same price for the same
 inputs; any divergence is a failure).** The two paths are the SAME `pricingSheetHelper.compute` entered
