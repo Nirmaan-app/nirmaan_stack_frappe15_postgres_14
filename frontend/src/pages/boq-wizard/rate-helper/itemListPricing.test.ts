@@ -22,6 +22,7 @@ import HVAC_V25 from "../../../../../nirmaan_stack/services/boq_rate_master/data
 import HVAC_V26 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v26.json";
 import { DISPLAY_RATE_KINDS, type RateHelperRowContext } from "./rateHelperTypes";
 import {
+  familyWhenNone,
   isRateOnlyUnit,
   itemListPricingSpec,
   priceItemList,
@@ -2889,5 +2890,119 @@ describe("SLICE 12c-S -- options, units and notes", () => {
     expect(typedFieldNote(base, "allOut", new Set(), [])).toBeUndefined();
     // NEGATIVE: an attribute with no note at all is still undefined
     expect(typedFieldNote(base, "nothing", new Set(), [])).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// SLICE 12d-1a (owner R2, 2026-10-07) -- family_when_none: a row that names NO material prices as the
+// family its ROW KIND implies, declared in config, marked amber; a stated family is never touched.
+// ---------------------------------------------------------------------------------------------------------
+describe("SLICE 12d-1a / R2 -- family_when_none: a silent material prices by row kind, marked as a default", () => {
+  type Cfg = RateCategoryConfig & { list_spec: { pricing: Record<string, unknown> } };
+  const V26 = HVAC_V26 as unknown as Asset;
+  const INS = V26.category_configs.find((c) => c.category_id === "hvac_insulation") as unknown as Cfg;
+  const ITEMS = V26.items;
+  const NR = "Nitrile Rubber Insulation";
+  const TN = "Thermal Nitrile Insulation";
+  const AN = "Acoustic Nitrile Insulation";
+  const FWN = {
+    by_unit_class: { length: NR, area: TN },
+    when_words: [{ unit_class: "area", words: ["acoustic", "lining"], family: AN }],
+    rule: "R2 material not mentioned -> Nitrile by row kind",
+  };
+  const CLAD = { cladding: { value: "No", rule: "R1 cladding not mentioned -> without cladding", absent_as_none: false } };
+  const cfg = (pricing: Record<string, unknown> = {}): Cfg => ({
+    ...INS,
+    list_spec: { ...INS.list_spec, pricing: { ...INS.list_spec.pricing, family_when_none: FWN, defaults: CLAD, ...pricing } },
+  });
+  const spec = (c: Cfg = cfg()) => itemListPricingSpec(c)!;
+  const item = (attrs: Record<string, string>): ExtractedListItem => ({
+    attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v }])),
+  });
+  const price = (unit: string, attrs: Record<string, string>, text = "", s = spec()) =>
+    priceItemList(s, ITEMS, unit, [item(attrs)], text);
+
+  it("POSITIVE (b): no material, per metre -> Nitrile Rubber, marked, and the row prices (286 / 14 at 25 mm dia -> 28.58, 19 mm, no cladding)", () => {
+    const r = price("Rmt", { cladding: "None", thickness_mm: "19 mm", pipe_size_mm: "25 mm dia" }, "25 mm dia | 19 mm thick insulation from 25 mm dia to 32 mm dia");
+    expect(r.priced).toBe(true);
+    expect(r.items[0].family).toBe(NR);
+    expect(r.items[0].familyDefaulted).toEqual({ value: NR, rule: FWN.rule });
+    expect(r.items[0].working).toContain(`item not mentioned -> ${NR} (${FWN.rule})`);
+    expect(r.supply).toBe(286);
+    expect(r.install).toBe(14);
+  });
+
+  it("POSITIVE (c): no material, per sq.m -> Thermal Nitrile, marked (383 / 154 at 9 mm, no cladding)", () => {
+    const r = price("M2", { cladding: "None", thickness_mm: "9MM" }, "THERMAL INSULATION 9MM TH");
+    expect(r.priced).toBe(true);
+    expect(r.items[0].family).toBe(TN);
+    expect(r.items[0].familyDefaulted?.value).toBe(TN);
+    expect([r.supply, r.install]).toEqual([383, 154]);
+  });
+
+  it("POSITIVE (d): no material, per sq.m, 'acoustic' in a HEADING -> Acoustic Nitrile, marked (1371 / 154 at 15 mm)", () => {
+    const r = price("Sqmt", { cladding: "None", thickness_mm: "15mm" }, "15mm thick for Ducts | ACOUSTIC INSULATION");
+    expect(r.priced).toBe(true);
+    expect(r.items[0].family).toBe(AN);
+    expect(r.items[0].familyDefaulted?.value).toBe(AN);
+    expect([r.supply, r.install]).toEqual([1371, 154]);
+  });
+
+  it("POSITIVE: 'lining' in the row's OWN text decides acoustic too; the test is a word start, case-insensitive ('ACOUSTICS' counts, 'subacoustic' does not)", () => {
+    expect(price("Sqm", { cladding: "None", thickness_mm: "15 mm" }, "15 mm thick duct Lining").items[0].family).toBe(AN);
+    expect(price("Sqm", { cladding: "None", thickness_mm: "15 mm" }, "INSULATION & ACOUSTICS").items[0].family).toBe(AN);
+    expect(price("Sqm", { cladding: "None", thickness_mm: "15 mm" }, "subacoustic duct").items[0].family).toBe(TN);
+    expect(price("Sqm", { cladding: "None", thickness_mm: "15 mm" }, "").items[0].family).toBe(TN);
+  });
+
+  it("NEGATIVE: a STATED family is never touched -- Thermal stays Thermal under an acoustic heading, and carries no default mark", () => {
+    const r = price("Sqm", { item: TN, cladding: "None", thickness_mm: "13 mm" }, "ACOUSTIC INSULATION");
+    expect(r.items[0].family).toBe(TN);
+    expect(r.items[0].familyDefaulted).toBeUndefined();
+    expect(r.items[0].working.some((w) => w.startsWith("item not mentioned"))).toBe(false);
+  });
+
+  it("NEGATIVE: a stated 'none of these' is a stated family -- it refuses for its SKU, it is NOT defaulted", () => {
+    const r = price("Sqm", { item: "none of these", cladding: "None", thickness_mm: "13 mm" }, "rockwool");
+    expect(r.priced).toBe(false);
+    expect(r.items[0].familyDefaulted).toBeUndefined();
+    expect(r.items[0].reason).toMatch(/no SKU in the catalogue for 'none of these'/);
+  });
+
+  it("NEGATIVE: the words fire ONLY on the unit class they are declared for -- an acoustic word on a per-metre row still prices Nitrile Rubber", () => {
+    const r = price("Rmt", { cladding: "None", thickness_mm: "19 mm", pipe_size_mm: "25 mm dia" }, "acoustic lining of pipe");
+    expect(r.items[0].family).toBe(NR);
+  });
+
+  it("NEGATIVE: a unit class the block does not name, or NO block at all, refuses exactly as before (no family, no mark)", () => {
+    const only = cfg({ family_when_none: { by_unit_class: { length: NR }, rule: FWN.rule } });
+    const r = price("Sqm", { cladding: "None", thickness_mm: "13 mm" }, "ACOUSTIC", spec(only));
+    expect(r.priced).toBe(false);
+    expect(r.items[0].familyDefaulted).toBeUndefined();
+    expect(r.items[0].reason).toMatch(/could be told for this item/);
+    const none = { ...INS, list_spec: { ...INS.list_spec, pricing: { ...INS.list_spec.pricing, defaults: CLAD } } } as Cfg;
+    const r2 = price("Rmt", { cladding: "None", thickness_mm: "19 mm", pipe_size_mm: "25 mm dia" }, "", spec(none));
+    expect(r2.priced).toBe(false);
+    expect(r2.items[0].familyDefaulted).toBeUndefined();
+  });
+
+  it("POSITIVE: the ruled family rides through a COMPOSITION -- every layer prices as it, each marked", () => {
+    const r = price("Rmt", { cladding: "None", thickness_mm: "32 mm", pipe_size_mm: "25 mm dia" }, "25 mm dia");
+    expect(r.priced).toBe(true);
+    expect(r.items.length).toBe(2);
+    for (const p of r.items) {
+      expect(p.family).toBe(NR);
+      expect(p.familyDefaulted?.value).toBe(NR);
+    }
+  });
+
+  it("familyWhenNone itself: null without the block or for an unmapped class; the FIRST matching word rule wins", () => {
+    expect(familyWhenNone(spec({ ...INS, list_spec: { ...INS.list_spec, pricing: { ...INS.list_spec.pricing } } } as Cfg), "area", "acoustic")).toBeNull();
+    expect(familyWhenNone(spec(), "count", "acoustic")).toBeNull();
+    const two = cfg({ family_when_none: { ...FWN, when_words: [
+      { unit_class: "area", words: ["lining"], family: AN },
+      { unit_class: "area", words: ["lining"], family: TN },
+    ] } });
+    expect(familyWhenNone(spec(two), "area", "duct lining")?.value).toBe(AN);
   });
 });

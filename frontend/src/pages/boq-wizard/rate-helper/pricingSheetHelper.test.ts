@@ -12,6 +12,7 @@ import LIVE_ASSET_V63 from "../../../../../nirmaan_stack/services/boq_rate_maste
 import PRIOR_ASSET_V62 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v62.json";
 import type { Pipeline, RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 import type { ExtractionRow, HelperResult, RateHelperRowContext, WorkingsAttribute } from "./rateHelperTypes";
+import HVAC_V26 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v26.json";
 import { RATE_MASTER_CONFIG_TARGETS, RATE_MASTER_ITEM_DISCIPLINES, mergeItemsByName } from "./rateHelperPlumbing";
 import { RATE_MASTER_DISCIPLINES } from "@/pages/pricing/rate-master/rateMasterRegistry";
 import {
@@ -6125,5 +6126,79 @@ describe("SLICE 12c-S -- units, Other... state and per-field lines", () => {
       expect([id, !!field(id).typedNote]).toEqual([id, true]);
       expect([id, (field(id).matchHelp ?? []).length > 0]).toEqual([id, true]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// SLICE 12d-1a (owner R2): the row's HEADINGS reach the item-list pricer through the row context, and a
+// ruled family shows on the block as a default -- never on a family the pricer picked.
+// ---------------------------------------------------------------------------------------------------------
+describe("SLICE 12d-1a / R2 -- headings reach the pricer; the ruled family is marked on the block", () => {
+  type Cfg = RateCategoryConfig & { list_spec: { pricing: Record<string, unknown> } };
+  const V26 = HVAC_V26 as unknown as { items: RateMasterItem[]; category_configs: RateCategoryConfig[] };
+  const INS = V26.category_configs.find((c) => c.category_id === "hvac_insulation") as unknown as Cfg;
+  const CAT = "hvac_insulation";
+  const NR = "Nitrile Rubber Insulation";
+  const TN = "Thermal Nitrile Insulation";
+  const AN = "Acoustic Nitrile Insulation";
+  const cfg: Cfg = {
+    ...INS,
+    list_spec: {
+      ...INS.list_spec,
+      pricing: {
+        ...INS.list_spec.pricing,
+        family_when_none: {
+          by_unit_class: { length: NR, area: TN },
+          when_words: [{ unit_class: "area", words: ["acoustic", "lining"], family: AN }],
+          rule: "R2 material not mentioned -> Nitrile by row kind",
+        },
+        defaults: { cladding: { value: "No", rule: "R1 cladding not mentioned -> without cladding", absent_as_none: false } },
+      },
+    },
+  };
+  const ext = (attrs: Record<string, string>) => ({
+    excelRow: 44, description: "15mm thick for Ducts", attributes: {},
+    items: [{ attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v, confidence: 1 }])) }],
+  });
+  const helper = (attrs: Record<string, string>) =>
+    makePricingSheetHelper({
+      configsByCategory: new Map([[CAT, cfg]]),
+      items: V26.items,
+      extractionByRow: new Map([[44, ext(attrs) as unknown as ExtractionRow]]),
+      admitCalculatorOnly: true,
+    });
+  const ctx = (headings?: string[]): RateHelperRowContext =>
+    ({ excelRow: 44, description: "15mm thick for Ducts", nodeType: "Line Item", category: CAT, discipline: "HVAC",
+       rateKinds: [...DISPLAY_RATE_KINDS], unit: "Sqmt", ...(headings ? { headings } : {}) }) as unknown as RateHelperRowContext;
+  const view = (r: HelperResult) => (r as ItemListSuggestion).itemList!;
+
+  it("POSITIVE: with the heading 'ACOUSTIC INSULATION' a silent material prices as Acoustic Nitrile, and the block carries the default mark + rule", () => {
+    const r = helper({ cladding: "None", thickness_mm: "15mm" }).compute(ctx(["ACOUSTIC INSULATION"]));
+    const v = view(r);
+    expect(v.rowPriced).toBe(true);
+    expect(v.items[0].family).toBe(AN);
+    expect(v.items[0].familyDefaulted).toEqual({ value: AN, rule: "R2 material not mentioned -> Nitrile by row kind" });
+    expect(v.totals).toEqual({ supply_rate: 1371, install_rate: 154, combined_rate: 1525 });
+  });
+
+  it("NEGATIVE: the SAME row with NO headings on the context prices as Thermal Nitrile -- the heading was the only acoustic word", () => {
+    const v = view(helper({ cladding: "None", thickness_mm: "15mm" }).compute(ctx()));
+    expect(v.items[0].family).toBe(TN);
+    expect(v.items[0].familyDefaulted?.value).toBe(TN);
+  });
+
+  it("NEGATIVE: a family the PRICER picked ('Change item') carries no default mark, whatever the headings say", () => {
+    const h = helper({ cladding: "None", thickness_mm: "15mm" });
+    const edits = JSON.stringify({ items: [{ base: 0, family: TN, attrs: {} }] });
+    const v = view(h.compute(ctx(["ACOUSTIC INSULATION"]), { [ITEM_LIST_OVERRIDE_KEY]: edits }));
+    expect(v.items[0].family).toBe(TN);
+    expect(v.items[0].familyDefaulted).toBeUndefined();
+  });
+
+  it("NEGATIVE: a stated family is shown as the model's, no mark, and every other block key is as before", () => {
+    const v = view(helper({ item: TN, cladding: "None", thickness_mm: "15mm" }).compute(ctx(["ACOUSTIC INSULATION"])));
+    expect(v.items[0].family).toBe(TN);
+    expect(v.items[0].familyDefaulted).toBeUndefined();
+    expect("familyDefaulted" in v.items[0]).toBe(false);
   });
 });

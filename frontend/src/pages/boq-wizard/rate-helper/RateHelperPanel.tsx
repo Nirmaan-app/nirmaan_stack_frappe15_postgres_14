@@ -1178,7 +1178,17 @@ function ItemListBlocks({
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Item {i + 1} &middot; {b.source === "model" ? "identified by model" : "added by you"}
               </div>
-              <div className="text-xs font-semibold">{b.family ?? "(no family)"}</div>
+              {/* SLICE 12d-1a (owner R2): a family the row did NOT name -- ruled by its kind -- is
+                  amber with a "default" tag, exactly like every other assumed value on this panel. */}
+              <div
+                className={cn("text-xs font-semibold", b.familyDefaulted && "rounded bg-amber-50 px-1 dark:bg-amber-950/30")}
+                data-testid={b.familyDefaulted ? "item-family-defaulted" : undefined}
+              >
+                {b.family ?? "(no family)"}
+                {b.familyDefaulted && (
+                  <span className="ml-1 text-[10px] font-normal text-amber-700 dark:text-amber-400">default</span>
+                )}
+              </div>
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
               <button
@@ -1201,6 +1211,11 @@ function ItemListBlocks({
           {b.familyRaw && (
             <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">
               BoQ says &ldquo;{b.familyRaw}&rdquo;: priced as {b.family} (your rule).
+            </p>
+          )}
+          {b.familyDefaulted && (
+            <p className="pl-1 text-[10px] leading-tight text-amber-700 dark:text-amber-400">
+              Not mentioned on the BoQ: {b.familyDefaulted.rule}
             </p>
           )}
           {picker?.mode === "change" && picker.index === i && familyPicker("Change to…")}

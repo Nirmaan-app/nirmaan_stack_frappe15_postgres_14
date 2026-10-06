@@ -12725,11 +12725,14 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                          # SLICE 12c FINISH adds `number_defaults` and `typed_cladding`, which v7
                          # predates exactly as it predates the others -- and ADP declares neither,
                          # which is the point: both are read only by HVAC Insulation.
+                         # SLICE 12d-1a (owner R2) adds `family_when_none`, read only by HVAC
+                         # Insulation; v7 predates it and ADP declares it nowhere (pinned below).
                          - {"panel_controls", "override_when", "second_key", "unit_factors",
                             "size_match", "compose", "label_attr", "number_defaults",
-                            "typed_cladding", "panel_notes"})
+                            "typed_cladding", "panel_notes", "family_when_none"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
+        self.assertNotIn("family_when_none", pr)
         def refused(mutate, needle):
             bad = copy.deepcopy(base)
             mutate(bad["list_spec"]["pricing"])
@@ -18140,3 +18143,78 @@ class TestSlice12cSConfigKeys(FrappeTestCase):
                    if ((a[cid].get("list_spec") or {}).get("pricing") or {}).get("panel_notes")
                    != ((b[cid].get("list_spec") or {}).get("pricing") or {}).get("panel_notes")]
         self.assertEqual(sorted(changed), ["hvac_adp", "hvac_insulation"])
+
+
+
+class TestSlice12d1aFamilyWhenNone(FrappeTestCase):
+    """SLICE 12d-1a (owner R2, 2026-10-07) -- `list_spec.pricing.family_when_none`: the family a row with
+    NO material answer prices as, by row kind. Python's job is the SHAPE and the REFERENCES (a unit class
+    the category declares, a PRICEABLE family, non-empty words, a rule); what the words resolve to on a
+    real row is pinned on the frontend side (`itemListPricing.test.ts`), where the pricer lives."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.asset = json.load(fh)
+        cls.ins = next(c for c in cls.asset["category_configs"] if c["category_id"] == "hvac_insulation")
+
+    FWN = {
+        "by_unit_class": {"length": "Nitrile Rubber Insulation", "area": "Thermal Nitrile Insulation"},
+        "when_words": [{"unit_class": "area", "words": ["acoustic", "lining"], "family": "Acoustic Nitrile Insulation"}],
+        "rule": "R2 material not mentioned -> Nitrile by row kind",
+    }
+
+    def _cfg(self, fwn):
+        c = copy.deepcopy(self.ins)
+        c.setdefault("discipline", self.asset["discipline"])
+        c["list_spec"]["pricing"]["family_when_none"] = fwn
+        return c
+
+    def _refused(self, cfg):
+        try:
+            config_validation._validate_config(cfg)
+        except Exception as exc:          # noqa: BLE001 -- the validator's own throw
+            return str(exc)
+        return None
+
+    def test_r2_01_the_full_shape_validates_and_when_words_is_optional(self):
+        self.assertIsNone(self._refused(self._cfg(self.FWN)))
+        no_words = {k: v for k, v in self.FWN.items() if k != "when_words"}
+        self.assertIsNone(self._refused(self._cfg(no_words)))
+
+    def test_r2_02_refused_by_name_every_bad_shape(self):
+        """NEGATIVE: each refusal names the key, so a typo cannot ship an inert rule."""
+        cases = [
+            ({}, "by_unit_class must be a non-empty object"),                                   # empty = mistake, never inert
+            ("yes", "must be an object"),
+            (dict(self.FWN, extra=1), "unknown key(s): extra"),
+            (dict(self.FWN, by_unit_class={}), "by_unit_class must be a non-empty object"),
+            (dict(self.FWN, by_unit_class={"count": "Nitrile Rubber Insulation"}), "unit class 'count', which unit_classes does not declare"),
+            (dict(self.FWN, by_unit_class={"length": "Not a family"}), "by_unit_class['length'] must name a priceable family"),
+            (dict(self.FWN, by_unit_class={"length": "none of these"}), "by_unit_class['length'] must name a priceable family"),
+            (dict(self.FWN, when_words=[]), "when_words, when present, must be a non-empty list"),
+            (dict(self.FWN, when_words=[{"unit_class": "area", "words": ["acoustic"]}]), "must carry exactly unit_class / words / family"),
+            (dict(self.FWN, when_words=[{"unit_class": "count", "words": ["acoustic"], "family": "Acoustic Nitrile Insulation"}]), "unit_class 'count' is not a declared unit class"),
+            (dict(self.FWN, when_words=[{"unit_class": "area", "words": [], "family": "Acoustic Nitrile Insulation"}]), "words must be a non-empty list of non-empty strings"),
+            (dict(self.FWN, when_words=[{"unit_class": "area", "words": [" "], "family": "Acoustic Nitrile Insulation"}]), "words must be a non-empty list of non-empty strings"),
+            (dict(self.FWN, when_words=[{"unit_class": "area", "words": ["acoustic"], "family": "Nope"}]), "family must name a priceable family"),
+            ({k: v for k, v in self.FWN.items() if k != "rule"}, "rule must be a non-empty string"),
+            (dict(self.FWN, rule="  "), "rule must be a non-empty string"),
+        ]
+        for fwn, needle in cases:
+            msg = self._refused(self._cfg(fwn))
+            self.assertIsNotNone(msg, f"accepted a bad family_when_none: {fwn!r}")
+            self.assertIn(needle, msg, f"{fwn!r} refused for the wrong reason: {msg}")
+
+    def test_r2_03_the_key_is_closed_and_the_current_asset_without_it_still_validates(self):
+        """NEGATIVE pin: the shipped CURRENT asset is accepted as it stands (the key is optional), and a
+        misspelling of the key is refused as an unknown pricing key -- the closed allowlist is what makes a
+        silently inert rule impossible."""
+        self.assertIsNone(self._refused(dict(copy.deepcopy(self.ins), discipline=self.asset["discipline"])))
+        c = copy.deepcopy(self.ins)
+        c["discipline"] = self.asset["discipline"]
+        c["list_spec"]["pricing"]["family_when_non"] = self.FWN
+        msg = self._refused(c)
+        self.assertIsNotNone(msg)
+        self.assertIn("unknown key(s): family_when_non", msg)

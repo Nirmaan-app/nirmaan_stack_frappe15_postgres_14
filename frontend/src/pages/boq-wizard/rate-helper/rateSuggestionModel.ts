@@ -39,11 +39,36 @@ export function rateKindsOf(rateDescriptors: ColumnDescriptor[]): string[] {
   return out;
 }
 
+/**
+ * SLICE 12d-1a (owner R2): the descriptions of a row's section headings, ROOT-FIRST, walked up the
+ * priced rows' `effective_parent_index` chain. PURE. A missing parent ends the walk; a cycle ends it
+ * too (the guard every other parent walk on this page carries). Nothing is read but descriptions --
+ * the heading TEXT is what the family rule's words are tested against.
+ */
+export function rowHeadings(row: PricedRow, rows: readonly PricedRow[]): string[] {
+  const byIndex = new Map<number, PricedRow>();
+  for (const r of rows) byIndex.set(r.row_index, r);
+  const out: string[] = [];
+  const seen = new Set<number>([row.row_index]);
+  let parent = row.effective_parent_index;
+  while (typeof parent === "number" && parent >= 0 && !seen.has(parent)) {
+    const p = byIndex.get(parent);
+    if (!p) break;
+    seen.add(parent);
+    out.push(p.description ?? "");
+    parent = p.effective_parent_index;
+  }
+  return out.reverse();
+}
+
 /** Build the helper row-context for one grid row from the page's data (no fetch). */
 export function buildRowContext(
   row: PricedRow,
   rateKinds: string[],
   category: SheetCategoryRow | undefined,
+  /** SLICE 12d-1a (owner R2): the sheet's priced rows, so the context can carry the row's headings.
+   * OPTIONAL -- every caller that omits it gets the context it always got. */
+  rows?: readonly PricedRow[],
 ): RateHelperRowContext {
   const cat = (category?.effective_category_id ?? "").trim();
   return {
@@ -55,6 +80,7 @@ export function buildRowContext(
     // keys only on category. The contract keeps `discipline` for U2's real helper.
     discipline: null,
     rateKinds,
+    ...(rows ? { headings: rowHeadings(row, rows) } : {}),
   };
 }
 

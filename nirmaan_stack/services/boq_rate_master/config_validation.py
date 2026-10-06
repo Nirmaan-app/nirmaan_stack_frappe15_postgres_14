@@ -290,7 +290,13 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  # SLICE 12c FINISH (owner FA8): one plain-English line per TYPED field saying what
                  # to enter. REQUIRED wherever `panel_controls` admits typing -- see
                  # `_validate_calculator_only`'s neighbour below.
-                 "panel_notes"}
+                 "panel_notes",
+                 # SLICE 12d-1a (owner R2): the family a row with NO material answer prices as, by
+                 # row kind -- unit class, then the declared words in the row or its headings.
+                 # Arrives WITH its shape check (`_validate_family_when_none`), as every key must.
+                 "family_when_none"}
+_PRICING_FWN_KEYS = {"by_unit_class", "when_words", "rule"}
+_PRICING_FWN_WORD_KEYS = {"unit_class", "words", "family"}
 # SLICE 12c FINISH (owner F1: "missing thickness -> 9 mm default"). `defaults` cannot express this --
 # it requires a CHOICE attribute carrying `allow_none`, and a thickness is a NUMBER read through
 # `numbers`. A separate key rather than a widening of `defaults`, because the two differ in what they
@@ -414,6 +420,48 @@ _PRICING_OVERRIDE_REQUIRED = {"attr", "families", "when", "then", "rule"}
 # `rate_ref` and not one `component`. Widening the set cannot change what it already validates.
 _PRICING_STEP_TYPES = {"match_master_row", "component_ref", "sum_components", "scale", "roundup",
                        "rate_ref", "component"}
+
+
+def _validate_family_when_none(fwn, ucls, fams):
+    """SLICE 12d-1a (owner R2) -- the shape of `list_spec.pricing.family_when_none`.
+
+    `by_unit_class` maps a declared unit class to the PRICEABLE family a silent row of that class
+    prices as; `when_words` (optional) lists, in order, {unit_class, words, family} rules that
+    replace it where one of the words appears in the row or its headings; `rule` says whose ruling
+    it is. The words are plain strings -- the frontend tests them as whole words, case-insensitive.
+    Refused by name: an empty map, a class the category does not declare, a family that is not
+    priceable (an alias, a no-SKU family, or unknown), an empty word list, a blank word."""
+    loc = "list_spec.pricing.family_when_none"
+    if not isinstance(fwn, dict):
+        _vthrow(f"{loc} must be an object.")
+    unk = set(fwn) - _PRICING_FWN_KEYS
+    if unk:
+        _vthrow(f"{loc}: unknown key(s): {', '.join(sorted(unk))}.")
+    buc = fwn.get("by_unit_class")
+    if not isinstance(buc, dict) or not buc:
+        _vthrow(f"{loc}.by_unit_class must be a non-empty object of unit class -> family.")
+    for cls_, fam in buc.items():
+        if cls_ not in ucls:
+            _vthrow(f"{loc}.by_unit_class names unit class '{cls_}', which unit_classes does not declare.")
+        if not isinstance(fam, str) or fam not in fams:
+            _vthrow(f"{loc}.by_unit_class['{cls_}'] must name a priceable family of this category.")
+    if "when_words" in fwn:
+        ww = fwn["when_words"]
+        if not isinstance(ww, list) or not ww:
+            _vthrow(f"{loc}.when_words, when present, must be a non-empty list.")
+        for i, w in enumerate(ww):
+            wloc = f"{loc}.when_words[{i}]"
+            if not isinstance(w, dict) or set(w) != _PRICING_FWN_WORD_KEYS:
+                _vthrow(f"{wloc} must carry exactly unit_class / words / family.")
+            if w["unit_class"] not in ucls:
+                _vthrow(f"{wloc}.unit_class '{w['unit_class']}' is not a declared unit class.")
+            if not isinstance(w["words"], list) or not w["words"] or not all(
+                    isinstance(x, str) and x.strip() for x in w["words"]):
+                _vthrow(f"{wloc}.words must be a non-empty list of non-empty strings.")
+            if not isinstance(w["family"], str) or w["family"] not in fams:
+                _vthrow(f"{wloc}.family must name a priceable family of this category.")
+    if not isinstance(fwn.get("rule"), str) or not fwn["rule"].strip():
+        _vthrow(f"{loc}.rule must be a non-empty string saying whose ruling it is.")
 
 
 def _validate_list_pricing(spec, by_id, family_vals, cfg):
@@ -791,6 +839,13 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     # they pass the item-list shape checks as well as the generic pipeline checks
     if cfg.get("pipelines"):
         _validate_pricing_pipelines(cfg.get("pipelines"), "list_spec.pricing (the config's own pipelines)", pr, sku_attrs)
+    # SLICE 12d-1a (owner R2): `family_when_none` -- the family a row with NO material answer prices
+    # as. Every name is checked in the namespace it reads from: a unit class is a `unit_classes`
+    # key, a family is a PRICEABLE family (neither an alias nor a no-SKU family), a word is a
+    # non-empty string. PRESENCE is tested before any `or` idiom: an empty object is a mistake,
+    # never an inert key (the `override_when: {}` lesson).
+    if "family_when_none" in pr:
+        _validate_family_when_none(pr["family_when_none"], ucls, fams)
     # defaults: applied only over a "None" answer, so only an allow_none choice may carry one
     dfl = pr.get("defaults") or {}
     if not isinstance(dfl, dict):

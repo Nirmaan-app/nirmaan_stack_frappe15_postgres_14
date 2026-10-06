@@ -1786,6 +1786,10 @@ export interface ItemBlockView {
   family: string | null;
   /** The family the model returned when it differs from the family that prices (the R3 alias note). */
   familyRaw: string | null;
+  /** SLICE 12d-1a (owner R2): the family came from the config's `family_when_none` -- the row named
+   * no material and its kind (unit, or a heading word) decided. Present ONLY on such a block, so every
+   * other block is byte-identical; the panel shows it amber with the rule, like every other default. */
+  familyDefaulted?: { value: string; rule: string };
   fields: ItemFieldView[];
   qty: string;
   /** SLICE 6c: the quantity shown is the ASSUMED 1 -- the pricer typed nothing -- so the panel marks it amber
@@ -2155,6 +2159,9 @@ function itemBlockView(
     source: edit.base !== null && edit.family === null ? "model" : "user",
     family,
     familyRaw: res.familyRaw !== null && res.familyRaw !== family ? res.familyRaw : null,
+    // SLICE 12d-1a (owner R2): the family was RULED, not read -- shown amber with its rule. A family
+    // the pricer picked themselves is theirs, exactly as a typed field is never marked as a default.
+    ...(res.familyDefaulted && edit.family === null ? { familyDefaulted: res.familyDefaulted } : {}),
     fields,
     // SLICE 6d: what the field shows -- the pricer's typed value, else the count the MODEL read, else code's 1
     qty: edit.qty ?? String(res.qty),
@@ -2286,7 +2293,14 @@ function computeItemList(
     for (const id of drop.keys()) delete attributes[id];
     return { ...a, attributes };
   });
-  const priced = priceItemList(spec, items, unit, forPricing);
+  /**
+   * SLICE 12d-1a (owner R2): the row's own text and its HEADINGS reach the pricer, so a silent
+   * material can be decided by the words the owner named ("acoustic", "lining") wherever they sit
+   * -- the row or a section heading above it. The page builds `headings` from the priced rows'
+   * parent chain; the calculator has none and the words simply never match there.
+   */
+  const rowText = [ctx.description ?? "", ...(ctx.headings ?? [])].join(" | ");
+  const priced = priceItemList(spec, items, unit, forPricing, rowText);
   const unitClass = priced.unitClass ?? unitClassOf(spec, unit);
   /**
    * CERT-FOUND 2026-10-04. A composition turns ONE user block into SEVERAL priced layers, so

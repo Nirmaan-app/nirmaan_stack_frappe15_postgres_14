@@ -3227,7 +3227,8 @@ const SheetPricingPage = () => {
     const rateKinds = rateKindsOf(columnDescriptors.filter(isRateDescriptor));
     // SLICE 6: the row's UNIT rides the context -- an item-list row prices per its unit (R12); every other
     // helper ignores it.
-    return { ...buildRowContext(row, rateKinds, liveCategoriesByExcelRow.get(helperPanel.excelRow)), unit: row.unit ?? "" };
+    // SLICE 12d-1a (owner R2): `rows` rides along so the context carries the row's section headings.
+    return { ...buildRowContext(row, rateKinds, liveCategoriesByExcelRow.get(helperPanel.excelRow), rows), unit: row.unit ?? "" };
   }, [helperPanel, rows, columnDescriptors, liveCategoriesByExcelRow]);
   // The panel is open only with the flag on, a scoped cell, and a resolvable row context.
   const helperPanelOpen = RATE_HELPER_ENABLED && helperPanel !== null && helperPanelCtx !== null;

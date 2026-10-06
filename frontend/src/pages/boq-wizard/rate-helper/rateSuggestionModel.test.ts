@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { ColumnDescriptor, PricedRow, SheetCategoryRow } from "../boqTypes";
 import {
   buildRowContext,
+  rowHeadings,
   buildSuggestions,
   markSuggestionUsed,
   rateKindOfDescriptor,
@@ -175,5 +176,34 @@ describe("rowSuggestionsEqual", () => {
     expect(rowSuggestionsEqual(a, { byCol: { E: { count: 1, used: true } } })).toBe(false);
     expect(rowSuggestionsEqual(a, { byCol: { E: { count: 2, used: false } } })).toBe(false);
     expect(rowSuggestionsEqual(a, { byCol: {} })).toBe(false);
+  });
+});
+
+// SLICE 12d-1a (owner R2): the row context carries the row's HEADINGS, root-first, from the priced rows'
+// parent chain -- and only when the page hands the rows over.
+describe("SLICE 12d-1a / R2 -- rowHeadings and the optional headings on buildRowContext", () => {
+  const r = (row_index: number, description: string, effective_parent_index: number | null): PricedRow =>
+    ({ row_index, source_row_number: row_index + 100, description, node_type: "Line Item", effective_parent_index }) as unknown as PricedRow;
+  const rows = [r(0, "INSULATION", null), r(1, "ACOUSTIC INSULATION", 0), r(2, "15mm thick for Ducts", 1), r(3, "orphan", 99)];
+
+  it("POSITIVE: the chain is walked up and returned ROOT-FIRST", () => {
+    expect(rowHeadings(rows[2], rows)).toEqual(["INSULATION", "ACOUSTIC INSULATION"]);
+    expect(rowHeadings(rows[1], rows)).toEqual(["INSULATION"]);
+    expect(rowHeadings(rows[0], rows)).toEqual([]);
+  });
+
+  it("NEGATIVE: a parent that is not among the rows ends the walk; a CYCLE ends it too", () => {
+    expect(rowHeadings(rows[3], rows)).toEqual([]);
+    const a = r(10, "A", 11);
+    const b = r(11, "B", 10);
+    expect(rowHeadings(a, [a, b])).toEqual(["B"]);
+  });
+
+  it("buildRowContext: headings ride ONLY when rows are handed over; without them the context is byte-identical to before", () => {
+    const withRows = buildRowContext(rows[2], ["supply_rate"], { effective_category_id: "hvac_insulation" } as SheetCategoryRow, rows);
+    expect(withRows.headings).toEqual(["INSULATION", "ACOUSTIC INSULATION"]);
+    const without = buildRowContext(rows[2], ["supply_rate"], { effective_category_id: "hvac_insulation" } as SheetCategoryRow);
+    expect("headings" in without).toBe(false);
+    expect(Object.keys(without).sort()).toEqual(["category", "description", "discipline", "excelRow", "nodeType", "rateKinds"]);
   });
 });

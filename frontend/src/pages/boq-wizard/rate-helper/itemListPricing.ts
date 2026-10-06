@@ -124,6 +124,31 @@ export interface DeriveWhenNone {
   rule: string;
 }
 
+/**
+ * SLICE 12d-1a (owner R2, 2026-10-07) -- THE FAMILY WHEN THE ROW NAMES NO MATERIAL.
+ *
+ * "Material not mentioned -> Nitrile, by row kind": the material named in the payload decides (the
+ * model's family answer, which implies pipe or sheet); otherwise the UNIT decides -- per metre is a
+ * pipe, per sq.m is a sheet -- and a sheet row is ACOUSTIC only where "acoustic" or "lining" appears
+ * in the row or its headings. Every word of that is CONFIG: the unit classes, the families they
+ * imply, the words and the family the words imply. No family, class or word is named in code.
+ *
+ * It is consumed ONLY when the family answer is ABSENT or "None" (a stated family -- including
+ * "none of these" -- is never overridden), and the family it supplies is MARKED as a default (the
+ * amber mechanism), so a pricer can see the row did not say it.
+ *
+ * ⚠️ THE WORDS ARE READ OFF THE ROW'S OWN TEXT AND ITS HEADINGS, which the PANEL supplies (the row
+ * context's `headings`, built from the priced rows' parent chain). The calculator has no row text
+ * and never needs this: a pricer picks the family there.
+ */
+export interface FamilyWhenNone {
+  /** unit class -> the family a silent row of that class prices as. */
+  by_unit_class: Record<string, string>;
+  /** Word rules, in order; the FIRST whose unit class matches and whose words appear wins. */
+  when_words?: Array<{ unit_class: string; words: string[]; family: string }>;
+  rule: string;
+}
+
 /** SLICE 8 (owner M-b): a stated fact that DECIDES the pick, whatever else the row said. Same shape as
  * `derive_when_none` and deliberately so -- the difference is WHEN it fires: that one only fills a value the
  * row left unsaid ("None"), this one REPLACES a value the row DID state. UL is the ruled case: a row that
@@ -182,6 +207,9 @@ export interface ItemListPricingSpec {
   no_sku_families?: string[];
   defaults?: Record<string, DefaultSpec>;
   derive_when_none?: DeriveWhenNone[];
+  /** SLICE 12d-1a (owner R2): the family a row with NO material answer prices as, by row kind.
+   * ABSENT => a missing family still refuses, exactly as before this slice. */
+  family_when_none?: FamilyWhenNone;
   /** SLICE 8 (owner M-b): the overrides, applied AFTER the defaults and `derive_when_none` so they win over
    * both. ABSENT => nothing overrides and every row is byte-identical to before this slice. */
   override_when?: OverrideWhen[];
@@ -375,6 +403,9 @@ export interface ItemPriceResult {
   familyRaw: string | null;
   /** The family that priced (after R3's alias). */
   family: string | null;
+  /** SLICE 12d-1a (owner R2): the family came from `family_when_none` -- the row named no material
+   * and the row kind decided. Present ONLY on such an item (the amber mechanism, like `defaulted`). */
+  familyDefaulted?: { value: string; rule: string };
   /** The SKU unit class the pipelines ran against (after any conversion). */
   skuUnitClass: string | null;
   state: "priced" | "blank";
@@ -875,6 +906,33 @@ function reasonFromPipeline(spec: ItemListPricingSpec, family: string, sel: Reco
   return `could not compute (${cond || label})`;
 }
 
+/**
+ * SLICE 12d-1a (owner R2). The family a row with NO material answer prices as, from the config's
+ * `family_when_none`, or null when the config declares none or the unit class is not one it names.
+ * PURE. The unit class picks the base family; then the FIRST word rule declared for that unit class
+ * whose words appear in the row text (its own description and its headings, case-insensitive, whole
+ * words) replaces it. The words are tested against the text the PANEL hands over; with no text only
+ * the unit class decides.
+ */
+export function familyWhenNone(
+  spec: ItemListPricingSpec,
+  rowUnitClass: string,
+  rowText: string,
+): { value: string; rule: string } | null {
+  const fwn = spec.family_when_none;
+  if (!fwn) return null;
+  let family = fwn.by_unit_class[rowUnitClass];
+  if (!family) return null;
+  const text = rowText.toLowerCase();
+  for (const w of fwn.when_words ?? []) {
+    if (w.unit_class !== rowUnitClass) continue;
+    // a WORD START: "acoustic" matches "acoustics" and "acoustical", never "subacoustic"
+    const hit = w.words.some((word) => new RegExp(`(^|[^a-z0-9])${word.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(text));
+    if (hit) { family = w.family; break; }
+  }
+  return { value: family, rule: fwn.rule };
+}
+
 function priceOneItem(
   spec: ItemListPricingSpec,
   projected: RateMasterItem[],
@@ -883,6 +941,9 @@ function priceOneItem(
   index: number,
   /** SLICE 11: the row unit's declared conversion, or null when it is a plain spelling of its class. */
   unitFactor: UnitFactor | null = null,
+  /** SLICE 12d-1a (owner R2): the row's own text and its headings, for `family_when_none`'s words.
+   * Absent (the calculator) => only the unit class can decide a silent row's family. */
+  rowText: string = "",
 ): ItemPriceResult {
   const out: ItemPriceResult = {
     index, familyRaw: null, family: null, skuUnitClass: null, state: "blank", selection: {}, readValues: {}, defaulted: [],
@@ -910,6 +971,15 @@ function priceOneItem(
   // (1) the family: absent = no ADP kind (R8); an alias prices as its target (R3); no SKU = blank (R18)
   const famRaw = rawValue(item, familyAttr(spec));
   out.familyRaw = famRaw === null ? null : String(famRaw);
+  // SLICE 12d-1a (owner R2): a row that names NO material prices as the family its ROW KIND implies --
+  // declared in config, marked as a default. ONLY over an absent / "None" answer; a stated family,
+  // "none of these" included, is never touched.
+  const ruled = out.familyRaw === null || out.familyRaw === "None"
+    ? familyWhenNone(spec, rowUnitClass, rowText) : null;
+  if (ruled) {
+    out.familyDefaulted = ruled;
+    out.familyRaw = ruled.value;
+  }
   if (out.familyRaw === null || out.familyRaw === "None") return blank("no ADP kind could be told for this item");
   const family = spec.family_alias?.[out.familyRaw] ?? out.familyRaw;
   out.family = family;
@@ -1248,6 +1318,9 @@ function priceOneItem(
   // SLICE 8 (M-b): the override is shown as its own working line, in the config's words, so a pricer can see
   // that the variant the row stated was set aside and why.
   out.working.push(...overridden);
+  // SLICE 12d-1a (owner R2): the family default is a working line like every other default, named by
+  // the family attribute, so a pricer reads WHY the row prices as this family beside the figure.
+  if (out.familyDefaulted) out.working.push(`${familyAttr(spec)} not mentioned -> ${out.familyDefaulted.value} (${out.familyDefaulted.rule})`);
   for (const d of out.defaulted) out.working.push(`${d.attr} not mentioned -> ${d.value} (${d.rule})`);
 
   // SLICE 6 (T4): the quantity per row unit -- the PRICER's typed value, which always wins over the count the
@@ -1322,6 +1395,9 @@ export function priceItemList(
   items: RateMasterItem[],
   rowUnit: string | null | undefined,
   extracted: ExtractedListItem[] | null | undefined,
+  /** SLICE 12d-1a (owner R2): the row's own text and its headings, joined -- read ONLY by
+   * `family_when_none`'s word rules. Absent => only the unit class can decide a silent family. */
+  rowText: string = "",
 ): RowPriceResult {
   const unit = rowUnit ?? "";
   let cls = unitClassOf(spec, unit);
@@ -1376,7 +1452,7 @@ export function priceItemList(
   const projected = projectUnitClass(spec, items);
   // SLICE 11: computed ONCE from the row's unit TEXT (the class alone cannot say which unit of it this is).
   const unitFactor = unitFactorOf(spec, unit);
-  let priced = extracted.map((it, i) => priceOneItem(spec, projected, cls, it, i, unitFactor));
+  let priced = extracted.map((it, i) => priceOneItem(spec, projected, cls, it, i, unitFactor, rowText));
   // SLICE 12c (owner Q8/Q9): an item whose stated size is above the top rung may be BUILT out of two or
   // more rungs. `priceOneItem` cannot do it alone -- one item cannot return several prices -- so it hands
   // back the layers it found and the expansion happens here, where a row has always been able to hold a
@@ -1396,7 +1472,7 @@ export function priceItemList(
         const outer = li === c.layers.length - 1;
         const attrs: ExtractedListItem["attributes"] = { ...src.attributes, [c.attr]: { value: layer } };
         if (oo && !outer) attrs[oo.attr] = { value: oo.value };
-        const one = priceOneItem(spec, projected, cls, { ...src, attributes: attrs }, expanded.length, unitFactor);
+        const one = priceOneItem(spec, projected, cls, { ...src, attributes: attrs }, expanded.length, unitFactor, rowText);
         if (li === 0) {
           const total = c.layers.reduce((a, b) => a + b, 0);
           const sign = c.delta >= 0 ? "+" : "";
