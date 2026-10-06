@@ -4,6 +4,7 @@ import {
   canEditQueueRow,
   canHoldQueueRow,
   canRevertQueueRow,
+  canUploadInvoiceRow,
   canWorkQueueRows,
   isHeldQueueRow,
   isPaidExpense,
@@ -102,6 +103,30 @@ describe("canHoldQueueRow — an Approved PO / WO payment, for the three settle 
   }
   it("reads a padded status", () => {
     expect(canHoldQueueRow(row("Project Payments", " Approved "), "Nirmaan Accountant Profile")).toBe(true);
+  });
+});
+
+describe("canUploadInvoiceRow — a Paid NON-PROJECT expense, for the three queue roles only", () => {
+  for (const role of QUEUE_EDIT_PROFILES) {
+    for (const ledger of LEDGERS) {
+      for (const status of STATUSES) {
+        // Never a Project Expense (owner, 2026-10-05), never a PO / WO payment.
+        const expected = ledger === "Non Project Expenses" && status === "Paid";
+        it(`${role} · ${ledger} · ${status}`, () => {
+          expect(canUploadInvoiceRow(row(ledger, status), role)).toBe(expected);
+        });
+      }
+    }
+  }
+  for (const role of OTHER_ROLES) {
+    it(`never for ${String(role)}`, () => {
+      for (const ledger of LEDGERS) {
+        expect(canUploadInvoiceRow(row(ledger, "Paid"), role)).toBe(false);
+      }
+    });
+  }
+  it("reads a padded status", () => {
+    expect(canUploadInvoiceRow(row("Non Project Expenses", " Paid "), "Nirmaan Admin Profile")).toBe(true);
   });
 });
 

@@ -346,7 +346,8 @@ export const PROJECT_INVOICES_ACCESS: readonly string[] = [
 ];
 
 /**
- * Reports > "Payment TDS Deduction" tab — the Tax Deducted at Source ledger.
+ * Reports > "Payment" tab — the Tax Deducted at Source ledger (report "TDS Deduction")
+ * and the "Cheque Payment" report, which also reads `Payment TDS Deduction`.
  * (It had its own sidebar item and `/payment-tds-deductions` route until it moved
  * into the Reports hub; that path is now a redirect into the tab.)
  *

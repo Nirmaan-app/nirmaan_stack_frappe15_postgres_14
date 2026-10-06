@@ -12,56 +12,44 @@ import { Button } from '@/components/ui/button';
 import { Save,Pencil } from 'lucide-react';
 import { formatToRoundedIndianRupee } from '@/utils/FormatPrice';
 import { AdvancedDateFilter, DateFilterValue } from './AdvancedDateFilter';
+import { formatDate } from '@/utils/FormatDate';
+import type { LedgerOpening } from '../utils/vendorLedgerStatement';
 
 
-// Define an interface for the props of the editable opening balance row
+// The opening balance row. Its figures are the editable Vendors balancing figures only
+// when it opens on 31-Mar-2025; with a date filter it carries the earlier rows too,
+// so the edit pencil is shown only on the base row.
 interface OpeningBalanceRowProps {
-      activeSubTab: 'poLedger' | 'invoicesLedger' | 'srLedger';
-      srAmountBalancing: number; // Add this new prop
-
-    poAmount: number;
-    invoiceAmount: number;
-    paymentAmount: number;
-    calculatedBalance: number;
+    opening: LedgerOpening;
     onEdit: () => void;
     isSaving: boolean;
 }
 
-const OpeningBalanceRow: React.FC<OpeningBalanceRowProps> = ({ activeTab, poAmount,srAmount, invoiceAmount, paymentAmount, calculatedBalance, onEdit, isSaving }) => {
-
-    const openingAmount = useMemo(() => {
-        switch (activeTab) {
-            case 'poLedger': return poAmount;
-            case 'srLedger': return srAmount; // Add this case
-            case 'invoicesLedger': return invoiceAmount;
-        }
-    }, [activeTab, poAmount, srAmount, invoiceAmount]);
-
-   
-       return (
+const OpeningBalanceRow: React.FC<OpeningBalanceRowProps> = ({ opening, onEdit, isSaving }) => (
         <TableRow className="bg-gray-100 hover:bg-gray-100 sticky top-[0px] z-10">
             <TableCell colSpan={4} className="px-2 py-2 font-semibold text-gray-700 text-right">
-                Opening Balance (as on 31st March 2025)
+                Opening Balance (as on {formatDate(new Date(`${opening.asOn}T00:00:00`))})
             </TableCell>
             <TableCell className="px-2 py-2 text-right font-mono font-semibold">
-                {formatToRoundedIndianRupee(openingAmount)}
+                {formatToRoundedIndianRupee(opening.invoice)}
             </TableCell>
             <TableCell className="px-2 py-2 text-right font-mono font-semibold">
-                {formatToRoundedIndianRupee(paymentAmount)}
+                {formatToRoundedIndianRupee(opening.payment)}
             </TableCell>
             <TableCell className="px-2 py-2 text-right">
                 <div className="flex items-center justify-end gap-2">
                     <span className="font-mono font-semibold w-32 text-right">
-                        {formatToRoundedIndianRupee(calculatedBalance)}
+                        {formatToRoundedIndianRupee(opening.balance)}
                     </span>
-                    <Button size="icon" onClick={onEdit} disabled={isSaving} className="h-8 w-8 flex-shrink-0">
-                        <Pencil className="h-4 w-4" />
-                    </Button>
+                    {opening.isBase && (
+                        <Button size="icon" onClick={onEdit} disabled={isSaving} className="h-8 w-8 flex-shrink-0">
+                            <Pencil className="h-4 w-4" />
+                        </Button>
+                    )}
                 </div>
             </TableCell>
         </TableRow>
-    );
-}
+);
 
 
 
@@ -71,11 +59,7 @@ interface VirtualizedLedgerTableProps {
   projectOptions: { label: string; value: string }[];
   projectFilter: Set<string>;
   onSetProjectFilter: (selected: Set<string>) => void;
-  // New props for balancing figures
-  openingBalance: number;
-  poAmountBalancing: number;
-  invoiceBalancing: number;
-  paymentBalancing: number;
+  opening: LedgerOpening;
   onEditBalancing: () => void; // Function to open the dialog
   isSavingBalance: boolean;
   totals: { amount: number; payment: number; };
@@ -92,12 +76,7 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
     projectOptions, 
     projectFilter, 
     onSetProjectFilter, 
-    // Destructure new props
-    openingBalance,
-    srAmountBalancing,
-    poAmountBalancing,
-    invoiceBalancing,
-    paymentBalancing,
+    opening,
     onEditBalancing,
     isSavingBalance, 
     totals, 
@@ -154,13 +133,8 @@ export const VirtualizedLedgerTable: React.FC<VirtualizedLedgerTableProps> = (pr
             <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">Payments</TableHead>
             <TableHead className="px-2 py-1 text-right min-w-[120px] font-semibold">Balance Payable</TableHead>
           </TableRow>
-                   <OpeningBalanceRow 
-            activeTab={activeSubTab}
-            poAmount={poAmountBalancing}
-            srAmount={srAmountBalancing}
-            invoiceAmount={invoiceBalancing}
-            paymentAmount={paymentBalancing}
-            calculatedBalance={openingBalance}
+          <OpeningBalanceRow
+            opening={opening}
             onEdit={onEditBalancing}
             isSaving={isSavingBalance}
           />

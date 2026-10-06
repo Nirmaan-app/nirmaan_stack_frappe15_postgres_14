@@ -608,7 +608,7 @@ export const appRoutes: RouteObject[] = [
             ]
           },
           // --- Payment TDS Deduction (Tax Deducted at Source) ---
-          // The ledger MOVED into the Reports hub (Reports > "Payment TDS Deduction" tab), so this
+          // The ledger MOVED into the Reports hub (Reports > "Payment" tab), so this
           // legacy path is now a redirect -- old links and bookmarks still land on the ledger.
           // No RoleRoute: the tab itself is gated by PAYMENT_TDS_ACCESS inside ReportsContainer,
           // and a guard here would only decide who gets bounced vs who sees "Access Denied".
