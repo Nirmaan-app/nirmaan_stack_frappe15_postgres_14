@@ -377,6 +377,10 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_inflow",
         ],
     },
+    "Material Test Certificate": {
+        "validate": "nirmaan_stack.integrations.controllers.material_test_certificate.validate",
+        "on_trash": "nirmaan_stack.integrations.controllers.material_test_certificate.on_trash",
+    },
     "PO Delivery Documents": {
         "validate": "nirmaan_stack.integrations.controllers.po_delivery_documents.validate",
         "after_insert": "nirmaan_stack.services.action_items.doc_hooks.on_pdd_insert",
