@@ -27,6 +27,9 @@ are the guard — if a last-run date is old, assume the rig needs checking befor
 | `foldsearch.py` | finds further folds by signature | **12b(A), 2026-09-27** |
 | `valsweep.py` | runs the config validator over **every asset on disk** | **12b(A), 2026-09-27** |
 | `hvac_v1_attrs_for.py` | **PROVENANCE ONLY — NEVER RUN** | never; it is not an instrument |
+| `audit12d3_build_rows.py` | 12d-3 Insulation audit, stage 1-3 capture: joins the capture log, the run doc, the node unit, hand rates and the gate per extracted row (container, read-only) | **12d-3, 2026-10-08** — 466 rows, 92 sheets |
+| `audit12d3_pricing.ts` | 12d-3 stage 4-5: every captured row through the 12c-P `runParity` driver (BOTH real paths), per-row fields / rules / figures / divergence cause; esbuild-bundled in-container (recipe in its header) | **12d-3, 2026-10-08** — 466 rows, 36 divergences, 0 errors |
+| `audit12d3_analyse.py` | 12d-3 analysis: the automatic reading + rule checks, the stratified 60-row hand-review dump, the second-opinion merge, the Excel (host; openpyxl) | **12d-3, 2026-10-08** — `2026-10-10_12d3_Audit_Rows.xlsx` |
 
 ---
 

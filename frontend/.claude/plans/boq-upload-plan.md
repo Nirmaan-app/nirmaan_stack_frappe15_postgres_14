@@ -44837,3 +44837,80 @@ suites (documented in `vitest.config.ts`) and passes 7/7 alone; `test_rate_maste
 root `CLAUDE.md` (the durable rule replaces the "LIVE FINDING, NOT FIXED" paragraph), this file.
 
 ---
+
+## Slice 12d-3 — THE PAID AUDIT: EVERY CURRENT INSULATION ROW, STAGE BY STAGE (2026-10-07/08) — DELIVERED (evidence only)
+
+RUN + ANALYSIS slice. One chore commit (the audit instrument in `scripts/_instruments/` + this record), NOT pushed. **NO product, test, config,
+asset or schema change.** Owner-approved spend: 558 calls (92 batch + 466 second-opinion), 1,823,173 input / 96,544 output tokens, 28 min.
+Full record on the Desktop: `2026-10-10_12d3_Audit_Report.md`, `_Ledger.md`, `_Audit_Rows.xlsx` (466 rows x 70 columns), `_Audit_Analysis_auto.md`,
+`2026-10-10_12d3_Screens/01..09`.
+
+### The route, proved (step 1, no spend)
+
+The audit route is `rate_master._suggest_worker(only_rows=<the sheet's Insulation rows>)` -- the same function the "Suggest rates" button enqueues.
+`run_extraction(only_rows)` vs the whole-sheet route, both on a fake client replaying the 12d-2 replies: batch AND second-opinion bodies byte-identical
+on both sampled sheets; with the v29 `list_spec` in memory the bodies equal the 12d-2 capture log's `prompt` byte for byte; under the live v30 config
+the one differing region is the GSS sentence (12d-2F F3). ⚠️ The capture log holds no second-opinion request body (only verdicts and usage).
+⚠️ **A selected-row pass on a never-extracted sheet is REFUSED by `start_suggest`** ("Nothing to carry forward"); through the worker it writes a
+PARTIAL run (active=0, `scope_rows` []) and the sheet's pricing page then shows the SR-1 "Resume run" strip, whose button would extract the OTHER
+categories. 83 of the 92 sheets ended that way (75 never-extracted + 8 whose prior complete run predates population growth); 9 completed and became
+the active run (the 4 all-Insulation sheets + 5 with a covering prior run). Disclosed before the spend; the owner decides what to do with them (D14).
+
+### The population (step 2, a premise correction)
+
+The recon's 679 is the CATEGORY-ROW count (684 current `hvac_insulation` rows). **The audit population -- what the button extracts
+(`assemble_population`: rate-editable + eligible config) -- is 466 rows on 92 sheets of 73 BoQs.** 19 sheets (125 rows) are not reachable by the
+button today (locked / formulas undeclared / category gate shut) and were audited anyway, flagged per row.
+
+### What the audit found (section 2 of the Report has the numbers; nothing fixed here -- the freeze rule)
+
+- **Coverage** 347 priced / 119 refused (74.5 %). Refusals: 41 pipes above 53.98 mm (R9), 31 named unstocked materials, **15 Acoustic Nitrile + GI
+  framework (UNSTOCKED -- the commonest AHU-room spec, D1)**, 6 odd units, 5 "- 2 Layers" spellings the layers reader does not accept (D4), 4 Thermal +
+  glass cloth, the rest singletons.
+- **The model's reading** (automatic over 466 + 60 hand-reviewed): hand error rates WRONG / WRONG+ARGUABLE -- item 10.0 % / 16.7 %, cladding 1.7 % / 15.0 %,
+  thickness 3.3 % / 10.0 %, pipe size 0 / 0. The 6 wrong materials: 4 INVENTED on 00140's cassette rows (the thickness preamble is a SIBLING LINE, not a
+  parent, so it never reached the payload and the model leaked a material from a batch neighbour -- 4 rows priced on the 13 mm default, D6), a plenum as
+  PUF, EPDM as nitrile (D7). S3: the row's own thickness was used on 346 of 347 rows that state one (the miss: a 3 mm barrier mat read as the thickness).
+  **The "None" vs left-out distinction is unstable** (D3): 10 priced rows carry a named cladding the model called "None"; the 12d-2 row 00169#292 flipped
+  absent -> "None" and went from refused to priced 1371/154 -- the only outcome change among the 25 repeated rows (24 identical).
+- **The rules: 0 violations over 466 rows** -- defaults only on "None"/absent and amber; every ladder hop on a stocked size; 41 compositions within +-2 mm,
+  <= 2 layers, closest then cheapest; R4 only on pipe families; T2 highest; the unit rule as ruled. ⚠️ The compositions are RIGHT per config and 30 % above
+  the hand corpus on acoustic rows (25 -> 9 + 15 = 2330 vs hand 1770; 20 -> 9 + 9) -- a ruling question (D2), not a code defect.
+- **The second opinion**: 61 disagree / 405 agree; judged one by one: **40 right (23 on priced rows = wrong prices caught), 6 noise, 15 arguable**; blind to
+  the 3 invented-material rows. The v30 GSS sentence removed the 289/290 flags; #293 is flagged on a new ground and the same text on 00075#251 now READS as
+  26G Aluminium (D13). Cost 64 % of the input tokens (D12).
+- **Calculator = panel**: 430 of 466 rows 0 divergence; 36 diverge -- 20 the owner-accepted row-290 class (unstocked combination, both refuse), 8 unit class
+  (the calculator was fed a unit the row lacks), 5 input-surface sentence-only pairs, 3 the T6-ruled typed layers. **No divergence has differing figures on
+  both sides.**
+- **Hand-priced (indicative)**: 119 comparable supply rates, median |diff| 107, panel higher on 105 -- the compositions, hand rates on another basis, and
+  the D9 wrong-cladding rows.
+
+### Decisions owed to the owner (D1-D14, in the Report § 2)
+
+D1 Acoustic + GI framework SKU; D2 compositions on sheet families vs stocking 25 mm acoustic; D3 "None" vs unmappable -> route to review when the row
+names a cladding; D4 `readLayers` "- 2 Layers" form; D5 "65 mm + 32 mm" = pipe + thickness?; D6 sibling preamble / batch leakage; D7 EPDM;
+D8 32 kg vs 48 kg fibre glass; D9 coating-over-glass-cloth claddings; D10 `QRO - Sqm.`; D11 refusal order on no-unit rows; D12 second opinion ON/OFF;
+D13 perforated sheet without a named frame; D14 the 83 partial runs.
+
+### Instruments (committed, `scripts/_instruments/`, hand-run, not CI)
+
+`audit12d3_build_rows.py` (container; joins capture log + run doc + nodes + hand rates + gate per row; ids are `BoQ|sheet#row` -- 7 `(BoQ, row)` pairs
+repeat across sheets), `audit12d3_pricing.ts` (esbuild-bundled in-container; every row through the 12c-P `runParity` on both real paths),
+`audit12d3_analyse.py` (host; the automatic checks, the stratified hand-review dump, the second-opinion merge, the Excel). The runner / proof / digest /
+cost drivers were session scratch (`/tmp/a12d3/`), described in the Ledger.
+
+### Cert
+
+De-stale by PID (31 PIDs on TERM, ports free, 203 pycache purged, caches, `.vite`), bench ping after 243 s THEN vite (18 s); PROOF 1 code strings on the
+served transforms; PROOF 2 runtime imports (incl. `readLayers('25 mm thick - 2 Layers') -> null`, D4 on the served code). Five audited rows SEEN exactly
+as the audit recorded (00137 r39 615/224; 00164 r136 2330/308 composed 9+15; 00169 r291 1371/154 with the amber R1 default; 00156 r43 408/224 with the
+amber T1 default; 00137 r32 refused R9); the calculator gave 615/224/839 and 2330/308/2638 for the same inputs; ADP r82 1160/352/1512 and Electrical
+r94 19630/3930 unchanged; every digest identical except runs 98 -> 190. ⚠️ `{{ boot }}` is in `frontend/index.html` itself and is served raw at :8080 in
+every dev session -- it is not the out-of-order failure the runbook warns about.
+
+### What 12d-4 inherits
+
+The 14 decisions above; the Set-3-style rule that every finding here is from PRODUCTION-shaped runs (whole corpus, production batch size, second
+opinion ON); the audit instrument, re-runnable against the next asset to measure any fix on the same 466 rows without re-reading the corpus by hand.
+
+---
