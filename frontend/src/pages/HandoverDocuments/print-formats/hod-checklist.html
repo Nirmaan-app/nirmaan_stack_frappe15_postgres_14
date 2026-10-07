@@ -109,14 +109,21 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
    the seal goes in, with no rule above them and none between them -- three labels in open space, not
    a table of three cells. It closes the box with the bottom rule. */
 .hc-foot { position: absolute; left: 0; right: 0; bottom: 0; border-bottom: 1px solid #000; padding-bottom: 10px; }
-/* The company seal, bottom-left of the band and above the names -- where it sits on the original.
+/* The company seal, above the names -- where it sits on the original.
    `/assets/.../frontend/nirmaan-seal-sign.png` is a `public/` file, copied verbatim by Vite, so unlike
    the bundled logo its url carries NO build hash and cannot 404 after a rebuild. It is the same file
    the Commission Report prints; note that format makes it OPT-IN, since a seal is a signature. */
+/* The seal goes over Nirmaan's name: `.hc-seal-slot` is ONE column wide and offset by whole columns
+   (inline `width` / `margin-left` percentages), and the names below are equal columns of that same
+   width. A fixed 66px padding lined up with NIRMAAN only at three names and drifted off it at one, two,
+   four, five or six. It stays a plain BLOCK above the names table: made a table (or a first row of
+   theirs), the space wkhtmltopdf sometimes opens inside this pinned band landed between the seal and
+   the names -- measured. */
 /* The seal is sized so the WHOLE band still clears the Comments box on the fullest sheet there is --
    all 16 documents AND a location that wraps to two lines, which leaves only ~36mm under the box.
    Grow it and the seal prints through that rule. */
-.hc-seal-mark { text-align: left; padding-left: 66px; margin-bottom: 10px; }
+.hc-seal-mark { margin-bottom: 10px; }
+.hc-seal-slot { text-align: center; }
 .hc-seal-mark img { height: 88px; }
 .hc-signnames { width: 100%; table-layout: fixed; border-collapse: collapse; }
 .hc-signnames td, .print-format .hc-signnames td {
@@ -293,10 +300,16 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 
 {#- The tall blank the company seal goes in, with the parties named along its foot, pinned to the
     bottom of the sheet: the page's slack falls between the Comments box and this band, so the
-    signatures sit at the foot whether the system has 12 documents or 16. -#}
+    signatures sit at the foot whether the system has 12 documents or 16. The seal goes over Nirmaan's
+    name (`mep_contractor`); with Nirmaan unpicked, or no logos at all, over the first name. -#}
+{%- set roles = signers | map(attribute="role") | list -%}
+{%- set seal_at = roles.index("mep_contractor") if "mep_contractor" in roles else 0 -%}
+{%- set cols = signers | length if signers else 3 -%}
 <div class="hc-foot">
     <div class="hc-seal-mark">
-        <img src="{{ frappe.utils.get_url('/assets/nirmaan_stack/frontend/nirmaan-seal-sign.png') }}" alt="">
+        <div class="hc-seal-slot" style="width: {{ "%.4f"|format(100.0 / cols) }}%; margin-left: {{ "%.4f"|format(100.0 * seal_at / cols) }}%;">
+            <img src="{{ frappe.utils.get_url('/assets/nirmaan_stack/frontend/nirmaan-seal-sign.png') }}" alt="">
+        </div>
     </div>
     <table class="hc-signnames"><tr>
     {%- if signers -%}
