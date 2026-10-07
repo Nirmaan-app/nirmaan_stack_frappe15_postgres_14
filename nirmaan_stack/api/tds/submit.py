@@ -39,6 +39,14 @@ ROW_DOCTYPE = "Project TDS Item List"
 GROUP_DOCTYPE = "TDS Items"
 ENTRY_DOCTYPE = "TDS Repository"
 
+# Stored `tds_status` of a waiting row. The frontend derives Request Type and the History status
+# from these (`frontend/src/utils/tdsRequestRules.ts`, pinned by its parity test).
+STATUS_PENDING = "Pending"
+STATUS_NEW_MAKE = "New"  # approval adds a Repository Entry
+# Project-only id prefix of a Project Custom Item (minted in `allocate_pcus.py`). Read by the same
+# frontend rules.
+PROJECT_CUSTOM_ID_PREFIX = "PCUS-"
+
 # Mirrors `canRequestNew` in `TdsCreateForm.tsx`, which only decides whether "Request New" shows.
 REQUEST_NEW_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE)
 
@@ -187,7 +195,7 @@ def _plan_row(r, user, claimed_files):
 
 	if r["is_new_request"]:
 		plan.update(
-			tds_status="New",
+			tds_status=STATUS_NEW_MAKE,
 			tds_description=r["description"],
 			tds_attachment=r["tds_attachment"],
 			upload=_claim_upload(r["tds_attachment"], user, item_name, r["make"], claimed_files),
@@ -202,7 +210,7 @@ def _plan_row(r, user, claimed_files):
 					item_name, r["make"]
 				)
 			)
-		plan.update(tds_status="Pending", tds_description="", tds_attachment=entry.tds_attachment, upload=None)
+		plan.update(tds_status=STATUS_PENDING, tds_description="", tds_attachment=entry.tds_attachment, upload=None)
 
 	return plan
 

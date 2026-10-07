@@ -1,5 +1,7 @@
 import frappe
 
+from nirmaan_stack.api.tds.submit import PROJECT_CUSTOM_ID_PREFIX
+
 
 @frappe.whitelist()
 def allocate_pcus_ids(project_id: str, count: int):
@@ -37,8 +39,8 @@ def allocate_pcus_ids(project_id: str, count: int):
 	last_num = 0
 	if row and row[0].get("tds_item_id"):
 		try:
-			last_num = int(row[0]["tds_item_id"].replace("PCUS-", ""))
+			last_num = int(row[0]["tds_item_id"].replace(PROJECT_CUSTOM_ID_PREFIX, ""))
 		except ValueError:
 			last_num = 0
 
-	return [f"PCUS-{str(last_num + i + 1).zfill(6)}" for i in range(count)]
+	return [f"{PROJECT_CUSTOM_ID_PREFIX}{str(last_num + i + 1).zfill(6)}" for i in range(count)]

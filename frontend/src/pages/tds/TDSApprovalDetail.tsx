@@ -43,6 +43,17 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+    ITEM_STATUSES,
+    REQUEST_TYPES,
+    entryAddedSinceRequest,
+    itemStatusOf,
+    repositoryEntryKey,
+    requestTypeOf,
+    type ItemStatus,
+    type RepositoryEntryState,
+    type RequestType,
+} from "@/utils/tdsRequestRules";
 
 interface TDSItem {
     name: string;
@@ -103,47 +114,41 @@ const MakePill = ({ make }: { make: string }) => (
     </span>
 );
 
-// Unified Item Status used by the Pending Review table column. Each request
-// row maps to exactly one of these; derivation order is fixed.
-type ItemStatusKind = "Custom Item" | "New Item" | "Verified" | "Not Verified";
-
-const ITEM_STATUS_KINDS: ItemStatusKind[] = ["Custom Item", "New Item", "Verified", "Not Verified"];
-
-const ITEM_STATUS_STYLES: Record<ItemStatusKind, { badge: string; text: string }> = {
-    "Custom Item":  { badge: "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20",   text: "text-amber-800" },
-    "New Item":     { badge: "bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/20",         text: "text-sky-800" },
-    "Verified":     { badge: "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20", text: "text-emerald-800" },
-    "Not Verified": { badge: "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/20",      text: "text-rose-800" },
+// Pending Review badges. The rules that pick the value live in `utils/tdsRequestRules`.
+const REQUEST_TYPE_STYLES: Record<RequestType, string> = {
+    "From Repository": "bg-slate-100 text-slate-700",
+    "New Make":        "bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/20",
+    "Project Custom":  "bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-600/20",
 };
 
-// Item-status badge derivation (Phase 2, group model). Keyed on
-// (tds_item_id, tds_make) where tds_item_id is the frozen TDS Item (group) id.
-//   - "Custom Item"  → a "New" request proposing a BRAND-NEW group (no group id yet).
-//   - "New Item"     → a "New" request against an EXISTING group (group id set) —
-//                      typically a make missing a Repository Entry / datasheet.
-//   - "Verified"     → picked row whose master (tds_item, make) entry is Verified.
-//   - "Not Verified" → picked row with no Verified master entry for (tds_item, make).
-const repoKey = (tdsItemId?: string, make?: string) =>
-    `${tdsItemId || ""}|${(make || "").trim().toLowerCase()}`;
-
-const getItemStatusKind = (
-    item: { tds_status?: string; tds_item_id?: string; tds_make?: string },
-    repoStatusByKey: Map<string, string>
-): ItemStatusKind => {
-    if (item.tds_status === "New" && !item.tds_item_id) return "Custom Item";
-    if (item.tds_status === "New") return "New Item";
-    return repoStatusByKey.get(repoKey(item.tds_item_id, item.tds_make)) === "Verified"
-        ? "Verified"
-        : "Not Verified";
+const ITEM_STATUS_STYLES: Record<Exclude<ItemStatus, "--">, string> = {
+    "Verified":     "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20",
+    "Not Verified": "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/20",
 };
 
-const ItemStatusBadge: React.FC<{ kind: ItemStatusKind }> = ({ kind }) => (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-tight ${ITEM_STATUS_STYLES[kind].badge}`}>
-        {kind}
+const RequestTypeBadge: React.FC<{ type: RequestType }> = ({ type }) => (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap ${REQUEST_TYPE_STYLES[type]}`}>
+        {type}
     </span>
 );
 
+const ItemStatusCell: React.FC<{ status: ItemStatus; addedSinceRequest: boolean }> = ({ status, addedSinceRequest }) => (
+    <div>
+        {status === "--" ? (
+            <span className="text-slate-400">--</span>
+        ) : (
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-tight ${ITEM_STATUS_STYLES[status]}`}>
+                {status}
+            </span>
+        )}
+        {addedSinceRequest && (
+            <span className="block text-[10px] text-sky-700 mt-0.5">entry added since request</span>
+        )}
+    </div>
+);
 
+const toFacetOptions = <T extends string>(all: readonly T[], present: Set<T>) =>
+    all.filter(v => present.has(v)).map(v => ({ label: v, value: v }));
 
 // Section Table Component
 const ItemsTable = ({
@@ -503,12 +508,8 @@ export const TDSApprovalDetail: React.FC = () => {
         limit: 0
     });
 
-    // TDS Repository (Phase 2 group shape: entries are (tds_item Link, make)).
-    // Used only to render the inline master "Verified" / "Not Verified" badge on
-    // picked rows. The OLD removed columns (tds_item_id/tds_item_name/category)
-    // are gone; we request only the current shape so get_list never throws. The
-    // approval/promotion writes are done server-side (api/tds/approve.py), so this
-    // fetch is read-only for badge derivation.
+    // TDS Repository entries (Phase 2 group shape: (tds_item Link, make)), read only to derive each
+    // Pending Review row's Item Status. Approval writes happen server-side (api/tds/approve.py).
     type RepoEntry = {
         name: string;
         tds_item: string;
@@ -520,18 +521,13 @@ export const TDSApprovalDetail: React.FC = () => {
         limit: 0,
     });
 
-    // Lookup of TDS Repository status keyed on (tds_item|make) — the entry's
-    // uniqueness key. Used by the Pending Review row to render the master's
-    // "Verified" / "Not Verified" badge inline. Keyed identically to repoKey().
-    const repoStatusByKey = useMemo(() => {
-        const map = new Map<string, string>();
-        if (!repoEntries) return map;
-        repoEntries.forEach(r => {
-            const key = repoKey(r.tds_item, r.make);
-            if (r.status) map.set(key, r.status);
-        });
+    const repoEntryByKey = useMemo(() => {
+        const map = new Map<string, RepositoryEntryState>();
+        repoEntries?.forEach(r => map.set(repositoryEntryKey(r.tds_item, r.make), r));
         return map;
     }, [repoEntries]);
+
+    const entryFor = (item: TDSItem) => repoEntryByKey.get(repositoryEntryKey(item.tds_item_id, item.tds_make));
 
     // CEO Hold guard - use project ID from first TDS item
     const projectId = allItems?.[0]?.tdsi_project_id;
@@ -553,6 +549,7 @@ export const TDSApprovalDetail: React.FC = () => {
     const [selectedMakes, setSelectedMakes] = useState<string[]>([]);
     const [selectedItemNames, setSelectedItemNames] = useState<string[]>([]);
     const [selectedItemStatuses, setSelectedItemStatuses] = useState<string[]>([]);
+    const [selectedRequestTypes, setSelectedRequestTypes] = useState<string[]>([]);
     const [searchText, setSearchText] = useState("");
 
     // Facet options derived from the full item set (not the filtered set),
@@ -569,7 +566,8 @@ export const TDSApprovalDetail: React.FC = () => {
         const catPending = new Set<string>(), catApproved = new Set<string>(), catRejected = new Set<string>();
         const mkPending = new Set<string>(), mkApproved = new Set<string>(), mkRejected = new Set<string>();
         const itemNamePending = new Set<string>(), itemNameApproved = new Set<string>(), itemNameRejected = new Set<string>();
-        const presentItemStatus = new Set<ItemStatusKind>();
+        const presentItemStatus = new Set<ItemStatus>();
+        const presentRequestType = new Set<RequestType>();
         (allItems || []).forEach(i => {
             if (i.tds_work_package) wp.add(i.tds_work_package);
             if (i.tds_category) cat.add(i.tds_category);
@@ -580,7 +578,8 @@ export const TDSApprovalDetail: React.FC = () => {
                 if (i.tds_category) catPending.add(i.tds_category);
                 if (i.tds_make) mkPending.add(i.tds_make);
                 if (i.tds_item_name) itemNamePending.add(i.tds_item_name);
-                presentItemStatus.add(getItemStatusKind(i as any, repoStatusByKey));
+                presentItemStatus.add(itemStatusOf(i, entryFor(i)));
+                presentRequestType.add(requestTypeOf(i));
             } else if (i.tds_status === "Approved") {
                 if (i.tds_work_package) wpApproved.add(i.tds_work_package);
                 if (i.tds_category) catApproved.add(i.tds_category);
@@ -611,9 +610,10 @@ export const TDSApprovalDetail: React.FC = () => {
             itemNamePending: toOpt(itemNamePending),
             itemNameApproved: toOpt(itemNameApproved),
             itemNameRejected: toOpt(itemNameRejected),
-            itemStatus: ITEM_STATUS_KINDS.filter(k => presentItemStatus.has(k)).map(k => ({ label: k, value: k })),
+            itemStatus: toFacetOptions(ITEM_STATUSES, presentItemStatus),
+            requestType: toFacetOptions(REQUEST_TYPES, presentRequestType),
         };
-    }, [allItems, repoStatusByKey]);
+    }, [allItems, repoEntryByKey]);
 
     // Filters shared across Pending / Approved / Rejected (WP / Category / Make / Item Name / search).
     const matchesFilters = (item: TDSItem) => {
@@ -629,10 +629,11 @@ export const TDSApprovalDetail: React.FC = () => {
         return true;
     };
 
-    // Pending-only facets — Item Status column lives only on the Pending Review
-    // table, so it must not be applied to Approved/Rejected in the All view.
+    // Pending-only facets — Request Type and Item Status live only on the Pending Review
+    // table, so they must not be applied to Approved/Rejected in the All view.
     const matchesPendingFacets = (item: TDSItem) => {
-        if (selectedItemStatuses.length && !selectedItemStatuses.includes(getItemStatusKind(item as any, repoStatusByKey))) return false;
+        if (selectedItemStatuses.length && !selectedItemStatuses.includes(itemStatusOf(item, entryFor(item)))) return false;
+        if (selectedRequestTypes.length && !selectedRequestTypes.includes(requestTypeOf(item))) return false;
         return true;
     };
 
@@ -642,6 +643,7 @@ export const TDSApprovalDetail: React.FC = () => {
         selectedMakes.length > 0 ||
         selectedItemNames.length > 0 ||
         selectedItemStatuses.length > 0 ||
+        selectedRequestTypes.length > 0 ||
         searchText.trim().length > 0;
 
     const clearAllFilters = () => {
@@ -650,6 +652,7 @@ export const TDSApprovalDetail: React.FC = () => {
         setSelectedMakes([]);
         setSelectedItemNames([]);
         setSelectedItemStatuses([]);
+        setSelectedRequestTypes([]);
         setSearchText("");
     };
 
@@ -671,7 +674,7 @@ export const TDSApprovalDetail: React.FC = () => {
     // Filtered splits — what the UI renders
     const pendingItems = useMemo(() =>
         allPendingItems.filter(i => matchesFilters(i) && matchesPendingFacets(i)),
-        [allPendingItems, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames, selectedItemStatuses, searchText, repoStatusByKey]);
+        [allPendingItems, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames, selectedItemStatuses, selectedRequestTypes, searchText, repoEntryByKey]);
 
     const approvedItems = useMemo(() =>
         allApprovedItems.filter(matchesFilters),
@@ -852,15 +855,25 @@ export const TDSApprovalDetail: React.FC = () => {
                         onChange={setSelectedItemNames}
                     />
                 ),
-                cell: ({ row }) => {
-                    const kind = getItemStatusKind(row.original as any, repoStatusByKey);
-                    return (
-                        <span className={`whitespace-normal break-words font-medium ${ITEM_STATUS_STYLES[kind].text}`}>
-                            {row.getValue("tds_item_name")}
-                        </span>
-                    );
-                },
+                cell: ({ row }) => (
+                    <span className="whitespace-normal break-words font-medium text-slate-900">
+                        {row.getValue("tds_item_name")}
+                    </span>
+                ),
                 size: 180,
+            },
+            {
+                id: "request_type",
+                header: () => (
+                    <FilterableHeader
+                        title="Request Type"
+                        options={facetOptions.requestType}
+                        selected={selectedRequestTypes}
+                        onChange={setSelectedRequestTypes}
+                    />
+                ),
+                cell: ({ row }) => <RequestTypeBadge type={requestTypeOf(row.original)} />,
+                size: 140,
             },
             {
                 id: "item_status",
@@ -872,7 +885,15 @@ export const TDSApprovalDetail: React.FC = () => {
                         onChange={setSelectedItemStatuses}
                     />
                 ),
-                cell: ({ row }) => <ItemStatusBadge kind={getItemStatusKind(row.original as any, repoStatusByKey)} />,
+                cell: ({ row }) => {
+                    const entry = entryFor(row.original);
+                    return (
+                        <ItemStatusCell
+                            status={itemStatusOf(row.original, entry)}
+                            addedSinceRequest={entryAddedSinceRequest(row.original, entry)}
+                        />
+                    );
+                },
                 size: 130,
             },
             {
@@ -963,7 +984,7 @@ export const TDSApprovalDetail: React.FC = () => {
         }
 
         return cols;
-    }, [rowSelection, canApprove, facetOptions, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames, selectedItemStatuses, repoStatusByKey]);
+    }, [rowSelection, canApprove, facetOptions, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames, selectedItemStatuses, selectedRequestTypes, repoEntryByKey]);
 
     // Read-only columns for Approved/Rejected sections
     const readOnlyColumns = useMemo<ColumnDef<TDSItem>[]>(() => [

@@ -1,9 +1,10 @@
 import React, { useMemo, useRef } from 'react';
-import { ColumnDef } from "@tanstack/react-table";
+import { Column, ColumnDef } from "@tanstack/react-table";
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { FacetDeclaration, FacetOverrides } from '@/components/data-table/facetConfig';
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { DataTableFacetedFilter } from "@/components/data-table/data-table-faceted-filter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FileText, Trash2, MessageSquare } from 'lucide-react';
@@ -28,6 +29,13 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useState } from "react";
+import {
+    HISTORY_STATUSES,
+    historyStatusOf,
+    historyStatusesIn,
+    storedStatusesFor,
+    type HistoryStatus,
+} from "@/utils/tdsRequestRules";
 
 interface TdsHistoryTableProps {
     projectId: string;
@@ -54,6 +62,24 @@ interface ProjectTDSItem {
 }
 
 const DOCTYPE = "Project TDS Item List";
+
+const HISTORY_STATUS_OPTIONS = HISTORY_STATUSES.map(s => ({ label: s, value: s }));
+
+const HISTORY_STATUS_STYLES: Record<HistoryStatus, string> = {
+    Pending: "bg-yellow-100 text-yellow-800",
+    Approved: "bg-green-100 text-green-800",
+    Rejected: "bg-red-100 text-red-800",
+};
+
+// The Status filter offers the three shown statuses, but the column's filter state holds the
+// STORED values (Pending → Pending + New). The list fetch, the export and the other facets'
+// cross-filter all read that state, so each matches New rows with no rule of its own.
+const historyStatusFilterColumn = (column: Column<ProjectTDSItem, unknown>): Column<ProjectTDSItem, unknown> =>
+    Object.assign(Object.create(column), {
+        getFilterValue: () => historyStatusesIn(column.getFilterValue()),
+        setFilterValue: (shown?: string[]) =>
+            column.setFilterValue(shown?.length ? storedStatusesFor(shown) : undefined),
+    });
 
 export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, refreshTrigger = 0, onDataChange }) => {
     const { role } = useUserData();
@@ -179,13 +205,19 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         },
         {
             accessorKey: "tds_status",
-            header: "Status",
+            header: ({ column }) => (
+                <div className="flex items-center gap-1">
+                    <DataTableFacetedFilter
+                        column={historyStatusFilterColumn(column)}
+                        title="Status"
+                        options={HISTORY_STATUS_OPTIONS}
+                    />
+                    Status
+                </div>
+            ),
             cell: ({ row }) => {
-                const status = row.getValue("tds_status") as string;
-                let colorClass = "bg-gray-100 text-gray-800";
-                if (status === "Pending") colorClass = "bg-yellow-100 text-yellow-800";
-                else if (status === "Approved") colorClass = "bg-green-100 text-green-800";
-                else if (status === "Rejected") colorClass = "bg-red-100 text-red-800";
+                const status = historyStatusOf(row.getValue("tds_status"));
+                const colorClass = HISTORY_STATUS_STYLES[status];
 
                 const reason = row.original.tds_rejection_reason;
                 const hasReason = !!reason && reason.trim() !== "";
@@ -193,7 +225,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
                 return (
                     <div className="flex flex-col items-center gap-1.5 min-w-[100px]">
                         <Badge variant="secondary" className={`border ${colorClass}`}>
-                            {status || 'Pending'}
+                            {status}
                         </Badge>
                         {status === "Rejected" && (
                             <TooltipProvider>
@@ -215,9 +247,9 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
                 );
             },
             size: 100,
-            filterFn: (row, id, value) => value.includes(row.getValue(id)),
             meta: {
-                facet: { field: "tds_status", title: "Status" } satisfies FacetDeclaration,
+                exportHeaderName: "Status",
+                exportValue: (row: ProjectTDSItem) => historyStatusOf(row.tds_status),
             },
         },
         {
@@ -328,7 +360,6 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         tds_item_id: { additionalFilters: staticFilters },
         tds_item_name: { additionalFilters: staticFilters },
         tds_make: { additionalFilters: staticFilters },
-        tds_status: { additionalFilters: staticFilters },
     }), [staticFilters]);
 
 
