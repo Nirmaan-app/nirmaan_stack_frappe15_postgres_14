@@ -263,7 +263,7 @@ export const TDSItemDetail: React.FC = () => {
     const members: TDSItemMember[] = memberRows?.message || [];
     const memberCount = members.length;
     const entryCount = entries?.length ?? 0;
-    const isCustom = memberCount === 0;
+    const isUnlinked = memberCount === 0;
 
     // ---- Mutations ----
     const { deleteDoc, loading: deletingEntry } = useFrappeDeleteDoc();
@@ -678,11 +678,11 @@ export const TDSItemDetail: React.FC = () => {
                                 <Badge variant="outline" className="font-medium">{doc.work_package}</Badge>
                                 <span className="text-slate-300">•</span>
                                 <span className="font-mono text-xs">{doc.name}</span>
-                                {isCustom && (
+                                {isUnlinked && (
                                     <>
                                         <span className="text-slate-300">•</span>
                                         <Badge className="bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20 border-0">
-                                            Custom item
+                                            Unlinked TDS Item
                                         </Badge>
                                     </>
                                 )}
@@ -743,10 +743,10 @@ export const TDSItemDetail: React.FC = () => {
                             <div className="text-lg font-semibold text-slate-800">{entryCount}</div>
                         </div>
                     </div>
-                    {isCustom && (
+                    {isUnlinked && (
                         <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded p-2">
-                            This is a custom item — it has no member Items SKUs (Work Package + label only).
-                            Adding members converts it into a normal group.
+                            This is an Unlinked TDS Item — it has no linked Items SKUs (Work Package + label only).
+                            Linking SKUs makes it a normal TDS Item.
                         </p>
                     )}
                 </CardContent>
@@ -790,7 +790,7 @@ export const TDSItemDetail: React.FC = () => {
                             facetColumnId="category"
                             facetTitle="Category"
                             columnCount={memberColumnCount}
-                            emptyMessage="No member items — this is a custom item."
+                            emptyMessage="No linked SKUs — this is an Unlinked TDS Item."
                             action={
                                 isAdmin ? (
                                     <Button

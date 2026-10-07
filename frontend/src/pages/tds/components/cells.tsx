@@ -49,7 +49,7 @@ export const AttachmentCell: React.FC<{ url?: string }> = ({ url }) => {
 // ─── CountPill ───────────────────────────────────────────────────────────────
 // A clickable count chip:
 //   • count > 0           → interactive ring-bordered button (with optional icon)
-//   • count === 0 + zeroLabel → non-interactive amber pill (e.g. "Custom")
+//   • count === 0 + zeroLabel → non-interactive amber pill (e.g. "No linked SKUs")
 //   • count === 0, no zeroLabel → muted "0" span
 export interface CountPillProps {
     count: number;

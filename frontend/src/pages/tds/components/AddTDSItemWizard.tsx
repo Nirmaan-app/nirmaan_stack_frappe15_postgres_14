@@ -49,7 +49,7 @@ import { getFrappeError } from "@/utils/frappeErrors";
 // Design source of truth: .claude/context/domain/tds/phase-1-plan.md (T5).
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Mode = "Normal" | "Custom";
+type Mode = "Normal" | "Unlinked";
 
 // A member row staged in the wizard before submission.
 interface MemberRow {
@@ -257,7 +257,7 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
             if (members.length === 0) {
                 toast({
                     title: "No members added",
-                    description: "Add at least one item, or switch to Custom mode for a member-less TDS Item.",
+                    description: "Add at least one item, or switch to Unlinked mode for a TDS Item with no linked SKUs.",
                     variant: "destructive",
                 });
                 return;
@@ -278,8 +278,8 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
     const submit = async () => {
         const valid = await form.trigger();
         if (!valid) {
-            // For Custom mode the schema fields live on step 0; surface them.
-            if (mode === "Custom") setStep(0);
+            // For Unlinked mode the schema fields live on step 0; surface them.
+            if (mode === "Unlinked") setStep(0);
             return;
         }
         if (movingCount > 0) {
@@ -363,7 +363,7 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                     });
                 }
             } else {
-                // Custom mode (or Normal with none staged) → member-less group.
+                // Unlinked mode (or Normal with none staged) → member-less group.
                 toast({ title: "Success", description: "TDS Item created successfully" });
             }
 
@@ -396,14 +396,14 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                 <DialogHeader className="p-6 pb-2">
                     <DialogTitle className="text-xl font-bold">Add New TDS Item</DialogTitle>
                     <DialogDescription className="text-sm text-muted-foreground">
-                        Group catalog items under a single reusable TDS Item, or create a member-less custom item.
+                        Group catalog items under a single reusable TDS Item, or create an Unlinked TDS Item with no SKUs.
                     </DialogDescription>
                 </DialogHeader>
 
                 {/* Mode toggle */}
                 <div className="px-6">
                     <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
-                        {(["Normal", "Custom"] as Mode[]).map((m) => (
+                        {(["Normal", "Unlinked"] as Mode[]).map((m) => (
                             <button
                                 key={m}
                                 type="button"
@@ -422,7 +422,7 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                     <p className="mt-1.5 text-xs text-muted-foreground">
                         {mode === "Normal"
                             ? "Normal: group one or more catalog items under this TDS Item."
-                            : "Custom: a member-less TDS Item (Work Package + name only)."}
+                            : "Unlinked: a TDS Item with no linked SKUs (Work Package + name only)."}
                     </p>
                 </div>
 
@@ -435,7 +435,7 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                     <Form {...form}>
                         <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
                             {/* ── Step 1 (Details) — shared by both modes ── */}
-                            {(mode === "Custom" || step === 0) && (
+                            {(mode === "Unlinked" || step === 0) && (
                                 <>
                                     <FormField
                                         control={form.control}

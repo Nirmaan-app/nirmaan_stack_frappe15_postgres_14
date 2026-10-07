@@ -214,7 +214,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
 
     // Member count per group — ONE batched pass over `Items` (the same endpoint
     // the TDS master page uses). A group ABSENT from `counts` has ZERO members:
-    // a "custom item" in the domain's vocabulary (Work Package + label only).
+    // an Unlinked TDS Item in the domain's vocabulary (Work Package + label only).
     //
     // Why the picker has to say so: a TDS Item has no category of its own, so
     // `Project TDS Item List.tds_category` is DERIVED from its members'
@@ -546,7 +546,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                                         {/* No members ⇒ the frozen category will be blank. */}
                                         {option.memberCount === 0 && (
                                             <span className="ml-2 text-[10px] uppercase text-amber-600">
-                                                custom · no SKUs
+                                                No linked SKUs
                                             </span>
                                         )}
                                     </span>
@@ -573,7 +573,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             now, then adding to the cart, is the whole difference. */}
                         {selectedGroup && (memberCounts[selectedGroup.tds_item] ?? 0) === 0 && (
                             <p className="text-xs text-amber-600">
-                                Custom item — no linked SKUs, so <b>Category will be blank</b>.
+                                Unlinked TDS Item — no linked SKUs, so <b>Category will be blank</b>.
                                 Link SKUs first and Category fills in automatically:{" "}
                                 {/* A NEW TAB, not `navigate` — the fix is on another page and the
                                     user is mid-cart. Routing away would unmount the form; the

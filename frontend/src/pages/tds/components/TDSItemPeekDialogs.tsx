@@ -94,7 +94,7 @@ export const LinkedSKUsPeekDialog: React.FC<TDSItemPeekDialogProps> = ({
                         </div>
                     ) : rows.length === 0 ? (
                         <div className="py-8 text-center text-sm text-slate-500">
-                            No member items — this is a custom item.
+                            No linked SKUs — this is an Unlinked TDS Item.
                         </div>
                     ) : (
                         <table className="w-full border-collapse">

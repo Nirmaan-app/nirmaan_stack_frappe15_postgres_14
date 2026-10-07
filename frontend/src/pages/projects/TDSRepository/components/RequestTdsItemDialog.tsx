@@ -198,7 +198,7 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     );
 
     // Member count per group — ONE batched pass over `Items`. A group ABSENT from
-    // `counts` has ZERO members: a "custom item" (Work Package + label only).
+    // `counts` has ZERO members: an Unlinked TDS Item (Work Package + label only).
     //
     // It matters HERE too, not just on the create form: a "New" request against
     // an existing group still produces a `Project TDS Item List` row, and the
@@ -434,7 +434,7 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                                 {/* No members ⇒ the frozen category will be blank. */}
                                                                 {option.memberCount === 0 && (
                                                                     <span className="ml-2 text-[10px] uppercase text-amber-600">
-                                                                        custom · no SKUs
+                                                                        No linked SKUs
                                                                     </span>
                                                                 )}
                                                             </span>
@@ -452,7 +452,7 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                 the blank only surfaces in the history / exported PDF. */}
                                             {selectedGroup && (memberCounts[selectedGroup.tds_item] ?? 0) === 0 && (
                                                 <p className="text-xs text-amber-600">
-                                                    Custom item — no linked product SKUs, so this row's <b>Category will be blank</b>.
+                                                    Unlinked TDS Item — no linked product SKUs, so this row's <b>Category will be blank</b>.
                                                     Category is derived from the item's linked SKUs; link SKUs to it in the TDS
                                                     Repository first if the report needs one.
                                                 </p>
