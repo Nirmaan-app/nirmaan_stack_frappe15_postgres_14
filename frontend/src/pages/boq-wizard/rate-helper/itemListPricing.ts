@@ -216,6 +216,65 @@ export interface UnitFactor {
   word: string;
 }
 
+/**
+ * SLICE 12d-4a (owner D3, 2026-10-11) -- A VALUE NAMED IN THE ROW'S OWN TEXT NEVER FALLS TO A DEFAULT.
+ * The model answers an `allow_none` attribute `"None"` ("not mentioned") and the R1 default then prices
+ * the row without it -- but the row's OWN text names one (a glass cloth, an IC cladding, a GI strip, an
+ * FRP wrap). The audit found 10 priced rows in that state. Such a row REFUSES for a person instead.
+ * The WORDS live in config (no category named in code); they are tested at a WORD START, case-insensitively,
+ * against the row's OWN text only -- its description and its own notes, NEVER a heading (the audit: 7 of 9
+ * heading cases were right to stay silent). Fires ONLY over a `"None"` answer; a stated value is never touched.
+ */
+export interface NamedInRowRule {
+  attr: string;
+  words: string[];
+  refuse: string;
+  rule: string;
+}
+
+/**
+ * SLICE 12d-4a (owner D7): a MATERIAL the catalogue does not stock, named in the row's own text or in the
+ * `from_attr` text the model copied -- EPDM, XLPE, rockwool -- REFUSES BY NAME even when the model picked a
+ * stocked family for it. The sentence is the T5 one ("No SKU in the catalogue for <material> - price this row
+ * by hand"), naming `from_attr`'s text where the model answered it, else the matched word in capitals.
+ */
+export interface UnstockedMaterials {
+  words: string[];
+  from_attr?: string;
+  rule: string;
+}
+
+/**
+ * SLICE 12d-4a (owner D9b): a value that is NOT OFFERED on rows of one UNIT CLASS -- glass cloth on sheet
+ * (per-sq.m) insulation -- refuses with the ruled sentence. It fires on the value the pricing READS (after
+ * defaults and the value map) when it contains `value_contains`, or, where the model answered `"None"`, on a
+ * declared word in the row's own text -- so a sheet row ASKING for glass cloth refuses whether or not the
+ * model read it. It runs BEFORE the D3 rule, so the person is told the outcome, not asked to set a cladding
+ * that would then refuse.
+ */
+export interface RefuseOnUnitClass {
+  unit_class: string;
+  attr: string;
+  value_contains: string;
+  words?: string[];
+  refuse: string;
+  rule: string;
+}
+
+/**
+ * SLICE 12d-4a (owner D8): a WORKING LINE generated from a text the model copied -- "BoQ says 32 kg/m3 ->
+ * priced as the 48 kg/m3 board". `pattern` is matched (case-insensitive) against `from_attr`'s text for the
+ * named families; `unless` is the value of the first capture group that needs no line (the stocked one); `line`
+ * carries `{match}` for the matched text. Display only -- nothing here reaches the matcher.
+ */
+export interface ReadNote {
+  families: string[];
+  from_attr: string;
+  pattern: string;
+  unless?: string;
+  line: string;
+}
+
 export interface ItemListPricingSpec {
   kind: string;
   unit_class_attr: string;
@@ -251,6 +310,17 @@ export interface ItemListPricingSpec {
   override_when?: OverrideWhen[];
   /** SLICE 9 (owner A-4): the second-key rules. ABSENT => nothing resolves and every row is unchanged. */
   second_key?: SecondKey[];
+  /** SLICE 12d-4a (owner D3): a value named in the row's OWN text but answered "not mentioned" refuses.
+   * ABSENT => the default fires as before, and every row is byte-identical. */
+  named_in_row?: NamedInRowRule[];
+  /** SLICE 12d-4a (owner D7): unstocked materials refuse by name whatever family the model picked.
+   * ABSENT => only `no_sku_families` refuses, as before. */
+  unstocked_materials?: UnstockedMaterials;
+  /** SLICE 12d-4a (owner D9b): a value not offered on rows of a unit class refuses with the ruled sentence.
+   * ABSENT => such a row refuses, where it does, with the generic "no SKU for this combination". */
+  refuse_on_unit_class?: RefuseOnUnitClass[];
+  /** SLICE 12d-4a (owner D8): a working line generated from a copied text. ABSENT => no line. */
+  read_notes?: ReadNote[];
   numbers: Record<string, NumberReader>;
   ladders: string[];
   match_attrs: string[];
@@ -543,11 +613,27 @@ function normUnit(u: string): string {
  * `hvac_insulation` -- 70 spellings). A category that one day declares a unit called "ro" would
  * keep it, because the unit lookup wins.
  */
-const RATE_ONLY_KEYS: ReadonlySet<string> = new Set(["ro", "rateonly"]);
+// SLICE 12d-4a (owner D10): "QRO" -- quoted rate only -- joins the rate-only keys; it appears both alone and
+// as a PREFIX before a unit ("QRO - Sqm."), which `splitRateOnlyUnit` takes apart.
+const RATE_ONLY_KEYS: ReadonlySet<string> = new Set(["ro", "rateonly", "qro", "quotedrateonly"]);
 
 export function isRateOnlyUnit(unit: string | null | undefined): boolean {
   const key = String(unit ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
   return key !== "" && RATE_ONLY_KEYS.has(key);
+}
+
+/**
+ * SLICE 12d-4a (owner D10). PURE. A unit spelt as a RATE-ONLY MARKER FOLLOWED BY A UNIT ("QRO - Sqm.",
+ * "R/O Rmt") -> the unit part, or null when the spelling does not start with a rate-only key. The caller
+ * resolves the remainder through `unitClassOf` exactly as it would any unit, so no second unit vocabulary
+ * exists here; a remainder that is no unit leaves the row on the unchanged refusal.
+ */
+export function splitRateOnlyUnit(unit: string | null | undefined): string | null {
+  const s = String(unit ?? "").trim();
+  const m = s.match(/^([A-Za-z./]+)\s*[-:/]?\s+(.+)$/);
+  if (!m) return null;
+  const head = m[1].toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return RATE_ONLY_KEYS.has(head) ? m[2].trim() : null;
 }
 
 /**
@@ -724,6 +810,31 @@ export function readLayers(text: string | number | null | undefined): number[] |
   if (layersOf) {
     const n = count(layersOf[1]); const t = Number(layersOf[2]);
     if (n !== null && n >= 2 && t > 0) return Array<number>(n).fill(t);
+  }
+  // SLICE 12d-4a (owner D4): the SUFFIX form -- "25 mm thick - 2 Layers", "25 mm - two layers", "25 mm thick
+  // double layer" (and "x 2" after the number, which `byX` above already takes). The count follows the
+  // thickness, after an optional "thick" and an optional dash / colon; trailing words ("insulation") are
+  // allowed. A count of 1, or a count the band does not admit (2..4), is not layers.
+  const suffix = s.match(/^(\d+(?:\.\d+)?)\s*(?:mm)?\s*(?:thk|thick|thickness)?\s*[-–:,]?\s*(\d+|two|double)\s*layers?(?:\b.*)?$/);
+  if (suffix) {
+    const n = count(suffix[2]); const t = Number(suffix[1]);
+    if (n !== null && n >= 2 && n <= 4 && t > 0) return Array<number>(n).fill(t);
+  }
+  return null;
+}
+
+/**
+ * SLICE 12d-4a. PURE. Does `text` carry any of `words` at a WORD START, case-insensitively? The ONE word
+ * test every text rule shares -- `family_when_none` (12d-1a), `named_in_row` (D3), `unstocked_materials`
+ * (D7) and `refuse_on_unit_class` (D9b) -- so "acoustic" matches "acoustics" and never "subacoustic", on
+ * every rule alike. Returns the first word that hit, or null.
+ */
+export function wordStartHit(text: string, words: readonly string[] | undefined): string | null {
+  const t = text.toLowerCase();
+  for (const word of words ?? []) {
+    const w = word.toLowerCase().trim();
+    if (!w) continue;
+    if (new RegExp(`(^|[^a-z0-9])${w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(t)) return word;
   }
   return null;
 }
@@ -1035,14 +1146,40 @@ export function familyWhenNone(
   if (!fwn) return null;
   let family = fwn.by_unit_class[rowUnitClass];
   if (!family) return null;
-  const text = rowText.toLowerCase();
   for (const w of fwn.when_words ?? []) {
     if (w.unit_class !== rowUnitClass) continue;
-    // a WORD START: "acoustic" matches "acoustics" and "acoustical", never "subacoustic"
-    const hit = w.words.some((word) => new RegExp(`(^|[^a-z0-9])${word.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(text));
-    if (hit) { family = w.family; break; }
+    // a WORD START: "acoustic" matches "acoustics" and "acoustical", never "subacoustic" (the shared test)
+    if (wordStartHit(rowText, w.words) !== null) { family = w.family; break; }
   }
   return { value: family, rule: fwn.rule };
+}
+
+/**
+ * SLICE 12d-4a (owner D7 + D11). PURE. The NAMED-MATERIAL refusal for one item, or null: the family is a
+ * `no_sku_families` value (T5, 12d-1b), or an `unstocked_materials` word sits in the row's own text or in the
+ * text the model copied as the material (D7) -- whatever family the model picked. ONE definition, read by
+ * `priceOneItem` and by `priceItemList`'s no-unit branch (D11: on a row with no unit this message shows
+ * FIRST, because "no unit" is not the useful fact about a row the catalogue cannot price at all).
+ */
+export function namedMaterialRefusal(spec: ItemListPricingSpec, item: ExtractedListItem, ownText: string): string | null {
+  const famRaw = rawValue(item, familyAttr(spec));
+  const named = spec.no_sku_named_by ? rawValue(item, spec.no_sku_named_by) : null;
+  const namedText = named !== null && named !== "None" && String(named).trim() !== "" ? String(named).trim() : null;
+  if (famRaw !== null && (spec.no_sku_families ?? []).includes(String(famRaw))) {
+    // SLICE 12d-1b (owner T5): where the config names the attribute that carries the material AS WRITTEN and
+    // the model answered it, the refusal names that material; otherwise the sentence is the one it always was.
+    return namedText !== null
+      ? `No SKU in the catalogue for ${namedText} - price this row by hand`
+      : `no SKU in the catalogue for '${String(famRaw)}' -- the user decides (R18)`;
+  }
+  const um = spec.unstocked_materials;
+  if (um) {
+    const copied = um.from_attr ? rawValue(item, um.from_attr) : null;
+    const copiedText = copied !== null && copied !== "None" ? String(copied) : "";
+    const hit = wordStartHit(`${ownText} | ${copiedText}`, um.words);
+    if (hit !== null) return `No SKU in the catalogue for ${namedText ?? hit.toUpperCase()} - price this row by hand`;
+  }
+  return null;
 }
 
 function priceOneItem(
@@ -1056,6 +1193,10 @@ function priceOneItem(
   /** SLICE 12d-1a (owner R2): the row's own text and its headings, for `family_when_none`'s words.
    * Absent (the calculator) => only the unit class can decide a silent row's family. */
   rowText: string = "",
+  /** SLICE 12d-4a (owner D3 / D7 / D9b): the row's OWN text -- its description and its own notes, NEVER a
+   * heading -- for the named-cladding, unstocked-material and sheet-glass-cloth word rules. Absent (the
+   * calculator) => no word can match and only the model's values decide. */
+  ownText: string = "",
 ): ItemPriceResult {
   const out: ItemPriceResult = {
     index, familyRaw: null, family: null, skuUnitClass: null, state: "blank", selection: {}, readValues: {}, defaulted: [],
@@ -1098,16 +1239,28 @@ function priceOneItem(
   const family = spec.family_alias?.[out.familyRaw] ?? out.familyRaw;
   out.family = family;
   if (spec.family_alias?.[out.familyRaw]) out.working.push(`'${out.familyRaw}' prices as ${family} (R3)`);
-  if ((spec.no_sku_families ?? []).includes(out.familyRaw) || !spec.families[family]) {
-    // SLICE 12d-1b (owner T5): where the config names the attribute that carries the material AS WRITTEN and
-    // the model answered it, the refusal names that material; otherwise the sentence is the one it always was.
-    const named = spec.no_sku_named_by ? rawValue(item, spec.no_sku_named_by) : null;
-    if (named !== null && named !== "None" && String(named).trim() !== "") {
-      return blank(`No SKU in the catalogue for ${String(named).trim()} - price this row by hand`);
-    }
+  // SLICE 12d-4a: the named-material refusal is ONE function (`namedMaterialRefusal`) -- the T5 no-SKU
+  // family (12d-1b) and the D7 unstocked-material words share it, and `priceItemList`'s no-unit branch
+  // reads the same one (D11). It runs BEFORE the family is checked against the priceable set, so an EPDM row
+  // the model priced as Nitrile Rubber refuses by name whatever family was picked.
+  const material = namedMaterialRefusal(spec, { ...item, attributes: { ...item.attributes, [familyAttr(spec)]: { value: out.familyRaw } } }, ownText);
+  if (material !== null) return blank(material);
+  if (!spec.families[family]) {
     return blank(`no SKU in the catalogue for '${out.familyRaw}' -- the user decides (R18)`);
   }
   const fam = spec.families[family];
+  // SLICE 12d-4a (owner D8): a line generated from a text the model copied ("BoQ says 32 kg/m3 -> priced as
+  // the 48 kg/m3 board"). Display only; `unless` is the stocked value that needs no line.
+  for (const rn of spec.read_notes ?? []) {
+    if (!rn.families.includes(family)) continue;
+    const src = rawValue(item, rn.from_attr);
+    if (src === null || src === "None") continue;
+    let m: RegExpMatchArray | null = null;
+    try { m = String(src).match(new RegExp(rn.pattern, "i")); } catch { m = null; }
+    if (!m) continue;
+    if (rn.unless !== undefined && (m[1] ?? m[0]).trim() === rn.unless) continue;
+    out.working.push(rn.line.replace("{match}", m[0].trim()));
+  }
 
   // (2) the facts: stated -> as stated; "None" -> the ruled default (marked); absent -> omitted. Read over every
   //     match attribute; only the family's NEEDS reach the matcher (below), so a stated fact the SKUs are not
@@ -1203,6 +1356,25 @@ function priceOneItem(
     if (i >= 0) readDefaulted.splice(i, 1);
     overridden.push(rule.rule);
     out.overrides.push({ attr: rule.attr, value: rule.to, display: rule.display ?? rule.to, rule: rule.rule });
+  }
+  // SLICE 12d-4a (owner D9b): a value NOT OFFERED on this row's unit class -- glass cloth on sheet insulation
+  // -- refuses with the ruled sentence: on the value the pricing now READS (a stated glass cloth, whatever
+  // family), or, where the model said "None", on a glass-cloth word in the row's OWN text (the row ASKED for
+  // it and the model missed it). It runs BEFORE D3 so the person is told the outcome, not asked to set a
+  // cladding the sheet would then refuse. The unit class is the ROW's: the family's own class where it has
+  // one, else the row's (a convert option would re-point it later, which does not change what the row asked).
+  for (const rule of spec.refuse_on_unit_class ?? []) {
+    if (rule.unit_class !== rowUnitClass) continue;
+    const v = read[rule.attr];
+    const byValue = v !== undefined && String(v).toLowerCase().includes(rule.value_contains.toLowerCase());
+    const byWord = noneSaid.has(rule.attr) && wordStartHit(ownText, rule.words) !== null;
+    if (byValue || byWord) return { ...blank(rule.refuse), selection: { [familyAttr(spec)]: family } };
+  }
+  // SLICE 12d-4a (owner D3): a value NAMED IN THE ROW'S OWN TEXT but answered "not mentioned" never falls
+  // to the default -- the row refuses for a person. Headings never trigger it (`ownText` carries none).
+  for (const rule of spec.named_in_row ?? []) {
+    if (!noneSaid.has(rule.attr)) continue;
+    if (wordStartHit(ownText, rule.words) !== null) return { ...blank(rule.refuse), selection: { [familyAttr(spec)]: family } };
   }
   // SLICE 12d-1b (owner T4): STATED LAYERS go through the EXISTING composition path -- each layer its own item
   // at the row's pipe size, `outer_only` stripping the cladding from every inner layer. Nothing new is priced
@@ -1560,9 +1732,26 @@ export function priceItemList(
   /** SLICE 12d-1a (owner R2): the row's own text and its headings, joined -- read ONLY by
    * `family_when_none`'s word rules. Absent => only the unit class can decide a silent family. */
   rowText: string = "",
+  /** SLICE 12d-4a (owner D3 / D7 / D9b): the row's OWN text (description + own notes, never a heading).
+   * Absent (the calculator) => the word rules never match. */
+  ownText: string = "",
 ): RowPriceResult {
   const unit = rowUnit ?? "";
   let cls = unitClassOf(spec, unit);
+  /**
+   * SLICE 12d-4a (owner D10): "QRO - Sqm." is a RATE-ONLY MARKER WITH A UNIT -- quoted rate only, per
+   * sq.m. Where the whole spelling is no unit, the rate-only prefix is split off and the remainder is read
+   * as the unit (through the same `unitClassOf`); the row then prices in THAT class with the rate-only
+   * note. A spelling whose remainder is no unit either falls through to the unchanged refusal.
+   */
+  let rateOnlyWithUnit: string | null = null;
+  if (cls === null && unit.trim() !== "") {
+    const split = splitRateOnlyUnit(unit);
+    if (split !== null) {
+      const c2 = unitClassOf(spec, split);
+      if (c2 !== null) { cls = c2; rateOnlyWithUnit = unitWord(spec, c2); }
+    }
+  }
   /**
    * SLICE 12d-2 (owner S6, "yes"): the 12c-U sentence is composed where the OUTCOME is known. The lead
    * ("No unit on the BoQ row" / "BoQ says R/O (rate only)") and the catalogue word are fixed here; the
@@ -1571,6 +1760,7 @@ export function priceItemList(
    * it so the figures' "per ..." label names the unit the rate is in.
    */
   let resolvedUnit: { lead: string; word: string } | undefined;
+  if (rateOnlyWithUnit !== null) resolvedUnit = { lead: `BoQ says ${unit.trim()} (rate only)`, word: rateOnlyWithUnit };
   const unitResolved = (priced: boolean): { unitNote: string; rateUnit: string } | Record<string, never> =>
     resolvedUnit
       ? {
@@ -1619,6 +1809,10 @@ export function priceItemList(
     // classes.length === 0: nothing to price in at all -- fall through to the unchanged refusal
   }
   if (cls === null) {
+    // SLICE 12d-4a (owner D11): on a row the catalogue cannot price AT ALL (an unstocked material), that is
+    // the useful message and it shows FIRST -- "no unit" is true but not what the person needs to know.
+    const material = extracted && extracted.length ? namedMaterialRefusal(spec, extracted[0], ownText) : null;
+    if (material !== null) return { unit, unitClass: null, priced: false, reason: material, items: [] };
     const reason = unit.trim() === "" ? "no unit on this row (R12)" : `unit '${unit.trim()}' is not a count, area or length unit (R12)`;
     return { unit, unitClass: null, priced: false, reason, items: [] };
   }
@@ -1628,7 +1822,7 @@ export function priceItemList(
   const projected = projectUnitClass(spec, items);
   // SLICE 11: computed ONCE from the row's unit TEXT (the class alone cannot say which unit of it this is).
   const unitFactor = unitFactorOf(spec, unit);
-  let priced = extracted.map((it, i) => priceOneItem(spec, projected, cls, it, i, unitFactor, rowText));
+  let priced = extracted.map((it, i) => priceOneItem(spec, projected, cls, it, i, unitFactor, rowText, ownText));
   // SLICE 12c (owner Q8/Q9): an item whose stated size is above the top rung may be BUILT out of two or
   // more rungs. `priceOneItem` cannot do it alone -- one item cannot return several prices -- so it hands
   // back the layers it found and the expansion happens here, where a row has always been able to hold a
@@ -1648,7 +1842,7 @@ export function priceItemList(
         const outer = li === c.layers.length - 1;
         const attrs: ExtractedListItem["attributes"] = { ...src.attributes, [c.attr]: { value: layer } };
         if (oo && !outer) attrs[oo.attr] = { value: oo.value };
-        const one = priceOneItem(spec, projected, cls, { ...src, attributes: attrs }, expanded.length, unitFactor, rowText);
+        const one = priceOneItem(spec, projected, cls, { ...src, attributes: attrs }, expanded.length, unitFactor, rowText, ownText);
         if (li === 0) {
           const total = c.layers.reduce((a, b) => a + b, 0);
           const sign = c.delta >= 0 ? "+" : "";

@@ -37,6 +37,8 @@ import {
   type ExtractedListItem,
   type ItemListPricingSpec,
   type NumberReader,
+  splitRateOnlyUnit,
+  wordStartHit,
 } from "./itemListPricing";
 import HVAC_V8 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v8.json";
 import HVAC_V9 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v9.json";
@@ -3466,5 +3468,156 @@ describe("SLICE 12d-2 / S6 -- a no-unit / rate-only row: \"unit taken as\" while
     const refused = one("Nos", { family: "butterfly damper", dia_mm: "as per drawing" });
     expect(refused.unitNote).toBeUndefined();
     expect(refused.rateUnit).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// SLICE 12d-4a (owner D3 / D4 / D7 / D8 / D9b / D10 / D11 on the 12d-3 audit, 2026-10-11) -- THE AUDIT FIXES.
+// Every rule below is CONFIG-gated (a spec without the key is byte-identical: the NEGATIVE pins) and reads the
+// row's OWN text -- its description and its own notes, NEVER a heading -- which the calculator does not have.
+// ---------------------------------------------------------------------------------------------------------
+describe("SLICE 12d-4a -- the audit fixes: named cladding, unstocked materials, sheet glass cloth, the density line, '- 2 Layers', QRO, the refusal order", () => {
+  type Cfg = RateCategoryConfig & { list_spec: { pricing: Record<string, unknown> } };
+  const V27 = HVAC_V27 as unknown as Asset;
+  const INS = V27.category_configs.find((c) => c.category_id === "hvac_insulation") as unknown as Cfg;
+  const ITEMS = V27.items;
+  const NR = "Nitrile Rubber Insulation";
+  const TN = "Thermal Nitrile Insulation";
+  const FG = " Fiberglass Rigid Board Insulation, Density 48Kg/m3";
+  const CO = "Cladding Only";
+  const BASE = {
+    ...INS.list_spec.pricing,
+    defaults: { cladding: { value: "No", rule: "R1", absent_as_none: false } },
+    no_sku_families: ["none of these"], no_sku_named_by: "material_as_written",
+  };
+  const withKeys = (extra: Record<string, unknown>) =>
+    itemListPricingSpec({ ...INS, list_spec: { ...INS.list_spec, pricing: { ...BASE, ...extra } } } as Cfg)!;
+  const plain = withKeys({});
+  const D3 = { named_in_row: [{ attr: "cladding", words: ["glass cloth", "foil", "gi strip", "frp"], refuse: "cladding named in this row but not read - set the cladding", rule: "D3" }] };
+  const D7 = { unstocked_materials: { words: ["epdm", "xlpe"], from_attr: "material_as_written", rule: "D7" } };
+  const D9B = { refuse_on_unit_class: [{ unit_class: "area", attr: "cladding", value_contains: "Glass Cloth", words: ["glass cloth", "gc cloth"], refuse: "glass cloth is not offered on sheet insulation - price this row by hand", rule: "D9b" }] };
+  const D8 = { read_notes: [{ families: [FG], from_attr: "material_as_written", pattern: "(\\d+(?:\\.\\d+)?)\\s*kg\\s*/\\s*(?:m3|cum|cu\\.?\\s*m)", unless: "48", line: "BoQ says {match} -> priced as the 48 kg/m3 board" }] };
+  const item = (attrs: Record<string, string | null>): ExtractedListItem => ({
+    attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v, confidence: 0.9 }])),
+  });
+  const price = (spec: ReturnType<typeof withKeys>, unit: string, attrs: Record<string, string | null>, ownText = "", rowText = "") =>
+    priceItemList(spec, ITEMS, unit, [item(attrs)], rowText, ownText);
+
+  it("D4: readLayers takes the SUFFIX form -- '25 mm thick - 2 Layers', '25 mm - two layers', 'double layer' after the number -- and nothing new besides", () => {
+    expect(readLayers("25 mm thick - 2 Layers")).toEqual([25, 25]);
+    expect(readLayers("25 mm - 2 Layers")).toEqual([25, 25]);
+    expect(readLayers("25 mm thick two layers insulation")).toEqual([25, 25]);
+    expect(readLayers("19mm thick double layer")).toEqual([19, 19]);
+    expect(readLayers("25 mm thick: 3 layers")).toEqual([25, 25, 25]);
+    for (const t of ["25 mm thick - 1 layer", "25 mm - 5 layers", "25 mm thick - Single layer", "2 Layers", "25 mm thick"]) {
+      expect(readLayers(t), t).toBeNull();
+    }
+    // the three 12d-1b shapes are untouched
+    expect(readLayers("65 mm + 32 mm thick")).toEqual([32, 65]);
+    expect(readLayers("2 layers of 19 mm")).toEqual([19, 19]);
+  });
+
+  it("D4 POSITIVE: a model-read '25 mm thick - 2 Layers' at 50 mm dia prices as TWO 25 mm layers at 53.98, cladding on the outer only; the line names the BoQ's words", () => {
+    const r = price(plain, "Rmt", { item: NR, cladding: "None", thickness_mm: "25 mm thick - 2 Layers", pipe_size_mm: "50 mm dia" });
+    expect(r.priced).toBe(true);
+    expect(r.items.map((p) => [p.selection.thickness_mm, p.selection.pipe_size_mm, p.sourceIndex])).toEqual([[25, 53.98, 0], [25, 53.98, 0]]);
+    expect(r.items[0].working[0]).toBe("BoQ says 25 mm thick - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only");
+    expect(r.supply).toBe(r.items[0].figures.supply + r.items[1].figures.supply);
+  });
+
+  it("wordStartHit: a WORD START, case-insensitive -- 'acoustic' matches 'Acoustics', never 'subacoustic'; the first hit is returned", () => {
+    expect(wordStartHit("AHU Acoustics lining", ["acoustic"])).toBe("acoustic");
+    expect(wordStartHit("subacoustic", ["acoustic"])).toBeNull();
+    expect(wordStartHit("with GI strip at 1 m", ["foil", "gi strip"])).toBe("gi strip");
+    expect(wordStartHit("anything", undefined)).toBeNull();
+  });
+
+  it("D3 POSITIVE: cladding answered 'None' while the row's OWN text names one -> refuses for a person, never the R1 default", () => {
+    const r = price(withKeys(D3), "Sqm", { item: TN, cladding: "None", thickness_mm: "13 mm" }, "13 mm thick nitrile with chemically treated glass cloth");
+    expect(r.priced).toBe(false);
+    expect(r.items[0].reason).toBe("cladding named in this row but not read - set the cladding");
+    expect(r.items[0].defaulted).toEqual([]);
+  });
+
+  it("D3 NEGATIVE x4: no key -> the R1 default prices (byte-identical); a heading-only word does not trigger it; a STATED value is never touched; the calculator (no own text) prices", () => {
+    const own = "13 mm thick nitrile with chemically treated glass cloth";
+    const noKey = price(plain, "Sqm", { item: TN, cladding: "None", thickness_mm: "13 mm" }, own);
+    expect(noKey.priced).toBe(true);
+    expect(noKey.items[0].defaulted.map((d) => d.attr)).toEqual(["cladding"]);
+    const headingOnly = price(withKeys(D3), "Sqm", { item: TN, cladding: "None", thickness_mm: "13 mm" }, "13 mm thick", "13 mm thick | INSULATION WITH GLASS CLOTH");
+    expect(headingOnly.priced).toBe(true);
+    const stated = price(withKeys(D3), "Sqm", { item: TN, cladding: "No", thickness_mm: "13 mm" }, own);
+    expect(stated.priced).toBe(true);
+    const calculator = price(withKeys(D3), "Sqm", { item: TN, cladding: "None", thickness_mm: "13 mm" });
+    expect(calculator.priced).toBe(true);
+    expect([noKey.supply, headingOnly.supply, stated.supply, calculator.supply]).toEqual([464, 464, 464, 464]);
+  });
+
+  it("D7 POSITIVE: an unstocked material named in the copied text (EPDM) refuses BY NAME although the model picked Nitrile Rubber; named in the row's own text alone it still refuses, in capitals", () => {
+    const copied = price(withKeys(D7), "RM", { item: NR, cladding: "None", thickness_mm: "19 mm", pipe_size_mm: "50mm dia", material_as_written: "closed cell elastomeric insulation with glass cloth facing (EPDM)" });
+    expect(copied.priced).toBe(false);
+    expect(copied.items[0].reason).toBe("No SKU in the catalogue for closed cell elastomeric insulation with glass cloth facing (EPDM) - price this row by hand");
+    const own = price(withKeys(D7), "RM", { item: NR, cladding: "None", thickness_mm: "19 mm", pipe_size_mm: "50mm dia" }, "50 mm dia EPDM tubing");
+    expect(own.items[0].reason).toBe("No SKU in the catalogue for EPDM - price this row by hand");
+  });
+
+  it("D7 NEGATIVE: without the key the same row prices (376 / 14 -- 19 mm at 53.98, cladding No by R1); with the key and no listed word it prices unchanged; the T5 'none of these' sentence is untouched", () => {
+    const attrs = { item: NR, cladding: "None", thickness_mm: "19 mm", pipe_size_mm: "50mm dia", material_as_written: "closed cell elastomeric insulation with glass cloth facing (EPDM)" };
+    const noKey = price(plain, "RM", attrs);
+    expect([noKey.priced, noKey.supply, noKey.install]).toEqual([true, 376, 14]);
+    const clean = price(withKeys(D7), "RM", { ...attrs, material_as_written: "closed cell nitrile rubber" });
+    expect([clean.priced, clean.supply, clean.install]).toEqual([true, 376, 14]);
+    const t5 = price(withKeys(D7), "Sqm", { item: "none of these", cladding: "None", thickness_mm: "25mm", material_as_written: "XLPE board" });
+    expect(t5.items[0].reason).toBe("No SKU in the catalogue for XLPE board - price this row by hand");
+  });
+
+  it("D9b POSITIVE: glass cloth on a SHEET (area) row refuses with the ruled sentence -- on the value the pricing reads (Cladding Only per sq.m), and on a 'None' answer when the row's own text asks for it", () => {
+    const byValue = price(withKeys(D9B), "Sqm", { item: CO, cladding: "Glass Cloth with paint" });
+    expect(byValue.items[0].reason).toBe("glass cloth is not offered on sheet insulation - price this row by hand");
+    const byWord = price(withKeys({ ...D9B, ...D3 }), "Sqm", { item: TN, cladding: "None", thickness_mm: "13 mm" }, "13 mm nitrile with treated glass cloth");
+    // D9b runs BEFORE D3, so the person is told the OUTCOME, not asked to set a cladding the sheet would refuse
+    expect(byWord.items[0].reason).toBe("glass cloth is not offered on sheet insulation - price this row by hand");
+  });
+
+  it("D9b NEGATIVE: a LENGTH row keeps glass cloth (a 26G Aluminium with Glass Cloth pipe prices); without the key the Cladding Only sq.m row prices 294 / 70; a sheet row with cladding 'No' is untouched", () => {
+    const pipe = price(withKeys(D9B), "Rmt", { item: NR, cladding: "26G Aluminium with Glass Cloth", thickness_mm: "19 mm", pipe_size_mm: "50NB" });
+    expect(pipe.priced).toBe(true);
+    const noKey = price(plain, "Sqm", { item: CO, cladding: "Glass Cloth with paint" });
+    expect([noKey.priced, noKey.supply, noKey.install]).toEqual([true, 294, 70]);
+    const no = price(withKeys(D9B), "Sqm", { item: TN, cladding: "No", thickness_mm: "13 mm" }, "13 mm nitrile");
+    expect([no.priced, no.supply]).toEqual([true, 464]);
+  });
+
+  it("D8: the density line appears for a 32 kg/m3 fibre glass row and not for 48; the PRICE is the same 48 kg board either way (display only)", () => {
+    const r32 = price(withKeys(D8), "Sqm", { item: FG, cladding: "None", thickness_mm: "50 mm", material_as_written: "resin bonded fibre glass of density not less than 32Kg/CuM" });
+    const r48 = price(withKeys(D8), "Sqm", { item: FG, cladding: "None", thickness_mm: "50 mm", material_as_written: "fibre glass of 48 Kg/Cum density" });
+    expect(r32.items[0].working).toContain("BoQ says 32Kg/CuM -> priced as the 48 kg/m3 board");
+    expect(r48.items[0].working.some((w) => w.includes("priced as the 48 kg/m3 board"))).toBe(false);
+    expect([r32.supply, r32.install]).toEqual([r48.supply, r48.install]);
+    expect(r32.priced).toBe(true);
+  });
+
+  it("D10: 'QRO - Sqm.' is a rate-only marker WITH a unit -- the row prices per sq.m with the rate-only note; the unit part resolves through the same unit_classes", () => {
+    expect(splitRateOnlyUnit("QRO - Sqm.")).toBe("Sqm.");
+    expect(splitRateOnlyUnit("R/O Rmt")).toBe("Rmt");
+    expect(splitRateOnlyUnit("Sqm")).toBeNull();
+    expect(splitRateOnlyUnit("QRO")).toBeNull();
+    expect(isRateOnlyUnit("QRO")).toBe(true);
+    const r = price(plain, "QRO - Sqm.", { item: TN, cladding: "None", thickness_mm: "19mm" });
+    expect([r.priced, r.unitClass, r.supply, r.install]).toEqual([true, "area", 594, 154]);
+    expect(r.unitNote).toBe("BoQ says QRO - Sqm. (rate only) -> priced per sq.m, the catalogue's unit for this item");
+    expect(r.rateUnit).toBe("sq.m");
+    // a rate-only prefix before a NON-unit still refuses by name, exactly as before
+    expect(price(plain, "QRO - Lot", { item: TN, cladding: "None", thickness_mm: "19mm" }).reason).toBe("unit 'QRO - Lot' is not a count, area or length unit (R12)");
+  });
+
+  it("D11: on a row with NO unit, a named-material refusal shows FIRST; a stocked family on a no-unit row still takes the 12c-U path (priced per sq.m)", () => {
+    const pir = price(plain, "", { item: "none of these", cladding: "None", thickness_mm: "20mm", material_as_written: "Eco+ PIR Panels" });
+    expect(pir.reason).toBe("No SKU in the catalogue for Eco+ PIR Panels - price this row by hand");
+    const lot = price(withKeys(D7), "Lot", { item: NR, cladding: "None", thickness_mm: "19 mm", material_as_written: "EPDM tubing" });
+    expect(lot.reason).toBe("No SKU in the catalogue for EPDM tubing - price this row by hand");
+    const stocked = price(plain, "", { item: TN, cladding: "None", thickness_mm: "19mm" });
+    expect([stocked.priced, stocked.supply]).toEqual([true, 594]);
+    expect(stocked.unitNote).toBe("No unit on the BoQ row -> priced per sq.m, the catalogue's unit for this item");
   });
 });

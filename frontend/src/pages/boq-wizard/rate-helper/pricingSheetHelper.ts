@@ -2317,7 +2317,13 @@ function computeItemList(
    * parent chain; the calculator has none and the words simply never match there.
    */
   const rowText = [ctx.description ?? "", ...(ctx.headings ?? [])].join(" | ");
-  const priced = priceItemList(spec, items, unit, forPricing, rowText);
+  /**
+   * SLICE 12d-4a (owner D3 / D7 / D9b): the row's OWN text -- its description and its own notes, NEVER a
+   * heading -- reaches the pricer separately, for the word rules that must not be triggered by a heading.
+   * The calculator has no row and passes nothing, so those rules read only the model's values there.
+   */
+  const ownText = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
+  const priced = priceItemList(spec, items, unit, forPricing, rowText, ownText);
   const unitClass = priced.unitClass ?? unitClassOf(spec, unit);
   /**
    * CERT-FOUND 2026-10-04. A composition turns ONE user block into SEVERAL priced layers, so

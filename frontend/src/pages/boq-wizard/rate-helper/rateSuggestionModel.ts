@@ -81,7 +81,22 @@ export function buildRowContext(
     discipline: null,
     rateKinds,
     ...(rows ? { headings: rowHeadings(row, rows) } : {}),
+    ...(rows ? { ownNotes: rowOwnNotes(row) } : {}),
   };
+}
+
+/**
+ * SLICE 12d-4a (owner D3): the row's OWN notes -- `row_notes` and the STRING entries of `attached_notes` --
+ * as the context carries them for the word rules. PURE. Nothing from a parent; a heading's note is a
+ * heading's (and the owner ruled headings do not trigger the rule). Non-string attachments are skipped.
+ */
+export function rowOwnNotes(row: PricedRow): string[] {
+  const out: string[] = [];
+  const rn = (row as { row_notes?: unknown }).row_notes;
+  if (typeof rn === "string" && rn.trim() !== "") out.push(rn);
+  const att = (row as { attached_notes?: unknown }).attached_notes;
+  if (Array.isArray(att)) for (const a of att) if (typeof a === "string" && a.trim() !== "") out.push(a);
+  return out;
 }
 
 /**

@@ -530,6 +530,12 @@ export interface RateHelperRowContext {
    * calculator and every other caller omit it and nothing they do changes.
    */
   headings?: string[];
+  /**
+   * SLICE 12d-4a (owner D3 / D7 / D9b): the row's OWN notes (its row notes and the notes attached to it),
+   * built by `buildRowContext` from the priced row. Read ONLY by an item-list category's word rules that
+   * must see the row's own text and NEVER a heading. OPTIONAL: the calculator and every other caller omit it.
+   */
+  ownNotes?: string[];
 }
 
 /** A registered rate helper. `compute` is PURE + synchronous.

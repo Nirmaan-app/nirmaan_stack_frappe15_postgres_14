@@ -304,7 +304,139 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  "panel_readonly",
                  # SLICE 12d-1b (owner T5): the text item attribute carrying the material AS WRITTEN, which a
                  # no_sku_families refusal names. Arrives WITH its check below.
-                 "no_sku_named_by"}
+                 "no_sku_named_by",
+                 # SLICE 12d-4a (owner D3): a value NAMED in the row's own text but answered "not mentioned"
+                 # refuses -- the words in config, no category in code. Arrives WITH `_validate_named_in_row`.
+                 "named_in_row",
+                 # SLICE 12d-4a (owner D7): unstocked materials refuse BY NAME whatever family the model picked.
+                 # Arrives WITH `_validate_unstocked_materials`.
+                 "unstocked_materials",
+                 # SLICE 12d-4a (owner D9b): a value not offered on rows of one UNIT CLASS (glass cloth on sheet
+                 # insulation) refuses with the ruled sentence. Arrives WITH `_validate_refuse_on_unit_class`.
+                 "refuse_on_unit_class",
+                 # SLICE 12d-4a (owner D8): a working LINE generated from a copied text ("BoQ says 32 kg/m3 ->
+                 # priced as the 48 kg/m3 board"). Display only. Arrives WITH `_validate_read_notes`.
+                 "read_notes"}
+_PRICING_NAMED_IN_ROW_KEYS = {"attr", "words", "refuse", "rule"}
+_PRICING_UNSTOCKED_KEYS = {"words", "from_attr", "rule"}
+_PRICING_REFUSE_UC_KEYS = {"unit_class", "attr", "value_contains", "words", "refuse", "rule"}
+_PRICING_READ_NOTE_KEYS = {"families", "from_attr", "pattern", "unless", "line"}
+
+
+def _words_ok(words):
+    return isinstance(words, list) and words and all(isinstance(w, str) and w.strip() for w in words)
+
+
+def _validate_named_in_row(rules, by_id, choice_attrs):
+    """SLICE 12d-4a (owner D3) -- `list_spec.pricing.named_in_row`: a non-empty list of rules, each naming an
+    `allow_none` CHOICE attribute of this category (only such an attribute can be answered "not mentioned"),
+    a non-empty word list, the refusal sentence and the ruling. Refused by name otherwise."""
+    loc = "list_spec.pricing.named_in_row"
+    if not isinstance(rules, list) or not rules:
+        _vthrow(f"{loc} must be a non-empty list.")
+    for i, r in enumerate(rules):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _PRICING_NAMED_IN_ROW_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        if _PRICING_NAMED_IN_ROW_KEYS - set(r):
+            _vthrow(f"{rloc} must carry attr / words / refuse / rule.")
+        if r["attr"] not in choice_attrs or not by_id.get(r["attr"], {}).get("allow_none"):
+            _vthrow(f"{rloc}.attr must be an allow_none choice attribute of this category.")
+        if not _words_ok(r["words"]):
+            _vthrow(f"{rloc}.words must be a non-empty list of words.")
+        for key in ("refuse", "rule"):
+            if not isinstance(r[key], str) or not r[key].strip():
+                _vthrow(f"{rloc}.{key} must be a non-empty string.")
+
+
+def _validate_unstocked_materials(um, by_id, sku_attrs, numbers):
+    """SLICE 12d-4a (owner D7) -- `list_spec.pricing.unstocked_materials`: an object with a non-empty word
+    list, the ruling, and optionally `from_attr` -- a `text` item attribute the pricing does not read (the
+    material AS WRITTEN), whose text is searched beside the row's own."""
+    loc = "list_spec.pricing.unstocked_materials"
+    if not isinstance(um, dict):
+        _vthrow(f"{loc} must be an object.")
+    unk = set(um) - _PRICING_UNSTOCKED_KEYS
+    if unk:
+        _vthrow(f"{loc}: unknown key(s): {', '.join(sorted(unk))}.")
+    if not _words_ok(um.get("words")):
+        _vthrow(f"{loc}.words must be a non-empty list of words.")
+    if not isinstance(um.get("rule"), str) or not um["rule"].strip():
+        _vthrow(f"{loc}.rule must be a non-empty string.")
+    if "from_attr" in um:
+        fa = um["from_attr"]
+        read_by_pricing = set(sku_attrs) | {src for n in numbers.values() for src in (n.get("from") or [])}
+        if not isinstance(fa, str) or fa not in by_id:
+            _vthrow(f"{loc}.from_attr must name an item attribute of this category.")
+        if by_id[fa].get("type") != "text" or fa in read_by_pricing:
+            _vthrow(f"{loc}.from_attr must be a text definition the pricing does not read.")
+
+
+def _validate_refuse_on_unit_class(rules, by_id, choice_attrs, ucls):
+    """SLICE 12d-4a (owner D9b) -- `list_spec.pricing.refuse_on_unit_class`: a non-empty list of rules, each
+    naming a `unit_classes` key, a CHOICE attribute, the value fragment it refuses on, optionally the words
+    that refuse a "not mentioned" answer, the refusal sentence and the ruling."""
+    loc = "list_spec.pricing.refuse_on_unit_class"
+    if not isinstance(rules, list) or not rules:
+        _vthrow(f"{loc} must be a non-empty list.")
+    for i, r in enumerate(rules):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _PRICING_REFUSE_UC_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        if {"unit_class", "attr", "value_contains", "refuse", "rule"} - set(r):
+            _vthrow(f"{rloc} must carry unit_class / attr / value_contains / refuse / rule.")
+        if r["unit_class"] not in ucls:
+            _vthrow(f"{rloc}.unit_class must be a unit_classes key.")
+        if r["attr"] not in choice_attrs:
+            _vthrow(f"{rloc}.attr must be a choice attribute of this category.")
+        vals = by_id[r["attr"]].get("values") or []
+        if not isinstance(r["value_contains"], str) or not r["value_contains"].strip() or not any(
+            r["value_contains"].lower() in str(v).lower() for v in vals
+        ):
+            _vthrow(f"{rloc}.value_contains must be a fragment of at least one of the attribute's values.")
+        if "words" in r and not _words_ok(r["words"]):
+            _vthrow(f"{rloc}.words must be a non-empty list of words.")
+        for key in ("refuse", "rule"):
+            if not isinstance(r[key], str) or not r[key].strip():
+                _vthrow(f"{rloc}.{key} must be a non-empty string.")
+
+
+def _validate_read_notes(rules, by_id, fams, sku_attrs, numbers):
+    """SLICE 12d-4a (owner D8) -- `list_spec.pricing.read_notes`: a non-empty list, each naming priceable
+    families, a `text` item attribute the pricing does not read, a regular expression that compiles, an
+    optional `unless` value and a line carrying `{match}`."""
+    loc = "list_spec.pricing.read_notes"
+    if not isinstance(rules, list) or not rules:
+        _vthrow(f"{loc} must be a non-empty list.")
+    read_by_pricing = set(sku_attrs) | {src for n in numbers.values() for src in (n.get("from") or [])}
+    for i, r in enumerate(rules):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _PRICING_READ_NOTE_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        if {"families", "from_attr", "pattern", "line"} - set(r):
+            _vthrow(f"{rloc} must carry families / from_attr / pattern / line.")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must list priceable families.")
+        fa = r["from_attr"]
+        if not isinstance(fa, str) or fa not in by_id or by_id[fa].get("type") != "text" or fa in read_by_pricing:
+            _vthrow(f"{rloc}.from_attr must be a text definition the pricing does not read.")
+        try:
+            re.compile(r["pattern"])
+        except (re.error, TypeError):
+            _vthrow(f"{rloc}.pattern must be a regular expression.")
+        if "unless" in r and (not isinstance(r["unless"], str) or not r["unless"].strip()):
+            _vthrow(f"{rloc}.unless must be a non-empty string.")
+        if not isinstance(r["line"], str) or "{match}" not in r["line"]:
+            _vthrow(f"{rloc}.line must be a string carrying {{match}}.")
 _PRICING_FWN_KEYS = {"by_unit_class", "when_words", "rule"}
 _PRICING_FWN_WORD_KEYS = {"unit_class", "words", "family"}
 _PRICING_VALUE_MAP_KEYS = {"attr", "families", "from", "to", "refuse", "rule", "display"}
@@ -910,6 +1042,16 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     # SLICE 12d-1a (owner R4): `value_map` -- presence before the `or []` idiom, as above.
     if "value_map" in pr:
         _validate_value_map(pr["value_map"], by_id, choice_attrs, fams)
+    # SLICE 12d-4a (owner D3 / D7 / D9b / D8): the four audit-fix keys, each PRESENCE-tested and shape-checked
+    # (an empty list / object is a mistake, never an inert key).
+    if "named_in_row" in pr:
+        _validate_named_in_row(pr["named_in_row"], by_id, choice_attrs)
+    if "unstocked_materials" in pr:
+        _validate_unstocked_materials(pr["unstocked_materials"], by_id, sku_attrs, numbers)
+    if "refuse_on_unit_class" in pr:
+        _validate_refuse_on_unit_class(pr["refuse_on_unit_class"], by_id, choice_attrs, ucls)
+    if "read_notes" in pr:
+        _validate_read_notes(pr["read_notes"], by_id, fams, sku_attrs, numbers)
     # SLICE 12d-1a (owner R7): `panel_readonly` -- each a `text` item definition that NO pricing rule
     # reads (not a SKU attribute, not a `numbers` source): recorded and shown, never matched.
     # SLICE 12d-1b (owner T5): `no_sku_named_by` -- ONE `text` item definition the pricing does not read.

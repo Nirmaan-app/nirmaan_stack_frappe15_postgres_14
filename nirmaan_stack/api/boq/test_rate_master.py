@@ -19081,3 +19081,122 @@ class TestSlice12d2FAsset(FrappeTestCase):
         self.assertTrue(extraction.config_is_eligible(b, {("HVAC", c["category_id"]): c for c in self.cur["category_configs"]}))
         # nothing was removed, so the removals ledger is EXACTLY v29's (the mint gate reported "No atoms disappeared")
         self.assertEqual(self.cur.get("intentional_removals"), self.prev.get("intentional_removals"))
+
+
+class TestSlice12d4aPricingKeys(FrappeTestCase):
+    """SLICE 12d-4a (owner D3 / D7 / D9b / D8 on the 12d-3 audit, 2026-10-11) -- the FOUR audit-fix pricing keys:
+    `named_in_row` (a value named in the row's OWN text but answered "not mentioned" refuses), `unstocked_materials`
+    (an unstocked material refuses BY NAME whatever family the model picked), `refuse_on_unit_class` (a value not
+    offered on rows of one unit class refuses -- glass cloth on sheet insulation) and `read_notes` (a working line
+    generated from a copied text). Python checks the SHAPE and every REFERENCE in the namespace each name reads
+    from; what each does to a price is pinned on the frontend side (`itemListPricing.test.ts`, the 12d-4a block).
+    Each key is PRESENCE-tested: an empty list / object is refused by name, never an inert key."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v30.json"), "r", encoding="utf-8") as fh:
+            cls.asset = json.load(fh)
+        cls.ins = next(c for c in cls.asset["category_configs"] if c["category_id"] == "hvac_insulation")
+
+    FG = " Fiberglass Rigid Board Insulation, Density 48Kg/m3"
+    NAMED = [{"attr": "cladding", "words": ["glass cloth", "foil"], "refuse": "cladding named in this row but not read - set the cladding", "rule": "D3"}]
+    UNSTOCKED = {"words": ["epdm", "xlpe"], "from_attr": "material_as_written", "rule": "D7"}
+    REFUSE_UC = [{"unit_class": "area", "attr": "cladding", "value_contains": "Glass Cloth", "words": ["glass cloth"],
+                  "refuse": "glass cloth is not offered on sheet insulation - price this row by hand", "rule": "D9b"}]
+    READ_NOTES = [{"families": [FG], "from_attr": "material_as_written", "pattern": r"(\d+)\s*kg\s*/\s*(?:m3|cum)", "unless": "48",
+                   "line": "BoQ says {match} -> priced as the 48 kg/m3 board"}]
+
+    def _cfg(self, **keys):
+        c = copy.deepcopy(self.ins)
+        c.setdefault("discipline", self.asset["discipline"])
+        c["list_spec"]["pricing"].update(keys)
+        return c
+
+    def _refused(self, cfg):
+        try:
+            config_validation._validate_config(cfg)
+        except Exception as exc:          # noqa: BLE001 -- the validator's own throw
+            return str(exc)
+        return None
+
+    def test_d4a_01_every_key_validates_alone_and_together(self):
+        self.assertIsNone(self._refused(self._cfg(named_in_row=self.NAMED)))
+        self.assertIsNone(self._refused(self._cfg(unstocked_materials=self.UNSTOCKED)))
+        self.assertIsNone(self._refused(self._cfg(unstocked_materials={"words": ["epdm"], "rule": "D7"})))   # from_attr optional
+        self.assertIsNone(self._refused(self._cfg(refuse_on_unit_class=self.REFUSE_UC)))
+        self.assertIsNone(self._refused(self._cfg(refuse_on_unit_class=[{k: v for k, v in self.REFUSE_UC[0].items() if k != "words"}])))
+        self.assertIsNone(self._refused(self._cfg(read_notes=self.READ_NOTES)))
+        self.assertIsNone(self._refused(self._cfg(named_in_row=self.NAMED, unstocked_materials=self.UNSTOCKED,
+                                                  refuse_on_unit_class=self.REFUSE_UC, read_notes=self.READ_NOTES)))
+        # v30 itself carries none of them and still validates
+        self.assertIsNone(self._refused(self._cfg()))
+
+    def test_d4a_02_named_in_row_refused_by_name_every_bad_shape(self):
+        bad = lambda **kw: [dict(self.NAMED[0], **kw)]   # noqa: E731
+        for value, needle in [
+            ([], "non-empty list"),
+            ({}, "must be a non-empty list"),
+            (bad(attr="thickness_mm"), "allow_none choice attribute"),          # a text def is not a choice
+            (bad(attr="item"), "allow_none choice attribute"),                  # a choice def WITHOUT allow_none
+            (bad(words=[]), "non-empty list of words"),
+            (bad(words=["", "foil"]), "non-empty list of words"),
+            (bad(refuse=""), "refuse must be a non-empty string"),
+            (bad(extra="x"), "unknown key"),
+            ([{"attr": "cladding", "words": ["foil"]}], "must carry attr / words / refuse / rule"),
+        ]:
+            msg = self._refused(self._cfg(named_in_row=value))
+            self.assertIsNotNone(msg, value)
+            self.assertIn(needle, msg, value)
+
+    def test_d4a_03_unstocked_materials_refused_by_name_every_bad_shape(self):
+        for value, needle in [
+            ({}, "non-empty list of words"),
+            ([], "must be an object"),
+            ({"words": [], "rule": "D7"}, "non-empty list of words"),
+            ({"words": ["epdm"]}, "rule must be a non-empty string"),
+            ({"words": ["epdm"], "rule": "D7", "from_attr": "cladding"}, "text definition the pricing does not read"),   # a SKU attribute
+            ({"words": ["epdm"], "rule": "D7", "from_attr": "thickness_mm"}, "text definition the pricing does not read"),   # a numbers source
+            ({"words": ["epdm"], "rule": "D7", "from_attr": "nope"}, "must name an item attribute"),
+            ({"words": ["epdm"], "rule": "D7", "extra": 1}, "unknown key"),
+        ]:
+            msg = self._refused(self._cfg(unstocked_materials=value))
+            self.assertIsNotNone(msg, value)
+            self.assertIn(needle, msg, value)
+
+    def test_d4a_04_refuse_on_unit_class_refused_by_name_every_bad_shape(self):
+        bad = lambda **kw: [dict(self.REFUSE_UC[0], **kw)]   # noqa: E731
+        for value, needle in [
+            ([], "non-empty list"),
+            (bad(unit_class="volume"), "unit_classes key"),
+            (bad(attr="thickness_mm"), "choice attribute"),
+            (bad(value_contains="Granite"), "fragment of at least one of the attribute's values"),
+            (bad(value_contains=""), "fragment of at least one"),
+            (bad(words=[]), "non-empty list of words"),
+            (bad(rule=" "), "rule must be a non-empty string"),
+            (bad(then="x"), "unknown key"),
+        ]:
+            msg = self._refused(self._cfg(refuse_on_unit_class=value))
+            self.assertIsNotNone(msg, value)
+            self.assertIn(needle, msg, value)
+
+    def test_d4a_05_read_notes_refused_by_name_every_bad_shape(self):
+        bad = lambda **kw: [dict(self.READ_NOTES[0], **kw)]   # noqa: E731
+        for value, needle in [
+            ([], "non-empty list"),
+            (bad(families=["Granite"]), "priceable families"),
+            (bad(families=["none of these"]), "priceable families"),
+            (bad(from_attr="cladding"), "text definition the pricing does not read"),
+            (bad(pattern="(\\d+"), "regular expression"),
+            (bad(unless=""), "unless must be a non-empty string"),
+            (bad(line="no placeholder"), "carrying {match}"),
+            (bad(extra=1), "unknown key"),
+        ]:
+            msg = self._refused(self._cfg(read_notes=value))
+            self.assertIsNotNone(msg, value)
+            self.assertIn(needle, msg, value)
+
+    def test_d4a_06_an_unknown_pricing_key_is_still_refused_so_the_allowlist_is_closed(self):
+        msg = self._refused(self._cfg(named_in_rows=self.NAMED))   # a typo of the new key
+        self.assertIsNotNone(msg)
+        self.assertIn("unknown key(s): named_in_rows", msg)
