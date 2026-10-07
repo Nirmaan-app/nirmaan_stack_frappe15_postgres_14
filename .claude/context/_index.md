@@ -9,13 +9,16 @@ Quick navigation to detailed documentation. Read only when working on related ta
 | [integrations.md](integrations.md) | Frontend-Backend | Socket.IO, Firebase, REST patterns |
 | [workflows.md](workflows.md) | Business Logic | Auto-approval, state machines, scheduled tasks |
 | [patterns.md](patterns.md) | Code Conventions | Naming, file organization, error handling |
-| [domain/procurement.md](domain/procurement.md) | Procurement | PR/PO/RFQ/Quotation workflows, PO delivery documents |
+| [domain/procurement.md](domain/procurement.md) | Procurement | **Load-bearing invariants** (PR package = tags not `work_package`, Critical PO Task ↔ PO links, Loss Justification); PR/PO/RFQ/Quotation workflows, PO delivery documents |
 | [domain/service-requests.md](domain/service-requests.md) | Service Requests | Work Orders, finalization, SR remarks |
 | [domain/users.md](domain/users.md) | User Management | Nirmaan Users, permissions, authentication |
 | [domain/projects.md](domain/projects.md) | Projects | Project status lifecycle, status effects on features |
 | [domain/internal-transfer-memos.md](domain/internal-transfer-memos.md) | Internal Transfer Memos | Inter-project material transfer (ITM) — doctype, state machine, invariants, phase roadmap |
-| [domain/boq-backend.md](domain/boq-backend.md) | BoQ backend | Wizard endpoints, BoQ doctypes, commit pipeline, parse/review, slice changelog (relocated from CLAUDE.md 2026-06-25). Live status: `../../frontend/.claude/plans/boq-upload-plan.md` |
-| [domain/boq-rate-master.md](domain/boq-rate-master.md) | BoQ Rate Master | Priced-item catalog + category configs, the derivation-pipeline interpreter vocabulary, asset export/import + retirement, the CSV round trip, the deployment freeze, and BoQ Rate Suggestion (AI attribute extraction + pricing helper). Relocated from CLAUDE.md 2026-08-19 |
+| [domain/boq-backend.md](domain/boq-backend.md) | BoQ backend | **Load-bearing invariants** at the top (BoQ doctypes, parser / review tree / commit, wizard scope discipline); then wizard endpoints, commit pipeline, parse/review, slice changelog (relocated from CLAUDE.md 2026-06-25). Live status: `../../frontend/.claude/plans/boq-upload-plan.md` |
+| [domain/boq-rate-master.md](domain/boq-rate-master.md) | BoQ Rate Master | Priced-item catalog + category configs, the derivation-pipeline interpreter vocabulary, asset export/import + retirement, the CSV round trip, the deployment freeze, and BoQ Rate Suggestion (AI attribute extraction + pricing helper). Relocated from CLAUDE.md 2026-08-19; the current **Load-bearing invariants** sit at the top |
+| [domain/boq-classification.md](domain/boq-classification.md) | BoQ row classification | Load-bearing invariants for `BoQ Row Category`, engines/disciplines, rules runner (nearest-hit, decay, notes-fallback), routing policy, AI voter, truth snapshots |
+| [domain/boq-pricing-editor.md](domain/boq-pricing-editor.md) | BoQ pricing editor + BCS | Load-bearing invariants for the committed-sheet pricing editor: lock, priceability / category / amount-formula gates, copy-forward + revision carry, classification freeze, and the BCS internal cost layer |
+| [domain/pricing-module.md](domain/pricing-module.md) | Pricing Module | Standalone Pricing Workbook module: doctypes, gzip transport, read/write access split, checkout lock, tests |
 | [domain/customer-po-autofill.md](domain/customer-po-autofill.md) | Customer PO autofill | Autofill of customer PO fields |
 | [domain/expenses.md](domain/expenses.md) | Expenses | Expense doctypes, approval flow, project scoping |
 | [domain/invoice-autofill.md](domain/invoice-autofill.md) | Invoice autofill | Invoice field autofill behaviour |

@@ -9,6 +9,85 @@
 
 ---
 
+## Load-bearing invariants (owner-locked)
+
+_Moved verbatim from root `CLAUDE.md` when it was cut down to material every task needs (CLAUDE.md restructure, pass 2). CLAUDE.md now carries a one-line pointer here._ Classification invariants live in `boq-classification.md`; pricing-editor, revision
+carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
+
+### Active BoQ doctypes
+
+**Active BoQ doctypes** (full per-doctype detail in `.claude/context/domain/boq-backend.md`):
+- `BOQs` — root BoQ doc; `BoQ Sheet Draft` (child) — per-sheet wizard config (`wizard_status`, `sheet_config`); `BoQ General Specs Sheet` / `BoQ Sheet Work Package` — child tables.
+- `BoQ Review Row` — transient per-parse review rows (human-edit layer; **-1 sentinel** for no-parent/no-override).
+- `BoQ Sheet` — committed, VERSIONED sheet tier (`commit_version`/`is_current`); `BOQ Nodes` (+ `BOQ Node Qty By Area`) — committed node tree, **CAPTURE-ONLY** controllers (no amount/parent-rate recompute).
+- `BoQ Committed Sheet Grid` (+ `... Row`) — faithful committed cell grid (all 6 classifications).
+- `BoQ Cell Pricing` — per-cell pricing layer; `BoQ Cell Amount Formula` — per-column amount formulas; `BoQ Cell Remark` / `BoQ Cell Color` — annotations; `BoQ Cell Dismissal` — per-row review-flag dismissal; `BoQ Cell Reconciliation Choice` — per-cell formula-vs-document choice; `BoQ Sheet Pricing Lock` — single-editor lock. (No separate audit doctype — audit goes through `Nirmaan Versions`.)
+
+- **Committed read indexes (deploy invariant):** the two D3d read indexes -- `BoQ Committed Sheet Grid Row` `parent` and `BoQ Row Category` composite `(boq, sheet_name, committed_version, discipline, is_current)` -- are declared in each controller's `on_doctype_update` and applied to ALREADY-DEPLOYED databases by the patch module `nirmaan_stack.patches.v3_0.add_boq_read_indexes` (it CALLS the hooks -- single source of truth, not a re-inlined `add_index` -- and is idempotent). A plain migrate does NOT fire `on_doctype_update` for a controller-only change, so existing DBs need this patch; `BoQ Category Truth Snapshot`'s index is EXCLUDED (its hook shipped atomically with the new doctype, so a fresh sync always creates it). The `patches.txt` wiring line is added EXTERNALLY by the maintainer -- it is intentionally not part of the patch.
+
+### Parser, review tree and commit
+
+- **BoQ Description role is multi-column:** a sheet may map the `description` role on MULTIPLE columns (it is intentionally NOT in the parser's `_SINGLETON_ROLES`). The classifier JOINS all mapped description columns, in Excel column order, with the separator `" | "`, into the one canonical `description` string the whole pipeline uses, and ALSO records each original column in the per-row `description_parts_raw` list -- an ordered list of `(col_letter, header_label, cell_text)` triples in Excel column order (col_letter is unique so identical headers never collide; original headers preserved; duplicate labels get ` 2`/` 3` suffixes only at RENDER time) -- for faithful display. `header_label` is the real per-column header text, captured at PARSE time from the sheet's `header_row` cells by `orchestrator._enrich_column_headers` into the in-memory `SheetConfig.column_headers` (stored-wins; blank header cell -> the bare column letter; never written back to the stored blob); display reads these labels from the persisted `description_parts_raw` triples. A single-description sheet's joined string stays byte-identical (no separator). Owner-locked; the shared `_description_columns` / `_description_parts` helpers in `services/boq_parser/classifier.py` are the single source of truth.
+- **BoQ note parenting is NEAREST-PREAMBLE-OR-LINE-ITEM (EA-6a, owner-locked):** a NOTE attaches to the nearest **preamble OR line item** above it, not the nearest preamble. Selection is a plain three-way nearest-wins over `(_top_non_none(stack), last_line_item_index, level0_ancestor)` — **`level0_ancestor` is a FULL CANDIDATE, never an `else` fallback** (a level-0 section header IS a PREAMBLE, merely absent from the stack; the fallback form mis-attaches to a stale line item preceding the header). **The marker is READ ONLY in the note branch** — the LINE_ITEM branch only records it, so all other parenting/level logic is byte-unchanged. Reset at `SUBTOTAL_MARKER` ONLY (root-preamble / any-preamble resets are provable no-ops). Notes keep `path=None` and carry no level, so the demotion pass is unaffected; `attached_to_index == parent_index` for every note. Flag `hierarchy.NOTE_PARENT_NEAREST_ROW_ENABLED` (default True). Full detail: `.claude/context/domain/boq-backend.md`.
+- **Both review-tree parenting PROMPTS are TEST-PINNED (owner-locked):** the load-bearing passages of
+  `boq_ai_assist._AI_PASS_PROMPT_TEMPLATE` and `boq_gemini_assist._BOQ_CLASSIFY_PROMPT` are frozen by
+  `TestPromptParentingPins` in **both** service test files. **A wording change must UPDATE the pins
+  deliberately** — pin first, reword second, so the diff shows exactly what the model was told before and
+  after. Both prompts state the parser's real rule (*a note's parent is the nearest preamble or line_item
+  above it*) and the identical line-item rule — which (ADR-0008 Amendment A) reads
+  *a line_item MAY be the parent of another line_item when the child row is a sub-component or a
+  breakdown of it; otherwise a line_item's parent is the preamble heading its section*, replacing the
+  retired *only a preamble may parent a line_item*. It tracks the NARROWED finalize gate, which now
+  hard-blocks an item only under a note/marker parent. **The sentence is VERBATIM-IDENTICAL on both
+  engines and `test_line_item_parent_rule_is_identical_on_both_engines` now enforces that
+  mechanically** — the two per-file pins each repeat the literal and cannot see cross-engine drift. Both stay **SILENT on
+  note-under-note**: silence is the mechanism, enforced by a NEGATIVE pin on each engine — never add a
+  prohibition sentence.
+- **Both AI-assist chunkers cut on the EFFECTIVE CLASSIFICATION (EA-6b, owner-locked):** Claude via
+  `_is_preamble_payload`, Gemini via the `section_flags` parallel list the API layer resolves
+  (`gemini_assist._section_flags`). Gemini previously cut on `preamble_candidate_score > 0` -- a derived
+  SIGNAL -- which landed cuts MID-SECTION and stranded notes on most sheets; the classification-based
+  rule strands none. **Gemini's WIRE PAYLOAD NEVER carries the parser's verdict**
+  (owner ruling: independence = (a), WIRE independence -- the model must never be shown a prior
+  classification). The verdict IS now fetched for cutting, so the old structural guarantee (simply not
+  fetching it) is gone: **the invariant is enforced by `services/test_boq_gemini_assist.TestWirePayloadPin`,
+  which freezes the 11-key payload contract -- a wording change must never make it red.** `chunk_rows`
+  with ABSENT `section_flags` degrades to ceiling-only cuts, never back to the score rule.
+- **Committed `attached_notes` is DERIVED, not carried (EA-6a slice 2, owner-locked):** at commit,
+  `commit_pipeline._derive_attached_notes` rebuilds every node's `attached_notes` from the EFFECTIVE
+  tree (effective parent + effective classification, row_index order -- order is load-bearing,
+  `hierarchy._notes_text` pipe-joins it). **The `BoQ Review Row` copy is DISPLAY-TIER only**; a
+  disagreement emits ONE `frappe.logger("boq_commit")` warning and **NEVER fails the commit**. This is
+  what makes the forward-only policy safe -- a historical sheet SELF-HEALS on re-commit, so there is no
+  backfill. The review tier is kept in step at the ONE chokepoint `_apply_and_save_row_edit`, which
+  fires on a `human_parent` move of a note **AND** on a `human_classification` transition INTO or OUT OF
+  "note" (a re-label); a classification change touching "note" on neither side rebuilds nothing. **The
+  rebuild keys on the EFFECTIVE PARENT, never `attached_to_index`** -- that field's 0 means "not
+  attached", so keying on it silently dropped the text of every note parented to `row_index` 0; the
+  sentinel ambiguity is now confined to the pointer field and can never reach the text or the AI
+  engines. The C4 reconciliation asserts the DERIVED value **at its call site only** -- the shared
+  `_jsn` helper still guards `append_notes_raw` / `edit_log` / `description_parts_raw` and must not be
+  touched. `BUG_24_NOTE_PARENT_INDEX_ENABLED` is **RETIRED** (slice 1 made one `target` drive pointer,
+  parent and notes-key, so setting it False would MANUFACTURE a divergence). **An item MAY be the
+  parent of another item** (owner ruling, REVERSING the prior "cannot"): review has always
+  let a human pick that parenting and the gate then refused it, with no way forward. Structural error
+  #8 now fires ONLY for an item under a note / subtotal marker / repeated header. The rule has exactly
+  TWO enforcement sites and they share ONE predicate, `commit_validation.line_item_parent_ok` -- the
+  previewable validator and the durable `BOQ Nodes` controller backstop; relaxing either alone lets
+  review finalize a sheet the commit then rejects. **Warning #16 widened to Line Item in the SAME
+  change and must stay:** `pricingRollup` sums a node's own amount PLUS its descendants', so a priced
+  parent item double-counts -- advisory only, it never blocks.
+
+### Wizard scope discipline (Phase 3 onward)
+
+When a wizard decision has two paths — (a) build the capability inside the wizard, or (b) defer to or extend an existing app-wide flow — surface the fork explicitly in chat before writing code. Default lean: if the capability has reach beyond the Upload BoQ flow (i.e., other Nirmaan features would benefit from it), keep it outside wizard scope. The lean is a starting point only; the final call is case-by-case after discussion.
+
+Common triggers: anything touching shared doctypes (Projects, Customers, Work Headers) in ways other features would also want; new app-wide UI patterns (sidebar items, top nav, modals); auth checks, audit, or notification flows other modules would benefit from.
+
+Example: `create_tendering_project` was dropped from the wizard — tendering project creation belongs in the existing Nirmaan new-project workflow.
+
+---
+
 ## Residence — concept → owner (ADR-0010)
 
 This manifest names the **one owning module** for each BoQ backend concept (per [ADR-0010](../../../docs/adr/0010-module-residence-rules.md)). It exists because root `CLAUDE.md` tells every reader to *"consult the domain doc's `## Residence — concept → owner` manifest"* before creating a helper for an existing concept — and until now BoQ had no such manifest to consult, so that instruction dead-ended on the largest active feature in the app. Shape copied from `procurement.md`, per its own template note.
