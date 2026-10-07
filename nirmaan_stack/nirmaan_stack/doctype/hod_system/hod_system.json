@@ -1,0 +1,267 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:system_name",
+ "creation": "2026-09-22 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "system_name",
+  "display_name",
+  "column_break_main",
+  "work_package",
+  "is_active",
+  "section_lists",
+  "warranty_equipment",
+  "tools",
+  "column_break_lists",
+  "default_disabled_documents",
+  "source_keywords"
+ ],
+ "fields": [
+  {
+   "description": "Short name shown on the project's system tab, e.g. Electrical, HVAC, GSS.",
+   "fieldname": "system_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "System Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "description": "Printed as PACKAGE on every handover page, e.g. ELECTRICAL SYSTEM.",
+   "fieldname": "display_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Display Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "The trade this system belongs to. Projects with this package are offered the system first.",
+   "fieldname": "work_package",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Work Package",
+   "options": "Work Packages",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "Only active systems can be added to a project.",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Active"
+  },
+  {
+   "fieldname": "section_lists",
+   "fieldtype": "Section Break",
+   "label": "Standard Lists"
+  },
+  {
+   "description": "One equipment per line. Seeds the Equipment Warranty certificate; each project can remove or add.",
+   "fieldname": "warranty_equipment",
+   "fieldtype": "Small Text",
+   "label": "Warranty Equipment"
+  },
+  {
+   "description": "One tool per line. Printed as the Recommended Tools List.",
+   "fieldname": "tools",
+   "fieldtype": "Small Text",
+   "label": "Recommended Tools"
+  },
+  {
+   "fieldname": "column_break_lists",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "One document key per line (e.g. material_tds, attic_stock_list, factory_test_reports). \"+ Add system\" creates these rows switched off; the team can switch them on.",
+   "fieldname": "default_disabled_documents",
+   "fieldtype": "Small Text",
+   "label": "Documents Switched Off by Default"
+  },
+  {
+   "description": "One keyword per line, matched against Commission Report task and Design Tracker handover task names. Needed only when several systems share a package (Critical Room ELV: GSS, VESDA, WLD & RRS).",
+   "fieldname": "source_keywords",
+   "fieldtype": "Small Text",
+   "label": "Report Keywords"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-22 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "HOD System",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Billing Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Billing Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Design Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Estimates Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Procurement Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Sales Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Sales Lead",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Tendering Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Tendering Lead",
+   "share": 1
+  }
+ ],
+ "search_fields": "display_name,work_package",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "display_name",
+ "track_changes": 1
+}

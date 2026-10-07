@@ -61,10 +61,14 @@ app_license = "mit"
 # ----------
 
 # add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "nirmaan_stack.utils.jinja_methods",
-# 	"filters": "nirmaan_stack.utils.jinja_filters"
-# }
+# Handover Documents print formats ("HOD Document", "HOD Checklist") call these to get their data,
+# so the Jinja stays layout-only.
+jinja = {
+	"methods": [
+		"nirmaan_stack.api.hod.print_context.hod_print_context",
+		"nirmaan_stack.api.hod.print_context.hod_checklist_context",
+	],
+}
 
 # Installation
 # ------------
@@ -154,6 +158,11 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.user_permission.add_nirmaan_user_permissions"
         ],
         "on_trash": "nirmaan_stack.integrations.controllers.user_permission.on_trash"
+    },
+    "Project HOD Document": {
+        # One row per project x system x document; a switched-off row can't be changed until it is
+        # switched back on. In a hook so Desk / bulk edit / Data Import follow the same rules.
+        "validate": "nirmaan_stack.integrations.controllers.project_hod_document.validate",
     },
     "Project Snag": {
         # Attribution for a status move. In a hook, NOT in the API, so a Desk / bulk-edit /

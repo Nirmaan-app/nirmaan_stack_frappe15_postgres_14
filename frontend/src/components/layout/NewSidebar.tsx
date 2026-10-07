@@ -30,6 +30,7 @@ import {
   Landmark, PencilRuler, SquareStack,
   Warehouse, ClipboardList,
   FileChartLine,
+  PackageCheck,
   Tickets,
   Table2,
   TriangleAlert
@@ -749,6 +750,18 @@ export function NewSidebar() {
         },
       ]
       : []),
+    // Handover Documents, across every project. The roles are the ones that WORK a handover --
+    // the same four `Project HOD Document` grants write to (System Manager / PMO / Project Lead /
+    // Project Manager). Read is far wider on the doctype; the sidebar is not the access boundary.
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
+      ? [
+        {
+          key: '/hod-tracker',
+          icon: PackageCheck,
+          label: 'HOD Tracker',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
@@ -842,6 +855,7 @@ export function NewSidebar() {
     'reports',
     'design-tracker',
     'snag-list',
+    'hod-tracker',
     'critical-po-tracker',
     'pr-tracker',
     'work-plan-tracker',
@@ -898,6 +912,7 @@ export function NewSidebar() {
     "/reports": ["reports"],
     '/design-tracker': ['design-tracker'],
     '/snag-list': ['snag-list'],
+    '/hod-tracker': ['hod-tracker'],
     '/critical-po-tracker': ['critical-po-tracker'],
     '/pr-tracker': ['pr-tracker'],
     '/work-plan-tracker': ['work-plan-tracker'],
@@ -1026,6 +1041,10 @@ export function NewSidebar() {
                     // renders a chevron and swallows the click (see the note further down).
                     "Snag List",
                     "Commission Report Tracker",
+                    // Flat nav button, NOT a group. Same trap as Snag List and Non-Project
+                    // Inflows above: leave this label out and the item falls into the
+                    // collapsible branch, rendering a chevron that swallows the click.
+                    "HOD Tracker",
                     "PR Tracker",
                     "PO Tracker",
                     "Work Plan Tracker",

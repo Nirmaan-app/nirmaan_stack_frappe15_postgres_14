@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Ban, FileDown, Eye, ExternalLink, Loader2, ChevronDown, ChevronRight, FilterX, Search, X } from 'lucide-react';
+import { Ban, Check, FileDown, Eye, ExternalLink, Loader2, ChevronDown, ChevronRight, FilterX, Search, X } from 'lucide-react';
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +34,18 @@ interface TdsExportDialogProps {
     settings: TDSRepositoryData;
     historyData: TdsExportItem[];
     isExporting: boolean;
+    /** When given, a third footer button saves the ticks WITHOUT exporting. The Handover Documents tab
+     *  passes it because its ticks decide what the handover binder carries, so they must be settable
+     *  without downloading a PDF. Absent (the TDS Repository tab) = the two-button footer, unchanged. */
+    onSaveSelection?: (selectedItems: TdsExportItem[]) => Promise<void> | void;
+    /** Tick these item names on open instead of every Approved one. Anything no longer in the list is
+     *  ignored. Absent (the TDS Repository tab) = the default, every Approved item ticked. */
+    initialSelectedIds?: string[];
+    /** Open with NOTHING ticked when `initialSelectedIds` is empty or absent, instead of every Approved
+     *  item. The Handover Documents tab passes it (owner 2026-09-25): its ticks decide what a Preview,
+     *  Download or binder build MERGES, so pre-ticking the whole list pulled every data sheet to look at
+     *  one. The TDS Repository tab does not pass it and is unchanged. */
+    startEmpty?: boolean;
 }
 
 // Mini stakeholder card for the dialog
@@ -76,7 +88,10 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
     onExport,
     settings,
     historyData,
-    isExporting
+    isExporting,
+    onSaveSelection,
+    initialSelectedIds,
+    startEmpty = false
 }) => {
     const statusOptions = useMemo(() => ["Approved", "Pending"], []);
 
@@ -186,13 +201,16 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
     React.useEffect(() => {
         if (isOpen) {
             const defaultItems = sortedItems.filter(item => item.tds_status === "Approved");
-            setSelectedIds(new Set(defaultItems.map(item => item.name)));
+            const seeded = initialSelectedIds?.length
+                ? defaultItems.filter(item => initialSelectedIds.includes(item.name))
+                : startEmpty ? [] : defaultItems;
+            setSelectedIds(new Set(seeded.map(item => item.name)));
             setSelectedPackages([]);
             setSelectedStatus("Approved");
             setCollapsedPackages(new Set());
             setItemSearch("");
         }
-    }, [isOpen, sortedItems]);
+    }, [isOpen, sortedItems, initialSelectedIds, startEmpty]);
 
     const handleSelectStatus = (status: string) => {
         setSelectedStatus(status);
@@ -256,17 +274,36 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
         });
     };
 
+    // One reading of the ticks, shared by Export and Save selection, so the two can never disagree
+    // about what is ticked (the export scope is search-blind -- see `filteredItems` above).
+    const selectedItems = () => groupedItems.flatMap(group =>
+        group.items.filter(item => selectedIds.has(item.name))
+    );
+
     const handleExport = () => {
-        const selectedItems = groupedItems.flatMap(group =>
-            group.items.filter(item => selectedIds.has(item.name))
-        );
-        onExport(selectedItems, selectedStatus);
+        onExport(selectedItems(), selectedStatus);
+    };
+
+    const [isSaving, setIsSaving] = useState(false);
+
+    const handleSaveSelection = async () => {
+        if (!onSaveSelection) return;
+        setIsSaving(true);
+        try {
+            await onSaveSelection(selectedItems());
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     // Labels the Select/De-Select All button, so it tracks the visible set it acts on.
     const isAllSelected = visibleItems.length > 0 && visibleItems.every(item => selectedIds.has(item.name));
 
     const visibleSelectedCount = filteredItems.filter(item => selectedIds.has(item.name)).length;
+    // Save selection writes the SEARCH-BLIND set (`selectedItems`), so its gate reads that same set.
+    // Gating it on `visibleSelectedCount` would grey out the primary action the moment a search hid
+    // the ticked rows, while there is plainly still something to save.
+    const selectedCount = selectedItems().length;
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -529,15 +566,25 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                     <Button 
                         variant="outline" 
                         onClick={onClose}
-                        disabled={isExporting}
+                        disabled={isExporting || isSaving}
                     >
                         <Ban className="w-4 h-4 mr-2" />
                         Cancel
                     </Button>
+                    {/* A caller that offers Save selection -- today only the handover checklist, where it
+                        reads "Mark as Done" (owner 2026-10-06) -- makes IT the primary action: saving the
+                        ticks is the review that makes the document Done,
+                        while the PDF is a utility beside it. So Export steps back to outline and Save
+                        takes the last slot, which is where this app puts a primary.
+                        WITHOUT that callback (the project's own TDS tab, which passes none) nothing
+                        changes at all: Export stays the red primary in the last slot, as before. */}
                     <Button
                         onClick={handleExport}
                         disabled={visibleSelectedCount === 0 || isExporting}
-                        className="bg-red-600 hover:bg-red-700 text-white"
+                        variant={onSaveSelection ? "outline" : "default"}
+                        className={cn(
+                            !onSaveSelection && "bg-red-600 hover:bg-red-700 text-white",
+                        )}
                     >
                         {isExporting ? (
                             <>
@@ -556,6 +603,25 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                             </>
                         )}
                     </Button>
+                    {onSaveSelection && (
+                        <Button
+                            onClick={handleSaveSelection}
+                            disabled={selectedCount === 0 || isExporting || isSaving}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            title={
+                                selectedCount === 0
+                                    ? "Tick at least one data sheet first"
+                                    : "Save these ticks and mark this document Done"
+                            }
+                        >
+                            {isSaving ? (
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                                <Check className="w-4 h-4 mr-2" />
+                            )}
+                            Mark as Done
+                        </Button>
+                    )}
                 </DialogFooter>
             </DialogContent>
         </Dialog>

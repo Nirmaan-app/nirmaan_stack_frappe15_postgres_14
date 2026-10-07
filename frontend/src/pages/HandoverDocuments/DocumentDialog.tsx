@@ -1,0 +1,341 @@
+// One handover document of one package, opened from its checklist row: the typed forms, the
+// library-backed templates (part picks + blanks), or the read-only records of a from-app document.
+// "Mark as Done" (owner 2026-10-06, was Save) writes the row's `form_data` and makes it Done in the same
+// write (update_row).
+
+import { CheckCircle2, Loader2 } from "lucide-react";
+import * as React from "react";
+
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "@/components/ui/use-toast";
+import { getFrappeError } from "@/utils/frappeErrors";
+
+import {
+  AtticForm,
+  EscalationForm,
+  InventoryForm,
+  KeyListForm,
+} from "./forms/TableForms";
+import {
+  CompletionForm,
+  LibraryForm,
+  ToolsForm,
+  WarrantyForm,
+} from "./forms/TemplateForms";
+import { MaintenanceForm } from "./forms/MaintenanceForm";
+import { SourcesView } from "./forms/SourcesView";
+import { useSystemLibrary } from "./hodApi";
+import {
+  asObjectList,
+  asString,
+  asStringList,
+  compactMaintenanceChecks,
+  compactRows,
+  compactTextMap,
+} from "./hodRules";
+import type { HodDocumentMeta, HodRow } from "./types";
+
+/** Documents whose header block prints a DATE the user may set (empty prints blank -- owner 2026-10-06; it
+ *  used to print the download day). The Maintenance Checklist
+ *  asks for the date of the check inside its own form (empty stays blank on paper); the Warranty prints its
+ *  commissioning date instead. */
+const DATED = new Set([
+  "escalation_chart",
+  "inventory_list",
+  "attic_stock_list",
+  "key_list",
+]);
+const LIST_LABELS: Record<string, [string, string]> = {
+  dos_donts: ["Do's", "Don't"],
+};
+
+/** Tidy the draft before it is stored: drop empty grid rows, keep defaults the screen displayed. */
+function finalize(
+  key: string,
+  draft: Record<string, unknown>,
+  ctx: { warrantyDate: string; included?: string[] },
+): Record<string, unknown> {
+  const out = { ...draft };
+  // A library document shows its parts already ticked, from the library's own default -- so someone who
+  // agrees with it changes NOTHING and the draft never gains an `included` key, and the save stored an
+  // empty form. Writing the EFFECTIVE list records the decision that was on screen. The binder is
+  // unaffected -- `included_library` already falls back to the same default.
+  if (ctx.included && !Array.isArray(out.included)) out.included = ctx.included;
+  // The Attic Stock List is NOT compacted (owner 2026-09-25): its printed sheet must carry exactly the
+  // rows the dialog showed, blanks included, because the blanks are what people write in by hand.
+  // Dropping them here made the sheet print only the filled rows.
+  if (key === "key_list") out.rows = compactRows(asObjectList(out.rows));
+  if (key === "attic_stock_list") out.rows = asObjectList(out.rows);
+  if (key === "inventory_list") {
+    out.locations = asObjectList<{ name?: string; qty?: unknown[] }>(
+      out.locations,
+    ).filter(
+      (l) =>
+        asString(l.name).trim() ||
+        (l.qty || []).some((q) => asString(q).trim()),
+    );
+  }
+  if (key === "equipment_warranty" && Array.isArray(out.equipment)) {
+    out.equipment = (out.equipment as unknown[])
+      .map(asString)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  // The tools take no remarks any more (owner 2026-10-06): Mark as Done clears any saved earlier.
+  if (key === "recommended_tools") delete out.tool_remarks;
+  if (key === "maintenance_checklist") {
+    if (out.checks !== undefined) out.checks = compactMaintenanceChecks(out.checks);
+    if (out.dates !== undefined) {
+      const dates = compactTextMap(out.dates);
+      // The two per-period dates SUPERSEDE the single date this document used before the split, so the
+      // old key goes -- otherwise it would keep coming back as the fallback for a date just cleared.
+      delete out.date;
+      if (Object.keys(dates).length) out.dates = dates;
+      else delete out.dates;
+    }
+  }
+  if (
+    key === "completion_certificate" &&
+    !asString(out.commissioning_date) &&
+    ctx.warrantyDate
+  ) {
+    out.commissioning_date = ctx.warrantyDate;
+  }
+  return out;
+}
+
+export interface DocumentDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  projectId: string;
+  customerName: string;
+  hodSystem: string;
+  displayName: string;
+  row: HodRow;
+  meta: HodDocumentMeta;
+  /** The other rows of this package (the completion certificate borrows the warranty's date). */
+  siblings: HodRow[];
+  readOnly: boolean;
+  onSave: (formData: Record<string, unknown>) => Promise<void>;
+  /** From Nirmaan documents: keep the ticked reports and download them. */
+  onDownloadSelected: (selected: string[]) => Promise<void>;
+  onSaveSelected: (selected: string[]) => Promise<void>;
+}
+
+export const DocumentDialog: React.FC<DocumentDialogProps> = ({
+  open,
+  onOpenChange,
+  projectId,
+  customerName,
+  hodSystem,
+  displayName,
+  row,
+  meta,
+  siblings,
+  readOnly,
+  onSave,
+  onDownloadSelected,
+  onSaveSelected,
+}) => {
+  const [draft, setDraft] = React.useState<Record<string, unknown>>(
+    row.form_data || {},
+  );
+  const [saving, setSaving] = React.useState(false);
+
+  // Fresh draft every time the dialog opens (never carry an abandoned edit over).
+  React.useEffect(() => {
+    if (open) setDraft(row.form_data || {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const needsLibrary = meta.kind === "template";
+  const { library, isLoading: libraryLoading } = useSystemLibrary(
+    projectId,
+    hodSystem,
+    open && needsLibrary,
+  );
+  const warrantyDate = asString(
+    siblings.find((r) => r.document === "equipment_warranty")?.form_data
+      ?.commissioning_date,
+  );
+
+  // What the library screen is SHOWING as included: the row's own picks, else the library's default,
+  // else the single block this document has. Undefined for anything that is not a library document.
+  const libraryKey = meta.library ?? "";
+  const libraryBlocks = library?.contents[libraryKey] ?? [];
+  const effectiveIncluded = needsLibrary && libraryBlocks.length
+    ? (asStringList(draft.included) ??
+      (libraryBlocks.length > 1
+        ? (library?.default_included[libraryKey] ?? [])
+        : [libraryBlocks[0].sub_system || "all"]))
+    : undefined;
+
+  const isFromApp = meta.kind === "app";
+  const editable = !readOnly && !isFromApp;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onSave(
+        finalize(meta.key, draft, { warrantyDate, included: effectiveIncluded }),
+      );
+      onOpenChange(false);
+    } catch (error: any) {
+      toast({
+        title: "Could not save",
+        description: getFrappeError(error),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const formProps = { value: draft, onChange: setDraft, readOnly: !editable };
+
+  let body: React.ReactNode;
+  if (isFromApp) {
+    body = (
+      <SourcesView
+        projectId={projectId}
+        hodSystem={hodSystem}
+        meta={meta}
+        row={row}
+        canEdit={!readOnly}
+        onDownloadSelected={onDownloadSelected}
+        onSaveSelected={onSaveSelected}
+      />
+    );
+  } else if (needsLibrary && (libraryLoading || !library)) {
+    body = (
+      <div className="flex items-center justify-center py-10 text-sm text-gray-500">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading the{" "}
+        {displayName} library…
+      </div>
+    );
+  } else {
+    switch (meta.key) {
+      case "escalation_chart":
+        body = <EscalationForm {...formProps} />;
+        break;
+      case "attic_stock_list":
+        body = <AtticForm {...formProps} />;
+        break;
+      case "key_list":
+        body = <KeyListForm {...formProps} customerName={customerName} />;
+        break;
+      case "inventory_list":
+        body = <InventoryForm {...formProps} />;
+        break;
+      case "recommended_tools":
+        body = <ToolsForm tools={library?.system.tools ?? []} />;
+        break;
+      case "equipment_warranty":
+        body = (
+          <WarrantyForm
+            {...formProps}
+            defaultEquipment={library?.system.warranty_equipment ?? []}
+          />
+        );
+        break;
+      case "completion_certificate":
+        body = (
+          <CompletionForm
+            {...formProps}
+            customerName={customerName}
+            warrantyDate={warrantyDate}
+          />
+        );
+        break;
+      case "maintenance_checklist": {
+        const lib = meta.library ?? "";
+        body = (
+          <MaintenanceForm
+            {...formProps}
+            blocks={library?.contents[lib] ?? []}
+            defaultIncluded={library?.default_included[lib] ?? []}
+          />
+        );
+        break;
+      }
+      default: {
+        const lib = meta.library ?? "";
+        body = (
+          <LibraryForm
+            {...formProps}
+            blocks={library?.contents[lib] ?? []}
+            defaultIncluded={library?.default_included[lib] ?? []}
+            withBlanks={meta.key === "om_manual"}
+            listLabels={LIST_LABELS[meta.key] ?? ["", ""]}
+          />
+        );
+      }
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !saving && onOpenChange(o)}>
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>
+            {meta.no}. {meta.title}
+          </DialogTitle>
+          <DialogDescription>
+            {displayName}
+            {row.disabled ? " — disabled, so it is read-only." : ""}
+          </DialogDescription>
+        </DialogHeader>
+
+        {DATED.has(meta.key) && (
+          <div className="max-w-xs space-y-1">
+            <Label className="text-xs text-gray-600">
+              Date on the document
+            </Label>
+            <Input
+              type="date"
+              className="h-9"
+              value={asString(draft.date)}
+              disabled={!editable}
+              onChange={(e) => setDraft({ ...draft, date: e.target.value })}
+            />
+            <p className="text-[11px] text-gray-500">
+              Left empty, the date stays blank on the PDF.
+            </p>
+          </div>
+        )}
+
+        {body}
+
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={saving}
+          >
+            {editable ? "Cancel" : "Close"}
+          </Button>
+          {editable && (
+            <Button onClick={save} disabled={saving}>
+              {saving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+              )}
+              Mark as Done
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};

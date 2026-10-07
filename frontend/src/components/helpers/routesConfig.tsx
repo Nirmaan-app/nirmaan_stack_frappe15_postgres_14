@@ -92,6 +92,11 @@ import CommissionReportList from '@/pages/CommissionReport/commission-report-lis
 import ProjectCommissionReportDetail from '@/pages/CommissionReport/project-commission-report-details';
 import CommissionReportWizard from '@/pages/CommissionReport/report-wizard';
 
+// HOD Tracker — the cross-project handover list and its own detail page. The detail mounts the same
+// `HandoverDocumentsTab` the project page does, so there is one screen, not two.
+import HodTrackerList from "@/pages/HandoverDocuments/hod-tracker-list";
+import HodTrackerDetail from "@/pages/HandoverDocuments/hod-tracker-detail";
+
 
 //Design Tracker
 import DesignTrackerList from "@/pages/ProjectDesignTracker/design-tracker-list";
@@ -414,6 +419,25 @@ export const appRoutes: RouteObject[] = [
           },
           // ======================================================
           // --- END: COMMISSION REPORT SECTION ---
+          // ======================================================
+          // ======================================================
+          // --- START: HOD TRACKER SECTION ---
+          // ======================================================
+          // Same shape as the Design Tracker below: a list, and a detail page of its own rather
+          // than a redirect into the Project page. The detail mounts the very same
+          // `HandoverDocumentsTab` the project page mounts, so the two cannot drift.
+          {
+            path: "hod-tracker",
+            children: [
+              // 1. List View (e.g. /hod-tracker)
+              { index: true, element: <HodTrackerList /> },
+
+              // 2. Detail View (e.g. /hod-tracker/KOLKATA-PROJ-00102)
+              { path: ":projectId", element: <HodTrackerDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: HOD TRACKER SECTION ---
           // ======================================================
           // ======================================================
           // --- START: NEW DESIGN TRACKER SECTION ---
