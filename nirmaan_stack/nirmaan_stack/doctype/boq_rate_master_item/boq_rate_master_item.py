@@ -11,7 +11,7 @@ app's stated rule -- flexible, UI-driven, read-whole data (mirrors BoQ Committed
 Grid Row.cells / BoQ Sheet.column_role_map). The per-category pipelines + attribute
 definitions live in BoQ Rate Category Config.
 
-Controller stays minimal (per CLAUDE.md doctype convention): validate required identity;
+Controller stays minimal (per CODING_STANDARDS.md doctype convention): validate required identity;
 declare the composite read index [discipline, kind, brand]. Import/batch/idempotence policy
 lives in the loader (services/boq_rate_master/loader.py), not here.
 """

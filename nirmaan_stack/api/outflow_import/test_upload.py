@@ -2363,7 +2363,7 @@ class TestPreviewPayloadCarriesBothDirections(unittest.TestCase):
     the endpoint's extra work is authorization and a multipart read. But the payload's KEYS are built
     inline in the endpoint and nowhere else, so a test one layer down would assert what the parser
     returned and never that it ARRIVES: the producer's pin and the consumer's pin can both be green
-    while the join is broken (the standing cross-seam rule in `CLAUDE.md`). The multipart read is
+    while the join is broken (the standing cross-seam rule in `CODING_STANDARDS.md`). The multipart read is
     faked with a real `werkzeug` `FileStorage`, which is the type the endpoint actually receives, so
     the only fake is the transport.
 

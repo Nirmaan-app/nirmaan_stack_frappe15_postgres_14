@@ -10,8 +10,9 @@ shadcn/ui, Tailwind, Zustand, TanStack Table, `frappe-react-sdk`. Frontend conve
 
 ## Before you write code
 
-**Before writing, reviewing or testing code, or writing a migration, read `CODING_STANDARDS.md`.** Before
-changing code in a domain, read that domain's doc from [Domain docs](#domain-docs).
+**Before writing, reviewing or testing code, or writing a migration, read `CODING_STANDARDS.md`** (frontend code:
+also `frontend/CODING_STANDARDS.md`). Before changing code in a domain, read that domain's doc from
+[Domain docs](#domain-docs).
 
 Three standards fail silently when broken, so they are summarised here too (full text in `CODING_STANDARDS.md`):
 
@@ -45,8 +46,8 @@ narratives) goes to the on-demand reference docs only: `frontend/.claude/plans/b
 source of truth), `.claude/context/domain/boq-backend.md`, `frontend/.claude/context/domain/boq-frontend.md`.
 Touch a `CLAUDE.md` only when a stable convention or an owner-locked invariant changes. A domain rule goes in that
 domain doc's Load-bearing invariants section, with at most a pointer row in Domain docs; a coding rule goes in
-`CODING_STANDARDS.md`. The `.claude/hooks/guard_claude_md.py` PreToolUse hook enforces this and redirects
-changelog-style text to the reference docs (patterns: `.claude/hooks/README.md`).
+`CODING_STANDARDS.md` (frontend: `frontend/CODING_STANDARDS.md`). The `.claude/hooks/guard_claude_md.py`
+PreToolUse hook enforces this and redirects changelog-style text to the reference docs (patterns: `.claude/hooks/README.md`).
 
 ## Commands
 
@@ -120,4 +121,5 @@ Read by the installed engineering skills (`/triage`, `/to-spec`, `/code-review`,
   `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 - **Domain docs:** single-context — root `GLOSSARY.md` + root `docs/adr/` — plus the per-domain reference docs
   under `.claude/context/domain/` and `frontend/.claude/context/`. See `docs/agents/domain.md`.
-- **Coding standards:** `CODING_STANDARDS.md` (the `/code-review` Standards axis reads it).
+- **Coding standards:** `CODING_STANDARDS.md` and `frontend/CODING_STANDARDS.md` (the `/code-review` Standards axis
+  reads both).

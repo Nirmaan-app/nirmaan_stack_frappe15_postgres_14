@@ -1,6 +1,7 @@
 # Frontend Context Documentation Index
 
 This directory contains reference documentation for the Nirmaan Stack frontend. Load these files on-demand when working on related tasks.
+How frontend code is written (data access, state, forms, tables, effects, dates, RBAC, F1–F5, tests): `../../CODING_STANDARDS.md` (`frontend/CODING_STANDARDS.md`).
 
 ---
 
@@ -20,8 +21,6 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | [domain/boq-pricing-editor-frontend.md](./domain/boq-pricing-editor-frontend.md) | BoQ pricing editor (frontend) | Before editing `PricingGrid.tsx` / `SheetPricingPage.tsx`: load-bearing invariants (gates, formulas, Category column, rate-helper chassis, virtualization, BCS block, view filters). Backend: `../../.claude/context/domain/boq-pricing-editor.md` |
 | [domain/pricing-rate-master-frontend.md](./domain/pricing-rate-master-frontend.md) | Pricing Module + Rate Master (frontend) | Rate-helper panel attribute semantics, the HVAC/Electrical/ELV workbook pages, and the Rate Master (RM-2) screens incl. RM-4a/RM-4b admin editing. Relocated from frontend/CLAUDE.md 2026-08-19 |
 | [data-tables.md](./data-tables.md) | DataTable System | useServerDataTable hook, DataTable component, export, backend API, search strategies |
-| [coding-standards.md](./coding-standards.md) | Standards | Date formats, react-select patterns, Radix dialog fixes |
-| [react-patterns.md](./react-patterns.md) | React | useEffect anti-patterns, TanStack Table deps, Vercel best practices |
 | [role-access.md](./role-access.md) | Access Control | Role checks, sidebar visibility, page permissions |
 | [testing.md](./testing.md) | Feature Testing | After implementing forms, dialogs, persistence, multi-step workflows |
 | [websocket.md](./websocket.md) | Real-time | Socket.IO events, notifications, publish_realtime, proxy config |
@@ -55,17 +54,18 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 | SR Remarks | `src/pages/ServiceRequests/approved-sr/` | `hooks/useSRRemarks.ts`, `components/SRRemarks.tsx` |
 | DC/MIR Module | `src/pages/DeliveryChallansAndMirs/` | `components/UploadDCMIRDialog.tsx`, `ViewAttachmentsDialog.tsx`, `DCMIRItemSelector.tsx`, `hooks/usePODeliveryDocuments.ts` |
 | Delivery Notes (DN) | `src/pages/DeliveryNotes/` | `deliverynotes.tsx` (hub: dashboard/create/view), `deliverynote.tsx` (detail, `?mode=` support), `components/pivot-table/` (pivot subsystem), `components/DNDetailDialog.tsx`, `hooks/useProjectDeliveryNotes.ts`, `hooks/useReturnSubmit.ts` (return notes) |
-| Design Tracker | `src/pages/ProjectDesignTracker/` | `types/index.ts` for interfaces, `utils.tsx` for styling, `config/taskTableColumns.tsx` for table, `components/FilesCell.tsx` for file/proof icons |
+| Design Tracker | `src/pages/ProjectDesignTracker/` | `types/index.ts` for interfaces, `utils.tsx` for styling, `config/taskTableColumns.tsx` for table, `components/FilesCell.tsx` for file/proof icons. Onboarding and Handover phases, filterable in the task-wise and team-summary views; a task needs an approval proof (file attachment) before its status can be set to Approved |
 | Team Performance | `src/pages/ProjectDesignTracker/` | `components/TeamPerformanceSummary.tsx`, inline edit with TaskEditModal, InlineTaskList drill-down |
 | Vendor Attachment for PR | `src/pages/ProcurementRequests/` | `components/VendorAttachmentForPR.tsx` for vendor quote attachments |
-| Bulk Download Wizard | `src/pages/BulkDownload/` | `BulkDownloadPage.tsx` wizard, `FilterBar.tsx` for vendor/date, step components in `steps/` (PO, WO, Invoice, DC, MIR, DN) |
+| Bulk Download Wizard | `src/pages/BulkDownload/` | `BulkDownloadPage.tsx` wizard, `FilterBar.tsx` for vendor/date, step components in `steps/` (PO, WO, Invoice, DC, MIR, DN, Client Invoices), downloaded as merged PDFs. `useBulkDownloadWizard.ts` hands each step its full eligible list; every step selects through ONE client-side table, `steps/BulkSelectTable.tsx` (the app's in-header facet + date filters; per-type columns in `steps/bulkTableColumns.tsx`). Changing any filter CLEARS the selection, so a download never carries a row the filters hide. PO rate visibility is restricted for Project Managers |
 | Bulk PDF Button | `src/components/common/BulkPdfDownloadButton.tsx` | Reusable button with `useBulkPdfDownload.ts` hook |
-| Remaining Items (Inventory) | `src/pages/remaining-items/` | `index.tsx`, `components/RemainingItemsForm.tsx`, `hooks/useRemainingItemsForm.ts`, cooldown + declaration |
-| Inventory Item-Wise | `src/pages/inventory/` | `InventoryItemWisePage.tsx`, `hooks/useInventoryItemWise.ts`, `inventory.types.ts` — cross-project aggregation with estimated cost |
+| Remaining Items (Inventory update page) | `src/pages/remaining-items/` | `index.tsx`, `components/RemainingItemsForm.tsx`, `hooks/useRemainingItemsForm.ts`, cooldown + declaration |
+| Inventory Item-Wise | `src/pages/inventory/` | `InventoryItemWisePage.tsx`, `hooks/useInventoryItemWise.ts`, `inventory.types.ts` — cross-project aggregation of the latest submitted Remaining Items Reports, estimated cost from max PO quote rates; virtualized expandable table with category/unit facet filters and CSV export. Sidebar access: Admin, PMO, PL, PM, Procurement |
 | Reports | `src/pages/reports/` | `hooks/usePO*.ts` for data, `components/columns/*.tsx` for columns, `config/*.config.ts` for table config |
 | Reports: DCs & MIRs | `src/pages/reports/` | `DCMIRReports.tsx`, `InventoryReport.tsx` sub-types with facet filters, HoverCard item popover, Critical PO column |
 | PO Adjustments | `src/pages/POAdjustment/` | `POAdjustmentButton.tsx`, `POAdjustmentDialog.tsx`, `POAdjustmentHistory.tsx`, `hooks/usePOAdjustment.ts`, `data/usePOAdjustmentQueries.ts` |
 | Vendor Data Hooks | `src/pages/vendors/data/` | `useVendorQueries.ts`, `useVendorMutations.ts` — centralized vendor CRUD with Sentry error capturing |
+| Vendor Financial Dialogs | `src/pages/vendors/` | Vendor WO / Material Orders tables show an Amount Due column; the Total Invoiced and Amount Paid cells open `InvoiceDataDialog` / `PaymentsDataDialog` |
 | Help Repository | `src/pages/help-repository/` | `types.ts` for schema, `utils/loom-embed.ts` for URL conversion |
 | Work Headers | `src/components/` | `workHeaderMilestones.tsx` (config component) |
 
@@ -73,10 +73,14 @@ This directory contains reference documentation for the Nirmaan Stack frontend. 
 
 ## Quick Reference
 
-### Role Profiles (10 total)
+### Role Profiles (11 total; full list in `role-access.md`)
 - Admin, PMO Executive, Project Lead, Project Manager
-- Procurement Executive, Accountant, Estimates Executive
+- Procurement Executive, Accountant, Estimates Executive, Billing Executive
 - Design Lead, Design Executive, HR Executive
+
+### Procurement flow
+
+1. **New PR** → 2. **Approve PR** → 3. **Select Vendors** → 4. **Vendor Quotes** → 5. **Approve Quotes** → 6. **Release PO** → 7. **Delivery Notes** → 8. **Invoices** → 9. **Payments** (`pages/ProcurementRequests/`, `pages/ProcurementOrders/`)
 
 ### Key Frontend Patterns
 
@@ -103,8 +107,6 @@ const { role, user_id } = useUserData();
 └── context/
     ├── _index.md           # This file
     ├── data-tables.md      # DataTable system: hook, component, export, backend API
-    ├── coding-standards.md # Date formats, react-select, Radix dialog patterns
-    ├── react-patterns.md   # useEffect anti-patterns, Vercel best practices
     ├── role-access.md      # Role-based access control reference
     ├── testing.md          # Playwright browser testing guide
     ├── websocket.md        # Socket.IO real-time events & notifications
@@ -130,7 +132,7 @@ The backend (`nirmaan_stack/`) has additional context files:
 - `.claude/context/apis.md` - API endpoints
 - `.claude/context/integrations.md` - Frontend-backend integration
 - `.claude/context/workflows.md` - Business logic flows
-- `.claude/context/patterns.md` - Code conventions
+- `.claude/context/patterns.md` - Code examples (the rules are in root `CODING_STANDARDS.md`)
 
 ---
 

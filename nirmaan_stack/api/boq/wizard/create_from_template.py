@@ -368,7 +368,7 @@ def create_from_template(project=None, boq_name=None, sheet_names=None, tax_trea
     new_boq_doc.insert(ignore_permissions=True)
 
     # Commit the shell BEFORE enqueue so the (async, possibly cross-process) worker can
-    # read the new BOQs row. CLAUDE.md: commit after DML in a whitelisted method.
+    # read the new BOQs row. CODING_STANDARDS.md: commit after DML in a whitelisted method.
     frappe.db.commit()
 
     job = frappe.enqueue(
@@ -540,7 +540,7 @@ def _clone_worker(new_boq, template, sheet_names, user, areas=None):
     grandchild rows from the sheet's work_packages JSON list; (b) if disposition="general_specs"
     carry the general_specs_sheets membership; (c) STRAIGHT-copy every BoQ Template Row for that
     sheet into a BoQ Review Row (pre-flattened -> structure-only, is_excluded=0). Commit BEFORE
-    publish (CLAUDE.md rule). On exception: rollback, then cache+publish the error.
+    publish (CODING_STANDARDS.md rule). On exception: rollback, then cache+publish the error.
     """
     frappe.set_user(user)
     try:
@@ -668,7 +668,7 @@ def _clone_worker(new_boq, template, sheet_names, user, areas=None):
                 doc.update(row_dict)
                 doc.insert(ignore_permissions=True)
 
-        # Commit BEFORE publish (CLAUDE.md: commit-before-publish avoids race conditions).
+        # Commit BEFORE publish (CODING_STANDARDS.md: commit-before-publish avoids race conditions).
         frappe.db.commit()
         _publish_and_record({"boq_name": new_boq, "status": "success"}, user)
 

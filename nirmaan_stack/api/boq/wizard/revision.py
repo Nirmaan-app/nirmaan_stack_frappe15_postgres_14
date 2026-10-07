@@ -206,7 +206,7 @@ def convert_revision_entry(
     )
 
     # Re-seed the drafts to match the new mode. Grandchild work-package rows do NOT cascade off
-    # a parent save, so drop them explicitly before clearing their parents (CLAUDE.md's
+    # a parent save, so drop them explicitly before clearing their parents (CODING_STANDARDS.md's
     # grandchild-serialization rule cuts both ways: they are invisible to the ORM here too).
     for draft in boq_doc.sheet_drafts or []:
         frappe.db.delete(

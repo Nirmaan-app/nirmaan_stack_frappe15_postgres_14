@@ -69,7 +69,7 @@ class TestTheNewFieldsExist(MatchRecordFixture):
         self.assertEqual(options.split("\n"), ["Settled", "Reversed"])
 
     def test_the_runtime_table_really_has_the_columns(self):
-        """⚠️ Root CLAUDE.md: passing tests do not prove the RUNTIME database has the column.
+        """⚠️ CODING_STANDARDS.md: passing tests do not prove the RUNTIME database has the column.
         Tests use a separate auto-migrated database; this asserts the live one."""
         for column in ("reversed_at", "reversed_by", "reversal_reason", "target_project", "target_vendor"):
             self.assertTrue(

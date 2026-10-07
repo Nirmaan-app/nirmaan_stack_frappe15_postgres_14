@@ -811,7 +811,7 @@ def _run_gemini_pass_worker(boq_name: str, sheet_name: str, user: str = None) ->
 
         written = _apply_gemini_suggestions(boq_name, sheet_name, rows, suggestions)
 
-        # Commit BEFORE publish (CLAUDE.md rule: commit-before-publish avoids races).
+        # Commit BEFORE publish (CODING_STANDARDS.md rule: commit-before-publish avoids races).
         frappe.db.commit()
         _publish_gemini_event(
             boq_name, sheet_name, "success", user=user,

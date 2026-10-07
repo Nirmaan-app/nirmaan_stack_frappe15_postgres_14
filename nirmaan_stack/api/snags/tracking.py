@@ -304,7 +304,7 @@ def _next_manual_serial(project, batch):
 def _refresh_batch_snag_count(batch):
     """Re-derive `Project Snag Batch.snag_count` from the rows that carry the batch.
 
-    RECOMPUTED FROM SOURCE, never incremented by a delta (root CLAUDE.md): any later
+    RECOMPUTED FROM SOURCE, never incremented by a delta (CODING_STANDARDS.md): any later
     ordinary save then repairs it exactly, and a reconcile pass can always prove it.
     It stopped being "how many rows this import brought in" the moment a snag could be
     added to a batch by hand -- Import History reads it as the batch's SIZE, so a count
@@ -654,7 +654,7 @@ def get_snag_stats(project=None):
 def _distinct_field_values(project, field):
     """One GROUP BY over `field` for this project, most-used first, BLANKS EXCLUDED.
 
-    A distinct-values list over many rows is the DATABASE's job (root CLAUDE.md / ADR-0010)
+    A distinct-values list over many rows is the DATABASE's job (CODING_STANDARDS.md / ADR-0010)
     -- one GROUP BY per field, never a `get_all` of every snag and a Python set.
 
     ⚠️ THE BLANK FILTER IS LOAD-BEARING. `add_manual_snag` and the importer both write `""`

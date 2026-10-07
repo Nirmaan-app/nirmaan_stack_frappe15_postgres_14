@@ -9,7 +9,7 @@ category (e.g. Electrical / wiring_cabling). Config is a read-whole, UI-driven J
 the app's stated JSON-vs-child-table rule. The pipelines are STORED CONFIG -- RM-1 persists
 them faithfully; no interpreter ships this slice (the pricing helper interprets them later).
 
-Controller stays minimal (per CLAUDE.md doctype convention): validate required identity;
+Controller stays minimal (per CODING_STANDARDS.md doctype convention): validate required identity;
 declare the composite read index [discipline, category_id]. Import/batch policy lives in the
 loader (services/boq_rate_master/loader.py), not here.
 """

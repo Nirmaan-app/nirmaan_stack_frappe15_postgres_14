@@ -6,7 +6,7 @@
 ADR-0016 Amendment A. It has NO status: it counts the moment it is saved. Nothing about a project,
 customer or CEO Hold may ever read this table (those figures stay about projects and customers).
 
-Controller stays minimal (CLAUDE.md): naming is the JSON `autoname`, the rules below are the only
+Controller stays minimal (CODING_STANDARDS.md): naming is the JSON `autoname`, the rules below are the only
 logic here, and the receipt-adoption hook lives in `integrations/controllers/non_project_inflows.py`.
 """
 

@@ -1,7 +1,8 @@
 # Context Reference Index
 
 Quick navigation to detailed documentation. Read only when working on related tasks.
-How to write code here (placement, raw SQL, patches, schema changes, tests, don't-touch paths): root `CODING_STANDARDS.md`.
+How to write code here (placement, raw SQL, patches, schema changes, tests, don't-touch paths): root `CODING_STANDARDS.md`;
+for frontend code, `frontend/CODING_STANDARDS.md`.
 
 | File | Domain | When to Read |
 |------|--------|--------------|

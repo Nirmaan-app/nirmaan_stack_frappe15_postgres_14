@@ -6547,7 +6547,7 @@ class TestRateMaster(FrappeTestCase):
 #
 # ⚠️ THIS CLASS MUTATES A **SINGLE** DOCTYPE ON THE **LIVE** SITE, so every test captures the
 # site's CURRENT freeze state and restores THAT -- never a hardcoded "unfrozen". The standing rule
-# in CLAUDE.md exists because the failure is SILENT: a hardcoded restore would quietly lift a
+# in CODING_STANDARDS.md exists because the failure is SILENT: a hardcoded restore would quietly lift a
 # freeze the owner had genuinely set, and the two provenance fields would be destroyed with it.
 # `_freeze_sandbox` also purges only the Version rows THIS test created, never pre-existing ones.
 #

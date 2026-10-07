@@ -11,7 +11,7 @@ NOT carry forward), while ground truth is BANKED here at explicit events and is 
 discipline, committed_version) plus a `snapshot_batch` per event; the cockpit joins a snapshot
 row to the current classification row by (boq, sheet_name, excel_row, discipline).
 
-Controller stays minimal (per CLAUDE.md doctype convention): validate label_category_id
+Controller stays minimal (per CODING_STANDARDS.md doctype convention): validate label_category_id
 non-empty; declare the composite read index for the durable-address join. Batch/idempotence
 policy lives in the loader (services/boq_category/harness/corpus_classify_and_label.py), not
 here.

@@ -10,15 +10,15 @@ section for the task in hand:
 - [Writing raw SQL, `set_value` or a bulk write](#writing-raw-sql-set_value-or-a-bulk-write) — the `doc_events` bypass and PostgreSQL gotchas
 - [Writing a migration or patch](#writing-a-migration-or-patch)
 - [Changing a doctype schema](#changing-a-doctype-schema)
-- [Writing frontend TypeScript](#writing-frontend-typescript)
+- [Writing frontend TypeScript](#writing-frontend-typescript) — pointer to `frontend/CODING_STANDARDS.md`
 - [Writing tests](#writing-tests)
 - [Don't touch](#dont-touch) — generated and append-only paths, and the sanctioned doctype-JSON exceptions
 - [Before committing](#before-committing)
 - [Commands](#commands)
 
 Rules that belong to one domain (BoQ, Pricing Module, procurement, payments, …) live in that domain's doc;
-root `CLAUDE.md` § Domain docs indexes them. Frontend-only conventions (date format, select components,
-effects, F1–F5) live in `frontend/CLAUDE.md` and `frontend/.claude/context/coding-standards.md`. Code
+root `CLAUDE.md` § Domain docs indexes them. Frontend-only rules (data access, state, forms, tables, effects,
+dates, RBAC, F1–F5, vitest) live in [`frontend/CODING_STANDARDS.md`](frontend/CODING_STANDARDS.md). Code
 examples (controller methods, error handling, realtime publishing, print formats) live in
 `.claude/context/patterns.md`.
 
@@ -54,12 +54,7 @@ nirmaan_stack/
 └── hooks.py                 # App wiring: doc_events, scheduled tasks, fixtures
 ```
 
-Frontend lives in `frontend/src/`:
-- `pages/` — route-level components, one folder per domain
-- `components/` — reusable components; `components/ui/` holds shadcn/ui primitives (generated, don't hand-edit)
-- `zustand/` — global state stores
-- `types/` — shared TypeScript types
-- `components/helpers/routesConfig.tsx` — all route definitions
+Frontend lives in `frontend/src/`; its layout is in `frontend/CODING_STANDARDS.md` § Where code goes.
 
 **Lifecycle hooks:** always in `integrations/controllers/<doctype>.py`, registered in `hooks.py` `doc_events`.
 New doctypes put their controllers there too.
@@ -108,7 +103,7 @@ above (folder vs owner):
 - **A count/aggregate over many rows** → **the database** (`GROUP BY` / `EXISTS`), never a `get_doc`/row-loop in Python.
 
 First worked proof: the `sidebar_counts` aggregate rewrite + the shared `services/procurement_approval.py`
-predicate home. Frontend rules F1–F5 (summarised in `frontend/CLAUDE.md`) and the deferred backlog live in ADR-0010.
+predicate home. Frontend rules F1–F5 (stated in `frontend/CODING_STANDARDS.md`) and the deferred backlog live in ADR-0010.
 
 Before creating a helper for an existing domain concept, consult the domain doc's **`## Residence — concept → owner`**
 manifest (first one: `.claude/context/domain/procurement.md`); an unassigned owner means ask the owner rather than
@@ -205,19 +200,11 @@ Verify with `frappe.db.has_column("DocType Name", "field_name")` in the bench co
 
 ## Writing frontend TypeScript
 
-- All Frappe data access via `frappe-react-sdk`: `useFrappeGetDocList`, `useFrappeGetDoc`, `useFrappePostCall`.
-- Backend mutations: `useFrappePostCall('nirmaan_stack.api.<module>.<method>')`.
-- Real-time events named `{doctype}:{action}` (e.g. `po:new`, `pr:approved`).
-- Functional components with hooks; extract reusable logic into custom hooks.
-- Define an interface for component props. Put shared types in `frontend/src/types/` and component-specific types
-  in the component's file. Type unknown data as `unknown`, then narrow it — `any` switches the checker off.
-- Global state: one Zustand store per domain, defined in `frontend/src/zustand/`; local state with `useState` /
-  `useReducer`.
-- Style with Tailwind utilities and the theme variables in `tailwind.config.js`.
-- Add JSDoc comments to exported TypeScript functions and interfaces.
-- Organise pages by feature folder (e.g. `ServiceRequests/`, `ProcurementOrders/`).
-- Frontend-specific rules (dates as `dd-MMM-yyyy`, `FuzzySearchSelect`, effect dependencies, residence F1–F5,
-  faceted filters): `frontend/CLAUDE.md`.
+The frontend's rules — `frappe-react-sdk` data access, SWR keys, Zustand, forms and selects, tables, React
+effects, `dd-MMM-yyyy` dates, realtime event naming, role checks, F1–F5, vitest and the build output — are in
+[`frontend/CODING_STANDARDS.md`](frontend/CODING_STANDARDS.md). The rules in this file that bind it too: the
+[Stack](#stack) limits, [Naming](#where-code-goes), [Don't touch](#dont-touch) and
+[Before committing](#before-committing).
 
 ---
 
@@ -227,7 +214,7 @@ Verify with `frappe.db.has_column("DocType Name", "field_name")` in the bench co
 - **Location:** `nirmaan_stack/nirmaan_stack/doctype/<name>/test_<name>.py` — co-located with each doctype.
 - **Existing tests:** Nearly all are empty stubs. Don't rely on them to catch regressions.
 - **New code:** Pure-Python modules (parsers, services) must have real unit tests with fixture files. No stubs for logic-bearing code. Test both the accepted and the refused path.
-- **Frontend E2E:** Cypress configured in `frontend/cypress.config.ts` — largely unimplemented.
+- **Frontend tests** (vitest, node-only, a local gate; Cypress): `frontend/CODING_STANDARDS.md` § Writing a test.
 - **Running:** use the bench runner, in-container; the exact invocation and the `python -m unittest` import
   failure are in root `CLAUDE.md` § Commands.
 

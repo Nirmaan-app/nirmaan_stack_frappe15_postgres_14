@@ -5,7 +5,7 @@
 payment and the approve / bulk-confirm TDS forecast can skip it.
 
 The frontend reads `is_gst_payment` straight off the queue row; this is the read of the stored
-value that proves it ARRIVES (CLAUDE.md: a test on each side of a boundary is not a test of it).
+value that proves it ARRIVES (CODING_STANDARDS.md: a test on each side of a boundary is not a test of it).
 """
 
 import unittest

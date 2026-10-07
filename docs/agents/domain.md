@@ -21,8 +21,9 @@ domain knowledge here, and both are worth reading before working in their area:
   build plans are under `.claude/context/domain/tds/`. (Merged 2026-09-17 from a separate TDS folder; the
   old TDS ADR-0001…0004 are now 0023…0026.) Not to be confused with tax TDS (`domain/payment-tds.md`).
 
-Also note there are **two** always-loaded convention files: root `CLAUDE.md` (session workflow + domain-doc
-index) and `frontend/CLAUDE.md` (frontend). How code is written lives in root `CODING_STANDARDS.md`. Per-slice changelog detail belongs in the reference docs, never in either
+Also note there are **two** convention files: root `CLAUDE.md` (session workflow + domain-doc index, always
+loaded) and `frontend/CLAUDE.md` (frontend router, loaded for work under `frontend/`). How code is written
+lives in root `CODING_STANDARDS.md` and, for the frontend, `frontend/CODING_STANDARDS.md`. Per-slice changelog detail belongs in the reference docs, never in either
 `CLAUDE.md` — see the DOCS-UPDATE RULE in root `CLAUDE.md`.
 
 If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.

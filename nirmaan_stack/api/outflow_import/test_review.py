@@ -5431,7 +5431,7 @@ class TestTheICICIContainsGuard(OutflowReviewFixture):
     def _insert_inflow(cls, *, amount, utr, payment_date):
         """A `Project Inflows` ROW, inserted raw for the reasons `_insert_payment_row` gives.
 
-        ⚠️ BYPASSES `doc_events` ON PURPOSE (root CLAUDE.md, raw-SQL rule): the inflow hooks recompute
+        ⚠️ BYPASSES `doc_events` ON PURPOSE (CODING_STANDARDS.md, raw-SQL rule): the inflow hooks recompute
         a real project's financials, and the guard only ever reads this row back with raw SQL."""
         name = f"TEST-OPI-{frappe.generate_hash(length=12)}"
         frappe.db.sql(
