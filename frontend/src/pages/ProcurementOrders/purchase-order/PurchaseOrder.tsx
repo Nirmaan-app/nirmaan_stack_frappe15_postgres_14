@@ -86,6 +86,7 @@ import TransactionDetailsCard from "./components/TransactionDetailsCard";
 import PORemarks from "./components/PORemarks";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog"; // Import the dialog component
 import { DocumentAttachments } from "../invoices-and-dcs/DocumentAttachments";
+import { useMTCsForPO } from "@/pages/MaterialTestCertificates/hooks/useMTCs";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -718,6 +719,10 @@ export const PurchaseOrder = () => {
     [poAttachmentsData]
   );
 
+  // Same SWR key as the MTC card, so the header count and the card share one fetch.
+  const { mtcs: poMTCs } = useMTCsForPO(poId);
+  const mtcCount = poMTCs?.length ?? 0;
+
   if (
     poLoading ||
     // vendor_address_loading ||
@@ -1111,6 +1116,13 @@ export const PurchaseOrder = () => {
                     <span className="text-gray-400">|</span>
                     <span className="text-gray-600">MIRs:</span>
                     <Badge variant="secondary">{mirCount}</Badge>
+                    {PO?.billing_status === "Billable" && (
+                      <>
+                        <span className="text-gray-400">|</span>
+                        <span className="text-gray-600">MTCs:</span>
+                        <Badge variant="secondary">{mtcCount}</Badge>
+                      </>
+                    )}
                   </div>
                 </div>
               </AccordionTrigger>

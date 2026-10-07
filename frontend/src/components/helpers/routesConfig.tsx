@@ -62,6 +62,7 @@ import {
   BOQ_TEMPLATES_ACCESS,
   CUSTOMERS_ACCESS,
   HOD_ACCESS,
+  MTC_PAGE_PROFILES,
   NON_PROJECT_INFLOWS_ACCESS,
   PROJECT_INVOICES_ACCESS,
   UPLOAD_BOQ_ACCESS,
@@ -272,6 +273,13 @@ export const appRoutes: RouteObject[] = [
               {
                 path: "delivery-challans-and-mirs",
                 element: <DeliveryChallansAndMirs />,
+              },
+              {
+                // Project Manager + Project Lead only (owner ruling Q26). The server also limits
+                // them to their assigned projects (`mtc_api.mtc_allowed_projects`).
+                path: "material-test-certificates",
+                element: <RoleRoute allowed={MTC_PAGE_PROFILES} what="Material Test Certificates" />,
+                children: [{ index: true, lazy: () => import("@/pages/MaterialTestCertificates") }],
               },
               {
                 path: "update-inventory",
