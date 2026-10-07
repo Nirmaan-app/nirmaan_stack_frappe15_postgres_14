@@ -20,6 +20,7 @@ import {
 // SLICE 12c FINISH / FA7 -- the admission is read from the SHIPPED asset, never a fixture
 import HVAC_V25 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v25.json";
 import HVAC_V26 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v26.json";
+import HVAC_V27 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v27.json";
 import { DISPLAY_RATE_KINDS, type RateHelperRowContext } from "./rateHelperTypes";
 import {
   familyWhenNone,
@@ -3092,5 +3093,80 @@ describe("SLICE 12d-1a / R4 -- value_map: foil on a pipe prices as 26G; foil on 
   it("the map runs AFTER the defaults and overrides: a ruled 'No' never reads as foil, and the panel's field shows the mapped word", () => {
     const r = price("Rmt", { item: NR, cladding: "Aluminium Foil", thickness_mm: "25 mm", pipe_size_mm: "32 mm NB" });
     expect(r.items[0].readValues.cladding).toBe("26G Aluminium");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// SLICE 12d-1b (owner T1, 2026-10-07) -- A STATED THICKNESS IS READ BEFORE ANY DEFAULT; an unreadable one
+// REFUSES; 9 mm (then the ladder) applies ONLY when nothing is mentioned, on every Insulation family.
+// ---------------------------------------------------------------------------------------------------------
+describe("SLICE 12d-1b / T1 -- a stated thickness is read first; unreadable refuses; the 9 mm default only when nothing is mentioned", () => {
+  type Cfg = RateCategoryConfig & { list_spec: { pricing: Record<string, unknown> } };
+  const V27 = HVAC_V27 as unknown as Asset;
+  const INS = V27.category_configs.find((c) => c.category_id === "hvac_insulation") as unknown as Cfg;
+  const ITEMS = V27.items;
+  const NR = "Nitrile Rubber Insulation";
+  const TN = "Thermal Nitrile Insulation";
+  const FG = " Fiberglass Rigid Board Insulation, Density 48Kg/m3";
+  const PUF = "Tubular Puf Insulation";
+  /** v27 scopes the 9 mm default to Cladding Only; the slice widens it to every family (the v28 mint). */
+  const WIDE = { thickness_mm: { value: 9.0, rule: "T1 thickness not mentioned -> 9 mm, then the ladder" } };
+  const cfg = (pricing: Record<string, unknown> = {}): Cfg => ({
+    ...INS, list_spec: { ...INS.list_spec, pricing: { ...INS.list_spec.pricing, number_defaults: WIDE, ...pricing } },
+  });
+  const spec = (c: Cfg = cfg()) => itemListPricingSpec(c)!;
+  const item = (attrs: Record<string, string>): ExtractedListItem => ({
+    attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v }])),
+  });
+  const price = (unit: string, attrs: Record<string, string>, s = spec()) => priceItemList(s, ITEMS, unit, [item(attrs)]);
+
+  it("POSITIVE (e): 'as per specification' as the thickness REFUSES with its reason -- never 9 mm, even with the default widened", () => {
+    const r = price("Rmt", { item: NR, cladding: "No", thickness_mm: "as specified in the tender specs.", pipe_size_mm: "50 mm" });
+    expect(r.priced).toBe(false);
+    expect(r.items[0].reason).toBe("no number in 'as specified in the tender specs.' for thickness");
+    expect(r.items[0].defaulted).toEqual([]);
+  });
+
+  it("NEGATIVE: a text the reader cannot take ('13+13' typed, a comma list) refuses by name, not 9", () => {
+    for (const t of ["13+13", "9, 13 mm"]) {
+      const r = price("Rmt", { item: NR, cladding: "No", thickness_mm: t, pipe_size_mm: "25 mm dia" });
+      expect(r.priced).toBe(false);
+      expect(r.items[0].reason).toBe(`several values stated for thickness ('${t}')`);
+      expect(r.items[0].selection.thickness_mm).toBeUndefined();
+    }
+  });
+
+  it("POSITIVE (a): nothing mentioned -> 9 mm, marked, then the ladder -- Nitrile Rubber 13 at 28.58 (238 / 14)", () => {
+    const r = price("Rmt", { item: NR, cladding: "No", pipe_size_mm: "25 mm dia" });
+    expect(r.priced).toBe(true);
+    expect(r.items[0].defaulted).toEqual([{ attr: "thickness_mm", value: "9", rule: WIDE.thickness_mm.rule }]);
+    expect(r.items[0].ladderHops.find((h) => h.attr === "thickness_mm")).toMatchObject({ requested: 9, fitted: 13 });
+    expect([r.supply, r.install]).toEqual([238, 14]);
+  });
+
+  it("POSITIVE (a): Thermal 9 (383 / 154); Fiberglass -> 12 (310 / 154); PUF at pipe 50 -> its stocked 50 (210 / 14)", () => {
+    const tn = price("Sqm", { item: TN, cladding: "No" });
+    expect(tn.priced).toBe(true); expect([tn.supply, tn.install]).toEqual([383, 154]);
+    expect(tn.items[0].selection.thickness_mm).toBe(9);
+    const fg = price("Sqm", { item: FG, cladding: "No" });
+    expect(fg.priced).toBe(true); expect([fg.supply, fg.install]).toEqual([310, 154]);
+    expect(fg.items[0].selection.thickness_mm).toBe(12);
+    const puf = price("Rmt", { item: PUF, cladding: "No", pipe_size_mm: "50 mm" });
+    expect(puf.priced).toBe(true); expect([puf.supply, puf.install]).toEqual([210, 14]);
+    expect(puf.items[0].selection.thickness_mm).toBe(50);
+    for (const r of [tn, fg, puf]) expect(r.items[0].defaulted.map((d) => d.attr)).toEqual(["thickness_mm"]);
+  });
+
+  it("NEGATIVE: a STATED thickness is used as stated and carries no default mark", () => {
+    const r = price("Sqm", { item: TN, cladding: "No", thickness_mm: "13 mm" });
+    expect(r.priced).toBe(true);
+    expect(r.items[0].selection.thickness_mm).toBe(13);
+    expect(r.items[0].defaulted).toEqual([]);
+  });
+
+  it("NEGATIVE: with the v27 scope (Cladding Only) a silent Nitrile row still refuses 'no thickness stated' -- the widening is the asset's, not code's", () => {
+    const r = price("Rmt", { item: NR, cladding: "No", pipe_size_mm: "25 mm dia" }, itemListPricingSpec(INS)!);
+    expect(r.priced).toBe(false);
+    expect(r.items[0].reason).toBe("no thickness stated");
   });
 });

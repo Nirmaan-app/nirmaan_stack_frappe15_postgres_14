@@ -1236,6 +1236,14 @@ function priceOneItem(
      * the panel shows it as a default rather than as something the row said. A number the row DID
      * state is untouched: this branch is only reached when the key is absent from `read`.
      */
+    /**
+     * SLICE 12d-1b (owner T1, 2026-10-07): A STATED VALUE IS READ BEFORE ANY DEFAULT. A number the row
+     * DID state but code cannot read ("as per specification", a list it does not take, "13+13" typed)
+     * REFUSES by name here, BEFORE the default below is consulted. The default is for a value NOBODY
+     * mentioned -- and with the thickness default widened to every family, this order is what stops
+     * a mentioned thickness pricing silently at 9 mm (the recon's measured defect, Q8).
+     */
+    if (unreadable[n]) return { ...blank(unreadable[n]), selection: sel };
     const ndef = spec.number_defaults?.[n];
     if (ndef && Number.isFinite(ndef.value)
         && (!ndef.families || (out.family !== null && ndef.families.includes(out.family)))) {
@@ -1245,7 +1253,6 @@ function priceOneItem(
       readDefaulted.push({ attr: n, value: fmt(ndef.value), rule: ndef.rule });
       continue;
     }
-    if (unreadable[n]) return { ...blank(unreadable[n]), selection: sel };
     return { ...blank(spec.choice_attrs.includes(n) ? `could not tell ${reasonName(spec, n)}` : `no ${reasonName(spec, n)} stated`), selection: sel };
   }
   out.defaulted = readDefaulted.filter((d) => needs.includes(d.attr));
