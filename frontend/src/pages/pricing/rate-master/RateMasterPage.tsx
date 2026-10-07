@@ -104,6 +104,9 @@ export function RateMasterPage() {
   // SLICE 12c FINISH (owner F4): which (item, rate) cells the RULES compute. It rides beside the
   // items from the SAME read, so the screen never re-derives the rule the file uses.
   const computedRateKeys = itemsData?.message?.computed_rate_keys ?? undefined;
+  // SLICE 12d-2F (owner F1): the live figure those cells DISPLAY rides in its own map; `items[].rates`
+  // is the stored catalogue and is what the impact panel (and every other pricing path) reads.
+  const computedRates = itemsData?.message?.computed_rates ?? undefined;
   const config = configData?.message?.config ?? null;
   const configName = configData?.message?.name;
 
@@ -510,6 +513,7 @@ export function RateMasterPage() {
                   derivedUsedBy={derivedUsedBy}
                   categoryNameById={categoryNameById}
                   computedRateKeys={computedRateKeys}
+                  computedRates={computedRates}
                   onOpenImpact={setImpactInputUid}
                   openImpactUid={impactInputUid}
                 />

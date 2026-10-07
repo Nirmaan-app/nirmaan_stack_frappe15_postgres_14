@@ -124,6 +124,9 @@ interface Props {
   /** SLICE 12c FINISH (owner F4): {item_uid: [rate keys]} the RULES compute -- greyed, not editable.
    *  Told by the server beside the items, so the screen never re-derives the rule. */
   computedRateKeys?: Record<string, string[]>;
+  /** SLICE 12d-2F (owner F1): {item_uid: {rate key: live figure}} -- what a COMPUTED cell DISPLAYS.
+   *  `items[].rates` is the STORED catalogue (what pricing reads) and no longer carries the figure. */
+  computedRates?: Record<string, Record<string, number>>;
   /** opens the impact panel on that catalogue row; null closes it */
   onOpenImpact?: (itemUid: string | null) => void;
   openImpactUid?: string | null;
@@ -183,13 +186,34 @@ const PI_W = {
 const COMPUTED_CELL_TITLE =
   "Calculated from the Pricing Inputs and this row's own size. Change the Pricing Inputs to move it.";
 
+/**
+ * SLICE 12d-2F (owner F1, 2026-10-07): THE FIGURE A RATE CELL DISPLAYS. A COMPUTED cell (one the server
+ * names in `computed_rate_keys`) shows the live figure from `computed_rates`; every other cell shows the
+ * STORED rate. ⚠️ `items[].rates` is what every pricing path reads -- the rate-helper panel, the
+ * calculator, the impact panel -- so the display figure lives in its own map and is never written into
+ * it: a projected 555 in `rates` priced the GI framework TWICE (2574 where the catalogue prices 1757).
+ * PURE, exported for its own test.
+ */
+export function displayedRateValue(
+  it: Pick<RateMasterItem, "item_uid" | "rates">,
+  k: string,
+  computed: boolean,
+  computedRates?: Record<string, Record<string, number>>,
+): number | undefined {
+  if (computed) {
+    const v = computedRates?.[String(it.item_uid ?? "")]?.[k];
+    if (v !== undefined) return v;
+  }
+  return it.rates?.[k];
+}
+
 export function RateMasterDataViewer({
   items, config, disciplineLabel, categoryLabel, isAdmin, frozen, onSaveItem, onCreateItem,
   onDeactivateItem, onDownloadCsv, onDownloadAsset, onPreviewCsv, onApplyCsv, onUploadApplied,
   // SLICE 12b(B): the ITEMS column. The reach map is computed by the PAGE (it needs every category's
   // config, which this component does not have), so the viewer only RENDERS it. Both absent => no
   // column at all, which is what keeps every other category's grid byte-identical.
-  inputReach, derivedUsedBy, categoryNameById, computedRateKeys, onOpenImpact, openImpactUid,
+  inputReach, derivedUsedBy, categoryNameById, computedRateKeys, computedRates, onOpenImpact, openImpactUid,
 }: Props) {
   // SLICE 5: which download is in flight, so a slow one cannot be double-fired. One string rather
   // than three booleans -- only one download can be running at a time by construction.
@@ -1287,6 +1311,10 @@ export function RateMasterDataViewer({
                   const computed = !derived
                     && (computedRateKeys?.[String(r.it.item_uid ?? "")] ?? []).includes(k);
                   const readOnlyCell = derived || computed;
+                  // SLICE 12d-2F (owner F1): the figure this cell SHOWS. A computed cell shows the live
+                  // figure from `computed_rates`; `r.it.rates` is the stored catalogue and is never the
+                  // display source for it (nor is the display figure ever a price input).
+                  const shown = displayedRateValue(r.it, k, computed, computedRates);
                   cells[rateColKey(k)] = (
                   <TableCell
                     key={rateColKey(k)}
@@ -1306,14 +1334,14 @@ export function RateMasterDataViewer({
                         onChange={(e) => setDraftRates((p) => ({ ...p, [k]: e.target.value }))}
                         aria-label={`${k} value`}
                       />
-                    ) : r.it.rates?.[k] === undefined ? (
+                    ) : shown === undefined ? (
                       derived ? <span className="text-[10px] italic">{DERIVED_COPY.cellTag}</span> : ""
                     ) : (
                       <>
                         {/* ACCEPTANCE 6: a Pricing Input's factor reads as a PERCENTAGE. The stored
                             value is untouched -- `pricingInputCell` mirrors the server's `as_percent`,
                             so the screen and the rate file can never disagree about which number it is. */}
-                        {piMode ? pricingInputCell(k, r.it.rates[k]) : r.it.rates[k]}
+                        {piMode ? pricingInputCell(k, shown) : shown}
                         {derived && (
                           <span className="ml-1 text-[10px] italic">{DERIVED_COPY.cellTag}</span>
                         )}

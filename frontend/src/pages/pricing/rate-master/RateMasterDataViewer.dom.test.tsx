@@ -31,7 +31,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import fs from "fs";
 import path from "path";
 
-import { RateMasterDataViewer } from "./RateMasterDataViewer";
+import { RateMasterDataViewer, displayedRateValue } from "./RateMasterDataViewer";
 import {
   COL_ACTIONS, COL_BRAND, COL_FORMULA_INSTALL, COL_FORMULA_SUPPLY, COL_KIND, COL_SOURCE_ROW,
   COL_SOURCE_SHEET, COL_SPEC, COL_UNIT, gridColumnKeys,
@@ -116,7 +116,11 @@ function toItems(asset: Asset, kinds: string[], limit: number): RateMasterItem[]
 
 // ─── rendering ──────────────────────────────────────────────────────────────────────────────
 
-function render(items: RateMasterItem[], config: RateCategoryConfig, disciplineLabel: string) {
+function render(
+  items: RateMasterItem[], config: RateCategoryConfig, disciplineLabel: string,
+  // SLICE 12d-2F: the server's two display maps for a COMPUTED cell, when a test needs them
+  extra: Partial<Parameters<typeof RateMasterDataViewer>[0]> = {},
+) {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
@@ -128,6 +132,7 @@ function render(items: RateMasterItem[], config: RateCategoryConfig, disciplineL
           config={config}
           disciplineLabel={disciplineLabel}
           categoryLabel={config.category_id}
+          {...extra}
         />
       </StrictMode>,
     );
@@ -333,6 +338,67 @@ describe("RateMasterDataViewer -- every cell sits under its correct header", () 
       } finally {
         cleanup();
       }
+    }
+  });
+});
+
+// ─── SLICE 12d-2F (owner F1, 2026-10-07): the greyed cell shows the LIVE figure; `rates` holds the STORED one ──
+//
+// The FG + GI framework double count: `get_rate_master_items` used to write the live cladding figure INTO
+// `items[].rates`, the one array every pricing path reads, so the FG pipeline's "the SKU's own foil rate"
+// term read 555 and ADDED the framework it computes live (2574 where the catalogue prices 1757). The figure
+// now rides in `computed_rates` and only the greyed cell reads it. This renders a GI row whose stored
+// `cost_cladding` is 0 beside the server's display map and asserts: (a) the greyed cell shows the live
+// figure; (b) the item's `rates` object is untouched; (c) NEGATIVE: a cell the server does NOT name as
+// computed shows the stored rate even when the display map carries a figure for it.
+describe("RateMasterDataViewer -- a COMPUTED cell displays `computed_rates`, never `rates` (12d-2F)", () => {
+  const COMPUTED_KEY = "cost_cladding";
+
+  function giSubject() {
+    const s = SUBJECTS.find((x) => x.categoryId === "hvac_insulation")!;
+    const asset = readAsset(latestAsset("rate_master_hvac_all_v"));
+    const gi = toItems(asset, categoryItemKinds(s.config), 10_000).filter(
+      (it) => it.attributes?.cladding === "GI Framework with perforated Al sheet",
+    );
+    expect(gi.length, "the asset stocks GI framework rows").toBeGreaterThan(0);
+    for (const it of gi) expect(it.rates[COMPUTED_KEY], `${it.item_uid}: stored cladding cost`).toBe(0);
+    return { s, items: gi };
+  }
+
+  function computedCells(host: HTMLElement): string[] {
+    return [...host.querySelectorAll('tbody td[data-testid="computed-rate-cell"]')].map((td) => (td.textContent ?? "").trim());
+  }
+
+  it("(a) the greyed cell shows the live figure while (b) the item's stored rates stay 0", () => {
+    const { s, items } = giSubject();
+    const uid = String(items[0].item_uid);
+    const computedRateKeys = { [uid]: [COMPUTED_KEY] };
+    const computedRates = { [uid]: { [COMPUTED_KEY]: 555 } };
+    const { host, cleanup } = render([items[0]], s.config, s.discipline, { computedRateKeys, computedRates });
+    try {
+      expect(computedCells(host)).toEqual(["555"]);
+      expect(items[0].rates[COMPUTED_KEY]).toBe(0);          // the pricing input is untouched by the display
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("the pure helper: computed -> the display map; not computed -> the stored rate", () => {
+    const it0 = { item_uid: "u1", rates: { [COMPUTED_KEY]: 0, cost_insulation: 12 } };
+    const map = { u1: { [COMPUTED_KEY]: 555, cost_insulation: 999 } };
+    expect(displayedRateValue(it0, COMPUTED_KEY, true, map)).toBe(555);
+    expect(displayedRateValue(it0, "cost_insulation", false, map)).toBe(12);   // NEGATIVE: the map is read only for a computed cell
+    expect(displayedRateValue(it0, COMPUTED_KEY, true, undefined)).toBe(0);     // no map -> the stored figure, never a throw
+  });
+
+  it("NEGATIVE: without `computed_rates` the greyed cell falls back to the STORED figure -- it never re-derives 555", () => {
+    const { s, items } = giSubject();
+    const uid = String(items[0].item_uid);
+    const { host, cleanup } = render([items[0]], s.config, s.discipline, { computedRateKeys: { [uid]: [COMPUTED_KEY] } });
+    try {
+      expect(computedCells(host)).toEqual(["0"]);
+    } finally {
+      cleanup();
     }
   });
 });

@@ -864,6 +864,11 @@ export interface GetItemsResponse {
   /** SLICE 12c FINISH (owner F4): {item_uid: [rate keys]} whose figure the RULES compute -- the cells
    *  the grid greys and refuses to edit. A PAYLOAD key, not schema: nothing is stored. */
   computed_rate_keys?: Record<string, string[]>;
+  /** SLICE 12d-2F (owner F1): {item_uid: {rate key: live figure}} for exactly those cells -- the
+   *  figure the GREYED CELL DISPLAYS. `items[].rates` stays the STORED catalogue, which is what every
+   *  pricing path reads; a display figure must never be written into it (the FG + GI framework
+   *  double count). A PAYLOAD key, not schema. */
+  computed_rates?: Record<string, Record<string, number>>;
 }
 export interface GetConfigResponse {
   name?: string;

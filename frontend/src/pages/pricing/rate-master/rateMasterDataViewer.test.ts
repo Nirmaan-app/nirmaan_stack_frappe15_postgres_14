@@ -81,8 +81,14 @@ describe("coerceAttributeForStorage -- the existing types are UNCHANGED", () => 
 describe("SLICE 12b(A) -- the viewer wires the Pricing Inputs columns", () => {
   const src = readFileSync(join(__dirname, "RateMasterDataViewer.tsx"), "utf8");
 
+  // ⚠️ INVERTED 2026-10-07 (slice 12d-2F, owner F1) under mechanical authority, NOT deleted. The cell's
+  // figure is now `shown` = `displayedRateValue(r.it, k, computed, computedRates)` -- a COMPUTED cell reads
+  // the server's display map, every other cell the stored rate -- so the old `r.it.rates[k]` read in this
+  // expression is asserted ABSENT. The CLAIM is unchanged: a value cell renders through pricingInputCell.
   it("ACCEPTANCE 6: a value cell renders through pricingInputCell, so it reads as a percentage", () => {
-    expect(src).toContain("piMode ? pricingInputCell(k, r.it.rates[k]) : r.it.rates[k]");
+    expect(src).toContain("piMode ? pricingInputCell(k, shown) : shown");
+    expect(src).toContain("const shown = displayedRateValue(r.it, k, computed, computedRates);");
+    expect(src).not.toContain("piMode ? pricingInputCell(k, r.it.rates[k]) : r.it.rates[k]");   // the pre-12d-2F read
   });
 
   // ⚠️ INVERTED 2026-10-05 under mechanical authority, NOT deleted. It pinned the ABSENCE of the SKU

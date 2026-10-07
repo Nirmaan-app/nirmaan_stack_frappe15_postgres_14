@@ -121,6 +121,16 @@ def get_rate_master_items(discipline=None, kind=None):
     #
     # ⚠️ The INVARIANT above applies unchanged: nothing may read a projected item and write its
     # rates back. `update_rate_master_item` re-reads `doc.rates` from the document.
+    #
+    # ⚠️ SLICE 12d-2F (owner F1, 2026-10-07): THE FIGURE IS SERVED IN ITS OWN MAP, `computed_rates`,
+    # AND NEVER WRITTEN INTO `items[].rates`. A price must never be computed from a value that is
+    # itself computed for DISPLAY: the ONE `items` array this endpoint returns feeds every pricing
+    # path (the rate-helper panel, the calculator, the impact panel), and the Fiberglass / Acoustic /
+    # Thermal `cladding` component reads the SKU's own `cost_cladding` as `base` and ADDS the GI
+    # framework it computes live -- so a projected 555 in `rates` priced the framework TWICE (2574
+    # where the stored catalogue prices 1757). `items[].rates` is therefore the STORED catalogue,
+    # byte-for-byte; the grid reads the greyed cell's figure from `computed_rates` instead.
+    # Pinned by `test_rate_master.TestServedRatesAreStored` + `servedVsStoredPricing.test.ts`.
     # ══════════════════════════════════════════════════════════════════════════════════════
     computed = {}
     try:
@@ -134,20 +144,20 @@ def get_rate_master_items(discipline=None, kind=None):
         # a projection must never take the page down; an absent figure shows the stored cell
         frappe.log_error(frappe.get_traceback(), "rate_master computed cladding projection")
         computed = {}
-    computed_keys = {}
+    computed_rates = {}
     for (uid, rate_key), val in computed.items():
-        computed_keys.setdefault(uid, []).append(rate_key)
-    for r in rows:
-        for rate_key in computed_keys.get(r.get("item_uid"), ()):
-            r["rates"][rate_key] = computed[(r["item_uid"], rate_key)]
+        computed_rates.setdefault(uid, {})[rate_key] = val
 
     return {
         "discipline": discipline,
         "kind": kind,
         "count": len(rows),
+        # the STORED catalogue -- what every pricing path reads; no projected figure lives in it
         "items": rows,
         # which (item, rate) cells the RULES compute -- the grid greys exactly these
-        "computed_rate_keys": {u: sorted(v) for u, v in computed_keys.items()},
+        "computed_rate_keys": {u: sorted(v) for u, v in computed_rates.items()},
+        # the live figure for each of those cells -- DISPLAY ONLY (the greyed cell), never a price input
+        "computed_rates": computed_rates,
     }
 
 

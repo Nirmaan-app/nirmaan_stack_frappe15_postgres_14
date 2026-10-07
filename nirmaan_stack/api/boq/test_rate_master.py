@@ -17205,6 +17205,150 @@ class TestComputedCladdingColumn(FrappeTestCase):
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12d-2F (owner F1, 2026-10-07) -- PRICING NEVER READS A VALUE COMPUTED FOR DISPLAY.
+#
+# The live finding of 12d-2: Fiberglass + GI Framework priced the framework TWICE on the page (2574
+# where the catalogue prices 1757). `get_rate_master_items` wrote the 12c FINISH live cladding figure
+# INTO `items[].rates` -- the ONE array every pricing path reads -- and the FG / Acoustic / Thermal
+# `cladding` component reads the SKU's own `cost_cladding` as `base` and ADDS the GI framework it
+# computes live. The figure now rides in its own `computed_rates` map (display only) and
+# `items[].rates` is the STORED catalogue, byte-for-byte, for every item of every discipline.
+#
+# Owner F1: "a price must never be computed from a value that is itself computed for DISPLAY."
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestServedRatesAreStored(FrappeTestCase):
+    """The served payload (the exact thing the page receives) against the stored catalogue, live."""
+
+    KEY = csv_exporter.COMPUTED_RATE_KEY
+    GI = "GI Framework with perforated Al sheet"
+    AREA_FAMILIES = sorted([" Fiberglass Rigid Board Insulation, Density 48Kg/m3",
+                            "Acoustic Nitrile Insulation", "Thermal Nitrile Insulation"])
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        frappe.set_user("Administrator")
+        cls.served = {d: rate_master.get_rate_master_items(d) for d in ("HVAC", "Electrical")}
+        cls.stored = {}
+        for d in ("HVAC", "Electrical"):
+            rows = frappe.get_all("BoQ Rate Master Item", filters={"discipline": d, "active": 1},
+                                  fields=["item_uid", "kind", "attributes", "rates"])
+            cls.stored[d] = {r["item_uid"]: dict(r, rates=_obj(r["rates"]) or {}, attributes=_obj(r["attributes"]) or {})
+                             for r in rows}
+
+    # ---- item 1 / item 3: served == stored, every item, both disciplines --------------------------
+
+    def test_sv_01_every_served_item_carries_its_STORED_rates_byte_for_byte_both_disciplines_NAMED(self):
+        """The join the double count lived on: the rates the page receives ARE the catalogue. Counts
+        per kind are asserted so the sweep can never pass on an empty axis."""
+        counts = {}
+        for d in ("HVAC", "Electrical"):
+            served = self.served[d]["items"]
+            self.assertEqual(len(served), len(self.stored[d]), d)
+            for it in served:
+                st = self.stored[d][it["item_uid"]]
+                self.assertEqual(json.dumps(it["rates"], sort_keys=True), json.dumps(st["rates"], sort_keys=True),
+                                 "%s %s %s: served rates differ from stored" % (d, it["kind"], it["item_uid"]))
+                counts[(d, it["kind"])] = counts.get((d, it["kind"]), 0) + 1
+        self.assertEqual(counts[("HVAC", "hvac_insulation_item")], 229)
+        self.assertEqual(counts[("HVAC", "hvac_pricing_input")], 7)
+        self.assertGreaterEqual(counts[("HVAC", "hvac_adp_item")], 1)
+        self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "HVAC"), 331)
+        self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "Electrical"), 1402)
+
+    def test_sv_02_the_display_figure_is_SERVED_in_its_own_map_and_the_GI_rows_still_get_555(self):
+        """The grid still shows the live figure (owner F4 of 12c FINISH is intact): `computed_rates` carries
+        it, keyed exactly like `computed_rate_keys` -- ONE map, the keys derived from it."""
+        res = self.served["HVAC"]
+        self.assertEqual({u: sorted(v) for u, v in res["computed_rates"].items()}, res["computed_rate_keys"])
+        gi = [u for u, st in self.stored["HVAC"].items()
+              if st["kind"] == "hvac_insulation_item" and st["attributes"].get("cladding") == self.GI]
+        self.assertEqual(len(gi), 3, "the catalogue stocks three GI framework rows")
+        for u in gi:
+            self.assertEqual(self.stored["HVAC"][u]["rates"].get(self.KEY), 0.0)         # stored
+            self.assertEqual(res["computed_rates"][u][self.KEY], 555.0)                # displayed
+            served = next(i for i in res["items"] if i["item_uid"] == u)
+            self.assertEqual(served["rates"].get(self.KEY), 0.0)                      # and PRICED from 0
+        self.assertEqual(self.served["Electrical"]["computed_rates"], {})
+        self.assertEqual(self.served["Electrical"]["computed_rate_keys"], {})
+
+    def test_sv_03_INVERTED_the_api_never_writes_a_computed_figure_into_rates_and_the_grid_reads_the_map(self):
+        """The retired line is asserted ABSENT (never deleted silently), and the two readers are named:
+        the api serves `computed_rates`; the viewer's greyed cell reads it through `displayedRateValue`."""
+        api_src = inspect.getsource(sys.modules["nirmaan_stack.api.boq.rate_master"])
+        self.assertNotIn('r["rates"][rate_key] = computed[', api_src)
+        self.assertIn('"computed_rates": computed_rates', api_src)
+        viewer = _read_frontend_src("pages", "pricing", "rate-master", "RateMasterDataViewer.tsx")
+        self.assertIn("export function displayedRateValue(", viewer)
+        self.assertIn("displayedRateValue(r.it, k, computed, computedRates)", viewer)
+        page = _read_frontend_src("pages", "pricing", "rate-master", "RateMasterPage.tsx")
+        self.assertIn("computedRates={computedRates}", page)
+        self.assertIn("itemsData?.message?.computed_rates", page)
+
+    # ---- item 2: the enumeration -----------------------------------------------------------------
+
+    def test_sv_04_ENUMERATION_the_only_projected_rate_cell_is_cost_cladding_on_hvac_insulation_item(self):
+        """Every active config of BOTH disciplines run through the one projection helper: every category but
+        Insulation computes NOTHING; Insulation computes `cost_cladding` only. The per-category verdict is
+        asserted BY NAME, so a config that starts computing a cell is loud."""
+        for d in ("HVAC", "Electrical"):
+            items, _kc, cat_kinds, _t = csv_exporter._load_full(d)
+            cfgs = csv_exporter._load_configs(d)
+            self.assertTrue(cfgs, d)
+            for cid, cfg in sorted(cfgs.items()):
+                got = csv_exporter.computed_cladding_cells(cfg, items, cid, cat_kinds)
+                if (d, cid) == ("HVAC", "hvac_insulation"):
+                    self.assertEqual({k for _u, k in got}, {self.KEY}, cid)
+                    self.assertEqual(len(got), 219, "the 12d-2 live count: 3 GI + 12 'No' + 204 pipe rows")
+                else:
+                    self.assertEqual(got, {}, "%s / %s computes a cell" % (d, cid))
+
+    def test_sv_05_ENUMERATION_the_pipelines_that_READ_the_projected_cell_are_exactly_the_three_area_families(self):
+        """Walk the live Insulation config: which (family, unit class, pipeline, step) reads `cost_cladding`
+        as a component `base`. Exactly the three AREA families' supply `cladding` component -- the ones
+        that double counted -- and no length family (their cladding component has no target: it reads
+        geometry, never a stored cell). ADP and every Electrical pipeline name the cell nowhere."""
+        cfg = csv_exporter._load_configs("HVAC")["hvac_insulation"]
+        pr = cfg["list_spec"]["pricing"]
+        readers = []
+        for fam, f in pr["families"].items():
+            for uc, u in (f.get("units") or {}).items():
+                for pname, p in (u.get("pipelines") or {}).items():
+                    for st in p.get("steps") or []:
+                        if st.get("step") == "component" and st.get("target") == self.KEY:
+                            readers.append((fam, uc, pname, st.get("name"), st.get("formula")))
+            for cu, c in (f.get("convert") or {}).items():
+                for pname, p in (c.get("pipelines") or {}).items():
+                    for st in p.get("steps") or []:
+                        if st.get("step") == "component" and st.get("target") == self.KEY:
+                            readers.append((fam, "convert:" + cu, pname, st.get("name"), st.get("formula")))
+        self.assertEqual(sorted(readers), sorted([(fam, "area", "supply", "cladding", "base + gi*gif + gia")
+                                                  for fam in self.AREA_FAMILIES]))
+        # and the two other disciplines' configs never name the cell at all
+        for d, skip in (("HVAC", {"hvac_insulation"}), ("Electrical", set())):
+            for cid, c in csv_exporter._load_configs(d).items():
+                if cid in skip:
+                    continue
+                self.assertNotIn(self.KEY, json.dumps(c), "%s / %s names %s" % (d, cid, self.KEY))
+
+    def test_sv_06_NEGATIVE_a_served_copy_with_the_projection_re_applied_is_what_the_double_count_read(self):
+        """The negative half of sv_01: re-apply the retired write to a COPY of the served payload and the
+        three GI rows move 0 -> 555 -- the exact input the FG pipeline doubled. Proves the join is sensitive."""
+        res = self.served["HVAC"]
+        moved = {}
+        for it in res["items"]:
+            for k, v in (res["computed_rates"].get(it["item_uid"]) or {}).items():
+                if it["rates"].get(k) != v:
+                    moved[it["item_uid"]] = (it["rates"].get(k), v)
+        gi = {u for u, st in self.stored["HVAC"].items()
+              if st["kind"] == "hvac_insulation_item" and st["attributes"].get("cladding") == self.GI}
+        self.assertEqual(set(u for u, (old, new) in moved.items() if old is not None), gi)
+        for u in gi:
+            self.assertEqual(moved[u], (0.0, 555.0))
+        self.assertEqual(sum(1 for old, _new in moved.values() if old is None), 204, "the pipe rows' injected cells")
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
 # SLICE 12c FINISH -- THE USED-BY CELL NAMES EVERY CATEGORY (owner, 2026-10-03)
 #
 # "the used by should mention all categories where it is used instead on the current format. check the
