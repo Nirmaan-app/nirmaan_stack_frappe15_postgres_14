@@ -5277,7 +5277,10 @@ describe("SLICE 6 / the item-list path -- blocks, edits, the quantity, all or no
     ] };
     const out = assembleItems(s, model);
     expect(out[0].attributes.family).toEqual({ value: "actuator", confidence: 0.9 });
-    expect(out[0].attributes.torque).toEqual({ value: "20 NM" });
+    // SLICE 12d-1b (owner T6, pin INVERTED): a value the PRICER typed carries `typed: true`; the model's cells
+    // (family, ul below) carry none -- that is what lets the pricer tell the two apart.
+    expect(out[0].attributes.torque).toEqual({ value: "20 NM", typed: true });
+    expect(out[0].attributes.family).not.toHaveProperty("typed");
     expect(out[0].attributes.ul).toEqual({ value: "None", confidence: 0.9 });
     expect(out[1].attributes).toEqual({ family: { value: "spigot" } });
     expect(out[1].qtyPerRowUnit).toBe("3");

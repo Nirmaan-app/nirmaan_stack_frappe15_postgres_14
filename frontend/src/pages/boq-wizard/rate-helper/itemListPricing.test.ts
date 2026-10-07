@@ -29,6 +29,7 @@ import {
   priceItemList,
   rowUnitClasses,
   projectUnitClass,
+  readLayers,
   readNumber,
   splitSizePhrase,
   unitClassOf,
@@ -2637,18 +2638,27 @@ describe("v25 -- the thickness note says only what the reader will accept", () =
   const notes = ((insCfg as never as { list_spec: { pricing: { panel_notes: Record<string, string> } } })
     .list_spec.pricing.panel_notes);
 
-  const price = (thickness: string) => priceItemList(spec, items, "mts", [{
+  // SLICE 12d-1b (owner T6, pin INVERTED in part): the pricer's entry is TYPED (`typed: true`, what
+  // `assembleItems` now marks) -- that is the entry this note is about, and it STILL refuses. A MODEL
+  // answer written as layers now prices through the composition path (owner T4) -- pinned beside it.
+  const price = (thickness: string, typed = true) => priceItemList(spec, items, "mts", [{
     attributes: Object.fromEntries(Object.entries({
       item: "Nitrile Rubber Insulation", pipe_size_mm: "19.05", thickness_mm: thickness, cladding: "No",
-    }).map(([k, v]) => [k, { value: v }])),
+    }).map(([k, v]) => [k, k === "thickness_mm" && typed ? { value: v, typed: true } : { value: v }])),
   }] as never);
 
-  it("THE REFUSAL STANDS: written-out layers are not an entry the reader accepts", () => {
+  it("THE REFUSAL STANDS for the PRICER'S TYPED entry: written-out layers are not an entry the reader accepts (T6)", () => {
     for (const written of ["13+13", "13 + 13", "13x2"]) {
       const r = price(written);
       expect(r.priced, written).toBe(false);
       expect(r.reason ?? "", written).toMatch(/thickness/);
     }
+  });
+
+  it("SLICE 12d-1b (T4): the SAME words as a MODEL answer price as two layers of 13 -- the inverted half", () => {
+    const r = price("13 + 13", false);
+    expect(r.priced).toBe(true);
+    expect((r.items ?? []).map((x) => Number((x as { selection?: Record<string, unknown> }).selection?.thickness_mm))).toEqual([13, 13]);
   });
 
   it("and a SINGLE number composes, which is what the note now describes", () => {
@@ -2677,7 +2687,7 @@ describe("v25 -- the thickness note says only what the reader will accept", () =
   it("NEITHER the note NOR the generated help promises written-out layers", () => {
     const help = sizeFieldHelp(spec, "thickness_mm", ["13", "19", "25"])!;
     const everything = [notes.thickness_mm, ...help.lines].join(" | ");
-    // the behaviour: the reader refuses it
+    // the behaviour: the reader refuses it when the PRICER types it (T6; a model answer is T4's, pinned above)
     expect(price("19+13").priced).toBe(false);
     // so neither sentence may offer it
     expect(everything).not.toMatch(/each price as their own item/i);
@@ -3129,7 +3139,8 @@ describe("SLICE 12d-1b / T1 -- a stated thickness is read first; unreadable refu
 
   it("NEGATIVE: a text the reader cannot take ('13+13' typed, a comma list) refuses by name, not 9", () => {
     for (const t of ["13+13", "9, 13 mm"]) {
-      const r = price("Rmt", { item: NR, cladding: "No", thickness_mm: t, pipe_size_mm: "25 mm dia" });
+      const typedItem: ExtractedListItem = { attributes: { item: { value: NR }, cladding: { value: "No" }, thickness_mm: { value: t, typed: true }, pipe_size_mm: { value: "25 mm dia" } } };
+      const r = priceItemList(spec(), ITEMS, "Rmt", [typedItem]);
       expect(r.priced).toBe(false);
       expect(r.items[0].reason).toBe(`several values stated for thickness ('${t}')`);
       expect(r.items[0].selection.thickness_mm).toBeUndefined();
@@ -3233,5 +3244,79 @@ describe("SLICE 12d-1b / T2 -- several = highest: a bare slash list of any lengt
 
   it("HAZARD PIN (recon item 10): '50 mm - 32 mm' copied into thickness reads as a RANGE -> its top, 50 -- pinned so a prompt change that starts copying such phrases is caught", () => {
     expect(readNumber("50 mm - 32 mm thick", HIGHEST)).toEqual({ value: 50, note: "range '50 mm - 32 mm thick' -> its top value 50 (R6)" });
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// SLICE 12d-1b (owner T4 / T6, 2026-10-07) -- DOUBLE LAYERS the MODEL reads ("a + b", "a x 2", "2 layers of a")
+// expand through the EXISTING composition path with outer_only: each layer its own item at the row's pipe
+// size, cladding on the outer layer only. A pricer's TYPED entry is never parsed as layers (T6).
+// ---------------------------------------------------------------------------------------------------------
+describe("SLICE 12d-1b / T4 -- model-read layers expand through the composition path; T6 -- a typed entry does not", () => {
+  type Cfg = RateCategoryConfig & { list_spec: { pricing: Record<string, unknown> } };
+  const V27 = HVAC_V27 as unknown as Asset;
+  const INS = V27.category_configs.find((c) => c.category_id === "hvac_insulation") as unknown as Cfg;
+  const ITEMS = V27.items;
+  const NR = "Nitrile Rubber Insulation";
+  const spec = itemListPricingSpec({
+    ...INS, list_spec: { ...INS.list_spec, pricing: { ...INS.list_spec.pricing,
+      defaults: { cladding: { value: "No", rule: "R1", absent_as_none: false } } } },
+  } as Cfg)!;
+  const item = (attrs: Record<string, string>, typed: string[] = []): ExtractedListItem => ({
+    attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, typed.includes(k) ? { value: v, typed: true } : { value: v, confidence: 0.9 }])),
+  });
+  const price = (unit: string, attrs: Record<string, string>, typed: string[] = []) => priceItemList(spec, ITEMS, unit, [item(attrs, typed)]);
+
+  it("readLayers: the three shapes, and nothing else", () => {
+    expect(readLayers("13 + 13")).toEqual([13, 13]);
+    expect(readLayers("65 mm + 32 mm thick")).toEqual([32, 65]);
+    expect(readLayers("19 + 25 + 19 mm")).toEqual([19, 19, 25]);
+    expect(readLayers("13 x 2")).toEqual([13, 13]);
+    expect(readLayers("2 x 13 mm")).toEqual([13, 13]);
+    expect(readLayers("2 layers of 19 mm")).toEqual([19, 19]);
+    expect(readLayers("double layer of 19 mm")).toEqual([19, 19]);
+    expect(readLayers("two layers of 25mm")).toEqual([25, 25]);
+    for (const t of ["19", "19/ 25 / 32 mm", "25 +/- 2 mm", "9, 13", "1 layer of 19", "0 x 13", "600 x 600", "13+", "as per spec"]) {
+      expect(readLayers(t)).toBeNull();
+    }
+  });
+
+  it("POSITIVE (d): '13 + 13' on a small pipe (25 mm dia -> 28.58): two 13 mm items, cladding on the OUTER only (here the R1 default No on both): 238 + 238 = 476 / 28", () => {
+    const r = price("Rmt", { item: NR, cladding: "None", thickness_mm: "13 + 13", pipe_size_mm: "25 mm dia" });
+    expect(r.priced).toBe(true);
+    expect(r.items.map((p) => [p.selection.thickness_mm, p.selection.cladding, p.selection.pipe_size_mm, p.sourceIndex])).toEqual([[13, "No", 28.58, 0], [13, "No", 28.58, 0]]);
+    expect([r.supply, r.install]).toEqual([476, 28]);
+    expect(r.items[0].working[0]).toBe("BoQ says 13 + 13 -> two layers, 13 + 13 mm (26 mm); cladding on the outer layer only");
+  });
+
+  it("POSITIVE: with a stated cladding the OUTER layer keeps it and the inner is bare: '19 x 2' at 32NB with 26G -> 19 (No) + 19 (26G)", () => {
+    const r = price("Rmt", { item: NR, cladding: "26G Aluminium", thickness_mm: "19 x 2", pipe_size_mm: "32NB" });
+    expect(r.priced).toBe(true);
+    expect(r.items.map((p) => [p.selection.thickness_mm, p.selection.cladding])).toEqual([[19, "No"], [19, "26G Aluminium"]]);
+    expect(r.items[1].overrides).toEqual([]);
+  });
+
+  it("POSITIVE: a row with NO pipe size still refuses, per layer, exactly as today ('65 mm + 32 mm' -> no pipe size stated)", () => {
+    const r = price("Rmt", { item: NR, cladding: "26G Aluminium with Glass Cloth", thickness_mm: "65 mm + 32 mm" });
+    expect(r.priced).toBe(false);
+    expect(r.reason).toBe("item 1 (Nitrile Rubber Insulation): no pipe size stated");
+    expect(r.items.length).toBe(2);
+    expect(r.items.every((p) => p.reason === "no pipe size stated")).toBe(true);
+  });
+
+  it("NEGATIVE (T6): the SAME text TYPED by the pricer is never parsed as layers -- it refuses 'several values stated', the calculator's single-number entry unchanged", () => {
+    const r = price("Rmt", { item: NR, cladding: "None", thickness_mm: "13+13", pipe_size_mm: "25 mm dia" }, ["thickness_mm"]);
+    expect(r.priced).toBe(false);
+    expect(r.items.length).toBe(1);
+    expect(r.items[0].reason).toBe("several values stated for thickness ('13+13')");
+  });
+
+  it("NEGATIVE: a single stated thickness is one item, never split; a layer text on a category with NO `compose` refuses as before", () => {
+    const one = price("Rmt", { item: NR, cladding: "None", thickness_mm: "19 mm", pipe_size_mm: "25 mm dia" });
+    expect(one.items.length).toBe(1);
+    const noCompose = itemListPricingSpec({ ...INS, list_spec: { ...INS.list_spec, pricing: { ...INS.list_spec.pricing, compose: undefined } } } as Cfg)!;
+    const r = priceItemList(noCompose, ITEMS, "Rmt", [item({ item: NR, cladding: "No", thickness_mm: "13 + 13", pipe_size_mm: "25 mm dia" })]);
+    expect(r.priced).toBe(false);
+    expect(r.items[0].reason).toBe("several values stated for thickness ('13 + 13')");
   });
 });

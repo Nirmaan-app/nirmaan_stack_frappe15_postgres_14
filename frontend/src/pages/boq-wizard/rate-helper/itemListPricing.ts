@@ -401,7 +401,10 @@ export function itemListPricingSpec(config: RateCategoryConfig | null | undefine
 
 /** One extracted item as the run stores it: `items[i].attributes[attr] = {value, confidence}`. */
 export interface ExtractedListItem {
-  attributes: Record<string, { value: string | number | null; confidence?: number }>;
+  attributes: Record<string, { value: string | number | null; confidence?: number;
+    /** SLICE 12d-1b (owner T6): the PRICER typed this value (a calculator / panel entry). A typed value is
+     * never parsed as layers -- the single-number entry stays as it is; only a MODEL answer may be layers. */
+    typed?: boolean }>;
   /** SLICE 6 (T4, the owner's unit-rate ruling): how many of this item ONE row unit pays for. Absent => 1.
    * Blank / non-numeric / non-positive => the item refuses ("quantity per row unit is blank"). */
   qtyPerRowUnit?: number | string | null;
@@ -437,6 +440,9 @@ export interface ItemPriceResult {
     layers: number[];
     delta: number;
     top: number;
+    /** SLICE 12d-1b (owner T4): the layers were STATED by the row ("65 mm + 32 mm", "19 x 2", "2 layers of
+     * 19 mm"), not built above a top rung -- the expansion line names the BoQ's words instead. */
+    explicit?: { raw: string };
   };
   /** The family the model returned (may be an alias or "none of these"). */
   familyRaw: string | null;
@@ -670,6 +676,48 @@ function axisOf(part: string): number | null {
  * Returns null when the text is not a clean x-joined phrase of two or three single-number parts -- a list
  * ("100/150/200 mm"), a range, a bare number, or a labelled set that is not a permutation of the axes.
  */
+/**
+ * SLICE 12d-1b (owner T4, 2026-10-07) -- TWO (OR MORE) LAYERS WRITTEN AS ONE TEXT. Exactly three shapes, the
+ * owner's: "a + b" (any count of "+"-joined numbers), "a x N" / "N x a", and "N layers of a" (N as a digit, or
+ * the words "two" / "double"). Returns the layer thicknesses ASCENDING (the composition's own order, so the
+ * largest is the OUTER layer), or null for anything else -- a single number, a slash list, a range, a size
+ * phrase, a tolerance, "1 layer", "0 x". It reads the MODEL'S text; a pricer's typed entry never reaches it.
+ */
+export function readLayers(text: string | number | null | undefined): number[] | null {
+  if (text === null || text === undefined) return null;
+  const s = String(text).toLowerCase().replace(/\s+/g, " ").trim();
+  if (s === "" || s === "none") return null;
+  const num = "(\\d+(?:\\.\\d+)?)\\s*(?:mm)?";
+  // "a + b [+ c]"
+  const plus = s.match(new RegExp(`^${num}(?:\\s*\\+\\s*${num})+(?:\\s*(?:mm|thk|thick|thickness))?\\b.*$`));
+  if (plus && !/[+]\s*$/.test(s)) {
+    const parts = s.split("+").map((p) => p.match(/\d+(?:\.\d+)?/)).filter((m): m is RegExpMatchArray => !!m);
+    if (parts.length >= 2 && parts.length === s.split("+").length) {
+      return parts.map((m) => Number(m[0])).filter((n) => Number.isFinite(n) && n > 0).sort((a, b) => a - b);
+    }
+  }
+  const count = (w: string): number | null => (w === "two" || w === "double" ? 2 : /^\d+$/.test(w) ? Number(w) : null);
+  // "a x N" / "N x a"
+  const byX = s.match(/^(\d+(?:\.\d+)?|two|double)\s*(?:mm)?\s*[x×]\s*(\d+(?:\.\d+)?|two|double)\s*(?:mm)?(?:\s*(?:thk|thick|thickness|layers?))?$/);
+  if (byX) {
+    // ONE side is a small COUNT (2..4), the other a THICKNESS above that band -- "19 x 2", "2 x 19". A size
+    // ("600 x 600"), two counts ("2 x 3") or two thicknesses ("19 x 25") are not layers.
+    const isCount = (w: string) => { const n = count(w); return n !== null && n >= 2 && n <= 4 ? n : null; };
+    const isThick = (w: string) => (/^\d+(?:\.\d+)?$/.test(w) && Number(w) > 4 ? Number(w) : null);
+    const n = isCount(byX[2]) !== null && isThick(byX[1]) !== null ? isCount(byX[2]) : isCount(byX[1]) !== null && isThick(byX[2]) !== null ? isCount(byX[1]) : null;
+    const t = isThick(byX[1]) ?? isThick(byX[2]);
+    if (n !== null && t !== null) return Array<number>(n).fill(t);
+    return null;
+  }
+  // "N layers of a" / "double layer of a"
+  const layersOf = s.match(/^(\d+|two|double)\s*layers?\s*(?:of)?\s*(\d+(?:\.\d+)?)\s*(?:mm)?(?:\s*(?:thk|thick|thickness))?$/);
+  if (layersOf) {
+    const n = count(layersOf[1]); const t = Number(layersOf[2]);
+    if (n !== null && n >= 2 && t > 0) return Array<number>(n).fill(t);
+  }
+  return null;
+}
+
 export function splitSizePhrase(text: string | number | null | undefined): string[] | null {
   if (text === null || text === undefined) return null;
   const raw = String(text).trim();
@@ -1052,6 +1100,7 @@ function priceOneItem(
   const readDefaulted: DefaultedAttr[] = [];
   const unreadable: Record<string, string> = {};
   const noneSaid = new Set<string>();
+  let layersFrom: { attr: string; raw: string; layers: number[] } | null = null;
   const notes: string[] = [];
   for (const attr of spec.match_attrs) {
     const reader = spec.numbers[attr];
@@ -1062,7 +1111,19 @@ function priceOneItem(
         if (got !== null) break;
       }
       if (got === null) continue;
-      if ("blank" in got) { unreadable[attr] = got.blank; continue; }
+      if ("blank" in got) {
+        // SLICE 12d-1b (owner T4): the compose axis may be STATED AS LAYERS ("65 mm + 32 mm"). A model answer
+        // that reads so is carried to the composition path below; a pricer's TYPED entry is not (T6).
+        if (spec.compose && attr === spec.compose.attr && layersFrom === null) {
+          for (const src of reader.from) {
+            const cell = item.attributes?.[src];
+            if (!cell || cell.typed === true) continue;
+            const layers = readLayers(cell.value);
+            if (layers && layers.length >= 2) { layersFrom = { attr, raw: String(cell.value), layers }; break; }
+          }
+        }
+        unreadable[attr] = got.blank; continue;
+      }
       read[attr] = got.value;
       if (got.note) notes.push(`${reader.name}: ${got.note}`);
       continue;
@@ -1126,6 +1187,14 @@ function priceOneItem(
     if (i >= 0) readDefaulted.splice(i, 1);
     overridden.push(rule.rule);
     out.overrides.push({ attr: rule.attr, value: rule.to, display: rule.display ?? rule.to, rule: rule.rule });
+  }
+  // SLICE 12d-1b (owner T4): STATED LAYERS go through the EXISTING composition path -- each layer its own item
+  // at the row's pipe size, `outer_only` stripping the cladding from every inner layer. Nothing new is priced
+  // here; `priceItemList` expands it exactly as it expands a composition built above a top rung.
+  if (layersFrom) {
+    const total = layersFrom.layers.reduce((a, b) => a + b, 0);
+    return { ...out, selection: { [familyAttr(spec)]: family },
+      composeInto: { attr: layersFrom.attr, stated: total, layers: layersFrom.layers, delta: 0, top: Number.NaN, explicit: { raw: layersFrom.raw } } };
   }
   const sel: Record<string, string | number> = { [familyAttr(spec)]: family };
 
@@ -1559,9 +1628,13 @@ export function priceItemList(
           // reader can see WHY it was composed at all.
           const unit = spec.numbers[c.attr]?.unit;
           const u = unit ? ` ${unit}` : "";
-          one.working.unshift(
-            `You typed ${fmt(c.stated)}${u} -> priced as ${c.layers.map(fmt).join(" + ")}${u}` +
-            ` (${fmt(total)}${u}, ${sign}${fmt(c.delta)}) -- above the largest stocked size (${fmt(c.top)}${u})`,
+          // SLICE 12d-1b (owner T4): layers the ROW stated are named in the BoQ's own words, not as a
+          // size built above a top rung.
+          const words: Record<number, string> = { 2: "two", 3: "three", 4: "four" };
+          one.working.unshift(c.explicit
+            ? `BoQ says ${c.explicit.raw} -> ${words[c.layers.length] ?? c.layers.length} layers, ${c.layers.map(fmt).join(" + ")}${u} (${fmt(total)}${u}); cladding on the outer layer only`
+            : `You typed ${fmt(c.stated)}${u} -> priced as ${c.layers.map(fmt).join(" + ")}${u}` +
+              ` (${fmt(total)}${u}, ${sign}${fmt(c.delta)}) -- above the largest stocked size (${fmt(c.top)}${u})`,
           );
         }
         expanded.push({ ...one, sourceIndex: i });

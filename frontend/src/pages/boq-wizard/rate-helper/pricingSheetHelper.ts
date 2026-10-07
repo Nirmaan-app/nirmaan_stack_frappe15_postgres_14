@@ -1694,7 +1694,8 @@ export function assembleItems(
     } else if (e.family !== null) {
       attributes[familyAttrId] = { value: e.family };
     }
-    for (const [k, v] of Object.entries(e.attrs)) attributes[k] = { value: v === "" ? null : v };
+    // SLICE 12d-1b (owner T6): a value the PRICER typed is marked, so the pricer never parses it as layers.
+    for (const [k, v] of Object.entries(e.attrs)) attributes[k] = { value: v === "" ? null : v, typed: true };
     // SLICE 6c: an untyped quantity is passed as ABSENT, which the module has always priced as 1 -- so the
     // marking changes no rate anywhere.
     return { attributes, ...(e.qty !== undefined ? { qtyPerRowUnit: e.qty } : {}) };
