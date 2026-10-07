@@ -31,7 +31,6 @@
  *
  * NO PRODUCT FILE CHANGED IN THIS SLICE.
  */
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { RateCategoryConfig, RateMasterItem } from "./rate-master/rateMasterTypes";
 import { mergeItemsByName } from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
@@ -50,6 +49,7 @@ import {
   itemListCasesForCategory,
   panelCtx,
   panelHelper,
+  readJsonFixture,
   resolutionPaths,
   runParity,
   skuCasesForCategory,
@@ -79,7 +79,7 @@ interface ParityMasterFile {
   items: Record<string, RateMasterItem[]>;
 }
 function readFixture<T>(name: string): T {
-  return JSON.parse(readFileSync(new URL(`./__fixtures__/${name}`, import.meta.url), "utf-8")) as T;
+  return readJsonFixture<T>(new URL(`./__fixtures__/${name}`, import.meta.url));
 }
 const corpus = readFixture<ParityCorpusFile>("parityCorpus.json");
 const master = readFixture<ParityMasterFile>("parityMaster.json");

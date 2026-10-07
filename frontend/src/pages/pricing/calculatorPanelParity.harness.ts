@@ -39,6 +39,7 @@
  * NOTHING HERE IS PRODUCT CODE. It is imported only by `calculatorPanelParity.test.ts`; the name ends
  * `.harness.ts` so `vitest.config.ts`'s `src/**\/*.test.{ts,tsx}` include never collects it.
  */
+import { readFileSync } from "node:fs";
 import { RATE_MASTER_DISCIPLINES } from "./rate-master/rateMasterRegistry";
 import type { AttributeDefinition, RateCategoryConfig, RateMasterItem } from "./rate-master/rateMasterTypes";
 import { calculatorCtx } from "./PricingCalculator";
@@ -669,4 +670,14 @@ export function itemFieldNotes(r: HelperResult): string[] {
 export function panelQuotesTextWithNoBox(r: HelperResult): boolean {
   const v = itemListView(r);
   return !!v && v.items.some((b) => b.fields.some((f) => f.value === "" && f.typedValue !== "" && !f.otherMode));
+}
+
+/**
+ * SLICE 12d-2 -- THE ONE fixture reader for the parity family. A big fixture is READ at runtime, never
+ * `import`ed (tsc would infer a structural type for the whole file), and the parse lives HERE so that a
+ * test adds no inline parse of its own (ADR-0010 F2's ratchet counts every inline parse under pages/).
+ * The caller passes the URL it resolved against its own `import.meta.url`.
+ */
+export function readJsonFixture<T>(url: URL): T {
+  return JSON.parse(readFileSync(url, "utf-8")) as T;
 }
