@@ -3196,9 +3196,10 @@ class TestSlice12d2FModelCall(FrappeTestCase):
         from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, CURRENT_HVAC_ASSET, _asset_path
         with open(_asset_path("rate_master_hvac_all_v29.json"), "r", encoding="utf-8") as fh:
             cls.v29 = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # 12d-4a: v30 is loaded BY NAME (the 12d-2F precedent); the current asset moved on
+        with open(_asset_path("rate_master_hvac_all_v30.json"), "r", encoding="utf-8") as fh:
             cls.v30 = json.load(fh)
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v30.json"
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v30.json"
         with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
             cls.eall = json.load(fh)
 
@@ -3353,3 +3354,93 @@ class TestSlice12d2FSecondOpinionCost(FrappeTestCase):
         self.assertEqual((r["first"], r["last"]), ("2026-10-07 16:01:00", "2026-10-07 16:02:00"))
         allg = mod.run_costs(recs)[("B1", "S ")]
         self.assertEqual((allg["batches"], allg["input"]), (3, 107))
+
+
+
+class TestSlice12d4aModelCall(FrappeTestCase):
+    """v31 changes FOUR Insulation notes (item D8, cladding D9a + D13, thickness D5, pipe size D5) and nothing else
+    the model sees: every OTHER HVAC category's assembled call is byte-identical and NAMED; every eligible
+    Electrical category's call is identical with either HVAC asset and NAMED; the Insulation ITEMS_SPEC differs in
+    exactly those four notes, and every sentence reaches BOTH calls that read it -- the batch call and the
+    second-opinion review. The four pricing keys and the four SKUs NEVER reach the model (the keys live in
+    `list_spec.pricing`, which `build_items_spec` does not read; items are not in the prompt)."""
+
+    OTHER_HVAC = TestSlice12d2ModelCall.OTHER_HVAC
+    ELIGIBLE_ELECTRICAL = TestSlice12d2ModelCall.ELIGIBLE_ELECTRICAL
+    D5 = "'A mm + B mm thick' is the PIPE SIZE and the insulation THICKNESS"
+    D8 = "of ANY density -- 32 kg/m3 included -- is ' Fiberglass Rigid Board Insulation, Density 48Kg/m3'"
+    D9A = "no gauge stated -> priced as 26G"
+    D13 = "A perforated GSS sheet bolted or screwed on with no frame named is still 'GI Framework with perforated Al sheet'"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, CURRENT_HVAC_ASSET, _asset_path
+        with open(_asset_path("rate_master_hvac_all_v30.json"), "r", encoding="utf-8") as fh:
+            cls.v30 = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v31 = json.load(fh)
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v31.json"
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.eall = json.load(fh)
+
+    _cfgs = staticmethod(TestSlice12d1bModelCall._cfgs)
+    _row = staticmethod(TestSlice12d1bModelCall._row)
+    _content = staticmethod(TestSlice12d1bModelCall._content)
+
+    def test_mc4a_01_every_other_hvac_category_sends_a_byte_identical_call_NAMED(self):
+        c30, c31 = self._cfgs(self.v30, "HVAC"), self._cfgs(self.v31, "HVAC")
+        payload = [extraction._ai_item(self._row())]
+        checked = []
+        for key in c30:
+            if key[1] == "hvac_insulation":
+                continue
+            g30, g31 = extraction._group_context(c30, *key), extraction._group_context(c31, *key)
+            self.assertEqual(g31, g30, key[1])
+            self.assertEqual(self._content(g31, payload), self._content(g30, payload), key[1])
+            checked.append(key[1])
+        self.assertEqual(sorted(checked), self.OTHER_HVAC)
+        self.assertEqual(extraction.build_items_spec(c31[("HVAC", "hvac_adp")]), extraction.build_items_spec(c30[("HVAC", "hvac_adp")]))
+
+    def test_mc4a_02_every_eligible_electrical_category_sends_the_same_call_with_either_hvac_asset_NAMED(self):
+        e = self._cfgs(self.eall, "Electrical")
+        payload = [extraction._ai_item(self._row())]
+        checked = []
+        for key, cfg in e.items():
+            if not extraction.config_is_eligible(cfg, e):
+                continue
+            g_a = extraction._group_context({**e, **self._cfgs(self.v30, "HVAC")}, *key)
+            g_b = extraction._group_context({**e, **self._cfgs(self.v31, "HVAC")}, *key)
+            self.assertEqual(self._content(g_b, payload), self._content(g_a, payload), key[1])
+            checked.append(key[1])
+        self.assertEqual(sorted(checked), self.ELIGIBLE_ELECTRICAL)
+
+    def test_mc4a_03_insulation_items_spec_changes_in_the_four_notes_ONLY_and_each_sentence_reaches_BOTH_calls(self):
+        s30 = extraction.build_items_spec(self._cfgs(self.v30, "HVAC")[("HVAC", "hvac_insulation")])
+        s31 = extraction.build_items_spec(self._cfgs(self.v31, "HVAC")[("HVAC", "hvac_insulation")])
+        d30 = {d["id"]: d for d in s30["attribute_definitions"]}
+        d31 = {d["id"]: d for d in s31["attribute_definitions"]}
+        self.assertEqual(sorted(d30), sorted(d31))
+        noted = {"item", "cladding", "thickness_mm", "pipe_size_mm"}
+        for aid in d30:
+            if aid in noted:
+                self.assertNotEqual(d30[aid]["note"], d31[aid]["note"], aid)
+                self.assertEqual({k: v for k, v in d30[aid].items() if k != "note"}, {k: v for k, v in d31[aid].items() if k != "note"}, aid)
+            else:
+                self.assertEqual(d30[aid], d31[aid], aid)
+        for k in s30:
+            if k != "attribute_definitions":
+                self.assertEqual(s30[k], s31[k], k)
+        # the four sentences, in the BATCH call ...
+        ctx = extraction._group_context(self._cfgs(self.v31, "HVAC"), "HVAC", "hvac_insulation")
+        batch = self._content(ctx, [extraction._ai_item(self._row())])
+        for s in (self.D5, self.D8, self.D9A, self.D13):
+            self.assertIn(s, batch, s)
+        # ... and in the SECOND-OPINION review, which reads the same ITEMS_SPEC
+        review = extraction.second_opinion_content(extraction._read_review_prompt(), {"id": 1, "description": "x"}, [], s31)
+        for s in (self.D5, self.D8, self.D9A, self.D13):
+            self.assertIn(s, review, s)
+        # the pricing keys and the SKUs never reach the model
+        for word in ("named_in_row", "unstocked_materials", "refuse_on_unit_class", "read_notes", "rmi-b07ad9001f25", "derived_rates"):
+            self.assertNotIn(word, batch, word)
+            self.assertNotIn(word, review, word)

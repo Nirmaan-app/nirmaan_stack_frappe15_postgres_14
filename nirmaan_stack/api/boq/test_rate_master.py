@@ -627,6 +627,16 @@ def _without_pricing_input_items(items):
     return [it for it in items if not str(it.get("kind") or "").endswith(_PI_KIND_SUFFIX)]
 
 
+# SLICE 12d-4a (owner D1): the four Acoustic Nitrile x GI Framework SKUs HVAC v31 minted. A cross-version
+# pin written against an OLDER mint is a statement about THAT mint, so the four are normalised out on the
+# NEW side of such a comparison (the `_without_pricing_input_items` idiom) -- never by editing the pin.
+SLICE_12D4A_ACOUSTIC_GI_UIDS = frozenset({"rmi-b07ad9001f25", "rmi-a25a2d557e7b", "rmi-44c0e18384db", "rmi-f9f4797005c4"})
+
+
+def _without_12d4a_acoustic_gi(items):
+    return [it for it in items if it.get("item_uid") not in SLICE_12D4A_ACOUSTIC_GI_UIDS]
+
+
 def _obj(value):
     """JSON fields come back from frappe.get_all already parsed to dict; tolerate either a
     dict or a raw JSON string."""
@@ -11490,7 +11500,7 @@ def _read_frontend_src(*parts):
 # lists and layers copied as written), numbers.thickness_mm.several = "highest", number_defaults on every family,
 # material_as_written + no_sku_named_by. Items and the eight other configs byte-identical -- pinned in
 # `TestSlice12d1bAsset`. The 12d-1a v26 -> v27 pin below now names v27 explicitly.
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v30.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v31.json"
 # SLICE 12d-2 (owner S1): `calculator_only` is RETIRED and refused by the validator as an unknown key. The
 # frozen HVAC assets v18..v28 carry it on their Insulation config and are therefore refused AS FILES -- a
 # historical asset is never edited. Every "every asset on disk validates" sweep names them through this.
@@ -12762,13 +12772,18 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                             "typed_cladding", "panel_notes", "family_when_none", "value_map",
                             "panel_readonly",
                             # SLICE 12d-1b (owner T5): read only by HVAC Insulation; v7 predates it
-                            "no_sku_named_by"})
+                            "no_sku_named_by",
+                            # SLICE 12d-4a (owner D3 / D7 / D9b / D8): read only by HVAC Insulation;
+                            # v7 predates them and ADP declares none (pinned below)
+                            "named_in_row", "unstocked_materials", "refuse_on_unit_class", "read_notes"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         self.assertNotIn("family_when_none", pr)
         self.assertNotIn("value_map", pr)
         self.assertNotIn("panel_readonly", pr)
         self.assertNotIn("no_sku_named_by", pr)
+        for k in ("named_in_row", "unstocked_materials", "refuse_on_unit_class", "read_notes"):
+            self.assertNotIn(k, pr)
         def refused(mutate, needle):
             bad = copy.deepcopy(base)
             mutate(bad["list_spec"]["pricing"])
@@ -14853,7 +14868,7 @@ class TestFormulaRoundTripSlice12a(FrappeTestCase):
         # ⚠️ INVERTED BY SLICE 12c (228 -> 172): the 56 `cost_cladding` declarations dissolved with the
         # stored column. The behaviour under test -- a declared cell carries the WORD, never its figure
         # -- is unchanged and still exercised over every survivor.
-        self.assertEqual(len(declared), 172)
+        self.assertEqual(len(declared), 176)   # SLICE 12d-4a: 172 + the four Acoustic x GI cost_insulation cells
         self.assertFalse([k for (_u, k) in declared if k == "cost_cladding"])
         for label, b in (("mode A", ex.build_category_rows(disc, "hvac_insulation")),
                          ("mode B", ex.build_all_categories_rows(disc))):
@@ -14866,7 +14881,7 @@ class TestFormulaRoundTripSlice12a(FrappeTestCase):
                     seen += 1
                     self.assertEqual(r[b["headers"].index(key)], ex.DERIVED_CELL_TEXT,
                                      "%s %s/%s" % (label, uid, key))
-            self.assertEqual(seen, 172, label)   # SLICE 12c: 228 -> 172, the 56 cladding cells
+            self.assertEqual(seen, 176, label)   # SLICE 12c: 228 -> 172, the 56 cladding cells; 12d-4a: + 4 Acoustic x GI
             # NEGATIVE: an UNDECLARED rate on a DECLARED row still carries its figure -- the cell is
             # emptied per (item, rate key), never per row. (Mode B is ordered by kind, so the row must
             # be found by uid rather than taken from the head of the file.)
@@ -14877,7 +14892,7 @@ class TestFormulaRoundTripSlice12a(FrappeTestCase):
                 if r[ui] in uids:
                     self.assertIsNotNone(r[ai], "%s %s" % (label, r[ui]))
                     checked += 1
-            self.assertEqual(checked, 172, label)
+            self.assertEqual(checked, 176, label)   # 12d-4a: 172 + the four Acoustic x GI declared rows
 
     # -- z07 ----------------------------------------------------------------------------------------
     def test_z07_every_derived_cell_carries_the_red_fill_in_the_xlsx(self):
@@ -14912,16 +14927,18 @@ class TestFormulaRoundTripSlice12a(FrappeTestCase):
         # SAME exporter function that writes the cells, so the pin cannot drift from the mechanism.
         items, _kc, cat_kinds, _t = ex._load_full(disc)
         computed = set(ex.computed_cladding_cells(cfg, items, "hvac_insulation", cat_kinds))
-        self.assertEqual(len(computed), 219, "the computed population must not be empty or it proves nothing")
+        self.assertEqual(len(computed), 223, "the computed population must not be empty or it proves nothing")   # 12d-4a: 219 + 4
         for label, blob, b, declared, want_n in (
             ("mode A", ex.build_category_xlsx(disc, "hvac_insulation")[0],
              # SLICE 12c: 228 -> 172 in mode A and 240 -> 184 in mode B, both for the one reason -- the
              # 56 cladding declarations dissolved with the stored column. ADP's 12 are untouched, which
              # is why the two numbers moved by exactly the same 56. SLICE 12c FINISH then adds the 219
              # COMPUTED cladding cells on top of each: 172 + 219 and 184 + 219.
-             ex.build_category_rows(disc, "hvac_insulation"), ins_only | computed, 172 + 219),
+             # SLICE 12d-4a (owner D1): the four Acoustic x GI SKUs add 4 declared cells AND 4 computed
+             # cells to each mode: (172 + 4) + (219 + 4) and (184 + 4) + (219 + 4).
+             ex.build_category_rows(disc, "hvac_insulation"), ins_only | computed, 176 + 223),
             ("mode B", ex.build_all_categories_xlsx(disc)[0], ex.build_all_categories_rows(disc),
-             all_cats | computed, 184 + 219),
+             all_cats | computed, 188 + 223),
         ):
             ws = openpyxl.load_workbook(io.BytesIO(blob)).worksheets[0]
             headers = b["headers"]
@@ -15814,8 +15831,10 @@ class TestDerivedRatesRecompute(FrappeTestCase):
         # dissolved STRUCTURALLY when the column stopped being stored on the 204 pipe rows -- there is
         # no cell left to declare. The MECHANISM this test is about is unchanged and is still exercised
         # over every surviving cell; what moved is how many there are.
-        self.assertEqual(checked, 172,
-                         "expected all 172 STORED declared cells exercised, got %d" % checked)
+        # SLICE 12d-4a (owner D1): 172 -> 176 -- each new Acoustic x GI SKU declares its cost_insulation
+        # from the No-cladding row of its thickness, exactly as the FG GI rows do.
+        self.assertEqual(checked, 176,
+                         "expected all 176 STORED declared cells exercised, got %d" % checked)
         self.assertFalse([k for (_u, k) in self.cells if k == "cost_cladding"],
                          "a cladding declaration survived the 12c column drop")
 
@@ -16917,7 +16936,9 @@ class TestCladdingOnlySkus(FrappeTestCase):
     def test_co_f1_07_the_224_composites_are_BYTE_IDENTICAL_v16_to_v17(self):
         """ACCEPTANCE FA6. Adding a family must not touch one existing row."""
         a = sorted((i for i in self.v16["items"] if i["kind"] == self.KIND), key=lambda x: x["item_uid"])
-        b = sorted((i for i in self.v17["items"] if i["kind"] == self.KIND
+        # SLICE 12d-4a: the four Acoustic x GI SKUs v31 minted are normalised out on the NEW side
+        # (`_without_12d4a_acoustic_gi`) -- this pin speaks of the v17 mint and every row it had.
+        b = sorted((i for i in _without_12d4a_acoustic_gi(self.v17["items"]) if i["kind"] == self.KIND
                     and i["attributes"].get("item") != self.FAMILY), key=lambda x: x["item_uid"])
         self.assertEqual(len(a), 224)
         self.assertEqual(json.dumps(a, sort_keys=True), json.dumps(b, sort_keys=True))
@@ -17045,7 +17066,8 @@ class TestComputedCladdingColumn(FrappeTestCase):
         locked = out["locked"]
         h = out["headers"]
         n_locked = sum(1 for lk in locked if self.KEY in lk)
-        self.assertEqual(n_locked, 219)
+        # SLICE 12d-4a (owner D1): 219 -> 223 -- the four Acoustic x GI SKUs compute their cladding cell too
+        self.assertEqual(n_locked, 223)
         items, _kc, cat_kinds, _t = csv_exporter._load_full(self.D)
         foil = {i["item_uid"] for i in items
                 if i["kind"] == "hvac_insulation_item"
@@ -17129,7 +17151,7 @@ class TestComputedCladdingColumn(FrappeTestCase):
         p = self._plan(self._csv_rows())
         self.assertEqual(len(p["errors"]), 0)
         self.assertEqual(len(p["changes"]), 0)
-        self.assertEqual(p["counts"]["unchanged"], 229)
+        self.assertEqual(p["counts"]["unchanged"], 233)   # SLICE 12d-4a: 229 + the four Acoustic x GI SKUs
 
     def test_cc_05_TYPING_into_a_computed_cell_is_REFUSED_pointing_at_Pricing_Inputs(self):
         rows = self._csv_rows()
@@ -17250,10 +17272,10 @@ class TestServedRatesAreStored(FrappeTestCase):
                 self.assertEqual(json.dumps(it["rates"], sort_keys=True), json.dumps(st["rates"], sort_keys=True),
                                  "%s %s %s: served rates differ from stored" % (d, it["kind"], it["item_uid"]))
                 counts[(d, it["kind"])] = counts.get((d, it["kind"]), 0) + 1
-        self.assertEqual(counts[("HVAC", "hvac_insulation_item")], 229)
+        self.assertEqual(counts[("HVAC", "hvac_insulation_item")], 233)   # SLICE 12d-4a: 229 + 4 Acoustic x GI
         self.assertEqual(counts[("HVAC", "hvac_pricing_input")], 7)
         self.assertGreaterEqual(counts[("HVAC", "hvac_adp_item")], 1)
-        self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "HVAC"), 331)
+        self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "HVAC"), 335)
         self.assertEqual(sum(v for (d, _k), v in counts.items() if d == "Electrical"), 1402)
 
     def test_sv_02_the_display_figure_is_SERVED_in_its_own_map_and_the_GI_rows_still_get_555(self):
@@ -17263,7 +17285,7 @@ class TestServedRatesAreStored(FrappeTestCase):
         self.assertEqual({u: sorted(v) for u, v in res["computed_rates"].items()}, res["computed_rate_keys"])
         gi = [u for u, st in self.stored["HVAC"].items()
               if st["kind"] == "hvac_insulation_item" and st["attributes"].get("cladding") == self.GI]
-        self.assertEqual(len(gi), 3, "the catalogue stocks three GI framework rows")
+        self.assertEqual(len(gi), 7, "the catalogue stocks seven GI framework rows: 3 Fiberglass + 4 Acoustic (12d-4a)")
         for u in gi:
             self.assertEqual(self.stored["HVAC"][u]["rates"].get(self.KEY), 0.0)         # stored
             self.assertEqual(res["computed_rates"][u][self.KEY], 555.0)                # displayed
@@ -17299,7 +17321,7 @@ class TestServedRatesAreStored(FrappeTestCase):
                 got = csv_exporter.computed_cladding_cells(cfg, items, cid, cat_kinds)
                 if (d, cid) == ("HVAC", "hvac_insulation"):
                     self.assertEqual({k for _u, k in got}, {self.KEY}, cid)
-                    self.assertEqual(len(got), 219, "the 12d-2 live count: 3 GI + 12 'No' + 204 pipe rows")
+                    self.assertEqual(len(got), 223, "the 12d-4a live count: 7 GI + 12 'No' + 204 pipe rows")
                 else:
                     self.assertEqual(got, {}, "%s / %s computes a cell" % (d, cid))
 
@@ -18762,7 +18784,8 @@ class TestSlice12d1bAsset(FrappeTestCase):
     def test_v28_01_INVERTED_the_current_asset_has_moved_past_v28(self):
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v28.json")
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v29.json")   # 12d-2F: moved again
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")   # 12d-4a: moved again
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")
 
     def test_v28_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -18904,7 +18927,8 @@ class TestSlice12d2Asset(FrappeTestCase):
 
     def test_v29_01_INVERTED_the_current_asset_has_moved_past_v29(self):
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v29.json")
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")   # 12d-4a: moved again
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")
 
     def test_v29_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -19012,11 +19036,13 @@ class TestSlice12d2FAsset(FrappeTestCase):
         super().setUpClass()
         with open(_asset_path("rate_master_hvac_all_v29.json"), "r", encoding="utf-8") as fh:
             cls.prev = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # 12d-4a: re-pointed to v30 BY NAME (the 12d-2F precedent) -- this class describes the v29 -> v30 mint
+        with open(_asset_path("rate_master_hvac_all_v30.json"), "r", encoding="utf-8") as fh:
             cls.cur = json.load(fh)
 
-    def test_v30_01_the_current_asset_is_v30(self):
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")
+    def test_v30_01_INVERTED_the_current_asset_has_moved_past_v30(self):
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")
 
     def test_v30_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -19200,3 +19226,171 @@ class TestSlice12d4aPricingKeys(FrappeTestCase):
         msg = self._refused(self._cfg(named_in_rows=self.NAMED))   # a typo of the new key
         self.assertIsNotNone(msg)
         self.assertIn("unknown key(s): named_in_rows", msg)
+
+
+class TestSlice12d4aAsset(FrappeTestCase):
+    """SLICE 12d-4a (owner D1-D14 on the 12d-3 audit, 2026-10-11) -- HVAC v31 = v30 + the Insulation changes ONLY:
+    FOUR new SKUs (Acoustic Nitrile x 'GI Framework with perforated Al sheet' at 9 / 13 / 15 / 19 mm, D1), FOUR
+    pricing keys (named_in_row D3, unstocked_materials D7, refuse_on_unit_class D9b, read_notes D8), the FOUR model
+    instructions (D5 / D8 / D9a / D13 in the item, cladding, thickness and pipe-size notes) and the notes trail.
+    Every other item, every other top-level key and every other config is byte-identical and NAMED; every existing
+    SKU's price is untouched; the asset validates and Insulation stays eligible."""
+
+    GI = "GI Framework with perforated Al sheet"
+    AN = "Acoustic Nitrile Insulation"
+    NEW_UIDS = {"rmi-b07ad9001f25": 9.0, "rmi-a25a2d557e7b": 13.0, "rmi-44c0e18384db": 15.0, "rmi-f9f4797005c4": 19.0}
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v30.json"), "r", encoding="utf-8") as fh:
+            cls.prev = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.cur = json.load(fh)
+        cls.ins_prev = next(c for c in cls.prev["category_configs"] if c["category_id"] == "hvac_insulation")
+        cls.ins_cur = next(c for c in cls.cur["category_configs"] if c["category_id"] == "hvac_insulation")
+
+    def test_v31_01_the_current_asset_is_v31(self):
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")
+
+    def test_v31_02_exactly_four_new_items_every_existing_item_byte_identical_and_every_other_top_level_key_identical(self):
+        prev = {it["item_uid"]: it for it in self.prev["items"]}
+        cur = {it["item_uid"]: it for it in self.cur["items"]}
+        self.assertEqual(set(cur) - set(prev), set(self.NEW_UIDS))
+        self.assertEqual(set(prev) - set(cur), set(), "no item was removed")
+        for uid, it in prev.items():
+            self.assertEqual(json.dumps(it, sort_keys=True), json.dumps(cur[uid], sort_keys=True), uid)   # EVERY existing SKU's price untouched
+        self.assertEqual([it["item_uid"] for it in self.cur["items"]], sorted(cur), "items stay sorted by uid")
+        for key in self.prev:
+            if key in ("items", "category_configs"):
+                continue
+            self.assertEqual(json.dumps(self.prev[key], sort_keys=True), json.dumps(self.cur[key], sort_keys=True), key)
+        self.assertEqual(sorted(self.prev), sorted(self.cur))
+
+    def test_v31_03_the_four_skus_are_acoustic_x_gi_framework_modelled_on_the_fiberglass_gi_rows(self):
+        cur = {it["item_uid"]: it for it in self.cur["items"]}
+        an_no = {it["attributes"]["thickness_mm"]: it for it in self.prev["items"]
+                 if it["attributes"].get("item") == self.AN and it["attributes"].get("cladding") == "No"}
+        self.assertEqual(sorted(an_no), [9.0, 13.0, 15.0, 19.0])
+        for uid, th in self.NEW_UIDS.items():
+            it = cur[uid]
+            base = an_no[th]
+            self.assertEqual(it["kind"], "hvac_insulation_item")
+            self.assertEqual(it["unit"], "SQM")
+            self.assertEqual(it["attributes"], {**base["attributes"], "cladding": self.GI})
+            self.assertEqual(it["rates"], {
+                "cost_insulation": base["rates"]["cost_insulation"], "cost_adhesive": 60.0, "cost_cladding": 0.0, "wastage": 0.05,
+                "cost_install_insulation": 110.0, "cost_install_cladding": 150.0, "supply_markup": 0.4, "install_markup": 0.4,
+            })
+            # the insulation cost is DECLARED derived from the No-cladding row, as the Fiberglass GI rows declare theirs
+            self.assertEqual(self.ins_cur["derived_rates"][uid], {"cost_insulation": [
+                {"from": {"item_uid": base["item_uid"], "rate_key": "cost_insulation"}, "multiplier": 1.0, "constant": 0.0}]})
+            self.assertEqual(it["source"]["sheet"], "Insulation")
+            self.assertGreater(it["source"]["row"], 162)   # asset-minted, numbered past the workbook's last Insulation row
+        # the Fiberglass GI rows are the model: cost_cladding 0 (the framework is LIVE) and install cladding 150
+        fg_gi = [it for it in self.prev["items"] if it["attributes"].get("cladding") == self.GI]
+        self.assertEqual({it["rates"]["cost_cladding"] for it in fg_gi}, {0.0})
+        self.assertEqual({it["rates"]["cost_install_cladding"] for it in fg_gi}, {150.0})
+        # every derived_rates entry of v30 is kept verbatim
+        for uid, decl in self.ins_prev["derived_rates"].items():
+            self.assertEqual(self.ins_cur["derived_rates"][uid], decl, uid)
+        self.assertEqual(set(self.ins_cur["derived_rates"]) - set(self.ins_prev["derived_rates"]), set(self.NEW_UIDS))
+
+    def test_v31_04_every_config_but_insulation_is_byte_identical_NAMED(self):
+        a = {c["category_id"]: c for c in self.prev["category_configs"]}
+        b = {c["category_id"]: c for c in self.cur["category_configs"]}
+        self.assertEqual(sorted(a), sorted(b))
+        self.assertEqual(sorted(a), ["hvac_adp", "hvac_ahu", "hvac_cables", "hvac_dx_unit", "hvac_insulation", "hvac_panels",
+                                     "hvac_pricing_inputs", "hvac_pumps", "hvac_raceway"])
+        for cid in a:
+            if cid != "hvac_insulation":
+                self.assertEqual(json.dumps(a[cid], sort_keys=True), json.dumps(b[cid], sort_keys=True), cid)
+
+    NOTED = ("item", "cladding", "thickness_mm", "pipe_size_mm")
+    NEW_KEYS = ("named_in_row", "unstocked_materials", "refuse_on_unit_class", "read_notes")
+
+    def _stripped(self, cfg):
+        c = copy.deepcopy(cfg)
+        c.pop("notes", None)
+        c.pop("derived_rates", None)
+        for d in c["list_spec"]["attribute_definitions"]:
+            if d["id"] in self.NOTED:
+                d.pop("note", None)
+        for k in self.NEW_KEYS:
+            c["list_spec"]["pricing"].pop(k, None)
+        return json.dumps(c, sort_keys=True)
+
+    def test_v31_05_insulation_differs_ONLY_in_the_named_places_and_each_DID_change(self):
+        a, b = self.ins_prev, self.ins_cur
+        self.assertEqual(self._stripped(a), self._stripped(b), "Insulation changed outside the slice's named places")
+        da = {d["id"]: d for d in a["list_spec"]["attribute_definitions"]}
+        db = {d["id"]: d for d in b["list_spec"]["attribute_definitions"]}
+        self.assertEqual(sorted(da), sorted(db))
+        for aid in self.NOTED:
+            self.assertNotEqual(da[aid]["note"], db[aid]["note"], aid)
+        for aid in da:
+            if aid not in self.NOTED:
+                self.assertEqual(da[aid], db[aid], aid)
+            self.assertEqual(da[aid].get("values"), db[aid].get("values"), aid)   # the vocabularies are untouched
+        for k in self.NEW_KEYS:
+            self.assertNotIn(k, a["list_spec"]["pricing"], k)
+            self.assertIn(k, b["list_spec"]["pricing"], k)
+        # every OTHER pricing key byte-identical: the families' pipelines, the ladders, the composition, the defaults
+        pa = {k: v for k, v in a["list_spec"]["pricing"].items()}
+        pb = {k: v for k, v in b["list_spec"]["pricing"].items() if k not in self.NEW_KEYS}
+        self.assertEqual(json.dumps(pa, sort_keys=True), json.dumps(pb, sort_keys=True))
+        self.assertNotEqual(a["notes"], b["notes"]); self.assertIn("SLICE 12d-4a", b["notes"])
+        self.assertIs(b["list_spec"]["second_opinion"], True)   # D12: ON until 12d-4b re-checks
+        self.assertEqual(b.get("pipelines") or {}, {})
+
+    def test_v31_06_the_pricing_keys_carry_the_rulings_words(self):
+        pr = self.ins_cur["list_spec"]["pricing"]
+        nir = pr["named_in_row"]
+        self.assertEqual([r["attr"] for r in nir], ["cladding"])
+        self.assertEqual(nir[0]["refuse"], "cladding named in this row but not read - set the cladding")
+        for w in ("glass cloth", "foil", "gi strip", "frp", "perforated", "cladding", "aluminium"):
+            self.assertIn(w, nir[0]["words"])
+        self.assertNotIn("gss", nir[0]["words"])   # "GSS and GSS spiral ducts" is the DUCT material, measured on 4 audit rows
+        um = pr["unstocked_materials"]
+        self.assertEqual(um["from_attr"], "material_as_written")
+        for w in ("epdm", "xlpe", "rockwool", "mineral wool", "eps", "pir"):
+            self.assertIn(w, um["words"])
+        self.assertNotIn("glass wool", um["words"])   # a cloth word on a real row; D8 prices fibre glass as the 48 kg board
+        ruc = pr["refuse_on_unit_class"]
+        self.assertEqual([(r["unit_class"], r["attr"], r["value_contains"]) for r in ruc], [("area", "cladding", "Glass Cloth")])
+        self.assertEqual(ruc[0]["refuse"], "glass cloth is not offered on sheet insulation - price this row by hand")
+        rn = pr["read_notes"]
+        self.assertEqual([r["families"] for r in rn], [[" Fiberglass Rigid Board Insulation, Density 48Kg/m3"]])
+        self.assertEqual(rn[0]["unless"], "48")
+        self.assertEqual(rn[0]["line"], "BoQ says {match} -> priced as the 48 kg/m3 board")
+        self.assertIsNotNone(re.match(rn[0]["pattern"], "32 kg/m3", re.I))
+        self.assertIsNotNone(re.match(rn[0]["pattern"], "48 Kg/Cum", re.I))
+
+    def test_v31_07_the_notes_state_D5_D8_D9a_and_D13_and_keep_their_predecessors(self):
+        da = {d["id"]: d for d in self.ins_prev["list_spec"]["attribute_definitions"]}
+        db = {d["id"]: d for d in self.ins_cur["list_spec"]["attribute_definitions"]}
+        th = db["thickness_mm"]["note"]
+        self.assertIn("'A mm + B mm thick' is the PIPE SIZE and the insulation THICKNESS", th)            # D5
+        self.assertIn("65 mm + 32 mm thick = a 65 mm pipe with 32 mm of insulation", th)
+        self.assertNotIn("('65 mm + 32 mm', '19 mm x 2'", th)                                         # the old example withdrawn
+        self.assertIn("'25 mm thick - 2 Layers'", th)                                                  # D4's spelling named
+        self.assertIn("read the thickness for THIS row's pipe size", th)                                # S3 kept
+        self.assertIn("A is the pipe size, B the insulation thickness", db["pipe_size_mm"]["note"])      # D5 mirror
+        self.assertTrue(db["pipe_size_mm"]["note"].startswith(da["pipe_size_mm"]["note"]))
+        it = db["item"]["note"]
+        self.assertIn("of ANY density -- 32 kg/m3 included -- is ' Fiberglass Rigid Board Insulation, Density 48Kg/m3'", it)   # D8
+        self.assertNotIn("glass wool, EPDM", it)                                                      # glass wool is fibre glass now
+        self.assertIn("EPDM, PIR", it)                                                                 # EPDM stays unstocked (D7)
+        self.assertIn("Open cell is Acoustic Nitrile Insulation", it)                                  # R5 kept
+        cl = db["cladding"]["note"]
+        self.assertTrue(cl.startswith(da["cladding"]["note"]), "the v30 sentences are KEPT, the 12d-4a ones appended")
+        self.assertIn("is 'Glass Cloth with paint' -- a paint or coating alone NEVER makes it aluminium", cl)   # D9a
+        self.assertIn("'<gauge> Aluminium with Glass Cloth'", cl)
+        self.assertIn("no gauge stated -> priced as 26G", cl)
+        self.assertIn("A perforated GSS sheet bolted or screwed on with no frame named is still 'GI Framework with perforated Al sheet'", cl)   # D13
+
+    def test_v31_08_every_config_validates_insulation_is_eligible_and_no_removal_is_declared(self):
+        for c in self.cur["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(copy.deepcopy(c), "HVAC", self.cur.get("goldens") or {}))
+        self.assertTrue(extraction.config_is_eligible(self.ins_cur, {("HVAC", c["category_id"]): c for c in self.cur["category_configs"]}))
+        self.assertEqual(self.cur.get("intentional_removals"), self.prev.get("intentional_removals"))

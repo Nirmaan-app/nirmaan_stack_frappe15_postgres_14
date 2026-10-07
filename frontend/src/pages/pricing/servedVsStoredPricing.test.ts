@@ -17,9 +17,14 @@
  * THIS file prices through it: every active Insulation SKU from the SERVED payload (the fixture, re-snapshotted
  * from the live endpoint after the fix) and from the STORED catalogue (the asset that went live), 0 differences.
  *
- * VACUITY, in-suite: re-apply the retired projection to a COPY of the served items and exactly the three GI
+ * VACUITY, in-suite: re-apply the retired projection to a COPY of the served items and exactly the GI
  * framework SKUs move (1757 -> 2574 on the 50 mm row); the 204 pipe rows that also receive a projected cell
  * move nothing, which is the measured proof that no pipeline reads that cell on them.
+ *
+ * SLICE 12d-4a (D1, mechanical authority): the HVAC v31 load added FOUR Acoustic Nitrile x GI Framework SKUs
+ * (9/13/15/19 mm), so the served counts moved 331 -> 335 items, 219 -> 223 computed cells (each new GI row
+ * gets the projected 555), GI SKUs 3 -> 7, priced SKUs 229 -> 233 (Acoustic 4 -> 8). Every other figure in this
+ * file is unchanged, and the vacuity sweep now moves exactly those SEVEN -- still only the GI rows, no pipe row.
  *
  * ⚠️ The big fixtures are READ at runtime, never `import`ed (the tsc heap cliff, see calculatorPanelParity).
  */
@@ -100,9 +105,9 @@ function withProjection(catalogue: RateMasterItem[], computed: Record<string, Re
 }
 
 describe("the served fixture is the live endpoint's payload, and its rates ARE the stored catalogue", () => {
-  it("331 HVAC items, computed_rates for 219 of them, and 1,402 Electrical items with none", () => {
-    expect(servedHvac).toHaveLength(331);
-    expect(Object.keys(served.computed_rates.HVAC)).toHaveLength(219);
+  it("335 HVAC items (331 + the four 12d-4a Acoustic x GI SKUs), computed_rates for 223 of them, and 1,402 Electrical items with none", () => {
+    expect(servedHvac).toHaveLength(335);
+    expect(Object.keys(served.computed_rates.HVAC)).toHaveLength(223);
     expect(served.computed_rate_keys.HVAC).toEqual(
       Object.fromEntries(Object.entries(served.computed_rates.HVAC).map(([u, m]) => [u, Object.keys(m).sort()])),
     );
@@ -120,9 +125,10 @@ describe("the served fixture is the live endpoint's payload, and its rates ARE t
     }
   });
 
-  it("the three GI framework SKUs: stored 0, displayed 555, SERVED 0", () => {
+  it("the seven GI framework SKUs (3 Fiberglass + 4 Acoustic since 12d-4a): stored 0, displayed 555, SERVED 0", () => {
     const gi = servedHvac.filter((it) => it.kind === KIND && it.attributes?.cladding === GI);
-    expect(gi).toHaveLength(3);
+    expect(gi).toHaveLength(7);
+    expect(gi.filter((it) => it.attributes.item === "Acoustic Nitrile Insulation").map((it) => Number(it.attributes.thickness_mm)).sort((a, b) => a - b)).toEqual([9, 13, 15, 19]);
     for (const it of gi) {
       expect(it.rates[KEY]).toBe(0);
       expect(served.computed_rates.HVAC[String(it.item_uid)]).toEqual({ [KEY]: 555 });
@@ -134,14 +140,14 @@ describe("every active Insulation SKU prices IDENTICALLY from the served payload
   const fromServed = priceEverySku(servedHvac);
   const fromStored = priceEverySku(storedHvac);
 
-  it("229 SKUs over the 6 families, 0 differences, the per-family counts NAMED", () => {
-    expect(fromServed.size).toBe(229);
-    expect(fromStored.size).toBe(229);
+  it("233 SKUs over the 6 families, 0 differences, the per-family counts NAMED", () => {
+    expect(fromServed.size).toBe(233);
+    expect(fromStored.size).toBe(233);
     const perFamily: Record<string, number> = {};
     for (const it of storedHvac) if (it.kind === KIND) perFamily[String(it.attributes.item)] = (perFamily[String(it.attributes.item)] ?? 0) + 1;
     expect(perFamily).toEqual({
       " Fiberglass Rigid Board Insulation, Density 48Kg/m3": 6,
-      "Acoustic Nitrile Insulation": 4,
+      "Acoustic Nitrile Insulation": 8,   // 4 + the four 12d-4a GI Framework SKUs
       "Cladding Only": 5,
       "Nitrile Rubber Insulation": 168,
       "Thermal Nitrile Insulation": 10,
@@ -149,7 +155,7 @@ describe("every active Insulation SKU prices IDENTICALLY from the served payload
     });
     const diffs = [...fromStored].filter(([u, v]) => fromServed.get(u) !== v).map(([u, v]) => `${u}: stored ${v} served ${fromServed.get(u)}`);
     expect(diffs).toEqual([]);
-    // the sweep is not vacuous: most SKUs price, and the three GI rows are among them
+    // the sweep is not vacuous: most SKUs price, and the seven GI rows are among them
     expect([...fromStored.values()].filter((v) => !v.startsWith("REFUSED")).length).toBeGreaterThan(200);
   });
 
@@ -161,11 +167,12 @@ describe("every active Insulation SKU prices IDENTICALLY from the served payload
     for (const it of gi) expect(fromServed.get(String(it.item_uid))).toBe(fromStored.get(String(it.item_uid)));
   });
 
-  it("VACUITY: re-applying the retired projection to the served items moves EXACTLY the three GI SKUs (1757 -> 2574), and no pipe row", () => {
+  it("VACUITY: re-applying the retired projection to the served items moves EXACTLY the seven GI SKUs (1757 -> 2574 on the FG 50 mm row), and no pipe row", () => {
     const projected = priceEverySku(withProjection(servedHvac, served.computed_rates.HVAC));
     const moved = [...fromServed].filter(([u, v]) => projected.get(u) !== v).map(([u]) => u).sort();
     const gi = servedHvac.filter((it) => it.kind === KIND && it.attributes?.cladding === GI).map((it) => String(it.item_uid)).sort();
     expect(moved).toEqual(gi);
+    expect(moved).toHaveLength(7);
     const fifty = servedHvac.find((it) => it.kind === KIND && it.attributes?.cladding === GI && Number(it.attributes.thickness_mm) === 50)!;
     expect(fromServed.get(String(fifty.item_uid))).toBe("1757/518");
     expect(projected.get(String(fifty.item_uid))).toBe("2574/518");      // the live figure 12d-2 photographed

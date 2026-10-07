@@ -119,11 +119,11 @@ describe("the fixture names exactly what this test covers", () => {
     expect(RUNS.every((r) => r.version_current)).toBe(true);
   });
 
-  it("the catalogue snapshot is the live one: 22 configs, 1,402 Electrical + 331 HVAC active items", () => {
+  it("the catalogue snapshot is the live one: 22 configs, 1,402 Electrical + 335 HVAC active items (331 + the four 12d-4a Acoustic x GI SKUs)", () => {
     expect(configs.size).toBe(22);
     expect(master.items.Electrical).toHaveLength(1402);
-    expect(master.items.HVAC).toHaveLength(331);
-    expect(items).toHaveLength(1733);
+    expect(master.items.HVAC).toHaveLength(335);
+    expect(items).toHaveLength(1737);   // 1,402 + 335 (12d-4a: was 1733)
   });
 
   it("the 15 categories the corpus exercises", () => {
