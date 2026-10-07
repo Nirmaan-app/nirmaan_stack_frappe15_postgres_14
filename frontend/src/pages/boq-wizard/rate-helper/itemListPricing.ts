@@ -228,6 +228,9 @@ export interface ItemListPricingSpec {
   unit_factors?: Record<string, UnitFactor>;
   family_alias?: Record<string, string>;
   no_sku_families?: string[];
+  /** SLICE 12d-1b (owner T5): the TEXT item attribute that names the material AS WRITTEN; a `no_sku_families`
+   * refusal names it ("No SKU in the catalogue for XLPE - price this row by hand"). ABSENT => the R18 sentence. */
+  no_sku_named_by?: string;
   defaults?: Record<string, DefaultSpec>;
   derive_when_none?: DeriveWhenNone[];
   /** SLICE 12d-1a (owner R2): the family a row with NO material answer prices as, by row kind.
@@ -1089,6 +1092,12 @@ function priceOneItem(
   out.family = family;
   if (spec.family_alias?.[out.familyRaw]) out.working.push(`'${out.familyRaw}' prices as ${family} (R3)`);
   if ((spec.no_sku_families ?? []).includes(out.familyRaw) || !spec.families[family]) {
+    // SLICE 12d-1b (owner T5): where the config names the attribute that carries the material AS WRITTEN and
+    // the model answered it, the refusal names that material; otherwise the sentence is the one it always was.
+    const named = spec.no_sku_named_by ? rawValue(item, spec.no_sku_named_by) : null;
+    if (named !== null && named !== "None" && String(named).trim() !== "") {
+      return blank(`No SKU in the catalogue for ${String(named).trim()} - price this row by hand`);
+    }
     return blank(`no SKU in the catalogue for '${out.familyRaw}' -- the user decides (R18)`);
   }
   const fam = spec.families[family];
@@ -1632,7 +1641,7 @@ export function priceItemList(
           // size built above a top rung.
           const words: Record<number, string> = { 2: "two", 3: "three", 4: "four" };
           one.working.unshift(c.explicit
-            ? `BoQ says ${c.explicit.raw} -> ${words[c.layers.length] ?? c.layers.length} layers, ${c.layers.map(fmt).join(" + ")}${u} (${fmt(total)}${u}); cladding on the outer layer only`
+            ? `BoQ says ${c.explicit.raw} -> priced as ${words[c.layers.length] ?? c.layers.length} layers, ${c.layers.map(fmt).join(" + ")}${u} (${fmt(total)}${u}); cladding on the outer layer only`
             : `You typed ${fmt(c.stated)}${u} -> priced as ${c.layers.map(fmt).join(" + ")}${u}` +
               ` (${fmt(total)}${u}, ${sign}${fmt(c.delta)}) -- above the largest stocked size (${fmt(c.top)}${u})`,
           );

@@ -2918,15 +2918,17 @@ class TestSlice12d1aModelCall(FrappeTestCase):
     def test_mc_01_every_hvac_category_but_insulation_sends_a_byte_identical_call(self):
         c26, c27 = self._cfgs(self.v26, "HVAC"), self._cfgs(self.v27, "HVAC")
         payload = [extraction._ai_item(self._row())]
-        checked = 0
+        checked = []
         for key in c26:
             if key[1] == "hvac_insulation":
                 continue
             g26, g27 = extraction._group_context(c26, *key), extraction._group_context(c27, *key)
             self.assertEqual(g27, g26, "%s group context moved" % key[1])
             self.assertEqual(self._content(g27, payload), self._content(g26, payload), "%s assembled call moved" % key[1])
-            checked += 1
-        self.assertEqual(checked, len(c26) - 1)
+            checked.append(key[1])
+        # SLICE 12d-1b (item 7): the sweep NAMES what it covers
+        self.assertEqual(sorted(checked), ["hvac_adp", "hvac_ahu", "hvac_cables", "hvac_dx_unit", "hvac_panels",
+                                           "hvac_pricing_inputs", "hvac_pumps", "hvac_raceway"])
         # ADP in particular keeps its ITEMS_SPEC and its second opinion OFF
         self.assertEqual(extraction.build_items_spec(c27[("HVAC", "hvac_adp")]), extraction.build_items_spec(c26[("HVAC", "hvac_adp")]))
         self.assertIs(extraction.build_items_spec(c27[("HVAC", "hvac_adp")])["second_opinion"], False)
@@ -2936,15 +2938,18 @@ class TestSlice12d1aModelCall(FrappeTestCase):
         from the Electrical config alone, so this holds by construction -- and is pinned so it stays so."""
         e = self._cfgs(self.eall, "Electrical")
         payload = [extraction._ai_item(self._row())]
-        checked = 0
+        checked = []
         for key, cfg in e.items():
             if not extraction.config_is_eligible(cfg, e):
                 continue
             g_a = extraction._group_context({**e, **self._cfgs(self.v26, "HVAC")}, *key)
             g_b = extraction._group_context({**e, **self._cfgs(self.v27, "HVAC")}, *key)
             self.assertEqual(self._content(g_b, payload), self._content(g_a, payload), "%s moved" % key[1])
-            checked += 1
-        self.assertGreater(checked, 5)
+            checked.append(key[1])
+        # SLICE 12d-1b (item 7): the sweep NAMES the eligible Electrical categories it covers
+        self.assertEqual(sorted(checked), ["cabletray_raceway", "conduit_piping", "db_switchgear", "earthing", "industrial_sockets",
+                                           "junction_box_raceway", "lighting_mgmt_system", "miscellaneous", "point_wiring",
+                                           "popup_boxes", "switches_sockets", "wiring_cabling"])
 
     def test_mc_03_insulation_items_spec_gains_exactly_the_three_question_changes_and_second_opinion_on(self):
         s26 = extraction.build_items_spec(self._cfgs(self.v26, "HVAC")[("HVAC", "hvac_insulation")])
@@ -2978,3 +2983,99 @@ class TestSlice12d1aModelCall(FrappeTestCase):
             self.assertNotIn(forbidden, json.dumps(g, default=str), forbidden)
         self.assertIn("ITEMS_SPEC", content)
         self.assertIn("none of these", content)
+
+
+
+class TestSlice12d1bModelCall(FrappeTestCase):
+    """SLICE 12d-1b (2026-10-07) -- what the MODEL is sent, v27 -> v28. Insulation's ITEMS_SPEC gains exactly the
+    thickness note (the T3 schedule read + the list / layers 'as written' guidance) and the `material_as_written`
+    text def (T5); EVERY OTHER HVAC category's assembled call is byte-identical and NAMED; every eligible Electrical
+    category's call is identical with either HVAC asset loaded and NAMED; and the pricing keys this slice added
+    (`several`, `no_sku_named_by`, the widened `number_defaults`) appear nowhere in anything the model is sent."""
+
+    OTHER_HVAC = ["hvac_adp", "hvac_ahu", "hvac_cables", "hvac_dx_unit", "hvac_panels", "hvac_pricing_inputs", "hvac_pumps", "hvac_raceway"]
+    ELIGIBLE_ELECTRICAL = ["cabletray_raceway", "conduit_piping", "db_switchgear", "earthing", "industrial_sockets", "junction_box_raceway",
+                           "lighting_mgmt_system", "miscellaneous", "point_wiring", "popup_boxes", "switches_sockets", "wiring_cabling"]
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, _asset_path
+        with open(_asset_path("rate_master_hvac_all_v27.json"), "r", encoding="utf-8") as fh:
+            cls.v27 = json.load(fh)
+        with open(_asset_path("rate_master_hvac_all_v28.json"), "r", encoding="utf-8") as fh:
+            cls.v28 = json.load(fh)
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.eall = json.load(fh)
+
+    @staticmethod
+    def _cfgs(asset, disc):
+        return {(disc, c["category_id"]): dict(c, discipline=disc) for c in asset["category_configs"]}
+
+    @staticmethod
+    def _row():
+        return {"excel_row": 26, "description": "50NB", "sheet_name": "Piping ",
+                "ancestors": [{"node_type": "Preamble", "description": "CHILLED WATER PIPE INSULATION"},
+                              {"node_type": "Preamble", "description": "Supply and installation of 19/ 25 / 32 mm thick ... 25mm to 50 mm : 19mm thick - Single layer"}],
+                "own_notes_raw": [], "attached_notes": "", "append_notes_raw": []}
+
+    @staticmethod
+    def _content(g, payload):
+        return extraction.batch_prompt_content(g["prompt"], g["defs"], payload, synonyms=g["synonyms"], defaults=g["defaults"],
+                                               none_guidance=g["none_guidance"], slot_spec=g["slot_spec"],
+                                               resolution_rules=g["resolution_rules"], rules=g["rules"],
+                                               items_spec=g.get("items_spec"))
+
+    def test_mc1b_01_every_other_hvac_category_sends_a_byte_identical_call_NAMED(self):
+        c27, c28 = self._cfgs(self.v27, "HVAC"), self._cfgs(self.v28, "HVAC")
+        payload = [extraction._ai_item(self._row())]
+        checked = []
+        for key in c27:
+            if key[1] == "hvac_insulation":
+                continue
+            g27, g28 = extraction._group_context(c27, *key), extraction._group_context(c28, *key)
+            self.assertEqual(g28, g27, key[1])
+            self.assertEqual(self._content(g28, payload), self._content(g27, payload), key[1])
+            checked.append(key[1])
+        self.assertEqual(sorted(checked), self.OTHER_HVAC)
+        self.assertEqual(extraction.build_items_spec(c28[("HVAC", "hvac_adp")]), extraction.build_items_spec(c27[("HVAC", "hvac_adp")]))
+
+    def test_mc1b_02_every_eligible_electrical_category_sends_the_same_call_with_either_hvac_asset_NAMED(self):
+        e = self._cfgs(self.eall, "Electrical")
+        payload = [extraction._ai_item(self._row())]
+        checked = []
+        for key, cfg in e.items():
+            if not extraction.config_is_eligible(cfg, e):
+                continue
+            g_a = extraction._group_context({**e, **self._cfgs(self.v27, "HVAC")}, *key)
+            g_b = extraction._group_context({**e, **self._cfgs(self.v28, "HVAC")}, *key)
+            self.assertEqual(self._content(g_b, payload), self._content(g_a, payload), key[1])
+            checked.append(key[1])
+        self.assertEqual(sorted(checked), self.ELIGIBLE_ELECTRICAL)
+
+    def test_mc1b_03_insulation_items_spec_gains_the_thickness_note_and_the_material_def_only(self):
+        s27 = extraction.build_items_spec(self._cfgs(self.v27, "HVAC")[("HVAC", "hvac_insulation")])
+        s28 = extraction.build_items_spec(self._cfgs(self.v28, "HVAC")[("HVAC", "hvac_insulation")])
+        self.assertIs(s27["second_opinion"], True); self.assertIs(s28["second_opinion"], True)
+        d27 = {d["id"]: d for d in s27["attribute_definitions"]}
+        d28 = {d["id"]: d for d in s28["attribute_definitions"]}
+        self.assertEqual(sorted(d28), sorted(list(d27) + ["material_as_written"]))
+        self.assertEqual(d28["material_as_written"]["type"], "text")
+        self.assertNotEqual(d28["thickness_mm"]["note"], d27["thickness_mm"]["note"])
+        # T3: the schedule read, as a FACT the model reads for THIS row's size
+        self.assertIn("read the thickness for THIS row's pipe size", d28["thickness_mm"]["note"])
+        # T2 / T4: a list and two layers are copied AS WRITTEN -- the model never picks the highest, never adds
+        self.assertIn("copy the list as written", d28["thickness_mm"]["note"])
+        self.assertIn("never add the layers up", d28["thickness_mm"]["note"])
+        for aid in ("item", "cladding", "pipe_size_mm", "brand"):
+            self.assertEqual(d28[aid], d27[aid], aid)
+
+    def test_mc1b_04_the_pricing_keys_never_reach_the_model(self):
+        c28 = self._cfgs(self.v28, "HVAC")
+        g = extraction._group_context(c28, "HVAC", "hvac_insulation")
+        content = self._content(g, [extraction._ai_item(self._row())])
+        for forbidden in ('"several"', "no_sku_named_by", "number_defaults", '"highest"', "price this row by hand"):
+            self.assertNotIn(forbidden, content, forbidden)
+            self.assertNotIn(forbidden, json.dumps(g, default=str), forbidden)
+        self.assertIn("ITEMS_SPEC", content)
+        self.assertIn("material_as_written", content)

@@ -3286,7 +3286,7 @@ describe("SLICE 12d-1b / T4 -- model-read layers expand through the composition 
     expect(r.priced).toBe(true);
     expect(r.items.map((p) => [p.selection.thickness_mm, p.selection.cladding, p.selection.pipe_size_mm, p.sourceIndex])).toEqual([[13, "No", 28.58, 0], [13, "No", 28.58, 0]]);
     expect([r.supply, r.install]).toEqual([476, 28]);
-    expect(r.items[0].working[0]).toBe("BoQ says 13 + 13 -> two layers, 13 + 13 mm (26 mm); cladding on the outer layer only");
+    expect(r.items[0].working[0]).toBe("BoQ says 13 + 13 -> priced as two layers, 13 + 13 mm (26 mm); cladding on the outer layer only");
   });
 
   it("POSITIVE: with a stated cladding the OUTER layer keeps it and the inner is bare: '19 x 2' at 32NB with 26G -> 19 (No) + 19 (26G)", () => {

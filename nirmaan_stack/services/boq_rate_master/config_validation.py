@@ -301,7 +301,10 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  "value_map",
                  # SLICE 12d-1a (owner R7): item attributes the panel shows READ-ONLY (a brand) --
                  # text definitions NO pricing rule reads. Arrives WITH its check (`_validate_panel_readonly`).
-                 "panel_readonly"}
+                 "panel_readonly",
+                 # SLICE 12d-1b (owner T5): the text item attribute carrying the material AS WRITTEN, which a
+                 # no_sku_families refusal names. Arrives WITH its check below.
+                 "no_sku_named_by"}
 _PRICING_FWN_KEYS = {"by_unit_class", "when_words", "rule"}
 _PRICING_FWN_WORD_KEYS = {"unit_class", "words", "family"}
 _PRICING_VALUE_MAP_KEYS = {"attr", "families", "from", "to", "refuse", "rule", "display"}
@@ -909,6 +912,20 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         _validate_value_map(pr["value_map"], by_id, choice_attrs, fams)
     # SLICE 12d-1a (owner R7): `panel_readonly` -- each a `text` item definition that NO pricing rule
     # reads (not a SKU attribute, not a `numbers` source): recorded and shown, never matched.
+    # SLICE 12d-1b (owner T5): `no_sku_named_by` -- ONE `text` item definition the pricing does not read.
+    if "no_sku_named_by" in pr:
+        nb = pr["no_sku_named_by"]
+        if not isinstance(nb, str) or not nb.strip():
+            _vthrow("list_spec.pricing.no_sku_named_by must be an item attribute id.")
+        read_by_pricing_nb = set(sku_attrs) | {src for n in numbers.values() for src in (n.get("from") or [])}
+        if spec.get("family_attribute_id"):
+            read_by_pricing_nb.add(spec["family_attribute_id"])
+        if nb not in by_id:
+            _vthrow(f"list_spec.pricing.no_sku_named_by names '{nb}', which is not an item attribute of this category.")
+        if nb in read_by_pricing_nb:
+            _vthrow(f"list_spec.pricing.no_sku_named_by: '{nb}' is read by the pricing and cannot name a material.")
+        if by_id[nb].get("type") != "text":
+            _vthrow(f"list_spec.pricing.no_sku_named_by: '{nb}' must be a text definition.")
     if "panel_readonly" in pr:
         ro = pr["panel_readonly"]
         if not isinstance(ro, list) or not ro or not all(isinstance(x, str) and x.strip() for x in ro):

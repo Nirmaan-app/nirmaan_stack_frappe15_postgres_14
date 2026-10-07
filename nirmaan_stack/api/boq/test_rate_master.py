@@ -11486,7 +11486,11 @@ def _read_frontend_src(*parts):
 # note + "none of these", cladding note, brand), the cladding default, family_when_none, value_map,
 # panel_readonly, second_opinion ON while building. Items and the eight other configs byte-identical --
 # pinned in `TestSlice12d1aAsset`. The 12c-S v25 -> v26 pin below now names v26 explicitly.
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v27.json"
+# SLICE 12d-1b (2026-10-07): v28 = v27 + the Insulation config changes ONLY -- the thickness note (the T3 schedule read,
+# lists and layers copied as written), numbers.thickness_mm.several = "highest", number_defaults on every family,
+# material_as_written + no_sku_named_by. Items and the eight other configs byte-identical -- pinned in
+# `TestSlice12d1bAsset`. The 12d-1a v26 -> v27 pin below now names v27 explicitly.
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v28.json"
 # SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
 # (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
 # conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads
@@ -12734,12 +12738,15 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                          - {"panel_controls", "override_when", "second_key", "unit_factors",
                             "size_match", "compose", "label_attr", "number_defaults",
                             "typed_cladding", "panel_notes", "family_when_none", "value_map",
-                            "panel_readonly"})
+                            "panel_readonly",
+                            # SLICE 12d-1b (owner T5): read only by HVAC Insulation; v7 predates it
+                            "no_sku_named_by"})
         self.assertNotIn("panel_controls", pr)
         self.assertNotIn("override_when", pr)
         self.assertNotIn("family_when_none", pr)
         self.assertNotIn("value_map", pr)
         self.assertNotIn("panel_readonly", pr)
+        self.assertNotIn("no_sku_named_by", pr)
         def refused(mutate, needle):
             bad = copy.deepcopy(base)
             mutate(bad["list_spec"]["pricing"])
@@ -16826,7 +16833,10 @@ class TestCladdingOnlySkus(FrappeTestCase):
         pr = self._cfg(self.v17)["list_spec"]["pricing"]
         nd = pr["number_defaults"]["thickness_mm"]
         self.assertEqual(nd["value"], 9.0)
-        self.assertEqual(nd["families"], [self.FAMILY])
+        # SLICE 12d-1b (owner T1, pin INVERTED): the default now applies to EVERY Insulation family -- the
+        # `families` scope F1 declared is GONE from the asset, and its absence is what is pinned.
+        self.assertNotIn("families", nd)
+        self.assertIn("T1", nd["rule"])
         self.assertTrue(nd["rule"].strip())
         # NEGATIVE: no OTHER number is defaulted, so a composite that states nothing still refuses
         self.assertEqual(list(pr["number_defaults"]), ["thickness_mm"])
@@ -18359,11 +18369,16 @@ class TestSlice12d1aAsset(FrappeTestCase):
         super().setUpClass()
         with open(_asset_path("rate_master_hvac_all_v26.json"), "r", encoding="utf-8") as fh:
             cls.prev = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # SLICE 12d-1b: this class is a statement about the v26 -> v27 mint, so it reads v27 BY NAME
+        # (CURRENT moved on to v28, whose own delta is pinned in TestSlice12d1bAsset).
+        with open(_asset_path("rate_master_hvac_all_v27.json"), "r", encoding="utf-8") as fh:
             cls.cur = json.load(fh)
 
-    def test_v27_01_the_current_asset_is_v27(self):
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v27.json")
+    def test_v27_01_the_asset_this_class_pins_is_v27_and_current_has_moved_past_it(self):
+        """SLICE 12d-1b (pin INVERTED): CURRENT is no longer v27 -- this class pins the v26 -> v27 mint by name."""
+        self.assertEqual(self.cur["category_configs"][0]["notes"] is not None, True)
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v27.json")
+        self.assertGreater(int(CURRENT_HVAC_ASSET.split("_v")[-1].split(".")[0]), 27)
 
     def test_v27_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True),
@@ -18486,3 +18501,126 @@ class TestSlice12d1bSeveral(FrappeTestCase):
             msg = self._refused(self._cfg(bad))
             self.assertIsNotNone(msg, repr(bad))
             self.assertIn("numbers['thickness_mm'].several must be 'highest'", msg)
+
+
+
+class TestSlice12d1bAsset(FrappeTestCase):
+    """SLICE 12d-1b (2026-10-07) -- HVAC v28 = v27 + the Insulation config changes ONLY: the thickness note (T3,
+    plus the list / layers reading guidance), `numbers.thickness_mm.several = "highest"` (T2), `number_defaults`
+    on every family (T1), `material_as_written` + `no_sku_named_by` (T5). Items, every other top-level key and every
+    other config byte-identical; each named place shown to have actually changed."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v27.json"), "r", encoding="utf-8") as fh:
+            cls.prev = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.cur = json.load(fh)
+
+    def test_v28_01_the_current_asset_is_v28(self):
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v28.json")
+
+    def test_v28_02_items_and_every_other_top_level_key_are_byte_identical(self):
+        self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
+        for key in self.prev:
+            if key in ("items", "category_configs"):
+                continue
+            self.assertEqual(json.dumps(self.prev[key], sort_keys=True), json.dumps(self.cur[key], sort_keys=True), key)
+
+    def test_v28_03_every_config_but_insulation_is_byte_identical(self):
+        a = {c["category_id"]: c for c in self.prev["category_configs"]}
+        b = {c["category_id"]: c for c in self.cur["category_configs"]}
+        self.assertEqual(sorted(a), sorted(b))
+        self.assertEqual(sorted(a), ["hvac_adp", "hvac_ahu", "hvac_cables", "hvac_dx_unit", "hvac_insulation", "hvac_panels",
+                                     "hvac_pricing_inputs", "hvac_pumps", "hvac_raceway"])
+        for cid in a:
+            if cid != "hvac_insulation":
+                self.assertEqual(json.dumps(a[cid], sort_keys=True), json.dumps(b[cid], sort_keys=True), cid)
+
+    def _stripped(self, cfg):
+        c = copy.deepcopy(cfg)
+        c.pop("notes", None)
+        ls = c["list_spec"]
+        ls["attribute_definitions"] = [d for d in ls["attribute_definitions"] if d["id"] != "material_as_written"]
+        for d in ls["attribute_definitions"]:
+            if d["id"] == "thickness_mm":
+                d.pop("note", None)
+        pr = ls["pricing"]
+        pr["numbers"]["thickness_mm"].pop("several", None)
+        pr.pop("number_defaults", None)
+        pr.pop("no_sku_named_by", None)
+        return json.dumps(c, sort_keys=True)
+
+    def test_v28_04_insulation_differs_ONLY_in_the_named_places_and_each_DID_change(self):
+        a = next(c for c in self.prev["category_configs"] if c["category_id"] == "hvac_insulation")
+        b = next(c for c in self.cur["category_configs"] if c["category_id"] == "hvac_insulation")
+        self.assertEqual(self._stripped(a), self._stripped(b), "Insulation changed outside the slice's named places")
+        da = {d["id"]: d for d in a["list_spec"]["attribute_definitions"]}
+        db = {d["id"]: d for d in b["list_spec"]["attribute_definitions"]}
+        self.assertEqual(sorted(db), sorted(list(da) + ["material_as_written"]))
+        self.assertEqual(db["material_as_written"]["type"], "text")
+        self.assertNotEqual(da["thickness_mm"]["note"], db["thickness_mm"]["note"])
+        self.assertIn("pipe size", db["thickness_mm"]["note"])                 # T3: the schedule read
+        self.assertIn("as written", db["thickness_mm"]["note"].lower())        # T2 / T4: lists and layers copied
+        pa, pb = a["list_spec"]["pricing"], b["list_spec"]["pricing"]
+        self.assertNotIn("several", pa["numbers"]["thickness_mm"]); self.assertEqual(pb["numbers"]["thickness_mm"]["several"], "highest")
+        self.assertEqual(pa["number_defaults"]["thickness_mm"].get("families"), ["Cladding Only"])
+        self.assertNotIn("families", pb["number_defaults"]["thickness_mm"])    # T1: every family
+        self.assertEqual(pb["number_defaults"]["thickness_mm"]["value"], 9.0)
+        self.assertNotIn("no_sku_named_by", pa); self.assertEqual(pb["no_sku_named_by"], "material_as_written")
+        self.assertIs(b["list_spec"]["second_opinion"], True)                 # still ON while building (R8)
+
+    def test_v28_05_insulation_is_STILL_calculator_only_and_not_eligible_and_validates(self):
+        b = copy.deepcopy(next(c for c in self.cur["category_configs"] if c["category_id"] == "hvac_insulation"))
+        self.assertIs(b.get("calculator_only"), True)
+        self.assertEqual(b.get("pipelines") or {}, {})
+        from nirmaan_stack.services.boq_rate_master import extraction
+        self.assertFalse(extraction.config_is_eligible(b))
+        b.setdefault("discipline", self.cur["discipline"])
+        config_validation._validate_config(b)
+
+
+class TestSlice12d1bNoSkuNamedBy(FrappeTestCase):
+    """SLICE 12d-1b (owner T5) -- `list_spec.pricing.no_sku_named_by`: ONE text item definition the pricing does not
+    read, whose value a no_sku_families refusal names. Refused by name otherwise. Built on v27 BY NAME (the asset
+    before this slice declared the material def), so the shape is tested by adding the definition here."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v27.json"), "r", encoding="utf-8") as fh:
+            cls.asset = json.load(fh)
+        cls.ins = next(c for c in cls.asset["category_configs"] if c["category_id"] == "hvac_insulation")
+
+    def _cfg(self, named_by, add_def=True):
+        c = copy.deepcopy(self.ins)
+        c.setdefault("discipline", self.asset["discipline"])
+        if add_def:
+            c["list_spec"]["attribute_definitions"].append({"id": "material_as_written", "label": "Material as written", "type": "text", "note": "as written"})
+        c["list_spec"]["pricing"]["no_sku_named_by"] = named_by
+        return c
+
+    def _refused(self, cfg):
+        try:
+            config_validation._validate_config(cfg)
+        except Exception as exc:          # noqa: BLE001
+            return str(exc)
+        return None
+
+    def test_t5_01_a_text_def_nothing_prices_on_may_name_the_material(self):
+        self.assertIsNone(self._refused(self._cfg("material_as_written")))
+
+    def test_t5_02_refused_by_name(self):
+        cases = [
+            (self._cfg(""), "no_sku_named_by must be an item attribute id"),
+            (self._cfg(["material_as_written"]), "no_sku_named_by must be an item attribute id"),
+            (self._cfg("material_as_written", add_def=False), "names 'material_as_written', which is not an item attribute"),
+            (self._cfg("thickness_mm"), "'thickness_mm' is read by the pricing"),
+            (self._cfg("item"), "'item' is read by the pricing"),
+            (self._cfg("cladding"), "'cladding' is read by the pricing"),
+        ]
+        for cfg, needle in cases:
+            msg = self._refused(cfg)
+            self.assertIsNotNone(msg, needle)
+            self.assertIn(needle, msg, msg)
