@@ -129,7 +129,7 @@ def _reparent_datasheet_to_entry(tds_attachment, entry_name):
 	  on, leaving a **Verified** entry whose datasheet link is dead.
 
 	  Deleting a project row is routine, not hypothetical: Admin cleanup from TDS
-	  History, PMO deleting a Pending/Rejected row, and `handleLogSubmit` removing
+	  History, PMO deleting a Pending/Rejected row, and `submit_tds_request` removing
 	  the previous Rejected row on EVERY resubmit.
 
 	  Re-parenting puts the master in the same shape the picked-entry path

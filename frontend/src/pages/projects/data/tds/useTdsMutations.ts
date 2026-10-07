@@ -3,6 +3,7 @@ import {
     useFrappeUpdateDoc,
     useFrappeDeleteDoc,
     useFrappeFileUpload,
+    useFrappePostCall,
     useFrappeAuth,
 } from "frappe-react-sdk";
 import { useSWRConfig } from "swr";
@@ -102,7 +103,8 @@ export const useUpdateTdsSetting = () => {
 };
 
 /**
- * Upload a file for TDS settings (logos).
+ * Upload a file for TDS: settings logos (attached to the setting), and request
+ * datasheets (left unattached; `submit_tds_request` attaches them to the row).
  */
 export const useUploadTdsFile = () => {
     const { upload, loading } = useFrappeFileUpload();
@@ -111,9 +113,9 @@ export const useUploadTdsFile = () => {
     const wrappedUpload = async (
         file: File,
         options: {
-            doctype: string;
-            docname: string;
-            fieldname: string;
+            doctype?: string;
+            docname?: string;
+            fieldname?: string;
             isPrivate: boolean;
         }
     ) => {
@@ -139,44 +141,57 @@ export const useUploadTdsFile = () => {
 
 // ─── TDS Item Mutations ─────────────────────────────────────
 
+/** One cart row as `submit_tds_request` reads it. */
+export interface TdsSubmitRow {
+    tds_item_id: string;
+    make: string;
+    is_new_request: boolean;
+    tds_boq_line_item: string;
+    description?: string;
+    tds_item_name?: string;   // brand-new-group requests only
+    work_package?: string;    // brand-new-group requests only
+    tds_attachment?: string;  // requests only: file_url of the sender's unattached upload
+    previous_doc_name?: string;
+}
+
 /**
- * Create a new Project TDS Item List doc.
- * Invalidates history and existing project items caches.
+ * Send a cart for approval. The server saves every row or none, issues the
+ * request id, re-checks duplicates and attaches each request's uploaded
+ * datasheet (`api/tds/submit.py`). Invalidates history and existing project
+ * items caches.
  */
-export const useCreateTdsItem = () => {
-    const { createDoc, loading } = useFrappeCreateDoc();
+export const useSubmitTdsRequest = () => {
+    const { call, loading } = useFrappePostCall<{
+        message: { request_id: string; names: string[] };
+    }>("nirmaan_stack.api.tds.submit.submit_tds_request");
     const { mutate } = useSWRConfig();
     const { currentUser } = useFrappeAuth();
 
-    const wrappedCreateDoc = async (
-        data: Record<string, any>,
-        projectId?: string
-    ) => {
+    const submit = async (projectId: string, rows: TdsSubmitRow[]) => {
         try {
-            const result = await createDoc("Project TDS Item List", data);
+            const result = await call({ project: projectId, rows: JSON.stringify(rows) });
             try {
-                if (projectId) {
-                    await Promise.all([
-                        mutate(tdsKeys.historyItems(projectId)),
-                        mutate(tdsKeys.existingProjectItems(projectId)),
-                    ]);
-                }
+                await Promise.all([
+                    mutate(tdsKeys.historyItems(projectId)),
+                    mutate(tdsKeys.existingProjectItems(projectId)),
+                ]);
             } catch (invalidateError) {
                 captureApiError({
-                    hook: "useCreateTdsItem",
+                    hook: "useSubmitTdsRequest",
                     api: "SWR Invalidation",
                     feature: "tds",
                     error: invalidateError,
                     user: currentUser ?? undefined,
                 });
             }
-            return result;
+            return result.message;
         } catch (error) {
             captureApiError({
-                hook: "useCreateTdsItem",
-                api: "Create Project TDS Item List",
+                hook: "useSubmitTdsRequest",
+                api: "submit_tds_request",
                 feature: "tds",
                 doctype: "Project TDS Item List",
+                entity_id: projectId,
                 error,
                 user: currentUser ?? undefined,
             });
@@ -184,7 +199,7 @@ export const useCreateTdsItem = () => {
         }
     };
 
-    return { createDoc: wrappedCreateDoc, loading };
+    return { submit, loading };
 };
 
 /**

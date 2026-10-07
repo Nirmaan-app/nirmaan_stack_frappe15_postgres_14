@@ -5,10 +5,11 @@ import ReactSelect from "react-select";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { Trash2, FileText, PlusCircle, ExternalLink } from 'lucide-react';
 import { useTdsExistingProjectItems } from '../../data/tds/useTdsQueries';
-import { useDeleteTdsItem } from '../../data/tds/useTdsMutations';
+import { useSubmitTdsRequest, useUploadTdsFile, type TdsSubmitRow } from '../../data/tds/useTdsMutations';
 import { toast } from "@/components/ui/use-toast";
 import { RequestTdsItemDialog } from "./RequestTdsItemDialog";
-import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeUpdateDoc, useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall } from "frappe-react-sdk";
+import { getFrappeError } from "@/utils/frappeErrors";
 import {
     Tooltip,
     TooltipContent,
@@ -137,10 +138,8 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         });
     };
 
-    const { createDoc: createFrappeDoc } = useFrappeCreateDoc();
-    const { upload: uploadFile } = useFrappeFileUpload();
-    const { updateDoc: updateFrappeDoc } = useFrappeUpdateDoc();
-    const { deleteDoc: deleteOldStyleDoc } = useDeleteTdsItem();
+    const { upload: uploadTdsFile } = useUploadTdsFile();
+    const { submit: submitTdsRequest } = useSubmitTdsRequest();
 
     // Resubmit-rejected confirmation dialog state.
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -426,77 +425,35 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         </span>
     );
 
+    // The server saves every row or none (`api/tds/submit.py`): it issues the
+    // request id, re-checks duplicates, attaches the datasheets and deletes the
+    // Rejected rows being replaced, all in one transaction. Datasheets are
+    // uploaded first, unattached — an upload commits on its own, so it cannot
+    // sit inside that transaction. A failed send keeps the cart and the draft.
     const handleLogSubmit = async () => {
         if (cartItems.length === 0) return;
         setIsSubmitting(true);
-
-        // Allocate the next RQ request id for this project.
-        let nextSeq = 1;
-        const projectSuffix = projectId.slice(-3);
-        if (existingProjectItems) {
-            const prefix = `RQ-${projectSuffix}-`;
-            const reqIds = existingProjectItems
-                .map((i: any) => i.tds_request_id)
-                .filter((id: string) => id && id.startsWith(prefix));
-            if (reqIds.length > 0) {
-                const maxId = Math.max(...reqIds.map((id: string) => {
-                    const parts = id.split("-");
-                    return parseInt(parts[parts.length - 1]) || 0;
-                }));
-                if (!isNaN(maxId)) nextSeq = maxId + 1;
-            }
-        }
-        const uniqueReqId = `RQ-${projectSuffix}-${nextSeq.toString().padStart(2, '0')}`;
-
         try {
-            // 1. Delete previous rejected records being replaced.
-            const itemsToDelete = cartItems
-                .filter(item => item.previousDocName)
-                .map(item => item.previousDocName!);
-            if (itemsToDelete.length > 0) {
-                await Promise.all(itemsToDelete.map(name => deleteOldStyleDoc(name, projectId)));
-            }
-
-            // 2. Create each row (pure snapshot — ROW SHAPE per ADR-0025).
-            await Promise.all(cartItems.map(async (item) => {
-                const docData = {
-                    tdsi_project_id: projectId,
-                    tds_request_id: uniqueReqId,
-                    tds_item_id: item.tds_item_id || "",   // frozen TDS Item id ("" for new group)
-                    tds_item_name: item.tds_item_name,
-                    tds_make: item.make,
-                    tds_description: item.description || "",
-                    tds_work_package: item.work_package,
-                    tds_category: item.category || "",
-                    tds_status: item.is_new_request ? "New" : "Pending",
-                    tds_boq_line_item: item.tds_boq_line_item || "",
-                    tds_attachment: item.tds_attachment, // carried over for picked entries
-                };
-
-                const newDoc = await createFrappeDoc("Project TDS Item List", docData);
-
-                // 3. Upload the requested datasheet (New rows) if present.
-                if (newDoc && newDoc.name && item.attachmentFile) {
-                    try {
-                        const uploadResp = await uploadFile(item.attachmentFile, {
-                            doctype: "Project TDS Item List",
-                            docname: newDoc.name,
-                            fieldname: "tds_attachment",
-                            isPrivate: true,
-                        });
-                        const responseData = uploadResp as any;
-                        const fileUrl = responseData?.message?.file_url || responseData?.file_url;
-                        if (fileUrl) {
-                            await updateFrappeDoc("Project TDS Item List", newDoc.name, {
-                                tds_attachment: fileUrl,
-                            });
-                        }
-                    } catch (uploadError) {
-                        console.error(`Failed to upload file for ${item.tds_item_name}:`, uploadError);
-                        // Record is created; continue.
-                    }
+            const rows: TdsSubmitRow[] = await Promise.all(cartItems.map(async (item) => {
+                let uploadedUrl: string | undefined;
+                if (item.is_new_request && item.attachmentFile) {
+                    const uploaded = await uploadTdsFile(item.attachmentFile, { isPrivate: true });
+                    uploadedUrl = uploaded?.file_url;
                 }
+                return {
+                    tds_item_id: item.tds_item_id || "",
+                    make: item.make,
+                    is_new_request: !!item.is_new_request,
+                    tds_boq_line_item: item.tds_boq_line_item || "",
+                    description: item.description || "",
+                    tds_item_name: item.tds_item_name,
+                    work_package: item.work_package,
+                    tds_attachment: uploadedUrl,
+                    previous_doc_name: item.previousDocName,
+                };
             }));
+
+            await submitTdsRequest(projectId, rows);
 
             toast({
                 title: "Request Submitted",
@@ -513,7 +470,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
             console.error("Submission failed", error);
             toast({
                 title: "Submission Failed",
-                description: "There was an error submitting your items. Please try again.",
+                description: `Nothing was saved. ${getFrappeError(error)}`,
                 variant: "destructive",
             });
         } finally {

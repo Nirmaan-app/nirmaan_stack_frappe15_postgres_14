@@ -65,6 +65,7 @@ Backend API endpoints in `nirmaan_stack/api/`.
 
 ### TDS (`api/tds/`)
 - `tds_report.py` - TDS report generation with progressive PDF percentage tracking
+- `submit.submit_tds_request(project, rows)` - Project TDS "Send For Approval": saves every cart row or none, issues the `RQ-` request id under a per-project lock, re-checks duplicates (TDS Item + make), attaches the uploaded datasheets and deletes the Rejected rows they replace. Request New rows: Admin / PMO only
 
 ### Other Domains
 - `invoices/` - Invoice data APIs (PO-wise, SR-wise)
