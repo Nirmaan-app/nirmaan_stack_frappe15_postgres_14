@@ -184,14 +184,14 @@ _KNOWN_CONFIG_KEYS = {
     # through it would reword the formula row -- the owner asked for the structure to vary per
     # category, and this is the lever that does only that. Validated by `_validate_column_order`.
     "column_order",
-    # SLICE 12c FINISH (owner ruling on FA7, 2026-10-04): `calculator_only` -- a category whose
-    # pricing rules are COMPLETE and PROVEN but which is deliberately not yet wired into BoQ rows may
-    # be priced in the PRICING CALCULATOR TAB while staying out of the BoQ panel and out of the
-    # extraction population. It is a TEMPORARY admission with a declared removal condition: the slice
-    # that makes the category fully eligible REMOVES this key in the same change, so there is never a
-    # second on/off switch. `_validate_calculator_only` refuses it on a config that is already
-    # eligible, which is what makes that promise mechanical rather than remembered.
-    "calculator_only",
+    # SLICE 12d-2 (owner S1, 2026-10-07): `calculator_only` is RETIRED. It was the 12c FINISH / FA7
+    # temporary calculator admission (one category, one slice), with a declared removal condition --
+    # "the slice that makes the category fully eligible REMOVES this key in the same change, so there
+    # is never a second on/off switch". That slice is 12d-2: Insulation is eligible through the ONE
+    # generic predicate (`extraction.has_runnable_pricing_rules`), the key is NOT in this allowlist
+    # any more, so a config still carrying it is refused as an unknown top-level key. The frozen
+    # historical assets v18..v28 do carry it and are therefore refused by this validator -- that is
+    # the honest state of a retired key, and the tests pin it from both sides.
 }
 
 _LIST_MODE = "item_list"
@@ -289,7 +289,7 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  "size_match", "compose", "label_attr", "number_defaults", "typed_cladding",
                  # SLICE 12c FINISH (owner FA8): one plain-English line per TYPED field saying what
                  # to enter. REQUIRED wherever `panel_controls` admits typing -- see
-                 # `_validate_calculator_only`'s neighbour below.
+                 # the `panel_notes` shape check in `_validate_list_pricing`.
                  "panel_notes",
                  # SLICE 12d-1a (owner R2): the family a row with NO material answer prices as, by
                  # row kind -- unit class, then the declared words in the row or its headings.
@@ -1262,7 +1262,7 @@ def _validate_config(cfg):
     _validate_derived_rates(cfg)      # SLICE 12a: the derived-cost declaration; a no-op without the key
     _validate_rate_composition(cfg)   # SLICE 12a: the cost-parts composition; a no-op without the key
     _validate_column_order(cfg)       # SLICE 12c FINISH: the presentation order; a no-op without the key
-    _validate_calculator_only(cfg)    # SLICE 12c FINISH: the calculator admission; a no-op without it
+    # SLICE 12d-2: `_validate_calculator_only` is GONE with its key -- the allowlist refuses the key by name.
 
     # attribute_definitions ------------------------------------------------------------------
     defs = cfg.get("attribute_definitions")
@@ -2165,7 +2165,6 @@ def _validate_config(cfg):
 DERIVED_RATES_KEY = "derived_rates"
 RATE_COMPOSITION_KEY = "rate_composition"
 COLUMN_ORDER_KEY = "column_order"
-CALCULATOR_ONLY_KEY = "calculator_only"
 COLUMN_ORDER_SIDES = ("attributes", "rates")
 _DERIVED_TERM_KEYS = {"from", "multiplier", "constant"}
 _DERIVED_FROM_KEYS = {"item_uid", "rate_key"}
@@ -2451,44 +2450,6 @@ def _validate_column_order(cfg):
             if side == "attributes" and n not in declared_attrs:
                 _vthrow("column_order['attributes']: '%s' is not an attribute of this category." % n)
 
-
-
-def _validate_calculator_only(cfg):
-    """`calculator_only` -- the category is priceable in the CALCULATOR but not on a BoQ row.
-
-    OWNER RULING ON FA7 (2026-10-04, option A): a category whose pricing rules are complete may be
-    exercised in the Pricing Calculator tab before it is wired into BoQ rows, so the rules can be
-    checked against real picks without turning on extraction for that category.
-
-    ⚠️ IT IS A TEMPORARY ADMISSION WITH A MECHANICAL REMOVAL CONDITION, and that is the whole reason
-    it is validated here rather than just read. The owner's words: the slice that makes the category
-    fully eligible REMOVES this key in the same slice, "so there is never a second on/off switch".
-    Eligibility itself is `pipelines` + `attribute_definitions` (`extraction.config_is_eligible`), so
-    a config carrying BOTH that and this key would have two independent switches for the same
-    question -- one of which nothing would ever think to turn off. **That combination is REFUSED by
-    name**, which is what keeps the promise after everyone has forgotten it was made.
-
-    It also refuses the key on a config with NOTHING TO PRICE: admitting a category whose rules are
-    absent would put it in the calculator's reach only to refuse every pick, which is worse than the
-    coming-soon card it replaces. For an item-list category the rules live in `list_spec.pricing`
-    (that nesting is exactly what keeps such a category out of the eligibility predicate).
-    """
-    if CALCULATOR_ONLY_KEY not in cfg:
-        return
-    val = cfg.get(CALCULATOR_ONLY_KEY)
-    if val is not True:
-        # Not a tri-state: an explicit `false` is a key doing nothing, which is the shape this slice
-        # has refused twice (`column_order: {}`, `override_when: {}`). Omit it instead.
-        _vthrow("calculator_only must be exactly true, or be omitted entirely.")
-    if (cfg.get("pipelines") or {}) and (cfg.get("attribute_definitions") or []):
-        _vthrow("calculator_only must not be declared on a config that is already eligible "
-                "(it has pipelines and attribute definitions) -- there must never be two switches "
-                "for the same question. Remove calculator_only in the slice that makes it eligible.")
-    has_rules = bool((((cfg.get("list_spec") or {}).get("pricing") or {}).get("families"))
-                     or (cfg.get("pipelines") or {}))
-    if not has_rules:
-        _vthrow("calculator_only needs pricing rules to run: this config declares neither "
-                "list_spec.pricing.families nor pipelines, so the calculator would refuse every pick.")
 
 
 def _validate_rate_composition(cfg):

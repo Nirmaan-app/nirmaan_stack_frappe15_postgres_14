@@ -20,6 +20,7 @@ import type { RateCategoryConfig, RateMasterItem } from "./rate-master/rateMaste
 import { isSuggestion } from "../boq-wizard/rate-helper/rateHelperTypes";
 import type { ItemListSuggestion } from "../boq-wizard/rate-helper/pricingSheetHelper";
 import { runParity, type ParityCase, type ParityRun } from "./calculatorPanelParity.harness";
+import { isEligibleConfig } from "../boq-wizard/rate-helper/pricingSheetHelper";
 
 interface FixtureRow {
   id: string;
@@ -59,7 +60,7 @@ function caseOf(id: string): ParityCase {
   };
 }
 function run(id: string): ParityRun {
-  return runParity(CONFIGS, ASSET.items, caseOf(id), "full", true);
+  return runParity(CONFIGS, ASSET.items, caseOf(id), "full");
 }
 function view(run: ParityRun) {
   const p = run.panel;
@@ -84,9 +85,12 @@ describe("E2E-1 -- the fixture is REAL: payloads built by the product, answers i
       expect(r.answer.items.length).toBe(1);
     }
   });
-  it("the asset under test is v27 and Insulation is STILL calculator_only (eligibility is 12d-2's)", () => {
+  it("the asset under test is the FROZEN v27 (it still carries the key 12d-2 retired); its pricing block is eligible by the generic predicate", () => {
+    // INVERTED by 12d-2 (owner S1): v27 is a historical file and is never edited, so the retired key is
+    // still in it; the suite prices through `isEligibleConfig` with no admission flag (the harness has none).
     expect((CFG as { calculator_only?: boolean }).calculator_only).toBe(true);
     expect(Object.keys(CFG.pipelines ?? {})).toEqual([]);
+    expect(isEligibleConfig(CFG)).toBe(true);
   });
 });
 

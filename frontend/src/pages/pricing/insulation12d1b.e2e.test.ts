@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 import HVAC_V28 from "../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v28.json";
 import type { RateCategoryConfig, RateMasterItem } from "./rate-master/rateMasterTypes";
 import { isSuggestion } from "../boq-wizard/rate-helper/rateHelperTypes";
-import type { ItemListSuggestion } from "../boq-wizard/rate-helper/pricingSheetHelper";
+import { isEligibleConfig, type ItemListSuggestion } from "../boq-wizard/rate-helper/pricingSheetHelper";
 import { runParity, type ParityCase, type ParityRun } from "./calculatorPanelParity.harness";
 
 interface FixtureRow {
@@ -47,7 +47,7 @@ function caseOf(id: string): ParityCase {
     items: r.answer.items.map((it) => Object.fromEntries(Object.entries(it.attributes).map(([k, v]) => [k, v.value]))),
   };
 }
-const run = (id: string): ParityRun => runParity(CONFIGS, ASSET.items, caseOf(id), "full", true);
+const run = (id: string): ParityRun => runParity(CONFIGS, ASSET.items, caseOf(id), "full");
 function view(r: ParityRun) {
   if (!isSuggestion(r.panel)) throw new Error(`panel declined: ${JSON.stringify(r.panel)}`);
   return (r.panel as ItemListSuggestion).itemList!;
@@ -56,16 +56,19 @@ const headline = (r: ParityRun) => ({ supply: view(r).totals?.supply_rate, insta
 const noDivergence = (r: ParityRun) => expect(r.divergences.map((d) => `${d.what}: ${d.panel} vs ${d.calculator}`)).toEqual([]);
 const thickness = (r: ParityRun, i = 0) => view(r).items[i].fields.find((f) => f.id === "thickness_mm")!;
 
-describe("E2E-1 -- the fixture is REAL and v28 is still calculator_only", () => {
-  it("every case carries a real payload; the asset under test is v28; Insulation is not eligible", () => {
+describe("E2E-1 -- the fixture is REAL; v28 is a FROZEN file that still carries the key 12d-2 retired", () => {
+  it("every case carries a real payload; the asset under test is v28; its pricing block is eligible by the generic predicate (12d-2)", () => {
     expect(ROWS.length).toBe(13);
     for (const r of ROWS) {
       expect(r.payload.id).toBe(r.excel_row);
       expect(r.payload.description).toBe(r.description);
       expect((r.payload.ancestor_chain[0] as { relation: string }).relation).toBe("sheet");
     }
+    // INVERTED by 12d-2 (owner S1): a historical asset is never edited, so the retired key stays in the
+    // file; the suite prices through `isEligibleConfig` with no admission flag (the harness has none).
     expect((CFG as { calculator_only?: boolean }).calculator_only).toBe(true);
     expect(Object.keys(CFG.pipelines ?? {})).toEqual([]);
+    expect(isEligibleConfig(CFG)).toBe(true);
   });
 });
 

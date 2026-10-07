@@ -219,37 +219,47 @@ export function nonBcsPipelines(config: RateCategoryConfig): Array<[string, Pipe
 export function isEligibleConfig(config: RateCategoryConfig | null | undefined): boolean {
   return (
     !!config &&
-    Object.keys(config.pipelines ?? {}).length > 0 &&
+    hasRunnablePricingRules(config) &&
     (config.attribute_definitions ?? []).length > 0
   );
 }
 
 /**
- * FA7 (owner ruling 2026-10-04, option A) -- does this config declare the CALCULATOR ADMISSION?
+ * SLICE 12d-2 (owner S1, 2026-10-07) -- DOES THIS CONFIG CARRY PRICING RULES THAT RUN? Either
+ * non-empty top-level `pipelines` (every row-level category; ADP's shared per-item default, which
+ * really runs for 29 of its 30 unit blocks), OR an item-list pricing block (`list_spec.pricing`,
+ * read through `itemListPricingSpec`) whose unit blocks carry their own pipelines (Insulation: 7 of 7).
  *
- * A category whose pricing rules are complete may be exercised in the Pricing Calculator tab before
- * it is wired into BoQ rows, so the rules can be checked against real picks without turning on
- * extraction for that category. TEMPORARY: the slice that makes the category fully eligible REMOVES
- * the key in the same slice, so there is never a second on/off switch -- and the server validator
- * refuses the key beside real eligibility, which is what keeps that promise mechanical.
+ * ⚠️ WHY THE SECOND ARM EXISTS, measured rather than assumed (the Python `test_fa7_09`): every
+ * Insulation unit block has its own pipelines, so a top-level `pipelines` entry added merely to
+ * satisfy the old `pipelines`-only test would be a key that VALIDATES AND NEVER EXECUTES -- the
+ * defect class the owner locked out on 2026-09-10. The generic predicate therefore recognises the
+ * place an item-list category keeps its rules, and Insulation's `pipelines` stays honestly empty.
  *
- * The key is DATA: no discipline and no category is named here (the HV-10 rule). PURE.
+ * ⚠️ "RUN" IS THE WORD THAT CARRIES THE WEIGHT. Without a top-level default, an item-list block
+ * runs only if EVERY unit block and every convert option carries pipelines of its own -- a block
+ * without them would fall back to a default that does not exist and price nothing. So a pricing
+ * block with un-piped blocks and no default (ADP as it stood at v7, before its default shipped)
+ * reads NOT runnable, exactly as the slice-5 / slice-6 pins say.
+ * This RETIRED the 12c FINISH / FA7 `calculator_only` admission (`isCalculatorOnlyConfig`,
+ * `isCalculatorPriceableConfig`, the `admitCalculatorOnly` dep): the ONE predicate now admits the
+ * category on every surface -- the BoQ panel, the calculator, the pre-run rules -- and the server's
+ * `extraction.has_runnable_pricing_rules` is its mirror. No discipline or category named. PURE.
  */
-export function isCalculatorOnlyConfig(config: RateCategoryConfig | null | undefined): boolean {
-  return (config as { calculator_only?: unknown } | null | undefined)?.calculator_only === true;
-}
-
-/**
- * Can the CALCULATOR price this config? Eligible as usual, OR admitted by `calculator_only` while
- * carrying real pricing rules -- for an item-list category those live in `list_spec.pricing`, which
- * is exactly the nesting that keeps such a category out of `isEligibleConfig`. An admitted config
- * with no rules is NOT priceable: it would reach the panel only to refuse every pick, which is worse
- * than the coming-soon card. PURE.
- */
-export function isCalculatorPriceableConfig(config: RateCategoryConfig | null | undefined): boolean {
-  if (isEligibleConfig(config)) return true;
-  if (!isCalculatorOnlyConfig(config)) return false;
-  return !!itemListPricingSpec(config) || Object.keys(config?.pipelines ?? {}).length > 0;
+export function hasRunnablePricingRules(config: RateCategoryConfig | null | undefined): boolean {
+  if (!config) return false;
+  if (Object.keys(config.pipelines ?? {}).length > 0) return true;
+  const spec = itemListPricingSpec(config);
+  if (!spec) return false;
+  const fams = Object.values(spec.families ?? {});
+  if (fams.length === 0) return false;
+  const piped = (b: { pipelines?: Record<string, unknown> } | undefined) => Object.keys(b?.pipelines ?? {}).length > 0;
+  return fams.every((fam) => {
+    const units = Object.values(fam.units ?? {});
+    if (units.length === 0) return false;
+    if (!units.every((u) => piped(u))) return false;
+    return Object.values(fam.convert ?? {}).every((opts) => (opts ?? []).every((o) => piped(o as { pipelines?: Record<string, unknown> })));
+  });
 }
 
 /**
@@ -383,15 +393,8 @@ interface Deps {
   items: RateMasterItem[];
   /** excel_row -> the run's extraction for that row. */
   extractionByRow: Map<number, ExtractionRow>;
-  /**
-   * FA7 (owner ruling 2026-10-04, option A): admit a `calculator_only` category.
-   *
-   * ⚠️ IT IS A PROPERTY OF THE SURFACE, NOT OF THE CONFIG ALONE -- which is why it is a dep and not
-   * simply read inside `compute`. Only the Pricing CALCULATOR tab passes it; the BoQ pricing editor
-   * never does, so a `calculator_only` category keeps showing its coming-soon card on a BoQ row.
-   * Absent (every other caller, including every existing test) is byte-identical to before.
-   */
-  admitCalculatorOnly?: boolean;
+  // SLICE 12d-2: the FA7 `admitCalculatorOnly` dep is RETIRED -- `isEligibleConfig` admits an
+  // item-list category on every surface, so the calculator and the BoQ panel build this helper identically.
 }
 
 /** Cable vs termination from the row text (a termination line prices the gland/lug set).
@@ -1056,7 +1059,7 @@ function neverAskedDefault(
 }
 
 export function makePricingSheetHelper(deps: Deps): RateHelper {
-  const { config, configsByCategory, items, extractionByRow, admitCalculatorOnly } = deps;
+  const { config, configsByCategory, items, extractionByRow } = deps;
 
   /** Resolve the config for a row's category. N-category: look it up in the map. Legacy single-config:
    * serve it ONLY for its own category (a different / null category -> none -> coming soon). */
@@ -1079,11 +1082,9 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // as lighting_mgmt_system) shows a "coming soon" note rather than the wrong fields. An in-run row
     // always resolves to its own eligible category by construction.
     const cfg = resolveConfig(ctx.category);
-    // FA7: the CALCULATOR may also price a category that declares `calculator_only` -- the ONE site
-    // where that admission is read. `isEligibleConfig` itself is deliberately untouched, so every
-    // other reader of eligibility (the BoQ decline cards, the pre-run rules, the extraction
-    // population on the server) sees exactly what it saw before.
-    if (!(admitCalculatorOnly ? isCalculatorPriceableConfig(cfg) : isEligibleConfig(cfg))) {
+    // SLICE 12d-2: ONE predicate on every surface (the FA7 calculator admission is retired) -- the
+    // BoQ decline cards, the pre-run rules and the server's extraction population all read the same test.
+    if (!isEligibleConfig(cfg)) {
       // SLICE 2 (J4): a config may carry its own message (`helper_message`); otherwise coming soon.
       return { kind: "none", reason: declineReasonFor(cfg) };
     }

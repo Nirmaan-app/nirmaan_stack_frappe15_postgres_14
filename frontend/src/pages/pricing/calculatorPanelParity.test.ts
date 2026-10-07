@@ -153,14 +153,18 @@ describe("the two paths are genuinely different code", () => {
     expect((calc as { producibleKinds?: string[] }).producibleKinds).toBeUndefined();
   });
 
-  it("the calculator helper declares the calculator-only admission; the BoQ panel helper does not", () => {
-    // HVAC Insulation is `calculator_only`, so the BoQ-shaped helper must decline it and the
-    // calculator-shaped one must price it. That asymmetry is the second proof the two differ.
+  it("INVERTED by 12d-2 (owner S1): there is NO calculator-only admission any more -- the BoQ-shaped panel helper prices Insulation through the one generic predicate", () => {
+    // 12c-P pinned the asymmetry (the BoQ-shaped helper declined Insulation, the calculator-shaped one
+    // priced it) as a second proof the paths differ. 12d-2 retired the admission: the snapshot's
+    // Insulation config (still carrying the retired key in the frozen fixture) is eligible by
+    // `hasRunnablePricingRules`, so BOTH constructions price it, and the proof that the two paths
+    // differ rests on the `producibleKinds` signal above alone.
     const c: ParityCase = { cat: "hvac_insulation", unit: "sqm", desc: "", attrs: {}, items: [{ item: "Cladding Only" }] };
-    const boqPanel = panelHelper(configs, items, c, false).compute(panelCtx(c));
-    const calcShaped = panelHelper(configs, items, c, true).compute(panelCtx(c));
-    expect(boqPanel.kind).toBe("none");
-    expect(calcShaped.kind).toBe("suggestion");
+    const boqPanel = panelHelper(configs, items, c).compute(panelCtx(c));
+    const calc = calculatorHelper(configs, items).compute(calculatorCtx("HVAC", c.cat), {});
+    expect(boqPanel.kind).toBe("suggestion");
+    expect(calc.kind).toBe("suggestion");
+    expect((configs.get("hvac_insulation") as { calculator_only?: unknown }).calculator_only).toBe(true);  // the frozen snapshot, never edited
   });
 });
 
@@ -379,7 +383,7 @@ describe("every active SKU of every row-level category", () => {
       const cases = [...skuCasesForCategory(cfg, items), emptyCaseFor(cfg)];
       total += cases.length;
       for (const c of cases) {
-        const r = runParity(configs, items, c, "full", true);
+        const r = runParity(configs, items, c, "full");
         if (r.divergences.length) {
           bad.push(`${cid} ${JSON.stringify(c.attrs)}: ` + r.divergences.map((d) => `${d.what} P[${d.panel}] C[${d.calculator}]`).join(" | "));
         }
@@ -393,7 +397,7 @@ describe("every active SKU of every row-level category", () => {
     const paths = new Set<string>();
     for (const [, cfg] of rowLevel) {
       for (const c of [...skuCasesForCategory(cfg, items), emptyCaseFor(cfg)]) {
-        for (const p of resolutionPaths(runParity(configs, items, c, "full", true).panel)) paths.add(p);
+        for (const p of resolutionPaths(runParity(configs, items, c, "full").panel)) paths.add(p);
       }
     }
     for (const p of [
@@ -416,7 +420,7 @@ describe("HVAC ADP -- every family x unit class x ladder path", () => {
   it("EXACTLY the sweep divergences awaiting owner review differ, and none of them moves a price", () => {
     const found: Array<{ cat: string; unit: string; item: unknown; cause: string }> = [];
     for (const c of cases) {
-      const r = runParity(configs, items, c, "full", true);
+      const r = runParity(configs, items, c, "full");
       if (!r.divergences.length) continue;
       found.push({ cat: c.cat, unit: c.unit, item: c.items?.[0] ?? null, cause: classifyDivergence(r, c) });
       expect(hasPrice(r.panel)).toBe(hasPrice(r.calculator));
@@ -426,7 +430,7 @@ describe("HVAC ADP -- every family x unit class x ladder path", () => {
 
   it("the resolution paths this sweep reached, named", () => {
     const paths = new Set<string>();
-    for (const c of cases) for (const p of resolutionPaths(runParity(configs, items, c, "full", true).panel)) paths.add(p);
+    for (const c of cases) for (const p of resolutionPaths(runParity(configs, items, c, "full").panel)) paths.add(p);
     for (const p of ["item-list priced", "item-list refused", "item refused", "default fired", "ladder size-up"]) {
       expect([...paths]).toContain(p);
     }
@@ -443,9 +447,11 @@ describe("HVAC ADP -- every family x unit class x ladder path", () => {
 });
 
 describe("HVAC Insulation -- every family x unit class x ladder path", () => {
-  // Insulation is `calculator_only`, so there is no BoQ row and no stored run to read. Both paths are
-  // still exercised: the panel's `ext` branch (a synthesized extraction row, which is exactly what a run
-  // produces) against the calculator's override branch -- never one branch twice.
+  // At the 2026-10-06 snapshot Insulation was `calculator_only`, so there was no BoQ row and no stored
+  // run to read; 12d-2 made it eligible through the generic predicate, and the snapshot's config (the
+  // frozen fixture) reads eligible by that predicate too. Both paths are exercised: the panel's `ext`
+  // branch (a synthesized extraction row, which is exactly what a run produces) against the
+  // calculator's override branch -- never one branch twice.
   const cfg = configs.get("hvac_insulation")!;
   const cases = itemListCasesForCategory(cfg, items);
 
@@ -454,7 +460,7 @@ describe("HVAC Insulation -- every family x unit class x ladder path", () => {
     expect(new Set(cases.map((c) => c.items?.[0]?.item as string)).size).toBe(6);
     const bad: string[] = [];
     for (const c of cases) {
-      const r = runParity(configs, items, c, "full", true);
+      const r = runParity(configs, items, c, "full");
       if (r.divergences.length) {
         bad.push(`${c.unit} ${JSON.stringify(c.items)}: ` + r.divergences.map((d) => `${d.what} P[${d.panel}] C[${d.calculator}]`).join(" | "));
       }
@@ -465,7 +471,7 @@ describe("HVAC Insulation -- every family x unit class x ladder path", () => {
 
   it("the resolution paths this sweep reached, named", () => {
     const paths = new Set<string>();
-    for (const c of cases) for (const p of resolutionPaths(runParity(configs, items, c, "full", true).panel)) paths.add(p);
+    for (const c of cases) for (const p of resolutionPaths(runParity(configs, items, c, "full").panel)) paths.add(p);
     for (const p of ["item-list priced", "item-list refused", "item refused", "ladder size-up", "typed (Other)"]) {
       expect([...paths]).toContain(p);
     }
@@ -482,7 +488,7 @@ describe("db_switchgear BY NAME (owner P3: the 12c-S partial is covered here)", 
     const cfg = configs.get("db_switchgear")!;
     const skuCases = skuCasesForCategory(cfg, items);
     expect(skuCases.length).toBe(163);
-    for (const c of skuCases) expect(runParity(configs, items, c, "full", true).divergences).toEqual([]);
+    for (const c of skuCases) expect(runParity(configs, items, c, "full").divergences).toEqual([]);
   }, 60000);
 
   it("and at least one of them is a row that actually priced", () => {
@@ -541,7 +547,7 @@ describe("vacuity -- the comparison can actually see a difference", () => {
     const byFamily = new Map<string, Map<string, number>>();
     for (const c of cases) {
       const fam = c.items?.[0]?.family as string;
-      const r = runParity(configs, items, c, "full", true);
+      const r = runParity(configs, items, c, "full");
       if (!hasPrice(r.calculator)) continue;
       const supply = (r.calculator as { values: Record<string, number> }).values.supply_rate;
       const m = byFamily.get(fam) ?? new Map<string, number>();

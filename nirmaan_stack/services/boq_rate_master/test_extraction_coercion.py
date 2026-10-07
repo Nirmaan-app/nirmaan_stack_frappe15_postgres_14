@@ -14,6 +14,7 @@ a direct call -- no DB, no AI, no fixtures.
 import copy
 import json
 import os
+import re
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -2305,23 +2306,22 @@ class TestItemListSlice4(FrappeTestCase):
             "family_attribute_id": "family", "qty_attribute_id": "n"}}
         self.assertEqual(extraction.build_items_spec(with_qty)["qty_attribute_id"], "n")
         self.assertIs(extraction.build_items_spec(with_qty)["second_opinion"], False)
-        # INVERTED 2026-10-04 under MECHANICAL AUTHORITY (owner "ok"), NOT deleted. This half used to assert
-        # that ADP was the ONLY category building an items_spec at all. Slice 12c's Q2 ruling made Insulation an
-        # item-list category too (commit 7922020e5, HVAC v16), so that sentence is no longer the product's --
-        # but WHAT IT WAS PROTECTING is, and it is kept and sharpened here: the thing that must stay true is not
-        # "only ADP has a spec", it is "only ADP REACHES EXTRACTION". Insulation has a spec and is still
-        # excluded, by calculator_only plus empty pipelines. Stating it this way means the day Insulation
-        # becomes eligible (slice 12d), this test fails loudly -- which is exactly when someone should look.
+        # INVERTED 2026-10-04 under MECHANICAL AUTHORITY (owner "ok"), NOT deleted, and INVERTED AGAIN by
+        # SLICE 12d-2 (owner S1, 2026-10-07). The 12c form said: Insulation has a spec and is EXCLUDED from
+        # extraction by calculator_only plus empty pipelines, "so the day Insulation becomes eligible (slice
+        # 12d) this test fails loudly -- which is exactly when someone should look". That day is 12d-2:
+        # `calculator_only` is retired, `pipelines` stays {} and Insulation REACHES EXTRACTION through the
+        # generic predicate's item-list arm. The claim now is: EXACTLY two item-list categories reach it.
         ins = self.cfgs[("HVAC", "hvac_insulation")]
         self.assertIsNotNone(extraction.build_items_spec(ins))            # it HAS a spec ...
-        self.assertIs(ins.get("calculator_only"), True)                   # ... because it is calculator-only ...
-        self.assertEqual(ins.get("pipelines"), {})                        # ... with no pipelines of its own ...
-        self.assertFalse(extraction.config_is_eligible(ins, self.cfgs))   # ... so it NEVER reaches extraction.
-        # ADP is the only ELIGIBLE item-list category -- the claim that replaces the retired one
+        self.assertNotIn("calculator_only", ins)                          # ... the admission is retired ...
+        self.assertEqual(ins.get("pipelines"), {})                        # ... with no dead top-level entry ...
+        self.assertTrue(extraction.config_is_eligible(ins, self.cfgs))    # ... and it REACHES extraction.
+        # ADP and Insulation are the ELIGIBLE item-list categories -- the claim that replaces the 12c one
         eligible = sorted(cat for (disc, cat) in self.cfgs
                           if extraction.build_items_spec(self.cfgs[(disc, cat)]) is not None
                           and extraction.config_is_eligible(self.cfgs[(disc, cat)], self.cfgs))
-        self.assertEqual(eligible, ["hvac_adp"])
+        self.assertEqual(eligible, ["hvac_adp", "hvac_insulation"])
         # NEGATIVE HALF KEPT: every category that is neither of those two still yields None
         for key in self.cfgs:
             if key not in (("HVAC", "hvac_adp"), ("HVAC", "hvac_insulation")):
@@ -2676,7 +2676,10 @@ class TestItemListSlice4(FrappeTestCase):
         with open(helper, "r", encoding="utf-8") as fh:
             src = fh.read()
         body = src[src.index("export function isEligibleConfig("):]
-        self.assertIn("Object.keys(config.pipelines ?? {}).length > 0", body[:body.index("\n}")])
+        # SLICE 12d-2 (owner S1): the body reads the ONE named predicate `hasRunnablePricingRules` (top-level
+        # pipelines OR a fully-piped item-list block) beside the definitions fact
+        self.assertIn("hasRunnablePricingRules(config)", body[:body.index("\n}")])
+        self.assertNotIn("Object.keys(config.pipelines ?? {}).length > 0", body[:body.index("\n}")])
 
     # -- il_12 (slice 6, S6) ----------------------------------------------------------------------------
     def test_il_12_the_prompt_asks_for_none_on_ul_when_the_text_is_silent(self):
@@ -3079,3 +3082,96 @@ class TestSlice12d1bModelCall(FrappeTestCase):
             self.assertNotIn(forbidden, json.dumps(g, default=str), forbidden)
         self.assertIn("ITEMS_SPEC", content)
         self.assertIn("material_as_written", content)
+
+
+class TestSlice12d2ModelCall(FrappeTestCase):
+    """SLICE 12d-2 (2026-10-07) -- what the MODEL is sent, v28 -> v29. Insulation's ITEMS_SPEC changes in exactly
+    ONE place: the thickness note (S3, the four-step read order); EVERY OTHER HVAC category's assembled call is
+    byte-identical and NAMED; every eligible Electrical category's call is identical with either HVAC asset loaded
+    and NAMED; and nothing this slice touched (`calculator_only`, `pipelines`, the predicate) appears in anything
+    the model is sent."""
+
+    OTHER_HVAC = ["hvac_adp", "hvac_ahu", "hvac_cables", "hvac_dx_unit", "hvac_panels", "hvac_pricing_inputs", "hvac_pumps", "hvac_raceway"]
+    ELIGIBLE_ELECTRICAL = ["cabletray_raceway", "conduit_piping", "db_switchgear", "earthing", "industrial_sockets", "junction_box_raceway",
+                           "lighting_mgmt_system", "miscellaneous", "point_wiring", "popup_boxes", "switches_sockets", "wiring_cabling"]
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, CURRENT_HVAC_ASSET, _asset_path
+        with open(_asset_path("rate_master_hvac_all_v28.json"), "r", encoding="utf-8") as fh:
+            cls.v28 = json.load(fh)
+        with open(_asset_path("rate_master_hvac_all_v29.json"), "r", encoding="utf-8") as fh:
+            cls.v29 = json.load(fh)
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v29.json"
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.eall = json.load(fh)
+
+    _cfgs = staticmethod(TestSlice12d1bModelCall._cfgs)
+    _row = staticmethod(TestSlice12d1bModelCall._row)
+    _content = staticmethod(TestSlice12d1bModelCall._content)
+
+    def test_mc2_01_every_other_hvac_category_sends_a_byte_identical_call_NAMED(self):
+        c28, c29 = self._cfgs(self.v28, "HVAC"), self._cfgs(self.v29, "HVAC")
+        payload = [extraction._ai_item(self._row())]
+        checked = []
+        for key in c28:
+            if key[1] == "hvac_insulation":
+                continue
+            g28, g29 = extraction._group_context(c28, *key), extraction._group_context(c29, *key)
+            self.assertEqual(g29, g28, key[1])
+            self.assertEqual(self._content(g29, payload), self._content(g28, payload), key[1])
+            checked.append(key[1])
+        self.assertEqual(sorted(checked), self.OTHER_HVAC)
+        self.assertEqual(extraction.build_items_spec(c29[("HVAC", "hvac_adp")]), extraction.build_items_spec(c28[("HVAC", "hvac_adp")]))
+
+    def test_mc2_02_every_eligible_electrical_category_sends_the_same_call_with_either_hvac_asset_NAMED(self):
+        e = self._cfgs(self.eall, "Electrical")
+        payload = [extraction._ai_item(self._row())]
+        checked = []
+        for key, cfg in e.items():
+            if not extraction.config_is_eligible(cfg, e):
+                continue
+            g_a = extraction._group_context({**e, **self._cfgs(self.v28, "HVAC")}, *key)
+            g_b = extraction._group_context({**e, **self._cfgs(self.v29, "HVAC")}, *key)
+            self.assertEqual(self._content(g_b, payload), self._content(g_a, payload), key[1])
+            checked.append(key[1])
+        self.assertEqual(sorted(checked), self.ELIGIBLE_ELECTRICAL)
+
+    def test_mc2_03_insulation_items_spec_changes_in_the_thickness_note_ONLY_and_states_the_four_step_order(self):
+        s28 = extraction.build_items_spec(self._cfgs(self.v28, "HVAC")[("HVAC", "hvac_insulation")])
+        s29 = extraction.build_items_spec(self._cfgs(self.v29, "HVAC")[("HVAC", "hvac_insulation")])
+        self.assertIs(s28["second_opinion"], True); self.assertIs(s29["second_opinion"], True)   # S8: still ON
+        d28 = {d["id"]: d for d in s28["attribute_definitions"]}
+        d29 = {d["id"]: d for d in s29["attribute_definitions"]}
+        self.assertEqual(sorted(d28), sorted(d29))
+        for aid in d28:
+            if aid != "thickness_mm":
+                self.assertEqual(d29[aid], d28[aid], aid)
+        self.assertNotEqual(d29["thickness_mm"]["note"], d28["thickness_mm"]["note"])
+        note = d29["thickness_mm"]["note"]
+        # S3 (owner 2026-10-08): the four-step order, in order, and the row's OWN value wins over a heading
+        order = ["(1) the row's OWN value", "(2) else, where a heading keys the thickness to the pipe size",
+                 "(3) else, where the text lists several thicknesses", "(4) else leave the attribute out"]
+        pos = [note.index(x) for x in order]
+        self.assertEqual(pos, sorted(pos))
+        self.assertIn("always wins, even where a heading says otherwise", note)
+        # the 12d-1b sentences are KEPT
+        self.assertIn("read the thickness for THIS row's pipe size", note)
+        self.assertIn("copy the list as written", note)
+        self.assertIn("never add the layers up", note)
+        # a calculation never goes in the prompt: the highest-of-a-list and the 9 mm default are CODE
+        for forbidden in ("highest", "default"):
+            self.assertNotIn(forbidden, note, forbidden)
+        self.assertIsNone(re.search(r"(?<![\d])9 ?mm", note))   # "19 mm x 2" is the layers example, not a default
+        self.assertEqual({k: v for k, v in s29.items() if k != "attribute_definitions"},
+                         {k: v for k, v in s28.items() if k != "attribute_definitions"})
+
+    def test_mc2_04_the_switch_never_reaches_the_model(self):
+        c29 = self._cfgs(self.v29, "HVAC")
+        g = extraction._group_context(c29, "HVAC", "hvac_insulation")
+        content = self._content(g, [extraction._ai_item(self._row())])
+        for forbidden in ("calculator_only", "has_runnable_pricing_rules", "pipelines", "SLICE 12d-2"):
+            self.assertNotIn(forbidden, content, forbidden)
+        self.assertIn("ITEMS_SPEC", content)
+        self.assertIn("(1) the row's OWN value", content)

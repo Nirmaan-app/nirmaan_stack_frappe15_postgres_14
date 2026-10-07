@@ -14,7 +14,7 @@ import ELECTRICAL_V63 from "../../../../../nirmaan_stack/services/boq_rate_maste
 import type { RateCategoryConfig, RateMasterItem } from "../../pricing/rate-master/rateMasterTypes";
 import { runPipeline } from "../../pricing/rate-master/ratePipelineInterpreter";
 import {
-  isEligibleConfig, isCalculatorOnlyConfig, isCalculatorPriceableConfig,
+  isEligibleConfig, hasRunnablePricingRules,
   makePricingSheetHelper, declineReasonFor,
 } from "./pricingSheetHelper";
 // SLICE 12c FINISH / FA7 -- the admission is read from the SHIPPED asset, never a fixture
@@ -64,14 +64,17 @@ const one = (unit: string, attrs: Record<string, string | null>) => price(unit, 
 const figures = (r: ReturnType<typeof price>) => [r.priced, r.supply, r.install] as const;
 const skuOf = (r: ReturnType<typeof price>, i = 0) => `${r.items[i].sku?.item_name} / ${r.items[i].sku?.item_detail}`;
 
-describe("slice 5 / the block is read off the config and ADP stays NOT eligible (P8)", () => {
-  it("v7 carries list_spec.pricing for 25 families, and neither eligibility predicate sees it", () => {
+describe("slice 5 / the block is read off the config (P8 -- INVERTED by 12d-2: the predicate now reads the block)", () => {
+  it("v7 carries list_spec.pricing for 25 families; 12d-2's predicate reads a fully-piped block as rules that run", () => {
     expect(spec).not.toBeNull();
     expect(Object.keys(spec.families).length).toBe(25);
     expect(spec.kind).toBe("hvac_adp_item");
-    // NEGATIVE (P8): pipelines still {}; the frontend eligibility predicate still says no
+    // P8 (slice 5) pinned `isEligibleConfig(adp) === false` with pipelines {} -- the predicate then read
+    // top-level pipelines only. INVERTED by 12d-2 (owner S1), NOT deleted: v7's every unit block carries
+    // its own pipelines, so the generic predicate now reads this frozen file as eligible. `pipelines` is
+    // still {} -- the first claim stands.
     expect(adp.pipelines).toEqual({});
-    expect(isEligibleConfig(adp)).toBe(false);
+    expect(isEligibleConfig(adp)).toBe(true);
     // NEGATIVE: a config without the block reads null; v6's ADP config has no block
     const adp6 = (HVAC_V6 as unknown as Asset).category_configs.find((c) => c.category_id === "hvac_adp")!;
     expect(itemListPricingSpec(adp6)).toBeNull();
@@ -752,9 +755,11 @@ describe("slice 6 / v8 = v7 + the four deltas, and NOTHING else", () => {
     for (const f of Object.values(v7s.families)) for (const u of Object.values(f.units)) delete u.pipelines;
     expect(strip(spec8)).toEqual(v7s);
   });
-  it("T7 -- ADP is ELIGIBLE on v8 by the SAME predicate every category answers; NEGATIVE: v7's ADP is not, and no other HVAC config moved", () => {
+  it("T7 -- ADP is ELIGIBLE on v8 by the SAME predicate every category answers (and, since 12d-2, on v7 by its fully-piped block); no other HVAC config moved", () => {
     expect(isEligibleConfig(adp8)).toBe(true);
-    expect(isEligibleConfig(adp)).toBe(false);
+    // INVERTED by 12d-2 (owner S1), NOT deleted: T7 pinned v7's ADP NOT eligible because the predicate
+    // read top-level pipelines only; the 12d-2 predicate reads v7's fully-piped block as rules that run.
+    expect(isEligibleConfig(adp)).toBe(true);
     for (let i = 1; i < asset8.category_configs.length; i++) {
       expect(isEligibleConfig(asset8.category_configs[i])).toBe(isEligibleConfig(asset.category_configs[i]));
       expect(isEligibleConfig(asset8.category_configs[i])).toBe(false);   // vendor-quote + alias configs: not eligible OF THEIR OWN
@@ -2063,79 +2068,96 @@ const HELPER_SRC = readFileSync(join(__dirname, "pricingSheetHelper.ts"), "utf-8
 const CALCULATOR_SRC = readFileSync(
   join(__dirname, "..", "..", "pricing", "PricingCalculator.tsx"), "utf-8");
 
-describe("SLICE 12c FINISH / FA7 -- calculator_only admits a category to the CALCULATOR only", () => {
+describe("SLICE 12d-2 (owner S1) -- the FA7 calculator admission is RETIRED; ONE predicate admits an item-list category on every surface", () => {
+  /**
+   * ⚠️ INVERTED under MECHANICAL AUTHORITY (12d-2's own ruling S1), NOT deleted. This block used to pin
+   * that `calculator_only` admitted v25's Insulation to the CALCULATOR ONLY and that the BoQ-shaped helper
+   * declined it. 12d-2 switched Insulation on through the one generic predicate: `hasRunnablePricingRules`
+   * recognises an item-list pricing block whose EVERY unit block carries its own pipelines, so the same
+   * helper -- built identically by the calculator and the BoQ pricing editor -- prices it with NO flag.
+   * The negative halves are kept and sharpened: a config with NO rules is still declined, the admission
+   * identifiers appear in NO code line of either product file, and no discipline is named in code.
+   */
   const CAT = "hvac_insulation";
-  const cfgs18 = (HVAC_V25 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
+  const cfgs25 = (HVAC_V25 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
     .category_configs;
-  const ins = cfgs18.find((c) => c.category_id === CAT) as unknown as RateCategoryConfig;
-  const items18 = (HVAC_V25 as unknown as { items: RateMasterItem[] }).items;
+  const ins = cfgs25.find((c) => c.category_id === CAT) as unknown as RateCategoryConfig;
+  const items25 = (HVAC_V25 as unknown as { items: RateMasterItem[] }).items;
 
   const ctx = (): RateHelperRowContext => ({
     excelRow: 1, description: "Insulation", unit: "Mtr", quantity: 1,
     category: CAT, discipline: "HVAC", displayKinds: [...DISPLAY_RATE_KINDS],
   } as unknown as RateHelperRowContext);
 
-  const helperFor = (admit: boolean) =>
+  // THE construction both surfaces now share -- no flag exists to pass
+  const helper = () =>
     makePricingSheetHelper({
       configsByCategory: new Map([[CAT, ins]]),
-      items: items18,
+      items: items25,
       extractionByRow: new Map(),
-      ...(admit ? { admitCalculatorOnly: true } : {}),
     });
 
-  it("the SHIPPED asset declares the admission, and the category is still NOT eligible", () => {
-    // if either half of this is false the rest of the suite proves nothing
-    expect(isCalculatorOnlyConfig(ins)).toBe(true);
-    expect(isEligibleConfig(ins)).toBe(false);
+  it("the frozen v25 file still carries the retired key (a historical asset is never edited) and `pipelines` is still {}", () => {
+    expect((ins as { calculator_only?: unknown }).calculator_only).toBe(true);
     expect(Object.keys(ins.pipelines ?? {})).toEqual([]);
   });
 
-  it("PRICEABLE IN THE CALCULATOR: the admitted helper does NOT decline the row", () => {
-    const res = helperFor(true).compute(ctx());
-    // it reaches the item-list path: a suggestion (possibly with its own per-item refusals), never
-    // the category-level "coming soon" decline
+  it("INVERTED: v25's Insulation IS eligible through the generic predicate -- its pricing block runs (7 of 7 unit blocks carry pipelines)", () => {
+    expect(hasRunnablePricingRules(ins)).toBe(true);
+    expect(isEligibleConfig(ins)).toBe(true);
+  });
+
+  it("INVERTED: the BoQ-shaped helper (no flag) does NOT decline the row -- it reaches the item-list path", () => {
+    const res = helper().compute(ctx());
     expect(res.kind).not.toBe("none");
   });
 
-  it("COMING SOON ON A BoQ ROW: the same helper built WITHOUT the admission declines", () => {
-    // ⚠️ THIS IS WHAT THE BoQ PRICING EDITOR BUILDS -- it never passes the flag.
-    const res = helperFor(false).compute(ctx());
+  it("NEGATIVE kept: a config with NO pricing rules is still declined, with or without the retired key", () => {
+    const empty = { category_id: "x", calculator_only: true, attribute_definitions: [{ id: "a", label: "A", type: "text" }], pipelines: {} } as unknown as RateCategoryConfig;
+    expect(hasRunnablePricingRules(empty)).toBe(false);
+    expect(isEligibleConfig(empty)).toBe(false);
+    const res = makePricingSheetHelper({ configsByCategory: new Map([["x", empty]]), items: items25, extractionByRow: new Map() })
+      .compute({ ...ctx(), category: "x" } as RateHelperRowContext);
     expect(res.kind).toBe("none");
-    expect((res as { reason: string }).reason).toBe(declineReasonFor(ins));
+    expect((res as { reason: string }).reason).toBe(declineReasonFor(empty));
   });
 
-  it("NEGATIVE: the admission cannot rescue a config with NO pricing rules", () => {
-    // such a config would reach the panel only to refuse every pick, which is worse than the card
-    const empty = { category_id: "x", calculator_only: true, attribute_definitions: [] } as unknown as RateCategoryConfig;
-    expect(isCalculatorOnlyConfig(empty)).toBe(true);
-    expect(isCalculatorPriceableConfig(empty)).toBe(false);
+  it("NEGATIVE kept: an item-list block with an UN-PIPED unit block and no top-level default is NOT runnable (a block would price nothing)", () => {
+    const broken = structuredClone(ins) as RateCategoryConfig;
+    const fams = (broken as unknown as { list_spec: { pricing: { families: Record<string, { units: Record<string, { pipelines?: unknown }> }> } } }).list_spec.pricing.families;
+    const [famName] = Object.keys(fams);
+    const [unitName] = Object.keys(fams[famName].units);
+    delete fams[famName].units[unitName].pipelines;
+    expect(hasRunnablePricingRules(broken)).toBe(false);
+    expect(isEligibleConfig(broken)).toBe(false);
+    // ... and a top-level default makes the same block runnable again, which is ADP's shape
+    (broken as { pipelines: Record<string, unknown> }).pipelines = { item_supply: { output: ["supply"], steps: [] } };
+    expect(hasRunnablePricingRules(broken)).toBe(true);
   });
 
-  it("NEGATIVE: a config WITHOUT the key is unchanged on both surfaces", () => {
-    const plain = { ...(ins as object) } as Record<string, unknown>;
-    delete plain.calculator_only;
-    const p = plain as unknown as RateCategoryConfig;
-    expect(isCalculatorPriceableConfig(p)).toBe(false);
-    expect(isEligibleConfig(p)).toBe(false);
-  });
-
-  it("an ELIGIBLE config is calculator-priceable without any admission -- ADP is the exemplar", () => {
-    const adp = cfgs18.find((c) => c.category_id === "hvac_adp") as unknown as RateCategoryConfig;
+  it("an ELIGIBLE config with a top-level default (ADP) is eligible by the same predicate", () => {
+    const adp = cfgs25.find((c) => c.category_id === "hvac_adp") as unknown as RateCategoryConfig;
     expect(isEligibleConfig(adp)).toBe(true);
-    expect(isCalculatorOnlyConfig(adp)).toBe(false);
-    expect(isCalculatorPriceableConfig(adp)).toBe(true);
+    expect(hasRunnablePricingRules(adp)).toBe(true);
   });
 
-  it("⚠️ NO DISCIPLINE AND NO CATEGORY IS NAMED IN CODE (the HV-10 rule)", () => {
+  it("⚠️ NEGATIVE: the admission identifiers appear in NO code line of either product file; prose may still name them", () => {
     for (const src of [HELPER_SRC, CALCULATOR_SRC]) {
-      const admissionLines = src
+      const codeLines = src
         .split("\n")
-        .filter((l) => /calculator_only|admitCalculatorOnly|isCalculatorPriceableConfig/.test(l))
+        .filter((l) => /calculator_only|admitCalculatorOnly|isCalculatorPriceableConfig|isCalculatorOnlyConfig/.test(l))
         .filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l));          // prose may name them; code may not
-      expect(admissionLines.length).toBeGreaterThan(0);
-      for (const l of admissionLines) {
-        expect(l).not.toMatch(/hvac_|HVAC|Electrical|insulation/);
-      }
+      expect(codeLines).toEqual([]);
+    }
+  });
+
+  it("⚠️ NO DISCIPLINE AND NO CATEGORY IS NAMED IN THE PREDICATE'S CODE (the HV-10 rule)", () => {
+    const start = HELPER_SRC.indexOf("export function hasRunnablePricingRules");
+    const fn = HELPER_SRC.slice(start, HELPER_SRC.indexOf("\n}\n", start));
+    expect(fn.length).toBeGreaterThan(0);
+    for (const l of fn.split("\n")) {
+      if (/^\s*(\*|\/\/|\/\*)/.test(l)) continue;
+      expect(l).not.toMatch(/hvac_|HVAC|Electrical|insulation/);
     }
   });
 });

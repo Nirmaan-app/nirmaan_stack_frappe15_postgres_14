@@ -293,11 +293,8 @@ export function PricingCalculator({ discipline }: { discipline: string }) {
             configsByCategory,
             items,
             extractionByRow: new Map(),
-            // FA7 (owner ruling 2026-10-04, option A): the CALCULATOR -- and only the calculator --
-            // prices a `calculator_only` category. The BoQ pricing editor builds this same helper
-            // WITHOUT the flag, so such a category still shows its coming-soon card on a BoQ row and
-            // stays out of the extraction population.
-            admitCalculatorOnly: true,
+            // SLICE 12d-2: the FA7 `admitCalculatorOnly` dep is retired -- the calculator and the BoQ
+            // pricing editor build this helper IDENTICALLY, and one predicate admits a category on both.
           })
         : null,
     [configsByCategory, items],

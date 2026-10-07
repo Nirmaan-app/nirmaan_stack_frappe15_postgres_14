@@ -11490,7 +11490,19 @@ def _read_frontend_src(*parts):
 # lists and layers copied as written), numbers.thickness_mm.several = "highest", number_defaults on every family,
 # material_as_written + no_sku_named_by. Items and the eight other configs byte-identical -- pinned in
 # `TestSlice12d1bAsset`. The 12d-1a v26 -> v27 pin below now names v27 explicitly.
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v28.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v29.json"
+# SLICE 12d-2 (owner S1): `calculator_only` is RETIRED and refused by the validator as an unknown key. The
+# frozen HVAC assets v18..v28 carry it on their Insulation config and are therefore refused AS FILES -- a
+# historical asset is never edited. Every "every asset on disk validates" sweep names them through this.
+RETIRED_KEY_REFUSALS = [("rate_master_hvac_all_v%d.json" % n, "hvac_insulation") for n in range(18, 29)]
+
+
+def _without_retired_calculator_only(cfg):
+    """The in-memory repair a test applies to a FROZEN v18..v28 config before validating it: the retired
+    `calculator_only` key stripped, nothing else touched. The untouched file stays refused (pinned)."""
+    c = copy.deepcopy(cfg)
+    c.pop("calculator_only", None)
+    return c
 # SLICE 8 (owner M-b / M-c, 2026-09-24): v11 = v10 + TWO declarations in the ADP pricing block -- `override_when`
 # (a stated UL decides the fire-damper pick whatever the variant says) and the flexible duct's count -> length
 # conversion at a 2.5 m standard length. Items and the six other configs byte-identical; the slice-6d class loads
@@ -11869,7 +11881,10 @@ class TestHvacAssetSlice1b(FrappeTestCase):
         src = open(os.path.abspath(helper_path), "r", encoding="utf-8").read()
         body = src[src.index("export function isEligibleConfig("):]
         body = body[:body.index("\n}")]
-        self.assertIn("Object.keys(config.pipelines ?? {}).length > 0", body)
+        # SLICE 12d-2 (owner S1): the body now reads ONE named predicate -- `hasRunnablePricingRules` (top-level
+        # pipelines, OR an item-list block whose every unit block carries its own) -- beside the definitions fact
+        self.assertIn("hasRunnablePricingRules(config)", body)
+        self.assertNotIn("Object.keys(config.pipelines ?? {}).length > 0", body)
         # NEGATIVE 1 (kept, from the emptied copy): one pipeline makes it eligible -- the emptiness IS the gate
         with_pipe = copy.deepcopy(emptied)
         with_pipe["pipelines"] = {"p": {"output": ["supply"], "steps": [{"step": "match_master_row",
@@ -12128,7 +12143,8 @@ class TestHvacVendorQuoteSlice2(FrappeTestCase):
                     full_refusals.append((os.path.basename(path), c["category_id"]))
         self.assertGreaterEqual(n_configs, 564)
         # the ONE pre-existing refusal (a bare `choice` with no values in a retired asset) and nothing else
-        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")])
+        # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS)
 
     # -- s03 ----------------------------------------------------------------------------------------
     def test_s03_v3_is_v2_plus_four_message_only_configs_none_eligible(self):
@@ -12173,7 +12189,10 @@ class TestHvacVendorQuoteSlice2(FrappeTestCase):
         src = self._frontend_src("pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts")
         body = src[src.index("export function isEligibleConfig("):]
         body = body[:body.index("\n}")]
-        self.assertIn("Object.keys(config.pipelines ?? {}).length > 0", body)
+        # SLICE 12d-2 (owner S1): the body now reads ONE named predicate -- `hasRunnablePricingRules` (top-level
+        # pipelines, OR an item-list block whose every unit block carries its own) -- beside the definitions fact
+        self.assertIn("hasRunnablePricingRules(config)", body)
+        self.assertNotIn("Object.keys(config.pipelines ?? {}).length > 0", body)
         self.assertIn("(config.attribute_definitions ?? []).length > 0", body)
 
     # -- s04 ----------------------------------------------------------------------------------------
@@ -12330,7 +12349,8 @@ class TestHvacAliasSlice3(FrappeTestCase):
                 except frappe.ValidationError:
                     full_refusals.append((os.path.basename(path), c["category_id"]))
         self.assertGreaterEqual(n_configs, 571)
-        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")])
+        # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS)
 
     # -- a03 ----------------------------------------------------------------------------------------
     def test_a03_v4_is_v3_plus_two_aliases_and_eligibility_follows_the_target_one_hop(self):
@@ -12542,7 +12562,8 @@ class TestHvacItemListSlice4(FrappeTestCase):
                 except frappe.ValidationError:
                     full_refusals.append((os.path.basename(path), c["category_id"]))
         self.assertGreaterEqual(n_configs, 578)
-        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")])
+        # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS)
 
     # -- v03 ----------------------------------------------------------------------------------------
     def test_v03_v5_is_v4_plus_the_adp_extraction_shape_and_adp_stays_ineligible(self):
@@ -12591,7 +12612,8 @@ class TestHvacItemListSlice4(FrappeTestCase):
         self.assertIn("only when the row or its ancestors STATE it", defs["air"]["note"])              # 3c
         self.assertIn("1:N", defs["panel_ratio"]["note"])
         self.assertIn("insulation", defs["insulation_thickness_mm"]["note"].lower())
-        # NEGATIVE: still NOT eligible -- empty pipelines on both predicates
+        # NEGATIVE: still NOT eligible -- empty pipelines on both predicates (and, since 12d-2, no fully-piped
+        # list block either: v5's blocks carry no pipelines of their own)
         self.assertEqual(self.v5["category_configs"][0]["pipelines"], {})
         self.assertFalse(extraction.config_is_eligible(self._adp()))
 
@@ -12819,10 +12841,12 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                 except frappe.ValidationError:
                     full_refusals.append((os.path.basename(path), c["category_id"]))
         self.assertGreaterEqual(n_configs, 585)
-        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")])
+        # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS)
 
     # -- p03 ----------------------------------------------------------------------------------------
-    def test_p03_v7_is_v6_plus_the_pricing_block_which_is_the_owners_rulings_and_adp_stays_ineligible(self):
+    def test_p03_v7_is_v6_plus_the_pricing_block_which_is_the_owners_rulings(self):
+        # (12d-2: the "adp stays ineligible" half of this test's old name is INVERTED below, not deleted)
         self.assertEqual(self.v7["items"], self.v6["items"])
         self.assertEqual([i["item_uid"] for i in self.v7["items"]], [i["item_uid"] for i in self.v6["items"]])
         self.assertEqual(self.v7["category_configs"][1:], self.v6["category_configs"][1:])
@@ -12889,9 +12913,10 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                 for o in opts:
                     walk(o["pipelines"])
         self.assertEqual(used, {"match_master_row", "component_ref", "sum_components", "scale", "roundup"})
-        # NEGATIVE (P8): still NOT eligible -- empty pipelines on the backend predicate
+        # P8 pinned "still NOT eligible -- empty pipelines on the backend predicate". INVERTED by 12d-2 (owner S1),
+        # NOT deleted: v7's block is fully piped, so the widened predicate reads it as eligible; `pipelines` is still {}
         self.assertEqual(self.v7["category_configs"][0]["pipelines"], {})
-        self.assertFalse(extraction.config_is_eligible(self._adp()))
+        self.assertTrue(extraction.config_is_eligible(self._adp()))
         # NEGATIVE (P8): no panel / helper / calculator / grid file imports the module; the module exists and is pure
         # slice 6 (owner T7, INVERTING the slice-5 P8 pin): the helper (the list path) and the calculator (no
         # placeholder blocks for a list-mode category) now import the module; the grid, the page and the plumbing
@@ -12924,11 +12949,12 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
         self.assertEqual(out["list_spec"]["pricing"]["families"]["VCD"]["needs"], ["variant"])
         self.assertEqual(out["pipelines"], {})
         active = extraction.load_configs_with_alias_targets({disc})
-        self.assertFalse(extraction.config_is_eligible(active[(disc, "hvac_adp")], active))
-        # no HVAC config OF ITS OWN is eligible (the two alias configs follow their Electrical targets one hop,
+        # INVERTED by 12d-2 (owner S1): the loaded v7 ADP (fully-piped block) reads eligible; it is the ONLY
+        # config of its own that does (the two alias configs follow their Electrical targets one hop,
         # exactly as slice 3 pinned -- that is the alias mechanism, not ADP)
+        self.assertTrue(extraction.config_is_eligible(active[(disc, "hvac_adp")], active))
         own = {k for k, v in active.items() if k[0] == disc and not extraction.alias_target(v)}
-        self.assertEqual({k for k in own if extraction.config_is_eligible(active[k], active)}, set())
+        self.assertEqual({k for k in own if extraction.config_is_eligible(active[k], active)}, {(disc, "hvac_adp")})
         self.assertEqual({k[1] for k in active if k[0] == disc and extraction.alias_target(active[k])}, {"hvac_cables", "hvac_raceway"})
         self.assertEqual(_electrical_active_checksum(), before)
 
@@ -13038,7 +13064,8 @@ class TestHvacAdpLiveSlice6(FrappeTestCase):
                 except frappe.ValidationError:
                     full_refusals.append((os.path.basename(path), c["category_id"]))
         self.assertGreaterEqual(n_configs, 592)
-        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")])
+        # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS)
 
     # -- q03 ----------------------------------------------------------------------------------------
     def test_q03_v8_is_v7_plus_the_four_deltas_and_nothing_else(self):
@@ -13112,9 +13139,11 @@ class TestHvacAdpLiveSlice6(FrappeTestCase):
 
     # -- q04 ----------------------------------------------------------------------------------------
     def test_q04_adp_is_eligible_on_both_sides_and_no_other_category_moved(self):
-        # the backend predicate, its code UNCHANGED: two facts, non-empty pipelines AND definitions
+        # the backend predicate: pricing rules that RUN (12d-2 widened it) AND definitions
         self.assertTrue(extraction.config_is_eligible(self._adp()))
-        self.assertFalse(extraction.config_is_eligible(self._adp(self.v7)))
+        # INVERTED by 12d-2 (owner S1), NOT deleted: v7's ADP block is fully piped, so the widened predicate
+        # reads it as rules that run; the slice-6 switch (the top-level default) is still what v8 added
+        self.assertTrue(extraction.config_is_eligible(self._adp(self.v7)))
         for c8, c7 in zip(self.v8["category_configs"][1:], self.v7["category_configs"][1:]):
             l8, l7 = loader._loaded_config(c8, "HVAC", {}), loader._loaded_config(c7, "HVAC", {})
             self.assertEqual(extraction.config_is_eligible(l8), extraction.config_is_eligible(l7), c8["category_id"])
@@ -13124,12 +13153,16 @@ class TestHvacAdpLiveSlice6(FrappeTestCase):
         for c in eall["category_configs"]:
             lc = loader._loaded_config(c, "Electrical", eall.get("goldens") or {})
             self.assertEqual(extraction.config_is_eligible(lc), bool(lc.get("pipelines")) and bool(lc.get("attribute_definitions")), c["category_id"])
+            self.assertEqual(extraction.has_runnable_pricing_rules(lc), bool(lc.get("pipelines")), c["category_id"])   # Electrical: the first arm only
         self.assertEqual(len(eall["category_configs"]), EALL_CONFIGS)  # SLICE 12b(A): 12 -> 13, the new electrical_pricing_inputs category
         # the frontend predicate reads the same two facts (source-pinned, as h06 has always pinned it)
         src = self._frontend_src("pages", "boq-wizard", "rate-helper", "pricingSheetHelper.ts")
         body = src[src.index("export function isEligibleConfig("):]
         body = body[:body.index("\n}")]
-        self.assertIn("Object.keys(config.pipelines ?? {}).length > 0", body)
+        # SLICE 12d-2 (owner S1): the body now reads ONE named predicate -- `hasRunnablePricingRules` (top-level
+        # pipelines, OR an item-list block whose every unit block carries its own) -- beside the definitions fact
+        self.assertIn("hasRunnablePricingRules(config)", body)
+        self.assertNotIn("Object.keys(config.pipelines ?? {}).length > 0", body)
         self.assertIn("(config.attribute_definitions ?? []).length > 0", body)
         # and the extraction population's own filter -- the exact expression assemble_population applies
         cfgs = {("HVAC", c["category_id"]): loader._loaded_config(c, "HVAC", {}) for c in self.v8["category_configs"]}
@@ -16221,6 +16254,7 @@ class TestItemListMayReadAPricingInput(FrappeTestCase):
         import glob
         data_dir = os.path.dirname(_asset_path(CURRENT_HVAC_ASSET))
         checked = 0
+        retired = []
         for path in sorted(glob.glob(os.path.join(data_dir, "rate_master_*_v*.json"))):
             with open(path, "r", encoding="utf-8") as fh:
                 asset = json.load(fh)
@@ -16234,9 +16268,14 @@ class TestItemListMayReadAPricingInput(FrappeTestCase):
                 except Exception as exc:                    # a historical asset may hold a real defect
                     if "point_wiring" in str(exc) or "switch_item" in str(exc):
                         continue                            # the known v12 defect, recorded at 12b(A)
+                    if "calculator_only" in str(exc):       # 12d-2: the retired key on the frozen v18..v28 files
+                        retired.append((os.path.basename(path), c["category_id"]))
+                        continue
                     raise AssertionError("%s: %s" % (os.path.basename(path), exc))
             checked += 1
         self.assertGreater(checked, 60)
+        # 12d-2: EXACTLY the frozen v18..v28 Insulation configs are refused for the retired key, nothing else
+        self.assertEqual(retired, RETIRED_KEY_REFUSALS)
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
@@ -16435,12 +16474,13 @@ class TestHvacPricingInputsAndInsulationRules(FrappeTestCase):
 
     # ---- Insulation's rules (acceptance 1, 3, 15, 17, 19) ----------------------------------------
 
-    def test_pi7_07_insulation_stays_INELIGIBLE_and_its_pipelines_live_in_list_spec(self):
-        """ACCEPTANCE 19 / owner Q13: every Insulation BoQ row keeps its coming-soon card after 12c.
-        No flag and no new mechanism -- `pipelines` is empty and `config_is_eligible` reads that."""
+    def test_pi7_07_INVERTED_v16_insulation_reads_eligible_by_the_12d_2_predicate_and_its_pipelines_live_in_list_spec(self):
+        """ACCEPTANCE 19 / owner Q13 pinned every Insulation BoQ row on its coming-soon card after 12c, through
+        an empty `pipelines`. INVERTED by 12d-2 (owner S1), NOT deleted: the predicate now reads the list block,
+        which v16's already carried fully piped, so this frozen file reads eligible; `pipelines` is still {}."""
         ins = self._cfg(self.v16, "hvac_insulation")
         self.assertEqual(ins["pipelines"], {})
-        self.assertFalse(extraction.config_is_eligible(ins, self.v16["category_configs"]))
+        self.assertTrue(extraction.config_is_eligible(ins, self.v16["category_configs"]))
         self.assertEqual(ins["matching_mode"], "item_list")
         # but the rules EXIST, per family and unit class
         fams = ins["list_spec"]["pricing"]["families"]
@@ -16919,10 +16959,14 @@ class TestCladdingOnlySkus(FrappeTestCase):
             y.append(c)
         self.assertEqual(json.dumps(x, sort_keys=True), json.dumps(y, sort_keys=True))
 
-    def test_co_f1_09_insulation_is_STILL_not_eligible(self):
+    def test_co_f1_09_INVERTED_v17_insulation_reads_eligible_by_the_12d_2_predicate(self):
+        """INVERTED by 12d-2 (owner S1), NOT deleted. 12c kept Insulation off BoQ rows by leaving
+        `pipelines` empty (Q13); 12d-2's predicate reads an item-list pricing block whose every unit
+        block carries its own pipelines as rules that run -- which v17's already did -- so this
+        frozen file now reads eligible. The first claim (pipelines == {}) is unchanged."""
         cfg = self._cfg(self.v17)
         self.assertEqual(cfg["pipelines"], {})
-        self.assertFalse(extraction.config_is_eligible(cfg, self.v17["category_configs"]))
+        self.assertTrue(extraction.config_is_eligible(cfg, self.v17["category_configs"]))
 
     def test_co_f1_10_every_v17_config_validates_through_the_loaders_own_gate(self):
         for c in self.v17["category_configs"]:
@@ -17371,8 +17415,14 @@ class TestDeclaredPresentationOrder(FrappeTestCase):
 # eligibility predicate would NEVER EXECUTE -- the "validates but never executes" defect. That is the
 # measurement `test_fa7_09` keeps true.
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
-class TestCalculatorAdmission(FrappeTestCase):
-    """`calculator_only` admits a category to the calculator and to nothing else."""
+class TestCalculatorAdmissionRetired(FrappeTestCase):
+    """SLICE 12d-2 (owner S1, 2026-10-07) -- INVERTED under MECHANICAL AUTHORITY, NOT deleted: the FA7
+    admission is RETIRED. `calculator_only` is out of the validator's allowlist (a config carrying it is
+    refused as an unknown key), the CURRENT asset v29 declares it nowhere, the LOADED config carries it
+    nowhere, and Insulation IS in the extraction population through the ONE generic predicate --
+    `extraction.has_runnable_pricing_rules` + definitions -- with `pipelines` still honestly `{}`.
+    The measurement the FA7 design rested on (`test_fa7_09`) is kept as written: it is exactly WHY the
+    predicate recognises an item-list block instead of a dead top-level entry."""
 
     CAT = "hvac_insulation"
 
@@ -17381,99 +17431,96 @@ class TestCalculatorAdmission(FrappeTestCase):
         super().setUpClass()
         with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
             cls.asset = json.load(fh)
+        with open(_asset_path("rate_master_hvac_all_v28.json"), "r", encoding="utf-8") as fh:
+            cls.v28 = json.load(fh)
 
     @classmethod
-    def _cfg(cls, cat=None):
-        return next(c for c in cls.asset["category_configs"]
+    def _cfg(cls, cat=None, asset=None):
+        return next(c for c in (asset or cls.asset)["category_configs"]
                     if c["category_id"] == (cat or cls.CAT))
 
     # ---- the asset + the stored config -----------------------------------------------------------
 
-    def test_fa7_01_the_SHIPPED_asset_declares_the_admission(self):
-        self.assertIs(self._cfg().get("calculator_only"), True)
-        # and it is the ONLY category that declares one
+    def test_fa7_01_INVERTED_the_SHIPPED_asset_declares_NO_admission_anywhere(self):
         declaring = [c["category_id"] for c in self.asset["category_configs"]
-                     if c.get("calculator_only") is not None]
-        self.assertEqual(declaring, [self.CAT])
+                     if "calculator_only" in c]
+        self.assertEqual(declaring, [])
+        # the frozen v28 file still carries it (a historical asset is never edited) -- the negative half
+        self.assertIs(self._cfg(asset=self.v28).get("calculator_only"), True)
 
-    def test_fa7_02_the_LOADED_config_carries_it_too(self):
-        """⚠️ THE SEAM. An asset pin and a frontend pin can both be green while the key never
-        reaches the database the screen reads -- a test on each side of a boundary is not a test of
-        the boundary (standing rule). This reads what the product actually serves."""
+    def test_fa7_02_INVERTED_the_LOADED_config_carries_it_nowhere(self):
+        """⚠️ THE SEAM. An asset pin and a frontend pin can both be green while the live config still
+        carries the retired key -- this reads what the product actually serves (v29 loaded)."""
         stored = _obj(frappe.get_value("BoQ Rate Category Config",
                                        {"discipline": "HVAC", "active": 1,
                                         "category_id": self.CAT}, "config"))
-        self.assertIs(stored.get("calculator_only"), True)
+        self.assertNotIn("calculator_only", stored)
+        self.assertEqual(stored.get("pipelines") or {}, {})
+        self.assertTrue(extraction.config_is_eligible(stored))
 
-    # ---- the half this slice must NOT change ------------------------------------------------------
+    # ---- the half that CHANGED, by ruling --------------------------------------------------------
 
-    def test_fa7_03_the_category_is_STILL_OUT_of_the_extraction_population(self):
-        """OWNER: "BoQ rows and extraction stay untouched". `config_is_eligible` is what the
-        extraction population is assembled from, and the admission must not move it."""
+    def test_fa7_03_INVERTED_the_category_is_IN_the_extraction_population(self):
+        """OWNER S1: Insulation joins the extraction population. `config_is_eligible` is what the
+        population is assembled from; the admission key is consulted nowhere in the service."""
         cfgs = self.asset["category_configs"]
-        self.assertFalse(extraction.config_is_eligible(self._cfg(), cfgs))
-        # the admission is NOT consulted anywhere in the extraction service
+        self.assertTrue(extraction.config_is_eligible(self._cfg(), cfgs))
         self.assertNotIn("calculator_only", inspect.getsource(extraction))
+        self.assertNotIn("calculator_only", inspect.getsource(loader))
 
-    def test_fa7_04_test_co_f1_09_STAYS_TRUE_AS_WRITTEN(self):
-        """The owner said so explicitly. Its two claims, re-asserted here against the NEW asset so a
-        later mint cannot quietly falsify them in that older test's name."""
+    def test_fa7_04_INVERTED_pipelines_stays_EMPTY_and_the_category_is_eligible_through_the_list_block(self):
+        """`test_co_f1_09`'s first claim (pipelines == {}) still holds and its second is inverted: the
+        eligibility comes from `list_spec.pricing` -- never from a top-level entry that would never run."""
         cfg = self._cfg()
         self.assertEqual(cfg["pipelines"], {})
-        self.assertFalse(extraction.config_is_eligible(cfg, self.asset["category_configs"]))
+        self.assertTrue(extraction.has_runnable_pricing_rules(cfg))
+        self.assertTrue(extraction.config_is_eligible(cfg, self.asset["category_configs"]))
 
-    # ---- there must never be two switches --------------------------------------------------------
+    # ---- there is now ONE switch, and the retired key is refused ---------------------------------
 
-    def test_fa7_05_NEGATIVE_the_key_is_REFUSED_beside_real_eligibility(self):
-        """⚠️ THIS IS THE REMOVAL CONDITION, MADE MECHANICAL. The owner's words: the slice that makes
-        the category fully eligible REMOVES this admission in the same slice, "so there is never a
-        second on/off switch". A config carrying both would have two independent switches for one
-        question -- and nobody would think to turn the forgotten one off."""
-        cfg = copy.deepcopy(self._cfg())
-        cfg["pipelines"] = {"item_supply": {"steps": []}}
-        self.assertTrue(cfg.get("attribute_definitions"))
+    def test_fa7_05_INVERTED_the_retired_key_is_REFUSED_as_an_unknown_top_level_key(self):
+        """The removal condition, discharged: the key is gone from the allowlist, so the frozen v28
+        Insulation config -- untouched -- is refused by name, and the same config stripped of the key
+        validates. (Historical assets v18..v28 all carry it; the loader never loads them.)"""
+        cfg = copy.deepcopy(self._cfg(asset=self.v28))
+        cfg.setdefault("discipline", "HVAC")
         with self.assertRaises(Exception) as cm:
-            config_validation._validate_calculator_only(cfg)
-        msg = str(cm.exception)
-        self.assertIn("already eligible", msg)
-        self.assertIn("never be two switches", msg)
+            config_validation._validate_config(cfg)
+        self.assertIn("Unknown top-level config key", str(cm.exception))
+        self.assertIn("calculator_only", str(cm.exception))
+        cfg.pop("calculator_only")
+        config_validation._validate_config(cfg)          # the same config without the key: fine
 
-    def test_fa7_06_NEGATIVE_every_other_malformed_shape_is_refused_by_name(self):
-        cases = [
-            (False, "exactly true"),          # a key doing nothing, the shape refused twice already
-            ("true", "exactly true"),
-            (1, "exactly true"),
-            (None, "exactly true"),
-        ]
-        for val, needle in cases:
-            cfg = copy.deepcopy(self._cfg())
-            cfg["calculator_only"] = val
-            with self.assertRaises(Exception, msg="accepted %r" % (val,)) as cm:
-                config_validation._validate_calculator_only(cfg)
-            self.assertIn(needle, str(cm.exception), "%r refused for the wrong reason" % (val,))
+    def test_fa7_06_the_validator_module_carries_NO_admission_code_any_more(self):
+        src = inspect.getsource(config_validation)
+        self.assertNotIn("_validate_calculator_only", src.replace("# SLICE 12d-2: `_validate_calculator_only` is GONE", ""))
+        self.assertNotIn("CALCULATOR_ONLY_KEY", src)
+        code = [l for l in src.split("\n") if "calculator_only" in l and not l.strip().startswith("#")]
+        self.assertEqual(code, [])
 
-    def test_fa7_07_NEGATIVE_it_is_refused_on_a_config_with_NOTHING_TO_PRICE(self):
-        """Admitting such a category would put it in the calculator's reach only to refuse every
-        pick, which is worse than the coming-soon card it replaces."""
-        cfg = {"category_id": "x", "calculator_only": True, "attribute_definitions": [],
-               "pipelines": {}}
-        with self.assertRaises(Exception) as cm:
-            config_validation._validate_calculator_only(cfg)
-        self.assertIn("needs pricing rules", str(cm.exception))
+    def test_fa7_07_NEGATIVE_a_config_with_NOTHING_TO_PRICE_is_still_not_eligible(self):
+        """What the retired admission used to refuse by name is now simply not eligible: no rules,
+        no row. Both arms of the predicate are exercised."""
+        cfg = {"category_id": "x", "attribute_definitions": [{"id": "a", "label": "A", "type": "text"}], "pipelines": {}}
+        self.assertFalse(extraction.has_runnable_pricing_rules(cfg))
+        self.assertFalse(extraction.config_is_eligible(cfg))
+        cfg["list_spec"] = {"pricing": {"families": {}}}
+        self.assertFalse(extraction.has_runnable_pricing_rules(cfg))
 
     def test_fa7_08_the_whole_asset_still_validates_through_the_loaders_own_gate(self):
         for c in self.asset["category_configs"]:
             config_validation._validate_config(
                 loader._loaded_config(copy.deepcopy(c), "HVAC", self.asset.get("goldens") or {}))
 
-    # ---- the measurement the design rests on ------------------------------------------------------
+    # ---- the measurement the design rests on (KEPT AS WRITTEN) ------------------------------------
 
     def test_fa7_09_a_top_level_pipeline_on_THIS_category_would_never_execute(self):
-        """⚠️ WHY THE ADMISSION, AND NOT "just make it eligible". Eligibility needs non-empty
-        top-level `pipelines`; for an item-list category those are the SHARED PER-ITEM DEFAULT that a
-        unit block without pipelines of its own runs. ADP has 29 such blocks of 30, so its default
-        really runs. Insulation has NONE -- every block carries its own -- so a top-level entry added
-        to satisfy the predicate would be a key that validates and never executes."""
+        """⚠️ WHY THE PREDICATE READS THE LIST BLOCK, AND NOT "just add pipelines". For an item-list
+        category top-level pipelines are the SHARED PER-ITEM DEFAULT that a unit block without
+        pipelines of its own runs. ADP has 29 such blocks of 30, so its default really runs.
+        Insulation has NONE -- every block carries its own -- so a top-level entry added to satisfy a
+        pipelines-only predicate would be a key that validates and never executes (owner-locked rule,
+        2026-09-10). 12d-2 therefore widened the predicate rather than the config."""
         def blocks(cat):
             pr = (self._cfg(cat).get("list_spec") or {}).get("pricing") or {}
             total = without = 0
@@ -17490,17 +17537,45 @@ class TestCalculatorAdmission(FrappeTestCase):
         self.assertEqual((adp_total, adp_without), (30, 29), "ADP: its top-level default really runs")
         self.assertTrue(self._cfg("hvac_adp")["pipelines"], "ADP declares the default it runs")
 
-    def test_fa7_10_NO_DISCIPLINE_AND_NO_CATEGORY_IS_NAMED_IN_THE_ADMISSION_CODE(self):
+    def test_fa7_10_NO_DISCIPLINE_AND_NO_CATEGORY_IS_NAMED_IN_THE_PREDICATE_CODE(self):
         """The HV-10 rule. Prose may name them; code may not."""
-        for mod in (config_validation,):
-            for line in inspect.getsource(mod).split("\n"):
-                if "CALCULATOR_ONLY_KEY" not in line and "calculator_only" not in line:
-                    continue
-                stripped = line.strip()
-                if stripped.startswith(("#", '"', "*")):
-                    continue
-                for banned in ("hvac_", "Electrical", "insulation"):
-                    self.assertNotIn(banned, line, "a name reached the code: %r" % line)
+        src = inspect.getsource(extraction.has_runnable_pricing_rules)
+        code = re.sub(r'"""[\s\S]*?"""', "", src)          # prose (the docstring) may name them; code may not
+        for line in code.split("\n"):
+            stripped = line.strip()
+            if stripped.startswith("#") or not stripped:
+                continue
+            for banned in ("hvac_", "Electrical", "insulation", "ADP"):
+                self.assertNotIn(banned, line, "a name reached the code: %r" % line)
+
+    # ---- the predicate's second arm, by shape ----------------------------------------------------
+
+    def test_fa7_11_the_second_arm_needs_EVERY_block_piped_or_a_top_level_default(self):
+        """"RUN" is the word that carries the weight: a pricing block with an un-piped unit block and
+        no default would price nothing for that block, so it is NOT runnable; a top-level default
+        makes the same block runnable (ADP's shape); an un-piped convert option is caught too."""
+        cfg = copy.deepcopy(self._cfg())
+        self.assertTrue(extraction.has_runnable_pricing_rules(cfg))
+        fams = cfg["list_spec"]["pricing"]["families"]
+        fam = next(iter(fams.values()))
+        unit = next(iter(fam["units"].values()))
+        saved = unit.pop("pipelines")
+        self.assertFalse(extraction.has_runnable_pricing_rules(cfg))
+        cfg["pipelines"] = {"item_supply": {"output": ["supply"], "steps": []}}
+        self.assertTrue(extraction.has_runnable_pricing_rules(cfg))
+        cfg["pipelines"] = {}
+        unit["pipelines"] = saved
+        self.assertTrue(extraction.has_runnable_pricing_rules(cfg))
+        fam["convert"] = {"count": [{"to": "area", "needs": [], "pipelines": {}}]}
+        self.assertFalse(extraction.has_runnable_pricing_rules(cfg))
+        fam["convert"]["count"][0]["pipelines"] = {"x": {"steps": []}}
+        self.assertTrue(extraction.has_runnable_pricing_rules(cfg))
+        # the alias path resolves to the TARGET's rules (unchanged mechanism, new arm)
+        cfgs = {("HVAC", c["category_id"]): dict(c, discipline="HVAC") for c in self.asset["category_configs"]}
+        alias = {"category_id": "z", "discipline": "HVAC", "alias_of": {"discipline": "HVAC", "category_id": self.CAT},
+                 "attribute_definitions": [], "pipelines": {}}
+        self.assertTrue(extraction.config_is_eligible(alias, cfgs))
+        self.assertFalse(extraction.config_is_eligible(alias))
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
@@ -17851,10 +17926,17 @@ class TestEveryTypedFieldHasItsNote(FrappeTestCase):
             config_validation._validate_config(cfg)      # every one still validates, untouched
         self.assertEqual(declaring, [], "no Electrical config declares panel_controls")
 
-    def test_an_06_every_v20_config_validates_through_the_loaders_own_gate(self):
+    def test_an_06_every_v20_config_validates_through_the_loaders_own_gate_once_the_retired_key_is_stripped(self):
+        # 12d-2: v20's Insulation carries the retired `calculator_only`; the frozen file is refused by name and
+        # the same config repaired in memory validates (every other v20 config is untouched)
+        refused = []
         for c in self.v20["category_configs"]:
-            config_validation._validate_config(
-                loader._loaded_config(copy.deepcopy(c), "HVAC", self.v20.get("goldens") or {}))
+            try:
+                config_validation._validate_config(loader._loaded_config(copy.deepcopy(c), "HVAC", self.v20.get("goldens") or {}))
+            except Exception as exc:          # noqa: BLE001
+                self.assertIn("calculator_only", str(exc)); refused.append(c["category_id"])
+                config_validation._validate_config(loader._loaded_config(_without_retired_calculator_only(c), "HVAC", self.v20.get("goldens") or {}))
+        self.assertEqual(refused, ["hvac_insulation"])
 
 
 # ═════════════════════════════════════════════════════════════════════════════════════════════════
@@ -18321,13 +18403,21 @@ class TestSlice12d1aPanelReadonly(FrappeTestCase):
         cls.ins = next(c for c in cls.asset["category_configs"] if c["category_id"] == "hvac_insulation")
 
     def _cfg(self, readonly, add_brand=True):
-        c = copy.deepcopy(self.ins)
+        c = _without_retired_calculator_only(self.ins)   # 12d-2: the frozen v26 fixture repaired in memory
         c.setdefault("discipline", self.asset["discipline"])
         if add_brand:
             c["list_spec"]["attribute_definitions"].append(
                 {"id": "brand", "label": "Brand", "type": "text", "note": "The make the row names, copied as written."})
         c["list_spec"]["pricing"]["panel_readonly"] = readonly
         return c
+
+    def test_r7_00_the_UNTOUCHED_v26_file_is_refused_for_the_retired_key(self):
+        c = copy.deepcopy(self.ins)
+        c.setdefault("discipline", self.asset["discipline"])
+        self.assertIs(c.get("calculator_only"), True)
+        msg = self._refused(c)
+        self.assertIsNotNone(msg)
+        self.assertIn("calculator_only", msg)
 
     def _refused(self, cfg):
         try:
@@ -18448,21 +18538,27 @@ class TestSlice12d1aAsset(FrappeTestCase):
         self.assertIn("refuse", pb["value_map"][1])
         self.assertEqual(pb["panel_readonly"], ["brand"])
 
-    def test_v27_05_insulation_is_STILL_calculator_only_and_not_eligible(self):
-        """Eligibility is 12d-2's. R9 rides on the unchanged catalogue: no SKU was added above 53.98 mm."""
+    def test_v27_05_INVERTED_frozen_v27_still_carries_the_retired_key_and_reads_eligible(self):
+        """INVERTED by 12d-2 (owner S1): the frozen v27 file is never edited, so the retired key stays
+        in it; the 12d-2 predicate reads its pricing block as eligible. R9 rides on the unchanged
+        catalogue: no SKU was added above 53.98 mm."""
         b = next(c for c in self.cur["category_configs"] if c["category_id"] == "hvac_insulation")
         self.assertIs(b.get("calculator_only"), True)
         self.assertEqual(b.get("pipelines") or {}, {})
         from nirmaan_stack.services.boq_rate_master import extraction
-        self.assertFalse(extraction.config_is_eligible(b))
+        self.assertTrue(extraction.config_is_eligible(b))
         nr_sizes = sorted({i["attributes"]["pipe_size_mm"] for i in self.cur["items"]
                            if i["kind"] == "hvac_insulation_item" and i["attributes"].get("item") == "Nitrile Rubber Insulation"})
         self.assertEqual(max(nr_sizes), 53.98)
 
-    def test_v27_06_the_current_asset_validates_and_adp_second_opinion_is_unchanged(self):
+    def test_v27_06_v27_validates_once_the_retired_key_is_stripped_and_adp_second_opinion_is_unchanged(self):
         ins = copy.deepcopy(next(c for c in self.cur["category_configs"] if c["category_id"] == "hvac_insulation"))
         ins.setdefault("discipline", self.cur["discipline"])
-        config_validation._validate_config(ins)   # raises on refusal
+        # 12d-2: the frozen v27 file carries the retired key and is refused by name; repaired in memory it validates
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(ins)
+        self.assertIn("calculator_only", str(cm.exception))
+        config_validation._validate_config(_without_retired_calculator_only(ins))   # raises on refusal
         adp = next(c for c in self.cur["category_configs"] if c["category_id"] == "hvac_adp")
         self.assertIs(adp["list_spec"]["second_opinion"], False)
 
@@ -18515,11 +18611,13 @@ class TestSlice12d1bAsset(FrappeTestCase):
         super().setUpClass()
         with open(_asset_path("rate_master_hvac_all_v27.json"), "r", encoding="utf-8") as fh:
             cls.prev = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # 12d-2: re-pointed to v28 BY NAME (the 12d-1a precedent) -- this class describes the v27 -> v28 mint
+        with open(_asset_path("rate_master_hvac_all_v28.json"), "r", encoding="utf-8") as fh:
             cls.cur = json.load(fh)
 
-    def test_v28_01_the_current_asset_is_v28(self):
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v28.json")
+    def test_v28_01_INVERTED_the_current_asset_has_moved_past_v28(self):
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v28.json")
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v29.json")
 
     def test_v28_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -18571,13 +18669,20 @@ class TestSlice12d1bAsset(FrappeTestCase):
         self.assertNotIn("no_sku_named_by", pa); self.assertEqual(pb["no_sku_named_by"], "material_as_written")
         self.assertIs(b["list_spec"]["second_opinion"], True)                 # still ON while building (R8)
 
-    def test_v28_05_insulation_is_STILL_calculator_only_and_not_eligible_and_validates(self):
+    def test_v28_05_INVERTED_frozen_v28_carries_the_retired_key_is_eligible_and_is_REFUSED_by_the_validator_until_stripped(self):
+        """INVERTED by 12d-2 (owner S1). The frozen v28 file still carries `calculator_only`; the
+        12d-2 predicate reads its pricing block as eligible; and the validator -- the key being
+        retired -- REFUSES the untouched file by name and accepts it stripped of the key."""
         b = copy.deepcopy(next(c for c in self.cur["category_configs"] if c["category_id"] == "hvac_insulation"))
         self.assertIs(b.get("calculator_only"), True)
         self.assertEqual(b.get("pipelines") or {}, {})
         from nirmaan_stack.services.boq_rate_master import extraction
-        self.assertFalse(extraction.config_is_eligible(b))
+        self.assertTrue(extraction.config_is_eligible(b))
         b.setdefault("discipline", self.cur["discipline"])
+        with self.assertRaises(Exception) as cm:
+            config_validation._validate_config(b)
+        self.assertIn("calculator_only", str(cm.exception))
+        b.pop("calculator_only")
         config_validation._validate_config(b)
 
 
@@ -18596,10 +18701,21 @@ class TestSlice12d1bNoSkuNamedBy(FrappeTestCase):
     def _cfg(self, named_by, add_def=True):
         c = copy.deepcopy(self.ins)
         c.setdefault("discipline", self.asset["discipline"])
+        # 12d-2: the fixture is repaired IN MEMORY -- v27 carries the retired `calculator_only`, which the
+        # validator now refuses by name (pinned below); the untouched file is never edited.
+        c.pop("calculator_only", None)
         if add_def:
             c["list_spec"]["attribute_definitions"].append({"id": "material_as_written", "label": "Material as written", "type": "text", "note": "as written"})
         c["list_spec"]["pricing"]["no_sku_named_by"] = named_by
         return c
+
+    def test_t5_00_the_UNTOUCHED_v27_file_is_refused_for_the_retired_key(self):
+        c = copy.deepcopy(self.ins)
+        c.setdefault("discipline", self.asset["discipline"])
+        self.assertIs(c.get("calculator_only"), True)
+        msg = self._refused(c)
+        self.assertIsNotNone(msg)
+        self.assertIn("calculator_only", msg)
 
     def _refused(self, cfg):
         try:
@@ -18624,3 +18740,111 @@ class TestSlice12d1bNoSkuNamedBy(FrappeTestCase):
             msg = self._refused(cfg)
             self.assertIsNotNone(msg, needle)
             self.assertIn(needle, msg, msg)
+
+
+class TestSlice12d2Asset(FrappeTestCase):
+    """SLICE 12d-2 (2026-10-07) -- HVAC v29 = v28 + the Insulation config changes ONLY: `calculator_only` REMOVED
+    (S1), the thickness note stating the four-step read order (S3), `second_opinion` still ON (S8), the `notes`
+    trail. Items, every other top-level key and every other config byte-identical; each named place shown to
+    have actually changed; `list_spec.pricing` byte-identical (no pricing rule moved)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v28.json"), "r", encoding="utf-8") as fh:
+            cls.prev = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.cur = json.load(fh)
+
+    def test_v29_01_the_current_asset_is_v29(self):
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v29.json")
+
+    def test_v29_02_items_and_every_other_top_level_key_are_byte_identical(self):
+        self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
+        for key in self.prev:
+            if key in ("items", "category_configs"):
+                continue
+            self.assertEqual(json.dumps(self.prev[key], sort_keys=True), json.dumps(self.cur[key], sort_keys=True), key)
+
+    def test_v29_03_every_config_but_insulation_is_byte_identical(self):
+        a = {c["category_id"]: c for c in self.prev["category_configs"]}
+        b = {c["category_id"]: c for c in self.cur["category_configs"]}
+        self.assertEqual(sorted(a), sorted(b))
+        self.assertEqual(sorted(a), ["hvac_adp", "hvac_ahu", "hvac_cables", "hvac_dx_unit", "hvac_insulation", "hvac_panels",
+                                     "hvac_pricing_inputs", "hvac_pumps", "hvac_raceway"])
+        for cid in a:
+            if cid != "hvac_insulation":
+                self.assertEqual(json.dumps(a[cid], sort_keys=True), json.dumps(b[cid], sort_keys=True), cid)
+
+    def _stripped(self, cfg):
+        c = copy.deepcopy(cfg)
+        c.pop("notes", None)
+        c.pop("calculator_only", None)
+        for d in c["list_spec"]["attribute_definitions"]:
+            if d["id"] == "thickness_mm":
+                d.pop("note", None)
+        return json.dumps(c, sort_keys=True)
+
+    def test_v29_04_insulation_differs_ONLY_in_the_named_places_and_each_DID_change(self):
+        a = next(c for c in self.prev["category_configs"] if c["category_id"] == "hvac_insulation")
+        b = next(c for c in self.cur["category_configs"] if c["category_id"] == "hvac_insulation")
+        self.assertEqual(self._stripped(a), self._stripped(b), "Insulation changed outside the slice's named places")
+        self.assertIs(a.get("calculator_only"), True); self.assertNotIn("calculator_only", b)        # S1
+        da = {d["id"]: d for d in a["list_spec"]["attribute_definitions"]}
+        db = {d["id"]: d for d in b["list_spec"]["attribute_definitions"]}
+        self.assertEqual(sorted(da), sorted(db))
+        self.assertNotEqual(da["thickness_mm"]["note"], db["thickness_mm"]["note"])                 # S3
+        self.assertNotEqual(a["notes"], b["notes"]); self.assertIn("SLICE 12d-2", b["notes"])
+        self.assertEqual(json.dumps(a["list_spec"]["pricing"], sort_keys=True), json.dumps(b["list_spec"]["pricing"], sort_keys=True))
+        self.assertIs(b["list_spec"]["second_opinion"], True)                                        # S8
+        self.assertEqual(b.get("pipelines") or {}, {})                                                # no dead key
+
+    def test_v29_05_the_thickness_note_states_the_four_step_order_and_keeps_the_12d_1b_sentences(self):
+        """S3 (owner 2026-10-08): the row's OWN value wins; else the heading schedule for THIS row's size;
+        else the list as written; else left out. The highest-of-a-list and the 9 mm default are CODE
+        (`several`, `number_defaults`) and never appear in the prompt -- a calculation does not go in the
+        prompt (owner-locked)."""
+        b = next(c for c in self.cur["category_configs"] if c["category_id"] == "hvac_insulation")
+        note = next(d for d in b["list_spec"]["attribute_definitions"] if d["id"] == "thickness_mm")["note"]
+        order = ["(1) the row's OWN value", "(2) else", "(3) else", "(4) else leave the attribute out"]
+        pos = [note.index(x) for x in order]
+        self.assertEqual(pos, sorted(pos))
+        self.assertIn("in the row's description or in a note attached to the row", note)
+        self.assertIn("always wins, even where a heading says otherwise", note)
+        self.assertIn("read the thickness for THIS row's pipe size", note)      # T3 kept
+        self.assertIn("copy the list as written", note)                         # T2 kept
+        self.assertIn("never add the layers up", note)                          # T4 kept
+        for forbidden in ("highest", "default", "ladder"):
+            self.assertNotIn(forbidden, note, forbidden)
+        self.assertIsNone(re.search(r"(?<![\d])9 ?mm", note))   # the 9 mm default is CODE ("19 mm x 2" is the layers example)
+
+    def test_v29_06_insulation_is_eligible_validates_and_the_v28_file_is_refused(self):
+        b = copy.deepcopy(next(c for c in self.cur["category_configs"] if c["category_id"] == "hvac_insulation"))
+        self.assertTrue(extraction.config_is_eligible(b, {("HVAC", c["category_id"]): c for c in self.cur["category_configs"]}))
+        b.setdefault("discipline", self.cur["discipline"])
+        config_validation._validate_config(b)
+        for c in self.cur["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(copy.deepcopy(c), "HVAC", self.cur.get("goldens") or {}))
+        a = copy.deepcopy(next(c for c in self.prev["category_configs"] if c["category_id"] == "hvac_insulation"))
+        a.setdefault("discipline", "HVAC")
+        with self.assertRaises(Exception):
+            config_validation._validate_config(a)
+
+    def test_v29_07_adp_and_electrical_eligibility_unchanged_NAMED(self):
+        """ADP eligible (its top-level default), every vendor-quote / alias / pricing-inputs config not of its
+        own, and the Electrical set exactly as 12d-1b named it -- under the 12d-2 predicate."""
+        hv = {("HVAC", c["category_id"]): dict(c, discipline="HVAC") for c in self.cur["category_configs"]}
+        # HVAC alone: ADP + Insulation of their own; the two aliases cannot resolve without their Electrical targets
+        self.assertEqual(sorted(k[1] for k, v in hv.items() if extraction.config_is_eligible(v, hv)),
+                         ["hvac_adp", "hvac_insulation"])
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            eall = json.load(fh)
+        e = {("Electrical", c["category_id"]): dict(c, discipline="Electrical") for c in eall["category_configs"]}
+        both = {**e, **hv}
+        self.assertEqual(sorted(k[1] for k, v in both.items() if k[0] == "HVAC" and extraction.config_is_eligible(v, both)),
+                         ["hvac_adp", "hvac_cables", "hvac_insulation", "hvac_raceway"])   # the aliases follow their targets
+        self.assertEqual(sorted(k[1] for k, v in e.items() if extraction.config_is_eligible(v, e)),
+                         ["cabletray_raceway", "conduit_piping", "db_switchgear", "earthing", "industrial_sockets", "junction_box_raceway",
+                          "lighting_mgmt_system", "miscellaneous", "point_wiring", "popup_boxes", "switches_sockets", "wiring_cabling"])
+        for k, v in e.items():
+            self.assertEqual(extraction.has_runnable_pricing_rules(v), bool(v.get("pipelines")), k)   # Electrical: the first arm only

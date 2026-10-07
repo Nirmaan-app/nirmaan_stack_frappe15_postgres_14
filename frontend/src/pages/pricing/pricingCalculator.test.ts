@@ -233,29 +233,29 @@ describe("Calculator slice 2 / the calculator constructs the helper with an EMPT
   const src = strip(CALC_SRC);
   it("the construction, verbatim", () => {
     /**
-     * ⚠️ INVERTED BY SLICE 12c FINISH / FA7 (owner ruling 2026-10-04), NOT RELAXED. The single-line
-     * form this used to quote can no longer exist: the calculator now passes a FOURTH dep,
-     * `admitCalculatorOnly`, which is what admits a `calculator_only` category to this tab and to
-     * nowhere else. The claim is unchanged in substance -- the calculator builds THE ONE helper with
-     * an EMPTY extraction map and computes nothing itself -- so each part is asserted separately and
-     * the retired one-line shape is asserted ABSENT.
+     * ⚠️ INVERTED TWICE, NEVER RELAXED. 12c FINISH / FA7 added a FOURTH dep (`admitCalculatorOnly`)
+     * and this pin asserted it present; SLICE 12d-2 (owner S1) RETIRED that admission -- an item-list
+     * category is eligible through the one generic predicate on every surface -- so the dep is now
+     * asserted ABSENT. The claim underneath never changed: the calculator builds THE ONE helper with an
+     * EMPTY extraction map and computes nothing itself. The construction is multi-line (a comment sits
+     * inside it), so each part is asserted separately.
      */
     expect(src).toContain("makePricingSheetHelper({");
     expect(src).toContain("configsByCategory,");
     expect(src).toContain("extractionByRow: new Map(),");
-    expect(src).toContain("admitCalculatorOnly: true,");
-    expect(src).not.toContain(
-      "makePricingSheetHelper({ configsByCategory, items, extractionByRow: new Map() })");
+    expect(src).not.toContain("admitCalculatorOnly");
     expect(src).toContain('variant="calculator"');
     expect(src).toContain("<RateHelperPanel");
   });
-  it("⚠️ FA7: the BoQ pricing editor does NOT pass the admission -- that is the whole boundary", () => {
-    // if this ever contains the flag, a `calculator_only` category starts pricing BoQ rows, which is
-    // exactly what the owner's option A ruled out.
+  it("⚠️ 12d-2: NEITHER surface passes an admission any more -- the calculator and the BoQ pricing editor build the helper identically", () => {
     const boq = readFileSync(
       join(__dirname, "..", "boq-wizard", "SheetPricingPage.tsx"), "utf-8");
     expect(boq).not.toContain("admitCalculatorOnly");
     expect(boq).toContain("makePricingSheetHelper");      // it really does build the same helper
+    // the dep no longer exists on the helper's Deps at all (a flag that nothing can pass is not a switch)
+    const helper = readFileSync(join(__dirname, "..", "boq-wizard", "rate-helper", "pricingSheetHelper.ts"), "utf-8");
+    const codeLines = helper.split("\n").filter((l) => /admitCalculatorOnly/.test(l) && !/^\s*(\*|\/\/|\/\*)/.test(l));
+    expect(codeLines).toEqual([]);
   });
   it("⚠️ NEGATIVE: no second arithmetic -- no interpreter import, no figure read, no kind mapped, no number formatted", () => {
     expect(src).not.toContain("ratePipelineInterpreter");

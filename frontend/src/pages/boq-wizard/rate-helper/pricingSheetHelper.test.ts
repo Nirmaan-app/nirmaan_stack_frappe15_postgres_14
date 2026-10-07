@@ -5800,7 +5800,6 @@ describe("CERT-FOUND -- the Row total of a COMPOSED row is the ROW's, not the fi
     const h = makePricingSheetHelper({
       configsByCategory: CONFIGS, items: ITEMS,
       extractionByRow: buildExtractionByRow([]),
-      admitCalculatorOnly: true,
     });
     const edits = {
       items: [{
@@ -5918,7 +5917,7 @@ describe("SLICE 12c-S -- units, Other... state and per-field lines", () => {
   }) => {
     const h = makePricingSheetHelper({
       configsByCategory: CONFIGS_S, items: ITEMS_S,
-      extractionByRow: buildExtractionByRow([]), admitCalculatorOnly: true,
+      extractionByRow: buildExtractionByRow([]),
     });
     const edits = { items: [{
       base: null, family: o.family, attrs: o.attrs ?? {},
@@ -6171,7 +6170,6 @@ describe("SLICE 12d-1a / R2 -- headings reach the pricer; the ruled family is ma
       configsByCategory: new Map([[CAT, cfg]]),
       items: V26.items,
       extractionByRow: new Map([[44, ext(attrs) as unknown as ExtractionRow]]),
-      admitCalculatorOnly: true,
     });
   const ctx = (headings?: string[]): RateHelperRowContext =>
     ({ excelRow: 44, description: "15mm thick for Ducts", nodeType: "Line Item", category: CAT, discipline: "HVAC",
@@ -6241,7 +6239,6 @@ describe("SLICE 12d-1a / R6 + R7 -- a neutral 'could not be told'; brand shown r
       configsByCategory: new Map([[CAT, c]]),
       items: V26.items,
       extractionByRow: new Map([[64, ext(attrs) as unknown as ExtractionRow]]),
-      admitCalculatorOnly: true,
     });
   const ctx = (): RateHelperRowContext =>
     ({ excelRow: 64, description: "Thermal insulation of ducts", nodeType: "Line Item", category: CAT, discipline: "HVAC",

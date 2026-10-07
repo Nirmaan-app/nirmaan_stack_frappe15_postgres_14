@@ -11,8 +11,9 @@
  *                      `ext` branch: the never-asked-default pass runs, `cellOf` reads the stored
  *                      cells, `defaulted` marks come off the extraction, and (item-list) the model's
  *                      `ext.items` become the blocks. This is the branch `SheetPricingPage` reaches.
- *   CALCULATOR path -- `makePricingSheetHelper({ ..., extractionByRow: new Map(), admitCalculatorOnly
- *                      : true })`, the construction `PricingCalculator` performs verbatim, then
+ *   CALCULATOR path -- `makePricingSheetHelper({ ..., extractionByRow: new Map() })`, the
+ *                      construction `PricingCalculator` performs verbatim (SLICE 12d-2 retired the
+ *                      FA7 `admitCalculatorOnly` dep it used to add), then
  *                      `compute(calculatorCtx(discipline, categoryId), overrides)`. `ext` is
  *                      undefined, so NONE of the above runs; every value arrives through the
  *                      override map the panel's controls write.
@@ -113,26 +114,24 @@ export function extractionRowFor(c: ParityCase): ExtractionRow {
 }
 
 /**
- * The PANEL helper. `admitCalculatorOnly` is false for every BoQ-reachable category, which is what
- * `SheetPricingPage` builds. It is TRUE only for a `calculator_only` category (HVAC Insulation),
- * where there is no BoQ row to read and the panel's extraction branch must still be exercised -- the
- * `ext` branch against the override branch, never one of them twice.
+ * The PANEL helper -- what `SheetPricingPage` builds, with ONE stored extraction row. SLICE 12d-2
+ * retired the FA7 `admitCalculatorOnly` flag this used to take: an item-list category (HVAC
+ * Insulation) is eligible through the one generic predicate on every surface, so the panel's `ext`
+ * branch is exercised for it exactly as for every BoQ-reachable category.
  */
 export function panelHelper(
   configsByCategory: Map<string, RateCategoryConfig>,
   items: RateMasterItem[],
   c: ParityCase,
-  admitCalculatorOnly = false,
 ): RateHelper {
   return makePricingSheetHelper({
     configsByCategory,
     items,
     extractionByRow: new Map([[PANEL_ROW, extractionRowFor(c)]]),
-    ...(admitCalculatorOnly ? { admitCalculatorOnly: true } : {}),
   });
 }
 
-/** The CALCULATOR helper -- `PricingCalculator`'s construction, verbatim. */
+/** The CALCULATOR helper -- `PricingCalculator`'s construction, verbatim (an EMPTY extraction map). */
 export function calculatorHelper(
   configsByCategory: Map<string, RateCategoryConfig>,
   items: RateMasterItem[],
@@ -141,7 +140,6 @@ export function calculatorHelper(
     configsByCategory,
     items,
     extractionByRow: new Map(),
-    admitCalculatorOnly: true,
   });
 }
 
@@ -434,9 +432,8 @@ export function runParity(
   items: RateMasterItem[],
   c: ParityCase,
   mode: FeedMode = "full",
-  admitCalculatorOnlyOnPanel = false,
 ): ParityRun {
-  const ph = panelHelper(configsByCategory, items, c, admitCalculatorOnlyOnPanel);
+  const ph = panelHelper(configsByCategory, items, c);
   const panel = ph.compute(panelCtx(c));
   const config = configsByCategory.get(c.cat) ?? null;
   const feed = feedFromPanel(panel, config, c, mode);
