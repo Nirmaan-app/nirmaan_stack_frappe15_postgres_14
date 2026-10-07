@@ -99,6 +99,7 @@ The BoQ docs are too large to read whole: `frontend/.claude/plans/boq-upload-pla
 | **BoQ frontend**; the pricing editor (`PricingGrid.tsx`, `SheetPricingPage.tsx`) | `frontend/.claude/context/domain/boq-frontend.md`; `boq-pricing-editor-frontend.md` beside it |
 | **Pricing Module** (`api/pricing/`, not the BoQ pricing editor) | `pricing-module.md` |
 | **Procurement**: PR/PO/RFQ, PR packages, Critical PO Task links, delivery documents, vendor credit, Loss Justification | `procurement.md` § Load-bearing invariants |
+| **Material Test Certificates (MTC)**: the doctype, the PO-page card, the MTC list page, PO merge/cancel effects | `material-test-certificates.md` § Load-bearing invariants |
 | **Projects**, CEO Hold | `projects.md` |
 | **Users**, the Administrator account | `users.md` |
 | **Service Requests** | `service-requests.md` |

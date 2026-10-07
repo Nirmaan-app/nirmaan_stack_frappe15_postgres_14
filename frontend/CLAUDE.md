@@ -55,5 +55,6 @@ headings with `grep -n '^#' <file>`, then read only that range.
 | **PO Adjustments** | `po-adjustments.md` |
 | **PO Revisions** | `po-revisions.md` |
 | **Internal Transfer Memos**, ITM DC & MIR | `../.claude/context/domain/internal-transfer-memos.md` |
+| **Material Test Certificates** (`src/pages/MaterialTestCertificates/`): the PO-page card, the upload/edit dialog, the MTC list page | `../.claude/context/domain/material-test-certificates.md` § Load-bearing invariants |
 | **Roles**: sidebar entries, per-page actions, PMO exceptions | `.claude/context/role-access.md` |
 | Anything else (projects, customers, milestones, PO status, modules) | `.claude/context/_index.md` |
