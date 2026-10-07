@@ -502,8 +502,15 @@ export interface RowPriceResult {
   priced: boolean;
   reason?: string;
   /** SLICE 12c-U: how a row that stated NO unit (or "rate only") came to be priced in the unit it
-   *  was -- present ONLY on such a row, so every other row's result is byte-identical. */
+   *  was -- present ONLY on such a row, so every other row's result is byte-identical.
+   *  SLICE 12d-2 (owner S6): the sentence says "priced per <unit>" ONLY when the row actually
+   *  priced; while it still refuses it says "unit taken as <unit>", because a figure that does not
+   *  exist cannot have been priced in anything. */
   unitNote?: string;
+  /** SLICE 12d-2 (owner S6): the unit the figures are a RATE IN, as the catalogue's word -- present
+   *  ONLY when the row's own unit was resolved (no unit / rate-only), so the panel's "per ..." label
+   *  reads "per number", never "per R/O". Every other row carries nothing and keeps its own spelling. */
+  rateUnit?: string;
   supply?: number;
   install?: number;
   items: ItemPriceResult[];
@@ -1144,7 +1151,7 @@ function priceOneItem(
     if (v === "None") {
       noneSaid.add(attr);
       const d = spec.defaults?.[attr];
-      const dv = d ? (d.by_family ? d.by_family[family] : d.value) : undefined;
+      const dv = ruledDefaultValue(spec, attr, family);
       if (dv !== undefined) {
         read[attr] = dv;
         readDefaulted.push({ attr, value: dv, rule: d!.rule });
@@ -1556,7 +1563,21 @@ export function priceItemList(
 ): RowPriceResult {
   const unit = rowUnit ?? "";
   let cls = unitClassOf(spec, unit);
-  let unitNote: string | undefined;
+  /**
+   * SLICE 12d-2 (owner S6, "yes"): the 12c-U sentence is composed where the OUTCOME is known. The lead
+   * ("No unit on the BoQ row" / "BoQ says R/O (rate only)") and the catalogue word are fixed here; the
+   * verb is chosen at each return -- "priced per <unit>" on a priced row, "unit taken as <unit>" on a
+   * row that still refuses -- so a refusal never claims a price was produced. `rateUnit` rides beside
+   * it so the figures' "per ..." label names the unit the rate is in.
+   */
+  let resolvedUnit: { lead: string; word: string } | undefined;
+  const unitResolved = (priced: boolean): { unitNote: string; rateUnit: string } | Record<string, never> =>
+    resolvedUnit
+      ? {
+          unitNote: `${resolvedUnit.lead} -> ${priced ? "priced per" : "unit taken as"} ${resolvedUnit.word}, the catalogue's unit for this item`,
+          rateUnit: resolvedUnit.word,
+        }
+      : {};
   /**
    * SLICE 12c-U (owner U2 / U3 / U4, 2026-10-07) -- A ROW THAT STATES NO UNIT IS PRICED IN THE
    * CATALOGUE'S UNIT FOR ITS ITEM, OR REFUSES NAMING THE CHOICE. It is never guessed.
@@ -1584,7 +1605,7 @@ export function priceItemList(
     const classes = rowUnitClasses(spec, extracted);
     if (classes.length === 1) {
       cls = classes[0];
-      unitNote = `${lead} -> priced per ${unitWord(spec, cls)}, the catalogue's unit for this item`;
+      resolvedUnit = { lead, word: unitWord(spec, cls) };
     } else if (classes.length > 1) {
       const named = classes.map((c) => `per ${unitWord(spec, c)}`).join(" or ");
       return {
@@ -1602,7 +1623,7 @@ export function priceItemList(
     return { unit, unitClass: null, priced: false, reason, items: [] };
   }
   if (!extracted || !extracted.length) {
-    return { unit, unitClass: cls, priced: false, reason: "no items were read on this row", items: [], ...(unitNote ? { unitNote } : {}) };
+    return { unit, unitClass: cls, priced: false, reason: "no items were read on this row", items: [], ...unitResolved(false) };
   }
   const projected = projectUnitClass(spec, items);
   // SLICE 11: computed ONCE from the row's unit TEXT (the class alone cannot say which unit of it this is).
@@ -1640,9 +1661,15 @@ export function priceItemList(
           // SLICE 12d-1b (owner T4): layers the ROW stated are named in the BoQ's own words, not as a
           // size built above a top rung.
           const words: Record<number, string> = { 2: "two", 3: "three", 4: "four" };
+          // SLICE 12d-2 (owner S5 / F17): "You typed" ONLY for what a person typed. The composition line
+          // used to say it for every model-read size too; the 12d-1b `typed` marker (set by
+          // `assembleItems` on a pricer's entries alone) is what decides, read off the cell(s) the axis's
+          // reader takes its value from.
+          const typedByPricer = (spec.numbers[c.attr]?.from ?? [c.attr]).some((k) => src.attributes?.[k]?.typed === true);
+          const said = typedByPricer ? "You typed" : "BoQ says";
           one.working.unshift(c.explicit
             ? `BoQ says ${c.explicit.raw} -> priced as ${words[c.layers.length] ?? c.layers.length} layers, ${c.layers.map(fmt).join(" + ")}${u} (${fmt(total)}${u}); cladding on the outer layer only`
-            : `You typed ${fmt(c.stated)}${u} -> priced as ${c.layers.map(fmt).join(" + ")}${u}` +
+            : `${said} ${fmt(c.stated)}${u} -> priced as ${c.layers.map(fmt).join(" + ")}${u}` +
               ` (${fmt(total)}${u}, ${sign}${fmt(c.delta)}) -- above the largest stocked size (${fmt(c.top)}${u})`,
           );
         }
@@ -1655,10 +1682,10 @@ export function priceItemList(
   if (firstBlank) {
     // R21: all or nothing -- the row shows no price; every item keeps its own state above
     const who = priced.length > 1 ? `item ${firstBlank.index + 1}${firstBlank.family ? ` (${firstBlank.family})` : ""}: ` : "";
-    return { unit, unitClass: cls, priced: false, reason: `${who}${firstBlank.reason}`, items: priced, ...(unitNote ? { unitNote } : {}) };
+    return { unit, unitClass: cls, priced: false, reason: `${who}${firstBlank.reason}`, items: priced, ...unitResolved(false) };
   }
   const sum = (k: string) => priced.reduce((a, p) => a + (p.figures[k] ?? 0), 0);
-  return { unit, unitClass: cls, priced: true, supply: sum("supply"), install: sum("install"), items: priced, ...(unitNote ? { unitNote } : {}) };
+  return { unit, unitClass: cls, priced: true, supply: sum("supply"), install: sum("install"), items: priced, ...unitResolved(true) };
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -1713,9 +1740,24 @@ export function familyUnitClasses(spec: ItemListPricingSpec, family: string): st
   return out;
 }
 
+/**
+ * SLICE 12d-2 (owner S4) -- THE ONE reader of a ruled default: the catalogue value a `"None"` (not
+ * mentioned) answer becomes for this attribute on this family -- `defaults[attr].by_family[family]`
+ * where the default is per family, else `defaults[attr].value`; `undefined` where no ruled default
+ * applies. It is read by the pricing (`priceOneItem`, over a "None" answer) AND by `itemFieldDefs`
+ * (to decide whether "None" is offered at all), so the two can never disagree about which sentinel
+ * maps to a catalogue value. `derive_when_none` is CONDITIONAL and deliberately not a ruled default
+ * here. PURE; no category or attribute is named.
+ */
+export function ruledDefaultValue(spec: ItemListPricingSpec, attr: string, family: string): string | undefined {
+  const d = spec.defaults?.[attr];
+  if (!d) return undefined;
+  return d.by_family ? d.by_family[family] : d.value;
+}
+
 /** One field of an item block: the id the VALUE is read / written under (the model's attribute id -- a
- * number reader's first `from`), the label, the options of a choice (with "None" first when allow_none,
- * the Electrical shape), and which SKU attribute it serves. */
+ * number reader's first `from`), the label, the options of a choice (with "None" first when allow_none
+ * AND no ruled default maps it -- owner S4, 12d-2), and which SKU attribute it serves. */
 export interface ItemFieldDef {
   id: string;
   label: string;
@@ -1901,10 +1943,20 @@ export function itemFieldDefs(
     }
     const optionSource: "catalogue" | "definition" = fromSkus.length ? "catalogue" : "definition";
     const base = fromSkus.length ? fromSkus : [...values];
+    /**
+     * SLICE 12d-2 (owner S4, "agree"): "None" is the MODEL's word for "not mentioned". Where a ruled
+     * default turns it into a catalogue value (cladding not mentioned -> No; damper not mentioned ->
+     * without) it is not a choice a person can make -- picking it would only land on the default --
+     * so it is NOT offered; the field shows the catalogue value the default became, amber, with the
+     * default's line beneath it (the existing `defaulted` rendering). Where NO ruled default maps it
+     * (an air stream, an Electrical "MCB 2: None" on the row-level surface, which never reaches this
+     * function) the sentinel stays a real choice and is offered exactly as before.
+     */
+    const noneMapsToCatalogue = ruledDefaultValue(spec, attr, family) !== undefined;
     out.push({
       id: attr,
       label: d.label,
-      options: d.allow_none ? ["None", ...base] : base,
+      options: d.allow_none && !noneMapsToCatalogue ? ["None", ...base] : base,
       allowNone: d.allow_none === true,
       skuAttr: attr,
       control,

@@ -1822,6 +1822,9 @@ export interface ItemListView {
    *  priced in the unit it was. Present ONLY on such a row; every other row carries nothing, so no
    *  existing panel changes. */
   unitNote?: string;
+  /** SLICE 12d-2 (owner S6): the unit the figures are a RATE IN (the catalogue's word), present ONLY
+   *  when the row's own unit was resolved -- the panel's "per ..." label reads it before `unit`. */
+  rateUnit?: string;
   items: ItemBlockView[];
   families: Array<{ family: string; units: string }>;
   editState: ItemListEditState;
@@ -2412,6 +2415,7 @@ function computeItemList(
   const view: ItemListView = {
     unit, unitClass, unitPickable, unitChoices, rowPriced, ...((unshowableReason ?? priced.reason) ? { reason: unshowableReason ?? priced.reason } : {}),
     ...(priced.unitNote ? { unitNote: priced.unitNote } : {}),
+    ...(priced.rateUnit ? { rateUnit: priced.rateUnit } : {}),
     items: blocks, families: familyChoices(spec), editState: edits, modelCount: modelItems.length,
     // the ROW's own totals -- the same figures the headline shows, so "Row total" can never disagree
     // with it (see the warning on `rowTotals`)

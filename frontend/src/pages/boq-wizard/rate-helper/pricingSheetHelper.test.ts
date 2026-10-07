@@ -5249,10 +5249,12 @@ describe("SLICE 6 / the item-list path -- blocks, edits, the quantity, all or no
     expect(none.v).toMatchObject({
       unit: "", unitClass: "count", unitPickable: false, rowPriced: true,
       unitNote: "No unit on the BoQ row -> priced per number, the catalogue's unit for this item",
+      rateUnit: "number",   // 12d-2 (owner S6): the figures' label reads the catalogue's word, never the BoQ's spelling
     });
     expect(none.v.reason).toBeUndefined();
-    // NEGATIVE: a row that DID state its unit carries no note -- nothing had to be resolved for it
+    // NEGATIVE: a row that DID state its unit carries no note and no rateUnit -- nothing had to be resolved for it
     expect(list(h.compute(adpCtx(15, "Nos"))).v.unitNote).toBeUndefined();
+    expect(list(h.compute(adpCtx(15, "Nos"))).v.rateUnit).toBeUndefined();
     // no unit on the context at all (the calculator): pickable, the first spelling of the first class, overridable
     const calc = makePricingSheetHelper({ configsByCategory: CONFIGS8, items: ITEMS8, extractionByRow: new Map() });
     const c0 = list(calc.compute(adpCtx(0, undefined)));

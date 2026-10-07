@@ -234,7 +234,10 @@ function FiguresRow({ figures, copy = true, muted = false, unit }: {
   muted?: boolean;
   /** SLICE 11 (owner addition): the unit the figure is a rate IN, as the BoQ writes it -- shown on every
    * priced item and on the row total. OMITTED on the non-item-list surface, which is what keeps Electrical's
-   * render byte-identical: the label is opt-in per call site, never a property of this component. */
+   * render byte-identical: the label is opt-in per call site, never a property of this component.
+   * SLICE 12d-2 (owner S6): where the row's own unit was RESOLVED to the catalogue's (no unit / rate-only,
+   * 12c-U) the call sites pass `view.rateUnit` -- the catalogue's word -- so the label reads "per number",
+   * never "per R/O"; every other row still passes its own spelling. */
   unit?: string | null;
 }) {
   const label = typeof unit === "string" && unit.trim() !== "" ? unit.trim() : null;
@@ -1394,7 +1397,7 @@ function ItemListBlocks({
               <div className="pt-0.5 text-[10px] font-medium uppercase tracking-wide opacity-70">
                 {BOQ_RATE_LABEL}
               </div>
-              <FiguresRow figures={b.figures} unit={view.unit} />
+              <FiguresRow figures={b.figures} unit={view.rateUnit ?? view.unit} />
             </div>
           ) : (
             <div className="text-xs text-red-700 dark:text-red-400" data-testid="item-refusal">Not priced &mdash; {b.reason}</div>
@@ -1425,7 +1428,7 @@ function ItemListBlocks({
           Row total per 1 {view.unit} &middot; {BOQ_RATE_LABEL}
         </div>
         {view.rowPriced ? (
-          <FiguresRow figures={rowTotals(view)} copy={false} muted unit={view.unit} />
+          <FiguresRow figures={rowTotals(view)} copy={false} muted unit={view.rateUnit ?? view.unit} />
         ) : (
           <div className="mt-0.5 text-xs">
             {n === 0 ? "No items yet." : `${bad} of ${n} item${n === 1 ? "" : "s"} need a person before the row can price.`}

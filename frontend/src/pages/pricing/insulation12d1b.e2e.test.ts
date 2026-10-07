@@ -119,7 +119,8 @@ describe("E2E-1 (b) (c) -- several thicknesses and the size schedule", () => {
     const v = view(r);
     expect(v.rowPriced).toBe(true);
     expect(v.items.length).toBe(1);                       // ONE block ...
-    expect(v.items[0].working[0]).toMatch(/^You typed 32 mm -> priced as 13 \+ 19 mm/);   // ... priced as two layers
+    // 12d-2 (owner S5 / F17): a MODEL-read value reads "BoQ says" (the 12d-1b pin said "You typed")
+    expect(v.items[0].working[0]).toMatch(/^BoQ says 32 mm -> priced as 13 \+ 19 mm/);   // ... priced as two layers
     expect(headline(r)).toEqual({ supply: 743, install: 238 });
     noDivergence(r);
   });
@@ -127,7 +128,7 @@ describe("E2E-1 (b) (c) -- several thicknesses and the size schedule", () => {
     const r = run("c_schedule_50nb");
     const v = view(r);
     expect(v.items[0].fields.find((f) => f.id === "thickness_mm")!.value).toBe("19");
-    expect(v.items[0].working.some((w) => /You typed|layers/.test(w))).toBe(false);
+    expect(v.items[0].working.some((w) => /You typed|BoQ says|layers/.test(w))).toBe(false);
     expect(headline(r)).toEqual({ supply: 615, install: 224 });
     noDivergence(r);
   });

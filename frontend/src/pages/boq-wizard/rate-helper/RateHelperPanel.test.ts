@@ -136,9 +136,13 @@ describe("slice 11 / the unit label is opt-in per call site, which is what keeps
     expect(fn).toContain('unit.trim() !== ""');
   });
 
-  it("both ITEM-LIST surfaces pass the row's own unit: each priced item, and the row total", () => {
-    expect(src).toContain("<FiguresRow figures={b.figures} unit={view.unit} />");
-    expect(src).toContain("<FiguresRow figures={rowTotals(view)} copy={false} muted unit={view.unit} />");
+  it("both ITEM-LIST surfaces pass the unit the figure is a rate IN: the catalogue's word where the row's unit was resolved (12d-2 S6), else the row's own spelling", () => {
+    // INVERTED by 12d-2 (owner S6): the label used to be `view.unit` alone, which read "per R/O" on a
+    // rate-only row. `view.rateUnit` is present ONLY when the row's unit was resolved (12c-U), so every
+    // other row still shows its own spelling, exactly as slice 11 pinned.
+    expect(src).toContain("<FiguresRow figures={b.figures} unit={view.rateUnit ?? view.unit} />");
+    expect(src).toContain("<FiguresRow figures={rowTotals(view)} copy={false} muted unit={view.rateUnit ?? view.unit} />");
+    expect(src).not.toContain("unit={view.unit} />");
   });
 
   it("⚠️ NEGATIVE: the NON-item-list surface passes NO unit, so Electrical's figures are unchanged", () => {

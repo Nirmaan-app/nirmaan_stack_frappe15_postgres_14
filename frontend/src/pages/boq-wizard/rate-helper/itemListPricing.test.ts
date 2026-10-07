@@ -44,7 +44,7 @@ import HVAC_V10 from "../../../../../nirmaan_stack/services/boq_rate_master/data
 import HVAC_V11 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v11.json";
 import HVAC_V12 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v12.json";
 import HVAC_V13 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v13.json";
-import { familyChoices, familyUnitClasses, fieldOptionsFromSkus, itemFieldDefs, listSpecDefs, sizeFieldHelp, typedFieldNote } from "./itemListPricing";
+import { familyChoices, familyUnitClasses, fieldOptionsFromSkus, itemFieldDefs, listSpecDefs, ruledDefaultValue, sizeFieldHelp, typedFieldNote } from "./itemListPricing";
 import { auditPanelFields, missingNotes } from "./panelFieldAudit";
 
 type Asset = { discipline: string; items: RateMasterItem[]; category_configs: RateCategoryConfig[] };
@@ -872,19 +872,21 @@ describe("slice 6 / the panel-facing helpers read the CONFIG -- no family, label
     expect(fams.find((f) => f.family === "canvas connection")!.units).toBe("per sq.m / per number / per metre");
     expect(fams.some((f) => f.family === "grille, type not stated" || f.family === "none of these")).toBe(false);
   });
-  it("itemFieldDefs: the family's needs for the row's unit class, labelled from the list_spec, options from the def (None first when allow_none)", () => {
+  it("itemFieldDefs: the family's needs for the row's unit class, labelled from the list_spec, options from the def (None first when allow_none AND no ruled default maps it -- 12d-2 S4)", () => {
     const defs = listSpecDefs(adp8);
     // slice 6b (V5): every field now names its control -- v8 declares none, so a choice is a dropdown from the
     // definition and a number is text, exactly slice 6's controls
     expect(itemFieldDefs(spec8, defs, "round diffuser", "count")).toEqual([
-      { id: "damper", label: "Damper", options: ["None", "with", "without"], allowNone: true, skuAttr: "damper", control: "dropdown", optionSource: "definition" },
+      // 12d-2 (owner S4, INVERTING the slice-6 "None first" half, NOT deleting it): the damper has a ruled default
+      // ("not mentioned" -> without), so "None" is no longer OFFERED -- the field shows the default's value amber
+      { id: "damper", label: "Damper", options: ["with", "without"], allowNone: true, skuAttr: "damper", control: "dropdown", optionSource: "definition" },
       { id: "dia_mm", label: "Diameter (as written)", allowNone: false, skuAttr: "dia_mm", control: "text" },
     ]);
     // the R13 source (air) rides along on a linear grille; a per-number VCD shows the conversion needs
     expect(itemFieldDefs(spec8, defs, "linear grille", "area").map((f) => f.id)).toEqual(["damper", "air"]);
     expect(itemFieldDefs(spec8, defs, "VCD", "count").map((f) => f.id)).toEqual(["variant", "face_w_mm", "face_h_mm", "area_band"]);
     // the variant's options come from values_by_family
-    expect(itemFieldDefs(spec8, defs, "VCD", "area")[0].options).toEqual(["None", "GI oval", "motorised", "GI rectangular"]);
+    expect(itemFieldDefs(spec8, defs, "VCD", "area")[0].options).toEqual(["GI oval", "motorised", "GI rectangular"]);   // 12d-2 S4
     expect(itemFieldDefs(spec8, defs, "actuator", "count").map((f) => f.id)).toEqual(["ul", "torque"]);
     // NEGATIVE: no family / an unknown family / a config without a list_spec
     expect(itemFieldDefs(spec8, defs, null, "count")).toEqual([]);
@@ -947,7 +949,7 @@ describe("slice 6b / V1, V4 -- a dropdown's options come from the ACTIVE SKUs, n
     expect(dv[0].options).toEqual(stocked("disc valve", "dia_mm"));
     const rd = itemFieldDefs(spec9, defs9, "round diffuser", "count", { items: items9 });
     expect(rd.map((f) => [f.id, f.control, f.options, f.optionSource])).toEqual([
-      ["damper", "dropdown", ["None", "with", "without"], "catalogue"],
+      ["damper", "dropdown", ["with", "without"], "catalogue"],   // 12d-2 S4: a ruled default maps "None", so it is not offered
       ["dia_mm", "dropdown", ["200", "250", "300", "400"], "catalogue"],
     ]);
     expect(itemFieldDefs(spec9, defs9, "control panel", "count", { items: items9 })[0].options).toEqual(stocked("control panel", "panel_ratio"));
@@ -971,8 +973,9 @@ describe("slice 6b / V1, V4 -- a dropdown's options come from the ACTIVE SKUs, n
     expect(torque({ ul: "maybe" }).options).toEqual(all);
     // and the UL choice itself narrows by a picked torque
     const ul = (answers: Record<string, string>) => itemFieldDefs(spec9, defs9, "actuator", "count", { items: items9, answers }).find((f) => f.skuAttr === "ul")!;
-    expect(ul({}).options).toEqual(["None", ...["yes", "no"].filter((v) => stocked("actuator", "ul").includes(v))]);
-    expect(ul({ torque_nm: "20" }).options).toEqual(["None", ...["yes", "no"].filter((v) => stocked("actuator", "ul", { torque_nm: "20" }).includes(v))]);
+    // 12d-2 S4: UL carries a ruled default (not mentioned -> no), so "None" is not offered
+    expect(ul({}).options).toEqual(["yes", "no"].filter((v) => stocked("actuator", "ul").includes(v)));
+    expect(ul({ torque_nm: "20" }).options).toEqual(["yes", "no"].filter((v) => stocked("actuator", "ul", { torque_nm: "20" }).includes(v)));
   });
   it("a newly added SKU appears as an option with NO code change (X2); the family's other options are untouched", () => {
     const extra: RateMasterItem = { ...items9.find((i) => i.attributes.family === "disc valve")!, name: "TEST-DV-200", item_uid: "test-dv-200", attributes: { item_name: "PVC Disc Valve", item_detail: "200MM DIA", family: "disc valve", dia_mm: 200 } };
@@ -987,9 +990,10 @@ describe("slice 6b / V1, V4 -- a dropdown's options come from the ACTIVE SKUs, n
       ["variant", "dropdown", false], ["face_w_mm", "text", true], ["face_h_mm", "text", true], ["area_band", "text", true],
     ]);
     // the choice keeps the DEFINITION's family order (values_by_family: GI oval, motorised, GI rectangular), from the SKUs
-    expect(vcd[0].options).toEqual(["None", "GI oval", "motorised", "GI rectangular"]);
+    // 12d-2 S4: VCD's variant has a per-family ruled default (GI rectangular), so "None" is not offered
+    expect(vcd[0].options).toEqual(["GI oval", "motorised", "GI rectangular"]);
     expect(vcd[0].optionSource).toBe("catalogue");
-    expect(new Set(vcd[0].options!.slice(1))).toEqual(new Set(stocked("VCD", "variant")));
+    expect(new Set(vcd[0].options!)).toEqual(new Set(stocked("VCD", "variant")));
     // the air stream (a derive source): a closed BoQ vocabulary, no SKU carries it -> the definition's list
     const lg = itemFieldDefs(spec9, defs9, "linear grille", "area", { items: items9 });
     expect(lg.find((f) => f.id === "air")).toMatchObject({ control: "dropdown", optionSource: "definition", options: ["None", "supply", "return", "exhaust", "fresh"] });
@@ -2008,9 +2012,15 @@ describe("slice 12c: size_match and compose, wired", () => {
       // does, which is why that tie-break is in the rule rather than left to the rung array's order.
       expect(r.items.map((i) => i.selection.neck_mm)).toEqual([375, 375]);
       // ⚠️ INVERTED BY OWNER FA8(c) (2026-10-04), NOT RELAXED: the line now reads in the owner's own
-      // phrasing -- "You typed ... -> priced as ..." -- and still names the top rung it could not
+      // phrasing -- "<who said it> ... -> priced as ..." -- and still names the top rung it could not
       // reach, the layers, the total and the delta. The retired wording is asserted ABSENT.
+      // ⚠️ INVERTED AGAIN by 12d-2 (owner S5 / F17): this cell is a MODEL cell (`ext`), so it reads
+      // "BoQ says"; "You typed" is reserved for a cell the pricer typed (the 12d-1b `typed` marker).
       expect(r.items[0].working[0]).toBe(
+        "BoQ says 749 mm -> priced as 375 + 375 mm (750 mm, +1) -- above the largest stocked size (450 mm)",
+      );
+      const typedCell = { ...ext({ family: SQ, damper: "None" }), attributes: { ...ext({ family: SQ, damper: "None" }).attributes, neck_mm: { value: "749 x 749", typed: true } } };
+      expect(priceItemList(cp, items, "Nos", [typedCell]).items[0].working[0]).toBe(
         "You typed 749 mm -> priced as 375 + 375 mm (750 mm, +1) -- above the largest stocked size (450 mm)",
       );
       expect(r.items[0].working[0]).not.toContain("749 is above the largest");
@@ -3248,7 +3258,8 @@ describe("SLICE 12d-1b / T2 -- several = highest: a bare slash list of any lengt
       .toEqual([[13, "No", 250, 14], [19, "26G Aluminium", 493, 224]]);
     expect([r.supply, r.install]).toEqual([743, 238]);
     // the 'highest' note belongs to the STATED item; the composition re-prices its layers from the numbers
-    expect(r.items[0].working[0]).toMatch(/^You typed 32 mm -> priced as 13 \+ 19 mm/);
+    // (12d-2 S5: a MODEL cell reads "BoQ says"; the 12d-1b pin said "You typed" for every composition)
+    expect(r.items[0].working[0]).toMatch(/^BoQ says 32 mm -> priced as 13 \+ 19 mm/);
   });
 
   it("NEGATIVE: the same row WITHOUT the flag refuses 'several values stated', exactly as before this slice", () => {
@@ -3340,5 +3351,120 @@ describe("SLICE 12d-1b / T4 -- model-read layers expand through the composition 
     const r = priceItemList(noCompose, ITEMS, "Rmt", [item({ item: NR, cladding: "No", thickness_mm: "13 + 13", pipe_size_mm: "25 mm dia" })]);
     expect(r.priced).toBe(false);
     expect(r.items[0].reason).toBe("several values stated for thickness ('13 + 13')");
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * SLICE 12d-2 (owner S4 / S5 / S6, 2026-10-07) -- "None" NOT OFFERED WHERE A RULED DEFAULT MAPS IT;
+ * "You typed" ONLY FOR WHAT A PERSON TYPED; A REFUSING ROW SAYS "unit taken as", A PRICED ONE
+ * "priced per", AND THE FIGURES' UNIT IS THE CATALOGUE'S WORD.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("SLICE 12d-2 / S4 -- the sentinel \"None\" is offered ONLY where no ruled default maps it to a catalogue value", () => {
+  const v27 = HVAC_V27 as unknown as Asset;
+  const insCfg = v27.category_configs.find((c) => c.category_id === "hvac_insulation")!;
+  const insSpec = itemListPricingSpec(insCfg)!;
+  const insDefs = listSpecDefs(insCfg);
+  const insItems = v27.items.map((i) => ({ ...i, discipline: "HVAC" }));
+
+  it("ONE reader: ruledDefaultValue is exactly what the pricing applies over a \"None\" answer -- value, by_family, or nothing", () => {
+    expect(ruledDefaultValue(spec, "damper", "round diffuser")).toBe("without");
+    expect(ruledDefaultValue(spec, "ul", "actuator")).toBe("no");
+    expect(ruledDefaultValue(spec, "variant", "VCD")).toBe("GI rectangular");
+    expect(ruledDefaultValue(spec, "variant", "linear grille")).toBeUndefined();     // by_family names no such family
+    expect(ruledDefaultValue(spec, "air", "linear grille")).toBeUndefined();          // no default at all
+    expect(ruledDefaultValue(insSpec, "cladding", "Thermal Nitrile Insulation")).toBe("No");
+    // and the pricing agrees: a "None" damper on a round diffuser prices as the default the reader names
+    const r = priceItemList(spec, items, "Nos", [ext({ family: "round diffuser", damper: "None", dia_mm: "150" })]);
+    expect(r.items[0].defaulted.map((d) => [d.attr, d.value])).toEqual([["damper", "without"]]);
+  });
+
+  it("POSITIVE: Insulation's cladding (ruled default: not mentioned -> No) offers NO \"None\"; the catalogue values stay", () => {
+    const f = itemFieldDefs(insSpec, insDefs, "Thermal Nitrile Insulation", "area", { items: insItems }).find((x) => x.id === "cladding")!;
+    expect(f.allowNone).toBe(true);                       // the definition still allows the model to answer "None" ...
+    expect(f.options).not.toContain("None");              // ... but a person is not offered it
+    expect(f.options!.length).toBeGreaterThan(0);
+    expect(f.options).toContain("No");
+  });
+
+  it("NEGATIVE kept: an allow_none attribute with NO ruled default still offers \"None\" first (the air stream); a per-family default spares the other families", () => {
+    const air = itemFieldDefs(spec, listSpecDefs(adp), "linear grille", "area").find((f) => f.id === "air")!;
+    expect(air.allowNone).toBe(true);
+    expect(air.options![0]).toBe("None");
+    // variant: VCD and fire damper carry a by_family default; a family outside the map keeps the sentinel
+    const specWithVariantEverywhere = itemListPricingSpec({
+      ...adp, list_spec: { ...(adp as unknown as { list_spec: Record<string, unknown> }).list_spec,
+        pricing: { ...spec, families: { ...spec.families, "linear grille": { ...spec.families["linear grille"], needs: [...spec.families["linear grille"].needs, "variant"] } } } },
+    } as unknown as RateCategoryConfig)!;
+    const v = itemFieldDefs(specWithVariantEverywhere, listSpecDefs(adp), "linear grille", "area").find((f) => f.id === "variant")!;
+    expect(v.options![0]).toBe("None");
+  });
+
+  it("NEGATIVE: the DISPLAY half is untouched -- a \"None\" answer under a ruled default already renders the catalogue value, marked (the pricing's `defaulted`)", () => {
+    const r = priceItemList(insSpec, insItems, "Sqm", [{ attributes: { item: { value: "Thermal Nitrile Insulation" }, cladding: { value: "None" }, thickness_mm: { value: "13 mm" } } }]);
+    expect(r.priced).toBe(true);
+    expect(r.items[0].defaulted.map((d) => [d.attr, d.value])).toEqual([["cladding", "No"]]);
+  });
+});
+
+describe("SLICE 12d-2 / S5 -- \"You typed\" only for what a person typed; a model-read value reads \"BoQ says\"", () => {
+  const v27 = HVAC_V27 as unknown as Asset;
+  const insCfg = v27.category_configs.find((c) => c.category_id === "hvac_insulation")!;
+  const insSpec = itemListPricingSpec(insCfg)!;
+  const insItems = v27.items.map((i) => ({ ...i, discipline: "HVAC" }));
+  const NR = "Nitrile Rubber Insulation";
+  const cell = (v: string, typed?: boolean) => ({ value: v, ...(typed ? { typed: true } : {}) });
+
+  it("a MODEL-read 32 mm above the top rung composes and says \"BoQ says 32 mm -> priced as 13 + 19 mm\"", () => {
+    const r = priceItemList(insSpec, insItems, "Rmt", [{ attributes: { item: cell(NR), cladding: cell("No"), thickness_mm: cell("32"), pipe_size_mm: cell("19.05") } }]);
+    expect(r.priced).toBe(true);
+    expect(r.items[0].working[0]).toMatch(/^BoQ says 32 mm -> priced as 13 \+ 19 mm \(32 mm, \+0\)/);
+  });
+
+  it("the SAME value typed by the pricer (the 12d-1b `typed` marker) says \"You typed 32 mm\"", () => {
+    const r = priceItemList(insSpec, insItems, "Rmt", [{ attributes: { item: cell(NR), cladding: cell("No"), thickness_mm: cell("32", true), pipe_size_mm: cell("19.05") } }]);
+    expect(r.priced).toBe(true);
+    expect(r.items[0].working[0]).toMatch(/^You typed 32 mm -> priced as 13 \+ 19 mm \(32 mm, \+0\)/);
+  });
+
+  it("NEGATIVE: the figures are identical either way -- the marker changes the sentence, never the price; explicit layers keep their own line", () => {
+    const model = priceItemList(insSpec, insItems, "Rmt", [{ attributes: { item: cell(NR), cladding: cell("No"), thickness_mm: cell("32"), pipe_size_mm: cell("19.05") } }]);
+    const typed = priceItemList(insSpec, insItems, "Rmt", [{ attributes: { item: cell(NR), cladding: cell("No"), thickness_mm: cell("32", true), pipe_size_mm: cell("19.05") } }]);
+    expect([model.supply, model.install]).toEqual([typed.supply, typed.install]);
+    expect(model.items.map((i) => i.selection.thickness_mm)).toEqual(typed.items.map((i) => i.selection.thickness_mm));
+  });
+});
+
+describe("SLICE 12d-2 / S6 -- a no-unit / rate-only row: \"unit taken as\" while it refuses, \"priced per\" once it prices, and the catalogue word as the rate's unit", () => {
+  it("PRICED: the note says \"priced per number\" and the result carries rateUnit \"number\" (the figures' label), never the BoQ's spelling", () => {
+    for (const u of ["", "R/O", "Rate Only"]) {
+      const r = one(u, { family: "butterfly damper", dia_mm: "100" });
+      expect(r.priced, u).toBe(true);
+      expect(r.unitNote, u).toMatch(/-> priced per number, the catalogue's unit for this item$/);
+      expect(r.rateUnit, u).toBe("number");
+    }
+  });
+
+  it("REFUSING: the same row with a size the catalogue cannot take says \"unit taken as number\" -- never \"priced\" -- and still names the unit", () => {
+    const r = one("", { family: "butterfly damper", dia_mm: "as per drawing" });
+    expect(r.priced).toBe(false);
+    expect(r.unitNote).toBe("No unit on the BoQ row -> unit taken as number, the catalogue's unit for this item");
+    expect(r.rateUnit).toBe("number");
+    const ro = one("R/O", { family: "butterfly damper", dia_mm: "as per drawing" });
+    expect(ro.priced).toBe(false);
+    expect(ro.unitNote).toBe("BoQ says R/O (rate only) -> unit taken as number, the catalogue's unit for this item");
+    // and a row with no items at all
+    const empty = priceItemList(spec, items, "", []);
+    expect(empty.priced).toBe(false);
+    expect(empty.unitNote).toBeUndefined();   // no items -> no classes to resolve -> nothing was taken
+  });
+
+  it("NEGATIVE: a row that STATED its unit carries neither a note nor a rateUnit -- its own spelling labels the figures", () => {
+    const r = one("Nos", { family: "butterfly damper", dia_mm: "100" });
+    expect(r.priced).toBe(true);
+    expect(r.unitNote).toBeUndefined();
+    expect(r.rateUnit).toBeUndefined();
+    const refused = one("Nos", { family: "butterfly damper", dia_mm: "as per drawing" });
+    expect(refused.unitNote).toBeUndefined();
+    expect(refused.rateUnit).toBeUndefined();
   });
 });
