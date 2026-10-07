@@ -396,6 +396,30 @@ export const NON_PROJECT_INFLOWS_EDIT: readonly string[] = [
 export const NON_PROJECT_INFLOWS_DELETE: readonly string[] = [ADMIN_PROFILE];
 
 /**
+ * Handover Documents -- the profiles that WORK a handover, and the ONLY ones that see it:
+ * the `/hod-tracker` sidebar entry + route guard, and the project page's "Handover
+ * Documents" tab (owner, 2026-10-07: "sidebar access", then "make those four profile only").
+ *
+ * UI gate only. `Project HOD Document` gives read to almost every role and full write to
+ * `System Manager`, which also rides on Estimates, HR Executive and Design Lead -- the
+ * server does not yet refuse them.
+ */
+export const HOD_ACCESS: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  PROJECT_LEAD_PROFILE,
+  PROJECT_MANAGER_PROFILE,
+];
+
+/** True when `role` (a role PROFILE) sees Handover Documents. */
+export const canAccessHod = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && HOD_ACCESS.includes(role));
+
+/**
  * Reports > WO > Payment Voucher Uploads -- who may Upload / Delete a voucher (plus the
  * `Administrator` user, checked by the caller). Everyone else on the WO tab may still Gen /
  * download / view. SCREEN-ONLY: the write is `frappe.client.set_value`, and the WO page itself

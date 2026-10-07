@@ -424,6 +424,11 @@ values that are still needed went:
    date + handed-over-to, O&M included parts + blank values, maintenance included parts + results + comments, the
    From-app records ticked for download, each form's date). Write: System Manager, PMO Executive, Project Lead,
    Project Manager; the other Nirmaan roles read.
+   **Screens (owner 2026-10-07):** the HOD Tracker (sidebar + `/hod-tracker` route guard) and the project page's
+   Handover Documents tab are shown to Admin / PMO / Project Lead / Project Manager ONLY — one list,
+   `HOD_ACCESS` / `canAccessHod` in `frontend/src/constants/roles.ts`. The tracker list shows only projects the
+   user may open. The server is NOT narrowed yet: System Manager also rides on Estimates, HR Executive and
+   Design Lead, so they can still write by API (gaps G16).
 
 **Deliberately NOT schema:** the 16-document index + kinds → `services/hod/index.py` only (the frontend reads it
 from the API); company letterhead / address / CIN / logo → inside the two print formats (the Commission print
@@ -445,11 +450,13 @@ frontend/src/pages/HandoverDocuments/     tab → system tabs → checklist + Ac
 frontend/src/pages/HandoverDocuments/print-formats/   source of the two print formats (pasted in Desk)
 ```
 
-No import script: the library is edited under Packages Settings → Handover Documents and exported to
-`fixtures/hod_system.json` + `hod_library_content.json` with `bench export-json`. Those files are NOT in the
-hooks `fixtures` list (owner 2026-09-23), so a migrate leaves them alone and another site loads them with
-`bench --site <site> import-doc`, systems first. The two print formats DO ship, through the existing
-`Print Format` fixture.
+No import script: the library is edited under Packages Settings → Handover Documents and lives in each site's
+database only. **The exported `fixtures/hod_system.json` + `hod_library_content.json` were DELETED
+2026-10-07 (owner).** Frappe's migrate imports EVERY `.json` in `<app>/fixtures/` with force, whether or not
+the hooks `fixtures` list names it, so those files overwrote on-screen library edits (the "New projects"
+switches flipped back on) on every migrate. A site without the library loads a saved export once with
+`bench --site <site> import-doc`, systems first, or enters it on screen. The two print formats DO ship,
+through the existing `Print Format` fixture.
 
 **Address (settled):** the Commission print format's corporate address "No.234, 1st Floor, 9th Main, 16th Cross,
 6th Sector, HSR Layout" — the HOD Excel's "No L-376/A, 17th Cross" was outdated.

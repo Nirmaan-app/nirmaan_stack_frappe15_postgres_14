@@ -115,7 +115,7 @@ import {
   useProjectViewMeta,
   useProjectViewMutations,
 } from "./data/root/useProjectRootApi";
-import { isProcurementProfile } from "@/constants/roles";
+import { canAccessHod, isProcurementProfile } from "@/constants/roles";
 
 // v3 dual-field model: this list covers the EXECUTION status (`status` field
 // — Created / WIP / Completed / Halted / Handover / CEO Hold). The bid
@@ -509,6 +509,9 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile" || role === "Nirmaan Billing Executive Profile";
   const isProjectManager = role === "Nirmaan Project Manager Profile";
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
+  // Handover Documents is shown to `HOD_ACCESS` only (Admin / PMO / Project Lead / Project Manager),
+  // whichever tab set the role otherwise gets.
+  const canSeeHod = canAccessHod(role, user_id);
 
   // Allowed tabs for non-privileged users (all roles except Admin, PMO, Accountant)
   const nonPrivilegedAllowedTabs = useMemo<Set<ProjectPageTabValue>>(() => new Set([
@@ -543,7 +546,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.TDS_REPOSITORY,
     PROJECT_PAGE_TABS.BULK_DOWNLOAD,
     PROJECT_PAGE_TABS.COMMISSION_REPORT,
-    PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
     PROJECT_PAGE_TABS.BOQ,
   ]), []);
 
@@ -566,7 +568,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       PROJECT_PAGE_TABS.TDS_REPOSITORY,
       PROJECT_PAGE_TABS.BULK_DOWNLOAD,
       PROJECT_PAGE_TABS.COMMISSION_REPORT,
-      PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
       PROJECT_PAGE_TABS.BOQ,
     ]);
     // Billing Executive KEEPS the BoQ tab (owner request). This used to delete it, with the
@@ -579,6 +580,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   // Redirect users to allowed tab if on restricted tab
   useEffect(() => {
+    // A typed `?page=handover-documents` from outside HOD_ACCESS -- including Accountants, whom
+    // the privileged branch below never redirects. Waits out "Loading", or a Project Manager
+    // opening a link to the tab is bounced before their role arrives.
+    if (activePage === PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS && role !== "Loading" && !canSeeHod) {
+      setActivePage(getLandingTab(role));
+      return;
+    }
     if (isSales) {
       // Sales users can only see the Overview and Financials tabs.
       if (activePage !== PROJECT_PAGE_TABS.OVERVIEW && activePage !== PROJECT_PAGE_TABS.FINANCIALS) {
@@ -592,7 +600,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       // Redirect non-privileged users (except Procurement Executive and Estimates Executive who have their own rules)
       setActivePage(getLandingTab(role));
     }
-  }, [role, isSales, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, activePage, procurementExecutiveAllowedTabs, estimatesExecutiveAllowedTabs, nonPrivilegedAllowedTabs]);
+  }, [role, isSales, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, canSeeHod, activePage, procurementExecutiveAllowedTabs, estimatesExecutiveAllowedTabs, nonPrivilegedAllowedTabs]);
 
   const items: MenuItem[] = useMemo(() => {
     // Sales users (Executive / Lead) can only see the Overview and Financials tabs.
@@ -664,10 +672,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "Commission Report",
           key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
         },
-        {
+        ...(canSeeHod ? [{
           label: "Handover Documents",
           key: PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
-        },
+        }] : []),
       ];
     }
 
@@ -725,10 +733,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Commission Report",
           key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
-        },
-        {
-          label: "Handover Documents",
-          key: PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
         },
       ];
     }
@@ -803,10 +807,6 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Commission Report",
           key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
-        },
-        {
-          label: "Handover Documents",
-          key: PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
         },
       ];
     }
@@ -911,12 +911,12 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         label: "Commission Report",
         key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
       }] : []),
-      ...(!isAccountant ? [{
+      ...(canSeeHod ? [{
         label: "Handover Documents",
         key: PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
       }] : []),
     ];
-  }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, isProjectManager, isSales]);
+  }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, isProjectManager, isSales, canSeeHod]);
 
   // Define tabs available based on role or other logic
   // const availableTabs = useMemo(() => {

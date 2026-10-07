@@ -71,6 +71,7 @@ import {
 import { Separator } from "../ui/separator";
 import { useCountsBridge } from "@/hooks/useSidebarCounts";
 import {
+  HOD_ACCESS,
   MATERIAL_PROCUREMENT_PROFILES,
   NON_PROJECT_INFLOWS_ACCESS,
   PROCUREMENT_PROFILES,
@@ -752,8 +753,8 @@ export function NewSidebar() {
       : []),
     // Handover Documents, across every project. The roles are the ones that WORK a handover --
     // the same four `Project HOD Document` grants write to (System Manager / PMO / Project Lead /
-    // Project Manager). Read is far wider on the doctype; the sidebar is not the access boundary.
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
+    // Project Manager). The `/hod-tracker` route guard reads the same list.
+    ...(user_id == "Administrator" || HOD_ACCESS.includes(role as string)
       ? [
         {
           key: '/hod-tracker',
