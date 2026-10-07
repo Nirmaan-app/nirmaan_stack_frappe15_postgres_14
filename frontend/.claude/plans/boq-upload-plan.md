@@ -44520,3 +44520,88 @@ retry and filed; every SEEN value was ALSO read from the live DOM.
 Full record: `2026-10-08_12d1a_Report.md` + `_Ledger.md` on the Desktop; screenshots in `2026-10-08_12d1a_Screens/`.
 
 ---
+## Slice 12d-1b — INSULATION: THICKNESS, DOUBLE LAYERS, AND THE NAMED "NONE OF THESE"; HVAC v28 (2026-10-07) — SHIPPED
+
+Four code commits + this docs commit: `7ad62fb14` (T1 order fix), `c8b694d8e` (T2 `several` + the hazard pins),
+`699f9d945` (T4 layers + the T6 `typed` gate), `c4d3dfcf0` (HVAC v28, T5, the named sweeps, E2E-1). NO AI call.
+Insulation stays `calculator_only` -- eligibility is 12d-2's.
+
+### T1-T8 and where each lives
+
+| ruling | lives in |
+|---|---|
+| **T1** a stated thickness is read first; unreadable refuses; 9 mm only when nothing is mentioned | `priceOneItem` needs loop: `unreadable[n]` BEFORE `number_defaults` (commit 1); v28 `number_defaults.thickness_mm` with no `families` scope |
+| **T2** several thicknesses -> the highest (a bare slash list of any length) | `NumberReader.several = "highest"` (`readNumber`, commit 2); v28 `numbers.thickness_mm.several`; validator closes the value to `"highest"` |
+| **T3** a size schedule is read by the MODEL for this row's size | the v28 thickness note ("read the thickness for THIS row's pipe size"; a list / two layers copied AS WRITTEN); pinned by `test_mc1b_03` |
+| **T4** double layers -> each layer its own item, cladding on the outer only | `readLayers` ("a + b", "a x N" / "N x a", "N layers of a"; N a digit or two / double) -> `composeInto` with `outer_only`, through the UNCHANGED expansion in `priceItemList`; the line "BoQ says 65 mm + 32 mm -> priced as two layers, 32 + 65 mm (97 mm); cladding on the outer layer only" (commit 3) |
+| **T5** "none of these" names the material | v28 `material_as_written` text def + `no_sku_named_by`; `priceOneItem`: "No SKU in the catalogue for XLPE - price this row by hand"; ADP keeps the R18 sentence (no key) |
+| **T6** the calculator's typed "13+13" stays refused | `assembleItems` marks a pricer's entries `typed: true`; the layers parse reads model cells only (commit 3) |
+| **T7** nitrile above 53.98 refuses | unchanged; E2E-1 (c) 80NB |
+| **T8** known Python failures | the baseline's 11 (the 10 + teardown); `test_daily_window…` passed in this slice's baseline |
+
+### The thickness order, as code reads it
+
+1. a STATED thickness is read (`readNumber`): a number; a range -> its top; two slash values -> the higher; with
+   `several: "highest"` any bare slash list -> its highest; inches only on an `inches` reader and only a real
+   fraction (one slash, two numbers) -- a slash list is never an inch;
+2. a stated text the reader cannot take -> if the compose axis and a MODEL answer that `readLayers` accepts ->
+   the layers go to the composition path; otherwise REFUSE by name ("no number in '…' for thickness", "several
+   values stated …") -- never a default;
+3. nothing mentioned -> `number_defaults` 9 mm, marked amber, then the ladder (13 on Nitrile Rubber at any pipe,
+   9 on Thermal / Acoustic, 12 on Fiberglass, the pipe's stocked size on PUF) / composition above the top rung.
+
+### E2E-1 -- thirteen real payloads, both paths, every figure stated in advance (two corrected, recorded)
+
+`insulation12d1b.e2e.test.ts` over `__fixtures__/insulation12d1bRows.json`: 12/12. (a) NR 238/14 · TN 383/154 · FG with
+its GI frame **1126/385** (first stated 310/154 for cladding "No" -- corrected by the sheet rule before the line changed) ·
+PUF 50@50 with 26G **600/224** (first stated 210/14, same correction) · (b) 743/238 composed 13 (No) + 19 (26G) · (c) 50NB
+615/224, 80NB refuses (53.98) · (d) 476/28 as two 13 mm layers -- **the calculator path diverges BY RULING (T6) and the
+test names it** · the 65/80/100 + 32 rows refuse "no pipe size stated" · (e) "no number in 'as specified in the tender
+specs.' for thickness" · (f) "No SKU in the catalogue for XLPE - price this row by hand". Disclosed: no corpus pipe row
+is silent on thickness and every slash-list heading carries a schedule, so (a) and (b) are hand-written answers on real
+payload shapes (the fixture's `answer_note` says so per row).
+
+### What 12d-2 inherits
+
+Eligibility (the `pipelines` key + removing `calculator_only`, in ONE change -- FA7); `second_opinion` OFF in the asset that
+goes live (R8); the first production classify / suggest runs as the out-of-sample measurement; the calculator's typed
+layers (T6 "let it be for now"); Cladding Only + foil and Fiberglass + foil (refuse "no SKU for this combination"); the 44
+corpus pipe rows above 53.98 mm (R9 / T7).
+
+### Tests (measured in-session)
+
+vitest **5027 -> 5059 (142 files)**, the same 1 known failure; Python **7322 -> 7335** (`Ran 7335 tests in 1466.192s, failures=6, errors=5`); tsc **3169 =
+3169**. Vacuity: T1 order swap 2 red; `several` branch 2 red; layers hook 4 red; named refusal 1 red; each restored green.
+Pins inverted (never deleted): two 12c-S "written-out layers refuse" pins (typed still refuses; a model answer now
+prices -- the positive half added), this slice's own T1 negative (typed), the `assembleItems` cell-shape pin (`typed: true`
+on a pricer's entry, none on a model cell), `test_p01`'s key set (+`no_sku_named_by`), `TestSlice12d1aAsset` re-pointed to
+v27 by name with `test_v27_01` inverted ("CURRENT has moved past v27").
+
+### Cert
+
+Full de-stale first (every process ended on TERM, ports free, 202 `__pycache__` purged, `.vite` removed, bench + vite
+restarted, site data cleared, fresh login). PROOF 1 (served source): `function readLayers` x1, `reader.several ===
+"highest"` x1, `no_sku_named_by` x1, `price this row by hand` x1, `layersFrom` x6, `slashCount` x2; the helper's `typed:
+true` x1. PROOF 2 (runtime `await import(...)` in the live page): `readLayers("65 mm + 32 mm thick")` -> `[32, 65]`,
+`"19 x 2"` / `"2 layers of 19 mm"` -> `[19, 19]`, `"600 x 600"` -> null; `readNumber("19/ 25 / 32 mm", {several:
+"highest"})` -> 32 with the note, without `several` -> refuses; on an `inches` reader the same list refuses ("several
+values") and `7/8"` -> 22.225. `document.visibilityState === "visible"` throughout (the window WAS foregrounded this time).
+
+| step | stated in advance | seen |
+|---|---|---|
+| 1 | Calculator -> Insulation (mts) -> Nitrile Rubber, pipe 19.05, cladding No, thickness Other... 32: composed 13 + 19, 219 + 255 = **474 / 28 / 502** (the 12c figure, so the T1 order moved nothing); then cladding 26G: inner layer install stays **14** (cladding 0), outer **224** = (10 + 150) x 1.4 | **SEEN** both: "You typed 32 mm -> priced as 13 + 19 mm (32 mm, +0)", Layer 1 219/14, Layer 2 255/14, row 474 / 28 / 502 (screen 01); with 26G Layer 1 219/14 "installing the cladding = 0", Layer 2 404/224 "= 150", row 623 / 238 / 861 (screen 02) |
+| 2 | thickness Other... "13+13" refuses (T6); the note still says "a single number" | **SEEN**: "Not priced -- several values stated for thickness ('13+13')", 1 of 1 item needs a person; note unchanged (screen 03) |
+| 3 | ADP BOQ-26-00117 `HVAC BOQ ` r82 = 1160 / 352 / 1512; Electrical BOQ-26-00174 `Electrical ` r94 = 19630 / 3930 | **SEEN** both unchanged: r82 slot diffuser **1160 / 352 / 1512** with the R1 damper default line (screen 04); r94 **19630 / 3930 (23560)** (screen 05). "Fast render" OFF to reach each row, back ON after; "All changes saved" before leaving each sheet |
+| 4 | counts and digests unchanged except HVAC's configs (v28) | **SEEN**: 1,733 items (Electrical 1,402 / HVAC 331), 22 configs (13 / 9), 6 retirements, 96 runs, 37,702 cell-pricing rows -- identical before and after the browser session; Electrical items `232744c5` / configs `15c3db98` identical; live HVAC items AND all 9 configs re-verified `== v28` by content after the session |
+
+"Use this value" never pressed; no category-lock override was needed (both sheets fully priced); nothing written.
+Screenshots (`2026-10-08_12d1b_Screens/`): 01 calculator 32 -> 13 + 19 = 474/28/502; 02 the same with 26G, cladding on
+the outer layer only; 03 "13+13" refused; 04 BOQ117 r82; 05 BOQ174 r94.
+
+### Files
+
+`itemListPricing.ts` (+ `.test.ts`), `pricingSheetHelper.ts` (+ `.test.ts`), `insulation12d1b.e2e.test.ts` + fixture,
+`config_validation.py`, `test_rate_master.py`, `test_extraction_coercion.py`, `rate_master_hvac_all_v28.json`, root `CLAUDE.md`,
+this file. Full record: `2026-10-08_12d1b_Report.md` + `_Ledger.md`; screenshots `2026-10-08_12d1b_Screens/`.
+
+---

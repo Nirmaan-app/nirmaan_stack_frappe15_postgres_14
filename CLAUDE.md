@@ -1327,8 +1327,28 @@ legibly through `no_sku_families`. The family refusal speaks the family definiti
 insulation material could be told …`, `no item family …`), never a category name. `panel_readonly`
 declares text definitions the model answers and the panel SHOWS but nothing matches (a brand); the
 validator refuses any attribute the pricing reads. **Nitrile Rubber pipe SKUs stop at 53.98 mm and a
-larger pipe REFUSES by ruling** -- do not widen the ladder or alias it to PUF. Thickness rules (the
-read-first order, "take the highest", the size schedule, double layers) are a LATER slice's.
+larger pipe REFUSES by ruling** -- do not widen the ladder or alias it to PUF.
+
+**⚠️ A STATED VALUE IS READ BEFORE ANY DEFAULT, AND AN UNREADABLE STATED VALUE REFUSES (owner T1,
+owner-locked).** In `priceOneItem`'s needs loop the `unreadable` refusal comes BEFORE `number_defaults`
+is consulted: a thickness the row DID state but code cannot read ("as per specification", a comma
+list, a typed "13+13") refuses by name; the 9 mm default fires only when NOTHING is mentioned, then the
+ladder. The order was the other way round and, with the default scoped to one family, the defect was
+latent -- widening the default to every family is what made it bite. **"Several" is a reader option,
+never a reader default:** `numbers[attr].several = "highest"` takes the highest of a BARE slash list of
+any length; absent, two values take the higher and three refuse, so a category that does not declare it
+is byte-identical. **A thickness the MODEL writes as layers ("a + b", "a x N", "N layers of a") rides
+the EXISTING composition path** (`composeInto` + `outer_only`: each layer at the row's pipe size, the
+cladding on the outer layer only) -- nothing new is priced -- and **a value the PRICER typed is never
+parsed as layers**: `assembleItems` marks a pricer's entries `typed: true` and the layers parse reads
+only model cells, which is what keeps the calculator's single-number entry as it is (owner T6, "let it
+be for now"). A row that states layers but no pipe size refuses per layer, exactly as before. **A
+schedule in a heading (thickness keyed to pipe size) is a FACT THE MODEL READS** for this row's size
+(the thickness note); "take the highest" is CODE for the case with no schedule. **A `no_sku_families`
+refusal may NAME the material as written** through `no_sku_named_by` (a text def the pricing never
+reads): "No SKU in the catalogue for XLPE - price this row by hand"; without the key the R18 sentence
+stands, which is how ADP's stays byte-identical. **A pipe-size field holding a slash list is not an
+inch fraction** -- a fraction is ONE slash between TWO numbers (or a mixed number).
 
 ## BoQ Rate Suggestion (RM-3)
 
