@@ -206,7 +206,7 @@ const REGISTRY: Record<
       ) : null;
       const none = <span className="text-muted-foreground">--</span>;
 
-      // Paid tab: a Paid Non Project Expense's invoice can be added or replaced here, beside the pencil.
+      // Paid tab: a Paid expense's invoice can be added or replaced here, beside the pencil.
       // ⚠️ MUST stay above the Approve / Reject fall-through below, like the branch after it.
       if (ctx.tab === PP_TABS.PAYMENTS_DONE) {
         const invoice = ctx.onUploadInvoice && ctx.canUploadInvoice?.(r) ? (

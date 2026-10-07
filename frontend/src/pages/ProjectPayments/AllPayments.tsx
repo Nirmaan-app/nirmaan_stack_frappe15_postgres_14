@@ -311,8 +311,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         isExpenseRow && payRow ? undefined : null
     );
 
-    // ── "Upload Invoice" on a Paid Non Project Expense (Payment Done / Reconciliation Done) ──
-    // The Non Project Expenses page's own invoice dialog. Like the pay dialogs it wants the stored
+    // ── "Upload Invoice" on a Paid expense, either ledger (Payment Done / Reconciliation Done) ──
+    // The Non Project Expenses page's invoice dialog, which serves both ledgers. Like the pay dialogs it wants the stored
     // document (the queue row carries only the file, not the invoice date / ref).
     const [invoiceRow, setInvoiceRow] = useState<ApprovalQueueRow | null>(null);
     const { data: invoiceExpenseDoc, mutate: mutateInvoiceExpenseDoc } = useFrappeGetDoc<any>(

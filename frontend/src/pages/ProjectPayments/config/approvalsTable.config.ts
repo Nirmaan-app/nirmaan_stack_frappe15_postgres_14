@@ -171,7 +171,7 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
     "amount", "paid_on", "utr_ref", "proof", "payment_by",
   ],
   // "Payment Done / Reconciliation Done" — no `select`. `actions` holds ONLY the expense
-  // Edit pencil (owner, 2026-09-21) and a Non Project Expense's Upload Invoice button (`canUploadInvoiceRow`,
+  // Edit pencil (owner, 2026-09-21) and an expense's Upload Invoice button (`canUploadInvoiceRow`,
   // same three roles); a Paid PO / WO payment has none (the 17 Sep removal of
   // the payment pencil stands). The screen drops the column for roles that cannot edit.
   // `reconciled_on` was removed from the table (owner, 2026-09-21); it stays in the CSV export.

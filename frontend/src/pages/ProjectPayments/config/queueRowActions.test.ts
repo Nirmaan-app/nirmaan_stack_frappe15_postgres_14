@@ -106,12 +106,12 @@ describe("canHoldQueueRow — an Approved PO / WO payment, for the three settle 
   });
 });
 
-describe("canUploadInvoiceRow — a Paid NON-PROJECT expense, for the three queue roles only", () => {
+describe("canUploadInvoiceRow — a Paid expense (either ledger), for the three queue roles only", () => {
   for (const role of QUEUE_EDIT_PROFILES) {
     for (const ledger of LEDGERS) {
       for (const status of STATUSES) {
-        // Never a Project Expense (owner, 2026-10-05), never a PO / WO payment.
-        const expected = ledger === "Non Project Expenses" && status === "Paid";
+        // Both expense ledgers (owner, 2026-10-07), never a PO / WO payment.
+        const expected = ledger !== "Project Payments" && status === "Paid";
         it(`${role} · ${ledger} · ${status}`, () => {
           expect(canUploadInvoiceRow(row(ledger, status), role)).toBe(expected);
         });
