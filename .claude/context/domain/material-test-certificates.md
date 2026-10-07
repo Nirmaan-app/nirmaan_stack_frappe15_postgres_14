@@ -131,8 +131,8 @@ The full decision log (owner rulings Q1–Q39) and the build notes are in
     - The title, with PO number and vendor under it.
     - The file and the Certificate Date side by side. The file shows as a neutral chip once picked. The date uses
       the app's `Calendar` popover, shown as dd-MMM-yyyy, with future days disabled and no helper text.
-    - The items: a search box, "All items", and the lines grouped by Category (Package in the group heading,
-      one checkbox per group). Each row is the item name and make. Only billable lines without an MTC are listed,
+    - The items: a search box, "All items", and **one plain list**, with no category or package grouping
+      (owner Q42). Each row is the item name and make. Only billable lines without an MTC are listed,
       and a note counts the ones held by other certificates.
     - The footer says why Upload is disabled. When every line is covered, Upload is greyed out
     with "All billable items have an MTC". Edit can replace the file and untick or tick items, keeping at least one.
