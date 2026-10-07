@@ -3,10 +3,9 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { useLedgerVendorDoc, useLedgerData } from '../data/useVendorQueries';
 import { useUpdateVendorDoc } from '../data/useVendorMutations';
-import Fuse from 'fuse.js';
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Button } from '@/components/ui/button';
-import { Info, FileUp } from 'lucide-react';
+import { Info, FileUp, FileDown, Loader2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from '@/components/ui/use-toast';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
@@ -14,30 +13,20 @@ import { VirtualizedLedgerTable } from './VirtualizedLedgerTable';
 import { exportToCsv } from '@/utils/exportToCsv';
 import { formatDate } from '@/utils/FormatDate';
 import { LedgerEntry } from './LedgerTableRow';
-import { dateFilterFn } from '@/utils/tableFilters';
 import { DateFilterValue } from './AdvancedDateFilter';
 import { EditBalancingDialog } from './EditBalancingDialog';
-
-// Interface matching the flat object from the API (all amounts in rupees)
-interface ApiTransaction {
-    type: 'PO Created' | 'SR Created'| 'Invoice Recorded' | 'Payment Made' | 'Refund Received' | 'Credit Note Recorded';
-    date: string;
-    project: string;
-    details: string;
-    amount: number; // in rupees
-    payment: number; // in rupees
-    is_inactive?: boolean; // true when the linked PO's status is "Inactive"
-}
+import { buildLedgerStatement, dateFilterToRange } from '../utils/vendorLedgerStatement';
+import { downloadPrintFormatPdf } from '@/utils/downloadPrintFormatPdf';
 
 type LedgerTab = 'poLedger' | 'srLedger' | 'invoicesLedger';
 
 export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => {
     // UI State
     const [activeSubTab, setActiveSubTab] = useState<LedgerTab>('invoicesLedger');
-    const [searchTerm, setSearchTerm] = useState('');
     const [projectFilter, setProjectFilter] = useState<Set<string>>(new Set());
     const [dateFilter, setDateFilter] = useState<DateFilterValue | undefined>(undefined);
     const [isBalancingDialogOpen, setIsBalancingDialogOpen] = useState(false);
+    const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
     // Export is available to everyone who can open the Vendor Ledger tab.
     // The tab itself is the access boundary (gated at the /vendors route), and
@@ -53,25 +42,15 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
 
     
 
-    // Core Logic for Balancing Figures
+    // Balancing figures: the vendor's balance as on 31-Mar-2025 (the ledger starts 01-Apr-2025).
     const srAmountBalancing = vendorDoc?.sr_amount_balance || 0;
     const poAmountBalancing = vendorDoc?.po_amount_balance || 0;
     const invoiceBalancing = vendorDoc?.invoice_balance || 0;
     const paymentBalancing = vendorDoc?.payment_balance || 0;
 
-    const poLedgerOpeningBalance = useMemo(() => poAmountBalancing - paymentBalancing, [poAmountBalancing, paymentBalancing]);
-    const srLedgerOpeningBalance = useMemo(() => srAmountBalancing - paymentBalancing, [srAmountBalancing, paymentBalancing]);
-    const invoiceLedgerOpeningBalance = useMemo(() => invoiceBalancing - paymentBalancing, [invoiceBalancing, paymentBalancing]);
-
-       const activeOpeningBalance = useMemo(() => {
-        switch (activeSubTab) {
-            case 'poLedger': return poLedgerOpeningBalance;
-            case 'srLedger': return srLedgerOpeningBalance;
-            case 'invoicesLedger': return invoiceLedgerOpeningBalance;
-            default: return 0;
-        }
-    }, [activeSubTab, poLedgerOpeningBalance, srLedgerOpeningBalance, invoiceLedgerOpeningBalance]);
-
+    const baseOpeningAmount = activeSubTab === 'poLedger' ? poAmountBalancing
+        : activeSubTab === 'srLedger' ? srAmountBalancing
+        : invoiceBalancing;
 
     const handleSaveBalancingFigures = (values: { po: number;sr: number; invoice: number; payment: number }) => {
         updateDoc('Vendors', vendorId, {
@@ -96,11 +75,13 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
         return Array.from(projectNames).map((name) => ({ label: name, value: name }));
     }, [flatTransactionsFromApi]);
 
-    // Processing logic to filter and calculate running balance
-    const processedItems = useMemo(() => {
-        let items = flatTransactionsFromApi || [];
+    // The date filter as a day range: the screen and the PDF both use it.
+    const dateRange = useMemo(() => dateFilterToRange(dateFilter), [dateFilter]);
 
-         items = items.filter(item => {
+    // Project filter, then the date range; rows before the range are carried into the
+    // opening balance (services/vendor_ledger.py does the same for the PDF).
+    const statement = useMemo(() => {
+        const subTabRows = (flatTransactionsFromApi || []).filter(item => {
             if (activeSubTab === 'poLedger') {
                 // This logic keeps POs and their payments, but excludes all invoices.
                 return (item.type !== 'Invoice Recorded' && item.type !== 'Credit Note Recorded' && item.details.includes('PO'));
@@ -115,46 +96,22 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
             }
             return false;
         });
+        return buildLedgerStatement(
+            subTabRows,
+            { invoice: Number(baseOpeningAmount), payment: Number(paymentBalancing) },
+            dateRange,
+            projectFilter,
+        );
+    }, [flatTransactionsFromApi, activeSubTab, baseOpeningAmount, paymentBalancing, dateRange, projectFilter]);
 
-        if (dateFilter?.value) {
-            items = items.filter(item => {
-                const mockRow = { getValue: (columnId: string) => item[columnId as keyof ApiTransaction] };
-                return dateFilterFn(mockRow as any, 'date', dateFilter, () => {});
-            });
-        }
-        if (searchTerm.trim()) {
-            const fuse = new Fuse(items, { keys: ['details', 'project', 'type'], threshold: 0.3 });
-            items = fuse.search(searchTerm).map(result => result.item);
-        }
-        if (projectFilter.size > 0) {
-            items = items.filter(item => projectFilter.has(item.project));
-        }
+    const processedItems = useMemo((): LedgerEntry[] => statement.rows.map(entry => ({
+        ...entry,
+        transactionType: entry.type as LedgerEntry['transactionType'],
+        isInactive: !!entry.is_inactive,
+    })), [statement]);
 
-        let runningBalance = Number(activeOpeningBalance);
-        return items.map((entry): LedgerEntry => {
-            runningBalance += entry.amount - entry.payment;
-            return {
-                ...entry,
-                transactionType: entry.type as LedgerEntry['transactionType'],
-                balance: runningBalance,
-                isInactive: !!entry.is_inactive,
-            };
-        });
-
-    }, [flatTransactionsFromApi, activeSubTab, activeOpeningBalance, dateFilter, searchTerm, projectFilter]);
-
-    // The rest of your component (totals, export, JSX) does not need to change
-    // because it correctly consumes the `processedItems` array.
-
-    const totals = useMemo(() => {
-        return processedItems.reduce((acc, item) => {
-            acc.amount += item.amount;
-            acc.payment += item.payment;
-            return acc;
-        }, { amount: 0, payment: 0 });
-    }, [processedItems]);
-
-    const endBalance = processedItems.length > 0 ? processedItems[processedItems.length - 1].balance : activeOpeningBalance;
+    const { opening, totals } = statement;
+    const endBalance = statement.closing;
 
     // Drives the red-tint legend: only explain the colour when a tinted row is present.
     const hasInactiveRows = useMemo(
@@ -170,13 +127,11 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
             { header: 'Balance', accessorKey: 'balance' },
         ];
 
-        const openingAmountForExport = activeSubTab === 'poLedger' ? poAmountBalancing :activeSubTab === 'srLedger' ? srAmountBalancing : invoiceBalancing;
-
         const openingBalanceRow = {
-            date: '', transactionType: '', project: '', details: 'Opening Balance (as on 31st March 2025)',
-            amount: Number(openingAmountForExport).toFixed(2),
-            payment: Number(paymentBalancing).toFixed(2),
-            balance: Number(activeOpeningBalance).toFixed(2),
+            date: '', transactionType: '', project: '', details: `Opening Balance (as on ${formatDate(new Date(`${opening.asOn}T00:00:00`))})`,
+            amount: Number(opening.invoice).toFixed(2),
+            payment: Number(opening.payment).toFixed(2),
+            balance: Number(opening.balance).toFixed(2),
         };
         
         const formattedTransactionData = processedItems.map(item => ({
@@ -204,10 +159,31 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
         exportToCsv(fileName, dataToExport, exportColumns);
         toast({ title: "Export Successful" });
 
-    }, [
-        processedItems, vendorId, activeSubTab, activeOpeningBalance, 
-        totals, endBalance, vendorDoc, poAmountBalancing, invoiceBalancing, paymentBalancing
-    ]);
+    }, [processedItems, vendorId, activeSubTab, opening, totals, endBalance, vendorDoc]);
+
+    // The "Vendor Ledger" print format re-reads the same rows on the server and applies
+    // the same rule, so the PDF matches this screen's filters.
+    const handleDownloadPdf = useCallback(async () => {
+        setIsDownloadingPdf(true);
+        try {
+            const vendorName = vendorDoc?.vendor_name || vendorId;
+            await downloadPrintFormatPdf({
+                doctype: 'Vendors',
+                name: vendorId,
+                format: 'Vendor Ledger',
+                fileName: `${vendorName}_Vendor_Ledger_${new Date().toISOString().slice(0, 10)}.pdf`,
+                params: {
+                    from_date: dateRange.from,
+                    to_date: dateRange.to,
+                    projects: projectFilter.size > 0 ? JSON.stringify([...projectFilter]) : undefined,
+                },
+            });
+        } catch (err) {
+            toast({ variant: "destructive", title: "PDF download failed", description: (err as Error).message });
+        } finally {
+            setIsDownloadingPdf(false);
+        }
+    }, [vendorDoc, vendorId, dateRange, projectFilter]);
 
     if (error) return <AlertDestructive error={error} />;
     if (isLedgerLoading || isVendorLoading) return <div className="p-4"><Skeleton className="h-48 w-full" /></div>;
@@ -218,6 +194,12 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
                 <div className="flex items-center gap-2">
                     <Button onClick={handleExportCsv} variant="outline" size="sm" className="h-9">
                       <FileUp className="mr-2 h-4 w-4" /> Export
+                    </Button>
+                    <Button onClick={handleDownloadPdf} variant="outline" size="sm" className="h-9" disabled={isDownloadingPdf}>
+                      {isDownloadingPdf
+                        ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        : <FileDown className="mr-2 h-4 w-4" />}
+                      Download PDF
                     </Button>
                     <SegmentedControl
                         value={activeSubTab}
@@ -251,11 +233,7 @@ export const POVendorLedger: React.FC<{ vendorId: string }> = ({ vendorId }) => 
                 projectOptions={projectFacetOptions}
                 projectFilter={projectFilter}
                 onSetProjectFilter={setProjectFilter}
-                openingBalance={activeOpeningBalance}
-                poAmountBalancing={poAmountBalancing}
-                 srAmountBalancing={srAmountBalancing}
-                invoiceBalancing={invoiceBalancing}
-                paymentBalancing={paymentBalancing}
+                opening={opening}
                 onEditBalancing={() => setIsBalancingDialogOpen(true)}
                 isSavingBalance={isSaving}
                 totals={totals}

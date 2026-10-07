@@ -9,6 +9,7 @@
  */
 
 import { ApprovalQueueRow } from "./config/approvalsTable.config";
+import { parseNumber } from "@/utils/parseNumber";
 
 export type LedgerRow = Pick<ApprovalQueueRow, "source">;
 
@@ -109,3 +110,11 @@ export const forwardedToCeoNote = (
   const tds = tdsCount > 0 ? ` TDS on ${plural(tdsCount, "work order payment")} is taken at CEO approval.` : "";
   return head + tds;
 };
+
+/**
+ * The money a selection adds up to — the one sum rule behind every "Req. Amt" total on
+ * the queue (the approval bulk bar, the Mark-as-Paid bar and its confirm dialog), so no
+ * two screens can total the same ticks differently.
+ */
+export const selectionTotal = (rows: readonly Pick<ApprovalQueueRow, "amount">[]): number =>
+  rows.reduce((sum, r) => sum + parseNumber(r.amount), 0);

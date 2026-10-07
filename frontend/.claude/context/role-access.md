@@ -388,7 +388,11 @@ customer Financials tables. Frontend gating; the revert endpoint re-checks the r
 |---|---|:--:|:--:|:--:|:--:|
 | Edit (pencil) | Project / Non-Project expense, any status except Rejected | Y | Y | Y | - |
 | Revert to Approved | Project Payment at Reconciliation Pending | Y | Y | Y | - |
+| Upload Inv / Edit Inv (2026-10-05) | **Non Project** expense, Paid, on "Payment Done / Reconciliation Done" only | Y | Y | Y | - |
 | Edit | PO / WO payment, any status | - | - | - | - |
+
+Upload / Edit Inv is `canUploadInvoiceRow`. A Project Expense never gets it (owner, 2026-10-05) — its invoice is
+edited through the pencil. The dialog requires the invoice file AND its ref before Save enables.
 
 On a **Paid** expense the edit dialogs keep Amount, Payment Date and Payment Ref read-only. That is a screen
 rule only: the server locks nothing on a Paid record (owner, 2026-09-21), so Desk edits still go through.

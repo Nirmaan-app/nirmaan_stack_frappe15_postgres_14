@@ -1,6 +1,6 @@
 /**
  * The three figures on a Vendor Invoice: Invoice Base Amount, Invoice GST Amount and
- * Invoice Amount (total incl. GST). ADR-0030; glossary: CONTEXT.md, "Invoice amounts".
+ * Invoice Amount (total incl. GST). ADR-0030; glossary: GLOSSARY.md, "Invoice amounts".
  *
  * Server twin: `nirmaan_stack/services/invoice_amounts.py`. The server is the real
  * boundary (it refuses a create without the split, signs a credit note and returns the

@@ -1,0 +1,16 @@
+{#- LETTER HEAD "Stratos Infra" -- FOOTER HTML (the `footer` field).
+
+    The registered and corporate addresses and the CIN, repeated at the foot of every page the company
+    letterhead heads. Lifted verbatim from `hod-document.html` with the header above it.
+
+    `letter-head-footer` is FRAPPE's OWN class (it ships in `print.bundle.css`, which
+    `prepare_header_footer` injects into the footer document): Frappe's footer page starts 15mm down,
+    and that class pulls the block back up so the CIN line is not clipped. It is NOT defined by either
+    HOD print format -- do not go looking for it there. -#}
+<div id="footer-html">
+<div class="letter-head-footer" style="text-align: center; border-top: 1px solid #000;  background: #fff; font-family: 'Inter', Helvetica, Arial, sans-serif; line-height:1">
+        <span style="text-align: center; font-size: 9px; color: #333;">Registered Address: Flat 403, Fine Aura Co-operative Housing Society, Marol Military Road, Andheri East, Mumbai, Maharashtra - 400059</span></br>
+        <span style="text-align: center; font-size: 9px; color: #333;">Corporate Address: No.234, 1st Floor, 9th Main, 16th Cross, 6th Sector, HSR Layout, Bangalore, Karnataka, 560102</span></br>
+        <span style="text-align: center; font-size: 9px; font-weight: 700; color: #333;">CIN: U74999MH2021PTC358936</span>
+    </div>
+</div>

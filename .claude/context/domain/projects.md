@@ -68,7 +68,7 @@ This is bypassed when `all={true}` prop is passed.
 
 ## Notional GST (Work Orders raised with GST off)
 
-Term: `CONTEXT.md` § Work-order GST. Shipped 2026-09-11 (`1b67d01b`).
+Term: `GLOSSARY.md` § Work-order GST. Shipped 2026-09-11 (`1b67d01b`).
 
 **Rule:** `Σ Service Requests.total_amount × 0.18` over **Approved** SRs with `gst != "true"`.
 `calculate_total_amount` (`doctype/service_requests/service_requests.py`) adds 18% only when `gst` is

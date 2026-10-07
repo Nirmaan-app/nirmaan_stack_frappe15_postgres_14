@@ -374,7 +374,7 @@ export const ReleasePOSelect: React.FC = () => {
             accessorKey: "total_amount",
             header: ({ column }) => {
                 return (
-                    <DataTableColumnHeader column={column} title="PO Amt" />
+                    <DataTableColumnHeader column={column} title="PO Value (Incl GST)" />
                 )
             },
             cell: ({ row }) => {
@@ -385,7 +385,7 @@ export const ReleasePOSelect: React.FC = () => {
             size: 200,
             // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
             meta: {
-                exportHeaderName: "PO Amount",
+                exportHeaderName: "PO Value (Incl GST)",
                 exportValue: (row: ProcurementOrdersType) => {
                     return formatForReport(row?.total_amount);
                 }
@@ -419,6 +419,47 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             } as ColumnDef<ProcurementOrdersType>,
         ] : []),
+        {
+            accessorKey: "amount_paid",
+            header: ({ column }) => {
+                return (
+                    <DataTableColumnHeader column={column} title="Amount Paid" />
+                )
+            },
+            cell: ({ row }) => {
+
+                return (<div className={`font-medium pr-2 ${row.original?.amount_paid !== 0 ? "cursor-pointer underline text-blue-600 hover:text-blue-800" : ""}`} onClick={() => row.original?.amount_paid !== 0 && setSelectedPaymentPO(row.original)} >
+                    {formatToRoundedIndianRupee(row.original?.amount_paid)}
+                </div>
+                );
+
+            },
+            size: 200,
+            // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
+            meta: {
+                exportHeaderName: "Amount Paid",
+                exportValue: (row: ProcurementOrdersType) => {
+                    return formatForReport(row?.amount_paid);
+                }
+            }
+        },
+        {
+            accessorKey: "po_amount_delivered",
+            header: ({ column }) => (
+                <DataTableColumnHeader
+                    column={column}
+                    title={<span className="whitespace-normal leading-tight text-left">Payable Amt against Delivered Items</span>}
+                />
+            ),
+            cell: ({ row }) => (
+                <div className="font-medium pr-2">{formatToRoundedIndianRupee(parseNumber(row.original?.po_amount_delivered))}</div>
+            ),
+            size: 160,
+            meta: {
+                exportHeaderName: "Payable Amt against Delivered Items",
+                exportValue: (row: ProcurementOrdersType) => formatForReport(parseNumber(row.po_amount_delivered)),
+            }
+        },
         ...([PO_TABS.PARTIALLY_DISPATCHED_PO, PO_TABS.DISPATCHED_PO, PO_TABS.PARTIALLY_DELIVERED_PO, PO_TABS.DELIVERED_PO].includes(tab as any) ? [
             {
                 accessorKey: "expected_delivery_date",
@@ -451,30 +492,6 @@ export const ReleasePOSelect: React.FC = () => {
                 }
             } as ColumnDef<ProcurementOrdersType>,
         ] : []),
-        {
-            accessorKey: "amount_paid",
-            header: ({ column }) => {
-                return (
-                    <DataTableColumnHeader column={column} title="Amount Paid" />
-                )
-            },
-            cell: ({ row }) => {
-
-                return (<div className={`font-medium pr-2 ${row.original?.amount_paid !== 0 ? "cursor-pointer underline text-blue-600 hover:text-blue-800" : ""}`} onClick={() => row.original?.amount_paid !== 0 && setSelectedPaymentPO(row.original)} >
-                    {formatToRoundedIndianRupee(row.original?.amount_paid)}
-                </div>
-                );
-
-            },
-            size: 200,
-            // sortingFn: (a, b) => parseFloat(a) - parseFloat(b),
-            meta: {
-                exportHeaderName: "Amount Paid",
-                exportValue: (row: ProcurementOrdersType) => {
-                    return formatForReport(row?.amount_paid);
-                }
-            }
-        },
         // ...(tab !== "Merged POs" ? [
         //     {
         //         id: "Amount_paid",

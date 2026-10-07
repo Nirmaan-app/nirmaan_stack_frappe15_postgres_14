@@ -5,6 +5,7 @@ import {
   forwardedToCeoNote,
   selectionBreakdown,
   selectionNoun,
+  selectionTotal,
   summarizeSelection,
 } from "./bulkSelectionSummary";
 
@@ -109,5 +110,20 @@ describe("forwardedToCeoNote", () => {
   it("names a single kind directly and mentions TDS only when there is some", () => {
     expect(forwardedToCeoNote([po, po], "₹50,000", 0)).toBe("2 PO payments above ₹50,000 go to the CEO next.");
     expect(forwardedToCeoNote([pe], "₹50,000", 0)).toBe("1 project expense above ₹50,000 goes to the CEO next.");
+  });
+});
+
+describe("selectionTotal", () => {
+  it("adds every ticked amount across ledgers", () => {
+    expect(selectionTotal([{ amount: 1000 }, { amount: 2500.5 }, { amount: 499.5 }])).toBe(4000);
+  });
+
+  it("is 0 for an empty selection", () => {
+    expect(selectionTotal([])).toBe(0);
+  });
+
+  it("treats a missing or text amount the way parseNumber does, never as NaN", () => {
+    const rows = [{ amount: 100 }, { amount: undefined }, { amount: "250" }] as unknown as { amount: number }[];
+    expect(selectionTotal(rows)).toBe(350);
   });
 });

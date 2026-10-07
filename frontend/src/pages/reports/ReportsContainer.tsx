@@ -28,6 +28,7 @@ const WOPaymentVoucherReport = React.lazy(() => import('./components/WOPaymentVo
 // Tax Deducted at Source. The page lives outside ./components because it predates this tab --
 // it was a sidebar route of its own until the ledger moved in here.
 const PaymentTDSDeductions = React.lazy(() => import('@/pages/PaymentTDSDeductions/PaymentTDSDeductions'));
+const ChequePaymentReport = React.lazy(() => import('./components/ChequePaymentReport'));
 
 // Define options for the selector
 const projectReportOptions: { label: string; value: ProjectReportType }[] = [
@@ -73,6 +74,7 @@ const dcmirReportOptions: { label: string; value: DCMIRReportType }[] = [
 
 const paymentTdsReportOptions: { label: string; value: PaymentTDSReportType }[] = [
     { label: 'TDS Deduction', value: 'TDS Deduction' },
+    { label: 'Cheque Payment', value: 'Cheque Payment' },
 ];
 
 export default function ReportsContainer() {
@@ -199,7 +201,7 @@ export default function ReportsContainer() {
         // default and the legacy-route redirect — an inline second copy drifts the day one of
         // them is edited, and it fails quietly: a visible tab that cannot load.
         if (PAYMENT_TDS_ACCESS.includes(role)) {
-            availableTabs.push({ label: "Payment TDS Deduction", value: REPORTS_TABS.PAYMENT_TDS });
+            availableTabs.push({ label: "Payment", value: REPORTS_TABS.PAYMENT_TDS });
         }
         return availableTabs;
     }, [role]);
@@ -385,7 +387,10 @@ export default function ReportsContainer() {
             if (selectedReportType === 'Payment Voucher Uploads') return <WOPaymentVoucherReport />;
             return <SRReports />;
         }
-        if (activeTab === REPORTS_TABS.PAYMENT_TDS) return <PaymentTDSDeductions />;
+        if (activeTab === REPORTS_TABS.PAYMENT_TDS) {
+            if (selectedReportType === 'Cheque Payment') return <ChequePaymentReport />;
+            return <PaymentTDSDeductions />;
+        }
         if (activeTab === REPORTS_TABS.DCS_MIRS) {
             return (
                 <DCMIRReports

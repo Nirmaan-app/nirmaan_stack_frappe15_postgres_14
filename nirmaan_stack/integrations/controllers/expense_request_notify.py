@@ -33,7 +33,7 @@ def _notify(recipient: str, title: str, description: str, request_name: str,
 	"""Write one in-app notification and publish it.
 
 	Commit BEFORE publishing (the house rule): the socket must never arrive before the row
-	the client will fetch.
+	the client will fetch. Inside an outflow-import settle the caller owns the commit.
 	"""
 	if not recipient or recipient == "Administrator":
 		return
@@ -58,12 +58,22 @@ def _notify(recipient: str, title: str, description: str, request_name: str,
 		"action_url": "expense/requests",
 	})
 	note.insert(ignore_permissions=True)
-	frappe.db.commit()
+
+	# ⚠️ NO COMMIT INSIDE AN OUTFLOW-IMPORT SETTLE. That save runs inside a savepoint; a commit here
+	# ended it, `release_savepoint` raised, and the import's row flips were rolled back while the
+	# slips and the Paid expense -- already committed -- stayed (production, 2026-10-05). The note
+	# rides the import's transaction instead, and the socket waits for that commit, so the house
+	# rule still holds. Unlike the CEO-Hold notify, this one is NOT skipped: Paid is the one moment
+	# the requester is told about.
+	settling = bool(frappe.flags.get("outflow_import_settling"))
+	if not settling:
+		frappe.db.commit()
 
 	frappe.publish_realtime(
 		event=event_id,
 		message={"title": title, "description": description, "docname": request_name},
 		user=recipient,
+		after_commit=settling,
 	)
 
 

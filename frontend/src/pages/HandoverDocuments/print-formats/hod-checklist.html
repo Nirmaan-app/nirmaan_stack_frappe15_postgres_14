@@ -1,0 +1,309 @@
+<!--
+    PRINT FORMAT: HOD Checklist           (DocType: Projects, Custom HTML, Jinja)
+    The cover page, the stakeholder logo page + the handover checklist of ONE system of a project.
+    Print link: ...download_pdf?doctype=Projects&name=<project>&format=HOD Checklist&hod_system=<system>
+    (the binder passes `hod_system` in the render context instead).
+
+    Values come from `hod_checklist_context(project, hod_system)` (a hooks.jinja method). Switched-off
+    documents are left out and the S.No renumbered there, not here.
+    Margins come from the top-level `.print-format { ... }` rule below (Custom HTML formats ignore the
+    Print Format's own margin fields).
+-->
+{%- set ctx = hod_checklist_context(doc.name, hod_system if hod_system is defined else none) -%}
+{%- set h = ctx.header -%}
+
+<style>
+/* 30mm / 24mm used to clear the STRATOS letterhead, which this format never prints. The top margin now
+   clears the LOGO STRIP instead -- it is a repeating page header since 2026-09-25, so every page needs
+   the room, not just the first. The bottom has no footer to clear. */
+.print-format { margin-top: 20mm; margin-bottom: 14mm; margin-left: 12mm; margin-right: 12mm; }
+/* The rule above is read ONLY as wkhtmltopdf page margins. The header/footer pages wrap their content in a
+   .print-format div too, so cancel it as CSS (a div.* selector is not read as a page option). */
+div.print-format { margin: 0 auto !important; }
+* { box-sizing: border-box; }
+html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px; line-height: 1.3; color: #000; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; }
+/* The stakeholder logo strip (owner 2026-09-25): the SAME block the "HOD Document" format prints, so
+   the cover, the checklist and every document behind them are headed identically. */
+/* Same fixed band as the document format -- see `.hd-logos` there. */
+.hc-logos { width: 100%; height: 14mm; table-layout: fixed; border-collapse: collapse; margin: 0; }
+/* The header is EMPTY on the cover, the logo page and the checklist (owner 2026-10-06): the logos now have
+   a page of their own after the cover. HIDDEN, not removed -- delete this rule to bring the strip back.
+   The 20mm top margin stays, so every bordered box sits exactly where it did. The signature names on the
+   checklist still come from the same picked logos (`signers`). */
+.hc-logos { display: none; }
+.hc-logos td { text-align: center; vertical-align: middle; padding: 0 8px; border: 0 !important; }
+.hc-logos img { max-height: 42px; max-width: 100%; }
+/* The cover is a BORDERED BOX filling the page under the logos (owner 2026-09-25), with the system
+   name centred inside it. The height is fixed rather than 100%: wkhtmltopdf gives a percentage height
+   nothing to resolve against, and with the letterhead now gone from this page there is no repeating
+   header eating into it. The padding does the vertical centring -- flexbox is not reliable here.
+   THE HEIGHT IS `.hd-sheet`'s 258mm, NOT the 263mm printable area: every handover document draws its box
+   that tall, so a cover at 261mm put its bottom rule 3mm lower than the checklist behind it and lower
+   again than every document after that (measured 16.5mm against 19.3mm, 2026-09-28). One box, one height,
+   on every page of the binder. */
+.hc-cover { border: 1px solid #000; height: 258mm; text-align: center; page-break-after: always; }
+.hc-cover-in { padding-top: 100mm; }
+.hc-cover-sys { font-size: 28px; font-weight: 700; letter-spacing: 0.5px; }
+.hc-cover-sub { font-size: 20px; font-weight: 700; margin-top: 8px; }
+.hc-cover-project { font-size: 15px; margin-top: 30px; }
+.hc-cover-loc { font-size: 11px; color: #444; margin-top: 6px; }
+/* THE STAKEHOLDER LOGO PAGE, between the cover and the checklist (owner 2026-10-06): the logos picked
+   under "Header logos", two cards to a row -- the Project TDS Report's own first page, card for card.
+   It sits in the same 258mm bordered box as the cover, so the binder keeps one box on every page.
+   The report's heading (Nirmaan mark + red rule) is HIDDEN here by the owner's ruling -- hidden, not
+   removed: `.hc-sh-head` is kept so it can come back by deleting the `display: none`. */
+.hc-sh { border: 1px solid #000; height: 258mm; page-break-after: always; padding: 10mm 8mm 0 8mm; }
+.hc-sh-head { display: none; width: 100%; margin-bottom: 20px; text-align: center; }
+.hc-sh-head img { height: 45px; display: block; margin: 0 auto 10px auto; }
+.hc-sh-rule { border-bottom: 3px solid #dc2626; margin-top: 10px; }
+.hc-sh-grid { width: 100%; border: none; border-collapse: separate; border-spacing: 0; }
+.hc-sh-grid td, .print-format .hc-sh-grid td { width: 50%; border: none !important; padding: 0 !important; vertical-align: top; }
+/* A FULL page of logos (owner 2026-10-06): three rows of cards fill the 258mm box -- 10mm top padding +
+   3 x (76mm card + 2 x 8px margin) = ~251mm. The TDS report's 220px cards left the bottom quarter empty. */
+.hc-sh-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); height: 76mm; overflow: hidden; margin: 8px; }
+/* `content-box` on purpose: this format sets `* { box-sizing: border-box }`, which the TDS report does not,
+   so its `height: 30px` swallowed the 24px of padding and the label sat on the divider line. */
+.hc-sh-card-head { box-sizing: content-box; background: #fafafa; padding: 12px 16px; border-bottom: 1px solid #f0f0f0; border-radius: 10px 10px 0 0; text-align: center; height: 30px; line-height: 30px; }
+.hc-sh-card-head svg { vertical-align: middle; margin-right: 8px; display: inline-block; }
+.hc-sh-label { font-size: 11px; font-weight: 700; color: #374151; text-transform: uppercase; vertical-align: middle; display: inline-block; }
+.hc-sh-body { padding: 10px; height: 60mm; display: table; width: 100%; }
+.hc-sh-body-in { display: table-cell; vertical-align: middle; text-align: center; }
+.hc-sh-body img { max-width: 100%; max-height: 46mm; width: auto; height: auto; display: block; margin: 0 auto; }
+/* The sheet is ONE continuous bordered block (owner 2026-09-25): three full-width tables stacked with
+   a -1px top margin so their 1px borders overlap into a single outer edge. wkhtmltopdf renders nested
+   bordered tables unpredictably, which is why this is a stack rather than a table inside a table. */
+.hc-doc-title, .print-format .hc-doc-title {
+    text-align: center; font-weight: 700; font-size: 15px; background: #FBE4D5 !important;
+}
+.hc-pkg td, .print-format .hc-pkg td { background: #FBE4D5 !important; font-weight: 700; }
+/* The gap under PACKAGE is an empty BORDERED row on the original sheet -- the box runs unbroken from
+   the title down to the signatures, so the side rules carry straight through it. */
+.hc-spacer td, .print-format .hc-spacer td { height: 14px; }
+.hc-strong, .print-format .hc-strong { font-weight: 700; }
+/* Blank areas the handover is signed and stamped in, filled by hand on the printed sheet. */
+/* THREE classes on the alignment, deliberately: `.print-format .hc-table td` below carries three too
+   and sets `vertical-align: middle`, so a two-class override loses to it on source order however it is
+   written -- the label then floats in the middle of the blank instead of sitting in its top-left
+   corner. Same trap as the Maintenance sheet's table sizing. */
+.hc-comments td, .print-format .hc-comments td { height: 62px; }
+.hc-table .hc-comments td, .print-format .hc-table .hc-comments td { vertical-align: top !important; }
+/* A heading INSIDE a cell, over its own blank -- the Maintenance sheet's `.hd-cell-head`. */
+.hc-cell-head, .print-format .hc-cell-head { display: block; margin-bottom: 5px; }
+/* THE SHEET FILLS THE PAGE (owner 2026-09-25). The original is an EXCEL sheet, sized to the page:
+   whatever is left after the rows is absorbed by the seal band, so the block always ends near the
+   bottom margin and the three signatures always sit at the foot -- whether the system has 12
+   documents or 16. Plain flow does the opposite: it sizes to its content and stops early, which is
+   what left a short box with white space under it.
+   The sheet is therefore a FIXED-HEIGHT box: the tables run down it in normal flow, and the seal band
+   is pinned to its bottom. Do NOT reach for a two-row wrapper table with a "fill" row -- wkhtmltopdf
+   breaks the page between those two rows unconditionally, with 45mm still free below, and the band
+   lands on a page of its own. Measured: any wrapper height, and even `height: auto`, does it.
+   297mm - 20mm top - 14mm bottom = 263mm printable; 258mm leaves headroom, because a block whose
+   height exactly equals the printable area spills a blank page out of wkhtmltopdf. */
+.hc-sheet { position: relative; height: 258mm; page-break-inside: avoid; }
+/* The two side rules of the box, drawn for its FULL height. The tables only reach as far as their own
+   rows, so without this the box would have open sides across the blank above the signatures. They sit
+   exactly where the tables' own outer borders sit (both on the sheet's edges), so nothing doubles. */
+.hc-rails { position: absolute; top: 0; bottom: 0; left: 0; right: 0; border-left: 1px solid #000; border-right: 1px solid #000; }
+/* ONE band for the seal and the names, pinned to the foot of the sheet: the names sit under the blank
+   the seal goes in, with no rule above them and none between them -- three labels in open space, not
+   a table of three cells. It closes the box with the bottom rule. */
+.hc-foot { position: absolute; left: 0; right: 0; bottom: 0; border-bottom: 1px solid #000; padding-bottom: 10px; }
+/* The company seal, bottom-left of the band and above the names -- where it sits on the original.
+   `/assets/.../frontend/nirmaan-seal-sign.png` is a `public/` file, copied verbatim by Vite, so unlike
+   the bundled logo its url carries NO build hash and cannot 404 after a rebuild. It is the same file
+   the Commission Report prints; note that format makes it OPT-IN, since a seal is a signature. */
+/* The seal is sized so the WHOLE band still clears the Comments box on the fullest sheet there is --
+   all 16 documents AND a location that wraps to two lines, which leaves only ~36mm under the box.
+   Grow it and the seal prints through that rule. */
+.hc-seal-mark { text-align: left; padding-left: 66px; margin-bottom: 10px; }
+.hc-seal-mark img { height: 88px; }
+.hc-signnames { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.hc-signnames td, .print-format .hc-signnames td {
+    border: 0 !important; text-align: center; font-weight: 700; padding: 2px !important; font-size: 12px;
+}
+.hc-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: -1px 0 0 0; }
+/* Frappe's print page forces `.print-format td { padding: 6px !important }`, which pushed the checklist to
+   two pages: the doubled selectors below out-rank it in both render paths. */
+.hc-table td, .hc-table th, .print-format .hc-table td, .print-format .hc-table th {
+    border: 1px solid #000; padding: 5px 6px !important; vertical-align: middle !important;
+    font-size: 13px; line-height: 1.3; word-wrap: break-word; color: #000;
+}
+/* No fill on the column header: the ONLY filled rows are the title and PACKAGE, which is what marks
+   them as "which handover is this" rather than evidence (owner's layout). */
+.hc-table th, .print-format .hc-table th { font-weight: 700; text-align: center; }
+/* The CONSULTANT / PROJECT / LOCATION / DATE / PACKAGE block, at the size the Maintenance sheet's
+   head block uses (owner 2026-09-25) -- the two sit next to each other in the binder and were reading
+   at different sizes. The fills on the title and PACKAGE rows are untouched. */
+.hc-table.hc-head td, .print-format .hc-table.hc-head td { padding: 7px 10px !important; font-size: 10.5px; }
+/* The label column is set by the <colgroup> on the head table, NOT here: `table-layout: fixed`
+   takes its widths from the FIRST ROW, and that row is the single `colspan=2` title cell -- which
+   made the browser split the table 50/50 and left the labels sitting in a column half the sheet
+   wide. A <colgroup> is read before any row, so it is the only thing that can state it here. */
+.hc-head td.hc-hl { font-weight: 700; }
+.hc-c { text-align: center; }
+.hc-gap { height: 10px; }
+.hc-note { font-size: 10.5px; margin: 8px 0 !important; }
+.hc-box { border: 1px solid #000; height: 55px; margin-top: 3px; }
+/* Signatures as in the Commission Report: a row of role titles over a row of empty boxes. */
+.hc-sigs { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 16px; page-break-inside: avoid; }
+.hc-sigs .hc-sig-header td, .print-format .hc-sigs .hc-sig-header td {
+    border: 1px solid #000; text-align: center; padding: 5px !important; font-size: 11px; font-weight: 700; color: #000;
+}
+.hc-sigs .hc-sig-box td, .print-format .hc-sigs .hc-sig-box td { border: 1px solid #000; height: 60px; padding: 0 !important; }
+</style>
+
+{#- The STRATOS letterhead (wkhtmltopdf's repeating page header / footer) prints ONLY on the two
+    documents that carry it -- Completion Certificate and Equipment Warranty. Every other page is headed
+    by the stakeholder logo strip instead, and showing both would put two letterheads on one page
+    (owner 2026-09-25). `ctx.top.letterhead` is the same flag the strip is hidden by, so the two can
+    never both appear. -#}
+<div id="header-html">
+{%- if ctx.top and ctx.top.letterhead -%}
+    <div style="text-align: center; border-bottom: 1.5px solid #000; background: #fff;font-family: 'Inter', Helvetica, Arial, sans-serif;  line-height: 22px;">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1056 1056"
+             preserveAspectRatio="xMidYMid meet"
+             width="40" height="40"
+             style="vertical-align: bottom; margin-right: 14px;">
+            <g transform="translate(0,1056) scale(0.1,-0.1)" fill="#DC2626" stroke="none">
+                <path d="M4534 8883 c-39 -48 -89 -113 -112 -143 -23 -30 -45 -59 -50 -65 -22 -29 -49 -65 -62 -85 -8 -12 -48 -66 -87 -120 -40 -55 -73 -101 -73 -104 0 -4 -8 -15 -17 -25 -28 -31 -40 -46 -52 -68 -6 -12 -17 -27 -23 -35 -7 -7 -29 -36 -47 -63 -19 -28 -37 -52 -40 -55 -4 -3 -10 -12 -16 -22 -16 -26 -168 -242 -174 -248 -3 -3 -20 -25 -36 -50 -17 -25 -34 -50 -40 -57 -11 -13 -11 -13 -181 -258 -68 -99 -131 -188 -139 -197 -8 -10 -11 -18 -7 -18 4 0 2 -4 -3 -8 -11 -8 -80 -102 -168 -232 -32 -47 -99 -143 -148 -215 -50 -71 -107 -155 -127 -185 -20 -30 -40 -57 -43 -60 -3 -3 -18 -25 -34 -49 -15 -25 -31 -49 -36 -55 -10 -12 -33 -45 -183 -266 -55 -80 -104 -148 -110 -152 -6 -4 -7 -8 -2 -8 5 0 0 -10 -11 -22 -11 -13 -60 -81 -109 -153 -48 -71 -111 -163 -139 -204 -27 -40 -54 -80 -60 -89 -5 -9 -18 -25 -27 -36 -10 -11 -20 -28 -24 -38 -3 -10 -9 -18 -14 -18 -4 0 -10 -8 -13 -17 -4 -10 -30 -52 -60 -93 -52 -73 -171 -246 -251 -365 -23 -33 -43 -62 -46 -65 -3 -3 -38 -54 -79 -115 -40 -60 -77 -111 -82 -113 -5 -2 -9 -8 -9 -14 0 -6 -23 -41 -50 -79 -28 -39 -56 -81 -62 -94 -6 -14 -15 -25 -19 -25 -4 0 -10 -8 -14 -19 -3 -10 -13 -28 -23 -39 -48 -57 -56 -67 -54 -70 2 -1 -5 -12 -14 -25 -25 -34 -285 -415 -398 -582 -55 -82 -104 -154 -109 -160 -18 -23 -157 -226 -157 -230 0 -8 -94 -140 -102 -143 -4 -2 -8 -8 -8 -13 0 -5 -29 -52 -65 -104 -36 -51 -65 -100 -65 -109 0 -25 66 -37 212 -40 57 -1 109 -5 116 -10 7 -4 12 -2 12 5 0 8 4 8 15 -1 8 -7 15 -9 15 -4 0 10 83 9 99 -1 6 -3 11 -3 11 2 0 10 111 10 127 0 5 -3 13 -4 17 0 5 6 246 11 758 16 98 1 178 6 178 10 0 4 6 4 14 0 8 -4 37 -6 65 -5 l50 4 66 99 c36 54 65 103 65 108 0 5 3 11 8 13 4 1 73 104 152 228 79 124 159 246 177 272 18 26 33 50 33 53 0 3 5 11 11 18 14 17 95 142 127 197 14 25 32 49 39 53 7 4 13 13 13 18 0 6 19 38 42 72 24 34 51 78 62 97 10 19 21 37 25 40 13 11 51 70 51 80 0 5 5 10 10 10 6 0 10 5 10 10 0 6 16 33 35 60 19 27 35 52 35 55 0 2 18 30 39 62 75 111 161 244 161 249 0 3 5 10 10 17 6 7 28 39 49 72 21 33 73 113 115 178 42 64 76 122 76 127 0 6 5 10 10 10 6 0 14 8 17 18 4 9 58 95 120 190 62 95 113 177 113 182 0 6 5 10 10 10 6 0 10 7 10 15 0 8 3 15 8 15 4 0 18 20 32 45 14 25 28 45 32 45 5 0 8 4 8 8 0 8 98 164 117 187 5 6 20 28 33 50 13 22 28 42 32 43 4 2 8 8 8 12 0 8 36 68 58 95 4 6 22 33 39 60 18 28 36 55 40 60 5 6 30 42 56 80 74 111 78 116 135 193 70 95 114 138 146 144 27 5 62 -26 136 -122 19 -25 37 -47 40 -50 3 -3 27 -34 53 -70 26 -36 54 -74 63 -85 39 -51 119 -166 253 -364 80 -119 149 -217 153 -219 4 -2 8 -8 8 -14 0 -8 77 -126 113 -173 4 -5 39 -55 77 -110 178 -258 258 -367 275 -377 12 -7 88 83 195 229 19 26 37 50 40 53 3 3 25 34 49 70 25 36 47 67 50 70 4 3 26 34 51 70 24 36 48 67 52 68 4 2 8 10 8 18 0 8 5 14 10 14 6 0 10 7 10 15 0 8 4 15 9 15 5 0 12 8 15 18 4 10 14 27 24 38 10 10 28 37 42 59 13 22 30 44 37 48 7 4 13 12 13 17 0 8 104 170 168 260 93 134 87 213 -31 398 -26 40 -47 77 -47 82 0 6 -4 10 -8 10 -4 0 -36 39 -70 88 -112 159 -185 257 -193 260 -5 2 -9 9 -9 14 0 6 -7 18 -15 27 -30 32 -95 121 -95 130 0 5 -4 11 -9 13 -12 4 -81 96 -81 107 0 5 -4 11 -9 13 -5 2 -52 62 -106 133 -124 166 -137 182 -155 205 -8 10 -22 28 -30 40 -8 12 -20 28 -25 34 -6 6 -40 49 -75 96 -36 46 -70 91 -77 100 -7 8 -26 33 -42 55 -17 22 -36 46 -43 54 -6 8 -42 55 -80 105 -79 105 -107 141 -128 165 -8 9 -28 35 -44 56 -17 22 -33 42 -36 45 -3 3 -17 21 -30 40 -13 19 -29 40 -35 46 -5 6 -23 28 -40 49 -16 21 -34 43 -40 49 -5 6 -32 40 -60 76 -27 36 -52 67 -55 70 -3 3 -37 44 -74 93 -38 48 -73 87 -78 87 -4 0 -8 6 -8 13 0 6 -22 34 -49 60 l-48 49 -69 -89z"/>
+                <path d="M8303 7062 c-39 -59 -107 -163 -151 -232 -45 -69 -85 -130 -90 -136 -5 -5 -15 -21 -22 -34 -7 -14 -19 -31 -27 -38 -7 -7 -13 -19 -13 -27 0 -7 -7 -15 -15 -19 -8 -3 -15 -12 -15 -21 0 -8 -4 -15 -9 -15 -5 0 -11 -8 -15 -17 -5 -18 -26 -53 -36 -63 -10 -10 -50 -69 -50 -74 0 -2 -22 -37 -49 -78 -26 -40 -70 -107 -96 -148 -26 -41 -74 -114 -107 -162 -32 -49 -58 -90 -58 -93 0 -2 -13 -24 -29 -47 -45 -65 -211 -320 -211 -323 0 -4 -108 -168 -120 -182 -5 -7 -10 -15 -10 -17 0 -3 -25 -42 -55 -87 -30 -45 -55 -83 -55 -84 0 -2 -31 -50 -68 -107 -38 -57 -124 -190 -193 -296 -125 -195 -139 -216 -173 -268 -10 -16 -48 -74 -84 -129 -36 -55 -87 -132 -114 -172 -26 -39 -48 -76 -48 -81 0 -6 -3 -12 -7 -14 -8 -3 -145 -203 -152 -222 -2 -6 -12 -19 -23 -30 -10 -11 -18 -26 -18 -33 0 -7 -4 -13 -10 -13 -5 0 -10 -6 -10 -14 0 -8 -3 -16 -7 -18 -5 -1 -26 -30 -48 -63 -22 -33 -43 -64 -48 -70 -4 -5 -32 -45 -63 -87 -64 -89 -88 -99 -144 -59 -71 50 -189 197 -366 456 -48 72 -92 132 -96 133 -4 2 -8 8 -8 14 0 8 -74 122 -90 138 -7 7 -29 42 -37 60 -4 8 -17 26 -30 40 -13 14 -23 28 -23 32 0 4 -15 28 -32 53 -18 26 -38 54 -43 63 -9 14 -68 102 -125 187 -8 12 -28 42 -45 66 -118 175 -199 273 -236 284 -24 8 -69 -12 -69 -31 0 -7 -4 -14 -8 -16 -5 -1 -56 -68 -115 -148 -59 -80 -115 -156 -124 -169 -99 -133 -361 -522 -408 -606 -16 -27 -34 -57 -40 -65 -17 -22 -68 -141 -68 -160 -1 -25 15 -70 24 -70 5 0 9 -5 9 -10 0 -14 120 -204 132 -208 4 -2 8 -10 8 -18 0 -8 5 -14 10 -14 6 0 10 -5 10 -10 0 -6 22 -41 50 -79 28 -38 50 -73 50 -79 0 -6 4 -12 8 -14 4 -1 75 -97 157 -213 82 -115 153 -214 158 -220 4 -5 26 -35 48 -65 21 -30 46 -64 55 -75 9 -11 39 -53 67 -92 28 -40 54 -73 59 -73 4 0 8 -7 8 -15 0 -8 5 -15 10 -15 6 0 10 -7 10 -15 0 -8 3 -15 8 -15 4 0 18 -17 32 -38 14 -20 27 -39 30 -42 3 -3 39 -50 80 -105 41 -55 79 -105 84 -111 6 -6 18 -22 26 -34 8 -12 35 -47 58 -78 24 -32 52 -68 63 -82 10 -14 47 -61 82 -106 34 -45 73 -96 87 -114 14 -18 71 -91 128 -163 56 -71 102 -134 102 -139 0 -5 5 -6 10 -3 6 3 10 2 10 -4 0 -24 296 -361 317 -361 15 0 101 99 176 201 54 74 129 176 140 189 7 8 30 42 52 75 22 33 45 65 50 70 6 6 26 34 45 62 19 29 38 53 43 53 4 0 7 5 7 10 0 8 64 103 97 145 9 11 81 117 98 143 6 9 20 27 33 41 12 14 22 31 22 38 0 6 4 13 8 15 4 2 48 61 96 132 49 71 100 146 115 167 14 20 33 47 41 59 8 12 27 39 41 59 53 76 134 193 144 209 6 10 13 19 16 22 3 3 19 25 35 49 68 104 175 258 226 328 21 29 38 55 38 58 0 4 19 32 43 63 24 31 52 72 62 90 11 17 23 32 28 32 4 0 6 4 3 9 -4 5 -3 11 2 13 4 1 23 27 42 56 18 28 37 52 42 52 4 0 8 5 8 10 0 6 12 28 28 49 15 21 33 47 40 57 6 11 46 68 87 127 41 59 75 112 75 118 0 5 3 9 8 9 4 0 27 32 51 70 24 39 48 70 53 70 4 0 8 5 8 10 0 12 33 61 64 98 11 12 16 22 13 22 -6 0 13 26 41 55 6 8 12 16 12 19 0 2 32 50 70 106 39 56 70 105 70 110 0 4 3 10 8 12 12 5 62 76 62 87 0 6 3 11 8 11 4 0 21 23 37 50 17 27 33 50 38 50 4 0 7 5 7 10 0 9 35 65 50 80 7 7 32 43 155 225 59 88 117 170 128 183 11 12 16 22 11 22 -5 0 -4 4 2 8 6 4 48 63 95 132 46 69 86 127 89 130 6 6 120 172 135 198 6 9 14 21 18 26 34 44 137 199 137 206 0 4 4 10 8 12 7 3 89 121 298 430 40 59 78 113 84 120 6 7 25 36 42 63 18 28 35 52 38 55 3 3 25 36 50 74 24 38 49 74 55 80 5 7 15 19 20 28 6 9 53 78 105 154 52 76 97 143 99 149 2 5 12 18 23 28 10 10 16 22 13 28 -4 5 -340 9 -853 9 l-848 -1 -71 -107z"/>
+            </g>
+        </svg>
+        <span style="font-size: 22px; font-weight: 200; letter-spacing: 0.4px;">
+            STRATOS INFRA TECHNOLOGIES PRIVATE LIMITED
+        </span>
+    </div>
+{%- else -%}
+    {#- Not a letterhead document: the stakeholder strip heads EVERY page. It lives HERE rather
+        than in the body (owner 2026-09-25) -- body content prints ONCE, at the top of the flow,
+        so a two-page document had its logos on page 1 and a bare page 2. -#}
+    <table class="hc-logos">
+        <tr>
+            {%- for logo in (ctx.top.logos if ctx.top else []) -%}
+            <td><img src="{{ logo.src }}" alt="{{ logo.name }}"></td>
+            {%- endfor -%}
+        </tr>
+    </table>
+{%- endif -%}
+</div>
+
+{%- if ctx.top and ctx.top.letterhead -%}
+<div id="footer-html">
+    {# class letter-head-footer: Frappe's footer page starts 15mm down; this class pulls the address up so
+       the CIN line is not clipped. (A Jinja comment: an HTML comment here prints as text in the PDF.) #}
+    <div class="letter-head-footer" style="text-align: center; border-top: 1px solid #000;  background: #fff; font-family: 'Inter', Helvetica, Arial, sans-serif; line-height:1">
+        <span style="text-align: center; font-size: 9px; color: #333;">Registered Address: Flat 403, Fine Aura Co-operative Housing Society, Marol Military Road, Andheri East, Mumbai, Maharashtra - 400059</span></br>
+        <span style="text-align: center; font-size: 9px; color: #333;">Corporate Address: No.234, 1st Floor, 9th Main, 16th Cross, 6th Sector, HSR Layout, Bangalore, Karnataka, 560102</span></br>
+        <span style="text-align: center; font-size: 9px; font-weight: 700; color: #333;">CIN: U74999MH2021PTC358936</span>
+    </div>
+</div>
+{%- endif -%}
+
+{%- macro v(x) -%}{%- if x is defined and x is not none -%}{{ x | string | e }}{%- endif -%}{%- endmacro -%}
+
+<div class="hc-cover">
+    <div class="hc-cover-in">
+        <div class="hc-cover-sys">{{ v(ctx.display_name) }}</div>
+        <div class="hc-cover-sub">HANDING OVER DOCUMENTS</div>
+        <div class="hc-cover-project">{{ v(h.project) }}</div>
+        <div class="hc-cover-loc">{{ v(h.location) }}</div>
+    </div>
+</div>
+
+{#- The role icons of the Project TDS Report's card page (lucide), keyed by `header_logos.ROLES`. -#}
+{%- macro sh_icon(role) -%}
+{%- if role == 'client' -%}<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></svg>
+{%- elif role == 'manager' -%}<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12h.01"/><path d="M16 6V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><path d="M22 13a18.15 18.15 0 0 1-20 0"/><rect width="20" height="14" x="2" y="6" rx="2"/></svg>
+{%- elif role == 'consultant' -%}<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/></svg>
+{%- elif role == 'architect' -%}<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 7 8.7 2.7a2.41 2.41 0 0 0-3.4 0L2.7 5.3a2.41 2.41 0 0 0 0 3.4L7 13"/><path d="m8 6 2-2"/><path d="m18 16 2-2"/><path d="m17 11 4.3 4.3c.94.94.94 2.46 0 3.4l-2.6 2.6c-.94.94-2.46.94-3.4 0L11 17"/><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>
+{%- elif role == 'gc_contractor' -%}<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 21a8 8 0 0 1 10.821-7.487"/><path d="M21.378 16.626a1 1 0 0 0-3.004-3.004l-4.01 4.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z"/><circle cx="10" cy="8" r="5"/></svg>
+{%- elif role == 'mep_contractor' -%}<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 12h4"/><path d="M10 8h4"/><path d="M14 21v-3a2 2 0 0 0-4 0v3"/><path d="M6 10H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2"/><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/></svg>
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro sh_card(c) -%}
+<div class="hc-sh-card">
+    <div class="hc-sh-card-head">{{ sh_icon(c.role) }}<span class="hc-sh-label">{{ v(c.label) }}</span></div>
+    <div class="hc-sh-body"><div class="hc-sh-body-in"><img src="{{ c.src }}" alt="{{ v(c.name) }}"></div></div>
+</div>
+{%- endmacro -%}
+
+{%- set cards = ctx.stakeholders or [] -%}
+{%- if cards -%}
+<div class="hc-sh">
+    <div class="hc-sh-head">
+        <img src="{{ ctx.nirmaan_logo }}" alt="Nirmaan">
+        <div class="hc-sh-rule"></div>
+    </div>
+    {%- for i in range(0, cards | length, 2) %}
+    <table class="hc-sh-grid"><tr>
+        <td>{{ sh_card(cards[i]) }}</td>
+        <td>{% if i + 1 < cards | length %}{{ sh_card(cards[i + 1]) }}{% endif %}</td>
+    </tr></table>
+    {%- endfor %}
+</div>
+{%- endif -%}
+
+{#- The three parties that sign at the bottom are the ones whose logos head the page, so the strip and
+    the signature row can never name different people. Falls back to the old fixed labels if a project
+    has no logos at all. -#}
+{%- set signers = (ctx.top.logos if ctx.top and ctx.top.logos else []) -%}
+
+<div class="hc-sheet">
+{#- The outer table is the PAGE, not a layout wrapper: it is what makes the sheet end on the bottom
+    margin instead of wherever its rows happen to stop. Row 1 holds everything down to the Comments
+    box; row 2 is the fill, and the seal band inside it takes whatever height is left. -#}
+{#- The two side rules of the box; see `.hc-rails`. -#}
+<div class="hc-rails"></div>
+
+<table class="hc-table hc-head">
+    {#- The ONLY place the label column can be stated -- see the `.hc-head td.hc-hl` note. 17% matches
+        the original sheet; without it the `colspan=2` title row splits the table in half. -#}
+    <colgroup><col style="width: 17%;"><col></colgroup>
+    <tr><td class="hc-doc-title" colspan="2">TECHNICAL HANDING OVER DOCUMENTATION</td></tr>
+    <tr><td class="hc-hl">CONSULTANT</td><td>{{ v(h.vendor) }}</td></tr>
+    <tr><td class="hc-hl">PROJECT</td><td>{{ v(h.project) }}</td></tr>
+    <tr><td class="hc-hl">LOCATION</td><td>{{ v(h.location) }}</td></tr>
+    <tr><td class="hc-hl">DATE</td><td>{{ v(h.date) }}</td></tr>
+    <tr class="hc-pkg"><td class="hc-hl">PACKAGE</td><td>{{ v(h.package) }}</td></tr>
+    <tr class="hc-spacer"><td colspan="2"></td></tr>
+</table>
+
+<table class="hc-table">
+    {#- 17% is the SAME width the head table's label column takes, so the rule under "CONSULTANT"
+        and the rule under "S.No" are one continuous line down the sheet (the original's layout). -#}
+    <tr><th style="width: 17%;">S.No</th><th>DESCRIPTION</th><th style="width: 16%;">Status</th><th style="width: 17%;">Remarks</th></tr>
+    {% for r in ctx.rows %}
+    <tr>
+        <td class="hc-c">{{ r.sno }}</td>
+        <td>{{ v(r.title) }}</td>
+        <td class="hc-c hc-strong">{{ v(r.status) }}</td>
+        <td>{{ v(r.remarks) }}</td>
+    </tr>
+    {% endfor %}
+</table>
+
+<table class="hc-table">
+    <tr><td class="hc-strong" colspan="3">The above list was handed over by Nirmaan and taken over by the respective client.</td></tr>
+    {#- Label and blank in ONE cell (owner 2026-09-25), matching the Maintenance Checklist: not a
+        label row over a separate empty row. -#}
+    <tr class="hc-comments"><td colspan="3"><span class="hc-strong hc-cell-head">Comments :</span></td></tr>
+</table>
+
+{#- The tall blank the company seal goes in, with the parties named along its foot, pinned to the
+    bottom of the sheet: the page's slack falls between the Comments box and this band, so the
+    signatures sit at the foot whether the system has 12 documents or 16. -#}
+<div class="hc-foot">
+    <div class="hc-seal-mark">
+        <img src="{{ frappe.utils.get_url('/assets/nirmaan_stack/frontend/nirmaan-seal-sign.png') }}" alt="">
+    </div>
+    <table class="hc-signnames"><tr>
+    {%- if signers -%}
+    {%- for s in signers -%}<td>{{ v(s.name|upper) }}</td>{%- endfor -%}
+    {%- else -%}
+    <td>NIRMAAN</td><td>{{ v(ctx.consultant_label) }}</td><td>CLIENT</td>
+    {%- endif -%}
+    </tr></table>
+</div>
+</div>

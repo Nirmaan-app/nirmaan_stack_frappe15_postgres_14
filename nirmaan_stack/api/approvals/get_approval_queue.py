@@ -186,7 +186,11 @@ def _payments_select():
             COALESCE(p."on_hold", 0)        AS on_hold,
             -- Payment kind (ADR-0030): 1 on a GST payment, which is never taxed -- the lists tag it
             -- and the TDS forecast skips it. ⚠️ POSITIONAL: `0` at the same place in `_expense_select`.
-            COALESCE(p."is_gst_payment", 0) AS is_gst_payment
+            COALESCE(p."is_gst_payment", 0) AS is_gst_payment,
+            -- An expense's invoice file, for the "Upload Invoice" action on the Paid tab. A PO / WO
+            -- payment's invoices are Vendor Invoices, never a field here, so it is blank.
+            -- ⚠️ POSITIONAL: last in `_expense_select` too.
+            ''::text                        AS invoice
         FROM "tabProject Payments" p
         {linked_join}
     """.format(
@@ -260,7 +264,8 @@ def _expense_select(table, source, project_col):
             -- Only a PO / WO payment can be held.
             0                               AS on_hold,
             -- Only a Work Order payment can be a GST payment.
-            0                               AS is_gst_payment
+            0                               AS is_gst_payment,
+            COALESCE(e."invoice_attachment", '')::text AS invoice
         FROM "{table}" e
         {linked_join}
     """
@@ -481,6 +486,7 @@ def get_approval_queue(
         r["tier"] = required_tier(flt(r.get("amount")), _l2_line_for(r.get("source")))
         r["amount"] = flt(r.get("amount"))
         r["has_proof"] = bool(r.get("proof"))
+        r["has_invoice"] = bool(r.get("invoice"))
         r["bank_line_count"] = cint(r.get("bank_line_count"))
         family = part_families.get(r["name"]) if r.get("doctype") == "Project Payments" else None
         if family:

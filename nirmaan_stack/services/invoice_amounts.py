@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 
 """The three figures on a Vendor Invoice: Invoice Base Amount, Invoice GST Amount and
-Invoice Amount (the total incl. GST). ADR-0030; glossary: CONTEXT.md, *Invoice amounts*.
+Invoice Amount (the total incl. GST). ADR-0030; glossary: GLOSSARY.md, *Invoice amounts*.
 
 PURE -- no database, no request context. `api/delivery_notes/update_invoice_data` reads the
 payload and the Work Order's GST flag and hands them here.

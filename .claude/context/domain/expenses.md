@@ -1,7 +1,7 @@
 # Expenses Domain — Approval Workflow & Unified Module
 
 As-built reference for the Expense module (Project + Non-Project expenses). Domain
-language lives in `CONTEXT.md` ("Expense workflow & settlement"); the type-normalization
+language lives in `GLOSSARY.md` ("Expense workflow & settlement"); the type-normalization
 decision is `docs/adr/0009-project-expense-type-normalization.md`. This doc records
 **what was added, improved, and changed** across the feature.
 
@@ -14,7 +14,7 @@ An **Expense** is a cost recorded outside the PO / Service Request flow. Two kin
 Both share one approval lifecycle and are entered/managed together in a single unified
 **Expense** area (`/expense`).
 
-## Domain rules (source of truth: `CONTEXT.md`)
+## Domain rules (source of truth: `GLOSSARY.md`)
 
 - **Status lifecycle:** `Requested → CEO Pending → Approved → Reconciliation Pending → Paid`
   (one-way; both expense doctypes carry all five plus `Rejected`). *Approved* = sanctioned
@@ -181,7 +181,7 @@ documented Payment By as Paid-only while the code had drifted.
 
 ### Payments queue: expense pencil, raiser skip, approve-dialog details (2026-09-21)
 
-Owner rulings; commits `0fc6cd146`, `9e73e97ed`, `fc4a3de42` on `develop`. Terms in `CONTEXT.md`
+Owner rulings; commits `0fc6cd146`, `9e73e97ed`, `fc4a3de42` on `develop`. Terms in `GLOSSARY.md`
 (*Raiser's own step*, *Editing a record by status*).
 
 - **A second edit surface, with its own gating.** The unified Payments queue (every tab, plus the
@@ -208,6 +208,35 @@ Owner rulings; commits `0fc6cd146`, `9e73e97ed`, `fc4a3de42` on `develop`. Terms
   (`similar._scan_ledgers`, the row itself excluded), and whether this click finishes the approval or
   forwards it to the CEO. The CEO's partial-amount box is suppressed on expenses: the CEO expense
   approve is a plain status write and always approved the full amount.
+
+### Payments queue: Upload / Edit invoice on Paid Non Project Expenses (2026-10-05)
+
+Owner rulings; commit `5916af3d4` (branch `vendor/print-format`). On **"Payment Done / Reconciliation
+Done"** a Paid **Non Project** expense row carries a small **Upload Inv** button, which becomes a green
+**Edit Inv** once `invoice_attachment` is set. Admin, Accountant and Accountant Lead only.
+
+- **Who / which rows: ONE rule**, `queueRowActions.canUploadInvoiceRow` (queue role AND Non Project Expenses
+  AND Paid). ⚠️ **Project Expenses do NOT get it** — the owner first asked for both ledgers, then ruled PE
+  out the same day; a PE invoice is edited through the pencil. PO / WO payments never: their invoices are
+  Vendor Invoices.
+- **State comes from the server:** `get_approval_queue`'s union carries `invoice` (the file) + a derived
+  `has_invoice`; blank on payment rows; not sortable / filterable. Proved row-for-row identical before/after
+  on every status.
+- **Dialog = the Non Project page's own `UpdateInvoiceDetailsDialog`**, reused with
+  `requireAttachment` (set ONLY by the Paid tab): Save stays disabled until the file AND the ref are
+  there; removing the file in Edit mode disables it again. ⚠️ The Non Project page's **Record Invoice does
+  not pass it** — a ref may be recorded there before the file arrives (18 Paid rows have a ref and no file),
+  so do not tighten it globally. A future invoice date is refused (`max` alone does not stop a typed date).
+- ⚠️ **`AlertDialogAction` closes its dialog BEFORE an async save runs.** The dialog used to vanish on a
+  validation error, dropping the chosen file and saving nothing. Save now `preventDefault`s and closes on
+  success only, and the dialog cannot be closed mid-upload. Any other AlertDialog-based save dialog has
+  the same trap.
+- **What a save does to a Paid row:** it goes through `doc.save()`, so the bank-line rules below run.
+  Measured over all 846 Paid Non Project expenses (136 with live slips): 0 refused, 0 moved off Paid,
+  0 payment dates moved.
+- **Known, accepted:** an upload that succeeds followed by a refused save leaves its File row behind
+  (retrying uploads again) — the same as every expense dialog. Two people editing one invoice: last write
+  wins.
 
 ### Four server rules protect an expense its bank lines settle (ADR-0027 Q11/Q22, #1302)
 Both expense doctypes share ONE controller, `integrations/controllers/expense_bank_links.py`, wired in
@@ -669,7 +698,7 @@ silently wiped the shipped Travel (Bus) format once. Use the suite's `_set_forma
 ---
 
 ## Cross-references
-- Glossary: `CONTEXT.md` → "Expense workflow & settlement" (incl. *linked total*
+- Glossary: `GLOSSARY.md` → "Expense workflow & settlement" (incl. *linked total*
   under *Reconciliation Pending*, and *Bounced transfer*).
 - Decision: `docs/adr/0009-project-expense-type-normalization.md`.
 - Decision: `docs/adr/0016-expense-request-vs-expense.md` (request vs expense).

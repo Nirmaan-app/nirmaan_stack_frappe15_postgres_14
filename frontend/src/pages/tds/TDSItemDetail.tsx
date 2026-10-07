@@ -16,7 +16,7 @@
 // MultiAddMembersDialog components.
 //
 // Design source of truth:
-//   .claude/context/domain/tds/phase-1-plan.md (T8) + CONTEXT.md
+//   .claude/context/domain/tds/phase-1-plan.md (T8) + GLOSSARY.md
 //
 // Non-admins see a read-only view (no add/remove/edit/delete actions).
 

@@ -371,3 +371,71 @@ class TestTheLinkableExpenseList(LinkFixture):
         listed = self._listed()
         self.assertNotIn(filled, listed)
         self.assertNotIn(approved, listed)
+
+
+REQUESTER = "outflow-link-requester@example.com"
+
+
+class TestAnExpenseRaisedThroughARequest(LinkFixture):
+    """The link that fills an expense born from an Expense Request (production, 2026-10-05).
+
+    Going Paid fires the request's "Expense paid" bell, whose `_notify` commits. A commit inside the
+    link's savepoint ends it, so `release_savepoint` raised, the request rolled back the row flips,
+    and the slips plus the Paid expense -- already committed by the bell -- stayed: an expense Paid
+    in full against lines that still read Mismatched.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from nirmaan_stack.api.expense_requests.test_expense_requests import PM_PROFILE, _make_user
+
+        _make_user(REQUESTER, PM_PROFILE, ("Nirmaan Project Manager",))
+        self.request = None
+        frappe.db.commit()
+
+    def tearDown(self):
+        frappe.db.rollback()
+        if self.request:
+            frappe.db.delete("Nirmaan Notifications", {"docname": self.request})
+            frappe.db.delete("Expense Request", {"name": self.request})
+            frappe.db.commit()
+        super().tearDown()
+
+    def _expense_from_a_request(self, amount):
+        expense = self._expense(amount=amount)
+        request = frappe.get_doc(
+            {"doctype": "Expense Request", "type": self.non_project_type, "amount": amount}
+        )
+        request.status = "Approved"
+        request.set_new_name()
+        request.db_insert()
+        self.request = request.name
+        # The bell skips a request owned by Administrator, so the requester must be a real user.
+        frappe.db.set_value("Expense Request", request.name, "owner", REQUESTER, update_modified=False)
+        frappe.db.set_value(
+            NON_PROJECT_EXPENSE, expense, "request_id", request.name, update_modified=False
+        )
+        frappe.db.commit()
+        return expense
+
+    def test_the_lines_that_fill_it_read_settled(self):
+        lines = self._lines(2)
+        expense = self._expense_from_a_request(self._total(lines))
+
+        link_rows_to_expense(
+            rows=self._names(lines), target_doctype=NON_PROJECT_EXPENSE, target_name=expense
+        )
+
+        self.assertEqual(self._state(NON_PROJECT_EXPENSE, expense).status, "Paid")
+        for line in lines:
+            self.assertEqual(
+                frappe.db.get_value(ROW_DOCTYPE, line["name"], "row_status"), ROW_SETTLED
+            )
+        self.assertEqual(frappe.db.get_value("Expense Request", self.request, "status"), "Paid")
+        # The bell still reaches the requester; it rides the link's commit rather than its own.
+        self.assertEqual(
+            frappe.db.count(
+                "Nirmaan Notifications", {"docname": self.request, "recipient": REQUESTER}
+            ),
+            1,
+        )

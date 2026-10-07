@@ -73,6 +73,7 @@ export const PO_SUMMARY_LIST_FIELDS_TO_FETCH: (
   "project_name",
   "total_amount",
   "amount_paid",
+  "amount_invoiced",
   "amount",
   "vendor",
   "vendor_name",
@@ -578,6 +579,24 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
                 exportHeaderName: "PO Value (inc. GST)",
                 exportValue: (row: ProcurementOrder) => {
                   return formatForReport(row.total_amount);
+                },
+              },
+            } as ColumnDef<ProcurementOrder>,
+            {
+              accessorKey: "amount_invoiced",
+              header: ({ column }) => (
+                <DataTableColumnHeader column={column} title="Invoice Amount" />
+              ),
+              cell: ({ row }) => (
+                <div className="font-medium pr-2 text-center tabular-nums">
+                  {formatToRoundedIndianRupee(parseNumber(row.original.amount_invoiced))}
+                </div>
+              ),
+              size: 160,
+              meta: {
+                exportHeaderName: "Invoice Amount",
+                exportValue: (row: ProcurementOrder) => {
+                  return formatForReport(parseNumber(row.amount_invoiced));
                 },
               },
             } as ColumnDef<ProcurementOrder>,

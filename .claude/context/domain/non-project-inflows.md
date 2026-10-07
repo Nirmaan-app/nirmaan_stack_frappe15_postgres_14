@@ -3,7 +3,7 @@
 Money the company receives that belongs to **no project and no customer** — interest, FD closures,
 loan drawdowns, and (until they get their own workflow) vendor refunds and returned labour advances.
 Decision record: `docs/adr/0016-bank-statement-import-creates-inflows.md` **Amendment A**. Glossary:
-root `CONTEXT.md` § Inflows. Built in #1265 (doctype + page); the import wiring, dashboard figure and
+root `GLOSSARY.md` § Inflows. Built in #1265 (doctype + page); the import wiring, dashboard figure and
 tab split are separate slices of #1263 (`frontend/.claude/plans/non-project-inflows-plan.md`).
 
 ## Doctype `Non Project Inflows`
