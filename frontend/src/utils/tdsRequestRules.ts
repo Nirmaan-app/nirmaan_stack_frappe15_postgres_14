@@ -1,8 +1,8 @@
 /**
  * Project TDS (Technical Data Sheet) request rules: what a `Project TDS Item List` row asks for,
  * what state its catalogue datasheet is in, and the status TDS History shows. Vocabulary:
- * `GLOSSARY.md` § Technical Data Sheets. The approval screen and TDS History read these; nothing
- * else re-derives them.
+ * `GLOSSARY.md` § Technical Data Sheets. The approval screen, TDS History and the New Request cart
+ * read these; nothing else re-derives them.
  *
  * Request Type is derived, never stored, and is only meaningful while a row waits for approval.
  */
@@ -39,16 +39,46 @@ export interface RepositoryEntryState {
   status?: string | null;
 }
 
+/** A Project Custom Item's row, at any status: its id carries the project-only prefix. */
+export function isProjectCustomId(tdsItemId?: string | null): boolean {
+  return (tdsItemId ?? "").startsWith(PROJECT_CUSTOM_ID_PREFIX);
+}
+
 /**
  * - a `PCUS-` id → Project Custom
  * - status New with a TDS Item id → New Make
  * - otherwise → From Repository
  */
 export function requestTypeOf(row: TdsRequestRow): RequestType {
-  const itemId = row.tds_item_id ?? "";
-  if (itemId.startsWith(PROJECT_CUSTOM_ID_PREFIX)) return "Project Custom";
-  if (row.tds_status === STORED_STATUS.newMake && itemId) return "New Make";
+  if (isProjectCustomId(row.tds_item_id)) return "Project Custom";
+  if (row.tds_status === STORED_STATUS.newMake && row.tds_item_id) return "New Make";
   return "From Repository";
+}
+
+/** The fields of a New Request cart row (not yet sent, so no id or status) the rules read. */
+export interface TdsCartRow {
+  is_new_request?: boolean;
+  is_project_custom?: boolean;
+}
+
+/** What a cart row will ask for once sent: a pick is From Repository, a Request New row is New Make or Project Custom. */
+export function cartRequestTypeOf(row: TdsCartRow): RequestType {
+  if (row.is_project_custom) return "Project Custom";
+  return row.is_new_request ? "New Make" : "From Repository";
+}
+
+/**
+ * Project Custom identity on a project: the name, trimmed and ignoring case, + the trimmed make. The
+ * server folds the name the same way (`submit.py` `_name_key`, pinned by the parity test), so the
+ * cart refuses exactly the duplicates the send would.
+ */
+export function customItemKey(name?: string | null, make?: string | null): string {
+  return `${foldItemName(name)}|${(make ?? "").trim()}`;
+}
+
+/** An item name folded for comparison: trimmed, ignoring case (`submit.py` `_name_key`). */
+export function foldItemName(name?: string | null): string {
+  return (name ?? "").trim().toLowerCase();
 }
 
 /**

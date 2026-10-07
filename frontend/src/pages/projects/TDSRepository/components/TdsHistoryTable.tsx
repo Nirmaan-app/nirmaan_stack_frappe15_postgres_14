@@ -33,6 +33,7 @@ import {
     HISTORY_STATUSES,
     historyStatusOf,
     historyStatusesIn,
+    isProjectCustomId,
     storedStatusesFor,
     type HistoryStatus,
 } from "@/utils/tdsRequestRules";
@@ -169,7 +170,16 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
         {
             accessorKey: "tds_item_name",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Item Name" />,
-            cell: ({ row }) => <div className="font-medium" title={row.getValue("tds_item_name")}>{row.getValue("tds_item_name")}</div>,
+            cell: ({ row }) => (
+                <div>
+                    <div className="font-medium" title={row.getValue("tds_item_name")}>{row.getValue("tds_item_name")}</div>
+                    {isProjectCustomId(row.original.tds_item_id) && (
+                        <span className="mt-0.5 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-800">
+                            Project Custom
+                        </span>
+                    )}
+                </div>
+            ),
             size: 150,
             enableSorting: true,
             meta: {

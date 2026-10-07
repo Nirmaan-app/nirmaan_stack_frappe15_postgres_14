@@ -42,6 +42,13 @@ import { DraftIndicator } from "@/components/ui/draft-indicator";
 import { useTdsRequestDraftManager } from "../hooks/useTdsRequestDraftManager";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+    STORED_STATUS,
+    cartRequestTypeOf,
+    customItemKey,
+    isProjectCustomId,
+    type RequestType,
+} from "@/utils/tdsRequestRules";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 2 (ADR-0025) — group-driven project TDS consumption.
@@ -53,9 +60,11 @@ import { Textarea } from "@/components/ui/textarea";
 // …" subtitle). On group pick, the Make dropdown is limited to makes that already
 // HAVE a Repository Entry (datasheet) for that group. Picking an existing entry →
 // a "Pending" row carrying the frozen `(tds_item_id, tds_make)` snapshot + the
-// entry's datasheet. New requests (missing make / new group) come from the
-// RequestTdsItemDialog and produce "New" rows. Dedup is on `(tds_item_id,
-// tds_make)` exact id+make, never name.
+// entry's datasheet. Requests come from the RequestTdsItemDialog: a New Make
+// (a make an existing TDS Item lacks) or a Project Custom Item (project-only,
+// its PCUS- id issued by the server on send). Dedup is on `(tds_item_id,
+// tds_make)` exact id+make; a Project Custom row has no id yet, so it dedups on
+// name (ignoring case) + make (`customItemKey`).
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface TdsCreateFormProps {
@@ -89,19 +98,36 @@ interface GroupResult {
 
 // A staged cart row destined for `Project TDS Item List`.
 interface CartItem {
-    // Frozen TDS Item id (group). Empty string for a brand-new group request.
+    // Frozen TDS Item id (group). Empty for a Project Custom row: the server issues its PCUS- id.
     tds_item_id: string;
     tds_item_name: string;
     make: string;              // the chosen make (frozen as tds_make)
     work_package: string;
-    category?: string;         // optional snapshot; new picks leave blank
+    category?: string;         // Project Custom: the chosen Category; others leave blank
     description?: string;
     tds_attachment?: string;   // datasheet url for an existing entry
     tds_boq_line_item?: string;
-    is_new_request?: boolean;  // true ⇒ status "New" + needs upload
+    is_new_request?: boolean;  // true ⇒ a Request New row (New Make or Project Custom) + needs upload
+    is_project_custom?: boolean;
     attachmentFile?: File;     // for newly requested items (uploaded on submit)
     previousDocName?: string;  // a Rejected row being replaced
 }
+
+// What a requested cart row asks for. A picked row (From Repository) shows none.
+const CART_BADGE_STYLES: Partial<Record<RequestType, string>> = {
+    "New Make": "bg-sky-100 text-sky-700",
+    "Project Custom": "bg-amber-100 text-amber-800",
+};
+
+const CartRequestBadge = ({ type }: { type: RequestType }) => {
+    const style = CART_BADGE_STYLES[type];
+    if (!style) return null;
+    return (
+        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ml-2 whitespace-nowrap ${style}`}>
+            {type}
+        </span>
+    );
+};
 
 export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSuccess, onDraftResumed }) => {
     const { role } = useUserData();
@@ -208,9 +234,23 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     const canRequestNew = isAdmin || isPMO;
 
     const cartPairs = useMemo(
-        () => new Set(cartItems.map(i => `${i.tds_item_id}__${i.make}`)),
+        () => new Set(cartItems.filter(i => !i.is_project_custom).map(i => `${i.tds_item_id}__${i.make}`)),
         [cartItems]
     );
+
+    // Project Custom identity, which has no id until sent: name (ignoring case) + make.
+    const cartCustomKeys = useMemo(
+        () => new Set(cartItems.filter(i => i.is_project_custom).map(i => customItemKey(i.tds_item_name, i.make))),
+        [cartItems]
+    );
+    const activeCustomKeys = useMemo(() => {
+        const set = new Set<string>();
+        (existingProjectItems || []).forEach((i: { tds_item_id?: string; tds_item_name?: string; tds_make?: string; tds_status?: string }) => {
+            if (i.tds_status === STORED_STATUS.rejected || !isProjectCustomId(i.tds_item_id)) return;
+            set.add(customItemKey(i.tds_item_name, i.tds_make));
+        });
+        return set;
+    }, [existingProjectItems]);
 
     // Member count per group — ONE batched pass over `Items` (the same endpoint
     // the TDS master page uses). A group ABSENT from `counts` has ZERO members:
@@ -394,36 +434,31 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         resetSelection();
     };
 
-    // A "New" request from the RequestTdsItemDialog. Dedup on (tds_item_id, make);
-    // new-group requests (empty tds_item_id) are always allowed through.
+    // A request from the RequestTdsItemDialog. New Make dedups on (tds_item_id,
+    // make); Project Custom on name (ignoring case) + make. The server repeats
+    // both checks on send.
     const handleAddRequestedItem = (item: CartItem) => {
-        if (item.tds_item_id) {
-            const pairKey = `${item.tds_item_id}__${item.make}`;
-            if (cartPairs.has(pairKey)) {
-                toast({
-                    title: "Duplicate in Cart",
-                    description: "This item + make is already in your current selection.",
-                    variant: "destructive",
-                });
-                return;
-            }
-            if (activePairs.has(pairKey)) {
-                toast({
-                    title: "Already Submitted",
-                    description: "This item + make already exists for this project.",
-                    variant: "destructive",
-                });
-                return;
-            }
+        const [inCart, onProject] = item.is_project_custom
+            ? [cartCustomKeys, activeCustomKeys].map(keys => keys.has(customItemKey(item.tds_item_name, item.make)))
+            : [cartPairs, activePairs].map(keys => keys.has(`${item.tds_item_id}__${item.make}`));
+        if (inCart) {
+            toast({
+                title: "Duplicate in Cart",
+                description: "This item + make is already in your current selection.",
+                variant: "destructive",
+            });
+            return;
+        }
+        if (onProject) {
+            toast({
+                title: "Already Submitted",
+                description: "This item + make already exists for this project.",
+                variant: "destructive",
+            });
+            return;
         }
         setCartItems(prev => [...prev, item]);
     };
-
-    const NewItemBadge = () => (
-        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 uppercase tracking-tight ml-2">
-            New
-        </span>
-    );
 
     // The server saves every row or none (`api/tds/submit.py`): it issues the
     // request id, re-checks duplicates, attaches the datasheets and deletes the
@@ -446,8 +481,10 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                     is_new_request: !!item.is_new_request,
                     tds_boq_line_item: item.tds_boq_line_item || "",
                     description: item.description || "",
+                    is_project_custom: !!item.is_project_custom,
                     tds_item_name: item.tds_item_name,
                     work_package: item.work_package,
+                    category: item.category || "",
                     tds_attachment: uploadedUrl,
                     previous_doc_name: item.previousDocName,
                 };
@@ -718,7 +755,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                                         <TableCell className="font-medium">
                                             <div className="flex items-center">
                                                 {item.tds_item_name}
-                                                {item.is_new_request && <NewItemBadge />}
+                                                <CartRequestBadge type={cartRequestTypeOf(item)} />
                                             </div>
                                         </TableCell>
                                         <TableCell>

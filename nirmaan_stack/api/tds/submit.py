@@ -13,9 +13,12 @@ failing left half a request behind, and two people sending at once could get the
 3. Inserts the rows, attaches each request's uploaded datasheet, then deletes the Rejected rows
    they replace, all under one savepoint.
 
-Row kinds (stored `tds_status`), unchanged for users:
-  - a pick of an existing Repository Entry → "Pending";
-  - a Request New row → "New" (Admin / PMO only, as the dialog already gates it).
+Row kinds (stored `tds_status`):
+  - a pick of an existing Repository Entry (From Repository) → "Pending";
+  - a New Make request (a make an existing TDS Item lacks) → "New";
+  - a Project Custom Item request → "Pending", with a project-only `PCUS-` id (#1377). It never
+    enters the TDS Repository.
+The two request kinds are Admin / PMO only, as the dialog already gates them.
 
 A datasheet is uploaded by the browser BEFORE the send, unattached, and its `file_url` is passed
 in. The storage app commits inside `File.after_insert`, so an upload can never sit inside this
@@ -43,8 +46,8 @@ ENTRY_DOCTYPE = "TDS Repository"
 # from these (`frontend/src/utils/tdsRequestRules.ts`, pinned by its parity test).
 STATUS_PENDING = "Pending"
 STATUS_NEW_MAKE = "New"  # approval adds a Repository Entry
-# Project-only id prefix of a Project Custom Item (minted in `allocate_pcus.py`). Read by the same
-# frontend rules.
+# Project-only id prefix of a Project Custom Item (minted by `_assign_project_custom_ids`). Read by
+# the same frontend rules.
 PROJECT_CUSTOM_ID_PREFIX = "PCUS-"
 
 # Mirrors `canRequestNew` in `TdsCreateForm.tsx`, which only decides whether "Request New" shows.
@@ -60,20 +63,26 @@ def submit_tds_request(project, rows):
 	`project`: the `Projects` name.
 	`rows`: JSON list (or list) of cart rows:
 	    {
-	        "tds_item_id": "TDS-ITEM-00012",  # "" only for a brand-new-group request
+	        "tds_item_id": "TDS-ITEM-00012",  # "" for a Project Custom request
 	        "make": "MakeA",
-	        "is_new_request": false,           # true ⇒ a Request New row
+	        "is_new_request": false,           # true ⇒ a Request New row (New Make or Project Custom)
+	        "is_project_custom": false,        # true ⇒ a Project Custom request
 	        "tds_boq_line_item": "",
 	        "description": "",                 # requests only
-	        "tds_item_name": "", "work_package": "",  # brand-new-group requests only
+	        "tds_item_name": "", "work_package": "", "category": "",  # Project Custom only
 	        "tds_attachment": "<file_url>",    # requests only: the sender's unattached upload
 	        "previous_doc_name": "<row>",      # a Rejected row this one replaces
 	    }
 
+	A Project Custom row gets the project's `PCUS-` id for its name (trimmed, ignoring case), or
+	the next one in the project's series.
+
 	Refuses (nothing saved) on: an unknown TDS Item, a pick with no Repository Entry, a request
-	without its uploaded datasheet, the same TDS Item + make twice in the batch or already live
-	(not Rejected) on the project, a replace target that is not a Rejected row of this project
-	for the same TDS Item + make, or a Request New row from anyone but Admin / PMO.
+	without its uploaded datasheet, a New Make with no TDS Item, a Project Custom row without a
+	name, Work Package or Category, or whose Category is not under that Work Package, the same
+	TDS Item + make (Project Custom: name + make) twice in the batch or already live (not
+	Rejected) on the project, a replace target that is not a Rejected row of this project for the
+	same item + make, or a Request New row from anyone but Admin / PMO.
 
 	Returns: {"request_id": "RQ-<project suffix>-NN", "names": [<new row names>]}
 	"""
@@ -83,7 +92,9 @@ def submit_tds_request(project, rows):
 	if not frappe.db.exists("Projects", project):
 		frappe.throw(_("Project {0} not found.").format(project))
 
-	if any(r["is_new_request"] for r in cart) and not has_role_profile(user, REQUEST_NEW_PROFILES):
+	if any(r["is_new_request"] or r["is_project_custom"] for r in cart) and not has_role_profile(
+		user, REQUEST_NEW_PROFILES
+	):
 		frappe.throw(
 			_("Only Admin or PMO can request a new TDS item or make."), frappe.PermissionError
 		)
@@ -94,6 +105,9 @@ def submit_tds_request(project, rows):
 			claimed_files = set()
 			planned = [_plan_row(r, user, claimed_files) for r in cart]
 			_refuse_duplicates(project, planned)
+			# Before the replace check, so a resubmitted Project Custom row carries the id of the
+			# rejected row it replaces.
+			_assign_project_custom_ids(project, planned)
 			_check_replacements(project, planned)
 			request_id = _next_request_id(project)
 
@@ -152,10 +166,12 @@ def _parse_rows(rows):
 			"tds_item_id": (r.get("tds_item_id") or "").strip(),
 			"make": (r.get("make") or "").strip(),
 			"is_new_request": bool(r.get("is_new_request")),
+			"is_project_custom": bool(r.get("is_project_custom")),
+			"category": (r.get("category") or "").strip(),
 			"tds_boq_line_item": r.get("tds_boq_line_item") or "",
 			"description": r.get("description") or "",
 			"tds_item_name": (r.get("tds_item_name") or "").strip(),
-			"work_package": r.get("work_package") or "",
+			"work_package": (r.get("work_package") or "").strip(),
 			"tds_attachment": r.get("tds_attachment") or "",
 			"previous_doc_name": r.get("previous_doc_name") or "",
 		}
@@ -168,27 +184,25 @@ def _plan_row(r, user, claimed_files):
 	if not r["make"]:
 		frappe.throw(_("Every item needs a make."))
 
+	if r["is_project_custom"]:
+		return _plan_project_custom(r, user, claimed_files)
+
 	item_id = r["tds_item_id"]
-	if item_id:
-		group = frappe.db.get_value(
-			GROUP_DOCTYPE, item_id, ["tds_item_name", "work_package"], as_dict=True
-		)
-		if not group:
-			frappe.throw(_("TDS Item {0} not found.").format(item_id))
-		item_name, work_package = group.tds_item_name, group.work_package
-	else:
-		# Brand-new-group request: the dialog still offers it until ticket 3 (#1377) removes it.
-		if not r["is_new_request"]:
-			frappe.throw(_("Pick a TDS Item before sending."))
-		if not (r["tds_item_name"] and r["work_package"]):
-			frappe.throw(_("A new TDS item needs a name and a work package."))
-		item_name, work_package = r["tds_item_name"], r["work_package"]
+	if not item_id:
+		# A project can no longer create a shared TDS Item (#1377): it asks for a Project Custom.
+		frappe.throw(_("Pick a TDS Item before sending."))
+	group = frappe.db.get_value(GROUP_DOCTYPE, item_id, ["tds_item_name", "work_package"], as_dict=True)
+	if not group:
+		frappe.throw(_("TDS Item {0} not found.").format(item_id))
+	item_name = group.tds_item_name
 
 	plan = {
 		"tds_item_id": item_id,
 		"tds_item_name": item_name,
 		"tds_make": r["make"],
-		"tds_work_package": work_package,
+		"tds_work_package": group.work_package,
+		"tds_category": None,  # the before_save hook derives it from the TDS Item
+		"custom_name_key": None,
 		"tds_boq_line_item": r["tds_boq_line_item"],
 		"replaces": r["previous_doc_name"],
 	}
@@ -213,6 +227,39 @@ def _plan_row(r, user, claimed_files):
 		plan.update(tds_status=STATUS_PENDING, tds_description="", tds_attachment=entry.tds_attachment, upload=None)
 
 	return plan
+
+
+def _plan_project_custom(r, user, claimed_files):
+	"""A Project Custom Item row. Its `PCUS-` id is assigned once the whole batch is planned."""
+	name, work_package, category = r["tds_item_name"], r["work_package"], r["category"]
+	if not (name and work_package and category):
+		frappe.throw(_("A Project Custom item needs a name, a Work Package and a Category."))
+	if frappe.db.get_value("Category", category, "work_package") != work_package:
+		frappe.throw(_("Category {0} is not under Work Package {1}.").format(category, work_package))
+	return {
+		"tds_item_id": "",
+		"tds_item_name": name,
+		"tds_make": r["make"],
+		"tds_work_package": work_package,
+		"tds_category": category,
+		"custom_name_key": _name_key(name),
+		"tds_boq_line_item": r["tds_boq_line_item"],
+		"replaces": r["previous_doc_name"],
+		"tds_status": STATUS_PENDING,
+		"tds_description": r["description"],
+		"tds_attachment": r["tds_attachment"],
+		"upload": _claim_upload(r["tds_attachment"], user, name, r["make"], claimed_files),
+	}
+
+
+def is_project_custom_id(item_id):
+	"""A Project Custom Item's row, at any status: its id carries the project-only prefix."""
+	return (item_id or "").startswith(PROJECT_CUSTOM_ID_PREFIX)
+
+
+def _name_key(name):
+	"""Project Custom identity: the name, trimmed and ignoring case."""
+	return (name or "").strip().lower()
 
 
 def _claim_upload(file_url, user, item_name, make, claimed_files):
@@ -243,36 +290,78 @@ def _claim_upload(file_url, user, item_name, make, claimed_files):
 
 
 def _refuse_duplicates(project, planned):
-	"""One live row per TDS Item + make on a project: in this batch, or already Pending, New,
-	Approved or legacy-null there. Rejected rows don't count; they are what a resubmit replaces.
-	A brand-new-group request has no TDS Item id yet, so it has no key."""
+	"""One live row per item + make on a project: in this batch, or already Pending, New, Approved
+	or legacy-null there. Rejected rows don't count; they are what a resubmit replaces.
+
+	The item is the TDS Item id, or for a Project Custom row its name (trimmed, ignoring case)."""
 	seen = set()
 	for p in planned:
-		if not p["tds_item_id"]:
-			continue
-		key = (p["tds_item_id"], p["tds_make"])
+		key = _item_make_key(p["tds_item_id"], p["custom_name_key"], p["tds_make"])
 		if key in seen:
 			frappe.throw(
 				_("{0} ({1}) is in this request twice.").format(p["tds_item_name"], p["tds_make"])
 			)
 		seen.add(key)
 
-	if not seen:
-		return
-	# Fetched whole and filtered here: `tds_status != 'Rejected'` in SQL would drop legacy NULLs.
+	# The project's whole list (a few hundred rows at most), matched here: a Project Custom key is a
+	# folded name, and `tds_status != 'Rejected'` in SQL would drop legacy NULLs.
 	existing = frappe.get_all(
 		ROW_DOCTYPE,
-		filters={"tdsi_project_id": project, "tds_item_id": ["in", list({k[0] for k in seen})]},
+		filters={"tdsi_project_id": project},
 		fields=["tds_item_id", "tds_item_name", "tds_make", "tds_status", "tds_request_id"],
+		limit_page_length=0,
 	)
 	for row in existing:
-		if row.tds_status == "Rejected" or (row.tds_item_id, row.tds_make) not in seen:
+		if row.tds_status == "Rejected" or _stored_key(row) not in seen:
 			continue
 		frappe.throw(
 			_("{0} ({1}) is already on this project in request {2}.").format(
 				row.tds_item_name, row.tds_make, row.tds_request_id or "—"
 			)
 		)
+
+
+def _item_make_key(item_id, custom_name_key, make):
+	if custom_name_key:
+		return ("custom", custom_name_key, make)
+	return ("item", item_id, make)
+
+
+def _stored_key(row):
+	custom = is_project_custom_id(row.tds_item_id)
+	return _item_make_key(row.tds_item_id or "", _name_key(row.tds_item_name) if custom else None, row.tds_make)
+
+
+def _assign_project_custom_ids(project, planned):
+	"""Give each Project Custom row its project-only `PCUS-` id.
+
+	Rows with the same name (trimmed, ignoring case) on the same project share one id, whatever
+	their status, legacy rows included. A new name takes one past the highest `PCUS-` number on
+	this project, so it can never take an id a legacy row already holds. Call only under the
+	`_project_send_lock`, which serialises two sends on the same project.
+	"""
+	custom = [p for p in planned if p["custom_name_key"]]
+	if not custom:
+		return
+	stored = frappe.get_all(
+		ROW_DOCTYPE,
+		filters={"tdsi_project_id": project, "tds_item_id": ["like", f"{PROJECT_CUSTOM_ID_PREFIX}%"]},
+		fields=["tds_item_id", "tds_item_name"],
+		order_by="tds_item_id asc",
+	)
+	ids_by_name = {}
+	highest = 0
+	for row in stored:
+		ids_by_name.setdefault(_name_key(row.tds_item_name), row.tds_item_id)
+		match = re.match(r"\d+", row.tds_item_id[len(PROJECT_CUSTOM_ID_PREFIX):])
+		if match:
+			highest = max(highest, int(match.group()))
+
+	for p in custom:
+		if p["custom_name_key"] not in ids_by_name:
+			highest += 1
+			ids_by_name[p["custom_name_key"]] = f"{PROJECT_CUSTOM_ID_PREFIX}{highest:06d}"
+		p["tds_item_id"] = ids_by_name[p["custom_name_key"]]
 
 
 def _check_replacements(project, planned):
@@ -332,6 +421,9 @@ def _insert_row(project, request_id, plan):
 			"tds_item_name": plan["tds_item_name"],
 			"tds_make": plan["tds_make"],
 			"tds_work_package": plan["tds_work_package"],
+			# Project Custom: the chosen Category. Otherwise None, and the before_save hook derives
+			# it from the TDS Item; it leaves a `PCUS-` row's value alone, as that is no TDS Item.
+			"tds_category": plan["tds_category"],
 			"tds_description": plan["tds_description"],
 			"tds_status": plan["tds_status"],
 			"tds_boq_line_item": plan["tds_boq_line_item"],

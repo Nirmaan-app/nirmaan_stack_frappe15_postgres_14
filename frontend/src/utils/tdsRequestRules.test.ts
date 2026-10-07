@@ -5,9 +5,12 @@ import {
   HISTORY_STATUSES,
   PROJECT_CUSTOM_ID_PREFIX,
   STORED_STATUS,
+  cartRequestTypeOf,
+  customItemKey,
   entryAddedSinceRequest,
   historyStatusOf,
   historyStatusesIn,
+  isProjectCustomId,
   itemStatusOf,
   repositoryEntryKey,
   requestTypeOf,
@@ -20,7 +23,6 @@ import {
 const pySource = (file: string) =>
   readFileSync(resolve(__dirname, "../../../nirmaan_stack/api/tds", file), "utf-8");
 const SUBMIT_PY = pySource("submit.py");
-const ALLOCATE_PCUS_PY = pySource("allocate_pcus.py");
 
 const pyConstant = (name: string) => {
   const m = SUBMIT_PY.match(new RegExp(`^${name}\\s*=\\s*"([^"]*)"`, "m"));
@@ -34,8 +36,13 @@ describe("parity with api/tds/submit.py", () => {
   });
 
   it("PCUS- ids are minted through that constant, not a literal", () => {
-    expect(ALLOCATE_PCUS_PY).toMatch(/f"\{PROJECT_CUSTOM_ID_PREFIX\}/);
-    expect(ALLOCATE_PCUS_PY).not.toMatch(/f"PCUS-/);
+    expect(SUBMIT_PY).toMatch(/f"\{PROJECT_CUSTOM_ID_PREFIX\}\{highest:06d\}"/);
+    expect(SUBMIT_PY).not.toMatch(/f"PCUS-/);
+  });
+
+  it("a Project Custom name is folded the same way: trimmed, ignoring case", () => {
+    expect(SUBMIT_PY).toMatch(/return \(name or ""\)\.strip\(\)\.lower\(\)/);
+    expect(customItemKey("  Facade LIGHT ", "Philips")).toBe(customItemKey("facade light", "Philips"));
   });
 
   it("the stored Pending and New Make statuses match", () => {
@@ -71,6 +78,38 @@ describe("requestTypeOf", () => {
 
   it("only the prefix counts, not a PCUS substring", () => {
     expect(requestTypeOf({ tds_item_id: "XPCUS-1", tds_status: "Pending" })).toBe("From Repository");
+  });
+});
+
+describe("isProjectCustomId", () => {
+  it("is true only for the PCUS- prefix", () => {
+    expect(isProjectCustomId("PCUS-000001")).toBe(true);
+    expect(isProjectCustomId("TDS-ITEM-00012")).toBe(false);
+    expect(isProjectCustomId("XPCUS-1")).toBe(false);
+    expect(isProjectCustomId(null)).toBe(false);
+    expect(isProjectCustomId(undefined)).toBe(false);
+  });
+});
+
+describe("cartRequestTypeOf", () => {
+  it("a picked row is From Repository", () => {
+    expect(cartRequestTypeOf({})).toBe("From Repository");
+    expect(cartRequestTypeOf({ is_new_request: false })).toBe("From Repository");
+  });
+
+  it("a Request New row is New Make, unless it is Project Custom", () => {
+    expect(cartRequestTypeOf({ is_new_request: true })).toBe("New Make");
+    expect(cartRequestTypeOf({ is_new_request: true, is_project_custom: true })).toBe("Project Custom");
+  });
+});
+
+describe("customItemKey", () => {
+  it("keys on the folded name + the exact make", () => {
+    expect(customItemKey("Facade Light", "Philips")).not.toBe(customItemKey("Facade Light", "Wipro"));
+    expect(customItemKey("Facade Light", "Philips")).not.toBe(customItemKey("Facade Lights", "Philips"));
+    expect(customItemKey("Facade Light", "Philips")).not.toBe(customItemKey("Facade Light", "philips"));
+    // The server strips the make it is sent.
+    expect(customItemKey("Facade Light", " Philips ")).toBe(customItemKey("Facade Light", "Philips"));
   });
 });
 

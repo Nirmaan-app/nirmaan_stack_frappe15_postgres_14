@@ -1229,12 +1229,11 @@ export const TDSApprovalDetail: React.FC = () => {
     const handleApprove = async () => {
         // Phase 2 (ADR-0025): all promotion/verification happens server-side in
         // api/tds/approve.py (Admin-only, re-checked there). We send the selected
-        // Project TDS Item List row names; the backend handles BOTH kinds:
-        //   - Pending (picked entry) → verifies the (tds_item, make) master entry,
-        //   - New (request)          → resolves/creates the member-less group +
-        //                              (tds_item, make) entry born Verified, snapshots
-        //                              the id/name back onto the row.
-        // No client-side createDoc/updateDoc, no PCUS allocation, no removed-field writes.
+        // Project TDS Item List row names; the backend handles every Request Type:
+        //   - From Repository → verifies the (tds_item, make) master entry,
+        //   - New Make        → the (tds_item, make) entry born Verified,
+        //   - Project Custom  → marked Approved only; never enters the repository.
+        // No client-side createDoc/updateDoc, no removed-field writes.
         const selectedItems = allPendingItems.filter(item => rowSelection[item.name]);
 
         if (selectedItems.length === 0) {
@@ -1257,7 +1256,6 @@ export const TDSApprovalDetail: React.FC = () => {
 
             // Build a human summary from the backend's structured counts.
             const parts: string[] = [];
-            if (summary.created_groups > 0) parts.push(`${summary.created_groups} new TDS Item(s) created`);
             if (summary.created_entries > 0) parts.push(`${summary.created_entries} new datasheet entr(ies) added`);
             if (summary.verified_existing > 0) parts.push(`${summary.verified_existing} entr(ies) verified`);
 

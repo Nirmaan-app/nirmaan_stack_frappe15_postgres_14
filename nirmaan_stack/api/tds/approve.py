@@ -1,29 +1,32 @@
 import frappe
 from frappe import _
 
+from nirmaan_stack.api.tds.submit import STATUS_NEW_MAKE, is_project_custom_id
 from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, is_nirmaan_admin
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Why this module exists (Phase 2 — group-driven approval/promotion, ADR-0025):
 #
-# A project consumes TDS by picking a **TDS Item (group) + Make**, or by filing a
-# "New" request that PROPOSES a (group, make, datasheet). Every project selection
-# needs project-level approval. The OLD approval path (frontend
-# `TDSApprovalDetail.handleApprove`) wrote now-REMOVED `TDS Repository` columns
-# (`tds_item_id` / `tds_item_name` / `category`) and minted project-only customs
-# via the retired `PCUS-` allocator. This module replaces that with a robust,
+# A project consumes TDS by picking a **TDS Item (group) + Make**, by filing a
+# New Make request that PROPOSES a (group, make, datasheet), or by filing a
+# Project Custom Item request. Every project selection needs project-level
+# approval. The OLD approval path (frontend `TDSApprovalDetail.handleApprove`)
+# wrote now-REMOVED `TDS Repository` columns. This module replaces that with an
 # Admin-only BACKEND promotion keyed on the restructured `(tds_item, make)` shape.
 #
-# Row kinds on `Project TDS Item List` (tds_status):
-#   - "Pending"  → a PICKED existing entry. tds_item_id = frozen TDS Item id,
-#                  tds_make = make. We verify the matching `(tds_item, make)`
-#                  `TDS Repository` entry and mark the row Approved.
-#   - "New"      → a REQUEST (proposed datasheet). We resolve/create the target
-#                  TDS Item (existing by id, or a NEW member-less group — PCUS is
-#                  retired, every approved custom is shared), create/find the
-#                  `(tds_item, make)` Repository Entry born Verified with the
-#                  request's attachment, and SNAPSHOT id/name back onto the row.
+# Row kinds on `Project TDS Item List` (Request Type, `frontend/src/utils/tdsRequestRules.ts`):
+#   - Project Custom (a `PCUS-` id, any status) → marked Approved, nothing else.
+#                  It never enters the TDS Repository (ADR-0025 Amendment A); the
+#                  datasheet stays on the row.
+#   - New Make ("New") → a REQUEST (proposed datasheet) for an existing TDS Item.
+#                  We create/find the `(tds_item, make)` Repository Entry born
+#                  Verified with the request's attachment and mark the row
+#                  Approved. A "New" row with no existing TDS Item is refused: a
+#                  project can no longer create a shared TDS Item (#1377).
+#   - From Repository ("Pending") → a PICKED existing entry. We verify the
+#                  matching `(tds_item, make)` `TDS Repository` entry and mark the
+#                  row Approved.
 #
 # Dedup / uniqueness key throughout = `(tds_item, make)`, matching the entry's
 # `validate` (`tds_repository.py`). The create-race is handled: if `insert` raises
@@ -97,22 +100,6 @@ def _find_entry(tds_item, make):
 	if not tds_item:
 		return None
 	return frappe.db.exists(ENTRY_DOCTYPE, {"tds_item": tds_item, "make": make or ""})
-
-
-def _create_member_less_group(tds_item_name, work_package, description=None):
-	"""Create and return a NEW member-less TDS Item group (the "custom = member-
-	less" model; PCUS is retired — every approved custom enters the shared master).
-
-	Admin may later enrich it with members in the master UI.
-	"""
-	group = frappe.new_doc(GROUP_DOCTYPE)
-	group.tds_item_name = tds_item_name or "Untitled TDS Item"
-	group.work_package = work_package
-	if description:
-		group.description = description
-	# Admin-only authorization already enforced upstream by `_require_admin`.
-	group.insert(ignore_permissions=True)
-	return group.name
 
 
 def _reparent_datasheet_to_entry(tds_attachment, entry_name):
@@ -235,15 +222,15 @@ def approve_tds_items(doc_names):
 	row names.
 
 	Per row:
+	  - **Project Custom (`PCUS-` id):** set `tds_status="Approved"`. No catalogue
+	    read or write; the datasheet stays on the row.
+	  - **New Make (New):** the row's `tds_item_id` must be an existing `TDS Items`
+	    doc, else the row is refused. Create/find the `(tds_item, tds_make)` entry
+	    born `status="Verified"` carrying the row's `tds_attachment` (+ description
+	    if present); set `tds_status="Approved"`.
 	  - **Pending (picked existing entry):** locate the `(tds_item_id, tds_make)`
 	    `TDS Repository` entry; set its `status="Verified"` (only if not already);
 	    set the row `tds_status="Approved"`.
-	  - **New (request):** resolve the target TDS Item — use `tds_item_id` if it
-	    already references an existing `TDS Items` doc, else create a NEW
-	    member-less group from `tds_item_name` + `tds_work_package`; create/find
-	    the `(tds_item, tds_make)` entry born `status="Verified"` carrying the
-	    row's `tds_attachment` (+ description if present); SNAPSHOT the resolved
-	    TDS Item id/name back onto the row; set `tds_status="Approved"`.
 
 	Dedup / uniqueness key = `(tds_item, make)`. The create-race is handled by
 	re-reading the entry on a duplicate/validation error. Commits once at the end.
@@ -254,7 +241,6 @@ def approve_tds_items(doc_names):
 	        "summary": {
 	            "verified_existing": <int>,   # existing entries promoted to Verified
 	            "created_entries":   <int>,   # new (tds_item, make) entries created
-	            "created_groups":    <int>,   # new member-less TDS Items created
 	            "approved":          <int>,   # rows set to Approved
 	        },
 	        "errors": [ {"name": <row>, "error": <msg>}, ... ],
@@ -269,7 +255,6 @@ def approve_tds_items(doc_names):
 	summary = {
 		"verified_existing": 0,
 		"created_entries": 0,
-		"created_groups": 0,
 		"approved": 0,
 	}
 	errors = []
@@ -285,20 +270,26 @@ def approve_tds_items(doc_names):
 				# Idempotent: already approved, nothing to do.
 				continue
 
-			if status == "New":
-				# ── Request: resolve/create the target TDS Item group ──────────
-				tds_item = row.tds_item_id
-				is_existing_group = bool(
-					tds_item and frappe.db.exists(GROUP_DOCTYPE, tds_item)
-				)
+			if is_project_custom_id(row.tds_item_id):
+				# ── Project Custom: project-only, never enters the repository ──
+				row.tds_status = "Approved"
+				row.save(ignore_permissions=True)
+				summary["approved"] += 1
 
-				if not is_existing_group:
-					tds_item = _create_member_less_group(
-						row.tds_item_name,
-						row.tds_work_package,
-						row.tds_description,
+			elif status == STATUS_NEW_MAKE:
+				# ── New Make: the TDS Item must already exist ──────────────────
+				tds_item = row.tds_item_id
+				if not (tds_item and frappe.db.exists(GROUP_DOCTYPE, tds_item)):
+					errors.append(
+						{
+							"name": name,
+							"error": _(
+								"{0} has no TDS Item in the repository. A project can no longer"
+								" create one: edit it into a New Make or a Project Custom item."
+							).format(row.tds_item_name or name),
+						}
 					)
-					summary["created_groups"] += 1
+					continue
 
 				# Find-or-create the (tds_item, make) entry, born Verified.
 				existed_before = bool(_find_entry(tds_item, make))
@@ -313,12 +304,10 @@ def approve_tds_items(doc_names):
 				else:
 					summary["created_entries"] += 1
 
-				# Snapshot the resolved id/name back onto the row.
-				# (make / attachment already live on the row.)
-				row.tds_item_id = tds_item
-				row.tds_item_name = frappe.db.get_value(
-					GROUP_DOCTYPE, tds_item, "tds_item_name"
-				) or row.tds_item_name
+				# Snapshot the TDS Item's current name onto the row, as before.
+				row.tds_item_name = (
+					frappe.db.get_value(GROUP_DOCTYPE, tds_item, "tds_item_name") or row.tds_item_name
+				)
 				row.tds_status = "Approved"
 				row.save(ignore_permissions=True)
 				summary["approved"] += 1

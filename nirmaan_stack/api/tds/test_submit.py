@@ -104,6 +104,15 @@ class TestSubmitTdsRequest(FrappeTestCase):
 			tds_attachment=_cloud_url("gate-valve-b.pdf"),
 		)
 		self.request_prefix = f"RQ-{self.project[-3:]}-"
+		# Project Custom fixtures: a Procurement Package with one Category, and a Category under
+		# another package.
+		_raw("Procurement Packages", name=self.wp, work_package_name=self.wp)
+		self.category = _raw("Category", name=f"Lighting {self.wp}", category_name=f"Lighting {self.wp}", work_package=self.wp)
+		self.other_wp = f"TEST WP {frappe.generate_hash(length=4)}"
+		_raw("Procurement Packages", name=self.other_wp, work_package_name=self.other_wp)
+		self.other_category = _raw(
+			"Category", name=f"Valves {self.other_wp}", category_name=f"Valves {self.other_wp}", work_package=self.other_wp
+		)
 
 	def tearDown(self):
 		frappe.set_user("Administrator")
@@ -136,6 +145,20 @@ class TestSubmitTdsRequest(FrappeTestCase):
 			**extra,
 		}
 
+	def _custom(self, name="Facade Light", make="Philips", owner=None, **extra):
+		return {
+			"tds_item_id": "",
+			"tds_item_name": name,
+			"work_package": self.wp,
+			"category": self.category,
+			"make": make,
+			"is_new_request": True,
+			"is_project_custom": True,
+			"description": "IP66, 3000K",
+			"tds_attachment": self._upload(owner),
+			**extra,
+		}
+
 	def _rows(self, project=None):
 		return frappe.get_all(
 			ROW,
@@ -150,16 +173,17 @@ class TestSubmitTdsRequest(FrappeTestCase):
 				"tds_request_id",
 				"tds_attachment",
 				"tds_description",
+				"tds_category",
 			],
 			order_by="tds_make asc",
 		)
 
-	def _existing(self, status, make="MakeA", project=None, item=None, request_id=None):
+	def _existing(self, status, make="MakeA", project=None, item=None, request_id=None, name="Gate Valve"):
 		return _raw(
 			ROW,
 			tdsi_project_id=project or self.project,
 			tds_item_id=item or self.item,
-			tds_item_name="Gate Valve",
+			tds_item_name=name,
 			tds_make=make,
 			tds_status=status,
 			tds_request_id=request_id,
@@ -223,21 +247,22 @@ class TestSubmitTdsRequest(FrappeTestCase):
 			(ROW, row.name, "tds_attachment"),
 		)
 
-	def test_a_new_group_request_is_still_accepted_until_ticket_3_removes_it(self):
-		self._send(
-			[
-				{
-					"tds_item_id": "",
-					"tds_item_name": "Brand New Thing",
-					"work_package": self.wp,
-					"make": "MakeQ",
-					"is_new_request": True,
-					"tds_attachment": self._upload(),
-				}
-			]
-		)
-		(row,) = self._rows()
-		self.assertEqual((row.tds_status, row.tds_item_id, row.tds_item_name), ("New", "", "Brand New Thing"))
+	def test_a_request_with_no_tds_item_is_refused(self):
+		"""The brand-new shared TDS Item path is gone: a project asks for a Project Custom Item."""
+		with self.assertRaises(frappe.ValidationError):
+			self._send(
+				[
+					{
+						"tds_item_id": "",
+						"tds_item_name": "Brand New Thing",
+						"work_package": self.wp,
+						"make": "MakeQ",
+						"is_new_request": True,
+						"tds_attachment": self._upload(),
+					}
+				]
+			)
+		self.assertEqual(self._rows(), [])
 
 	def test_a_request_without_an_uploaded_datasheet_is_refused(self):
 		for attachment in ("", _cloud_url("never-uploaded.pdf")):
@@ -278,6 +303,97 @@ class TestSubmitTdsRequest(FrappeTestCase):
 			[(r.tds_make, r.tds_status) for r in self._rows()],
 			[("MakeA", "Pending"), ("MakeN", "New")],
 		)
+
+	# ── Project Custom ─────────────────────────────────────────────────────────
+
+	def test_a_project_custom_request_saves_a_pending_row_with_a_pcus_id_and_its_category(self):
+		row_in = self._custom()
+		out = self._send([row_in])
+
+		(row,) = self._rows()
+		self.assertEqual(row.tds_status, "Pending")
+		self.assertEqual(row.tds_item_id, "PCUS-000001")
+		self.assertEqual(
+			(row.tds_item_name, row.tds_work_package, row.tds_category, row.tds_make, row.tds_description),
+			("Facade Light", self.wp, self.category, "Philips", "IP66, 3000K"),
+		)
+		self.assertEqual(row.tds_attachment, row_in["tds_attachment"])
+		self.assertEqual(
+			frappe.db.get_value("File", {"file_url": row_in["tds_attachment"]}, "attached_to_name"), row.name
+		)
+		self.assertEqual(out["names"], [row.name])
+		# Nothing enters the catalogue.
+		self.assertFalse(frappe.db.exists("TDS Items", {"tds_item_name": "Facade Light"}))
+
+	def test_the_same_custom_name_shares_one_pcus_id_and_a_new_name_gets_the_next(self):
+		self._send([self._custom(make="Philips"), self._custom(name="  facade LIGHT ", make="Wipro")])
+		self._send([self._custom(name="Cove Strip", make="Wipro"), self._custom(name="FACADE light", make="Havells")])
+
+		ids = {(r.tds_item_name.strip().lower(), r.tds_make): r.tds_item_id for r in self._rows()}
+		self.assertEqual(
+			ids,
+			{
+				("facade light", "Philips"): "PCUS-000001",
+				("facade light", "Wipro"): "PCUS-000001",
+				("facade light", "Havells"): "PCUS-000001",
+				("cove strip", "Wipro"): "PCUS-000002",
+			},
+		)
+
+	def test_pcus_ids_continue_past_the_projects_legacy_rows_and_reuse_a_legacy_name(self):
+		self._existing("Approved", item="PCUS-000003", name="Plug In Unit", make="Schneider")
+		# Another project's series is not this project's.
+		self._existing("Approved", item="PCUS-000009", name="Other", make="X", project=self.other_project)
+
+		self._send([self._custom(name="Fresh Item"), self._custom(name="plug in unit", make="Legrand")])
+
+		ids = {r.tds_item_name: r.tds_item_id for r in self._rows() if r.tds_make != "Schneider"}
+		self.assertEqual(ids, {"Fresh Item": "PCUS-000004", "plug in unit": "PCUS-000003"})
+
+	def test_the_same_custom_name_and_make_twice_in_one_batch_is_refused(self):
+		with self.assertRaises(frappe.ValidationError):
+			self._send([self._custom(), self._custom(name="FACADE LIGHT ")])
+		self.assertEqual(self._rows(), [])
+
+	def test_a_custom_name_and_make_already_live_on_the_project_is_refused(self):
+		for status in ("Pending", "Approved"):
+			with self.subTest(status=status):
+				existing = self._existing(status, item="PCUS-000001", name="Facade Light", make="Philips")
+				with self.assertRaises(frappe.ValidationError):
+					self._send([self._custom(name="facade light")])
+				self.assertEqual([r.name for r in self._rows()], [existing])
+				frappe.db.delete(ROW, existing)
+
+	def test_a_rejected_custom_row_does_not_block_and_lends_its_id(self):
+		self._existing("Rejected", item="PCUS-000001", name="Facade Light", make="Philips")
+		self._send([self._custom()])
+		self.assertEqual(
+			sorted((r.tds_item_id, r.tds_status) for r in self._rows()),
+			[("PCUS-000001", "Pending"), ("PCUS-000001", "Rejected")],
+		)
+
+	def test_a_category_outside_the_chosen_work_package_is_refused(self):
+		for category in (self.other_category, "No Such Category"):
+			with self.subTest(category=category):
+				with self.assertRaises(frappe.ValidationError):
+					self._send([self._custom(category=category)])
+				self.assertEqual(self._rows(), [])
+
+	def test_a_project_custom_request_needs_name_work_package_category_and_datasheet(self):
+		for missing in ("tds_item_name", "work_package", "category", "tds_attachment"):
+			with self.subTest(missing=missing):
+				with self.assertRaises(frappe.ValidationError):
+					self._send([self._custom(**{missing: ""})])
+				self.assertEqual(self._rows(), [])
+
+	def test_project_custom_is_refused_for_anyone_but_admin_or_pmo(self):
+		frappe.set_user(PM_USER)
+		with self.assertRaises(frappe.PermissionError):
+			self._send([self._custom(owner=PM_USER, is_new_request=False)])
+		frappe.set_user(PMO_USER)
+		self._send([self._custom(owner=PMO_USER)])
+		frappe.set_user("Administrator")
+		self.assertEqual([r.tds_item_id for r in self._rows()], ["PCUS-000001"])
 
 	# ── duplicates ─────────────────────────────────────────────────────────────
 

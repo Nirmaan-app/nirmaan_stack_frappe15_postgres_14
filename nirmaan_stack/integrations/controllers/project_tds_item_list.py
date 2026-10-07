@@ -20,16 +20,14 @@ def before_save(doc, method=None):
 	  * create (is_new) → fill from the picked/resolved group;
 	  * edit re-pick → re-derive from the newly chosen group (fixes the stale
 	    value the edit modal otherwise preserves);
-	  * approval converting a custom "New" request into a resolved/created group
-	    (`approve.py` sets `tds_item_id` then `row.save()`) → re-derive.
 	  Reject and plain status changes do NOT touch `tds_item_id`, so this is a
 	  no-op for them — bulk Reject/Approve-Pending never alter category.
 
 	Skips (leaves the field as-is):
-	  * no group yet (custom "New" with blank `tds_item_id`) → filled later when
-	    a group is resolved on approval;
+	  * a blank `tds_item_id` (legacy rows only);
 	  * a legacy / CUS- / PCUS- id that does not resolve to a `TDS Items` group →
-	    preserve the frozen legacy snapshot.
+	    preserve the frozen snapshot. A Project Custom row (`PCUS-`) keeps the
+	    Category its requester chose (`api/tds/submit.py`).
 
 	Defensive: any failure is logged and swallowed so it can never break a save
 	or a bulk approval batch.

@@ -118,7 +118,7 @@ export const useTdsExistingProjectItems = (projectId: string) => {
     const response = useFrappeGetDocList(
         "Project TDS Item List",
         {
-            fields: ["name", "tds_item_id", "tds_make", "tds_request_id", "tds_status"],
+            fields: ["name", "tds_item_id", "tds_item_name", "tds_make", "tds_request_id", "tds_status"],
             filters: [
                 ["tdsi_project_id", "=", projectId],
                 ["docstatus", "!=", 2],

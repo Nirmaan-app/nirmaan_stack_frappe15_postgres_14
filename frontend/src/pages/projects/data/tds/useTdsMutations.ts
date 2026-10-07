@@ -146,10 +146,12 @@ export interface TdsSubmitRow {
     tds_item_id: string;
     make: string;
     is_new_request: boolean;
+    is_project_custom: boolean;
     tds_boq_line_item: string;
     description?: string;
-    tds_item_name?: string;   // brand-new-group requests only
-    work_package?: string;    // brand-new-group requests only
+    tds_item_name?: string;   // Project Custom only (the server reads the rest from the TDS Item)
+    work_package?: string;    // Project Custom only
+    category?: string;        // Project Custom only: under `work_package`
     tds_attachment?: string;  // requests only: file_url of the sender's unattached upload
     previous_doc_name?: string;
 }
