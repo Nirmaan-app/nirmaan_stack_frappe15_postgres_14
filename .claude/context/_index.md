@@ -33,7 +33,8 @@ How to write code here (placement, raw SQL, patches, schema changes, tests, don'
 
 | File | Domain | When to Read |
 |------|--------|--------------|
-| `domain/boq-frontend.md` | BoQ frontend | Upload wizard + pricing editor + review-screen conventions, full per-slice as-built detail (relocated from frontend/CLAUDE.md 2026-06-25) |
+| `domain/boq-pricing-editor-frontend.md` | BoQ pricing editor (frontend) | Load-bearing invariants of `PricingGrid.tsx` / `SheetPricingPage.tsx` |
+| `domain/boq-frontend.md` | BoQ frontend | Wizard + review-screen load-bearing invariants, pricing-editor component contracts, full per-slice as-built detail (relocated from frontend/CLAUDE.md 2026-06-25) |
 | `domain/ceo-hold.md` | CEO Hold | Project hold status blocking, guard hooks, affected pages |
 | `domain/delivery-notes.md` | Delivery Notes | DN system on POs, delivery_data JSON, 51-point linkage map across the app |
 | `domain/projects.md` | Projects | Frontend status behavior, ProjectSelect component |

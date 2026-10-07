@@ -94,7 +94,7 @@ The BoQ docs are too large to read whole: `frontend/.claude/plans/boq-upload-pla
 | **BoQ pricing editor**: rate gates, copy-forward, revision carry, classification freeze | `boq-pricing-editor.md` |
 | **BCS cost layer** (not the rate-master "BCS") | `boq-pricing-editor.md` § BCS |
 | **Rate Master / Rate Suggestion**: catalogue, category configs, pipelines, rate files, asset mints, AI extraction, rate-helper panel | `boq-rate-master.md` § Load-bearing invariants |
-| **BoQ frontend** | `frontend/.claude/context/domain/boq-frontend.md` |
+| **BoQ frontend**; the pricing editor (`PricingGrid.tsx`, `SheetPricingPage.tsx`) | `frontend/.claude/context/domain/boq-frontend.md`; `boq-pricing-editor-frontend.md` beside it |
 | **Pricing Module** (`api/pricing/`, not the BoQ pricing editor) | `pricing-module.md` |
 | **Procurement**: PR/PO/RFQ, PR packages, Critical PO Task links, delivery documents, vendor credit, Loss Justification | `procurement.md` § Load-bearing invariants |
 | **Projects**, CEO Hold | `projects.md` |

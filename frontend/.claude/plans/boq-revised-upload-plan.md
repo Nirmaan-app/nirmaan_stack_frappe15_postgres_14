@@ -221,8 +221,8 @@ this branch never received) — count unchanged by S2.
   `COUNT`s on `BoQ Cell Pricing` and on `BOQ Nodes` with non-blank `human_classification` — **no parse**) plus
   the Zone-2 proposal.
   **⚠️ S3 safety rule:** read the workbook bytes via the `NamedTemporaryFile` pattern — **never** build a local
-  path from `file_url` (`frappe_s3_attachment` rewrites it after insert; see root `CLAUDE.md` § BoQ File
-  Reading). Tab names only: `load_workbook(read_only=True).sheetnames`.
+  path from `file_url` (`frappe_s3_attachment` rewrites it after insert; see `CODING_STANDARDS.md` § Reading
+  uploaded file bytes). Tab names only: `load_workbook(read_only=True).sheetnames`.
 - **`revision.py::confirm_revision_mapping(boq, mapping)`** — validates strict 1:1 + **hard-stops on any
   unmatched sheet** (explicit original *or* declared New; no silent fallback), then **seeds the drafts**:
   every tab as a draft at its **verbatim** `sheet_name` + `sheet_order`; `source_sheet_name` stamped
@@ -1124,7 +1124,7 @@ Frontend vitest **684** / 32 files; `tsc --noEmit` clean; residence holds (b1 0 
   `file_url` (`frappe_s3_attachment`).
 - **Never `order_by` a Frappe field literally named `order`** (PG reserved keyword → 500).
 - **`useFrappeGetDoc` 3rd arg is the swrKey** — `id ? undefined : null`, never `{ enabled }`.
-- **Row-memo anti-defeat + the `PricingGrid` memo shield** (S10) — see `frontend/CLAUDE.md`.
+- **Row-memo anti-defeat + the `PricingGrid` memo shield** (S10) — see `frontend/.claude/context/domain/boq-pricing-editor-frontend.md`.
 - **Residence (ADR-0010):** the pure services above are **B1** modules (no `frappe.db`, no request ctx); N2 has
   **one home** (B2/F1). Run `python3 scripts/residence_check.py` from the **app root** before committing.
 - **Pure modules get real unit tests with fixtures — no stubs** (repo rule; these are logic-bearing).

@@ -11,7 +11,7 @@
  * Summary, collapse-all, description search, column-hide, the row-type toggles).
  *
  * ⚠️ READ-ONLY IS EXPRESSED BY WITHHOLDING THE SAVE CALLBACKS, which is the grid's OWN
- * convention (frontend/CLAUDE.md: "Read-only gating = PRESENCE of the save callback"). This
+ * convention (boq-pricing-editor-frontend.md: "Read-only gating = PRESENCE of the save callback"). This
  * page passes NONE of them -- no onSaveRate / onBatchWrite / onSaveRemark / onSaveColor /
  * onSaveReconChoice / onSaveFormula / onSaveBcsRates / onCategoryClick -- so every edit gate
  * inside PricingGrid collapses to its read-only render with no new flag to maintain. Do NOT
@@ -385,7 +385,7 @@ export const SheetViewPage = () => {
   }, [searchQuery]);
 
   // ── Row-type view filter ─────────────────────────────────────────────────────
-  // ONE predicate, ANDed -- the composition rule from frontend/CLAUDE.md. This is the VIEWER'S
+  // ONE predicate, ANDed -- the composition rule from boq-pricing-editor-frontend.md. This is the VIEWER'S
   // own three-clause version, deliberately NOT the editor's `passesViewFilter`: that one also
   // answers for the margin range, ticked rows, show-unpriced and check-category, none of which
   // exist on this page. A new view filter here becomes a clause in THIS function and a term in

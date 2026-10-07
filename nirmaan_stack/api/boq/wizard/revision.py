@@ -363,7 +363,7 @@ def _load_revision(boq: str):
 def _read_revised_tab_names(source_file_url: str) -> list[str]:
     """Return the revised workbook's tab names in tab order (VERBATIM, #152).
 
-    S3 safety rule (root CLAUDE.md, "BoQ File Reading"): read the bytes via the
+    S3 safety rule (CODING_STANDARDS.md, "Reading uploaded file bytes"): read the bytes via the
     NamedTemporaryFile pattern -- NEVER build a local path from `file_url`
     (`frappe_s3_attachment` rewrites it to an API URL after insert). Tab names only,
     so `read_only=True` (no cell scan). Function-level imports keep the module load

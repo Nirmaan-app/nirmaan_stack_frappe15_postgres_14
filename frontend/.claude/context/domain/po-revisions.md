@@ -1,5 +1,13 @@
 # PO Revision System — Complete Reference
 
+## Load-bearing invariants (owner-locked)
+
+_Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every frontend task needs (CLAUDE.md restructure, pass 2). `frontend/CLAUDE.md` now carries a one-line pointer here._
+
+- **PO Revision simplified to 2 steps**: Item editing + Summary (Step 2 financial allocation removed). Payment reconciliation handled by PO Adjustments system post-approval. See `.claude/context/domain/po-revisions.md`.
+
+---
+
 ## Overview
 
 PO Revision is a **two-phase workflow** (draft -> approve/reject) for modifying a live Purchase Order's items after goods have started moving. It creates a separate `PO Revisions` document that stages all changes without touching the original PO until approval.

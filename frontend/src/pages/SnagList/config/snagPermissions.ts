@@ -65,8 +65,8 @@ export interface SnagActor {
 }
 
 /**
- * The `Administrator` user is a user_id, not a role profile (root CLAUDE.md
- * § Domain Gotchas), so it is handled explicitly everywhere.
+ * The `Administrator` user is a user_id, not a role profile (CODING_STANDARDS.md
+ * § Writing backend Python, Frappe framework gotchas), so it is handled explicitly everywhere.
  */
 const isAdministratorUser = (actor: SnagActor): boolean =>
   actor.userId === "Administrator";

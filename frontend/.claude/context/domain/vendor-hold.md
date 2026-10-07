@@ -1,5 +1,13 @@
 # Vendor Hold & Credit Management - Feature Documentation
 
+## Load-bearing invariants (owner-locked)
+
+_Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every frontend task needs (CLAUDE.md restructure, pass 2). `frontend/CLAUDE.md` now carries a one-line pointer here._
+
+- **Vendor Hold / Credit Management**: Vendors with exhausted credit are marked "On-Hold". **Asymmetric transitions**: On-Hold → Active is real-time (via `recalculate_vendor_credit()` on credit-affecting events); Active → On-Hold is daily cron only (10 AM IST). Credit limit standardized at 50,000. **Admin-only** credit management (not PMO). Blocks dispatch + payment operations on "PO Approved" POs only — dispatched+ POs get informational banner. Uses `useVendorHoldGuard` (single vendor) and `useVendorHoldVendors` (bulk lookup) hooks. Guard variable: `isVendorHoldBlocked = isVendorOnHold && po?.status === "PO Approved"`. See `.claude/context/domain/vendor-hold.md` for full docs.
+
+---
+
 ## Overview
 
 Vendor Hold is a vendor-level status that **blocks dispatch and payment operations** on POs with "PO Approved" status. When a vendor's credit is exhausted (`available_credit <= 0`), they are marked "On-Hold" by a daily cron. Admins/PMOs can also toggle status manually.
