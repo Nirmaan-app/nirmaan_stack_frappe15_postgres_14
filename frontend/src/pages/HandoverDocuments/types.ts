@@ -18,7 +18,7 @@ export interface HodDocumentMeta {
    *  layout with nothing filled in (`hodRules.needsSaving`). */
   fill: boolean;
   library: string | null;
-  source: "commission" | "tds" | "snag" | "design" | null;
+  source: "commission" | "tds" | "snag" | "design" | "mtc" | null;
 }
 
 /** One `Project HOD Document` row as the API returns it (form_data already parsed). */
@@ -141,6 +141,17 @@ export interface HodTdsItem {
   tds_attachment: string | null;
 }
 
+/** 14 Factory Test Reports: a Material Test Certificate, with only THIS system's items. */
+export interface HodMtcCertificate {
+  name: string;
+  procurement_order: string;
+  po_label: string;
+  vendor_name: string | null;
+  attachment: string | null;
+  certificate_date: string | null;
+  items: { item_name: string; make: string | null; category: string | null }[];
+}
+
 export interface HodDesignTask {
   name: string;
   parent: string;
@@ -164,7 +175,7 @@ export interface HodSnagBatch {
 
 export interface HodSources {
   source: string;
-  items?: Array<HodCommissionTask | HodTdsItem | HodDesignTask | HodSnagBatch>;
+  items?: Array<HodCommissionTask | HodTdsItem | HodDesignTask | HodSnagBatch | HodMtcCertificate>;
   summary?: { total: number; by_status: Record<string, number> };
 }
 

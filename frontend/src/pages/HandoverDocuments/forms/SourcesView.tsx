@@ -31,6 +31,7 @@ import type {
   HodCommissionTask,
   HodDesignTask,
   HodDocumentMeta,
+  HodMtcCertificate,
   HodRow,
   HodSnagBatch,
   HodTdsItem,
@@ -85,6 +86,7 @@ const WHERE: Record<string, string> = {
   tds: "the project's TDS list",
   snag: "the project's Snag List",
   design: "the Design Tracker (Handover phase)",
+  mtc: "the Material Test Certificates uploaded on this project's POs (this package's items only)",
 };
 
 export interface SourcesViewProps {
@@ -136,6 +138,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
     tds: "data sheet",
     snag: "snag list",
     design: "drawing",
+    mtc: "certificate",
   };
   const noun = NOUNS[meta.source ?? ""] ?? "record";
   // Only records that have something to download can be ticked. For a snag batch that means any snag
@@ -149,6 +152,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
           if (meta.source === "tds") return !!(t as HodTdsItem).tds_attachment;
           if (meta.source === "design")
             return !!(t as HodDesignTask).download_url;
+          if (meta.source === "mtc") return !!(t as HodMtcCertificate).attachment;
           return (t as HodSnagBatch).count > 0;
         })
         .map((t) => t.name),
@@ -367,6 +371,45 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
                     <td className={td}>{t.tds_status || "—"}</td>
                     <td className={td}>
                       <FileLink url={t.tds_attachment} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </>
+          )}
+          {meta.source === "mtc" && (
+            <>
+              <thead className="sticky top-0">
+                <tr>
+                  {tickHead}
+                  <th className={`${th} w-10`}>#</th>
+                  <th className={th}>PO</th>
+                  <th className={th}>Vendor</th>
+                  <th className={th}>Items</th>
+                  <th className={th}>Certificate Date</th>
+                  <th className={th}>File</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(items as HodMtcCertificate[]).map((m, i) => (
+                  <tr key={m.name}>
+                    {tickCell(m.name)}
+                    <td className={td}>{i + 1}</td>
+                    <td className={td}>{m.po_label}</td>
+                    <td className={td}>{m.vendor_name || "—"}</td>
+                    <td className={td}>
+                      <ul className="space-y-0.5">
+                        {m.items.map((it, k) => (
+                          <li key={k}>
+                            {it.item_name}
+                            {it.make && <span className="text-gray-500"> · {it.make}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                    <td className={td}>{m.certificate_date ? formatDate(m.certificate_date) : "—"}</td>
+                    <td className={td}>
+                      <FileLink url={m.attachment} label="View" />
                     </td>
                   </tr>
                 ))}

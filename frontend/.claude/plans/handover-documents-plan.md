@@ -59,7 +59,7 @@ proposal, `{{Blank Name}}` with self-filling `{{Project}}` / `{{Date}}`, was not
 | 11 | Key List | Form — keys table + recipient details + declaration; can be switched off | layout received — Appendix E |
 | 12 | Equipment Warranty | Template list — equipment from `HOD System.warranty_equipment`, project can remove/add | workbook layout; escalation levels copied from #1 |
 | 13 | Completion Certificate | Template | workbook layout; DLP from the commissioning date |
-| 14 | Factory Test Reports | From app | Commission Report → "… Factory Test Report" tasks (vendor-obtained) |
+| 14 | Factory Test Reports | From app | **Material Test Certificates** of the system's package (owner, 2026-10-07; was the Commission Report's "… Factory Test Report" tasks, which now go to 3) |
 | 15 | Snag List | From app | Snag List — project-wide; the user ticks snag batches |
 | 16 | As Built Drawings | From app | Design Tracker → Handover-phase tasks, drawings downloaded from Drive (Correction 2 below) |
 
@@ -203,6 +203,34 @@ varies:
    **YES / NO / NA**, picked by hand (owner 2026-09-24), and the signed upload is gone.
 4. **Output**: one merged PDF binder per system in the workbook's order — cover → checklist → divider + content
    for each applicable document, with the From-app PDFs placed behind their dividers.
+
+## Owner ruling 2026-10-07: 14 Factory Test Reports reads Material Test Certificates
+
+Row 14 now reads the project's **Material Test Certificates** (MTC, uploaded on each PO) instead of the
+Commission Report's "Factory Test" tasks.
+
+**Matching (package-wise):**
+- An MTC belongs to a system when one of its items has `procurement_package` = the system's `work_package`.
+  The two masters share the name strings (see the next section).
+- Each system lists only its own items, so a certificate covering two packages appears under both systems,
+  split between them.
+- On the shared Critical Room ELV package, the items are narrowed by `source_keywords`, with the same rule as
+  TDS (`sources.mtc_item_belongs`).
+
+**What row 14 does:**
+- The tick list shows PO · Vendor · Items · Certificate Date · View. As with every other document, nothing is
+  ticked by default.
+- The binder adds each ticked MTC's own file: a PDF as it is, a photo fitted onto A4.
+
+**The old source:**
+- The Commission "Factory Test" tasks (71 in 25 projects on 2026-10-07) now go to **3 Commissioning Report**,
+  next to the other test reports. `sources.commission_bucket` no longer has a factory_test bucket.
+
+**Code:**
+- `index.SRC_MTC`, `from_app.mtc_for_system`, the MTC branch in `binder._content_steps`, the `"mtc"` table in
+  `SourcesView.tsx`, and the row-14 block in the "HOD Document" print.
+- No doctype change and no migrate: the key `factory_test_reports` is unchanged.
+- At the switch, none of the 9 existing row-14 entries had anything ticked.
 
 ## Work Packages, not Procurement Packages (owner question, 2026-09-21)
 

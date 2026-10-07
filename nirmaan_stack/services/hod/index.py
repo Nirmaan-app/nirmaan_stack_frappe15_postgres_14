@@ -40,6 +40,9 @@ SRC_COMMISSION = "commission"
 SRC_TDS = "tds"
 SRC_SNAG = "snag"
 SRC_DESIGN = "design"
+# 14 Factory Test Reports reads the project's Material Test Certificates (owner, 2026-10-07; it read the
+# Commission Report's "Factory Test" tasks before, which now go to 3 Commissioning Report).
+SRC_MTC = "mtc"
 
 DOCUMENTS = (
     {"key": "escalation_chart", "no": 1, "title": "Escalation Chart", "kind": FORM, "fill": True},
@@ -55,7 +58,7 @@ DOCUMENTS = (
     {"key": "key_list", "no": 11, "title": "Key List", "kind": FORM, "fill": True},
     {"key": "equipment_warranty", "no": 12, "title": "Equipment Warranty", "kind": TEMPLATE, "fill": True},
     {"key": "completion_certificate", "no": 13, "title": "Completion Certificate", "kind": TEMPLATE, "fill": True},
-    {"key": "factory_test_reports", "no": 14, "title": "Factory Test Reports", "kind": FROM_APP, "source": SRC_COMMISSION, "bucket": "factory_test"},
+    {"key": "factory_test_reports", "no": 14, "title": "Factory Test Reports", "kind": FROM_APP, "source": SRC_MTC},
     {"key": "snag_list", "no": 15, "title": "Snag List", "kind": FROM_APP, "source": SRC_SNAG},
     {"key": "as_built_drawings", "no": 16, "title": "As Built Drawings", "kind": FROM_APP, "source": SRC_DESIGN},
 )

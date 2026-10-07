@@ -247,8 +247,9 @@ briefly when the menu was stripped to bare badges, and got it back when the word
 
 | # | Document | Reads | What the user ticks | What goes into the PDF |
 |---|---|---|---|---|
-| 2 / 3 / 14 | Demo & Training / Commissioning / Factory Test | **Submitted / Client Accepted** tasks of the system's Work Package, narrowed by `source_keywords`. "training" → 2, "factory test" → 14, every other task (incl. Earthing, Megger, pressure tests) → 3 | each task | its client-signed copy, else the filled report (Commission print format, landscape where the category says so), else its uploaded file |
+| 2 / 3 | Demo & Training / Commissioning | **Submitted / Client Accepted** tasks of the system's Work Package, narrowed by `source_keywords`. "training" → 2, every other task (incl. Earthing, Megger, pressure tests, and since 2026-10-07 the "factory test" tasks) → 3 | each task | its client-signed copy, else the filled report (Commission print format, landscape where the category says so), else its uploaded file |
 | 4 | Material TDS | `Project TDS Item List` by `tds_work_package` | each item | its attached data sheet |
+| 14 | Factory Test Reports | **Material Test Certificates** whose items are in the system's package (`procurement_package` = `work_package`; keywords on the shared Critical Room ELV), only that system's items listed (owner 2026-10-07) | each certificate | its uploaded file (a PDF as it is, a photo on A4) |
 | 15 | Snag List | the project's snag batches (whole project), counting **every** snag; only a batch with no snags at all is not listed | each batch | the Snag List print of that batch, unfiltered — open snags included (owner 2026-09-25) |
 | 16 | As Built | Design Tracker **Handover-phase** tasks that are **Submitted / Approved**. A category belongs to the system named in it; unclaimed categories (ELV, BMS, Overall Project) go by keywords | each drawing | the drawing, downloaded from its Google Drive link or its stored file |
 

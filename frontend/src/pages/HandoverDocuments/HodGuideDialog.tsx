@@ -189,8 +189,10 @@ export const HodGuideDialog: React.FC<{
 
         <Section icon={Database} title="5. Documents that come from Nirmaan">
           <p>
-            Demo &amp; Training, Commissioning and Factory Test come from the{" "}
-            <b>Commission Report</b>, Material TDS from the <b>TDS list</b>, the
+            Demo &amp; Training and Commissioning come from the{" "}
+            <b>Commission Report</b>, Factory Test Reports from the{" "}
+            <b>Material Test Certificates</b> uploaded on the project&apos;s POs (only
+            this package&apos;s items), Material TDS from the <b>TDS list</b>, the
             Snag List from <b>Snag List</b> batches, and As Built from the{" "}
             <b>Design Tracker</b>. They are maintained there, never here.
           </p>

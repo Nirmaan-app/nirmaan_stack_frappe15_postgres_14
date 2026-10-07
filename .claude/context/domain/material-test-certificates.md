@@ -60,6 +60,11 @@ The full decision log (owner rulings Q1–Q39) and the build notes are in
   `procurement_order`, `parent_index`) that already exist on other tables. Since index names are schema-wide,
   `CREATE INDEX IF NOT EXISTS` then creates nothing. Both doctypes therefore declare
   `mtc_procurement_order_index`, `mtc_project_index` and `mtc_item_parent_index` in `on_doctype_update`.
+- **Handover Documents read MTCs.** HOD row 14 "Factory Test Reports" lists a system's MTCs through
+  `api/hod/from_app.mtc_for_system`: an item's `procurement_package` must equal the HOD System's `work_package`
+  (both masters share the names), with keywords on the shared Critical Room ELV package. The binder merges each
+  ticked MTC's file. It is read-only, but renaming or dropping `procurement_package`, `certificate_date` or
+  `attachment` breaks HOD.
 - **Edits go through the `update_mtc` endpoint,** never a raw `updateDoc` (residence rule F5). It saves with
   `ignore_version=False`, so the edit history (`track_changes`) is written, and tested.
 - **The list page's project picker is the plain shared `ProjectSelect`,** used exactly as on the DC & MIR page

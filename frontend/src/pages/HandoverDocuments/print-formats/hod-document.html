@@ -559,8 +559,8 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
     <p class="hd-esc-note">If any queries/ complaints with regards to the work, services, drawings and material, please follow the above escalation provided.</p>
     </div>
 
-{# ------------------------------------------- 2, 3, 14. From the Commission Report #}
-{% elif ctx.key in ("demo_training", "commissioning_report", "factory_test_reports") %}
+{# ----------------------------------------------- 2, 3. From the Commission Report #}
+{% elif ctx.key in ("demo_training", "commissioning_report") %}
     <div class="hd-title">{{ v(ctx.title) }}</div>
     {% set items = ctx.sources["items"] %}
     {% if items %}
@@ -579,6 +579,28 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
     <p class="hd-note">The reports listed above are kept in Nirmaan&rsquo;s Commission Report. In the handover binder each filled report follows this page.</p>
     {% else %}
     <div class="hd-off">No {{ v(ctx.title) }} is recorded for {{ v(ctx.display_name) }} in this project&rsquo;s Commission Report yet.</div>
+    {% endif %}
+
+{# --------------------------------- 14. From the Material Test Certificates (by package) #}
+{% elif ctx.key == "factory_test_reports" %}
+    <div class="hd-title">{{ v(ctx.title) }}</div>
+    {% set items = ctx.sources["items"] %}
+    {% if items %}
+    <table class="hd-table">
+        <tr><th style="width: 7%;">S.No</th><th style="width: 12%;">PO</th><th style="width: 22%;">Vendor</th><th>Items</th><th style="width: 16%;">Certificate Date</th></tr>
+        {% for m in items %}
+        <tr>
+            <td class="hd-c">{{ loop.index }}</td>
+            <td class="hd-c">{{ v(m.po_label) }}</td>
+            <td>{{ v(m.vendor_name) }}</td>
+            <td>{% for it in m["items"] %}{{ v(it.item_name) }}{% if it.make %} &middot; {{ v(it.make) }}{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+            <td class="hd-c">{{ v(m.certificate_date_label) or "-" }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <p class="hd-note">The certificates listed above are kept in Nirmaan&rsquo;s Material Test Certificates, uploaded on each PO. In the handover binder each certificate follows this page.</p>
+    {% else %}
+    <div class="hd-off">No Material Test Certificate is recorded for {{ v(ctx.display_name) }} in this project yet.</div>
     {% endif %}
 
 {# ------------------------------------------------------------ 4. Material TDS #}

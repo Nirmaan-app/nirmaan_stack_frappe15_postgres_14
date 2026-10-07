@@ -12,11 +12,12 @@
 A document's CONTENT (`_content_steps`), owner rulings 2026-09-22 (the signed-upload case was retired
 with the upload itself, 2026-09-24):
     a form / template                            -> its "HOD Document" print
-    Demo & Training / Commissioning / Factory    -> each Commission task's signed copy, else its filled report
+    Demo & Training / Commissioning              -> each Commission task's signed copy, else its filled report
                                                     (Commission print format), else its uploaded file
     Material TDS                                 -> the project's OWN TDS report over the ticked items
                                                     (`api/hod/tds_pack.py` -> `build_tds_report_pdf`),
                                                     the same document the export dialog downloads
+    Factory Test Reports                         -> each ticked Material Test Certificate's file
     Snag List                                    -> the Snag List print of each ticked snag batch, in full
                                                     (every snag, whatever its status)
     As Built                                     -> each ticked drawing, downloaded from its Google Drive link
@@ -83,6 +84,7 @@ EMPTY_REASON = {
 	"none_selected": "no report ticked for download",
 	index.SRC_SNAG: "no snag on this project yet",
 	index.SRC_DESIGN: "no issued As Built drawing with a downloadable file in the Design Tracker yet",
+	index.SRC_MTC: "no Material Test Certificate uploaded for this system's items yet",
 	index.LIB_OM: "no O&M manual part or picture selected",
 	index.LIB_DOS: "no Do's & Don'ts text in the library",
 	index.LIB_MAINT: "no maintenance checklist in the library",
@@ -196,6 +198,11 @@ def _content_steps(project: str, hod_system: str, row, system) -> tuple[list, st
 		for t in src.get("items") or []:
 			if t.download_url and chosen(t.name):
 				steps.append(_file_step(f"{title}: {t.task_name}", t.download_url))
+	elif src_kind == index.SRC_MTC:
+		# Each ticked certificate's own file: a PDF as it is, a photo fitted onto an A4 page (`_file_pdf`).
+		for m in src.get("items") or []:
+			if m.attachment and chosen(m.name):
+				steps.append(_file_step(f"{title}: {m.po_label} · {m.vendor_name or ''}".rstrip(" ·"), m.attachment))
 	if not steps and isinstance(selected, list) and src.get("items"):
 		return steps, EMPTY_REASON["none_selected"]
 	# NO index page in front of the records (owner 2026-09-25, REVERSING the 2026-09-23 ruling that added
