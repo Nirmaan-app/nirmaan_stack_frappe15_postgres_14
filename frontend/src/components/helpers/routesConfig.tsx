@@ -607,17 +607,6 @@ export const appRoutes: RouteObject[] = [
               { path: ":id", element: <OrderPaymentSummary /> } // Consider :paymentId or :orderId for clarity
             ]
           },
-          // --- Payment TDS Deduction (Tax Deducted at Source) ---
-          // The ledger MOVED into the Reports hub (Reports > "Payment" tab), so this
-          // legacy path is now a redirect -- old links and bookmarks still land on the ledger.
-          // No RoleRoute: the tab itself is gated by PAYMENT_TDS_ACCESS inside ReportsContainer,
-          // and a guard here would only decide who gets bounced vs who sees "Access Denied".
-          // ⚠️ NOT the `/tds-repository` / `/tds-approval` family above, which is the TECHNICAL
-          // DATA SHEET module. The path is spelled out in full so the two never collide.
-          {
-            path: "payment-tds-deductions",
-            element: <Navigate to="/reports?tab=payment_tds" replace />,
-          },
           // --- Project Payments ---
           {
             path: "credits",

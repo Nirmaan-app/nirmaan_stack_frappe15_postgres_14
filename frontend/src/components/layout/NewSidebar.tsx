@@ -587,8 +587,8 @@ export function NewSidebar() {
       : []),
     // Payment TDS Deduction (Tax Deducted at Source) has NO sidebar item of its own -- the ledger
     // lives in the Reports hub under the "Payment" tab (pages/reports), gated there by
-    // the same PAYMENT_TDS_ACCESS constant. `/payment-tds-deductions` still resolves; routesConfig
-    // redirects it into that tab.
+    // the same PAYMENT_TDS_ACCESS constant. Its old `/payment-tds-deductions` route was removed
+    // (owner, 2026-10-07).
     // ── "Expense" HIDDEN from the sidebar (owner, 15 Sep 2026) ──────────────────
     //
     // Expenses are now raised and worked from "Project Payment & Expense": the unified
