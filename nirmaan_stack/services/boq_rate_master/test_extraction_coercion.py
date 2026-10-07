@@ -3103,7 +3103,7 @@ class TestSlice12d2ModelCall(FrappeTestCase):
             cls.v28 = json.load(fh)
         with open(_asset_path("rate_master_hvac_all_v29.json"), "r", encoding="utf-8") as fh:
             cls.v29 = json.load(fh)
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v29.json"
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v29.json"   # 12d-2F: v29 is loaded BY NAME above; the current asset moved on
         with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
             cls.eall = json.load(fh)
 
@@ -3175,3 +3175,181 @@ class TestSlice12d2ModelCall(FrappeTestCase):
             self.assertNotIn(forbidden, content, forbidden)
         self.assertIn("ITEMS_SPEC", content)
         self.assertIn("(1) the row's OWN value", content)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12d-2F (owner F3, 2026-10-07) -- what the MODEL is sent, v29 -> v30: the cladding note ONLY.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestSlice12d2FModelCall(FrappeTestCase):
+    """v30 adds ONE sentence to Insulation's cladding note (a 22G / 26G GSS perforated sheet on a GI frame IS
+    'GI Framework with perforated Al sheet'). It reaches BOTH calls that read ITEMS_SPEC -- the batch call and
+    the second-opinion review -- so the two agree; EVERY OTHER HVAC category's assembled call is byte-identical
+    and NAMED; every eligible Electrical category's call is identical with either HVAC asset loaded and NAMED."""
+
+    OTHER_HVAC = TestSlice12d2ModelCall.OTHER_HVAC
+    ELIGIBLE_ELECTRICAL = TestSlice12d2ModelCall.ELIGIBLE_ELECTRICAL
+    F3 = "do not flag or withhold it for saying GSS rather than aluminium"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, CURRENT_HVAC_ASSET, _asset_path
+        with open(_asset_path("rate_master_hvac_all_v29.json"), "r", encoding="utf-8") as fh:
+            cls.v29 = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v30 = json.load(fh)
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v30.json"
+        with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
+            cls.eall = json.load(fh)
+
+    _cfgs = staticmethod(TestSlice12d1bModelCall._cfgs)
+    _row = staticmethod(TestSlice12d1bModelCall._row)
+    _content = staticmethod(TestSlice12d1bModelCall._content)
+
+    def test_mc2f_01_every_other_hvac_category_sends_a_byte_identical_call_NAMED(self):
+        c29, c30 = self._cfgs(self.v29, "HVAC"), self._cfgs(self.v30, "HVAC")
+        payload = [extraction._ai_item(self._row())]
+        checked = []
+        for key in c29:
+            if key[1] == "hvac_insulation":
+                continue
+            g29, g30 = extraction._group_context(c29, *key), extraction._group_context(c30, *key)
+            self.assertEqual(g30, g29, key[1])
+            self.assertEqual(self._content(g30, payload), self._content(g29, payload), key[1])
+            checked.append(key[1])
+        self.assertEqual(sorted(checked), self.OTHER_HVAC)
+        self.assertEqual(extraction.build_items_spec(c30[("HVAC", "hvac_adp")]), extraction.build_items_spec(c29[("HVAC", "hvac_adp")]))
+
+    def test_mc2f_02_every_eligible_electrical_category_sends_the_same_call_with_either_hvac_asset_NAMED(self):
+        e = self._cfgs(self.eall, "Electrical")
+        payload = [extraction._ai_item(self._row())]
+        checked = []
+        for key, cfg in e.items():
+            if not extraction.config_is_eligible(cfg, e):
+                continue
+            g_a = extraction._group_context({**e, **self._cfgs(self.v29, "HVAC")}, *key)
+            g_b = extraction._group_context({**e, **self._cfgs(self.v30, "HVAC")}, *key)
+            self.assertEqual(self._content(g_b, payload), self._content(g_a, payload), key[1])
+            checked.append(key[1])
+        self.assertEqual(sorted(checked), self.ELIGIBLE_ELECTRICAL)
+
+    def test_mc2f_03_insulation_items_spec_changes_in_the_cladding_note_ONLY_and_the_sentence_reaches_BOTH_calls(self):
+        s29 = extraction.build_items_spec(self._cfgs(self.v29, "HVAC")[("HVAC", "hvac_insulation")])
+        s30 = extraction.build_items_spec(self._cfgs(self.v30, "HVAC")[("HVAC", "hvac_insulation")])
+        d29 = {d["id"]: d for d in s29["attribute_definitions"]}
+        d30 = {d["id"]: d for d in s30["attribute_definitions"]}
+        self.assertEqual(sorted(d29), sorted(d30))
+        for aid in d29:
+            if aid != "cladding":
+                self.assertEqual(d30[aid], d29[aid], aid)
+        self.assertNotEqual(d30["cladding"]["note"], d29["cladding"]["note"])
+        self.assertNotIn("GSS", d29["cladding"]["note"])                       # NEGATIVE: v29 did not say it
+        self.assertIn(self.F3, d30["cladding"]["note"])
+        self.assertEqual(d30["cladding"]["values"], d29["cladding"]["values"])  # a wording, never a new value
+        self.assertEqual({k: v for k, v in s30.items() if k != "attribute_definitions"},
+                         {k: v for k, v in s29.items() if k != "attribute_definitions"})
+        # the sentence reaches the BATCH call ...
+        g30 = extraction._group_context(self._cfgs(self.v30, "HVAC"), "HVAC", "hvac_insulation")
+        batch = self._content(g30, [extraction._ai_item(self._row())])
+        self.assertIn(self.F3, batch)
+        # ... AND the second-opinion review (the same ITEMS_SPEC rides it), so the two cannot disagree about GSS
+        review = extraction.second_opinion_content(extraction._read_review_prompt(), {"id": 1, "description": "x"}, [], s30)
+        self.assertIn(self.F3, review)
+        self.assertIn("\n\nITEMS_SPEC:\n" + json.dumps(s30, ensure_ascii=False), review)
+
+    def test_mc2f_04_the_insulation_call_differs_by_the_appended_sentence_and_nothing_else(self):
+        c29, c30 = self._cfgs(self.v29, "HVAC"), self._cfgs(self.v30, "HVAC")
+        payload = [extraction._ai_item(self._row())]
+        p29 = self._content(extraction._group_context(c29, "HVAC", "hvac_insulation"), payload)
+        p30 = self._content(extraction._group_context(c30, "HVAC", "hvac_insulation"), payload)
+        self.assertNotEqual(p30, p29)
+        n29 = next(d for d in c29[("HVAC", "hvac_insulation")]["list_spec"]["attribute_definitions"] if d["id"] == "cladding")["note"]
+        n30 = next(d for d in c30[("HVAC", "hvac_insulation")]["list_spec"]["attribute_definitions"] if d["id"] == "cladding")["note"]
+        self.assertEqual(p30.replace(json.dumps(n30, ensure_ascii=False)[1:-1], json.dumps(n29, ensure_ascii=False)[1:-1]), p29)
+        for forbidden in ("SLICE 12d-2F", "computed_rates", "cost_cladding"):
+            self.assertNotIn(forbidden, p30, forbidden)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12d-2F (owner F4, 2026-10-07) -- the second opinion's token usage is METERED on the run's capture
+# records, beside the main call's, so a run's full cost is known.
+#
+# PREMISE CORRECTION: the 12d-2 report called it "unmetered / not persisted". It was persisted all along:
+# `_extract_batch` writes the whole `drops` dict into every batch capture record, and `drops.second_opinion_usage`
+# is accumulated per review call. What was missing was anyone READING it -- `scripts/_instruments/run_cost.py`
+# now sums both maps per run. The `BoQ Rate Suggestion Run` doctype carries NO usage field of any kind (the main
+# call's included), so the capture log IS the existing structure; adding a field would be a doctype change.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestSlice12d2FSecondOpinionCost(FrappeTestCase):
+
+    @staticmethod
+    def _resp(text, inp, out):
+        import types
+        return types.SimpleNamespace(usage=types.SimpleNamespace(input_tokens=inp, output_tokens=out),
+                                     content=[types.SimpleNamespace(text=text)], stop_reason="end_turn")
+
+    @staticmethod
+    def _drops():
+        return {"second_opinion_verdicts": {}, "second_opinion_failed": [], "second_opinion_usage": {"calls": 0, "input": 0, "output": 0}}
+
+    def test_f4_01_every_review_call_is_counted_with_its_tokens_including_a_garbage_reply(self):
+        import types
+        replies = [self._resp('{"verdict": "agree"}', 10, 2),
+                   self._resp('{"verdict": "disagree", "issues": [{"item": 0, "attribute": "cladding", "reason": "GSS, not aluminium"}]}', 20, 3),
+                   self._resp("not json at all", 30, 4)]
+        calls = {"n": 0}
+        def create(**kw):
+            r = replies[calls["n"]]; calls["n"] += 1; return r
+        client = types.SimpleNamespace(messages=types.SimpleNamespace(create=create))
+        drops = self._drops()
+        flags = []
+        for rid in (1, 2, 3):
+            flags.append(extraction.second_opinion_review(client, "m", "P", {"id": rid}, [], drops, rid, None))
+        self.assertEqual(drops["second_opinion_usage"], {"calls": 3, "input": 60, "output": 9})
+        self.assertEqual(flags[0], []); self.assertEqual(flags[1][0]["reason"], "GSS, not aluminium"); self.assertEqual(flags[2], [])
+        self.assertEqual([x["excel_row"] for x in drops["second_opinion_failed"]], [3])   # the garbage reply: recorded, and it still cost a call
+        self.assertEqual(drops["second_opinion_verdicts"], {"1": "agree", "2": "disagree"})
+
+    def test_f4_02_a_call_that_RAISES_costs_nothing_and_is_recorded(self):
+        import types
+        def create(**kw):
+            raise RuntimeError("boom")
+        client = types.SimpleNamespace(messages=types.SimpleNamespace(create=create))
+        drops = self._drops()
+        self.assertEqual(extraction.second_opinion_review(client, "m", "P", {"id": 7}, [], drops, 7, None), [])
+        self.assertEqual(drops["second_opinion_usage"], {"calls": 0, "input": 0, "output": 0})
+        self.assertEqual([x["excel_row"] for x in drops["second_opinion_failed"]], [7])
+
+    def test_f4_03_the_batch_capture_record_carries_BOTH_usages_source_pinned(self):
+        """The persistence: `_extract_batch`'s capture write names `usage=` (the main call) AND `drops=drops`
+        (which holds `second_opinion_usage`) in the SAME record -- the structure `run_cost.py` sums."""
+        import inspect
+        src = inspect.getsource(extraction)
+        block = src[src.index("# CAPTURE (the primary point)"):src.index("return out", src.index("# CAPTURE (the primary point)"))]
+        self.assertIn("usage=_usage_of(resp),", block)
+        self.assertIn("mapping=cap_map, drops=drops,", block)
+        self.assertIn('"second_opinion_usage": {"calls": 0, "input": 0, "output": 0},', src)
+
+    def test_f4_04_run_cost_sums_main_and_second_opinion_per_run_and_per_day(self):
+        import importlib.util, os
+        here = os.path.dirname(os.path.abspath(extraction.__file__))
+        path = os.path.normpath(os.path.join(here, "..", "..", "..", "scripts", "_instruments", "run_cost.py"))
+        spec = importlib.util.spec_from_file_location("run_cost_12d2f", path)
+        mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+        recs = [
+            {"kind": "run_header", "ts": "2026-10-07 16:00:00", "boq": "B1", "sheet_name": "S "},
+            {"kind": "batch", "ts": "2026-10-07 16:01:00", "boq": "B1", "sheet_name": "S ", "usage": {"input_tokens": 100, "output_tokens": 10},
+             "drops": {"second_opinion_usage": {"calls": 2, "input": 50, "output": 5}}},
+            {"kind": "batch", "ts": "2026-10-07 16:02:00", "boq": "B1", "sheet_name": "S ", "usage": None,
+             "drops": {"second_opinion_usage": {"calls": 1, "input": 25, "output": 2}}},
+            {"kind": "batch", "ts": "2026-10-06 09:00:00", "boq": "B1", "sheet_name": "S ", "usage": {"input_tokens": 7, "output_tokens": 1},
+             "drops": {"second_opinion_usage": {"calls": 0, "input": 0, "output": 0}}},
+        ]
+        got = mod.run_costs(recs, "2026-10-07")
+        self.assertEqual(list(got), [("B1", "S ")])                               # sheet_name VERBATIM, trailing space kept
+        r = got[("B1", "S ")]
+        self.assertEqual((r["batches"], r["input"], r["output"]), (2, 100, 10))   # the failed attempt counts as a batch, no tokens
+        self.assertEqual((r["so_calls"], r["so_input"], r["so_output"]), (3, 75, 7))
+        self.assertEqual((r["first"], r["last"]), ("2026-10-07 16:01:00", "2026-10-07 16:02:00"))
+        allg = mod.run_costs(recs)[("B1", "S ")]
+        self.assertEqual((allg["batches"], allg["input"]), (3, 107))

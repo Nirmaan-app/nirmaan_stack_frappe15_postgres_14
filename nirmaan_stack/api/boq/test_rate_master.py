@@ -11490,7 +11490,7 @@ def _read_frontend_src(*parts):
 # lists and layers copied as written), numbers.thickness_mm.several = "highest", number_defaults on every family,
 # material_as_written + no_sku_named_by. Items and the eight other configs byte-identical -- pinned in
 # `TestSlice12d1bAsset`. The 12d-1a v26 -> v27 pin below now names v27 explicitly.
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v29.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v30.json"
 # SLICE 12d-2 (owner S1): `calculator_only` is RETIRED and refused by the validator as an unknown key. The
 # frozen HVAC assets v18..v28 carry it on their Insulation config and are therefore refused AS FILES -- a
 # historical asset is never edited. Every "every asset on disk validates" sweep names them through this.
@@ -18761,7 +18761,8 @@ class TestSlice12d1bAsset(FrappeTestCase):
 
     def test_v28_01_INVERTED_the_current_asset_has_moved_past_v28(self):
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v28.json")
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v29.json")
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v29.json")   # 12d-2F: moved again
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")
 
     def test_v28_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -18897,11 +18898,13 @@ class TestSlice12d2Asset(FrappeTestCase):
         super().setUpClass()
         with open(_asset_path("rate_master_hvac_all_v28.json"), "r", encoding="utf-8") as fh:
             cls.prev = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # 12d-2F: re-pointed to v29 BY NAME (the 12d-2 precedent) -- this class describes the v28 -> v29 mint
+        with open(_asset_path("rate_master_hvac_all_v29.json"), "r", encoding="utf-8") as fh:
             cls.cur = json.load(fh)
 
-    def test_v29_01_the_current_asset_is_v29(self):
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v29.json")
+    def test_v29_01_INVERTED_the_current_asset_has_moved_past_v29(self):
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v29.json")
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")
 
     def test_v29_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -18992,3 +18995,89 @@ class TestSlice12d2Asset(FrappeTestCase):
                           "lighting_mgmt_system", "miscellaneous", "point_wiring", "popup_boxes", "switches_sockets", "wiring_cabling"])
         for k, v in e.items():
             self.assertEqual(extraction.has_runnable_pricing_rules(v), bool(v.get("pipelines")), k)   # Electrical: the first arm only
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12d-2F (owner F3, 2026-10-07) -- HVAC v30 = v29 + the cladding note ONLY.
+#
+# "22G / 26G GSS perforated sheet" IS 'GI Framework with perforated Al sheet' ("this is same as GI
+# framework SKUs"): the sample's second opinion had flagged three rows as "GSS, not aluminium", so the
+# note now says so and the model and the second opinion agree. Items, every other top-level key, every
+# other config and Insulation's whole `list_spec.pricing` are byte-identical -- no price moved on the asset.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+class TestSlice12d2FAsset(FrappeTestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v29.json"), "r", encoding="utf-8") as fh:
+            cls.prev = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.cur = json.load(fh)
+
+    def test_v30_01_the_current_asset_is_v30(self):
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")
+
+    def test_v30_02_items_and_every_other_top_level_key_are_byte_identical(self):
+        self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
+        for key in self.prev:
+            if key in ("items", "category_configs"):
+                continue
+            self.assertEqual(json.dumps(self.prev[key], sort_keys=True), json.dumps(self.cur[key], sort_keys=True), key)
+        self.assertEqual(sorted(self.prev), sorted(self.cur))
+
+    def test_v30_03_every_config_but_insulation_is_byte_identical_NAMED(self):
+        a = {c["category_id"]: c for c in self.prev["category_configs"]}
+        b = {c["category_id"]: c for c in self.cur["category_configs"]}
+        self.assertEqual(sorted(a), sorted(b))
+        self.assertEqual(sorted(a), ["hvac_adp", "hvac_ahu", "hvac_cables", "hvac_dx_unit", "hvac_insulation", "hvac_panels",
+                                     "hvac_pricing_inputs", "hvac_pumps", "hvac_raceway"])
+        for cid in a:
+            if cid != "hvac_insulation":
+                self.assertEqual(json.dumps(a[cid], sort_keys=True), json.dumps(b[cid], sort_keys=True), cid)
+
+    def _stripped(self, cfg):
+        c = copy.deepcopy(cfg)
+        c.pop("notes", None)
+        for d in c["list_spec"]["attribute_definitions"]:
+            if d["id"] == "cladding":
+                d.pop("note", None)
+        return json.dumps(c, sort_keys=True)
+
+    def test_v30_04_insulation_differs_ONLY_in_the_cladding_note_and_the_notes_trail_and_each_DID_change(self):
+        a = next(c for c in self.prev["category_configs"] if c["category_id"] == "hvac_insulation")
+        b = next(c for c in self.cur["category_configs"] if c["category_id"] == "hvac_insulation")
+        self.assertEqual(self._stripped(a), self._stripped(b), "Insulation changed outside the slice's named places")
+        da = {d["id"]: d for d in a["list_spec"]["attribute_definitions"]}
+        db = {d["id"]: d for d in b["list_spec"]["attribute_definitions"]}
+        self.assertEqual(sorted(da), sorted(db))
+        self.assertNotEqual(da["cladding"]["note"], db["cladding"]["note"])
+        self.assertTrue(db["cladding"]["note"].startswith(da["cladding"]["note"]), "the v29 sentences are KEPT, the F3 sentence is appended")
+        self.assertNotEqual(a["notes"], b["notes"]); self.assertIn("SLICE 12d-2F", b["notes"])
+        # NO pricing rule moved: the whole pricing block, byte for byte
+        self.assertEqual(json.dumps(a["list_spec"]["pricing"], sort_keys=True), json.dumps(b["list_spec"]["pricing"], sort_keys=True))
+        self.assertIs(b["list_spec"]["second_opinion"], True)
+        self.assertEqual(b.get("pipelines") or {}, {})
+
+    def test_v30_05_the_cladding_note_states_the_GSS_ruling_and_keeps_the_frame_sentence(self):
+        b = next(c for c in self.cur["category_configs"] if c["category_id"] == "hvac_insulation")
+        note = next(d for d in b["list_spec"]["attribute_definitions"] if d["id"] == "cladding")["note"]
+        self.assertIn("A GI frame, grid or framework of any gauge (a 22G GI frame work) carrying a perforated sheet", note)   # v29 kept
+        self.assertIn("GSS", note)
+        self.assertIn("22G / 26G", note)
+        self.assertIn("is the SAME cladding, 'GI Framework with perforated Al sheet'", note)
+        self.assertIn("do not flag or withhold it for saying GSS rather than aluminium", note)   # the second opinion reads this note too
+        self.assertEqual(note.count("'GI Framework with perforated Al sheet'"), 2)
+        # the vocabulary itself is untouched -- GSS is a WORDING, never a new value
+        values = next(d for d in b["list_spec"]["attribute_definitions"] if d["id"] == "cladding")["values"]
+        self.assertNotIn("GSS", json.dumps(values))
+        self.assertEqual(values, next(d for d in next(c for c in self.prev["category_configs"] if c["category_id"] == "hvac_insulation")
+                                       ["list_spec"]["attribute_definitions"] if d["id"] == "cladding")["values"])
+
+    def test_v30_06_every_config_validates_insulation_is_eligible_and_the_mint_declares_no_removal(self):
+        for c in self.cur["category_configs"]:
+            config_validation._validate_config(loader._loaded_config(copy.deepcopy(c), "HVAC", self.cur.get("goldens") or {}))
+        b = next(c for c in self.cur["category_configs"] if c["category_id"] == "hvac_insulation")
+        self.assertTrue(extraction.config_is_eligible(b, {("HVAC", c["category_id"]): c for c in self.cur["category_configs"]}))
+        # nothing was removed, so the removals ledger is EXACTLY v29's (the mint gate reported "No atoms disappeared")
+        self.assertEqual(self.cur.get("intentional_removals"), self.prev.get("intentional_removals"))

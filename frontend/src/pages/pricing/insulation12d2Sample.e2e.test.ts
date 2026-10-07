@@ -5,8 +5,10 @@
  * and the REAL model answer the active `BoQ Rate Suggestion Run` stored on 2026-10-07 -- no hand-written
  * answer anywhere. The PANEL path is `makePricingSheetHelper` over that stored row; the CALCULATOR path is
  * `PricingCalculator`'s construction fed what the panel shows (`runParity`). Owner S7 / P1: calculator = panel
- * ALWAYS; a divergence is recorded BY NAME in `AWAITING_SAMPLE_DIVERGENCES` and the suite passes only if
- * EXACTLY those differ -- never fixed in this slice.
+ * ALWAYS; a divergence is recorded BY NAME in `ACCEPTED_SAMPLE_DIVERGENCES` and the suite passes only if
+ * EXACTLY those differ -- never fixed in this slice. SLICE 12d-2F (owner F2, 2026-10-07): the one divergence
+ * the sample found (row 290) was put to the owner and ACCEPTED ("ok"), so the list is now the ACCEPTED set --
+ * the test is unchanged in what it proves: exactly these differ, no more and no fewer.
  *
  * The per-row OUTCOME (priced figures, or the refusal, and which rule fired) is pinned from the product's own
  * pricing on the asset that went live (v29), so a later change to any rule the sample exercises is loud.
@@ -46,8 +48,12 @@ const CAT = "hvac_insulation";
 const CFG = ASSET.category_configs.find((c) => c.category_id === CAT)!;
 const CONFIGS = new Map([[CAT, CFG]]);
 
-/** Divergences the sample found, BY NAME, awaiting the owner (S7: recorded, never fixed here). */
-export const AWAITING_SAMPLE_DIVERGENCES: ReadonlyArray<{ id: string; what: string; panel: string; calculator: string; cause: string }> = [
+/**
+ * Divergences the sample found, BY NAME. Recorded under S7 (never fixed here) and, since 12d-2F, ACCEPTED BY
+ * OWNER (F2, 2026-10-07: "ok") -- `accepted` names the ruling. A listed divergence that stops differing fails the
+ * suite exactly as a new one does.
+ */
+export const ACCEPTED_SAMPLE_DIVERGENCES: ReadonlyArray<{ id: string; what: string; panel: string; calculator: string; cause: string; accepted: string }> = [
   /**
    * BOQ-26-00169 r290 -- "Acoustic insulation of AHU plant room walls using 50mm thick open cell nitril rubber in GI
    * frame work ... 22 G GSS Powder coated Perforated sheet". The model answered cladding = "GI Framework with
@@ -56,19 +62,21 @@ export const AWAITING_SAMPLE_DIVERGENCES: ReadonlyArray<{ id: string; what: stri
    * calculator's cladding dropdown for Acoustic Nitrile is built from that family's SKUs (owner V1), none of which
    * carries a GI framework, so the value cannot be carried across and the calculator refuses for a missing cladding.
    * CAUSE: an input the calculator has no control for (the 12c-P "input-surface difference" class, counted and
-   * reported, never quietly supplied). Owner S7: recorded in full, awaiting the owner, NOT fixed in 12d-2.
+   * reported, never quietly supplied). Owner S7: recorded in full, NOT fixed in 12d-2. Owner F2 (12d-2F): ACCEPTED.
    */
   {
     id: "BOQ-26-00169#290", what: "item blocks",
     panel: '[{"family":"Acoustic Nitrile Insulation","state":"blank","reason":"no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)","figures":"supply_rate=- install_rate=- combined_rate=-","qty":"1"}]',
     calculator: '[{"family":"Acoustic Nitrile Insulation","state":"blank","reason":"could not tell cladding","figures":"supply_rate=- install_rate=- combined_rate=-","qty":"1"}]',
     cause: "C_option_not_offered: the model-read cladding is not a stocked option of the family, so the calculator cannot carry it",
+    accepted: "ACCEPTED BY OWNER -- F2, 12d-2F, 2026-10-07: 'ok'",
   },
   {
     id: "BOQ-26-00169#290", what: "item row reason",
     panel: "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)",
     calculator: "could not tell cladding",
     cause: "C_option_not_offered: the model-read cladding is not a stocked option of the family, so the calculator cannot carry it",
+    accepted: "ACCEPTED BY OWNER -- F2, 12d-2F, 2026-10-07: 'ok'",
   },
 ];
 
@@ -106,8 +114,16 @@ describe("PARITY (owner S7 / P1): every sampled row through BOTH paths", () => {
 
   it("EXACTLY the named divergences differ -- no more, and no fewer", () => {
     const seen = results.flatMap(({ r, run: x }) => x.divergences.map((d) => `${r.id} :: ${d.what} :: P[${d.panel}] C[${d.calculator}]`));
-    const named = AWAITING_SAMPLE_DIVERGENCES.map((d) => `${d.id} :: ${d.what} :: P[${d.panel}] C[${d.calculator}]`);
+    const named = ACCEPTED_SAMPLE_DIVERGENCES.map((d) => `${d.id} :: ${d.what} :: P[${d.panel}] C[${d.calculator}]`);
     expect(seen.sort()).toEqual(named.sort());
+  });
+
+  it("12d-2F (owner F2): every listed divergence is row 290 and every one carries the owner's acceptance", () => {
+    expect(ACCEPTED_SAMPLE_DIVERGENCES.length).toBe(2);
+    for (const d of ACCEPTED_SAMPLE_DIVERGENCES) {
+      expect(d.id).toBe("BOQ-26-00169#290");
+      expect(d.accepted).toMatch(/^ACCEPTED BY OWNER/);
+    }
   });
 
   it("each row's OUTCOME is the one pinned from the product's own pricing on v29 (figures, refusal, rule)", () => {
