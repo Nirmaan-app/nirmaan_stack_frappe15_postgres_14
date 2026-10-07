@@ -18450,3 +18450,39 @@ class TestSlice12d1aAsset(FrappeTestCase):
         config_validation._validate_config(ins)   # raises on refusal
         adp = next(c for c in self.cur["category_configs"] if c["category_id"] == "hvac_adp")
         self.assertIs(adp["list_spec"]["second_opinion"], False)
+
+
+class TestSlice12d1bSeveral(FrappeTestCase):
+    """SLICE 12d-1b (owner T2) -- `numbers[<attr>].several`: the one word the reader implements, "highest"; any
+    other value, or a non-string, is refused by name; ABSENT is accepted (today's behaviour)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.asset = json.load(fh)
+        cls.ins = next(c for c in cls.asset["category_configs"] if c["category_id"] == "hvac_insulation")
+
+    def _cfg(self, several):
+        c = copy.deepcopy(self.ins)
+        c.setdefault("discipline", self.asset["discipline"])
+        if several is not None:
+            c["list_spec"]["pricing"]["numbers"]["thickness_mm"]["several"] = several
+        return c
+
+    def _refused(self, cfg):
+        try:
+            config_validation._validate_config(cfg)
+        except Exception as exc:          # noqa: BLE001
+            return str(exc)
+        return None
+
+    def test_t2_01_highest_validates_and_absent_validates(self):
+        self.assertIsNone(self._refused(self._cfg("highest")))
+        self.assertIsNone(self._refused(self._cfg(None)))
+
+    def test_t2_02_any_other_value_is_refused_by_name(self):
+        for bad in ("lowest", "max", "", True, 1):
+            msg = self._refused(self._cfg(bad))
+            self.assertIsNotNone(msg, repr(bad))
+            self.assertIn("numbers['thickness_mm'].several must be 'highest'", msg)

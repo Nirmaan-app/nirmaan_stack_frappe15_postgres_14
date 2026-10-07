@@ -380,7 +380,11 @@ _TYPED_CONTROLS = {"text", "dropdown_or_other"}
 # being refused, and a bare fraction is read as inches. Only for an axis whose catalogue sizes are
 # themselves inch-derived; ABSENT keeps the refusal every other axis has always given.
 _PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_tokens", "reject_below",
-                       "range", "component", "inches"}
+                       "range", "component", "inches",
+                       # SLICE 12d-1b (owner T2): `several: "highest"` -- a bare slash list of ANY length
+                       # reads as its highest. ABSENT => a list of three or more still refuses (ADP is
+                       # byte-identical). The value is closed to the one word the reader implements.
+                       "several"}
 # SLICE 9 (owner A-4): `second_key` -- a second match key beside a family's primary one (a diffuser's OUTER size
 # beside its neck). Closed, like every other block here: a misspelled key would ship a silently inert rule.
 _PRICING_SECOND_KEY_KEYS = {"families", "primary", "key", "alt_key", "name", "primary_pick"}
@@ -602,6 +606,8 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             _vthrow(f"list_spec.pricing.numbers['{nid}'].reject_below must be a finite number.")
         if "range" in rd and rd["range"] != "max":
             _vthrow(f"list_spec.pricing.numbers['{nid}'].range must be 'max'.")
+        if "several" in rd and rd["several"] != "highest":
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].several must be 'highest', or be omitted.")
         # SLICE 9 (A-1): an axis index, 1..3. A `component` on a reader whose `from` names several attributes is
         # refused: the phrase must come from ONE field, or which field an axis came from would be ambiguous.
         if "component" in rd:

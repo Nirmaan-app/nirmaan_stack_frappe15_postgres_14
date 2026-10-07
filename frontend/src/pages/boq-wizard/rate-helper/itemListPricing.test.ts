@@ -3170,3 +3170,68 @@ describe("SLICE 12d-1b / T1 -- a stated thickness is read first; unreadable refu
     expect(r.items[0].reason).toBe("no thickness stated");
   });
 });
+
+// ---------------------------------------------------------------------------------------------------------
+// SLICE 12d-1b (owner T2, 2026-10-07) -- `numbers[attr].several = "highest"`: a bare slash list of ANY length
+// reads as its highest. ABSENT => a list of three or more still refuses, so ADP is byte-identical.
+// ---------------------------------------------------------------------------------------------------------
+describe("SLICE 12d-1b / T2 -- several = highest: a bare slash list of any length reads as its highest (config-gated)", () => {
+  type Cfg = RateCategoryConfig & { list_spec: { pricing: Record<string, unknown> } };
+  const V27 = HVAC_V27 as unknown as Asset;
+  const INS = V27.category_configs.find((c) => c.category_id === "hvac_insulation") as unknown as Cfg;
+  const ITEMS = V27.items;
+  const NR = "Nitrile Rubber Insulation";
+  const base = (INS.list_spec.pricing as { numbers: Record<string, NumberReader> }).numbers;
+  const HIGHEST: NumberReader = { ...base.thickness_mm, several: "highest" };
+  const cfg = (): Cfg => ({
+    ...INS, list_spec: { ...INS.list_spec, pricing: { ...INS.list_spec.pricing, numbers: { ...base, thickness_mm: HIGHEST } } },
+  });
+  const item = (attrs: Record<string, string>): ExtractedListItem => ({
+    attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v }])),
+  });
+
+  it("readNumber: with several = highest a three-value slash list reads as 32 with a note; the pair rule is unchanged", () => {
+    expect(readNumber("19/ 25 / 32 mm", HIGHEST)).toEqual({ value: 32, note: "'19/ 25 / 32 mm' states several values -- the highest, 32, is taken" });
+    expect(readNumber("13/19/25/32", HIGHEST)).toMatchObject({ value: 32 });
+    expect(readNumber("25mm/32mm", HIGHEST)).toMatchObject({ value: 32 });
+  });
+
+  it("NEGATIVE: ABSENT => today's behaviour, byte-identical -- three values refuse by name", () => {
+    expect(readNumber("19/ 25 / 32 mm", base.thickness_mm)).toEqual({ blank: "several values stated for thickness ('19/ 25 / 32 mm')" });
+    expect(readNumber("25mm/32mm", base.thickness_mm)).toMatchObject({ value: 32 });
+  });
+
+  it("NEGATIVE: only a BARE slash list qualifies -- a comma list, a '+' pair and a signed tolerance still refuse under the flag", () => {
+    for (const t of ["3.5, 7.9 & 15.9", "65 mm + 32 mm", "25 +/- 2 mm", "6/8 / 10 Port, 12"]) {
+      expect(readNumber(t, HIGHEST)).toEqual({ blank: `several values stated for thickness ('${t}')` });
+    }
+  });
+
+  it("POSITIVE (b): '19/ 25 / 32 mm' on a Nitrile pipe row at 32NB -> 32 -> composed 13 + 19, cladding on the outer only: 250/14 + 493/224 = 743 / 238", () => {
+    const r = priceItemList(itemListPricingSpec(cfg())!, ITEMS, "RMT",
+      [item({ item: NR, cladding: "26G Aluminium", thickness_mm: "19/ 25 / 32 mm", pipe_size_mm: "32NB" })]);
+    expect(r.priced).toBe(true);
+    expect(r.items.map((p) => [p.selection.thickness_mm, p.selection.cladding, p.figures.supply, p.figures.install]))
+      .toEqual([[13, "No", 250, 14], [19, "26G Aluminium", 493, 224]]);
+    expect([r.supply, r.install]).toEqual([743, 238]);
+    // the 'highest' note belongs to the STATED item; the composition re-prices its layers from the numbers
+    expect(r.items[0].working[0]).toMatch(/^You typed 32 mm -> priced as 13 \+ 19 mm/);
+  });
+
+  it("NEGATIVE: the same row WITHOUT the flag refuses 'several values stated', exactly as before this slice", () => {
+    const r = priceItemList(itemListPricingSpec(INS)!, ITEMS, "RMT",
+      [item({ item: NR, cladding: "26G Aluminium", thickness_mm: "19/ 25 / 32 mm", pipe_size_mm: "32NB" })]);
+    expect(r.priced).toBe(false);
+    expect(r.items[0].reason).toBe("several values stated for thickness ('19/ 25 / 32 mm')");
+  });
+
+  it("HAZARD PIN (recon item 10): a pipe-size field holding a slash list is NOT read as inches -- it refuses by name", () => {
+    expect(readNumber("19/ 25 / 32 mm", base.pipe_size_mm)).toEqual({ blank: "several values stated for pipe size ('19/ 25 / 32 mm')" });
+    // a genuine inch fraction still converts
+    expect((readNumber("7/8\"", base.pipe_size_mm) as { value: number }).value).toBeCloseTo(22.225, 3);
+  });
+
+  it("HAZARD PIN (recon item 10): '50 mm - 32 mm' copied into thickness reads as a RANGE -> its top, 50 -- pinned so a prompt change that starts copying such phrases is caught", () => {
+    expect(readNumber("50 mm - 32 mm thick", HIGHEST)).toEqual({ value: 50, note: "range '50 mm - 32 mm thick' -> its top value 50 (R6)" });
+  });
+});

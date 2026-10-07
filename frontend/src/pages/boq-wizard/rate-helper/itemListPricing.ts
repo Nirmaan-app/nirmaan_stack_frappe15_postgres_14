@@ -69,6 +69,9 @@ export interface NumberReader {
    * the splitter cannot read falls through to the ordinary reader, which refuses it BY NAME. ABSENT =>
    * the reader behaves exactly as it did before this slice. */
   component?: number;
+  /** SLICE 12d-1b (owner T2): a BARE slash list of ANY length ("19/ 25 / 32 mm") reads as its HIGHEST.
+   * ABSENT => exactly two still take the higher (slice 11) and three or more refuse, so ADP is byte-identical. */
+  several?: "highest";
 }
 
 export interface ConversionOption {
@@ -748,7 +751,13 @@ export function readNumber(text: string | number | null | undefined, reader: Num
    * priced silently as a 9.52 mm pipe -- a plausible wrong size with nothing on screen to catch it.
    */
   if (reader.inches) {
-    const frac = s.match(/(\d+)\s*\/\s*(\d+)/);
+    // SLICE 12d-1b (recon hazard pin, item 6): a bare FRACTION is ONE slash between TWO numbers (or a mixed
+    // number: a whole, a space, a fraction). A slash LIST ("19/ 25 / 32 mm") is not an inch and must never
+    // read as 19/25 of an inch -- it falls through to the several-values rules below.
+    const slashCount = (s.match(/\//g) ?? []).length;
+    const numberCount = numbersIn(s).length;
+    const mixedForm = /^\s*\d+\s+\d+\s*\/\s*\d+/.test(s);
+    const frac = slashCount === 1 && (numberCount === 2 || (mixedForm && numberCount === 3)) ? s.match(/(\d+)\s*\/\s*(\d+)/) : null;
     if (statedInInches || (frac && Number(frac[2]) !== 0)) {
       const mixed = s.match(/(\d+)\s+\d+\s*\/\s*\d+/);
       const part = frac ? Number(frac[1]) / Number(frac[2]) : Number((s.match(/[\d.]+/) ?? ["0"])[0]);
@@ -813,6 +822,15 @@ export function readNumber(text: string | number | null | undefined, reader: Num
     const hi = found[0].n >= found[1].n ? found[0] : found[1];
     const sc = scale(hi);
     return below({ value: sc.value, note: `'${raw}' states two values -- the higher, ${sc.value}, is taken` });
+  }
+  // SLICE 12d-1b (owner T2, 2026-10-07): a reader declaring `several: "highest"` takes the HIGHEST of a bare
+  // slash list of ANY length ("19/ 25 / 32 mm" -> 32) -- "if the exact thickness cannot be determined, use the
+  // highest value". ONLY a bare slash list: a comma list, a '+' pair (two LAYERS, T4) and a signed tolerance
+  // keep refusing by name. ABSENT => the refusal below, byte-identical for every other category.
+  if (reader.several === "highest" && found.length >= 3 && gaps.every(isAltPair)) {
+    const hi = found.reduce((a, b) => (b.n > a.n ? b : a));
+    const sc = scale(hi);
+    return below({ value: sc.value, note: `'${raw}' states several values -- the highest, ${sc.value}, is taken` });
   }
   return { blank: `several values stated for ${reader.name} ('${raw}')` };
 }
