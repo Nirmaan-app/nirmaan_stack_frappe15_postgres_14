@@ -997,165 +997,6 @@ export const PurchaseOrder = () => {
         onAdjustPayments={() => setIsAdjustmentDialogOpen(true)}
         onCancelPO={toggleCancelPODialog}
       />
-      {/* Payment Details - hidden for Project Manager */}
-      {!isProjectManager && (
-        <Card className="rounded-sm  md:col-span-3 p-2">
-          <Accordion
-            type="multiple"
-            defaultValue={openAccordionItems == true ? ["transac&payments"] : []}
-            // value={openAccordionItems}
-            className="w-full"
-          >
-            <AccordionItem key="transac&payments" value="transac&payments">
-              {/* {tab === "Delivered PO" && ( */}
-              <AccordionTrigger>
-                <div className="flex items-center gap-3 pl-6">
-                  <p className="font-semibold text-lg text-red-600">
-                    Payment Details / Refunds
-                  </p>
-                  {(poPayments || []).filter((p) => p?.status === "Paid").length > 0 && (
-                    <Badge variant="secondary">
-                      {(poPayments || []).filter((p) => p?.status === "Paid").length}
-                    </Badge>
-                  )}
-                </div>
-              </AccordionTrigger>
-              {/* )} */}
-              <AccordionContent>
-                <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
-                  <TransactionDetailsCard
-                    estimatesViewing={estimatesViewing}
-
-                    PO={PO}
-                    getTotal={PO?.total_amount}
-                    amountPaid={PO?.amount_paid}
-                    poPayments={poPayments}
-                    poPaymentsMutate={poPaymentsMutate}
-                    AllPoPaymentsListMutate={AllPoPaymentsListMutate}
-                  />
-
-                  <POPaymentTermsCard
-                    estimatesViewing={estimatesViewing}
-                
-                    PO={PO}
-                    getTotal={PO?.total_amount}
-                    poMutate={poMutate}
-                    projectPaymentsMutate={poPaymentsMutate}
-                    isLocked={isPaymentLocked}
-                  />
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-        </Card>
-      )}
-
-      {/* Delivery Notes Accordion - Only for dispatched/delivered statuses */}
-      {PO?.status &&
-        ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(
-          PO?.status
-        ) && (
-          <Card className="rounded-sm md:col-span-3 p-2">
-            <Accordion type="multiple" className="w-full">
-              <AccordionItem value="delivery-notes">
-                <AccordionTrigger>
-                  <div className="flex items-center gap-3 pl-6">
-                    <p className="font-semibold text-lg text-primary">
-                      Delivery Notes
-                    </p>
-                    <Badge variant="secondary">
-                      {dnRecords.length} updates
-                    </Badge>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="px-2">
-                  <DeliveryPivotTable
-                    po={PO}
-                    dnRecords={dnRecords}
-                    onPoMutate={poMutate}
-                    onDnRefetch={() => fetchDNs({ procurement_order: poId })}
-                    canEdit={(DELIVERY_EDIT_ROLES as readonly string[]).includes(userData?.role) && ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(PO?.status || "")}
-                    canReturn={(RETURN_NOTE_ROLES as readonly string[]).includes(userData?.role) && ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(PO?.status || "")}
-                    returnCount={dnRecords.filter(dn => dn.is_return === 1).length}
-                    isEmbedded
-                    isProjectManager={isProjectManager}
-                    isLocked={isItemLocked}
-                  />
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          </Card>
-        )}
-
-      {/* PO Attachments Accordion */}
-
-      {PO?.status && (
-        <Card className="rounded-sm md:col-span-3 p-2">
-          <Accordion
-            type="multiple"
-            // defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
-            className="w-full"
-          >
-            <AccordionItem key="poattachments" value="poattachments">
-              {/* {tab === "Delivered PO" && ( */}
-              <AccordionTrigger>
-                <div className="flex flex-col items-start gap-1 pl-2 min-w-0 lg:flex-row lg:items-center lg:gap-3 lg:pl-6">
-                  <p className="font-semibold text-base text-red-600 lg:text-lg whitespace-nowrap">
-                    PO Attachments
-                  </p>
-                  <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs lg:text-sm">
-                    {!isProjectManager && (
-                      <>
-                        <span className="text-gray-600">Invoices:</span>
-                        <Badge variant="secondary">{invoiceCount}</Badge>
-                        <span className="text-gray-400">|</span>
-                      </>
-                    )}
-                    <span className="text-gray-600">DCs:</span>
-                    <Badge variant="secondary">{dcCount}</Badge>
-                    <span className="text-gray-400">|</span>
-                    <span className="text-gray-600">MIRs:</span>
-                    <Badge variant="secondary">{mirCount}</Badge>
-                    {PO?.billing_status === "Billable" && (
-                      <>
-                        <span className="text-gray-400">|</span>
-                        <span className="text-gray-600">MTCs:</span>
-                        <Badge variant="secondary">{mtcCount}</Badge>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </AccordionTrigger>
-              {/* )} */}
-              <AccordionContent>
-                <DocumentAttachments
-                  docType="Procurement Orders"
-                  docName={PO?.name}
-                  documentData={invoicePO}
-                  docMutate={poMutate}
-                  project={project}
-                  disabledAddInvoice={PO?.status == "Inactive"}
-                  isProjectManager={isProjectManager}
-                  isEstimatesExecutive={estimatesViewing}
-                />
-
-                {/* <POAttachments PO={PO} poMutate={poMutate} /> */}
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-        </Card>
-      )}
-
-      {/* Revisions & Adjustments Accordion */}
-      {poId && <PORevisionsAndAdjustments poId={poId} />}
-
-      {/* Invoice Dialog */}
-      <InvoiceDialog
-        docName={PO?.name}
-        docType="Procurement Orders"
-        docMutate={poMutate}
-        vendor={PO?.vendor}
-      />
       {/* Order Details */}
       <Card className="rounded-sm shadow-md md:col-span-3">
         <CardHeader>
@@ -1320,6 +1161,166 @@ export const PurchaseOrder = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Payment Details - hidden for Project Manager */}
+      {!isProjectManager && (
+        <Card className="rounded-sm  md:col-span-3 p-2">
+          <Accordion
+            type="multiple"
+            defaultValue={openAccordionItems == true ? ["transac&payments"] : []}
+            // value={openAccordionItems}
+            className="w-full"
+          >
+            <AccordionItem key="transac&payments" value="transac&payments">
+              {/* {tab === "Delivered PO" && ( */}
+              <AccordionTrigger>
+                <div className="flex items-center gap-3 pl-6">
+                  <p className="font-semibold text-lg text-red-600">
+                    Payment Details / Refunds
+                  </p>
+                  {(poPayments || []).filter((p) => p?.status === "Paid").length > 0 && (
+                    <Badge variant="secondary">
+                      {(poPayments || []).filter((p) => p?.status === "Paid").length}
+                    </Badge>
+                  )}
+                </div>
+              </AccordionTrigger>
+              {/* )} */}
+              <AccordionContent>
+                <div className="grid gap-4 max-[1000px]:grid-cols-1 grid-cols-6">
+                  <TransactionDetailsCard
+                    estimatesViewing={estimatesViewing}
+
+                    PO={PO}
+                    getTotal={PO?.total_amount}
+                    amountPaid={PO?.amount_paid}
+                    poPayments={poPayments}
+                    poPaymentsMutate={poPaymentsMutate}
+                    AllPoPaymentsListMutate={AllPoPaymentsListMutate}
+                  />
+
+                  <POPaymentTermsCard
+                    estimatesViewing={estimatesViewing}
+                
+                    PO={PO}
+                    getTotal={PO?.total_amount}
+                    poMutate={poMutate}
+                    projectPaymentsMutate={poPaymentsMutate}
+                    isLocked={isPaymentLocked}
+                  />
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </Card>
+      )}
+
+      {/* Delivery Notes Accordion - Only for dispatched/delivered statuses */}
+      {PO?.status &&
+        ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(
+          PO?.status
+        ) && (
+          <Card className="rounded-sm md:col-span-3 p-2">
+            <Accordion type="multiple" className="w-full">
+              <AccordionItem value="delivery-notes">
+                <AccordionTrigger>
+                  <div className="flex items-center gap-3 pl-6">
+                    <p className="font-semibold text-lg text-primary">
+                      Delivery Notes
+                    </p>
+                    <Badge variant="secondary">
+                      {dnRecords.length} updates
+                    </Badge>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="px-2">
+                  <DeliveryPivotTable
+                    po={PO}
+                    dnRecords={dnRecords}
+                    onPoMutate={poMutate}
+                    onDnRefetch={() => fetchDNs({ procurement_order: poId })}
+                    canEdit={(DELIVERY_EDIT_ROLES as readonly string[]).includes(userData?.role) && ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(PO?.status || "")}
+                    canReturn={(RETURN_NOTE_ROLES as readonly string[]).includes(userData?.role) && ["Partially Dispatched", "Dispatched", "Partially Delivered", "Delivered"].includes(PO?.status || "")}
+                    returnCount={dnRecords.filter(dn => dn.is_return === 1).length}
+                    isEmbedded
+                    isProjectManager={isProjectManager}
+                    isLocked={isItemLocked}
+                  />
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </Card>
+        )}
+
+      {/* PO Attachments Accordion */}
+
+      {PO?.status && (
+        <Card className="rounded-sm md:col-span-3 p-2">
+          <Accordion
+            type="multiple"
+            // defaultValue={tab !== "Delivered PO" ? ["poattachments"] : []}
+            className="w-full"
+          >
+            <AccordionItem key="poattachments" value="poattachments">
+              {/* {tab === "Delivered PO" && ( */}
+              <AccordionTrigger>
+                <div className="flex flex-col items-start gap-1 pl-2 min-w-0 lg:flex-row lg:items-center lg:gap-3 lg:pl-6">
+                  <p className="font-semibold text-base text-red-600 lg:text-lg whitespace-nowrap">
+                    PO Attachments
+                  </p>
+                  <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs lg:text-sm">
+                    {!isProjectManager && (
+                      <>
+                        <span className="text-gray-600">Invoices:</span>
+                        <Badge variant="secondary">{invoiceCount}</Badge>
+                        <span className="text-gray-400">|</span>
+                      </>
+                    )}
+                    <span className="text-gray-600">DCs:</span>
+                    <Badge variant="secondary">{dcCount}</Badge>
+                    <span className="text-gray-400">|</span>
+                    <span className="text-gray-600">MIRs:</span>
+                    <Badge variant="secondary">{mirCount}</Badge>
+                    {PO?.billing_status === "Billable" && (
+                      <>
+                        <span className="text-gray-400">|</span>
+                        <span className="text-gray-600">MTCs:</span>
+                        <Badge variant="secondary">{mtcCount}</Badge>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </AccordionTrigger>
+              {/* )} */}
+              <AccordionContent>
+                <DocumentAttachments
+                  docType="Procurement Orders"
+                  docName={PO?.name}
+                  documentData={invoicePO}
+                  docMutate={poMutate}
+                  project={project}
+                  disabledAddInvoice={PO?.status == "Inactive"}
+                  isProjectManager={isProjectManager}
+                  isEstimatesExecutive={estimatesViewing}
+                />
+
+                {/* <POAttachments PO={PO} poMutate={poMutate} /> */}
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </Card>
+      )}
+
+      {/* Revisions & Adjustments Accordion */}
+      {poId && <PORevisionsAndAdjustments poId={poId} />}
+
+      {/* Invoice Dialog */}
+      <InvoiceDialog
+        docName={PO?.name}
+        docType="Procurement Orders"
+        docMutate={poMutate}
+        vendor={PO?.vendor}
+      />
       {/* The Cancel PO BUTTON lives in PODetails' action row; this block keeps only its dialog.
           Both used to render, so the PO list door showed Cancel twice. */}
       <div className="flex items-center justify-end">
