@@ -17,7 +17,7 @@ The cashflow gap described below is **no longer the only thing that can auto-hol
 Consequences for everything below:
 
 - **`ceo_hold_by = "System (Cashflow Cron)"` is now the generic "held by the system" marker** for *any* automatic source, not only cashflow. The specific *why* lives in the `CEO Hold Reason` rows, which the Project Detail + PMO banners and the blocked-action toast surface.
-- **Second automatic source — Delivery-Pending Hold:** a project is auto-held when it has **more than 4 Purchase Orders awaiting delivery** (dispatched but not fully delivered — the `DN_PENDING` action-item count), and auto-releases symmetrically when the count drops to 4 or fewer. It is evaluated inside the Project Action Item reconcile, not the cashflow engine.
+- **Second automatic source — Delivery-Pending Hold:** a project is auto-held when it has **more than `DN_PENDING_HOLD_THRESHOLD` Purchase Orders awaiting delivery** (currently 10; `services/ceo_hold/core.py`) (dispatched but not fully delivered — the `DN_PENDING` action-item count), and auto-releases symmetrically when the count drops to 4 or fewer. It is evaluated inside the Project Action Item reconcile, not the cashflow engine.
 - **Auto-release now requires no OTHER active reason.** The cashflow gap recovering drops only the `cashflow` reason; if a `dn_pending` reason (or a manual hold) still holds the project, it stays on CEO Hold. §3–§5 below describe the **cashflow source in isolation** — read them as "the cashflow reason is added/removed", with the final hold state decided by `recompute`.
 - **A manual move OFF CEO Hold is rejected while any reason row is active** (even for the authorized user) — the system condition is the source of truth and clears on its own.
 

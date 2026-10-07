@@ -8,7 +8,7 @@
 | **WIP** | Admin/PMO | Manually via UI; legacy patch set for old projects (`patches/v1_9/add_project_status.py`) |
 | **Completed** | Admin/PMO | Manually via UI |
 | **Halted** | Admin/PMO | Manually via UI |
-| **CEO Hold** | `nitesh@nirmaan.app` only | Blocks ALL operations. Backend validation in `projects.py` enforces user restriction |
+| **CEO Hold** | `nitesh@nirmaan.app` only | Blocks ALL operations. Backend validation in `nirmaan_stack/nirmaan_stack/doctype/projects/projects.py` enforces user restriction |
 
 **Field definition:** Simple `Data` field in `projects.json:160-163` (not a `Select` with constrained options).
 

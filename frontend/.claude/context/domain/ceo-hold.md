@@ -196,7 +196,7 @@ function MyListPage() {
 Beyond the manual hold below, the system **auto-holds** projects for one or more automatic conditions. Each is a row in the **`CEO Hold Reason`** doctype (`source` = `cashflow` or `dn_pending`, plus a live `reason_text`); a project is on CEO Hold while it has any reason row **or** a manual hold, and leaves only when **none** remain. `status` / `ceo_hold_by` are derived mirrors maintained by `services/ceo_hold/core.recompute_ceo_hold` (the single serialized owner).
 
 - **Cashflow gap** — auto-held when the cashflow gap exceeds the project's limit. See `docs/ceo_hold_auto_management.md`.
-- **Delivery-Pending** — auto-held when the project has **more than 4 POs awaiting delivery** (the `DN_PENDING` action-item count); auto-releases at ≤ 4.
+- **Delivery-Pending** — auto-held when the project has **more than `DN_PENDING_HOLD_THRESHOLD` POs awaiting delivery** (currently 10, so 11+; `services/ceo_hold/core.py`; the `DN_PENDING` action-item count); auto-releases at or below the threshold.
 
 `ceo_hold_by = "System (Cashflow Cron)"` marks *any* system hold (generic); the per-source *why* is in the reason rows. **The frontend surfaces the reasons** via `<CEOHoldBanner reasons={...} />` on the Project Detail + PMO banners and the `useCEOHoldGuard` blocked-action toast (`holdReasons`). The ~22 generic banner mounts and the `useCEOHoldProjects` list tint are unchanged (FORK 6 scope).
 

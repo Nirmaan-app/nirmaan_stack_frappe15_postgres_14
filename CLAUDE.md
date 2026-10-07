@@ -90,7 +90,8 @@ The BoQ docs are too large to read whole: `frontend/.claude/plans/boq-upload-pla
 | Touching… | Read |
 |---|---|
 | **BoQ status**: the active phase or slice, the design spec, as-built records | `frontend/.claude/plans/boq-upload-plan.md` |
-| **BoQ wizard**: upload, parser, review tree, AI-assist prompts, commit, BoQ doctypes, a wizard-vs-app-wide scope fork (reading uploaded file bytes: `CODING_STANDARDS.md` § Writing backend Python) | `boq-backend.md` § Load-bearing invariants |
+| **BoQ wizard**: upload, parser, review tree, AI-assist prompts, commit, BoQ doctypes, a wizard-vs-app-wide scope fork | `boq-backend.md` § Load-bearing invariants |
+| **Reading an uploaded file's bytes** (BoQ upload worker, any upload code) | `CODING_STANDARDS.md` § Writing backend Python |
 | **BoQ classification**: `BoQ Row Category`, engines, rules runner, routing, AI voter, truth snapshots | `boq-classification.md` |
 | **BoQ pricing editor**: rate gates, copy-forward, revision carry, classification freeze | `boq-pricing-editor.md` |
 | **BCS cost layer** (not the rate-master "BCS") | `boq-pricing-editor.md` § BCS |
