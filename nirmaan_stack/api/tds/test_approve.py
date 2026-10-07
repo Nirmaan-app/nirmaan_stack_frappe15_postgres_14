@@ -1,13 +1,17 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
-"""`approve_tds_items`: what approving each kind of Project TDS row stores (#1377).
+"""`approve_tds_items`: what approving each kind of Project TDS row stores (#1377, #1378).
 
 Each test reads the stored rows, Repository Entries and TDS Items afterwards. Fixtures are raw
 inserts inside a transaction whose commits are stubbed and which is rolled back in `tearDown`; the
 project is a real Projects row made once per class.
 """
 
+import json
+from unittest.mock import patch
+
 import frappe
+from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.tds.approve import approve_tds_items
@@ -114,3 +118,108 @@ class TestApproveTdsItems(FrappeTestCase):
 			approve_tds_items([row])
 		frappe.set_user("Administrator")
 		self.assertEqual(frappe.db.get_value(ROW, row, "tds_status"), "Pending")
+
+
+	# ── A New Make whose entry was added after the request was sent (#1378) ──────────────────
+	# The Admin chooses which datasheet is correct; the uploaded PDF is never dropped silently.
+
+	def _entry_added_since_request(self, repo_sheet=True):
+		"""An existing Not Verified entry (owning its sheet's File) and a New Make row for it."""
+		self.repo_sheet = _cloud_url("gate-valve-repo.pdf") if repo_sheet else None
+		self.entry = _raw(
+			"TDS Repository", tds_item=self.item, make="MakeN", status="Not Verified", tds_attachment=self.repo_sheet
+		)
+		self.repo_file = _raw(
+			"File", file_name="gate-valve-repo.pdf", file_url=self.repo_sheet,
+			attached_to_doctype="TDS Repository", attached_to_name=self.entry,
+		)
+		self.sent_sheet = _cloud_url("gate-valve-sent.pdf")
+		self.new_make = self._row("New", self.item, tds_attachment=self.sent_sheet)
+		self.sent_file = _raw(
+			"File", file_name="gate-valve-sent.pdf", file_url=self.sent_sheet,
+			attached_to_doctype=ROW, attached_to_name=self.new_make,
+		)
+
+	def _entry(self):
+		return frappe.db.get_value("TDS Repository", self.entry, ["status", "tds_attachment"], as_dict=True)
+
+	def _stored(self, row):
+		return frappe.db.get_value(ROW, row, ["tds_status", "tds_attachment"], as_dict=True)
+
+	def test_without_a_choice_the_new_make_is_refused_and_the_rest_of_the_batch_approves(self):
+		self._entry_added_since_request()
+		for choices in (None, {}, {self.new_make: "both"}):
+			with self.subTest(choices=choices):
+				custom = self._row("Pending", "PCUS-000001", name="Facade Light")
+
+				out = approve_tds_items([self.new_make, custom], datasheet_choices=choices)
+
+				self.assertEqual([e["name"] for e in out["errors"]], [self.new_make])
+				self.assertIn("Choose", out["errors"][0]["error"])
+				self.assertEqual(self._stored(self.new_make), {"tds_status": "New", "tds_attachment": self.sent_sheet})
+				self.assertEqual(self._entry(), {"status": "Not Verified", "tds_attachment": self.repo_sheet})
+				self.assertEqual(frappe.db.get_value(ROW, custom, "tds_status"), "Approved")
+
+	def test_repository_choice_verifies_the_entry_and_points_the_row_at_its_sheet(self):
+		self._entry_added_since_request()
+
+		out = approve_tds_items([self.new_make], datasheet_choices={self.new_make: "repository"})
+
+		self.assertEqual(out["errors"], [])
+		self.assertEqual(out["summary"]["verified_existing"], 1)
+		self.assertEqual(self._entry(), {"status": "Verified", "tds_attachment": self.repo_sheet})
+		self.assertEqual(self._stored(self.new_make), {"tds_status": "Approved", "tds_attachment": self.repo_sheet})
+
+	def test_repository_choice_is_refused_when_the_entry_has_no_sheet(self):
+		self._entry_added_since_request(repo_sheet=False)
+
+		out = approve_tds_items([self.new_make], datasheet_choices={self.new_make: "repository"})
+
+		self.assertEqual([e["name"] for e in out["errors"]], [self.new_make])
+		self.assertEqual(self._stored(self.new_make), {"tds_status": "New", "tds_attachment": self.sent_sheet})
+		self.assertEqual(self._entry(), {"status": "Not Verified", "tds_attachment": None})
+
+	def test_request_choice_replaces_the_entry_sheet_and_keeps_the_old_file(self):
+		self._entry_added_since_request()
+		earlier = self._row("Approved", self.item, tds_attachment=self.repo_sheet)
+
+		out = approve_tds_items([self.new_make], datasheet_choices=json.dumps({self.new_make: "request"}))
+
+		self.assertEqual(out["errors"], [])
+		self.assertEqual(out["summary"]["replaced_datasheets"], 1)
+		self.assertEqual(self._entry(), {"status": "Verified", "tds_attachment": self.sent_sheet})
+		self.assertEqual(self._stored(self.new_make), {"tds_status": "Approved", "tds_attachment": self.sent_sheet})
+		# The old sheet survives, and the project approved on it still opens it.
+		self.assertTrue(frappe.db.exists("File", self.repo_file))
+		self.assertEqual(self._stored(earlier), {"tds_status": "Approved", "tds_attachment": self.repo_sheet})
+		# The entry now owns the sheet it points at, so deleting this project row can't take it away.
+		self.assertEqual(
+			frappe.db.get_value("File", self.sent_file, ["attached_to_doctype", "attached_to_name"]),
+			("TDS Repository", self.entry),
+		)
+
+	def test_a_row_that_fails_part_way_leaves_the_entry_untouched(self):
+		self._entry_added_since_request()
+		other = self._row("Pending", "PCUS-000001", name="Facade Light")
+
+		with patch.object(Document, "save", _fail_saving(ROW)):
+			out = approve_tds_items([self.new_make, other], datasheet_choices={self.new_make: "request"})
+
+		self.assertEqual(sorted(e["name"] for e in out["errors"]), sorted([self.new_make, other]))
+		self.assertEqual(self._entry(), {"status": "Not Verified", "tds_attachment": self.repo_sheet})
+		self.assertEqual(
+			frappe.db.get_value("File", self.sent_file, ["attached_to_doctype", "attached_to_name"]),
+			(ROW, self.new_make),
+		)
+
+
+def _fail_saving(doctype):
+	"""A `Document.save` that raises for `doctype` and saves everything else as usual."""
+	real_save = Document.save
+
+	def save(self, *args, **kwargs):
+		if self.doctype == doctype:
+			raise frappe.ValidationError("simulated save failure")
+		return real_save(self, *args, **kwargs)
+
+	return save

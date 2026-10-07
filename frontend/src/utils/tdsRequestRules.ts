@@ -110,6 +110,30 @@ export function entryAddedSinceRequest(row: TdsRequestRow, entry: RepositoryEntr
 }
 
 /**
+ * A New Make whose Repository Entry already exists: which datasheet approval keeps. Pinned to
+ * `approve.py` by a parity test.
+ * - `repository`: keep the entry's sheet; the project row switches to it.
+ * - `request`: the sheet sent with the request becomes the entry's sheet from now on.
+ */
+export const DATASHEET_CHOICE = {
+  repository: "repository",
+  request: "request",
+} as const;
+export type DatasheetChoice = (typeof DATASHEET_CHOICE)[keyof typeof DATASHEET_CHOICE];
+
+/**
+ * The file name a stored datasheet URL names, for display: the `file_name` query value of a
+ * cloud-storage URL, else the last path segment. Blank for no URL.
+ */
+export function datasheetFileName(url?: string | null): string {
+  if (!url) return "";
+  const [path, query = ""] = url.split("?");
+  const named = new URLSearchParams(query).get("file_name");
+  if (named) return named;
+  return decodeURIComponent(path.split("/").pop() ?? "");
+}
+
+/**
  * The status TDS History shows. New reads Pending. A blank status also reads Pending, as it always
  * has, though the Pending filter (`storedStatusesFor`) cannot match it: every send writes a status
  * (`submit.py`), and no stored row is blank.

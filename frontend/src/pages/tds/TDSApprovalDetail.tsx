@@ -38,20 +38,22 @@ import {
 import { RejectTDSModal } from "./components/RejectTDSModal";
 import { ProjectEditTDSItemModal } from "./components/ProjectEditTDSItemModal";
 import { EditRequestItemModal } from "./components/EditRequestItemModal";
+import { ChooseDatasheetDialog, type DatasheetConflictRow } from "./components/ChooseDatasheetDialog";
 import { toast } from "@/components/ui/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+    DATASHEET_CHOICE,
     ITEM_STATUSES,
     REQUEST_TYPES,
     entryAddedSinceRequest,
     itemStatusOf,
     repositoryEntryKey,
     requestTypeOf,
+    type DatasheetChoice,
     type ItemStatus,
-    type RepositoryEntryState,
     type RequestType,
 } from "@/utils/tdsRequestRules";
 
@@ -486,6 +488,9 @@ export const TDSApprovalDetail: React.FC = () => {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<TDSItem | null>(null);
     const [processing, setProcessing] = useState(false);
+    // "Choose the correct datasheet": the selected New Make rows whose entry exists, by name.
+    const [chooserNames, setChooserNames] = useState<string[]>([]);
+    const [datasheetChoices, setDatasheetChoices] = useState<Record<string, DatasheetChoice>>({});
 
     // Use custom hook for user data and role
     const { user_id, role } = useUserData();
@@ -509,20 +514,22 @@ export const TDSApprovalDetail: React.FC = () => {
     });
 
     // TDS Repository entries (Phase 2 group shape: (tds_item Link, make)), read only to derive each
-    // Pending Review row's Item Status. Approval writes happen server-side (api/tds/approve.py).
+    // Pending Review row's Item Status and the datasheet chooser's repository sheet. Approval writes
+    // happen server-side (api/tds/approve.py).
     type RepoEntry = {
         name: string;
         tds_item: string;
         make: string;
         status?: string;
+        tds_attachment?: string;
     };
     const { data: repoEntries } = useFrappeGetDocList<RepoEntry>("TDS Repository", {
-        fields: ["name", "tds_item", "make", "status"],
+        fields: ["name", "tds_item", "make", "status", "tds_attachment"],
         limit: 0,
     });
 
     const repoEntryByKey = useMemo(() => {
-        const map = new Map<string, RepositoryEntryState>();
+        const map = new Map<string, RepoEntry>();
         repoEntries?.forEach(r => map.set(repositoryEntryKey(r.tds_item, r.make), r));
         return map;
     }, [repoEntries]);
@@ -1226,27 +1233,67 @@ export const TDSApprovalDetail: React.FC = () => {
         },
     ], [facetOptions, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames]);
 
-    const handleApprove = async () => {
-        // Phase 2 (ADR-0025): all promotion/verification happens server-side in
-        // api/tds/approve.py (Admin-only, re-checked there). We send the selected
-        // Project TDS Item List row names; the backend handles every Request Type:
-        //   - From Repository → verifies the (tds_item, make) master entry,
-        //   - New Make        → the (tds_item, make) entry born Verified,
-        //   - Project Custom  → marked Approved only; never enters the repository.
-        // No client-side createDoc/updateDoc, no removed-field writes.
-        const selectedItems = allPendingItems.filter(item => rowSelection[item.name]);
+    const selectedPendingItems = useMemo(
+        () => allPendingItems.filter(item => rowSelection[item.name]),
+        [allPendingItems, rowSelection]
+    );
+
+    const handleApprove = () => {
+        const selectedItems = selectedPendingItems;
 
         if (selectedItems.length === 0) {
             toast({ title: "No items selected", variant: "destructive" });
             return;
         }
 
+        // A New Make whose entry was added since the request: the Admin chooses which datasheet is
+        // correct first, the repository's pre-selected (unless it has none). The rest of the batch
+        // waits for that dialog.
+        const conflicts = selectedItems.filter(i => entryAddedSinceRequest(i, entryFor(i)));
+        if (conflicts.length > 0) {
+            setDatasheetChoices(Object.fromEntries(conflicts.map(i => [
+                i.name,
+                entryFor(i)?.tds_attachment ? DATASHEET_CHOICE.repository : DATASHEET_CHOICE.request,
+            ])));
+            setChooserNames(conflicts.map(i => i.name));
+            return;
+        }
+        submitApproval(selectedItems, {});
+    };
+
+    const chooserRows: DatasheetConflictRow[] = useMemo(
+        () =>
+            (allPendingItems || [])
+                .filter(i => chooserNames.includes(i.name))
+                .map(i => ({
+                    name: i.name,
+                    itemName: i.tds_item_name,
+                    make: i.tds_make,
+                    workPackage: i.tds_work_package,
+                    repositorySheet: entryFor(i)?.tds_attachment,
+                    requestSheet: i.tds_attachment,
+                })),
+        [allPendingItems, chooserNames, repoEntryByKey]
+    );
+
+    const submitApproval = async (
+        selectedItems: TDSItem[],
+        choices: Record<string, DatasheetChoice>
+    ) => {
+        // Phase 2 (ADR-0025): all promotion/verification happens server-side in
+        // api/tds/approve.py (Admin-only, re-checked there). We send the selected
+        // Project TDS Item List row names; the backend handles every Request Type:
+        //   - From Repository → verifies the (tds_item, make) master entry,
+        //   - New Make        → the (tds_item, make) entry born Verified, or, when
+        //                       it already exists, the datasheet in `choices`,
+        //   - Project Custom  → marked Approved only; never enters the repository.
+        // No client-side createDoc/updateDoc, no removed-field writes.
         const willBeEmpty = selectedItems.length === allPendingItems.length;
         const selectedNames = selectedItems.map(i => i.name);
 
         setProcessing(true);
         try {
-            const resp = await approveTdsItems({ doc_names: selectedNames });
+            const resp = await approveTdsItems({ doc_names: selectedNames, datasheet_choices: choices });
             const result = resp?.message;
             const summary = result?.summary || {};
             const errors: Array<{ name: string; error: string }> = result?.errors || [];
@@ -1258,6 +1305,7 @@ export const TDSApprovalDetail: React.FC = () => {
             const parts: string[] = [];
             if (summary.created_entries > 0) parts.push(`${summary.created_entries} new datasheet entr(ies) added`);
             if (summary.verified_existing > 0) parts.push(`${summary.verified_existing} entr(ies) verified`);
+            if (summary.replaced_datasheets > 0) parts.push(`${summary.replaced_datasheets} repository datasheet(s) replaced`);
 
             if (errors.length > 0) {
                 // Partial success — some rows failed (e.g. no master entry for a picked row).
@@ -1290,6 +1338,7 @@ export const TDSApprovalDetail: React.FC = () => {
             toast({ title: "Error", description: typeof msg === "string" ? msg : "Failed to approve items", variant: "destructive" });
         } finally {
             setProcessing(false);
+            setChooserNames([]);
         }
     };
 
@@ -1712,6 +1761,16 @@ export const TDSApprovalDetail: React.FC = () => {
                     )}
                 </div>
             )}
+
+            <ChooseDatasheetDialog
+                rows={chooserRows}
+                choices={datasheetChoices}
+                onChoiceChange={(rowName, choice) => setDatasheetChoices(c => ({ ...c, [rowName]: choice }))}
+                otherCount={selectedCount - chooserRows.length}
+                onCancel={() => setChooserNames([])}
+                onConfirm={() => submitApproval(selectedPendingItems, datasheetChoices)}
+                loading={processing}
+            />
 
             <RejectTDSModal
                 open={isRejectModalOpen}

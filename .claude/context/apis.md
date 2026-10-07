@@ -66,7 +66,7 @@ Backend API endpoints in `nirmaan_stack/api/`.
 ### TDS (`api/tds/`)
 - `tds_report.py` - TDS report generation with progressive PDF percentage tracking
 - `submit.submit_tds_request(project, rows)` - Project TDS "Send For Approval": saves every cart row or none, issues the `RQ-` request id under a per-project lock, re-checks duplicates (TDS Item + make; Project Custom: name ignoring case + make), issues each Project Custom row its project-only `PCUS-` id (shared by rows of the same name; replaces the old `allocate_pcus`), checks its Category is under its Work Package, attaches the uploaded datasheets and deletes the Rejected rows they replace. Request New rows (New Make, Project Custom): Admin / PMO only
-- `approve.approve_tds_items(doc_names)` - Admin only. Project Custom rows are only marked Approved (no TDS Repository write); a New Make adds a Verified Repository Entry; a `New` row with no existing TDS Item is refused
+- `approve.approve_tds_items(doc_names, datasheet_choices=None)` - Admin only, POST. Project Custom rows are only marked Approved (no TDS Repository write); a New Make adds a Verified Repository Entry; a `New` row with no existing TDS Item is refused. A New Make whose entry already exists needs `datasheet_choices[row] = "repository"` (row borrows the entry's sheet) or `"request"` (the uploaded sheet becomes the entry's; the old File is kept), else that row is refused
 
 ### Other Domains
 - `invoices/` - Invoice data APIs (PO-wise, SR-wise)

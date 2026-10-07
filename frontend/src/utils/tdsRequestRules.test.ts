@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  DATASHEET_CHOICE,
   HISTORY_STATUSES,
   PROJECT_CUSTOM_ID_PREFIX,
   STORED_STATUS,
   cartRequestTypeOf,
   customItemKey,
+  datasheetFileName,
   entryAddedSinceRequest,
   historyStatusOf,
   historyStatusesIn,
@@ -54,6 +56,37 @@ describe("parity with api/tds/submit.py", () => {
     expect(SUBMIT_PY).toContain("tds_status=STATUS_NEW_MAKE");
     expect(SUBMIT_PY).toContain("tds_status=STATUS_PENDING");
     expect(SUBMIT_PY).not.toMatch(/tds_status="(New|Pending)"/);
+  });
+});
+
+describe("parity with api/tds/approve.py", () => {
+  const APPROVE_PY = pySource("approve.py");
+  const approveConstant = (name: string) => {
+    const m = APPROVE_PY.match(new RegExp(`^${name}\\s*=\\s*"([^"]*)"`, "m"));
+    expect(m, `${name} not found in approve.py`).toBeTruthy();
+    return m![1];
+  };
+
+  it("the datasheet choices match", () => {
+    expect(approveConstant("CHOICE_REPOSITORY")).toBe(DATASHEET_CHOICE.repository);
+    expect(approveConstant("CHOICE_REQUEST")).toBe(DATASHEET_CHOICE.request);
+  });
+});
+
+describe("datasheetFileName", () => {
+  it("reads the file name from each stored datasheet URL shape", () => {
+    expect(
+      datasheetFileName(
+        "/api/method/frappe_gcp_attachment.controller.generate_file?key=abc%2Fy.pdf&file_name=Y%20Strainer%20PN16.pdf"
+      )
+    ).toBe("Y Strainer PN16.pdf");
+    expect(datasheetFileName("/private/files/zoloto_2026.pdf")).toBe("zoloto_2026.pdf");
+    expect(datasheetFileName("/files/a%20b.pdf")).toBe("a b.pdf");
+  });
+
+  it("is blank for no datasheet", () => {
+    expect(datasheetFileName(undefined)).toBe("");
+    expect(datasheetFileName("")).toBe("");
   });
 });
 

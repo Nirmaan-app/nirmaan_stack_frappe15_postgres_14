@@ -20,18 +20,21 @@ from nirmaan_stack.services.role_profiles import ADMIN_PROFILE, is_nirmaan_admin
 #                  It never enters the TDS Repository (ADR-0025 Amendment A); the
 #                  datasheet stays on the row.
 #   - New Make ("New") → a REQUEST (proposed datasheet) for an existing TDS Item.
-#                  We create/find the `(tds_item, make)` Repository Entry born
+#                  We create the `(tds_item, make)` Repository Entry born
 #                  Verified with the request's attachment and mark the row
 #                  Approved. A "New" row with no existing TDS Item is refused: a
-#                  project can no longer create a shared TDS Item (#1377).
+#                  project can no longer create a shared TDS Item (#1377). If the
+#                  entry was added after the request was sent, the Admin must
+#                  choose which datasheet is correct (#1378); without a choice the
+#                  row is refused, so the uploaded PDF is never dropped silently.
 #   - From Repository ("Pending") → a PICKED existing entry. We verify the
 #                  matching `(tds_item, make)` `TDS Repository` entry and mark the
 #                  row Approved.
 #
 # Dedup / uniqueness key throughout = `(tds_item, make)`, matching the entry's
-# `validate` (`tds_repository.py`). The create-race is handled: if `insert` raises
-# a duplicate/validation error we re-read the entry by `(tds_item, make)` and link
-# to it instead of failing the whole batch.
+# `validate` (`tds_repository.py`). The create-race (another approval adds the
+# entry between our read and our insert) refuses that one row, so the Admin
+# approves it again and gets the datasheet choice.
 #
 # Admin-only is enforced SERVER-SIDE first (don't trust the client gate) — same
 # check as `api/design_tracker/bulk_update_task_status.py`:
@@ -51,6 +54,14 @@ ENTRY_DOCTYPE = "TDS Repository"
 GROUP_DOCTYPE = "TDS Items"
 
 ADMIN_ROLE = ADMIN_PROFILE  # back-compat alias; prefer ADMIN_PROFILE
+
+# A New Make whose entry already exists: which datasheet is correct (#1378).
+# Pinned to the frontend's `DATASHEET_CHOICE` by a parity test.
+CHOICE_REPOSITORY = "repository"  # keep the entry's sheet; the project row borrows it
+CHOICE_REQUEST = "request"  # the uploaded sheet becomes the entry's sheet
+DATASHEET_CHOICES = (CHOICE_REPOSITORY, CHOICE_REQUEST)
+
+ROW_SAVEPOINT = "tds_approve_row"
 
 
 # Admin is identified by the user's ROLE PROFILE, never by `frappe.get_roles()` —
@@ -165,21 +176,13 @@ def _reparent_datasheet_to_entry(tds_attachment, entry_name):
 		)
 
 
-def _ensure_entry(tds_item, make, tds_attachment=None, description=None):
-	"""Find-or-create the `(tds_item, make)` Repository Entry, born "Verified".
+def _create_entry(tds_item, make, tds_attachment=None, description=None):
+	"""Create the `(tds_item, make)` Repository Entry, born "Verified", owning the datasheet.
 
-	Returns the entry name. Handles the create-race: if `insert` raises a
-	duplicate / validation error (the entry's `validate` throws on a duplicate
-	`(tds_item, make)`), re-read by the same key and link to the existing entry
-	instead of failing.
+	Returns the entry name. Lost create-race (the entry's `validate` throws on a duplicate
+	`(tds_item, make)`): raise, so this row is refused and the Admin re-approves it with the
+	datasheet choice instead of the uploaded PDF being dropped.
 	"""
-	existing = _find_entry(tds_item, make)
-	if existing:
-		# Promote an existing entry to Verified if it isn't already.
-		if frappe.db.get_value(ENTRY_DOCTYPE, existing, "status") != "Verified":
-			frappe.db.set_value(ENTRY_DOCTYPE, existing, "status", "Verified")
-		return existing
-
 	entry = frappe.new_doc(ENTRY_DOCTYPE)
 	entry.tds_item = tds_item
 	entry.make = make or ""
@@ -195,45 +198,102 @@ def _ensure_entry(tds_item, make, tds_attachment=None, description=None):
 	# every already-approved row in the same call.
 	try:
 		entry.insert(ignore_permissions=True)
-		# This entry now points at the project row's datasheet, so it must OWN it —
-		# otherwise deleting that row would delete the file underneath it. CREATE
-		# path only: the two branches that return an EXISTING entry keep their own
-		# attachment, which this must not re-point.
-		if tds_attachment:
-			_reparent_datasheet_to_entry(tds_attachment, entry.name)
-		return entry.name
 	except (frappe.DuplicateEntryError, frappe.UniqueValidationError, frappe.ValidationError):
-		# Lost the create-race (or the entry's `validate` rejected the duplicate).
-		# Re-read by the uniqueness key and link to the winner.
-		winner = _find_entry(tds_item, make)
-		if not winner:
-			# Genuinely unexpected — re-raise so the per-row error is surfaced.
+		if not _find_entry(tds_item, make):
 			raise
-		if frappe.db.get_value(ENTRY_DOCTYPE, winner, "status") != "Verified":
-			frappe.db.set_value(ENTRY_DOCTYPE, winner, "status", "Verified")
-		return winner
+		frappe.throw(
+			_("A TDS Repository entry for ({0}, {1}) was added just now. Approve again to choose its datasheet.").format(
+				tds_item, make or "—"
+			)
+		)
+	# This entry now points at the project row's datasheet, so it must OWN it —
+	# otherwise deleting that row would delete the file underneath it.
+	_reparent_datasheet_to_entry(tds_attachment, entry.name)
+	return entry.name
 
 
-@frappe.whitelist()
-def approve_tds_items(doc_names):
+def _approve_new_make(row, choice, summary):
+	"""Approve a New Make row: create its Repository Entry, or settle the existing one by `choice`.
+
+	Returns a refusal message (nothing written), or None once the row is Approved. An entry that
+	exists was added after the request was sent, so the Admin's datasheet choice decides:
+	- `repository`: the entry keeps its sheet and is verified; the project row points at that sheet.
+	- `request`: the row's uploaded sheet becomes the entry's, the entry owns it and is verified. The
+	  entry's previous file is NOT deleted: rows approved earlier still point at it, and signed
+	  reports must keep opening the sheet they were approved with.
+	"""
+	tds_item = row.tds_item_id
+	make = row.tds_make or ""
+	label = row.tds_item_name or row.name
+	if not (tds_item and frappe.db.exists(GROUP_DOCTYPE, tds_item)):
+		return _(
+			"{0} has no TDS Item in the repository. A project can no longer"
+			" create one: edit it into a New Make or a Project Custom item."
+		).format(label)
+
+	entry_name = _find_entry(tds_item, make)
+	if not entry_name:
+		_create_entry(tds_item, make, tds_attachment=row.tds_attachment, description=row.tds_description)
+		summary["created_entries"] += 1
+	else:
+		if choice not in DATASHEET_CHOICES:
+			return _(
+				"{0} ({1}) already has a datasheet in the TDS Repository. Choose which datasheet to keep."
+			).format(label, make or "—")
+		entry = frappe.get_doc(ENTRY_DOCTYPE, entry_name)
+		kept_sheet = row.tds_attachment if choice == CHOICE_REQUEST else entry.tds_attachment
+		if not kept_sheet:
+			return _("{0} ({1}): the chosen datasheet is missing. Choose the other one.").format(
+				label, make or "—"
+			)
+		if entry.status != "Verified":
+			summary["verified_existing"] += 1
+		entry.status = "Verified"
+		entry.tds_attachment = kept_sheet
+		# `save` deletes no File: Frappe removes an old attachment only for web forms.
+		entry.save(ignore_permissions=True)
+		if choice == CHOICE_REQUEST:
+			_reparent_datasheet_to_entry(kept_sheet, entry_name)
+			summary["replaced_datasheets"] += 1
+		row.tds_attachment = kept_sheet
+
+	# Snapshot the TDS Item's current name onto the row, as before.
+	row.tds_item_name = frappe.db.get_value(GROUP_DOCTYPE, tds_item, "tds_item_name") or row.tds_item_name
+	row.tds_status = "Approved"
+	row.save(ignore_permissions=True)
+	summary["approved"] += 1
+	return None
+
+
+def _parse_choices(datasheet_choices):
+	"""Coerce `datasheet_choices` (JSON string or dict, `{row name: choice}`) into a dict."""
+	choices = frappe.parse_json(datasheet_choices) if isinstance(datasheet_choices, str) else datasheet_choices
+	return choices if isinstance(choices, dict) else {}
+
+
+@frappe.whitelist(methods=["POST"])
+def approve_tds_items(doc_names, datasheet_choices=None):
 	"""Approve one or more Project TDS Item List rows (Admin-only).
 
 	`doc_names`: a JSON-encoded list (or Python list) of `Project TDS Item List`
 	row names.
+	`datasheet_choices`: a JSON-encoded dict (or dict) `{row name: "repository" | "request"}`,
+	needed only for a New Make row whose `(tds_item, make)` entry already exists.
 
 	Per row:
 	  - **Project Custom (`PCUS-` id):** set `tds_status="Approved"`. No catalogue
 	    read or write; the datasheet stays on the row.
 	  - **New Make (New):** the row's `tds_item_id` must be an existing `TDS Items`
-	    doc, else the row is refused. Create/find the `(tds_item, tds_make)` entry
+	    doc, else the row is refused. No `(tds_item, tds_make)` entry yet: create it
 	    born `status="Verified"` carrying the row's `tds_attachment` (+ description
-	    if present); set `tds_status="Approved"`.
+	    if present). Entry exists: apply the row's datasheet choice, or refuse the
+	    row when it has none (`_approve_new_make`). Then set `tds_status="Approved"`.
 	  - **Pending (picked existing entry):** locate the `(tds_item_id, tds_make)`
 	    `TDS Repository` entry; set its `status="Verified"` (only if not already);
 	    set the row `tds_status="Approved"`.
 
-	Dedup / uniqueness key = `(tds_item, make)`. The create-race is handled by
-	re-reading the entry on a duplicate/validation error. Commits once at the end.
+	Dedup / uniqueness key = `(tds_item, make)`. A lost create-race refuses the
+	row. Each row is all or nothing (a savepoint per row); commits once at the end.
 
 	Returns:
 	    {
@@ -241,6 +301,7 @@ def approve_tds_items(doc_names):
 	        "summary": {
 	            "verified_existing": <int>,   # existing entries promoted to Verified
 	            "created_entries":   <int>,   # new (tds_item, make) entries created
+	            "replaced_datasheets": <int>, # entries given the request's datasheet
 	            "approved":          <int>,   # rows set to Approved
 	        },
 	        "errors": [ {"name": <row>, "error": <msg>}, ... ],
@@ -251,15 +312,20 @@ def approve_tds_items(doc_names):
 	names = _parse_names(doc_names)
 	if not names:
 		frappe.throw(_("No TDS submittals selected."))
+	choices = _parse_choices(datasheet_choices)
 
 	summary = {
 		"verified_existing": 0,
 		"created_entries": 0,
+		"replaced_datasheets": 0,
 		"approved": 0,
 	}
 	errors = []
 
 	for name in names:
+		# Each row is all or nothing: a failure part-way (say, the entry took the request's sheet
+		# but the row's save failed) rolls back to here, and the other rows still commit.
+		frappe.db.savepoint(ROW_SAVEPOINT)
 		try:
 			row = frappe.get_doc(PROJECT_ROW_DOCTYPE, name)
 
@@ -278,39 +344,9 @@ def approve_tds_items(doc_names):
 
 			elif status == STATUS_NEW_MAKE:
 				# ── New Make: the TDS Item must already exist ──────────────────
-				tds_item = row.tds_item_id
-				if not (tds_item and frappe.db.exists(GROUP_DOCTYPE, tds_item)):
-					errors.append(
-						{
-							"name": name,
-							"error": _(
-								"{0} has no TDS Item in the repository. A project can no longer"
-								" create one: edit it into a New Make or a Project Custom item."
-							).format(row.tds_item_name or name),
-						}
-					)
-					continue
-
-				# Find-or-create the (tds_item, make) entry, born Verified.
-				existed_before = bool(_find_entry(tds_item, make))
-				_ensure_entry(
-					tds_item,
-					make,
-					tds_attachment=row.tds_attachment,
-					description=row.tds_description,
-				)
-				if existed_before:
-					summary["verified_existing"] += 1
-				else:
-					summary["created_entries"] += 1
-
-				# Snapshot the TDS Item's current name onto the row, as before.
-				row.tds_item_name = (
-					frappe.db.get_value(GROUP_DOCTYPE, tds_item, "tds_item_name") or row.tds_item_name
-				)
-				row.tds_status = "Approved"
-				row.save(ignore_permissions=True)
-				summary["approved"] += 1
+				refusal = _approve_new_make(row, choices.get(name), summary)
+				if refusal:
+					errors.append({"name": name, "error": refusal})
 
 			else:
 				# ── Pending (or NULL/empty/legacy): picked existing entry ──────
@@ -336,6 +372,7 @@ def approve_tds_items(doc_names):
 				summary["approved"] += 1
 
 		except Exception as e:
+			frappe.db.rollback(save_point=ROW_SAVEPOINT)
 			frappe.log_error(
 				title="TDS approve_tds_items row failure",
 				message=f"row={name}: {frappe.get_traceback()}",

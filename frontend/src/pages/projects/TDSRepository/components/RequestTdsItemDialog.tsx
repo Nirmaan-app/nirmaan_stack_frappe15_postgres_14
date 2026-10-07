@@ -171,10 +171,9 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     // Makes the PICKED GROUP already has a Repository Entry (datasheet) for.
     // `search_tds_items` returns these on every result; the dialog used to ignore
     // them and offer all ~372 Makelist rows, so a user could file a "New" request
-    // for a datasheet that already exists. Approval then does NOTHING useful:
-    // `_ensure_entry` returns early on an existing entry and never applies the
-    // uploaded `tds_attachment`, so the PDF is silently discarded while the
-    // project row keeps it — master and project end up on different documents.
+    // for a datasheet that already exists. Approval then makes the Admin choose
+    // between the entry's datasheet and the uploaded one (`approve.py`
+    // `_approve_new_make`), work the requester could have skipped.
     //
     // Requesting is the EXCEPTION path (add what is missing); the normal
     // "Select Items for TDS" picker is the path for makes that already have a
