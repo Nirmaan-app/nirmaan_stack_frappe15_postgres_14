@@ -17,8 +17,7 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
 
 All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`; do not scatter wizard
 components into other page folders. This section keeps ONLY the stable conventions + load-bearing /
-owner-locked invariants. The full as-built detail (component contracts, per-slice records) is in
-`frontend/.claude/context/domain/boq-frontend.md`: find the section you need with `grep -n '^## '`, never load it whole. Live status = `frontend/.claude/plans/boq-upload-plan.md`.
+owner-locked invariants. The full as-built detail (component contracts, per-slice records) is further down this file: find the section you need with `grep -n '^#'`, never load it whole. Live status = `frontend/.claude/plans/boq-upload-plan.md`.
 **Pricing Module + Rate Master frontend detail** (the rate-helper panel's attribute semantics, the workbook pages, the RM-2 screens): `frontend/.claude/context/domain/pricing-rate-master-frontend.md`.
 
 ### Wizard (hub / spoke / review) -- stable conventions
@@ -84,7 +83,7 @@ owner-locked invariants. The full as-built detail (component contracts, per-slic
 library, the Tendering create-modal, `useBoqWizardStore`, the upload screen / drop zone, the
 blank-until-parsed + confirm-reset rule, the `uploadStatus` lifecycle, both socket-listener patterns, the
 hub parse-completion / recovery / reconnect / dismiss conventions, and the Continue + pre-fill gates)
-lives in **`frontend/.claude/context/domain/boq-frontend.md`** — load it before wizard work.
+lives further down this file.
 
 ---
 

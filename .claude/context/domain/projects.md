@@ -12,7 +12,7 @@
 
 **Field definition:** Simple `Data` field in `projects.json:160-163` (not a `Select` with constrained options).
 
-**No automatic transitions** exist. All status changes are manual. CEO Hold restricted to one authorized user (not role-based).
+Status changes are manual, with one exception: the system places and lifts **automatic CEO Holds** (ADR-0004; see `frontend/.claude/context/domain/ceo-hold.md` § Automatic CEO Hold). A manual CEO Hold is restricted to one authorized user (not role-based).
 
 ---
 

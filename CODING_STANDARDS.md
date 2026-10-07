@@ -6,7 +6,7 @@ section for the task in hand:
 - [Stack](#stack) — what the app is built on, and the limits on adding to it
 - [Where code goes](#where-code-goes) — module map, lifecycle hooks, API modules, naming
 - [Module residence (ADR-0010)](#module-residence-adr-0010) — which module owns a concept
-- [Writing backend Python](#writing-backend-python) — transactions, endpoints, Frappe gotchas, style
+- [Writing backend Python](#writing-backend-python) — transactions, endpoints, reading uploaded file bytes, Frappe gotchas, style
 - [Writing raw SQL, `set_value` or a bulk write](#writing-raw-sql-set_value-or-a-bulk-write) — the `doc_events` bypass and PostgreSQL gotchas
 - [Writing a migration or patch](#writing-a-migration-or-patch)
 - [Changing a doctype schema](#changing-a-doctype-schema)
@@ -106,7 +106,7 @@ First worked proof: the `sidebar_counts` aggregate rewrite + the shared `service
 predicate home. Frontend rules F1–F5 (stated in `frontend/CODING_STANDARDS.md`) and the deferred backlog live in ADR-0010.
 
 Before creating a helper for an existing domain concept, consult the domain doc's **`## Residence — concept → owner`**
-manifest (first one: `.claude/context/domain/procurement.md`); an unassigned owner means ask the owner rather than
+manifest (e.g. `.claude/context/domain/procurement.md`, `boq-backend.md`); an unassigned owner means ask the owner rather than
 pick one ad-hoc. Enforcement: [Before committing](#before-committing).
 
 ---

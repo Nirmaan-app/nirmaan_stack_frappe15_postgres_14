@@ -39,7 +39,7 @@ Read the doc for the area you touch before writing code; where it has a Load-bea
 that first. Paths are under `.claude/context/domain/` unless given in full.
 
 `boq-frontend.md` (~330 KB) and `.claude/plans/boq-upload-plan.md` (~3 MB) are too large to read whole: list the
-headings with `grep -n '^## ' <file>`, then read only that range.
+headings with `grep -n '^#' <file>`, then read only that range.
 
 | Touching… | Read |
 |---|---|
