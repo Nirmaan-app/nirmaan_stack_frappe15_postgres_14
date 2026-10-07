@@ -1397,6 +1397,38 @@ stored catalogue and asserts they price identically (`servedVsStoredPricing.test
 `test_rate_master.TestServedRatesAreStored`); a fixture captured from the endpoint is re-captured after
 any change to what the endpoint serves, never hand-edited.
 
+**⚠️ A VALUE NAMED IN THE ROW'S OWN TEXT NEVER FALLS TO A DEFAULT; A HEADING NEVER TRIGGERS THE
+RULE; A LISTED UNSTOCKED MATERIAL REFUSES BY NAME EVEN WHEN THE MODEL PICKED A STOCKED FAMILY (owner
+rulings D3 / D7 / D9b on the 12d-3 Insulation audit, owner-locked, 2026-10-08).** The R1 defaults fire over
+the model's `"None"` -- *not mentioned* -- and the audit found 9 rows where the row's OWN description
+named a cladding (FRP wrapping, glass cloth, a GI strip, foil) while the model answered `"None"`, so the
+cheapest cladding priced silently. Three config keys in `list_spec.pricing` carry the rulings, each
+consumed at ONE site in `itemListPricing.priceOneItem` and each a closed shape the validator checks:
+`named_in_row` (an `allow_none` attribute + the WORDS; `"None"` beside a word-start hit in the row's own
+text REFUSES with the configured sentence), `unstocked_materials` (words tested on the row's own text
+AND on the copied `material_as_written`; a hit refuses "No SKU in the catalogue for <material>" BEFORE
+the family is consulted, so EPDM priced as Thermal Nitrile can no longer happen), and
+`refuse_on_unit_class` (a unit class + an attribute value fragment, or the same words over `"None"`:
+glass cloth on a SHEET row refuses, on a pipe row it still prices). ⚠️ **"OWN TEXT" IS THE DESCRIPTION
+PLUS THE ROW'S OWN NOTES AND NEVER ITS HEADINGS** -- the pricer receives `rowText` (description |
+headings, for `family_when_none`) AND a separate `ownText` (`RateHelperRowContext.ownNotes`, built by
+`rateSuggestionModel.rowOwnNotes`), because a `Collar Damper` heading over a row that says *without VCD*
+is exactly the false trigger the owner excluded; three 00140 rows carrying the framework only in the
+PARENT heading's note are therefore NOT D3 rows, by ruling. The calculator has no row text, so these
+rules cannot fire there -- a row the panel refuses under them while the calculator prices is a NEW,
+named parity class (`F_row_text_not_an_input`), listed by row and not a defect. **A REFUSAL ORDER IS A
+RULING TOO (D11):** on a row with no unit, the named-material refusal is shown FIRST, before "no unit on
+this row", because it is the one the pricer can act on. **The matcher is `wordStartHit` -- one function
+for `family_when_none` and all three keys**; do not write a second word test. A rate-only unit may carry
+the real unit after it (`QRO - Sqm.`, D10, `splitRateOnlyUnit`): the remainder is the unit, with a note
+saying so. ⚠️ A `"N mm thick - 2 Layers"` suffix IS a double layer (D4, `readLayers`), beside the
+prefix forms; `"25 +/- 2"` and comma lists still refuse. ⚠️ **A SERVED-FIXTURE RE-SNAPSHOT REFRESHES
+ITEMS AND COMPUTED CELLS ONLY; CONFIGS STAY AS THE FIXTURE HELD THEM** (`parityMaster.json`, the 12d-2F
+and 12d-4a precedent) -- `servedVsStoredPricing.test.ts` prices through the ASSET's config, and the
+corpus parity test's configs are a dated snapshot by design; every count pin on that fixture (331
+items, 219 cells, 3 GI rows, 229 SKUs ...) is in the blast radius of a mint that adds SKUs and is
+INVERTED with its before/after lines, never deleted.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.

@@ -44914,3 +44914,114 @@ The 14 decisions above; the Set-3-style rule that every finding here is from PRO
 opinion ON); the audit instrument, re-runnable against the next asset to measure any fix on the same 466 rows without re-reading the corpus by hand.
 
 ---
+
+## Slice 12d-4a — THE AUDIT FIXES (NO AI CALLS); HVAC v31 (2026-10-08, filed as 2026-10-11) — SHIPPED
+
+The owner's rulings D1-D14 on the 12d-3 audit, built without a single model call. Commits (unpushed):
+`fc36a61d6` fix (the rules), `4291565ca` feat (HVAC v31: the four SKUs + the four keys + the four note
+clarifications, its tests, the e2e, the re-snapshot; AMENDED twice before anything was built on it -- the fixture re-minified, then the e2e's asset `import` turned into a runtime read after the full-suite tsc died at the default heap), the docs commit (this section + the root `CLAUDE.md` rule; its hash is in the Desktop Report).
+Deliverables on the Desktop: `2026-10-11_12d4a_Ledger.md`, `2026-10-11_12d4a_Report.md`, `2026-10-11_12d4a_Sweep.txt`,
+`2026-10-11_12d4a_Screens/`, the two full-suite logs. ⚠️ The declared four-commit shape (SKUs / rules / notes / docs)
+became three: `servedVsStoredPricing.test.ts` reads the LATEST asset on disk, so an asset file can only land in the
+commit that also loads it and re-snapshots the fixture (the 12d-2 "green at its own tip" rule).
+
+### D1-D14 and where each lives
+
+| D | ruling | where it lives | measured |
+|---|---|---|---|
+| D1 | Acoustic Nitrile x GI framework priced the Fiberglass way | CATALOGUE: 4 new SKUs in v31 (9/13/15/19 mm; `cost_insulation` declared in `derived_rates` from the No-cladding row, `cost_cladding` 0 -- the framework is live -- install 110/150, markups 0.4). The `area` pipeline already carried the GI branch; the rows refused only for want of a SKU. | 15 audit rows refused -> priced; figures stated in advance and met: 1776/364, 2074/364, 2187/364, 2368/364 (and 3146/518, 3558/518, 3920/518, 5110/672 through next-size-up). Panel = calculator on all 15. |
+| D2 | no change | -- | -- |
+| D3 | cladding named in the row's OWN text, model "None" -> refuse "cladding named in this row but not read - set the cladding" | `list_spec.pricing.named_in_row` (attr + words + refuse) read in `itemListPricing.priceOneItem` over `ownText` (description + own notes, never headings); `rateSuggestionModel.rowOwnNotes` -> `RateHelperRowContext.ownNotes`; `wordStartHit` shared with `family_when_none` | 9 rows (00017#94, 00020#515, 00108#420, 00117#189, 00137#128, 00140 Lowside#59, 00149#439, 00164#136, 00197#199); 00140 #45/#46/#47 are NOT D3 rows (heading note only, owner rule); 00165#14 answered "No". "GSS" is the duct material and is not in the list. |
+| D4 | "N mm thick - 2 Layers" = double layer | `readLayers` suffix form (`x 2`, `two layers`, `- 2 Layers` after the number) | 00234 #135 746/28, #136 676/28 (two 25 mm layers); #132-#134 refuse on the pipe range (R9); 00140#471 refuses on its range first |
+| D5 | "65 mm + 32 mm thick" under a pipe heading = pipe size + thickness | MODEL INSTRUCTION: the thickness + pipe-size def notes (v31) | pinned in `TestSlice12d4aModelCall`; every other category's call byte-identical NAMED |
+| D6 | no change; VERIFY | the 12d-3 Report corrected in place (dated): row 467's text WAS in the payload as the parent's attached note; the "3 missed" second-opinion finding withdrawn | item 10 |
+| D7 | EPDM refuses by name even when the model picks a stocked family | `list_spec.pricing.unstocked_materials` (words + `from_attr: material_as_written`) in `namedMaterialRefusal`, consulted BEFORE the family | 14 rows priced/refused-elsewhere -> "No SKU in the catalogue for <material> - price this row by hand": 10 EPDM (00029), 3 XLPE (00086 #64/#65/#67), 1 mineral wool (00087#32); 00086#74 (stonewool) already refused by name under T5 |
+| D8 | 32 kg/m3 fibre glass -> 48 kg board with a line | `list_spec.pricing.read_notes` (`BoQ says {match} -> priced as the 48 kg/m3 board`) | 00007#227, 00122#190: figures unchanged (1757/518), the line added |
+| D9a | paint over glass cloth = "Glass Cloth with paint" unless aluminium (-> "<gauge> Aluminium with Glass Cloth", no gauge -> 26G with the line) | MODEL INSTRUCTION: the cladding def note (v31) | pinned (`mc4a_03`) |
+| D9b | sheet row + glass cloth -> refuse "glass cloth is not offered on sheet insulation - price this row by hand" | `list_spec.pricing.refuse_on_unit_class` (unit_class area + cladding value fragment "Glass Cloth", or "None" + the glass-cloth words) | 9 rows: 00020#515, 00086#68, 00098#173, 00100#111, 00140 Lowside#59, 00140 VRF#95, 00158#67, 00233 VRF#41, 00233#65 (the four Cladding Only per-sq.m rows at 294/70 and the 957 row now refuse) |
+| D10 | "QRO - Sqm." = rate only per sq.m | `splitRateOnlyUnit` + `RATE_ONLY_KEYS` (+ `qro`, `quotedrateonly`) in `priceItemList`; note "BoQ says QRO - Sqm. (rate only) -> priced per sq.m, the catalogue's unit for this item" | 00060 #105 1258/154, #109 594/154 (both previously refused R12) |
+| D11 | on a no-unit row the named-material refusal shows FIRST | `priceItemList`'s `cls === null` branch consults `namedMaterialRefusal` first | 00029#263, 00137#128 (the latter now refuses on BOTH paths by name) |
+| D12 | second opinion stays ON | no change | -- |
+| D13 | bolted-on perforated GSS sheet with no frame = GI framework | MODEL INSTRUCTION: the cladding def note (v31) | pinned (`mc4a_03`) |
+| D14 | partial runs / Resume strips left as they are | no change | -- |
+
+### Item 9 — the NO OTHER CHANGE sweep (`2026-10-11_12d4a_Sweep.txt`)
+
+A temporary instrument (scratch, never committed) ran 7,234 cases through BOTH real paths (`runParity`) twice: BEFORE =
+the `2a6a9a262` source tree (git archive, bundled with esbuild against it) + v30 + the old served fixture; AFTER = HEAD +
+v31 + the re-snapshotted fixture. 4,695 12c-P corpus classes + 1,929 12c-S row-level SKU cases + 144 item-list cases:
+**IDENTICAL**, except the sweep's own three Acoustic cases whose FIRST cladding option is now `GI Framework ...`
+(alphabetical before `No`) -- those price 1776/364 (9 mm) and 2074/364 (11 -> 13 mm), the D1 figures. The 466 audit rows:
+**55 changed, every one `hvac_insulation`** -- D1 15 (+ the 2 QRO rows, D10), D3 6 (+ #515 / #59 under D9b, #128 under
+D11), D7 14, D9b 9, D4 5, D8 2 (digest-only: a working line, figures unchanged), D11 2. Zero ADP or Electrical case moved;
+ADP + Electrical configs and items byte-identical in the DB before/after the v31 load (digests `44271e230a54b67b` /
+`4f642c4bed5bed02` unchanged).
+
+### Pins inverted (never deleted) -- all under mechanical authority, before/after in the Ledger
+
+- `test_rate_master`: `CURRENT_HVAC_ASSET` -> v31; `test_v28_01` / `v29_01` / `v30_01` -> "moved past"; `TestSlice12d2FAsset`
+  re-pointed to v30 BY NAME; ten count pins the four SKUs move: `test_cc_01` 219 -> 223, `test_cc_04` 229 -> 233, `test_dr_02`
+  172 -> 176, `test_z06` 172 -> 176 (both halves), `test_z07` 219 -> 223 and (172+219, 184+219) -> (176+223, 188+223),
+  `test_p01` allowlist minus the four new keys (+ ADP declares none), `test_sv_01` 229 -> 233 / 331 -> 335, `test_sv_02` 3 -> 7
+  GI rows, `test_sv_04` 219 -> 223, `test_co_f1_07` normalised with `_without_12d4a_acoustic_gi` (the `_without_pricing_input_items`
+  idiom). Vacuity: with the constant at v30, `v31_01` / `v31_02` / `v31_06` / `v30_01` refuse; the ten count pins were each SEEN red
+  at their old value against v31 before inversion.
+- `test_extraction_coercion`: `TestSlice12d2FModelCall` loads v30 BY NAME; `TestSlice12d4aModelCall` (3) added.
+- `servedVsStoredPricing.test.ts`: 331 -> 335, 219 -> 223, 3 -> 7 GI (Acoustic four named), 229 -> 233 (Acoustic 4 -> 8), vacuity over 7.
+- `calculatorPanelParity.test.ts` (ADDED to scope under mechanical authority): 331 -> 335 HVAC items, 1733 -> 1737 total.
+- NOT touched: `insulation12d2Sample.e2e.test.ts` imports v29 BY NAME (frozen); row 290's new outcome rides the 12d-4a e2e.
+
+### Tests (measured in-session)
+
+- Commit 1 targeted: vitest 10 files / 931 tests; tsc 0 errors (3169 baseline figure is the error COUNT of an older gate --
+  the project gate is 0); Python validator 6 / asset 15 / model-call 5. Vacuity: 8 toggles (D3, D7 x2, D9b, D8, D4 x2, D10, D11,
+  validator) each red on exactly its pins, restored.
+- Commit 2 targeted: vitest 25 files / 1,679 tests (incl. `insulation12d4a.e2e.test.ts` 11/11); `test_rate_master` 728 (10 pins
+  inverted, then green); `test_extraction_coercion` 204 OK; residence check: every rule holding except F2 223 vs 219 --
+  PRE-EXISTING at `2a6a9a262` (12d-2 / 12d-2F recorded the same; this slice adds 0 `JSON.parse`).
+- FULL SUITES (once, after the last code commit): Python: `2026-10-11_12d4a_python_full.log` -- Ran 7386 (12d-2F: 7369; +17 = the 8 asset + 6 validator + 3 model-call tests), failures=7 errors=5 skipped=4 expected failures=2; the 12d-2F known set (6F / 5E) UNCHANGED plus ONE new failure, `tasks.test_vendor_category_sync.test_daily_window_picks_a_wo_touched_since` -- fails IDENTICALLY when run alone (`not found in set()`), the `tasks/` package is untouched by this slice (`git diff 2a6a9a262..HEAD -- nirmaan_stack/tasks` empty), and the test keys on `today()` while the container clock sat at 2026-10-07 21:xx UTC (IST already 2026-10-08) -- a time-of-day-sensitive test, not a regression of this slice; Frontend: `2026-10-11_12d4a_frontend_full.log` -- vitest 145 files / 5,109 tests (12d-2F: 144 / 5,084; +1 file +25 tests = the e2e 11 + the 12d-4a `itemListPricing` block 12 + `rateSuggestionModel` 2), 1 failure = the KNOWN `POAdjustment/writeOffControl.test.ts` (same as 12d-2F); tsc at the DEFAULT heap: exit 2, 3,169 `error TS` lines = the 12d-2F baseline exactly, 0 OOM. ⚠️ The FIRST full-suite run (same vitest result) had tsc die `JavaScript heap out of memory` at the default heap: the e2e `import`ed the 16,700-line v31 asset (the heap-cliff trap its own header names); with a 6 GB heap it reported 3,170 = baseline + ONE error in that e2e (`list_spec` typed `{}`). Both fixed (runtime read; typed cast), commit 2 amended, vitest + tsc re-run in full -- this log is the re-run. ⚠️ The in-session 'tsc 0 errors' readings before that were the SAME OOM masked by `grep -c` on an empty output; the project's tsc gate has a 3,169-error baseline and a run that prints 0 has not run..
+
+### Browser cert
+
+**De-stale (in full, process-proven):** `clear-cache` + `clear-website-cache` while Redis was up; 18 serving PIDs on TERM (the bench tree incl.
+`frappe serve` x2, socketio, schedule, worker, the forkserver workers, bench's own `esbuild --watch`, and the vite tree) -- 0 left after TERM, no
+`-9`; :8000 / :8080 / :9000 / :11000 / :13000 FREE by listener probe; 203 `__pycache__` dirs + every `.pyc` purged (0 left); `node_modules/.vite`
+removed; `bench start` -> `frappe serve` up at 22:15:25 UTC and `/api/method/ping` -> `{"message":"pong"}` (⚠️ the script's own ping loop
+curled `127.0.0.1` WITHOUT the site `Host` header and so saw Frappe's "127.0.0.1 does not exist" 404 for its full 6-minute budget -- a
+scripting slip, the server was up; the pong was confirmed by hand with `-H "Host: localhost"`); THEN vite -> :8080 200 after 41 s. Changed-file
+mtimes (20:23 UTC) < process start (22:15). Site data: service worker unregistered (1), caches 0, localStorage 2 keys + sessionStorage cleared,
+4 IndexedDB databases deleted, cookies KEPT (the owner's session `admins@nirmaan.app` survived `clear-cache`, as Frappe sessions also live in
+`tabSessions`); the first page load after the `.vite` purge rendered BLANK during the dep re-optimize and was reloaded once (the known
+behaviour). **PROOF 1** (served transforms, code strings): `itemListPricing.ts` carries `namedMaterialRefusal`, `splitRateOnlyUnit`,
+`wordStartHit`, `quotedrateonly`, `refuse_on_unit_class`, `named_in_row`, `unstocked_materials`, `read_notes`; `pricingSheetHelper.ts` carries
+`ownNotes` + `ownText`; `rateSuggestionModel.ts` carries `rowOwnNotes`. **PROOF 2** (runtime `await import` in the live page):
+`readLayers('25 mm thick - 2 Layers') -> [25, 25]`, `readLayers('19 mm x 2') -> [19, 19]`, `readLayers('25 +/- 2 mm') -> null`;
+`splitRateOnlyUnit('QRO - Sqm.') -> 'Sqm.'`; `wordStartHit(<the 00017#94 text>, ['frp','wrapping']) -> 'frp'`;
+`wordStartHit('For rectangular GSS and GSS spiral ducts', ['perforated','cladding']) -> null`.
+
+| step | expected | SEEN | screens |
+|---|---|---|---|
+| 1 Acoustic x GI row | 00169 `HVAC` r290 prices 5110 / 672 on the panel; the calculator offers GI Framework for Acoustic and gives the same | panel: `Pricing sheet 5110`, ITEM 1 Acoustic Nitrile Insulation, Cladding `GI Framework with perforated Al sheet`, Thickness Other 50; "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1)"; layers 1371/154, 1371/154, **2368/364** (the 19 mm GI SKU, the figure stated in advance); BOQ RATES **5110 / 672 / 5782**. Calculator (Insulation -> Add item -> Acoustic): cladding options `GI Framework with perforated Al sheet` / `No`; 9 mm + GI -> **1776 / 364** (stated in advance); Other 50 -> **5110 / 672 / 5782**, same three layers. `Use this value` NOT pressed (read-only cert) | 01, 02, 04 |
+| 2 D3 row | 00164 `BOQ` r136 refuses with the D3 sentence; r132 (no cladding word) still prices | r136: `Not priced — cladding named in this row but not read - set the cladding`, Cladding `— select —`, "1 of 1 item need a person before the row can price", `Use this value` disabled (the audit priced it 2330/308); r132: `Pricing sheet 464` | 03 |
+| 3 EPDM row | 00029 `HVAC WORK` #269 refuses by name | **NOT RENDERABLE LIVE**: the sheet's run is PARTIAL (D14 strip "Resume to finish the remaining rows"), "0 of 1 priceable lines priced", row 269 carries NO opener; 00086 `Low side` #64 (XLPE) and 00087 `HVAC` #32 (mineral wool) open a panel ("Row 64 · Combined rate" / "Row 32 · Supply rate") that carries NO `Pricing sheet` block -- only the two placeholder helpers -- because no active run covers those rows. Pre-existing behaviour, not this slice's; D7 is covered by the e2e over the stored answers (16 rows) and PROOF 2's served code | -- |
+| 4 D4 row | 00234 `(CHW BOQ) AHU & Low Side` #132 refuses R9 (pipe 100), #135 prices 746/28 | **NOT RENDERABLE LIVE**: run PARTIAL ("14 rows were saved. Resume ..."), rows 132 / 135 open "Row N · Combined rate" with no `Pricing sheet` block (same cause as step 3). Covered by PROOF 2 (`readLayers` on the served code) + the e2e (746/28, 676/28, R9 on #132-#134) | -- |
+| 5 D9b row | a sheet row with glass cloth refuses; a pipe row keeps it | Calculator: Cladding Only, row unit sqm, cladding `Glass Cloth with paint` -> `Not priced — glass cloth is not offered on sheet insulation - price this row by hand`; row unit mts + pipe 50 / thickness 19 -> **83 / 70 / 153** (the pipe row keeps glass cloth). The audit rows (00100#111, 00158#67) sit on partial runs (no `Pricing sheet` block live) | 05 |
+| 6 QRO row | 00060 `HVAC` #105 1258/154, #109 594/154 with the rate-only note | **NOT RENDERABLE LIVE**: run PARTIAL ("5 rows were saved ..."), rows 105 / 109 carry NO opener (not rate-editable on this sheet); covered by PROOF 2 (`splitRateOnlyUnit`) + the e2e. ⚠️ OBSERVED, NOT THIS SLICE'S: those two rows' `D — Total Quantity` cell renders the text `[object Object]` -- a grid rendering defect on a QRO row's quantity, left for the owner | -- |
+| 7 unchanged controls | 00137 r39 615/224; ADP 00117 r82 1160/352/1512; Electrical 00174 r94 19630/3930 | **615 / 224 / 839** ("BoQ says 50 mm -> priced as 53.98 mm (next size up)"); **1160 / 352 / 1512**; **19630 / 3930 (23560)** -- all three unchanged | 06, 07, 08 |
+| 8 counts / checksums | only the Insulation config + the 4 SKUs moved | `digest12d3.py` (read-only) vs the 12d-3 end-of-cert digest: CHANGED `HVAC/config_digests/hvac_insulation` 908a38bb8f861f43 -> 6333fa7221870d25, `HVAC/configs_digest`, `HVAC/items` 331 -> 335, `HVAC/items_digest`, `counts/items_active` 1733 -> 1737; IDENTICAL: every Electrical digest, `cell_pricing_digest`, runs 190, row categories, every per-sheet gate, `button_reachable_sheets` 73 | -- |
+
+**Cert technique notes:** screenshots via CDP timed out repeatedly in the CLASSIC (Fast render off) render of a 300+-row sheet with the panel open
+-- the row was located with Fast render OFF (`scrollIntoView`), the panel read through the DOM, then Fast render turned back ON and ONE real
+wheel tick at the grid re-windowed the virtualizer onto the row (synthetic `wheel` / `scrollTop` do not); native `<select>`s were driven with
+the prototype value setter + `change` (an "Other…" pick needs `selectedIndex`, a value of `"Other…"` is rewritten to the first option -- the
+controlled-select trap, seen live). Every read above is the DOM's text, not a visual estimate.
+
+### What 12d-4b inherits
+
+The paid re-check: re-run the audit instrument over the same 466 rows on v31 with fresh reads, to measure D5 / D9a / D13 (the
+three MODEL-INSTRUCTION changes, pinned as text here but unmeasured on the model) and to confirm the 55 code-side changes on
+live reads; the second opinion stays ON (D12). The e2e fixture (`insulation12d4aRows.json`) is the 67-row stored-answer set to
+diff a fresh run against.
+
+---
+
