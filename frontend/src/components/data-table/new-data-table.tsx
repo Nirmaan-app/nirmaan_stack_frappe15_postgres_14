@@ -64,6 +64,7 @@ export interface DataTableProps<T> {
   exportFileName?: string;
   onExportAll?: () => Promise<T[]>;  // Async fetch-all for server-side tables
   isExporting?: boolean;              // Loading state for export
+  exportButtonLabel?: string;         // Built-in export button text (default "Export")
 
   toolbarActions?: React.ReactNode;
   className?: string;
@@ -98,7 +99,7 @@ export function DataTable<T>({
   searchTerm, onSearchTermChange,
   facetFilterOptions = {}, dateFilterColumns = [], onFacetOpen,
   facetDoctype, facetOverrides,
-  showExportButton = false, onExport, exportFileName = "data", onExportAll, isExporting = false,
+  showExportButton = false, onExport, exportFileName = "data", onExportAll, isExporting = false, exportButtonLabel = "Export",
   toolbarActions, className,
   summaryCard, // NEW
   showRowSelection = false,
@@ -228,7 +229,7 @@ export function DataTable<T>({
           {...{
             searchFieldOptions, selectedSearchField, onSelectedSearchFieldChange,
             searchTerm, onSearchTermChange,
-            showExportButton, effectiveExport, toolbarActions, isLoading, isExporting, table,
+            showExportButton, effectiveExport, exportButtonLabel, toolbarActions, isLoading, isExporting, table,
             showSearchBar,
             showRowSelection
           }}
@@ -452,6 +453,7 @@ function Toolbar(props: {
   onSearchTermChange: (v: string) => void;
   showExportButton: boolean;
   effectiveExport?: () => void;
+  exportButtonLabel: string;
   toolbarActions?: React.ReactNode;
   isLoading: boolean;
   isExporting?: boolean;
@@ -500,7 +502,7 @@ function Toolbar(props: {
             {props.isExporting ? (
               <><Loader2 className="h-4 w-4 mr-1 animate-spin" /> Exporting...</>
             ) : (
-              <><FileUp className="h-4 w-4 mr-1" /> Export</>
+              <><FileUp className="h-4 w-4 mr-1" /> {props.exportButtonLabel}</>
             )}
           </Button>
         )}
