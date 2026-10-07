@@ -1350,6 +1350,45 @@ reads): "No SKU in the catalogue for XLPE - price this row by hand"; without the
 stands, which is how ADP's stays byte-identical. **A pipe-size field holding a slash list is not an
 inch fraction** -- a fraction is ONE slash between TWO numbers (or a mixed number).
 
+**⚠️ A CATEGORY IS ELIGIBLE WHEN IT CARRIES PRICING RULES THAT RUN -- top-level `pipelines`, OR an
+item-list block whose EVERY unit block and convert option carries its own -- AND definitions; the
+`calculator_only` admission is RETIRED (owner S1, 2026-10-07).** The ONE predicate is
+`extraction.has_runnable_pricing_rules` / `pricingSheetHelper.hasRunnablePricingRules`, read on every
+surface (the BoQ panel, the calculator, the pre-run rules, the extraction population). ⚠️ **Do NOT make
+such a category eligible by adding a top-level `pipelines` entry**: Insulation's 7 unit blocks all carry
+their own, so a top-level entry would validate and NEVER execute -- the owner-locked defect class -- which
+is exactly why the predicate reads the block instead; Insulation's `pipelines` stays honestly `{}`. "Run"
+carries the weight: a block with un-piped units and no default (ADP at v7) is NOT runnable. The retired
+key is refused by the validator as unknown; the frozen v18..v28 files still carry it and are repaired
+IN MEMORY by their tests, never edited. Consequence, by design: there is no staging switch any more --
+a category is on the day its rules are complete.
+
+**⚠️ THE ROW'S OWN THICKNESS BEATS A HEADING'S, AND THE PROMPT STATES THE ORDER WITHOUT THE ARITHMETIC
+(owner S3, 2026-10-08).** The thickness note reads: (1) the row's OWN value (description or attached
+note) always wins, even where a heading says otherwise; (2) else the heading SCHEDULE read for THIS
+row's pipe size; (3) else a list copied AS WRITTEN; (4) else left out. "The highest" (`several`) and the
+9 mm default (`number_defaults`) are CODE and never appear in the prompt -- a calculation does not go in
+the prompt, and naming them would prime the model to pick or invent. Measured on the paid sample: 25 of
+25 rows obeyed the order (the pipe rows read the schedule per size; every sheet row used its own number).
+
+**⚠️ THE SENTINEL "None" IS NOT OFFERED WHERE A RULED DEFAULT MAPS IT TO A CATALOGUE VALUE (owner S4).**
+`ruledDefaultValue(spec, attr, family)` is the ONE reader of `defaults[attr]` (`value` / `by_family`),
+shared by the pricing and by `itemFieldDefs`; where it answers, the dropdown drops "None" and the field
+shows the default's value amber with its line. An `allow_none` attribute with NO ruled default keeps
+"None" first (the air stream), and the Electrical row-level surface ("MCB 2: None") is untouched.
+**"You typed" is said ONLY of a cell the pricer typed** (the 12d-1b `typed` marker); a model-read value
+reads "BoQ says" on every line, the composition line included. **A no-unit / rate-only row's note says
+"unit taken as <unit>" while it refuses and "priced per <unit>" once it prices**, and the figures' label
+reads the catalogue's word (`rateUnit`), never "per R/O".
+
+**⚠️ LIVE FINDING, NOT FIXED (12d-2 cert, 2026-10-07): Fiberglass + GI Framework prices the framework
+TWICE on the live page.** `get_rate_master_items` projects the live cladding cost into `cost_cladding`
+at read time (12c FINISH F4), so the SERVED GI-framework Fiberglass SKUs carry 555 where the stored row
+and every test fixture carry 0; the family's pipeline then adds "the SKU's own foil rate" to the GI
+framework it computes live (50 mm: live 2574 vs pure 1757). Panel and calculator agree with each other
+and both differ from the pure figure; the Nitrile pipe rows are unaffected. The pure suites cannot see
+it -- stored data cannot prove this class -- so it is owed a ruling and a live re-check, not a fixture.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.

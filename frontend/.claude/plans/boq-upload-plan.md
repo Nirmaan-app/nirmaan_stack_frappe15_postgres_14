@@ -44605,3 +44605,112 @@ the outer layer only; 03 "13+13" refused; 04 BOQ117 r82; 05 BOQ174 r94.
 this file. Full record: `2026-10-08_12d1b_Report.md` + `_Ledger.md`; screenshots `2026-10-08_12d1b_Screens/`.
 
 ---
+## Slice 12d-2 — SWITCH INSULATION ON (WITH A SMALL PAID SAMPLE); HVAC v29 (2026-10-07) — SHIPPED
+
+Three code commits + this docs commit: `a77e450d1` (eligibility through the one generic predicate, the FA7
+admission retired, HVAC v29 with the S3 thickness note), `6137ce4c4` (S4 "None" not offered where defaulted,
+S5 "BoQ says" / "You typed", S6 the 12c-U wordings + `rateUnit`), `814343acd` (the paid sample's 25 rows
+through both paths, pinned). ONE paid run per sampled BoQ (the real "Suggest rates" button), nothing else.
+Insulation is LIVE on BoQ rows; the first production classify/suggest runs are the out-of-sample measurement.
+
+### S1-S8 and where each lives
+
+| ruling | lives in |
+|---|---|
+| **S1** switch on; `calculator_only` removed, config AND code | the ONE predicate `extraction.has_runnable_pricing_rules` + `config_is_eligible` / `pricingSheetHelper.hasRunnablePricingRules` + `isEligibleConfig`: top-level `pipelines` OR an item-list block whose EVERY unit block and convert option carries its own pipelines, AND definitions. Removed: `isCalculatorOnlyConfig`, `isCalculatorPriceableConfig`, `Deps.admitCalculatorOnly` (helper, calculator, parity harness), `rateMasterTypes.calculator_only`, `config_validation._validate_calculator_only` + `CALCULATOR_ONLY_KEY` + the allowlist entry (the key is refused as unknown). v29's Insulation carries NO key and `pipelines: {}` -- a top-level entry would never execute (`test_fa7_09`'s measurement, kept) |
+| **S2** the sample | run 1 BOQ-26-00137 `CHW pipes , Valves` (11 rows, whole sheet); run 2 BOQ-26-00169 `HVAC` (57 rows whole sheet, 14 Insulation, by the owner's mid-slice direction after the selected-rows button was refused by design: "no completed run to carry forward from") |
+| **S3** thickness order | the v29 `thickness_mm` note: (1) the row's OWN value wins, even where a heading says otherwise; (2) else the heading schedule for THIS row's size; (3) else the list as written; (4) else left out. Pinned by `test_v29_05` + `test_mc2_03` (order + the 12d-1b sentences kept + no "highest"/"default"/"9 mm" in the prompt) |
+| **S4** "None" not offered where defaulted | `itemListPricing.ruledDefaultValue` (ONE reader, shared by `priceOneItem` and `itemFieldDefs`); options drop "None" iff it answers; the field shows the default's catalogue value amber (unchanged `defaulted` rendering) |
+| **S5** "You typed" / "BoQ says" | the composition line reads the 12d-1b `typed` marker on the axis's source cells (`typedByPricer`); the field note already keyed on `userEdited` |
+| **S6** the 12c-U wordings | `priceItemList`: `unitResolved(priced)` -> "priced per <unit>" / "unit taken as <unit>"; `RowPriceResult.rateUnit` -> `ItemListView.rateUnit` -> both `FiguresRow` sites `view.rateUnit ?? view.unit` |
+| **S7** parity always; divergences recorded | `insulation12d2Sample.e2e.test.ts`: 25 real rows, both paths, EXACTLY the named divergences; `AWAITING_SAMPLE_DIVERGENCES` = #290 (`C_option_not_offered`) |
+| **S8** second opinion ON | v29 `list_spec.second_opinion: true` (OFF is 12d-4's) |
+
+### The paid sample (item 9)
+
+| | run 1 | run 2 |
+|---|---|---|
+| sheet | BOQ-26-00137 `CHW pipes , Valves` cv1 | BOQ-26-00169 `HVAC` cv1 |
+| button | whole sheet ("Re-extract the whole sheet (11 rows)?") | whole sheet ("57 rows") -- the 14-row selected pass was REFUSED by the product (417, no prior run) with no call and no write; the owner directed the whole sheet |
+| run | `b0209701d1ee55f99af0167f1afe7e27`, complete, ai ran, 82 s | `dcf2f757c7dc0e056a627ebe2a1dfb6e`, complete, ai ran, 188 s |
+| batch calls (capture log, `claude-opus-4-8`) | 1: 10,114 in / 2,461 out | 8: 41,462 in / 12,436 out (insulation 14, raceway 5, wiring 4, adp 20+11, conduit 1, earthing 1, switches 1) |
+| second opinions | 11 (ON; unmetered -- `second_opinion_usage` is in-memory only) | 14; 3 disagreement flags stored (r289/290/293, all "GSS, not aluminium" on cladding) |
+| totals | 25 Insulation rows (+43 ADP/Electrical on 00169); 9 batch calls = 51,576 / 14,897 tokens; 34 calls in all (cap 80) | |
+
+The per-row table, the S3 check (25 of 25 obeyed the order; 0 rows where the row's own thickness lost to a
+heading) and every refusal by reason are in `2026-10-09_12d2_Report.md`. Headline outcomes on v29 (pure, both
+paths): 00137 r32-r38 refuse "above the largest size on the sheet (53.98)"; r39-r42 615/535/493/460 + 224
+(19 mm single layer from the schedule, 26G); 00169 r80 refuses (65 mm NB); r81-r84 643/574/545/510 + 224
+(25 mm from the heading, foil on a pipe -> 26G by R4); r289 1757/518, r293 1346/385 (Fiberglass, GI
+framework); r290 refuses "no SKU for this combination"; r291 1371/154; r292 "could not tell cladding"
+(R3); r297 500/154, r298 383/154; r301/r302 "No SKU in the catalogue for <material> - price this row by
+hand". Absent from the sample, disclosed: a composed thickness, a double layer in a row's OWN text (the
+00137 80-250 NB rows answered "Double layer of 19mm thick" from the heading but refuse on the pipe size
+first), a defaulted material.
+
+### Live cert (de-stale -> PROOF 1 -> PROOF 2 -> steps 1-7)
+
+Every process ended on TERM; ports free; 202 `__pycache__` purged; caches cleared; `.vite` removed; bench
+ping after 247 s, THEN vite (36 s). PROOF 1: `function hasRunnablePricingRules` / `ruledDefaultValue` /
+`typedByPricer` / `unit taken as` / `rateUnit: resolvedUnit.word` / `view.rateUnit ?? view.unit` all served;
+no `admitCalculatorOnly` code (one `//` comment in the TSX transform). PROOF 2 (runtime import): the retired
+exports undefined; the LIVE config has no key, `pipelines` [], eligible; cladding offers no "None"; the
+thickness note carries the order. E2E-1: the impact panel predicted 615 -> 642 (+4.4%) for the 53.98 x 19
+26G SKU; 00137 r39 moved to EXACTLY 642/224; the calculator with the same picks 642/224/866; restored 450 ->
+615/224 on both. Item 7 cases: schedule row, foil on a pipe (r83 545/224 with the R4 line), named "none of
+these" (r301/r302), R3 (r292), the unstocked combination (r290) -- panel = calculator on every row the
+calculator can express. S6: 00137 LOWSIDE r51 "BoQ says R/O (rate only) -> priced per number ..." with
+figures "per number"; 00216 MECHANICAL r43 "No unit on the BoQ row -> unit taken as number ..." beside
+"Not priced -- no diameter stated". ADP r82 1160/352/1512 and Electrical r94 19630/3930 unchanged; the ADP
+damper dropdown offers no "None" beside its amber default. Digests: Electrical items/configs identical;
+HVAC items identical (the 26G round trip left content byte-equal); the only config change `hvac_insulation`;
+runs 96 -> 98. Screenshots: `2026-10-09_12d2_Screens/` (17).
+
+**FINDING (not fixed, owed a ruling):** Fiberglass + GI Framework prices the framework TWICE on the live
+page (r289 live 2574/518 vs pure 1757/518; r293 2162/385 vs 1346/385). Cause measured:
+`get_rate_master_items` projects the live cladding cost into `cost_cladding` at read time (12c FINISH F4,
+`0e8408e74`), so the served GI-framework Fiberglass SKUs carry 555 where the stored row and every fixture
+carry 0, and the family's pipeline adds "the SKU's own foil rate" to the GI framework it computes live.
+Panel = calculator on the live page; both differ from the pure figure. Pre-existing; nothing in 12d-2
+touched that path.
+
+### Pins inverted (never deleted) and the measured consequence of the predicate
+
+Python: the FA7 class (-> `TestCalculatorAdmissionRetired`, the measurement `test_fa7_09` kept), the five
+"every asset on disk validates" sweeps (+`RETIRED_KEY_REFUSALS`: the frozen v18..v28 Insulation configs are
+refused by name), `test_c1_12`, `test_an_06`, `test_v27_05/06`, `test_v28_01/05`, `test_q04`, `test_p03/p04`,
+`test_pi7_07`, `test_co_f1_09`, `test_h06`/`test_s03`/`test_il_08` (the predicate's body shape), the 12d-1a
+panel-readonly and 12d-1b no-sku fixtures repaired IN MEMORY (`_without_retired_calculator_only`), the
+coercion-side "only ADP reaches extraction" (-> ADP AND Insulation). Frontend: the FA7 block (-> the
+admission is retired), the slice-5 P8 / slice-6 T7 v7-ADP pins, the parity admission pin, the e2e
+`calculator_only` pins (frozen files still carry the key AND read eligible), the slice-6/6b "None first"
+option lists, the FA8(c) / 12d-1b "You typed" composition lines on model cells, the slice-11 FiguresRow
+unit pin. Measured over every HVAC asset: v7-v13 ADP (fully piped, no default) and v16-v17 Insulation
+now read eligible by the predicate; v18-v28 Insulation read eligible but refuse validation (retired key).
+
+### Tests (measured in-session)
+
+Baselines were re-run fresh at the start (the 12d-1b logs had been purged from the temp dir): Python
+**7335** (6F/5E, the known 11) -> after: see the Report; vitest **5059** (1 known) -> after: see the Report;
+tsc 3169 = 3169. Vacuity: predicate arm off -> Python 9 red of 10 named / TS 16 red of 288; S4 line 5 red;
+S5 line 3 red; S6 line 2 red; each restored green. Mint gate v28 -> v29 PASS (the removal DECLARED via
+`intentional_removals`); `--latest` kinds disjoint.
+
+### What 12d-3 inherits
+
+The FG + GI Framework double count (a ruling on the read-time projection vs the pipeline's "own foil rate"
+term); the full audit over the production runs as they accrue; the panel's "BoQ says 19mm thick mm ->
+19 mm" raw-text-plus-unit wording on a precision match (pre-existing); the calculator cannot express a
+cladding the family's SKUs do not stock (#290, `C_option_not_offered`); `second_opinion` OFF (12d-4).
+A category now goes live the day its rules are complete -- there is no staging switch; if one is wanted
+again it must be ruled, not re-grown.
+
+### Files
+
+`extraction.py`, `config_validation.py`, `data/rate_master_hvac_all_v29.json`, `pricingSheetHelper.ts` (+ `.test.ts`),
+`itemListPricing.ts` (+ `.test.ts`), `RateHelperPanel.tsx` (+ `.test.ts`), `PricingCalculator.tsx`, `rateMasterTypes.ts`,
+`calculatorPanelParity.harness.ts` / `.test.ts`, `pricingCalculator.test.ts`, `insulation12d1a/1b.e2e.test.ts`,
+`insulation12d2Sample.e2e.test.ts` + 2 fixtures, `test_rate_master.py`, `test_extraction_coercion.py`, root `CLAUDE.md`,
+this file. Full record: `2026-10-09_12d2_Report.md` + `_Ledger.md`; screenshots `2026-10-09_12d2_Screens/`.
+
+---
