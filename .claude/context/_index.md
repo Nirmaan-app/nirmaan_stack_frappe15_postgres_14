@@ -1,6 +1,7 @@
 # Context Reference Index
 
 Quick navigation to detailed documentation. Read only when working on related tasks.
+How to write code here (placement, raw SQL, patches, schema changes, tests, don't-touch paths): root `CODING_STANDARDS.md`.
 
 | File | Domain | When to Read |
 |------|--------|--------------|
@@ -8,7 +9,7 @@ Quick navigation to detailed documentation. Read only when working on related ta
 | [apis.md](apis.md) | Backend APIs | Adding/modifying API endpoints |
 | [integrations.md](integrations.md) | Frontend-Backend | Socket.IO, Firebase, REST patterns |
 | [workflows.md](workflows.md) | Business Logic | Auto-approval, state machines, scheduled tasks |
-| [patterns.md](patterns.md) | Code Conventions | Naming, file organization, error handling |
+| [patterns.md](patterns.md) | Code examples | Controller methods, permissions model, error handling, realtime publishing, print formats (the rules are in root `CODING_STANDARDS.md`) |
 | [domain/procurement.md](domain/procurement.md) | Procurement | **Load-bearing invariants** (PR package = tags not `work_package`, Critical PO Task ↔ PO links, Loss Justification); PR/PO/RFQ/Quotation workflows, PO delivery documents |
 | [domain/service-requests.md](domain/service-requests.md) | Service Requests | Work Orders, finalization, SR remarks |
 | [domain/users.md](domain/users.md) | User Management | Nirmaan Users, permissions, authentication |

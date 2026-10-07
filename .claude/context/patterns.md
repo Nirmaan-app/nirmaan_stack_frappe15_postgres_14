@@ -1,15 +1,6 @@
 # Code Patterns & Conventions
 
-## Naming Conventions
-
-| Type | Convention | Example |
-|------|------------|---------|
-| Doctypes | CamelCase with spaces | `Procurement Requests` |
-| Python modules | snake_case | `procurement_requests.py` |
-| API methods | snake_case | `new_custom_pr` |
-| API files | snake_case (not hyphens) | `custom_pr_api.py` |
-
----
+Code examples and reference snippets. The rules themselves (naming, where code goes, lifecycle-hook placement, file size, child tables vs JSON) live in root `CODING_STANDARDS.md`.
 
 ## File Organization
 
@@ -32,24 +23,12 @@ nirmaan_stack/doctype/procurement_requests/
 
 ## Architectural Patterns
 
-### Lifecycle Hooks Location
-- **Keep in:** `integrations/controllers/`
-- **Doctype files:** Only for `autoname`/basic `validate`
-- **Known exception:** `Items.on_update()` in `doctype/items/items.py` syncs item changes to `TDS Repository`. This lives in the doctype file because it's tightly coupled to the Items schema and only targets one downstream doctype.
-
-### Large Files
-- Split files >500 lines into focused modules
-
 ### Shared Logic
 - Use base controllers for PR/PO/SR common patterns
 
 ---
 
 ## Data Storage Patterns
-
-### Hybrid Approach
-- **Child Tables:** Structured, queryable data (items, payment terms)
-- **JSON Fields:** Flexible, UI-driven data (categories, RFQ metadata)
 
 ### Migration Note
 Old PRs had `procurement_list` (JSON) → migrated to `order_list` (child table)

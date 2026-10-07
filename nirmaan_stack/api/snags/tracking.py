@@ -9,7 +9,7 @@ STATUS ATTRIBUTION IS NOT SET HERE. `status_changed_by` / `status_changed_on` ar
 stamping site in this module would be free to drift from it. That is also why every write
 below goes through the DOCUMENT LAYER (`frappe.get_doc` + `doc.save`): `frappe.db.set_value`
 and raw SQL bypass `doc_events` entirely, so the stamp would never fire and the attribution
-would read as authoritative while being quietly stale (root CLAUDE.md, Coding Conventions).
+would read as authoritative while being quietly stale (root CODING_STANDARDS.md, Writing raw SQL).
 """
 
 from __future__ import annotations
