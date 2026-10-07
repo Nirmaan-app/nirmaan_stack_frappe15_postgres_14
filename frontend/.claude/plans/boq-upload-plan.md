@@ -44714,3 +44714,126 @@ again it must be ruled, not re-grown.
 this file. Full record: `2026-10-09_12d2_Report.md` + `_Ledger.md`; screenshots `2026-10-09_12d2_Screens/`.
 
 ---
+
+## Slice 12d-2F — THE FIBERGLASS + GI FRAMEWORK DOUBLE COUNT, THE GSS SHEET, ROW 290, SECOND-OPINION COST; HVAC v30 (2026-10-07) — SHIPPED
+
+Commits (unpushed): `5aea6b517` (fix: pricing reads the stored catalogue, never the display projection; the
+served-vs-stored test), `fd23b9925` (feat: GSS perforated sheet in the cladding note (HVAC v30); row 290 accepted;
+second-opinion usage recorded), then the docs commit. Build slice, NO AI calls. Full record on the Desktop:
+`2026-10-09_12d2F_Report.md` + `_Ledger.md`; screenshots `2026-10-09_12d2F_Screens/01..09`.
+
+### The cause (owner F1: "a price must never be computed from a value that is itself computed for DISPLAY")
+
+`get_rate_master_items` returns the ONE `items` array every pricing path consumes — the rate-helper panel, the
+calculator, the impact panel. Slice 12c FINISH (owner F4) made it write the LIVE cladding figure into
+`items[].rates.cost_cladding` so the grid could show it greyed. The Fiberglass / Acoustic Nitrile / Thermal Nitrile
+area pipelines' `cladding` component reads that same cell as `base` ("the SKU's own foil rate") and ADDS the GI
+framework it computes live (`base + gi*gif + gia`), so a GI-framework row read 555 as its stored cladding and priced
+the framework TWICE: 2574 / 518 on the live page where the catalogue prices 1757 / 518. Measured on the live
+endpoint before the fix: served differed from stored in exactly **3 changed cells** (the GI rows, 0 -> 555) plus
+**204 injected `cost_cladding` cells** on the pipe rows (stored none; no pipeline reads them — their cladding
+component has no target and reads geometry); Electrical computed nothing.
+
+**Why no suite saw it:** every pure fixture carries the stored 0 — EXCEPT `parityMaster.json`, which had been
+snapshotted from the SERVED endpoint on 2026-10-06 and so carried the 555; the 12c-P parity proof therefore agreed
+with itself on both paths on the wrong number. (12d-2's "every test fixture carries 0" was wrong for that file.)
+
+### Where the display projection now lives (item 1)
+
+`api/boq/rate_master.get_rate_master_items`: `items[].rates` is the STORED catalogue byte-for-byte; the live
+figure rides in a sibling payload key `computed_rates: {item_uid: {rate_key: value}}`, and `computed_rate_keys`
+is DERIVED from it (one map). The ONLY reader is the grid: `RateMasterDataViewer.displayedRateValue(it, k,
+computed, computedRates)` returns the display-map figure for a cell the server names in `computed_rate_keys`
+and the stored rate for every other cell; `RateMasterPage` passes `computedRates` down; `GetItemsResponse`
+declares the key. The greyed cell looks exactly as before (tooltip, `bg-muted`, `computed-rate-cell`). No
+pricing path reads `computed_rates`.
+
+### The enumeration (item 2) and the permanent test (item 3)
+
+- `test_rate_master.TestServedRatesAreStored` (6, LIVE): sv_01 served == stored for every item of both
+  disciplines (HVAC 331: 229 insulation + 7 pricing inputs + ADP; Electrical 1402); sv_02 `computed_rates` carries
+  the GI rows' 555 while they are served (and priced) at 0, keys == `computed_rate_keys`, Electrical empty; sv_03
+  the retired write asserted ABSENT + the two readers named; sv_04 every active config of both disciplines through
+  `computed_cladding_cells` -> only `hvac_insulation` / `cost_cladding` (219 cells), every other category `{}` BY
+  NAME; sv_05 the pipelines that READ the cell are exactly the three AREA families' supply `cladding` component
+  (`base + gi*gif + gia`), no length family, no convert block, no ADP, no Electrical config names the cell; sv_06
+  the projection re-applied to a copy moves exactly the 3 GI rows (0 -> 555) + the 204 injected cells.
+- `servedVsStoredPricing.test.ts` (6): `parityMaster.json` re-snapshotted from the live served endpoint AFTER the
+  fix (configs untouched; items re-read; `computed_rates` / `computed_rate_keys` added): 331 / 219 / 1402 / {};
+  every served item's rates deep-equal the latest asset's stored rates (both disciplines, every uid named on
+  failure); every active Insulation SKU (229: FG 6, Acoustic 4, Cladding Only 5, Nitrile Rubber 168, Thermal 10,
+  Tubular PUF 36) priced through `priceItemList` from the served payload and from the stored catalogue, 0
+  differences; the 50 mm GI SKU 1757/518 and the 25 mm 1346/385; VACUITY in-suite: re-applying `computed_rates`
+  moves EXACTLY the three GI SKUs (1757 -> 2574) and none of the 204 pipe rows.
+- `RateMasterDataViewer.dom.test.tsx` (+3): the greyed cell shows 555 while `rates` holds 0; the pure helper;
+  NEGATIVE: without the map the cell falls back to the stored 0 and never re-derives 555.
+- Vacuity by hand: the server write re-added -> sv_01/02/03/06 ALL RED ("555.0 != 0.0"); `computedRates` cut
+  from the viewer's cell read -> DOM test (a) RED (`expected ['0'] to deeply equal ['555']`); both restored green.
+- `rateMasterDataViewer.test.ts` ACCEPTANCE 6 (a source pin on the old `r.it.rates[k]` render expression)
+  INVERTED under mechanical authority: same claim on the new expression + the old read asserted absent.
+
+### Item 7 — 0 outcome changes except the FG + GI framework rows
+
+A temporary instrument (deleted, never committed) dumped every figure on BOTH paths for the 12c-P corpus
+(4,695 classes) and the 12c-S / 12c-P SKU sweeps (2,073 cases) against the OLD (projected) and the NEW (stored)
+fixture: 5,815 distinct cases, **2 changed**, both `hvac_insulation` FG + GI framework sweep cases, panel =
+calculator on both sides: 12 mm supply **1941 -> 1126** (install 385 =); 18.5 mm (next-size-up to 25) supply
+**2162 -> 1346** (install 385 =). Every Electrical, ADP and non-GI Insulation case identical. ADP and Electrical
+configs + items byte-identical in the DB before/after the v30 load (content digests).
+
+### F2 / F3 / F4
+
+- **F2** row 290: `insulation12d2Sample.e2e.test.ts` — `AWAITING_SAMPLE_DIVERGENCES` -> `ACCEPTED_SAMPLE_DIVERGENCES`,
+  each entry carries `accepted: "ACCEPTED BY OWNER -- F2, 12d-2F, 2026-10-07: 'ok'"`; the parity assertion
+  unchanged (exactly these differ); +1 test pins the list is row 290 only and every entry accepted.
+- **F3** HVAC v30 = v29 + ONE sentence on the cladding def note (a perforated GSS sheet, 22G / 26G, on a GI frame
+  IS 'GI Framework with perforated Al sheet' — do not flag or withhold it for saying GSS) + the notes trail;
+  items, every other top-level key, every other config and the whole `list_spec.pricing` byte-identical
+  (`TestSlice12d2FAsset`, 6). Mint gate v29 -> v30 PASS ("No atoms disappeared"), `--latest` PASS (kinds
+  disjoint). Loaded on dev: batch `rmbulk-75a0c032d58d` (331 / 9 loaded, 331 / 9 deactivated; Electrical
+  untouched; live configs == the v30 asset through `_loaded_config`). `TestSlice12d2FModelCall` (4): every other
+  HVAC category's assembled call byte-identical NAMED; every eligible Electrical category's call identical with
+  either HVAC asset NAMED; the sentence reaches the BATCH call AND the second-opinion review (both read
+  ITEMS_SPEC), so the two cannot disagree about GSS; the Insulation call differs by the appended sentence and
+  nothing else. `CURRENT_HVAC_ASSET` -> v30; the v28 / v29 pins inverted, the v29 classes re-pointed BY NAME.
+- **F4** second-opinion cost — PREMISE CORRECTION: it was never unmetered. `_extract_batch` writes the whole
+  `drops` dict into every batch capture record, and `drops.second_opinion_usage = {calls, input, output}` is
+  accumulated per review call beside the main call's `usage` (already pinned by `test_il_10`). Nothing summed
+  the second map: `scripts/_instruments/run_cost.py` (an instrument, read-only) now totals both per run and
+  per day, pinned by `TestSlice12d2FSecondOpinionCost` (4: every review call counted incl. a garbage reply; a
+  raising call costs nothing and is recorded; the capture write carries BOTH maps, source-pinned; the reader's
+  arithmetic on synthetic records). The `BoQ Rate Suggestion Run` doctype carries NO usage field of any kind
+  (the main call's included), so the capture log IS the existing structure — no doctype change. The 2026-10-07
+  sample, measured: 00137 `CHW pipes , Valves` 1 batch 10,114 / 2,461 + 11 second opinions 27,023 / 264 =
+  12 calls 37,137 / 2,725; 00169 `HVAC` 8 batches 41,462 / 12,436 + 14 second opinions 30,777 / 541 = 22 calls
+  72,239 / 12,977 (input / output tokens).
+
+### Browser cert (de-stale in full, process-proven; PROOF 1 code-string grep + PROOF 2 runtime import + in-page fetch)
+
+r289 **1757 / 518** and r293 **1346 / 385** on the panel AND the calculator (cladding 555 ONCE in the working);
+the Insulation grid's 219 greyed cells unchanged (GI 555, 26G pipe rows 57.138188 ...); 00137 r39 **615 / 224**;
+00169 r297 **500 / 154**; 00117 r82 **1160 / 352 / 1512**; 00174 r94 **19630 / 3930**; HVAC item content digest
+live = v30 = v29 (`b75377dded3e7cba`), Electrical live = v66 (`e05b7d7cd384dc05`); only the Insulation config
+digest moved. Fast render OFF per sheet and back ON; nothing applied; no override needed.
+
+### Tests (measured in-session)
+
+Targeted: `test_rate_master` 708 OK (commit 1) -> 714 OK (commit 2); `test_extraction_coercion` 201 OK; vitest
+targeted sets green; tsc 3169 = 3169. Full suites ("before" = the 12d-2 final logs at the same start commit):
+Python **7349 (6F/5E, the known set)** -> **7369** (failures=6, errors=5 -- the IDENTICAL known set, diffed by name; +20 = this slice's Python tests); vitest **143 files / 5074 tests (1 known)** -> **144 files / 5084 tests, 1 failed** (the same known `writeOffControl` timeout; +1 file, +10 tests = this slice's);
+tsc 3169 -> **3169** (the error set diffed line by line: IDENTICAL). Logs: `2026-10-09_12d2F_python_full.log`, `2026-10-09_12d2F_frontend_full.log`.
+
+Pre-existing, disclosed: the residence F2 ratchet reads 223 vs baseline 219 at HEAD (this slice adds no
+`JSON.parse`); `RateMasterDataViewer.dom.test.tsx` is dropped by the jsdom-worker race when run beside the unit
+suites (documented in `vitest.config.ts`) and passes 7/7 alone; `test_rate_master` prints one deliberate
+`Retirement_pkey` query error (present in the 12d-2 log too).
+
+### Files
+
+`api/boq/rate_master.py`, `api/boq/test_rate_master.py`, `services/boq_rate_master/test_extraction_coercion.py`,
+`services/boq_rate_master/data/rate_master_hvac_all_v30.json`, `scripts/_instruments/run_cost.py`,
+`rateMasterTypes.ts`, `RateMasterPage.tsx`, `RateMasterDataViewer.tsx` (+ `.dom.test.tsx`, `rateMasterDataViewer.test.ts`),
+`servedVsStoredPricing.test.ts` (new), `__fixtures__/parityMaster.json`, `insulation12d2Sample.e2e.test.ts`,
+root `CLAUDE.md` (the durable rule replaces the "LIVE FINDING, NOT FIXED" paragraph), this file.
+
+---

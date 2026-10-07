@@ -1381,13 +1381,21 @@ reads "BoQ says" on every line, the composition line included. **A no-unit / rat
 "unit taken as <unit>" while it refuses and "priced per <unit>" once it prices**, and the figures' label
 reads the catalogue's word (`rateUnit`), never "per R/O".
 
-**⚠️ LIVE FINDING, NOT FIXED (12d-2 cert, 2026-10-07): Fiberglass + GI Framework prices the framework
-TWICE on the live page.** `get_rate_master_items` projects the live cladding cost into `cost_cladding`
-at read time (12c FINISH F4), so the SERVED GI-framework Fiberglass SKUs carry 555 where the stored row
-and every test fixture carry 0; the family's pipeline then adds "the SKU's own foil rate" to the GI
-framework it computes live (50 mm: live 2574 vs pure 1757). Panel and calculator agree with each other
-and both differ from the pure figure; the Nitrile pipe rows are unaffected. The pure suites cannot see
-it -- stored data cannot prove this class -- so it is owed a ruling and a live re-check, not a fixture.
+**⚠️ PRICING NEVER READS A VALUE COMPUTED FOR DISPLAY, AND PRICING IS TESTED FROM THE SERVED PAYLOAD
+(owner F1, 12d-2F, owner-locked).** `get_rate_master_items` returns the ONE `items` array every pricing
+path consumes (the rate-helper panel, the calculator, the impact panel), so `items[].rates` is the
+STORED catalogue byte-for-byte and a figure the grid shows but the catalogue does not store rides in
+its own map (`computed_rates`, read by the greyed cell alone). The failure this closes was invisible to
+every pure suite: the 12c FINISH live cladding figure was written INTO `rates`, and the three area
+families' `cladding` component reads that cell as `base` and ADDS the GI framework it computes live, so
+a Fiberglass + GI framework row priced the framework twice on the live page while every fixture carried
+the stored 0 -- except `parityMaster.json`, which was snapshotted from the served endpoint and so proved
+the two surfaces agreed on the wrong number. Two standing rules follow. **(1)** a read-time projection
+may add an ATTRIBUTE (brand, unit_class) because matchers read attributes; it may never write a RATE,
+because pipelines read rates as money. **(2)** the pricing proof runs over the served payload AND the
+stored catalogue and asserts they price identically (`servedVsStoredPricing.test.ts` +
+`test_rate_master.TestServedRatesAreStored`); a fixture captured from the endpoint is re-captured after
+any change to what the endpoint serves, never hand-edited.
 
 ## BoQ Rate Suggestion (RM-3)
 
