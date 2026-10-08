@@ -179,13 +179,16 @@ def _parse_rows(rows):
 	]
 
 
-def _plan_row(r, user, claimed_files):
-	"""The fields one cart row will be stored with, or a refusal."""
+def _plan_row(r, user, claimed_files, kept_attachment=None):
+	"""The fields one cart row will be stored with, or a refusal.
+
+	`kept_attachment`: an edited row's current datasheet URL, which it may keep instead of
+	claiming a new upload (`edit_request.py`)."""
 	if not r["make"]:
 		frappe.throw(_("Every item needs a make."))
 
 	if r["is_project_custom"]:
-		return _plan_project_custom(r, user, claimed_files)
+		return _plan_project_custom(r, user, claimed_files, kept_attachment)
 
 	item_id = r["tds_item_id"]
 	if not item_id:
@@ -212,7 +215,7 @@ def _plan_row(r, user, claimed_files):
 			tds_status=STATUS_NEW_MAKE,
 			tds_description=r["description"],
 			tds_attachment=r["tds_attachment"],
-			upload=_claim_upload(r["tds_attachment"], user, item_name, r["make"], claimed_files),
+			upload=_claim_upload(r["tds_attachment"], user, item_name, r["make"], claimed_files, kept_attachment),
 		)
 	else:
 		entry = frappe.db.get_value(
@@ -229,7 +232,7 @@ def _plan_row(r, user, claimed_files):
 	return plan
 
 
-def _plan_project_custom(r, user, claimed_files):
+def _plan_project_custom(r, user, claimed_files, kept_attachment=None):
 	"""A Project Custom Item row. Its `PCUS-` id is assigned once the whole batch is planned."""
 	name, work_package, category = r["tds_item_name"], r["work_package"], r["category"]
 	if not (name and work_package and category):
@@ -248,7 +251,7 @@ def _plan_project_custom(r, user, claimed_files):
 		"tds_status": STATUS_PENDING,
 		"tds_description": r["description"],
 		"tds_attachment": r["tds_attachment"],
-		"upload": _claim_upload(r["tds_attachment"], user, name, r["make"], claimed_files),
+		"upload": _claim_upload(r["tds_attachment"], user, name, r["make"], claimed_files, kept_attachment),
 	}
 
 
@@ -262,8 +265,9 @@ def _name_key(name):
 	return (name or "").strip().lower()
 
 
-def _claim_upload(file_url, user, item_name, make, claimed_files):
-	"""The sender's own, still-unattached `File` for this request's datasheet.
+def _claim_upload(file_url, user, item_name, make, claimed_files, kept_attachment=None):
+	"""The sender's own, still-unattached `File` for this request's datasheet, or None when the
+	row keeps `kept_attachment`, the datasheet it already has.
 
 	Owner + unattached is what stops a send from re-parenting a file that belongs to someone else
 	or to another document. Two rows may carry the same `file_url` (one PDF uploaded twice), so
@@ -272,6 +276,8 @@ def _claim_upload(file_url, user, item_name, make, claimed_files):
 	missing = _("Attach the datasheet for {0} ({1}) again, then send.").format(item_name, make)
 	if not file_url:
 		frappe.throw(missing)
+	if file_url == kept_attachment:
+		return None
 	candidates = frappe.get_all(
 		"File",
 		filters={
@@ -289,11 +295,12 @@ def _claim_upload(file_url, user, item_name, make, claimed_files):
 	return free[0]
 
 
-def _refuse_duplicates(project, planned):
+def _refuse_duplicates(project, planned, exclude=None):
 	"""One live row per item + make on a project: in this batch, or already Pending, New, Approved
 	or legacy-null there. Rejected rows don't count; they are what a resubmit replaces.
 
-	The item is the TDS Item id, or for a Project Custom row its name (trimmed, ignoring case)."""
+	The item is the TDS Item id, or for a Project Custom row its name (trimmed, ignoring case).
+	`exclude`: the row being edited, which is no duplicate of itself."""
 	seen = set()
 	for p in planned:
 		key = _item_make_key(p["tds_item_id"], p["custom_name_key"], p["tds_make"])
@@ -308,11 +315,11 @@ def _refuse_duplicates(project, planned):
 	existing = frappe.get_all(
 		ROW_DOCTYPE,
 		filters={"tdsi_project_id": project},
-		fields=["tds_item_id", "tds_item_name", "tds_make", "tds_status", "tds_request_id"],
+		fields=["name", "tds_item_id", "tds_item_name", "tds_make", "tds_status", "tds_request_id"],
 		limit_page_length=0,
 	)
 	for row in existing:
-		if row.tds_status == "Rejected" or _stored_key(row) not in seen:
+		if row.name == exclude or row.tds_status == "Rejected" or _stored_key(row) not in seen:
 			continue
 		frappe.throw(
 			_("{0} ({1}) is already on this project in request {2}.").format(
@@ -433,16 +440,22 @@ def _insert_row(project, request_id, plan):
 	# The sender's own DocPerms decide, exactly as the browser's create did.
 	doc.insert()
 	if plan["upload"]:
-		# `set_value` skips the File lifecycle on purpose: only the link moves. No bytes are
-		# copied, and the storage app's hooks fire on insert and trash, neither of which this is.
-		frappe.db.set_value(
-			"File",
-			plan["upload"],
-			{
-				"attached_to_doctype": ROW_DOCTYPE,
-				"attached_to_name": doc.name,
-				"attached_to_field": "tds_attachment",
-			},
-			update_modified=False,
-		)
+		attach_upload(plan["upload"], doc.name)
 	return doc.name
+
+
+def attach_upload(file_name, row_name):
+	"""Attach a claimed upload (`_claim_upload`) to the row as its datasheet.
+
+	`set_value` skips the File lifecycle on purpose: only the link moves. No bytes are copied, and
+	the storage app's hooks fire on insert and trash, neither of which this is."""
+	frappe.db.set_value(
+		"File",
+		file_name,
+		{
+			"attached_to_doctype": ROW_DOCTYPE,
+			"attached_to_name": row_name,
+			"attached_to_field": "tds_attachment",
+		},
+		update_modified=False,
+	)

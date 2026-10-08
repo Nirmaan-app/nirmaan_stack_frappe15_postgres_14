@@ -37,9 +37,10 @@ import {
 } from "@tanstack/react-table";
 import { RejectTDSModal } from "./components/RejectTDSModal";
 import { ProjectEditTDSItemModal } from "./components/ProjectEditTDSItemModal";
-import { EditRequestItemModal } from "./components/EditRequestItemModal";
+import { EditRequestItemModal, type RequestItemEdit } from "./components/EditRequestItemModal";
 import { ChooseDatasheetDialog, type DatasheetConflictRow } from "./components/ChooseDatasheetDialog";
 import { toast } from "@/components/ui/use-toast";
+import { getFrappeError } from "@/utils/frappeErrors";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +50,7 @@ import {
     ITEM_STATUSES,
     REQUEST_TYPES,
     entryAddedSinceRequest,
+    isEditableRequest,
     itemStatusOf,
     repositoryEntryKey,
     requestTypeOf,
@@ -545,6 +547,9 @@ export const TDSApprovalDetail: React.FC = () => {
     // promotion that wrote removed TDS Repository columns and minted PCUS- customs.
     const { call: approveTdsItems } = useFrappePostCall(
         "nirmaan_stack.api.tds.approve.approve_tds_items"
+    );
+    const { call: editTdsRequest } = useFrappePostCall(
+        "nirmaan_stack.api.tds.edit_request.edit_tds_request"
     );
     const { call: rejectTdsItems } = useFrappePostCall(
         "nirmaan_stack.api.tds.approve.reject_tds_items"
@@ -1424,6 +1429,29 @@ export const TDSApprovalDetail: React.FC = () => {
         }
     };
 
+    // A New Make / Project Custom row: the Admin-only `edit_tds_request` saves it, re-running the
+    // send's checks. A new datasheet is uploaded unattached first; the server attaches it.
+    const handleRequestEditSave = async (itemName: string, edit: RequestItemEdit, attachmentFile: File | null) => {
+        setProcessing(true);
+        try {
+            let tdsAttachment = editingItem?.tds_attachment || "";
+            if (attachmentFile) {
+                const uploadedFile = await uploadFile(attachmentFile, { isPrivate: true });
+                tdsAttachment = uploadedFile.file_url;
+            }
+            await editTdsRequest({ doc_name: itemName, row: JSON.stringify({ ...edit, tds_attachment: tdsAttachment }) });
+            toast({ title: "Updated", description: "Request updated", variant: "success" });
+            setIsEditModalOpen(false);
+            setEditingItem(null);
+            mutate();
+        } catch (e) {
+            console.error(e);
+            toast({ title: "Not saved", description: getFrappeError(e), variant: "destructive" });
+        } finally {
+            setProcessing(false);
+        }
+    };
+
     // Select All toggles only the currently-visible pending rows,
     // preserving any selections on rows hidden by filters
     const handleSelectAll = () => {
@@ -1779,12 +1807,13 @@ export const TDSApprovalDetail: React.FC = () => {
                 loading={processing}
             />
 
-            {editingItem?.tds_status === "New" ? (
+            {editingItem && isEditableRequest(editingItem) ? (
                 <EditRequestItemModal
                     open={isEditModalOpen}
                     onOpenChange={setIsEditModalOpen}
                     item={editingItem}
-                    onSave={handleEditSave}
+                    onSave={handleRequestEditSave}
+                    loading={processing}
                 />
             ) : (
                 <ProjectEditTDSItemModal

@@ -26,7 +26,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
-import { cn } from "@/lib/utils";
+import { TdsRequestTypeRadio, type TdsRequestMode } from "@/components/common/TdsRequestTypeRadio";
+import { useTdsProjectCustomOptions } from "@/hooks/useTdsProjectCustomOptions";
+import { getSelectStyles, mergeSelectStyles } from "@/config/selectTheme";
+import { foldItemName, isProjectCustomId } from "@/utils/tdsRequestRules";
 
 interface TDSItem {
     name: string;
@@ -52,6 +55,16 @@ interface PickerGroup {
     matched_member: { item: string; item_name: string } | null;
     makes: { make: string; entry: string; tds_attachment?: string; status?: string }[];
 }
+// A row on the same project, read for the rejected-duplicate check.
+interface SiblingRow {
+    name: string;
+    tds_item_id?: string;
+    tds_item_name?: string;
+    tds_make?: string;
+    tds_status?: string;
+    tdsi_project_id?: string;
+}
+
 interface GroupOption {
     label: string;
     value: string;
@@ -59,32 +72,50 @@ interface GroupOption {
     member: string;
 }
 
+/** An Admin's edit of a request row, as `edit_tds_request` reads it (`api/tds/edit_request.py`). */
+export interface RequestItemEdit {
+    is_project_custom: boolean;
+    tds_item_id: string;      // New Make only
+    tds_item_name: string;    // Project Custom only (the server reads a New Make's from its TDS Item)
+    work_package: string;     // Project Custom only
+    category: string;         // Project Custom only: under `work_package`
+    make: string;
+    tds_boq_line_item: string;
+    description: string;
+    previous_doc_name?: string; // a Rejected row this one replaces
+}
+
 interface EditRequestItemModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     item: TDSItem | null;
-    onSave: (itemName: string, updates: any, itemsToDelete?: string[]) => void;
+    /** `attachmentFile`: a new datasheet to upload; null keeps the row's current one. */
+    onSave: (itemName: string, edit: RequestItemEdit, attachmentFile: File | null) => void;
     loading?: boolean;
 }
 
-type GroupMode = "existing" | "new";
+// The shared dialog select theme, at the 44px height of this dialog's other fields.
+const DIALOG_SELECT_STYLES = mergeSelectStyles<{ label: string; value: string }>(getSelectStyles(), {
+    control: (base) => ({ ...base, minHeight: "44px" }),
+});
+
+// What switching the Type means for this row, shown only when the choice differs from the row's.
+const SWITCH_NOTES: Record<TdsRequestMode, string> = {
+    new_make: "This row becomes a New Make. Approving it adds the datasheet to the TDS Repository, under the TDS Item you pick.",
+    project_custom: "This row becomes a Project Custom item for this project only. It never goes into the TDS Repository, even when approved.",
+};
 
 /**
- * Phase 2 (ADR-0025 P2-3) edit modal for "New" REQUEST rows (tds_status === "New").
+ * Admin edit of a waiting request row (`isEditableRequest`): a New Make or a Project Custom Item
+ * (ADR-0025 Amendment A, #1379). The Type choice is the Request New dialog's, and switching it
+ * switches the row:
+ *   - New Make: pick an existing TDS Item (the api/tds/picker search). Approval adds a Repository Entry.
+ *   - Project Custom: a name, a Work Package (Procurement Packages) and a Category under it. The
+ *     server gives the row its project-only `PCUS-` id.
+ * Both: a make from the full Makelist, a required datasheet, optional BOQ line and description.
  *
- * A request proposes a (group, make, datasheet). The group is EITHER an existing
- * TDS Item (chosen via the api/tds/picker fuzzy search) OR a brand-new group
- * (free-text label + Work Package). The make is the FULL Makelist (no "+ Others" /
- * custom-make creation — promotion is Admin-only and curated). Datasheet is required.
- *
- * Keeps "New" status semantics: this edits the proposal; approval (backend) does the
- * promotion. CUS-/category-string logic is gone — tds_category is preserved as the
- * frozen snapshot only.
- *
- * Frozen onto the row:
- *   - existing group → tds_item_id = group id, tds_item_name = group name, WP = group WP
- *   - new group      → tds_item_id = "" (backend mints a member-less group on approval),
- *                      tds_item_name = typed label, WP = selected WP
+ * The save goes to the Admin-only `edit_tds_request`, which re-runs the send's checks.
+ * From Repository rows use `ProjectEditTDSItemModal` instead.
  */
 export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
     open,
@@ -93,16 +124,18 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
     onSave,
     loading = false,
 }) => {
-    const [groupMode, setGroupMode] = useState<GroupMode>("existing");
+    const [mode, setMode] = useState<TdsRequestMode>("new_make");
+    const originalMode: TdsRequestMode = isProjectCustomId(item?.tds_item_id) ? "project_custom" : "new_make";
 
-    // Existing-group selection (via picker)
+    // New Make: the picked TDS Item
     const [selectedGroupId, setSelectedGroupId] = useState("");
     const [selectedGroupName, setSelectedGroupName] = useState("");
     const [selectedGroupWP, setSelectedGroupWP] = useState("");
 
-    // New-group proposal
-    const [newGroupLabel, setNewGroupLabel] = useState("");
-    const [newGroupWP, setNewGroupWP] = useState("");
+    // Project Custom
+    const [customName, setCustomName] = useState("");
+    const [customWP, setCustomWP] = useState("");
+    const [category, setCategory] = useState("");
 
     const [selectedMake, setSelectedMake] = useState("");
     const [description, setDescription] = useState("");
@@ -116,20 +149,16 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
     const [duplicateDocName, setDuplicateDocName] = useState<string | null>(null);
 
     // ── Reference data ─────────────────────────────────────────────────────────
-    const { data: wpList } = useFrappeGetDocList("Work Packages", {
-        fields: ["name", "work_package_name"],
-        limit: 0,
-    }, open ? undefined : null);
-    // Full Makelist — no "+ Others" / custom-make creation in Phase 2.
+    // Full Makelist — no "+ Others" / custom-make creation.
     const { data: makeList } = useFrappeGetDocList("Makelist", {
         fields: ["name", "make_name"],
         limit: 0,
     }, open ? undefined : null);
-
-    const wpOptions = useMemo(
-        () => (wpList || []).map((d: any) => ({ label: d.work_package_name, value: d.name })),
-        [wpList]
+    const { packageOptions, categoryOptions, isLoadingCategories } = useTdsProjectCustomOptions(
+        open && mode === "project_custom",
+        customWP
     );
+
     const makeOptions = useMemo(
         () => (makeList || []).map((d: any) => ({ label: d.make_name, value: d.name })),
         [makeList]
@@ -163,8 +192,8 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
         debounceRef.current = setTimeout(() => runSearch(input), 300);
     }, [runSearch]);
 
-    // Siblings in the same project, for duplicate check
-    const { data: existingProjectItems } = useFrappeGetDocList("Project TDS Item List", {
+    // Siblings in the same project, for the rejected-duplicate check
+    const { data: existingProjectItems } = useFrappeGetDocList<SiblingRow>("Project TDS Item List", {
         fields: ["name", "tds_item_id", "tds_item_name", "tds_make", "tds_status", "tdsi_project_id"],
         filters: (item && open)
             ? [["tdsi_project_id", "=", item.tdsi_project_id || ""], ["name", "!=", item.name], ["docstatus", "!=", 2]]
@@ -172,19 +201,23 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
         limit: 0,
     }, (item && open) ? undefined : null);
 
-    // Hydrate from the row on open. A row with a group id → existing mode; a row
-    // with only a name → new-group mode.
+    // Hydrate from the row on open. Each side starts from the row, so a switch to Project Custom
+    // keeps the name and package and asks only for a Category, and a switch to New Make asks for
+    // a TDS Item.
     useEffect(() => {
         if (item && open) {
-            const hasGroupId = !!item.tds_item_id && !item.tds_item_id.startsWith("CUS-") && !item.tds_item_id.startsWith("PCUS-");
-            setGroupMode(hasGroupId ? "existing" : "new");
+            const custom = isProjectCustomId(item.tds_item_id);
+            setMode(custom ? "project_custom" : "new_make");
 
+            // A legacy `CUS-` id is no TDS Item: the Admin picks one.
+            const hasGroupId = !custom && !!item.tds_item_id && !item.tds_item_id.startsWith("CUS-");
             setSelectedGroupId(hasGroupId ? (item.tds_item_id || "") : "");
             setSelectedGroupName(hasGroupId ? (item.tds_item_name || "") : "");
             setSelectedGroupWP(hasGroupId ? (item.tds_work_package || "") : "");
 
-            setNewGroupLabel(hasGroupId ? "" : (item.tds_item_name || ""));
-            setNewGroupWP(hasGroupId ? "" : (item.tds_work_package || ""));
+            setCustomName(item.tds_item_name || "");
+            setCustomWP(item.tds_work_package || "");
+            setCategory(custom ? (item.tds_category || "") : "");
 
             setSelectedMake(item.tds_make || "");
             setDescription(item.tds_description || "");
@@ -197,11 +230,11 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
     }, [item, open, runSearch]);
 
     const currentGroupValue = useMemo<GroupOption | null>(() => {
-        if (groupMode !== "existing" || !selectedGroupId) return null;
+        if (!selectedGroupId) return null;
         const fromOptions = groupOptions.find(o => o.value === selectedGroupId);
         if (fromOptions) return fromOptions;
         return { label: selectedGroupName || selectedGroupId, value: selectedGroupId, workPackage: selectedGroupWP, member: "" };
-    }, [groupMode, selectedGroupId, selectedGroupName, selectedGroupWP, groupOptions]);
+    }, [selectedGroupId, selectedGroupName, selectedGroupWP, groupOptions]);
 
     const groupOptionsWithCurrent = useMemo<GroupOption[]>(() => {
         if (!currentGroupValue) return groupOptions;
@@ -215,73 +248,54 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
         setSelectedGroupWP(opt?.workPackage || "");
     };
 
-    const handleModeChange = (mode: GroupMode) => {
-        // Just switch tabs — keep each side's state. `proposed` reads only the
-        // ACTIVE mode, so the inactive side is ignored on submit; clearing it
-        // here would wipe a typed custom name on a custom→existing→custom
-        // round-trip. Both sides reset together on dialog open/close instead.
-        setGroupMode(mode);
+    // A HANDLER, not an effect: a Category belongs to one package, so any package change strands it.
+    const handleCustomWPChange = (opt: { value: string } | null) => {
+        const next = opt?.value || "";
+        if (next === customWP) return;
+        setCustomWP(next);
+        setCategory("");
     };
 
-    // Derived: the proposed group identity for both validation and the payload.
-    const proposed = useMemo(() => {
-        if (groupMode === "existing") {
-            return {
-                tds_item_id: selectedGroupId,
-                tds_item_name: selectedGroupName,
-                tds_work_package: selectedGroupWP,
-            };
-        }
-        return {
-            tds_item_id: "", // new group — backend mints a member-less TDS Item on approval
-            tds_item_name: newGroupLabel.trim(),
-            tds_work_package: newGroupWP,
-        };
-    }, [groupMode, selectedGroupId, selectedGroupName, selectedGroupWP, newGroupLabel, newGroupWP]);
+    // Just switch — keep each side's state, so a round trip loses nothing. `buildEdit` reads
+    // only the active side.
+    const handleModeChange = (next: TdsRequestMode) => setMode(next);
 
-    const buildUpdates = () => ({
-        tds_item_id: proposed.tds_item_id,
-        tds_item_name: proposed.tds_item_name,
-        tds_work_package: proposed.tds_work_package,
-        // tds_category is no longer chosen at request time (the group model derives
-        // categories from members). Preserve the row's frozen snapshot.
-        tds_category: item?.tds_category ?? "",
-        tds_make: selectedMake,
-        tds_description: description,
+    const buildEdit = (previousDocName?: string): RequestItemEdit => ({
+        is_project_custom: mode === "project_custom",
+        tds_item_id: mode === "new_make" ? selectedGroupId : "",
+        tds_item_name: mode === "project_custom" ? customName.trim() : "",
+        work_package: mode === "project_custom" ? customWP : "",
+        category: mode === "project_custom" ? category : "",
+        make: selectedMake,
         tds_boq_line_item: boqRef,
-        attachmentFile,
+        description,
+        previous_doc_name: previousDocName,
     });
 
     const handleSaveAttempt = () => {
         if (!item) return;
 
-        if (groupMode === "existing" && !proposed.tds_item_id) {
-            toast({ title: "Validation Error", description: "Please select an existing TDS Item.", variant: "destructive" });
-            return;
+        const invalid = (message: string) =>
+            toast({ title: "Validation Error", description: message, variant: "destructive" });
+        if (mode === "new_make" && !selectedGroupId) return invalid("Please select an existing TDS Item.");
+        if (mode === "project_custom" && !(customName.trim() && customWP && category)) {
+            return invalid("Enter the item name, Work Package and Category.");
         }
-        if (groupMode === "new" && (!proposed.tds_item_name || !proposed.tds_work_package)) {
-            toast({ title: "Validation Error", description: "Enter a new TDS Item name and Work Package.", variant: "destructive" });
-            return;
-        }
-        if (!selectedMake) {
-            toast({ title: "Validation Error", description: "Please select a Make.", variant: "destructive" });
-            return;
-        }
+        if (!selectedMake) return invalid("Please select a Make.");
         if (!attachmentFile && !item.tds_attachment) {
             setFileError("Attachment is required");
             return;
         }
 
-        // Dedup on (group identity, make). For an existing group, key on the group
-        // id; for a new group, key on the proposed name (no id yet).
-        const matchesGroup = (sib: any) =>
-            groupMode === "existing"
-                ? sib.tds_item_id === proposed.tds_item_id
-                : (!sib.tds_item_id || sib.tds_item_id.startsWith("CUS-") || sib.tds_item_id.startsWith("PCUS-"))
-                    && sib.tds_item_name === proposed.tds_item_name;
+        // A Rejected sibling with the same item + make is replaced, after a confirm. The item is
+        // the TDS Item id, or for Project Custom the name (trimmed, ignoring case), as the server keys it.
+        const matchesItem = (sib: SiblingRow) =>
+            mode === "new_make"
+                ? sib.tds_item_id === selectedGroupId
+                : isProjectCustomId(sib.tds_item_id) && foldItemName(sib.tds_item_name) === foldItemName(customName);
 
-        const dupRejected = existingProjectItems?.find((i: any) =>
-            matchesGroup(i) && i.tds_make === selectedMake && i.tds_status === "Rejected"
+        const dupRejected = existingProjectItems?.find((i) =>
+            matchesItem(i) && i.tds_make === selectedMake && i.tds_status === "Rejected"
         );
         if (dupRejected) {
             setDuplicateDocName(dupRejected.name);
@@ -290,7 +304,7 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
             return;
         }
 
-        onSave(item.name, buildUpdates());
+        onSave(item.name, buildEdit(), attachmentFile);
     };
 
     const confirmResubmission = () => {
@@ -299,7 +313,7 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
             return;
         }
         if (!item || !duplicateDocName) return;
-        onSave(item.name, buildUpdates(), [duplicateDocName]);
+        onSave(item.name, buildEdit(duplicateDocName), attachmentFile);
         setShowConfirmDialog(false);
         setDuplicateDocName(null);
     };
@@ -314,52 +328,20 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
                     <DialogHeader className="p-6 pb-2 border-b border-gray-50">
                         <DialogTitle className="text-xl font-bold tracking-tight">Edit Request Item</DialogTitle>
                         <DialogDescription className="text-sm text-gray-500 mt-1">
-                            Update this new TDS Item request (group + make + datasheet).
+                            Update this request, or switch it between New Make and Project Custom.
                         </DialogDescription>
                     </DialogHeader>
 
                     <div className="p-6 py-4 overflow-y-auto flex-1 custom-scrollbar">
                         <div className="space-y-4">
-                            {/* Group mode toggle */}
-                            <div className="space-y-1">
-                                {/* Label left, control RIGHT — the toggle sits on the
-                                    label's own row, against the dialog's right edge.
-                                    The active side is FILLED red: a white-on-gray-50
-                                    active state reads as disabled, leaving the browser
-                                    focus ring as the only cue for which mode is on. */}
-                                <div className="flex items-center justify-between gap-3">
-                                    <Label className="text-sm font-bold text-gray-700">TDS Item :</Label>
-                                    <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
-                                        <button
-                                            type="button"
-                                            onClick={() => handleModeChange("existing")}
-                                            className={cn(
-                                                "px-5 py-1.5 text-sm font-medium rounded-md transition-colors",
-                                                groupMode === "existing" ? "bg-[#dc2626] text-white shadow-sm" : "text-gray-600 hover:text-gray-900"
-                                            )}
-                                        >
-                                            Existing Item
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleModeChange("new")}
-                                            className={cn(
-                                                "px-5 py-1.5 text-sm font-medium rounded-md transition-colors",
-                                                groupMode === "new" ? "bg-[#dc2626] text-white shadow-sm" : "text-gray-600 hover:text-gray-900"
-                                            )}
-                                        >
-                                            New Item
-                                        </button>
-                                    </div>
-                                </div>
-                                <p className="mt-1.5 text-xs text-muted-foreground">
-                                    {groupMode === "existing"
-                                        ? "Pick a TDS Item already in the repository."
-                                        : "Create a new TDS Item — needs a name, Work Package and datasheet."}
+                            <TdsRequestTypeRadio value={mode} onChange={handleModeChange} />
+                            {mode !== originalMode && (
+                                <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                                    {SWITCH_NOTES[mode]}
                                 </p>
-                            </div>
+                            )}
 
-                            {groupMode === "existing" ? (
+                            {mode === "new_make" ? (
                                 <div className="space-y-1">
                                     <Label className="text-sm font-bold text-gray-700">
                                         Select TDS Item<span className="text-red-500 ml-0.5">*</span>
@@ -400,35 +382,52 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
                                 </div>
                             ) : (
                                 <>
-                                    {/* New group label */}
                                     <div className="space-y-1">
                                         <Label className="text-sm font-bold text-gray-700">
-                                            New TDS Item Name<span className="text-red-500 ml-0.5">*</span>
+                                            Item Name<span className="text-red-500 ml-0.5">*</span>
                                         </Label>
                                         <Input
-                                            value={newGroupLabel}
-                                            onChange={(e) => setNewGroupLabel(e.target.value)}
-                                            placeholder="e.g. Modular Switch Plate"
+                                            value={customName}
+                                            onChange={(e) => setCustomName(e.target.value)}
+                                            placeholder="e.g. Facade Linear Light 24W"
                                             className="h-11 border-gray-200 rounded-lg bg-gray-50/30 focus:bg-white transition-all font-medium"
                                         />
                                     </div>
-                                    {/* New group WP */}
-                                    <div className="space-y-1">
-                                        <Label className="text-sm font-bold text-gray-700">
-                                            Work Package<span className="text-red-500 ml-0.5">*</span>
-                                        </Label>
-                                        <ReactSelect
-                                            options={wpOptions}
-                                            value={wpOptions.find(o => o.value === newGroupWP) || (newGroupWP ? { label: newGroupWP, value: newGroupWP } : null)}
-                                            onChange={(opt) => setNewGroupWP(opt?.value || "")}
-                                            placeholder="Select Work Package"
-                                            classNamePrefix="react-select"
-                                            menuPortalTarget={menuPortalTarget}
-                                            styles={{
-                                                control: (base) => ({ ...base, minHeight: "44px", borderRadius: "8px", borderColor: "#e5e7eb" }),
-                                                menuPortal: menuPortalStyle,
-                                            }}
-                                        />
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div className="space-y-1 min-w-0">
+                                            <Label className="text-sm font-bold text-gray-700">
+                                                Work Package<span className="text-red-500 ml-0.5">*</span>
+                                            </Label>
+                                            <ReactSelect
+                                                options={packageOptions}
+                                                value={packageOptions.find(o => o.value === customWP) || (customWP ? { label: customWP, value: customWP } : null)}
+                                                onChange={handleCustomWPChange}
+                                                placeholder="Select Work Package"
+                                                classNamePrefix="react-select"
+                                                styles={DIALOG_SELECT_STYLES}
+                                                menuPortalTarget={menuPortalTarget}
+                                                menuPosition="fixed"
+                                            />
+                                        </div>
+                                        <div className="space-y-1 min-w-0">
+                                            <Label className="text-sm font-bold text-gray-700">
+                                                Category<span className="text-red-500 ml-0.5">*</span>
+                                            </Label>
+                                            <ReactSelect
+                                                options={categoryOptions}
+                                                value={categoryOptions.find(o => o.value === category) || (category ? { label: category, value: category } : null)}
+                                                onChange={(opt) => setCategory(opt?.value || "")}
+                                                placeholder={customWP ? "Select Category" : "Pick a Work Package first"}
+                                                isDisabled={!customWP}
+                                                isLoading={isLoadingCategories}
+                                                noOptionsMessage={() => "No categories under this package"}
+                                                classNamePrefix="react-select"
+                                                styles={DIALOG_SELECT_STYLES}
+                                                menuPortalTarget={menuPortalTarget}
+                                                menuPosition="fixed"
+                                            />
+                                            <p className="text-[11px] text-gray-500">Categories under the chosen package.</p>
+                                        </div>
                                     </div>
                                 </>
                             )}
@@ -534,7 +533,7 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
                     <AlertDialogHeader>
                         <AlertDialogTitle>Resubmit Rejected Item?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This TDS Item + Make combination already exists as a <strong>Rejected</strong> entry in the project.
+                            This item + make combination already exists as a <strong>Rejected</strong> entry in the project.
                             To replace it and continue, please enter <strong>"1"</strong> below.
                         </AlertDialogDescription>
                     </AlertDialogHeader>

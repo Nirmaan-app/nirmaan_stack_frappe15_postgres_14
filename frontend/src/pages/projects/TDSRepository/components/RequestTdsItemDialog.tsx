@@ -24,6 +24,8 @@ import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { foldItemName } from "@/utils/tdsRequestRules";
+import { TDS_REQUEST_MODES, TdsRequestTypeRadio, type TdsRequestMode } from "@/components/common/TdsRequestTypeRadio";
+import { useTdsProjectCustomOptions } from "@/hooks/useTdsProjectCustomOptions";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // "Request New TDS Item" dialog (ADR-0025 Amendment A, #1377). The first field is
@@ -62,24 +64,9 @@ interface GroupResult {
     makes: { make: string; entry: string; tds_attachment?: string; status?: string }[];
 }
 
-type RequestMode = "new_make" | "project_custom";
-
-const TYPE_CHOICES: { value: RequestMode; label: string; help: string }[] = [
-    {
-        value: "new_make",
-        label: "Add New Make to an Existing TDS Item",
-        help: "The item is in the repository but this make has no datasheet yet. Approving adds it to the repository.",
-    },
-    {
-        value: "project_custom",
-        label: "Create a Project Specific Custom TDS Item",
-        help: "Only for this project. It never goes into the TDS Repository.",
-    },
-];
-
 const formSchema = z
     .object({
-        mode: z.enum(["new_make", "project_custom"]),
+        mode: z.enum(TDS_REQUEST_MODES),
         // New Make: the picked group + its snapshot
         tds_item_id: z.string().optional(),
         tds_item_name: z.string().optional(),
@@ -151,21 +138,9 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     // Procurement Packages — the list `TDS Items.work_package` and
     // `Category.work_package` link to — and its Category from that package only.
     const { data: makeList } = useFrappeGetDocList("Makelist", { fields: ["name", "make_name"], limit: 0 });
-    const isCustom = open && mode === "project_custom";
-    const { data: packageList } = useFrappeGetDocList(
-        "Procurement Packages",
-        { fields: ["name"], orderBy: { field: "name", order: "asc" }, limit: 0 },
-        isCustom ? "tds_request_procurement_packages" : null
-    );
-    const { data: categoryList, isLoading: isLoadingCategories } = useFrappeGetDocList(
-        "Category",
-        {
-            fields: ["name"],
-            filters: [["work_package", "=", customWP]],
-            orderBy: { field: "name", order: "asc" },
-            limit: 0,
-        },
-        isCustom && customWP ? `tds_request_categories_${customWP}` : null
+    const { packageOptions, categoryOptions, isLoadingCategories } = useTdsProjectCustomOptions(
+        open && mode === "project_custom",
+        customWP
     );
 
     // Makes the PICKED GROUP already has a Repository Entry (datasheet) for.
@@ -200,14 +175,6 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                 taken: takenMakes.has((m.make_name || "").trim().toLowerCase()),
             })),
         [makeList, takenMakes]
-    );
-    const packageOptions = useMemo(
-        () => (packageList || []).map((p: { name: string }) => ({ label: p.name, value: p.name })),
-        [packageList]
-    );
-    const categoryOptions = useMemo(
-        () => (categoryList || []).map((c: { name: string }) => ({ label: c.name, value: c.name })),
-        [categoryList]
     );
 
     // ── Existing tab: Work Package scope ────────────────────────────────────────
@@ -323,7 +290,7 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     // the New Make pick is dropped on leaving it: its greyed-out makes would
     // otherwise follow the user into Project Custom.
     // (Everything resets on dialog close via handleCancel.)
-    const handleModeChange = (next: RequestMode) => {
+    const handleModeChange = (next: TdsRequestMode) => {
         if (next === mode) return;
         form.setValue("mode", next);
         form.clearErrors();
@@ -405,33 +372,7 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                 <div className="p-6 py-4 overflow-y-auto flex-1 custom-scrollbar">
                     <Form {...form}>
                         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                            {/* Type: two stacked radio cards, each with one line of help. */}
-                            <fieldset className="space-y-2">
-                                <legend className="text-sm font-bold text-gray-700 mb-2">Type</legend>
-                                <div role="radiogroup" aria-label="Type" className="space-y-2">
-                                    {TYPE_CHOICES.map(choice => {
-                                        const on = mode === choice.value;
-                                        return (
-                                            <button
-                                                key={choice.value}
-                                                type="button"
-                                                role="radio"
-                                                aria-checked={on}
-                                                onClick={() => handleModeChange(choice.value)}
-                                                className={`w-full text-left flex gap-3 items-start rounded-lg border p-3 transition-colors ${on ? "border-[#dc2626] bg-red-50" : "border-gray-200 hover:bg-gray-50"}`}
-                                            >
-                                                <span className={`mt-0.5 h-4 w-4 shrink-0 rounded-full border-2 flex items-center justify-center ${on ? "border-[#dc2626]" : "border-gray-300"}`}>
-                                                    {on && <span className="h-2 w-2 rounded-full bg-[#dc2626]" />}
-                                                </span>
-                                                <span>
-                                                    <span className="block text-sm font-semibold text-gray-900">{choice.label}</span>
-                                                    <span className="block text-xs text-gray-500">{choice.help}</span>
-                                                </span>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </fieldset>
+                            <TdsRequestTypeRadio value={mode} onChange={handleModeChange} />
 
                             {mode === "new_make" ? (
                               <>
@@ -591,7 +532,7 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                             onChange={(opt: any) => field.onChange(opt?.value || "")}
                                                             placeholder={customWP ? "Select Category" : "Pick a Work Package first"}
                                                             isDisabled={!customWP}
-                                                            isLoading={!!customWP && isLoadingCategories}
+                                                            isLoading={isLoadingCategories}
                                                             noOptionsMessage={() => "No categories under this package"}
                                                             classNamePrefix="react-select"
                                                             menuPlacement="auto"

@@ -55,6 +55,19 @@ export function requestTypeOf(row: TdsRequestRow): RequestType {
   return "From Repository";
 }
 
+/**
+ * A waiting request an Admin edits in the request edit dialog, where it can switch between New Make
+ * and Project Custom: status New (with or without a TDS Item id), or a Project Custom row still
+ * Pending. Every other Pending row is From Repository and keeps the "Edit TDS Item" dialog. The
+ * server edits exactly these rows (`edit_request.py` `_is_waiting_request`, pinned by a parity test).
+ */
+export function isEditableRequest(row: TdsRequestRow): boolean {
+  return (
+    row.tds_status === STORED_STATUS.newMake ||
+    (row.tds_status === STORED_STATUS.pending && isProjectCustomId(row.tds_item_id))
+  );
+}
+
 /** The fields of a New Request cart row (not yet sent, so no id or status) the rules read. */
 export interface TdsCartRow {
   is_new_request?: boolean;

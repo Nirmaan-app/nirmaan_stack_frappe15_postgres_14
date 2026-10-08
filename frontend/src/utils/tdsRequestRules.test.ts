@@ -12,6 +12,7 @@ import {
   entryAddedSinceRequest,
   historyStatusOf,
   historyStatusesIn,
+  isEditableRequest,
   isProjectCustomId,
   itemStatusOf,
   repositoryEntryKey,
@@ -70,6 +71,37 @@ describe("parity with api/tds/approve.py", () => {
   it("the datasheet choices match", () => {
     expect(approveConstant("CHOICE_REPOSITORY")).toBe(DATASHEET_CHOICE.repository);
     expect(approveConstant("CHOICE_REQUEST")).toBe(DATASHEET_CHOICE.request);
+  });
+});
+
+describe("parity with api/tds/edit_request.py", () => {
+  const EDIT_PY = pySource("edit_request.py");
+
+  it("the server edits the same rows: New, or a Project Custom row still Pending", () => {
+    const body = EDIT_PY.match(/def _is_waiting_request\(row\):[\s\S]*?(?=\n\n|$)/);
+    expect(body, "_is_waiting_request not found in edit_request.py").toBeTruthy();
+    expect(body![0]).toMatch(
+      /row\.tds_status == STATUS_NEW_MAKE or \(\s*row\.tds_status == STATUS_PENDING and is_project_custom_id\(row\.tds_item_id\)\s*\)/
+    );
+  });
+});
+
+describe("isEditableRequest", () => {
+  it("a New row is a request, with or without a TDS Item id", () => {
+    expect(isEditableRequest({ tds_item_id: "TDS-ITEM-00012", tds_status: "New" })).toBe(true);
+    // A legacy New row with no TDS Item: the request dialog is where an Admin can fix it.
+    expect(isEditableRequest({ tds_item_id: "", tds_status: "New" })).toBe(true);
+  });
+
+  it("a Project Custom row is a request while it is Pending", () => {
+    expect(isEditableRequest({ tds_item_id: "PCUS-000001", tds_status: "Pending" })).toBe(true);
+    expect(isEditableRequest({ tds_item_id: "PCUS-000001", tds_status: "Approved" })).toBe(false);
+    expect(isEditableRequest({ tds_item_id: "PCUS-000001", tds_status: "Rejected" })).toBe(false);
+  });
+
+  it("a From Repository row is not: it keeps the Edit TDS Item dialog", () => {
+    expect(isEditableRequest({ tds_item_id: "TDS-ITEM-00012", tds_status: "Pending" })).toBe(false);
+    expect(isEditableRequest({ tds_item_id: "TDS-ITEM-00012", tds_status: null })).toBe(false);
   });
 });
 
