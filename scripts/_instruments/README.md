@@ -29,6 +29,9 @@ are the guard — if a last-run date is old, assume the rig needs checking befor
 | `hvac_v1_attrs_for.py` | **PROVENANCE ONLY — NEVER RUN** | never; it is not an instrument |
 | `audit12d3_build_rows.py` | 12d-3 Insulation audit, stage 1-3 capture: joins the capture log, the run doc, the node unit, hand rates and the gate per extracted row (container, read-only) | **12d-3, 2026-10-08** — 466 rows, 92 sheets |
 | `audit12d3_pricing.ts` | 12d-3 stage 4-5: every captured row through the 12c-P `runParity` driver (BOTH real paths), per-row fields / rules / figures / divergence cause; esbuild-bundled in-container (recipe in its header) | **12d-3, 2026-10-08** — 466 rows, 36 divergences, 0 errors |
+| `recheck12d4b_build_set.py` | 12d-4b item 1: the re-check SET stated before any call -- changed rows (the two 12d-4a sweep diffs), instruction rows (D5 / D8 / D9a / D13 by the row's own text), the 12d-3 hand-WRONG rows, 20 stratified controls; the per-sheet row lists + the call / token estimate | **12d-4b, 2026-10-08** -- 108 rows / 53 sheets, 161 calls |
+| `recheck12d4b_runner.py` | 12d-4b step 3: the 12d-3 runner scoped to the set (`_suggest_worker(only_rows=...)`), cap-guarded at 300 calls, one resume-retry, resumable progress | **12d-4b, 2026-10-08** -- 0 errors / halts / retries |
+| `recheck12d4b_analyse.py` | 12d-4b item 4 a-f + the Review Pack's P1 / P2 / P4: stored 12d-3 answers vs the fresh ones, both priced through the current rules; the Excel | **12d-4b, 2026-10-08** |
 | `audit12d3_analyse.py` | 12d-3 analysis: the automatic reading + rule checks, the stratified 60-row hand-review dump, the second-opinion merge, the Excel (host; openpyxl) | **12d-3, 2026-10-08** — `2026-10-10_12d3_Audit_Rows.xlsx` |
 
 ---
