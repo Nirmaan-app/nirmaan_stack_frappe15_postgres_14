@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Browser walk of Project TDS (Technical Data Sheet) requests: spec #1373, tickets #1374-#1380.
+"""Browser walk of Project TDS (Technical Data Sheet) requests: spec #1373, tickets #1374-#1380, and #1384 (case 22).
 
 Seeds a throwaway catalogue and project rows through the backend, drives the running app with a
 headless Playwright browser, checks each case against the spec, and always cleans up. See README.md.
@@ -1413,6 +1413,115 @@ R["status"] = frappe.db.get_value(ROW, P["n"], "tds_status")''', n=rows[2]["name
     errs = " ".join(e.get("error", "") for e in res["reply"].get("errors", []))
     c.check("Only a row waiting for approval can be approved." in errs, "approve refuses a Rejected row", errs)
     c.eq(res["status"], "Rejected", "Rejected row unchanged")
+
+
+ITEM_PAGE = "/tds-repository/item/"
+GO_BACK = 'button[aria-label="Go back"]'  # the app header's back arrow
+
+
+def open_tds_item_from_table(page, label=None):
+    """Click a TDS Item link in the repository table (the one reading `label`, else the first) and
+    wait for the item page to load."""
+    links = page.locator("table tbody tr td button[title]")
+    (links.filter(has_text=label) if label else links).first.click()
+    wait_for(lambda: ITEM_PAGE in page.url, 10)
+    settle(page, 2)
+
+
+def delete_tds_item(page):
+    """Delete the open TDS Item through its confirm dialog; returns once the page has left the item."""
+    page.get_by_role("button", name="Delete TDS Item").click()
+    dlg = page.locator('[role="alertdialog"]')
+    dlg.wait_for(timeout=5000)
+    dlg.get_by_role("button", name="Delete", exact=True).click()
+    wait_for(lambda: ITEM_PAGE not in page.url, 15)
+    settle(page, 2)
+
+
+@case(22, "Repository item page: no Back button; header back and delete keep the table view (#1384)")
+def c22(w: Walk, page, c: Checks):
+    # Two throwaway TDS Items with no entries, so Delete is enabled on them.
+    names = w.be('''
+R["names"] = [frappe.get_doc({"doctype": "TDS Items", "tds_item_name": n, "work_package": P["wp"]}).insert(ignore_permissions=True).name
+              for n in P["labels"]]
+frappe.db.commit()''', labels=["TDS WALK Delete A", "TDS WALK Delete B"], wp=WP)["names"]
+    w.seen_names.update(names)
+    try:
+        # ── header back keeps the view: tab, column filter, search, page ──
+        page.goto(f"{BASE}/tds-repository")
+        settle(page, 2)
+        page.get_by_role("button", name="Repository Entries", exact=True).click()
+        settle(page, 2)
+        table = page.locator("table").first
+        th = table.locator("thead th").filter(has_text="Work Package").first
+        th.locator("div.cursor-pointer").first.click()
+        time.sleep(1.5)
+        page.locator("[cmdk-item]").filter(has_text=WP).first.click()
+        time.sleep(1.5)
+        page.keyboard.press("Escape")
+        settle(page, 2)
+        search = page.locator('input[placeholder^="Search by"]').first
+        search.fill("a")
+        settle(page, 2)
+        nxt = page.get_by_role("button", name="Go to next page")
+        if nxt.count() and nxt.first.is_enabled():
+            nxt.first.click()
+            settle(page, 2)
+        else:
+            c.note("one page of matches only; the page step was not exercised")
+        before_url = page.url
+        before_rows = table.locator("tbody tr").all_inner_texts()
+        c.check(all(k in before_url for k in ("tab=entries", "tds_entries_master_filters", "tds_entries_master_q")),
+                "the view is in the URL before opening an item", before_url)
+        w.shot(page, "c22_entries_view", full=True)
+        open_tds_item_from_table(page)
+        body = page.locator("body").inner_text()
+        c.check("Back to TDS Repository" not in body, "item page has no 'Back to TDS Repository' button")
+        w.shot(page, "c22_item_no_back")
+        page.locator(GO_BACK).click()
+        wait_for(lambda: ITEM_PAGE not in page.url, 10)
+        settle(page, 3)
+        c.eq(page.url, before_url, "header back returns to the same URL")
+        c.eq(page.locator('input[placeholder^="Search by"]').first.input_value(), "a", "search term kept")
+        c.eq(page.locator("table").first.locator("tbody tr").all_inner_texts(), before_rows, "same rows shown")
+        w.shot(page, "c22_back_view", full=True)
+
+        # ── delete from a searched table lands back on that view ──
+        page.goto(f"{BASE}/tds-repository")
+        settle(page, 2)
+        page.locator('input[placeholder^="Search by"]').first.fill("TDS WALK Delete")
+        settle(page, 3)
+        before_url = page.url
+        c.check("tds_items_master_q" in before_url, "TDS Items search is in the URL", before_url)
+        open_tds_item_from_table(page, "TDS WALK Delete A")
+        delete_tds_item(page)
+        c.eq(page.url, before_url, "delete from the table returns to the searched view")
+        rows = page.locator("table").first.locator("tbody tr").all_inner_texts()
+        c.check(not any("TDS WALK Delete A" in r for r in rows), "the deleted item is gone from the table", rows)
+        w.shot(page, "c22_after_delete_from_table", full=True)
+
+        # ── delete from a direct URL lands on the plain repository page ──
+        page.goto(f"{BASE}{ITEM_PAGE}{names[1]}")
+        settle(page, 3)
+        delete_tds_item(page)
+        c.eq(page.url.split("?")[0].rstrip("/"), f"{BASE}/tds-repository", "direct-URL delete lands on the repository")
+        c.check("?" not in page.url, "and with no saved view", page.url)
+        gone = w.be('R["left"] = frappe.get_all("TDS Items", filters={"name": ["in", P["names"]]}, pluck="name")', names=names)
+        c.eq(gone["left"], [], "both throwaway items deleted on the server")
+
+        # ── not found keeps a plain link to the repository ──
+        page.goto(f"{BASE}{ITEM_PAGE}TDS-ITEM-WALK-MISSING")
+        settle(page, 3)
+        body = page.locator("body").inner_text()
+        c.check("Back to TDS Repository" not in body, "not-found page has no Back button")
+        link = page.get_by_role("link", name="Go to TDS Repository")
+        c.check(link.count() == 1 and (link.get_attribute("href") or "").endswith("/tds-repository"),
+                "not-found page links to the repository", link.count() and link.get_attribute("href"))
+        w.shot(page, "c22_not_found")
+    finally:
+        # Raw delete of whatever the case did not delete itself: throwaway walk items with no
+        # dependents, so there is no hook or derived field to recompute.
+        w.be('for n in P["names"]: frappe.db.delete("TDS Items", n)\nfrappe.db.commit()', names=names)
 
 
 # ─── main ────────────────────────────────────────────────────────────────────────────────────────
