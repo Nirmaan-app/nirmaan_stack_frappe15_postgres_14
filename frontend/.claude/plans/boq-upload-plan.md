@@ -45236,3 +45236,98 @@ not the flag (the memory rule). Radix selects answered the keyboard, not the poi
   sites, owner's call.
 - **F-C5c** The owner's "item A1" of the ADP Retrofit could not be found by that label; the delivered-rule-listing note is recorded
   under "ADP RETROFIT, OWED" as given.
+
+## Slice 12d-5 — PLAIN ENGLISH ON THE PANEL AND THE CALCULATOR; THE EMPTY "RULES" CARD HIDDEN (2026-10-08, filed as 2026-10-13) — SHIPPED
+
+Owner P1 *"c5a and c5b fix we need to do"* on the 12d-4c findings; P2 the standing plain-English rule; P3 scope = the ITEM-LIST
+categories only (Electrical's lines are the Electrical retrofit). Display wording ONLY: no price, config, item or AI call.
+Commits: `f56edf23d` fix (the one plain-English helper on the panel + calculator), `5a5c20e6b` fix (the empty extraction-rules
+card hidden), `d5232fb41` fix (EXTRA, disclosed: the pass keeps a working line's indentation and a family's leading space), the
+docs commit. Desktop: `2026-10-13_12d5_{Ledger,Report}.md`, `2026-10-13_12d5_Screens/` (9), `2026-10-13_12d5_frontend_full.log`.
+FRONTEND-ONLY: no Python file changed, the Python suite was not run (the brief's rule).
+
+### F-C5b — the ONE plain-English function (`f56edf23d`, `d5232fb41`)
+
+`frontend/src/pages/pricing/rate-master/plainEnglish.ts` holds `plainSentence` (the 12d-4c tag stripper, MOVED; `itemListRuleOrder`
+re-exports it and a test pins identity), `pricingInputLabel` (MOVED) and `plainPricerText`: a leading pipeline id written as
+words (`item_supply:` -> `item supply:`); every Pricing Input id the items declare replaced by its row LABEL (`gi_sheet_rate` ->
+`GI framework sheet`; an undeclared one by its words); the trailing `(R15)` / `(owner ...)` tags dropped; a code RUN at the start
+of a sentence / bracket / clause dropped (`R1 / slice 11 damper not mentioned ...` -> `damper not mentioned ...`, `(R14 / S6 UL
+...` -> `(UL ...`); a code after a comma inside a bracket dropped (`(next size up, R6)` -> `(next size up)`). Idempotent; a line
+already plain is byte-identical, INDENTATION INCLUDED. `pricingSheetHelper.plainItemListView` applies it ONCE where the item-list
+view is built, to every DISPLAY string -- a field's `rule` / `note` / `matchHelp`, a block's `reason` / `skuLine` / `working` /
+`familyDefaulted.rule`, the view's `reason` / `unitNote`, the row-level `workings.derivation` -- and to nothing the pricing or a
+control MATCHES on (`value`, `typedValue`, `optionLabels`, the edit state). The non-item-list path never reaches it.
+⚠️ The first draft TRIMMED each line: the item-4 sweep showed a 2,842-line "other" class (a layer's indented steps lost their
+indent) and, after that fix, 2 lines where `(\s+` normalisation ate the leading space of ` Fiberglass Rigid Board Insulation,
+Density 48Kg/m3`. `d5232fb41` keeps the leading whitespace and normalises nothing but the pass's own removals.
+**Tests** (`plainEnglish.test.ts`, 12): each class before -> after; idempotence incl. indented lines; look-alikes kept (`UL 555`,
+`26G`, `2 slot`, ` Fiberglass ...` in a bracket); reuse identity; the NEGATIVE PIN -- every Insulation and ADP case of the 12c-S
+sweep (24 + 120) through BOTH paths, every display string free of `/\b[RDTS]-?\d/`, `slice N`, `(owner`, snake_case; the 294 / 70
+E2E-1 row with labelled working; an Electrical case has no item-list view. Eight text-only pins INVERTED under mechanical
+authority (plain text asserted, the code asserted absent): `pricingSheetHelper.test.ts` x2, `insulation12d1a.e2e` x4,
+`insulation12d1b.e2e` x1, `insulation12d4a.e2e` x1. Vacuity: the pass switched off -> 5 RED.
+
+### F-C5a — the empty extraction-rules card (`5a5c20e6b`)
+
+`itemListRuleOrder.extractionRulesCardShown(config)` (pure): the "Rules" card (`config.rules`, the extraction rules the prompt
+receives) is hidden iff a `list_spec` is present AND `rules` is empty -- decided by the config, no category named. An item-list
+category lists its rules in "How a row is priced", so "No rules configured for this category" beneath 24 rules read as a
+contradiction. A category carrying rules keeps its card whatever its shape; every non-item-list category (Electrical, with rules or
+with the empty state) is byte-identical. Tests: Insulation + ADP on the latest asset -> hidden; every Electrical config and the HVAC
+vendor-quote / alias / pricing-inputs configs -> shown; an item-list config given rules -> shown. Vacuity: predicate forced true -> RED.
+
+### Item 4 — wording only (the 12d-4a sweep instrument, HEAD + v33 vs the 12d-4c sweep)
+
+7,234 cases both paths, 7,219 compared: **0 outcome changes, 0 figure changes, Electrical 0 bytes**. 721 Insulation / ADP cases
+differ in text only, every changed line in one of five classes: code tag dropped (3,501 lines), pipeline-id prefix as words (2,692),
+pricing input by label (2,650), owner tag dropped (310), `slice N` dropped (53); "other" 0. DB digest before / after the cert:
+406 keys identical (runs 251, items 1,737, cell pricing 37,702, both disciplines' item and config digests).
+
+### Item 5 — the ELECTRICAL RETROFIT register (recorded, NOTHING changed)
+
+⚠️ PREMISE CORRECTION: the harness's result objects carry NO snake-case line on any Electrical path (0 hits over 1,915 cases;
+the one "hit" is an LMS SKU description in the `basis` line), so the register could not be built from the sweep; it is built from
+the LIVE panel (00174 r94, `db_switchgear`) and the Derivation tab (wiring_cabling) and, per category, from the v66 pipelines'
+`rate_ref` shape that produces the line `<result>: <item> = <value>`. One example per category: cabletray_raceway
+`pi_tray_supply_supply_markup: tray_supply`; conduit_piping `pi_conduit_discount: conduit`; db_switchgear `pi_switchgear_discount:
+switchgear = 0.7` + `pi_switchgear_supply_markup: switchgear = 0.65` + `pi_db_share_share: db_share = 0.2` + `db_shell: VTPN DB
+12WAY WITH MCB INCOMER = 30090` + `mcb1: ...` (SEEN live); earthing `pi_earthing_supply_supply_markup: earthing_supply`;
+industrial_sockets `pi_indsock_discount: indsock`; junction_box_raceway `pi_jb_supply_supply_markup: jb_supply`;
+lighting_mgmt_system `pi_lms_supply_supply_markup: lms_supply`; miscellaneous `pi_misc_supply_ratio: misc_supply`; point_wiring
+`pi_cable_unarm_discount: cable_unarm`; popup_boxes / switches_sockets `pi_swsock_discount: swsock`; wiring_cabling
+`pi_conduit_discount: conduit` (+ the Derivation tab's pipeline grid: `rate_ref` / `m_from_ctx pi_conduit_supply_markup`, SEEN).
+Also on the ADP / Insulation DERIVATION tab's PIPELINE GRID (an admin view, not a pricer line): `item_supply`, `hvac_adp_item`,
+`m_from_ctx supply_markup`, `(R15)` in the step explain -- outside this slice's sites, recorded.
+
+### Cert
+
+De-stale in full (19 PIDs on TERM, 0 left; ports free; 203 pycache purged; `.vite` removed; `bench start` -> pong after 240 s;
+vite 200 after 17 s); site data cleared (1 SW, 4 IndexedDB). PROOF 1 from the shell AND the browser: the served `plainEnglish.ts`
+carries `pricingInputIds` / `CODE_RUN` / `lead + s.trimEnd`, the helper `plainItemListView(view, items)`, the Derivation
+component `extractionRulesCardShown(config) &&`. PROOF 2 (runtime import): `plainPricerText("R1 / slice 11 damper not mentioned
+(or not answered) = without")` -> `damper not mentioned (or not answered) = without`; the labelled pricing-input line; an indented
+line keeps its indent; `extractionRulesCardShown({list_spec:{}, rules:[]})` false, `({rules:[]})` true. ⚠️ The MCP tab opened
+HIDDEN again -- STOPPED, the owner foregrounded it ("the tab is foregrounded. continue"); `visibilityState` read `visible` this
+time. Radix selects by keyboard (Home / End / ArrowDown + Enter).
+
+| step | expected (stated in advance) | SEEN | screen |
+|---|---|---|---|
+| 1 00169 r291 | "cladding not mentioned -> without cladding", 1371 / 154 | **"cladding not mentioned -> without cladding"**; working "supply: pricing input: GI framework sheet (rate) = 450" ...; **1371 / 154 / 1525**; 72 lines, 0 internal tokens | 01a |
+| 1 00117 r82 | "damper not mentioned (or not answered) = without", 1160 / 352 / 1512 | **as stated**; working "item supply: supply: cost x (1 + the SKU's supply markup) = 1160"; **1160 / 352 / 1512**; 54 lines, 0 internal | 01b |
+| 2 calculator Insulation NR 26G 19 pipe 50 | labels; 615 / 224 | "You typed 50 mm -> priced as 53.98 mm (next size up)", "supply: pricing input: Aluminium sheet 24G (rate) = 450", "... Aluminium sheet 26G ...", "... Glass cloth (rate) = 200", "... Cladding overlap (factor) = 1.25"; **615 / 224 / 839** (a stray "50" typed into the quantity box by the first script was reset to 1 -- the figure read 30,750 until then, session-only) | 02 |
+| 3 calculator ADP slot diffuser 2 slot | no R codes; 1160 / 352 | "item supply: ... = 1160", "item install: ... = 352"; **1160 / 352 / 1512**; 0 internal | 03 |
+| 4 Insulation Derivation | 24 lines, no Rules card | **no card, no "No rules configured"**, list ends at 24 | 04a x2 |
+| 4 ADP Derivation | 17 lines, no card | **no card**, list ends at 17 (the pipeline grid follows) | 04b |
+| 4 Electrical Derivation | unchanged | Wiring, Cabling & Termination: the **Rules card with R10 / R11** as before | 04c |
+| 5 Electrical r94 | 19630 / 3930, wording unchanged | **19630 / 3930 (23560)**; the working still reads `pi_switchgear_discount: switchgear = 0.7` ... (7 internal-name lines, the retrofit register) | 05 |
+| 6 digest | unchanged | after_12d4c_cert -> after_12d5_cert: **0 of 406 keys differ** | -- |
+
+`Use this value` never pressed; no override needed; Fast render OFF per sheet, back ON; the tab closed.
+
+### Tests (measured in-session)
+
+Targeted per commit: commit 1 -- 13 files / 977 (every importer of the changed modules + parity + servedVsStored), tsc 3,169;
+commit 2 -- rate-master dir 20 files / 935, tsc 3,169; commit 3 -- the same 13 files / 980, tsc 3,169. FULL (frontend only):
+`2026-10-13_12d5_frontend_full.log` **146 files / 5,131 tests** (+15 vs 12d-4c's 5,116; +1 file), 1 failure = the known
+`writeOffControl`; tsc 3,169, 0 OOM. Residence F2 223 = pre-slice (baseline 219 stale).

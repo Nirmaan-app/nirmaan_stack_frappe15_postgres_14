@@ -1446,6 +1446,24 @@ config message's `(R4)` / `(owner ...)` tag is stripped by `plainSentence` at re
 provenance without it reaching a pricer. The same mechanism lists ADP's rules (owner-approved); Electrical, alias
 and vendor-quote tabs stay EMPTY and are pinned so.
 
+**⚠️ EVERY PRICER-FACING LINE PASSES THROUGH THE ONE PLAIN-ENGLISH FUNCTION (owner P1 / P2, 2026-10-08,
+slice 12d-5).** `frontend/src/pages/pricing/rate-master/plainEnglish.ts` holds `plainSentence`, the
+Pricing-Input label resolver and `plainPricerText`; the Derivation tab, the rate-helper PANEL and the
+CALCULATOR all read through it, and `pricingSheetHelper` applies it ONCE, where the item-list view is built,
+to every DISPLAY string (a field's rule / note / match help, a block's reason / SKU line / working lines /
+family rule, the row's reason / unit note / derivation). A config keeps its provenance -- `R14 / slice 11`,
+`(owner 2026-10-07)`, `(R15)`, `gi_sheet_rate`, `item_supply:` -- and the pricer never sees it. ⚠️ **DISPLAY
+STRINGS ONLY**: a value the pricing or a control MATCHES on (`value`, `typedValue`, option values, the edit
+state) is never touched -- a cleaned value stops matching its option (the controlled-select trap).
+⚠️ **IT KEEPS A LINE'S INDENTATION AND NORMALISES NOTHING BUT ITS OWN REMOVALS**: a layer's steps sit
+indented under their layer line, and a family name may begin with a space (` Fiberglass Rigid Board
+Insulation, Density 48Kg/m3`); the first draft trimmed both and the no-other-change sweep caught it as a
+2,842-line "other" class. ⚠️ **THE NON-ITEM-LIST (ELECTRICAL) PATH NEVER REACHES IT** -- its lines are the
+Electrical retrofit, by owner ruling P3 -- and the sweep pins Electrical byte-identical. A second
+cleaner beside this one, or a cleaned string written back into a config, is how one screen drifts from
+another; the NEGATIVE pin (`plainEnglish.test.ts`) runs every Insulation and ADP case of the 12c-S sweep
+through both paths and refuses any code, `slice N`, `(owner` or snake_case token on any display string.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.
