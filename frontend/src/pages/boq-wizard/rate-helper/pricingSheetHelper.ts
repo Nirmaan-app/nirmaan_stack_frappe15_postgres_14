@@ -32,6 +32,7 @@ import {
   NONE_SENTINEL,
   runPipeline,
 } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
+import { plainPricerText } from "@/pages/pricing/rate-master/plainEnglish";
 // CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
 // value becomes a match key); this file imports it and no longer defines it.
 import {
@@ -2432,10 +2433,47 @@ function computeItemList(
     values,
     ...(inRun ? { producibleKinds: PRODUCIBLE_KINDS } : {}),
     basis,
-    workings: { attributes: [], matchedRows: [], derivation, finalValues: { ...values } },
-    itemList: view,
+    workings: { attributes: [], matchedRows: [], derivation: derivation.map((l) => plainPricerText(l, items)), finalValues: { ...values } },
+    itemList: plainItemListView(view, items),
   };
   return out;
+}
+
+/**
+ * SLICE 12d-5 (owner P1 / P2, F-C5b) -- EVERY pricer-facing string of the item-list view passes through the
+ * ONE plain-English function (`plainEnglish.plainPricerText`), here, at the one place the view is built, so
+ * the panel and the calculator (the same `compute`, two entries) can never show a code or an internal name
+ * that the Derivation tab hides. The sites, named: a field's `rule` (the ruled default beneath it), its
+ * `note` (a ladder hop / "BoQ says" / "You typed"), its `matchHelp` sentences; a block's `reason`
+ * (refusal), `skuLine`, `working` lines (the interpreter's step labels incl. `item_supply:` prefixes and
+ * Pricing-Input ids, the "not mentioned ->" default lines, the override lines) and its
+ * `familyDefaulted.rule`; the view's `reason` and `unitNote`; the row-level `workings.derivation` line.
+ *
+ * ⚠️ DISPLAY STRINGS ONLY. `value` / `typedValue` / `optionLabels` / `selection` / `readValues` / the edit
+ * state are what the pricing and the controls MATCH on and are not touched -- a cleaned value would stop
+ * matching its option (the controlled-select trap). `label` is a definition label, already plain.
+ * ⚠️ The non-item-list path (Electrical) never reaches this function; its lines are the Electrical retrofit.
+ */
+function plainItemListView(view: ItemListView, items: ReadonlyArray<RateMasterItem>): ItemListView {
+  const p = (s: string) => plainPricerText(s, items);
+  return {
+    ...view,
+    ...(view.reason !== undefined ? { reason: p(view.reason) } : {}),
+    ...(view.unitNote !== undefined ? { unitNote: p(view.unitNote) } : {}),
+    items: view.items.map((b) => ({
+      ...b,
+      ...(b.reason !== undefined ? { reason: p(b.reason) } : {}),
+      ...(b.skuLine !== undefined ? { skuLine: p(b.skuLine) } : {}),
+      ...(b.familyDefaulted ? { familyDefaulted: { ...b.familyDefaulted, rule: p(b.familyDefaulted.rule) } } : {}),
+      working: b.working.map(p),
+      fields: b.fields.map((f) => ({
+        ...f,
+        ...(f.rule !== undefined ? { rule: p(f.rule) } : {}),
+        ...(f.note !== undefined ? { note: p(f.note) } : {}),
+        ...(f.matchHelp ? { matchHelp: f.matchHelp.map(p) } : {}),
+      })),
+    })),
+  };
 }
 
 // ── SLICE 6: the item-edit OPERATIONS (S1 / S3) -- PURE, each returns a NEW state; the panel serialises it ──

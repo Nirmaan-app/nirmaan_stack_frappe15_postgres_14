@@ -39,13 +39,13 @@ const list = (xs: readonly string[], max = 6): string =>
 
 const quoteList = (xs: readonly string[], max = 6): string => list(xs.map((x) => `'${x}'`), max);
 
-/** A config sentence as the pricer should read it: the trailing "(R4)" / "(owner ...)" tags dropped. */
-export const plainSentence = (s: unknown): string =>
-  String(s ?? "")
-    .replace(/\s*\((?:R|D|T|S|Q)-?\d+[a-z]?(?:\s*\/\s*(?:R|D|T|S|Q)-?\d+[a-z]?)*\)/g, "")
-    .replace(/\s*\(owner[^)]*\)/gi, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+/**
+ * SLICE 12d-5: `plainSentence` and the Pricing-Input label resolver moved to `plainEnglish.ts` -- the ONE
+ * plain-English function the panel and the calculator now share with this tab. Re-exported so every
+ * 12d-4c caller and pin stands; do not copy either back here.
+ */
+import { plainSentence, pricingInputLabel } from "./plainEnglish";
+export { plainSentence };
 
 /**
  * The resolution order for a category that prices a row as a LIST OF ITEMS, or [] for one that does
@@ -63,15 +63,7 @@ export const plainSentence = (s: unknown): string =>
 export type RuleOrderItem = { kind?: string; attributes?: Record<string, unknown> };
 
 export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrderItem> = []): RuleOrderLine[] {
-  const inputLabel = (id: string): string => {
-    for (const it of items) {
-      if (/_pricing_input$/.test(String(it?.kind ?? "")) && String(it?.attributes?.item ?? "") === id) {
-        const nm = it.attributes?.name;
-        if (typeof nm === "string" && nm.trim()) return nm.trim();
-      }
-    }
-    return id.replace(/_/g, " ");
-  };
+  const inputLabel = (id: string): string => pricingInputLabel(id, items);
   const ls = (config as any)?.list_spec;
   const pr = ls?.pricing;
   if (!pr || typeof pr !== "object") return [];

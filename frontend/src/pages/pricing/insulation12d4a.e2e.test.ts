@@ -143,7 +143,9 @@ describe("every audited row through BOTH paths on v31", () => {
       const v = view(x.run);
       // the framework line ONCE per LAYER that carries the cladding (the outer one); the inner layers carry "No"
       const outer = v.items[v.items.length - 1];
-      expect(outer.working.some((w) => w.includes("gi_sheet_rate (rate) = 450")), x.r.id).toBe(true);
+      // 12d-5 (owner P2) INVERTED: the Pricing Input is named by its LABEL -- before: includes("gi_sheet_rate (rate) = 450")
+      expect(outer.working.some((w) => w.includes("GI framework sheet (rate) = 450")), x.r.id).toBe(true);
+      expect(outer.working.some((w) => w.includes("gi_sheet_rate")), x.r.id).toBe(false);
       expect(outer.fields.find((f) => f.id === "cladding")?.value).toBe("GI Framework with perforated Al sheet");
     }
     // one figure per stated thickness, stated in advance (12d-4a ledger)

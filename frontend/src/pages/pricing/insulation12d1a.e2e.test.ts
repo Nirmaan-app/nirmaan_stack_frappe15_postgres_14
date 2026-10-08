@@ -141,7 +141,9 @@ describe("E2E-1 (a)-(h) -- each rule produces the outcome stated in advance, on 
     const clad = v.items[0].fields.find((f) => f.id === "cladding")!;
     expect(clad.value).toBe("No");
     expect(clad.defaulted).toBe(true);
-    expect(clad.rule).toMatch(/R1/);
+    // 12d-5 (owner P2) INVERTED: the rule is shown in PLAIN ENGLISH -- before: toMatch(/R1/) on "R1 cladding not mentioned -> without cladding"
+    expect(clad.rule).toBe("cladding not mentioned -> without cladding");
+    expect(clad.rule).not.toMatch(/R1/);
     expect(headline(r)).toEqual({ supply: 464, install: 154 });
     noDivergence(r);
   });
@@ -165,7 +167,9 @@ describe("E2E-1 (a)-(h) -- each rule produces the outcome stated in advance, on 
     expect(v.items[0].family).toBe(NR);
     const clad = v.items[0].fields.find((f) => f.id === "cladding")!;
     expect(clad.value).toBe("26G Aluminium");
-    expect(v.items[0].working.some((w) => /R4/.test(w))).toBe(true);
+    // 12d-5 (owner P2) INVERTED: the override line carries the rule's WORDS, never its code -- before: some(w => /R4/.test(w))
+    expect(v.items[0].working.some((w) => /foil on a pipe is priced as 26G cladding/.test(w))).toBe(true);
+    expect(v.items[0].working.some((w) => /R4/.test(w))).toBe(false);
     expect(headline(r)).toEqual({ supply: 545, install: 224 });
     noDivergence(r);
   });
@@ -175,7 +179,8 @@ describe("E2E-1 (a)-(h) -- each rule produces the outcome stated in advance, on 
     const v = view(r);
     expect(v.rowPriced).toBe(false);
     expect(v.reason).toMatch(/foil on an acoustic row/);
-    expect(v.reason).toMatch(/R4/);
+    // 12d-5 (owner P2) INVERTED: the refusal keeps its words and loses its "(R4)" tag -- before: toMatch(/R4/)
+    expect(v.reason).not.toMatch(/R4/);
   });
 });
 
@@ -191,7 +196,8 @@ describe("E2E-1 -- the five single cases", () => {
     const r = run("unstocked_xlpe");
     const v = view(r);
     expect(v.rowPriced).toBe(false);
-    expect(v.reason).toBe("no SKU in the catalogue for 'none of these' -- the user decides (R18)");
+    // 12d-5 (owner P2) INVERTED: before "... -- the user decides (R18)"
+    expect(v.reason).toBe("no SKU in the catalogue for 'none of these' -- the user decides");
   });
 
   it("a 22G GI frame -> GI Framework with perforated Al sheet on Fiberglass 50 mm: 1757 / 518", () => {

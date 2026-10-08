@@ -80,7 +80,9 @@ describe("E2E-1 (a) -- thickness not mentioned -> 9 mm then the ladder, amber, o
     const t = thickness(r);
     expect(t.value).toBe("13");
     expect(t.defaulted).toBe(true);
-    expect(t.rule).toMatch(/T1/);
+    // 12d-5 (owner P2) INVERTED: plain English -- before: toMatch(/T1/) on "T1 thickness not mentioned -> 9 mm, then the ladder (owner 2026-10-07)"
+    expect(t.rule).toBe("thickness not mentioned -> 9 mm, then the ladder");
+    expect(t.rule).not.toMatch(/T1/);
     expect(headline(r)).toEqual({ supply: 238, install: 14 });
     noDivergence(r);
   });
