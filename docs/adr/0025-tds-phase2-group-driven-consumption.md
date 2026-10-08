@@ -186,3 +186,32 @@ This reverses part of **P2-3**. In practice, project one-offs did land in the sh
 
 Vocabulary: the shared-catalogue TDS Item with no members is now an **Unlinked TDS Item**; "Custom Item"
 is retired as a term (see `GLOSSARY.md`).
+
+## Amendment B — Client Status: the client's answer sits beside the Admin's approval (2026-10-08)
+
+Status: accepted (grilled 2026-10-08; not yet built).
+
+This extends **P2-5**. After an Admin approves a project row, the datasheet goes to the client, and
+the client approves or rejects it. Decisions:
+
+- **The client's answer is its own field, not a new `tds_status` value.** A row carries a **Client
+  Status** (blank / *Approved by Client* / *Rejected by Client*) plus who set it, when, and an
+  optional client's reason. `tds_status` stays `Approved`. *Rejected:* adding the two answers as new
+  `tds_status` values. That would break "one meaning per stored value", and every reader of
+  `Approved` (approval screen, duplicate checks, Handover, export) would need to learn that two more
+  values also mean "Admin approved".
+- **Only an Admin-approved row can carry one.** Admin and PMO Executive set it, in bulk, and may
+  switch it between the two answers. Each set or switch records who and when again. Only an Admin
+  can clear it.
+- **A row with a Client Status cannot be deleted by anyone**, and the server enforces it.
+  `reject_tds_items` also stops rejecting rows that are not waiting, so an Admin rejection can never
+  land on a row the client has answered.
+- **Users see `Approved` as *Approved by Admin*** everywhere.
+- **A row *Rejected by Client* still holds its TDS Item + Make on the project.** That Make cannot be
+  picked again; the way back is switching the row to *Approved by Client*. Another Make of the same
+  TDS Item can be picked. *Rejected:* letting a second row with the same item + make sit beside the
+  rejected one. That breaks one-live-row-per-key, and the rejected row can't be deleted to make room.
+- **The TDS report export picks statuses in order.** The choices are *Approved by Client*,
+  *Approved by Admin* (approved, with no client answer yet) and *Pending*. They are disjoint, so no row
+  prints twice. *Rejected by Client* is never exported. The PDF groups by status first, then by
+  package. The report itself is unchanged and prints no Client Status.
