@@ -49,7 +49,6 @@ import {
     type ClientStatusAction,
     type HistoryTab,
 } from "@/utils/tdsRequestRules";
-import { ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
 import { useSetClientStatus } from '../../data/tds/useTdsMutations';
 import { getFrappeError } from "@/utils/frappeErrors";
 import { format } from 'date-fns';
@@ -104,9 +103,16 @@ const CLIENT_STATUS_STYLES: Record<string, string> = {
 };
 
 const CLIENT_ACTION_BUTTONS: Record<ClientStatusAction, { label: string; className: string }> = {
-    [CLIENT_STATUS_ACTION.markApproved]: { label: "Mark Approved by Client", className: "bg-blue-600 hover:bg-blue-700 text-white" },
-    [CLIENT_STATUS_ACTION.markRejected]: { label: "Mark Rejected by Client", className: "bg-orange-600 hover:bg-orange-700 text-white" },
+    [CLIENT_STATUS_ACTION.markApproved]: { label: CLIENT_STATUS.approved, className: "bg-blue-600 hover:bg-blue-700 text-white" },
+    [CLIENT_STATUS_ACTION.markRejected]: { label: CLIENT_STATUS.rejected, className: "bg-orange-600 hover:bg-orange-700 text-white" },
     [CLIENT_STATUS_ACTION.clear]: { label: "Clear Client Status", className: "" },
+};
+
+/** A mark reads "Mark …" on TDS History and "Switch to …" on a client tab, where the rows already hold an answer. */
+const clientActionLabel = (action: ClientStatusAction, tab: HistoryTab) => {
+    const { label } = CLIENT_ACTION_BUTTONS[action];
+    if (action === CLIENT_STATUS_ACTION.clear) return label;
+    return `${tab === "history" ? "Mark" : "Switch to"} ${label}`;
 };
 
 const formatMarkedOn = (value?: string) => (value ? format(new Date(value), "dd-MMM-yyyy HH:mm") : "");
@@ -166,11 +172,8 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
     // row the client has answered is refused by the `on_trash` hook and shows
     // "Locked" here (`isDeleteLocked`).
     const canManageTDS = isAdmin || isPMO;
-    // The server re-checks both (`client_status.py` MARK_PROFILES, Clear Admin-only).
-    const clientActions = clientStatusActionsFor(tab, {
-        canMark: [ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE].includes(role),
-        canClear: role === ADMIN_PROFILE,
-    });
+    // The server re-checks both (`client_status.py` MARK_PROFILES, Clear Admin-only; both pass Administrator).
+    const clientActions = clientStatusActionsFor(tab, { canMark: isAdmin || isPMO, canClear: isAdmin });
 
     // --- 2. Define Columns (with dependency on userMap) ---
     const columns = useMemo<ColumnDef<ProjectTDSItem>[]>(() => [
@@ -525,16 +528,18 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
     const markClientStatus = async (rows: ProjectTDSItem[], action: ClientStatusAction, reason?: string) => {
         try {
             const result = await setClientStatus(projectId, rows.map(r => r.name), action, reason);
+            const isClear = action === CLIENT_STATUS_ACTION.clear;
             if (result.updated) {
+                const rowsText = `${result.updated} ${result.updated === 1 ? "row" : "rows"}`;
                 toast({
-                    title: "Client Status saved",
-                    description: `${result.updated} ${result.updated === 1 ? "row" : "rows"} marked.`,
+                    title: isClear ? "Client Status cleared" : "Client Status saved",
+                    description: isClear ? `${rowsText} cleared and back in TDS History.` : `${rowsText} marked.`,
                     variant: "success",
                 });
             }
             if (result.errors.length) {
                 toast({
-                    title: `${result.errors.length} ${result.errors.length === 1 ? "row was" : "rows were"} not marked`,
+                    title: `${result.errors.length} ${result.errors.length === 1 ? "row was" : "rows were"} not ${isClear ? "cleared" : "marked"}`,
                     description: result.errors[0].error,
                     variant: "destructive",
                 });
@@ -563,11 +568,12 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
                 <Button
                     key={action}
                     size="sm"
+                    variant={action === CLIENT_STATUS_ACTION.clear ? "outline" : "default"}
                     disabled={isMarking}
                     className={CLIENT_ACTION_BUTTONS[action].className}
                     onClick={() => handleClientAction(action)}
                 >
-                    {CLIENT_ACTION_BUTTONS[action].label}
+                    {clientActionLabel(action, tab)}
                 </Button>
             ))}
         </div>

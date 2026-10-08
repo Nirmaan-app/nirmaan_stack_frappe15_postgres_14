@@ -55,7 +55,8 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
   `client_status.py`, mirrored by `CLIENT_STATUS` / `CLIENT_STATUS_ACTION` in `tdsRequestRules.ts`
   (parity block). TDS History's three tabs filter on it server-side (`historyTabFilters`: no Client
   Status / each answer), so every row sits in exactly one tab; ticks go only on
-  `isClientStatusMarkable` rows.
+  `isClientStatusMarkable` rows. `clientStatusActionsFor` names each tab's actions: TDS History the two
+  marks; a client tab the switch to the other answer, plus Clear for an Admin only.
 - **A row the client has answered can't be deleted** by anyone, through any doc-layer path including
   REST: the `on_trash` hook (`integrations/controllers/project_tds_item_list.py`) refuses it while
   `client_status` is set. An Admin clears the Client Status first; the row then deletes under the usual

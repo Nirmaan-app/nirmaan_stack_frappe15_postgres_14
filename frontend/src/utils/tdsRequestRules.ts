@@ -330,9 +330,11 @@ export function isDeleteLocked(row: ClientStatusRow): boolean {
 
 /**
  * The Client Status actions a tab's toolbar offers for ticked rows.
- * - `canMark`: Admin or PMO Executive (the server's `MARK_PROFILES`)
- * - `canClear`: Admin only; no tab offers Clear yet
- * Today only TDS History offers the two marks; the client tabs gain the switch and Clear next.
+ * - TDS History: the two marks.
+ * - A client tab: the switch to the other answer, then Clear (Admin only), which sends the rows back
+ *   to TDS History.
+ * `canMark` is Admin or PMO Executive (the server's `MARK_PROFILES`); `canClear` is Admin only. The
+ * server re-checks both.
  */
 export function clientStatusActionsFor(
   tab: HistoryTab,
@@ -340,5 +342,7 @@ export function clientStatusActionsFor(
 ): ClientStatusAction[] {
   if (!rights.canMark) return [];
   if (tab === "history") return [CLIENT_STATUS_ACTION.markApproved, CLIENT_STATUS_ACTION.markRejected];
-  return [];
+  const clear = rights.canClear ? [CLIENT_STATUS_ACTION.clear] : [];
+  if (tab === "approvedByClient") return [CLIENT_STATUS_ACTION.markRejected, ...clear];
+  return [CLIENT_STATUS_ACTION.markApproved, ...clear];
 }

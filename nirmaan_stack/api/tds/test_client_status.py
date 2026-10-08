@@ -122,6 +122,48 @@ class TestSetClientStatus(FrappeTestCase):
 		self.assertGreater(stored.client_status_on, frappe.utils.get_datetime("2026-01-01 10:00:00"))
 		self.assertFalse(stored.client_rejection_reason)
 
+	def test_a_switch_to_rejected_by_client_restamps_the_row_and_keeps_the_new_reason(self):
+		row = self._row(
+			client_status=CLIENT_STATUS_APPROVED,
+			client_status_by="Administrator",
+			client_status_on="2026-01-01 10:00:00",
+		)
+		frappe.set_user(PMO_USER)
+
+		out = set_client_status([row], ACTION_MARK_REJECTED, reason="Client changed their mind")
+
+		frappe.set_user("Administrator")
+		self.assertEqual(out, {"status": "success", "updated": 1, "errors": []})
+		stored = self._stored(row)
+		self.assertEqual(stored.tds_status, "Approved")
+		self.assertEqual(stored.client_status, CLIENT_STATUS_REJECTED)
+		self.assertEqual(stored.client_status_by, PMO_USER)
+		self.assertGreater(stored.client_status_on, frappe.utils.get_datetime("2026-01-01 10:00:00"))
+		self.assertEqual(stored.client_rejection_reason, "Client changed their mind")
+
+	def test_an_admin_clear_of_an_approved_by_client_row_returns_it_to_tds_history(self):
+		row = self._row(
+			client_status=CLIENT_STATUS_APPROVED,
+			client_status_by=PMO_USER,
+			client_status_on="2026-01-01 10:00:00",
+		)
+
+		out = set_client_status([row], ACTION_CLEAR)
+
+		self.assertEqual(out["updated"], 1)
+		stored = self._stored(row)
+		self.assertEqual(stored.tds_status, "Approved")
+		self.assertFalse(any(stored[f] for f in CLIENT_FIELDS))
+
+	def test_clear_refuses_a_row_with_no_client_status_and_leaves_it_alone(self):
+		row = self._row()
+
+		out = set_client_status([row], ACTION_CLEAR)
+
+		self.assertEqual(out["updated"], 0)
+		self.assertEqual([e["name"] for e in out["errors"]], [row])
+		self.assertFalse(any(self._stored(row)[f] for f in CLIENT_FIELDS))
+
 	def test_rows_that_are_not_admin_approved_are_refused_one_by_one(self):
 		waiting = [self._row(status, make=f"Make{status or 'Legacy'}") for status in ("Pending", "New", "Rejected", "")]
 		approved = self._row(make="MakeOK")
