@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -123,6 +123,9 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     // `custom_work_package` (Project Custom's declared package).
     const [filterWP, setFilterWP] = useState<string>("");
     const [selectedGroup, setSelectedGroup] = useState<GroupResult | null>(null);
+    // The make chosen before switching into New Make. Picking a TDS Item there blanks a make that
+    // already has a datasheet under it; back in Project Custom that make is valid again, so it returns.
+    const makeBeforeNewMake = useRef("");
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -288,10 +291,12 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
 
     // Each type keeps its own fields, so a round-trip loses nothing typed. Only
     // the New Make pick is dropped on leaving it: its greyed-out makes would
-    // otherwise follow the user into Project Custom.
+    // otherwise follow the user into Project Custom. A make that pick blanked
+    // comes back with it.
     // (Everything resets on dialog close via handleCancel.)
     const handleModeChange = (next: TdsRequestMode) => {
         if (next === mode) return;
+        if (next === "new_make") makeBeforeNewMake.current = form.getValues("make");
         form.setValue("mode", next);
         form.clearErrors();
         if (mode === "new_make") {
@@ -300,6 +305,9 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
             form.setValue("tds_item_id", "");
             form.setValue("tds_item_name", "");
             form.setValue("work_package", "");
+            if (!form.getValues("make") && makeBeforeNewMake.current) {
+                form.setValue("make", makeBeforeNewMake.current);
+            }
         }
     };
 
@@ -356,6 +364,7 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     const handleCancel = () => {
         onOpenChange(false);
         form.reset(EMPTY_FORM);
+        makeBeforeNewMake.current = "";
         setSelectedGroup(null);
         setFilterWP("");
         setSelectedFile(null);
