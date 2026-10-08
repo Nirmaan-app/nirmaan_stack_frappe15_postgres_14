@@ -243,3 +243,76 @@ export function historyStatusesIn(filterValue: unknown): HistoryStatus[] {
   if (!Array.isArray(filterValue)) return [];
   return [...new Set(filterValue.map(v => historyStatusOf(String(v))))];
 }
+
+// ── Client Status (ADR-0025 Amendment B) ────────────────────────────────────────────────────────
+// The client's answer on an Admin-approved row, stored beside `tds_status` (which stays Approved).
+// Written only by `api/tds/client_status.set_client_status`.
+
+/** Stored `client_status` values; blank means the client has not answered. Pinned to `client_status.py`. */
+export const CLIENT_STATUS = {
+  approved: "Approved by Client",
+  rejected: "Rejected by Client",
+} as const;
+export type ClientStatus = (typeof CLIENT_STATUS)[keyof typeof CLIENT_STATUS];
+
+/** The `action` argument of `set_client_status`. Pinned to `client_status.py`. */
+export const CLIENT_STATUS_ACTION = {
+  markApproved: "mark_approved",
+  markRejected: "mark_rejected",
+  clear: "clear",
+} as const;
+export type ClientStatusAction = (typeof CLIENT_STATUS_ACTION)[keyof typeof CLIENT_STATUS_ACTION];
+
+/** The fields of a Project TDS row the Client Status rules read. */
+export interface ClientStatusRow extends TdsRequestRow {
+  client_status?: string | null;
+}
+
+/** The TDS History page's tabs. Every row sits in exactly one (`historyTabOf`). */
+export type HistoryTab = "history" | "approvedByClient" | "rejectedByClient";
+export const HISTORY_TABS: readonly { value: HistoryTab; label: string }[] = [
+  { value: "history", label: "TDS History" },
+  { value: "approvedByClient", label: CLIENT_STATUS.approved },
+  { value: "rejectedByClient", label: CLIENT_STATUS.rejected },
+];
+
+/** The tab a row belongs to: its Client Status's tab, or TDS History while the client has not answered. */
+export function historyTabOf(row: ClientStatusRow): HistoryTab {
+  if (row.client_status === CLIENT_STATUS.approved) return "approvedByClient";
+  if (row.client_status === CLIENT_STATUS.rejected) return "rejectedByClient";
+  return "history";
+}
+
+/**
+ * The list filter that selects exactly one tab's rows on the server, the same rows `historyTabOf`
+ * puts there. `is not set` matches NULL and blank, so rows from before Client Status existed land in
+ * TDS History.
+ */
+export function historyTabFilters(tab: HistoryTab): [string, string, string][] {
+  if (tab === "approvedByClient") return [["client_status", "=", CLIENT_STATUS.approved]];
+  if (tab === "rejectedByClient") return [["client_status", "=", CLIENT_STATUS.rejected]];
+  return [["client_status", "is", "not set"]];
+}
+
+/**
+ * A row that can take a Client Status: an Admin-approved one, answered or not (an answered row can
+ * be switched). Pending, New and Rejected rows can't; the server refuses them the same way.
+ */
+export function isClientStatusMarkable(row: ClientStatusRow): boolean {
+  return row.tds_status === STORED_STATUS.approved;
+}
+
+/**
+ * The Client Status actions a tab's toolbar offers for ticked rows.
+ * - `canMark`: Admin or PMO Executive (the server's `MARK_PROFILES`)
+ * - `canClear`: Admin only; no tab offers Clear yet
+ * Today only TDS History offers the two marks; the client tabs gain the switch and Clear next.
+ */
+export function clientStatusActionsFor(
+  tab: HistoryTab,
+  rights: { canMark: boolean; canClear: boolean }
+): ClientStatusAction[] {
+  if (!rights.canMark) return [];
+  if (tab === "history") return [CLIENT_STATUS_ACTION.markApproved, CLIENT_STATUS_ACTION.markRejected];
+  return [];
+}

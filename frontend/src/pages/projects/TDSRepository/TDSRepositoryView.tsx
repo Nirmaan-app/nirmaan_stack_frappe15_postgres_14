@@ -10,13 +10,10 @@ import { format } from 'date-fns';
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog, TdsPdfReadyDialog } from './components';
-import { historyStatusLabel } from '@/utils/tdsRequestRules';
+import { HISTORY_TABS, historyStatusLabel, historyTabFilters, type HistoryTab } from '@/utils/tdsRequestRules';
+import { useCounts } from '@/hooks/useCounts';
 
-/** The table tabs on the tab row. A new tab is one entry here plus its `TabsContent`. */
-const TABLE_TABS = [
-    { value: "history", label: "TDS History" },
-] as const;
-type TableTab = (typeof TABLE_TABS)[number]["value"];
+const ROW_DOCTYPE = "Project TDS Item List";
 
 interface TDSRepositoryViewProps {
     data: TDSRepositoryData;
@@ -33,7 +30,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
-    const [activeTab, setActiveTab] = useState<TableTab>("history");
+    const [activeTab, setActiveTab] = useState<HistoryTab>("history");
     // The request form replaces the tab row and tables while open; both stay mounted.
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
@@ -55,6 +52,26 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
     const { data: historyData, mutate: mutateHistoryItems } = useTdsHistoryItems(projectId);
 
     const { data: projectData } = useProjectDoc(projectId);
+
+    // One count per tab, with the same server filter its table uses, so a badge always matches its rows.
+    const tabCountSpecs = React.useMemo(
+        () => HISTORY_TABS.map(tab => ({
+            key: tab.value,
+            doctype: ROW_DOCTYPE,
+            filters: [["tdsi_project_id", "=", projectId], ...historyTabFilters(tab.value)],
+        })),
+        [projectId]
+    );
+    const { data: tabCounts, mutate: mutateTabCounts } = useCounts(
+        tabCountSpecs,
+        `tds_tab_counts_${projectId}_${refreshKey}`
+    );
+
+    /* Rows were marked: refresh the badges, and the rows the CSV and PDF exports read. */
+    const handleClientStatusChange = () => {
+        mutateTabCounts();
+        mutateHistoryItems();
+    };
     const projectName = projectData?.project_name || projectId;
 
     /* `useTdsHistoryItems` is mounted by THIS PAGE, not by the dialog, so opening
@@ -100,6 +117,10 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                     "BOQ Ref",
                     "Status",
                     "Rejection Reason",
+                    "Client Status",
+                    "Marked By",
+                    "Marked On",
+                    "Client's Reason",
                     "Doc",
                     "Created On"
                 ];
@@ -116,6 +137,10 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                     item.tds_boq_line_item || "",
                     historyStatusLabel(item.tds_status),
                     (item.tds_rejection_reason || "").replace(/,/g, ";"),
+                    item.client_status || "",
+                    item.client_status_by || "",
+                    item.client_status_on ? format(new Date(item.client_status_on), "dd-MMM-yyyy HH:mm") : "",
+                    (item.client_rejection_reason || "").replace(/,/g, ";"),
                     item.tds_attachment || "",
                     item.creation ? format(new Date(item.creation), "dd-MMM-yyyy HH:mm") : ""
                 ]);
@@ -420,16 +445,22 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
             {/* TDS Item Management: the table tabs, or the request form in their place */}
             <div className="mt-12">
                 <div className={isFormOpen ? 'hidden' : 'block'}>
-                    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TableTab)} className="w-full">
+                    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as HistoryTab)} className="w-full">
                         <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
                             <TabsList className="inline-flex p-0 bg-white border border-gray-200 rounded-md overflow-hidden">
-                                {TABLE_TABS.map(tab => (
+                                {HISTORY_TABS.map(tab => (
                                     <TabsTrigger
                                         key={tab.value}
                                         value={tab.value}
-                                        className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
+                                        className="group rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
                                     >
                                         {tab.label}
+                                        <span
+                                            data-testid={`tds-tab-count-${tab.value}`}
+                                            className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700 group-data-[state=active]:bg-white/20 group-data-[state=active]:text-white"
+                                        >
+                                            {(tabCounts?.message?.[tab.value] as number | undefined) ?? 0}
+                                        </span>
                                     </TabsTrigger>
                                 ))}
                             </TabsList>
@@ -441,13 +472,17 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                                 Create New Request
                             </Button>
                         </div>
-                        <TabsContent value="history" forceMount className="mt-0 data-[state=inactive]:hidden">
-                            <TdsHistoryTable
-                                projectId={projectId}
-                                refreshTrigger={refreshKey}
-                                onDataChange={() => setRefreshKey(prev => prev + 1)}
-                            />
-                        </TabsContent>
+                        {HISTORY_TABS.map(tab => (
+                            <TabsContent key={tab.value} value={tab.value} className="mt-0">
+                                <TdsHistoryTable
+                                    projectId={projectId}
+                                    tab={tab.value}
+                                    refreshTrigger={refreshKey}
+                                    onDataChange={() => setRefreshKey(prev => prev + 1)}
+                                    onClientStatusChange={handleClientStatusChange}
+                                />
+                            </TabsContent>
+                        ))}
                     </Tabs>
                 </div>
 

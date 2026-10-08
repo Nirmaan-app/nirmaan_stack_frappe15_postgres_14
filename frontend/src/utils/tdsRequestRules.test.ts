@@ -23,6 +23,15 @@ import {
   requestTypeOf,
   storedStatusesFor,
 } from "./tdsRequestRules";
+import {
+  CLIENT_STATUS,
+  CLIENT_STATUS_ACTION,
+  HISTORY_TABS,
+  clientStatusActionsFor,
+  historyTabFilters,
+  historyTabOf,
+  isClientStatusMarkable,
+} from "./tdsRequestRules";
 
 // The backend writes the stored values; this module only reads them. The PARITY block reads the
 // Python that writes them, so a renamed status or prefix there fails here instead of silently
@@ -399,5 +408,94 @@ describe("historyStatusesIn", () => {
   it("round-trips with storedStatusesFor", () => {
     const shown = ["Pending", "Rejected"];
     expect(historyStatusesIn(storedStatusesFor(shown))).toEqual(shown);
+  });
+});
+
+// ── Client Status (#1385, ADR-0025 Amendment B) ─────────────────────────────────────────────────
+
+describe("parity with api/tds/client_status.py", () => {
+  const CLIENT_PY = pySource("client_status.py");
+  const clientConstant = (name: string) => {
+    const m = CLIENT_PY.match(new RegExp(`^${name}\\s*=\\s*"([^"]*)"`, "m"));
+    expect(m, `${name} not found in client_status.py`).toBeTruthy();
+    return m![1];
+  };
+
+  it("the stored Client Status values match", () => {
+    expect(clientConstant("CLIENT_STATUS_APPROVED")).toBe(CLIENT_STATUS.approved);
+    expect(clientConstant("CLIENT_STATUS_REJECTED")).toBe(CLIENT_STATUS.rejected);
+  });
+
+  it("the endpoint's actions match", () => {
+    expect(clientConstant("ACTION_MARK_APPROVED")).toBe(CLIENT_STATUS_ACTION.markApproved);
+    expect(clientConstant("ACTION_MARK_REJECTED")).toBe(CLIENT_STATUS_ACTION.markRejected);
+    expect(clientConstant("ACTION_CLEAR")).toBe(CLIENT_STATUS_ACTION.clear);
+  });
+
+  it("only an Admin-approved row takes one, as isClientStatusMarkable says", () => {
+    expect(pyConstant("STATUS_APPROVED")).toBe(STORED_STATUS.approved);
+    expect(CLIENT_PY).toMatch(/if row\.tds_status != STATUS_APPROVED:/);
+  });
+});
+
+describe("historyTabOf", () => {
+  it("a row the client has not answered stays in TDS History, whatever its tds_status", () => {
+    for (const tds_status of ["Pending", "New", "Approved", "Rejected", "", null]) {
+      expect(historyTabOf({ tds_status, client_status: "" })).toBe("history");
+      expect(historyTabOf({ tds_status, client_status: null })).toBe("history");
+      expect(historyTabOf({ tds_status })).toBe("history");
+    }
+  });
+
+  it("a client-answered row sits in that answer's tab", () => {
+    expect(historyTabOf({ tds_status: "Approved", client_status: "Approved by Client" })).toBe("approvedByClient");
+    expect(historyTabOf({ tds_status: "Approved", client_status: "Rejected by Client" })).toBe("rejectedByClient");
+  });
+
+  it("the tabs read TDS History, Approved by Client, Rejected by Client, in that order", () => {
+    expect(HISTORY_TABS.map(t => t.label)).toEqual(["TDS History", "Approved by Client", "Rejected by Client"]);
+    expect(HISTORY_TABS.map(t => t.value)).toEqual(["history", "approvedByClient", "rejectedByClient"]);
+  });
+});
+
+describe("historyTabFilters", () => {
+  it("TDS History asks the server for rows with no Client Status (NULL or blank)", () => {
+    expect(historyTabFilters("history")).toEqual([["client_status", "is", "not set"]]);
+  });
+
+  it("each client tab asks for exactly its answer", () => {
+    expect(historyTabFilters("approvedByClient")).toEqual([["client_status", "=", "Approved by Client"]]);
+    expect(historyTabFilters("rejectedByClient")).toEqual([["client_status", "=", "Rejected by Client"]]);
+  });
+});
+
+describe("isClientStatusMarkable", () => {
+  it("only an Admin-approved row gets a tick box", () => {
+    expect(isClientStatusMarkable({ tds_status: "Approved" })).toBe(true);
+    for (const tds_status of ["Pending", "New", "Rejected", "", null, undefined]) {
+      expect(isClientStatusMarkable({ tds_status })).toBe(false);
+    }
+  });
+
+  it("an answered row stays markable, so it can be switched", () => {
+    expect(isClientStatusMarkable({ tds_status: "Approved", client_status: "Rejected by Client" })).toBe(true);
+  });
+});
+
+describe("clientStatusActionsFor", () => {
+  const marker = { canMark: true, canClear: false };
+
+  it("TDS History offers both marks to an Admin or PMO Executive", () => {
+    expect(clientStatusActionsFor("history", marker)).toEqual(["mark_approved", "mark_rejected"]);
+    expect(clientStatusActionsFor("history", { canMark: true, canClear: true })).toEqual([
+      "mark_approved",
+      "mark_rejected",
+    ]);
+  });
+
+  it("anyone else gets no marking action", () => {
+    for (const tab of HISTORY_TABS) {
+      expect(clientStatusActionsFor(tab.value, { canMark: false, canClear: false })).toEqual([]);
+    }
   });
 });
