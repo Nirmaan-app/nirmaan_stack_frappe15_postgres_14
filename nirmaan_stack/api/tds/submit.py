@@ -301,7 +301,13 @@ def _refuse_duplicates(project, planned, exclude=None):
 	or legacy-null there. Rejected rows don't count; they are what a resubmit replaces.
 
 	The item is the TDS Item id, or for a Project Custom row its name (trimmed, ignoring case).
+	A *Rejected by Client* row is live too (its `tds_status` stays Approved); its refusal says so and
+	names the two ways out, so a direct API call gets the same explanation as the form's popup.
+
 	`exclude`: the row being edited, which is no duplicate of itself."""
+	# Imported here: `client_status` imports this module.
+	from nirmaan_stack.api.tds.client_status import CLIENT_STATUS_REJECTED
+
 	seen = set()
 	for p in planned:
 		key = _item_make_key(p["tds_item_id"], p["custom_name_key"], p["tds_make"])
@@ -316,12 +322,19 @@ def _refuse_duplicates(project, planned, exclude=None):
 	existing = frappe.get_all(
 		ROW_DOCTYPE,
 		filters={"tdsi_project_id": project},
-		fields=["name", "tds_item_id", "tds_item_name", "tds_make", "tds_status", "tds_request_id"],
+		fields=["name", "tds_item_id", "tds_item_name", "tds_make", "tds_status", "tds_request_id", "client_status"],
 		limit_page_length=0,
 	)
 	for row in existing:
 		if row.name == exclude or row.tds_status == "Rejected" or _stored_key(row) not in seen:
 			continue
+		if row.client_status == CLIENT_STATUS_REJECTED:
+			frappe.throw(
+				_(
+					"{0} ({1}) is Rejected by Client on this project in request {2}, so it can't be added again."
+					" Pick another make, or switch that row to Approved by Client in the Rejected by Client tab."
+				).format(row.tds_item_name, row.tds_make, row.tds_request_id or "—")
+			)
 		frappe.throw(
 			_("{0} ({1}) is already on this project in request {2}.").format(
 				row.tds_item_name, row.tds_make, row.tds_request_id or "—"

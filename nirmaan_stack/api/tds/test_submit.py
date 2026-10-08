@@ -15,6 +15,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
+from nirmaan_stack.api.tds.client_status import CLIENT_STATUS_REJECTED
 from nirmaan_stack.api.tds.submit import submit_tds_request
 from nirmaan_stack.services.role_profiles import PMO_EXECUTIVE_PROFILE
 
@@ -178,7 +179,7 @@ class TestSubmitTdsRequest(FrappeTestCase):
 			order_by="tds_make asc",
 		)
 
-	def _existing(self, status, make="MakeA", project=None, item=None, request_id=None, name="Gate Valve"):
+	def _existing(self, status, make="MakeA", project=None, item=None, request_id=None, name="Gate Valve", **extra):
 		return _raw(
 			ROW,
 			tdsi_project_id=project or self.project,
@@ -187,6 +188,21 @@ class TestSubmitTdsRequest(FrappeTestCase):
 			tds_make=make,
 			tds_status=status,
 			tds_request_id=request_id,
+			**extra,
+		)
+
+	def _rejected_by_client(self, make="MakeA", item=None, name="Gate Valve"):
+		"""An Admin-approved row the client rejected: still live, so its item + make stays taken."""
+		return self._existing(
+			"Approved",
+			make=make,
+			item=item,
+			name=name,
+			request_id=f"{self.request_prefix}07",
+			client_status=CLIENT_STATUS_REJECTED,
+			client_status_by="Administrator",
+			client_status_on=frappe.utils.now_datetime(),
+			client_rejection_reason="Client wants another brand",
 		)
 
 	# ── picks ──────────────────────────────────────────────────────────────────
@@ -412,6 +428,40 @@ class TestSubmitTdsRequest(FrappeTestCase):
 					self._send([self._pick()])
 				self.assertEqual([r.name for r in self._rows()], [existing])
 				frappe.db.delete(ROW, existing)
+
+	def test_an_item_and_make_rejected_by_client_is_refused_with_a_message_that_says_so(self):
+		for label, row in (("pick", self._pick), ("new make", lambda: self._new_make(make="MakeA"))):
+			with self.subTest(row=label):
+				existing = self._rejected_by_client()
+				with self.assertRaises(frappe.ValidationError) as caught:
+					self._send([row()])
+				message = str(caught.exception)
+				self.assertIn("Rejected by Client", message)
+				self.assertIn(f"{self.request_prefix}07", message)
+				self.assertIn("Pick another make", message)
+				self.assertEqual([r.name for r in self._rows()], [existing])
+				frappe.db.delete(ROW, existing)
+
+	def test_another_make_of_an_item_rejected_by_client_can_be_sent(self):
+		existing = self._rejected_by_client(make="MakeA")
+		self._send([self._pick("MakeB")])
+		self.assertEqual(
+			[(r.name == existing, r.tds_make, r.tds_status) for r in self._rows()],
+			[(True, "MakeA", "Approved"), (False, "MakeB", "Pending")],
+		)
+
+	def test_a_custom_name_and_make_rejected_by_client_is_refused_but_another_make_is_not(self):
+		existing = self._rejected_by_client(item="PCUS-000001", name="Facade Light", make="Philips")
+		with self.assertRaises(frappe.ValidationError) as caught:
+			self._send([self._custom(name=" FACADE light")])
+		self.assertIn("Rejected by Client", str(caught.exception))
+		self.assertEqual([r.name for r in self._rows()], [existing])
+
+		self._send([self._custom(make="Wipro")])
+		self.assertEqual(
+			sorted((r.tds_item_id, r.tds_make, r.tds_status) for r in self._rows()),
+			[("PCUS-000001", "Philips", "Approved"), ("PCUS-000001", "Wipro", "Pending")],
+		)
 
 	def test_the_same_item_and_make_on_another_project_is_not_a_duplicate(self):
 		self._existing("Approved", project=self.other_project)

@@ -27,6 +27,7 @@ import {
   CLIENT_STATUS,
   CLIENT_STATUS_ACTION,
   HISTORY_TABS,
+  clientRejectedRowFor,
   clientStatusActionsFor,
   historyTabFilters,
   historyTabOf,
@@ -280,6 +281,47 @@ describe("liveRowFor", () => {
   });
 });
 
+describe("clientRejectedRowFor", () => {
+  const row = (name: string, client_status: string | null, tds_make = "MakeA", tds_item_id = "TDS-ITEM-1") => ({
+    name,
+    tds_item_id,
+    tds_item_name: "Gate Valve",
+    tds_make,
+    tds_status: "Approved",
+    client_status,
+  });
+  const pick = { tds_item_id: "TDS-ITEM-1", tds_item_name: "Gate Valve", make: "MakeA" };
+
+  it("finds the row the client rejected for the same TDS Item + make", () => {
+    expect(clientRejectedRowFor([row("r", "Rejected by Client")], pick)?.name).toBe("r");
+    expect(clientRejectedRowFor([row("r", "Rejected by Client")], { ...pick, is_new_request: true })?.name).toBe("r");
+  });
+
+  it("a row with no Client Status, or one Approved by Client, is not a client rejection", () => {
+    for (const status of [null, "", "Approved by Client"]) {
+      expect(clientRejectedRowFor([row("r", status)], pick), String(status)).toBeUndefined();
+    }
+  });
+
+  it("another make of the same TDS Item is free", () => {
+    expect(clientRejectedRowFor([row("r", "Rejected by Client", "MakeB")], pick)).toBeUndefined();
+    expect(clientRejectedRowFor([row("r", "Rejected by Client", "MakeA", "TDS-ITEM-2")], pick)).toBeUndefined();
+    expect(clientRejectedRowFor(undefined, pick)).toBeUndefined();
+  });
+
+  it("a Project Custom row matches its name ignoring case + make", () => {
+    const custom = { tds_item_id: "", tds_item_name: " gate VALVE", make: "MakeA", is_project_custom: true };
+    expect(clientRejectedRowFor([row("r", "Rejected by Client", "MakeA", "PCUS-000003")], custom)?.name).toBe("r");
+    expect(clientRejectedRowFor([row("r", "Rejected by Client", "MakeB", "PCUS-000003")], custom)).toBeUndefined();
+    expect(clientRejectedRowFor([row("r", "Rejected by Client")], custom)).toBeUndefined();
+  });
+
+  it("is a live row, so the duplicate check refuses it too", () => {
+    const rows = [row("r", "Rejected by Client")];
+    expect(liveRowFor(rows, pick)).toBe(clientRejectedRowFor(rows, pick));
+  });
+});
+
 describe("itemStatusOf", () => {
   const verified = { status: "Verified" };
   const notVerified = { status: "Not Verified" };
@@ -430,6 +472,12 @@ describe("parity with api/tds/client_status.py", () => {
     expect(clientConstant("ACTION_MARK_APPROVED")).toBe(CLIENT_STATUS_ACTION.markApproved);
     expect(clientConstant("ACTION_MARK_REJECTED")).toBe(CLIENT_STATUS_ACTION.markRejected);
     expect(clientConstant("ACTION_CLEAR")).toBe(CLIENT_STATUS_ACTION.clear);
+  });
+
+  it("the server's duplicate refusal names the Rejected by Client case, as clientRejectedRowFor does", () => {
+    const body = SUBMIT_PY.match(/def _refuse_duplicates\([\s\S]*?(?=\ndef )/);
+    expect(body, "_refuse_duplicates not found in submit.py").toBeTruthy();
+    expect(body![0]).toMatch(/if row\.client_status == CLIENT_STATUS_REJECTED:/);
   });
 
   it("only an Admin-approved row takes one, as isClientStatusMarkable says", () => {
