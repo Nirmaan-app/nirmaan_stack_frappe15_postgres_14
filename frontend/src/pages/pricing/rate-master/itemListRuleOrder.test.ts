@@ -181,7 +181,7 @@ const LIVE = latestHvac();
 const insulation = () => cfgOf(LIVE, "hvac_insulation");
 const textOf = (cfg: unknown, items: any[] = LIVE.items) => itemListRuleOrder(cfg, items).map((r) => `${r.title} -- ${r.detail ?? ""}`).join("\n");
 const without = (cfg: any, key: string) => {
-  const c = JSON.parse(JSON.stringify(cfg));
+  const c = structuredClone(cfg);   // a structured clone, not a JSON round-trip: the F2 residence ratchet counts inline parses under pages/
   delete c.list_spec.pricing[key];
   return c;
 };
