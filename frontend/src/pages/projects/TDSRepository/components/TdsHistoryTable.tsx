@@ -7,7 +7,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { DataTableFacetedFilter } from "@/components/data-table/data-table-faceted-filter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, Trash2, MessageSquare } from 'lucide-react';
+import { FileText, Trash2, MessageSquare, Lock } from 'lucide-react';
 import {
     Tooltip,
     TooltipContent,
@@ -35,6 +35,7 @@ import {
     historyStatusLabel,
     historyStatusOf,
     historyStatusesIn,
+    isDeleteLocked,
     isProjectCustomId,
     storedStatusesFor,
     type HistoryStatus,
@@ -48,7 +49,6 @@ import {
     type ClientStatusAction,
     type HistoryTab,
 } from "@/utils/tdsRequestRules";
-import { ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
 import { useSetClientStatus } from '../../data/tds/useTdsMutations';
 import { getFrappeError } from "@/utils/frappeErrors";
 import { format } from 'date-fns';
@@ -103,9 +103,16 @@ const CLIENT_STATUS_STYLES: Record<string, string> = {
 };
 
 const CLIENT_ACTION_BUTTONS: Record<ClientStatusAction, { label: string; className: string }> = {
-    [CLIENT_STATUS_ACTION.markApproved]: { label: "Mark Approved by Client", className: "bg-blue-600 hover:bg-blue-700 text-white" },
-    [CLIENT_STATUS_ACTION.markRejected]: { label: "Mark Rejected by Client", className: "bg-orange-600 hover:bg-orange-700 text-white" },
+    [CLIENT_STATUS_ACTION.markApproved]: { label: CLIENT_STATUS.approved, className: "bg-blue-600 hover:bg-blue-700 text-white" },
+    [CLIENT_STATUS_ACTION.markRejected]: { label: CLIENT_STATUS.rejected, className: "bg-orange-600 hover:bg-orange-700 text-white" },
     [CLIENT_STATUS_ACTION.clear]: { label: "Clear Client Status", className: "" },
+};
+
+/** A mark reads "Mark …" on TDS History and "Switch to …" on a client tab, where the rows already hold an answer. */
+const clientActionLabel = (action: ClientStatusAction, tab: HistoryTab) => {
+    const { label } = CLIENT_ACTION_BUTTONS[action];
+    if (action === CLIENT_STATUS_ACTION.clear) return label;
+    return `${tab === "history" ? "Mark" : "Switch to"} ${label}`;
 };
 
 const formatMarkedOn = (value?: string) => (value ? format(new Date(value), "dd-MMM-yyyy HH:mm") : "");
@@ -160,15 +167,13 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
     // PMO delete only Pending / Rejected rows and rendered "--" on Approved ones,
     // which is what put an unusable column in front of them.
     //
-    // Nothing behind this re-checks: `Project TDS Item List` carries only a
-    // `before_save` hook (no `on_trash`), and the doctype already grants
-    // `Nirmaan PMO Executive` delete permission — so this gate IS the boundary.
+    // The doctype grants `Nirmaan PMO Executive` delete permission, so this gate
+    // is the role boundary. The one server re-check is the Client Status lock: a
+    // row the client has answered is refused by the `on_trash` hook and shows
+    // "Locked" here (`isDeleteLocked`).
     const canManageTDS = isAdmin || isPMO;
-    // The server re-checks both (`client_status.py` MARK_PROFILES, Clear Admin-only).
-    const clientActions = clientStatusActionsFor(tab, {
-        canMark: [ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE].includes(role),
-        canClear: role === ADMIN_PROFILE,
-    });
+    // The server re-checks both (`client_status.py` MARK_PROFILES, Clear Admin-only; both pass Administrator).
+    const clientActions = clientStatusActionsFor(tab, { canMark: isAdmin || isPMO, canClear: isAdmin });
 
     // --- 2. Define Columns (with dependency on userMap) ---
     const columns = useMemo<ColumnDef<ProjectTDSItem>[]>(() => [
@@ -403,11 +408,30 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
             {
                 id: "actions",
                 header: "Actions",
-                // Unconditional: the column only exists when `canManageTDS`, and
-                // that same flag now grants every row. The old "--" branch is gone
-                // with the per-row status check it belonged to.
-                cell: ({ row }: { row: any }) => (
+                // The column only exists when `canManageTDS`, which grants every row
+                // except one the client has answered: that row is locked until an
+                // Admin clears its Client Status.
+                cell: ({ row }: { row: any }) => isDeleteLocked(row.original) ? (
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span
+                                    className="inline-flex items-center gap-1 text-xs text-muted-foreground cursor-help"
+                                    data-testid="tds-row-locked"
+                                >
+                                    <Lock className="h-3.5 w-3.5" />
+                                    Locked
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>The client has answered this row, so it can't be deleted. An Admin must clear its Client Status first.</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                ) : (
                     <Button
+                        aria-label="Delete"
+                        data-testid="tds-row-delete"
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50"
@@ -504,16 +528,18 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
     const markClientStatus = async (rows: ProjectTDSItem[], action: ClientStatusAction, reason?: string) => {
         try {
             const result = await setClientStatus(projectId, rows.map(r => r.name), action, reason);
+            const isClear = action === CLIENT_STATUS_ACTION.clear;
             if (result.updated) {
+                const rowsText = `${result.updated} ${result.updated === 1 ? "row" : "rows"}`;
                 toast({
-                    title: "Client Status saved",
-                    description: `${result.updated} ${result.updated === 1 ? "row" : "rows"} marked.`,
+                    title: isClear ? "Client Status cleared" : "Client Status saved",
+                    description: isClear ? `${rowsText} cleared and back in TDS History.` : `${rowsText} marked.`,
                     variant: "success",
                 });
             }
             if (result.errors.length) {
                 toast({
-                    title: `${result.errors.length} ${result.errors.length === 1 ? "row was" : "rows were"} not marked`,
+                    title: `${result.errors.length} ${result.errors.length === 1 ? "row was" : "rows were"} not ${isClear ? "cleared" : "marked"}`,
                     description: result.errors[0].error,
                     variant: "destructive",
                 });
@@ -542,11 +568,12 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
                 <Button
                     key={action}
                     size="sm"
+                    variant={action === CLIENT_STATUS_ACTION.clear ? "outline" : "default"}
                     disabled={isMarking}
                     className={CLIENT_ACTION_BUTTONS[action].className}
                     onClick={() => handleClientAction(action)}
                 >
-                    {CLIENT_ACTION_BUTTONS[action].label}
+                    {clientActionLabel(action, tab)}
                 </Button>
             ))}
         </div>
@@ -572,7 +599,8 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
             console.error("Delete failed", error);
             toast({
                 title: "Error",
-                description: "Failed to delete item.",
+                // The server's reason, e.g. the Client Status lock on a row answered since this view loaded.
+                description: getFrappeError(error) || "Failed to delete item.",
                 variant: "destructive"
             });
         } finally {

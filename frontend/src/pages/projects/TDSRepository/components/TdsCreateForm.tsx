@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import ReactSelect from "react-select";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { Trash2, FileText, PlusCircle, ExternalLink } from 'lucide-react';
-import { useTdsExistingProjectItems, type ExistingProjectRow } from '../../data/tds/useTdsQueries';
+import { useNirmaanUsers, useTdsExistingProjectItems, type ExistingProjectRow } from '../../data/tds/useTdsQueries';
 import { useSubmitTdsRequest, useUploadTdsFile, type TdsSubmitRow } from '../../data/tds/useTdsMutations';
 import { toast } from "@/components/ui/use-toast";
 import { RequestTdsItemDialog } from "./RequestTdsItemDialog";
@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useUserData } from "@/hooks/useUserData";
 import { TdsDraftResumeDialog } from "./TdsDraftResumeDialog";
+import { TdsClientRejectedMakeDialog } from "./TdsClientRejectedMakeDialog";
 // DraftIndicator is shared but consumed UNMODIFIED — its copy ("Saved 5 minutes
 // ago") carries no flow-specific wording, so PR is unaffected by rendering it here.
 import { DraftIndicator } from "@/components/ui/draft-indicator";
@@ -45,6 +46,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
     STORED_STATUS,
     cartRequestTypeOf,
+    clientRejectedRowFor,
     customItemKey,
     isProjectCustomId,
     rejectedRowFor,
@@ -78,6 +80,8 @@ interface TdsCreateFormProps {
      * with it, or the restored cart lands on a screen nobody is looking at.
      */
     onDraftResumed?: () => void;
+    /** Leaves the form for TDS History's Rejected by Client tab (from the Rejected by Client popup). */
+    onOpenRejectedByClient?: () => void;
 }
 
 // One make-with-datasheet for a group (mirrors BE-PICKER `makes[]` shape).
@@ -137,7 +141,7 @@ const CartRequestBadge = ({ type }: { type: RequestType }) => {
     );
 };
 
-export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSuccess, onDraftResumed }) => {
+export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSuccess, onDraftResumed, onOpenRejectedByClient }) => {
     const { role } = useUserData();
     const [cartItems, setCartItems] = useState<CartItem[]>([]);
 
@@ -181,6 +185,15 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
 
     // Existing project rows (dedup against (tds_item_id, tds_make), allow re-entry of Rejected).
     const { data: existingProjectItems } = useTdsExistingProjectItems(projectId);
+
+    // The Rejected by Client row a picked or requested item + make clashes with; the popup that
+    // explains the block is open while this is set.
+    const [clientRejectedRow, setClientRejectedRow] = useState<ExistingProjectRow | null>(null);
+    const { data: nirmaanUsers } = useNirmaanUsers();
+    const markedByName = useMemo(
+        () => nirmaanUsers?.find((u: { name?: string }) => u.name === clientRejectedRow?.client_status_by)?.full_name,
+        [nirmaanUsers, clientRejectedRow]
+    );
 
     // ── Work Package options (OPTIONAL filter above the picker) ────────────────
     // Sourced from `TDS Items` itself, NOT a work-package doctype, so every
@@ -306,8 +319,12 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                 value: m.make,
                 entry: m,
                 consumed: activePairs.has(`${selectedGroup.tds_item}__${m.make}`),
+                clientRejected: clientRejectedRowFor(existingProjectItems, {
+                    tds_item_id: selectedGroup.tds_item,
+                    make: m.make,
+                }),
             }));
-    }, [selectedGroup, cartPairs, activePairs]);
+    }, [selectedGroup, cartPairs, activePairs, existingProjectItems]);
 
     // The resolved make entry (datasheet) for the current (group, make) selection.
     const selectedEntry = useMemo<GroupMake | null>(() => {
@@ -456,6 +473,11 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                 description: "This item + make is already in your current selection.",
                 variant: "destructive",
             });
+            return;
+        }
+        const clientRejected = clientRejectedRowFor(existingProjectItems, item);
+        if (clientRejected) {
+            setClientRejectedRow(clientRejected);
             return;
         }
         if (onProject) {
@@ -672,6 +694,10 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             options={makeOptions}
                             value={selectedMake ? { label: selectedMake, value: selectedMake } : null}
                             onChange={(opt: any) => {
+                                if (opt?.clientRejected) {
+                                    setClientRejectedRow(opt.clientRejected);
+                                    return;
+                                }
                                 if (opt?.consumed) {
                                     toast({
                                         title: "Already Submitted",
@@ -687,10 +713,22 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             className="react-select-container"
                             classNamePrefix="react-select"
                             formatOptionLabel={(option: any) => (
-                                <span className={option.consumed ? "text-gray-400" : ""}>
-                                    {option.label}
-                                    {option.consumed && <span className="text-[10px] ml-2 uppercase">(already submitted)</span>}
-                                </span>
+                                option.clientRejected ? (
+                                    <span className="flex items-center justify-between gap-2 text-gray-500">
+                                        {option.label}
+                                        <span
+                                            data-testid="tds-make-client-rejected-tag"
+                                            className="rounded-full border border-orange-200 bg-orange-100 px-2 py-px text-xs font-medium text-orange-800"
+                                        >
+                                            Rejected by Client
+                                        </span>
+                                    </span>
+                                ) : (
+                                    <span className={option.consumed ? "text-gray-400" : ""}>
+                                        {option.label}
+                                        {option.consumed && <span className="text-[10px] ml-2 uppercase">(already submitted)</span>}
+                                    </span>
+                                )
                             )}
                         />
                         {selectedGroup && makeOptions.length === 0 && (
@@ -873,6 +911,16 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                 draftDate={draft.draftDate}
                 itemCount={draft.pendingItemCount}
                 needsReattachCount={draft.pendingNeedsReattachCount}
+            />
+
+            <TdsClientRejectedMakeDialog
+                row={clientRejectedRow}
+                markedByName={markedByName}
+                onPickAnother={() => setClientRejectedRow(null)}
+                onOpenRejectedTab={() => {
+                    setClientRejectedRow(null);
+                    onOpenRejectedByClient?.();
+                }}
             />
 
             {/* Resubmit-rejected Confirmation Dialog */}

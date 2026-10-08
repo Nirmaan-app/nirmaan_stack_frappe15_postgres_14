@@ -509,6 +509,10 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                             setRefreshKey(prev => prev + 1);
                         }}
                         onDraftResumed={() => setIsFormOpen(true)}
+                        onOpenRejectedByClient={() => {
+                            setIsFormOpen(false);
+                            setActiveTab('rejectedByClient');
+                        }}
                     />
                 </div>
             </div>

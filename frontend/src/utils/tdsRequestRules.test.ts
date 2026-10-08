@@ -27,10 +27,12 @@ import {
   CLIENT_STATUS,
   CLIENT_STATUS_ACTION,
   HISTORY_TABS,
+  clientRejectedRowFor,
   clientStatusActionsFor,
   historyTabFilters,
   historyTabOf,
   isClientStatusMarkable,
+  isDeleteLocked,
 } from "./tdsRequestRules";
 import {
   PDF_DEFAULT_STATUSES,
@@ -291,6 +293,47 @@ describe("liveRowFor", () => {
   });
 });
 
+describe("clientRejectedRowFor", () => {
+  const row = (name: string, client_status: string | null, tds_make = "MakeA", tds_item_id = "TDS-ITEM-1") => ({
+    name,
+    tds_item_id,
+    tds_item_name: "Gate Valve",
+    tds_make,
+    tds_status: "Approved",
+    client_status,
+  });
+  const pick = { tds_item_id: "TDS-ITEM-1", tds_item_name: "Gate Valve", make: "MakeA" };
+
+  it("finds the row the client rejected for the same TDS Item + make", () => {
+    expect(clientRejectedRowFor([row("r", "Rejected by Client")], pick)?.name).toBe("r");
+    expect(clientRejectedRowFor([row("r", "Rejected by Client")], { ...pick, is_new_request: true })?.name).toBe("r");
+  });
+
+  it("a row with no Client Status, or one Approved by Client, is not a client rejection", () => {
+    for (const status of [null, "", "Approved by Client"]) {
+      expect(clientRejectedRowFor([row("r", status)], pick), String(status)).toBeUndefined();
+    }
+  });
+
+  it("another make of the same TDS Item is free", () => {
+    expect(clientRejectedRowFor([row("r", "Rejected by Client", "MakeB")], pick)).toBeUndefined();
+    expect(clientRejectedRowFor([row("r", "Rejected by Client", "MakeA", "TDS-ITEM-2")], pick)).toBeUndefined();
+    expect(clientRejectedRowFor(undefined, pick)).toBeUndefined();
+  });
+
+  it("a Project Custom row matches its name ignoring case + make", () => {
+    const custom = { tds_item_id: "", tds_item_name: " gate VALVE", make: "MakeA", is_project_custom: true };
+    expect(clientRejectedRowFor([row("r", "Rejected by Client", "MakeA", "PCUS-000003")], custom)?.name).toBe("r");
+    expect(clientRejectedRowFor([row("r", "Rejected by Client", "MakeB", "PCUS-000003")], custom)).toBeUndefined();
+    expect(clientRejectedRowFor([row("r", "Rejected by Client")], custom)).toBeUndefined();
+  });
+
+  it("is a live row, so the duplicate check refuses it too", () => {
+    const rows = [row("r", "Rejected by Client")];
+    expect(liveRowFor(rows, pick)).toBe(clientRejectedRowFor(rows, pick));
+  });
+});
+
 describe("itemStatusOf", () => {
   const verified = { status: "Verified" };
   const notVerified = { status: "Not Verified" };
@@ -443,6 +486,12 @@ describe("parity with api/tds/client_status.py", () => {
     expect(clientConstant("ACTION_CLEAR")).toBe(CLIENT_STATUS_ACTION.clear);
   });
 
+  it("the server's duplicate refusal names the Rejected by Client case, as clientRejectedRowFor does", () => {
+    const body = SUBMIT_PY.match(/def _refuse_duplicates\([\s\S]*?(?=\ndef )/);
+    expect(body, "_refuse_duplicates not found in submit.py").toBeTruthy();
+    expect(body![0]).toMatch(/if row\.client_status == CLIENT_STATUS_REJECTED:/);
+  });
+
   it("only an Admin-approved row takes one, as isClientStatusMarkable says", () => {
     expect(pyConstant("STATUS_APPROVED")).toBe(STORED_STATUS.approved);
     expect(CLIENT_PY).toMatch(/if row\.tds_status != STATUS_APPROVED:/);
@@ -493,6 +542,31 @@ describe("isClientStatusMarkable", () => {
   });
 });
 
+describe("isDeleteLocked", () => {
+  it("a row the client has answered is locked against delete", () => {
+    expect(isDeleteLocked({ tds_status: "Approved", client_status: "Approved by Client" })).toBe(true);
+    expect(isDeleteLocked({ tds_status: "Approved", client_status: "Rejected by Client" })).toBe(true);
+  });
+
+  it("a row the client has not answered keeps its delete button, whatever its tds_status", () => {
+    for (const tds_status of ["Pending", "New", "Approved", "Rejected", "", null]) {
+      expect(isDeleteLocked({ tds_status, client_status: "" })).toBe(false);
+      expect(isDeleteLocked({ tds_status, client_status: null })).toBe(false);
+      expect(isDeleteLocked({ tds_status })).toBe(false);
+    }
+  });
+
+  it("the server refuses the same deletes (Project TDS Item List on_trash)", () => {
+    const controller = readFileSync(
+      resolve(__dirname, "../../../nirmaan_stack/integrations/controllers/project_tds_item_list.py"),
+      "utf-8"
+    );
+    const body = controller.match(/def on_trash\([\s\S]*$/);
+    expect(body, "on_trash not found in project_tds_item_list.py").toBeTruthy();
+    expect(body![0]).toMatch(/if doc\.client_status:\s*\n\s*frappe\.throw\(/);
+  });
+});
+
 describe("clientStatusActionsFor", () => {
   const marker = { canMark: true, canClear: false };
 
@@ -502,6 +576,18 @@ describe("clientStatusActionsFor", () => {
       "mark_approved",
       "mark_rejected",
     ]);
+  });
+
+  it("each client tab offers a PMO Executive the switch to the other answer, and no Clear", () => {
+    expect(clientStatusActionsFor("approvedByClient", marker)).toEqual(["mark_rejected"]);
+    expect(clientStatusActionsFor("rejectedByClient", marker)).toEqual(["mark_approved"]);
+  });
+
+  it("an Admin also gets Clear on the client tabs, never on TDS History", () => {
+    const admin = { canMark: true, canClear: true };
+    expect(clientStatusActionsFor("approvedByClient", admin)).toEqual(["mark_rejected", "clear"]);
+    expect(clientStatusActionsFor("rejectedByClient", admin)).toEqual(["mark_approved", "clear"]);
+    expect(clientStatusActionsFor("history", admin)).not.toContain("clear");
   });
 
   it("anyone else gets no marking action", () => {

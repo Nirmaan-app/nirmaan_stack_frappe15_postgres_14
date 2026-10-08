@@ -133,6 +133,24 @@ export function liveRowFor<T extends TdsProjectRow>(
   return (rows ?? []).find(row => row.tds_status !== STORED_STATUS.rejected && sameItemMake(row, candidate));
 }
 
+/**
+ * The project's *Rejected by Client* row for the same item + make as a candidate, if any. Such a row
+ * stays live (its `tds_status` is Approved), so the make can't be picked again, but another make of
+ * the item can. The server's duplicate refusal names this case (`submit.py` `_refuse_duplicates`,
+ * pinned by the parity test). Matches as `rejectedRowFor`.
+ */
+export function clientRejectedRowFor<T extends TdsProjectRow & ClientStatusRow>(
+  rows: readonly T[] | undefined,
+  candidate: TdsResubmitCandidate
+): T | undefined {
+  return (rows ?? []).find(
+    row =>
+      row.tds_status !== STORED_STATUS.rejected &&
+      row.client_status === CLIENT_STATUS.rejected &&
+      sameItemMake(row, candidate)
+  );
+}
+
 function sameItemMake(row: TdsProjectRow, candidate: TdsResubmitCandidate): boolean {
   if (candidate.is_project_custom) {
     return (
@@ -303,10 +321,20 @@ export function isClientStatusMarkable(row: ClientStatusRow): boolean {
 }
 
 /**
+ * A row the client has answered can't be deleted by anyone until an Admin clears its Client Status.
+ * The server refuses it the same way (`Project TDS Item List` `on_trash`, parity-pinned).
+ */
+export function isDeleteLocked(row: ClientStatusRow): boolean {
+  return !!row.client_status;
+}
+
+/**
  * The Client Status actions a tab's toolbar offers for ticked rows.
- * - `canMark`: Admin or PMO Executive (the server's `MARK_PROFILES`)
- * - `canClear`: Admin only; no tab offers Clear yet
- * Today only TDS History offers the two marks; the client tabs gain the switch and Clear next.
+ * - TDS History: the two marks.
+ * - A client tab: the switch to the other answer, then Clear (Admin only), which sends the rows back
+ *   to TDS History.
+ * `canMark` is Admin or PMO Executive (the server's `MARK_PROFILES`); `canClear` is Admin only. The
+ * server re-checks both.
  */
 export function clientStatusActionsFor(
   tab: HistoryTab,
@@ -314,7 +342,9 @@ export function clientStatusActionsFor(
 ): ClientStatusAction[] {
   if (!rights.canMark) return [];
   if (tab === "history") return [CLIENT_STATUS_ACTION.markApproved, CLIENT_STATUS_ACTION.markRejected];
-  return [];
+  const clear = rights.canClear ? [CLIENT_STATUS_ACTION.clear] : [];
+  if (tab === "approvedByClient") return [CLIENT_STATUS_ACTION.markRejected, ...clear];
+  return [CLIENT_STATUS_ACTION.markApproved, ...clear];
 }
 
 // ── Download TDS PDF dialog ─────────────────────────────────────────────────────────────────────

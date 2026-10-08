@@ -219,7 +219,10 @@ doc_events = {
         "after_delete": "nirmaan_stack.integrations.controllers.items.after_delete"
     },
     "Project TDS Item List": {
-        "before_save": "nirmaan_stack.integrations.controllers.project_tds_item_list.before_save"
+        "before_save": "nirmaan_stack.integrations.controllers.project_tds_item_list.before_save",
+        # A row the client has answered can't be deleted by anyone until an Admin clears its
+        # Client Status (ADR-0025 Amendment B). Doc-layer deletes only, which includes REST.
+        "on_trash": "nirmaan_stack.integrations.controllers.project_tds_item_list.on_trash",
     },
     # TAX DEDUCTED AT SOURCE (not the Technical Data Sheet family above). A challan's
     # `reconciled_amount` is the sum of the deductions pointing at it, so a deleted deduction has
