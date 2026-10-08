@@ -37,6 +37,9 @@ in the screen and in the database.
 | 29 | Mark ticked rows Rejected by Client (#1385): Clear unticks, the popup lists the rows and warns, the optional reason lands on every row and shows in the tab |
 | 30 | Switch ticked rows between the client tabs (#1386): Switch to Rejected by Client opens the reason popup, Switch to Approved by Client blanks the reason; both re-stamp Marked By / Marked On, the rows change tab and the counts follow |
 | 31 | An Admin's Clear Client Status on both client tabs (#1386): all four client fields blank, the rows back in TDS History as Approved by Admin; the server refuses Clear from a PMO Executive (when the site has one; the walk user is an Admin, so the missing PMO button is pinned by vitest) |
+| 38 | A Make the client rejected (#1389): the Make list shows a "Rejected by Client" tag on it, while a Pending make still reads "(already submitted)" |
+| 39 | Picking a Make the client rejected (#1389): the popup names the item, make, request id, who marked it, when and the client's reason, and the two ways out; "Pick another make" leaves nothing selected; a Project Custom name + make clash opens it too; another make is added and sent; a direct submit of the same make is refused with the Rejected by Client message |
+| 40 | The popup's "Open Rejected by Client tab" (#1389) hides the form and opens that tab, which lists the row; tab counts match the database |
 
 ## Prerequisites
 

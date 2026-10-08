@@ -120,13 +120,21 @@ export interface ExistingProjectRow extends TdsProjectRow {
     name: string;
     tds_request_id?: string | null;
     tds_rejection_reason?: string | null;
+    /** Client Status and its stamp: a *Rejected by Client* make can't be picked again (`clientRejectedRowFor`). */
+    client_status?: string | null;
+    client_status_by?: string | null;
+    client_status_on?: string | null;
+    client_rejection_reason?: string | null;
 }
 
 export const useTdsExistingProjectItems = (projectId: string) => {
     const response = useFrappeGetDocList<ExistingProjectRow>(
         "Project TDS Item List",
         {
-            fields: ["name", "tds_item_id", "tds_item_name", "tds_make", "tds_request_id", "tds_status", "tds_rejection_reason"],
+            fields: [
+                "name", "tds_item_id", "tds_item_name", "tds_make", "tds_request_id", "tds_status", "tds_rejection_reason",
+                "client_status", "client_status_by", "client_status_on", "client_rejection_reason",
+            ],
             filters: [
                 ["tdsi_project_id", "=", projectId],
                 ["docstatus", "!=", 2],

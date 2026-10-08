@@ -133,6 +133,24 @@ export function liveRowFor<T extends TdsProjectRow>(
   return (rows ?? []).find(row => row.tds_status !== STORED_STATUS.rejected && sameItemMake(row, candidate));
 }
 
+/**
+ * The project's *Rejected by Client* row for the same item + make as a candidate, if any. Such a row
+ * stays live (its `tds_status` is Approved), so the make can't be picked again, but another make of
+ * the item can. The server's duplicate refusal names this case (`submit.py` `_refuse_duplicates`,
+ * pinned by the parity test). Matches as `rejectedRowFor`.
+ */
+export function clientRejectedRowFor<T extends TdsProjectRow & ClientStatusRow>(
+  rows: readonly T[] | undefined,
+  candidate: TdsResubmitCandidate
+): T | undefined {
+  return (rows ?? []).find(
+    row =>
+      row.tds_status !== STORED_STATUS.rejected &&
+      row.client_status === CLIENT_STATUS.rejected &&
+      sameItemMake(row, candidate)
+  );
+}
+
 function sameItemMake(row: TdsProjectRow, candidate: TdsResubmitCandidate): boolean {
   if (candidate.is_project_custom) {
     return (

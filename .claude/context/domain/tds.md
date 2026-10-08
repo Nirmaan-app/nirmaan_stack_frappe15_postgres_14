@@ -55,6 +55,11 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
   Status / each answer), so every row sits in exactly one tab; ticks go only on
   `isClientStatusMarkable` rows. `clientStatusActionsFor` names each tab's actions: TDS History the two
   marks; a client tab the switch to the other answer, plus Clear for an Admin only.
+- **A *Rejected by Client* row keeps its item + make live.** Its `tds_status` is Approved, so
+  `_refuse_duplicates` refuses the same TDS Item + make (Project Custom: folded name + make) with a
+  message naming the case; another make of the item is free. The request form finds the row with
+  `clientRejectedRowFor` (parity-pinned), tags that make "Rejected by Client" and explains the block
+  in a popup instead of the toast.
 - **Datasheet ownership.** A pick borrows its entry's File. A request owns its upload. Approving a New
   Make moves the File to the new entry; keeping the repository's sheet deletes the row's own upload
   through `submit.delete_row_datasheet`, which respects shared stored bytes (`CODING_STANDARDS.md`
