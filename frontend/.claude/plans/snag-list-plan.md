@@ -132,6 +132,18 @@ Flat `DataTable` (the app's standard `useServerDataTable` + `DataTable` pattern)
 | Change one row's status | Admin, Project Lead, PMO, **Project Manager** |
 | **Bulk** status change | **Admin only** (mirrors Design Tracker's `bulk_update_task_status`) |
 
+**Project scope (owner 2026-10-08).** Every snag WRITE also needs access to that snag's project:
+`api/snags/__init__.require_project_access`. The writes are status, details, bulk, manual add,
+rename batch, delete batch, and import (`inspect_workbook` + `ingest_batch`).
+
+- **Why:** the tiers above check the role only, then save with `ignore_permissions`. So a Project
+  Manager could change another project's snag by name.
+- **The rule:** Frappe User Permissions on Projects, applied to Project Snag's `project` link. That is
+  the same rule that filters the Snag table's rows, so a user can change exactly the snags they can
+  see. A user with no Projects rules stays unrestricted. Bulk checks every selected snag's project
+  before writing anything.
+- **Reads are NOT scoped yet:** `get_snag_stats`, `get_snag_field_values`, and the previews.
+
 ---
 
 ## 7. Endpoints (all under `nirmaan_stack/api/snags/`, snake_case)

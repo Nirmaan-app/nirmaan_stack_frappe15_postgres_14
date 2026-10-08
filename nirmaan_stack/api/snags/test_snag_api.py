@@ -12,6 +12,7 @@ The suite runs against the LIVE localhost site, so every row it creates is delet
 tearDownClass, including the `Deleted Document` rows the delete test deliberately produces.
 """
 
+import contextlib
 import io
 import os
 import tempfile
@@ -1834,19 +1835,16 @@ class TestSnagApi(FrappeTestCase):
                     "area": "A",
                     "category": "C",
                     "description": f"Snag {status}",
-                    "status": status,
-                    # The controller only asks that a Completed snag HAS a photo; which file
-                    # it is matters to the endpoints, not to this count. A cloud-shaped URL,
-                    # so Frappe's `attach_files_to_document` does not go looking for a local file.
-                    "attachment": (
-                        "/api/method/frappe_gcp_attachment.controller.generate_file"
-                        "?key=test&file_name=stats.jpg"
-                    )
-                    if status == "Completed"
-                    else None,
+                    # A new snag can carry no photo, and Completed needs one -- so the
+                    # Completed row is inserted as WIP and set straight to Completed below.
+                    "status": "WIP" if status == "Completed" else status,
                 }
             )
             doc.insert(ignore_permissions=True)
+            if status == "Completed":
+                # DELIBERATELY past the controller: this test counts statuses, and the photo
+                # rules have their own tests below. Nothing stored is derived from `status`.
+                frappe.db.set_value("Project Snag", doc.name, "status", "Completed")
         frappe.db.commit()
 
         stats = tracking.get_snag_stats(project=stats_project.name)
@@ -2136,3 +2134,116 @@ class TestSnagApi(FrappeTestCase):
 
         with self.assertRaises(frappe.ValidationError):
             bulk_download.download_snag_pdf(project=self.project, mode="full")
+
+    # -- project scope (owner 2026-10-08) -------------------------------------------
+
+    def _restricted_user(self, *projects):
+        """A throwaway user whose Projects User Permissions allow only `projects` (none = no
+        rules, i.e. unrestricted).
+
+        Everything is written straight to the tables (`db_insert`): a normal User insert runs
+        our hooks (a Nirmaan Users profile, a welcome mail) and a normal User Permission insert
+        writes a mirror row. The User row exists only so the snag's `status_changed_by` link
+        resolves. The rule under test reads `tabUser Permission` through Frappe's per-user
+        cache, so that cache is dropped on the way in and out.
+        """
+        user = f"snag-scope-{frappe.generate_hash(length=8)}@example.com"
+
+        def drop():
+            frappe.db.delete("User Permission", {"user": user})
+            frappe.db.delete("User", {"name": user})
+            frappe.cache.hdel("user_permissions", user)
+            frappe.db.commit()
+
+        self.addCleanup(drop)
+        now = frappe.utils.now()
+        bare = frappe.get_doc(
+            {"doctype": "User", "email": user, "first_name": "Snag scope test", "enabled": 1,
+             "user_type": "Website User", "send_welcome_email": 0}
+        )
+        bare.name = user
+        bare.creation = bare.modified = now
+        bare.owner = bare.modified_by = "Administrator"
+        bare.db_insert()
+        for project in projects:
+            row = frappe.get_doc(
+                {"doctype": "User Permission", "user": user, "allow": "Projects", "for_value": project}
+            )
+            row.name = f"snag-scope-{frappe.generate_hash(length=10)}"
+            row.creation = row.modified = now
+            row.owner = row.modified_by = "Administrator"
+            row.db_insert()
+        frappe.cache.hdel("user_permissions", user)
+        frappe.db.commit()
+        return user
+
+    @contextlib.contextmanager
+    def _acting_as(self, user, role_profile):
+        import nirmaan_stack.api.snags as snag_pkg
+
+        original = snag_pkg._user_role
+        snag_pkg._user_role = lambda: role_profile
+        frappe.session.user = user
+        try:
+            yield
+        finally:
+            snag_pkg._user_role = original
+            frappe.session.user = "Administrator"
+
+    def _another_project(self):
+        return frappe.get_all(
+            "Projects", filters={"name": ["!=", self.project]}, pluck="name", order_by="name asc", limit=1
+        )[0]
+
+    def test_a_status_change_is_refused_outside_the_users_projects_and_allowed_inside(self):
+        snag = self._a_snag("ScopeStatus", "Scope status batch")
+        before = frappe.db.get_value("Project Snag", snag, "status")
+        other = "WIP" if before != "WIP" else "Pending"
+        elsewhere = self._restricted_user(self._another_project())
+        here = self._restricted_user(self._another_project(), self.project)
+        # No Projects rules at all: unrestricted, as everywhere else in the app.
+        unrestricted = self._restricted_user()
+
+        with self._acting_as(elsewhere, "Nirmaan Project Manager Profile"):
+            with self.assertRaises(frappe.PermissionError):
+                tracking.update_snag_status(snag=snag, status=other)
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "status"), before)
+
+        with self._acting_as(here, "Nirmaan Project Manager Profile"):
+            tracking.update_snag_status(snag=snag, status=other)
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "status"), other)
+
+        with self._acting_as(unrestricted, "Nirmaan Project Manager Profile"):
+            tracking.update_snag_status(snag=snag, status=before)
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "status"), before)
+
+    def test_every_other_snag_write_is_refused_outside_the_users_projects(self):
+        batch = self._one_sheet(sheet="ScopeAll", batch_name="Scope all batch")["batch"]
+        snag = frappe.get_all("Project Snag", filters={"batch": batch}, pluck="name")[0]
+        fields = ["status", "area", "category", "description"]
+        before = frappe.db.get_value("Project Snag", snag, fields, as_dict=True)
+        user = self._restricted_user(self._another_project())
+
+        attempts = {
+            "details": lambda: self._details(snag),
+            "bulk": lambda: tracking.bulk_update_snag_status(snags=[snag], status="WIP"),
+            "add": lambda: tracking.add_manual_snag(
+                project=self.project, area="Scope", description="Added from outside"
+            ),
+            "rename": lambda: tracking.rename_batch(batch=batch, batch_name="Renamed from outside"),
+            "delete": lambda: tracking.delete_batch(batch=batch),
+            "import": lambda: import_wizard.ingest_batch(
+                project=self.project, file_url=self.file_url, sheets=[{"sheet_name": "x"}]
+            ),
+        }
+        # The WIDEST role, so only the project can be what refuses.
+        with self._acting_as(user, "Nirmaan Admin Profile"):
+            for label, attempt in attempts.items():
+                with self.subTest(label), self.assertRaises(frappe.PermissionError):
+                    attempt()
+
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, fields, as_dict=True), before)
+        self.assertEqual(frappe.db.get_value("Project Snag Batch", batch, "batch_name"), "Scope all batch")
+        self.assertFalse(
+            frappe.db.exists("Project Snag", {"project": self.project, "description": "Added from outside"})
+        )

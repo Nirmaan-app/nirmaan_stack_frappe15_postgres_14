@@ -16,6 +16,7 @@ Role resolution mirrors `api/design_tracker/bulk_update_task_status.py`:
 """
 
 import frappe
+from frappe.permissions import has_user_permission
 
 ADMIN_ROLE = "Nirmaan Admin Profile"
 PROJECT_LEAD_ROLE = "Nirmaan Project Lead Profile"
@@ -95,6 +96,27 @@ def require_status_access(action="change a snag's status"):
 def require_bulk_access(action="bulk-update snag statuses"):
     """Admin only."""
     _require(BULK_ROLES, action)
+
+
+def require_project_access(project, action):
+    """The session user may change `project`'s snags only if their PROJECT access allows it.
+
+    The role tiers above say WHAT a role may do; this says WHERE (owner 2026-10-08: a
+    Project Manager could change another project's snag, because every write saves with
+    `ignore_permissions` after a role check alone).
+
+    The rule is Frappe's User Permissions on Projects, applied to Project Snag's `project`
+    link -- the SAME rule that filters the Snag table's rows (reportview), so a user can
+    change exactly the snags they can see. A user with no Projects rules is unrestricted,
+    as everywhere else in the app.
+    """
+    probe = frappe.get_doc({"doctype": "Project Snag", "project": project})
+    if has_user_permission(probe):
+        return
+    frappe.throw(
+        f"You are not permitted to {action} in project {project}.",
+        frappe.PermissionError,
+    )
 
 
 def require_read_access(action="view this project's snag list"):

@@ -19,6 +19,7 @@ import frappe
 from nirmaan_stack.api.snags import (
     require_bulk_access,
     require_import_access,
+    require_project_access,
     require_read_access,
     require_row_edit_access,
     require_status_access,
@@ -95,27 +96,16 @@ def _set_photo(doc, attachment, location):
     """Put a NEW photo on the snag, replacing any earlier one (one photo per snag, owner
     2026-10-08). Shared by both write paths that take a photo.
 
-    The URL must name a File UPLOADED TO THIS SNAG: the client uploads it attached to the
+    The URL must name an image UPLOADED TO THIS SNAG: the client uploads it attached to the
     snag before calling, so anything else -- a typo, another snag's photo, an arbitrary link
-    -- is refused rather than stored as this snag's evidence.
+    -- is refused rather than stored as this snag's evidence. That check is the `before_save`
+    controller's (`_check_new_photo`), so a Desk or REST write meets it too; it runs on the
+    same save, alongside the photo rule.
 
     `location` is stored as sent, or emptied: the client sends one only when it knows where
     the photo was TAKEN (the camera's GPS, or the GPS inside an uploaded file), never the
-    uploader's position at upload time (owner Q7b). The `before_save` controller judges the
-    photo rule on the same save.
+    uploader's position at upload time (owner Q7b).
     """
-    if not frappe.db.exists(
-        "File",
-        {
-            "file_url": attachment,
-            "attached_to_doctype": "Project Snag",
-            "attached_to_name": doc.name,
-        },
-    ):
-        frappe.throw(
-            "The photo must be a file uploaded to this snag. Upload it again and retry.",
-            title="Unknown photo",
-        )
     doc.attachment = attachment
     doc.location = (location or "").strip() or None
 
@@ -167,6 +157,7 @@ def update_snag_status(snag=None, status=None, remark=None, attachment=None, loc
     require_status_access("change a snag's status")
 
     doc = frappe.get_doc("Project Snag", snag)
+    require_project_access(doc.project, "change a snag's status")
     doc.status = status
     if remark is not None:
         doc.remark = remark
@@ -203,6 +194,9 @@ def bulk_update_snag_status(snags=None, status=None):
     names = names or []
     if not names:
         frappe.throw("No snags selected.", title="Nothing to update")
+    # Every selected snag's project, BEFORE anything is written: all or nothing.
+    for project in _projects_of(names):
+        require_project_access(project, "bulk-update snag statuses")
 
     updated = 0
     skipped = []
@@ -217,6 +211,18 @@ def bulk_update_snag_status(snags=None, status=None):
 
     frappe.db.commit()
     return {"updated": updated, "status": status, "skipped": skipped}
+
+
+def _projects_of(snag_names):
+    """The distinct projects of `snag_names`. Raw SQL: a bulk selection can run to
+    thousands of names, and a list that long in `get_all` trips sqlparse's token cap."""
+    return [
+        row[0]
+        for row in frappe.db.sql(
+            'SELECT DISTINCT project FROM "tabProject Snag" WHERE name IN %(names)s',
+            {"names": list(snag_names)},
+        )
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +268,7 @@ def add_manual_snag(project=None, area=None, category=None, description=None, ba
     if not (description or "").strip():
         frappe.throw("A description is required.", title="Missing field: description")
     require_import_access("add a snag")
+    require_project_access(project, "add a snag")
 
     batch = (batch or "").strip() or None
     if batch:
@@ -470,6 +477,7 @@ def update_snag_details(
 
     details = _normalized_details(area, category, description)
     doc = frappe.get_doc("Project Snag", snag)
+    require_project_access(doc.project, "edit a snag's details")
 
     # The carve-out is checked against the STORED status: this endpoint cannot move it, so
     # the status the snag has now is the status the remark would land beside. An empty string
@@ -556,6 +564,9 @@ def delete_batch(batch=None):
 
     if not frappe.db.exists("Project Snag Batch", batch):
         frappe.throw(f"Snag batch '{batch}' not found.", title="Not found")
+    require_project_access(
+        frappe.db.get_value("Project Snag Batch", batch, "project"), "delete a snag batch"
+    )
 
     names = frappe.get_all(
         "Project Snag",
@@ -636,6 +647,7 @@ def rename_batch(batch=None, batch_name=None):
     project = frappe.db.get_value("Project Snag Batch", batch, "project")
     if project is None:
         frappe.throw(f"Snag batch '{batch}' not found.", title="Not found")
+    require_project_access(project, "rename a snag batch")
 
     # A project holds a handful of batches, so its names are compared here in Python --
     # one key function for both sides, rather than re-expressing it in SQL.
