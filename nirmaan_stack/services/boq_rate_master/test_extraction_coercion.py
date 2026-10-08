@@ -3457,9 +3457,10 @@ class TestSlice12d4aFModelCall(FrappeTestCase):
         from nirmaan_stack.api.boq.test_rate_master import CURRENT_HVAC_ASSET, _asset_path
         with open(_asset_path("rate_master_hvac_all_v31.json"), "r", encoding="utf-8") as fh:
             cls.v31 = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # 12d-4c: v32 BY NAME (the 12d-4aF record); v33 changes the Insulation call (`TestSlice12d4cModelCall`)
+        with open(_asset_path("rate_master_hvac_all_v32.json"), "r", encoding="utf-8") as fh:
             cls.v32 = json.load(fh)
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v32.json"
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v32.json"
 
     _cfgs = staticmethod(TestSlice12d1bModelCall._cfgs)
     _row = staticmethod(TestSlice12d1bModelCall._row)
@@ -3478,3 +3479,66 @@ class TestSlice12d4aFModelCall(FrappeTestCase):
         self.assertIn("hvac_insulation", checked)
         self.assertEqual(sorted(checked), sorted(TestSlice12d2ModelCall.OTHER_HVAC + ["hvac_insulation"]))
         self.assertEqual(extraction.build_items_spec(c32[("HVAC", "hvac_insulation")]), extraction.build_items_spec(c31[("HVAC", "hvac_insulation")]))
+
+
+class TestSlice12d4cModelCall(FrappeTestCase):
+    """SLICE 12d-4c (owner C1 / C2 / C4): v33 = v32 + two NOTE sentences on Insulation's `item` / `cladding` defs +
+    the second opinion OFF. A def's note is projected into ITEMS_SPEC, so BOTH sentences REACH the assembled model
+    call for Insulation (and were absent from it before); every OTHER HVAC category's call is byte-identical v32 ->
+    v33, NAMED; Insulation's second opinion reads OFF on the spec the batch site consumes, ADP's as it was."""
+
+    C1 = "A row that describes only a cladding or coating applied over insulation, with no insulation material being supplied, is 'Cladding Only'."
+    C2 = "A bare 'glass cloth' with no paint or coating named is still 'Glass Cloth with paint'."
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_HVAC_ASSET, _asset_path
+        with open(_asset_path("rate_master_hvac_all_v32.json"), "r", encoding="utf-8") as fh:
+            cls.v32 = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v33 = json.load(fh)
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v33.json"
+
+    _cfgs = staticmethod(TestSlice12d1bModelCall._cfgs)
+    _row = staticmethod(TestSlice12d1bModelCall._row)
+    _content = staticmethod(TestSlice12d1bModelCall._content)
+
+    def test_mc4c_01_C1_and_C2_reach_insulations_model_call_and_were_absent_before(self):
+        c32, c33 = self._cfgs(self.v32, "HVAC"), self._cfgs(self.v33, "HVAC")
+        key = ("HVAC", "hvac_insulation")
+        payload = [extraction._ai_item(self._row())]
+        before = self._content(extraction._group_context(c32, *key), payload)
+        after = self._content(extraction._group_context(c33, *key), payload)
+        for s in (self.C1, self.C2):
+            self.assertIn(s, after)
+            self.assertNotIn(s, before)
+        self.assertNotIn("Cladding Only'.", before)
+        self.assertNotEqual(after, before)
+        # the ONLY differences between the two calls are the two sentences AND the second-opinion switch, which the
+        # ITEMS_SPEC projection carries as a key (`build_items_spec` writes `"second_opinion": false` into the spec the
+        # call is assembled from -- measured here, so the wire-visible delta of this mint is stated in full)
+        self.assertIn('"second_opinion": false', after)
+        self.assertIn('"second_opinion": true', before)
+        self.assertEqual(after.replace(" " + self.C1, "").replace(" " + self.C2, "").replace('"second_opinion": false', '"second_opinion": true'), before)
+
+    def test_mc4c_02_every_other_hvac_category_sends_a_byte_identical_call_v32_to_v33_NAMED(self):
+        c32, c33 = self._cfgs(self.v32, "HVAC"), self._cfgs(self.v33, "HVAC")
+        self.assertEqual(set(c32), set(c33))
+        payload = [extraction._ai_item(self._row())]
+        checked = []
+        for key in sorted(c32):
+            if key[1] == "hvac_insulation":
+                continue
+            g32, g33 = extraction._group_context(c32, *key), extraction._group_context(c33, *key)
+            self.assertEqual(g33, g32, key[1])
+            self.assertEqual(self._content(g33, payload), self._content(g32, payload), key[1])
+            checked.append(key[1])
+        self.assertEqual(sorted(checked), sorted(TestSlice12d2ModelCall.OTHER_HVAC))
+
+    def test_mc4c_03_the_second_opinion_is_OFF_for_insulation_on_the_spec_the_batch_reads_and_ADP_as_it_was(self):
+        c32, c33 = self._cfgs(self.v32, "HVAC"), self._cfgs(self.v33, "HVAC")
+        self.assertIs(extraction.build_items_spec(c32[("HVAC", "hvac_insulation")])["second_opinion"], True)
+        self.assertIs(extraction.build_items_spec(c33[("HVAC", "hvac_insulation")])["second_opinion"], False)
+        self.assertIs(extraction.build_items_spec(c32[("HVAC", "hvac_adp")])["second_opinion"], False)
+        self.assertIs(extraction.build_items_spec(c33[("HVAC", "hvac_adp")])["second_opinion"], False)

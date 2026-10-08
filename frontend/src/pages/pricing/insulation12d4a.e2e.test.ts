@@ -41,11 +41,12 @@ interface ExpectedRow {
 const ROWS = readJsonFixture<FixtureRow[]>(new URL("./__fixtures__/insulation12d4aRows.json", import.meta.url));
 const WRITE = !!process.env.WRITE_12D4A_EXPECTED;
 const EXPECTED = WRITE ? [] as ExpectedRow[] : readJsonFixture<ExpectedRow[]>(new URL("./__fixtures__/insulation12d4aExpected.json", import.meta.url));
-// v32 BY NAME (v31 + the 12d-4aF D9b family list -- the frozen record of this slice AND its follow-up), READ at runtime --
+// v33 BY NAME (v32 + the 12d-4c note sentences and the second-opinion switch, which price nothing -- every outcome here is
+// unchanged from v32, re-pointed so this proof runs over the SERVED asset), READ at runtime --
 // an `import` of a 16,700-line asset makes `tsc` infer a structural type for the whole file and the project type gate
 // dies at the default heap (the heap cliff the header names).
 const ASSET = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
-  new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v32.json", import.meta.url),
+  new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v33.json", import.meta.url),
 );
 const CAT = "hvac_insulation";
 const CFG = ASSET.category_configs.find((c) => c.category_id === CAT)!;
