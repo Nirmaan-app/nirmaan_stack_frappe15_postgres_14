@@ -1826,6 +1826,135 @@ def c29(w: Walk, page, c: Checks):
     w.shot(page, "c29_rejected_tab", full=True)
 
 
+OLD_STAMP = "2026-01-01 10:00:00"
+
+
+@case(30, "switch ticked rows between Approved and Rejected by Client: fresh stamps, the reason popup, the reason blanked (#1386)")
+def c30(w: Walk, page, c: Checks):
+    rows = w.be('R["rows"] = [seed_row(P["rid"], s) for s in P["specs"]]; frappe.db.commit()', rid="RQ-001-WALK30", specs=[
+        {"kind": "pick", "make": "Tapariya", "status": "Approved", "client_status": CLIENT_APPROVED,
+         "client_status_on": OLD_STAMP},
+        {"kind": "pick", "make": "Locel", "status": "Approved", "client_status": CLIENT_REJECTED,
+         "client_status_on": OLD_STAMP, "client_reason": "walk: old reason"},
+    ])["rows"]
+    names = {r["make"]: r["name"] for r in rows}
+    open_history_page(page)
+
+    open_history_tab(page, "approvedByClient")
+    wait_for(lambda: "Tapariya" in walk_makes(page), 10)
+    tick(page, "Tapariya")
+    bar = page.get_by_test_id("tds-selection-toolbar")
+    switch = bar.get_by_role("button", name="Switch to Rejected by Client", exact=True)
+    c.check(switch.is_visible(), "Approved by Client tab offers Switch to Rejected by Client", bar.inner_text())
+    c.eq(bar.get_by_role("button", name=re.compile("^Mark ")).count(), 0, "no Mark buttons on a client tab")
+    w.shot(page, "c30_switch_toolbar")
+    switch.click()
+    dlg = page.get_by_role("dialog")
+    dlg.wait_for(timeout=5000)
+    c.check("Tapariya" in dlg.get_by_test_id("client-reject-rows").inner_text(), "the same reason popup lists the row")
+    dlg.get_by_label("Client's reason (optional)").fill("walk: client changed their mind")
+    dlg.get_by_role("button", name="Mark Rejected by Client").click()
+    c.check("marked" in wait_toast(page, "marked").lower(), "a toast confirms the switch", toasts(page))
+    settle(page, 1.5)
+    dismiss_toasts(page)
+
+    open_history_tab(page, "rejectedByClient")
+    wait_for(lambda: "Locel" in walk_makes(page), 10)
+    tick(page, "Locel")
+    bar = page.get_by_test_id("tds-selection-toolbar")
+    switch = bar.get_by_role("button", name="Switch to Approved by Client", exact=True)
+    c.check(switch.is_visible(), "Rejected by Client tab offers Switch to Approved by Client", bar.inner_text())
+    switch.click()
+    c.check("marked" in wait_toast(page, "marked").lower(), "a toast confirms the switch", toasts(page))
+    settle(page, 1.5)
+
+    stored = client_fields(w, list(names.values()))
+    tap, loc = stored[names["Tapariya"]], stored[names["Locel"]]
+    c.eq(tap["client_status"], CLIENT_REJECTED, "Tapariya switched to Rejected by Client")
+    c.eq(tap["client_rejection_reason"], "walk: client changed their mind", "Tapariya stores the new reason")
+    c.eq(loc["client_status"], CLIENT_APPROVED, "Locel switched to Approved by Client")
+    c.check(not loc["client_rejection_reason"], "the switch to Approved by Client blanked the reason", loc)
+    for make, row in (("Tapariya", tap), ("Locel", loc)):
+        c.eq(row["client_status_by"], USER, f"{make} Marked By is the walk user")
+        c.check(str(row["client_status_on"]) > OLD_STAMP, f"{make} Marked On is fresh", row["client_status_on"])
+        c.eq(row["tds_status"], "Approved", f"{make} tds_status unchanged")
+
+    wait_for(lambda: walk_makes(page) == ["Tapariya"], 10)
+    c.eq(walk_makes(page), ["Tapariya"], "Rejected by Client tab now holds Tapariya only")
+    open_history_tab(page, "approvedByClient")
+    wait_for(lambda: walk_makes(page) == ["Locel"], 10)
+    c.eq(walk_makes(page), ["Locel"], "Approved by Client tab now holds Locel only")
+    db = db_tab_counts(w)
+    c.eq(ui_tab_counts(page), {t: db[t] for t in TAB_LABELS}, "tab counts match the database after the switch")
+    w.shot(page, "c30_switched", full=True)
+
+
+@case(31, "an Admin clears Client Status: all four fields blank, the rows back in TDS History; a PMO is refused (#1386)")
+def c31(w: Walk, page, c: Checks):
+    rows = w.be('R["rows"] = [seed_row(P["rid"], s) for s in P["specs"]]; frappe.db.commit()', rid="RQ-001-WALK31", specs=[
+        {"kind": "pick", "make": "Tapariya", "status": "Approved", "client_status": CLIENT_APPROVED},
+        {"kind": "pick", "make": "Locel", "status": "Approved", "client_status": CLIENT_REJECTED,
+         "client_reason": "walk: wrong colour"},
+    ])["rows"]
+    names = {r["make"]: r["name"] for r in rows}
+
+    # The walk user is an Admin, so the PMO's missing Clear button is pinned by vitest
+    # (clientStatusActionsFor); the server's refusal is checked here as a real PMO user.
+    res = w.be('''
+from nirmaan_stack.api.tds.client_status import set_client_status
+pmo = frappe.db.get_value("User", {"role_profile_name": "Nirmaan PMO Executive Profile", "enabled": 1}, "name")
+R["pmo"] = pmo
+if pmo:
+    frappe.set_user(pmo)
+    try:
+        set_client_status([P["n"]], "clear")
+        R["refused"] = False
+    except frappe.PermissionError as e:
+        R["refused"] = str(e)
+    frappe.set_user("Administrator")
+    frappe.db.rollback()''', n=names["Locel"])
+    if res["pmo"]:
+        c.check(res["refused"], f"the server refuses Clear from a PMO Executive ({res['pmo']})", res["refused"])
+        c.eq(client_fields(w, [names["Locel"]])[names["Locel"]]["client_status"], CLIENT_REJECTED,
+             "the refused Clear changed nothing")
+    else:
+        c.note("no enabled PMO Executive user on this site; the server's Clear refusal is covered by test_client_status")
+
+    open_history_page(page)
+    for tab, make in (("approvedByClient", "Tapariya"), ("rejectedByClient", "Locel")):
+        open_history_tab(page, tab)
+        wait_for(lambda: make in walk_makes(page), 10)
+        tick(page, make)
+        bar = page.get_by_test_id("tds-selection-toolbar")
+        clear = bar.get_by_role("button", name="Clear Client Status", exact=True)
+        c.check(clear.is_visible(), f"{TAB_LABELS[tab]} tab offers an Admin Clear Client Status", bar.inner_text())
+        w.shot(page, f"c31_{tab}_toolbar")
+        clear.click()
+        c.check("cleared" in wait_toast(page, "cleared").lower(), f"a toast confirms the clear on {TAB_LABELS[tab]}",
+                toasts(page))
+        settle(page, 1.5)
+        wait_for(lambda: make not in walk_makes(page), 10)
+        c.check(make not in walk_makes(page), f"{make} left the {TAB_LABELS[tab]} tab", walk_makes(page))
+        dismiss_toasts(page)
+
+    stored = client_fields(w, list(names.values()))
+    for make, n in names.items():
+        row = stored[n]
+        c.check(not any(row[f] for f in ("client_status", "client_status_by", "client_status_on", "client_rejection_reason")),
+                f"{make}: all four client fields blank", row)
+        c.eq(row["tds_status"], "Approved", f"{make} tds_status unchanged")
+
+    open_history_tab(page, "history")
+    wait_for(lambda: {"Tapariya", "Locel"} <= set(walk_makes(page)), 10)
+    c.check({"Tapariya", "Locel"} <= set(walk_makes(page)), "both rows are back in TDS History", walk_makes(page))
+    table = history_table(page)
+    for make in ("Tapariya", "Locel"):
+        c.eq(column_values(table, walk_row(page, make), "Status")[0], "Approved by Admin", f"{make} reads Approved by Admin")
+    db = db_tab_counts(w)
+    c.eq(ui_tab_counts(page), {t: db[t] for t in TAB_LABELS}, "tab counts match the database after the clear")
+    w.shot(page, "c31_cleared", full=True)
+
+
 # ─── main ────────────────────────────────────────────────────────────────────────────────────────
 
 def parse_cases(spec):

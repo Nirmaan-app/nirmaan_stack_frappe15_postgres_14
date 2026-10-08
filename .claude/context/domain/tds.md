@@ -53,7 +53,8 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
   `client_status.py`, mirrored by `CLIENT_STATUS` / `CLIENT_STATUS_ACTION` in `tdsRequestRules.ts`
   (parity block). TDS History's three tabs filter on it server-side (`historyTabFilters`: no Client
   Status / each answer), so every row sits in exactly one tab; ticks go only on
-  `isClientStatusMarkable` rows.
+  `isClientStatusMarkable` rows. `clientStatusActionsFor` names each tab's actions: TDS History the two
+  marks; a client tab the switch to the other answer, plus Clear for an Admin only.
 - **Datasheet ownership.** A pick borrows its entry's File. A request owns its upload. Approving a New
   Make moves the File to the new entry; keeping the repository's sheet deletes the row's own upload
   through `submit.delete_row_datasheet`, which respects shared stored bytes (`CODING_STANDARDS.md`
