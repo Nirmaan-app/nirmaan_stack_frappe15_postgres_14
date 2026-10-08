@@ -29,10 +29,12 @@ export const ITM_DELETE_ROLES: readonly string[] = [
 ] as const;
 
 /**
- * Roles allowed to dispatch an approved ITM.
+ * Roles allowed to dispatch an approved ITM. Mirrors backend ``DISPATCH_ROLES``
+ * in ``integrations/controllers/internal_transfer_memo.py``.
  */
 export const ITM_DISPATCH_ROLES: readonly string[] = [
   "Nirmaan Admin Profile",
+  "Nirmaan PMO Executive Profile",
   ...MATERIAL_PROCUREMENT_PROFILES,
 ] as const;
 

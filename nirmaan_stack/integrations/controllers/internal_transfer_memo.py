@@ -28,6 +28,7 @@ ADMIN_ROLE = "Nirmaan Admin Profile"
 # on the frontend so UI gating and backend enforcement stay in sync.
 DISPATCH_ROLES = (
     "Nirmaan Admin Profile",
+    "Nirmaan PMO Executive Profile",
     *MATERIAL_PROCUREMENT_PROFILES,
 )
 
@@ -181,8 +182,8 @@ def _validate_state_transition(doc, old_status, new_status):
 
     if old_status == "Approved" and new_status == "Dispatched":
         _require_dispatcher(
-            "Only administrators or procurement executives may dispatch "
-            "Internal Transfer Memos."
+            "Only administrators, PMO executives, or procurement executives "
+            "may dispatch Internal Transfer Memos."
         )
 
 
