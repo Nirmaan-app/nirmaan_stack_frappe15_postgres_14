@@ -1826,6 +1826,143 @@ def c29(w: Walk, page, c: Checks):
     w.shot(page, "c29_rejected_tab", full=True)
 
 
+# ─── #1389: a Make the client rejected ─────────────────────────────────────────────────────────
+
+CLIENT_REJECTED_TAG = "tds-make-client-rejected-tag"
+CLIENT_REJECTED_POPUP = "tds-client-rejected-make-dialog"
+
+
+def seed_client_rejected(w: Walk, rid, extra=(), reason="walk: client wants another brand"):
+    """Locel Admin-approved and Rejected by Client (marked by the walk user), plus `extra` specs."""
+    return w.be('R["rows"] = [seed_row(P["rid"], s) for s in P["specs"]]; frappe.db.commit()', rid=rid, specs=[
+        {"kind": "pick", "make": "Locel", "status": "Approved", "client_status": CLIENT_REJECTED,
+         "client_status_by": USER, "client_reason": reason},
+        *extra,
+    ])["rows"]
+
+
+def open_make_menu(page):
+    rs_pick(page, "Search TDS item...", ITEM_NAME)
+    rs_input(page, "Select Make").click(force=True)
+    time.sleep(0.8)
+
+
+def make_placeholder_shows(page):
+    return page.locator('div[id$="-placeholder"]:text-is("Select Make")').count() == 1
+
+
+def server_refusal(w: Walk, make):
+    """What `submit_tds_request` says to a direct call sending a pick of the walk item in `make`."""
+    return w.be('''
+from nirmaan_stack.api.tds.submit import submit_tds_request
+try:
+    submit_tds_request(PROJECT, json.dumps([{"tds_item_id": T, "make": P["make"], "tds_boq_line_item": ""}]))
+    R["error"] = None
+except frappe.ValidationError as e:
+    R["error"] = str(e)
+frappe.db.rollback()''', make=make)["error"]
+
+
+@case(38, "a Make the client rejected reads Rejected by Client in the Make list, not (already submitted)")
+def c38(w: Walk, page, c: Checks):
+    rows = seed_client_rejected(w, "RQ-001-WALK38", extra=[{"kind": "pick", "make": "Tapariya"}])
+    stored = client_fields(w, [rows[0]["name"]])[rows[0]["name"]]
+    c.eq((stored["tds_status"], stored["client_status"]), ("Approved", CLIENT_REJECTED),
+         "seeded Locel row is Admin-approved and Rejected by Client")
+    open_new_request(page)
+    open_make_menu(page)
+    menu = menu_text(page)
+    locel = options(page).filter(has_text="Locel").first
+    tapariya = options(page).filter(has_text="Tapariya").first
+    c.check(locel.get_by_test_id(CLIENT_REJECTED_TAG).count() == 1 and "Rejected by Client" in locel.inner_text(),
+            "Locel shows the Rejected by Client tag", menu)
+    c.check("already submitted" not in locel.inner_text().lower(), "Locel does not read (already submitted)", menu)
+    c.check(tapariya.get_by_test_id(CLIENT_REJECTED_TAG).count() == 0 and "already submitted" in tapariya.inner_text().lower(),
+            "a Pending make still reads (already submitted), with no tag", menu)
+    w.shot(page, "c38_make_list")
+    page.keyboard.press("Escape")
+
+
+@case(39, "picking a Make the client rejected opens the popup; another make is added and sent; the server refuses the same make")
+def c39(w: Walk, page, c: Checks):
+    rid = "RQ-001-WALK39"
+    reason = "walk: client wants Legrand on every floor"
+    rows = seed_client_rejected(w, rid, reason=reason, extra=[
+        {"kind": "custom", "name": CUSTOM_LAMP, "make": "Locel", "pcus": "PCUS-WALK39", "status": "Approved",
+         "client_status": CLIENT_REJECTED, "client_status_by": USER, "client_reason": reason},
+    ])
+    full_name = w.be('R["n"] = frappe.db.get_value("Nirmaan Users", P["u"], "full_name")', u=USER)["n"] or USER
+
+    open_new_request(page)
+    rs_pick(page, "Search TDS item...", ITEM_NAME)
+    rs_pick(page, "Select Make", "Locel")
+    dlg = page.get_by_test_id(CLIENT_REJECTED_POPUP)
+    if c.check(wait_for(lambda: dlg.count(), 8), "picking Locel opens the Rejected by Client popup"):
+        text = dlg.inner_text()
+        flat = text.replace("\n", " / ")[:400]
+        c.check(all(s in text for s in (ITEM_NAME, "Locel", rid, reason, full_name)),
+                "popup names the item, make, request id, who marked it and the client's reason", flat)
+        c.check(re.search(r"\d{2}-[A-Z][a-z]{2}-\d{4}", text), "popup shows when it was marked (dd-MMM-yyyy)", flat)
+        c.check("Pick a different make" in text and "switch that row to Approved by Client" in text,
+                "popup explains the two ways out", flat)
+        c.check(dlg.get_by_role("button", name="Open Rejected by Client tab").count() == 1,
+                "popup offers Open Rejected by Client tab")
+        w.shot(page, "c39_popup")
+        dlg.get_by_role("button", name="Pick another make").click()
+        time.sleep(0.5)
+    c.eq(dlg.count(), 0, "Pick another make closes the popup")
+    c.check(make_placeholder_shows(page), "the rejected make is not selected")
+    c.eq(cart_rows(page).count(), 0, "nothing reached the cart")
+
+    add_custom(w, page, "tds walk CUSTOM lamp ", "Locel")
+    c.check(wait_for(lambda: dlg.count(), 8), "a Project Custom name + make the client rejected opens the popup too")
+    if dlg.count():
+        c.check(CUSTOM_LAMP in dlg.inner_text(), "the popup names the Project Custom row", dlg.inner_text()[:200])
+        w.shot(page, "c39_popup_custom")
+        dlg.get_by_role("button", name="Pick another make").click()
+        time.sleep(0.5)
+    c.eq(cart_rows(page).count(), 0, "the Project Custom clash did not reach the cart")
+
+    since = w.be('R["now"] = str(frappe.utils.now())')["now"]
+    rs_pick(page, "Select Make", "Tapariya")
+    page.get_by_role("button", name="Add item").click()
+    time.sleep(1)
+    c.eq(cart_rows(page).count(), 1, "another make of the item is added")
+    page.get_by_role("button", name="Send For Approval").click()
+    wait_for(lambda: cart_rows(page).count() == 0, 30)
+    new = w.be('R["new"] = project_rows(P["since"])', since=since)["new"]
+    c.eq([(r["tds_make"], r["tds_status"]) for r in new], [("Tapariya", "Pending")], "the other make is sent and saved Pending")
+    stored = client_fields(w, [r["name"] for r in rows])
+    c.check(all(s["client_status"] == CLIENT_REJECTED and s["tds_status"] == "Approved" for s in stored.values()),
+            "the Rejected by Client rows are untouched", stored)
+
+    error = server_refusal(w, "Locel")
+    c.check(error and "Rejected by Client" in error and rid in error and "Pick another make" in error,
+            "a direct submit of the same item + make is refused with the Rejected by Client message", error)
+
+
+@case(40, "the popup's Open Rejected by Client tab leaves the form for that tab")
+def c40(w: Walk, page, c: Checks):
+    seed_client_rejected(w, "RQ-001-WALK40")
+    open_new_request(page)
+    rs_pick(page, "Search TDS item...", ITEM_NAME)
+    rs_pick(page, "Select Make", "Locel")
+    dlg = page.get_by_test_id(CLIENT_REJECTED_POPUP)
+    if not c.check(wait_for(lambda: dlg.count(), 8), "picking Locel opens the popup"):
+        return
+    dlg.get_by_role("button", name="Open Rejected by Client tab").click()
+    settle(page, 1.5)
+    c.eq(dlg.count(), 0, "the popup closes")
+    c.check(not page.get_by_role("button", name="Back to TDS History").is_visible(), "the request form is hidden")
+    tab = page.get_by_role("tab", name=re.compile("^" + re.escape(CLIENT_REJECTED)))
+    c.eq(tab.get_attribute("aria-selected"), "true", "the Rejected by Client tab is the active tab")
+    wait_for(lambda: walk_makes(page), 10)
+    c.eq(walk_makes(page), ["Locel"], "the tab lists the client-rejected row")
+    db = db_tab_counts(w)
+    c.eq(ui_tab_counts(page), {t: db[t] for t in TAB_LABELS}, "tab counts match the database")
+    w.shot(page, "c40_rejected_tab", full=True)
+
+
 # ─── main ────────────────────────────────────────────────────────────────────────────────────────
 
 def parse_cases(spec):
