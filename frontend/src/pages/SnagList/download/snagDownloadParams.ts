@@ -8,10 +8,8 @@ import { ColumnFiltersState } from "@tanstack/react-table";
 import {
   DEFAULT_PRINTED_STATUSES,
   DOWNLOAD_ALL_ENDPOINT,
-  DOWNLOAD_PDF_ENDPOINT,
+  DOWNLOAD_SNAG_PDF_ENDPOINT,
   NOT_APPLICABLE_STATUS,
-  SNAG_PRINT_DOCTYPE,
-  SNAG_PRINT_FORMAT_NAME,
   SNAG_PRINT_PARAM,
 } from "./snagDownloadConstants";
 
@@ -74,13 +72,7 @@ export function buildSnagDownloadUrl(
   { projectId, columnFilters, searchTerm, selectedSearchField, batch }: SnagDownloadState,
   { mode, includeNotApplicable }: SnagDownloadOptions = DEFAULT_DOWNLOAD_OPTIONS
 ): string {
-  const params = new URLSearchParams({
-    doctype: SNAG_PRINT_DOCTYPE,
-    name: projectId,
-    format: SNAG_PRINT_FORMAT_NAME,
-    no_letterhead: "1",
-    _lang: "en",
-  });
+  const params = new URLSearchParams({ project: projectId, _lang: "en" });
   // Summary only = the print format's master section. With the tab's `batches` below
   // it renders that ONE file's block ("Snag List — Summary"), nothing else.
   if (mode === "summary") params.append(SNAG_PRINT_PARAM.mode, "master");
@@ -111,7 +103,7 @@ export function buildSnagDownloadUrl(
 
   appendSearch(params, searchTerm, selectedSearchField);
 
-  return `${DOWNLOAD_PDF_ENDPOINT}?${params.toString()}`;
+  return `${DOWNLOAD_SNAG_PDF_ENDPOINT}?${params.toString()}`;
 }
 
 /** Shared by both builders — the search box narrows the merged report identically. */

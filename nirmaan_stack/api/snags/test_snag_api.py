@@ -19,7 +19,7 @@ import tempfile
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.snags import import_wizard, tracking
+from nirmaan_stack.api.snags import bulk_download, import_wizard, print_photos, tracking
 
 
 #: Column labels the stub reader recomputes for a header row. Keyed by header row, so a
@@ -2080,3 +2080,59 @@ class TestSnagApi(FrappeTestCase):
             frappe.db.get_value("Project Snag", snag, ["status", "attachment"]),
             ("Completed", url),
         )
+
+    def test_the_print_embeds_a_reachable_photo_and_skips_an_unreachable_one(self):
+        snag = self._a_snag("PhotoPrint", "Photo print batch")
+        url = self._photo(snag)
+        rows = [
+            {"name": snag, "attachment": url, "location": "Gate (Lat: 12.9716, Lon: 77.5946)"},
+            {"name": "SNAG-MISSING", "attachment": "/private/files/gone.jpg", "location": None},
+            {"name": "SNAG-NO-PHOTO", "attachment": None, "location": None},
+        ]
+
+        # The unreachable photo is LOGGED by design (here and by `fetch_attachment_content`);
+        # this test removes the two logs it causes, and nothing older.
+        started = frappe.utils.now()
+
+        def drop_logs():
+            for title in ("Snag print:%", "fetch_attachment_content failed: /private/files/gone.jpg%"):
+                for name in frappe.get_all(
+                    "Error Log",
+                    filters={"method": ["like", title], "creation": [">=", started]},
+                    pluck="name",
+                ):
+                    frappe.delete_doc("Error Log", name, force=True, ignore_permissions=True)
+            frappe.db.commit()
+
+        self.addCleanup(drop_logs)
+
+        photos = print_photos.snag_print_photos(rows)
+
+        self.assertEqual(set(photos), {snag, "SNAG-MISSING"})
+        self.assertTrue(photos[snag]["thumb"].startswith("data:image/jpeg;base64,"))
+        self.assertTrue(photos[snag]["grid"].startswith("data:image/jpeg;base64,"))
+        self.assertIsNone(photos["SNAG-MISSING"]["thumb"])
+        self.assertIsNone(photos["SNAG-MISSING"]["grid"])
+
+    def test_the_single_download_builds_a_pdf_that_keeps_its_jump_links(self):
+        """The single Download's own endpoint (Frappe's `download_pdf` refuses the generator)."""
+        from pypdf import PdfReader
+
+        snag = self._a_snag("SingleDownload", "Single download batch")
+        self._details(snag, attachment=self._photo(snag))
+        self.addCleanup(setattr, frappe.local, "form_dict", frappe._dict())
+        frappe.local.form_dict = frappe._dict()
+
+        bulk_download.download_snag_pdf(project=self.project)
+
+        pdf = frappe.local.response.filecontent
+        self.assertEqual(frappe.local.response.type, "pdf")
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        targets = PdfReader(io.BytesIO(pdf)).trailer["/Root"].get_object()["/Dests"].get_object()
+        names = {str(name)[1:] for name in targets}
+        # Thumbnail -> photo, and photo -> row: both targets survived the render.
+        self.assertIn(f"snag-photo-{snag}", names)
+        self.assertIn(f"snag-row-{snag}", names)
+
+        with self.assertRaises(frappe.ValidationError):
+            bulk_download.download_snag_pdf(project=self.project, mode="full")

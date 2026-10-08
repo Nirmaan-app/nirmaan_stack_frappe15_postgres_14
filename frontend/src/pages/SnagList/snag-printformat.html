@@ -18,8 +18,25 @@
       arrays on the query string). Absent = all.
     - LAYOUT: page 1 = header + PROJECT banner + overall status summary.
       Then ONE PAGE PER CATEGORY: category banner + that category's status
-      summary + its table (S.No / Area / Description / Status / Remarks).
-      S.No restarts on every category page.
+      summary + its table (S.No / Area / Description / Status / Remarks /
+      Attachment). S.No restarts on every category page.
+    - ATTACHMENT (2026-10-08): the snag's one photo as a 50x50 thumbnail. Clicking
+      it JUMPS to the same photo on the photo pages. No Map link (owner
+      2026-10-08). Private files: `snag_print_photos`
+      (a Jinja method, `api/snags/print_photos.py`) fetches and EMBEDS them --
+      wkhtmltopdf has no session. Full report only; the Master Summary has no snag rows.
+    - PHOTO PAGES (2026-10-08, final): each category's photos start on the page
+      right after that category's table, 3 per row, under a one-line header:
+      "<CATEGORY> · n photos" in black bold, then "(Click a photo to go to its
+      snag row)".
+      Each photo is padded to a square (never cropped) and is itself the
+      link back to its snag row; the table's thumbnail jumps to the photo.
+      Download All gets the same per-category pages inside each file's section.
+      The jump links survive only the `pdf_generator=nirmaan_keep_links` render
+      (`api/pdf_helper/keep_links.py`): Frappe's own PDF path drops in-document links,
+      so a Desk print's jump links open the site instead. Harmless.
+      A jump TARGET must be an element with content (the ids sit on the cells):
+      wkhtmltopdf never places an empty `<a name="..."></a>`.
     - MASTER SUMMARY (`mode=master`): the first section of "Download All"
       (title "All Snag List"), and the single-tab "Summary only" download
       (with `batches` = that tab; title "Snag List — Summary").
@@ -143,10 +160,17 @@
 {%- set snags = frappe.get_all("Project Snag",
         filters=snag_filters,
         fields=["name", "area", "category", "description", "status", "remark",
-                "creation", "source_row", "source_serial", "batch"],
+                "creation", "source_row", "source_serial", "batch",
+                "attachment"],
         order_by="category asc, area asc, source_row asc, creation asc",
         limit_page_length=0
 ) -%}
+
+{# --- THE PHOTOS (Attachment column + each category's photo page) ---
+   {snag name: {thumb, grid}} for every printed snag that has a photo. Fetched in
+   parallel, ONCE, and embedded (private files; wkhtmltopdf has no session). Skipped
+   for the Master Summary, which prints no snag rows. #}
+{%- set snag_photos = snag_print_photos(snags) if not is_master else {} -%}
 
 {# --- THE SOURCE FILES BEHIND THE PRINTED ROWS ---
    Derived from the snags ACTUALLY ON THE PAGE, never from the project's batch list:
@@ -409,6 +433,33 @@
 
     .desc-text { font-size: 10px; color: #111827; line-height: 1.35; word-break: break-word; white-space: pre-wrap; }
     .note-text { font-size: 9px; color: #374151; line-height: 1.35; word-break: break-word; white-space: pre-wrap; }
+    /* Attachment column: the photo arrives pre-cropped square -- wkhtmltopdf has no object-fit.
+       The LINK is the block, not the image: wkhtmltopdf sizes a link by its own box, and an
+       inline <a> around a block <img> has none -- its click area lands, empty, on page 1. */
+    .photo-jump { display: block; width: 52px; margin: 0 auto; }
+    .snag-photo { display: block; width: 50px; height: 50px; border: 1px solid #E5E7EB; border-radius: 3px; }
+    .photo-link { font-size: 8px; font-weight: 600; color: #0369A1; text-decoration: none; }
+
+    /* --- PHOTO PAGES (after each category's table) ---
+       Each row of 3 is its OWN table, so a row moves whole to the next page. No <div>
+       inside a cell: Frappe's print CSS sets `table td div { page-break-inside: avoid }`,
+       which makes wkhtmltopdf push rows down at random. The photo arrives already padded
+       to a square (wkhtmltopdf has no object-fit). */
+    .category-photos { page-break-before: always; break-before: page; }
+    /* The photo page's one-line header: the category + count in black bold, the click hint
+       straight after it in small grey (owner 2026-10-08). */
+    .photos-head { margin: 0 0 8px 0; }
+    .photos-title { font-size: 11px; font-weight: 800; color: #111827; text-transform: uppercase; letter-spacing: 1.2px; }
+    .photos-hint { font-size: 9px; font-weight: 400; color: #6b7280; margin-left: 6px; }
+    .photo-row { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 4px; }
+    /* Frappe's print CSS forces `.print-format td { padding: 6px !important }` and a 9pt
+       font. The side padding sets the photo's size (~52 mm), small enough for 4 rows a page. */
+    .print-format .photo-row td { width: 33.33%; padding: 2px 15px 4px 15px !important; vertical-align: top; font-size: 8px; line-height: 1.3; }
+    .grid-link { display: block; margin-bottom: 3px; text-decoration: none; }
+    .grid-photo { display: block; width: 100%; border: 1px solid #E5E7EB; }
+    /* A photo that could not be fetched: a grey square the size of a photo. */
+    .grid-missing { display: block; position: relative; width: 100%; padding-bottom: 100%; margin-bottom: 4px; background-color: #F3F4F6; border: 1px dashed #D1D5DB; }
+    .grid-missing span { position: absolute; top: 46%; left: 0; right: 0; text-align: center; font-size: 9px; color: #6B7280; }
 
     /* --- MASTER SUMMARY: one File block per imported file --- */
     /* Blocks FLOW (owner 2026-09-30): a file's category table may continue on the next
@@ -696,10 +747,11 @@
                     <thead>
                         <tr>
                             <th style="width: 40px; text-align: center;">S.No</th>
-                            <th style="width: 18%;">Area</th>
-                            <th style="width: 42%;">Description</th>
+                            <th style="width: 15%;">Area</th>
+                            <th style="width: 34%;">Description</th>
                             <th style="width: 13%;">Status</th>
-                            <th style="width: 22%;">Remarks</th>
+                            <th style="width: 19%;">Remarks</th>
+                            <th style="width: 84px; text-align: center;">Attachment</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -714,8 +766,8 @@
                            the field existed -- so a row is never left blank. #}
                         {% for row in cat.rows %}
                         <tr>
-                            <!-- S.No -->
-                            <td style="text-align: center; color: #6B7280;">{{ row.source_serial or loop.index }}</td>
+                            <!-- S.No. Its id is where a click on the snag's photo jumps back to. -->
+                            <td id="snag-row-{{ row.name }}" style="text-align: center; color: #6B7280;">{{ row.source_serial or loop.index }}</td>
 
                             <!-- Area -->
                             <td style="font-weight: 600; color: #111;">
@@ -750,10 +802,53 @@
                                 {% endif %}
                             </td>
 
+                            <!-- Attachment: the photo (jumps to it on this category's photo
+                                 page). A photo that could not be fetched still gets its jump
+                                 link. -->
+                            <td style="text-align: center;">
+                                {% set ph = snag_photos.get(row.name) %}
+                                {% if ph %}
+                                    {% if ph.thumb %}
+                                        <a class="photo-jump" href="#snag-photo-{{ row.name }}"><img class="snag-photo" src="{{ ph.thumb }}" alt="Photo"></a>
+                                    {% else %}
+                                        <a class="photo-link" href="#snag-photo-{{ row.name }}">Photo</a>
+                                    {% endif %}
+                                {% else %}
+                                    <span style="color:#999;">-</span>
+                                {% endif %}
+                            </td>
+
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
+
+                <!-- CATEGORY PHOTOS -- on the NEXT page, 3 per row, in the table's order.
+                     Nothing (no page) when no snag of this category has a photo. -->
+                {%- set cat_photos = [] -%}
+                {%- for row in cat.rows -%}
+                    {%- if snag_photos.get(row.name) -%}{%- set _ = cat_photos.append(row) -%}{%- endif -%}
+                {%- endfor -%}
+                {% if cat_photos %}
+                <div class="category-photos">
+                    {# One line: which category, how many, then what a click does. #}
+                    <div class="photos-head"><span class="photos-title">{{ cat.label }} &middot; {{ cat_photos | length }} {{ "photo" if cat_photos | length == 1 else "photos" }}</span><span class="photos-hint">(Click a photo to go to its snag row)</span></div>
+                    {% for chunk in cat_photos | batch(3) %}
+                    <table class="photo-row">
+                        <tr>
+                            {% for row in chunk %}
+                            {% set ph = snag_photos.get(row.name) %}
+                            {# The photo IS the link back to its snag row (owner 2026-10-08). #}
+                            <td id="snag-photo-{{ row.name }}">
+                                <a class="grid-link" href="#snag-row-{{ row.name }}">{% if ph.grid %}<img class="grid-photo" src="{{ ph.grid }}" alt="Photo">{% else %}<span class="grid-missing"><span>Photo unavailable</span></span>{% endif %}</a>
+                            </td>
+                            {% endfor %}
+                            {% for _ in range(3 - chunk | length) %}<td></td>{% endfor %}
+                        </tr>
+                    </table>
+                    {% endfor %}
+                </div>
+                {% endif %}
             </div>
             {% endif %}
 

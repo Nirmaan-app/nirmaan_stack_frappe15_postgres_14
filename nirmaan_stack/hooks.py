@@ -67,8 +67,16 @@ jinja = {
 	"methods": [
 		"nirmaan_stack.api.hod.print_context.hod_print_context",
 		"nirmaan_stack.api.hod.print_context.hod_checklist_context",
+		# "Project Snag" embeds each snag's private photo (wkhtmltopdf has no session).
+		"nirmaan_stack.api.snags.print_photos.snag_print_photos",
 	],
 }
+
+# PDF generators: `get_print` tries these when a request carries `pdf_generator` other than
+# "wkhtmltopdf". `keep_links_pdf` (shared) keeps a PDF's in-document jump links, which Frappe's own
+# `get_pdf` drops; it answers only to `nirmaan_keep_links` (first user: the Snag List), so every
+# other print gets None back and is unchanged. How to use it: `api/pdf_helper/keep_links.py`.
+pdf_generator = ["nirmaan_stack.api.pdf_helper.keep_links.keep_links_pdf"]
 
 # Installation
 # ------------

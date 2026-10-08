@@ -10,12 +10,16 @@
  * document (ADR-0017), so there is no parent doc holding the list. The Jinja
  * fetches the project's snags itself and the params below narrow that fetch.
  */
-export const SNAG_PRINT_DOCTYPE = "Projects";
 export const SNAG_PRINT_FORMAT_NAME = "Project Snag";
 
-/** Frappe endpoint that renders a print format to a PDF and streams it back. */
-export const DOWNLOAD_PDF_ENDPOINT =
-  "/api/method/frappe.utils.print_format.download_pdf";
+/**
+ * Single "Download": OUR endpoint, not Frappe's `download_pdf`. Frappe type-checks that
+ * one's `pdf_generator` argument ("wkhtmltopdf" | "chrome" only), so it cannot carry the
+ * generator that keeps the photo ↔ row jump links (FrappeTypeError, 2026-10-08). Ours sets
+ * it on the server, as Download All does (`api/snags/bulk_download.download_snag_pdf`).
+ */
+export const DOWNLOAD_SNAG_PDF_ENDPOINT =
+  "/api/method/nirmaan_stack.api.snags.bulk_download.download_snag_pdf";
 
 /**
  * "Download All" — one report PER BATCH, merged server-side into a single PDF.

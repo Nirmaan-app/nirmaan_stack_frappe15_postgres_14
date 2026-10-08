@@ -1,5 +1,8 @@
 """Every batch's snag report, merged into ONE PDF -- the "Download All" button.
 
+Also serves the single "Download" (`download_snag_pdf`): Frappe's own `download_pdf` cannot carry
+the jump-link generator (see that function).
+
 THE FILE ALWAYS OPENS ON A MASTER SUMMARY. Before any batch section, the same print
 format is rendered once with `mode="master"` and NO `batches` param -- the project-wide
 view: per-file status and category counts. Then, by `mode`:
@@ -41,7 +44,11 @@ comments then printed as visible text above the logo. Clearing the cache keeps
 `get_print` -- and with it Frappe's own document wrapper -- so that cannot happen here.
 
 `pypdf` is the merge library this app already uses (`api/pdf_helper/`,
-`api/milestone/print_milestone_reports.py`).
+`api/milestone/print_milestone_reports.py`). Every render goes through `keep_links_pdf` (the
+shared `pdf_generator` hook, `api/pdf_helper/keep_links.py`) and is merged by its `LinkedPdf`, so
+each section's
+thumbnail -> photo links (the photos follow each category's table) still land after the merge.
+Copying pages one by one, as this module used to, loses every jump target.
 
 ⚠️ MANUALLY ADDED SNAGS ARE NOT IN THIS FILE unless they were filed into a batch. The
 loop is per batch, so a snag with none appears in no section. The print format cannot
@@ -52,13 +59,12 @@ The button's tooltip names the count rather than the rows going missing quietly.
 
 from __future__ import annotations
 
-import io
 import json
 
 import frappe
-from pypdf import PdfReader, PdfWriter
 
 from nirmaan_stack.api.snags import require_read_access
+from nirmaan_stack.api.pdf_helper.keep_links import KEEP_LINKS, LinkedPdf
 
 #: The one print format this merges. Same format the single Download prints, so the
 #: pages are identical to what the user already gets per tab.
@@ -107,6 +113,8 @@ def _render(project: str, supplied: dict, *, mode, batches) -> bytes:
     """
     frappe.local.form_dict["mode"] = mode
     frappe.local.form_dict["batches"] = batches
+    # Keeps the in-document links (`api/pdf_helper/keep_links`); `get_print` reads it off form_dict.
+    frappe.local.form_dict["pdf_generator"] = KEEP_LINKS
     for key in _PASSTHROUGH_PARAMS:
         frappe.local.form_dict[key] = supplied.get(key)
     # ⚠️ LOAD-BEARING -- see `_drop_jinja_cache`. Before EVERY render, the master included.
@@ -181,7 +189,7 @@ def download_all_batches(
         "search_field": search_field,
     }
 
-    merged = PdfWriter()
+    merged = LinkedPdf()
 
     # --- The MASTER SUMMARY: always first, in both modes ---------------------------
     # `batches=None` = every batch (the Jinja's own default); the caller's filters ride
@@ -192,8 +200,7 @@ def download_all_batches(
         master_bytes = _render(
             project, supplied, mode=_MASTER_RENDER_MODE, batches=None
         )
-        for page in PdfReader(io.BytesIO(master_bytes)).pages:
-            merged.add_page(page)
+        merged.append(master_bytes)
     except Exception:
         # NOT skipped like a batch: the master is the file's first page, and a file
         # that silently opens on batch 1 instead reads as complete when it is not.
@@ -219,8 +226,7 @@ def download_all_batches(
             pdf_bytes = _render(
                 project, supplied, mode=None, batches=json.dumps([batch.name])
             )
-            for page in PdfReader(io.BytesIO(pdf_bytes)).pages:
-                merged.add_page(page)
+            merged.append(pdf_bytes)
             rendered += 1
         except Exception:
             # One unrenderable batch must not cost the user the whole download -- the
@@ -242,16 +248,66 @@ def download_all_batches(
             title="Download failed",
         )
 
-    output = io.BytesIO()
-    merged.write(output)
-    merged.close()
+    output = merged.to_bytes()
 
     project_label = frappe.db.get_value("Projects", project, "project_name") or project
     frappe.local.response.filename = (
         _summary_filename(project_label) if mode == "summary" else _merged_filename(project_label)
     )
-    frappe.local.response.filecontent = output.getvalue()
+    frappe.local.response.filecontent = output
     frappe.local.response.type = "download"
+
+
+@frappe.whitelist(methods=["GET"])
+def download_snag_pdf(
+    project=None,
+    statuses=None,
+    areas=None,
+    categories=None,
+    batches=None,
+    search=None,
+    search_field=None,
+    mode=None,
+):
+    """ONE Snag List PDF of the screen as it stands: the single "Download" button, and its
+    "Summary only" choice (`mode="master"`). Filters arrive exactly as the Jinja reads them.
+
+    WHY NOT FRAPPE'S `download_pdf`: it takes `pdf_generator` as an argument typed
+    `Literal["wkhtmltopdf", "chrome"]`, and every web request is type-checked, so
+    `pdf_generator=nirmaan_keep_links` on its URL failed with FrappeTypeError before any PDF
+    was made (2026-10-08). Here, as in Download All, `_render` sets the generator INSIDE the
+    request, so the photo <-> row jump links survive.
+
+    PERMISSION: the snag read tier first, as Download All asks it -- the PDF carries every
+    snag photo, and Accountant is denied the snag list (`READ_DENIED_ROLES`) even where it
+    may read the project. Then Frappe's own, unchanged from `download_pdf`: `get_print`
+    refuses a user who can neither read nor print the project
+    (`printview.validate_print_permission`).
+    """
+    if not project:
+        frappe.throw("project is required.", title="Missing field: project")
+    require_read_access("view this project's snag list")
+    if not frappe.db.exists("Projects", project):
+        frappe.throw(f"Project '{project}' not found.", title="Not found")
+    if mode not in (None, "", _MASTER_RENDER_MODE):
+        frappe.throw(
+            f"mode must be '{_MASTER_RENDER_MODE}' or absent (got {mode!r}).",
+            title="Invalid download mode",
+        )
+
+    supplied = {
+        "statuses": statuses,
+        "areas": areas,
+        "categories": categories,
+        "search": search,
+        "search_field": search_field,
+    }
+    frappe.local.response.filecontent = _render(
+        project, supplied, mode=mode or None, batches=batches or None
+    )
+    # The screen names the saved file itself (`buildSnagPdfFilename`).
+    frappe.local.response.filename = f"{_safe_label(project)}.pdf"
+    frappe.local.response.type = "pdf"
 
 
 def _safe_label(project_label: str) -> str:
