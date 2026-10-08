@@ -1,15 +1,22 @@
 import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Download, Loader2 } from 'lucide-react';
+import { ArrowLeft, Download, Loader2, Plus } from 'lucide-react';
 import { FrappeContext, FrappeConfig } from 'frappe-react-sdk';
 import { useTdsHistoryItems, useProjectDoc } from '../data/tds/useTdsQueries';
 import { format } from 'date-fns';
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog, TdsPdfReadyDialog } from './components';
+import { historyStatusLabel } from '@/utils/tdsRequestRules';
+
+/** The table tabs on the tab row. A new tab is one entry here plus its `TabsContent`. */
+const TABLE_TABS = [
+    { value: "history", label: "TDS History" },
+] as const;
+type TableTab = (typeof TABLE_TABS)[number]["value"];
 
 interface TDSRepositoryViewProps {
     data: TDSRepositoryData;
@@ -26,7 +33,9 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
     const [isUpdating, setIsUpdating] = useState(false);
-    const [activeTab, setActiveTab] = useState("history");
+    const [activeTab, setActiveTab] = useState<TableTab>("history");
+    // The request form replaces the tab row and tables while open; both stay mounted.
+    const [isFormOpen, setIsFormOpen] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
     const [isExporting, setIsExporting] = useState(false);
     const [isExportingHistory, setIsExportingHistory] = useState(false);
@@ -105,7 +114,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                     (item.tds_description || "").replace(/,/g, ";"), // Escape commas
                     item.tds_make || "",
                     item.tds_boq_line_item || "",
-                    item.tds_status || "",
+                    historyStatusLabel(item.tds_status),
                     (item.tds_rejection_reason || "").replace(/,/g, ";"),
                     item.tds_attachment || "",
                     item.creation ? format(new Date(item.creation), "dd-MMM-yyyy HH:mm") : ""
@@ -408,47 +417,62 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 </CardContent>
             </Card>
 
-            {/* TDS Item Management Tabs */}
+            {/* TDS Item Management: the table tabs, or the request form in their place */}
             <div className="mt-12">
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                    <TabsList className="inline-flex p-0 bg-white border border-gray-200 rounded-md overflow-hidden mb-6">
-                        <TabsTrigger
-                            value="history"
-                            className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
-                        >
-                            TDS History
-                        </TabsTrigger>
-                        <TabsTrigger
-                            value="new"
-                            className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
-                        >
-                            New Request
-                        </TabsTrigger>
-                    </TabsList>
-
-                    <div className="mt-6">
-                        <div className={activeTab === 'new' ? 'block' : 'hidden'}>
-                            <TdsCreateForm
-                                key={refreshKey}
-                                projectId={projectId}
-                                onSuccess={() => {
-                                    setActiveTab('history');
-                                    setRefreshKey(prev => prev + 1);
-                                }}
-                                // Both tabs stay mounted, so the draft prompt can be
-                                // answered from TDS History — resuming must switch here.
-                                onDraftResumed={() => setActiveTab('new')}
-                            />
+                <div className={isFormOpen ? 'hidden' : 'block'}>
+                    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TableTab)} className="w-full">
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
+                            <TabsList className="inline-flex p-0 bg-white border border-gray-200 rounded-md overflow-hidden">
+                                {TABLE_TABS.map(tab => (
+                                    <TabsTrigger
+                                        key={tab.value}
+                                        value={tab.value}
+                                        className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
+                                    >
+                                        {tab.label}
+                                    </TabsTrigger>
+                                ))}
+                            </TabsList>
+                            <Button
+                                onClick={() => setIsFormOpen(true)}
+                                className="bg-red-600 hover:bg-red-700 text-white font-medium px-4 shadow-sm"
+                            >
+                                <Plus className="w-4 h-4 mr-2" />
+                                Create New Request
+                            </Button>
                         </div>
-                        <div className={activeTab === 'history' ? 'block' : 'hidden'}>
-                            <TdsHistoryTable 
-                                projectId={projectId} 
+                        <TabsContent value="history" forceMount className="mt-0 data-[state=inactive]:hidden">
+                            <TdsHistoryTable
+                                projectId={projectId}
                                 refreshTrigger={refreshKey}
                                 onDataChange={() => setRefreshKey(prev => prev + 1)}
                             />
-                        </div>
-                    </div>
-                </Tabs>
+                        </TabsContent>
+                    </Tabs>
+                </div>
+
+                {/* The form stays mounted while hidden: its saved-draft prompt opens on mount, so it
+                    can be answered from TDS History, and resuming must bring the form into view. */}
+                <div className={isFormOpen ? 'block' : 'hidden'}>
+                    <Button
+                        variant="ghost"
+                        onClick={() => setIsFormOpen(false)}
+                        className="mb-4 px-2 text-gray-600 hover:text-gray-900"
+                    >
+                        <ArrowLeft className="w-4 h-4 mr-2" />
+                        Back to TDS History
+                    </Button>
+                    <TdsCreateForm
+                        key={refreshKey}
+                        projectId={projectId}
+                        onSuccess={() => {
+                            setIsFormOpen(false);
+                            setActiveTab('history');
+                            setRefreshKey(prev => prev + 1);
+                        }}
+                        onDraftResumed={() => setIsFormOpen(true)}
+                    />
+                </div>
             </div>
 
             {/* Edit Dialog */}

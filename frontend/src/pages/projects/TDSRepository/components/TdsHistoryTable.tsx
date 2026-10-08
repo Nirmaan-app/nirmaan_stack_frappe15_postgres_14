@@ -31,6 +31,8 @@ import {
 import { useState } from "react";
 import {
     HISTORY_STATUSES,
+    HISTORY_STATUS_LABEL,
+    historyStatusLabel,
     historyStatusOf,
     historyStatusesIn,
     isProjectCustomId,
@@ -64,7 +66,7 @@ interface ProjectTDSItem {
 
 const DOCTYPE = "Project TDS Item List";
 
-const HISTORY_STATUS_OPTIONS = HISTORY_STATUSES.map(s => ({ label: s, value: s }));
+const HISTORY_STATUS_OPTIONS = HISTORY_STATUSES.map(s => ({ label: HISTORY_STATUS_LABEL[s], value: s }));
 
 const HISTORY_STATUS_STYLES: Record<HistoryStatus, string> = {
     Pending: "bg-yellow-100 text-yellow-800",
@@ -234,8 +236,8 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
 
                 return (
                     <div className="flex flex-col items-center gap-1.5 min-w-[100px]">
-                        <Badge variant="secondary" className={`border ${colorClass}`}>
-                            {status}
+                        <Badge variant="secondary" className={`border whitespace-nowrap ${colorClass}`}>
+                            {HISTORY_STATUS_LABEL[status]}
                         </Badge>
                         {status === "Rejected" && (
                             <TooltipProvider>
@@ -259,7 +261,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({ projectId, ref
             size: 100,
             meta: {
                 exportHeaderName: "Status",
-                exportValue: (row: ProjectTDSItem) => historyStatusOf(row.tds_status),
+                exportValue: (row: ProjectTDSItem) => historyStatusLabel(row.tds_status),
             },
         },
         {

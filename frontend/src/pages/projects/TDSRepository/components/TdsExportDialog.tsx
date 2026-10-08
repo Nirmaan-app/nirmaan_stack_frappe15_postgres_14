@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { TDSRepositoryData } from './SetupTDSRepositoryDialog';
-import { storedStatusesFor } from '@/utils/tdsRequestRules';
+import { historyStatusLabel, storedStatusesFor } from '@/utils/tdsRequestRules';
 
 interface TdsExportItem {
     name: string;
@@ -370,7 +370,7 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                                             )}
                                             onClick={() => handleSelectStatus(status)}
                                         >
-                                            {status} ({count})
+                                            {historyStatusLabel(status)} ({count})
                                         </Badge>
                                     );
                                 })}
@@ -378,7 +378,7 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
                                     <button
                                         type="button"
                                         onClick={() => setSelectedStatus("Approved")}
-                                        title="Reset status filter to Approved"
+                                        title={`Reset status filter to ${historyStatusLabel("Approved")}`}
                                         className="ml-1 p-1 rounded-md text-red-600 hover:text-red-700 hover:bg-red-50 transition-colors"
                                     >
                                         <FilterX className="w-4 h-4" />

@@ -4,12 +4,14 @@ import { resolve } from "node:path";
 import {
   DATASHEET_CHOICE,
   HISTORY_STATUSES,
+  HISTORY_STATUS_LABEL,
   PROJECT_CUSTOM_ID_PREFIX,
   STORED_STATUS,
   cartRequestTypeOf,
   customItemKey,
   datasheetFileName,
   entryAddedSinceRequest,
+  historyStatusLabel,
   historyStatusOf,
   historyStatusesIn,
   isEditableRequest,
@@ -84,6 +86,21 @@ describe("parity with api/tds/edit_request.py", () => {
     expect(body![0]).toMatch(
       /row\.tds_status == STATUS_NEW_MAKE or \(\s*row\.tds_status == STATUS_PENDING and is_project_custom_id\(row\.tds_item_id\)\s*\)/
     );
+  });
+});
+
+describe("parity with api/tds/status_label.py", () => {
+  const LABEL_PY = pySource("status_label.py");
+  const labelConstant = (name: string) => {
+    const m = LABEL_PY.match(new RegExp(`^${name}\\s*=\\s*"([^"]*)"`, "m"));
+    expect(m, `${name} not found in status_label.py`).toBeTruthy();
+    return m![1];
+  };
+
+  it("the Handover print shows the same words as TDS History", () => {
+    expect(labelConstant("APPROVED_LABEL")).toBe(HISTORY_STATUS_LABEL.Approved);
+    expect(labelConstant("PENDING_LABEL")).toBe(HISTORY_STATUS_LABEL.Pending);
+    expect(labelConstant("REJECTED_LABEL")).toBe(HISTORY_STATUS_LABEL.Rejected);
   });
 });
 
@@ -285,6 +302,23 @@ describe("historyStatusOf", () => {
 
   it("offers exactly three statuses", () => {
     expect(HISTORY_STATUSES).toEqual(["Pending", "Approved", "Rejected"]);
+  });
+});
+
+describe("historyStatusLabel", () => {
+  it("an Admin-approved row reads Approved by Admin", () => {
+    expect(historyStatusLabel("Approved")).toBe("Approved by Admin");
+  });
+
+  it("Pending and Rejected read as themselves, and New reads Pending", () => {
+    expect(historyStatusLabel("Pending")).toBe("Pending");
+    expect(historyStatusLabel("New")).toBe("Pending");
+    expect(historyStatusLabel("Rejected")).toBe("Rejected");
+  });
+
+  it("a blank status reads Pending", () => {
+    expect(historyStatusLabel(null)).toBe("Pending");
+    expect(historyStatusLabel("")).toBe("Pending");
   });
 });
 

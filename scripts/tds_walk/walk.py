@@ -266,7 +266,7 @@ def open_new_request(page):
     if page.get_by_text("Continue your saved TDS request?").count():
         page.get_by_role("button", name="Start Fresh").click()
         time.sleep(1)
-    page.get_by_role("tab", name="New Request").click()
+    page.get_by_role("button", name="Create New Request").click()
     settle(page, 1)
 
 
@@ -863,7 +863,7 @@ def c07(w: Walk, page, c: Checks):
     c.check(all(f["attached_to_name"] in {r["name"] for r in rows} for f in files), "both uploads attached to the saved rows", files)
 
 
-@case(8, "TDS History: only Pending / Approved / Rejected, Project Custom tag")
+@case(8, "TDS History: only Pending / Approved by Admin / Rejected, Project Custom tag")
 def c08(w: Walk, page, c: Checks):
     rid = "RQ-001-WALK8"
     seeded = w.be('''
@@ -883,7 +883,7 @@ frappe.db.commit()''', rid=rid, specs=[
     wait_for(lambda: table.locator("tbody tr").filter(has_text="TDS WALK").count() >= 5, 15)
     headers = headers_of(table)
     c.check("REQUEST TYPE" not in headers, "no Request Type column in History", headers)
-    want = {"NR": "Pending", "Locel": "Pending", "Tapariya": "Approved", "Jogger": "Rejected"}
+    want = {"NR": "Pending", "Locel": "Pending", "Tapariya": "Approved by Admin", "Jogger": "Rejected"}
     for r in table.locator("tbody tr").filter(has_text="TDS WALK").all():
         name, status = column_values(table, r, "Item Name", "Status")
         text = r.inner_text()
@@ -902,7 +902,8 @@ frappe.db.commit()''', rid=rid, specs=[
     th.locator("div.cursor-pointer").first.click()
     time.sleep(1)
     opts = [o.strip() for o in page.locator("[cmdk-item]").all_inner_texts()]
-    c.check([re.sub(r"\s*\d+$", "", o) for o in opts] == ["Pending", "Approved", "Rejected"], "Status filter offers Pending, Approved, Rejected", opts)
+    c.check([re.sub(r"\s*\d+$", "", o) for o in opts] == ["Pending", "Approved by Admin", "Rejected"],
+            "Status filter offers Pending, Approved by Admin, Rejected", opts)
     page.locator("[cmdk-item]").filter(has_text="Pending").first.click()
     time.sleep(2)
     page.keyboard.press("Escape")
@@ -1366,8 +1367,8 @@ R["pending"] = sum(1 for r in rows if r.tds_status in ("Pending", "New"))''')
     time.sleep(2)
     c.eq(d.get_by_role("heading").first.inner_text().strip(), "Confirm TDS Export", "export dialog")
     chips = d.locator("div:has(> span:text-is('Status:'))").first.inner_text().replace("\n", " ")
-    c.check(f"Approved ({counts['approved']})" in chips and f"Pending ({counts['pending']})" in chips,
-            f"chips count Approved {counts['approved']} / Pending {counts['pending']} (Pending includes New)", chips)
+    c.check(f"Approved by Admin ({counts['approved']})" in chips and f"Pending ({counts['pending']})" in chips,
+            f"chips count Approved by Admin {counts['approved']} / Pending {counts['pending']} (Pending includes New)", chips)
     table = d.locator("table").first
     approved = [" | ".join(x.strip() for x in r.locator("td").all_inner_texts()) for r in table.locator("tbody tr").all()]
     lamp = [r for r in approved if CUSTOM_LAMP in r]
@@ -1413,6 +1414,97 @@ R["status"] = frappe.db.get_value(ROW, P["n"], "tds_status")''', n=rows[2]["name
     errs = " ".join(e.get("error", "") for e in res["reply"].get("errors", []))
     c.check("Only a row waiting for approval can be approved." in errs, "approve refuses a Rejected row", errs)
     c.eq(res["status"], "Rejected", "Rejected row unchanged")
+
+
+def history_table(page):
+    return page.locator("table").filter(has=page.locator("th", has_text="Status")).first
+
+
+@case(23, "Create New Request is a button: the form replaces the tables, Back keeps the table's filter, a send returns to History")
+def c23(w: Walk, page, c: Checks):
+    w.be('R["rows"] = [seed_row(P["rid"], s) for s in P["specs"]]; frappe.db.commit()', rid="RQ-001-WALK23", specs=[
+        {"kind": "pick", "make": "Tapariya", "status": "Approved"},
+        {"kind": "new_make", "make": "NR"},
+    ])
+    page.goto(f"{BASE}/projects/{PROJECT}?page=tdsrepository")
+    settle(page, 3)
+    if page.get_by_text("Continue your saved TDS request?").count():
+        page.get_by_role("button", name="Start Fresh").click()
+    tabs = [t.strip() for t in page.get_by_role("tab").all_inner_texts()]
+    c.eq(tabs, ["TDS History"], "the tab row holds TDS History only")
+    create = page.get_by_role("button", name="Create New Request")
+    c.check(create.is_visible(), "Create New Request button on the tab row")
+    table = history_table(page)
+    wait_for(lambda: table.locator("tbody tr").filter(has_text="TDS WALK").count() >= 2, 15)
+
+    # Filter to Pending, so the table has state worth keeping.
+    th = table.locator("thead th").filter(has_text="Status").first
+    th.locator("div.cursor-pointer").first.click()
+    time.sleep(1)
+    page.locator("[cmdk-item]").filter(has_text="Pending").first.click()
+    time.sleep(2)
+    page.keyboard.press("Escape")
+    settle(page, 1)
+    walk_rows = lambda: table.locator("tbody tr").filter(has_text="TDS WALK").all_inner_texts()
+    before = walk_rows()
+    c.check(not any("Tapariya" in r for r in before), "Pending filter drops the Approved row", before)
+
+    create.click()
+    settle(page, 1)
+    back = page.get_by_role("button", name="Back to TDS History")
+    c.check(back.is_visible(), "the form shows a Back control")
+    c.check(page.get_by_role("button", name="Send For Approval").is_visible(), "the request form is shown")
+    c.check(not table.is_visible() and not create.is_visible(), "the tab row and table are hidden while the form is open")
+    w.shot(page, "c23_form", full=True)
+
+    back.click()
+    settle(page, 1)
+    c.check(table.is_visible() and create.is_visible(), "Back returns to the table")
+    c.eq(walk_rows(), before, "the table keeps its Pending filter")
+
+    since = w.be('R["now"] = str(frappe.utils.now())')["now"]
+    create.click()
+    settle(page, 1)
+    add_pick(page, "Locel")
+    page.get_by_role("button", name="Send For Approval").click()
+    c.check(wait_for(lambda: create.is_visible(), 30), "a send returns to TDS History")
+    c.check(not back.is_visible(), "the form is hidden after the send")
+    rows = w.be('R["rows"] = project_rows(P["since"])', since=since)["rows"]
+    c.eq([(r["tds_make"], r["tds_status"]) for r in rows], [("Locel", "Pending")], "the send saved the pick")
+    c.check(wait_for(lambda: any(re.search(r"\bLocel\b", r) for r in walk_rows()), 15),
+            "the new row appears in TDS History", walk_rows())
+    w.shot(page, "c23_after_send", full=True)
+
+
+@case(24, "a saved draft answered from TDS History opens the request form")
+def c24(w: Walk, page, c: Checks):
+    # The walk's own context clears drafts on every load, so this case runs in a second context that
+    # shares the login but not that script.
+    ctx = w.ctx.browser.new_context(viewport={"width": 1440, "height": 900}, storage_state=w.ctx.storage_state())
+    ctx.route(re.compile(r".*upload_file.*"), w._route_upload)
+    p2 = ctx.new_page()
+    try:
+        open_new_request(p2)
+        add_pick(p2, "Locel")
+        c.eq(cart_rows(p2).count(), 1, "pick in the cart")
+        c.check(wait_for(lambda: p2.evaluate(f"localStorage.getItem('{DRAFTS_KEY}')"), 10), "the cart is saved as a draft")
+        p2.reload()
+        settle(p2, 3)
+        prompt = p2.get_by_text("Continue your saved TDS request?")
+        c.check(wait_for(lambda: prompt.count(), 10), "the draft prompt opens on TDS History")
+        c.check(p2.get_by_role("button", name="Create New Request").is_visible(), "the prompt is answered from TDS History")
+        w.shot(p2, "c24_prompt")
+        p2.get_by_role("button", name="Continue").click()
+        settle(p2, 1)
+        c.check(p2.get_by_role("button", name="Back to TDS History").is_visible(), "resuming shows the request form")
+        c.eq(cart_rows(p2).count(), 1, "the resumed cart holds the saved pick")
+        w.shot(p2, "c24_resumed", full=True)
+    finally:
+        try:
+            p2.evaluate(f"localStorage.removeItem('{DRAFTS_KEY}')")
+        except Exception:
+            pass
+        ctx.close()
 
 
 # ─── main ────────────────────────────────────────────────────────────────────────────────────────
