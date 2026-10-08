@@ -46,10 +46,12 @@ describe("12d-5: plainPricerText -- one function, every class of line the owner 
       .toBe("foil on an acoustic row - the catalogue has no foil-faced acoustic insulation; set the cladding");
   });
   it("NEGATIVE: a line already in plain English is byte-identical, and the function is idempotent", () => {
-    for (const s of ["BoQ says 50 mm -> priced as 53.98 mm (next size up)", "Row total per 1 Sqm: supply 1371 + install 154", "no torque stated",
+    for (const s of ["   supply: the insulation material's own cost = 255", "      install: ROUNDUP(install, 0) = 154", "BoQ says 50 mm -> priced as 53.98 mm (next size up)", "Row total per 1 Sqm: supply 1371 + install 154", "no torque stated",
                      "Layer 1 of 3 -- supply 1371, install 154", "Rate master: Insulation · 1 item", "cladding per sq.m: the sheet rate as it stands -- no overlap factor", ""]) {
       expect(plainPricerText(s, ITEMS)).toBe(s);
     }
+    // a layer's indented step keeps its indentation while losing its code
+    expect(plainPricerText("   supply: pricing input: gi_sheet_rate (rate) = 450 (R15)", ITEMS)).toBe("   supply: pricing input: GI framework sheet (rate) = 450");
     const once = plainPricerText("R1 / slice 11 damper not mentioned -> without (R15)", ITEMS);
     expect(plainPricerText(once, ITEMS)).toBe(once);
   });
@@ -58,6 +60,9 @@ describe("12d-5: plainPricerText -- one function, every class of line the owner 
     expect(plainPricerText("26G Aluminium with Glass Cloth")).toBe("26G Aluminium with Glass Cloth");
     expect(plainPricerText("Fiberglass Rigid Board Insulation, Density 48Kg/m3")).toBe("Fiberglass Rigid Board Insulation, Density 48Kg/m3");
     expect(plainPricerText("UL 555 fire damper")).toBe("UL 555 fire damper");
+    // a family's LEADING SPACE is part of its name in the catalogue and is kept inside a bracket
+    expect(plainPricerText("no SKU for this combination ( Fiberglass Rigid Board Insulation, Density 48Kg/m3: cladding 26G Aluminium)"))
+      .toBe("no SKU for this combination ( Fiberglass Rigid Board Insulation, Density 48Kg/m3: cladding 26G Aluminium)");
   });
   it("the 12d-4c pieces are REUSED, not copied: itemListRuleOrder re-exports the same plainSentence; the label resolver is the one function", () => {
     expect(reExported).toBe(plainSentence);

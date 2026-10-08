@@ -68,11 +68,14 @@ const CODE_RUN = String.raw`${CODE_TOKEN}(?:\s*\/\s*${CODE_TOKEN})*`;
  *   - the trailing `(R15)` / `(owner ...)` tags are dropped (`plainSentence`);
  *   - a code run at the START of a sentence or clause (`R14 / slice 11 VCD = ...`, `(R14 / S6 UL not
  *     mentioned ...`) is dropped, and a code after a comma inside a bracket (`(next size up, R6)`) too.
- * Idempotent: a line already in plain English comes back byte-identical.
+ * Idempotent: a line already in plain English comes back byte-identical, its indentation included.
  */
 export function plainPricerText(text: unknown, items: ReadonlyArray<PlainEnglishItem> = []): string {
-  let s = String(text ?? "");
-  if (!s) return s;
+  const raw = String(text ?? "");
+  if (!raw) return raw;
+  // a working line's INDENTATION is layout (a layer's steps sit under their layer line): kept byte-for-byte
+  const lead = raw.match(/^\s*/)![0];
+  let s = raw.slice(lead.length);
   s = s.replace(/^([A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+):/, (_m, id: string) => `${id.replace(/_/g, " ")}:`);
   for (const id of pricingInputIds(items)) {
     s = s.replace(new RegExp(String.raw`\b${escapeRe(id)}\b`, "g"), pricingInputLabel(id, items));
@@ -82,5 +85,6 @@ export function plainPricerText(text: unknown, items: ReadonlyArray<PlainEnglish
   s = plainSentence(s);
   s = s.replace(new RegExp(String.raw`,\s*${CODE_RUN}(?=\))`, "g"), "");
   s = s.replace(new RegExp(String.raw`(^|\(|;\s*)${CODE_RUN}\s+(?=\S)`, "g"), "$1");
-  return s.replace(/\s{2,}/g, " ").replace(/\(\s+/g, "(").trim();
+  // nothing else is normalised: a family name may carry a leading space (' Fiberglass Rigid Board ...') and keeps it
+  return lead + s.trimEnd();
 }
