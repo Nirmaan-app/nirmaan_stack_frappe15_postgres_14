@@ -41,10 +41,11 @@ interface ExpectedRow {
 const ROWS = readJsonFixture<FixtureRow[]>(new URL("./__fixtures__/insulation12d4aRows.json", import.meta.url));
 const WRITE = !!process.env.WRITE_12D4A_EXPECTED;
 const EXPECTED = WRITE ? [] as ExpectedRow[] : readJsonFixture<ExpectedRow[]>(new URL("./__fixtures__/insulation12d4aExpected.json", import.meta.url));
-// v31 BY NAME (the frozen record of this slice), READ at runtime -- an `import` of a 16,700-line asset makes `tsc` infer a
-// structural type for the whole file and the project type gate dies at the default heap (the heap cliff the header names).
+// v32 BY NAME (v31 + the 12d-4aF D9b family list -- the frozen record of this slice AND its follow-up), READ at runtime --
+// an `import` of a 16,700-line asset makes `tsc` infer a structural type for the whole file and the project type gate
+// dies at the default heap (the heap cliff the header names).
 const ASSET = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
-  new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v31.json", import.meta.url),
+  new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v32.json", import.meta.url),
 );
 const CAT = "hvac_insulation";
 const CFG = ASSET.category_configs.find((c) => c.category_id === CAT)!;
@@ -55,19 +56,19 @@ const ITEMS: RateMasterItem[] = ASSET.items.map((it) => ({ ...it, discipline: AS
  * The divergences the fixes introduce, BY CLASS and BY ROW. Owner P1: calculator = panel always; a divergence is a
  * failure unless it is named, with its cause, and the suite passes only if EXACTLY these differ.
  *
- *   F_row_text_not_an_input -- D3 (named_in_row) and D9b-by-word (refuse_on_unit_class.words) read the row's OWN
+ *   F_row_text_not_an_input -- ACCEPTED BY OWNER ("ok", 12d-4aF, 2026-10-11) -- D3 (named_in_row) and D9b-by-word (refuse_on_unit_class.words) read the row's OWN
  *   TEXT, which the calculator does not have: the panel refuses for a person, the calculator (fed the panel's shown
  *   values, cladding "No" by the R1 default) prices. The 12c-P "input-surface" class, counted and reported.
  */
 export const EXPECTED_DIVERGENCE_ROWS: ReadonlyArray<{ id: string; cause: string }> = [
-  { id: "BOQ-26-00017|Lowside #94", cause: "F_row_text_not_an_input (D3)" },
-  { id: "BOQ-26-00020|HVAC_-19TH FLOOR#515", cause: "F_row_text_not_an_input (D9b by word)" },
-  { id: "BOQ-26-00108|HVAC#420", cause: "F_row_text_not_an_input (D3)" },
-  { id: "BOQ-26-00117|HVAC BOQ #189", cause: "F_row_text_not_an_input (D3)" },
-  { id: "BOQ-26-00140|HVAC Lowside Works #59", cause: "F_row_text_not_an_input (D9b by word)" },
-  { id: "BOQ-26-00149|HVAC-BOQ#439", cause: "F_row_text_not_an_input (D3)" },
-  { id: "BOQ-26-00164|BOQ#136", cause: "F_row_text_not_an_input (D3)" },
-  { id: "BOQ-26-00197|HVAC BOQ #199", cause: "F_row_text_not_an_input (D3)" },
+  { id: "BOQ-26-00017|Lowside #94", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
+  { id: "BOQ-26-00020|HVAC_-19TH FLOOR#515", cause: "F_row_text_not_an_input (D9b by word) -- ACCEPTED BY OWNER: ok" },
+  { id: "BOQ-26-00108|HVAC#420", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
+  { id: "BOQ-26-00117|HVAC BOQ #189", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
+  { id: "BOQ-26-00140|HVAC Lowside Works #59", cause: "F_row_text_not_an_input (D9b by word) -- ACCEPTED BY OWNER: ok" },
+  { id: "BOQ-26-00149|HVAC-BOQ#439", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
+  { id: "BOQ-26-00164|BOQ#136", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
+  { id: "BOQ-26-00197|HVAC BOQ #199", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
   // PRE-EXISTING classes, every one in the 12d-3 audit's own divergence list (sentence / unit-class only, or ruled)
   { id: "BOQ-26-00029|HVAC WORK#263", cause: "C_unit_not_offered (both refuse by name; the calculator was fed a unit the row lacks)" },
   { id: "BOQ-26-00137|LOWSIDE OFFICE WORKS#128", cause: "C_unit_not_offered (both refuse by name; the calculator was fed a unit the row lacks)" },
@@ -209,14 +210,32 @@ describe("every audited row through BOTH paths on v31", () => {
     expect(byId.get("BOQ-26-00140|HVAC Lowside Works #471")!.out!.reason).toMatch(/several values stated for pipe size/);
   });
 
-  it("item 5 (D9b): every sheet row with glass cloth refuses with the ruled sentence -- by the value read, or by the row's own words -- unless a named material refuses first", () => {
+  it("item 5 (D9b, as corrected by 12d-4aF): a SHEET-FAMILY row with glass cloth refuses with the ruled sentence -- by the value read, or by the row's own words -- unless a named material refuses first; a Cladding Only per-sq.m row with glass cloth PRICES at the plain rate again (the 12c F2 figure, 294 / 70)", () => {
     const d9b = results.filter((x) => x.r.fixes.includes("D9b"));
     expect(d9b.length).toBe(10);
-    for (const x of d9b) {
+    const SHEET = ["Thermal Nitrile Insulation", "Acoustic Nitrile Insulation", " Fiberglass Rigid Board Insulation, Density 48Kg/m3"];
+    const famOf = (x: typeof d9b[number]) => x.r.answer?.items?.[0]?.attributes?.item?.value ?? null;
+    const sheet = d9b.filter((x) => SHEET.includes(famOf(x) ?? ""));
+    const claddingOnly = d9b.filter((x) => famOf(x) === "Cladding Only");
+    expect(sheet.map((x) => x.r.id).sort()).toEqual(["BOQ-26-00020|HVAC_-19TH FLOOR#515", "BOQ-26-00100|HVAC #111", "BOQ-26-00140|HVAC Lowside Works #59"]);
+    expect(claddingOnly.map((x) => x.r.id).sort()).toEqual([
+      "BOQ-26-00086|Low side#68", "BOQ-26-00098|Lowside#173", "BOQ-26-00140|VRF WORKS #95", "BOQ-26-00158|ADS BOQ#67", "BOQ-26-00233|Critical VRF System#41", "BOQ-26-00233|VRF System#65",
+    ]);
+    for (const x of sheet) {
       expect(x.out!.priced, x.r.id).toBe(false);
-      if (x.r.fixes.includes("D7")) expect(x.out!.reason, x.r.id).toMatch(/^No SKU in the catalogue for /);
-      else expect(x.out!.reason, x.r.id).toBe("glass cloth is not offered on sheet insulation - price this row by hand");
+      expect(x.out!.reason, x.r.id).toBe("glass cloth is not offered on sheet insulation - price this row by hand");
     }
+    for (const x of claddingOnly) {
+      expect(x.out!.priced, x.r.id).toBe(true);
+      expect(x.out!.reason ?? null, x.r.id).toBeNull();
+      // the 12c F2 figures, exactly as the 12d-3 audit recorded them before 12d-4a's over-reach
+      expect([x.out!.supply, x.out!.install], x.r.id).toEqual([x.r.before_12d3.totals!.supply_rate, x.r.before_12d3.totals!.install_rate]);
+    }
+    expect(claddingOnly.filter((x) => x.r.answer?.items?.[0]?.attributes?.cladding?.value === "Glass Cloth with paint").map((x) => [x.out!.supply, x.out!.install]))
+      .toEqual([[294, 70], [294, 70], [294, 70], [294, 70], [294, 70]]);
+    const d7 = d9b.filter((x) => x.r.fixes.includes("D7"));
+    expect(d7.map((x) => x.r.id)).toEqual(["BOQ-26-00086|Low side#74"]);
+    expect(d7[0].out!.reason).toMatch(/^No SKU in the catalogue for /);
   });
 
   it("item 6 (D10): the two 'QRO - Sqm.' rows price per sq.m with the rate-only note", () => {

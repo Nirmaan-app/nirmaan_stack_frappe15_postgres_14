@@ -45025,3 +45025,73 @@ diff a fresh run against.
 
 ---
 
+## Slice 12d-4aF — D9b OVER-REACH FIX: GLASS CLOTH REFUSES ON THE SHEET FAMILIES ONLY; HVAC v32 (2026-10-08, filed as 2026-10-11) — SHIPPED
+
+Owner on the 12d-4a cert: *"agree. we need to fix"*. 12d-4a's `refuse_on_unit_class` applied to EVERY per-sq.m family, so
+Cladding Only per sq.m with glass cloth refused -- against the standing 12c ruling (F2, FINAL: Cladding Only per sq.m prices at
+the plain rate, `Glass Cloth with paint` 294 / 70). ONE commit: this commit (its hash is in the Desktop Report) ("fix: D9b refuses glass cloth on the sheet
+families only; Cladding Only per sq.m prices again"). Desktop: `2026-10-11_12d4aF_Sweep.txt`, `2026-10-11_12d4aF_python_full.log`,
+`2026-10-11_12d4aF_frontend_full.log`; the 12d-4a Ledger + Report carry the follow-up record.
+
+### The fix (config-declared, no family named in code)
+
+- `refuse_on_unit_class[].families` -- the FAMILIES a rule applies to. **REQUIRED** by `config_validation._validate_refuse_on_unit_class`
+  (a non-empty list of priceable families; a rule without one is refused BY NAME), so the over-reach cannot ship again by omission. The
+  reader (`itemListPricing.priceOneItem`) skips a rule whose list does not carry the block's family (fail-closed: no list, no family).
+- **HVAC v32 = v31 + that list only**: `["Thermal Nitrile Insulation", "Acoustic Nitrile Insulation", " Fiberglass Rigid Board
+  Insulation, Density 48Kg/m3"]` (the three SHEET families), the rule text extended, the notes trail. Items byte-identical (335); every
+  other config byte-identical NAMED; the frozen v31 file is now REFUSED on `families` (pinned; `test_v31_08` repairs it in memory).
+  Mint gate v31 -> v32 PASS ("No atoms disappeared"), `--latest` PASS (kinds disjoint). Loaded on dev `rmbulk-d957fb8ca84b (the first load, rmbulk-505aaba91808, carried a notes trail naming "v31" -- a version token the h07 pin forbids inside an asset; re-minted with a version-free trail and re-loaded)`
+  (335 / 9 loaded, 335 / 9 deactivated); live == asset on all 9 configs + 335 items; Electrical digests unchanged; HVAC items digest
+  unchanged (`933c03c56d1841d6`), configs digest `a1733b9b5d5066e1` -> `b5d01da7a0d12cab` (Insulation only).
+- Nothing the MODEL sees changed: `TestSlice12d4aFModelCall` pins every HVAC category's assembled call byte-identical v31 -> v32,
+  Insulation INCLUDED (the list lives in `list_spec.pricing`, which `build_items_spec` never reads).
+
+### Proof (item 2)
+
+- Unit (`itemListPricing.test.ts`, "D9b FAMILIES"): Cladding Only per sq.m + `Glass Cloth with paint` -> **294 / 70** WITH the key;
+  `24G Aluminium with Glass Cloth` prices; listing Cladding Only in the rule would refuse it (so the list is what decides); a rule with
+  NO list fires on no family; Thermal / Acoustic rows with glass cloth still refuse by value and by word; the POSITIVE now reads on
+  Thermal Nitrile and the Fiberglass board (the Cladding Only case moved to the FAMILIES test). Validator (`test_d4aF_07`): missing /
+  empty / foreign / non-list `families` refused by name; Cladding Only MAY be listed (names are checked, the ruling decides).
+- e2e (`insulation12d4a.e2e.test.ts`, now on v32 BY NAME): of the 10 D9b rows, the 3 Thermal rows (00020#515, 00100#111, 00140
+  Lowside#59) still refuse; the 6 Cladding Only rows PRICE at exactly their 12d-3 figures -- 00086#68, 00098#173, 00140 VRF#95,
+  00158#67, 00233 VRF#65 **294 / 70** and 00233 Critical VRF#41 **957 / 280** (24G Aluminium with Glass Cloth); #74 still refuses on
+  stonewool (D7). `insulation12d4aExpected.json` regenerated: exactly those 6 of 67 rows changed.
+- Sweep (`2026-10-11_12d4aF_Sweep.txt`): 7,234 cases both paths, 12d-4a "after" (v31) vs this (v32): **6 changed, all `hvac_insulation`
+  audit rows, exactly the six Cladding Only per-sq.m glass-cloth rows above** (refused -> priced, panel = calculator on each); 7,213
+  identical incl. every ADP / Electrical case; DB digests: ADP / Electrical byte-identical.
+- Vacuity: with the family test removed from the reader, the FAMILIES unit test, the e2e frozen-outcomes test and the e2e D9b item go
+  red (3), restored.
+
+### Owner rulings recorded (item 3)
+
+- **(a) The Acoustic x GI install figures STAND -- owner: "ok".** The four v31 SKUs keep `cost_install_insulation` 110 (the Acoustic
+  row's own) + `cost_install_cladding` 150 (as the Fiberglass GI rows carry it); the 12d-4a Report's "ASSUMPTION disclosed" is closed.
+- **(b) The parity class `F_row_text_not_an_input` (8 rows) is ACCEPTED BY OWNER -- "ok".** The e2e's `EXPECTED_DIVERGENCE_ROWS` entries
+  carry `-- ACCEPTED BY OWNER: ok` (00017#94, 00020#515, 00108#420, 00117#189, 00140 Lowside#59, 00149#439, 00164#136, 00197#199):
+  the panel refuses on the row's own text for a person, the calculator (which has no row text) prices.
+
+### Tests (measured in-session)
+
+- Targeted: vitest 27 files / 1,707 tests (+ the 3-red vacuity, restored); tsc default heap 3,169 = baseline, 0 OOM; Python targeted
+  16 (`TestSlice12d4aFAsset` 6, `test_v31_01` INVERTED "moved past v31", `test_v31_08` repaired-in-memory + refused-by-name, the
+  v28/v29/v30 inverted pins re-pointed to v32, `test_d4aF_07`, `test_d4a_01`, `test_sv_02`) + model-call 3 -- all OK; residence F2
+  223 vs 219 pre-existing (0 `JSON.parse` added).
+- FULL SUITES: Python `2026-10-11_12d4aF_python_full.log` -- Ran 7394 (+8 vs 12d-4a: the 6 `TestSlice12d4aFAsset` + `test_d4aF_07` + `TestSlice12d4aFModelCall`), failures=6 errors=5 = the 12d-2F known set EXACTLY (the 12d-4a time-of-day flake did not recur). ⚠️ A FIRST full run (before this log) showed seven extra failures: the five 'every asset on disk validates' sweeps + `test_c1_12` (the frozen v31 file is now REFUSED on `families` -- inverted: `REQUIRED_KEY_REFUSALS` beside `RETIRED_KEY_REFUSALS`) and `test_h07` ('v3' found in the asset: the v32 notes trail said "from v31" -- re-minted version-free, re-loaded as `rmbulk-d957fb8ca84b`); the suite was re-run in full afterwards and this log is the re-run; frontend `2026-10-11_12d4aF_frontend_full.log` -- vitest 145 files / 5,110 tests (+1: the FAMILIES unit test), 1 failure = the known `writeOffControl`; tsc default heap 3,169 = baseline, 0 OOM.
+
+### Cert
+
+**De-stale (in full):** `clear-cache` + `clear-website-cache`; 19 serving PIDs on TERM, 0 left; :8000 / :8080 / :9000 / :11000 / :13000 FREE; 203 `__pycache__` + every `.pyc` purged; `node_modules/.vite` removed; `bench start` -> `/api/method/ping` (with the site `Host` header this time) `pong` after 244 s; THEN vite -> :8080 200 after 36 s. Site data: service worker unregistered, caches 0, localStorage cleared, 4 IndexedDB deleted, cookies KEPT (`admins@nirmaan.app`). ⚠️ The first MCP tab sat HIDDEN in the Claude window (`visibilityState: hidden`, blank screenshots while the DOM held 146 KB) -- the tab group was closed and re-created in its own window, resized 1600x950, Chrome FOREGROUNDED by `SetForegroundWindow`, `visibilityState: visible`. **PROOF 1** (served transform): `itemListPricing.ts` carries `rule.families`, `namedMaterialRefusal`, `splitRateOnlyUnit`, `refuse_on_unit_class`. **PROOF 2** (runtime import): `readLayers('25 mm thick - 2 Layers') -> [25, 25]`, `splitRateOnlyUnit('QRO - Sqm.') -> 'Sqm.'`; the LIVE Insulation config (`get_rate_category_config`) carries `families` = the three sheet families and the version-free notes trail.
+
+| step | expected | SEEN | screens |
+|---|---|---|---|
+| calculator, Cladding Only, sqm, Glass Cloth with paint | 294 / 70 | Insulation -> Add item -> Cladding Only -> cladding `Glass Cloth with paint`: **Supply 294 / Install 70 / Combined 364 per sqm**, working "cladding per sq.m: the sheet rate as it stands -- no overlap factor (owner F2) = 200" | 09 |
+| calculator, Thermal Nitrile with glass cloth | the D9b refusal | **NOT EXPRESSIBLE IN THE CALCULATOR**: Thermal Nitrile's Cladding dropdown offers only `Aluminium Foil` / `No` (the options are built from stocked SKUs, and no sheet SKU stocks glass cloth -- owner R-B / V1), so a glass-cloth value can reach a sheet family ONLY from a MODEL answer. The three such audit rows (00020#515, 00100#111, 00140 Lowside#59) sit on partial runs (no panel block live). Proven on the stored answers (e2e "item 5", 3 rows refuse) and in the unit tests (Thermal / Acoustic / Fiberglass by value and by word); 12d-4a's cert had SEEN the same sentence on the calculator where the dropdown did offer glass cloth (Cladding Only, now correctly priced) | -- |
+| ADP 00117 r82 | 1160 / 352 / 1512 | **1160 / 352 / 1512** | 10 |
+| Electrical 00174 r94 | 19630 / 3930 | **19630 / 3930 (23560)** | 11 |
+
+`Use this value` never pressed. Nothing written.
+
+---
+

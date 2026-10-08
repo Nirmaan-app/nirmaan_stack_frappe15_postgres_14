@@ -254,6 +254,10 @@ export interface UnstockedMaterials {
  */
 export interface RefuseOnUnitClass {
   unit_class: string;
+  /** 12d-4aF (owner): the FAMILIES the refusal applies to -- declared in config, never named in code. A rule
+   *  with no list fires on NO family (fail-closed; the validator requires the list). The 12d-4a form without it
+   *  refused Cladding Only per sq.m with glass cloth, against the standing 12c F2 ruling (294 / 70). */
+  families?: string[];
   attr: string;
   value_contains: string;
   words?: string[];
@@ -1365,6 +1369,7 @@ function priceOneItem(
   // one, else the row's (a convert option would re-point it later, which does not change what the row asked).
   for (const rule of spec.refuse_on_unit_class ?? []) {
     if (rule.unit_class !== rowUnitClass) continue;
+    if (!(rule.families ?? []).includes(family)) continue;   // 12d-4aF: the SHEET families only; Cladding Only is untouched
     const v = read[rule.attr];
     const byValue = v !== undefined && String(v).toLowerCase().includes(rule.value_contains.toLowerCase());
     const byWord = noneSaid.has(rule.attr) && wordStartHit(ownText, rule.words) !== null;

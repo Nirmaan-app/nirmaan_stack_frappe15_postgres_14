@@ -3378,9 +3378,10 @@ class TestSlice12d4aModelCall(FrappeTestCase):
         from nirmaan_stack.api.boq.test_rate_master import CURRENT_EALL_ASSET, CURRENT_HVAC_ASSET, _asset_path
         with open(_asset_path("rate_master_hvac_all_v30.json"), "r", encoding="utf-8") as fh:
             cls.v30 = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # 12d-4aF: v31 BY NAME (the 12d-4a record); v32 changes nothing the model sees (`TestSlice12d4aFModelCall`)
+        with open(_asset_path("rate_master_hvac_all_v31.json"), "r", encoding="utf-8") as fh:
             cls.v31 = json.load(fh)
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v31.json"
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v31.json"
         with open(_asset_path(CURRENT_EALL_ASSET), "r", encoding="utf-8") as fh:
             cls.eall = json.load(fh)
 
@@ -3444,3 +3445,36 @@ class TestSlice12d4aModelCall(FrappeTestCase):
         for word in ("named_in_row", "unstocked_materials", "refuse_on_unit_class", "read_notes", "rmi-b07ad9001f25", "derived_rates"):
             self.assertNotIn(word, batch, word)
             self.assertNotIn(word, review, word)
+
+
+class TestSlice12d4aFModelCall(FrappeTestCase):
+    """v32 = v31 + the D9b family list, which lives in `list_spec.pricing` -- `build_items_spec` never reads it, so
+    EVERY category's assembled model call is byte-identical between v31 and v32, Insulation included, NAMED."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        from nirmaan_stack.api.boq.test_rate_master import CURRENT_HVAC_ASSET, _asset_path
+        with open(_asset_path("rate_master_hvac_all_v31.json"), "r", encoding="utf-8") as fh:
+            cls.v31 = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.v32 = json.load(fh)
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v32.json"
+
+    _cfgs = staticmethod(TestSlice12d1bModelCall._cfgs)
+    _row = staticmethod(TestSlice12d1bModelCall._row)
+    _content = staticmethod(TestSlice12d1bModelCall._content)
+
+    def test_mc4aF_01_every_hvac_category_sends_a_byte_identical_call_v31_to_v32_NAMED(self):
+        c31, c32 = self._cfgs(self.v31, "HVAC"), self._cfgs(self.v32, "HVAC")
+        self.assertEqual(set(c31), set(c32))
+        payload = [extraction._ai_item(self._row())]
+        checked = []
+        for key in sorted(c31):
+            g31, g32 = extraction._group_context(c31, *key), extraction._group_context(c32, *key)
+            self.assertEqual(g32, g31, key[1])
+            self.assertEqual(self._content(g32, payload), self._content(g31, payload), key[1])
+            checked.append(key[1])
+        self.assertIn("hvac_insulation", checked)
+        self.assertEqual(sorted(checked), sorted(TestSlice12d2ModelCall.OTHER_HVAC + ["hvac_insulation"]))
+        self.assertEqual(extraction.build_items_spec(c32[("HVAC", "hvac_insulation")]), extraction.build_items_spec(c31[("HVAC", "hvac_insulation")]))

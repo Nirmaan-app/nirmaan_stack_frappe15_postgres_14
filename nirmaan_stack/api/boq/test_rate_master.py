@@ -11500,11 +11500,14 @@ def _read_frontend_src(*parts):
 # lists and layers copied as written), numbers.thickness_mm.several = "highest", number_defaults on every family,
 # material_as_written + no_sku_named_by. Items and the eight other configs byte-identical -- pinned in
 # `TestSlice12d1bAsset`. The 12d-1a v26 -> v27 pin below now names v27 explicitly.
-CURRENT_HVAC_ASSET = "rate_master_hvac_all_v31.json"
+CURRENT_HVAC_ASSET = "rate_master_hvac_all_v32.json"
 # SLICE 12d-2 (owner S1): `calculator_only` is RETIRED and refused by the validator as an unknown key. The
 # frozen HVAC assets v18..v28 carry it on their Insulation config and are therefore refused AS FILES -- a
 # historical asset is never edited. Every "every asset on disk validates" sweep names them through this.
 RETIRED_KEY_REFUSALS = [("rate_master_hvac_all_v%d.json" % n, "hvac_insulation") for n in range(18, 29)]
+# SLICE 12d-4aF (owner): `refuse_on_unit_class[].families` is REQUIRED (the 12d-4a form without it over-reached onto
+# Cladding Only), so the frozen v31 file is refused on that key AS A FILE -- the same class as the retired-key refusals.
+REQUIRED_KEY_REFUSALS = [("rate_master_hvac_all_v31.json", "hvac_insulation")]
 
 
 def _without_retired_calculator_only(cfg):
@@ -12154,7 +12157,7 @@ class TestHvacVendorQuoteSlice2(FrappeTestCase):
         self.assertGreaterEqual(n_configs, 564)
         # the ONE pre-existing refusal (a bare `choice` with no values in a retired asset) and nothing else
         # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
-        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS)
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS)   # 12d-4aF: + v31 on `families`
 
     # -- s03 ----------------------------------------------------------------------------------------
     def test_s03_v3_is_v2_plus_four_message_only_configs_none_eligible(self):
@@ -12360,7 +12363,7 @@ class TestHvacAliasSlice3(FrappeTestCase):
                     full_refusals.append((os.path.basename(path), c["category_id"]))
         self.assertGreaterEqual(n_configs, 571)
         # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
-        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS)
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS)   # 12d-4aF: + v31 on `families`
 
     # -- a03 ----------------------------------------------------------------------------------------
     def test_a03_v4_is_v3_plus_two_aliases_and_eligibility_follows_the_target_one_hop(self):
@@ -12573,7 +12576,7 @@ class TestHvacItemListSlice4(FrappeTestCase):
                     full_refusals.append((os.path.basename(path), c["category_id"]))
         self.assertGreaterEqual(n_configs, 578)
         # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
-        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS)
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS)   # 12d-4aF: + v31 on `families`
 
     # -- v03 ----------------------------------------------------------------------------------------
     def test_v03_v5_is_v4_plus_the_adp_extraction_shape_and_adp_stays_ineligible(self):
@@ -12857,7 +12860,7 @@ class TestHvacAdpPricingSlice5(FrappeTestCase):
                     full_refusals.append((os.path.basename(path), c["category_id"]))
         self.assertGreaterEqual(n_configs, 585)
         # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
-        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS)
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS)   # 12d-4aF: + v31 on `families`
 
     # -- p03 ----------------------------------------------------------------------------------------
     def test_p03_v7_is_v6_plus_the_pricing_block_which_is_the_owners_rulings(self):
@@ -13080,7 +13083,7 @@ class TestHvacAdpLiveSlice6(FrappeTestCase):
                     full_refusals.append((os.path.basename(path), c["category_id"]))
         self.assertGreaterEqual(n_configs, 592)
         # 12d-2: PLUS the frozen v18..v28 Insulation configs carrying the retired `calculator_only` key -- and nothing else
-        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS)
+        self.assertEqual(full_refusals, [("rate_master_electrical_all_v12.json", "point_wiring")] + RETIRED_KEY_REFUSALS + REQUIRED_KEY_REFUSALS)   # 12d-4aF: + v31 on `families`
 
     # -- q03 ----------------------------------------------------------------------------------------
     def test_q03_v8_is_v7_plus_the_four_deltas_and_nothing_else(self):
@@ -16274,6 +16277,7 @@ class TestItemListMayReadAPricingInput(FrappeTestCase):
         data_dir = os.path.dirname(_asset_path(CURRENT_HVAC_ASSET))
         checked = 0
         retired = []
+        required = []
         for path in sorted(glob.glob(os.path.join(data_dir, "rate_master_*_v*.json"))):
             with open(path, "r", encoding="utf-8") as fh:
                 asset = json.load(fh)
@@ -16290,11 +16294,15 @@ class TestItemListMayReadAPricingInput(FrappeTestCase):
                     if "calculator_only" in str(exc):       # 12d-2: the retired key on the frozen v18..v28 files
                         retired.append((os.path.basename(path), c["category_id"]))
                         continue
+                    if "families" in str(exc):              # 12d-4aF: the frozen v31 file lacks the now-required list
+                        required.append((os.path.basename(path), c["category_id"]))
+                        continue
                     raise AssertionError("%s: %s" % (os.path.basename(path), exc))
             checked += 1
         self.assertGreater(checked, 60)
         # 12d-2: EXACTLY the frozen v18..v28 Insulation configs are refused for the retired key, nothing else
         self.assertEqual(retired, RETIRED_KEY_REFUSALS)
+        self.assertEqual(required, REQUIRED_KEY_REFUSALS)   # 12d-4aF: EXACTLY the frozen v31 Insulation config, nothing else
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════════
@@ -18785,7 +18793,8 @@ class TestSlice12d1bAsset(FrappeTestCase):
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v28.json")
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v29.json")   # 12d-2F: moved again
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")   # 12d-4a: moved again
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")   # 12d-4aF: moved again
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v32.json")
 
     def test_v28_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -18928,7 +18937,8 @@ class TestSlice12d2Asset(FrappeTestCase):
     def test_v29_01_INVERTED_the_current_asset_has_moved_past_v29(self):
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v29.json")
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")   # 12d-4a: moved again
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")   # 12d-4aF: moved again
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v32.json")
 
     def test_v29_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -19042,7 +19052,8 @@ class TestSlice12d2FAsset(FrappeTestCase):
 
     def test_v30_01_INVERTED_the_current_asset_has_moved_past_v30(self):
         self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v30.json")
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")   # 12d-4aF: moved again
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v32.json")
 
     def test_v30_02_items_and_every_other_top_level_key_are_byte_identical(self):
         self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
@@ -19128,7 +19139,8 @@ class TestSlice12d4aPricingKeys(FrappeTestCase):
     FG = " Fiberglass Rigid Board Insulation, Density 48Kg/m3"
     NAMED = [{"attr": "cladding", "words": ["glass cloth", "foil"], "refuse": "cladding named in this row but not read - set the cladding", "rule": "D3"}]
     UNSTOCKED = {"words": ["epdm", "xlpe"], "from_attr": "material_as_written", "rule": "D7"}
-    REFUSE_UC = [{"unit_class": "area", "attr": "cladding", "value_contains": "Glass Cloth", "words": ["glass cloth"],
+    SHEET = ["Thermal Nitrile Insulation", "Acoustic Nitrile Insulation", FG]
+    REFUSE_UC = [{"unit_class": "area", "families": SHEET, "attr": "cladding", "value_contains": "Glass Cloth", "words": ["glass cloth"],
                   "refuse": "glass cloth is not offered on sheet insulation - price this row by hand", "rule": "D9b"}]
     READ_NOTES = [{"families": [FG], "from_attr": "material_as_written", "pattern": r"(\d+)\s*kg\s*/\s*(?:m3|cum)", "unless": "48",
                    "line": "BoQ says {match} -> priced as the 48 kg/m3 board"}]
@@ -19145,6 +19157,20 @@ class TestSlice12d4aPricingKeys(FrappeTestCase):
         except Exception as exc:          # noqa: BLE001 -- the validator's own throw
             return str(exc)
         return None
+
+    def test_d4aF_07_refuse_on_unit_class_NAMES_its_families_a_rule_without_the_list_or_with_a_foreign_or_empty_one_is_refused_by_name(self):
+        """12d-4aF (owner 'agree. we need to fix'): the 12d-4a form without `families` applied to EVERY per-sq.m
+        family and refused Cladding Only against the 12c F2 ruling; the list is REQUIRED so the over-reach cannot
+        ship again by omission."""
+        base = copy.deepcopy(self.REFUSE_UC[0])
+        self.assertIsNone(self._refused(self._cfg(refuse_on_unit_class=[base])))
+        no_list = {k: v for k, v in base.items() if k != "families"}
+        self.assertIn("families", self._refused(self._cfg(refuse_on_unit_class=[no_list])) or "")
+        self.assertIn("families", self._refused(self._cfg(refuse_on_unit_class=[dict(base, families=[])])) or "")
+        self.assertIn("families", self._refused(self._cfg(refuse_on_unit_class=[dict(base, families=["Rockwool Board"])])) or "")
+        self.assertIn("families", self._refused(self._cfg(refuse_on_unit_class=[dict(base, families="Thermal Nitrile Insulation")])) or "")
+        # Cladding Only MAY be listed (the validator checks names, the owner's ruling decides the list) -- v32 does not list it
+        self.assertIsNone(self._refused(self._cfg(refuse_on_unit_class=[dict(base, families=self.SHEET + ["Cladding Only"])])))
 
     def test_d4a_01_every_key_validates_alone_and_together(self):
         self.assertIsNone(self._refused(self._cfg(named_in_row=self.NAMED)))
@@ -19245,13 +19271,15 @@ class TestSlice12d4aAsset(FrappeTestCase):
         super().setUpClass()
         with open(_asset_path("rate_master_hvac_all_v30.json"), "r", encoding="utf-8") as fh:
             cls.prev = json.load(fh)
-        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+        # 12d-4aF: v31 BY NAME -- this class is the record of the 12d-4a mint; `TestSlice12d4aFAsset` owns v32
+        with open(_asset_path("rate_master_hvac_all_v31.json"), "r", encoding="utf-8") as fh:
             cls.cur = json.load(fh)
         cls.ins_prev = next(c for c in cls.prev["category_configs"] if c["category_id"] == "hvac_insulation")
         cls.ins_cur = next(c for c in cls.cur["category_configs"] if c["category_id"] == "hvac_insulation")
 
-    def test_v31_01_the_current_asset_is_v31(self):
-        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")
+    def test_v31_01_INVERTED_the_current_asset_has_moved_past_v31(self):
+        self.assertNotEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v31.json")   # 12d-4aF: moved again
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v32.json")
 
     def test_v31_02_exactly_four_new_items_every_existing_item_byte_identical_and_every_other_top_level_key_identical(self):
         prev = {it["item_uid"]: it for it in self.prev["items"]}
@@ -19390,7 +19418,93 @@ class TestSlice12d4aAsset(FrappeTestCase):
         self.assertIn("A perforated GSS sheet bolted or screwed on with no frame named is still 'GI Framework with perforated Al sheet'", cl)   # D13
 
     def test_v31_08_every_config_validates_insulation_is_eligible_and_no_removal_is_declared(self):
+        # 12d-4aF (owner): `refuse_on_unit_class[].families` is now REQUIRED, so the frozen v31 file is REFUSED on
+        # exactly that -- pinned here -- and validated with the list repaired IN MEMORY (never `validate=False`,
+        # never an edit to the frozen file). The three sheet families are what v32 declares.
+        for c in self.cur["category_configs"]:
+            c = loader._loaded_config(copy.deepcopy(c), "HVAC", self.cur.get("goldens") or {})
+            if c["category_id"] == "hvac_insulation":
+                with self.assertRaises(Exception) as ctx:
+                    config_validation._validate_config(copy.deepcopy(c))
+                self.assertIn("families", str(ctx.exception))
+                for r in c["list_spec"]["pricing"]["refuse_on_unit_class"]:
+                    r["families"] = ["Thermal Nitrile Insulation", "Acoustic Nitrile Insulation", " Fiberglass Rigid Board Insulation, Density 48Kg/m3"]
+            config_validation._validate_config(c)
+        self.assertTrue(extraction.config_is_eligible(self.ins_cur, {("HVAC", c["category_id"]): c for c in self.cur["category_configs"]}))
+        self.assertEqual(self.cur.get("intentional_removals"), self.prev.get("intentional_removals"))
+
+
+class TestSlice12d4aFAsset(FrappeTestCase):
+    """SLICE 12d-4aF (owner 'agree. we need to fix', 2026-10-11) -- HVAC v32 = v31 + the D9b FAMILY LIST ONLY:
+    `refuse_on_unit_class[0].families` names the three SHEET families (Thermal Nitrile, Acoustic Nitrile, the
+    Fiberglass board) so Cladding Only per sq.m with glass cloth prices again at the plain rate (12c F2, 294 / 70).
+    Items byte-identical; every other config byte-identical NAMED; Insulation differs ONLY in that rule (+ its
+    `rule` text) and the notes trail; v32 validates; the frozen v31 file is REFUSED on `families` by name."""
+
+    SHEET = ["Thermal Nitrile Insulation", "Acoustic Nitrile Insulation", " Fiberglass Rigid Board Insulation, Density 48Kg/m3"]
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        with open(_asset_path("rate_master_hvac_all_v31.json"), "r", encoding="utf-8") as fh:
+            cls.prev = json.load(fh)
+        with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
+            cls.cur = json.load(fh)
+        cls.ins_prev = next(c for c in cls.prev["category_configs"] if c["category_id"] == "hvac_insulation")
+        cls.ins_cur = next(c for c in cls.cur["category_configs"] if c["category_id"] == "hvac_insulation")
+
+    def test_v32_01_the_current_asset_is_v32(self):
+        self.assertEqual(CURRENT_HVAC_ASSET, "rate_master_hvac_all_v32.json")
+
+    def test_v32_02_items_and_every_other_top_level_key_are_byte_identical(self):
+        self.assertEqual(json.dumps(self.prev["items"], sort_keys=True), json.dumps(self.cur["items"], sort_keys=True))
+        self.assertEqual(len(self.cur["items"]), 335)
+        for k in set(self.prev) | set(self.cur):
+            if k == "category_configs":
+                continue
+            self.assertEqual(json.dumps(self.prev.get(k), sort_keys=True), json.dumps(self.cur.get(k), sort_keys=True), k)
+
+    def test_v32_03_every_config_but_insulation_is_byte_identical_NAMED(self):
+        prev = {c["category_id"]: c for c in self.prev["category_configs"]}
+        cur = {c["category_id"]: c for c in self.cur["category_configs"]}
+        self.assertEqual(set(prev), set(cur))
+        self.assertEqual(len(cur), 9)
+        for cid in sorted(cur):
+            if cid == "hvac_insulation":
+                continue
+            self.assertEqual(json.dumps(prev[cid], sort_keys=True), json.dumps(cur[cid], sort_keys=True), cid)
+
+    def test_v32_04_insulation_differs_ONLY_in_the_D9b_families_its_rule_text_and_the_notes_trail(self):
+        a, b = self.ins_prev, self.ins_cur
+        diff = {k for k in set(a) | set(b) if json.dumps(a.get(k), sort_keys=True) != json.dumps(b.get(k), sort_keys=True)}
+        self.assertEqual(diff, {"notes", "list_spec"})
+        self.assertTrue(b["notes"].startswith(a["notes"]))
+        self.assertIn("SLICE 12d-4aF", b["notes"])
+        la, lb = a["list_spec"], b["list_spec"]
+        self.assertEqual({k for k in set(la) | set(lb) if json.dumps(la.get(k), sort_keys=True) != json.dumps(lb.get(k), sort_keys=True)}, {"pricing"})
+        pa, pb = la["pricing"], lb["pricing"]
+        self.assertEqual({k for k in set(pa) | set(pb) if json.dumps(pa.get(k), sort_keys=True) != json.dumps(pb.get(k), sort_keys=True)}, {"refuse_on_unit_class"})
+        self.assertEqual(len(pa["refuse_on_unit_class"]), 1)
+        self.assertEqual(len(pb["refuse_on_unit_class"]), 1)
+        ra, rb = pa["refuse_on_unit_class"][0], pb["refuse_on_unit_class"][0]
+        self.assertNotIn("families", ra)
+        self.assertEqual(rb["families"], self.SHEET)
+        self.assertNotIn("Cladding Only", rb["families"])
+        self.assertTrue(rb["rule"].startswith(ra["rule"]))
+        for k in ("unit_class", "attr", "value_contains", "words", "refuse"):
+            self.assertEqual(ra[k], rb[k], k)
+
+    def test_v32_05_v32_validates_and_the_frozen_v31_insulation_config_is_REFUSED_on_families_by_name(self):
         for c in self.cur["category_configs"]:
             config_validation._validate_config(loader._loaded_config(copy.deepcopy(c), "HVAC", self.cur.get("goldens") or {}))
         self.assertTrue(extraction.config_is_eligible(self.ins_cur, {("HVAC", c["category_id"]): c for c in self.cur["category_configs"]}))
+        with self.assertRaises(Exception) as ctx:
+            config_validation._validate_config(loader._loaded_config(copy.deepcopy(self.ins_prev), "HVAC", self.prev.get("goldens") or {}))
+        self.assertIn("families", str(ctx.exception))
         self.assertEqual(self.cur.get("intentional_removals"), self.prev.get("intentional_removals"))
+
+    def test_v32_06_the_live_insulation_config_is_v32_and_carries_the_family_list(self):
+        live = _obj(frappe.get_value("BoQ Rate Category Config", {"discipline": "HVAC", "active": 1, "category_id": "hvac_insulation"}, "config"))
+        want = loader._loaded_config(copy.deepcopy(self.ins_cur), "HVAC", self.cur.get("goldens") or {})
+        self.assertEqual(json.dumps(live, sort_keys=True), json.dumps(want, sort_keys=True))
+        self.assertEqual(live["list_spec"]["pricing"]["refuse_on_unit_class"][0]["families"], self.SHEET)

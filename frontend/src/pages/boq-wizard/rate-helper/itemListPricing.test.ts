@@ -3483,6 +3483,7 @@ describe("SLICE 12d-4a -- the audit fixes: named cladding, unstocked materials, 
   const ITEMS = V27.items;
   const NR = "Nitrile Rubber Insulation";
   const TN = "Thermal Nitrile Insulation";
+  const AN = "Acoustic Nitrile Insulation";
   const FG = " Fiberglass Rigid Board Insulation, Density 48Kg/m3";
   const CO = "Cladding Only";
   const BASE = {
@@ -3495,7 +3496,10 @@ describe("SLICE 12d-4a -- the audit fixes: named cladding, unstocked materials, 
   const plain = withKeys({});
   const D3 = { named_in_row: [{ attr: "cladding", words: ["glass cloth", "foil", "gi strip", "frp"], refuse: "cladding named in this row but not read - set the cladding", rule: "D3" }] };
   const D7 = { unstocked_materials: { words: ["epdm", "xlpe"], from_attr: "material_as_written", rule: "D7" } };
-  const D9B = { refuse_on_unit_class: [{ unit_class: "area", attr: "cladding", value_contains: "Glass Cloth", words: ["glass cloth", "gc cloth"], refuse: "glass cloth is not offered on sheet insulation - price this row by hand", rule: "D9b" }] };
+  // 12d-4aF: the rule names its FAMILIES (the three sheet families); Cladding Only is deliberately NOT listed
+  const D9B = { refuse_on_unit_class: [{ unit_class: "area", families: [TN, AN, FG], attr: "cladding", value_contains: "Glass Cloth", words: ["glass cloth", "gc cloth"], refuse: "glass cloth is not offered on sheet insulation - price this row by hand", rule: "D9b" }] };
+  const D9B_ALL = { refuse_on_unit_class: [{ ...D9B.refuse_on_unit_class[0], families: [TN, AN, FG, CO] }] };
+  const D9B_NO_FAMILIES = { refuse_on_unit_class: [{ ...D9B.refuse_on_unit_class[0], families: undefined }] };
   const D8 = { read_notes: [{ families: [FG], from_attr: "material_as_written", pattern: "(\\d+(?:\\.\\d+)?)\\s*kg\\s*/\\s*(?:m3|cum|cu\\.?\\s*m)", unless: "48", line: "BoQ says {match} -> priced as the 48 kg/m3 board" }] };
   const item = (attrs: Record<string, string | null>): ExtractedListItem => ({
     attributes: Object.fromEntries(Object.entries(attrs).map(([k, v]) => [k, { value: v, confidence: 0.9 }])),
@@ -3571,9 +3575,11 @@ describe("SLICE 12d-4a -- the audit fixes: named cladding, unstocked materials, 
     expect(t5.items[0].reason).toBe("No SKU in the catalogue for XLPE board - price this row by hand");
   });
 
-  it("D9b POSITIVE: glass cloth on a SHEET (area) row refuses with the ruled sentence -- on the value the pricing reads (Cladding Only per sq.m), and on a 'None' answer when the row's own text asks for it", () => {
-    const byValue = price(withKeys(D9B), "Sqm", { item: CO, cladding: "Glass Cloth with paint" });
+  it("D9b POSITIVE: glass cloth on a SHEET-FAMILY (area) row refuses with the ruled sentence -- on the value the pricing reads (Thermal Nitrile per sq.m), and on a 'None' answer when the row's own text asks for it", () => {
+    const byValue = price(withKeys(D9B), "Sqm", { item: TN, cladding: "Glass Cloth with paint", thickness_mm: "13 mm" });
     expect(byValue.items[0].reason).toBe("glass cloth is not offered on sheet insulation - price this row by hand");
+    const fg = price(withKeys(D9B), "Sqm", { item: FG, cladding: "24G Aluminium with Glass Cloth", thickness_mm: "50 mm" });
+    expect(fg.items[0].reason).toBe("glass cloth is not offered on sheet insulation - price this row by hand");
     const byWord = price(withKeys({ ...D9B, ...D3 }), "Sqm", { item: TN, cladding: "None", thickness_mm: "13 mm" }, "13 mm nitrile with treated glass cloth");
     // D9b runs BEFORE D3, so the person is told the OUTCOME, not asked to set a cladding the sheet would refuse
     expect(byWord.items[0].reason).toBe("glass cloth is not offered on sheet insulation - price this row by hand");
@@ -3586,6 +3592,23 @@ describe("SLICE 12d-4a -- the audit fixes: named cladding, unstocked materials, 
     expect([noKey.priced, noKey.supply, noKey.install]).toEqual([true, 294, 70]);
     const no = price(withKeys(D9B), "Sqm", { item: TN, cladding: "No", thickness_mm: "13 mm" }, "13 mm nitrile");
     expect([no.priced, no.supply]).toEqual([true, 464]);
+  });
+
+  it("D9b FAMILIES (12d-4aF, owner 'agree. we need to fix'): Cladding Only per sq.m with Glass Cloth with paint prices 294 / 70 again WITH the key (the 12c F2 figure) because the list names the three SHEET families only; listing Cladding Only would refuse it; a rule with NO list fires on no family (fail-closed)", () => {
+    const co = price(withKeys(D9B), "Sqm", { item: CO, cladding: "Glass Cloth with paint" });
+    expect([co.priced, co.supply, co.install]).toEqual([true, 294, 70]);
+    const coAl = price(withKeys(D9B), "Sqm", { item: CO, cladding: "24G Aluminium with Glass Cloth" });
+    expect(coAl.priced).toBe(true);
+    const listed = price(withKeys(D9B_ALL), "Sqm", { item: CO, cladding: "Glass Cloth with paint" });
+    expect(listed.items[0].reason).toBe("glass cloth is not offered on sheet insulation - price this row by hand");
+    const noList = price(withKeys(D9B_NO_FAMILIES), "Sqm", { item: TN, cladding: "Glass Cloth with paint", thickness_mm: "13 mm" });
+    expect(noList.items[0].reason ?? "").not.toBe("glass cloth is not offered on sheet insulation - price this row by hand");   // the rule did not fire (the row then refuses on "no SKU", since no sheet SKU carries glass cloth -- which is the point of D9b)
+    expect(noList.items[0].reason ?? "").toMatch(/no SKU/i);
+    // the three sheet families still refuse, by value and by word, exactly as 12d-4a shipped them
+    for (const fam of [TN, AN]) {
+      const r = price(withKeys({ ...D9B, ...D3 }), "Sqm", { item: fam, cladding: "None", thickness_mm: "13 mm" }, "13 mm with treated glass cloth");
+      expect(r.items[0].reason, fam).toBe("glass cloth is not offered on sheet insulation - price this row by hand");
+    }
   });
 
   it("D8: the density line appears for a 32 kg/m3 fibre glass row and not for 48; the PRICE is the same 48 kg board either way (display only)", () => {

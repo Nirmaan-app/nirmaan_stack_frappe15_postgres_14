@@ -319,7 +319,7 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  "read_notes"}
 _PRICING_NAMED_IN_ROW_KEYS = {"attr", "words", "refuse", "rule"}
 _PRICING_UNSTOCKED_KEYS = {"words", "from_attr", "rule"}
-_PRICING_REFUSE_UC_KEYS = {"unit_class", "attr", "value_contains", "words", "refuse", "rule"}
+_PRICING_REFUSE_UC_KEYS = {"unit_class", "families", "attr", "value_contains", "words", "refuse", "rule"}
 _PRICING_READ_NOTE_KEYS = {"families", "from_attr", "pattern", "unless", "line"}
 
 
@@ -375,10 +375,12 @@ def _validate_unstocked_materials(um, by_id, sku_attrs, numbers):
             _vthrow(f"{loc}.from_attr must be a text definition the pricing does not read.")
 
 
-def _validate_refuse_on_unit_class(rules, by_id, choice_attrs, ucls):
+def _validate_refuse_on_unit_class(rules, by_id, choice_attrs, ucls, fams):
     """SLICE 12d-4a (owner D9b) -- `list_spec.pricing.refuse_on_unit_class`: a non-empty list of rules, each
-    naming a `unit_classes` key, a CHOICE attribute, the value fragment it refuses on, optionally the words
-    that refuse a "not mentioned" answer, the refusal sentence and the ruling."""
+    naming a `unit_classes` key, the FAMILIES it applies to (12d-4aF, REQUIRED: a non-empty list of priceable
+    families -- a rule without one is refused by name, because the 12d-4a form that applied to every family
+    refused Cladding Only per sq.m against the standing 12c F2 ruling), a CHOICE attribute, the value fragment it
+    refuses on, optionally the words that refuse a "not mentioned" answer, the refusal sentence and the ruling."""
     loc = "list_spec.pricing.refuse_on_unit_class"
     if not isinstance(rules, list) or not rules:
         _vthrow(f"{loc} must be a non-empty list.")
@@ -389,10 +391,12 @@ def _validate_refuse_on_unit_class(rules, by_id, choice_attrs, ucls):
         unk = set(r) - _PRICING_REFUSE_UC_KEYS
         if unk:
             _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
-        if {"unit_class", "attr", "value_contains", "refuse", "rule"} - set(r):
-            _vthrow(f"{rloc} must carry unit_class / attr / value_contains / refuse / rule.")
+        if {"unit_class", "families", "attr", "value_contains", "refuse", "rule"} - set(r):
+            _vthrow(f"{rloc} must carry unit_class / families / attr / value_contains / refuse / rule.")
         if r["unit_class"] not in ucls:
             _vthrow(f"{rloc}.unit_class must be a unit_classes key.")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must be a non-empty list of priceable families (12d-4aF: the rule applies to the listed families only).")
         if r["attr"] not in choice_attrs:
             _vthrow(f"{rloc}.attr must be a choice attribute of this category.")
         vals = by_id[r["attr"]].get("values") or []
@@ -1049,7 +1053,7 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
     if "unstocked_materials" in pr:
         _validate_unstocked_materials(pr["unstocked_materials"], by_id, sku_attrs, numbers)
     if "refuse_on_unit_class" in pr:
-        _validate_refuse_on_unit_class(pr["refuse_on_unit_class"], by_id, choice_attrs, ucls)
+        _validate_refuse_on_unit_class(pr["refuse_on_unit_class"], by_id, choice_attrs, ucls, fams)
     if "read_notes" in pr:
         _validate_read_notes(pr["read_notes"], by_id, fams, sku_attrs, numbers)
     # SLICE 12d-1a (owner R7): `panel_readonly` -- each a `text` item definition that NO pricing rule

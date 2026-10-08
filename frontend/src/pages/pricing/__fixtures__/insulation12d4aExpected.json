@@ -704,8 +704,9 @@
   "fixes": [
    "D9b"
   ],
-  "priced": false,
-  "reason": "glass cloth is not offered on sheet insulation - price this row by hand",
+  "priced": true,
+  "supply": 294,
+  "install": 70,
   "layers": [
    "/Glass Cloth with paint"
   ],
@@ -729,8 +730,9 @@
   "fixes": [
    "D9b"
   ],
-  "priced": false,
-  "reason": "glass cloth is not offered on sheet insulation - price this row by hand",
+  "priced": true,
+  "supply": 294,
+  "install": 70,
   "layers": [
    "/Glass Cloth with paint"
   ],
@@ -753,8 +755,9 @@
   "fixes": [
    "D9b"
   ],
-  "priced": false,
-  "reason": "glass cloth is not offered on sheet insulation - price this row by hand",
+  "priced": true,
+  "supply": 294,
+  "install": 70,
   "layers": [
    "/Glass Cloth with paint"
   ],
@@ -765,8 +768,9 @@
   "fixes": [
    "D9b"
   ],
-  "priced": false,
-  "reason": "glass cloth is not offered on sheet insulation - price this row by hand",
+  "priced": true,
+  "supply": 294,
+  "install": 70,
   "layers": [
    "/Glass Cloth with paint"
   ],
@@ -777,8 +781,9 @@
   "fixes": [
    "D9b"
   ],
-  "priced": false,
-  "reason": "glass cloth is not offered on sheet insulation - price this row by hand",
+  "priced": true,
+  "supply": 957,
+  "install": 280,
   "layers": [
    "/24G Aluminium with Glass Cloth"
   ],
@@ -789,8 +794,9 @@
   "fixes": [
    "D9b"
   ],
-  "priced": false,
-  "reason": "glass cloth is not offered on sheet insulation - price this row by hand",
+  "priced": true,
+  "supply": 294,
+  "install": 70,
   "layers": [
    "/Glass Cloth with paint"
   ],
