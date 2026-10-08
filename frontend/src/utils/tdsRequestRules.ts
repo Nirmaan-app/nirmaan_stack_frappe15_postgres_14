@@ -63,8 +63,9 @@ export function requestTypeOf(row: TdsRequestRow): RequestType {
 /**
  * A waiting request an Admin edits in the request edit dialog, where it can switch between New Make
  * and Project Custom: status New (with or without a TDS Item id), or a Project Custom row still
- * Pending. Every other Pending row is From Repository and keeps the "Edit TDS Item" dialog. The
- * server edits exactly these rows (`edit_request.py` `_is_waiting_request`, pinned by a parity test).
+ * Pending. Every other Pending row is From Repository and keeps the "Edit TDS Item" dialog, which
+ * saves through `edit_tds_pick`. The server edits exactly these rows as requests (`edit_request.py`
+ * `_is_waiting_request`, pinned by a parity test).
  */
 export function isEditableRequest(row: TdsRequestRow): boolean {
   return (
@@ -117,16 +118,29 @@ export function rejectedRowFor<T extends TdsProjectRow>(
   rows: readonly T[] | undefined,
   candidate: TdsResubmitCandidate
 ): T | undefined {
-  return (rows ?? []).find(row => {
-    if (row.tds_status !== STORED_STATUS.rejected) return false;
-    if (candidate.is_project_custom) {
-      return (
-        isProjectCustomId(row.tds_item_id) &&
-        customItemKey(row.tds_item_name, row.tds_make) === customItemKey(candidate.tds_item_name, candidate.make)
-      );
-    }
-    return row.tds_item_id === candidate.tds_item_id && row.tds_make === candidate.make;
-  });
+  return (rows ?? []).find(row => row.tds_status === STORED_STATUS.rejected && sameItemMake(row, candidate));
+}
+
+/**
+ * The project's live row for the same item + make as a candidate, if any: one the server refuses a
+ * duplicate of (`submit.py` `_refuse_duplicates`, pinned by the parity test). Every row but a
+ * Rejected one is live: Pending, New, Approved, and a legacy blank status. Matches as `rejectedRowFor`.
+ */
+export function liveRowFor<T extends TdsProjectRow>(
+  rows: readonly T[] | undefined,
+  candidate: TdsResubmitCandidate
+): T | undefined {
+  return (rows ?? []).find(row => row.tds_status !== STORED_STATUS.rejected && sameItemMake(row, candidate));
+}
+
+function sameItemMake(row: TdsProjectRow, candidate: TdsResubmitCandidate): boolean {
+  if (candidate.is_project_custom) {
+    return (
+      isProjectCustomId(row.tds_item_id) &&
+      customItemKey(row.tds_item_name, row.tds_make) === customItemKey(candidate.tds_item_name, candidate.make)
+    );
+  }
+  return row.tds_item_id === candidate.tds_item_id && row.tds_make === candidate.make;
 }
 
 /** An item name folded for comparison: trimmed, ignoring case (`submit.py` `_name_key`). */

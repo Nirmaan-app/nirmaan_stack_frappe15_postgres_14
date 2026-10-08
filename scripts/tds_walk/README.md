@@ -29,6 +29,7 @@ in the screen and in the database.
 | 19 | Reject, then resubmit a pick, a New Make and a Project Custom row |
 | 20 | Export dialog lists approved Project Custom rows; chips read Approved by Admin / Pending, Pending includes New |
 | 21 | Approved / Rejected rows can't be selected, and approve refuses a Rejected row |
+| 22 | TDS Repository item page (#1384): no Back button; the header back arrow restores tab, filter, search and page; a delete returns to the table view, or to the plain repository from a direct URL; "not found" links to the repository |
 | 23 | Create New Request button: the form replaces the tables, Back keeps the table filter, a send returns to TDS History (#1382) |
 | 24 | A saved draft answered from TDS History opens the request form (#1382) |
 

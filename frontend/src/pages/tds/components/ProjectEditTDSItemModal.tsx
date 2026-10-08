@@ -24,9 +24,9 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { FileText } from "lucide-react";
+import { liveRowFor, rejectedRowFor } from "@/utils/tdsRequestRules";
 
 interface TDSItem {
     name: string;
@@ -68,26 +68,36 @@ interface GroupOption {
     makes: PickerMake[];
 }
 
+/** An Admin's edit of a From Repository row, as `edit_tds_pick` reads it (`api/tds/edit_request.py`). */
+export interface PickItemEdit {
+    tds_item_id: string;
+    make: string;
+    description: string;
+    tds_boq_line_item: string;
+    /** The project's Rejected row for the same TDS Item + make, which the save deletes. */
+    previous_doc_name?: string;
+}
+
 interface ProjectEditTDSItemModalProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     item: TDSItem | null;
-    onSave: (itemName: string, updates: any, itemsToDelete?: string[]) => void;
+    onSave: (itemName: string, edit: PickItemEdit) => void;
     loading?: boolean;
 }
 
 /**
- * Phase 2 (ADR-0025) edit modal for PICKED rows (tds_status !== "New").
+ * "Edit TDS Item" for a waiting From Repository row (ADR-0025).
  *
  * Re-runs the group + make picker: fuzzy-search a TDS Item (group) over its name
  * AND member item codes/names (server-side via api/tds/picker.search_tds_items),
- * then pick a Make from the makes-with-datasheet for that group. The chosen make's
- * Repository Entry datasheet (tds_attachment) is carried onto the row unless the
- * user uploads a replacement. Work Package is derived from the group (read-only).
+ * then pick a Make from the makes-with-datasheet for that group. The row takes the
+ * chosen make's Repository Entry datasheet. Work Package is derived from the group
+ * (read-only).
  *
- * The frozen snapshot written back: tds_item_id (= TDS Item group id), tds_item_name
- * (group name), tds_make, tds_attachment, tds_work_package. Dedup key against sibling
- * project rows = (tds_item_id, tds_make). No CUS-/category-string logic.
+ * The save goes to the Admin-only `edit_tds_pick`, which re-runs the send's duplicate and
+ * replacement checks and deletes a replaced Rejected row only if the edit saves. The checks
+ * here only stop an edit early and ask before replacing a Rejected row.
  */
 export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = ({
     open,
@@ -104,8 +114,6 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
     const [selectedMake, setSelectedMake] = useState("");
     const [description, setDescription] = useState("");
     const [boqRef, setBoqRef] = useState("");
-    const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
-    const [fileError, setFileError] = useState<string | null>(null);
 
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     const [confirmInput, setConfirmInput] = useState("");
@@ -164,8 +172,6 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
             setSelectedMake(item.tds_make || "");
             setDescription(item.tds_description || "");
             setBoqRef(item.tds_boq_line_item || "");
-            setAttachmentFile(null);
-            setFileError(null);
             setSelectedGroupMakes([]);
 
             // Seed the dropdown with an initial slice and resolve the current
@@ -222,26 +228,13 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
         setSelectedMake(""); // clear downstream make
     };
 
-    const buildUpdates = () => {
-        const updates: any = {
-            tds_item_id: selectedGroupId,
-            tds_item_name: selectedGroupName,
-            tds_work_package: selectedGroupWP,
-            // tds_category is a frozen snapshot from the original row; the group
-            // model derives categories live (joined member categories) and no
-            // longer stores a single category. Preserve the row's existing value.
-            tds_category: item?.tds_category ?? "",
-            tds_make: selectedMake,
-            tds_description: description,
-            tds_boq_line_item: boqRef,
-            attachmentFile,
-        };
-        // Carry the entry datasheet forward when the user didn't upload a new file.
-        if (!attachmentFile && selectedEntry?.tds_attachment) {
-            updates.tds_attachment = selectedEntry.tds_attachment;
-        }
-        return updates;
-    };
+    const buildEdit = (previousDocName?: string): PickItemEdit => ({
+        tds_item_id: selectedGroupId,
+        make: selectedMake,
+        description,
+        tds_boq_line_item: boqRef,
+        previous_doc_name: previousDocName,
+    });
 
     const handleSaveAttempt = () => {
         if (!item) return;
@@ -250,21 +243,10 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
             return;
         }
 
-        // Datasheet must exist: either an existing row attachment, a fresh upload,
-        // or the selected entry's datasheet.
-        if (!attachmentFile && !item.tds_attachment && !selectedEntry?.tds_attachment) {
-            setFileError("Attachment is required");
-            return;
-        }
-
-        // Dedup on (tds_item_id, tds_make). A Rejected duplicate can be replaced
-        // after confirmation; an active (Pending/Approved) duplicate is blocked.
-        const dupActive = existingProjectItems?.find((i: any) =>
-            i.tds_item_id === selectedGroupId &&
-            i.tds_make === selectedMake &&
-            (i.tds_status === "Approved" || i.tds_status === "Pending" || !i.tds_status)
-        );
-        if (dupActive) {
+        // The same TDS Item + make as a sibling row. A live one (Pending, New or Approved) is
+        // refused, as the server would; a Rejected one is replaced after confirmation.
+        const candidate = { tds_item_id: selectedGroupId, make: selectedMake };
+        if (liveRowFor(existingProjectItems, candidate)) {
             toast({
                 title: "Duplicate",
                 description: "This TDS Item + Make is already selected in this project.",
@@ -273,11 +255,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
             return;
         }
 
-        const dupRejected = existingProjectItems?.find((i: any) =>
-            i.tds_item_id === selectedGroupId &&
-            i.tds_make === selectedMake &&
-            i.tds_status === "Rejected"
-        );
+        const dupRejected = rejectedRowFor(existingProjectItems, candidate);
         if (dupRejected) {
             setDuplicateDocName(dupRejected.name);
             setConfirmInput("");
@@ -285,7 +263,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
             return;
         }
 
-        onSave(item.name, buildUpdates());
+        onSave(item.name, buildEdit());
     };
 
     const confirmResubmission = () => {
@@ -294,7 +272,7 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
             return;
         }
         if (!item || !duplicateDocName) return;
-        onSave(item.name, buildUpdates(), [duplicateDocName]);
+        onSave(item.name, buildEdit(duplicateDocName));
         setShowConfirmDialog(false);
         setDuplicateDocName(null);
     };
@@ -447,42 +425,21 @@ export const ProjectEditTDSItemModal: React.FC<ProjectEditTDSItemModalProps> = (
                                 />
                             </div>
 
-                            {/* Attachment */}
-                            {(() => {
-                                const existingDocUrl = item?.tds_attachment || selectedEntry?.tds_attachment || "";
-                                const hasExistingDoc = !!existingDocUrl;
-                                const attachmentLabel = hasExistingDoc ? "Replace Document" : "Upload PDF Document";
-                                return (
-                                    <div className="space-y-1.5 mt-2">
-                                        <Label className="text-sm font-bold text-gray-700">
-                                            Attach Document<span className="text-red-500 ml-0.5">*</span>
-                                        </Label>
-                                        <CustomAttachment
-                                            selectedFile={attachmentFile}
-                                            onFileSelect={(file) => {
-                                                setAttachmentFile(file);
-                                                if (file) setFileError(null);
-                                            }}
-                                            acceptedTypes="application/pdf"
-                                            label={attachmentLabel}
-                                            maxFileSize={50 * 1024 * 1024}
-                                            className="w-full"
-                                        />
-                                        {hasExistingDoc && !attachmentFile && (
-                                            <p className="text-[10px] text-gray-500 flex items-center gap-1 px-1">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                                                Current file:{" "}
-                                                <a href={existingDocUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-0.5">
-                                                    <FileText className="h-3 w-3" /> View Document
-                                                </a>
-                                            </p>
-                                        )}
-                                        {fileError && (
-                                            <p className="text-xs font-medium text-red-500">{fileError}</p>
-                                        )}
-                                    </div>
-                                );
-                            })()}
+                            {/* Datasheet: a pick borrows its Repository Entry's sheet; the server stores it. */}
+                            <div className="space-y-1.5 mt-2">
+                                <Label className="text-sm font-bold text-gray-700">Datasheet</Label>
+                                {selectedEntry?.tds_attachment ? (
+                                    <p className="text-xs text-gray-500 flex items-center gap-1 px-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                        From the TDS Repository:{" "}
+                                        <a href={selectedEntry.tds_attachment} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-0.5">
+                                            <FileText className="h-3 w-3" /> View Document
+                                        </a>
+                                    </p>
+                                ) : (
+                                    <p className="text-xs text-gray-500 px-1">Pick a make to see its datasheet.</p>
+                                )}
+                            </div>
                         </div>
                     </div>
 
