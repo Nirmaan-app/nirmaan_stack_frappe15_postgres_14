@@ -47,6 +47,8 @@ ENTRY_DOCTYPE = "TDS Repository"
 # from these (`frontend/src/utils/tdsRequestRules.ts`, pinned by its parity test).
 STATUS_PENDING = "Pending"
 STATUS_NEW_MAKE = "New"  # approval adds a Repository Entry
+# Stored `tds_status` of an Admin-approved row; only such a row can carry a Client Status.
+STATUS_APPROVED = "Approved"
 # Project-only id prefix of a Project Custom Item (minted by `_assign_project_custom_ids`). Read by
 # the same frontend rules.
 PROJECT_CUSTOM_ID_PREFIX = "PCUS-"

@@ -32,6 +32,9 @@ in the screen and in the database.
 | 22 | TDS Repository item page (#1384): no Back button; the header back arrow restores tab, filter, search and page; a delete returns to the table view, or to the plain repository from a direct URL; "not found" links to the repository |
 | 23 | Create New Request button: the form replaces the tables, Back keeps the table filter, a send returns to TDS History (#1382) |
 | 24 | A saved draft answered from TDS History opens the request form (#1382) |
+| 27 | Client Status tabs (#1385): TDS History / Approved by Client / Rejected by Client, counts equal the database, every row in one tab, tick boxes only on Admin-approved rows, Export disabled with no ticks, the client columns and reason |
+| 28 | Mark ticked rows Approved by Client (#1385): "N selected" toolbar, stamps in the database, the rows move tab and the counts follow; the server refuses a Pending row |
+| 29 | Mark ticked rows Rejected by Client (#1385): Clear unticks, the popup lists the rows and warns, the optional reason lands on every row and shows in the tab |
 
 ## Prerequisites
 

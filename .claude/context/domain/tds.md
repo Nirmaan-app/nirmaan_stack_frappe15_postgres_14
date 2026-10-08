@@ -42,6 +42,18 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
   - `edit_request.edit_tds_pick`: the Admin's "Edit TDS Item" of a From Repository row, the same way.
     The row stays a pick and takes its entry's datasheet. Both edits run the send's duplicate and
     replacement checks, and delete a replaced Rejected row only when the edit saves.
+  - `client_status.set_client_status(doc_names, action, reason)`: the only writer of Client Status.
+- **Client Status is its own four fields, never a `tds_status` value** (ADR-0025 Amendment B):
+  `client_status` (Select: blank / *Approved by Client* / *Rejected by Client*), `client_status_by`
+  (Link User), `client_status_on` (Datetime), `client_rejection_reason` (Small Text). `tds_status`
+  stays `Approved`. `set_client_status` takes `action` `mark_approved` / `mark_rejected` (Admin or PMO
+  Executive) or `clear` (Admin only), refuses per row anything not `tds_status = Approved`, re-stamps
+  by + on at every mark or switch, keeps the reason on `mark_rejected` only, blanks all four on
+  `clear`, and replies `{status, updated, errors[]}`. The strings live as top-level constants in
+  `client_status.py`, mirrored by `CLIENT_STATUS` / `CLIENT_STATUS_ACTION` in `tdsRequestRules.ts`
+  (parity block). TDS History's three tabs filter on it server-side (`historyTabFilters`: no Client
+  Status / each answer), so every row sits in exactly one tab; ticks go only on
+  `isClientStatusMarkable` rows.
 - **Datasheet ownership.** A pick borrows its entry's File. A request owns its upload. Approving a New
   Make moves the File to the new entry; keeping the repository's sheet deletes the row's own upload
   through `submit.delete_row_datasheet`, which respects shared stored bytes (`CODING_STANDARDS.md`
@@ -59,5 +71,5 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
 ## Testing
 
 Backend: `api/tds/test_submit.py`, `test_approve.py`, `test_edit_request.py`, `test_tds_report.py`,
-`test_status_label.py`.
+`test_status_label.py`, `test_client_status.py`.
 Frontend: `utils/tdsRequestRules.test.ts`. Browser: `scripts/tds_walk/` (see its README).

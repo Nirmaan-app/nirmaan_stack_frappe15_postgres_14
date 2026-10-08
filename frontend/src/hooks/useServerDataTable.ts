@@ -163,6 +163,12 @@ export interface ServerDataTableConfig<TData> {
     enableRowSelection?: boolean | ((row: Row<TData>) => boolean); // Allow function type
     /** Hook for row selection changes */
     onRowSelectionChange?: (updater: React.SetStateAction<RowSelectionState>) => void;
+    /**
+     * Row id for selection state. Pass `row => row.name` on a table with ticks: the default id is the
+     * row's index on the current page, so ticks would land on other rows after paging, sorting or
+     * filtering.
+     */
+    getRowId?: (row: TData, index: number) => string;
     /** Optional Frappe orderBy string (e.g., "creation desc") */
     defaultSort?: string;
 
@@ -299,6 +305,7 @@ export function useServerDataTable<TData extends { name: string }>({
     initialState = {},
     enableRowSelection: configEnableRowSelection = false,
     onRowSelectionChange,
+    getRowId,
     defaultSort = 'creation desc',
     urlSyncKey,
     // --- NEW ---
@@ -841,6 +848,7 @@ export function useServerDataTable<TData extends { name: string }>({
         // Configuration
         getPaginationRowModel: getPaginationRowModel(),
         enableRowSelection: configEnableRowSelection,
+        getRowId,
         // debugTable: import.meta.env.MODE === 'development', // Enable debugging in dev
         // debugAll: import.meta.env.MODE === 'development', // Enable debugging in dev
     });

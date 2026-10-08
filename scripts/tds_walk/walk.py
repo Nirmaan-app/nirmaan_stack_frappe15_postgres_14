@@ -107,6 +107,10 @@ def seed_row(request_id, s):
         doc["tds_status"] = s["status"]
     if s.get("reason"):
         doc["tds_rejection_reason"] = s["reason"]
+    if s.get("client_status"):  # the client's answer; only meaningful on an Approved row
+        doc.update(client_status=s["client_status"], client_status_by=s.get("client_status_by", "Administrator"),
+            client_status_on=s.get("client_status_on", frappe.utils.now()),
+            client_rejection_reason=s.get("client_reason", ""))
     d = frappe.get_doc(doc).insert(ignore_permissions=True)
     out = {"name": d.name, "url": d.tds_attachment, "make": make, "kind": kind}
     if s.get("with_file"):
@@ -119,7 +123,8 @@ def project_rows(since=None):
         filters["creation"] = [">", since]
     return frappe.get_all(ROW, filters=filters, fields=["name", "tds_request_id", "tds_item_id",
         "tds_item_name", "tds_make", "tds_status", "tds_category", "tds_attachment", "tds_description",
-        "tds_rejection_reason"], order_by="creation asc")
+        "tds_rejection_reason", "client_status", "client_status_by", "client_status_on",
+        "client_rejection_reason"], order_by="creation asc")
 '''
 
 EPILOGUE = '''
@@ -1614,6 +1619,211 @@ def c24(w: Walk, page, c: Checks):
         except Exception:
             pass
         ctx.close()
+
+
+# ─── Client Status (#1385) ───────────────────────────────────────────────────────────────────────
+
+CLIENT_APPROVED, CLIENT_REJECTED = "Approved by Client", "Rejected by Client"
+TAB_LABELS = {"history": "TDS History", "approvedByClient": CLIENT_APPROVED, "rejectedByClient": CLIENT_REJECTED}
+
+
+def open_history_page(page):
+    page.goto(f"{BASE}/projects/{PROJECT}?page=tdsrepository")
+    settle(page, 2)
+    if page.get_by_text("Continue your saved TDS request?").count():
+        page.get_by_role("button", name="Start Fresh").click()
+        time.sleep(1)
+
+
+def open_history_tab(page, tab):
+    page.get_by_role("tab", name=re.compile("^" + re.escape(TAB_LABELS[tab]))).click()
+    settle(page, 1.5)
+
+
+def history_table(page):
+    return page.locator("table").filter(has=page.locator("th", has_text="Status")).first
+
+
+def walk_row(page, make):
+    """The active tab's row for the walk's TDS Item in `make`."""
+    return history_table(page).locator("tbody tr").filter(has_text=ITEM_NAME).filter(
+        has=page.locator(f"span:text-is('{make}')")).first
+
+
+def walk_makes(page):
+    return [m for r in history_table(page).locator("tbody tr").filter(has_text=ITEM_NAME).all()
+            for m in [r.locator("span.inline-flex").first.inner_text().strip()]]
+
+
+def ui_tab_counts(page):
+    return {t: int(page.get_by_test_id(f"tds-tab-count-{t}").inner_text().strip() or -1) for t in TAB_LABELS}
+
+
+def db_tab_counts(w):
+    return w.be('''
+base = {"tdsi_project_id": PROJECT}
+R["history"] = frappe.db.count(ROW, {**base, "client_status": ["is", "not set"]})
+R["approvedByClient"] = frappe.db.count(ROW, {**base, "client_status": "Approved by Client"})
+R["rejectedByClient"] = frappe.db.count(ROW, {**base, "client_status": "Rejected by Client"})
+R["total"] = frappe.db.count(ROW, base)''')
+
+
+def client_fields(w, names):
+    return w.be('''
+R["rows"] = {n: frappe.db.get_value(ROW, n, ["tds_status", "client_status", "client_status_by", "client_status_on",
+    "client_rejection_reason"], as_dict=True) for n in P["names"]}''', names=names)["rows"]
+
+
+def tick(page, make):
+    walk_row(page, make).get_by_role("checkbox").click()
+    time.sleep(0.3)
+
+
+@case(27, "Client Status tabs: counts match the database, every row in one tab, ticks only on Admin-approved rows")
+def c27(w: Walk, page, c: Checks):
+    w.be('R["rows"] = [seed_row(P["rid"], s) for s in P["specs"]]; frappe.db.commit()', rid="RQ-001-WALK27", specs=[
+        {"kind": "pick", "make": "Locel"},
+        {"kind": "pick", "make": "Tapariya", "status": "Approved"},
+        {"kind": "new_make", "make": "Jogger", "status": "Rejected", "reason": "walk"},
+        {"kind": "new_make", "make": "Value", "status": "Approved", "client_status": CLIENT_APPROVED},
+        {"kind": "new_make", "make": "Nerolac", "status": "Approved", "client_status": CLIENT_REJECTED,
+         "client_reason": "walk: wrong colour"},
+    ])
+    open_history_page(page)
+    tabs = [t.strip() for t in page.get_by_role("tab").all_inner_texts()]
+    c.check([re.sub(r"\s*\d+$", "", t) for t in tabs] == list(TAB_LABELS.values()),
+            "tabs read TDS History | Approved by Client | Rejected by Client", tabs)
+    db = db_tab_counts(w)
+    ui = wait_for(lambda: (lambda u: u if u == {t: db[t] for t in TAB_LABELS} else None)(ui_tab_counts(page)), 10) \
+        or ui_tab_counts(page)
+    c.eq(ui, {t: db[t] for t in TAB_LABELS}, "each tab's count matches the database")
+    c.eq(sum(db[t] for t in TAB_LABELS), db["total"], "every project row is in exactly one tab")
+
+    wait_for(lambda: len(walk_makes(page)) >= 3, 15)
+    c.eq(sorted(walk_makes(page)), ["Jogger", "Locel", "Tapariya"], "TDS History holds the rows the client hasn't answered")
+    for make, enabled in (("Tapariya", True), ("Locel", False), ("Jogger", False)):
+        box = walk_row(page, make).get_by_role("checkbox")
+        c.eq(box.is_enabled(), enabled, f"{make} tick box enabled")
+    c.check(page.get_by_role("button", name="Export", exact=True).is_disabled(), "Export is disabled with nothing ticked")
+    headers = headers_of(history_table(page))
+    c.check("CLIENT STATUS" not in headers, "TDS History hides the Client Status columns", headers)
+    w.shot(page, "c27_history", full=True)
+
+    open_history_tab(page, "approvedByClient")
+    wait_for(lambda: walk_makes(page), 10)
+    c.eq(walk_makes(page), ["Value"], "Approved by Client tab holds the client-approved row")
+    table = history_table(page)
+    headers = headers_of(table)
+    c.check({"CLIENT STATUS", "MARKED BY", "MARKED ON"} <= set(headers), "client tab shows Client Status, Marked By, Marked On", headers)
+    c.check("CLIENT'S REASON" not in headers, "Approved by Client tab has no reason column", headers)
+    status, by, on = column_values(table, walk_row(page, "Value"), "Client Status", "Marked By", "Marked On")
+    c.eq(status, CLIENT_APPROVED, "Value row's Client Status")
+    c.check(by and by != "-", "Marked By is filled", by)
+    c.check(on and re.match(r"\d{2}-[A-Z][a-z]{2}-\d{4}", on), "Marked On reads dd-MMM-yyyy", on)
+    w.shot(page, "c27_approved_by_client", full=True)
+
+    open_history_tab(page, "rejectedByClient")
+    wait_for(lambda: walk_makes(page), 10)
+    c.eq(walk_makes(page), ["Nerolac"], "Rejected by Client tab holds the client-rejected row")
+    table = history_table(page)
+    status, reason = column_values(table, walk_row(page, "Nerolac"), "Client Status", "Client's Reason")
+    c.eq(status, CLIENT_REJECTED, "Nerolac row's Client Status")
+    c.eq(reason, "walk: wrong colour", "Rejected by Client tab shows the client's reason")
+    w.shot(page, "c27_rejected_by_client", full=True)
+
+
+@case(28, "mark ticked rows Approved by Client: toolbar, stamps, the rows move tab; Pending refused on the server")
+def c28(w: Walk, page, c: Checks):
+    rows = w.be('R["rows"] = [seed_row(P["rid"], s) for s in P["specs"]]; frappe.db.commit()', rid="RQ-001-WALK28", specs=[
+        {"kind": "pick", "make": "Tapariya", "status": "Approved"},
+        {"kind": "pick", "make": "Locel", "status": "Approved"},
+        {"kind": "new_make", "make": "Jogger"},
+    ])["rows"]
+    names = {r["make"]: r["name"] for r in rows}
+    open_history_page(page)
+    wait_for(lambda: len(walk_makes(page)) >= 3, 15)
+    before = ui_tab_counts(page)
+    tick(page, "Tapariya")
+    tick(page, "Locel")
+    bar = page.get_by_test_id("tds-selection-toolbar")
+    c.check("2 selected" in bar.inner_text(), "toolbar reads 2 selected", bar.inner_text())
+    c.check(bar.get_by_role("button", name="Clear").is_visible(), "toolbar has a Clear link")
+    c.check(page.get_by_role("button", name="Export", exact=True).is_enabled(), "Export is enabled with ticks")
+    w.shot(page, "c28_ticked")
+    bar.get_by_role("button", name="Mark Approved by Client").click()
+    c.check("marked" in wait_toast(page, "marked").lower(), "a toast confirms the mark", toasts(page))
+    settle(page, 1.5)
+
+    stored = client_fields(w, [names["Tapariya"], names["Locel"], names["Jogger"]])
+    for make in ("Tapariya", "Locel"):
+        row = stored[names[make]]
+        c.eq(row["client_status"], CLIENT_APPROVED, f"{make} stored Client Status")
+        c.eq(row["client_status_by"], USER, f"{make} marked by the walk user")
+        c.check(row["client_status_on"], f"{make} carries a Marked On", row)
+        c.eq(row["tds_status"], "Approved", f"{make} tds_status unchanged")
+    c.check(not stored[names["Jogger"]]["client_status"], "the Pending row was not marked", stored[names["Jogger"]])
+    wait_for(lambda: walk_makes(page) == ["Jogger"], 10)
+    c.eq(walk_makes(page), ["Jogger"], "the marked rows left TDS History")
+    after = wait_for(lambda: (lambda u: u if u["approvedByClient"] == before["approvedByClient"] + 2 else None)(ui_tab_counts(page)), 10) \
+        or ui_tab_counts(page)
+    c.eq(after["approvedByClient"], before["approvedByClient"] + 2, "Approved by Client count went up by 2")
+    c.eq(after["history"], before["history"] - 2, "TDS History count went down by 2")
+    open_history_tab(page, "approvedByClient")
+    wait_for(lambda: len(walk_makes(page)) >= 2, 10)
+    c.eq(sorted(walk_makes(page)), ["Locel", "Tapariya"], "both rows are in the Approved by Client tab")
+    w.shot(page, "c28_approved_tab", full=True)
+
+    res = w.be('''
+from nirmaan_stack.api.tds.client_status import set_client_status
+R["reply"] = set_client_status([P["n"]], "mark_approved")
+frappe.db.rollback()''', n=names["Jogger"])
+    c.eq(res["reply"]["updated"], 0, "the server marks no Pending row")
+    c.check(any("Admin-approved" in e["error"] for e in res["reply"]["errors"]), "the server names the refusal",
+            res["reply"]["errors"])
+
+
+@case(29, "mark ticked rows Rejected by Client: the popup lists them, the reason lands on every row")
+def c29(w: Walk, page, c: Checks):
+    rows = w.be('R["rows"] = [seed_row(P["rid"], s) for s in P["specs"]]; frappe.db.commit()', rid="RQ-001-WALK29", specs=[
+        {"kind": "pick", "make": "Tapariya", "status": "Approved"},
+        {"kind": "pick", "make": "Locel", "status": "Approved"},
+    ])["rows"]
+    names = {r["make"]: r["name"] for r in rows}
+    open_history_page(page)
+    wait_for(lambda: len(walk_makes(page)) >= 2, 15)
+    tick(page, "Tapariya")
+    bar = page.get_by_test_id("tds-selection-toolbar")
+    bar.get_by_role("button", name="Clear").click()
+    time.sleep(0.5)
+    c.eq(page.get_by_test_id("tds-selection-toolbar").count(), 0, "Clear unticks every row")
+
+    tick(page, "Tapariya")
+    tick(page, "Locel")
+    page.get_by_test_id("tds-selection-toolbar").get_by_role("button", name="Mark Rejected by Client").click()
+    dlg = page.get_by_role("dialog")
+    dlg.wait_for(timeout=5000)
+    listed = dlg.get_by_test_id("client-reject-rows").inner_text()
+    c.check("Tapariya" in listed and "Locel" in listed, "the popup lists both rows", listed)
+    c.check("can't be deleted" in dlg.inner_text(), "the popup warns the rows can't be deleted", dlg.inner_text())
+    dlg.get_by_label("Client's reason (optional)").fill("walk: client wants a UL-listed make")
+    w.shot(page, "c29_popup")
+    dlg.get_by_role("button", name="Mark Rejected by Client").click()
+    c.check("marked" in wait_toast(page, "marked").lower(), "a toast confirms the mark", toasts(page))
+    settle(page, 1.5)
+
+    stored = client_fields(w, list(names.values()))
+    for make, n in names.items():
+        c.eq(stored[n]["client_status"], CLIENT_REJECTED, f"{make} stored Client Status")
+        c.eq(stored[n]["client_rejection_reason"], "walk: client wants a UL-listed make", f"{make} stored reason")
+        c.eq(stored[n]["client_status_by"], USER, f"{make} marked by the walk user")
+    open_history_tab(page, "rejectedByClient")
+    wait_for(lambda: len(walk_makes(page)) >= 2, 10)
+    c.eq(sorted(walk_makes(page)), ["Locel", "Tapariya"], "both rows are in the Rejected by Client tab")
+    reason = column_values(history_table(page), walk_row(page, "Locel"), "Client's Reason")[0]
+    c.eq(reason, "walk: client wants a UL-listed make", "the tab shows the client's reason")
+    db = db_tab_counts(w)
+    c.eq(ui_tab_counts(page), {t: db[t] for t in TAB_LABELS}, "tab counts match the database after the mark")
+    w.shot(page, "c29_rejected_tab", full=True)
 
 
 # ─── main ────────────────────────────────────────────────────────────────────────────────────────
