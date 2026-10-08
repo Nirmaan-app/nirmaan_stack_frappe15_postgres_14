@@ -194,6 +194,15 @@ export function useSnagMutations(
         const updated: number = res?.message?.updated ?? snags.length;
         const skipped: number = res?.message?.skipped?.length ?? 0;
         const plural = (n: number) => `${n} snag${n === 1 ? "" : "s"}`;
+        if (!updated && skipped) {
+          // Nothing moved: say so, and keep the dialog and the selection for another try.
+          toast({
+            title: "No statuses changed",
+            description: `${plural(skipped)} skipped — a snag needs a photo to be ${status}.`,
+            variant: "destructive",
+          });
+          return false;
+        }
         toast({
           title: skipped ? "Status partly updated" : "Status updated",
           description: skipped

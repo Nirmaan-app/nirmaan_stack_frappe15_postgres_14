@@ -87,6 +87,11 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  // The LIVE stream, for the code that must stop it. `stream` above drives the buttons, but a
+  // callback memoised once (and an effect's cleanup) would only ever see its first value, null,
+  // and leave the camera running after the dialog closes.
+  const streamRef = useRef<MediaStream | null>(null);
+  const mountedRef = useRef(true);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -99,11 +104,23 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
   const frappeFileUpload = useFrappeFileUpload(); // Get the object directly
   const isUploading = frappeFileUpload.loading; // Use loading state from the hook
 
+  const releaseStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const startCamera = useCallback(async (mode: 'user' | 'environment') => {
     setIsLoading(true);
 
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
+    if (streamRef.current) {
+      releaseStream();
      await new Promise(resolve => setTimeout(resolve, 300)); 
     }
     setStream(null);
@@ -125,6 +142,13 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
       };
 
       const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+      // Closed while the permission prompt was up: nothing will ever stop this one.
+      if (!mountedRef.current) {
+        newStream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      releaseStream(); // an earlier start still in flight
+      streamRef.current = newStream;
       setStream(newStream);
 
       if (videoRef.current) {
@@ -169,22 +193,17 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
       setIsLoading(false);
 
     }
-  }, []);
+  }, [releaseStream]);
 
   useEffect(() => {
     startCamera(facingMode);
     return () => {
-      if (stream) {
-        // stream.getTracks().forEach(track => track.stop());
-        setTimeout(() => {
-  stream.getTracks().forEach(t => t.stop());
-}, 200);
-      }
+      releaseStream();
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }
     };
-  }, [facingMode, startCamera]);
+  }, [facingMode, startCamera, releaseStream]);
 
 
   const switchCamera = () => {
@@ -200,12 +219,11 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
       const video = videoRef.current;
       const canvas = canvasRef.current;
 
-      if (stream) {
-        // stream.getTracks().forEach(track => track.stop());
-        setTimeout(() => {
-  stream.getTracks().forEach(t => t.stop());
-}, 200);
-      }
+      // Stopped a beat LATER, as before: the frame is drawn below, and a stopped track blanks
+      // the video. This stream only -- a Retake by then has started a new one.
+      const captured = streamRef.current;
+      streamRef.current = null;
+      setTimeout(() => captured?.getTracks().forEach(t => t.stop()), 200);
       setStream(null);
 
       canvas.width = video.videoWidth;
@@ -270,18 +288,11 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
 
 
   const stopCameraStream = useCallback(() => {
-    if (stream) {
-        console.log("CameraCapture: Explicitly stopping camera stream tracks.");
-        stream.getTracks().forEach(track => track.stop());
-        setTimeout(() => {
-  stream.getTracks().forEach(t => t.stop());
-}, 200);
-    }
+    releaseStream();
     if (videoRef.current) {
-        console.log("CameraCapture: Clearing video srcObject.");
         videoRef.current.srcObject = null;
     }
-}, []);
+}, [releaseStream]);
 
   const uploadAndSave = async () => {
     if (!capturedImage) {

@@ -33,7 +33,6 @@ describe("locationAddress", () => {
 });
 
 describe("directionsUrl", () => {
-  // The same URLs `services/test_snag_photo.py` pins for the PDF's Map link.
   it("uses the coordinates when there are any", () => {
     expect(directionsUrl(DPR)).toBe(
       "https://www.google.com/maps/dir/?api=1&destination=12.9716,77.5946"

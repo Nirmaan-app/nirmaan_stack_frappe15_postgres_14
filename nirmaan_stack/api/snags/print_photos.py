@@ -20,7 +20,9 @@ A photo that cannot be fetched is logged once per render: it never fails the PDF
 from __future__ import annotations
 
 import base64
+import functools
 import io
+import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
@@ -39,9 +41,18 @@ GRID_QUALITY = 70
 GRID_PAD_RGB = (243, 244, 246)
 #: Parallel downloads per render. Enough to hide GCS latency without hammering the bucket.
 FETCH_WORKERS = 16
-#: (connect, read). A stalled fetch holds the whole PDF up to this long, so it stays short:
-#: a stored snag photo is a ~250 KB JPEG (shrunk before upload).
+#: (connect, read), PER ATTEMPT. Short on purpose: a stored snag photo is a small JPEG (shrunk
+#: before upload; 14-363 KB on localhost), so a read this slow has stalled, and a stalled read
+#: does not recover by waiting -- a fresh request does (`FETCH_ATTEMPTS`).
 FETCH_TIMEOUT_SECONDS = (5, 10)
+#: Tries per cloud photo, each with a NEWLY SIGNED URL. A GCS read now and then stalls on an
+#: ordinary small file (a 70 KB photo printed as unavailable, 2026-10-08).
+FETCH_ATTEMPTS = 3
+#: Pause before retry n is n times this. The PDF is built in a background job, so a few seconds
+#: cost nothing a user waits on.
+FETCH_RETRY_PAUSE_SECONDS = 1
+#: Answers worth asking again: throttled, or a server-side hiccup. A 403 / 404 never heals.
+_RETRY_STATUSES = {429, 500, 502, 503, 504}
 
 _GCS_PROXY = "frappe_gcp_attachment.controller.generate_file"
 
@@ -89,8 +100,11 @@ def _sources(urls):
     """`(sources, failed)`: each photo resolved, ON THIS THREAD, to what a worker can fetch
     without Frappe, or `{url: reason}` when it cannot be.
 
-    A cloud photo becomes a signed URL (signing is local: no network, one client per render);
-    anything else is read here, since reading it needs the site context the workers lack.
+    A cloud photo becomes a way to SIGN its URL, not a signed URL: the worker signs it the moment
+    before its download (signing is local -- the service-account key, no network). Signing every
+    URL up front let the later ones expire (`signed_url_expiry_time`, ~2 min) while a big render
+    was still working through the earlier ones, and those photos printed as unavailable.
+    Anything else is read here, since reading it needs the site context the workers lack.
     Only a SITE path is fetched: a snag photo is always one (the `before_save` controller
     insists on a File uploaded to the snag), and `fetch_attachment_content` would request an
     absolute URL from the server.
@@ -107,7 +121,10 @@ def _sources(urls):
 
                     gcs = S3Operations()
                 query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
-                sources[url] = ("http", gcs.get_url(query["key"][0], (query.get("file_name") or [None])[0]))
+                sign = functools.partial(
+                    gcs.get_url, query["key"][0], (query.get("file_name") or [None])[0]
+                )
+                sources[url] = ("gcs", sign)
             else:
                 content = fetch_attachment_content(url)
                 if content:
@@ -120,16 +137,31 @@ def _sources(urls):
 
 
 def _encode(source):
-    """`((thumb, grid), None)` or `(None, error)`. Runs on a worker thread: NO Frappe calls here."""
+    """`((thumb, grid), None)` or `(None, error)`. Runs on a worker thread: NO Frappe calls here
+    (`gcs.get_url` reads only the settings it already loaded, and signs locally)."""
     kind, value = source
     try:
-        if kind == "http":
-            response = requests.get(value, timeout=FETCH_TIMEOUT_SECONDS)
-            response.raise_for_status()
-            value = response.content
+        if kind == "gcs":
+            value = _download(value)
         return encode_photo(value), None
     except Exception as e:
         return None, repr(e)
+
+
+def _download(sign) -> bytes:
+    """A cloud photo's bytes: up to FETCH_ATTEMPTS tries, each signing a fresh URL, retrying
+    only what can heal (a timeout, a dropped connection, `_RETRY_STATUSES`)."""
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        try:
+            response = requests.get(sign(), timeout=FETCH_TIMEOUT_SECONDS)
+            response.raise_for_status()
+            return response.content
+        except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            heals = not isinstance(e, requests.HTTPError) or status in _RETRY_STATUSES
+            if not heals or attempt == FETCH_ATTEMPTS:
+                raise
+            time.sleep(FETCH_RETRY_PAUSE_SECONDS * attempt)
 
 
 def encode_photo(content: bytes) -> tuple[str, str]:

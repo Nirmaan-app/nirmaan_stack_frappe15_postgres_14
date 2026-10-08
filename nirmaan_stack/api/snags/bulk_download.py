@@ -1,7 +1,7 @@
-"""Every batch's snag report, merged into ONE PDF -- the "Download All" button.
-
-Also serves the single "Download" (`download_snag_pdf`): Frappe's own `download_pdf` cannot carry
-the jump-link generator (see that function).
+"""Snag List PDFs: every batch's report merged into ONE PDF (the "Download All" button), and the
+tab's own "Download". Both are BUILT IN A BACKGROUND JOB (`enqueue_snag_pdf`): a big project's
+PDF outlasted the web request. Frappe's own `download_pdf` cannot carry the jump-link generator
+either (see `_build_tab_pdf`).
 
 THE FILE ALWAYS OPENS ON A MASTER SUMMARY. Before any batch section, the same print
 format is rendered once with `mode="master"` and NO `batches` param -- the project-wide
@@ -59,9 +59,15 @@ The button's tooltip names the count rather than the rows going missing quietly.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import re
+import time
 
 import frappe
+from frappe.utils import strip_html
+from frappe.www.printview import validate_print_permission
 
 from nirmaan_stack.api.snags import require_read_access
 from nirmaan_stack.api.pdf_helper.keep_links import KEEP_LINKS, LinkedPdf
@@ -129,45 +135,73 @@ def _render(project: str, supplied: dict, *, mode, batches) -> bytes:
     )
 
 
-@frappe.whitelist()
-def download_all_batches(
-    project=None,
-    statuses=None,
-    areas=None,
-    categories=None,
-    search=None,
-    search_field=None,
-    mode=None,
-):
-    """One PDF: a MASTER SUMMARY first, then (in `full` mode) every batch's report in
-    import order.
+# ---------------------------------------------------------------------------
+# The request: checked at once, built in the background, collected by its owner
+# ---------------------------------------------------------------------------
 
-    `mode` -- `"full"` (default when omitted) or `"summary"`. Anything else is refused
-    rather than guessed at: a typo that fell back to `full` would hand the user a
-    many-page file when they asked for one page, with nothing saying why.
+#: The two documents. `tab` = the tab's own "Download" (one render of the screen as it stands);
+#: `all` = "Download All" (a master summary, then every batch, merged).
+KIND_TAB = "tab"
+KIND_ALL = "all"
+_KINDS = (KIND_TAB, KIND_ALL)
 
-    READ-guarded on the same tier as `get_snag_stats`: this exposes the same defect
-    data, just for every batch at once, so it cannot be the looser door.
+#: How long one job may run: the `long` queue's own default. A whole project's Snag List, every
+#: photo included, fits well inside it.
+JOB_TIMEOUT_SECONDS = 25 * 60
+#: One snag PDF in flight per user. Outlives a job plus a wait in the queue, so the JOB releases
+#: it; the clock only does when a job dies.
+LOCK_TTL_SECONDS = JOB_TIMEOUT_SECONDS + 5 * 60
+#: How long a request's status, and its finished file, wait to be collected.
+KEEP_SECONDS = 2 * 60 * 60
+#: Where finished files wait. PRIVATE and unserved -- a snag PDF carries private photos, so
+#: never `public/files/temp_downloads`, which the web server hands to anyone with the URL.
+_PDF_DIR = ("private", "snag_pdf_downloads")
+_REQUEST_ID = re.compile(r"[0-9a-f]{20}")
 
-    THE CALLER'S FILTERS RIDE ALONG. Status / area / category / search narrow every
-    batch's section exactly as they narrow the screen -- the ONE axis this overrides is
-    the batch itself, which is the point of the button. A control that ignored the
-    filters sitting directly above it would be the odd one out on this screen.
+
+def _normal_mode(kind, mode):
+    """`all` takes the FILE's mode (`full` default / `summary`); `tab` takes the RENDER's
+    (`master` = Summary only, or none)."""
+    if kind == KIND_ALL:
+        return (mode or "full").strip().lower()
+    return mode or None
+
+
+def _check_request(kind, project, mode):
+    """Everything a download is refused for. Asked twice: BEFORE it is queued, so the user hears
+    at once, and again when the job runs as that user -- roles or the project may have changed.
+
+    PERMISSION: the snag read tier first -- the PDF carries every snag photo, and Accountant is
+    denied the snag list (`READ_DENIED_ROLES`) even where it may read the project. Then Frappe's
+    own print rule, as `get_print` applies it: read OR print on the project.
     """
+    if kind not in _KINDS:
+        frappe.throw(f"kind must be one of {', '.join(_KINDS)} (got {kind!r}).", title="Invalid download")
     if not project:
         frappe.throw("project is required.", title="Missing field: project")
-    mode = (mode or "full").strip().lower()
-    if mode not in _MODES:
+    if kind == KIND_ALL and mode not in _MODES:
         frappe.throw(
             f"mode must be one of {', '.join(_MODES)} (got {mode!r}).",
             title="Invalid download mode",
         )
+    if kind == KIND_TAB and mode not in (None, _MASTER_RENDER_MODE):
+        frappe.throw(
+            f"mode must be '{_MASTER_RENDER_MODE}' or absent (got {mode!r}).",
+            title="Invalid download mode",
+        )
     require_read_access("view this project's snag list")
-
     if not frappe.db.exists("Projects", project):
         frappe.throw(f"Project '{project}' not found.", title="Not found")
+    validate_print_permission(frappe.get_doc("Projects", project))
+    if kind == KIND_ALL and not _project_batches(project):
+        frappe.throw(
+            "This project has no imported batches to download.",
+            title="Nothing to download",
+        )
 
-    batches = frappe.get_all(
+
+def _project_batches(project):
+    return frappe.get_all(
         "Project Snag Batch",
         filters={"project": project},
         fields=["name", "batch_name"],
@@ -175,32 +209,197 @@ def download_all_batches(
         order_by="uploaded_on asc, creation asc",
         limit_page_length=0,
     )
-    if not batches:
+
+
+@frappe.whitelist(methods=["POST"])
+def enqueue_snag_pdf(
+    kind=None,
+    project=None,
+    mode=None,
+    statuses=None,
+    areas=None,
+    categories=None,
+    batches=None,
+    search=None,
+    search_field=None,
+):
+    """Queue ONE Snag List PDF and return at once with `{"request_id"}`.
+
+    WHY A JOB: a big project's PDF -- every photo fetched, shrunk and embedded, then the
+    whole page through wkhtmltopdf -- outlasted the web request's time limit, and held a web
+    worker the whole time. The job runs the same `_render` on the `long` queue instead.
+
+    The screen then asks `get_snag_pdf_status` every few seconds and, once it reads `ready`,
+    collects the file from `fetch_snag_pdf`. Polling, not realtime events: a missed or dropped
+    event would leave the screen waiting forever, and each tab asks only about its own request.
+
+    Filters arrive exactly as the Jinja reads them. `kind="tab"` also takes `batches` (the tab)
+    and `mode="master"` (Summary only); `kind="all"` takes `mode="full"|"summary"` and owns
+    `batches` itself. ONE snag PDF in flight per user: a second request is refused while the
+    first is queued or running.
+    """
+    mode = _normal_mode(kind, mode)
+    _check_request(kind, project, mode)
+
+    user = frappe.session.user
+    cache = frappe.cache()
+    # ATOMIC set-if-absent with a TTL -- the commission bulk download's lock, and its reason:
+    # a get_value-then-set_value on one key in one request silently fails to set.
+    lock = cache.make_key(_lock_name(user))
+    if not cache.set(lock, "1", ex=LOCK_TTL_SECONDS, nx=True):
         frappe.throw(
-            "This project has no imported batches to download.",
-            title="Nothing to download",
+            "A snag PDF is already being prepared for you. Wait for it to finish, then try again.",
+            title="Download in progress",
         )
 
-    supplied = {
+    request_id = frappe.generate_hash(length=20)
+    params = {
+        "mode": mode,
+        "batches": batches if kind == KIND_TAB else None,
         "statuses": statuses,
         "areas": areas,
         "categories": categories,
         "search": search,
         "search_field": search_field,
     }
+    try:
+        _save_status(request_id, {"user": user, "state": "queued", "done": 0, "total": 0})
+        frappe.enqueue(
+            "nirmaan_stack.api.snags.bulk_download.run_snag_pdf_job",
+            queue="long",
+            timeout=JOB_TIMEOUT_SECONDS,
+            # NOT `job_id`: that is `frappe.enqueue`'s OWN parameter, so the job would get None.
+            request_id=request_id,
+            user=user,
+            kind=kind,
+            project=project,
+            params=params,
+        )
+    except Exception:
+        # Never queued: free the user now rather than after the whole TTL.
+        cache.delete(lock)
+        raise
+    return {"request_id": request_id}
+
+
+@frappe.whitelist(methods=["GET"])
+def get_snag_pdf_status(request_id=None):
+    """`{state, done, total, message}` of the caller's OWN request.
+
+    `state`: `queued` -> `running` -> `ready` | `failed`. `done` / `total` count renders
+    (Download All: the master summary, then one per batch). `message` explains a `failed`.
+    """
+    record = _own_status(request_id)
+    return {key: record.get(key) for key in ("state", "done", "total", "message")}
+
+
+@frappe.whitelist(methods=["GET"])
+def fetch_snag_pdf(request_id=None):
+    """The finished PDF, ONCE: the file and its status are deleted as it is handed over."""
+    record = _own_status(request_id)
+    if record.get("state") != "ready":
+        frappe.throw("This PDF is not ready yet.", title="Not ready")
+    path = _pdf_path(request_id)
+    if not os.path.exists(path):
+        frappe.throw("This download has expired or was already collected.", title="Expired")
+    with open(path, "rb") as f:
+        content = f.read()
+    with contextlib.suppress(OSError):
+        os.remove(path)
+    cache = frappe.cache()
+    cache.delete(cache.make_key(_status_name(request_id)))
+
+    frappe.local.response.filename = record.get("filename") or "Snag_List.pdf"
+    frappe.local.response.filecontent = content
+    frappe.local.response.type = "download"
+
+
+def run_snag_pdf_job(request_id=None, user=None, kind=None, project=None, params=None):
+    """The background half of `enqueue_snag_pdf`: build the PDF as `user`, keep it privately,
+    and mark the request `ready` -- or `failed`, with a message the screen can show.
+
+    The checks run AGAIN here, as the user: the request may have waited in the queue.
+    Whatever happens, the user's lock is released, so they are never locked out.
+    """
+    params = params or {}
+    record = {"user": user, "state": "running", "done": 0, "total": 0}
+    _save_status(request_id, record)
+
+    def progress(done, total):
+        record.update(done=done, total=total)
+        _save_status(request_id, record)
+
+    try:
+        frappe.set_user(user)
+        _sweep_old_pdfs()
+        _check_request(kind, project, params.get("mode"))
+        if kind == KIND_ALL:
+            pdf, filename = _build_all_pdf(project, params, progress)
+        else:
+            progress(0, 1)
+            pdf, filename = _build_tab_pdf(project, params)
+            progress(1, 1)
+        with open(_pdf_path(request_id), "wb") as f:
+            f.write(pdf)
+        record.update(state="ready", filename=filename)
+    except (frappe.ValidationError, frappe.PermissionError) as e:
+        # A refusal the user can act on (`frappe.throw`): pass its own words on.
+        record.update(state="failed", message=strip_html(str(e)) or "The PDF could not be generated.")
+    except Exception:
+        frappe.log_error(
+            title="Snag PDF job failed",
+            message=f"project={project!r} kind={kind!r}\n\n{frappe.get_traceback()}",
+        )
+        record.update(
+            state="failed",
+            message="The PDF could not be generated. The error has been logged.",
+        )
+    finally:
+        _save_status(request_id, record)
+        cache = frappe.cache()
+        cache.delete(cache.make_key(_lock_name(user)))
+
+
+def _build_tab_pdf(project, params):
+    """ONE Snag List PDF of the screen as it stands: the tab's "Download", and its "Summary
+    only" (`mode="master"`).
+
+    WHY NOT FRAPPE'S `download_pdf`: it takes `pdf_generator` as an argument typed
+    `Literal["wkhtmltopdf", "chrome"]`, and every web request is type-checked, so
+    `pdf_generator=nirmaan_keep_links` on its URL failed with FrappeTypeError before any PDF
+    was made (2026-10-08). `_render` sets the generator itself, so the photo <-> row jump links
+    survive.
+    """
+    pdf = _render(
+        project,
+        _supplied(params),
+        mode=params.get("mode") or None,
+        batches=params.get("batches") or None,
+    )
+    # The screen names the saved file itself (`buildSnagPdfFilename`).
+    return pdf, f"{_safe_label(project)}.pdf"
+
+
+def _build_all_pdf(project, params, progress):
+    """One PDF: a MASTER SUMMARY first, then (in `full` mode) every batch's report in import
+    order. `progress(done, total)` is called after each render.
+
+    THE CALLER'S FILTERS RIDE ALONG. Status / area / category / search narrow every batch's
+    section exactly as they narrow the screen -- the ONE axis this overrides is the batch
+    itself, which is the point of the button.
+    """
+    mode = params.get("mode")
+    supplied = _supplied(params)
+    batches = _project_batches(project)
+    total = 1 + (len(batches) if mode == "full" else 0)
 
     merged = LinkedPdf()
 
     # --- The MASTER SUMMARY: always first, in both modes ---------------------------
     # `batches=None` = every batch (the Jinja's own default); the caller's filters ride
     # along, so the summary counts exactly what the sections below it contain.
-    # (Until the `mode=master` section is pasted into the format in Desk, this prints
-    # the ordinary project-wide report -- see the module docstring.)
     try:
-        master_bytes = _render(
-            project, supplied, mode=_MASTER_RENDER_MODE, batches=None
-        )
-        merged.append(master_bytes)
+        merged.append(_render(project, supplied, mode=_MASTER_RENDER_MODE, batches=None))
     except Exception:
         # NOT skipped like a batch: the master is the file's first page, and a file
         # that silently opens on batch 1 instead reads as complete when it is not.
@@ -215,18 +414,18 @@ def download_all_batches(
             "The error has been logged.",
             title="Download failed",
         )
+    progress(1, total)
 
     # --- The per-batch sections: `full` mode only ----------------------------------
     rendered = 0
-    for batch in batches if mode == "full" else []:
+    for index, batch in enumerate(batches if mode == "full" else [], start=2):
         try:
             # `mode=None` -- a batch section renders normally, never as a summary.
             # `batches` is the only filter this module authors; the rest pass through
             # as sent, so each section narrows exactly like the screen.
-            pdf_bytes = _render(
-                project, supplied, mode=None, batches=json.dumps([batch.name])
+            merged.append(
+                _render(project, supplied, mode=None, batches=json.dumps([batch.name]))
             )
-            merged.append(pdf_bytes)
             rendered += 1
         except Exception:
             # One unrenderable batch must not cost the user the whole download -- the
@@ -238,6 +437,7 @@ def download_all_batches(
                     f"project={project!r} batch={batch.name!r}\n\n{frappe.get_traceback()}"
                 ),
             )
+        progress(index, total)
 
     # Summary mode renders no sections by design, so "none rendered" is only a failure
     # when sections were asked for.
@@ -248,66 +448,62 @@ def download_all_batches(
             title="Download failed",
         )
 
-    output = merged.to_bytes()
-
     project_label = frappe.db.get_value("Projects", project, "project_name") or project
-    frappe.local.response.filename = (
+    filename = (
         _summary_filename(project_label) if mode == "summary" else _merged_filename(project_label)
     )
-    frappe.local.response.filecontent = output
-    frappe.local.response.type = "download"
+    return merged.to_bytes(), filename
 
 
-@frappe.whitelist(methods=["GET"])
-def download_snag_pdf(
-    project=None,
-    statuses=None,
-    areas=None,
-    categories=None,
-    batches=None,
-    search=None,
-    search_field=None,
-    mode=None,
-):
-    """ONE Snag List PDF of the screen as it stands: the single "Download" button, and its
-    "Summary only" choice (`mode="master"`). Filters arrive exactly as the Jinja reads them.
+def _supplied(params) -> dict:
+    return {key: params.get(key) for key in _PASSTHROUGH_PARAMS}
 
-    WHY NOT FRAPPE'S `download_pdf`: it takes `pdf_generator` as an argument typed
-    `Literal["wkhtmltopdf", "chrome"]`, and every web request is type-checked, so
-    `pdf_generator=nirmaan_keep_links` on its URL failed with FrappeTypeError before any PDF
-    was made (2026-10-08). Here, as in Download All, `_render` sets the generator INSIDE the
-    request, so the photo <-> row jump links survive.
 
-    PERMISSION: the snag read tier first, as Download All asks it -- the PDF carries every
-    snag photo, and Accountant is denied the snag list (`READ_DENIED_ROLES`) even where it
-    may read the project. Then Frappe's own, unchanged from `download_pdf`: `get_print`
-    refuses a user who can neither read nor print the project
-    (`printview.validate_print_permission`).
-    """
-    if not project:
-        frappe.throw("project is required.", title="Missing field: project")
-    require_read_access("view this project's snag list")
-    if not frappe.db.exists("Projects", project):
-        frappe.throw(f"Project '{project}' not found.", title="Not found")
-    if mode not in (None, "", _MASTER_RENDER_MODE):
-        frappe.throw(
-            f"mode must be '{_MASTER_RENDER_MODE}' or absent (got {mode!r}).",
-            title="Invalid download mode",
-        )
+def _lock_name(user):
+    return f"snag_pdf_lock:{user}"
 
-    supplied = {
-        "statuses": statuses,
-        "areas": areas,
-        "categories": categories,
-        "search": search,
-        "search_field": search_field,
-    }
-    frappe.local.response.filecontent = _render(
-        project, supplied, mode=mode or None, batches=batches or None
-    )
-    # The screen names the saved file itself (`buildSnagPdfFilename`).
-    frappe.local.response.filename = f"{_safe_label(project)}.pdf"
-    frappe.local.response.type = "pdf"
+
+def _status_name(request_id):
+    return f"snag_pdf_status:{request_id}"
+
+
+def _save_status(request_id, record):
+    """The request's whole record, rewritten each time (only its job writes after it is queued).
+    Raw redis, like the lock: nothing here should be served from a process-local cache."""
+    cache = frappe.cache()
+    cache.set(cache.make_key(_status_name(request_id)), json.dumps(record), ex=KEEP_SECONDS)
+
+
+def _own_status(request_id):
+    """The caller's own request, or a refusal: an id that is malformed, unknown, expired or
+    someone else's all read the same, so no request is confirmed to a stranger."""
+    raw = None
+    if isinstance(request_id, str) and _REQUEST_ID.fullmatch(request_id):
+        cache = frappe.cache()
+        raw = cache.get(cache.make_key(_status_name(request_id)))
+    record = json.loads(raw) if raw else None
+    if not record or record.get("user") != frappe.session.user:
+        frappe.throw("This download has expired or was already collected.", title="Expired")
+    return record
+
+
+def _pdf_path(request_id):
+    folder = frappe.get_site_path(*_PDF_DIR)
+    os.makedirs(folder, exist_ok=True)
+    return os.path.join(folder, f"{request_id}.pdf")
+
+
+def _sweep_old_pdfs():
+    """Delete finished files nobody collected within KEEP_SECONDS (a closed tab, a lost
+    connection). Runs at the start of every job, so the folder never grows without bound."""
+    folder = frappe.get_site_path(*_PDF_DIR)
+    if not os.path.isdir(folder):
+        return
+    cutoff = time.time() - KEEP_SECONDS
+    for entry in os.scandir(folder):
+        with contextlib.suppress(OSError):
+            if entry.is_file() and entry.stat().st_mtime < cutoff:
+                os.remove(entry.path)
 
 
 def _safe_label(project_label: str) -> str:

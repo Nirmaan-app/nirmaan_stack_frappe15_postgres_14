@@ -4,8 +4,8 @@
  * One photo per snag (owner 2026-10-08). `Project Snag.location` holds it in the DPR
  * `CameraCapture` format: `"<address> (Lat: 12.9716, Lon: 77.5946)"`.
  *
- * The backend twin is `nirmaan_stack/services/snag_photo.py` (`coordinates` /
- * `directions_url`), which builds the PDF's Map link. Keep the two parsers in step.
+ * The only parser: the PDF's Map link was removed (owner 2026-10-08), and with it the Python copy
+ * in `nirmaan_stack/services/snag_photo.py`.
  */
 
 /** "(Lat: x, Lon: y)" at the end of the string, as DPR's `CameraCapture` writes it. */

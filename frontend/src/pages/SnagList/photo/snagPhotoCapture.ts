@@ -29,26 +29,60 @@ export interface SnagPhotoDraft {
   source: SnagPhotoSource;
 }
 
+/** A decoded image, already turned upright, and how to free it once drawn. */
+interface DecodedImage {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  release: () => void;
+}
+
+/**
+ * Decode `file` the right way up. `imageOrientation: "from-image"` is newer than
+ * `createImageBitmap` itself: an engine that knows only "none" / "flipY" (older Safari and
+ * Firefox) throws a TypeError for it -- the same rejection as an unreadable file. So retry through
+ * an `<img>`, which those engines already turn upright from the EXIF, before calling the format
+ * unreadable.
+ */
+async function decodeUpright(file: File): Promise<DecodedImage> {
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+    return { source: bitmap, width: bitmap.width, height: bitmap.height, release: () => bitmap.close() };
+  } catch {
+    // Fall through to the <img> decode.
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return {
+      source: img,
+      width: img.naturalWidth,
+      height: img.naturalHeight,
+      release: () => URL.revokeObjectURL(url),
+    };
+  } catch {
+    URL.revokeObjectURL(url);
+    throw new Error(
+      "This image format can't be read here. Use a JPG or PNG, or take the photo with the camera."
+    );
+  }
+}
+
 /**
  * Re-encode as a JPEG no longer than MAX_PX. Throws a readable error for a format the browser
  * cannot decode (an iPhone HEIC outside Safari), so the dialog can say so instead of storing a
  * photo that neither the table nor the PDF could show.
  */
 export async function compressImage(file: File): Promise<File> {
-  let bitmap: ImageBitmap;
-  try {
-    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
-  } catch {
-    throw new Error(
-      "This image format can't be read here. Use a JPG or PNG, or take the photo with the camera."
-    );
-  }
-  const scale = Math.min(1, MAX_PX / Math.max(bitmap.width, bitmap.height));
+  const image = await decodeUpright(file);
+  const scale = Math.min(1, MAX_PX / Math.max(image.width, image.height));
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(bitmap.width * scale);
-  canvas.height = Math.round(bitmap.height * scale);
-  canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
+  canvas.width = Math.round(image.width * scale);
+  canvas.height = Math.round(image.height * scale);
+  canvas.getContext("2d")?.drawImage(image.source, 0, 0, canvas.width, canvas.height);
+  image.release();
 
   const blob = await new Promise<Blob | null>((resolve) =>
     canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY)
