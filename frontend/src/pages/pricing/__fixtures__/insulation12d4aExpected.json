@@ -693,11 +693,12 @@
    "D4"
   ],
   "priced": false,
-  "reason": "several values stated for pipe size ('40 mm dia to 100 mm dia')",
+  "reason": "item 1 (Nitrile Rubber Insulation): several values stated for pipe size ('40 mm dia to 100 mm dia')",
   "layers": [
-   "25/None"
+   "25 mm - 2 Layers/None"
   ],
-  "defaulted": []
+  "defaulted": [],
+  "working0": "BoQ says 25 mm - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only"
  },
  {
   "id": "BOQ-26-00086|Low side#68",

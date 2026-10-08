@@ -3171,12 +3171,14 @@ describe("SLICE 12d-1b / T1 -- a stated thickness is read first; unreadable refu
     expect(r.items[0].defaulted).toEqual([]);
   });
 
-  it("NEGATIVE: a text the reader cannot take ('13+13' typed, a comma list) refuses by name, not 9", () => {
+  it("NEGATIVE: a text the reader cannot take ('13+13' typed, a comma list) refuses by name, not 9 -- INVERTED by 12d-6 (owner U4): a TYPED thickness that is not a single number refuses with the ONE message", () => {
     for (const t of ["13+13", "9, 13 mm"]) {
       const typedItem: ExtractedListItem = { attributes: { item: { value: NR }, cladding: { value: "No" }, thickness_mm: { value: t, typed: true }, pipe_size_mm: { value: "25 mm dia" } } };
       const r = priceItemList(spec(), ITEMS, "Rmt", [typedItem]);
       expect(r.priced).toBe(false);
-      expect(r.items[0].reason).toBe(`several values stated for thickness ('${t}')`);
+      // before 12d-6: `several values stated for thickness ('${t}')`; after (U4): the single-number message
+      expect(r.items[0].reason).toBe("Type the thickness as a single number in mm");
+      expect(r.items[0].reason).not.toBe(`several values stated for thickness ('${t}')`);
       expect(r.items[0].selection.thickness_mm).toBeUndefined();
     }
   });
@@ -3339,11 +3341,13 @@ describe("SLICE 12d-1b / T4 -- model-read layers expand through the composition 
     expect(r.items.every((p) => p.reason === "no pipe size stated")).toBe(true);
   });
 
-  it("NEGATIVE (T6): the SAME text TYPED by the pricer is never parsed as layers -- it refuses 'several values stated', the calculator's single-number entry unchanged", () => {
+  it("NEGATIVE (T6): the SAME text TYPED by the pricer is never parsed as layers -- it refuses, the calculator's single-number entry unchanged -- INVERTED by 12d-6 (owner U4): the refusal is now the single-number message", () => {
     const r = price("Rmt", { item: NR, cladding: "None", thickness_mm: "13+13", pipe_size_mm: "25 mm dia" }, ["thickness_mm"]);
     expect(r.priced).toBe(false);
     expect(r.items.length).toBe(1);
-    expect(r.items[0].reason).toBe("several values stated for thickness ('13+13')");
+    // before 12d-6: "several values stated for thickness ('13+13')"
+    expect(r.items[0].reason).toBe("Type the thickness as a single number in mm");
+    expect(r.items[0].reason).not.toMatch(/several values stated/);
   });
 
   it("NEGATIVE: a single stated thickness is one item, never split; a layer text on a category with NO `compose` refuses as before", () => {
@@ -3635,7 +3639,11 @@ describe("SLICE 12d-4a -- the audit fixes: named cladding, unstocked materials, 
     // a TYPED cell is never parsed as layers (T6): the same string typed by the pricer reads as 19
     const typedItem = item({ item: NR, cladding: "26G Aluminium", thickness_mm: "Double layer of 19mm thick", pipe_size_mm: "50NB" });
     const typed = priceItemList(plain, ITEMS, "Rmt", [{ ...typedItem, attributes: { ...typedItem.attributes, thickness_mm: { value: "Double layer of 19mm thick", typed: true } } } as any]);
-    expect([typed.supply, typed.install]).toEqual([single.supply, single.install]);
+    // INVERTED by 12d-6 (owner U4): before, the typed text read as a 19 and priced ONE layer (= `single`); now a
+    // typed thickness that is not a single number REFUSES, so it can never silently price one layer
+    expect(typed.priced).toBe(false);
+    expect(typed.items[0].reason).toBe("Type the thickness as a single number in mm");
+    expect([typed.supply, typed.install]).not.toEqual([single.supply, single.install]);
   });
 
   it("D8: the density line appears for a 32 kg/m3 fibre glass row and not for 48; the PRICE is the same 48 kg board either way (display only)", () => {

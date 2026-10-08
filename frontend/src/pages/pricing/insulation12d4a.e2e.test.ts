@@ -66,10 +66,16 @@ export const EXPECTED_DIVERGENCE_ROWS: ReadonlyArray<{ id: string; cause: string
   { id: "BOQ-26-00020|HVAC_-19TH FLOOR#515", cause: "F_row_text_not_an_input (D9b by word) -- ACCEPTED BY OWNER: ok" },
   { id: "BOQ-26-00108|HVAC#420", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
   { id: "BOQ-26-00117|HVAC BOQ #189", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
-  { id: "BOQ-26-00140|HVAC Lowside Works #59", cause: "F_row_text_not_an_input (D9b by word) -- ACCEPTED BY OWNER: ok" },
+  /** 12d-6 (owner U4): this row's model-read thickness is "38mm (19+19)"; typed into the calculator it is not a single
+   *  number, so the calculator now refuses by U4 where it used to price -- the D9b divergence stays, with a second cause. */
+  { id: "BOQ-26-00140|HVAC Lowside Works #59", cause: "F_row_text_not_an_input (D9b by word) -- ACCEPTED BY OWNER: ok; + U4_typed_layered_text_refuses -- APPROVED BY OWNER: U4, 12d-6, 2026-10-09" },
   { id: "BOQ-26-00149|HVAC-BOQ#439", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
   { id: "BOQ-26-00164|BOQ#136", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
   { id: "BOQ-26-00197|HVAC BOQ #199", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
+  /** SLICE 12d-6 (owner U4, 2026-10-09): the row's model-read thickness "25 mm - 2 Layers" composes on the PANEL
+   *  (12e-0b defect fixed; the row still refuses on its several-sizes pipe text), while the CALCULATOR, fed the same
+   *  text TYPED, refuses by U4 ("Type the thickness as a single number in mm"). Both refuse; the sentence differs. */
+  { id: "BOQ-26-00140|HVAC Lowside Works #471", cause: "U4_typed_layered_text_refuses -- APPROVED BY OWNER: U4, 12d-6, 2026-10-09" },
   // PRE-EXISTING classes, every one in the 12d-3 audit's own divergence list (sentence / unit-class only, or ruled)
   { id: "BOQ-26-00029|HVAC WORK#263", cause: "C_unit_not_offered (both refuse by name; the calculator was fed a unit the row lacks)" },
   { id: "BOQ-26-00137|LOWSIDE OFFICE WORKS#128", cause: "C_unit_not_offered (both refuse by name; the calculator was fed a unit the row lacks)" },
@@ -270,11 +276,25 @@ describe("every audited row through BOTH paths on v31", () => {
     expect(seen).toEqual(EXPECTED_DIVERGENCE_ROWS.map((d) => d.id).sort());
     const cause = new Map(EXPECTED_DIVERGENCE_ROWS.map((d) => [d.id, d.cause]));
     for (const x of results.filter((y) => y.run.divergences.length)) {
-      if (cause.get(x.r.id)!.startsWith("F_row_text_not_an_input")) {
+      if (cause.get(x.r.id)!.startsWith("F_row_text_not_an_input") && cause.get(x.r.id)!.includes("U4_typed_layered_text_refuses")) {
+        // 12d-6: the panel refuses by the row-text rule AND the calculator refuses by U4 (before 12d-6 the calculator priced)
+        expect(view(x.run).rowPriced, x.r.id).toBe(false);
+        const calc = x.run.calculator as ItemListSuggestion;
+        expect(isSuggestion(calc) && calc.itemList!.rowPriced, x.r.id).toBe(false);
+        expect(calc.itemList!.items[0].reason, x.r.id).toBe("Type the thickness as a single number in mm");
+      } else if (cause.get(x.r.id)!.startsWith("F_row_text_not_an_input")) {
         expect(view(x.run).rowPriced, x.r.id).toBe(false);
         expect(isSuggestion(x.run.calculator) && (x.run.calculator as ItemListSuggestion).itemList!.rowPriced, x.r.id).toBe(true);
+      } else if (cause.get(x.r.id)!.startsWith("U4_typed_layered_text_refuses")) {
+        // 12d-6: BOTH surfaces refuse; the calculator's reason is the U4 message, the panel's is its own (the size)
+        expect(view(x.run).rowPriced, x.r.id).toBe(false);
+        expect(view(x.run).reason, x.r.id).not.toContain("Type the thickness as a single number in mm");
+        const calc = x.run.calculator as ItemListSuggestion;
+        expect(isSuggestion(calc) && calc.itemList!.rowPriced, x.r.id).toBe(false);
+        expect(calc.itemList!.items[0].reason, x.r.id).toBe("Type the thickness as a single number in mm");
       }
     }
     expect(EXPECTED_DIVERGENCE_ROWS.filter((d) => d.cause.startsWith("F_")).length).toBe(8);
+    expect(EXPECTED_DIVERGENCE_ROWS.filter((d) => d.cause.includes("U4_typed_layered_text_refuses")).length).toBe(2);   // 12d-6: #471 and #59
   });
 });

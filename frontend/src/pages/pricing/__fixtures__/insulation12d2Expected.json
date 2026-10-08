@@ -2,56 +2,62 @@
  {
   "id": "BOQ-26-00137#32",
   "priced": false,
-  "reason": "pipe size 250 is above the largest size on the sheet (53.98)",
+  "reason": "item 1 (Nitrile Rubber Insulation): pipe size 250 is above the largest size on the sheet (53.98)",
   "family": [
    "Nitrile Rubber Insulation"
   ],
-  "defaulted": []
+  "defaulted": [],
+  "working0": "BoQ says Double layer of 19mm thick -> priced as two layers, 19 + 19 mm (38 mm); cladding on the outer layer only"
  },
  {
   "id": "BOQ-26-00137#33",
   "priced": false,
-  "reason": "pipe size 200 is above the largest size on the sheet (53.98)",
+  "reason": "item 1 (Nitrile Rubber Insulation): pipe size 200 is above the largest size on the sheet (53.98)",
   "family": [
    "Nitrile Rubber Insulation"
   ],
-  "defaulted": []
+  "defaulted": [],
+  "working0": "BoQ says Double layer of 19mm thick -> priced as two layers, 19 + 19 mm (38 mm); cladding on the outer layer only"
  },
  {
   "id": "BOQ-26-00137#34",
   "priced": false,
-  "reason": "pipe size 150 is above the largest size on the sheet (53.98)",
+  "reason": "item 1 (Nitrile Rubber Insulation): pipe size 150 is above the largest size on the sheet (53.98)",
   "family": [
    "Nitrile Rubber Insulation"
   ],
-  "defaulted": []
+  "defaulted": [],
+  "working0": "BoQ says Double layer of 19mm thick -> priced as two layers, 19 + 19 mm (38 mm); cladding on the outer layer only"
  },
  {
   "id": "BOQ-26-00137#35",
   "priced": false,
-  "reason": "pipe size 125 is above the largest size on the sheet (53.98)",
+  "reason": "item 1 (Nitrile Rubber Insulation): pipe size 125 is above the largest size on the sheet (53.98)",
   "family": [
    "Nitrile Rubber Insulation"
   ],
-  "defaulted": []
+  "defaulted": [],
+  "working0": "BoQ says Double layer of 19mm thick -> priced as two layers, 19 + 19 mm (38 mm); cladding on the outer layer only"
  },
  {
   "id": "BOQ-26-00137#36",
   "priced": false,
-  "reason": "pipe size 100 is above the largest size on the sheet (53.98)",
+  "reason": "item 1 (Nitrile Rubber Insulation): pipe size 100 is above the largest size on the sheet (53.98)",
   "family": [
    "Nitrile Rubber Insulation"
   ],
-  "defaulted": []
+  "defaulted": [],
+  "working0": "BoQ says Double layer of 19mm thick -> priced as two layers, 19 + 19 mm (38 mm); cladding on the outer layer only"
  },
  {
   "id": "BOQ-26-00137#37",
   "priced": false,
-  "reason": "pipe size 80 is above the largest size on the sheet (53.98)",
+  "reason": "item 1 (Nitrile Rubber Insulation): pipe size 80 is above the largest size on the sheet (53.98)",
   "family": [
    "Nitrile Rubber Insulation"
   ],
-  "defaulted": []
+  "defaulted": [],
+  "working0": "BoQ says Double layer of 19mm thick -> priced as two layers, 19 + 19 mm (38 mm); cladding on the outer layer only"
  },
  {
   "id": "BOQ-26-00137#38",

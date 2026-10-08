@@ -5408,7 +5408,9 @@ describe("SLICE 6b / the item-list view under v9 -- controls from config, option
      * FIELD still shows 150, never the raw text.
      */
     expect(field(at("150MM DIA").v, 0, "dia_mm").note)
-      .toBe("BoQ says 150MM DIA mm -> 150 mm (the sheet's own spelling of this value)");
+      // INVERTED by 12d-6 (AC4): the unit is appended to a BARE number only; "150MM DIA" already carries its unit,
+      // so the line no longer reads "150MM DIA mm"
+      .toBe("BoQ says 150MM DIA -> 150 mm (the sheet's own spelling of this value)");
     expect(field(at("150MM DIA").v, 0, "dia_mm").value).toBe("150");
     const r160 = at("160");
     expect(r160.v.items[0]).toMatchObject({ state: "blank", reason: "diameter 160 is above the largest size on the sheet (150)" });

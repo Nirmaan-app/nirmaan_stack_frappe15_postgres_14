@@ -36,6 +36,7 @@ import type { RateCategoryConfig, RateMasterItem } from "./rate-master/rateMaste
 import { mergeItemsByName } from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
 import { itemListPricingSpec } from "@/pages/boq-wizard/rate-helper/itemListPricing";
 import { isSuggestion } from "@/pages/boq-wizard/rate-helper/rateHelperTypes";
+import { ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, type ItemListSuggestion } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
 import {
   AWAITING_CORPUS_DIVERGENCES,
   AWAITING_SWEEP_DIVERGENCES,
@@ -557,4 +558,53 @@ describe("vacuity -- the comparison can actually see a difference", () => {
     const twoClass = [...byFamily.entries()].filter(([, m]) => m.size > 1 && new Set(m.values()).size > 1);
     expect(twoClass.length).toBeGreaterThan(0);
   }, 60000);
+});
+
+/**
+ * SLICE 12d-6 (owner ruling (a) + U4, 2026-10-09) -- A LAYERED ANSWER ON BOTH SURFACES.
+ *
+ * 12e-0b found the panel handing the pricer the dropdown option "19" for a MODEL-read "Double layer of 19mm
+ * thick" (one layer, 615 / 224) while the pure pricer composed two (991 / 238). The pin below is written on the
+ * MODEL-READ answer, as the owner ruled: the panel path composes it, and the calculator -- where the same text
+ * can only be TYPED -- refuses it by U4 ("several values stated"), because a pricer's typed entry is never
+ * parsed as layers (T6) and the typed box takes a single number only. The two surfaces therefore differ on this input BY RULING, and the divergence is
+ * named here rather than listed as a defect: the calculator's figure for the layered row comes from typing the
+ * composition's own numbers ("13+13"-style entries are T6's business, not this slice's).
+ */
+describe("SLICE 12d-6 -- a layered thickness on both surfaces (owner (a) + U4)", () => {
+  const NR = "Nitrile Rubber Insulation";
+  const layered: ParityCase = {
+    cat: "hvac_insulation", unit: "RMT", desc: "50 mm", attrs: {},
+    items: [{ item: NR, cladding: "26G Aluminium", thickness_mm: "Double layer of 19 mm thick", pipe_size_mm: "50 mm" }],
+  };
+
+  it("PANEL: the model-read layered answer composes two layers -- 991 / 238, the figure of the pure pricer", () => {
+    const panel = panelHelper(configs, items, layered).compute(panelCtx(layered));
+    expect(isSuggestion(panel)).toBe(true);
+    expect((panel as { values?: Record<string, number> }).values).toEqual({ supply_rate: 991, install_rate: 238, combined_rate: 1229 });
+    const view = (panel as ItemListSuggestion).itemList!;
+    expect(view.items[0].working.some((w) => w === "BoQ says Double layer of 19 mm thick -> priced as two layers, 19 + 19 mm (38 mm); cladding on the outer layer only")).toBe(true);
+  });
+
+  it("CALCULATOR: the same text can only be TYPED, and the typed thickness box takes a single number only (U4) -- never one layer", () => {
+    const edits = { items: [{ base: null, family: NR, attrs: { pipe_size_mm: "50", thickness_mm: "Double layer of 19 mm thick", cladding: "26G Aluminium" }, other: ["pipe_size_mm", "thickness_mm"] }] };
+    const calc = calculatorHelper(configs, items).compute(calculatorCtx("HVAC", "hvac_insulation"), {
+      [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(edits), [ROW_UNIT_OVERRIDE_KEY]: "mts",
+    });
+    expect(isSuggestion(calc)).toBe(true);
+    expect((calc as { values?: Record<string, number> }).values).toEqual({});
+    const view = (calc as ItemListSuggestion).itemList!;
+    expect(view.items[0].reason).toBe("Type the thickness as a single number in mm");
+  });
+
+  it("the two surfaces AGREE on a plain thickness -- typed or model-read \"19 mm\" is 615 / 224 on both", () => {
+    const plain: ParityCase = { ...layered, items: [{ ...layered.items![0], thickness_mm: "19 mm" }] };
+    const panel = panelHelper(configs, items, plain).compute(panelCtx(plain));
+    const edits = { items: [{ base: null, family: NR, attrs: { pipe_size_mm: "50", thickness_mm: "19 mm", cladding: "26G Aluminium" }, other: ["pipe_size_mm", "thickness_mm"] }] };
+    const calc = calculatorHelper(configs, items).compute(calculatorCtx("HVAC", "hvac_insulation"), {
+      [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(edits), [ROW_UNIT_OVERRIDE_KEY]: "mts",
+    });
+    expect((panel as { values?: Record<string, number> }).values).toEqual({ supply_rate: 615, install_rate: 224, combined_rate: 839 });
+    expect((calc as { values?: Record<string, number> }).values).toEqual({ supply_rate: 615, install_rate: 224, combined_rate: 839 });
+  });
 });

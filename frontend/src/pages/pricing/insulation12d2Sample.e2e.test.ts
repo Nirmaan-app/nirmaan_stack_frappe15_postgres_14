@@ -78,6 +78,98 @@ export const ACCEPTED_SAMPLE_DIVERGENCES: ReadonlyArray<{ id: string; what: stri
     cause: "C_option_not_offered: the model-read cladding is not a stocked option of the family, so the calculator cannot carry it",
     accepted: "ACCEPTED BY OWNER -- F2, 12d-2F, 2026-10-07: 'ok'",
   },
+  /**
+   * SLICE 12d-6 (owner ruling (a) + U4, 2026-10-09) -- the six "Double layer of 19mm thick" rows (BOQ-26-00137
+   * 'CHW pipes , Valves' rows 32-37, 250 NB down to 80 NB). The PANEL now reads the model's layered answer as two
+   * layers (12e-0b defect fixed) and still refuses on the pipe size -- as a composed row, with the per-item prefix.
+   * The CALCULATOR is fed the panel's shown text TYPED into the thickness "Other..." box, and a typed thickness that
+   * is not a single number REFUSES with the one U4 message. BOTH surfaces refuse; only the SENTENCE differs.
+   * CAUSE: U4_typed_layered_text_refuses -- an input-surface difference by ruling, counted and named, never fixed.
+   */
+  {
+    id: "BOQ-26-00137#32", what: "item blocks",
+    panel: "[{\"family\":\"Nitrile Rubber Insulation\",\"state\":\"blank\",\"reason\":\"pipe size 250 is above the largest size on the sheet (53.98)\",\"figures\":\"supply_rate=- install_rate=- combined_rate=-\",\"qty\":\"1\"}]",
+    calculator: "[{\"family\":\"Nitrile Rubber Insulation\",\"state\":\"blank\",\"reason\":\"Type the thickness as a single number in mm\",\"figures\":\"supply_rate=- install_rate=- combined_rate=-\",\"qty\":\"1\"}]",
+    cause: "U4_typed_layered_text_refuses: the panel composes the model's layered answer (and refuses on size); the calculator refuses the same text TYPED, by U4",
+    accepted: "APPROVED BY OWNER -- U4, 12d-6, 2026-10-09",
+  },
+  {
+    id: "BOQ-26-00137#32", what: "item row reason",
+    panel: "item 1 (Nitrile Rubber Insulation): pipe size 250 is above the largest size on the sheet (53.98)",
+    calculator: "Type the thickness as a single number in mm",
+    cause: "U4_typed_layered_text_refuses: the panel composes the model's layered answer (and refuses on size); the calculator refuses the same text TYPED, by U4",
+    accepted: "APPROVED BY OWNER -- U4, 12d-6, 2026-10-09",
+  },
+  {
+    id: "BOQ-26-00137#33", what: "item blocks",
+    panel: "[{\"family\":\"Nitrile Rubber Insulation\",\"state\":\"blank\",\"reason\":\"pipe size 200 is above the largest size on the sheet (53.98)\",\"figures\":\"supply_rate=- install_rate=- combined_rate=-\",\"qty\":\"1\"}]",
+    calculator: "[{\"family\":\"Nitrile Rubber Insulation\",\"state\":\"blank\",\"reason\":\"Type the thickness as a single number in mm\",\"figures\":\"supply_rate=- install_rate=- combined_rate=-\",\"qty\":\"1\"}]",
+    cause: "U4_typed_layered_text_refuses: the panel composes the model's layered answer (and refuses on size); the calculator refuses the same text TYPED, by U4",
+    accepted: "APPROVED BY OWNER -- U4, 12d-6, 2026-10-09",
+  },
+  {
+    id: "BOQ-26-00137#33", what: "item row reason",
+    panel: "item 1 (Nitrile Rubber Insulation): pipe size 200 is above the largest size on the sheet (53.98)",
+    calculator: "Type the thickness as a single number in mm",
+    cause: "U4_typed_layered_text_refuses: the panel composes the model's layered answer (and refuses on size); the calculator refuses the same text TYPED, by U4",
+    accepted: "APPROVED BY OWNER -- U4, 12d-6, 2026-10-09",
+  },
+  {
+    id: "BOQ-26-00137#34", what: "item blocks",
+    panel: "[{\"family\":\"Nitrile Rubber Insulation\",\"state\":\"blank\",\"reason\":\"pipe size 150 is above the largest size on the sheet (53.98)\",\"figures\":\"supply_rate=- install_rate=- combined_rate=-\",\"qty\":\"1\"}]",
+    calculator: "[{\"family\":\"Nitrile Rubber Insulation\",\"state\":\"blank\",\"reason\":\"Type the thickness as a single number in mm\",\"figures\":\"supply_rate=- install_rate=- combined_rate=-\",\"qty\":\"1\"}]",
+    cause: "U4_typed_layered_text_refuses: the panel composes the model's layered answer (and refuses on size); the calculator refuses the same text TYPED, by U4",
+    accepted: "APPROVED BY OWNER -- U4, 12d-6, 2026-10-09",
+  },
+  {
+    id: "BOQ-26-00137#34", what: "item row reason",
+    panel: "item 1 (Nitrile Rubber Insulation): pipe size 150 is above the largest size on the sheet (53.98)",
+    calculator: "Type the thickness as a single number in mm",
+    cause: "U4_typed_layered_text_refuses: the panel composes the model's layered answer (and refuses on size); the calculator refuses the same text TYPED, by U4",
+    accepted: "APPROVED BY OWNER -- U4, 12d-6, 2026-10-09",
+  },
+  {
+    id: "BOQ-26-00137#35", what: "item blocks",
+    panel: "[{\"family\":\"Nitrile Rubber Insulation\",\"state\":\"blank\",\"reason\":\"pipe size 125 is above the largest size on the sheet (53.98)\",\"figures\":\"supply_rate=- install_rate=- combined_rate=-\",\"qty\":\"1\"}]",
+    calculator: "[{\"family\":\"Nitrile Rubber Insulation\",\"state\":\"blank\",\"reason\":\"Type the thickness as a single number in mm\",\"figures\":\"supply_rate=- install_rate=- combined_rate=-\",\"qty\":\"1\"}]",
+    cause: "U4_typed_layered_text_refuses: the panel composes the model's layered answer (and refuses on size); the calculator refuses the same text TYPED, by U4",
+    accepted: "APPROVED BY OWNER -- U4, 12d-6, 2026-10-09",
+  },
+  {
+    id: "BOQ-26-00137#35", what: "item row reason",
+    panel: "item 1 (Nitrile Rubber Insulation): pipe size 125 is above the largest size on the sheet (53.98)",
+    calculator: "Type the thickness as a single number in mm",
+    cause: "U4_typed_layered_text_refuses: the panel composes the model's layered answer (and refuses on size); the calculator refuses the same text TYPED, by U4",
+    accepted: "APPROVED BY OWNER -- U4, 12d-6, 2026-10-09",
+  },
+  {
+    id: "BOQ-26-00137#36", what: "item blocks",
+    panel: "[{\"family\":\"Nitrile Rubber Insulation\",\"state\":\"blank\",\"reason\":\"pipe size 100 is above the largest size on the sheet (53.98)\",\"figures\":\"supply_rate=- install_rate=- combined_rate=-\",\"qty\":\"1\"}]",
+    calculator: "[{\"family\":\"Nitrile Rubber Insulation\",\"state\":\"blank\",\"reason\":\"Type the thickness as a single number in mm\",\"figures\":\"supply_rate=- install_rate=- combined_rate=-\",\"qty\":\"1\"}]",
+    cause: "U4_typed_layered_text_refuses: the panel composes the model's layered answer (and refuses on size); the calculator refuses the same text TYPED, by U4",
+    accepted: "APPROVED BY OWNER -- U4, 12d-6, 2026-10-09",
+  },
+  {
+    id: "BOQ-26-00137#36", what: "item row reason",
+    panel: "item 1 (Nitrile Rubber Insulation): pipe size 100 is above the largest size on the sheet (53.98)",
+    calculator: "Type the thickness as a single number in mm",
+    cause: "U4_typed_layered_text_refuses: the panel composes the model's layered answer (and refuses on size); the calculator refuses the same text TYPED, by U4",
+    accepted: "APPROVED BY OWNER -- U4, 12d-6, 2026-10-09",
+  },
+  {
+    id: "BOQ-26-00137#37", what: "item blocks",
+    panel: "[{\"family\":\"Nitrile Rubber Insulation\",\"state\":\"blank\",\"reason\":\"pipe size 80 is above the largest size on the sheet (53.98)\",\"figures\":\"supply_rate=- install_rate=- combined_rate=-\",\"qty\":\"1\"}]",
+    calculator: "[{\"family\":\"Nitrile Rubber Insulation\",\"state\":\"blank\",\"reason\":\"Type the thickness as a single number in mm\",\"figures\":\"supply_rate=- install_rate=- combined_rate=-\",\"qty\":\"1\"}]",
+    cause: "U4_typed_layered_text_refuses: the panel composes the model's layered answer (and refuses on size); the calculator refuses the same text TYPED, by U4",
+    accepted: "APPROVED BY OWNER -- U4, 12d-6, 2026-10-09",
+  },
+  {
+    id: "BOQ-26-00137#37", what: "item row reason",
+    panel: "item 1 (Nitrile Rubber Insulation): pipe size 80 is above the largest size on the sheet (53.98)",
+    calculator: "Type the thickness as a single number in mm",
+    cause: "U4_typed_layered_text_refuses: the panel composes the model's layered answer (and refuses on size); the calculator refuses the same text TYPED, by U4",
+    accepted: "APPROVED BY OWNER -- U4, 12d-6, 2026-10-09",
+  },
 ];
 
 function caseOf(r: FixtureRow): ParityCase {
@@ -118,11 +210,19 @@ describe("PARITY (owner S7 / P1): every sampled row through BOTH paths", () => {
     expect(seen.sort()).toEqual(named.sort());
   });
 
-  it("12d-2F (owner F2): every listed divergence is row 290 and every one carries the owner's acceptance", () => {
-    expect(ACCEPTED_SAMPLE_DIVERGENCES.length).toBe(2);
-    for (const d of ACCEPTED_SAMPLE_DIVERGENCES) {
-      expect(d.id).toBe("BOQ-26-00169#290");
-      expect(d.accepted).toMatch(/^ACCEPTED BY OWNER/);
+  it("12d-2F (owner F2): every listed divergence is row 290 and every one carries the owner's acceptance -- INVERTED by 12d-6 (owner U4): the six double-layer rows 32-37 are listed too, each APPROVED", () => {
+    // before 12d-6: exactly 2 entries, all row 290
+    expect(ACCEPTED_SAMPLE_DIVERGENCES.length).toBe(14);
+    const r290 = ACCEPTED_SAMPLE_DIVERGENCES.filter((d) => d.id === "BOQ-26-00169#290");
+    expect(r290.length).toBe(2);
+    for (const d of r290) expect(d.accepted).toMatch(/^ACCEPTED BY OWNER/);
+    const u4 = ACCEPTED_SAMPLE_DIVERGENCES.filter((d) => d.id !== "BOQ-26-00169#290");
+    expect(u4.map((d) => d.id).sort()).toEqual(["32", "33", "34", "35", "36", "37"].flatMap((n) => [`BOQ-26-00137#${n}`, `BOQ-26-00137#${n}`]).sort());
+    for (const d of u4) {
+      expect(d.cause).toMatch(/^U4_typed_layered_text_refuses/);
+      expect(d.accepted).toMatch(/^APPROVED BY OWNER -- U4, 12d-6/);
+      expect(d.calculator).toContain("Type the thickness as a single number in mm");
+      expect(d.panel).not.toContain("Type the thickness as a single number in mm");
     }
   });
 

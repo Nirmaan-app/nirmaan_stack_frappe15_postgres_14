@@ -783,6 +783,14 @@ function axisOf(part: string): number | null {
  * largest is the OUTER layer), or null for anything else -- a single number, a slash list, a range, a size
  * phrase, a tolerance, "1 layer", "0 x". It reads the MODEL'S text; a pricer's typed entry never reaches it.
  */
+/**
+ * SLICE 12d-6 (owner U4): what the thickness "Other..." box accepts from a PRICER -- a single number, whole or
+ * decimal, with an optional trailing "mm" -- and the ONE message everything else refuses with. Exported so the
+ * tests and the panel pin the same two values.
+ */
+export const TYPED_THICKNESS_RE = /^\s*\d+(?:\.\d+)?\s*(?:mm)?\s*$/i;
+export const TYPED_THICKNESS_MESSAGE = "Type the thickness as a single number in mm";
+
 export function readLayers(text: string | number | null | undefined): number[] | null {
   if (text === null || text === undefined) return null;
   const s = String(text).toLowerCase().replace(/\s+/g, " ").trim();
@@ -929,10 +937,13 @@ export function readNumber(text: string | number | null | undefined, reader: Num
     // read as 19/25 of an inch -- it falls through to the several-values rules below.
     const slashCount = (s.match(/\//g) ?? []).length;
     const numberCount = numbersIn(s).length;
-    const mixedForm = /^\s*\d+\s+\d+\s*\/\s*\d+/.test(s);
+    // SLICE 12d-6 (owner, 2026-10-08): a mixed number is also written with a HYPHEN -- `1-1/4"` is one and a
+    // quarter inch (31.75 mm), not 1" followed by noise. The whole and the fraction may be joined by spaces
+    // or a hyphen; a range ("40-50 mm") carries no slash and never reaches this branch.
+    const mixedForm = /^\s*\d+[\s-]+\d+\s*\/\s*\d+/.test(s);
     const frac = slashCount === 1 && (numberCount === 2 || (mixedForm && numberCount === 3)) ? s.match(/(\d+)\s*\/\s*(\d+)/) : null;
     if (statedInInches || (frac && Number(frac[2]) !== 0)) {
-      const mixed = s.match(/(\d+)\s+\d+\s*\/\s*\d+/);
+      const mixed = s.match(/(\d+)[\s-]+\d+\s*\/\s*\d+/);
       const part = frac ? Number(frac[1]) / Number(frac[2]) : Number((s.match(/[\d.]+/) ?? ["0"])[0]);
       const value = ((mixed ? Number(mixed[1]) : 0) + part) * 25.4;
       if (!Number.isFinite(value) || value <= 0) return { blank: `no number in '${raw}' for ${reader.name}` };
@@ -1292,9 +1303,28 @@ function priceOneItem(
         if (layersFrom) continue;
       }
       let got: NumberRead = null;
-      for (const src of reader.from) {
-        got = readNumber(rawValue(item, src), reader);
-        if (got !== null) break;
+      // SLICE 12d-6 (owner U4, 2026-10-09: "when we select other we should only be applied to type numbers for
+      // thickness, not anything else"). The thickness "Other..." box -- on the calculator AND on a typed panel
+      // edit -- accepts a SINGLE NUMBER only (whole or decimal, a trailing "mm" accepted). T6 keeps a pricer's
+      // typed entry out of the layers reader, and the single-number reader would read a typed "Double layer of
+      // 19 mm thick" as a 19 and price ONE layer silently; so anything that is not a single number refuses with
+      // ONE message. TYPED thickness only: a MODEL-read cell is untouched (it composes), and the pipe-size box is
+      // not on this axis (it must keep accepting 5/8", 1-1/4" ...). The axis is named by the CONFIG's own reader
+      // (`numbers.<attr>.name === "thickness"`): ADP's compose axis is a SIZE and keeps composing a typed 749.
+      if (spec.compose && attr === spec.compose.attr && reader.name === "thickness") {
+        for (const src of reader.from) {
+          const cell = item.attributes?.[src];
+          if (cell && cell.typed === true && !TYPED_THICKNESS_RE.test(String(cell.value ?? ""))) {
+            got = { blank: TYPED_THICKNESS_MESSAGE };
+            break;
+          }
+        }
+      }
+      if (got === null) {
+        for (const src of reader.from) {
+          got = readNumber(rawValue(item, src), reader);
+          if (got !== null) break;
+        }
       }
       if (got === null) continue;
       if ("blank" in got) {

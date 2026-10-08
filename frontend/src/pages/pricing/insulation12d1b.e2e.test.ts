@@ -124,7 +124,11 @@ describe("E2E-1 (b) (c) -- several thicknesses and the size schedule", () => {
     // 12d-2 (owner S5 / F17): a MODEL-read value reads "BoQ says" (the 12d-1b pin said "You typed")
     expect(v.items[0].working[0]).toMatch(/^BoQ says 32 mm -> priced as 13 \+ 19 mm/);   // ... priced as two layers
     expect(headline(r)).toEqual({ supply: 743, install: 238 });
-    noDivergence(r);
+    // INVERTED by 12d-6 (owner U4): the calculator is fed the panel's shown value, and a TYPED "19/ 25 / 32 mm" is
+    // not a single number, so the calculator now REFUSES where it used to price the same 743 / 238 (before 12d-6:
+    // `noDivergence(r)`). The PANEL figure is unchanged. An input-surface difference by ruling, named here.
+    expect(r.divergences.length).toBeGreaterThan(0);
+    expect(JSON.stringify(r.calculator)).toMatch(/Type the thickness as a single number in mm/);
   });
   it("(c) the BOQ-26-00017 schedule heading: 50NB -> the model reads 19 -> a single 19 mm layer with 26G: 615 / 224", () => {
     const r = run("c_schedule_50nb");
@@ -154,7 +158,9 @@ describe("E2E-1 (d) -- double layers", () => {
     // the MODEL's layers (T4). The permanent parity corpus carries no layer row, so this is the one place the
     // two surfaces differ, and this is where it is recorded.
     expect(r.divergences.length).toBeGreaterThan(0);
-    expect(JSON.stringify(r.calculator)).toMatch(/several values stated for thickness/);
+    // INVERTED by 12d-6 (owner U4): the typed refusal is now the single-number message (before: "several values stated")
+    expect(JSON.stringify(r.calculator)).toMatch(/Type the thickness as a single number in mm/);
+    expect(JSON.stringify(r.calculator)).not.toMatch(/several values stated for thickness/);
   });
   it("the BOQ-26-00020 rows 525-527 ('100 / 80 / 65 mm + 32 mm') -> two layers each, every one REFUSING for no pipe size", () => {
     for (const id of ["d_65_plus_32", "d_80_plus_32", "d_100_plus_32"]) {

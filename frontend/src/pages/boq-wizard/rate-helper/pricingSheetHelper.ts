@@ -67,6 +67,7 @@ import {
   itemFieldDefs,
   itemListPricingSpec,
   matchStatedToOption,
+  readLayers,
   readNumber,
   listSpecDefs,
   priceItemList,
@@ -2095,7 +2096,12 @@ function itemBlockView(
      * "3 Slot" and 3 are the same answer and not a substitution.
      */
     const matched = matchedByBlock.get(f.id);
-    if (matched && !note) note = `${said} ${matched.from}${u} -> ${matched.to}${u} (the sheet's own spelling of this value)`;
+    /**
+     * SLICE 12d-6: the stated text is the model's RAW cell and may already carry its unit ("19 mm"); the
+     * unit is appended only to a BARE number, so the line reads "BoQ says 19 mm -> 19 mm", never "19 mm mm".
+     */
+    const fromU = matched && /^\s*\d+(?:\.\d+)?\s*$/.test(matched.from) ? u : "";
+    if (matched && !note) note = `${said} ${matched.from}${fromU} -> ${matched.to}${u} (the sheet's own spelling of this value)`;
     // SLICE 12c-S (E2E-1): a pick the pricer's later answers no longer stock was CLEARED before pricing;
     // the field says which value went and why, so nothing is substituted behind their back.
     const dropped = clearedByBlock.get(f.id);
@@ -2283,6 +2289,18 @@ function computeItemList(
       if (typeof raw !== "string" || raw.trim() === "") continue;
       const opts = fieldOptionsFromSkus(spec, items, fam, rowClass, f.skuAttr, {});
       if (opts.includes(raw)) continue;
+      /**
+       * SLICE 12d-6 (owner, 2026-10-08) -- OPTION MATCHING MUST NEVER DISCARD MEANING THE PRICER READS.
+       * A thickness the model writes as LAYERS ("Double layer of 19mm thick", "25 mm thick - 2 Layers",
+       * "13+13") is read by `readLayers` inside `priceItemList` and priced as a composition (12d-1b /
+       * 12d-4c). The R-B match below reads the FIRST number of such a text (19), finds the option "19"
+       * and would hand the pricer a single layer -- which is exactly what 12e-0b measured (615 / 224 where
+       * the pure pricer says 991 / 238). A layered value is therefore left as written: it reaches the
+       * pricer intact and the field shows it the way "25 mm thick - 2 Layers" already does (the Other...
+       * box with the stated text, the layer lines in the working). Option matching runs only on values
+       * the pricer would read the same way.
+       */
+      if (readLayers(raw) !== null) continue;
       const hit = matchStatedToOption(raw, opts, spec.numbers[f.skuAttr]);
       if (hit === null || hit === raw) continue;
       attributes[f.id] = { ...attributes[f.id], value: hit };
