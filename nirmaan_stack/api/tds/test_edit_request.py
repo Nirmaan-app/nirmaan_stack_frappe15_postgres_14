@@ -14,7 +14,7 @@ from unittest.mock import patch
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.tds.edit_request import edit_tds_request
+from nirmaan_stack.api.tds.edit_request import edit_tds_pick, edit_tds_request
 from nirmaan_stack.api.tds.test_submit import (
 	_cloud_url,
 	_create_project,
@@ -323,3 +323,174 @@ class TestEditTdsRequest(FrappeTestCase):
 				self._assert_refused(row, self._as_custom(make=f"Bajaj {label}"))
 		with self.assertRaises(frappe.ValidationError):
 			self._edit("no-such-row", **self._as_custom())
+
+
+class TestEditTdsPick(FrappeTestCase):
+	"""`edit_tds_pick`: an Admin's "Edit TDS Item" save of a waiting From Repository row (#1383). It
+	runs the send's duplicate and replacement checks, and the edit and the delete of the replaced
+	Rejected row commit together or not at all."""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		_make_user(PMO_USER, PMO_EXECUTIVE_PROFILE, ("Nirmaan PMO Executive",))
+		cls.project = _create_project()
+		frappe.db.commit()
+
+	@classmethod
+	def tearDownClass(cls):
+		_delete_project_rows(cls.project)
+		frappe.delete_doc("Projects", cls.project, force=True, ignore_permissions=True)
+		frappe.db.commit()
+		super().tearDownClass()
+
+	def setUp(self):
+		self._real_commit = frappe.db.commit
+		frappe.db.commit = lambda *a, **k: None
+		frappe.set_user("Administrator")
+		self.wp = f"TEST WP {frappe.generate_hash(length=4)}"
+		self.item = _raw("TDS Items", tds_item_name="Gate Valve", work_package=self.wp)
+		self.other_item = _raw("TDS Items", tds_item_name="Ball Valve", work_package=self.wp)
+		self.sheets = {}
+		for item, make in ((self.item, "MakeA"), (self.item, "MakeB"), (self.other_item, "MakeC")):
+			self.sheets[(item, make)] = _cloud_url(f"{item}-{make}.pdf")
+			_raw("TDS Repository", tds_item=item, make=make, status="Verified", tds_attachment=self.sheets[(item, make)])
+
+	def tearDown(self):
+		frappe.set_user("Administrator")
+		frappe.db.commit = self._real_commit
+		frappe.db.rollback()
+
+	# ── helpers ────────────────────────────────────────────────────────────────
+
+	def _row(self, status, item, make, **fields):
+		return _raw(
+			ROW,
+			tdsi_project_id=self.project,
+			tds_request_id="RQ-TST-01",
+			tds_item_id=item,
+			tds_item_name=frappe.db.get_value("TDS Items", item, "tds_item_name") or "Legacy Item",
+			tds_make=make,
+			tds_work_package=self.wp,
+			tds_status=status,
+			tds_attachment=self.sheets.get((item, make)) or _cloud_url("legacy.pdf"),
+			**fields,
+		)
+
+	def _edit(self, name, item, make, **extra):
+		row = {"tds_item_id": item, "make": make, "tds_boq_line_item": "BOQ 3.2", "description": "DN50", **extra}
+		return edit_tds_pick(doc_name=name, row=json.dumps(row))
+
+	def _stored(self, name):
+		return frappe.db.get_value(ROW, name, STORED, as_dict=True)
+
+	# ── the edit ───────────────────────────────────────────────────────────────
+
+	def test_an_edit_stores_the_picked_item_make_and_its_repository_sheet(self):
+		row = self._row("Pending", self.item, "MakeA")
+
+		self._edit(row, self.other_item, "MakeC")
+
+		stored = self._stored(row)
+		self.assertEqual(
+			(stored.tds_item_id, stored.tds_item_name, stored.tds_make, stored.tds_status),
+			(self.other_item, "Ball Valve", "MakeC", "Pending"),
+		)
+		self.assertEqual(stored.tds_attachment, self.sheets[(self.other_item, "MakeC")])
+		self.assertEqual((stored.tds_boq_line_item, stored.tds_description), ("BOQ 3.2", "DN50"))
+		self.assertEqual(stored.tds_request_id, "RQ-TST-01")
+
+	def test_a_make_with_no_repository_entry_is_refused(self):
+		row = self._row("Pending", self.item, "MakeA")
+		self._assert_refused([row], row, self.other_item, "MakeA")
+
+	# ── duplicates ─────────────────────────────────────────────────────────────
+
+	def test_an_item_make_already_live_on_the_project_is_refused(self):
+		row = self._row("Pending", self.item, "MakeA")
+		for status in ("Pending", "New", "Approved"):
+			with self.subTest(status=status):
+				live = self._row(status, self.other_item, "MakeC")
+				self._assert_refused([row, live], row, self.other_item, "MakeC", message="already on this project")
+				frappe.db.delete(ROW, live)
+
+	def test_saving_a_row_unchanged_is_not_a_duplicate_of_itself(self):
+		row = self._row("Pending", self.item, "MakeA")
+		self._edit(row, self.item, "MakeA")
+		self.assertEqual(self._stored(row).tds_make, "MakeA")
+
+	# ── replacing a Rejected row ───────────────────────────────────────────────
+
+	def test_replacing_its_rejected_row_deletes_that_row_with_the_save(self):
+		rejected = self._row("Rejected", self.item, "MakeB")
+		row = self._row("Pending", self.item, "MakeA")
+
+		self._edit(row, self.item, "MakeB", previous_doc_name=rejected)
+
+		self.assertFalse(frappe.db.exists(ROW, rejected))
+		self.assertEqual(self._stored(row).tds_make, "MakeB")
+
+	def test_a_failed_save_keeps_the_rejected_row_and_the_edited_row(self):
+		rejected = self._row("Rejected", self.item, "MakeB")
+		row = self._row("Pending", self.item, "MakeA")
+		self._row("New", self.item, "MakeB")  # makes the edit a duplicate
+
+		self._assert_refused([row, rejected], row, self.item, "MakeB", previous_doc_name=rejected)
+
+	def test_a_failure_after_the_rejected_row_is_deleted_restores_both_rows(self):
+		rejected = self._row("Rejected", self.item, "MakeB")
+		row = self._row("Pending", self.item, "MakeA")
+
+		# The last write (the old sheet's cleanup, which runs after the delete) fails.
+		with patch(
+			"nirmaan_stack.api.tds.edit_request.delete_row_datasheet", side_effect=frappe.ValidationError("boom")
+		):
+			self._assert_refused([row, rejected], row, self.item, "MakeB", previous_doc_name=rejected)
+
+	def test_a_replace_target_that_is_not_its_rejected_row_is_refused(self):
+		row = self._row("Pending", self.item, "MakeA")
+		targets = {
+			"pending": self._row("Pending", self.other_item, "MakeC"),
+			"other item + make": self._row("Rejected", self.other_item, "MakeC"),
+		}
+		for label, target in targets.items():
+			with self.subTest(label):
+				self._assert_refused([row, target], row, self.item, "MakeB", previous_doc_name=target)
+
+	# ── who and what may be edited ─────────────────────────────────────────────
+
+	def test_anyone_but_admin_is_refused(self):
+		row = self._row("Pending", self.item, "MakeA")
+		frappe.set_user(PMO_USER)
+		try:
+			self._assert_refused([row], row, self.item, "MakeB", exc=frappe.PermissionError)
+		finally:
+			frappe.set_user("Administrator")
+
+	def test_a_request_or_decided_row_is_refused(self):
+		rows = {
+			"new make": self._row("New", self.item, "MakeN"),
+			"project custom": self._row("Pending", "PCUS-000001", "Philips"),
+			"approved": self._row("Approved", self.item, "MakeA"),
+			"rejected": self._row("Rejected", self.other_item, "MakeC"),
+		}
+		for label, row in rows.items():
+			with self.subTest(label):
+				self._assert_refused([row], row, self.item, "MakeB")
+
+	def test_a_legacy_row_with_no_status_can_be_edited(self):
+		row = self._row(None, "ITEM-0042", "Old Make")
+
+		self._edit(row, self.item, "MakeB")
+
+		stored = self._stored(row)
+		self.assertEqual((stored.tds_item_id, stored.tds_make, stored.tds_status), (self.item, "MakeB", "Pending"))
+
+	def _assert_refused(self, watched, name, item, make, exc=frappe.ValidationError, message=None, **extra):
+		"""The edit raises `exc`, and every row in `watched` is stored exactly as before."""
+		before = {r: self._stored(r) for r in watched}
+		with self.assertRaises(exc) as raised:
+			self._edit(name, item, make, **extra)
+		if message:
+			self.assertIn(message, str(raised.exception))
+		self.assertEqual({r: self._stored(r) for r in watched}, before)

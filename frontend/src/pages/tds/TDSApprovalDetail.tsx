@@ -26,7 +26,7 @@ import {
     TooltipProvider,
     TooltipTrigger
 } from "@/components/ui/tooltip";
-import { useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeGetDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
 // useFrappeCreateDoc removed in Phase 2 — promotion is now a backend API call.
 import { useUserData } from "@/hooks/useUserData";
 import {
@@ -36,7 +36,7 @@ import {
     ColumnDef,
 } from "@tanstack/react-table";
 import { RejectTDSModal } from "./components/RejectTDSModal";
-import { ProjectEditTDSItemModal } from "./components/ProjectEditTDSItemModal";
+import { ProjectEditTDSItemModal, type PickItemEdit } from "./components/ProjectEditTDSItemModal";
 import { EditRequestItemModal, type RequestItemEdit } from "./components/EditRequestItemModal";
 import { ChooseDatasheetDialog, type DatasheetConflictRow } from "./components/ChooseDatasheetDialog";
 import { toast } from "@/components/ui/use-toast";
@@ -577,6 +577,9 @@ export const TDSApprovalDetail: React.FC = () => {
     const { call: editTdsRequest } = useFrappePostCall(
         "nirmaan_stack.api.tds.edit_request.edit_tds_request"
     );
+    const { call: editTdsPick } = useFrappePostCall(
+        "nirmaan_stack.api.tds.edit_request.edit_tds_pick"
+    );
     const { call: rejectTdsItems } = useFrappePostCall(
         "nirmaan_stack.api.tds.approve.reject_tds_items"
     );
@@ -768,8 +771,6 @@ export const TDSApprovalDetail: React.FC = () => {
         ownerEmail ? undefined : null
     );
 
-    const { updateDoc } = useFrappeUpdateDoc();
-    const { deleteDoc } = useFrappeDeleteDoc();
     const { upload: uploadFile } = useFrappeFileUpload();
 
     // Derived Header Info
@@ -1438,34 +1439,19 @@ export const TDSApprovalDetail: React.FC = () => {
         setIsRejectModalOpen(true);
     };
 
-    const handleEditSave = async (itemName: string, updates: any, itemsToDelete?: string[]) => {
+    // A From Repository row: the Admin-only `edit_tds_pick` saves it with the send's duplicate and
+    // replacement checks, deleting a replaced Rejected row only if the edit saves.
+    const handleEditSave = async (itemName: string, edit: PickItemEdit) => {
         setProcessing(true);
         try {
-            // Check if there are items to delete (resubmission logic)
-            if (itemsToDelete && itemsToDelete.length > 0) {
-                await Promise.all(itemsToDelete.map(name => deleteDoc("Project TDS Item List", name)));
-            }
-
-            // Handle file upload if present
-            if (updates.attachmentFile) {
-                const uploadedFile = await uploadFile(updates.attachmentFile, {
-                    doctype: "Project TDS Item List",
-                    docname: itemName,
-                    fieldname: "tds_attachment",
-                    isPrivate: true
-                });
-                updates.tds_attachment = uploadedFile.file_url;
-                delete updates.attachmentFile;
-            }
-
-            await updateDoc("Project TDS Item List", itemName, updates);
+            await editTdsPick({ doc_name: itemName, row: JSON.stringify(edit) });
             toast({ title: "Updated", description: "Item updated successfully", variant: "success" });
             setIsEditModalOpen(false);
             setEditingItem(null);
             mutate();
         } catch (e) {
             console.error(e);
-            toast({ title: "Error", description: "Failed to update item", variant: "destructive" });
+            toast({ title: "Not saved", description: getFrappeError(e), variant: "destructive" });
         } finally {
             setProcessing(false);
         }
@@ -1863,6 +1849,7 @@ export const TDSApprovalDetail: React.FC = () => {
                     onOpenChange={setIsEditModalOpen}
                     item={editingItem}
                     onSave={handleEditSave}
+                    loading={processing}
                 />
             )}
         </div>

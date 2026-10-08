@@ -15,6 +15,7 @@ import {
   isEditableRequest,
   isProjectCustomId,
   itemStatusOf,
+  liveRowFor,
   rejectedRowFor,
   repositoryEntryKey,
   requestTypeOf,
@@ -52,6 +53,12 @@ describe("parity with api/tds/submit.py", () => {
   it("the stored Pending and New Make statuses match", () => {
     expect(pyConstant("STATUS_PENDING")).toBe(STORED_STATUS.pending);
     expect(pyConstant("STATUS_NEW_MAKE")).toBe(STORED_STATUS.newMake);
+  });
+
+  it("the duplicate check counts every row but a Rejected one as live, as liveRowFor does", () => {
+    const body = SUBMIT_PY.match(/def _refuse_duplicates\([\s\S]*?(?=\ndef )/);
+    expect(body, "_refuse_duplicates not found in submit.py").toBeTruthy();
+    expect(body![0]).toMatch(/row\.name == exclude or row\.tds_status == "Rejected" or _stored_key\(row\) not in seen/);
   });
 
   it("submit writes rows through those constants, not literals", () => {
@@ -212,6 +219,38 @@ describe("rejectedRowFor", () => {
   it("only a Rejected row is replaced", () => {
     expect(rejectedRowFor(rows, { tds_item_id: "TDS-ITEM-1", tds_item_name: "Gate Valve", make: "MakeB" })).toBeUndefined();
     expect(rejectedRowFor(undefined, { tds_item_id: "TDS-ITEM-1", tds_item_name: "Gate Valve", make: "MakeA" })).toBeUndefined();
+  });
+});
+
+describe("liveRowFor", () => {
+  const row = (name: string, tds_status: string | null, tds_make = "MakeA", tds_item_id = "TDS-ITEM-1") => ({
+    name,
+    tds_item_id,
+    tds_item_name: "Gate Valve",
+    tds_make,
+    tds_status,
+  });
+  const pick = { tds_item_id: "TDS-ITEM-1", tds_item_name: "Gate Valve", make: "MakeA" };
+
+  it("every waiting or approved row is live, New and a legacy blank included", () => {
+    for (const status of ["Pending", "New", "Approved", null]) {
+      expect(liveRowFor([row("r", status)], pick)?.name, String(status)).toBe("r");
+    }
+  });
+
+  it("a Rejected row is not live: it is what a resubmit replaces", () => {
+    expect(liveRowFor([row("r", "Rejected")], pick)).toBeUndefined();
+  });
+
+  it("matches the same TDS Item + make only", () => {
+    expect(liveRowFor([row("r", "Pending", "MakeB"), row("s", "Pending", "MakeA", "TDS-ITEM-2")], pick)).toBeUndefined();
+    expect(liveRowFor(undefined, pick)).toBeUndefined();
+  });
+
+  it("a Project Custom row matches its name ignoring case + make", () => {
+    const custom = { tds_item_id: "", tds_item_name: " gate VALVE", make: "MakeA", is_project_custom: true };
+    expect(liveRowFor([row("r", "Pending", "MakeA", "PCUS-000003")], custom)?.name).toBe("r");
+    expect(liveRowFor([row("r", "Pending")], custom)).toBeUndefined();
   });
 });
 

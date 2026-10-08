@@ -1,14 +1,19 @@
-"""Admin edit of a waiting New Make or Project Custom row (TDS Approval → Pending Review → pencil), #1379.
+"""Admin edits of a waiting Project TDS row (TDS Approval → Pending Review → pencil).
 
-The edit can switch the row between the two Request Types:
+`edit_tds_request` (#1379) edits a New Make or Project Custom row. The edit can switch the row
+between the two Request Types:
   - to Project Custom: needs a name, a Work Package and a Category under it. The row gets the
     project's `PCUS-` id for that name (or the next one) and is stored `Pending`;
   - to New Make: needs an existing TDS Item. The `PCUS-` id goes and the row is stored `New`.
 
-The row is planned and checked by the same code as a send (`submit.py`), under the same project
-lock: the same duplicate checks, Category check and datasheet claim. Its request id stays.
+`edit_tds_pick` (#1383) edits a From Repository row (the "Edit TDS Item" box). It stays a pick: it
+takes the Repository Entry of the TDS Item + make it is edited to, and that entry's datasheet,
+exactly as a send stores a pick.
 
-A From Repository row is not edited here; it keeps the browser's "Edit TDS Item" save.
+Both plan and check the row with the same code as a send (`submit.py`), under the same project
+lock: the same duplicate checks, replacement check, Category check and datasheet claim. The edit
+and the delete of the Rejected row it replaces happen in one transaction: both, or neither. The
+row's request id stays.
 """
 
 import frappe
@@ -30,6 +35,10 @@ from nirmaan_stack.api.tds.submit import (
 	is_project_custom_id,
 )
 from nirmaan_stack.services.role_profiles import is_nirmaan_admin
+
+# A From Repository row still waiting. A blank status is a legacy row, which every screen shows as
+# Pending (`approve.WAITING_STATUSES`).
+WAITING_PICK_STATUSES = (None, "", STATUS_PENDING)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -54,6 +63,65 @@ def edit_tds_request(doc_name, row):
 
 	Returns: {"name": <row>, "tds_item_id": ..., "tds_status": ...}
 	"""
+	cart_row = _parse_edit(row)
+	cart_row["is_new_request"] = True
+	return _save_edit(
+		doc_name,
+		_is_waiting_request,
+		_("Only a waiting New Make or Project Custom request can be edited here."),
+		lambda user, old_attachment: _plan_row(cart_row, user, set(), kept_attachment=old_attachment),
+	)
+
+
+@frappe.whitelist(methods=["POST"])
+def edit_tds_pick(doc_name, row):
+	"""Save an Admin's "Edit TDS Item" of one waiting From Repository row.
+
+	`doc_name`: the `Project TDS Item List` row.
+	`row`: JSON object (or dict):
+	    {
+	        "tds_item_id": "TDS-ITEM-00012",
+	        "make": "MakeA",                    # needs a Repository Entry for that TDS Item
+	        "tds_boq_line_item": "",
+	        "description": "",
+	        "previous_doc_name": "<row>",       # a Rejected row this one replaces
+	    }
+
+	The row takes that entry's datasheet and stays Pending. Refuses (nothing saved, the replaced row
+	kept) when the caller is not Admin, the row is not a waiting From Repository row, or on anything
+	a send refuses for a pick: no entry for the item + make, the same item + make already live on the
+	project (Pending, New or Approved), or a replace target that is not its Rejected row.
+
+	Returns: {"name": <row>, "tds_item_id": ..., "tds_status": ...}
+	"""
+	cart_row = _parse_edit(row)
+	cart_row.update(is_new_request=False, is_project_custom=False)
+
+	def plan_pick(user, _old_attachment):
+		plan = _plan_row(cart_row, user, set())
+		# A send stores no description on a pick; this box has always let the Admin write one.
+		plan["tds_description"] = cart_row["description"]
+		return plan
+
+	return _save_edit(
+		doc_name,
+		_is_waiting_pick,
+		_("Only a waiting From Repository row can be edited here."),
+		plan_pick,
+	)
+
+
+def _parse_edit(row):
+	parsed = frappe.parse_json(row) if isinstance(row, str) else row
+	(cart_row,) = _parse_rows([parsed])
+	return cart_row
+
+
+def _save_edit(doc_name, is_editable, not_editable, plan_edit):
+	"""Check and save one Admin edit under the project's send lock: every write, or none.
+
+	`is_editable(doc)`: whether the stored row may be edited on this path; `not_editable` otherwise.
+	`plan_edit(user, old_attachment)`: the fields the row will be stored with (`submit._plan_row`)."""
 	user = frappe.session.user
 	if not is_nirmaan_admin(user):
 		frappe.throw(_("Only Admin can edit a TDS request."), frappe.PermissionError)
@@ -61,10 +129,6 @@ def edit_tds_request(doc_name, row):
 	project = frappe.db.get_value(ROW_DOCTYPE, doc_name, "tdsi_project_id")
 	if project is None:
 		frappe.throw(_("TDS row {0} not found.").format(doc_name))
-
-	parsed = frappe.parse_json(row) if isinstance(row, str) else row
-	(cart_row,) = _parse_rows([parsed])
-	cart_row["is_new_request"] = True
 
 	with _project_send_lock(project):
 		frappe.db.savepoint(_SAVEPOINT)
@@ -74,11 +138,11 @@ def edit_tds_request(doc_name, row):
 			# here and is refused, and one they try to save after it waits on this row lock, then
 			# fails its own modified-timestamp check instead of overwriting the edit.
 			doc = frappe.get_doc(ROW_DOCTYPE, doc_name, for_update=True)
-			if not _is_waiting_request(doc):
-				frappe.throw(_("Only a waiting New Make or Project Custom request can be edited here."))
+			if not is_editable(doc):
+				frappe.throw(not_editable)
 			old_attachment = doc.tds_attachment
 
-			plan = _plan_row(cart_row, user, set(), kept_attachment=old_attachment)
+			plan = plan_edit(user, old_attachment)
 			_refuse_duplicates(project, [plan], exclude=doc_name)
 			_assign_project_custom_ids(project, [plan])
 			_check_replacements(project, [plan])
@@ -95,7 +159,7 @@ def edit_tds_request(doc_name, row):
 					"tds_attachment": plan["tds_attachment"],
 				}
 			)
-			# Project Custom: the chosen Category. New Make: left to the before_save hook, which
+			# Project Custom: the chosen Category. Otherwise left to the before_save hook, which
 			# re-derives it from the TDS Item when the id changes.
 			if plan["tds_category"] is not None:
 				doc.tds_category = plan["tds_category"]
@@ -122,3 +186,8 @@ def _is_waiting_request(row):
 	return row.tds_status == STATUS_NEW_MAKE or (
 		row.tds_status == STATUS_PENDING and is_project_custom_id(row.tds_item_id)
 	)
+
+
+def _is_waiting_pick(row):
+	"""A From Repository row still waiting: Pending (or a legacy blank status), with no `PCUS-` id."""
+	return row.tds_status in WAITING_PICK_STATUSES and not is_project_custom_id(row.tds_item_id)
