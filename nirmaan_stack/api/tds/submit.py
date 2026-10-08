@@ -105,8 +105,6 @@ def submit_tds_request(project, rows):
 			claimed_files = set()
 			planned = [_plan_row(r, user, claimed_files) for r in cart]
 			_refuse_duplicates(project, planned)
-			# Before the replace check, so a resubmitted Project Custom row carries the id of the
-			# rejected row it replaces.
 			_assign_project_custom_ids(project, planned)
 			_check_replacements(project, planned)
 			request_id = _next_request_id(project)
@@ -372,22 +370,26 @@ def _assign_project_custom_ids(project, planned):
 
 
 def _check_replacements(project, planned):
-	"""A row may replace only a Rejected row of this project for the same TDS Item + make."""
+	"""A row may replace only a Rejected row of this project for the same item + make: the same
+	TDS Item, or for a Project Custom row the same name (trimmed, ignoring case), whatever `PCUS-`
+	id the rejected row holds."""
 	targets = set()
 	for p in planned:
 		name = p["replaces"]
 		if not name:
 			continue
 		target = frappe.db.get_value(
-			ROW_DOCTYPE, name, ["tdsi_project_id", "tds_item_id", "tds_make", "tds_status"], as_dict=True
+			ROW_DOCTYPE,
+			name,
+			["tdsi_project_id", "tds_item_id", "tds_item_name", "tds_make", "tds_status"],
+			as_dict=True,
 		)
 		if (
 			not target
 			or name in targets
 			or target.tds_status != "Rejected"
 			or target.tdsi_project_id != project
-			or not p["tds_item_id"]
-			or (target.tds_item_id, target.tds_make) != (p["tds_item_id"], p["tds_make"])
+			or _stored_key(target) != _item_make_key(p["tds_item_id"], p["custom_name_key"], p["tds_make"])
 		):
 			frappe.throw(
 				_("{0} ({1}) can't replace {2}: that is not its rejected row on this project.").format(

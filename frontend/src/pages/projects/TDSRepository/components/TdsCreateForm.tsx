@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import ReactSelect from "react-select";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { Trash2, FileText, PlusCircle, ExternalLink } from 'lucide-react';
-import { useTdsExistingProjectItems } from '../../data/tds/useTdsQueries';
+import { useTdsExistingProjectItems, type ExistingProjectRow } from '../../data/tds/useTdsQueries';
 import { useSubmitTdsRequest, useUploadTdsFile, type TdsSubmitRow } from '../../data/tds/useTdsMutations';
 import { toast } from "@/components/ui/use-toast";
 import { RequestTdsItemDialog } from "./RequestTdsItemDialog";
@@ -47,6 +47,7 @@ import {
     cartRequestTypeOf,
     customItemKey,
     isProjectCustomId,
+    rejectedRowFor,
     type RequestType,
 } from "@/utils/tdsRequestRules";
 
@@ -113,6 +114,12 @@ interface CartItem {
     previousDocName?: string;  // a Rejected row being replaced
 }
 
+// A cart row waiting on the "Resubmit Rejected Item?" confirmation, and the Rejected row it replaces.
+interface PendingResubmit {
+    item: CartItem;
+    rejected: ExistingProjectRow;
+}
+
 // What a requested cart row asks for. A picked row (From Repository) shows none.
 const CART_BADGE_STYLES: Partial<Record<RequestType, string>> = {
     "New Make": "bg-sky-100 text-sky-700",
@@ -167,10 +174,9 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     const { upload: uploadTdsFile } = useUploadTdsFile();
     const { submit: submitTdsRequest } = useSubmitTdsRequest();
 
-    // Resubmit-rejected confirmation dialog state.
-    const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+    // Resubmit-rejected confirmation dialog state. Open while `pendingResubmit` is set.
+    const [pendingResubmit, setPendingResubmit] = useState<PendingResubmit | null>(null);
     const [confirmInput, setConfirmInput] = useState("");
-    const [pendingItemToAdd, setPendingItemToAdd] = useState<CartItem | null>(null);
 
     // Existing project rows (dedup against (tds_item_id, tds_make), allow re-entry of Rejected).
     const { data: existingProjectItems } = useTdsExistingProjectItems(projectId);
@@ -222,7 +228,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     // rows are allowed back (with a resubmit confirmation).
     const activePairs = useMemo(() => {
         const set = new Set<string>();
-        (existingProjectItems || []).forEach((i: any) => {
+        (existingProjectItems || []).forEach(i => {
             if (i.tds_status === "Rejected") return;
             set.add(`${i.tds_item_id}__${i.tds_make}`);
         });
@@ -245,7 +251,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     );
     const activeCustomKeys = useMemo(() => {
         const set = new Set<string>();
-        (existingProjectItems || []).forEach((i: { tds_item_id?: string; tds_item_name?: string; tds_make?: string; tds_status?: string }) => {
+        (existingProjectItems || []).forEach(i => {
             if (i.tds_status === STORED_STATUS.rejected || !isProjectCustomId(i.tds_item_id)) return;
             set.add(customItemKey(i.tds_item_name, i.tds_make));
         });
@@ -378,29 +384,31 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
             is_new_request: false,
         };
 
-        // Replace a previously-rejected row? Require typed confirmation.
-        const rejectedEntry = existingProjectItems?.find((i: any) =>
-            i.tds_item_id === selectedGroup.tds_item &&
-            i.tds_make === selectedMake &&
-            i.tds_status === "Rejected"
-        );
-        if (rejectedEntry) {
-            setPendingItemToAdd({ ...newRow, previousDocName: rejectedEntry.name });
-            setConfirmInput("");
-            setShowConfirmDialog(true);
-            return;
-        }
+        if (deferToResubmitConfirm(newRow)) return;
 
         setCartItems(prev => [...prev, newRow]);
         resetSelection();
     };
 
+    // Replacing a Rejected row of this project? Open the typed confirmation and
+    // return true: the row reaches the cart only once confirmed. Every row type
+    // goes through here: a pick, a New Make or a Project Custom (#1380).
+    const deferToResubmitConfirm = (item: CartItem): boolean => {
+        const rejected = rejectedRowFor(existingProjectItems, item);
+        if (!rejected) return false;
+        setPendingResubmit({ item: { ...item, previousDocName: rejected.name }, rejected });
+        setConfirmInput("");
+        return true;
+    };
+
     const confirmResubmission = () => {
-        if (confirmInput === "1" && pendingItemToAdd) {
-            setCartItems(prev => [...prev, pendingItemToAdd]);
-            setPendingItemToAdd(null);
-            setShowConfirmDialog(false);
-            resetSelection();
+        if (confirmInput === "1" && pendingResubmit) {
+            const { item } = pendingResubmit;
+            setCartItems(prev => [...prev, item]);
+            setPendingResubmit(null);
+            // A pick came from the picker, so clear it. A request came from its own
+            // dialog, which has already reset; the picker may hold something else.
+            if (!item.is_new_request) resetSelection();
             toast({ title: "Item Added", description: "Previous rejected entry will be replaced upon submission." });
         } else {
             toast({ title: "Invalid Input", description: "Please enter '1' to continue.", variant: "destructive" });
@@ -457,6 +465,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
             });
             return;
         }
+        if (deferToResubmitConfirm(item)) return;
         setCartItems(prev => [...prev, item]);
     };
 
@@ -859,7 +868,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
             />
 
             {/* Resubmit-rejected Confirmation Dialog */}
-            <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+            <AlertDialog open={!!pendingResubmit} onOpenChange={(open) => { if (!open) setPendingResubmit(null); }}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Resubmit Rejected Item?</AlertDialogTitle>
@@ -867,6 +876,21 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             This item was previously rejected. To continue and replace the old entry, please enter <strong>"1"</strong> below.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
+                    {/* What is being replaced. No Request Type: it is not known once a row is rejected. */}
+                    {pendingResubmit && (
+                        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm">
+                            <dt className="text-gray-500">Item</dt>
+                            <dd className="font-medium text-gray-900 break-words">{pendingResubmit.rejected.tds_item_name}</dd>
+                            <dt className="text-gray-500">Make</dt>
+                            <dd className="text-gray-900">{pendingResubmit.rejected.tds_make}</dd>
+                            <dt className="text-gray-500">Request ID</dt>
+                            <dd className="text-gray-900">{pendingResubmit.rejected.tds_request_id || "--"}</dd>
+                            <dt className="text-gray-500">Rejection reason</dt>
+                            <dd className="text-gray-900 whitespace-pre-wrap break-words">
+                                {pendingResubmit.rejected.tds_rejection_reason || <span className="italic text-gray-400">No reason given</span>}
+                            </dd>
+                        </dl>
+                    )}
                     <div className="py-4">
                         <Input
                             value={confirmInput}
@@ -876,7 +900,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                         />
                     </div>
                     <AlertDialogFooter>
-                        <AlertDialogCancel onClick={() => setShowConfirmDialog(false)}>Cancel</AlertDialogCancel>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction
                             onClick={(e) => {
                                 e.preventDefault();

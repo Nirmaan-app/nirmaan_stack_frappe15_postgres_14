@@ -4,6 +4,7 @@ import {
 } from "frappe-react-sdk";
 import { ProjectTDSSetting } from "@/types/NirmaanStack/ProjectTDSSetting";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
+import type { TdsProjectRow } from "@/utils/tdsRequestRules";
 
 // ─── TDS Cache Keys (Standardized) ─────────────────────────────
 export const tdsKeys = {
@@ -114,11 +115,18 @@ export const useTdsRepositoryItems = () => {
 /**
  * Fetches existing project TDS items to prevent duplicates (used in TdsCreateForm)
  */
+/** A row already on the project, as `useTdsExistingProjectItems` reads it. */
+export interface ExistingProjectRow extends TdsProjectRow {
+    name: string;
+    tds_request_id?: string | null;
+    tds_rejection_reason?: string | null;
+}
+
 export const useTdsExistingProjectItems = (projectId: string) => {
-    const response = useFrappeGetDocList(
+    const response = useFrappeGetDocList<ExistingProjectRow>(
         "Project TDS Item List",
         {
-            fields: ["name", "tds_item_id", "tds_item_name", "tds_make", "tds_request_id", "tds_status"],
+            fields: ["name", "tds_item_id", "tds_item_name", "tds_make", "tds_request_id", "tds_status", "tds_rejection_reason"],
             filters: [
                 ["tdsi_project_id", "=", projectId],
                 ["docstatus", "!=", 2],

@@ -444,6 +444,77 @@ class TestSubmitTdsRequest(FrappeTestCase):
 				if label != "missing":
 					self.assertTrue(frappe.db.exists(ROW, target))
 
+	def test_a_new_make_replaces_its_rejected_row(self):
+		"""Request New for a rejected item + make (#1380). The rejected row may have been a pick or
+		a New Make; Request Type is not known once a row is rejected."""
+		rejected = self._existing("Rejected", make="MakeN")
+		row_in = self._new_make(previous_doc_name=rejected)
+		self._send([row_in])
+
+		(row,) = self._rows()
+		self.assertEqual((row.tds_make, row.tds_status, row.tds_attachment), ("MakeN", "New", row_in["tds_attachment"]))
+		self.assertFalse(frappe.db.exists(ROW, rejected))
+
+	def test_a_project_custom_row_replaces_its_rejected_row_by_name_ignoring_case(self):
+		rejected = self._existing("Rejected", item="PCUS-000001", name="FACADE light", make="Philips")
+		self._send([self._custom(name="Facade Light", previous_doc_name=rejected)])
+
+		(row,) = self._rows()
+		self.assertEqual(
+			(row.tds_item_id, row.tds_item_name, row.tds_make, row.tds_status),
+			("PCUS-000001", "Facade Light", "Philips", "Pending"),
+		)
+		self.assertFalse(frappe.db.exists(ROW, rejected))
+
+	def test_a_project_custom_row_replaces_a_rejected_row_holding_another_id_for_its_name(self):
+		"""Legacy rows may give one name two `PCUS-` ids. The match is name + make, not the id."""
+		approved = self._existing("Approved", item="PCUS-000001", name="Facade Light", make="Wipro")
+		rejected = self._existing("Rejected", item="PCUS-000002", name="facade light", make="Philips")
+		self._send([self._custom(previous_doc_name=rejected)])
+
+		self.assertEqual(
+			sorted((r.tds_item_id, r.tds_make, r.tds_status) for r in self._rows()),
+			[("PCUS-000001", "Philips", "Pending"), ("PCUS-000001", "Wipro", "Approved")],
+		)
+		self.assertFalse(frappe.db.exists(ROW, rejected))
+		self.assertTrue(frappe.db.exists(ROW, approved))
+
+	def test_a_project_custom_row_may_replace_only_its_own_rejected_row(self):
+		cases = {
+			"other name": self._existing("Rejected", item="PCUS-000001", name="Cove Strip", make="Philips"),
+			"other make": self._existing("Rejected", item="PCUS-000002", name="Facade Light", make="Wipro"),
+			"a TDS Item row": self._existing("Rejected", make="Philips", name="Facade Light"),
+		}
+		for label, target in cases.items():
+			with self.subTest(label):
+				before = {r.name for r in self._rows()}
+				with self.assertRaises(frappe.ValidationError):
+					self._send([self._custom(previous_doc_name=target)])
+				self.assertEqual({r.name for r in self._rows()}, before)
+
+	def test_a_new_make_may_not_replace_a_rejected_project_custom_row(self):
+		rejected = self._existing("Rejected", item="PCUS-000001", name="Gate Valve", make="MakeN")
+		with self.assertRaises(frappe.ValidationError):
+			self._send([self._new_make(previous_doc_name=rejected)])
+		self.assertEqual([r.name for r in self._rows()], [rejected])
+
+	def test_a_failed_resubmit_keeps_the_rejected_row(self):
+		cases = {
+			"new make": (dict(make="MakeN"), self._new_make),
+			"project custom": (dict(item="PCUS-000001", name="Facade Light", make="Philips"), self._custom),
+		}
+		for label, (rejected_fields, resubmit) in cases.items():
+			with self.subTest(label):
+				rejected = self._existing("Rejected", **rejected_fields)
+				row_in = resubmit(previous_doc_name=rejected)
+				with patch("frappe.delete_doc", side_effect=frappe.ValidationError("disk on fire")):
+					with self.assertRaises(frappe.ValidationError):
+						self._send([row_in])
+
+				self.assertEqual([r.name for r in self._rows()], [rejected])
+				self.assertEqual(frappe.db.get_value(ROW, rejected, "tds_status"), "Rejected")
+				frappe.db.delete(ROW, rejected)
+
 	def test_nothing_is_saved_when_a_write_fails_part_way(self):
 		rejected = self._existing("Rejected")
 		with patch("frappe.delete_doc", side_effect=frappe.ValidationError("disk on fire")):

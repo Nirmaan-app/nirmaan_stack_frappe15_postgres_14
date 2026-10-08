@@ -89,6 +89,41 @@ export function customItemKey(name?: string | null, make?: string | null): strin
   return `${foldItemName(name)}|${(make ?? "").trim()}`;
 }
 
+/** The fields of a stored project row a resubmit matches on. */
+export interface TdsProjectRow extends TdsRequestRow {
+  tds_item_name?: string | null;
+  tds_make?: string | null;
+}
+
+/** The fields of a cart row a resubmit matches on. */
+export interface TdsResubmitCandidate extends TdsCartRow {
+  tds_item_id?: string | null;
+  tds_item_name?: string | null;
+  make?: string | null;
+}
+
+/**
+ * The project's Rejected row that a cart row would replace on send, if any. Request Type is not
+ * known once a row is rejected, so a pick or New Make matches on TDS Item + make, and a Project
+ * Custom row on name (ignoring case) + make, whatever `PCUS-` id the rejected row holds. The server
+ * checks the replacement the same way (`submit.py` `_check_replacements`).
+ */
+export function rejectedRowFor<T extends TdsProjectRow>(
+  rows: readonly T[] | undefined,
+  candidate: TdsResubmitCandidate
+): T | undefined {
+  return (rows ?? []).find(row => {
+    if (row.tds_status !== STORED_STATUS.rejected) return false;
+    if (candidate.is_project_custom) {
+      return (
+        isProjectCustomId(row.tds_item_id) &&
+        customItemKey(row.tds_item_name, row.tds_make) === customItemKey(candidate.tds_item_name, candidate.make)
+      );
+    }
+    return row.tds_item_id === candidate.tds_item_id && row.tds_make === candidate.make;
+  });
+}
+
 /** An item name folded for comparison: trimmed, ignoring case (`submit.py` `_name_key`). */
 export function foldItemName(name?: string | null): string {
   return (name ?? "").trim().toLowerCase();

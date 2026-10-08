@@ -15,6 +15,7 @@ import {
   isEditableRequest,
   isProjectCustomId,
   itemStatusOf,
+  rejectedRowFor,
   repositoryEntryKey,
   requestTypeOf,
   storedStatusesFor,
@@ -175,6 +176,39 @@ describe("customItemKey", () => {
     expect(customItemKey("Facade Light", "Philips")).not.toBe(customItemKey("Facade Light", "philips"));
     // The server strips the make it is sent.
     expect(customItemKey("Facade Light", " Philips ")).toBe(customItemKey("Facade Light", "Philips"));
+  });
+});
+
+describe("rejectedRowFor", () => {
+  const rows = [
+    { name: "r-pick", tds_item_id: "TDS-ITEM-1", tds_item_name: "Gate Valve", tds_make: "MakeA", tds_status: "Rejected" },
+    { name: "r-live", tds_item_id: "TDS-ITEM-1", tds_item_name: "Gate Valve", tds_make: "MakeB", tds_status: "Approved" },
+    { name: "r-custom", tds_item_id: "PCUS-000002", tds_item_name: "FACADE light", tds_make: "Philips", tds_status: "Rejected" },
+    { name: "r-name-clash", tds_item_id: "TDS-ITEM-2", tds_item_name: "Cove Strip", tds_make: "Wipro", tds_status: "Rejected" },
+  ];
+
+  it("a pick or New Make matches its TDS Item + make", () => {
+    expect(rejectedRowFor(rows, { tds_item_id: "TDS-ITEM-1", tds_item_name: "Gate Valve", make: "MakeA" })?.name).toBe("r-pick");
+    expect(
+      rejectedRowFor(rows, { tds_item_id: "TDS-ITEM-1", tds_item_name: "Gate Valve", make: "MakeA", is_new_request: true })?.name
+    ).toBe("r-pick");
+  });
+
+  it("a Project Custom row matches its name ignoring case + make, whatever id the rejected row holds", () => {
+    const custom = { tds_item_id: "", tds_item_name: " Facade Light ", make: "Philips", is_new_request: true, is_project_custom: true };
+    expect(rejectedRowFor(rows, custom)?.name).toBe("r-custom");
+    expect(rejectedRowFor(rows, { ...custom, make: "Wipro" })).toBeUndefined();
+  });
+
+  it("a Project Custom row never matches a TDS Item row of the same name", () => {
+    expect(
+      rejectedRowFor(rows, { tds_item_id: "", tds_item_name: "Cove Strip", make: "Wipro", is_project_custom: true })
+    ).toBeUndefined();
+  });
+
+  it("only a Rejected row is replaced", () => {
+    expect(rejectedRowFor(rows, { tds_item_id: "TDS-ITEM-1", tds_item_name: "Gate Valve", make: "MakeB" })).toBeUndefined();
+    expect(rejectedRowFor(undefined, { tds_item_id: "TDS-ITEM-1", tds_item_name: "Gate Valve", make: "MakeA" })).toBeUndefined();
   });
 });
 
