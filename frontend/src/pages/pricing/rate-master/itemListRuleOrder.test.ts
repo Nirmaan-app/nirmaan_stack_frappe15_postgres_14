@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 import HVAC from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v16.json";
 import EALL from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v66.json";
 import { readdirSync } from "node:fs";
-import { itemListRuleOrder, plainSentence } from "./itemListRuleOrder";
+import { extractionRulesCardShown, itemListRuleOrder, plainSentence } from "./itemListRuleOrder";
 import { readJsonFixture } from "../calculatorPanelParity.harness";
 import { pricingInputUsedBy, pricingInputUsedByText } from "./rateMasterSpec";
 import { editableFieldsOf, isPercentField } from "./pricingInputImpact";
@@ -272,5 +272,30 @@ describe("12d-4c: the Derivation tab lists EVERY Insulation rule the config decl
     expect(text).toMatch(/Fitting the stated torque to the catalogue -- the stated size, else the next size the catalogue stocks; above the largest stocked size refuses, naming the size/);
     expect(text).toMatch(/\d+ cells on \d+ rows \(the grey 'derived' cells\)/);
     for (const not of ["Nitrile", "Glass Cloth", "epdm", "writes as layers", "Several", "inches"]) expect(text, not).not.toContain(not);
+  });
+});
+
+describe("12d-5 (owner P1, F-C5a): the extraction-rules card is hidden on an item-list category with no extraction rules -- decided by the config", () => {
+  it("Insulation and ADP (the LATEST asset) declare no extraction rules and price as item lists -> no card", () => {
+    for (const cid of ["hvac_insulation", "hvac_adp"]) {
+      const cfg = cfgOf(LIVE, cid);
+      expect(Array.isArray(cfg.rules) ? cfg.rules.length : 0, cid).toBe(0);
+      expect(!!cfg.list_spec, cid).toBe(true);
+      expect(extractionRulesCardShown(cfg), cid).toBe(false);
+    }
+  });
+  it("NEGATIVE: every Electrical category keeps its card -- with rules or with the empty state -- unchanged", () => {
+    const withRules = eall.category_configs.filter((c) => Array.isArray(c.rules) && c.rules.length > 0).map((c) => c.category_id);
+    expect(withRules.length).toBeGreaterThan(0);
+    for (const c of eall.category_configs) expect(extractionRulesCardShown(c), c.category_id).toBe(true);
+    // the HVAC vendor-quote / alias / pricing-inputs configs are not item lists either: unchanged
+    for (const id of ["hvac_ahu", "hvac_cables", "hvac_pricing_inputs"]) expect(extractionRulesCardShown(cfgOf(LIVE, id)), id).toBe(true);
+  });
+  it("NEGATIVE: an item-list category that DOES declare extraction rules keeps its card (the rules decide, not the shape)", () => {
+    const cfg = structuredClone(cfgOf(LIVE, "hvac_insulation"));
+    cfg.rules = [{ id: "X", label: "a rule", text: "..." }];
+    expect(extractionRulesCardShown(cfg)).toBe(true);
+    expect(extractionRulesCardShown({})).toBe(true);
+    expect(extractionRulesCardShown(undefined)).toBe(true);
   });
 });

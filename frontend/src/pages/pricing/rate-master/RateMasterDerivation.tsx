@@ -7,7 +7,7 @@
 // pricer-facing helper defers them. Honest no-match + unsupported-step states.
 
 import { useMemo, useState } from "react";
-import { itemListRuleOrder } from "./itemListRuleOrder";
+import { extractionRulesCardShown, itemListRuleOrder } from "./itemListRuleOrder";
 import { Pencil, Check, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -491,7 +491,11 @@ export function RateMasterDerivation({ items, config, isAdmin, frozen, onSavePar
           extraction prompt receives verbatim, so this panel is what the config actually tells the AI,
           not a paraphrase. Unlike the pipelines grid below, it renders an explicit empty state: the
           Derivation tab had no empty-state precedent (a config with no pipelines simply drew blank
-          space), and silent blankness reads as "broken" rather than "none configured". */}
+          space), and silent blankness reads as "broken" rather than "none configured".
+          SLICE 12d-5 (owner P1, F-C5a): NOT drawn on an item-list category that declares no extraction
+          rules -- its rules are the list above, and an empty card beneath it read as a contradiction. The
+          decision is the pure `extractionRulesCardShown(config)`; Electrical's card is unchanged. */}
+      {extractionRulesCardShown(config) && (
       <Card data-testid="rate-master-rules-panel">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">Rules</CardTitle>
@@ -517,6 +521,7 @@ export function RateMasterDerivation({ items, config, isAdmin, frozen, onSavePar
           )}
         </CardContent>
       </Card>
+      )}
 
       {/* pipelines */}
       <div className="grid gap-4 md:grid-cols-2">

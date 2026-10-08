@@ -62,6 +62,22 @@ export { plainSentence };
  */
 export type RuleOrderItem = { kind?: string; attributes?: Record<string, unknown> };
 
+/**
+ * SLICE 12d-5 (owner P1, finding F-C5a): whether the Derivation tab draws the "Rules" card -- the EXTRACTION
+ * rules (`config.rules`, the owner-authored estimator guidance the prompt receives). An item-list category
+ * keeps its rules inside `list_spec` and lists them in "How a row is priced", so beneath that list an empty
+ * "No rules configured" card read as a contradiction. Decided by the CONFIG, never by a category name: the
+ * card is hidden iff the category prices as a list of items (a `list_spec` is present) AND declares no
+ * extraction rules; a category that carries rules keeps its card whatever its shape, and every
+ * non-item-list category (Electrical) keeps its empty state exactly as before.
+ */
+export function extractionRulesCardShown(config: unknown): boolean {
+  const c = config as any;
+  const rules = Array.isArray(c?.rules) ? c.rules : [];
+  const itemList = !!(c?.list_spec && typeof c.list_spec === "object");
+  return rules.length > 0 || !itemList;
+}
+
 export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrderItem> = []): RuleOrderLine[] {
   const inputLabel = (id: string): string => pricingInputLabel(id, items);
   const ls = (config as any)?.list_spec;
