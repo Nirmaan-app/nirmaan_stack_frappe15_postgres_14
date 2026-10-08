@@ -222,9 +222,12 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
 
                 <div className="space-y-3 max-h-[70vh] overflow-y-auto">
                     <div>
-                        <p className="text-xs text-muted-foreground mb-1.5">
+                        <p className="text-xs text-muted-foreground">
                             Search any item under this Work Package and stage it. All staged
                             items are added together when you save.
+                        </p>
+                        <p className="text-xs text-amber-700 mb-1.5">
+                            Non-Billable items are excluded from this linking.
                         </p>
                         <FuzzySearchSelect
                             allOptions={pickerOptions}

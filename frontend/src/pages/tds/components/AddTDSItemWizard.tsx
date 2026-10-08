@@ -517,8 +517,11 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
                                                 (items under {wpLabel})
                                             </span>
                                         </label>
-                                        <p className="text-xs text-muted-foreground mb-1.5">
+                                        <p className="text-xs text-muted-foreground">
                                             Search any item under this Work Package and add it to the group.
+                                        </p>
+                                        <p className="text-xs text-amber-700 mb-1.5">
+                                            Non-Billable items are excluded from this linking.
                                         </p>
                                         <FuzzySearchSelect
                                             allOptions={memberOptions}
