@@ -32,6 +32,7 @@ import {
   historyTabFilters,
   historyTabOf,
   isClientStatusMarkable,
+  isDeleteLocked,
 } from "./tdsRequestRules";
 
 // The backend writes the stored values; this module only reads them. The PARITY block reads the
@@ -527,6 +528,31 @@ describe("isClientStatusMarkable", () => {
 
   it("an answered row stays markable, so it can be switched", () => {
     expect(isClientStatusMarkable({ tds_status: "Approved", client_status: "Rejected by Client" })).toBe(true);
+  });
+});
+
+describe("isDeleteLocked", () => {
+  it("a row the client has answered is locked against delete", () => {
+    expect(isDeleteLocked({ tds_status: "Approved", client_status: "Approved by Client" })).toBe(true);
+    expect(isDeleteLocked({ tds_status: "Approved", client_status: "Rejected by Client" })).toBe(true);
+  });
+
+  it("a row the client has not answered keeps its delete button, whatever its tds_status", () => {
+    for (const tds_status of ["Pending", "New", "Approved", "Rejected", "", null]) {
+      expect(isDeleteLocked({ tds_status, client_status: "" })).toBe(false);
+      expect(isDeleteLocked({ tds_status, client_status: null })).toBe(false);
+      expect(isDeleteLocked({ tds_status })).toBe(false);
+    }
+  });
+
+  it("the server refuses the same deletes (Project TDS Item List on_trash)", () => {
+    const controller = readFileSync(
+      resolve(__dirname, "../../../nirmaan_stack/integrations/controllers/project_tds_item_list.py"),
+      "utf-8"
+    );
+    const body = controller.match(/def on_trash\([\s\S]*$/);
+    expect(body, "on_trash not found in project_tds_item_list.py").toBeTruthy();
+    expect(body![0]).toMatch(/if doc\.client_status:\s*\n\s*frappe\.throw\(/);
   });
 });
 

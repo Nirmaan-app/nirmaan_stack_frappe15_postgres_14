@@ -36,7 +36,9 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
 - **Writes go through the endpoints**, each re-checking on the server:
   - `submit.submit_tds_request`: the send. All rows or none, under the project's advisory lock, which also
     issues the request id and `PCUS-` ids.
-  - `approve.approve_tds_items` / `reject_tds_items`: Admin only.
+  - `approve.approve_tds_items` / `reject_tds_items`: Admin only, and only on a row waiting for
+    approval (`WAITING_STATUSES`). Any other row is reported in `errors[]` and left unchanged, so an
+    Admin rejection never lands on a row the client has answered.
   - `edit_request.edit_tds_request`: Admin edits of New Make and Project Custom rows, row-locked inside
     the project lock.
   - `edit_request.edit_tds_pick`: the Admin's "Edit TDS Item" of a From Repository row, the same way.
@@ -55,6 +57,12 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
   Status / each answer), so every row sits in exactly one tab; ticks go only on
   `isClientStatusMarkable` rows. `clientStatusActionsFor` names each tab's actions: TDS History the two
   marks; a client tab the switch to the other answer, plus Clear for an Admin only.
+- **A row the client has answered can't be deleted** by anyone, through any doc-layer path including
+  REST: the `on_trash` hook (`integrations/controllers/project_tds_item_list.py`) refuses it while
+  `client_status` is set. An Admin clears the Client Status first; the row then deletes under the usual
+  rules. TDS History shows "Locked" in place of the delete button (`isDeleteLocked`, parity-pinned to
+  the hook). Replace-on-resubmit and the edit paths delete only Admin-Rejected rows, which never carry
+  a Client Status. A raw `frappe.db.delete` (fixtures, the browser walk's cleanup) skips the hook.
 - **A *Rejected by Client* row keeps its item + make live.** Its `tds_status` is Approved, so
   `_refuse_duplicates` refuses the same TDS Item + make (Project Custom: folded name + make) with a
   message naming the case; another make of the item is free. The request form finds the row with
@@ -68,8 +76,8 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
 ## Known gaps
 
 - Every role holds write and delete on `Project TDS Item List`, so the REST API bypasses the Admin-only
-  approval and the delete rules.
-- `reject_tds_items` has no from-status check.
+  approval and the delete rules. The one exception is the Client Status delete lock, which the server
+  enforces for every caller.
 - The PDF export prints the rows the browser sends; the Handover binder reads rows without a status
   filter.
 - Request ids are `RQ-<last 3 chars of project>-NN`, so they collide from project #1000 on.
@@ -77,5 +85,5 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
 ## Testing
 
 Backend: `api/tds/test_submit.py`, `test_approve.py`, `test_edit_request.py`, `test_tds_report.py`,
-`test_status_label.py`, `test_client_status.py`.
+`test_status_label.py`, `test_client_status.py`, `test_client_status_lock.py`.
 Frontend: `utils/tdsRequestRules.test.ts`. Browser: `scripts/tds_walk/` (see its README).

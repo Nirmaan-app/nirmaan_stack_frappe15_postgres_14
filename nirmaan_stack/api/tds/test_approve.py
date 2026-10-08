@@ -14,7 +14,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.tds.approve import approve_tds_items
+from nirmaan_stack.api.tds.approve import approve_tds_items, reject_tds_items
 from nirmaan_stack.api.tds.test_submit import _cloud_url, _create_project, _make_user, _raw
 from nirmaan_stack.services.role_profiles import PMO_EXECUTIVE_PROFILE
 
@@ -135,6 +135,39 @@ class TestApproveTdsItems(FrappeTestCase):
 			approve_tds_items([row])
 		frappe.set_user("Administrator")
 		self.assertEqual(frappe.db.get_value(ROW, row, "tds_status"), "Pending")
+
+	# ── Rejecting: only a row waiting for approval (#1387) ─────────────────────────────────────
+
+	def test_reject_refuses_rows_not_waiting_and_still_rejects_the_waiting_ones(self):
+		refused = {
+			"approved": self._row("Approved", self.item, make="MakeA"),
+			"approved by client": self._row(
+				"Approved", self.item, make="MakeB", client_status="Approved by Client", client_status_by=PMO_USER
+			),
+			"already rejected": self._row("Rejected", self.item, make="MakeC", tds_rejection_reason="Old reason"),
+		}
+		waiting = [
+			self._row("Pending", self.item, make="MakeP"),
+			self._row("New", self.item, make="MakeN"),
+			self._row("", self.item, make="MakeL"),
+		]
+		fields = ["tds_status", "tds_rejection_reason", "client_status", "client_status_by"]
+		before = {r: frappe.db.get_value(ROW, r, fields, as_dict=True) for r in refused.values()}
+
+		out = reject_tds_items([*refused.values(), *waiting], reason="Wrong datasheet")
+
+		self.assertEqual(out["rejected"], 3)
+		self.assertEqual(sorted(e["name"] for e in out["errors"]), sorted(refused.values()))
+		for e in out["errors"]:
+			self.assertIn("Only a row waiting for approval can be rejected", e["error"])
+		for label, row in refused.items():
+			with self.subTest(label):
+				self.assertEqual(frappe.db.get_value(ROW, row, fields, as_dict=True), before[row])
+		for row in waiting:
+			self.assertEqual(
+				frappe.db.get_value(ROW, row, ["tds_status", "tds_rejection_reason"]),
+				("Rejected", "Wrong datasheet"),
+			)
 
 
 	# ── A New Make whose entry was added after the request was sent (#1378) ──────────────────

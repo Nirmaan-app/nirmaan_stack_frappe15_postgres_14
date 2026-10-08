@@ -321,6 +321,14 @@ export function isClientStatusMarkable(row: ClientStatusRow): boolean {
 }
 
 /**
+ * A row the client has answered can't be deleted by anyone until an Admin clears its Client Status.
+ * The server refuses it the same way (`Project TDS Item List` `on_trash`, parity-pinned).
+ */
+export function isDeleteLocked(row: ClientStatusRow): boolean {
+  return !!row.client_status;
+}
+
+/**
  * The Client Status actions a tab's toolbar offers for ticked rows.
  * - TDS History: the two marks.
  * - A client tab: the switch to the other answer, then Clear (Admin only), which sends the rows back
