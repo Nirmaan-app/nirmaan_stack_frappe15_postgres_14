@@ -4,7 +4,9 @@
 import { describe, it, expect } from "vitest";
 import HVAC from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v16.json";
 import EALL from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_electrical_all_v66.json";
-import { itemListRuleOrder } from "./itemListRuleOrder";
+import { readdirSync } from "node:fs";
+import { itemListRuleOrder, plainSentence } from "./itemListRuleOrder";
+import { readJsonFixture } from "../calculatorPanelParity.harness";
 import { pricingInputUsedBy, pricingInputUsedByText } from "./rateMasterSpec";
 import { editableFieldsOf, isPercentField } from "./pricingInputImpact";
 
@@ -160,5 +162,115 @@ describe("the impact panel offers an edit box for a rate or a factor", () => {
       expect(f).not.toContain("rate");
       expect(f).not.toContain("factor");
     }
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 12d-4c (owner C5, finding F6): EVERY rule the config declares appears on the tab, NAMED, in run
+// order, in plain English, derived from the config -- never a second list. The LATEST HVAC asset on disk
+// is READ at runtime (the heap cliff: never `import` a 16,000-line asset), so this is the rule set the live
+// site serves once that asset is loaded.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════
+const DATA_DIR = new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/", import.meta.url);
+const latestHvac = () => {
+  const files = readdirSync(DATA_DIR).filter((f) => /^rate_master_hvac_all_v\d+\.json$/.test(f));
+  files.sort((x, y) => Number(x.match(/_v(\d+)/)![1]) - Number(y.match(/_v(\d+)/)![1]));
+  return readJsonFixture<{ category_configs: any[]; items: any[] }>(new URL(files[files.length - 1], DATA_DIR));
+};
+const LIVE = latestHvac();
+const insulation = () => cfgOf(LIVE, "hvac_insulation");
+const textOf = (cfg: unknown, items: any[] = LIVE.items) => itemListRuleOrder(cfg, items).map((r) => `${r.title} -- ${r.detail ?? ""}`).join("\n");
+const without = (cfg: any, key: string) => {
+  const c = JSON.parse(JSON.stringify(cfg));
+  delete c.list_spec.pricing[key];
+  return c;
+};
+
+describe("12d-4c: the Derivation tab lists EVERY Insulation rule the config declares, in run order, plain English", () => {
+  // each entry: the config key that carries the rule -> a marker the tab MUST show for it (and must NOT show once the key is gone)
+  const DECLARED: Array<[string, RegExp]> = [
+    ["family_when_none", /names no material takes the kind its row implies -- per metre: Nitrile Rubber Insulation; per sq\.m: Thermal Nitrile Insulation; 'acoustic', 'accoustic', 'lining'/],
+    ["no_sku_families", /'none of these' is a refusal for a person, naming the material as the row wrote it/],
+    ["unstocked_materials", /does not stock refuses by name, whatever kind was picked -- 'epdm', 'xlpe', 'rockwool'/],
+    ["compose", /writes as layers is priced as those layers -- 'a \+ b', 'a x 2', '2 layers of a', 'a mm - 2 layers', 'double layer of a' -- each layer at the row's own size, the cladding on the outer layer only; a value the pricer types is never read as layers/],
+    ["defaults", /cladding not mentioned -> No/],
+    ["number_defaults", /thickness not mentioned at all -> 9 mm, then the ladder; a thickness the row itself states always wins, over a heading's too/],
+    ["value_map", /Aluminium Foil as the cladding on Nitrile Rubber Insulation, Tubular Puf Insulation is priced as 26G Aluminium/],
+    ["refuse_on_unit_class", /Glass Cloth as the cladding on a per-sq\.m row of Thermal Nitrile Insulation, Acoustic Nitrile Insulation, Fiberglass Rigid Board Insulation, Density 48Kg\/m3 refuses -- glass cloth is not offered on sheet insulation - price this row by hand; the same when the model read no cladding but the row's own words say 'glass cloth'/],
+    ["named_in_row", /A cladding named in the row's own text but read as not mentioned refuses -- cladding named in this row but not read - set the cladding -- the words: 'aluminium', 'aluminum', 'foil'/],
+    ["read_notes", /row stating its own figure in the insulation material as written carries a line saying what was priced -- 'BoQ says <the stated figure> -> priced as the 48 kg\/m3 board' \(not when the figure is 48\)/],
+    ["ladders", /Fitting the stated pipe size to the catalogue -- the stated size, else the next size the catalogue stocks; the same size written to a different precision counts as that size; above the largest stocked size refuses, naming the size/],
+    ["unit_factors", /sqft, sq ft, sq\.ft, sft convert to the catalogue's own unit/],
+  ];
+
+  it("every declared rule appears, NAMED, and in the order the pricing applies it", () => {
+    const text = textOf(insulation());
+    let last = -1;
+    const order = ["names no material", "could not match to any kind", "does not stock refuses by name", "That kind's rule for that unit", "facts that rule needs",
+                   "writes as layers", "Several thickness values", "written in inches", "does not mention takes its ruled value", "Aluminium Foil as the cladding on Nitrile",
+                   "Aluminium Foil as the cladding on Acoustic Nitrile Insulation refuses", "Glass Cloth as the cladding", "named in the row's own text", "carries a line saying what was priced",
+                   "Fitting the stated pipe size", "Fitting the stated thickness", "Then the priced steps", "read live from another catalogue row", "shown greyed, never typed", "derived from another row's cell",
+                   "converts to the unit", "Multiplied by how many"];
+    for (const needle of order) {
+      const at = text.indexOf(needle);
+      expect(at, needle).toBeGreaterThan(last);
+      last = at;
+    }
+    for (const [, marker] of DECLARED) expect(text, String(marker)).toMatch(marker);
+    // the concrete rulings beyond the keyed markers
+    expect(text).toMatch(/Aluminium Foil as the cladding on Acoustic Nitrile Insulation refuses -- foil on an acoustic row - the catalogue has no foil-faced acoustic insulation; set the cladding$/m);
+    expect(text).toMatch(/built from 4 or fewer layers within 2 -- the fewest layers, then the closest, then the cheapest, all at one pipe size/);
+    // owner (on approving 5d): the Pricing Inputs by their LABELS, read off the Pricing Inputs rows -- never the item ids
+    expect(text).toMatch(/the pricing inputs are read first \(Aluminium sheet 24G, Aluminium sheet 26G, Cladding overlap, GI framework fabrication, GI framework sheet, GI framework sheet factor, Glass cloth\)/);
+    expect(text).toMatch(/A rate read live from another catalogue row -- Cladding Only/);
+    expect(text).toMatch(/shown greyed, never typed -- cladding --/);
+    expect(text).toMatch(/\d+ cells on \d+ rows \(the grey 'derived' cells\)/);
+    expect(text).toMatch(/a row with no unit, or a rate-only unit \(R\/O, QRO\), is priced in the item's own unit/);
+    expect(text).toMatch(/A pipe size written in inches is converted to millimetres/);
+    expect(text).toMatch(/Several thickness values stated take the highest/);
+  });
+
+  it("VACUITY, structural: remove one declared rule from the config and its line is GONE (every key, one by one)", () => {
+    for (const [key, marker] of DECLARED) {
+      expect(textOf(insulation()), key).toMatch(marker);
+      expect(textOf(without(insulation(), key)), `without ${key}`).not.toMatch(marker);
+    }
+  });
+
+  it("NEGATIVE: no internal code and no config key name reaches the screen", () => {
+    const text = textOf(insulation());
+    expect(text).not.toMatch(/\b[RDTS]-?\d{1,2}[a-z]?\b/);           // R4, D3, T1, S6 ...
+    expect(text).not.toMatch(/\(owner/i);
+    for (const key of ["value_map", "named_in_row", "unstocked_materials", "refuse_on_unit_class", "read_notes", "family_when_none", "number_defaults",
+                       "no_sku_families", "no_sku_named_by", "derived_rates", "absent_as_none", "thickness_mm", "pipe_size_mm", "material_as_written", "list_spec", "rate_ref", "component",
+                       "gi_framework_factor", "gi_sheet_rate", "alu_sheet_26g", "glass_cloth", "item_install"]) {
+      expect(text, key).not.toContain(key);
+    }
+    // owner: "no internal names anywhere on the tab" -- no snake_case token at all, on Insulation AND on ADP, with the
+    // items supplied (labels) AND without them (ids written as plain words), so neither path can leak an id
+    for (const cid of ["hvac_insulation", "hvac_adp"]) {
+      expect(textOf(cfgOf(LIVE, cid)), cid).not.toMatch(/\b\w+_\w+\b/);
+      expect(textOf(cfgOf(LIVE, cid), []), `${cid} without items`).not.toMatch(/\b\w+_\w+\b/);
+    }
+    expect(textOf(insulation(), [])).toMatch(/the pricing inputs are read first \(alu sheet 24g, alu sheet 26g, cladding overlap, gi framework adder, gi framework factor, gi sheet rate, glass cloth\)/);
+    expect(textOf(cfgOf(LIVE, "hvac_adp"))).toMatch(/Then the priced steps below, in their own order -- install, item install, item supply, supply/);
+    expect(plainSentence("foil on an acoustic row - set the cladding (R4)")).toBe("foil on an acoustic row - set the cladding");
+    expect(plainSentence("R4 foil on a pipe is priced as 26G cladding (owner 2026-10-07)")).toBe("R4 foil on a pipe is priced as 26G cladding");
+    expect(plainSentence("glass cloth is not offered on sheet insulation - price this row by hand")).toBe("glass cloth is not offered on sheet insulation - price this row by hand");
+  });
+
+  it("NEGATIVE: every Electrical tab is still EMPTY, and a vendor-quote / alias config too", () => {
+    for (const c of eall.category_configs) expect(itemListRuleOrder(c)).toEqual([]);
+    for (const id of ["hvac_ahu", "hvac_cables", "hvac_pricing_inputs"]) expect(itemListRuleOrder(cfgOf(LIVE, id))).toEqual([]);
+  });
+
+  it("ADP (5d, approved on the owner's word): its lines are ITS config -- the damper / insulated / UL defaults with their values, the UL 555 override, the five ladders, the derived cells; none of Insulation's", () => {
+    const text = textOf(cfgOf(LIVE, "hvac_adp"));
+    expect(text).toMatch(/damper not mentioned -> without, insulated not mentioned -> with, UL listed not mentioned -> no/);
+    expect(text).toMatch(/variant on fire damper becomes UL 555 when UL listed is yes/);
+    expect(text).toMatch(/double-skin plenum is not offered per number/);
+    expect(text).toMatch(/Fitting the stated torque to the catalogue -- the stated size, else the next size the catalogue stocks; above the largest stocked size refuses, naming the size/);
+    expect(text).toMatch(/\d+ cells on \d+ rows \(the grey 'derived' cells\)/);
+    for (const not of ["Nitrile", "Glass Cloth", "epdm", "writes as layers", "Several", "inches"]) expect(text, not).not.toContain(not);
   });
 });

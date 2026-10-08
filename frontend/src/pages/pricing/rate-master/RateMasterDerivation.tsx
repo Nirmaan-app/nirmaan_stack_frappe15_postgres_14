@@ -188,7 +188,7 @@ function detailFor(s: StepTrace): string {
 export function RateMasterDerivation({ items, config, isAdmin, frozen, onSaveParam }: Props) {
   // SLICE 12c / ACCEPTANCE 5: the resolution order, read from `list_spec.pricing`. PURE and unit-tested,
   // so this component stays thin over it (ADR-0010 F4); [] for a category that is not item-list.
-  const ruleOrder = useMemo(() => itemListRuleOrder(config), [config]);
+  const ruleOrder = useMemo(() => itemListRuleOrder(config, items), [config, items]);
   // EA-4 ext-a: tolerate a config with no rules key at all (every category except the two that
   // carry one) -- an absent key renders the empty state, never a crash.
   const rules = useMemo(
