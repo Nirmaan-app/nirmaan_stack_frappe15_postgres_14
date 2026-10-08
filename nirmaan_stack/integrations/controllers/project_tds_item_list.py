@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 
 from nirmaan_stack.api.tds.members import get_group_category
 
@@ -48,4 +49,20 @@ def before_save(doc, method=None):
 		frappe.log_error(
 			title="ProjectTDSItemList before_save tds_category snapshot failed",
 			message=frappe.get_traceback(),
+		)
+
+
+def on_trash(doc, method=None):
+	"""Refuse to delete a row the client has answered, whoever asks and however (#1387).
+
+	A row with a Client Status is a datasheet the client has signed off or turned down, so it stays
+	until an Admin clears that answer through `api/tds/client_status.set_client_status`. The
+	replace-on-resubmit and edit paths delete only Admin-Rejected rows, which never carry a Client
+	Status (it needs `tds_status = Approved`), so they pass. A raw `frappe.db.delete` skips this hook.
+	"""
+	if doc.client_status:
+		frappe.throw(
+			_(
+				"{0} is marked {1}, so it can't be deleted. An Admin must clear its Client Status first."
+			).format(doc.tds_item_name or doc.name, doc.client_status)
 		)

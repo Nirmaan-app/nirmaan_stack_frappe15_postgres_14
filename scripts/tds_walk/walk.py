@@ -412,9 +412,10 @@ frappe.db.commit()
         """Put the test data back to the seeded catalogue: drop project rows created after `since`,
         Repository Entries for the test item other than the two seeded ones, test File records, and
         restore the seeded entries' fields."""
-        # Raw deletes and set_value on purpose: these are throwaway walk records with no dependents and
-        # no delete hooks, and the doc-layer File delete would run the storage app's trash hook against
-        # the production bucket. Nothing derived reads them, so there is nothing to recompute.
+        # Raw deletes and set_value on purpose: these are throwaway walk records with no dependents, and
+        # the doc-layer File delete would run the storage app's trash hook against the production bucket.
+        # The raw row delete also skips the Client Status lock (`on_trash`, #1387), so rows a case marked
+        # still go. Nothing derived reads them, so there is nothing to recompute.
         res = self.be('''
 keep = [v["name"] for v in P["entries"].values()]
 rows = frappe.get_all(ROW, filters={"tdsi_project_id": PROJECT, "creation": [">", P["since"]]}, pluck="name")
@@ -1961,6 +1962,98 @@ def c40(w: Walk, page, c: Checks):
     db = db_tab_counts(w)
     c.eq(ui_tab_counts(page), {t: db[t] for t in TAB_LABELS}, "tab counts match the database")
     w.shot(page, "c40_rejected_tab", full=True)
+
+
+# ─── #1387: a row the client has answered is locked against delete ───────────────────────────────
+
+LOCKED_MARKER = "tds-row-locked"
+DELETE_BUTTON = "tds-row-delete"
+
+# A direct REST delete from the logged-in browser, the path the Locked marker can't stop.
+REST_DELETE_JS = """async (name) => {
+  const r = await fetch(`/api/resource/Project TDS Item List/${encodeURIComponent(name)}`,
+    {method: "DELETE", headers: {"X-Frappe-CSRF-Token": window.csrf_token || ""}});
+  return {status: r.status, body: await r.text()};
+}"""
+
+
+def seed_answered(w: Walk, rid):
+    """Value Approved by Client, Nerolac Rejected by Client (with a reason), Tapariya Admin-approved only."""
+    rows = w.be('R["rows"] = [seed_row(P["rid"], s) for s in P["specs"]]; frappe.db.commit()', rid=rid, specs=[
+        {"kind": "new_make", "make": "Value", "status": "Approved", "client_status": CLIENT_APPROVED},
+        {"kind": "new_make", "make": "Nerolac", "status": "Approved", "client_status": CLIENT_REJECTED,
+         "client_reason": "walk: wrong colour"},
+        {"kind": "pick", "make": "Tapariya", "status": "Approved"},
+    ])["rows"]
+    return {r["make"]: r["name"] for r in rows}
+
+
+@case(32, "client tabs show Locked instead of a delete button; a direct REST delete is refused and the row is unchanged")
+def c32(w: Walk, page, c: Checks):
+    names = seed_answered(w, "RQ-001-WALK32")
+    answered = [names["Value"], names["Nerolac"]]
+    before = client_fields(w, answered)
+    open_history_page(page)
+    wait_for(lambda: "Tapariya" in walk_makes(page), 15)
+    row = walk_row(page, "Tapariya")
+    c.eq(row.get_by_test_id(DELETE_BUTTON).count(), 1, "an unanswered row keeps its delete button")
+    c.eq(row.get_by_test_id(LOCKED_MARKER).count(), 0, "an unanswered row shows no Locked marker")
+
+    for tab, make in (("approvedByClient", "Value"), ("rejectedByClient", "Nerolac")):
+        open_history_tab(page, tab)
+        wait_for(lambda: make in walk_makes(page), 10)
+        row = walk_row(page, make)
+        marker = row.get_by_test_id(LOCKED_MARKER)
+        c.eq(row.get_by_test_id(DELETE_BUTTON).count(), 0, f"{TAB_LABELS[tab]}: {make} has no delete button")
+        if c.check(marker.count() == 1, f"{TAB_LABELS[tab]}: {make} shows the Locked marker"):
+            c.eq(marker.inner_text().strip(), "Locked", f"{make} marker text")
+            marker.hover()
+            tip = wait_for(lambda: page.get_by_role("tooltip").count() and page.get_by_role("tooltip").first.inner_text(), 5)
+            c.check(tip and "Admin must clear its Client Status" in tip, f"{make} tooltip explains the lock", tip)
+        w.shot(page, f"c32_{tab}_locked", full=True)
+
+    for make in ("Value", "Nerolac"):
+        res = page.evaluate(REST_DELETE_JS, names[make])
+        c.check(res["status"] >= 400, f"REST delete of {make} is refused", res["status"])
+        c.check("Client Status" in res["body"], f"the refusal for {make} names the Client Status", res["body"][:300])
+    c.eq(client_fields(w, answered), before, "both answered rows are unchanged in the database")
+
+    res = w.be('''
+from nirmaan_stack.api.tds.approve import reject_tds_items
+R["reply"] = reject_tds_items([P["n"]], reason="walk")
+R["status"] = frappe.db.get_value(ROW, P["n"], "tds_status")
+frappe.db.rollback()''', n=names["Value"])
+    c.eq(res["reply"]["rejected"], 0, "an Admin reject of the client-approved row rejects nothing")
+    c.check(any("waiting for approval" in e["error"] for e in res["reply"]["errors"]), "the reject refusal says why",
+            res["reply"]["errors"])
+    c.eq(res["status"], "Approved", "the client-approved row stays Approved")
+
+
+@case(33, "after an Admin clears the Client Status, the row is back in TDS History and its delete works")
+def c33(w: Walk, page, c: Checks):
+    names = seed_answered(w, "RQ-001-WALK33")
+    res = w.be('''
+from nirmaan_stack.api.tds.client_status import set_client_status
+frappe.set_user("Administrator")
+R["reply"] = set_client_status([P["n"]], "clear")''', n=names["Nerolac"])
+    c.eq(res["reply"]["updated"], 1, "the Admin clear lands")
+    open_history_page(page)
+    wait_for(lambda: "Nerolac" in walk_makes(page), 15)
+    row = walk_row(page, "Nerolac")
+    c.eq(row.get_by_test_id(LOCKED_MARKER).count(), 0, "the cleared row is no longer Locked")
+    button = row.get_by_test_id(DELETE_BUTTON)
+    if not c.check(button.count() == 1, "the cleared row has its delete button back"):
+        return
+    button.click()
+    page.get_by_role("alertdialog").get_by_role("button", name="Delete").click()
+    c.check("deleted" in wait_toast(page, "Deleted").lower(), "a toast confirms the delete", toasts(page))
+    settle(page, 1.5)
+    gone = w.be('R["exists"] = bool(frappe.db.exists(ROW, P["n"]))', n=names["Nerolac"])
+    c.eq(gone["exists"], False, "the cleared row is deleted on the server")
+    c.check("Nerolac" not in walk_makes(page), "the row left TDS History", walk_makes(page))
+    c.eq(client_fields(w, [names["Value"]])[names["Value"]]["client_status"], CLIENT_APPROVED,
+         "the other answered row is untouched")
+    w.shot(page, "c33_after_delete", full=True)
 
 
 # ─── main ────────────────────────────────────────────────────────────────────────────────────────

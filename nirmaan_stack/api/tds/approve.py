@@ -447,8 +447,10 @@ def approve_tds_items(doc_names, datasheet_choices=None):
 def reject_tds_items(doc_names, reason=None):
 	"""Reject one or more Project TDS Item List rows (Admin-only).
 
-	Sets `tds_status="Rejected"` and `tds_rejection_reason=reason` on each row.
-	No master writes. Commits once at the end.
+	Sets `tds_status="Rejected"` and `tds_rejection_reason=reason` on each row waiting for approval
+	(`WAITING_STATUSES`, read under the row's lock). Any other row (Approved, whether or not the client
+	has answered it, or already Rejected) is reported in `errors` and left unchanged, so an Admin
+	rejection never lands on a row the client has answered (#1387). No master writes. Commits once.
 
 	`doc_names`: JSON-encoded list (or Python list) of row names.
 	`reason`: rejection reason text (stored on every rejected row).
@@ -468,7 +470,18 @@ def reject_tds_items(doc_names, reason=None):
 
 	for name in names:
 		try:
-			row = frappe.get_doc(PROJECT_ROW_DOCTYPE, name)
+			row = frappe.get_doc(PROJECT_ROW_DOCTYPE, name, for_update=True)
+			status = (row.tds_status or "").strip()
+			if status not in WAITING_STATUSES:
+				errors.append(
+					{
+						"name": name,
+						"error": _("{0} is {1}. Only a row waiting for approval can be rejected.").format(
+							row.tds_item_name or name, status
+						),
+					}
+				)
+				continue
 			row.tds_status = "Rejected"
 			row.tds_rejection_reason = reason or ""
 			row.save(ignore_permissions=True)

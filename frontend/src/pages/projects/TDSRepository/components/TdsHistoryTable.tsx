@@ -7,7 +7,7 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { DataTableFacetedFilter } from "@/components/data-table/data-table-faceted-filter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FileText, Trash2, MessageSquare } from 'lucide-react';
+import { FileText, Trash2, MessageSquare, Lock } from 'lucide-react';
 import {
     Tooltip,
     TooltipContent,
@@ -35,6 +35,7 @@ import {
     historyStatusLabel,
     historyStatusOf,
     historyStatusesIn,
+    isDeleteLocked,
     isProjectCustomId,
     storedStatusesFor,
     type HistoryStatus,
@@ -160,9 +161,10 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
     // PMO delete only Pending / Rejected rows and rendered "--" on Approved ones,
     // which is what put an unusable column in front of them.
     //
-    // Nothing behind this re-checks: `Project TDS Item List` carries only a
-    // `before_save` hook (no `on_trash`), and the doctype already grants
-    // `Nirmaan PMO Executive` delete permission — so this gate IS the boundary.
+    // The doctype grants `Nirmaan PMO Executive` delete permission, so this gate
+    // is the role boundary. The one server re-check is the Client Status lock: a
+    // row the client has answered is refused by the `on_trash` hook and shows
+    // "Locked" here (`isDeleteLocked`).
     const canManageTDS = isAdmin || isPMO;
     // The server re-checks both (`client_status.py` MARK_PROFILES, Clear Admin-only).
     const clientActions = clientStatusActionsFor(tab, {
@@ -403,11 +405,30 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
             {
                 id: "actions",
                 header: "Actions",
-                // Unconditional: the column only exists when `canManageTDS`, and
-                // that same flag now grants every row. The old "--" branch is gone
-                // with the per-row status check it belonged to.
-                cell: ({ row }: { row: any }) => (
+                // The column only exists when `canManageTDS`, which grants every row
+                // except one the client has answered: that row is locked until an
+                // Admin clears its Client Status.
+                cell: ({ row }: { row: any }) => isDeleteLocked(row.original) ? (
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <span
+                                    className="inline-flex items-center gap-1 text-xs text-muted-foreground cursor-help"
+                                    data-testid="tds-row-locked"
+                                >
+                                    <Lock className="h-3.5 w-3.5" />
+                                    Locked
+                                </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>The client has answered this row, so it can't be deleted. An Admin must clear its Client Status first.</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                ) : (
                     <Button
+                        aria-label="Delete"
+                        data-testid="tds-row-delete"
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50"
@@ -572,7 +593,8 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
             console.error("Delete failed", error);
             toast({
                 title: "Error",
-                description: "Failed to delete item.",
+                // The server's reason, e.g. the Client Status lock on a row answered since this view loaded.
+                description: getFrappeError(error) || "Failed to delete item.",
                 variant: "destructive"
             });
         } finally {

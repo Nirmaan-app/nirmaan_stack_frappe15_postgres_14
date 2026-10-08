@@ -35,6 +35,8 @@ in the screen and in the database.
 | 27 | Client Status tabs (#1385): TDS History / Approved by Client / Rejected by Client, counts equal the database, every row in one tab, tick boxes only on Admin-approved rows, Export disabled with no ticks, the client columns and reason |
 | 28 | Mark ticked rows Approved by Client (#1385): "N selected" toolbar, stamps in the database, the rows move tab and the counts follow; the server refuses a Pending row |
 | 29 | Mark ticked rows Rejected by Client (#1385): Clear unticks, the popup lists the rows and warns, the optional reason lands on every row and shows in the tab |
+| 32 | Delete lock (#1387): both client tabs show "Locked" with an explaining tooltip instead of a delete button, while an unanswered row keeps it; a direct REST delete of each answered row is refused naming the Client Status and the rows are unchanged; an Admin reject of a client-approved row is refused |
+| 33 | After an Admin clears the Client Status (#1387), the row is back in TDS History with its delete button, and deleting it removes it on the server |
 | 38 | A Make the client rejected (#1389): the Make list shows a "Rejected by Client" tag on it, while a Pending make still reads "(already submitted)" |
 | 39 | Picking a Make the client rejected (#1389): the popup names the item, make, request id, who marked it, when and the client's reason, and the two ways out; "Pick another make" leaves nothing selected; a Project Custom name + make clash opens it too; another make is added and sent; a direct submit of the same make is refused with the Rejected by Client message |
 | 40 | The popup's "Open Rejected by Client tab" (#1389) hides the form and opens that tab, which lists the row; tab counts match the database |
@@ -82,7 +84,8 @@ any extra entries, and resets the two seeded entries.
 
 Cleanup runs in a `finally`, even when a case fails or the browser crashes. It deletes:
 
-- rows created on the project since the start
+- rows created on the project since the start, with `frappe.db.delete`, so rows a case gave a Client Status
+  go too (the doc-layer delete refuses them, #1387)
 - the test entries and TDS Item
 - `tds-walk*` File records, deleted with `frappe.db.delete` so the storage app's trash hook never runs
 - the Version and Deleted Document rows the walk caused
