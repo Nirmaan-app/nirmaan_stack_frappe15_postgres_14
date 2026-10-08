@@ -1429,6 +1429,23 @@ corpus parity test's configs are a dated snapshot by design; every count pin on 
 items, 219 cells, 3 GI rows, 229 SKUs ...) is in the blast radius of a mint that adds SKUs and is
 INVERTED with its before/after lines, never deleted.
 
+**⚠️ THE DERIVATION TAB IS DERIVED FROM THE CONFIG, NEVER A SECOND LIST -- AND IT NAMES NOTHING BY AN
+INTERNAL NAME (owner C5 / 5d, 2026-10-08).** `itemListRuleOrder(config, items)` writes the "How a row is priced"
+card from the config ALONE: a line exists iff the config key that carries the rule is present, in the order the
+pricing applies it, in the owner's language -- the ruled VALUES (cladding not mentioned -> No; thickness -> 9 mm,
+then the ladder), the refusal WORDS, the families a rule names, the ladders' size-match / composition /
+refuse-above-largest, the live cross-row reads, the derived cells. ⚠️ **A hand-written rule list beside the
+config is the defect this replaces**: since 12c the tab listed only the MECHANISMS the shape implied and
+"No rules configured", while every Insulation ruling lived in `list_spec.pricing` where no reader looked, so a
+pricer could not read the rules anywhere in the product. The pin is STRUCTURAL VACUITY -- delete any one key from
+the config and its line must be GONE -- beside a NEGATIVE pin that no config key, no `[RDTS]-nn` code, no
+`(owner ...)` tag and NO snake_case token reaches the screen, with the items supplied and without. A Pricing
+Input is named by the LABEL its Pricing Inputs row carries (`GI framework sheet factor`), never its item id; the
+label lives on the ITEM, so the tab receives the discipline's items; pipeline ids are written as plain words. A
+config message's `(R4)` / `(owner ...)` tag is stripped by `plainSentence` at render, so a config may keep its
+provenance without it reaching a pricer. The same mechanism lists ADP's rules (owner-approved); Electrical, alias
+and vendor-quote tabs stay EMPTY and are pinned so.
+
 ## BoQ Rate Suggestion (RM-3)
 
 Full record: `.claude/context/domain/boq-rate-master.md` -- load it before any rate-suggestion work.

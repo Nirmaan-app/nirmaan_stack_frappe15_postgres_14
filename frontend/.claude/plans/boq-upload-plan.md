@@ -43377,6 +43377,13 @@ approved wording is kept in the tests, for the retrofit.
 2. **`area_sqm` renders nowhere** — decide whether it should have a field at all, or stay a derived
    value with no control.
 
+**12d-4c (owner, 2026-10-08): the RULE LISTING on the Derivation tab is now DELIVERED** -- ADP's "How a row is
+priced" card lists ADP's rules from its config by the same mechanism that lists Insulation's (its defaults with
+their values, the UL 555 override, its five ladders, the derived cells; owner-approved under UI CHANGE CONTROL
+5d). The plain-English explanations (the formula row, the column notes, the "How is this matched?" help) remain
+as they were. The owner called this "item A1's rule listing"; no item labelled A1 exists in this list or in the
+12c-S F10-F14 / F18 set, so it is recorded here, under the retrofit, as given.
+
 ### ELECTRICAL — READ-ONLY, MEASURED, PARKED
 
 Nothing in Electrical was changed. Measured for the record: of **50** typed fields, **33** render and
@@ -45095,3 +45102,137 @@ families only; Cladding Only per sq.m prices again"). Desktop: `2026-10-11_12d4a
 
 ---
 
+## Slice 12d-4c — THE LAST FIXES, THE DERIVATION TAB, AND THE SECOND OPINION OFF; HVAC v33 (2026-10-08, filed as 2026-10-12) — SHIPPED
+
+Owner rulings on the 12d-4b Review Pack: C1 F2 *"agreed"* (a cladding-only row IS `Cladding Only`), C2 F3 *"it is ok. make it
+explicit"* (a bare glass cloth is `Glass Cloth with paint`), C3 F4 *"fix it"* ("Double layer of N mm" is two layers), C4 *"switch
+off now"* (the second opinion OFF for Insulation; ADP's as it is), C5 F6 (the Derivation tab lists EVERY Insulation rule, plain
+English, derived from the config), C6 no change (F1, F5, the 50 mm Acoustic Nitrile). Four commits: `da1dcc225` fix, `a2a18e089`
+feat (Derivation tab), `1a629c643` feat (HVAC v33), the docs commit. Desktop: `2026-10-12_12d4c_{Ledger,Report}.md`, the 12d-4c
+section of `2026-10-12_12d4b_Review_Pack.md`, `2026-10-12_12d4c_Screens/` (10), `2026-10-12_12d4c_{python,frontend}_full.log`.
+
+### C3 — the layers reader runs FIRST on the compose axis (`da1dcc225`)
+
+`readLayers("double layer of 19 mm")` already returned `[19, 19]` (12d-1b); the rows still priced ONE layer because
+`priceOneItem` consulted the layers reader only when the single-number read came back BLANK, and `readNumber` finds the 19 in
+"Double layer of 19mm thick". The fix is the ORDER: on the compose axis the layers reader runs before the single read, over MODEL
+cells only (T6: a pricer's typed entry is never parsed as layers). Pinned: five spellings -> `[19, 19]`; range / comma list /
+tolerance / slash list / bare "double layer" -> null; the 00137 CHW #32 shape (250 NB) still refuses R9; a 50 NB row prices two
+layers of 19 (`working[0]` "priced as two layers, 19 + 19 mm (38 mm)"); a typed cell prices single 19. ⚠️ VACUITY DISCLOSED:
+the first hand-vacuity (removing only `if (layersFrom) continue;`) stayed GREEN because the later `if (layersFrom)` return still
+composes; the second (removing the whole layers-first block) went RED. On the 466-row corpus every "Double layer" row (00017 #23-24,
+00137 #32-37, 00156 #34-39) sits on 80-250 NB pipes above the Nitrile Rubber ladder (53.98) and refuses R9 before and after, so the
+sweep shows 0 outcome changes; the priced shape exists only in the unit test.
+
+### C5 — the Derivation tab lists an item-list category's rules, from the config (`a2a18e089`)
+
+**5a (why 12c said the tab showed Insulation's rules while 12d-4b found "No rules configured"):** NEVER BUILT for concrete rules,
+not broken since. `itemListRuleOrder.ts` was 12c commit 7 (`db372c0c6`, the file's only commit) and listed the MECHANISMS the
+config shape implies (unit classes, kinds, needs, defaults by key name, ladders, composition, conversions) -- never the rulings
+(R1's value, R4 foil -> 26G, the refusal word lists, the 9 mm default ...). "No rules configured for this category" is the OTHER
+card (`config.rules`, the Electrical extraction-rule list), which Insulation has never carried and which still renders beneath the
+list (unchanged; recorded as F-C5a below).
+**5b/5c:** `itemListRuleOrder(config, items)` now writes a line iff the config key carrying the rule is present, in run order, in
+plain English -- 24 lines on Insulation (`family_when_none` with its unit classes and words; `no_sku_families` + `no_sku_named_by`;
+`unstocked_materials` quoted; the needs; the layers forms; `several = highest`; inches; `defaults` + `number_defaults` WITH THEIR
+VALUES; `value_map` to and refuse; `refuse_on_unit_class` with its families and words; `named_in_row`; `read_notes`; the ladders
+with size-match / composition / refuse-above-largest; the priced steps with the Pricing Inputs BY LABEL; the live cross-row read
+(Cladding Only); the computed cost; the derived cells; converts; x quantity). `plainSentence` strips `(R4)` / `(owner ...)` tags
+from config messages. Tests: every declared rule NAMED + ordered over the LATEST asset on disk (read at runtime); STRUCTURAL
+VACUITY (12 keys deleted one by one -> each line gone); NEGATIVE no code, no config key, NO snake_case token, with items and
+without; Electrical / alias / vendor-quote tabs `[]`; ADP's own lines. Hand vacuities: stop reading two keys -> 2 RED; make the
+label resolver return the id -> 2 RED.
+**5d (owner APPROVED, with the labels ruling):** ADP's tab gains its own lines by the same mechanism -- line 1's rate-only
+sentence, "none of these", "double-skin plenum is not offered per number", labels not ids in the needs, the defaults WITH VALUES
+(damper -> without, insulated -> with, UL listed -> no, variant by kind ...), "variant on fire damper becomes UL 555 when UL
+listed is yes", "above the largest stocked size refuses, naming the size" on all five ladders, "12 cells on 6 rows" derived; 14 ->
+17 lines. The owner added: Pricing Inputs by their LABELS (`GI framework sheet factor`, read off the Pricing Inputs ROW's `name`
+-- the label lives on the ITEM, so `RateMasterDerivation` passes `items`), no internal name anywhere -- so pipeline ids are written
+as plain words too ("install, item install, item supply, supply"), pinned negatively (`/\b\w+_\w+\b/` absent on both tabs, with
+and without items). Durable rule: root `CLAUDE.md` § "THE DERIVATION TAB IS DERIVED FROM THE CONFIG".
+
+### C1 / C2 / C4 — HVAC v33 (`1a629c643`)
+
+v33 = v32 + the `item` note's C1 sentence ("A row that describes only a cladding or coating applied over insulation, with no
+insulation material being supplied, is 'Cladding Only'.") + the `cladding` note's C2 sentence ("A bare 'glass cloth' with no paint
+or coating named is still 'Glass Cloth with paint'.") + `list_spec.second_opinion` true -> false (Insulation ONLY) + the notes trail
+(version-free). Items byte-identical (335); every other config byte-identical NAMED; `list_spec.pricing` byte-identical (no price
+can move); the two defs differ in `note` only, each `startswith` its predecessor. Mint gate v32 -> v33 "No atoms disappeared",
+`--latest` kinds disjoint, PASS; loaded on dev `rmbulk-e182af1c3217` (items digest unchanged `933c03c56d1841d6`; only Insulation's
+config digest moved `275a9c80…` -> `173b6be6…`; Electrical untouched). Pins: `CURRENT_HVAC_ASSET` -> v33; the five "current is
+v32" lines gain a "moved again" line; `TestSlice12d4aFAsset` / `TestSlice12d4aFModelCall` load v32 BY NAME; `test_v32_06`
+INVERTED (live has moved past v32 and STILL carries the family list). NEW `TestSlice12d4cAsset` (7) + `TestSlice12d4cModelCall`
+(3). ⚠️ MEASURED ON THE WIRE: the two sentences REACH Insulation's assembled call (a def's note is projected into ITEMS_SPEC) --
+and so does the switch: `build_items_spec` writes `"second_opinion": false` INTO the spec the call is assembled from, so the
+Insulation call differs v32 -> v33 by exactly the two sentences plus that key; every other HVAC category's call is byte-identical
+NAMED. `insulation12d4a.e2e.test.ts` re-pointed to v33 (outcomes unchanged, 11/11).
+
+### Item 7 — the tiny paid check (8 calls of the 20 cap; ZERO second-opinion calls)
+
+Set: 00233 Critical VRF System#41 + VRF System#65 (C1 / E2E-1); the three bare-glass-cloth rows the 12d-4b second opinion flagged
+"with paint is not stated" -- 00020 HVAC_-19TH FLOOR#515, 00098 Lowside#173, 00100 HVAC #111 (C2); controls 00004 HVAC Low side#80,
+00086 High side#85, 00051 HVAC#465. Through `rate_master._suggest_worker(only_rows=...)` on the LIVE v33 config, as
+`Administrator`, 13:18:57-13:19:46 IST, 0 errors / halts / retries, 8 PARTIAL run records (D14 shape). `run_cost.py`: sheets 8,
+batches 8, input 44,453, output 1,302, **so_calls 0**; capture kinds = {run_header 8, batch 8}; every row `so_failed = []`,
+`so_verdict = None` -- the second-opinion flag no longer appears on a new Insulation run. Outcomes: #41 and #65 both read item
+**Cladding Only** (NULL on the 12d-4b read -- F2) + Glass Cloth with paint -> **294 / 70, panel = calculator**; #515 / #173 / #111
+read `Glass Cloth with paint` again (the C2 sentence, no flag) -> the two sheet rows refuse D9b, #173 prices 294 / 70; the three
+controls identical to 12d-4b (464/154, 348/84, 1346/385). ⚠️ PREMISE CORRECTION: the brief stated #41 -> 957 / 280 -- the 12d-3
+STORED answer's `24G Aluminium with Glass Cloth` priced under 12d-4aF; the row names no aluminium ("Fiber glass cloth and two layers
+of shield coating ...") and the model reads `Glass Cloth with paint` on both fresh reads, as it does the identically worded #65; 294
+/ 70 is the ruled figure for that cladding (12c F2). No price moved (item 8).
+
+### Item 8 — no other change
+
+Sweep (the 12d-4a instrument on HEAD + v33 vs the 12d-4aF tree + v32): 7,234 cases both paths, 7,219 digests IDENTICAL, 0 bytes
+changed, 0 outcome changes; ADP / Electrical byte-identical. DB digest after the run and after the cert vs after the 12d-4b cert:
+ONLY `hvac_insulation`'s config digest, `configs_digest` and `counts/runs` 243 -> 251 moved; 403 keys identical (1,737 items,
+37,702 cell pricing / 30,213 filled, 55,108 row categories, every gate, 73 button-reachable sheets).
+
+### Tests (measured in-session)
+
+Targeted per commit: `itemListPricing` 300; rate-master dir 19 files / 920; `test_rate_master` Ran 742 OK + `test_extraction_coercion`
+208 OK (one first-run failure in the NEW model-call test -- the `second_opinion` key in the spec, stated above -- fixed in the test);
+frontend set 366 (e2e 11, servedVsStored 6, parity 33, ruleOrder 16, itemListPricing 300); tsc 3,169 before each commit. FULL:
+Python `2026-10-12_12d4c_python_full.log` Ran **7404** (+10 vs 12d-4aF's 7394), failures 6 / errors 5 = the known set IDENTICAL by
+name; frontend `2026-10-12_12d4c_frontend_full.log` 145 files / **5,116** tests (+6), 1 failure = the known `writeOffControl`; tsc
+3,169, 0 OOM.
+
+### Cert
+
+De-stale in full (19 PIDs on TERM, 0 left; :8000/:8080/:9000/:11000/:13000 free; 203 `__pycache__` purged; `.vite` removed;
+`bench start` -> ping `pong` after 238 s; vite :8080 200 after 32 s); site data cleared (1 SW, 4 IndexedDB); PROOF 1 the served
+transforms carry `inputLabel` / `plainSentence` / `_pricing_input$` and `layersFrom === null` (comments are stripped by the
+transform, so the "SLICE 12d-4c" comment is not a servable marker); PROOF 2 runtime import `readLayers` -> `[19, 19]` on all three
+spellings, `[25 to 50 mm]` -> null; the LIVE Insulation config (`get_rate_category_config`) `second_opinion: false`, C1 + C2
+present, version-free trail. ⚠️ The MCP tab opened HIDDEN again (two groups), `SetForegroundWindow` found no separate Chrome window
+(the tab sat inside the Claude window) -- STOPPED per the brief; the owner foregrounded it ("the tab is foregrounded. proceed with
+cert"); `visibilityState` still read `hidden` while screenshots and the DOM were live, so the walk proceeded on the observed screen,
+not the flag (the memory rule). Radix selects answered the keyboard, not the pointer (ArrowDown + Enter; `repeat` loses one press).
+
+| step | expected | SEEN | screen |
+|---|---|---|---|
+| 1 E2E-1 panel | #41 / #65 Cladding Only 294 / 70 | the 00233 sheets' ONLY runs are the paid check's PARTIAL records (D14), so the panel opens with NO Pricing-sheet block (the headline helpers only) -- the model's answer and both-path pricing are proven on the stored run record (item 7); the "Resume run" strip is shown and was NOT pressed | 01a |
+| 1 E2E-1 calculator | 294 / 70 | Insulation -> Add item -> Cladding Only, sqm, cladding `Glass Cloth with paint`: **Supply 294 / Install 70** (working: sheet rate 200, +wastage 210, x1.4 = 294; install 50 x 1.4 = 70) | 01b |
+| 2 Insulation Derivation | every rule, plain English | **24 lines** as the test prints them; `GI framework sheet factor` by label; no snake_case token, no code (`/\b[RDTS]-?\d/` null) on the live DOM; the "Rules -- No rules configured for this category" card still renders beneath (F-C5a) | 02a, 02b |
+| 3 ADP Derivation | the approved lines | **17 lines**, exactly the approved listing with "install, item install, item supply, supply" on line 14 | 03a |
+| 4 00137 CHW r39 | 615 / 224 | **615 / 224** (839) per RMT | 04a |
+| 4 00169 r291 | 1371 / 154 | **1371 / 154** (1525) per Sqm | 04b |
+| 4 00169 r290 | 5110 / 672 | **5110 / 672** (5782), 3 layers 15+15+19 | 04c |
+| 5 ADP 00117 r82 | 1160 / 352 / 1512 | **1160 / 352 / 1512** | 05a |
+| 5 Electrical 00174 r94 | 19630 / 3930 | **19630 / 3930 (23560)** -- on the sheet named `Electrical ` WITH its trailing space (#152) | 05b |
+| 6 digest | unchanged but v33 + runs | as item 8 | -- |
+
+`Use this value` never pressed; no override needed; Fast render OFF per sheet and back ON.
+
+### Findings for the owner (recorded, not fixed)
+
+- **F-C5a** The "Rules" card beneath the list still says "No rules configured for this category" on Insulation (it is the
+  Electrical extraction-rule card, `config.rules`); beside a 24-line rule list it reads as a contradiction. A one-line change (hide
+  the card for an item-list category, or retitle it "Extraction rules") -- a visible change, so not made here.
+- **F-C5b** The rate-helper PANEL still shows config messages RAW: "R1 cladding not mentioned -> without cladding (owner
+  2026-10-07)" (00169 r291) and "R1 / slice 11 damper not mentioned ..." (00117 r82); the calculator's working shows
+  "pricing input: alu_sheet_24g (rate)". `plainSentence` strips these on the Derivation tab only. Same mechanism, two more call
+  sites, owner's call.
+- **F-C5c** The owner's "item A1" of the ADP Retrofit could not be found by that label; the delivered-rule-listing note is recorded
+  under "ADP RETROFIT, OWED" as given.
