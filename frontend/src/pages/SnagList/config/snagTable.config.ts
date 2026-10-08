@@ -57,6 +57,9 @@ export const SNAG_FIELDS_TO_FETCH: string[] = [
   "source_row",
   "status_changed_by",
   "status_changed_on",
+  // The photo and where it was taken (owner 2026-10-08) — the Attachment column's hover.
+  "attachment",
+  "location",
   "creation",
   "modified",
 ];
@@ -183,3 +186,9 @@ export const SNAG_STATUS_BADGE_STYLES: Record<SnagStatus, string> = {
  * status, so sending one would turn a routine disposal into an error toast.
  */
 export const SNAG_NO_REMARK_STATUS: SnagStatus = "Not Applicable";
+
+/**
+ * The one status that needs the snag's photo (owner 2026-10-08). Mirrors
+ * `PHOTO_REQUIRED_STATUS` in `nirmaan_stack/services/snag_photo.py`, which the server enforces.
+ */
+export const SNAG_PHOTO_REQUIRED_STATUS: SnagStatus = "Completed";

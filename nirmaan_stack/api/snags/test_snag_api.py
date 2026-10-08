@@ -12,6 +12,7 @@ The suite runs against the LIVE localhost site, so every row it creates is delet
 tearDownClass, including the `Deleted Document` rows the delete test deliberately produces.
 """
 
+import io
 import os
 import tempfile
 
@@ -1335,14 +1336,15 @@ class TestSnagApi(FrappeTestCase):
         self.assertEqual(payload["remark"], "Plumber booked")
         self.assertEqual(frappe.db.get_value("Project Snag", snag, "remark"), "Plumber booked")
 
-        # None -> NOT SUPPLIED. The remark must survive untouched.
-        payload = tracking.update_snag_status(snag=snag, status="Completed")
-        self.assertEqual(payload["status"], "Completed")
+        # None -> NOT SUPPLIED. The remark must survive untouched. (Pending, not Completed:
+        # Completed needs a photo since 2026-10-08, and this test is about the remark.)
+        payload = tracking.update_snag_status(snag=snag, status="Pending")
+        self.assertEqual(payload["status"], "Pending")
         self.assertEqual(payload["remark"], "Plumber booked")
         self.assertEqual(frappe.db.get_value("Project Snag", snag, "remark"), "Plumber booked")
 
         # "" -> an explicit CLEAR.
-        payload = tracking.update_snag_status(snag=snag, status="Pending", remark="")
+        payload = tracking.update_snag_status(snag=snag, status="WIP", remark="")
         self.assertFalse(payload["remark"])
         self.assertFalse(frappe.db.get_value("Project Snag", snag, "remark"))
 
@@ -1404,13 +1406,12 @@ class TestSnagApi(FrappeTestCase):
             len(names),
         )
 
-        # Admin is allowed, and every row moves.
-        payload = tracking.bulk_update_snag_status(snags=names, status="Completed")
+        # Admin is allowed, and every row moves. (WIP: these rows have no photo, so a bulk
+        # Completed would skip every one -- see the bulk photo test.)
+        payload = tracking.bulk_update_snag_status(snags=names, status="WIP")
         self.assertEqual(payload["updated"], len(names))
         self.assertEqual(
-            frappe.db.count(
-                "Project Snag", {"batch": result["batch"], "status": "Completed"}
-            ),
+            frappe.db.count("Project Snag", {"batch": result["batch"], "status": "WIP"}),
             len(names),
         )
 
@@ -1684,7 +1685,7 @@ class TestSnagApi(FrappeTestCase):
 
         tracking.update_snag_status(
             snag=frappe.get_all("Project Snag", filters={"batch": batch}, pluck="name")[0],
-            status="Completed",
+            status="WIP",
         )
 
         preview = tracking.get_batch_delete_preview(batch=batch)
@@ -1834,6 +1835,15 @@ class TestSnagApi(FrappeTestCase):
                     "category": "C",
                     "description": f"Snag {status}",
                     "status": status,
+                    # The controller only asks that a Completed snag HAS a photo; which file
+                    # it is matters to the endpoints, not to this count. A cloud-shaped URL,
+                    # so Frappe's `attach_files_to_document` does not go looking for a local file.
+                    "attachment": (
+                        "/api/method/frappe_gcp_attachment.controller.generate_file"
+                        "?key=test&file_name=stats.jpg"
+                    )
+                    if status == "Completed"
+                    else None,
                 }
             )
             doc.insert(ignore_permissions=True)
@@ -1879,3 +1889,194 @@ class TestSnagApi(FrappeTestCase):
         finally:
             snag_pkg._user_role = original
             frappe.session.user = "Administrator"
+
+    # -- the photo (owner 2026-10-08: one per snag, Completed needs it) --------
+
+    _photo_count = 0
+
+    def _photo(self, snag):
+        """A real, tiny JPEG `File` attached to `snag`, kept LOCAL.
+
+        The GCS hook uploads every File attached to a doctype not in
+        `ignore_gcs_upload_for_doctype`, and the bucket is append-only here, so the suite adds
+        Project Snag to that list for the one insert -- no test photo ever reaches the bucket.
+        The File goes when its snag is deleted in tearDownClass.
+        """
+        from PIL import Image
+
+        # A DIFFERENT image every call: Frappe dedups identical content onto the first File's
+        # URL, which would make a "replacement" photo the same URL as the one it replaces. The
+        # SIZE varies, not the colour -- JPEG quantises a one-step colour change away.
+        type(self)._photo_count += 1
+        buf = io.BytesIO()
+        Image.new("RGB", (100 + type(self)._photo_count, 80), (200, 30, 30)).save(
+            buf, format="JPEG"
+        )
+
+        conf = frappe.local.conf
+        original = conf.get("ignore_gcs_upload_for_doctype")
+        conf["ignore_gcs_upload_for_doctype"] = ["Data Import", "Project Snag"]
+        try:
+            file_doc = frappe.get_doc(
+                {
+                    "doctype": "File",
+                    "file_name": f"snag-photo-{frappe.generate_hash(length=8)}.jpg",
+                    "attached_to_doctype": "Project Snag",
+                    "attached_to_name": snag,
+                    # As the dialog uploads it. Without the field, Frappe's
+                    # `attach_files_to_document` would copy a local file into a second File.
+                    "attached_to_field": "attachment",
+                    "is_private": 1,
+                    "content": buf.getvalue(),
+                }
+            ).insert(ignore_permissions=True)
+        finally:
+            if original is None:
+                conf.pop("ignore_gcs_upload_for_doctype", None)
+            else:
+                conf["ignore_gcs_upload_for_doctype"] = original
+        frappe.db.commit()
+        return file_doc.file_url
+
+    def _details(self, snag, **photo):
+        """`update_snag_details` with the snag's OWN area / category / description resent, so a
+        test about the photo changes nothing else."""
+        doc = frappe.get_doc("Project Snag", snag)
+        return tracking.update_snag_details(
+            snag=snag,
+            area=doc.area,
+            category=doc.category,
+            description=doc.description,
+            **photo,
+        )
+
+    def test_completed_is_refused_without_a_photo_and_accepted_with_one_in_the_same_call(self):
+        snag = self._a_snag("PhotoDone", "Photo done batch")
+
+        with self.assertRaises(frappe.ValidationError):
+            tracking.update_snag_status(snag=snag, status="Completed")
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "status"), "Pending")
+
+        url = self._photo(snag)
+        location = "Site gate, Bengaluru (Lat: 12.9716, Lon: 77.5946)"
+        payload = tracking.update_snag_status(
+            snag=snag, status="Completed", attachment=url, location=location
+        )
+        self.assertEqual(payload["status"], "Completed")
+        self.assertEqual(payload["attachment"], url)
+        self.assertEqual(payload["location"], location)
+        self.assertEqual(
+            frappe.db.get_value("Project Snag", snag, ["status", "attachment"]),
+            ("Completed", url),
+        )
+
+    def test_a_photo_must_be_a_file_uploaded_to_this_snag(self):
+        snag = self._a_snag("PhotoOwn", "Photo own batch")
+        other = self._a_snag("PhotoOther", "Photo other batch")
+        foreign = self._photo(other)
+
+        for url in (foreign, "/private/files/never-uploaded.jpg"):
+            with self.assertRaises(frappe.ValidationError):
+                tracking.update_snag_status(snag=snag, status="WIP", attachment=url)
+            with self.assertRaises(frappe.ValidationError):
+                self._details(snag, attachment=url)
+        self.assertFalse(frappe.db.get_value("Project Snag", snag, "attachment"))
+
+    def test_a_completed_snag_keeps_its_photo_but_may_replace_it(self):
+        snag = self._a_snag("PhotoKeep", "Photo keep batch")
+        first = self._photo(snag)
+        tracking.update_snag_status(
+            snag=snag, status="Completed", attachment=first, location="Lobby (Lat: 1.5, Lon: 2.5)"
+        )
+
+        with self.assertRaises(frappe.ValidationError):
+            self._details(snag, remove_photo=True)
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "attachment"), first)
+
+        # A replacement with no location: the OLD location must not survive under the new photo.
+        second = self._photo(snag)
+        self.assertNotEqual(second, first)
+        payload = self._details(snag, attachment=second)
+        self.assertEqual(payload["attachment"], second)
+        self.assertIsNone(payload["location"])
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "status"), "Completed")
+
+    def test_removing_the_photo_of_a_snag_that_is_not_completed_clears_its_location(self):
+        snag = self._a_snag("PhotoRemove", "Photo remove batch")
+        url = self._photo(snag)
+        tracking.update_snag_status(
+            snag=snag, status="WIP", attachment=url, location="Roof (Lat: 3.25, Lon: 4.75)"
+        )
+
+        payload = self._details(snag, remove_photo=True)
+        self.assertIsNone(payload["attachment"])
+        self.assertIsNone(payload["location"])
+        self.assertEqual(
+            frappe.db.get_value("Project Snag", snag, ["attachment", "location"]), (None, None)
+        )
+
+    def test_a_new_photo_and_remove_photo_together_are_refused(self):
+        snag = self._a_snag("PhotoBoth", "Photo both batch")
+        url = self._photo(snag)
+        with self.assertRaises(frappe.ValidationError):
+            self._details(snag, attachment=url, remove_photo=True)
+        self.assertFalse(frappe.db.get_value("Project Snag", snag, "attachment"))
+
+    def test_a_legacy_completed_snag_without_a_photo_stays_editable(self):
+        """Every snag Completed before the photo existed has none. The rule fires on a move INTO
+        Completed or on dropping a photo -- never on a bare save -- so these stay editable."""
+        snag = self._a_snag("PhotoLegacy", "Photo legacy batch")
+        # Recreating PRE-PHOTO data: `set_value` bypasses the `before_save` hook on purpose,
+        # because that is exactly how such a row came to exist (CODING_STANDARDS, raw SQL).
+        # No recompute is skipped: the stamp it leaves unmoved is not under test here.
+        frappe.db.set_value("Project Snag", snag, "status", "Completed", update_modified=False)
+        frappe.db.commit()
+
+        doc = frappe.get_doc("Project Snag", snag)
+        payload = tracking.update_snag_details(
+            snag=snag, area="Lobby", category=doc.category, description=doc.description
+        )
+        self.assertEqual(payload["area"], "Lobby")
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "status"), "Completed")
+
+        # Re-sending the status it already has is not a move INTO Completed either.
+        self.assertEqual(
+            tracking.update_snag_status(snag=snag, status="Completed")["status"], "Completed"
+        )
+
+    def test_bulk_completed_skips_the_snags_without_a_photo(self):
+        result = self._one_sheet(sheet="BulkPhoto", batch_name="Bulk photo batch")
+        names = sorted(
+            frappe.get_all("Project Snag", filters={"batch": result["batch"]}, pluck="name")
+        )
+        with_photo = names[0]
+        tracking.update_snag_status(snag=with_photo, status="WIP", attachment=self._photo(with_photo))
+
+        payload = tracking.bulk_update_snag_status(snags=names, status="Completed")
+        self.assertEqual(payload["updated"], 1)
+        self.assertEqual(sorted(payload["skipped"]), names[1:])
+        self.assertEqual(frappe.db.get_value("Project Snag", with_photo, "status"), "Completed")
+        for name in names[1:]:
+            self.assertEqual(frappe.db.get_value("Project Snag", name, "status"), "Pending")
+
+    def test_a_project_manager_may_add_a_photo_with_a_status_change_but_not_remove_one(self):
+        snag = self._a_snag("PhotoPM", "Photo PM batch")
+        url = self._photo(snag)
+
+        import nirmaan_stack.api.snags as snag_pkg
+
+        original = snag_pkg._user_role
+        snag_pkg._user_role = lambda: "Nirmaan Project Manager Profile"
+        frappe.session.user = "snag-pm@example.com"
+        try:
+            tracking.update_snag_status(snag=snag, status="Completed", attachment=url)
+            with self.assertRaises(frappe.PermissionError):
+                self._details(snag, remove_photo=True)
+        finally:
+            snag_pkg._user_role = original
+            frappe.session.user = "Administrator"
+
+        self.assertEqual(
+            frappe.db.get_value("Project Snag", snag, ["status", "attachment"]),
+            ("Completed", url),
+        )

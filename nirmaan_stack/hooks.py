@@ -165,8 +165,9 @@ doc_events = {
         "validate": "nirmaan_stack.integrations.controllers.project_hod_document.validate",
     },
     "Project Snag": {
-        # Attribution for a status move. In a hook, NOT in the API, so a Desk / bulk-edit /
-        # Data Import write is stamped too -- see the controller's module docstring.
+        # Attribution for a status move, and "Completed needs a photo". In a hook, NOT in the
+        # API, so a Desk / bulk-edit / Data Import write is covered too -- see the controller's
+        # module docstring.
         "before_save": "nirmaan_stack.integrations.controllers.project_snag.before_save",
     },
     "Reminder Schedule": {

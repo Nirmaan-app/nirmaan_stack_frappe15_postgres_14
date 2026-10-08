@@ -19,6 +19,15 @@ interface CameraCaptureProps {
   project_id: string;
   onCaptureSuccess: (photo: CapturedPhotoData) => void;
   onCancel: () => void;
+  /** Google Maps key for the reverse-geocode (the `Map API` single). */
+  GEO_API?: string;
+  /**
+   * When given, the captured photo is HANDED BACK here instead of uploaded, and the remarks box
+   * is hidden. Snag List (2026-10-08) uploads its photo only when its own dialog saves, and the
+   * snag has its own Remarks field. `location` is the formatted string shown under the photo,
+   * including the failure text when GPS was refused. DPR passes nothing and is unchanged.
+   */
+  onCaptured?: (photo: { file: File; location: string | null }) => void;
 }
 
 // UPDATED: New helper to get coordinates and a user-friendly location string including city name
@@ -72,7 +81,8 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
   report_date,
   onCaptureSuccess,
   onCancel,
-  GEO_API
+  GEO_API,
+  onCaptured,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -278,6 +288,16 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
       return;
     }
 
+    if (onCaptured) {
+      const blob = await fetch(capturedImage).then(res => res.blob());
+      onCaptured({
+        file: new File([blob], `photo_${Date.now()}.jpeg`, { type: 'image/jpeg' }),
+        location: currentLocationString,
+      });
+      stopCameraStream();
+      return;
+    }
+
     setIsLoading(true);
     try {
       const blob = await fetch(capturedImage).then(res => res.blob());
@@ -379,7 +399,7 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
             </Button>
             <Button variant="default" className="bg-red-600 hover:bg-red-700" onClick={uploadAndSave} disabled={isLoading || isUploading || !capturedImage}>
               {isUploading ? <TailSpin height={20} width={20} color="#fff" /> : <Upload className="h-5 w-5 mr-2" />}
-              Upload & Save
+              {onCaptured ? "Use photo" : "Upload & Save"}
             </Button>
           </>
         )}
@@ -392,13 +412,13 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
             <span className="font-semibold">Location:</span>
             <span className="ml-2">{currentLocationString || 'Location Not Found'}</span> {/* Use currentLocationString */}
           </div>
-          <textarea
+          {!onCaptured && <textarea
             value={currentRemarks} // Use currentRemarks
             onChange={(e) => setCurrentRemarks(e.target.value)}
             placeholder="Add remarks for this photo..."
             className="w-full p-2 border border-gray-700 rounded-md bg-gray-700 text-white text-sm min-h-[60px]"
             rows={2}
-          />
+          />}
         </div>
       )}
 

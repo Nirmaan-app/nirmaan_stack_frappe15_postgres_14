@@ -82,6 +82,18 @@ export interface ProjectSnag {
   source_serial: string;
   status_changed_by: string | null;
   status_changed_on: string | null;
+  /**
+   * The snag's ONE photo (owner 2026-10-08) — a private File URL, or null. Moving to Completed
+   * needs it, and a Completed snag cannot drop it (it can be replaced). Completed snags from
+   * before the photo existed have none and are left alone.
+   */
+  attachment: string | null;
+  /**
+   * Where the photo was TAKEN, in the DPR format `"<address> (Lat: x, Lon: y)"`, or null when
+   * that is unknown — never where it was uploaded from (owner Q7b). Read it through
+   * `@/utils/snagPhoto`, never by hand.
+   */
+  location: string | null;
   creation: string;
   modified: string;
 }
@@ -309,6 +321,12 @@ export interface UpdateSnagDetailsPayload {
    * NOT unique: a sheet's numbering restarts per section, so duplicates are real data.
    */
   source_serial?: string;
+  /**
+   * Clear the stored photo (and its location). The server refuses it for a Completed snag —
+   * replace the photo instead. A NEW photo is not a field here: the dialog hands
+   * `useSnagMutations` a draft, which uploads it and sends `attachment` + `location`.
+   */
+  remove_photo?: boolean;
 }
 
 /**

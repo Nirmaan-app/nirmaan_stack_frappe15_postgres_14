@@ -16,9 +16,12 @@ import { Textarea } from "@/components/ui/textarea";
 
 import {
   SNAG_NO_REMARK_STATUS,
+  SNAG_PHOTO_REQUIRED_STATUS,
   SnagListRow,
 } from "../config/snagTable.config";
+import { SnagPhotoDraft } from "../photo/snagPhotoCapture";
 import { UpdateSnagDetailsPayload } from "../types";
+import { SnagPhotoField } from "./SnagPhotoField";
 
 export interface SnagEditDialogProps {
   /** The row being edited. `null` closes the dialog. */
@@ -33,7 +36,11 @@ export interface SnagEditDialogProps {
   categorySuggestions: string[];
   isSaving?: boolean;
   onCancel: () => void;
-  onSubmit: (payload: UpdateSnagDetailsPayload) => Promise<boolean>;
+  /** `photo` is a new photo picked here, uploaded by the caller before the write. */
+  onSubmit: (
+    payload: UpdateSnagDetailsPayload,
+    photo?: SnagPhotoDraft | null
+  ) => Promise<boolean>;
 }
 
 /**
@@ -64,6 +71,12 @@ export interface SnagEditDialogProps {
  *    is SHOWN, read-only — with the Batch column and the Batch filter both gone
  *    (Revision 3), this dialog is the ONLY remaining surface that answers it.
  *
+ * THE PHOTO (owner 2026-10-08): the snag's one photo is added, replaced or removed here, in
+ * any status. A Completed snag cannot DROP its photo (it may be replaced) — the server refuses
+ * it, and the Remove button is not shown for it. A Completed snag from before photos
+ * existed has none, and stays editable. This dialog's tier (no Project Manager) is also the
+ * only way to remove a photo; the status dialog only adds one.
+ *
  * ⚠️ THE DESCRIPTION MAY BE BLANK. ADR-0019 dropped `reqd` from the field, so a
  * required check here would refuse what the server accepts. Do not add one.
  *
@@ -93,6 +106,8 @@ export const SnagEditDialog: React.FC<SnagEditDialogProps> = ({
   const [category, setCategory] = React.useState(snag?.category ?? "");
   const [description, setDescription] = React.useState(snag?.description ?? "");
   const [remark, setRemark] = React.useState(storedRemark);
+  const [photo, setPhoto] = React.useState<SnagPhotoDraft | null>(null);
+  const [removePhoto, setRemovePhoto] = React.useState(false);
 
   if (!snag) return null;
 
@@ -117,7 +132,8 @@ export const SnagEditDialog: React.FC<SnagEditDialogProps> = ({
       // stores exactly like one read off a sheet.
       source_serial:
         serial.trim() === storedSerial ? undefined : serial.trim(),
-    });
+      remove_photo: removePhoto && !photo ? true : undefined,
+    }, photo);
     if (ok) onCancel();
   };
 
@@ -128,12 +144,12 @@ export const SnagEditDialog: React.FC<SnagEditDialogProps> = ({
         if (!open && !isSaving) onCancel();
       }}
     >
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Edit snag</DialogTitle>
           <DialogDescription>
-            S.No, Area, Category, Description and Remark. The status itself is
-            changed from the status control on the row.
+            S.No, Area, Category, Description, Remark and Photo. The status itself
+            is changed from the status control on the row.
           </DialogDescription>
         </DialogHeader>
 
@@ -231,6 +247,20 @@ export const SnagEditDialog: React.FC<SnagEditDialogProps> = ({
               </p>
             </div>
           )}
+
+          <SnagPhotoField
+            storedUrl={snag.attachment}
+            storedLocation={snag.location}
+            draft={photo}
+            onDraftChange={setPhoto}
+            removed={removePhoto}
+            // No Remove at all on a Completed snag: it must keep its photo (replace it instead).
+            onRemovedChange={
+              snag.status === SNAG_PHOTO_REQUIRED_STATUS ? undefined : setRemovePhoto
+            }
+            required={snag.status === SNAG_PHOTO_REQUIRED_STATUS}
+            disabled={isSaving}
+          />
 
           {/* PROVENANCE — read-only, and the only place it is still shown. */}
           <div className="rounded-md border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">

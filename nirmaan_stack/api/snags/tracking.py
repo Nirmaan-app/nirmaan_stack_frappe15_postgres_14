@@ -23,6 +23,7 @@ from nirmaan_stack.api.snags import (
     require_row_edit_access,
     require_status_access,
 )
+from nirmaan_stack.services.snag_photo import photo_rule_violation
 
 #: Display order, matching SNAG_STATUSES in types.ts.
 SNAG_STATUSES = ("Pending", "WIP", "Completed", "Not Applicable")
@@ -85,7 +86,38 @@ def _snag_status_payload(doc):
         "remark": doc.remark,
         "status_changed_by": doc.status_changed_by,
         "status_changed_on": doc.status_changed_on,
+        "attachment": doc.attachment,
+        "location": doc.location,
     }
+
+
+def _set_photo(doc, attachment, location):
+    """Put a NEW photo on the snag, replacing any earlier one (one photo per snag, owner
+    2026-10-08). Shared by both write paths that take a photo.
+
+    The URL must name a File UPLOADED TO THIS SNAG: the client uploads it attached to the
+    snag before calling, so anything else -- a typo, another snag's photo, an arbitrary link
+    -- is refused rather than stored as this snag's evidence.
+
+    `location` is stored as sent, or emptied: the client sends one only when it knows where
+    the photo was TAKEN (the camera's GPS, or the GPS inside an uploaded file), never the
+    uploader's position at upload time (owner Q7b). The `before_save` controller judges the
+    photo rule on the same save.
+    """
+    if not frappe.db.exists(
+        "File",
+        {
+            "file_url": attachment,
+            "attached_to_doctype": "Project Snag",
+            "attached_to_name": doc.name,
+        },
+    ):
+        frappe.throw(
+            "The photo must be a file uploaded to this snag. Upload it again and retry.",
+            title="Unknown photo",
+        )
+    doc.attachment = attachment
+    doc.location = (location or "").strip() or None
 
 
 # ---------------------------------------------------------------------------
@@ -94,8 +126,8 @@ def _snag_status_payload(doc):
 
 
 @frappe.whitelist(methods=["POST"])
-def update_snag_status(snag=None, status=None, remark=None):
-    """Move ONE snag to `status`, optionally rewriting its `remark` in the same save.
+def update_snag_status(snag=None, status=None, remark=None, attachment=None, location=None):
+    """Move ONE snag to `status`, optionally rewriting its `remark` and its photo in the same save.
 
     Admin / Project Lead / PMO / Project Manager.
 
@@ -113,8 +145,15 @@ def update_snag_status(snag=None, status=None, remark=None):
     accepting it would let a client that always sends the field destroy the imported text
     on its way past a rule meant to leave it alone.
 
-    Both fields are set before the SINGLE `doc.save()`, so the write stays one atomic
-    transaction and the `before_save` controller sees one status transition, not two saves.
+    `attachment` + `location` (owner 2026-10-08) put a NEW photo on the snag -- the status
+    dialog is one of the two places a photo is added, and the one a Project Manager has. A
+    blank `attachment` means "no new photo": this path never REMOVES one (`update_snag_details`
+    does, under the narrower tier). Moving to Completed needs a photo, stored or sent here;
+    the controller refuses the save otherwise.
+
+    Every field is set before the SINGLE `doc.save()`, so the write stays one atomic
+    transaction and the `before_save` controller sees one status transition, not two saves --
+    which is also what lets a photo and the move to Completed arrive together.
     """
     if not snag:
         frappe.throw("snag is required.", title="Missing field: snag")
@@ -131,6 +170,8 @@ def update_snag_status(snag=None, status=None, remark=None):
     doc.status = status
     if remark is not None:
         doc.remark = remark
+    if attachment:
+        _set_photo(doc, attachment, location)
     # Document layer, so the before_save controller stamps the attribution.
     doc.save(ignore_permissions=True)
     frappe.db.commit()
@@ -149,6 +190,11 @@ def bulk_update_snag_status(snags=None, status=None):
 
     One `doc.save()` per snag rather than a single bulk UPDATE: a bulk DB write bypasses
     `doc_events`, so the status-change attribution would never be stamped.
+
+    A SNAG WITH NO PHOTO IS SKIPPED, not failed (owner 2026-10-08): moving it to Completed
+    breaks the photo rule, and refusing the whole request would hold back every row that has
+    one. The skipped names come back so the screen can say how many were left alone. Asked
+    with the same pure rule the controller enforces, so the two cannot disagree.
     """
     _assert_status(status)
     require_bulk_access("bulk-update snag statuses")
@@ -159,14 +205,18 @@ def bulk_update_snag_status(snags=None, status=None):
         frappe.throw("No snags selected.", title="Nothing to update")
 
     updated = 0
+    skipped = []
     for name in names:
         doc = frappe.get_doc("Project Snag", name)
+        if photo_rule_violation(doc.status, status, doc.attachment, doc.attachment):
+            skipped.append(name)
+            continue
         doc.status = status
         doc.save(ignore_permissions=True)
         updated += 1
 
     frappe.db.commit()
-    return {"updated": updated, "status": status}
+    return {"updated": updated, "status": status, "skipped": skipped}
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +379,15 @@ def _refresh_batch_snag_count(batch):
 
 @frappe.whitelist(methods=["POST"])
 def update_snag_details(
-    snag=None, area=None, category=None, description=None, remark=None, source_serial=None
+    snag=None,
+    area=None,
+    category=None,
+    description=None,
+    remark=None,
+    source_serial=None,
+    attachment=None,
+    location=None,
+    remove_photo=None,
 ):
     """Rewrite ONE snag's area / category / description / remark / S.No. Admin / PL / PMO.
 
@@ -386,7 +444,13 @@ def update_snag_details(
     `status_changed_by` / `status_changed_on` keep pointing at the last STATUS change, which
     is what they claim to mean.
 
-    All four fields are set before the SINGLE `doc.save()`, so one edit stays one transaction
+    THE PHOTO (owner 2026-10-08) is the other thing this dialog edits, in any status:
+      - `attachment` + `location` -- a NEW photo, replacing any earlier one;
+      - `remove_photo` truthy -- the photo is cleared (with its location). The controller
+        refuses this for a Completed snag: replace it, or move the snag out of Completed.
+    Neither sent -> the stored photo is left alone. Sending both is refused as ambiguous.
+
+    All the fields are set before the SINGLE `doc.save()`, so one edit stays one transaction
     and one Version row.
 
     `description` MAY be blank (ADR-0019).
@@ -397,6 +461,12 @@ def update_snag_details(
 
     if not frappe.db.exists("Project Snag", snag):
         frappe.throw(f"Snag '{snag}' not found.", title="Not found")
+
+    remove_photo = str(remove_photo).strip().lower() in ("1", "true")
+    if remove_photo and attachment:
+        frappe.throw(
+            "Send a new photo or remove the photo, not both.", title="Ambiguous photo change"
+        )
 
     details = _normalized_details(area, category, description)
     doc = frappe.get_doc("Project Snag", snag)
@@ -421,6 +491,11 @@ def update_snag_details(
     # editor for the field, and it goes through the document layer like every other edit here.
     if source_serial is not None:
         doc.source_serial = (source_serial or "").strip()
+    if attachment:
+        _set_photo(doc, attachment, location)
+    elif remove_photo:
+        # The controller empties `location` with it, and refuses this on a Completed snag.
+        doc.attachment = None
     doc.save(ignore_permissions=True)
     frappe.db.commit()
 
@@ -431,6 +506,8 @@ def update_snag_details(
         "description": doc.description,
         "remark": doc.remark,
         "source_serial": doc.source_serial,
+        "attachment": doc.attachment,
+        "location": doc.location,
     }
 
 
