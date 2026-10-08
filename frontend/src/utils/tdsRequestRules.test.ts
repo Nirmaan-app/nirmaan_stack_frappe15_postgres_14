@@ -541,6 +541,18 @@ describe("clientStatusActionsFor", () => {
     ]);
   });
 
+  it("each client tab offers a PMO Executive the switch to the other answer, and no Clear", () => {
+    expect(clientStatusActionsFor("approvedByClient", marker)).toEqual(["mark_rejected"]);
+    expect(clientStatusActionsFor("rejectedByClient", marker)).toEqual(["mark_approved"]);
+  });
+
+  it("an Admin also gets Clear on the client tabs, never on TDS History", () => {
+    const admin = { canMark: true, canClear: true };
+    expect(clientStatusActionsFor("approvedByClient", admin)).toEqual(["mark_rejected", "clear"]);
+    expect(clientStatusActionsFor("rejectedByClient", admin)).toEqual(["mark_approved", "clear"]);
+    expect(clientStatusActionsFor("history", admin)).not.toContain("clear");
+  });
+
   it("anyone else gets no marking action", () => {
     for (const tab of HISTORY_TABS) {
       expect(clientStatusActionsFor(tab.value, { canMark: false, canClear: false })).toEqual([]);
