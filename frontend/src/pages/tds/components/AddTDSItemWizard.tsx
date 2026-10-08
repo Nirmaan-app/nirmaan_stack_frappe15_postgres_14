@@ -126,10 +126,10 @@ export const AddTDSItemWizard: React.FC<AddTDSItemWizardProps> = ({
     const selectedWP = form.watch("work_package");
 
     // Reuse the WP→categories→items derivation. `itemOptionsForWP` lists every
-    // Items SKU under the selected Work Package, regardless of category (we pass
-    // no `selectedCategory`), which is exactly the cross-category member picker
-    // we need here.
-    const { wpOptions, itemOptionsForWP } = useTDSItemOptions({ selectedWP });
+    // Billable Items SKU under the selected Work Package, regardless of category
+    // (we pass no `selectedCategory`), which is exactly the cross-category member
+    // picker we need here. Excluded categories never appear (`tdsMemberEligibility`).
+    const { wpOptions, itemOptionsForWP } = useTDSItemOptions({ selectedWP, billableOnly: true });
 
     // ADR-0026: current linkage for every SKU in this Work Package, fetched ONCE
     // (batched, not per option) so each picker row can show whether adding it

@@ -98,10 +98,11 @@ export const MultiAddMembersDialog: React.FC<MultiAddMembersDialogProps> = ({
     // Last-stop confirmation when the commit would TAKE members from other groups.
     const [showMoveConfirm, setShowMoveConfirm] = useState(false);
 
-    // `itemOptionsForWP` lists every Items SKU under the Work Package across all
-    // its categories (we pass no `selectedCategory`) — exactly the cross-category
-    // member picker we need.
-    const { itemOptionsForWP } = useTDSItemOptions({ selectedWP: workPackage });
+    // `itemOptionsForWP` lists every Billable Items SKU under the Work Package
+    // across all its categories (we pass no `selectedCategory`) — exactly the
+    // cross-category member picker we need. Excluded categories never appear
+    // (`tdsMemberEligibility`).
+    const { itemOptionsForWP } = useTDSItemOptions({ selectedWP: workPackage, billableOnly: true });
 
     // Reset staging whenever the dialog closes.
     useEffect(() => {
