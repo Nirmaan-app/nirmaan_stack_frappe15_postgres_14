@@ -173,6 +173,10 @@ class TestSetClientStatus(FrappeTestCase):
 		self.assertEqual(out["updated"], 1)
 		self.assertEqual(sorted(e["name"] for e in out["errors"]), sorted(waiting))
 		self.assertTrue(all("Admin-approved" in e["error"] for e in out["errors"]))
+		# The refusal names the row's status in the words the screens show: New and blank read Pending.
+		errors = {e["name"]: e["error"] for e in out["errors"]}
+		for row, shown in zip(waiting, ("Pending", "Pending", "Rejected", "Pending")):
+			self.assertTrue(errors[row].endswith(f"this row is {shown}."), errors[row])
 		for row in waiting:
 			self.assertFalse(self._stored(row).client_status)
 			self.assertFalse(self._stored(row).client_status_by)

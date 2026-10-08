@@ -1,5 +1,4 @@
 import React from "react";
-import { format } from "date-fns";
 import { XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,16 +9,14 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { formatTdsStamp, type ClientStatusFields } from "@/utils/tdsRequestRules";
 
 /** The fields of the *Rejected by Client* row the dialog explains. */
-export interface ClientRejectedMakeRow {
+export interface ClientRejectedMakeRow extends ClientStatusFields {
     name: string;
     tds_item_name?: string | null;
     tds_make?: string | null;
     tds_request_id?: string | null;
-    client_status_by?: string | null;
-    client_status_on?: string | null;
-    client_rejection_reason?: string | null;
 }
 
 interface TdsClientRejectedMakeDialogProps {
@@ -63,7 +60,7 @@ export const TdsClientRejectedMakeDialog: React.FC<TdsClientRejectedMakeDialogPr
                 <dd className="font-medium">{markedByName || row?.client_status_by || "—"}</dd>
                 <dt className="text-gray-500">Marked on</dt>
                 <dd className="font-medium">
-                    {row?.client_status_on ? format(new Date(row.client_status_on), "dd-MMM-yyyy HH:mm") : "—"}
+                    {formatTdsStamp(row?.client_status_on) || "—"}
                 </dd>
                 <dt className="text-gray-500">Client's reason</dt>
                 <dd data-testid="tds-client-rejected-reason">{row?.client_rejection_reason || "No reason given"}</dd>

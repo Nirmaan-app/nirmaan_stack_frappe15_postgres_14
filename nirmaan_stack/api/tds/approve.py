@@ -1,6 +1,7 @@
 import frappe
 from frappe import _
 
+from nirmaan_stack.api.tds.status_label import history_status_label
 from nirmaan_stack.api.tds.submit import (
 	STATUS_NEW_MAKE,
 	STATUS_PENDING,
@@ -108,7 +109,7 @@ def _require_admin():
 		)
 
 
-def _parse_names(doc_names):
+def parse_names(doc_names):
 	"""Coerce the `doc_names` arg (JSON string or list) into a clean list of
 	Project TDS Item List row names."""
 	names = frappe.parse_json(doc_names) if isinstance(doc_names, str) else doc_names
@@ -347,7 +348,7 @@ def approve_tds_items(doc_names, datasheet_choices=None):
 	"""
 	_require_admin()
 
-	names = _parse_names(doc_names)
+	names = parse_names(doc_names)
 	if not names:
 		frappe.throw(_("No TDS submittals selected."))
 	choices = _parse_choices(datasheet_choices)
@@ -379,7 +380,7 @@ def approve_tds_items(doc_names, datasheet_choices=None):
 					{
 						"name": name,
 						"error": _("{0} is {1}. Only a row waiting for approval can be approved.").format(
-							row.tds_item_name or name, status
+							row.tds_item_name or name, history_status_label(status)
 						),
 					}
 				)
@@ -461,7 +462,7 @@ def reject_tds_items(doc_names, reason=None):
 	"""
 	_require_admin()
 
-	names = _parse_names(doc_names)
+	names = parse_names(doc_names)
 	if not names:
 		frappe.throw(_("No TDS submittals selected."))
 
@@ -477,7 +478,7 @@ def reject_tds_items(doc_names, reason=None):
 					{
 						"name": name,
 						"error": _("{0} is {1}. Only a row waiting for approval can be rejected.").format(
-							row.tds_item_name or name, status
+							row.tds_item_name or name, history_status_label(status)
 						),
 					}
 				)

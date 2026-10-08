@@ -8,25 +8,27 @@ A row carries a Client Status beside `tds_status`, never instead of it: `tds_sta
 `Approved`. `set_client_status` marks rows *Approved by Client* or *Rejected by Client*, or clears the
 answer, stamping who and when on every mark or switch.
 
-The frontend reads the strings below from `frontend/src/utils/tdsRequestRules.ts`
-(`CLIENT_STATUS`, `CLIENT_STATUS_ACTION`); its parity test pins these top-level literals.
+The frontend reads these strings from `frontend/src/utils/tdsRequestRules.ts` (`CLIENT_STATUS`,
+`CLIENT_STATUS_ACTION`); its parity test pins the stored values in `submit.py` and the actions below.
 """
 
 import frappe
 from frappe import _
 
-from nirmaan_stack.api.tds.approve import _parse_names
-from nirmaan_stack.api.tds.submit import ROW_DOCTYPE, STATUS_APPROVED
+from nirmaan_stack.api.tds.approve import parse_names
+from nirmaan_stack.api.tds.status_label import history_status_label
+from nirmaan_stack.api.tds.submit import (
+	CLIENT_STATUS_APPROVED,
+	CLIENT_STATUS_REJECTED,
+	ROW_DOCTYPE,
+	STATUS_APPROVED,
+)
 from nirmaan_stack.services.role_profiles import (
 	ADMIN_PROFILE,
 	PMO_EXECUTIVE_PROFILE,
 	has_role_profile,
 	is_nirmaan_admin,
 )
-
-# Stored `client_status` values. Blank means the client has not answered.
-CLIENT_STATUS_APPROVED = "Approved by Client"
-CLIENT_STATUS_REJECTED = "Rejected by Client"
 
 # The `action` argument of `set_client_status`.
 ACTION_MARK_APPROVED = "mark_approved"
@@ -56,7 +58,7 @@ def _apply(row, action, reason):
 	if row.tds_status != STATUS_APPROVED:
 		frappe.throw(
 			_("Only an Admin-approved row can have a Client Status; this row is {0}.").format(
-				row.tds_status or "Pending"
+				history_status_label(row.tds_status)
 			)
 		)
 	if action == ACTION_CLEAR:
@@ -90,7 +92,7 @@ def set_client_status(doc_names, action, reason=None):
 		frappe.throw(_("Unknown Client Status action: {0}").format(action))
 	_require_rights(action)
 
-	names = _parse_names(doc_names)
+	names = parse_names(doc_names)
 	if not names:
 		frappe.throw(_("No TDS rows selected."))
 

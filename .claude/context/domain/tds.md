@@ -51,11 +51,13 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
   stays `Approved`. `set_client_status` takes `action` `mark_approved` / `mark_rejected` (Admin or PMO
   Executive) or `clear` (Admin only), refuses per row anything not `tds_status = Approved`, re-stamps
   by + on at every mark or switch, keeps the reason on `mark_rejected` only, blanks all four on
-  `clear`, and replies `{status, updated, errors[]}`. The strings live as top-level constants in
-  `client_status.py`, mirrored by `CLIENT_STATUS` / `CLIENT_STATUS_ACTION` in `tdsRequestRules.ts`
-  (parity block). TDS History's three tabs filter on it server-side (`historyTabFilters`: no Client
-  Status / each answer), so every row sits in exactly one tab; ticks go only on
-  `isClientStatusMarkable` rows. `clientStatusActionsFor` names each tab's actions: TDS History the two
+  `clear`, and replies `{status, updated, errors[]}`. The stored values are top-level constants in
+  `submit.py` (its duplicate check reads them) and the actions in `client_status.py`, mirrored by
+  `CLIENT_STATUS` / `CLIENT_STATUS_ACTION` in `tdsRequestRules.ts` (parity block). TDS History's three
+  tabs filter on it server-side (`historyTabFilters`: no Client Status / each answer), so every row
+  sits in exactly one tab; ticks go only on `isClientStatusMarkable` rows, and any change of page,
+  page size, search, filter or sort clears them (`resetRowSelectionOnViewChange`), so every tick is on
+  screen when a mark or Export reads the selection. `clientStatusActionsFor` names each tab's actions: TDS History the two
   marks; a client tab the switch to the other answer, plus Clear for an Admin only.
 - **A row the client has answered can't be deleted** by anyone, through any doc-layer path including
   REST: the `on_trash` hook (`integrations/controllers/project_tds_item_list.py`) refuses it while

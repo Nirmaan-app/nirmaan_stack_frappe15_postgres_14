@@ -19,6 +19,8 @@ import { Ban, Check, FileDown, Eye, ExternalLink, Loader2, Search, X } from 'luc
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useUserData } from "@/hooks/useUserData";
+import { ADMIN_PROFILE } from "@/constants/roles";
+import type { TdsHistoryRow } from '../../data/tds/useTdsQueries';
 import { TDSRepositoryData } from './SetupTDSRepositoryDialog';
 import {
     PDF_STATUS,
@@ -27,6 +29,7 @@ import {
     offersTickApprovedByAdmin,
     pdfPackagesFor,
     pdfPrintOrder,
+    pdfSeedStatuses,
     pdfSeedTicks,
     pdfStatusOf,
     toggleTick,
@@ -34,19 +37,8 @@ import {
     type PdfStatusGroup,
 } from '@/utils/tdsRequestRules';
 
-interface TdsExportItem {
-    name: string;
-    tds_request_id: string;
-    tds_work_package: string;
-    tds_category: string;
-    tds_item_name: string;
-    tds_description: string;
-    tds_make: string;
-    tds_boq_line_item?: string;
-    tds_attachment?: string;
-    tds_status: string;
-    client_status?: string | null;
-}
+/** A row the dialog lists and exports. */
+export type TdsExportItem = TdsHistoryRow;
 
 /** How the caller should hand over the PDF it generates. */
 export interface TdsExportOptions {
@@ -54,6 +46,11 @@ export interface TdsExportOptions {
     previewOnly: boolean;
 }
 
+/**
+ * The dialog reads its props once, when it mounts: the caller mounts a fresh one per open (a `key`
+ * bumped by the handler that opens it, or rendering it only while open). Only the item ticks follow a
+ * refetched `historyData`.
+ */
 interface TdsExportDialogProps {
     isOpen: boolean;
     onClose: () => void;
@@ -62,7 +59,8 @@ interface TdsExportDialogProps {
     settings: TDSRepositoryData;
     historyData: TdsExportItem[];
     isExporting: boolean;
-    /** The statuses ticked on open (`PDF_DEFAULT_STATUSES`): the TDS page and Handover differ. */
+    /** The statuses ticked on open (`PDF_DEFAULT_STATUSES`): the TDS page and Handover differ. A
+     *  status a saved tick's row needs is ticked too (`pdfSeedStatuses`). */
     defaultStatuses: readonly PdfStatus[];
     /** When given, a third footer button saves the ticks WITHOUT exporting. The Handover Documents tab
      *  passes it because its ticks decide what the handover binder carries, so they must be settable
@@ -166,27 +164,24 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
     initialSelectedIds,
 }) => {
     const { role } = useUserData();
-    const isAdmin = role === "Nirmaan Admin Profile";
+    const isAdmin = role === ADMIN_PROFILE;
 
-    const [tickedStatuses, setTickedStatuses] = useState<PdfStatus[]>([...defaultStatuses]);
+    // Each mount (each open) starts from the caller's statuses, all packages and an empty search.
+    const [tickedStatuses, setTickedStatuses] = useState<PdfStatus[]>(() =>
+        pdfSeedStatuses(historyData, initialSelectedIds, defaultStatuses)
+    );
     const [tickedPackages, setTickedPackages] = useState<string[]>([]);
-    const [selectedIds, setSelectedIds] = useState<Set<string>>(() => pdfSeedTicks(historyData, initialSelectedIds));
+    // Item ticks = the seed (`pdfSeedTicks`), then the user's own ticks and unticks on top. The seed is
+    // derived, so a refetched list (the TDS page refetches on open) reseeds without losing the user's.
+    const seededIds = useMemo(() => pdfSeedTicks(historyData, initialSelectedIds), [historyData, initialSelectedIds]);
+    const [userTicks, setUserTicks] = useState<ReadonlyMap<string, boolean>>(() => new Map());
+    const selectedIds = useMemo(
+        () => new Set(historyData.map(row => row.name).filter(name => userTicks.get(name) ?? seededIds.has(name))),
+        [historyData, userTicks, seededIds]
+    );
     // Item-name search. A FIND-AND-TICK tool: it narrows what you SEE and what Select all acts on,
     // never what the PDF holds. The PDF follows the ticks.
     const [itemSearch, setItemSearch] = useState("");
-
-    // Each open starts from the caller's default statuses, all packages and an empty search.
-    React.useEffect(() => {
-        if (!isOpen) return;
-        setTickedStatuses([...defaultStatuses]);
-        setTickedPackages([]);
-        setItemSearch("");
-    }, [isOpen, defaultStatuses]);
-
-    // The item ticks reseed on open and when the list is refetched (the TDS page refetches on open).
-    React.useEffect(() => {
-        if (isOpen) setSelectedIds(pdfSeedTicks(historyData, initialSelectedIds));
-    }, [isOpen, historyData, initialSelectedIds]);
 
     const statusCounts = useMemo(() => {
         const counts = new Map<PdfStatus, number>();
@@ -229,23 +224,13 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
     const allPackages = packageOrder.length === 0;
     const isAllSelected = visibleRows.length > 0 && visibleRows.every(row => selectedIds.has(row.name));
 
-    const handleToggleItem = (itemName: string) => {
-        setSelectedIds(prev => {
-            const next = new Set(prev);
-            if (next.has(itemName)) next.delete(itemName);
-            else next.add(itemName);
-            return next;
-        });
-    };
+    const setTicks = (names: string[], ticked: boolean) =>
+        setUserTicks(prev => new Map([...prev, ...names.map(name => [name, ticked] as const)]));
+
+    const handleToggleItem = (itemName: string) => setTicks([itemName], !selectedIds.has(itemName));
 
     // Select all / Deselect all act on the items SHOWN, so "search a term, tick every match" works.
-    const handleToggleAll = () => {
-        setSelectedIds(prev => {
-            const next = new Set(prev);
-            visibleRows.forEach(row => (isAllSelected ? next.delete(row.name) : next.add(row.name)));
-            return next;
-        });
-    };
+    const handleToggleAll = () => setTicks(visibleRows.map(row => row.name), !isAllSelected);
 
     const handleExport = () => {
         onExport(tickedRows, { previewOnly });

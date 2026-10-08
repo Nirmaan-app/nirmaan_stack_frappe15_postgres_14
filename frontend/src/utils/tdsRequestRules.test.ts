@@ -41,10 +41,12 @@ import {
   offersTickApprovedByAdmin,
   pdfPackagesFor,
   pdfPrintOrder,
+  pdfSeedStatuses,
   pdfSeedTicks,
   pdfStatusOf,
   toggleTick,
 } from "./tdsRequestRules";
+import { clientStatusMarkedBy, formatTdsStamp, projectHistoryTabFilters } from "./tdsRequestRules";
 
 // The backend writes the stored values; this module only reads them. The PARITY block reads the
 // Python that writes them, so a renamed status or prefix there fails here instead of silently
@@ -77,6 +79,11 @@ describe("parity with api/tds/submit.py", () => {
   it("the stored Pending and New Make statuses match", () => {
     expect(pyConstant("STATUS_PENDING")).toBe(STORED_STATUS.pending);
     expect(pyConstant("STATUS_NEW_MAKE")).toBe(STORED_STATUS.newMake);
+  });
+
+  it("the stored Approved and Rejected statuses match", () => {
+    expect(pyConstant("STATUS_APPROVED")).toBe(STORED_STATUS.approved);
+    expect(pyConstant("STATUS_REJECTED")).toBe(STORED_STATUS.rejected);
   });
 
   it("the duplicate check counts every row but a Rejected one as live, as liveRowFor does", () => {
@@ -476,8 +483,9 @@ describe("parity with api/tds/client_status.py", () => {
   };
 
   it("the stored Client Status values match", () => {
-    expect(clientConstant("CLIENT_STATUS_APPROVED")).toBe(CLIENT_STATUS.approved);
-    expect(clientConstant("CLIENT_STATUS_REJECTED")).toBe(CLIENT_STATUS.rejected);
+    // Kept in submit.py, whose duplicate check reads them; client_status.py imports them.
+    expect(pyConstant("CLIENT_STATUS_APPROVED")).toBe(CLIENT_STATUS.approved);
+    expect(pyConstant("CLIENT_STATUS_REJECTED")).toBe(CLIENT_STATUS.rejected);
   });
 
   it("the endpoint's actions match", () => {
@@ -526,6 +534,47 @@ describe("historyTabFilters", () => {
   it("each client tab asks for exactly its answer", () => {
     expect(historyTabFilters("approvedByClient")).toEqual([["client_status", "=", "Approved by Client"]]);
     expect(historyTabFilters("rejectedByClient")).toEqual([["client_status", "=", "Rejected by Client"]]);
+  });
+});
+
+describe("projectHistoryTabFilters", () => {
+  it("scopes a tab's server filter to the project", () => {
+    expect(projectHistoryTabFilters("PROJ-1", "history")).toEqual([
+      ["tdsi_project_id", "=", "PROJ-1"],
+      ["client_status", "is", "not set"],
+    ]);
+    expect(projectHistoryTabFilters("PROJ-1", "rejectedByClient")).toEqual([
+      ["tdsi_project_id", "=", "PROJ-1"],
+      ["client_status", "=", "Rejected by Client"],
+    ]);
+  });
+});
+
+describe("clientStatusMarkedBy", () => {
+  const NAMES = new Map([["pmo@nirmaan.app", "Priya Menon"]]);
+
+  it("names the user who marked the row by their full name", () => {
+    expect(clientStatusMarkedBy({ client_status_by: "pmo@nirmaan.app" }, NAMES)).toBe("Priya Menon");
+  });
+
+  it("falls back to the stored user id when the name is unknown", () => {
+    expect(clientStatusMarkedBy({ client_status_by: "gone@nirmaan.app" }, NAMES)).toBe("gone@nirmaan.app");
+  });
+
+  it("is blank for a row nobody marked", () => {
+    expect(clientStatusMarkedBy({ client_status_by: null }, NAMES)).toBe("");
+    expect(clientStatusMarkedBy({}, NAMES)).toBe("");
+  });
+});
+
+describe("formatTdsStamp", () => {
+  it("shows a stamp as day-month-year and time", () => {
+    expect(formatTdsStamp("2026-01-15 14:05:09.123456")).toBe("15-Jan-2026 14:05");
+  });
+
+  it("is blank for no stamp", () => {
+    expect(formatTdsStamp(null)).toBe("");
+    expect(formatTdsStamp("")).toBe("");
   });
 });
 
@@ -621,6 +670,12 @@ describe("pdfStatusOf", () => {
 
   it("never offers an Admin-rejected row", () => {
     expect(pdfStatusOf({ tds_status: "Rejected" })).toBeNull();
+  });
+
+  it("puts a legacy row with a blank status under Pending, as TDS History shows it", () => {
+    for (const tds_status of ["", null, undefined]) {
+      expect(pdfStatusOf({ tds_status })).toBe("Pending");
+    }
   });
 });
 
@@ -800,6 +855,43 @@ describe("pdfSeedTicks", () => {
 
   it("an empty saved list ticks nothing", () => {
     expect(pdfSeedTicks(ROWS, [])).toEqual(new Set());
+  });
+});
+
+describe("pdfSeedStatuses", () => {
+  const ROWS = [
+    { name: "client", tds_status: "Approved", client_status: "Approved by Client" },
+    { name: "admin", tds_status: "Approved", client_status: "" },
+    { name: "pending", tds_status: "Pending" },
+    { name: "new", tds_status: "New" },
+  ];
+
+  it("with nothing saved (the TDS page), opens with the caller's defaults", () => {
+    expect(pdfSeedStatuses(ROWS, undefined, PDF_DEFAULT_STATUSES.tdsPage)).toEqual(["Approved by Client"]);
+  });
+
+  it("Handover keeps its defaults when no saved tick is on a Pending row", () => {
+    expect(pdfSeedStatuses(ROWS, ["admin", "client"], PDF_DEFAULT_STATUSES.handover)).toEqual([
+      "Approved by Client",
+      "Approved by Admin",
+    ]);
+  });
+
+  it("Handover also ticks Pending when a saved tick is on a Pending or New Make row, so the tick shows and is kept", () => {
+    for (const saved of [["pending"], ["admin", "new"]]) {
+      expect(pdfSeedStatuses(ROWS, saved, PDF_DEFAULT_STATUSES.handover)).toEqual([
+        "Approved by Client",
+        "Approved by Admin",
+        "Pending",
+      ]);
+    }
+  });
+
+  it("also ticks a status the defaults leave out when a saved tick needs it", () => {
+    expect(pdfSeedStatuses(ROWS, ["admin"], PDF_DEFAULT_STATUSES.tdsPage)).toEqual([
+      "Approved by Client",
+      "Approved by Admin",
+    ]);
   });
 });
 

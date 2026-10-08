@@ -1,5 +1,5 @@
 import React, { useMemo, useRef } from 'react';
-import { Column, ColumnDef } from "@tanstack/react-table";
+import { Column, ColumnDef, Row } from "@tanstack/react-table";
 import { DataTable, SearchFieldOption } from '@/components/data-table/new-data-table';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { FacetDeclaration, FacetOverrides } from '@/components/data-table/facetConfig';
@@ -15,7 +15,7 @@ import {
     TooltipTrigger
 } from "@/components/ui/tooltip";
 import { useUserData } from "@/hooks/useUserData";
-import { useNirmaanUsers } from '../../data/tds/useTdsQueries';
+import { useNirmaanUserNames } from '../../data/tds/useTdsQueries';
 import { useDeleteTdsItem } from '../../data/tds/useTdsMutations';
 import { toast } from "@/components/ui/use-toast";
 import {
@@ -44,14 +44,16 @@ import {
     CLIENT_STATUS,
     CLIENT_STATUS_ACTION,
     clientStatusActionsFor,
-    historyTabFilters,
+    clientStatusMarkedBy,
+    formatTdsStamp,
     isClientStatusMarkable,
+    projectHistoryTabFilters,
     type ClientStatusAction,
+    type ClientStatusFields,
     type HistoryTab,
 } from "@/utils/tdsRequestRules";
 import { useSetClientStatus } from '../../data/tds/useTdsMutations';
 import { getFrappeError } from "@/utils/frappeErrors";
-import { format } from 'date-fns';
 import { TdsClientRejectDialog } from './TdsClientRejectDialog';
 
 interface TdsHistoryTableProps {
@@ -64,7 +66,7 @@ interface TdsHistoryTableProps {
     onClientStatusChange?: () => void;
 }
 
-interface ProjectTDSItem {
+interface ProjectTDSItem extends ClientStatusFields {
     name: string;
     tds_request_id: string;
     tds_work_package: string;
@@ -77,10 +79,6 @@ interface ProjectTDSItem {
     tds_rejection_reason?: string;
     tds_attachment?: string;
     tds_boq_line_item?: string;
-    client_status?: string;
-    client_status_by?: string;
-    client_status_on?: string;
-    client_rejection_reason?: string;
     creation: string;
     // owner: string; // Removed in favor of dynamic keys
     [key: string]: any;
@@ -115,8 +113,6 @@ const clientActionLabel = (action: ClientStatusAction, tab: HistoryTab) => {
     return `${tab === "history" ? "Mark" : "Switch to"} ${label}`;
 };
 
-const formatMarkedOn = (value?: string) => (value ? format(new Date(value), "dd-MMM-yyyy HH:mm") : "");
-
 // The Status filter offers the three shown statuses, but the column's filter state holds the
 // STORED values (Pending → Pending + New). The list fetch, the export and the other facets'
 // cross-filter all read that state, so each matches New rows with no rule of its own.
@@ -137,27 +133,13 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
     const { role } = useUserData();
     const { deleteDoc } = useDeleteTdsItem();
     const { setClientStatus, loading: isMarking } = useSetClientStatus();
-    // The ticked rows waiting on the Rejected by Client dialog; empty while it is closed.
-    const [rowsToReject, setRowsToReject] = useState<ProjectTDSItem[]>([]);
+    // The names of the ticked rows waiting on the Rejected by Client dialog; empty while it is closed.
+    const [namesToReject, setNamesToReject] = useState<string[]>([]);
     const [itemToDelete, setItemToDelete] = useState<string | null>(null);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
-    // --- 1. Fetch Nirmaan Users for Mapping ---
-    // Moved to top so it can be used in columns
-    const { data: nirmaanUsers } = useNirmaanUsers();
-
-    // Create User Map: email -> full_name
-    const userMap = useMemo(() => {
-        const map = new Map<string, string>();
-        if (nirmaanUsers) {
-            nirmaanUsers.forEach((u: any) => {
-                if (u.name && u.full_name) {
-                    map.set(u.name, u.full_name);
-                }
-            });
-        }
-        return map;
-    }, [nirmaanUsers]);
+    // Full names by user id, for the Marked By column.
+    const userMap = useNirmaanUserNames();
 
     const isAdmin = role === "Nirmaan Admin Profile" || role === "Administrator";
     const isPMO = role === "Nirmaan PMO Executive Profile";
@@ -370,28 +352,26 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
             accessorKey: "client_status_by",
             header: "Marked By",
             cell: ({ row }) => {
-                const by = row.original.client_status_by;
-                return <span className="text-sm">{by ? userMap.get(by) || by : "-"}</span>;
+                return <span className="text-sm">{clientStatusMarkedBy(row.original, userMap) || "-"}</span>;
             },
             size: 130,
             enableSorting: false,
             meta: {
                 exportHeaderName: "Marked By",
-                exportValue: (row: ProjectTDSItem) =>
-                    row.client_status_by ? userMap.get(row.client_status_by) || row.client_status_by : "",
+                exportValue: (row: ProjectTDSItem) => clientStatusMarkedBy(row, userMap),
             },
         },
         {
             accessorKey: "client_status_on",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Marked On" />,
             cell: ({ row }) => (
-                <span className="text-sm whitespace-nowrap">{formatMarkedOn(row.original.client_status_on) || "-"}</span>
+                <span className="text-sm whitespace-nowrap">{formatTdsStamp(row.original.client_status_on) || "-"}</span>
             ),
             size: 130,
             enableSorting: true,
             meta: {
                 exportHeaderName: "Marked On",
-                exportValue: (row: ProjectTDSItem) => formatMarkedOn(row.client_status_on),
+                exportValue: (row: ProjectTDSItem) => formatTdsStamp(row.client_status_on),
             },
         },
         {
@@ -411,7 +391,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
                 // The column only exists when `canManageTDS`, which grants every row
                 // except one the client has answered: that row is locked until an
                 // Admin clears its Client Status.
-                cell: ({ row }: { row: any }) => isDeleteLocked(row.original) ? (
+                cell: ({ row }: { row: Row<ProjectTDSItem> }) => isDeleteLocked(row.original) ? (
                     <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger asChild>
@@ -453,10 +433,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
     ];
 
     // The project, and this tab's Client Status (TDS History = none yet).
-    const staticFilters = useMemo(
-        () => [["tdsi_project_id", "=", projectId], ...historyTabFilters(tab)],
-        [projectId, tab]
-    );
+    const staticFilters = useMemo(() => projectHistoryTabFilters(projectId, tab), [projectId, tab]);
     const fieldsToFetch = [
         "name", "tdsi_project_id", "tdsi_project_name",
         "tds_work_package", "tds_request_id", "tds_category",
@@ -470,6 +447,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
     // --- Hook Initialization ---
     const {
         table,
+        data: pageRows,
         totalCount,
         isLoading,
         error,
@@ -488,9 +466,12 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
         defaultSort: "creation desc",
         additionalFilters: staticFilters,
         urlSyncKey: `tds_${tab}_${projectId}_${refreshTrigger}`,
-        // Ticks only on rows that can take a Client Status, keyed by row name so they survive paging.
+        // Ticks only on rows that can take a Client Status, keyed by row name. Any change of page, page
+        // size, search, filter or sort clears them, so every tick is on screen: "N selected", the marks
+        // and Export (which read the current page) then see all of them. Each tab is its own table.
         enableRowSelection: row => isClientStatusMarkable(row.original),
         getRowId: row => row.name,
+        resetRowSelectionOnViewChange: true,
         // Item ID is an internal `Items` key nobody reads off this screen -- Item
         // Name is the identifying column. Hidden rather than deleted: the column
         // def, its facet and its fetch field all stay, so it is one click away in
@@ -522,12 +503,17 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
 
 
     // --- Client Status marking ---
-    // The visible ticked rows: what "N selected" counts, the marks send and Export writes.
+    // The ticked rows (all on screen): what "N selected" counts, the marks send and Export writes.
     const selectedRows = table.getSelectedRowModel().rows.map(r => r.original);
+    // The rows the Rejected by Client dialog lists, read from the live page.
+    const rowsToReject = useMemo(
+        () => pageRows.filter(row => namesToReject.includes(row.name)),
+        [pageRows, namesToReject]
+    );
 
-    const markClientStatus = async (rows: ProjectTDSItem[], action: ClientStatusAction, reason?: string) => {
+    const markClientStatus = async (names: string[], action: ClientStatusAction, reason?: string) => {
         try {
-            const result = await setClientStatus(projectId, rows.map(r => r.name), action, reason);
+            const result = await setClientStatus(projectId, names, action, reason);
             const isClear = action === CLIENT_STATUS_ACTION.clear;
             if (result.updated) {
                 const rowsText = `${result.updated} ${result.updated === 1 ? "row" : "rows"}`;
@@ -544,7 +530,7 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
                     variant: "destructive",
                 });
             }
-            setRowsToReject([]);
+            setNamesToReject([]);
             table.resetRowSelection();
             refetchTable();
             onClientStatusChange?.();
@@ -554,8 +540,9 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
     };
 
     const handleClientAction = (action: ClientStatusAction) => {
-        if (action === CLIENT_STATUS_ACTION.markRejected) setRowsToReject(selectedRows);
-        else markClientStatus(selectedRows, action);
+        const names = selectedRows.map(row => row.name);
+        if (action === CLIENT_STATUS_ACTION.markRejected) setNamesToReject(names);
+        else markClientStatus(names, action);
     };
 
     const toolbarActions = selectedRows.length > 0 ? (
@@ -647,8 +634,8 @@ export const TdsHistoryTable: React.FC<TdsHistoryTableProps> = ({
             <TdsClientRejectDialog
                 rows={rowsToReject}
                 isSubmitting={isMarking}
-                onCancel={() => setRowsToReject([])}
-                onConfirm={reason => markClientStatus(rowsToReject, CLIENT_STATUS_ACTION.markRejected, reason)}
+                onCancel={() => setNamesToReject([])}
+                onConfirm={reason => markClientStatus(namesToReject, CLIENT_STATUS_ACTION.markRejected, reason)}
             />
 
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

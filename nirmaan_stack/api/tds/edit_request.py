@@ -19,6 +19,7 @@ row's request id stays.
 import frappe
 from frappe import _
 
+from nirmaan_stack.api.tds.approve import WAITING_STATUSES
 from nirmaan_stack.api.tds.submit import (
 	ROW_DOCTYPE,
 	STATUS_NEW_MAKE,
@@ -36,9 +37,8 @@ from nirmaan_stack.api.tds.submit import (
 )
 from nirmaan_stack.services.role_profiles import is_nirmaan_admin
 
-# A From Repository row still waiting. A blank status is a legacy row, which every screen shows as
-# Pending (`approve.WAITING_STATUSES`).
-WAITING_PICK_STATUSES = (None, "", STATUS_PENDING)
+# A From Repository row still waiting: the waiting statuses but New, which only a New Make carries.
+WAITING_PICK_STATUSES = tuple(s for s in WAITING_STATUSES if s != STATUS_NEW_MAKE)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -190,4 +190,4 @@ def _is_waiting_request(row):
 
 def _is_waiting_pick(row):
 	"""A From Repository row still waiting: Pending (or a legacy blank status), with no `PCUS-` id."""
-	return row.tds_status in WAITING_PICK_STATUSES and not is_project_custom_id(row.tds_item_id)
+	return (row.tds_status or "") in WAITING_PICK_STATUSES and not is_project_custom_id(row.tds_item_id)

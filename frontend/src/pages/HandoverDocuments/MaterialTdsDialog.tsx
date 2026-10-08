@@ -10,7 +10,10 @@
 //   * The ticks are saved on the handover row (`form_data.selected`) when the export runs, so the
 //     binder and the printed list carry exactly what was exported, in the dialog's print order.
 //   * Both Approved statuses start ticked (`PDF_DEFAULT_STATUSES.handover`), so saved ticks on
-//     Admin-approved rows stay visible; a saved tick on a row the client rejected since is dropped.
+//     Admin-approved rows stay visible, and Pending too when a saved tick is on a Pending row
+//     (`pdfSeedStatuses`); a saved tick on a row the client rejected since is dropped.
+//   * The dialog reads its props when it mounts; this component renders it only while open, so each
+//     open starts afresh.
 // Everything else — the stakeholder cards, the ordered checklists, the search, the PDF itself — is the
 // TDS tab's, unchanged.
 
@@ -32,6 +35,7 @@ import {
 import {
   TdsExportDialog,
   TdsPdfReadyDialog,
+  type TdsExportItem,
   type TdsExportOptions,
 } from "@/pages/projects/TDSRepository/components";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -114,11 +118,11 @@ export const MaterialTdsDialog: React.FC<MaterialTdsDialogProps> = ({
     const names = new Set(
       ((sources?.items ?? []) as HodTdsItem[]).map((i) => i.name),
     );
-    return (historyData ?? []).filter((item: any) => names.has(item.name));
+    return (historyData ?? []).filter((item) => names.has(item.name));
   }, [sources, historyData]);
 
   /** The ticks decide what the handover BINDER carries, so they are stored on the row. */
-  const saveSelection = async (selectedItems: any[], announce: boolean) => {
+  const saveSelection = async (selectedItems: TdsExportItem[], announce: boolean) => {
     try {
       await onSaveSelected(selectedItems.map((i) => String(i.name)), announce);
       // `announce` marks the Mark-as-Done button (not the save that rides an export): the review is
@@ -145,7 +149,7 @@ export const MaterialTdsDialog: React.FC<MaterialTdsDialogProps> = ({
   };
 
   const handleExport = async (
-    selectedItems: any[],
+    selectedItems: TdsExportItem[],
     { previewOnly }: TdsExportOptions,
   ) => {
     // A failure to store the ticks must not stop the download the user asked for.
@@ -187,7 +191,7 @@ export const MaterialTdsDialog: React.FC<MaterialTdsDialogProps> = ({
         onClose={() => onOpenChange(false)}
         onExport={handleExport}
         settings={toTdsRepositoryData(settings[0])}
-        historyData={mine as any}
+        historyData={mine}
         isExporting={isExporting}
         defaultStatuses={PDF_DEFAULT_STATUSES.handover}
         onSaveSelection={

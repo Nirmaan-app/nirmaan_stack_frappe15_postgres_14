@@ -7,6 +7,8 @@
  * Request Type is derived, never stored, and is only meaningful while a row waits for approval.
  */
 
+import { format } from "date-fns";
+
 /** Project-only id prefix of a Project Custom Item. Pinned to the backend by a parity test. */
 export const PROJECT_CUSTOM_ID_PREFIX = "PCUS-";
 
@@ -234,11 +236,11 @@ export function historyStatusOf(status?: string | null): HistoryStatus {
  * values keep the short `HistoryStatus`; only what is shown or exported goes through this. The
  * Handover print reads the same words from `api/tds/status_label.py`, pinned by a parity test.
  */
-export const HISTORY_STATUS_LABEL: Record<HistoryStatus, string> = {
+export const HISTORY_STATUS_LABEL = {
   Pending: "Pending",
   Approved: "Approved by Admin",
   Rejected: "Rejected",
-};
+} as const satisfies Record<HistoryStatus, string>;
 
 /** What a row's stored `tds_status` reads as on screen and in exports. */
 export function historyStatusLabel(status?: string | null): string {
@@ -266,7 +268,7 @@ export function historyStatusesIn(filterValue: unknown): HistoryStatus[] {
 // The client's answer on an Admin-approved row, stored beside `tds_status` (which stays Approved).
 // Written only by `api/tds/client_status.set_client_status`.
 
-/** Stored `client_status` values; blank means the client has not answered. Pinned to `client_status.py`. */
+/** Stored `client_status` values; blank means the client has not answered. Pinned to `submit.py`. */
 export const CLIENT_STATUS = {
   approved: "Approved by Client",
   rejected: "Rejected by Client",
@@ -284,6 +286,32 @@ export type ClientStatusAction = (typeof CLIENT_STATUS_ACTION)[keyof typeof CLIE
 /** The fields of a Project TDS row the Client Status rules read. */
 export interface ClientStatusRow extends TdsRequestRow {
   client_status?: string | null;
+}
+
+/** A row's Client Status and its stamp: who marked it, when, and the client's reason. */
+export interface ClientStatusFields {
+  client_status?: string | null;
+  client_status_by?: string | null;
+  client_status_on?: string | null;
+  client_rejection_reason?: string | null;
+}
+
+/**
+ * Who marked a row's Client Status, as screens and exports name them: the user's full name from
+ * `names` (user id → full name), else the stored user id; blank when nobody has marked it.
+ */
+export function clientStatusMarkedBy(
+  row: Pick<ClientStatusFields, "client_status_by">,
+  names: ReadonlyMap<string, string>
+): string {
+  const user = row.client_status_by;
+  if (!user) return "";
+  return names.get(user) || user;
+}
+
+/** A stored date-time (a Client Status stamp, a row's creation) as TDS screens and exports show it. */
+export function formatTdsStamp(value?: string | null): string {
+  return value ? format(new Date(value), "dd-MMM-yyyy HH:mm") : "";
 }
 
 /** The TDS History page's tabs. Every row sits in exactly one (`historyTabOf`). */
@@ -310,6 +338,11 @@ export function historyTabFilters(tab: HistoryTab): [string, string, string][] {
   if (tab === "approvedByClient") return [["client_status", "=", CLIENT_STATUS.approved]];
   if (tab === "rejectedByClient") return [["client_status", "=", CLIENT_STATUS.rejected]];
   return [["client_status", "is", "not set"]];
+}
+
+/** One project's rows in one tab: the filter the tab's table and its count badge both send. */
+export function projectHistoryTabFilters(projectId: string, tab: HistoryTab): [string, string, string][] {
+  return [["tdsi_project_id", "=", projectId], ...historyTabFilters(tab)];
 }
 
 /**
@@ -354,8 +387,8 @@ export function clientStatusActionsFor(
 /** The statuses the PDF dialog offers, in the order it lists them. *Rejected by Client* is never one. */
 export const PDF_STATUS = {
   approvedByClient: CLIENT_STATUS.approved,
-  /** Admin-approved, and the client has not answered yet. Reads as `HISTORY_STATUS_LABEL.Approved`. */
-  approvedByAdmin: "Approved by Admin",
+  /** Admin-approved, and the client has not answered yet. */
+  approvedByAdmin: HISTORY_STATUS_LABEL.Approved,
   pending: "Pending",
 } as const;
 export type PdfStatus = (typeof PDF_STATUS)[keyof typeof PDF_STATUS];
@@ -371,17 +404,16 @@ export const PDF_STATUSES: readonly PdfStatus[] = [
  * - *Approved by Client* → Approved by Client
  * - *Rejected by Client* → never
  * - Approved, no Client Status → Approved by Admin
- * - Pending or New → Pending
- * - Rejected (by the Admin), or a blank status → never
+ * - Rejected (by the Admin) → never
+ * - anything else waiting (Pending, New, a legacy blank) → Pending, as TDS History shows it
  */
 export function pdfStatusOf(row: ClientStatusRow): PdfStatus | null {
   if (row.client_status === CLIENT_STATUS.approved) return PDF_STATUS.approvedByClient;
   if (row.client_status === CLIENT_STATUS.rejected) return null;
-  if (row.tds_status === STORED_STATUS.approved) return PDF_STATUS.approvedByAdmin;
-  if (row.tds_status === STORED_STATUS.pending || row.tds_status === STORED_STATUS.newMake) {
-    return PDF_STATUS.pending;
-  }
-  return null;
+  const shown = historyStatusOf(row.tds_status);
+  if (shown === STORED_STATUS.approved) return PDF_STATUS.approvedByAdmin;
+  if (shown === STORED_STATUS.rejected) return null;
+  return PDF_STATUS.pending;
 }
 
 /**
@@ -405,6 +437,21 @@ export function pdfSeedTicks(rows: readonly PdfRow[], saved: readonly string[] |
   if (saved === undefined) return new Set(offered);
   const keep = new Set(saved);
   return new Set(offered.filter(name => keep.has(name)));
+}
+
+/**
+ * The statuses ticked when the dialog opens: the caller's `defaults`, then, in the dialog's order,
+ * each other status a saved tick's row prints under. A saved tick on a Pending row (Handover) then
+ * shows, and the next save or export keeps it instead of dropping it unseen.
+ */
+export function pdfSeedStatuses(
+  rows: readonly PdfRow[],
+  saved: readonly string[] | undefined,
+  defaults: readonly PdfStatus[]
+): PdfStatus[] {
+  const keep = new Set(saved ?? []);
+  const needed = new Set(rows.filter(row => keep.has(row.name)).map(pdfStatusOf));
+  return [...defaults, ...PDF_STATUSES.filter(status => !defaults.includes(status) && needed.has(status))];
 }
 
 /**

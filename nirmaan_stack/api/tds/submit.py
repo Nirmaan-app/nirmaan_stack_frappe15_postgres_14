@@ -49,6 +49,12 @@ STATUS_PENDING = "Pending"
 STATUS_NEW_MAKE = "New"  # approval adds a Repository Entry
 # Stored `tds_status` of an Admin-approved row; only such a row can carry a Client Status.
 STATUS_APPROVED = "Approved"
+STATUS_REJECTED = "Rejected"
+# Stored `client_status` values (ADR-0025 Amendment B); blank means the client has not answered.
+# Written only by `client_status.set_client_status`; kept here so the duplicate check below can read
+# them without importing that module, which imports this one.
+CLIENT_STATUS_APPROVED = "Approved by Client"
+CLIENT_STATUS_REJECTED = "Rejected by Client"
 # Project-only id prefix of a Project Custom Item (minted by `_assign_project_custom_ids`). Read by
 # the same frontend rules.
 PROJECT_CUSTOM_ID_PREFIX = "PCUS-"
@@ -305,9 +311,6 @@ def _refuse_duplicates(project, planned, exclude=None):
 	names the two ways out, so a direct API call gets the same explanation as the form's popup.
 
 	`exclude`: the row being edited, which is no duplicate of itself."""
-	# Imported here: `client_status` imports this module.
-	from nirmaan_stack.api.tds.client_status import CLIENT_STATUS_REJECTED
-
 	seen = set()
 	for p in planned:
 		key = _item_make_key(p["tds_item_id"], p["custom_name_key"], p["tds_make"])

@@ -160,6 +160,10 @@ class TestApproveTdsItems(FrappeTestCase):
 		self.assertEqual(sorted(e["name"] for e in out["errors"]), sorted(refused.values()))
 		for e in out["errors"]:
 			self.assertIn("Only a row waiting for approval can be rejected", e["error"])
+		errors = {e["name"]: e["error"] for e in out["errors"]}
+		# The refusal names the row's status in the words the screens show, not the stored value.
+		self.assertIn("is Approved by Admin.", errors[refused["approved"]])
+		self.assertIn("is Rejected.", errors[refused["already rejected"]])
 		for label, row in refused.items():
 			with self.subTest(label):
 				self.assertEqual(frappe.db.get_value(ROW, row, fields, as_dict=True), before[row])

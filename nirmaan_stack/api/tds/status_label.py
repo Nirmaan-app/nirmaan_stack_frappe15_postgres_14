@@ -11,7 +11,7 @@ ADR-0025 Amendment B). Stored values do not change.
 
 import frappe
 
-from nirmaan_stack.api.tds.submit import STATUS_NEW_MAKE, STATUS_PENDING
+from nirmaan_stack.api.tds.submit import STATUS_APPROVED, STATUS_NEW_MAKE, STATUS_PENDING, STATUS_REJECTED
 
 PENDING_LABEL = "Pending"
 APPROVED_LABEL = "Approved by Admin"
@@ -21,8 +21,8 @@ REJECTED_LABEL = "Rejected"
 _LABELS = {
 	STATUS_PENDING: PENDING_LABEL,
 	STATUS_NEW_MAKE: PENDING_LABEL,
-	"Approved": APPROVED_LABEL,
-	"Rejected": REJECTED_LABEL,
+	STATUS_APPROVED: APPROVED_LABEL,
+	STATUS_REJECTED: REJECTED_LABEL,
 }
 
 

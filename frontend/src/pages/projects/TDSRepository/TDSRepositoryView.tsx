@@ -5,18 +5,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ArrowLeft, Download, Loader2, Plus } from 'lucide-react';
 import { FrappeContext, FrappeConfig } from 'frappe-react-sdk';
-import { useTdsHistoryItems, useProjectDoc } from '../data/tds/useTdsQueries';
+import { useNirmaanUserNames, useTdsHistoryItems, useProjectDoc } from '../data/tds/useTdsQueries';
 import { format } from 'date-fns';
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
-import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog, TdsPdfReadyDialog, type TdsExportOptions } from './components';
-import { HISTORY_TABS, historyStatusLabel, historyTabFilters, type HistoryTab } from '@/utils/tdsRequestRules';
+import { ADMIN_PROFILE } from "@/constants/roles";
+import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog, TdsPdfReadyDialog, type TdsExportItem, type TdsExportOptions } from './components';
+import { HISTORY_TABS, clientStatusMarkedBy, formatTdsStamp, historyStatusLabel, projectHistoryTabFilters, type HistoryTab } from '@/utils/tdsRequestRules';
 import { PDF_DEFAULT_STATUSES } from '@/utils/tdsRequestRules';
 import { useCounts } from '@/hooks/useCounts';
 
 const ROW_DOCTYPE = "Project TDS Item List";
-// A stable empty list, so the PDF dialog's reseed effect does not see a new array every render.
-const NO_ROWS: never[] = [];
 
 interface TDSRepositoryViewProps {
     data: TDSRepositoryData;
@@ -28,10 +27,12 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
     const { role } = useUserData();
     const canEditTDS = role === "Nirmaan Admin Profile" || role === "Administrator" || role === "Nirmaan PMO Executive Profile";
     // Only Admins can save a PDF holding Pending sheets; everyone else previews it (`isPdfPreviewOnly`).
-    const isAdmin = role === "Nirmaan Admin Profile";
+    const isAdmin = role === ADMIN_PROFILE;
 
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+    // Bumped on each open: the PDF dialog remounts and starts from its defaults.
+    const [exportDialogKey, setExportDialogKey] = useState(0);
     const [isUpdating, setIsUpdating] = useState(false);
     const [activeTab, setActiveTab] = useState<HistoryTab>("history");
     // The request form replaces the tab row and tables while open; both stay mounted.
@@ -53,6 +54,8 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
 
     // Fetch TDS history data directly for export
     const { data: historyData, mutate: mutateHistoryItems } = useTdsHistoryItems(projectId);
+    // Full names by user id, for the CSV's Marked By.
+    const userNames = useNirmaanUserNames();
 
     const { data: projectData } = useProjectDoc(projectId);
 
@@ -61,7 +64,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
         () => HISTORY_TABS.map(tab => ({
             key: tab.value,
             doctype: ROW_DOCTYPE,
-            filters: [["tdsi_project_id", "=", projectId], ...historyTabFilters(tab.value)],
+            filters: projectHistoryTabFilters(projectId, tab.value),
         })),
         [projectId]
     );
@@ -89,6 +92,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
        fresh one lands, which beats blocking the open on a round trip. */
     const handleOpenExportDialog = () => {
         mutateHistoryItems();
+        setExportDialogKey(key => key + 1);
         setIsExportDialogOpen(true);
     };
 
@@ -129,7 +133,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 ];
 
                 // Map data to CSV rows
-                const rows = historyData.map((item: any) => [
+                const rows = historyData.map(item => [
                     item.tds_request_id || "",
                     item.tds_work_package || "",
                     item.tds_category || "",
@@ -141,11 +145,11 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                     historyStatusLabel(item.tds_status),
                     (item.tds_rejection_reason || "").replace(/,/g, ";"),
                     item.client_status || "",
-                    item.client_status_by || "",
-                    item.client_status_on ? format(new Date(item.client_status_on), "dd-MMM-yyyy HH:mm") : "",
+                    clientStatusMarkedBy(item, userNames),
+                    formatTdsStamp(item.client_status_on),
                     (item.client_rejection_reason || "").replace(/,/g, ";"),
                     item.tds_attachment || "",
-                    item.creation ? format(new Date(item.creation), "dd-MMM-yyyy HH:mm") : ""
+                    formatTdsStamp(item.creation)
                 ]);
 
                 // Create CSV content
@@ -226,7 +230,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
         handlePdfReadyClose();
     };
 
-    const handleExportWithItems = async (selectedItems: any[], { previewOnly }: TdsExportOptions) => {
+    const handleExportWithItems = async (selectedItems: TdsExportItem[], { previewOnly }: TdsExportOptions) => {
         if (!selectedItems || selectedItems.length === 0) {
             toast({
                 title: "No Items Selected",
@@ -528,11 +532,12 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
 
             {/* Export Dialog */}
             <TdsExportDialog
+                key={exportDialogKey}
                 isOpen={isExportDialogOpen}
                 onClose={() => setIsExportDialogOpen(false)}
                 onExport={handleExportWithItems}
                 settings={data}
-                historyData={historyData ?? NO_ROWS}
+                historyData={historyData ?? []}
                 isExporting={isExporting}
                 defaultStatuses={PDF_DEFAULT_STATUSES.tdsPage}
             />
