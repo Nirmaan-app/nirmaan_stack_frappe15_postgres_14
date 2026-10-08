@@ -45331,3 +45331,87 @@ Targeted per commit: commit 1 -- 13 files / 977 (every importer of the changed m
 commit 2 -- rate-master dir 20 files / 935, tsc 3,169; commit 3 -- the same 13 files / 980, tsc 3,169. FULL (frontend only):
 `2026-10-13_12d5_frontend_full.log` **146 files / 5,131 tests** (+15 vs 12d-4c's 5,116; +1 file), 1 failure = the known
 `writeOffControl`; tsc 3,169, 0 OOM. Residence F2 223 = pre-slice (baseline 219 stale).
+
+## Slice 12d-6 — INSULATION PANEL-PATH FIXES: THE DOUBLE LAYER, THE MIXED INCH, THE DOUBLED "mm", AND A TYPED THICKNESS IS ONE NUMBER (2026-10-08/09) — SHIPPED
+
+Ordered by the owner on 2026-10-08 ("we should build the double layer fix now. Abhishek will deploy tomorrow morning") after the
+12e-0b recon (Desktop `2026-10-08_12e0b_Report.md` §1, §2.4) found three defects on the PANEL compute path of the green-lit
+Insulation category. Frontend-only; no asset, config, item or Pricing Input changed (P3 hashes equal at start and end; capture
+log 244 lines at start and end — zero model calls). Report: Desktop `2026-10-08_12d6_Report.md`.
+
+### The three defects and their cause
+
+1. **A model-read "Double layer of 19mm thick" / "Double layer of 19 mm" priced ONE layer on the panel** (Nitrile 50 mm + 26G Al:
+   615 / 224) while the pure pricer composed two (991 / 238). Cause: `pricingSheetHelper.computeItemList` ran
+   `matchStatedToOption` (12c-F R-B) BEFORE `priceItemList`; `readNumber` read the first number (19), it matched the dropdown
+   option "19", the option REPLACED the stated text, and `itemListPricing.readLayers` (12d-4c) never saw the wording.
+   "25 mm thick - 2 Layers" and "13+13" escaped only because `readNumber` returns no single value for them.
+2. **A hyphenated mixed inch `1-1/4"` read as 1"** (25.4 -> 28.58) — `readNumber`'s mixed-number form accepted only a SPACE
+   between the whole and the fraction.
+3. **The "own spelling" field note doubled the unit** ("BoQ says 19 mm mm -> 19 mm"): `${matched.from}${u}` with a raw text that
+   already carried "mm".
+
+### The fix (commit 1, `4e63dd9f2`)
+
+- `pricingSheetHelper.ts`: in the option-matching loop, `if (readLayers(raw) !== null) continue;` — a layered value is left as
+  written and reaches the pricer intact; it displays the way "25 mm thick - 2 Layers" already does (the Other... box with the
+  stated text, the layer lines in the working). The note appends the unit to a BARE number only (`fromU`).
+- `itemListPricing.ts`: `mixedForm` / `mixed` accept `[\s-]+` between whole and fraction (`1-1/4"`, `1 1/4"`, `1-1/4 inch` ->
+  31.75). A unicode fraction (`1¼"`) has NO reader path and still reads 1" — reported, not built.
+- **U4 (owner, 2026-10-09: "when we select other we should only be applied to type numbers for thickness, not anything
+  else")**: the thickness "Other..." box — calculator AND a typed panel edit — accepts a SINGLE NUMBER only (whole or decimal,
+  optional trailing "mm", `TYPED_THICKNESS_RE`); anything else refuses with ONE message, `TYPED_THICKNESS_MESSAGE` = "Type the
+  thickness as a single number in mm", replacing "several values stated" for TYPED thickness only. Keyed in `priceOneItem` on the
+  compose axis whose config reader is named "thickness" (`numbers.<attr>.name`), so ADP's compose axis (a SIZE: a typed 749
+  composes 375 + 375) and the pipe-size box (`5/8"`, `1-1/4"`) are untouched. Model-read thickness is untouched (T6 kept: a
+  typed entry is never parsed as layers — it is now refused instead of read as its first number).
+- **Owner ruling (a) on AC0**: the calculator is NOT required to compose typed text; AC0 is proved on the panel (C5/C6); the
+  parity pin is written on the model-read answer.
+
+### Blast radius (AC5, measured in-session)
+
+Every stored row of every active run (60 runs, **5,439 rows**, 22 configs, 1,737 items) priced through
+`makePricingSheetHelper(...).compute` at `bd0be4548` and after the fix (harness `ac5_harness.ts`, A/B on the host):
+**Electrical 5,015 rows: 0 changes.** HVAC: **174 rows changed** = 160 note de-dups only (ADP 125, Insulation 35: "BoQ says 150MM
+DIA mm" -> "BoQ says 150MM DIA", "20 Nm nm" -> "20 Nm") + the 14 "Double layer of 19mm thick" rows (BOQ-26-00137 'CHW pipes ,
+Valves' 32–37, BOQ-26-00156 'CHW pipes , Valves' 34–39, BOQ-26-00017 'Piping ' 23–24): thickness field now in Other-mode with the
+stated text, the two-layer working lines present, the row reason prefixed "item 1 (Nitrile Rubber Insulation): " — all 14 still
+refuse on size (80–250 NB Nitrile). **0 value / total / rowPriced / item-figure changes anywhere.**
+
+### Tests
+
+- NEW `rate-helper/slice12d6.test.ts` — 37 tests, every figure measured on v33 through the PANEL path: AC1 (i)–(viii) positive
+  + negative (the guard's predicate, the pure-pricer agreement, the 12e-0 photographed shape at 250 NB), U4 positive ("19",
+  "19 mm", "19mm", "12.5" -> 556, "9.5" -> 556) + negative (nine non-number forms, the typed panel edit, the pipe-size box
+  untouched), AC3 (three mixed-inch spellings, the unchanged set, a non-inch reader, the unicode gap REPORTED), AC4.
+- `calculatorPanelParity.test.ts` + 3: a layered answer on both surfaces (panel 991/238; calculator typed -> U4; a plain "19 mm"
+  agrees 615/224 on both).
+- INVERTED (never deleted; negative halves kept, before/after lines in the report): `itemListPricing.test.ts` T1-NEG + T6-NEG +
+  the C3 typed tail (U4 message in place of "several values stated"); `pricingSheetHelper.test.ts` V3/U2 note (AC4);
+  `insulation12d1b.e2e.test.ts` (b) + (d) calculator halves (U4); `insulation12d2Sample.e2e.test.ts` ACCEPTED list +12 (rows
+  32–37, cause `U4_typed_layered_text_refuses`, APPROVED) and its "row 290 only" pin; `insulation12d4a.e2e.test.ts` named rows
+  +#471 (U4) and #59 (D9b + U4, the model's "38mm (19+19)" typed), with `insulation12d2Expected.json` / `insulation12d4aExpected.json`
+  regenerated in WRITE mode (reason prefix, "25 mm - 2 Layers/None", the two-layer working0).
+- Vacuity: guard 1 OFF -> 5 AC1 tests red; U4 OFF -> 10 U4 tests red; restored -> 37/37 green (both runs in the report).
+- Targeted per commit 1: the 13 importers of the two changed modules + `pricing/rate-master` dir = **31 files / 1,895 tests**;
+  tsc 3,169 app-wide (the same 3 known rate-master errors).
+- FULL (frontend only): see the report §"Full suites" — `2026-10-08_12d6_frontend_full.log` beside the tsc log on the Desktop.
+  Measured in-session after the last code commit: vitest **147 files / 5,171 tests** (before, at `bd0be4548`: 146 / 5,131; +1 file
+  +40 = the 37 new + 3 parity), 1 failure = the known `writeOffControl` 5 s timeout on both runs; tsc app-wide 3,169 = baseline.
+
+### Browser cert (C1-C9, after a full de-stale; screenshots `2026-10-09_12d6_screens/`)
+
+- C1 typed "Double layer of 19 mm thick" (calculator) -> "Not priced -- Type the thickness as a single number in mm"; C2 typed
+  "19" -> 615 / 224 / 839; C3 typed "25 mm thick - 2 Layers" -> the same refusal; C4 pipe `1-1/4"` + thickness 13 -> "You typed
+  31.75 mm -> priced as 34.93 mm (next size up)", 408 / 224; C5 BOQ-26-00137 'CHW pipes , Valves' row 32 (model "Double layer of
+  19mm thick", "250 NB") -> refuses on size (53.98 ceiling) exactly as 12e-0 photographed; **C6 the same row with the pipe size
+  changed to 50 on the panel only -> two layers (376/14 + 615/224) = 991 / 238 / 1229, the pure-pricer AC0 figure** ("Use this
+  value" never pressed); C7 BOQ-26-00169 'HVAC' row 84 -> 510 / 224 / 734 with "BoQ says 25 mm -> 25 mm (the sheet's own
+  spelling of this value)" -- no doubled unit; C8 BOQ-26-00183 'Electrical Works' row 19 -> 120 / 24 / 144 = the AC5 baseline;
+  C9 all 12 P3 hashes/counts equal to the start, capture log 244 lines, Fast render restored ON.
+- **Found in cert, REPORTED, not fixed (pre-existing 12c-S behaviour, outside this slice):** (a) typing a size into an "Other..."
+  box that the MODEL opened (its value matched no option) records `set_attr` without `set_other`, so the 12c-S stale-pick rule
+  treats the typed 50 as a PICK and clears it ("50 mm is not stocked with the other answers on this item -- choose again");
+  choosing "Other..." from the select first, then typing, prices normally (that is how C6 was taken). (b) The typed-refusal
+  branch's note still reads "You typed Double layer of 19 mm thick mm: ..." -- the unit is appended to the raw text there; the
+  12d-6 `fromU` fix covers the "own spelling" note only.

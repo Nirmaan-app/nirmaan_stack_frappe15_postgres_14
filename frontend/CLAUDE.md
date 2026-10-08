@@ -1012,6 +1012,7 @@ All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`. This se
   cannot launch a full re-extraction. The copy lives in the pure `suggestConfirmCopy` so both
   branches are unit-testable; the selected-row branch carries NO warning because it has no such
   consequence.
+- **Matching a stated value to a dropdown option must never discard meaning the pricer reads (layers, compositions); option matching runs only on values the pricer would read the same way** (12d-6, owner-locked: `computeItemList` skips `matchStatedToOption` for any value `readLayers` accepts -- the panel used to hand the pricer the option "19" for a model-read "Double layer of 19 mm" and price one layer).
 - **Rate-helper panel + Rate Master attribute semantics:** every invariant moved to `frontend/.claude/context/domain/pricing-rate-master-frontend.md` -- load it before any rate-helper work.
 
 ### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
