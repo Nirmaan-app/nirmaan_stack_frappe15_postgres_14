@@ -8,8 +8,10 @@
 //     VESDA's or WLD & RRS's data sheets. The full rows come from the TDS tab's own list and are cut
 //     down to the names the server returned, so there is only ONE rule about what belongs to a system.
 //   * The ticks are saved on the handover row (`form_data.selected`) when the export runs, so the
-//     binder and the printed list carry exactly what was exported.
-// Everything else — the stakeholder cards, the package chips, the search, the PDF itself — is the
+//     binder and the printed list carry exactly what was exported, in the dialog's print order.
+//   * Both Approved statuses start ticked (`PDF_DEFAULT_STATUSES.handover`), so saved ticks on
+//     Admin-approved rows stay visible; a saved tick on a row the client rejected since is dropped.
+// Everything else — the stakeholder cards, the ordered checklists, the search, the PDF itself — is the
 // TDS tab's, unchanged.
 
 import { Loader2 } from "lucide-react";
@@ -27,8 +29,13 @@ import {
   useTdsHistoryItems,
   useTdsSettings,
 } from "@/pages/projects/data/tds/useTdsQueries";
-import { TdsExportDialog } from "@/pages/projects/TDSRepository/components";
+import {
+  TdsExportDialog,
+  TdsPdfReadyDialog,
+  type TdsExportOptions,
+} from "@/pages/projects/TDSRepository/components";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { PDF_DEFAULT_STATUSES } from "@/utils/tdsRequestRules";
 
 import { useFromAppSources } from "./hodApi";
 import { asStringList } from "./hodRules";
@@ -92,12 +99,14 @@ export const MaterialTdsDialog: React.FC<MaterialTdsDialogProps> = ({
   const { data: settings, isLoading: settingsLoading } =
     useTdsSettings(projectId);
 
-  const { exportTds, isExporting } = useHodTdsExport(projectId, projectName);
+  const { exportTds, isExporting, preview, closePreview } = useHodTdsExport(
+    projectId,
+    projectName,
+  );
 
-  // What was ticked last time. Nothing saved = nothing ticked (`startEmpty` below), as everywhere in HOD
-  // since 2026-09-25.
+  // What was ticked last time. Nothing saved = nothing ticked, as everywhere in HOD since 2026-09-25.
   const seeded = React.useMemo(
-    () => asStringList(row.form_data?.selected) ?? undefined,
+    () => asStringList(row.form_data?.selected) ?? [],
     [row.form_data],
   );
 
@@ -135,13 +144,17 @@ export const MaterialTdsDialog: React.FC<MaterialTdsDialogProps> = ({
     }
   };
 
-  const handleExport = async (selectedItems: any[]) => {
+  const handleExport = async (
+    selectedItems: any[],
+    { previewOnly }: TdsExportOptions,
+  ) => {
     // A failure to store the ticks must not stop the download the user asked for.
     if (canEdit) await saveSelection(selectedItems, false);
     await exportTds(
       toTdsRepositoryData(settings![0]),
       selectedItems,
       `${hodSystem}_Material_Data_Sheet`,
+      { previewOnly },
     );
   };
 
@@ -168,19 +181,31 @@ export const MaterialTdsDialog: React.FC<MaterialTdsDialogProps> = ({
   }
 
   return (
-    <TdsExportDialog
-      isOpen={open}
-      onClose={() => onOpenChange(false)}
-      onExport={handleExport}
-      settings={toTdsRepositoryData(settings[0])}
-      historyData={mine as any}
-      isExporting={isExporting}
-      onSaveSelection={
-        canEdit ? (items) => saveSelection(items, true).then(() => undefined) : undefined
-      }
-      initialSelectedIds={seeded}
-      // Nothing ticked until someone ticks it — the ticks are what a build merges (owner 2026-09-25).
-      startEmpty
-    />
+    <>
+      <TdsExportDialog
+        isOpen={open}
+        onClose={() => onOpenChange(false)}
+        onExport={handleExport}
+        settings={toTdsRepositoryData(settings[0])}
+        historyData={mine as any}
+        isExporting={isExporting}
+        defaultStatuses={PDF_DEFAULT_STATUSES.handover}
+        onSaveSelection={
+          canEdit ? (items) => saveSelection(items, true).then(() => undefined) : undefined
+        }
+        // Nothing ticked until someone ticks it — the ticks are what a build merges (owner 2026-09-25).
+        initialSelectedIds={seeded}
+      />
+      {/* Only a preview-only export lands here, so the preview never offers a download. */}
+      <TdsPdfReadyDialog
+        isOpen={!!preview}
+        onClose={closePreview}
+        onDownload={closePreview}
+        blobUrl={preview?.blobUrl ?? null}
+        filename={preview?.filename ?? ""}
+        sizeBytes={preview?.sizeBytes ?? 0}
+        canDownload={false}
+      />
+    </>
   );
 };

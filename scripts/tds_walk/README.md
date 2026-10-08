@@ -27,7 +27,7 @@ in the screen and in the database.
 | 17 | Admin edit switches New Make → Project Custom → New Make |
 | 18 | Admin edit racing an approval is refused |
 | 19 | Reject, then resubmit a pick, a New Make and a Project Custom row |
-| 20 | Export dialog lists approved Project Custom rows; chips read Approved by Admin / Pending, Pending includes New |
+| 20 | Download TDS PDF dialog lists approved Project Custom rows; the status counts equal the database (Approved by Admin excludes client-answered rows, Pending includes New) |
 | 21 | Approved / Rejected rows can't be selected, and approve refuses a Rejected row |
 | 22 | TDS Repository item page (#1384): no Back button; the header back arrow restores tab, filter, search and page; a delete returns to the table view, or to the plain repository from a direct URL; "not found" links to the repository |
 | 23 | Create New Request button: the form replaces the tables, Back keeps the table filter, a send returns to TDS History (#1382) |
@@ -35,6 +35,10 @@ in the screen and in the database.
 | 27 | Client Status tabs (#1385): TDS History / Approved by Client / Rejected by Client, counts equal the database, every row in one tab, tick boxes only on Admin-approved rows, Export disabled with no ticks, the client columns and reason |
 | 28 | Mark ticked rows Approved by Client (#1385): "N selected" toolbar, stamps in the database, the rows move tab and the counts follow; the server refuses a Pending row |
 | 29 | Mark ticked rows Rejected by Client (#1385): Clear unticks, the popup lists the rows and warns, the optional reason lands on every row and shows in the tab |
+| 34 | PDF dialog tick order (#1388): opens with only Approved by Client ticked; statuses and packages number in tick order and renumber on untick; packages offered A to Z; the list runs status then package in tick order, each row under its database status; Rejected by Client never listed, no row twice |
+| 35 | PDF dialog print-order summary (#1388): matches the list's statuses and packages; the export payload (intercepted, no PDF built) runs in the same order with no duplicates; the empty state's Tick Approved by Admin, when the project has no client-approved rows |
+| 36 | PDF dialog Select all / Deselect all (#1388): act on the items a search shows, leaving other ticks alone; the "X of Y ticked" count equals the database |
+| 37 | PDF dialog preview-only (#1388): an Admin with Pending ticked gets Download PDF; a non-Admin gets Preview PDF and the reason. The walk user is an Admin, so this case rewrites the browser's own Nirmaan Users read to a PMO Executive role profile; the server is untouched |
 
 ## Prerequisites
 

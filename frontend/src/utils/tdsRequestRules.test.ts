@@ -32,6 +32,17 @@ import {
   historyTabOf,
   isClientStatusMarkable,
 } from "./tdsRequestRules";
+import {
+  PDF_DEFAULT_STATUSES,
+  PDF_STATUSES,
+  isPdfPreviewOnly,
+  offersTickApprovedByAdmin,
+  pdfPackagesFor,
+  pdfPrintOrder,
+  pdfSeedTicks,
+  pdfStatusOf,
+  toggleTick,
+} from "./tdsRequestRules";
 
 // The backend writes the stored values; this module only reads them. The PARITY block reads the
 // Python that writes them, so a renamed status or prefix there fails here instead of silently
@@ -497,5 +508,255 @@ describe("clientStatusActionsFor", () => {
     for (const tab of HISTORY_TABS) {
       expect(clientStatusActionsFor(tab.value, { canMark: false, canClear: false })).toEqual([]);
     }
+  });
+});
+
+// ── Download TDS PDF dialog (#1388) ─────────────────────────────────────────────────────────────
+
+describe("pdfStatusOf", () => {
+  it("puts a client-approved row under Approved by Client, never Approved by Admin", () => {
+    expect(pdfStatusOf({ tds_status: "Approved", client_status: "Approved by Client" })).toBe("Approved by Client");
+  });
+
+  it("puts an Admin-approved row the client hasn't answered under Approved by Admin", () => {
+    expect(pdfStatusOf({ tds_status: "Approved", client_status: "" })).toBe("Approved by Admin");
+    expect(pdfStatusOf({ tds_status: "Approved", client_status: null })).toBe("Approved by Admin");
+    expect(pdfStatusOf({ tds_status: "Approved" })).toBe("Approved by Admin");
+  });
+
+  it("never offers a Rejected by Client row", () => {
+    expect(pdfStatusOf({ tds_status: "Approved", client_status: "Rejected by Client" })).toBeNull();
+  });
+
+  it("puts Pending and New Make rows under Pending", () => {
+    expect(pdfStatusOf({ tds_status: "Pending" })).toBe("Pending");
+    expect(pdfStatusOf({ tds_status: "New" })).toBe("Pending");
+  });
+
+  it("never offers an Admin-rejected row", () => {
+    expect(pdfStatusOf({ tds_status: "Rejected" })).toBeNull();
+  });
+});
+
+describe("toggleTick", () => {
+  it("a tick goes to the end, so its number is the order it was ticked in", () => {
+    expect(toggleTick([], "Pending")).toEqual(["Pending"]);
+    expect(toggleTick(["Pending"], "Approved by Client")).toEqual(["Pending", "Approved by Client"]);
+  });
+
+  it("unticking removes it and the ticks after it move up one", () => {
+    expect(toggleTick(["HVAC", "Plumbing", "Fire Fighting"], "HVAC")).toEqual(["Plumbing", "Fire Fighting"]);
+  });
+
+  it("re-ticking puts it last, not back where it was", () => {
+    expect(toggleTick(toggleTick(["A", "B", "C"], "A"), "A")).toEqual(["B", "C", "A"]);
+  });
+
+  it("leaves the list it was given untouched", () => {
+    const ticks = ["A", "B"];
+    toggleTick(ticks, "A");
+    toggleTick(ticks, "C");
+    expect(ticks).toEqual(["A", "B"]);
+  });
+});
+
+describe("pdfPrintOrder", () => {
+  const row = (name: string, tds_work_package: string, status: string, client_status = "", tds_category = "Cat", tds_item_name = name) => ({
+    name,
+    tds_work_package,
+    tds_category,
+    tds_item_name,
+    tds_status: status,
+    client_status,
+  });
+  const ROWS = [
+    row("plumb-admin", "Plumbing", "Approved"),
+    row("elec-client", "Electrical Work", "Approved", "Approved by Client"),
+    row("hvac-pending", "HVAC", "Pending"),
+    row("plumb-client", "Plumbing", "Approved", "Approved by Client"),
+    row("elec-admin", "Electrical Work", "Approved"),
+    row("hvac-new", "HVAC", "New"),
+    row("elec-rejected-by-client", "Electrical Work", "Approved", "Rejected by Client"),
+    row("plumb-rejected", "Plumbing", "Rejected"),
+  ];
+  const shape = (groups: ReturnType<typeof pdfPrintOrder>) =>
+    groups.map(g => [g.status, g.packages.map(p => [p.package, p.rows.map(r => r.name)])]);
+
+  it("prints statuses in tick order, each with its packages A to Z when none is ticked", () => {
+    expect(shape(pdfPrintOrder(ROWS, ["Pending", "Approved by Client"], []))).toEqual([
+      ["Pending", [["HVAC", ["hvac-new", "hvac-pending"]]]],
+      ["Approved by Client", [["Electrical Work", ["elec-client"]], ["Plumbing", ["plumb-client"]]]],
+    ]);
+  });
+
+  it("prints only the ticked packages, in the order they were ticked", () => {
+    expect(shape(pdfPrintOrder(ROWS, ["Approved by Client", "Approved by Admin"], ["Plumbing", "Electrical Work"]))).toEqual([
+      ["Approved by Client", [["Plumbing", ["plumb-client"]], ["Electrical Work", ["elec-client"]]]],
+      ["Approved by Admin", [["Plumbing", ["plumb-admin"]], ["Electrical Work", ["elec-admin"]]]],
+    ]);
+  });
+
+  it("Approved by Admin holds no client-answered row, and Rejected by Client never prints", () => {
+    const names = pdfPrintOrder(ROWS, ["Approved by Admin"], [])
+      .flatMap(g => g.packages.flatMap(p => p.rows.map(r => r.name)));
+    expect(names.sort()).toEqual(["elec-admin", "plumb-admin"]);
+  });
+
+  it("prints every offered row once with all three ticked, and no row twice", () => {
+    const names = pdfPrintOrder(ROWS, ["Approved by Admin", "Pending", "Approved by Client"], [])
+      .flatMap(g => g.packages.flatMap(p => p.rows.map(r => r.name)));
+    expect(new Set(names).size).toBe(names.length);
+    expect(names.sort()).toEqual(
+      ["elec-admin", "elec-client", "hvac-new", "hvac-pending", "plumb-admin", "plumb-client"]
+    );
+  });
+
+  it("a status ticked twice prints once", () => {
+    expect(pdfPrintOrder(ROWS, ["Pending", "Pending"], [])).toHaveLength(1);
+  });
+
+  it("keeps a ticked status with nothing in the ticked packages, so the summary can say so", () => {
+    expect(shape(pdfPrintOrder(ROWS, ["Pending", "Approved by Client"], ["Plumbing"]))).toEqual([
+      ["Pending", []],
+      ["Approved by Client", [["Plumbing", ["plumb-client"]]]],
+    ]);
+  });
+
+  it("sorts a package's rows by category, then item name, ignoring case", () => {
+    const rows = [
+      row("3", "P", "Pending", "", "valves", "Gate Valve"),
+      row("1", "P", "Pending", "", "Pipes", "PPR Pipe"),
+      row("2", "P", "Pending", "", "pipes", "cPVC Pipe"),
+    ];
+    expect(pdfPrintOrder(rows, ["Pending"], [])[0].packages[0].rows.map(r => r.name)).toEqual(["2", "1", "3"]);
+  });
+
+  it("a row with no work package prints under Unknown", () => {
+    expect(shape(pdfPrintOrder([row("x", "", "Pending")], ["Pending"], []))).toEqual([
+      ["Pending", [["Unknown", ["x"]]]],
+    ]);
+  });
+
+  it("nothing ticked prints nothing", () => {
+    expect(pdfPrintOrder(ROWS, [], [])).toEqual([]);
+  });
+});
+
+describe("pdfPackagesFor", () => {
+  const ROWS = [
+    { name: "1", tds_work_package: "Plumbing", tds_status: "Approved", client_status: "Approved by Client" },
+    { name: "2", tds_work_package: "HVAC", tds_status: "Pending" },
+    { name: "3", tds_work_package: "Electrical Work", tds_status: "Approved", client_status: "Approved by Client" },
+    { name: "4", tds_work_package: "Fire Fighting", tds_status: "Approved", client_status: "Rejected by Client" },
+    { name: "5", tds_work_package: "Plumbing", tds_status: "Approved" },
+  ];
+
+  it("offers the packages the ticked statuses have, A to Z, once each", () => {
+    expect(pdfPackagesFor(ROWS, ["Approved by Client"])).toEqual(["Electrical Work", "Plumbing"]);
+    expect(pdfPackagesFor(ROWS, ["Pending", "Approved by Admin", "Approved by Client"])).toEqual([
+      "Electrical Work",
+      "HVAC",
+      "Plumbing",
+    ]);
+  });
+
+  it("never offers a package that only a Rejected by Client row has", () => {
+    expect(pdfPackagesFor(ROWS, ["Approved by Client", "Approved by Admin", "Pending"])).not.toContain("Fire Fighting");
+  });
+
+  it("offers none until a status is ticked", () => {
+    expect(pdfPackagesFor(ROWS, [])).toEqual([]);
+  });
+});
+
+describe("PDF_DEFAULT_STATUSES", () => {
+  it("the TDS page opens with only Approved by Client ticked", () => {
+    expect(PDF_DEFAULT_STATUSES.tdsPage).toEqual(["Approved by Client"]);
+  });
+
+  it("Handover opens with both Approved choices ticked, client first", () => {
+    expect(PDF_DEFAULT_STATUSES.handover).toEqual(["Approved by Client", "Approved by Admin"]);
+  });
+
+  it("the dialog offers the three statuses in this order", () => {
+    expect(PDF_STATUSES).toEqual(["Approved by Client", "Approved by Admin", "Pending"]);
+  });
+
+  it("its Approved by Admin reads as TDS History's label for an Admin-approved row", () => {
+    expect(historyStatusLabel("Approved")).toBe("Approved by Admin");
+  });
+});
+
+describe("pdfSeedTicks", () => {
+  const ROWS = [
+    { name: "client", tds_status: "Approved", client_status: "Approved by Client" },
+    { name: "admin", tds_status: "Approved", client_status: "" },
+    { name: "pending", tds_status: "Pending" },
+    { name: "rejected-by-client", tds_status: "Approved", client_status: "Rejected by Client" },
+    { name: "rejected", tds_status: "Rejected" },
+  ];
+
+  it("with nothing saved (the TDS page), ticks every row the dialog offers", () => {
+    expect(pdfSeedTicks(ROWS, undefined)).toEqual(new Set(["client", "admin", "pending"]));
+  });
+
+  it("Handover keeps a saved tick on an Admin-approved or client-approved row", () => {
+    expect(pdfSeedTicks(ROWS, ["admin", "client"])).toEqual(new Set(["admin", "client"]));
+  });
+
+  it("Handover drops a saved tick on a row the client later rejected", () => {
+    expect(pdfSeedTicks(ROWS, ["admin", "rejected-by-client"])).toEqual(new Set(["admin"]));
+  });
+
+  it("drops a saved tick on an Admin-rejected row or a row no longer listed", () => {
+    expect(pdfSeedTicks(ROWS, ["rejected", "gone", "client"])).toEqual(new Set(["client"]));
+  });
+
+  it("an empty saved list ticks nothing", () => {
+    expect(pdfSeedTicks(ROWS, [])).toEqual(new Set());
+  });
+});
+
+describe("isPdfPreviewOnly", () => {
+  it("a non-Admin with Pending ticked may only preview, wherever Pending sits in the order", () => {
+    expect(isPdfPreviewOnly(["Pending"], false)).toBe(true);
+    expect(isPdfPreviewOnly(["Approved by Client", "Pending"], false)).toBe(true);
+  });
+
+  it("a non-Admin without Pending ticked may download", () => {
+    expect(isPdfPreviewOnly(["Approved by Client", "Approved by Admin"], false)).toBe(false);
+    expect(isPdfPreviewOnly([], false)).toBe(false);
+  });
+
+  it("an Admin may always download", () => {
+    expect(isPdfPreviewOnly(["Pending", "Approved by Admin"], true)).toBe(false);
+  });
+});
+
+describe("offersTickApprovedByAdmin", () => {
+  const ADMIN_ONLY = [
+    { name: "a", tds_status: "Approved" },
+    { name: "p", tds_status: "Pending" },
+  ];
+
+  it("offers it when only Approved by Client is ticked and the client hasn't approved anything", () => {
+    expect(offersTickApprovedByAdmin(ADMIN_ONLY, ["Approved by Client"])).toBe(true);
+  });
+
+  it("does not offer it once Approved by Admin is ticked", () => {
+    expect(offersTickApprovedByAdmin(ADMIN_ONLY, ["Approved by Client", "Approved by Admin"])).toBe(false);
+  });
+
+  it("does not offer it when there are client-approved rows", () => {
+    const rows = [...ADMIN_ONLY, { name: "c", tds_status: "Approved", client_status: "Approved by Client" }];
+    expect(offersTickApprovedByAdmin(rows, ["Approved by Client"])).toBe(false);
+  });
+
+  it("does not offer it when no row is Approved by Admin either", () => {
+    expect(offersTickApprovedByAdmin([{ name: "p", tds_status: "Pending" }], ["Approved by Client"])).toBe(false);
+  });
+
+  it("does not offer it when another ticked status has rows to print", () => {
+    expect(offersTickApprovedByAdmin(ADMIN_ONLY, ["Approved by Client", "Pending"])).toBe(false);
   });
 });

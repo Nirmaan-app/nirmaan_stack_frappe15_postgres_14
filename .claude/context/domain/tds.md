@@ -54,6 +54,14 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
   (parity block). TDS History's three tabs filter on it server-side (`historyTabFilters`: no Client
   Status / each answer), so every row sits in exactly one tab; ticks go only on
   `isClientStatusMarkable` rows.
+- **The Download TDS PDF dialog prints in tick order**, and the dialog is shared by the TDS page and
+  Handover. Its statuses are disjoint (`pdfStatusOf`): *Approved by Client*, *Approved by Admin* (Approved,
+  no Client Status) and Pending (Pending or New); *Rejected by Client* and Rejected rows are never offered.
+  `pdfPrintOrder` orders rows by ticked status, then ticked package (none ticked = A to Z), and the dialog
+  sends them to `export_tds_report` in that order. Default ticks are `PDF_DEFAULT_STATUSES`; Handover's
+  saved ticks pass through `pdfSeedTicks`, and the binder (`api/hod/tds_pack.report_items`) prints them in
+  saved order and drops *Rejected by Client* rows. A non-Admin with Pending ticked only previews
+  (`isPdfPreviewOnly`). The report template is unchanged.
 - **Datasheet ownership.** A pick borrows its entry's File. A request owns its upload. Approving a New
   Make moves the File to the new entry; keeping the repository's sheet deletes the row's own upload
   through `submit.delete_row_datasheet`, which respects shared stored bytes (`CODING_STANDARDS.md`
@@ -64,12 +72,12 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
 - Every role holds write and delete on `Project TDS Item List`, so the REST API bypasses the Admin-only
   approval and the delete rules.
 - `reject_tds_items` has no from-status check.
-- The PDF export prints the rows the browser sends; the Handover binder reads rows without a status
-  filter.
+- The PDF export prints the rows the browser sends. The Handover binder drops only *Rejected by Client*
+  rows, so a saved tick on a Pending or Admin-rejected row still prints there.
 - Request ids are `RQ-<last 3 chars of project>-NN`, so they collide from project #1000 on.
 
 ## Testing
 
 Backend: `api/tds/test_submit.py`, `test_approve.py`, `test_edit_request.py`, `test_tds_report.py`,
-`test_status_label.py`, `test_client_status.py`.
+`test_status_label.py`, `test_client_status.py`; the binder's `api/hod/test_tds_pack.py`.
 Frontend: `utils/tdsRequestRules.test.ts`. Browser: `scripts/tds_walk/` (see its README).

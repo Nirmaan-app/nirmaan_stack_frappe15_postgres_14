@@ -316,3 +316,162 @@ export function clientStatusActionsFor(
   if (tab === "history") return [CLIENT_STATUS_ACTION.markApproved, CLIENT_STATUS_ACTION.markRejected];
   return [];
 }
+
+// ── Download TDS PDF dialog ─────────────────────────────────────────────────────────────────────
+// Shared by the project TDS page and Handover Documents. The user ticks statuses and packages in
+// the order they should print; these helpers turn the ticks into the printed order.
+
+/** The statuses the PDF dialog offers, in the order it lists them. *Rejected by Client* is never one. */
+export const PDF_STATUS = {
+  approvedByClient: CLIENT_STATUS.approved,
+  /** Admin-approved, and the client has not answered yet. Reads as `HISTORY_STATUS_LABEL.Approved`. */
+  approvedByAdmin: "Approved by Admin",
+  pending: "Pending",
+} as const;
+export type PdfStatus = (typeof PDF_STATUS)[keyof typeof PDF_STATUS];
+export const PDF_STATUSES: readonly PdfStatus[] = [
+  PDF_STATUS.approvedByClient,
+  PDF_STATUS.approvedByAdmin,
+  PDF_STATUS.pending,
+];
+
+/**
+ * The one PDF status a row prints under, or null when the dialog never offers it. The buckets are
+ * disjoint, so no row prints twice:
+ * - *Approved by Client* → Approved by Client
+ * - *Rejected by Client* → never
+ * - Approved, no Client Status → Approved by Admin
+ * - Pending or New → Pending
+ * - Rejected (by the Admin), or a blank status → never
+ */
+export function pdfStatusOf(row: ClientStatusRow): PdfStatus | null {
+  if (row.client_status === CLIENT_STATUS.approved) return PDF_STATUS.approvedByClient;
+  if (row.client_status === CLIENT_STATUS.rejected) return null;
+  if (row.tds_status === STORED_STATUS.approved) return PDF_STATUS.approvedByAdmin;
+  if (row.tds_status === STORED_STATUS.pending || row.tds_status === STORED_STATUS.newMake) {
+    return PDF_STATUS.pending;
+  }
+  return null;
+}
+
+/**
+ * The statuses ticked when the dialog opens, per caller.
+ * - `tdsPage`: client-approved sheets only, the default PDF for the client.
+ * - `handover`: both Approved choices, so saved ticks on Admin-approved rows stay visible and in the binder.
+ */
+export const PDF_DEFAULT_STATUSES = {
+  tdsPage: [PDF_STATUS.approvedByClient],
+  handover: [PDF_STATUS.approvedByClient, PDF_STATUS.approvedByAdmin],
+} as const satisfies Record<string, readonly PdfStatus[]>;
+
+/**
+ * The item ticks the dialog opens with.
+ * - nothing saved (`undefined`, the TDS page): every row the dialog offers
+ * - saved ticks (Handover's `form_data.selected`): those whose row the dialog still offers, so a tick
+ *   on a row the client later rejected, or the Admin rejected, is dropped
+ */
+export function pdfSeedTicks(rows: readonly PdfRow[], saved: readonly string[] | undefined): Set<string> {
+  const offered = rows.filter(row => pdfStatusOf(row) !== null).map(row => row.name);
+  if (saved === undefined) return new Set(offered);
+  const keep = new Set(saved);
+  return new Set(offered.filter(name => keep.has(name)));
+}
+
+/**
+ * Tick or untick one choice in an ordered checklist. A new tick goes last, so a choice's number
+ * (index + 1) is the order it was ticked in; unticking moves the later ticks up one.
+ */
+export function toggleTick<T>(ticks: readonly T[], value: T): T[] {
+  return ticks.includes(value) ? ticks.filter(t => t !== value) : [...ticks, value];
+}
+
+/** The fields of a Project TDS row the PDF ordering reads. */
+export interface PdfRow extends ClientStatusRow {
+  name: string;
+  tds_work_package?: string | null;
+  tds_category?: string | null;
+  tds_item_name?: string | null;
+}
+
+/** One package's rows inside a status group of the PDF. */
+export interface PdfPackageGroup<T> {
+  package: string;
+  rows: T[];
+}
+
+/** One ticked status's part of the PDF: its packages in print order. */
+export interface PdfStatusGroup<T> {
+  status: PdfStatus;
+  packages: PdfPackageGroup<T>[];
+}
+
+/** The package a row prints under. */
+export function pdfPackageOf(row: PdfRow): string {
+  return row.tds_work_package || "Unknown";
+}
+
+const foldedField = (value?: string | null) => (value ?? "").toLowerCase();
+
+/** Within a package: category, then item name, ignoring case, as the PDF has always printed. */
+function byCategoryThenName(a: PdfRow, b: PdfRow): number {
+  const cat = foldedField(a.tds_category).localeCompare(foldedField(b.tds_category));
+  return cat || foldedField(a.tds_item_name).localeCompare(foldedField(b.tds_item_name));
+}
+
+/**
+ * A non-Admin may only preview a PDF holding Pending sheets, so none is downloaded by mistake. An
+ * Admin may always download.
+ */
+export function isPdfPreviewOnly(statuses: readonly PdfStatus[], isAdmin: boolean): boolean {
+  return !isAdmin && statuses.includes(PDF_STATUS.pending);
+}
+
+/**
+ * The empty state's one-click "Tick Approved by Admin": offered when Approved by Client is ticked
+ * but the client has approved nothing, nothing else ticked has rows to print, and Approved by Admin
+ * (not yet ticked) has rows. An older project starts here.
+ */
+export function offersTickApprovedByAdmin(rows: readonly PdfRow[], statuses: readonly PdfStatus[]): boolean {
+  if (!statuses.includes(PDF_STATUS.approvedByClient) || statuses.includes(PDF_STATUS.approvedByAdmin)) return false;
+  const printed = rows.map(pdfStatusOf);
+  return (
+    !printed.some(status => status !== null && statuses.includes(status)) &&
+    printed.includes(PDF_STATUS.approvedByAdmin)
+  );
+}
+
+/** The packages the dialog offers to tick: those the ticked statuses have rows in, A to Z. */
+export function pdfPackagesFor(rows: readonly PdfRow[], statuses: readonly PdfStatus[]): string[] {
+  const offered = rows.filter(row => {
+    const status = pdfStatusOf(row);
+    return status !== null && statuses.includes(status);
+  });
+  return [...new Set(offered.map(pdfPackageOf))].sort();
+}
+
+/**
+ * The order the PDF prints in: the ticked statuses in tick order, each with its packages, each with
+ * its rows. With no package ticked, a status prints every package it has, A to Z; otherwise only the
+ * ticked packages it has, in tick order. A ticked status with nothing to print keeps its group with no
+ * packages, so the dialog can say so. Each row lands in one status (`pdfStatusOf`), so none prints
+ * twice; the rows go to the export in exactly this order.
+ */
+export function pdfPrintOrder<T extends PdfRow>(
+  rows: readonly T[],
+  statuses: readonly PdfStatus[],
+  packages: readonly string[]
+): PdfStatusGroup<T>[] {
+  return [...new Set(statuses)].map(status => {
+    const byPackage = new Map<string, T[]>();
+    for (const row of rows) {
+      if (pdfStatusOf(row) !== status) continue;
+      const pkg = pdfPackageOf(row);
+      byPackage.set(pkg, [...(byPackage.get(pkg) ?? []), row]);
+    }
+    const order = packages.length ? packages.filter(p => byPackage.has(p)) : [...byPackage.keys()].sort();
+    return {
+      status,
+      packages: [...new Set(order)].map(pkg => ({ package: pkg, rows: byPackage.get(pkg)!.sort(byCategoryThenName) })),
+    };
+  });
+}
