@@ -23,7 +23,8 @@ The two request kinds are Admin / PMO only, as the dialog already gates them.
 A datasheet is uploaded by the browser BEFORE the send, unattached, and its `file_url` is passed
 in. The storage app commits inside `File.after_insert`, so an upload can never sit inside this
 transaction (`CODING_STANDARDS.md` § Reading uploaded file bytes). A failed send therefore leaves
-an orphan upload, never a half-saved request; the cart keeps the File and re-uploads on retry.
+an unattached upload, never a half-saved request; the cart keeps that upload's URL and sends it
+again on retry, so retries add no further uploads.
 """
 
 import re
@@ -444,6 +445,33 @@ def _insert_row(project, request_id, plan):
 	if plan["upload"]:
 		attach_upload(plan["upload"], doc.name)
 	return doc.name
+
+
+def delete_row_datasheet(row_name, file_url):
+	"""Delete the datasheet upload `row_name` owns at `file_url`, once the row no longer points at it.
+
+	Only File docs attached to this row are touched: a pick borrows its Repository Entry's sheet, and
+	that File belongs to the entry. Deleting a File removes its bytes from storage, which no rollback
+	undoes, so call this last, after every other write of the transaction has succeeded.
+
+	The storage app keys the stored bytes by `content_hash` (`frappe_gcp_attachment` `delete_from_cloud`),
+	so the same PDF uploaded twice is one stored object behind two File docs. When another File shares
+	the hash, only this File's record goes, with a raw delete that skips the storage hook on purpose:
+	trashing it through the document layer would delete the bytes the other File still serves."""
+	if not file_url:
+		return
+	for f in frappe.get_all(
+		"File",
+		filters={"attached_to_doctype": ROW_DOCTYPE, "attached_to_name": row_name, "file_url": file_url},
+		fields=["name", "content_hash"],
+	):
+		shared = f.content_hash and frappe.db.exists(
+			"File", {"content_hash": f.content_hash, "name": ["!=", f.name]}
+		)
+		if shared:
+			frappe.db.delete("File", f.name)
+		else:
+			frappe.delete_doc("File", f.name, ignore_permissions=True)
 
 
 def attach_upload(file_name, row_name):

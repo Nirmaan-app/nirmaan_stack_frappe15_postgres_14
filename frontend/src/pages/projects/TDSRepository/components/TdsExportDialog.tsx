@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { TDSRepositoryData } from './SetupTDSRepositoryDialog';
+import { storedStatusesFor } from '@/utils/tdsRequestRules';
 
 interface TdsExportItem {
     name: string;
@@ -95,14 +96,11 @@ export const TdsExportDialog: React.FC<TdsExportDialogProps> = ({
 }) => {
     const statusOptions = useMemo(() => ["Approved", "Pending"], []);
 
-    // Statuses that are actually allowed in the data set (Pending tab includes "New")
-    const allowedDataStatuses = useMemo(() => ["Approved", "Pending", "New"], []);
+    // Stored statuses the export offers: every status a chip stands for (Pending includes New).
+    const allowedDataStatuses = useMemo(() => storedStatusesFor(statusOptions), [statusOptions]);
 
-    // Map a UI status filter to the underlying data statuses it represents
-    const expandStatusFilter = (status: string): string[] => {
-        if (status === "Pending") return ["Pending", "New"];
-        return [status];
-    };
+    // Map a UI status chip to the stored statuses it represents (`utils/tdsRequestRules`).
+    const expandStatusFilter = (status: string): string[] => storedStatusesFor([status]);
 
     // Sort all items; status filtering happens via selectedStatuses below
     const sortedItems = useMemo(() => {

@@ -111,6 +111,7 @@ interface CartItem {
     is_new_request?: boolean;  // true ⇒ a Request New row (New Make or Project Custom) + needs upload
     is_project_custom?: boolean;
     attachmentFile?: File;     // for newly requested items (uploaded on submit)
+    uploadedUrl?: string;      // that file, once uploaded: a retried send reuses it instead of uploading again
     previousDocName?: string;  // a Rejected row being replaced
 }
 
@@ -479,10 +480,17 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         setIsSubmitting(true);
         try {
             const rows: TdsSubmitRow[] = await Promise.all(cartItems.map(async (item) => {
-                let uploadedUrl: string | undefined;
-                if (item.is_new_request && item.attachmentFile) {
+                let uploadedUrl = item.uploadedUrl;
+                if (item.is_new_request && !uploadedUrl && item.attachmentFile) {
                     const uploaded = await uploadTdsFile(item.attachmentFile, { isPrivate: true });
                     uploadedUrl = uploaded?.file_url;
+                    // Kept on the cart row: a refused or failed send leaves this upload unattached,
+                    // and the server accepts it again (`submit.py` `_claim_upload`), so a retry sends
+                    // it rather than uploading another copy.
+                    if (uploadedUrl) {
+                        const url = uploadedUrl;
+                        setCartItems(prev => prev.map(c => (c === item ? { ...c, uploadedUrl: url } : c)));
+                    }
                 }
                 return {
                     tds_item_id: item.tds_item_id || "",

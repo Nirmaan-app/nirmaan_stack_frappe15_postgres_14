@@ -29,7 +29,7 @@ import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { TdsRequestTypeRadio, type TdsRequestMode } from "@/components/common/TdsRequestTypeRadio";
 import { useTdsProjectCustomOptions } from "@/hooks/useTdsProjectCustomOptions";
 import { getSelectStyles, mergeSelectStyles } from "@/config/selectTheme";
-import { foldItemName, isProjectCustomId } from "@/utils/tdsRequestRules";
+import { isProjectCustomId, rejectedRowFor } from "@/utils/tdsRequestRules";
 
 interface TDSItem {
     name: string;
@@ -287,16 +287,14 @@ export const EditRequestItemModal: React.FC<EditRequestItemModalProps> = ({
             return;
         }
 
-        // A Rejected sibling with the same item + make is replaced, after a confirm. The item is
-        // the TDS Item id, or for Project Custom the name (trimmed, ignoring case), as the server keys it.
-        const matchesItem = (sib: SiblingRow) =>
-            mode === "new_make"
-                ? sib.tds_item_id === selectedGroupId
-                : isProjectCustomId(sib.tds_item_id) && foldItemName(sib.tds_item_name) === foldItemName(customName);
-
-        const dupRejected = existingProjectItems?.find((i) =>
-            matchesItem(i) && i.tds_make === selectedMake && i.tds_status === "Rejected"
-        );
+        // A Rejected sibling with the same item + make is replaced, after a confirm, matched by the
+        // same rule the cart and the server use.
+        const dupRejected = rejectedRowFor(existingProjectItems, {
+            is_project_custom: mode === "project_custom",
+            tds_item_id: selectedGroupId,
+            tds_item_name: customName,
+            make: selectedMake,
+        });
         if (dupRejected) {
             setDuplicateDocName(dupRejected.name);
             setConfirmInput("");

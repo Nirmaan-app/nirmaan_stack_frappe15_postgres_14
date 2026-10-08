@@ -40,6 +40,9 @@ class TestApproveTdsItems(FrappeTestCase):
 	def setUp(self):
 		self._real_commit = frappe.db.commit
 		frappe.db.commit = lambda *a, **k: None
+		# Trashing a File calls the storage app's delete; record it instead of reaching the bucket.
+		self.cloud_delete = patch("frappe_gcp_attachment.controller.delete_from_cloud").start()
+		self.addCleanup(patch.stopall)
 		frappe.set_user("Administrator")
 		self.wp = f"TEST WP {frappe.generate_hash(length=4)}"
 		_raw("Procurement Packages", name=self.wp, work_package_name=self.wp)
@@ -111,6 +114,20 @@ class TestApproveTdsItems(FrappeTestCase):
 		)
 		self.assertEqual((entry.status, entry.tds_attachment), ("Verified", sheet))
 
+	def test_a_rejected_row_is_refused(self):
+		rows = [
+			self._row("Rejected", "PCUS-000001", name="Facade Light"),
+			self._row("Rejected", self.item, tds_attachment=_cloud_url("gate-valve-n.pdf")),
+		]
+		before = self._catalogue_size()
+
+		out = approve_tds_items(rows)
+
+		self.assertEqual(sorted(e["name"] for e in out["errors"]), sorted(rows))
+		self.assertEqual(out["summary"]["approved"], 0)
+		self.assertEqual([frappe.db.get_value(ROW, r, "tds_status") for r in rows], ["Rejected", "Rejected"])
+		self.assertEqual(self._catalogue_size(), before)
+
 	def test_only_admin_may_approve(self):
 		row = self._row("Pending", "PCUS-000001", name="Facade Light")
 		frappe.set_user(PMO_USER)
@@ -123,20 +140,24 @@ class TestApproveTdsItems(FrappeTestCase):
 	# ── A New Make whose entry was added after the request was sent (#1378) ──────────────────
 	# The Admin chooses which datasheet is correct; the uploaded PDF is never dropped silently.
 
-	def _entry_added_since_request(self, repo_sheet=True):
-		"""An existing Not Verified entry (owning its sheet's File) and a New Make row for it."""
+	def _entry_added_since_request(self, repo_sheet=True, same_pdf=False):
+		"""An existing Not Verified entry (owning its sheet's File) and a New Make row for it.
+
+		`same_pdf`: the requester uploaded the very PDF the entry holds, so both Files share one
+		stored object (the storage app keys bytes by content hash)."""
 		self.repo_sheet = _cloud_url("gate-valve-repo.pdf") if repo_sheet else None
 		self.entry = _raw(
 			"TDS Repository", tds_item=self.item, make="MakeN", status="Not Verified", tds_attachment=self.repo_sheet
 		)
 		self.repo_file = _raw(
-			"File", file_name="gate-valve-repo.pdf", file_url=self.repo_sheet,
+			"File", file_name="gate-valve-repo.pdf", file_url=self.repo_sheet, content_hash="hash-repo",
 			attached_to_doctype="TDS Repository", attached_to_name=self.entry,
 		)
 		self.sent_sheet = _cloud_url("gate-valve-sent.pdf")
 		self.new_make = self._row("New", self.item, tds_attachment=self.sent_sheet)
 		self.sent_file = _raw(
 			"File", file_name="gate-valve-sent.pdf", file_url=self.sent_sheet,
+			content_hash="hash-repo" if same_pdf else "hash-sent",
 			attached_to_doctype=ROW, attached_to_name=self.new_make,
 		)
 
@@ -156,6 +177,10 @@ class TestApproveTdsItems(FrappeTestCase):
 
 				self.assertEqual([e["name"] for e in out["errors"]], [self.new_make])
 				self.assertIn("Choose", out["errors"][0]["error"])
+				# The reply itself asks for the choice and names the entry's sheet, so the screen
+				# opens the chooser from the server's answer, not its own copy of the repository.
+				self.assertTrue(out["errors"][0]["needs_datasheet_choice"])
+				self.assertEqual(out["errors"][0]["repository_sheet"], self.repo_sheet)
 				self.assertEqual(self._stored(self.new_make), {"tds_status": "New", "tds_attachment": self.sent_sheet})
 				self.assertEqual(self._entry(), {"status": "Not Verified", "tds_attachment": self.repo_sheet})
 				self.assertEqual(frappe.db.get_value(ROW, custom, "tds_status"), "Approved")
@@ -169,6 +194,21 @@ class TestApproveTdsItems(FrappeTestCase):
 		self.assertEqual(out["summary"]["verified_existing"], 1)
 		self.assertEqual(self._entry(), {"status": "Verified", "tds_attachment": self.repo_sheet})
 		self.assertEqual(self._stored(self.new_make), {"tds_status": "Approved", "tds_attachment": self.repo_sheet})
+		# The upload nothing points at any more is deleted; the entry's sheet is untouched.
+		self.assertFalse(frappe.db.exists("File", self.sent_file))
+		self.assertTrue(frappe.db.exists("File", self.repo_file))
+		self.cloud_delete.assert_called_once()
+
+	def test_repository_choice_of_the_same_pdf_keeps_the_stored_bytes(self):
+		self._entry_added_since_request(same_pdf=True)
+
+		out = approve_tds_items([self.new_make], datasheet_choices={self.new_make: "repository"})
+
+		self.assertEqual(out["errors"], [])
+		self.assertFalse(frappe.db.exists("File", self.sent_file))
+		self.assertTrue(frappe.db.exists("File", self.repo_file))
+		# Deleting through the storage app would remove the object the entry's File still serves.
+		self.cloud_delete.assert_not_called()
 
 	def test_repository_choice_is_refused_when_the_entry_has_no_sheet(self):
 		self._entry_added_since_request(repo_sheet=False)

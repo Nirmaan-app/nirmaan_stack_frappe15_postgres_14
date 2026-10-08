@@ -9,6 +9,7 @@ Projects row made once per class.
 """
 
 import json
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -59,6 +60,9 @@ class TestEditTdsRequest(FrappeTestCase):
 	def setUp(self):
 		self._real_commit = frappe.db.commit
 		frappe.db.commit = lambda *a, **k: None
+		# Trashing a File calls the storage app's delete; record it instead of reaching the bucket.
+		self.cloud_delete = patch("frappe_gcp_attachment.controller.delete_from_cloud").start()
+		self.addCleanup(patch.stopall)
 		frappe.set_user("Administrator")
 		self.wp = f"TEST WP {frappe.generate_hash(length=4)}"
 		_raw("Procurement Packages", name=self.wp, work_package_name=self.wp)
@@ -236,6 +240,31 @@ class TestEditTdsRequest(FrappeTestCase):
 			frappe.db.get_value("File", {"file_url": url}, ["attached_to_doctype", "attached_to_name"]),
 			(ROW, row),
 		)
+
+	def test_a_new_datasheet_deletes_the_rows_old_upload(self):
+		row = self._new_make_row()
+		old_file = _raw(
+			"File", file_name="request.pdf", file_url=self.sheet, content_hash="hash-old",
+			attached_to_doctype=ROW, attached_to_name=row,
+		)
+		url = self._upload()
+
+		self._edit(row, **self._as_new_make(tds_attachment=url))
+
+		self.assertFalse(frappe.db.exists("File", old_file))
+		self.cloud_delete.assert_called_once()
+
+	def test_keeping_the_datasheet_deletes_nothing(self):
+		row = self._new_make_row()
+		old_file = _raw(
+			"File", file_name="request.pdf", file_url=self.sheet, content_hash="hash-old",
+			attached_to_doctype=ROW, attached_to_name=row,
+		)
+
+		self._edit(row, **self._as_custom())
+
+		self.assertTrue(frappe.db.exists("File", old_file))
+		self.cloud_delete.assert_not_called()
 
 	def test_a_datasheet_that_is_neither_the_rows_nor_the_editors_upload_is_refused(self):
 		row = self._new_make_row()

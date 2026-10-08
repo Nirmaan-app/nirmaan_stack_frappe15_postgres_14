@@ -130,16 +130,19 @@ describe("requestTypeOf", () => {
     expect(requestTypeOf({ tds_item_id: "PCUS-000001", tds_status: "Approved" })).toBe("Project Custom");
   });
 
-  it("status New with a TDS Item id is New Make", () => {
+  it("status New is New Make", () => {
     expect(requestTypeOf({ tds_item_id: "TDS-ITEM-00012", tds_status: "New" })).toBe("New Make");
+  });
+
+  it("a legacy New row with no TDS Item id is New Make, the path the server approves it on", () => {
+    // The server refuses it until it is edited into a New Make or a Project Custom item; it is never a pick.
+    expect(requestTypeOf({ tds_item_id: "", tds_status: "New" })).toBe("New Make");
+    expect(requestTypeOf({ tds_item_id: null, tds_status: "New" })).toBe("New Make");
   });
 
   it("everything else is From Repository", () => {
     expect(requestTypeOf({ tds_item_id: "TDS-ITEM-00012", tds_status: "Pending" })).toBe("From Repository");
     expect(requestTypeOf({ tds_item_id: "TDS-ITEM-00012", tds_status: null })).toBe("From Repository");
-    // A legacy New row with no TDS Item id never becomes New Make: there is no item to add a make to.
-    expect(requestTypeOf({ tds_item_id: "", tds_status: "New" })).toBe("From Repository");
-    expect(requestTypeOf({ tds_item_id: null, tds_status: "New" })).toBe("From Repository");
   });
 
   it("only the prefix counts, not a PCUS substring", () => {

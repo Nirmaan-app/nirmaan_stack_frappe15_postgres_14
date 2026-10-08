@@ -26,6 +26,7 @@ from nirmaan_stack.api.tds.submit import (
 	_project_send_lock,
 	_refuse_duplicates,
 	attach_upload,
+	delete_row_datasheet,
 	is_project_custom_id,
 )
 from nirmaan_stack.services.role_profiles import is_nirmaan_admin
@@ -57,28 +58,31 @@ def edit_tds_request(doc_name, row):
 	if not is_nirmaan_admin(user):
 		frappe.throw(_("Only Admin can edit a TDS request."), frappe.PermissionError)
 
-	current = frappe.db.get_value(
-		ROW_DOCTYPE, doc_name, ["tdsi_project_id", "tds_item_id", "tds_status", "tds_attachment"], as_dict=True
-	)
-	if not current:
+	project = frappe.db.get_value(ROW_DOCTYPE, doc_name, "tdsi_project_id")
+	if project is None:
 		frappe.throw(_("TDS row {0} not found.").format(doc_name))
-	if not _is_waiting_request(current):
-		frappe.throw(_("Only a waiting New Make or Project Custom request can be edited here."))
 
 	parsed = frappe.parse_json(row) if isinstance(row, str) else row
 	(cart_row,) = _parse_rows([parsed])
 	cart_row["is_new_request"] = True
-	project = current.tdsi_project_id
 
 	with _project_send_lock(project):
 		frappe.db.savepoint(_SAVEPOINT)
 		try:
-			plan = _plan_row(cart_row, user, set(), kept_attachment=current.tds_attachment)
+			# Read and row-lock it only now, inside the fresh transaction the lock starts. Approve and
+			# reject don't take the project lock: a row they settled before this point reads settled
+			# here and is refused, and one they try to save after it waits on this row lock, then
+			# fails its own modified-timestamp check instead of overwriting the edit.
+			doc = frappe.get_doc(ROW_DOCTYPE, doc_name, for_update=True)
+			if not _is_waiting_request(doc):
+				frappe.throw(_("Only a waiting New Make or Project Custom request can be edited here."))
+			old_attachment = doc.tds_attachment
+
+			plan = _plan_row(cart_row, user, set(), kept_attachment=old_attachment)
 			_refuse_duplicates(project, [plan], exclude=doc_name)
 			_assign_project_custom_ids(project, [plan])
 			_check_replacements(project, [plan])
 
-			doc = frappe.get_doc(ROW_DOCTYPE, doc_name)
 			doc.update(
 				{
 					"tds_item_id": plan["tds_item_id"],
@@ -100,6 +104,10 @@ def edit_tds_request(doc_name, row):
 				attach_upload(plan["upload"], doc_name)
 			if plan["replaces"]:
 				frappe.delete_doc(ROW_DOCTYPE, plan["replaces"])
+			# Last: a new sheet leaves the row's old upload pointed at by nothing. A sheet the row
+			# borrows from a Repository Entry is not the row's File and is left alone.
+			if plan["tds_attachment"] != old_attachment:
+				delete_row_datasheet(doc_name, old_attachment)
 		except Exception:
 			frappe.db.rollback(save_point=_SAVEPOINT)
 			raise

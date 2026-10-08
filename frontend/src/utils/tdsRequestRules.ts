@@ -46,12 +46,17 @@ export function isProjectCustomId(tdsItemId?: string | null): boolean {
 
 /**
  * - a `PCUS-` id → Project Custom
- * - status New with a TDS Item id → New Make
+ * - status New → New Make
  * - otherwise → From Repository
+ *
+ * A legacy New row with no TDS Item id (a "brand-new shared item" request from before #1377) is New
+ * Make too: the server sends every New row down the New Make path, refuses it until an Admin edits it
+ * into a New Make or a Project Custom item, and `isEditableRequest` opens that edit. Calling it From
+ * Repository would promise a plain pick that approval can never make.
  */
 export function requestTypeOf(row: TdsRequestRow): RequestType {
   if (isProjectCustomId(row.tds_item_id)) return "Project Custom";
-  if (row.tds_status === STORED_STATUS.newMake && row.tds_item_id) return "New Make";
+  if (row.tds_status === STORED_STATUS.newMake) return "New Make";
   return "From Repository";
 }
 

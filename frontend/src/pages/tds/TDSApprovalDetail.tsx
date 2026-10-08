@@ -50,7 +50,9 @@ import {
     ITEM_STATUSES,
     REQUEST_TYPES,
     entryAddedSinceRequest,
+    historyStatusOf,
     isEditableRequest,
+    isProjectCustomId,
     itemStatusOf,
     repositoryEntryKey,
     requestTypeOf,
@@ -58,6 +60,16 @@ import {
     type ItemStatus,
     type RequestType,
 } from "@/utils/tdsRequestRules";
+
+/** One refused row in the approve reply (`api/tds/approve.py` `approve_tds_items`). */
+interface ApproveRowError {
+    name: string;
+    error: string;
+    /** A New Make whose entry exists, approved without a datasheet choice. */
+    needs_datasheet_choice?: boolean;
+    /** That entry's current sheet, as the server read it. */
+    repository_sheet?: string | null;
+}
 
 interface TDSItem {
     name: string;
@@ -493,6 +505,9 @@ export const TDSApprovalDetail: React.FC = () => {
     // "Choose the correct datasheet": the selected New Make rows whose entry exists, by name.
     const [chooserNames, setChooserNames] = useState<string[]>([]);
     const [datasheetChoices, setDatasheetChoices] = useState<Record<string, DatasheetChoice>>({});
+    // The entry's current sheet for each chooser row, as the approve reply named it. It wins over this
+    // page's own copy of the repository, which can be older than what the server just checked.
+    const [replySheets, setReplySheets] = useState<Record<string, string | null | undefined>>({});
 
     // Use custom hook for user data and role
     const { user_id, role } = useUserData();
@@ -515,9 +530,11 @@ export const TDSApprovalDetail: React.FC = () => {
         limit: 0
     });
 
-    // TDS Repository entries (Phase 2 group shape: (tds_item Link, make)), read only to derive each
-    // Pending Review row's Item Status and the datasheet chooser's repository sheet. Approval writes
-    // happen server-side (api/tds/approve.py).
+    // TDS Repository entries of this request's TDS Items (Phase 2 group shape: (tds_item Link, make)),
+    // read only to derive each Pending Review row's Item Status and to offer the datasheet chooser up
+    // front. Reloaded after every approval. Whether a New Make really needs a choice is the server's
+    // answer (`needs_datasheet_choice` in the approve reply), so a stale copy here costs one round
+    // trip, never a stuck row. Approval writes happen server-side (api/tds/approve.py).
     type RepoEntry = {
         name: string;
         tds_item: string;
@@ -525,10 +542,19 @@ export const TDSApprovalDetail: React.FC = () => {
         status?: string;
         tds_attachment?: string;
     };
-    const { data: repoEntries } = useFrappeGetDocList<RepoEntry>("TDS Repository", {
-        fields: ["name", "tds_item", "make", "status", "tds_attachment"],
-        limit: 0,
-    });
+    const requestItemIds = useMemo(
+        () => [...new Set((allItems ?? []).map(i => i.tds_item_id).filter(id => id && !isProjectCustomId(id)))],
+        [allItems]
+    );
+    const { data: repoEntries, mutate: mutateRepoEntries } = useFrappeGetDocList<RepoEntry>(
+        "TDS Repository",
+        {
+            fields: ["name", "tds_item", "make", "status", "tds_attachment"],
+            filters: [["tds_item", "in", requestItemIds]],
+            limit: 0,
+        },
+        requestItemIds.length ? undefined : null
+    );
 
     const repoEntryByKey = useMemo(() => {
         const map = new Map<string, RepoEntry>();
@@ -584,8 +610,7 @@ export const TDSApprovalDetail: React.FC = () => {
             if (i.tds_work_package) wp.add(i.tds_work_package);
             if (i.tds_category) cat.add(i.tds_category);
             if (i.tds_make) mk.add(i.tds_make);
-            const isPending = !i.tds_status || i.tds_status === "Pending" || i.tds_status === "New";
-            if (isPending) {
+            if (historyStatusOf(i.tds_status) === "Pending") {
                 if (i.tds_work_package) wpPending.add(i.tds_work_package);
                 if (i.tds_category) catPending.add(i.tds_category);
                 if (i.tds_make) mkPending.add(i.tds_make);
@@ -670,9 +695,7 @@ export const TDSApprovalDetail: React.FC = () => {
 
     // Unfiltered status splits — used for totals and selection math
     const allPendingItems = useMemo(() =>
-        (allItems || []).filter(item =>
-            !item.tds_status || item.tds_status === "Pending" || item.tds_status === "New"
-        ),
+        (allItems || []).filter(item => historyStatusOf(item.tds_status) === "Pending"),
         [allItems]);
 
     const allApprovedItems = useMemo(() =>
@@ -1256,6 +1279,7 @@ export const TDSApprovalDetail: React.FC = () => {
         // waits for that dialog.
         const conflicts = selectedItems.filter(i => entryAddedSinceRequest(i, entryFor(i)));
         if (conflicts.length > 0) {
+            setReplySheets({});
             setDatasheetChoices(Object.fromEntries(conflicts.map(i => [
                 i.name,
                 entryFor(i)?.tds_attachment ? DATASHEET_CHOICE.repository : DATASHEET_CHOICE.request,
@@ -1275,10 +1299,10 @@ export const TDSApprovalDetail: React.FC = () => {
                     itemName: i.tds_item_name,
                     make: i.tds_make,
                     workPackage: i.tds_work_package,
-                    repositorySheet: entryFor(i)?.tds_attachment,
+                    repositorySheet: i.name in replySheets ? replySheets[i.name] ?? undefined : entryFor(i)?.tds_attachment,
                     requestSheet: i.tds_attachment,
                 })),
-        [allPendingItems, chooserNames, repoEntryByKey]
+        [allPendingItems, chooserNames, repoEntryByKey, replySheets]
     );
 
     const submitApproval = async (
@@ -1296,12 +1320,16 @@ export const TDSApprovalDetail: React.FC = () => {
         const willBeEmpty = selectedItems.length === allPendingItems.length;
         const selectedNames = selectedItems.map(i => i.name);
 
+        // Rows the server sent back for a datasheet choice: the chooser reopens on them.
+        let reopenChooserFor: string[] = [];
         setProcessing(true);
         try {
             const resp = await approveTdsItems({ doc_names: selectedNames, datasheet_choices: choices });
             const result = resp?.message;
             const summary = result?.summary || {};
-            const errors: Array<{ name: string; error: string }> = result?.errors || [];
+            const errors: ApproveRowError[] = result?.errors || [];
+            const needsChoice = errors.filter(e => e.needs_datasheet_choice);
+            const failed = errors.filter(e => !e.needs_datasheet_choice);
 
             const approved = summary.approved ?? 0;
             const total = selectedItems.length;
@@ -1312,12 +1340,17 @@ export const TDSApprovalDetail: React.FC = () => {
             if (summary.verified_existing > 0) parts.push(`${summary.verified_existing} entr(ies) verified`);
             if (summary.replaced_datasheets > 0) parts.push(`${summary.replaced_datasheets} repository datasheet(s) replaced`);
 
-            if (errors.length > 0) {
+            if (failed.length > 0) {
                 // Partial success — some rows failed (e.g. no master entry for a picked row).
                 toast({
-                    title: errors.length === total ? "Approval failed" : "Approved with errors",
-                    description: `${approved} of ${total} approved${parts.length ? ` — ${parts.join(", ")}` : ""}. ${errors.length} failed: ${errors.map(e => e.error).join("; ")}`,
-                    variant: errors.length === total ? "destructive" : "default",
+                    title: failed.length === total ? "Approval failed" : "Approved with errors",
+                    description: `${approved} of ${total} approved${parts.length ? ` — ${parts.join(", ")}` : ""}. ${failed.length} failed: ${failed.map(e => e.error).join("; ")}`,
+                    variant: failed.length === total ? "destructive" : "default",
+                });
+            } else if (needsChoice.length > 0) {
+                toast({
+                    title: "Choose a datasheet",
+                    description: `${approved} of ${total} approved. ${needsChoice.length} item(s) already have a TDS Repository datasheet: choose which one to keep.`,
                 });
             } else {
                 toast({
@@ -1333,9 +1366,18 @@ export const TDSApprovalDetail: React.FC = () => {
             if (willBeEmpty && errors.length === 0) {
                 navigate("/tds-approval");
             } else {
-                setRowSelection({});
+                if (needsChoice.length > 0) {
+                    reopenChooserFor = needsChoice.map(e => e.name);
+                    setReplySheets(Object.fromEntries(needsChoice.map(e => [e.name, e.repository_sheet])));
+                    setDatasheetChoices(Object.fromEntries(needsChoice.map(e => [
+                        e.name,
+                        e.repository_sheet ? DATASHEET_CHOICE.repository : DATASHEET_CHOICE.request,
+                    ])));
+                }
+                setRowSelection(Object.fromEntries(reopenChooserFor.map(name => [name, true])));
                 clearAllFilters();
                 mutate();
+                mutateRepoEntries();
             }
         } catch (e: any) {
             console.error(e);
@@ -1343,7 +1385,7 @@ export const TDSApprovalDetail: React.FC = () => {
             toast({ title: "Error", description: typeof msg === "string" ? msg : "Failed to approve items", variant: "destructive" });
         } finally {
             setProcessing(false);
-            setChooserNames([]);
+            setChooserNames(reopenChooserFor);
         }
     };
 
