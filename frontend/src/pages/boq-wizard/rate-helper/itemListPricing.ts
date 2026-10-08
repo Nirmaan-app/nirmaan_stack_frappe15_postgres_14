@@ -1278,6 +1278,19 @@ function priceOneItem(
   for (const attr of spec.match_attrs) {
     const reader = spec.numbers[attr];
     if (reader) {
+      // SLICE 12d-4c (owner C3, F4): on the COMPOSE axis the layers reader runs FIRST, over the MODEL's cells
+      // only (T6: a pricer's typed entry is never parsed as layers). It used to run only when the single-number
+      // read came back BLANK -- and "Double layer of 19mm thick" is not blank to that reader, it is a 19, so
+      // every such row priced ONE layer. A cell the layers reader does not accept is read exactly as before.
+      if (spec.compose && attr === spec.compose.attr && layersFrom === null) {
+        for (const src of reader.from) {
+          const cell = item.attributes?.[src];
+          if (!cell || cell.typed === true) continue;
+          const layers = readLayers(cell.value);
+          if (layers && layers.length >= 2) { layersFrom = { attr, raw: String(cell.value), layers }; break; }
+        }
+        if (layersFrom) continue;
+      }
       let got: NumberRead = null;
       for (const src of reader.from) {
         got = readNumber(rawValue(item, src), reader);

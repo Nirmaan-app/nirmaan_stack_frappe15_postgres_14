@@ -3611,6 +3611,33 @@ describe("SLICE 12d-4a -- the audit fixes: named cladding, unstocked materials, 
     }
   });
 
+  it("C3 (12d-4c, owner 'fix it' on F4): 'Double layer of N mm' / 'double layer of N' / 'N mm double layer' are a double layer of N -- the layers reader runs BEFORE the single-number read on the compose axis; a size range, a comma list and a tolerance still refuse", () => {
+    for (const s of ["Double layer of 19mm thick", "double layer of 19", "19 mm double layer", "Double layer of 19 mm", "19mm double layer insulation"]) {
+      expect(readLayers(s), s).toEqual([19, 19]);
+    }
+    for (const s of ["25 to 50 mm", "19, 25, 32 mm", "25 +/- 2 mm", "19/25/32 mm", "19 mm", "double layer", "layer of 19 mm"]) {
+      expect(readLayers(s), s).toBeNull();
+    }
+    // the 00137 CHW pipes #32 shape (a 250 NB pipe under the schedule): the layers ARE read now, the row still
+    // refuses on the pipe size (R9) -- exactly what 12d-4b's cert saw as "-> 19 mm" and the owner ruled on
+    const big = price(plain, "Rmt", { item: NR, cladding: "26G Aluminium", thickness_mm: "Double layer of 19mm thick", pipe_size_mm: "250 NB" });
+    expect(big.priced).toBe(false);
+    expect(big.items[0].reason).toMatch(/pipe size 250 is above the largest size/);
+    // a synthetic SMALL pipe with the same spelling prices TWO layers of 19 at the row's pipe size, the cladding on the
+    // outer layer only -- the 12d-1b composition path, reached from the new spelling
+    const small = price(plain, "Rmt", { item: NR, cladding: "26G Aluminium", thickness_mm: "Double layer of 19mm thick", pipe_size_mm: "50NB" });
+    expect(small.priced).toBe(true);
+    expect(small.items[0].working.join(" | ")).toMatch(/19 \+ 19 mm/);
+    expect(small.items[0].working[0]).toMatch(/^BoQ says Double layer of 19mm thick -> priced as two layers, 19 \+ 19 mm \(38 mm\)/);
+    const single = price(plain, "Rmt", { item: NR, cladding: "26G Aluminium", thickness_mm: "19mm thick", pipe_size_mm: "50NB" });
+    expect(single.priced).toBe(true);
+    expect(small.supply).toBeGreaterThan(single.supply!);
+    // a TYPED cell is never parsed as layers (T6): the same string typed by the pricer reads as 19
+    const typedItem = item({ item: NR, cladding: "26G Aluminium", thickness_mm: "Double layer of 19mm thick", pipe_size_mm: "50NB" });
+    const typed = priceItemList(plain, ITEMS, "Rmt", [{ ...typedItem, attributes: { ...typedItem.attributes, thickness_mm: { value: "Double layer of 19mm thick", typed: true } } } as any]);
+    expect([typed.supply, typed.install]).toEqual([single.supply, single.install]);
+  });
+
   it("D8: the density line appears for a 32 kg/m3 fibre glass row and not for 48; the PRICE is the same 48 kg board either way (display only)", () => {
     const r32 = price(withKeys(D8), "Sqm", { item: FG, cladding: "None", thickness_mm: "50 mm", material_as_written: "resin bonded fibre glass of density not less than 32Kg/CuM" });
     const r48 = price(withKeys(D8), "Sqm", { item: FG, cladding: "None", thickness_mm: "50 mm", material_as_written: "fibre glass of 48 Kg/Cum density" });
