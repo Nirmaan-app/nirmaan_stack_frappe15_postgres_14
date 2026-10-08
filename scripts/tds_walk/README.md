@@ -27,7 +27,7 @@ in the screen and in the database.
 | 17 | Admin edit switches New Make → Project Custom → New Make |
 | 18 | Admin edit racing an approval is refused |
 | 19 | Reject, then resubmit a pick, a New Make and a Project Custom row |
-| 20 | Export dialog lists approved Project Custom rows; chips read Approved by Admin / Pending, Pending includes New |
+| 20 | Download TDS PDF dialog lists approved Project Custom rows; the status counts equal the database (Approved by Admin excludes client-answered rows, Pending includes New) |
 | 21 | Approved / Rejected rows can't be selected, and approve refuses a Rejected row |
 | 22 | TDS Repository item page (#1384): no Back button; the header back arrow restores tab, filter, search and page; a delete returns to the table view, or to the plain repository from a direct URL; "not found" links to the repository |
 | 23 | Create New Request button: the form replaces the tables, Back keeps the table filter, a send returns to TDS History (#1382) |
@@ -39,6 +39,10 @@ in the screen and in the database.
 | 31 | An Admin's Clear Client Status on both client tabs (#1386): all four client fields blank, the rows back in TDS History as Approved by Admin; the server refuses Clear from a PMO Executive (when the site has one; the walk user is an Admin, so the missing PMO button is pinned by vitest) |
 | 32 | Delete lock (#1387): both client tabs show "Locked" with an explaining tooltip instead of a delete button, while an unanswered row keeps it; a direct REST delete of each answered row is refused naming the Client Status and the rows are unchanged; an Admin reject of a client-approved row is refused |
 | 33 | After an Admin clears the Client Status (#1387), the row is back in TDS History with its delete button, and deleting it removes it on the server |
+| 34 | PDF dialog tick order (#1388): opens with only Approved by Client ticked; statuses and packages number in tick order and renumber on untick; packages offered A to Z; the list runs status then package in tick order, each row under its database status; Rejected by Client never listed, no row twice |
+| 35 | PDF dialog print-order summary (#1388): matches the list's statuses and packages; the export payload (intercepted, no PDF built) runs in the same order with no duplicates; the empty state's Tick Approved by Admin, when the project has no client-approved rows |
+| 36 | PDF dialog Select all / Deselect all (#1388): act on the items a search shows, leaving other ticks alone; the "X of Y ticked" count equals the database |
+| 37 | PDF dialog preview-only (#1388): an Admin with Pending ticked gets Download PDF; a non-Admin gets Preview PDF and the reason. The walk user is an Admin, so this case rewrites the browser's own Nirmaan Users read to a PMO Executive role profile; the server is untouched |
 | 38 | A Make the client rejected (#1389): the Make list shows a "Rejected by Client" tag on it, while a Pending make still reads "(already submitted)" |
 | 39 | Picking a Make the client rejected (#1389): the popup names the item, make, request id, who marked it, when and the client's reason, and the two ways out; "Pick another make" leaves nothing selected; a Project Custom name + make clash opens it too; another make is added and sent; a direct submit of the same make is refused with the Rejected by Client message |
 | 40 | The popup's "Open Rejected by Client tab" (#1389) hides the form and opens that tab, which lists the row; tab counts match the database |

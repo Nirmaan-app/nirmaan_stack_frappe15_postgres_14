@@ -9,11 +9,14 @@ import { useTdsHistoryItems, useProjectDoc } from '../data/tds/useTdsQueries';
 import { format } from 'date-fns';
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
-import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog, TdsPdfReadyDialog } from './components';
+import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog, TdsPdfReadyDialog, type TdsExportOptions } from './components';
 import { HISTORY_TABS, historyStatusLabel, historyTabFilters, type HistoryTab } from '@/utils/tdsRequestRules';
+import { PDF_DEFAULT_STATUSES } from '@/utils/tdsRequestRules';
 import { useCounts } from '@/hooks/useCounts';
 
 const ROW_DOCTYPE = "Project TDS Item List";
+// A stable empty list, so the PDF dialog's reseed effect does not see a new array every render.
+const NO_ROWS: never[] = [];
 
 interface TDSRepositoryViewProps {
     data: TDSRepositoryData;
@@ -24,7 +27,7 @@ interface TDSRepositoryViewProps {
 export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, projectId, onUpdate }) => {
     const { role } = useUserData();
     const canEditTDS = role === "Nirmaan Admin Profile" || role === "Administrator" || role === "Nirmaan PMO Executive Profile";
-    // Only Admins can save the generated Pending TDS PDF; everyone else previews only.
+    // Only Admins can save a PDF holding Pending sheets; everyone else previews it (`isPdfPreviewOnly`).
     const isAdmin = role === "Nirmaan Admin Profile";
 
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
@@ -223,7 +226,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
         handlePdfReadyClose();
     };
 
-    const handleExportWithItems = async (selectedItems: any[], selectedStatus: string) => {
+    const handleExportWithItems = async (selectedItems: any[], { previewOnly }: TdsExportOptions) => {
         if (!selectedItems || selectedItems.length === 0) {
             toast({
                 title: "No Items Selected",
@@ -282,7 +285,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 const objectUrl = window.URL.createObjectURL(blob);
                 setIsExportDialogOpen(false);
 
-                if (selectedStatus === "Pending") {
+                if (previewOnly) {
                     // Revoke any previous preview blob before replacing it, so
                     // back-to-back exports don't leak the earlier object URL.
                     setPdfReadyBlobUrl((prev) => {
@@ -529,11 +532,12 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 onClose={() => setIsExportDialogOpen(false)}
                 onExport={handleExportWithItems}
                 settings={data}
-                historyData={historyData || []}
+                historyData={historyData ?? NO_ROWS}
                 isExporting={isExporting}
+                defaultStatuses={PDF_DEFAULT_STATUSES.tdsPage}
             />
 
-            {/* PDF Ready Dialog (Pending exports) */}
+            {/* PDF Ready Dialog (preview-only exports) */}
             <TdsPdfReadyDialog
                 isOpen={isPdfReadyOpen}
                 onClose={handlePdfReadyClose}

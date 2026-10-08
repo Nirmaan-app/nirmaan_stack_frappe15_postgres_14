@@ -22,6 +22,7 @@ import frappe
 
 from nirmaan_stack.api.hod.from_app import tds_items
 from nirmaan_stack.api.hod.project_info import as_dict
+from nirmaan_stack.api.tds.client_status import CLIENT_STATUS_REJECTED
 from nirmaan_stack.api.tds.tds_report import build_tds_report_pdf
 
 SETTING = "Project TDS Setting"
@@ -60,16 +61,23 @@ def report_items(project: str, system, form_data) -> list:
 
 	`tds_items` answers WHICH items belong to the system (one rule, shared with the screen); the report
 	template reads more fields than the screen does, so they are read again in full for the ones that
-	survive both filters."""
+	survive both filters.
+
+	Saved ticks print in the order they were saved, which is the Download TDS PDF dialog's print order.
+	A *Rejected by Client* row never prints, even under a tick saved before the client rejected it."""
 	mine = tds_items(project, system)
 	selected = as_dict(form_data).get("selected")
 	names = [i.name for i in mine]
 	if isinstance(selected, list):
-		keep = {str(s) for s in selected}
-		names = [n for n in names if n in keep]
+		mine_names = set(names)
+		names = list(dict.fromkeys(str(s) for s in selected if str(s) in mine_names))
 	if not names:
 		return []
-	rows = frappe.get_all("Project TDS Item List", filters={"name": ["in", names]}, fields=["*"])
+	rows = frappe.get_all(
+		"Project TDS Item List",
+		filters={"name": ["in", names], "client_status": ["!=", CLIENT_STATUS_REJECTED]},
+		fields=["*"],
+	)
 	order = {n: i for i, n in enumerate(names)}
 	rows.sort(key=lambda r: order.get(r.name, len(order)))
 	# The dialog posts rows that have been through JSON; `fields=["*"]` hands back `datetime`s, which the

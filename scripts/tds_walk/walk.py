@@ -92,7 +92,7 @@ def seed_row(request_id, s):
     kind, make = s["kind"], s["make"]
     key = "tds-walk-fake-%s-%s.pdf" % (request_id.lower(), make.lower().replace(" ", "-"))
     doc = {"doctype": ROW, "tdsi_project_id": PROJECT, "tds_request_id": request_id, "tds_make": make,
-        "tds_work_package": "Electrical Work", "tds_description": s.get("description", "")}
+        "tds_work_package": s.get("package", "Electrical Work"), "tds_description": s.get("description", "")}
     if kind == "pick":
         url = frappe.db.get_value("TDS Repository", {"tds_item": T, "make": make}, "tds_attachment") or fake(key)
         doc.update(tds_item_id=T, tds_item_name=P["_item_name"], tds_status="Pending", tds_attachment=url)
@@ -1359,32 +1359,20 @@ def c20(w: Walk, page, c: Checks):
         {"kind": "pick", "make": "Tapariya"},
         {"kind": "new_make", "make": "Jogger", "status": "Rejected", "reason": "walk"},
     ])
-    counts = w.be('''
-rows = project_rows()
-R["approved"] = sum(1 for r in rows if r.tds_status == "Approved")
-R["pending"] = sum(1 for r in rows if r.tds_status in ("Pending", "New"))''')
-    page.goto(f"{BASE}/projects/{PROJECT}?page=tdsrepository")
-    settle(page, 3)
-    if page.get_by_text("Continue your saved TDS request?").count():
-        page.get_by_role("button", name="Start Fresh").click()
-    page.get_by_role("button", name="Download TDS PDF").click()
-    d = page.get_by_role("dialog")
-    d.wait_for(timeout=10000)
-    time.sleep(2)
-    c.eq(d.get_by_role("heading").first.inner_text().strip(), "Confirm TDS Export", "export dialog")
-    chips = d.locator("div:has(> span:text-is('Status:'))").first.inner_text().replace("\n", " ")
-    c.check(f"Approved by Admin ({counts['approved']})" in chips and f"Pending ({counts['pending']})" in chips,
-            f"chips count Approved by Admin {counts['approved']} / Pending {counts['pending']} (Pending includes New)", chips)
-    table = d.locator("table").first
-    approved = [" | ".join(x.strip() for x in r.locator("td").all_inner_texts()) for r in table.locator("tbody tr").all()]
+    counts = pdf_db_counts(w)
+    d = open_pdf_dialog(page)
+    c.eq(d.get_by_role("heading").first.inner_text().strip(), "Download TDS PDF", "export dialog")
+    c.eq({s: pdf_status_count(d, s) for s in PDF_STATUSES}, counts,
+         "status counts match the database (Approved by Admin excludes client-answered rows; Pending includes New)")
+    pdf_toggle_status(d, PDF_ADMIN)
+    approved = pdf_row_texts(d)
     lamp = [r for r in approved if CUSTOM_LAMP in r]
     c.check(len(lamp) == 1, "approved Project Custom row is in the export list", approved)
     c.check(lamp and CATEGORY in lamp[0], "it carries its chosen Category", lamp)
     c.check(not any("Jogger" in r for r in approved), "rejected row not offered", approved)
     w.shot(page, "c20_export_approved")
-    d.get_by_text("Pending (", exact=False).first.click()
-    time.sleep(1.5)
-    pending = [" | ".join(x.strip() for x in r.locator("td").all_inner_texts()) for r in table.locator("tbody tr").all()]
+    pdf_toggle_status(d, PDF_PENDING)
+    pending = pdf_row_texts(d)
     c.check(any(re.search(r"\bNR\b", r) for r in pending), "Pending list includes the New Make row", pending)
     c.check(any("Tapariya" in r for r in pending), "Pending list includes the pick", pending)
     w.shot(page, "c20_export_pending")
@@ -2183,6 +2171,327 @@ R["reply"] = set_client_status([P["n"]], "clear")''', n=names["Nerolac"])
     c.eq(client_fields(w, [names["Value"]])[names["Value"]]["client_status"], CLIENT_APPROVED,
          "the other answered row is untouched")
     w.shot(page, "c33_after_delete", full=True)
+
+
+# ─── Download TDS PDF dialog (#1388) ─────────────────────────────────────────────────────────────
+
+PDF_CLIENT, PDF_ADMIN, PDF_PENDING = "Approved by Client", "Approved by Admin", "Pending"
+PDF_STATUSES = (PDF_CLIENT, PDF_ADMIN, PDF_PENDING)
+PREVIEW_NOTE = "Pending is ticked, so you can preview this PDF but only an Admin can download it."
+PMO_PROFILE = "Nirmaan PMO Executive Profile"
+
+# The dialog's item list as [status band, package band, row name] per <tr>, in screen order.
+PDF_LIST_JS = """t => [...t.querySelectorAll('tbody tr')].map(r =>
+    [r.dataset.pdfGroup || '', r.dataset.pdfGroupPackage || '', r.dataset.pdfRow || ''])"""
+
+# The PDF status each stored row prints under, worked out in SQL terms, the way `pdfStatusOf` does.
+PDF_BUCKET_PY = '''
+def bucket(r):
+    if r.client_status == "Approved by Client": return "Approved by Client"
+    if r.client_status == "Rejected by Client": return None
+    if r.tds_status == "Approved": return "Approved by Admin"
+    if r.tds_status in ("Pending", "New"): return "Pending"
+    return None
+'''
+
+
+def open_pdf_dialog(page):
+    open_history_page(page)
+    page.get_by_role("button", name="Download TDS PDF").click()
+    d = page.get_by_role("dialog")
+    d.wait_for(timeout=10000)
+    time.sleep(2)
+    return d
+
+
+def pdf_db_counts(w):
+    """How many project rows each PDF status holds, from the database."""
+    return w.be(PDF_BUCKET_PY + '''
+R = {"Approved by Client": 0, "Approved by Admin": 0, "Pending": 0}
+for r in project_rows():
+    b = bucket(r)
+    if b: R[b] += 1''')
+
+
+def pdf_buckets(w, names):
+    return w.be(PDF_BUCKET_PY + '''
+R["b"] = {r.name: bucket(r) for r in project_rows() if r.name in P["names"]}''', names=names)["b"]
+
+
+def pdf_ticks(d, kind):
+    """{choice: its tick number, or "" when unticked} for `status` or `package` options."""
+    attr = f"data-pdf-{kind}"
+    return {o.get_attribute(attr): o.get_attribute("data-tick") for o in d.locator(f"[{attr}]").all()}
+
+
+def pdf_status_count(d, status):
+    text = d.locator(f'[data-pdf-status="{status}"]').inner_text()
+    m = re.search(r"(\d+) items", text)
+    return int(m.group(1)) if m else -1
+
+
+def pdf_toggle_status(d, status):
+    d.locator(f'[data-pdf-status="{status}"]').click()
+    time.sleep(0.5)
+
+
+def pdf_toggle_package(d, pkg):
+    d.locator(f'[data-pdf-package="{pkg}"]').click()
+    time.sleep(0.5)
+
+
+def pdf_list(d):
+    """The item list as (status, package, row name), in screen order."""
+    table = d.get_by_test_id("pdf-items")
+    if not table.count():
+        return []
+    out, status, pkg = [], None, None
+    for group, package, row in table.evaluate(PDF_LIST_JS):
+        if group:
+            status, pkg = group, None
+        elif package:
+            pkg = package
+        elif row:
+            out.append((status, pkg, row))
+    return out
+
+
+def pdf_row_texts(d):
+    return [" | ".join(x.strip() for x in r.locator("td").all_inner_texts())
+            for r in d.locator("tr[data-pdf-row]").all()]
+
+
+def pdf_summary(d):
+    """The print-order summary as (status, packages text), in order."""
+    return [(line.get_attribute("data-print-line"), line.locator("span").last.inner_text().strip())
+            for line in d.get_by_test_id("pdf-print-order").locator("[data-print-line]").all()]
+
+
+def pdf_row_ticked(d, name):
+    return d.locator(f'tr[data-pdf-row="{name}"] button[role="checkbox"]').get_attribute("data-state") == "checked"
+
+
+def pdf_primary(d):
+    """The footer's PDF button label, without its count."""
+    for label in ("Preview PDF", "Download PDF"):
+        if d.get_by_role("button", name=re.compile("^" + label)).count():
+            return label
+    return None
+
+
+def seed(w, rid, specs):
+    rows = w.be('R["rows"] = [seed_row(P["rid"], s) for s in P["specs"]]; frappe.db.commit()', rid=rid, specs=specs)["rows"]
+    return {r["make"]: r["name"] for r in rows}
+
+
+@case(34, "PDF dialog tick order: numbered Status and Package checklists, unticking renumbers, the list follows the ticks")
+def c34(w: Walk, page, c: Checks):
+    names = seed(w, "RQ-001-WALK34", [
+        {"kind": "pick", "make": "Locel", "status": "Approved", "client_status": CLIENT_APPROVED},
+        {"kind": "new_make", "make": "Jogger", "status": "Approved", "client_status": CLIENT_APPROVED, "package": "Plumbing"},
+        {"kind": "new_make", "make": "Value", "status": "Approved", "package": "Plumbing"},
+        {"kind": "pick", "make": "Tapariya", "package": "HVAC"},
+        {"kind": "new_make", "make": "Nerolac", "status": "Approved", "client_status": CLIENT_REJECTED},
+    ])
+    ours = set(names.values())
+    make_of = {n: m for m, n in names.items()}
+    buckets = pdf_buckets(w, list(ours))
+    c.eq(buckets[names["Nerolac"]], None, "the database row the client rejected has no PDF status")
+
+    d = open_pdf_dialog(page)
+    c.eq(pdf_ticks(d, "status"), {PDF_CLIENT: "1", PDF_ADMIN: "", PDF_PENDING: ""}, "the TDS page opens with only Approved by Client ticked")
+    c.eq({s: pdf_status_count(d, s) for s in PDF_STATUSES}, pdf_db_counts(w), "each status's item count matches the database")
+
+    pdf_toggle_status(d, PDF_PENDING)
+    pdf_toggle_status(d, PDF_ADMIN)
+    c.eq(pdf_ticks(d, "status"), {PDF_CLIENT: "1", PDF_ADMIN: "3", PDF_PENDING: "2"}, "statuses number in tick order")
+    pdf_toggle_status(d, PDF_CLIENT)
+    c.eq(pdf_ticks(d, "status"), {PDF_CLIENT: "", PDF_ADMIN: "2", PDF_PENDING: "1"}, "unticking renumbers the rest")
+
+    offered = pdf_ticks(d, "package")
+    c.check({"Plumbing", "HVAC"} <= set(offered), "the ticked statuses' packages are offered", offered)
+    c.eq(list(offered), sorted(offered), "packages are offered A to Z")
+    c.check("A to Z" in d.get_by_test_id("pdf-package-options").inner_text(), "the hint says none ticked means every package, A to Z")
+    pdf_toggle_package(d, "Plumbing")
+    pdf_toggle_package(d, "HVAC")
+    ticks = pdf_ticks(d, "package")
+    c.eq((ticks["Plumbing"], ticks["HVAC"]), ("1", "2"), "packages number in tick order")
+    pdf_toggle_package(d, "Plumbing")
+    pdf_toggle_package(d, "Plumbing")
+    ticks = pdf_ticks(d, "package")
+    c.eq((ticks["HVAC"], ticks["Plumbing"]), ("1", "2"), "unticking and re-ticking moves Plumbing last")
+    w.shot(page, "c34_ticks")
+
+    pdf_toggle_status(d, PDF_CLIENT)
+    listed = [(s, p, make_of[n]) for s, p, n in pdf_list(d) if n in ours]
+    c.eq(listed, [(PDF_PENDING, "HVAC", "Tapariya"), (PDF_ADMIN, "Plumbing", "Value"), (PDF_CLIENT, "Plumbing", "Jogger")],
+         "the list runs status by tick order, then the ticked packages in tick order")
+    for s, _, make in listed:
+        c.eq(buckets[names[make]], s, f"{make} sits under the status its database row has")
+    groups = [s for s, _, _ in pdf_list(d)]
+    c.eq(list(dict.fromkeys(groups)), [s for s in (PDF_PENDING, PDF_ADMIN, PDF_CLIENT) if s in groups],
+         "status bands appear once each, in tick order")
+
+    d.get_by_role("button", name="Clear, use all packages").click()
+    time.sleep(0.5)
+    c.check(all(v == "" for v in pdf_ticks(d, "package").values()), "Clear unticks every package")
+    rows = [n for _, _, n in pdf_list(d)]
+    c.check(names["Locel"] in rows, "with no package ticked the Electrical Work row is back")
+    c.check(names["Nerolac"] not in rows, "the Rejected by Client row is never listed")
+    c.eq(len(rows), len(set(rows)), "no row is listed twice")
+    w.shot(page, "c34_list", full=True)
+
+
+@case(35, "PDF dialog print-order summary: matches the list and the export payload; the empty state ticks Approved by Admin")
+def c35(w: Walk, page, c: Checks):
+    if pdf_db_counts(w)[PDF_CLIENT]:
+        c.note("the project already has Approved by Client rows, so the empty state is not reachable; skipped that part")
+    else:
+        seed(w, "RQ-001-WALK35A", [{"kind": "pick", "make": "Tapariya", "status": "Approved"}])
+        d = open_pdf_dialog(page)
+        empty = d.get_by_test_id("pdf-empty-client")
+        c.check(empty.count() and "hasn't approved any items" in empty.inner_text(), "the empty state explains why the list is empty")
+        w.shot(page, "c35_empty")
+        empty.get_by_role("button", name="Tick Approved by Admin").click()
+        time.sleep(0.5)
+        c.eq(pdf_ticks(d, "status")[PDF_ADMIN], "2", "one click ticks Approved by Admin, second")
+        c.check(d.get_by_test_id("pdf-items").count() > 0, "the Admin-approved items are listed")
+        page.keyboard.press("Escape")
+        time.sleep(0.5)
+
+    names = seed(w, "RQ-001-WALK35", [
+        {"kind": "pick", "make": "Locel", "status": "Approved", "client_status": CLIENT_APPROVED, "package": "HVAC"},
+        {"kind": "new_make", "make": "Jogger", "status": "Approved", "client_status": CLIENT_APPROVED, "package": "Plumbing"},
+        {"kind": "new_make", "make": "Value", "status": "Approved", "package": "Plumbing"},
+        {"kind": "new_make", "make": "NR", "package": "HVAC"},
+        {"kind": "new_make", "make": "Nerolac", "status": "Approved", "client_status": CLIENT_REJECTED, "package": "Plumbing"},
+    ])
+    ours = set(names.values())
+    d = open_pdf_dialog(page)
+    pdf_toggle_status(d, PDF_PENDING)
+    pdf_toggle_status(d, PDF_ADMIN)
+    summary = pdf_summary(d)
+    c.eq([s for s, _ in summary], [PDF_CLIENT, PDF_PENDING, PDF_ADMIN], "the summary lists the statuses in tick order")
+    listed = pdf_list(d)
+    for status, text in summary:
+        pkgs = list(dict.fromkeys(p for s, p, _ in listed if s == status))
+        c.eq(text, ", ".join(pkgs), f"{status}: the summary names the list's packages in order")
+        c.eq(pkgs, sorted(pkgs), f"{status}: packages run A to Z with none ticked")
+    w.shot(page, "c35_summary", full=True)
+
+    pdf_toggle_package(d, "Plumbing")
+    pdf_toggle_package(d, "HVAC")
+    summary = dict(pdf_summary(d))
+    c.eq(summary.get(PDF_CLIENT), "Plumbing, HVAC", "ticked packages print in tick order in the summary")
+    expected = [n for _, _, n in pdf_list(d) if n in ours]
+
+    sent = {}
+
+    def capture(route):
+        body = json.loads(route.request.post_data or "{}")
+        sent["items"] = json.loads(body.get("items_json") or "[]")
+        route.abort()  # no PDF job: the payload is what is checked
+
+    page.route(re.compile(r".*tds_report\.export_tds_report.*"), capture)
+    d.get_by_role("button", name=re.compile("^Download PDF")).click()
+    wait_for(lambda: "items" in sent, 10)
+    page.unroute(re.compile(r".*tds_report\.export_tds_report.*"))
+    payload = [i["name"] for i in sent.get("items", [])]
+    c.check(payload, "the export was posted", sent)
+    c.eq([n for n in payload if n in ours], expected, "the export payload runs in the list's order")
+    c.eq(len(payload), len(set(payload)), "no row is sent twice")
+    c.check(names["Nerolac"] not in payload, "the Rejected by Client row is never sent")
+    buckets = pdf_buckets(w, payload)
+    order = list(dict.fromkeys(buckets[n] for n in payload))
+    c.eq(order, [s for s in (PDF_CLIENT, PDF_PENDING, PDF_ADMIN) if s in order],
+         "the sent rows' database statuses run in tick order")
+    c.check(None not in order, "every sent row has a PDF status in the database", order)
+
+
+@case(36, "PDF dialog Select all / Deselect all act on the shown items only")
+def c36(w: Walk, page, c: Checks):
+    names = seed(w, "RQ-001-WALK36", [
+        {"kind": "custom", "name": CUSTOM_LAMP, "make": "Locel", "pcus": "PCUS-WALK36A", "status": "Approved"},
+        {"kind": "custom", "name": CUSTOM_FAN, "make": "Havells", "pcus": "PCUS-WALK36B", "status": "Approved"},
+        {"kind": "pick", "make": "Tapariya", "status": "Approved"},
+    ])
+    lamp, fan, valve = names["Locel"], names["Havells"], names["Tapariya"]
+    db = pdf_db_counts(w)
+    d = open_pdf_dialog(page)
+    pdf_toggle_status(d, PDF_ADMIN)
+    scope = db[PDF_CLIENT] + db[PDF_ADMIN]
+    count = d.get_by_test_id("pdf-ticked-count")
+    c.eq(count.inner_text().strip(), f"{scope} of {scope} ticked", "every listed item starts ticked; the count matches the database")
+    d.get_by_role("button", name="Deselect all", exact=True).click()
+    time.sleep(0.5)
+    c.eq(count.inner_text().strip(), f"0 of {scope} ticked", "Deselect all with no search unticks everything")
+    d.locator(f'tr[data-pdf-row="{valve}"] button[role="checkbox"]').click()
+    time.sleep(0.3)
+
+    search = d.get_by_placeholder("Search item name...")
+    search.fill(CUSTOM_LAMP)
+    time.sleep(0.5)
+    shown = [n for _, _, n in pdf_list(d)]
+    c.eq(shown, [lamp], "the search shows only the matching item")
+    d.get_by_role("button", name="Select all", exact=True).click()
+    time.sleep(0.5)
+    search.fill("")
+    time.sleep(0.5)
+    c.eq((pdf_row_ticked(d, lamp), pdf_row_ticked(d, fan), pdf_row_ticked(d, valve)), (True, False, True),
+         "Select all ticked only the match; the other ticks are untouched")
+    c.eq(count.inner_text().strip(), f"2 of {scope} ticked", "the count follows")
+
+    search.fill("TDS WALK Custom")
+    time.sleep(0.5)
+    c.eq(sorted(n for _, _, n in pdf_list(d)), sorted([lamp, fan]), "a wider search shows both custom items")
+    d.get_by_role("button", name="Select all", exact=True).click()
+    time.sleep(0.5)
+    c.check(d.get_by_role("button", name="Deselect all", exact=True).count(), "with every shown item ticked the button reads Deselect all")
+    w.shot(page, "c36_search")
+    d.get_by_role("button", name="Deselect all", exact=True).click()
+    time.sleep(0.5)
+    search.fill("")
+    time.sleep(0.5)
+    c.eq((pdf_row_ticked(d, lamp), pdf_row_ticked(d, fan), pdf_row_ticked(d, valve)), (False, False, True),
+         "Deselect all unticked only the shown items")
+
+
+@case(37, "PDF dialog preview-only: a non-Admin with Pending ticked gets Preview PDF and the reason; an Admin gets Download")
+def c37(w: Walk, page, c: Checks):
+    seed(w, "RQ-001-WALK37", [
+        {"kind": "pick", "make": "Tapariya"},
+        {"kind": "pick", "make": "Locel", "status": "Approved", "client_status": CLIENT_APPROVED},
+    ])
+    db = pdf_db_counts(w)
+    d = open_pdf_dialog(page)
+    c.eq(pdf_status_count(d, PDF_PENDING), db[PDF_PENDING], "Pending's item count matches the database")
+    pdf_toggle_status(d, PDF_PENDING)
+    c.eq(pdf_primary(d), "Download PDF", "an Admin with Pending ticked can download")
+    c.eq(d.get_by_test_id("pdf-preview-note").inner_text().strip(), "", "an Admin sees no preview-only note")
+    page.keyboard.press("Escape")
+
+    # The walk user is an Admin. The rule is the screen's, so the browser is told this user is a PMO
+    # Executive: its own Nirmaan Users read comes back with that role profile. The server is untouched.
+    def as_pmo(route):
+        resp = route.fetch()
+        body = resp.json()
+        body.setdefault("data", {})["role_profile"] = PMO_PROFILE
+        route.fulfill(response=resp, json=body)
+
+    page.route(re.compile(r".*/api/resource/Nirmaan(%20| )Users/.*"), as_pmo)
+    d = open_pdf_dialog(page)
+    c.eq(pdf_primary(d), "Download PDF", "a non-Admin without Pending ticked can download")
+    pdf_toggle_status(d, PDF_PENDING)
+    c.eq(pdf_primary(d), "Preview PDF", "a non-Admin with Pending ticked gets Preview PDF")
+    c.eq(d.get_by_test_id("pdf-preview-note").inner_text().strip(), PREVIEW_NOTE, "the footer says why")
+    w.shot(page, "c37_preview_only")
+    pdf_toggle_status(d, PDF_CLIENT)
+    c.eq(pdf_primary(d), "Preview PDF", "Pending anywhere in the order keeps it preview-only")
+    pdf_toggle_status(d, PDF_PENDING)
+    pdf_toggle_status(d, PDF_ADMIN)
+    c.eq(pdf_primary(d), "Download PDF", "unticking Pending gives Download back")
+    c.eq(d.get_by_test_id("pdf-preview-note").inner_text().strip(), "", "and the note goes")
+    page.unroute(re.compile(r".*/api/resource/Nirmaan(%20| )Users/.*"))
 
 
 # ─── main ────────────────────────────────────────────────────────────────────────────────────────
