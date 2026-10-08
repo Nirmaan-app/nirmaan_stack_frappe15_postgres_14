@@ -177,6 +177,16 @@ if page.locator('text=unsaved').first.is_visible():
 | `/prs&milestones/procurement-requests/:projectId/new-pr` | PR creation | Item management, validation |
 | `/service-requests/:project/new-sr` | SR creation | Service items, vendor selection |
 | `/login` | Authentication | Login flow, error handling |
+| `/projects/:projectId?page=tdsrepository` | Project TDS: TDS History, New Request, Request New | Cart, send, History statuses (use `TestCity-PROJ-00001`) |
+| `/tds-approval/:requestId?status=Pending` | TDS approval: Pending Review | Request Type, Item Status, datasheet chooser, Admin edit |
+| `/tds-repository` | TDS Repository catalogue | TDS Items, Repository Entries, Items SKUs |
+
+The Project TDS cases above run as one script, `scripts/tds_walk/` at the app root (its README covers setup
+and the upload flag).
+
+⚠️ **Uploads from local testing go to production storage.** The local site's `GCP File Attachment` points at
+`nirmaan-attachments-prod` with cloud deletes off, so every file a test uploads stays there. Seed rows that need
+a file through the backend with a fake cloud URL instead, and upload for real only when the user agrees.
 
 ---
 

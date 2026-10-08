@@ -363,7 +363,7 @@ queue — edit & revert" below).
 
 **PMO Executive exceptions:** PMO Executive can view TDS Approval and Payment Approval tabs (read-only) but cannot approve/reject payments. PMO also **cannot approve/reject PRs** (no "Approve PR" tab; approvers = Admin + Project Lead) and **cannot create master Items from the PR flow** (request-only in restricted categories, like a Project Manager) — *2026-07-04 access review*. PMO further **cannot approve POs / Sent Back POs / PO Revisions / WOs / Amended WOs**, **cannot settle payments** (Mark as Paid, Mark Reconciled, Record Paid Entry), and **cannot approve/reject vendor invoices** (no Pending Invoice Approvals tab; `INVOICE_APPROVAL_PROFILES` in `src/constants/roles.ts`, mirrored server-side) — *2026-09-17 access review*. Requesting PO payments was restored on 2026-09-24 and editing PO payment terms on 2026-09-29, so PMO now matches Procurement on the Payment Terms card. In all other areas, PMO mirrors Admin.
 
-**TDS History deletion** *(2026-08-05)*: the Actions column in `TdsHistoryTable` is gated by TWO predicates, because they answer different questions — `canManageTDS` (Admin **or** PMO) decides who sees the COLUMN, `canDeleteRow(item)` decides which rows get a button. PMO deletes rows whose `tds_status` is **Pending or Rejected**; an Approved row is part of the signed submittal record and stays Admin-only. So a PMO sees the column with buttons on eligible rows and `--` on the rest, rather than icons that fail on click. `New` is NOT PMO-deletable (the status list is taken literally; no rows currently carry it). ⚠️ **UI gate only** — delete goes straight through `deleteDoc("Project TDS Item List", …)` with no whitelisted endpoint and no permission check, and the doctype grants delete to all 18 role profiles.
+**TDS History deletion**: one gate, `canManageTDS` (Admin **or** PMO) in `TdsHistoryTable`, shows the Actions column and a delete button on every row, at any status (owner ruling, replacing the earlier Pending/Rejected-only rule for PMO). ⚠️ **UI gate only** — delete goes straight through `deleteDoc("Project TDS Item List", …)` with no whitelisted endpoint and no permission check, and the doctype grants delete to all 18 role profiles.
 
 ---
 
@@ -373,7 +373,7 @@ Approval tabs are visible to all roles with sidebar access, but non-approvers se
 
 | Page | Approver Roles | Read-Only Roles | Non-Approver Behavior |
 |------|---------------|-----------------|----------------------|
-| TDS Approval | Admin, Project Lead | PMO, Project Manager, others | See Pending tab, no row click, no actions, info banner |
+| TDS Approval | Admin (checked server-side in `api/tds/approve.py`) | PMO, Project Lead, Project Manager, others | See Pending tab, no row click, no actions, info banner |
 | Project Payments | Admin | PMO, Accountant, PL, Proc Exec, others | See Approve Payments tab, no action buttons, info banner |
 
 ---

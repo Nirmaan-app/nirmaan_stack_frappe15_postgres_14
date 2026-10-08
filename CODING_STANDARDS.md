@@ -6,7 +6,7 @@ section for the task in hand:
 - [Stack](#stack) — what the app is built on, and the limits on adding to it
 - [Where code goes](#where-code-goes) — module map, lifecycle hooks, API modules, naming
 - [Module residence (ADR-0010)](#module-residence-adr-0010) — which module owns a concept
-- [Writing backend Python](#writing-backend-python) — transactions, endpoints, reading uploaded file bytes, Frappe gotchas, style
+- [Writing backend Python](#writing-backend-python) — transactions, endpoints, status transitions, uploaded files (reading and deleting), Frappe gotchas, style
 - [Writing raw SQL, `set_value` or a bulk write](#writing-raw-sql-set_value-or-a-bulk-write) — the `doc_events` bypass and PostgreSQL gotchas
 - [Writing a migration or patch](#writing-a-migration-or-patch)
 - [Changing a doctype schema](#changing-a-doctype-schema)
@@ -59,8 +59,6 @@ Frontend lives in `frontend/src/`; its layout is in `frontend/CODING_STANDARDS.m
 **Lifecycle hooks:** always in `integrations/controllers/<doctype>.py`, registered in `hooks.py` `doc_events`.
 New doctypes put their controllers there too.
 - **Doctype `*.py` files:** only `autoname` and simple `validate`. Nothing else.
-- Known exception: `Items.on_update()` in `doctype/items/items.py` syncs item changes to `TDS Repository`; it
-  lives in the doctype file because it is tightly coupled to the Items schema and only targets one downstream doctype.
 
 **API modules:** `snake_case` filenames under `api/<feature>/`, never hyphens (a hyphen cannot appear in the
 dotted method path `nirmaan_stack.api.<module>.<method>`).
@@ -121,6 +119,17 @@ pick one ad-hoc. Enforcement: [Before committing](#before-committing).
 (see B4 above), and raise user-facing errors with `frappe.throw(...)`. Document API endpoints with parameters,
 responses, and examples.
 
+**Status transitions:** an endpoint that moves a document from one status to another reads the document again
+inside its lock (`frappe.get_doc(..., for_update=True)`, or after a lock that starts a fresh transaction) and
+refuses every from-status it does not expect, naming the status it found. A check made before the lock, or no
+check at all, lets two concurrent actions undo each other: an edit resets an approval, or an approve settles a
+Rejected row. Worked examples: `api/tds/edit_request.py`, `api/tds/approve.py` `WAITING_STATUSES`.
+
+**The server's verdict travels as data:** when the server can overrule a decision the browser made from its own
+cached copy, the reply carries that outcome as a structured field the browser acts on (`approve_tds_items`
+marks a row `needs_datasheet_choice` and returns the sheet to choose against), not only as error text. The
+browser's copy may offer the choice up front, but the reply is what the next step reads.
+
 **Frappe framework gotchas:**
 - **Child-table serialization depth:** `frappe.get_doc` / the REST resource API hydrate child tables one level deep only. A child-of-a-child (grandchild) Table field is NOT returned. When a doctype has a child table that itself has a child table, the grandchild needs an explicit read path (a whitelisted endpoint querying the grandchild doctype directly via `frappe.db.get_all`). Example: BoQ Sheet Draft.work_packages required `get_boq_work_packages` (`api/boq/wizard/update_sheet_draft.py`).
 - **Child table filtering:** `frappe.get_all()` filters at the **parent** level — if any child row matches, all rows of that parent are returned. For row-level filtering, use SQL JOINs. See `api/credits/get_credits_list.py`.
@@ -142,6 +151,15 @@ the request, so `save_file()` cannot be rolled back: parse and validate before s
   (`api/boq/wizard/sheet_preview._fetch_boq_file_to_tempfile`, used by the BoQ upload worker in
   `api/boq/wizard/upload_file.py`). Hand a worker the URL, never a local path: the web process and the RQ worker
   can run in separate containers with no shared `/tmp`.
+
+**Deleting an uploaded File (cloud storage):** the storage app's `File` `on_trash` hook
+(`frappe_gcp_attachment.controller.delete_from_cloud`) deletes the stored object keyed by `content_hash`, so
+two File docs for the same PDF share one object, and trashing either through the document layer removes the
+bytes the other still serves. Delete through a helper that removes only the File record when another File
+shares its hash (`api/tds/submit.delete_row_datasheet`), and call it last, since no rollback restores storage.
+The local site points at the production bucket (`nirmaan-attachments-prod`) with cloud deletes switched off:
+an upload from local testing stays there for good, so seed test files as fake cloud URLs through the backend
+(`api/tds/test_submit._cloud_url`) unless the user agrees to real uploads.
 
 **Python style:** PEP 8. Match the file's indentation — hand-written modules use 4 spaces, Frappe-generated
 doctype files use tabs. Group imports: standard library, third-party, Frappe, local application; sort
