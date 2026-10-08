@@ -35,6 +35,9 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
   - `approve.approve_tds_items` / `reject_tds_items`: Admin only.
   - `edit_request.edit_tds_request`: Admin edits of New Make and Project Custom rows, row-locked inside
     the project lock.
+  - `edit_request.edit_tds_pick`: the Admin's "Edit TDS Item" of a From Repository row, the same way.
+    The row stays a pick and takes its entry's datasheet. Both edits run the send's duplicate and
+    replacement checks, and delete a replaced Rejected row only when the edit saves.
 - **Datasheet ownership.** A pick borrows its entry's File. A request owns its upload. Approving a New
   Make moves the File to the new entry; keeping the repository's sheet deletes the row's own upload
   through `submit.delete_row_datasheet`, which respects shared stored bytes (`CODING_STANDARDS.md`
