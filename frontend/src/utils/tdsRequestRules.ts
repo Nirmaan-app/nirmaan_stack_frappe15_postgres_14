@@ -211,6 +211,23 @@ export function historyStatusOf(status?: string | null): HistoryStatus {
 }
 
 /**
+ * The words a user sees for each History status. Approved reads "Approved by Admin" so it is never
+ * mistaken for the client's decision (Client Status, ADR-0025 Amendment B). Filter state and stored
+ * values keep the short `HistoryStatus`; only what is shown or exported goes through this. The
+ * Handover print reads the same words from `api/tds/status_label.py`, pinned by a parity test.
+ */
+export const HISTORY_STATUS_LABEL: Record<HistoryStatus, string> = {
+  Pending: "Pending",
+  Approved: "Approved by Admin",
+  Rejected: "Rejected",
+};
+
+/** What a row's stored `tds_status` reads as on screen and in exports. */
+export function historyStatusLabel(status?: string | null): string {
+  return HISTORY_STATUS_LABEL[historyStatusOf(status)];
+}
+
+/**
  * The stored `tds_status` values a History Status filter selection matches. Pending includes New.
  * The table's filter state holds these stored values, so the list fetch, the export and the other
  * facets' cross-filter all match New rows without knowing about this rule.

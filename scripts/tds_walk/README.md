@@ -15,7 +15,7 @@ in the screen and in the database.
 | 5 | Cart badges (New Make blue, Project Custom amber, none on picks), duplicate refused, same name in another make allowed |
 | 6 | Send For Approval: rows saved on the server under one `RQ-001-NN` id |
 | 7 | A refused send keeps its uploads, and the retry reuses them (uploads only) |
-| 8 | TDS History: only Pending / Approved / Rejected, the Project Custom tag, the Status filter |
+| 8 | TDS History: only Pending / Approved by Admin / Rejected, the Project Custom tag, the Status filter |
 | 9 | Pending Review: Request Type and Item Status values, Request Type facet |
 | 10 | Legacy New row with a blank TDS Item id: reads New Make, opens the request edit, approval refused |
 | 11 | Approving Project Custom leaves the TDS Repository alone |
@@ -27,9 +27,11 @@ in the screen and in the database.
 | 17 | Admin edit switches New Make → Project Custom → New Make |
 | 18 | Admin edit racing an approval is refused |
 | 19 | Reject, then resubmit a pick, a New Make and a Project Custom row |
-| 20 | Export dialog lists approved Project Custom rows; Pending includes New |
+| 20 | Export dialog lists approved Project Custom rows; chips read Approved by Admin / Pending, Pending includes New |
 | 21 | Approved / Rejected rows can't be selected, and approve refuses a Rejected row |
 | 22 | TDS Repository item page (#1384): no Back button; the header back arrow restores tab, filter, search and page; a delete returns to the table view, or to the plain repository from a direct URL; "not found" links to the repository |
+| 23 | Create New Request button: the form replaces the tables, Back keeps the table filter, a send returns to TDS History (#1382) |
+| 24 | A saved draft answered from TDS History opens the request form (#1382) |
 
 ## Prerequisites
 

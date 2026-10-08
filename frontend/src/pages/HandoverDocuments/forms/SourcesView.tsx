@@ -18,6 +18,7 @@ import { ReportPreviewDialog } from "@/pages/CommissionReport/components/ReportP
 
 import { useFromAppSources } from "../hodApi";
 import { formatDate } from "@/utils/FormatDate";
+import { historyStatusLabel } from "@/utils/tdsRequestRules";
 
 import {
   commissionReportPdfUrl,
@@ -364,7 +365,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({
                     <td className={td}>{t.tds_item_name}</td>
                     <td className={td}>{t.tds_make || "—"}</td>
                     <td className={td}>{t.tds_category || "—"}</td>
-                    <td className={td}>{t.tds_status || "—"}</td>
+                    <td className={td}>{historyStatusLabel(t.tds_status)}</td>
                     <td className={td}>
                       <FileLink url={t.tds_attachment} />
                     </td>

@@ -29,6 +29,10 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
   `api/tds/approve.py` (`DATASHEET_CHOICES`, `WAITING_STATUSES`). A parity block in
   `tdsRequestRules.test.ts` pins the two together. Pages call these helpers; they never compare status
   literals.
+- **Approved is shown as *Approved by Admin*** wherever a user sees a row's status (History badge and
+  filter, both exports, Handover sources table and print). Screens read `historyStatusLabel`; the
+  Handover print reads `api/tds/status_label.py`, pinned to it by the parity block. Stored values stay
+  `Approved`, and the TDS report PDF keeps its own status pill.
 - **Writes go through the endpoints**, each re-checking on the server:
   - `submit.submit_tds_request`: the send. All rows or none, under the project's advisory lock, which also
     issues the request id and `PCUS-` ids.
@@ -54,5 +58,6 @@ Custom Items. The `tds/phase-*.md` plans are build history, not current behaviou
 
 ## Testing
 
-Backend: `api/tds/test_submit.py`, `test_approve.py`, `test_edit_request.py`, `test_tds_report.py`.
+Backend: `api/tds/test_submit.py`, `test_approve.py`, `test_edit_request.py`, `test_tds_report.py`,
+`test_status_label.py`.
 Frontend: `utils/tdsRequestRules.test.ts`. Browser: `scripts/tds_walk/` (see its README).
