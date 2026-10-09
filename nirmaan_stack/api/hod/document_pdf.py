@@ -12,13 +12,20 @@ falls short. The box is therefore stamped on AFTER the render, and Frappe's own
 So the screen asks for its PDFs here instead. Everything else is unchanged: the same "HOD Document"
 print format, the same row, no letterhead. A document that needs no box is served exactly as
 `download_pdf` would have served it.
+
+`snag_batch_pdf` serves the Snag List document's per-batch View and Download for a similar reason:
+`download_pdf` turns the snag photo jump links into links to the website.
 """
+
+import json
 
 import frappe
 from frappe import _
+from frappe.www.printview import validate_print_permission
 
 from nirmaan_stack.api.hod import om_fit, page_frame
 from nirmaan_stack.api.snags.bulk_download import _drop_jinja_cache
+from nirmaan_stack.api.snags.bulk_download import _render as render_snag_list
 
 DOCTYPE = "Project HOD Document"
 PRINT_FORMAT = "HOD Document"
@@ -54,4 +61,22 @@ def document_pdf(name: str):
 	frappe.local.response.filecontent = pdf
 	# `as_raw` types the response from the filename, so a `.pdf` name is what makes this render in the
 	# preview iframe instead of downloading out of it.
+	frappe.local.response.type = "download"
+
+
+@frappe.whitelist()
+def snag_batch_pdf(project: str, batch: str):
+	"""One snag batch printed with the Snag List's own format: the Snag List document's per-batch View
+	and Download.
+
+	Rendered exactly as the Snag List screen renders a batch (`snags.bulk_download._render`), so the
+	photo jump links (thumbnail -> photo -> back to its row) still work. The WHOLE list, open snags
+	included (owner 2026-09-25) -- what the binder prints too. Same permission check as `download_pdf`.
+	"""
+	if not project or not batch:
+		frappe.throw(_("A project and a snag list are required."))
+	validate_print_permission(frappe.get_doc("Projects", project))
+
+	frappe.local.response.filename = f"Snag_List_{_safe(batch)}.pdf"
+	frappe.local.response.filecontent = render_snag_list(project, {}, mode=None, batches=json.dumps([batch]))
 	frappe.local.response.type = "download"

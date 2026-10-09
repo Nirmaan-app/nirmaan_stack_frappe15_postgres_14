@@ -1,5 +1,6 @@
-// PDF downloads for the Handover Documents tab. Both go through Frappe's own print-to-PDF endpoint
-// with the two HOD Print Formats; the merged binder is a background job (see useHodBinder).
+// PDF downloads for the Handover Documents tab: Frappe's own print-to-PDF endpoint, or ours where a
+// PDF needs work after the render (`api/hod/document_pdf.py`); the merged binder is a background job
+// (see useHodBinder).
 
 import { useCallback, useState } from "react";
 
@@ -47,16 +48,14 @@ export const commissionReportPdfUrl = (
     letterhead: "No Letterhead",
   })}`;
 
-/** One snag batch printed with the Snag List's own format (it reads `batches` off the print link).
- *  The WHOLE list, open snags included (owner 2026-09-25) — no `statuses`, which is what the binder
- *  sends too, so the preview and the binder show the same list. */
+/** One snag batch printed with the Snag List's own format — served by OUR endpoint, not Frappe's
+ *  `download_pdf`, which turns the photo jump links (thumbnail → photo → back to its row) into links to
+ *  the website. The WHOLE list, open snags included (owner 2026-09-25) — what the binder prints too, so
+ *  the preview and the binder show the same list. */
 export const snagBatchPdfUrl = (projectId: string, batch: string): string =>
-  `${DOWNLOAD_PDF_ENDPOINT}?${new URLSearchParams({
-    doctype: "Projects",
-    name: projectId,
-    format: "Project Snag",
-    no_letterhead: "1",
-    batches: JSON.stringify([batch]),
+  `/api/method/nirmaan_stack.api.hod.document_pdf.snag_batch_pdf?${new URLSearchParams({
+    project: projectId,
+    batch,
   })}`;
 
 export const hodPdfFilename = (...parts: string[]): string =>
