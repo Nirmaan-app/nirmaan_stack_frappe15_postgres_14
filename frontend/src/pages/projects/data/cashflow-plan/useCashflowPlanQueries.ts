@@ -3,6 +3,7 @@ import {
     useFrappeGetDoc,
     useFrappePostCall,
 } from "frappe-react-sdk";
+import { format } from "date-fns";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 
 export const cashflowPlanKeys = {
@@ -44,9 +45,10 @@ export const useCashflowPlans = (projectId: string, category: string | string[],
     let endDateStr = undefined;
 
     if (dateRange?.from && dateRange?.to) {
-        // frappe expects yyyy-mm-dd
-        startDateStr = dateRange.from.toISOString().split("T")[0];
-        endDateStr = dateRange.to.toISOString().split("T")[0];
+        // frappe expects yyyy-mm-dd, in the user's LOCAL calendar: `toISOString()` is UTC, which moved the
+        // whole range one day back for IST users (local midnight is the previous day in UTC).
+        startDateStr = format(dateRange.from, "yyyy-MM-dd");
+        endDateStr = format(dateRange.to, "yyyy-MM-dd");
         filters.push([
             "planned_date",
             "Between",
