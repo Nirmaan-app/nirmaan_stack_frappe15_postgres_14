@@ -1,0 +1,148 @@
+# TDS request browser walk
+
+A headless Playwright walk of Project TDS (Technical Data Sheet, not tax TDS) requests: spec #1373,
+tickets #1374–#1380, fixes 8f38ed4fe and 830f3cd27. It runs in the live dev app and checks each result
+in the screen and in the database.
+
+## What it checks
+
+| # | Case |
+|---|---|
+| 1 | Repository wording: "Unlinked TDS Item" / "No linked SKUs", never "Custom" |
+| 2 | Request New dialog: Type first, both choices stacked with help text, makes that already have a datasheet greyed out |
+| 3 | Project Custom form: fields, required errors, Category limited to the Work Package and reset when it changes, PDF required |
+| 4 | Name-clash warning, the one-click Add New Make switch, and the Make kept across the round trip (830f3cd27) |
+| 5 | Cart badges (New Make blue, Project Custom amber, none on picks), duplicate refused, same name in another make allowed |
+| 6 | Send For Approval: rows saved on the server under one `RQ-001-NN` id |
+| 7 | A refused send keeps its uploads, and the retry reuses them (uploads only) |
+| 8 | TDS History: only Pending / Approved by Admin / Rejected, the Project Custom tag, the Status filter |
+| 9 | Pending Review: Request Type and Item Status values, Request Type facet |
+| 10 | Legacy New row with a blank TDS Item id: reads New Make, opens the request edit, approval refused |
+| 11 | Approving Project Custom leaves the TDS Repository alone |
+| 12 | Approving a New Make with no entry creates a Verified entry that owns the datasheet |
+| 13 | Datasheet chooser opens before any approve call, repository pre-selected; "keep the repository's sheet" |
+| 14 | "Use the datasheet sent with this request" replaces the entry's sheet and keeps its old File |
+| 15 | Multi-row chooser, the other rows approved alongside, Cancel approves nothing |
+| 16 | Chooser opened from the server's reply when the entry appears after the page loaded |
+| 17 | Admin edit switches New Make → Project Custom → New Make |
+| 18 | Admin edit racing an approval is refused |
+| 19 | Reject, then resubmit a pick, a New Make and a Project Custom row |
+| 20 | Download TDS PDF dialog lists approved Project Custom rows; the status counts equal the database (Approved by Admin excludes client-answered rows, Pending includes New) |
+| 21 | Approved / Rejected rows can't be selected, and approve refuses a Rejected row |
+| 22 | TDS Repository item page (#1384): no Back button; the header back arrow restores tab, filter, search and page; a delete returns to the table view, or to the plain repository from a direct URL; "not found" links to the repository |
+| 23 | Create New Request button: the form replaces the tables, Back keeps the table filter, a send returns to TDS History (#1382) |
+| 24 | A saved draft answered from TDS History opens the request form (#1382) |
+| 27 | Client Status tabs (#1385): TDS History / Approved by Client / Rejected by Client, counts equal the database, every row in one tab, tick boxes only on Admin-approved rows, Export disabled with no ticks, the client columns and reason |
+| 28 | Mark ticked rows Approved by Client (#1385): "N selected" toolbar, stamps in the database, the rows move tab and the counts follow; the server refuses a Pending row |
+| 29 | Mark ticked rows Rejected by Client (#1385): Clear unticks, the popup lists the rows and warns, the optional reason lands on every row and shows in the tab |
+| 30 | Switch ticked rows between the client tabs (#1386): Switch to Rejected by Client opens the reason popup, Switch to Approved by Client blanks the reason; both re-stamp Marked By / Marked On, the rows change tab and the counts follow |
+| 31 | An Admin's Clear Client Status on both client tabs (#1386): all four client fields blank, the rows back in TDS History as Approved by Admin; the server refuses Clear from a PMO Executive (when the site has one; the walk user is an Admin, so the missing PMO button is pinned by vitest) |
+| 32 | Delete lock (#1387): both client tabs show "Locked" with an explaining tooltip instead of a delete button, while an unanswered row keeps it; a direct REST delete of each answered row is refused naming the Client Status and the rows are unchanged; an Admin reject of a client-approved row is refused |
+| 33 | After an Admin clears the Client Status (#1387), the row is back in TDS History with its delete button, and deleting it removes it on the server |
+| 34 | PDF dialog tick order (#1388): opens with only Approved by Client ticked; statuses and packages number in tick order and renumber on untick; packages offered A to Z; the list runs status then package in tick order, each row under its database status; Rejected by Client never listed, no row twice |
+| 35 | PDF dialog print-order summary (#1388): matches the list's statuses and packages; the export payload (intercepted, no PDF built) runs in the same order with no duplicates; the empty state's Tick Approved by Admin, when the project has no client-approved rows |
+| 36 | PDF dialog Select all / Deselect all (#1388): act on the items a search shows, leaving other ticks alone; the "X of Y ticked" count equals the database |
+| 37 | PDF dialog preview-only (#1388): an Admin with Pending ticked gets Download PDF; a non-Admin gets Preview PDF and the reason. The walk user is an Admin, so this case rewrites the browser's own Nirmaan Users read to a PMO Executive role profile; the server is untouched |
+| 38 | A Make the client rejected (#1389): the Make list shows a "Rejected by Client" tag on it, while a Pending make still reads "(already submitted)" |
+| 39 | Picking a Make the client rejected (#1389): the popup names the item, make, request id, who marked it, when and the client's reason, and the two ways out; "Pick another make" leaves nothing selected; a Project Custom name + make clash opens it too; another make is added and sent; a direct submit of the same make is refused with the Rejected by Client message |
+| 40 | The popup's "Open Rejected by Client tab" (#1389) hides the form and opens that tab, which lists the row; tab counts match the database |
+
+## Prerequisites
+
+- Vite on `http://localhost:8080` and the Frappe backend on `http://localhost:8000`.
+- The bench container `frappe_docker_devcontainer-frappe-1` running. The walk seeds and cleans data through
+  `docker exec`.
+- The test user `playwright@claude.ai` / `adminclaude1234` (an Admin; see `frontend/.claude/context/testing.md`).
+- The project `TestCity-PROJ-00001`, with its TDS tab set up.
+- Playwright on the host: `pip install playwright && playwright install chromium`.
+
+## Run
+
+```bash
+python3 scripts/tds_walk/walk.py                    # every case
+python3 scripts/tds_walk/walk.py --case 13          # one case
+python3 scripts/tds_walk/walk.py --case 13,16       # several (ranges work too: 9-12)
+python3 scripts/tds_walk/walk.py --out /tmp/walk    # screenshot directory (default: under the system temp dir)
+python3 scripts/tds_walk/walk.py --headed           # watch it
+```
+
+It prints a PASS / FAIL / SKIPPED table and exits non-zero when a case fails or the cleanup check finds a
+difference. A failing case also saves a `c<n>_FAIL.png` screenshot.
+
+## Walking a devenv task
+
+By default the walk drives the main bench (vite on `:8080`, site `localhost`). To walk a devenv task
+`<task>` (its own bench, site `t-<task>.localhost` and database) instead, `DEVENV` being
+`/Users/abhishek/work/nirmaan/deploy_setup/frappe_docker/development/devenv.sh`:
+
+1. Start the task's backend. The port is the `webserver_port` in the task bench's
+   `sites/common_site_config.json`:
+
+   ```bash
+   DEVENV run <task> serve --port 800N
+   DEVENV run <task> worker          # background jobs, e.g. the PDF export
+   ```
+
+   For realtime events, also start the task bench's socketio, inside the container, from the task bench:
+
+   ```bash
+   FRAPPE_BENCH_ROOT=/workspace/development/benches/<task> node apps/frappe/socketio.js
+   ```
+
+2. Start a vite from the task's frontend on `:8081`, inside the container. Its proxy reads the task bench's
+   `common_site_config.json`, so it talks to that backend:
+
+   ```bash
+   docker exec -w /workspace/development/benches/<task>/apps/nirmaan_stack/frontend \
+     frappe_docker_devcontainer-frappe-1 node node_modules/.bin/vite --host --port 8081 --strictPort
+   ```
+
+   The dev boot fetch in `src/main.tsx` is hard-coded to the main bench (`http://localhost:8000`), so the
+   page joins the main site's socket namespace and never hears the task's realtime events (the PDF export
+   waits forever). Realtime works only with a dev-only vite config outside git that rewrites that URL to the
+   proxy at serve time (for spec #1381: `benches/spec-1381/vite.devenv.config.ts`, passed as
+   `--config <path>`), and with the app opened at `http://t-<task>.localhost:8081`, so the socket server's
+   site check agrees. Leave `main.tsx` itself alone.
+
+3. Point the walk at the task with three environment variables:
+
+   ```bash
+   TDS_WALK_BASE=http://t-<task>.localhost:8081 \
+   TDS_WALK_BENCH=/workspace/development/benches/<task> \
+   TDS_WALK_SITE=t-<task>.localhost \
+   python3 scripts/tds_walk/walk.py --out <dir>
+   ```
+
+   `TDS_WALK_BENCH` and `TDS_WALK_SITE` route the seeding and cleanup to the task's site; `TDS_WALK_BASE` is
+   the browser's address.
+
+## Uploads go to production storage
+
+Local file storage writes to the **production GCS bucket, with deletes turned off**. Anything uploaded stays
+there for good.
+
+- **Default run: no uploads.** Rows that need a datasheet are seeded through the backend with fake URLs. The
+  browser blocks every upload request, and a case that tries one fails. Case 7 is SKIPPED. Cases 6 and 19
+  run without their upload steps (6 sends picks only; 19 sends only the pick resubmit) and say so.
+- **`--allow-uploads`** also runs those steps. Each one uploads a small PDF named `tds-walk-test-<n>.pdf`, and
+  the run prints how many it uploaded. Cleanup removes their File records, but the stored objects stay in
+  the bucket.
+
+## Data and cleanup
+
+Setup records a start time, checks no earlier walk left data behind, and creates a test TDS Item
+("TDS WALK Test Valve") with two Repository Entries. Each case seeds its own rows on `TestCity-PROJ-00001`
+under a `RQ-001-WALK<n>` request id, so any case runs on its own. After every case, the walk deletes the rows it created and
+any extra entries, and resets the two seeded entries.
+
+Cleanup runs in a `finally`, even when a case fails or the browser crashes. It deletes:
+
+- rows created on the project since the start, with `frappe.db.delete`, so rows a case gave a Client Status
+  go too (the doc-layer delete refuses them, #1387)
+- the test entries and TDS Item
+- `tds-walk*` File records, deleted with `frappe.db.delete` so the storage app's trash hook never runs
+- the Version and Deleted Document rows the walk caused
+
+It then compares the project's rows and the TDS Items, TDS Repository and File counts with the baseline,
+and prints `cleanup: counts back to baseline` or `CLEANUP MISMATCH`. Activity elsewhere in the app during
+a run can also move the global counts.

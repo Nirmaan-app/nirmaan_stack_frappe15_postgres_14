@@ -91,6 +91,8 @@ const TDSItemDetail = lazy(() => import("@/pages/tds/TDSItemDetail"));
 
 // NEW COMMISSION REPORT PAGES
 import CommissionReportList from '@/pages/CommissionReport/commission-report-list';
+import BillingTrackerPage from '@/pages/ProjectBilling/BillingTrackerPage';
+import BillingProjectPage from '@/pages/ProjectBilling/BillingProjectPage';
 import ProjectCommissionReportDetail from '@/pages/CommissionReport/project-commission-report-details';
 import CommissionReportWizard from '@/pages/CommissionReport/report-wizard';
 
@@ -404,6 +406,10 @@ export const appRoutes: RouteObject[] = [
             path: "project-expenses",
             element: <Navigate to="/expense/project" replace />,
           },
+          // Client billing tracker (Project Wise / Bill Wise / My Bills).
+          { path: "billing-tracker", element: <BillingTrackerPage /> },
+          // One project's bills ("View Bills" on Project Wise).
+          { path: "billing-tracker/:projectId", element: <BillingProjectPage /> },
           // ======================================================
           // --- START: COMMISSION REPORT SECTION ---
           // ======================================================

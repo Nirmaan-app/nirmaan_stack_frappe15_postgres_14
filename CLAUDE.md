@@ -34,6 +34,13 @@ Three standards fail silently when broken, so they are summarised here too (full
 - **Commit once per ticket, on the current branch;** branch only when the user asks. Run
   `python3 scripts/residence_check.py` before each commit.
 - **Never push, and never close issues.** The user does both, by hand.
+- **Per ticket, run the affected test modules, not the whole app.** This overrides `/implement`'s "full test suite
+  once at the end". Affected means: the test modules of the package you changed, every test module that imports
+  a module you changed (`grep -rln "<dotted.package.path>" nirmaan_stack --include='test_*.py'`; grep the
+  package, not the module, so `from <package> import <module>` is caught too), and, for a
+  doctype change, every test module that names that doctype. Run each with `--module` (see [Commands](#commands)).
+  The full suite (`--app nirmaan_stack`, about 25 minutes) runs only when the user asks; the user runs it before
+  pushing.
 - **Work in place on the current branch; create a git worktree only when the user asks.** `bench` resolves this
   app through `sites/apps.txt` and an editable install pointing at the main checkout, so a backend test run from
   a worktree exercises the main checkout's code, not the change — a green result there proves nothing. The one
@@ -108,6 +115,7 @@ The BoQ docs are too large to read whole: `frontend/.claude/plans/boq-upload-pla
 | **Invoice Autofill**, **Invoice Qty** | `invoice-autofill.md`, `invoice-qty.md` |
 | **Outflow import** (bank statement settles payments and expenses) | `outflow-import.md` |
 | **Payment TDS** (tax deducted at source, not Technical Data Sheets) | `payment-tds.md` |
+| **Technical Data Sheets**: the TDS Repository, Project TDS requests and their approval (not tax TDS) | `tds.md` § Load-bearing invariants |
 | **Vendor Hold** | `frontend/.claude/context/domain/vendor-hold.md` |
 | **Monthly WIP report** | `.claude/plans/monthly-wip-plan.md` |
 | **Doctypes**, **APIs** | `.claude/context/doctypes.md`, `.claude/context/apis.md` |

@@ -3,9 +3,9 @@
 // sheet pack downloaded from Handover Documents is the same document, with the same cover page, as
 // one downloaded from the TDS tab.
 //
-// It is a separate hook from the TDS tab's own handler on purpose: that one also drives the
-// preview-before-download dialog it shows for Pending items, and this screen always downloads
-// (the handover only ever exports Approved sheets). Same shape as `useHodBinder`.
+// It is a separate hook from the TDS tab's own handler on purpose: that one also drives the tab's
+// progress dialog. Same shape as `useHodBinder`. A non-Admin who ticked Pending gets the PDF as a
+// preview (`preview`), never a download (`isPdfPreviewOnly`, the same rule as the TDS tab).
 
 import { FrappeConfig, FrappeContext } from "frappe-react-sdk";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
@@ -26,9 +26,17 @@ const FETCH_TEMP =
 
 const csrf = () => (window as any).csrf_token || "";
 
+/** A generated PDF held in memory for the in-app preview, never saved. */
+export interface HodTdsPreview {
+  blobUrl: string;
+  filename: string;
+  sizeBytes: number;
+}
+
 export function useHodTdsExport(projectId: string, projectName: string) {
   const { socket } = useContext(FrappeContext) as FrappeConfig;
   const [isExporting, setIsExporting] = useState(false);
+  const [preview, setPreview] = useState<HodTdsPreview | null>(null);
   // The listeners are bound for one run only; the ref lets the cleanup reach them from anywhere.
   const cleanupRef = useRef<(() => void) | null>(null);
 
@@ -40,8 +48,20 @@ export function useHodTdsExport(projectId: string, projectName: string) {
 
   useEffect(() => () => cleanupRef.current?.(), []);
 
+  const closePreview = useCallback(() => {
+    setPreview((prev) => {
+      if (prev) window.URL.revokeObjectURL(prev.blobUrl);
+      return null;
+    });
+  }, []);
+
   const exportTds = useCallback(
-    async (settings: TDSRepositoryData, items: unknown[], label: string) => {
+    async (
+      settings: TDSRepositoryData,
+      items: unknown[],
+      label: string,
+      { previewOnly }: { previewOnly: boolean },
+    ) => {
       if (isExporting) return;
       if (!socket) {
         toast({
@@ -62,20 +82,28 @@ export function useHodTdsExport(projectId: string, projectName: string) {
             { headers: { "X-Frappe-CSRF-Token": csrf() } },
           );
           if (!response.ok) throw new Error("Could not fetch the generated PDF.");
-          const blobUrl = window.URL.createObjectURL(await response.blob());
-          saveUrlAs(blobUrl, name);
-          window.URL.revokeObjectURL(blobUrl);
+          const blob = await response.blob();
+          const blobUrl = window.URL.createObjectURL(blob);
+          if (previewOnly) {
+            setPreview((prev) => {
+              if (prev) window.URL.revokeObjectURL(prev.blobUrl);
+              return { blobUrl, filename: name, sizeBytes: blob.size };
+            });
+          } else {
+            saveUrlAs(blobUrl, name);
+            window.URL.revokeObjectURL(blobUrl);
+          }
           const failed: string[] = failed_items ?? [];
           toast(
             failed.length
               ? {
-                  title: "Downloaded with gaps",
+                  title: previewOnly ? "Ready with gaps" : "Downloaded with gaps",
                   description: `Could not include: ${failed.slice(0, 4).join(", ")}${failed.length > 4 ? ` and ${failed.length - 4} more` : ""}.`,
                   variant: "destructive",
                 }
               : {
                   title: "Ready",
-                  description: "Your PDF is downloading.",
+                  description: previewOnly ? "Your PDF preview is open." : "Your PDF is downloading.",
                   variant: "success",
                 },
           );
@@ -123,7 +151,9 @@ export function useHodTdsExport(projectId: string, projectName: string) {
         if (!response.ok) throw new Error("Could not start the export.");
         toast({
           title: "Export queued",
-          description: "The PDF downloads on its own when it is ready.",
+          description: previewOnly
+            ? "The preview opens on its own when it is ready."
+            : "The PDF downloads on its own when it is ready.",
         });
       } catch (error: any) {
         toast({
@@ -137,5 +167,5 @@ export function useHodTdsExport(projectId: string, projectName: string) {
     [socket, isExporting, projectId, projectName, finish],
   );
 
-  return { exportTds, isExporting };
+  return { exportTds, isExporting, preview, closePreview };
 }

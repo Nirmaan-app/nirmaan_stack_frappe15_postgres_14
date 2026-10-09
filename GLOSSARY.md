@@ -254,7 +254,7 @@ The catalogue is three levels deep: an **Items SKU** belongs to a **TDS Item** (
   covers. It belongs to **one Work Package**; its members may come from **several Categories** inside
   that package, so a TDS Item has no category of its own. It has **no Make and no datasheet** — those
   live on its Repository Entries, one per Make. **Members are optional**: a TDS Item with none is a
-  *Custom Item*. "TDS SKU" is an informal synonym; the canonical noun is **TDS Item**.
+  *Unlinked TDS Item*. "TDS SKU" is an informal synonym; the canonical noun is **TDS Item**.
   *Avoid*: TDS group record, spec group.
 
 - **TDS Repository Entry** — one datasheet: a **(TDS Item, Make)** pair plus its PDF and a
@@ -278,20 +278,44 @@ The catalogue is three levels deep: an **Items SKU** belongs to a **TDS Item** (
 - **Project TDS row** *(`Project TDS Item List`)* — one picked **TDS Item + Make** on a project, with its
   own approval status (*New*, *Pending*, *Approved*, *Rejected*). It is a **snapshot**: the group id and
   name, make, work package and datasheet are copied onto the row when it is picked, so a signed report
-  does not change when someone later edits the catalogue. Picking an existing entry makes a *Pending*
-  row; asking for something the catalogue lacks makes a *New* row (a *request*).
+  does not change when someone later edits the catalogue. A row waiting for approval is *New* only when
+  approving it will add a Make to the catalogue; every other waiting row is *Pending*. Users see both as
+  *Pending*, and see *Approved* as **Approved by Admin**, to tell it apart from the client's answer.
+
+- **Client Status** — the client's answer on a Project TDS row the Admin has already approved:
+  **Approved by Client** or **Rejected by Client**, or none yet. It is a second decision on top of the
+  Admin's approval, not a replacement: the row stays *Approved by Admin*. Only an Admin-approved row can
+  carry one. Each mark records who set it and when; a rejection may carry the client's reason. It can be
+  switched between the two answers, which records who and when again; only an Admin can clear it back to
+  none. A row with a Client Status **cannot be deleted by anyone**. A row *Rejected by Client* still holds
+  its TDS Item + Make on the project: that Make cannot be picked again (the way back is switching the row
+  to *Approved by Client*), but another Make of the same TDS Item can. (2026-10-08,
+  [ADR-0025 Amendment B](docs/adr/0025-tds-phase2-group-driven-consumption.md).)
+  *Avoid*: client approval, final approval, Approved (alone, for the client's answer).
+
+- **Request Type** — what a waiting Project TDS row asks the approver for: **From Repository** (an
+  existing Repository Entry), **New Make** (a Make the TDS Item has no entry for yet; approval adds it to
+  the catalogue), or **Project Custom** (a *Project Custom Item*; approval touches nothing outside the
+  project). It matters only while the row awaits approval.
+  *Avoid*: From TDS, New Item, Custom Item (as request labels).
 
 - **Project TDS Setting** — a project's report branding: client, architect, consultant and contractor
   names and logos, used on the report cover.
 
-- **Custom Item** — something with **no Items-master SKU**, recorded as a TDS Item with **no members** —
-  "custom" is inferred from having zero members, not from a flag. No Items-master row is ever created
-  for it. Legacy `CUS-` catalogue rows became member-less TDS Items. The old project-only custom
-  (`PCUS-`) is **retired**: every approved custom joins the shared catalogue (ADR-0025).
+- **Unlinked TDS Item** — a TDS Item in the shared catalogue with **no member SKUs**. It is inferred from
+  having zero members, not from a flag. Legacy `CUS-` catalogue rows became Unlinked TDS Items.
+  *Avoid*: Custom Item, custom group.
 
-- **Approval-time promotion** — approving a *New* request writes the catalogue: a missing Make becomes a
-  new Repository Entry, a brand-new group becomes a new member-less TDS Item plus its entry, and both are
-  born *Verified*. Admin-only.
+- **Project Custom Item** — an item one project needs that the catalogue does not hold, recorded only on
+  that project's TDS rows with its own name, work package, category, make and datasheet. It belongs to
+  that project alone and **never enters the TDS Repository**, even when approved. Each row is one name +
+  one Make; the same name in two Makes is two rows. (2026-10-07: reinstated; reverses ADR-0025's rule
+  that every approved custom joins the shared catalogue.)
+  *Avoid*: Custom Item, PCUS item, project-only custom.
+
+- **Approval-time promotion** — approving a request for a **new Make** on an existing TDS Item writes the
+  catalogue: the Make becomes a new Repository Entry, born *Verified*. Admin-only. A project can no longer
+  create a new TDS Item this way; something the catalogue lacks entirely becomes a *Project Custom Item*.
 
 - **Verified / Not Verified** — a Repository Entry's status: has this datasheet been vetted. Approving any
   project row that uses the entry marks it *Verified*. It is separate from a project row's approval
@@ -309,11 +333,13 @@ The catalogue is three levels deep: an **Items SKU** belongs to a **TDS Item** (
 ### Who can do what (TDS)
 
 - **Admin** (`Nirmaan Admin Profile`) — full control of the TDS Repository (groups and entries). The
-  **only** approver of Project TDS rows. Deletes any Project TDS row, at any status.
-- **PMO Executive** — project-level manager. Uses **Request New** to propose new groups or makes, manages
-  Project TDS setup, and may set an item's TDS group from the Items side. Deletes Project TDS rows **at
-  any status**, like an Admin (owner ruling, changed from Pending/Rejected-only). Cannot approve, and
-  cannot author groups or entries.
+  **only** approver of Project TDS rows. Sets and clears a row's Client Status. Deletes any Project TDS
+  row, at any status, unless it has a Client Status.
+- **PMO Executive** — project-level manager. Uses **Request New** to request a new Make or a Project Custom Item, manages
+  Project TDS setup, and may set an item's TDS group from the Items side. Sets a row's Client Status, but
+  cannot clear it. Deletes Project TDS rows **at any status**, like an Admin (owner ruling, changed from
+  Pending/Rejected-only), unless the row has a Client Status. Cannot approve, and cannot author groups or
+  entries.
 - **Project user** (leads, managers, others) — can only pick existing catalogue entries for their
   projects. No edit, no delete, no Request New.
 

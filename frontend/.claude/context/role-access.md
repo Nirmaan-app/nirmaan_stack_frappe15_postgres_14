@@ -14,6 +14,7 @@ This document contains detailed page-level role access control mappings for the 
 | `Nirmaan Accountant Profile` | Accountant | Purple |
 | `Nirmaan Estimates Executive Profile` | Estimates Executive | Cyan |
 | `Nirmaan Billing Executive Profile` | Billing Executive | Sky |
+| `Nirmaan Billing Lead Profile` | Billing Lead | — (not in `utils/roleColors.ts`, so it cannot be assigned from the Users screens yet) |
 | `Nirmaan Design Lead Profile` | Design Lead | Indigo |
 | `Nirmaan Design Executive Profile` | Design Executive | Pink |
 | `Nirmaan HR Executive Profile` | HR Executive | Lime |
@@ -32,9 +33,10 @@ This document contains detailed page-level role access control mappings for the 
 
 `Nirmaan Billing Executive Profile` is a **view-only mirror of Estimates Executive, MINUS Pricing (HVAC/Electrical/ELV) and MINUS BoQ.** The backend Role + Role Profile pre-existed in fixtures; this is frontend wiring + doctype permissions. The rule of thumb: everywhere the code reads `Nirmaan Estimates Executive Profile`, the Billing profile sits beside it **except** the two pricing gates and the BoQ surfaces.
 
-- **Sidebar:** Dashboard, Projects, Item Price Search, Purchase Orders, Work Order Rate Card, TDS Repository. (No Pricing, no Upload BoQ, no BoQ Templates, no Admin Options.)
+- **Sidebar:** Dashboard, Projects, Item Price Search, Purchase Orders, Work Order Rate Card, TDS Repository, Billing Tracker. (No Pricing, no Upload BoQ, no BoQ Templates, no Admin Options.)
 - **Two deliberate exclusions:** the Pricing sidebar spread (`NewSidebar.tsx`) + `PricingRoute` guard (so `/hvac-pricing` etc. 403 by direct URL). BoQ is likewise excluded on every surface (sidebar, BoQ-template authoring gates frontend+backend, all BoQ doctype perms, and the BoQ project tab).
 - **Behaviour:** identical view-only treatment to Estimates on shared pages — it reuses the `isEstimatesExecutive` flag (`project.tsx`, `PurchaseOrder.tsx`, `approved-sr.tsx`, etc.). The **BoQ project tab is the one place they diverge**: a separate `isBilling` flag in `project.tsx` deletes `PROJECT_PAGE_TABS.BOQ` from the allowed set (it would 403 on `BOQs`).
+- **Exception — the Billing Tracker is NOT view-only (owner, 2026-10-03).** Billing Executive (and Billing Lead) set up packages, edit PO values and managers in the Setup Packages dialog, and add bills and log Supply DC on the packages they manage. Exact list: **§ Billing Tracker** below.
 - **Doctype permissions — mostly pre-existing, the changes are DB-ONLY (NOT in the repo).** Billing's baseline **read** perms were already seeded in fixtures on ~77 doctypes — and since Billing is view-only, read is all it functionally needs. The doctype-JSON edits made during this work were **deliberately reverted** (the "Don't Touch doctype JSONs" convention), so the repo carries no doctype-permission change for Billing. The 16 BoQ doctypes correctly have no Billing row.
 
 > ⚠️ **DB-ONLY permission changes — not in the repo (reapply on every new env).** These were applied at runtime and a fresh site / prod restore silently lacks them:
@@ -44,6 +46,40 @@ This document contains detailed page-level role access control mappings for the 
 > See [ADR-0015](../../../docs/adr/0015-billing-executive-role.md).
 
 **Key files:** `utils/roleColors.ts` (`ROLE_COLORS`/`ROLE_OPTIONS`), `components/layout/dashboards/billing-executive-dashboard.tsx`, `pages/dashboard.tsx`, `components/layout/NewSidebar.tsx`, `pages/projects/project.tsx` (`isBilling` BoQ-tab hide). Backend: doctype JSON `permissions`, `api/sidebar_counts.py`, `api/projects/tendering.py`.
+
+---
+
+## Billing Tracker (client billing) — who can do what
+
+Checked against the code on 2026-10-05; the full version with the server rules is
+`.claude/plans/billing-tracker-plan.md` §5. Billing users = Admin (and `Administrator`), PMO, Billing Lead,
+Billing Executive. **Everyone else has no billing access at all**, read included, even with System Manager.
+
+| What | Admin | PMO | Billing Lead | Billing Executive |
+|---|:-:|:-:|:-:|:-:|
+| Billing tab, Billing Tracker page, View Bills | ✓ | ✓ | ✓ | ✓ |
+| Total Invoiced / Total Inflow on the Billing tab | ✓ | ✓ (Financials hides them from PMO) | ✓ | ✓ |
+| Setup Packages: add packages to a project | ✓ | ✓ | ✓ | ✓ |
+| Edit PO value / managers in the Setup Packages dialog | ✓ | ✓ | ✓ | ✓ |
+| Edit PO value / managers with the ✏️ on a package row | ✓ | — | — | — |
+| Remove a package from a project (trash icon on its tab) | ✓ | — | — | — |
+| Add / edit bills | every package | packages they manage | packages they manage | packages they manage |
+| Log Supply DC | every package | managed packages (project tab or My Bills) | managed packages (My Bills only) | managed packages (My Bills only) |
+| Change / delete a saved Supply DC row (Desk) | ✓ | — | — | — |
+| Billing Packages master (Admin Options → Packages Settings): view | ✓ | ✓ read only | ✓ by URL only | — |
+| Add / rename / delete billing packages | ✓ | — | ✓ by URL only | — |
+
+"Packages they manage" = packages where the user is one of the billing managers.
+
+**Known gaps:** (1) the ✏️ is Admin-only on screen, but every billing user can still change a package's PO
+value in the Setup Packages dialog and the server accepts it; (2) Billing Lead has no sidebar path to
+Packages Settings (Admin Options is Admin / PMO only) and is not in `utils/roleColors.ts`, so it cannot be
+assigned from the Users screens.
+
+**Key files:** `constants/roles.ts` (`canUseProjectBilling`, `canEditBillingPackage`,
+`canManageBillingPackages`, `isBillingProfile`), `services/role_profiles.py`
+(`PROJECT_BILLING_WRITE_PROFILES`, `PROJECT_BILLING_PACKAGE_WRITE_PROFILES`),
+`integrations/controllers/project_billing.py` (the hooks that enforce it).
 
 ---
 
@@ -99,6 +135,7 @@ user_id === "Administrator" || role === "Nirmaan Admin Profile" || role === "Nir
 | Bulk Download | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y |
 | TDS Repository | Y | Y | - | - | Y | - | Y | - | - | - |
 | Help Repository | Y | Y | Y | Y | Y | Y | Y | Y | Y | Y |
+| Billing Tracker (also Billing Executive / Billing Lead) | Y | Y | - | - | - | - | - | - | - | - |
 
 ---
 
@@ -363,7 +400,7 @@ queue — edit & revert" below).
 
 **PMO Executive exceptions:** PMO Executive can view TDS Approval and Payment Approval tabs (read-only) but cannot approve/reject payments. PMO also **cannot approve/reject PRs** (no "Approve PR" tab; approvers = Admin + Project Lead) and **cannot create master Items from the PR flow** (request-only in restricted categories, like a Project Manager) — *2026-07-04 access review*. PMO further **cannot approve POs / Sent Back POs / PO Revisions / WOs / Amended WOs**, **cannot settle payments** (Mark as Paid, Mark Reconciled, Record Paid Entry), and **cannot approve/reject vendor invoices** (no Pending Invoice Approvals tab; `INVOICE_APPROVAL_PROFILES` in `src/constants/roles.ts`, mirrored server-side) — *2026-09-17 access review*. Requesting PO payments was restored on 2026-09-24 and editing PO payment terms on 2026-09-29, so PMO now matches Procurement on the Payment Terms card. In all other areas, PMO mirrors Admin.
 
-**TDS History deletion** *(2026-08-05)*: the Actions column in `TdsHistoryTable` is gated by TWO predicates, because they answer different questions — `canManageTDS` (Admin **or** PMO) decides who sees the COLUMN, `canDeleteRow(item)` decides which rows get a button. PMO deletes rows whose `tds_status` is **Pending or Rejected**; an Approved row is part of the signed submittal record and stays Admin-only. So a PMO sees the column with buttons on eligible rows and `--` on the rest, rather than icons that fail on click. `New` is NOT PMO-deletable (the status list is taken literally; no rows currently carry it). ⚠️ **UI gate only** — delete goes straight through `deleteDoc("Project TDS Item List", …)` with no whitelisted endpoint and no permission check, and the doctype grants delete to all 18 role profiles.
+**TDS History deletion**: one gate, `canManageTDS` (Admin **or** PMO) in `TdsHistoryTable`, shows the Actions column and a delete button on every row, at any status (owner ruling, replacing the earlier Pending/Rejected-only rule for PMO). ⚠️ **UI gate only** — delete goes straight through `deleteDoc("Project TDS Item List", …)` with no whitelisted endpoint and no permission check, and the doctype grants delete to all 18 role profiles.
 
 ---
 
@@ -373,7 +410,7 @@ Approval tabs are visible to all roles with sidebar access, but non-approvers se
 
 | Page | Approver Roles | Read-Only Roles | Non-Approver Behavior |
 |------|---------------|-----------------|----------------------|
-| TDS Approval | Admin, Project Lead | PMO, Project Manager, others | See Pending tab, no row click, no actions, info banner |
+| TDS Approval | Admin (checked server-side in `api/tds/approve.py`) | PMO, Project Lead, Project Manager, others | See Pending tab, no row click, no actions, info banner |
 | Project Payments | Admin | PMO, Accountant, PL, Proc Exec, others | See Approve Payments tab, no action buttons, info banner |
 
 ---

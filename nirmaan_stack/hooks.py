@@ -121,10 +121,15 @@ jinja = {
 # Lead. These two narrow it (a has_permission hook can only deny, never grant).
 has_permission = {
     "Non Project Inflows": "nirmaan_stack.integrations.controllers.non_project_inflows.has_permission",
+    # Billing (2026-10-03): Admin, PMO and billing profiles only, read included.
+    "Project Billing Tracker": "nirmaan_stack.integrations.controllers.project_billing.has_permission",
+    "Project Billing": "nirmaan_stack.integrations.controllers.project_billing.has_permission",
 }
 
 permission_query_conditions = {
     "Non Project Inflows": "nirmaan_stack.integrations.controllers.non_project_inflows.get_permission_query_conditions",
+    "Project Billing Tracker": "nirmaan_stack.integrations.controllers.project_billing.get_permission_query_conditions",
+    "Project Billing": "nirmaan_stack.integrations.controllers.project_billing.get_permission_query_conditions",
 }
 
 # DocType Class
@@ -219,7 +224,10 @@ doc_events = {
         "after_delete": "nirmaan_stack.integrations.controllers.items.after_delete"
     },
     "Project TDS Item List": {
-        "before_save": "nirmaan_stack.integrations.controllers.project_tds_item_list.before_save"
+        "before_save": "nirmaan_stack.integrations.controllers.project_tds_item_list.before_save",
+        # A row the client has answered can't be deleted by anyone until an Admin clears its
+        # Client Status (ADR-0025 Amendment B). Doc-layer deletes only, which includes REST.
+        "on_trash": "nirmaan_stack.integrations.controllers.project_tds_item_list.on_trash",
     },
     # TAX DEDUCTED AT SOURCE (not the Technical Data Sheet family above). A challan's
     # `reconciled_amount` is the sum of the deductions pointing at it, so a deleted deduction has
@@ -376,6 +384,19 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_inflow",
         ],
+    },
+    "Project Billing Tracker": {
+        "validate": "nirmaan_stack.integrations.controllers.project_billing.tracker_validate",
+        "on_trash": "nirmaan_stack.integrations.controllers.project_billing.tracker_on_trash",
+    },
+    "Project Billing": {
+        "validate": "nirmaan_stack.integrations.controllers.project_billing.billing_validate",
+        "on_trash": "nirmaan_stack.integrations.controllers.project_billing.billing_on_trash",
+    },
+    "Project Billing Packages": {
+        "validate": "nirmaan_stack.integrations.controllers.project_billing.package_validate",
+        "before_rename": "nirmaan_stack.integrations.controllers.project_billing.package_before_rename",
+        "on_trash": "nirmaan_stack.integrations.controllers.project_billing.package_on_trash",
     },
     "Material Test Certificate": {
         "validate": "nirmaan_stack.integrations.controllers.material_test_certificate.validate",
@@ -578,6 +599,8 @@ fixtures = [
     "Commission Report Category",
     "Commission Report Tasks",
     "Auto Approval Rule",
+    # Client billing package master list (owner, 2026-10-03): shipped as data, no patch.
+    "Project Billing Packages",
     # "Pincodes"
 ]
 

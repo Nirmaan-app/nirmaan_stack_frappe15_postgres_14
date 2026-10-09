@@ -146,3 +146,72 @@ Shipped. Checked against `develop`; these parts have moved on:
 - **The report's sample description** now lists the group's member item names, also read live.
 - `FE-OPTIONS` never shipped: `pages/tds/hooks/useTDSItemOptions.ts` still carries the dead `CUS-` scan and the per-category make filter, and the old `AddTDSItemDialog.tsx` survives, imported nowhere.
 - ⚠️ **Possible bug, unconfirmed:** `TDS Items.work_package` links to **Procurement Packages**, but the work-package dropdowns in `useTDSItemOptions.ts` and `RequestTdsItemDialog.tsx` read the **Work Packages** doctype. This only works if the two lists hold the same names.
+
+---
+
+## Amendment A — Project Custom Items return; projects stop creating TDS Items (2026-10-07)
+
+Status: accepted (grilled 2026-10-07; not yet built).
+
+This reverses part of **P2-3**. In practice, project one-offs did land in the shared catalogue, and
+"New Item" vs "Custom Item" confused users. Decisions:
+
+- **Projects can no longer create a TDS Item.** The brand-new-group branch of approval-time promotion
+  is removed. Request New keeps exactly two choices, under a "Type" label:
+  **Add New Make to an Existing TDS Item** and **Create a Project Specific Custom TDS Item**.
+- **New Make is unchanged in effect:** approval adds a `(TDS Item, Make)` Repository Entry, born Verified.
+  If that entry already exists by approval time, the Admin chooses which datasheet is correct. The
+  repository's is the default. Choosing the uploaded one replaces the entry's datasheet from then on;
+  earlier approved project rows keep the sheet they were approved with.
+- **Project Custom Items come back** (the retired `PCUS-` idea, reshaped). A Project Custom Item lives on
+  one project's rows only and **never enters the TDS Repository**, even when approved. Each row is one
+  name + one Make, with a required Work Package, a Category picked from that package, a Makelist make and
+  a datasheet. The server issues a `PCUS-` id, shared by rows of the same name on the same project; the
+  duplicate key is name + make on the project, case-insensitive. A name that matches a catalogue TDS
+  Item warns but is allowed. Admin approval is still required; it marks the row Approved and writes
+  nothing else.
+  *Rejected:* keep promoting customs into the shared catalogue (pollution, and the confusing
+  "Custom Item" on member-less groups); a per-project custom doctype holding many makes (more model for
+  no stated need).
+- **Request Type is derived, not stored.** The approval screen's Pending Review section shows
+  **From Repository / New Make / Project Custom** beside **Item Status** (the entry's Verified /
+  Not Verified; New Make shows Not Verified until an entry exists; `--` for Project Custom or a missing
+  entry). *Rejected:* a stored type field; it is needed only while a row awaits approval.
+- **Stored status keeps one meaning per value:** `New` only for a New Make (approval writes the
+  catalogue); every other waiting row, Project Custom included, is `Pending`. Users see both as
+  *Pending*; TDS History shows only Pending / Approved / Rejected and tags Project Custom rows.
+- **Resubmitting a rejected New Make or Project Custom row replaces the rejected row**, the same as a
+  re-picked repository entry.
+- Out of scope: promoting a Project Custom Item into the catalogue later.
+
+Vocabulary: the shared-catalogue TDS Item with no members is now an **Unlinked TDS Item**; "Custom Item"
+is retired as a term (see `GLOSSARY.md`).
+
+## Amendment B — Client Status: the client's answer sits beside the Admin's approval (2026-10-08)
+
+Status: accepted (grilled 2026-10-08; not yet built).
+
+This extends **P2-5**. After an Admin approves a project row, the datasheet goes to the client, and
+the client approves or rejects it. Decisions:
+
+- **The client's answer is its own field, not a new `tds_status` value.** A row carries a **Client
+  Status** (blank / *Approved by Client* / *Rejected by Client*) plus who set it, when, and an
+  optional client's reason. `tds_status` stays `Approved`. *Rejected:* adding the two answers as new
+  `tds_status` values. That would break "one meaning per stored value", and every reader of
+  `Approved` (approval screen, duplicate checks, Handover, export) would need to learn that two more
+  values also mean "Admin approved".
+- **Only an Admin-approved row can carry one.** Admin and PMO Executive set it, in bulk, and may
+  switch it between the two answers. Each set or switch records who and when again. Only an Admin
+  can clear it.
+- **A row with a Client Status cannot be deleted by anyone**, and the server enforces it.
+  `reject_tds_items` also stops rejecting rows that are not waiting, so an Admin rejection can never
+  land on a row the client has answered.
+- **Users see `Approved` as *Approved by Admin*** everywhere.
+- **A row *Rejected by Client* still holds its TDS Item + Make on the project.** That Make cannot be
+  picked again; the way back is switching the row to *Approved by Client*. Another Make of the same
+  TDS Item can be picked. *Rejected:* letting a second row with the same item + make sit beside the
+  rejected one. That breaks one-live-row-per-key, and the rejected row can't be deleted to make room.
+- **The TDS report export picks statuses in order.** The choices are *Approved by Client*,
+  *Approved by Admin* (approved, with no client answer yet) and *Pending*. They are disjoint, so no row
+  prints twice. *Rejected by Client* is never exported. The PDF groups by status first, then by
+  package. The report itself is unchanged and prints no Client Status.

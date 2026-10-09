@@ -25,6 +25,7 @@ from nirmaan_stack.api.hod import header_roles
 from nirmaan_stack.api.hod.from_app import included_library, sources_for, system_meta
 from nirmaan_stack.api.hod.project_info import VENDOR, as_dict, project_info
 from nirmaan_stack.api.pdf_helper.pdf_merger_api import fetch_attachment_content
+from nirmaan_stack.api.tds.status_label import with_status_labels
 from nirmaan_stack.services.hod import (
 	blanks,
 	checklist,
@@ -338,6 +339,9 @@ def hod_print_context(doc) -> dict:
 		src = sources_for(doc.project, doc.hod_system, key)
 		# The page introduces what the binder puts behind it, so it lists the ticked records only.
 		src["items"] = sources.selected_items(src.get("items"), fd.get("selected"))
+		if entry.get("source") == index.SRC_TDS:
+			# The template prints `tds_status` as is; it prints the words TDS History shows.
+			src["items"] = with_status_labels(src["items"])
 		ctx["sources"] = src
 	return ctx
 
