@@ -20,7 +20,7 @@ Covers:
   - get_master_template returns the active master + sheets; inactive -> {"active": False}
   - role gate rejects a non-wizard user
 
-Run via the bench runner (NOT raw unittest -- see CLAUDE.md BoQ test-runner note):
+Run via the bench runner (NOT raw unittest -- see root CLAUDE.md § Commands):
   bench --site localhost run-tests --module nirmaan_stack.api.boq.wizard.test_create_from_template
 """
 import json

@@ -10,22 +10,32 @@
  * document (ADR-0017), so there is no parent doc holding the list. The Jinja
  * fetches the project's snags itself and the params below narrow that fetch.
  */
-export const SNAG_PRINT_DOCTYPE = "Projects";
 export const SNAG_PRINT_FORMAT_NAME = "Project Snag";
 
-/** Frappe endpoint that renders a print format to a PDF and streams it back. */
-export const DOWNLOAD_PDF_ENDPOINT =
-  "/api/method/frappe.utils.print_format.download_pdf";
+/**
+ * Both downloads are BUILT IN A BACKGROUND JOB — a big project's PDF outlasted the web
+ * request (`api/snags/bulk_download.enqueue_snag_pdf`):
+ *  - `enqueue` queues it and answers at once with a `request_id`;
+ *  - `status` is asked every few seconds until it reads `ready` or `failed`;
+ *  - `fetch` hands the finished file over, once.
+ *
+ * Our endpoints, not Frappe's `download_pdf`: that one type-checks its `pdf_generator`
+ * argument ("wkhtmltopdf" | "chrome" only), so it cannot carry the generator that keeps the
+ * photo ↔ row jump links (FrappeTypeError, 2026-10-08). Ours sets it on the server.
+ */
+export const SNAG_PDF_ENDPOINTS = {
+  enqueue: "nirmaan_stack.api.snags.bulk_download.enqueue_snag_pdf",
+  status: "nirmaan_stack.api.snags.bulk_download.get_snag_pdf_status",
+  fetch: "nirmaan_stack.api.snags.bulk_download.fetch_snag_pdf",
+} as const;
 
 /**
- * "Download All" — one report PER BATCH, merged server-side into a single PDF.
- *
- * A separate endpoint rather than a flag on the one above, because the work is
- * different in kind: that one renders ONE print format, this one renders N and merges
- * them with `pypdf`. It takes the same filter params (minus `batches`, which it owns).
+ * Which document `enqueue` builds. `tab` = the single Download (one render of the tab as
+ * it stands); `all` = Download All — one report PER BATCH, merged server-side into a
+ * single PDF behind a master summary. Different in kind, so the server owns `batches`
+ * for `all`.
  */
-export const DOWNLOAD_ALL_ENDPOINT =
-  "/api/method/nirmaan_stack.api.snags.bulk_download.download_all_batches";
+export const SNAG_PDF_KIND = { tab: "tab", all: "all" } as const;
 
 /**
  * Query params the print format reads off `frappe.form_dict`.

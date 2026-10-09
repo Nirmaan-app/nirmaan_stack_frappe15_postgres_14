@@ -1,0 +1,795 @@
+[
+ {
+  "id": "a_nr_no_thickness",
+  "boq": "BOQ-26-00234",
+  "sheet": "(CHW BOQ) AHU & Low Side",
+  "excel_row": 139,
+  "unit": "Rmt",
+  "description": "25 mm dia",
+  "headings": [
+   "CHILLED WATER PIPING WORKS",
+   "19 mm thick insulation from 25 mm dia to 32 mm dia"
+  ],
+  "payload": {
+   "id": 139,
+   "description": "25 mm dia",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "(CHW BOQ) AHU & Low Side"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "CHILLED WATER PIPING WORKS"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "19 mm thick insulation from 25 mm dia to 32 mm dia"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "25 mm dia",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "HAND-WRITTEN: the heading says 19 mm; the answer omits it to exercise 'nothing mentioned' (no corpus pipe row is silent on thickness)"
+ },
+ {
+  "id": "a_tn_no_thickness",
+  "boq": "BOQ-26-00088",
+  "sheet": "HVAC",
+  "excel_row": 57,
+  "unit": "M2",
+  "description": "THERMAL INSULATION 9MM TH",
+  "headings": [],
+  "payload": {
+   "id": 57,
+   "description": "THERMAL INSULATION 9MM TH",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "HVAC"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "HAND-WRITTEN: the row says 9MM; the answer omits it"
+ },
+ {
+  "id": "a_fg_no_thickness",
+  "boq": "BOQ-26-00174",
+  "sheet": "HVAC",
+  "excel_row": 122,
+  "unit": "Sqm",
+  "description": "SITC of AHU room acoustic insulation with 50 mm thick fibre glass insulation with 32 kg/cum density with 22G GI grid work in 600 mm X 600 mm. Air Gap of 50 mm to be provided behind the panels. Density shall be 32 kg/m3 and al. perforated sheet shall be of 26 G properly overlapped with RP tissue to ensure all the glass wool material is not exposed condition. Insulation shall be applied AHU room walls after completing all works and cleaning the AHU room walls properly. Contractor shall ensure insulation is cut properly and applied properly minimising the joints.",
+  "headings": [
+   "MECHANICAL SYSTEM",
+   "DUCT INSULATION MATERIALS"
+  ],
+  "payload": {
+   "id": 122,
+   "description": "SITC of AHU room acoustic insulation with 50 mm thick fibre glass insulation with 32 kg/cum density with 22G GI grid work in 600 mm X 600 mm. Air Gap of 50 mm to be provided behind the panels. Density shall be 32 kg/m3 and al. perforated sheet shall be of 26 G properly overlapped with RP tissue to ensure all the glass wool material is not exposed condition. Insulation shall be applied AHU room walls after completing all works and cleaning the AHU room walls properly. Contractor shall ensure insulation is cut properly and applied properly minimising the joints.",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "HVAC"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "MECHANICAL SYSTEM",
+     "notes": {
+      "attached": [
+       "Vendor have to visit the site understand the requirements also the challenges at site before quoting.",
+       "AIR CONDITIONING WORKS",
+       "Supply, Installation, Testing & Commissioning & Handing over of the following:",
+       "Third party Air balancing to be considered as per the approved shop drawing using valid calibrated instruments, including Air Flow HOOD which has capability to measure volumetric flow rate with digital manometer, multi point averaging air flow sensor, airflow measurement station. Documentation,representation & Carrying on Air balancing using digital HOOD. Cost including of applying Sealent/Tightening of duct joints to reduce the air leakages with necessary tool to be considered."
+      ]
+     }
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "DUCT INSULATION MATERIALS"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": " Fiberglass Rigid Board Insulation, Density 48Kg/m3",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "HAND-WRITTEN: the row says 50 mm; the answer omits it"
+ },
+ {
+  "id": "a_puf_no_thickness",
+  "boq": "BOQ-26-00017",
+  "sheet": "Piping ",
+  "excel_row": 26,
+  "unit": "RMT",
+  "description": "50NB",
+  "headings": [
+   "Supply, Installation, Testing & Commissioning & Handing over of the following:",
+   "CHILLED WATER PIPE INSULATION",
+   "Supply and installation of 19/ 25 / 32 mm thick Class 1 Closed Cell Elastometric Nitrile rubber tubular insulation for chilled water piping having density 40 - 70kg/m3, thermal conductivity 0.032 W/m K at 40 deg C.Including 26 G aluminium cladding with 50 mm overlap on joints and fixed with self tapping screws etc. as per standard practice.Vapor barrier should be part of detailing of insultion works . All Nut bolts to be of GI only. In all cases, the manufacturer’s recommended Adhesive should be used for the specified purpose. 25mm to 50 mm : 19mm thick - Single layer 65mm : 25mm thick - Single layer 80mm up to 350 mm : Double layer of 19 mm thick 400mm up to 650 mm : Double layer of 19+ 25mm thick"
+  ],
+  "payload": {
+   "id": 26,
+   "description": "50NB",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "Piping "
+    },
+    {
+     "relation": "great_grandparent",
+     "distance": 3,
+     "tier": "lean",
+     "node_type": "Preamble",
+     "description": "Supply, Installation, Testing & Commissioning & Handing over of the following:"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "CHILLED WATER PIPE INSULATION"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "Supply and installation of 19/ 25 / 32 mm thick Class 1 Closed Cell Elastometric Nitrile rubber tubular insulation for chilled water piping having density 40 - 70kg/m3, thermal conductivity 0.032 W/m K at 40 deg C.Including 26 G aluminium cladding with 50 mm overlap on joints and fixed with self tapping screws etc. as per standard practice.Vapor barrier should be part of detailing of insultion works . All Nut bolts to be of GI only. In all cases, the manufacturer’s recommended Adhesive should be used for the specified purpose. 25mm to 50 mm : 19mm thick - Single layer 65mm : 25mm thick - Single layer 80mm up to 350 mm : Double layer of 19 mm thick 400mm up to 650 mm : Double layer of 19+ 25mm thick"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Tubular Puf Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "26G Aluminium",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "50NB",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "HAND-WRITTEN: the heading is nitrile with a schedule; PUF + no thickness chosen to exercise the PUF ladder at pipe 50"
+ },
+ {
+  "id": "b_list_no_schedule",
+  "boq": "BOQ-26-00156",
+  "sheet": "CHW pipes , Valves",
+  "excel_row": 43,
+  "unit": "RMT",
+  "description": "32NB",
+  "headings": [
+   "3. CHW PIPES & VALVES",
+   "CHILLED WATER PIPE INSULATION",
+   "Supply and installation of 19/ 25 / 32 mm thick Class 1 Closed Cell Elastometric Nitrile rubber tubular insulation for chilled water piping having density 40 - 70kg/m3, thermal conductivity 0.032 W/m K at 40 deg C.Including 26 G aluminium cladding with 50 mm overlap on joints and fixed with self tapping screws etc. as per standard practice.Vapor barrier should be part of detailing of insultion works . All Nut bolts to be of GI only. In all cases, the manufacturer’s recommended Adhesive should be used for the specified purpose. 25mm to 50 mm : 19mm thick - Single layer 65mm : 25mm thick - Single layer 80mm up to 350 mm : Double layer of 19mm thick 400mm up to 650 mm : Double layer of 25mm thick"
+  ],
+  "payload": {
+   "id": 43,
+   "description": "32NB",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "CHW pipes , Valves"
+    },
+    {
+     "relation": "great_grandparent",
+     "distance": 3,
+     "tier": "lean",
+     "node_type": "Preamble",
+     "description": "3. CHW PIPES & VALVES"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "CHILLED WATER PIPE INSULATION"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "Supply and installation of 19/ 25 / 32 mm thick Class 1 Closed Cell Elastometric Nitrile rubber tubular insulation for chilled water piping having density 40 - 70kg/m3, thermal conductivity 0.032 W/m K at 40 deg C.Including 26 G aluminium cladding with 50 mm overlap on joints and fixed with self tapping screws etc. as per standard practice.Vapor barrier should be part of detailing of insultion works . All Nut bolts to be of GI only. In all cases, the manufacturer’s recommended Adhesive should be used for the specified purpose. 25mm to 50 mm : 19mm thick - Single layer 65mm : 25mm thick - Single layer 80mm up to 350 mm : Double layer of 19mm thick 400mm up to 650 mm : Double layer of 25mm thick"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "26G Aluminium",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "19/ 25 / 32 mm",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "32NB",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "HAND-WRITTEN: the heading carries a schedule; the answer copies the list as written (the T2 fallback the model takes when it does not apply the schedule)"
+ },
+ {
+  "id": "c_schedule_50nb",
+  "boq": "BOQ-26-00017",
+  "sheet": "Piping ",
+  "excel_row": 26,
+  "unit": "RMT",
+  "description": "50NB",
+  "headings": [
+   "Supply, Installation, Testing & Commissioning & Handing over of the following:",
+   "CHILLED WATER PIPE INSULATION",
+   "Supply and installation of 19/ 25 / 32 mm thick Class 1 Closed Cell Elastometric Nitrile rubber tubular insulation for chilled water piping having density 40 - 70kg/m3, thermal conductivity 0.032 W/m K at 40 deg C.Including 26 G aluminium cladding with 50 mm overlap on joints and fixed with self tapping screws etc. as per standard practice.Vapor barrier should be part of detailing of insultion works . All Nut bolts to be of GI only. In all cases, the manufacturer’s recommended Adhesive should be used for the specified purpose. 25mm to 50 mm : 19mm thick - Single layer 65mm : 25mm thick - Single layer 80mm up to 350 mm : Double layer of 19 mm thick 400mm up to 650 mm : Double layer of 19+ 25mm thick"
+  ],
+  "payload": {
+   "id": 26,
+   "description": "50NB",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "Piping "
+    },
+    {
+     "relation": "great_grandparent",
+     "distance": 3,
+     "tier": "lean",
+     "node_type": "Preamble",
+     "description": "Supply, Installation, Testing & Commissioning & Handing over of the following:"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "CHILLED WATER PIPE INSULATION"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "Supply and installation of 19/ 25 / 32 mm thick Class 1 Closed Cell Elastometric Nitrile rubber tubular insulation for chilled water piping having density 40 - 70kg/m3, thermal conductivity 0.032 W/m K at 40 deg C.Including 26 G aluminium cladding with 50 mm overlap on joints and fixed with self tapping screws etc. as per standard practice.Vapor barrier should be part of detailing of insultion works . All Nut bolts to be of GI only. In all cases, the manufacturer’s recommended Adhesive should be used for the specified purpose. 25mm to 50 mm : 19mm thick - Single layer 65mm : 25mm thick - Single layer 80mm up to 350 mm : Double layer of 19 mm thick 400mm up to 650 mm : Double layer of 19+ 25mm thick"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "26G Aluminium",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "19 mm",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "50NB",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "the schedule read: 25mm to 50 mm : 19mm thick - Single layer"
+ },
+ {
+  "id": "c_schedule_80nb",
+  "boq": "BOQ-26-00017",
+  "sheet": "Piping ",
+  "excel_row": 24,
+  "unit": "RMT",
+  "description": "80NB",
+  "headings": [
+   "Supply, Installation, Testing & Commissioning & Handing over of the following:",
+   "CHILLED WATER PIPE INSULATION",
+   "Supply and installation of 19/ 25 / 32 mm thick Class 1 Closed Cell Elastometric Nitrile rubber tubular insulation for chilled water piping having density 40 - 70kg/m3, thermal conductivity 0.032 W/m K at 40 deg C.Including 26 G aluminium cladding with 50 mm overlap on joints and fixed with self tapping screws etc. as per standard practice.Vapor barrier should be part of detailing of insultion works . All Nut bolts to be of GI only. In all cases, the manufacturer’s recommended Adhesive should be used for the specified purpose. 25mm to 50 mm : 19mm thick - Single layer 65mm : 25mm thick - Single layer 80mm up to 350 mm : Double layer of 19 mm thick 400mm up to 650 mm : Double layer of 19+ 25mm thick"
+  ],
+  "payload": {
+   "id": 24,
+   "description": "80NB",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "Piping "
+    },
+    {
+     "relation": "great_grandparent",
+     "distance": 3,
+     "tier": "lean",
+     "node_type": "Preamble",
+     "description": "Supply, Installation, Testing & Commissioning & Handing over of the following:"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "CHILLED WATER PIPE INSULATION"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "Supply and installation of 19/ 25 / 32 mm thick Class 1 Closed Cell Elastometric Nitrile rubber tubular insulation for chilled water piping having density 40 - 70kg/m3, thermal conductivity 0.032 W/m K at 40 deg C.Including 26 G aluminium cladding with 50 mm overlap on joints and fixed with self tapping screws etc. as per standard practice.Vapor barrier should be part of detailing of insultion works . All Nut bolts to be of GI only. In all cases, the manufacturer’s recommended Adhesive should be used for the specified purpose. 25mm to 50 mm : 19mm thick - Single layer 65mm : 25mm thick - Single layer 80mm up to 350 mm : Double layer of 19 mm thick 400mm up to 650 mm : Double layer of 19+ 25mm thick"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "26G Aluminium",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "19 x 2",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "80NB",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "the schedule read: 80mm up to 350 mm : Double layer of 19 mm thick -> refuses at the pipe ladder (T7)"
+ },
+ {
+  "id": "d_13_plus_13",
+  "boq": "BOQ-26-00234",
+  "sheet": "(CHW BOQ) AHU & Low Side",
+  "excel_row": 139,
+  "unit": "Rmt",
+  "description": "25 mm dia",
+  "headings": [
+   "CHILLED WATER PIPING WORKS",
+   "19 mm thick insulation from 25 mm dia to 32 mm dia"
+  ],
+  "payload": {
+   "id": 139,
+   "description": "25 mm dia",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "(CHW BOQ) AHU & Low Side"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "CHILLED WATER PIPING WORKS"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "19 mm thick insulation from 25 mm dia to 32 mm dia"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "13 + 13",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "25 mm dia",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "HAND-WRITTEN: an explicit 13 + 13 on a real small-pipe row (the payload itself says 19 mm)"
+ },
+ {
+  "id": "d_65_plus_32",
+  "boq": "BOQ-26-00020",
+  "sheet": "HVAC_-19TH FLOOR",
+  "excel_row": 527,
+  "unit": "Rmt",
+  "description": "65 mm + 32 mm thick nitrile rubber insulation insulation with factory laminated GC cloth with 26 G Aluminum cladding",
+  "headings": [
+   "CHILLED WATER PIPING & VALVES",
+   "Supply, and installation of the following MS Class \"C\" ERW pipes to IS:3589 and specified wall thickness, cut to required lengths and installed with all welded joints, providing and fixing in position the necessary fittings like flanges,elbows tees, reducers, Hot dipped galvanized hanging arrangements including vibration isolation arrangements etc. as required."
+  ],
+  "payload": {
+   "id": 527,
+   "description": "65 mm + 32 mm thick nitrile rubber insulation insulation with factory laminated GC cloth with 26 G Aluminum cladding",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "HVAC_-19TH FLOOR"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "CHILLED WATER PIPING & VALVES"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "Supply, and installation of the following MS Class \"C\" ERW pipes to IS:3589 and specified wall thickness, cut to required lengths and installed with all welded joints, providing and fixing in position the necessary fittings like flanges,elbows tees, reducers, Hot dipped galvanized hanging arrangements including vibration isolation arrangements etc. as required.",
+     "notes": {
+      "attached": [
+       "All MS Chilled water pipes shall be insulated with Nitrile rubber insulation & finished 24G Aluminium cladding"
+      ]
+     }
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "26G Aluminium with Glass Cloth",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "65 mm + 32 mm",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "as written on the row; no pipe size anywhere"
+ },
+ {
+  "id": "d_80_plus_32",
+  "boq": "BOQ-26-00020",
+  "sheet": "HVAC_-19TH FLOOR",
+  "excel_row": 526,
+  "unit": "Rmt",
+  "description": "80 mm + 32 mm thick nitrile rubber insulation insulation with factory laminated GC cloth with 26 G Aluminum cladding",
+  "headings": [
+   "CHILLED WATER PIPING & VALVES",
+   "Supply, and installation of the following MS Class \"C\" ERW pipes to IS:3589 and specified wall thickness, cut to required lengths and installed with all welded joints, providing and fixing in position the necessary fittings like flanges,elbows tees, reducers, Hot dipped galvanized hanging arrangements including vibration isolation arrangements etc. as required."
+  ],
+  "payload": {
+   "id": 526,
+   "description": "80 mm + 32 mm thick nitrile rubber insulation insulation with factory laminated GC cloth with 26 G Aluminum cladding",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "HVAC_-19TH FLOOR"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "CHILLED WATER PIPING & VALVES"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "Supply, and installation of the following MS Class \"C\" ERW pipes to IS:3589 and specified wall thickness, cut to required lengths and installed with all welded joints, providing and fixing in position the necessary fittings like flanges,elbows tees, reducers, Hot dipped galvanized hanging arrangements including vibration isolation arrangements etc. as required.",
+     "notes": {
+      "attached": [
+       "All MS Chilled water pipes shall be insulated with Nitrile rubber insulation & finished 24G Aluminium cladding"
+      ]
+     }
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "26G Aluminium with Glass Cloth",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "80 mm + 32 mm",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "as written; no pipe size"
+ },
+ {
+  "id": "d_100_plus_32",
+  "boq": "BOQ-26-00020",
+  "sheet": "HVAC_-19TH FLOOR",
+  "excel_row": 525,
+  "unit": "Rmt",
+  "description": "100 mm + 32 mm thick nitrile rubber insulation insulation with factory laminated GC cloth with 26 G Aluminum cladding",
+  "headings": [
+   "CHILLED WATER PIPING & VALVES",
+   "Supply, and installation of the following MS Class \"C\" ERW pipes to IS:3589 and specified wall thickness, cut to required lengths and installed with all welded joints, providing and fixing in position the necessary fittings like flanges,elbows tees, reducers, Hot dipped galvanized hanging arrangements including vibration isolation arrangements etc. as required."
+  ],
+  "payload": {
+   "id": 525,
+   "description": "100 mm + 32 mm thick nitrile rubber insulation insulation with factory laminated GC cloth with 26 G Aluminum cladding",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "HVAC_-19TH FLOOR"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "CHILLED WATER PIPING & VALVES"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "Supply, and installation of the following MS Class \"C\" ERW pipes to IS:3589 and specified wall thickness, cut to required lengths and installed with all welded joints, providing and fixing in position the necessary fittings like flanges,elbows tees, reducers, Hot dipped galvanized hanging arrangements including vibration isolation arrangements etc. as required.",
+     "notes": {
+      "attached": [
+       "All MS Chilled water pipes shall be insulated with Nitrile rubber insulation & finished 24G Aluminium cladding"
+      ]
+     }
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "26G Aluminium with Glass Cloth",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "100 mm + 32 mm",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "as written; no pipe size"
+ },
+ {
+  "id": "e_as_per_spec",
+  "boq": "BOQ-26-00049",
+  "sheet": "AHU & CHW BOQ",
+  "excel_row": 81,
+  "unit": "Rmt",
+  "description": "50 mm - 32 mm thick Tubular section",
+  "headings": [
+   "AIR CONDITIONING WORKS",
+   "SITC of 'CLASS-O' Elastomeric nitrile rubber insulation thickness as specified in the tender specs., pipe insulation from 25 mm dia to 80 mm dia shall be with preformed pipe section & above 80mm dia it shall be with sheets, fittings, valves , unions, etc shall be insulated as per specs. Quoted price shall be inclusive of Adhesive, self adhesive nitrile rubber tapes, etc The thermal conductivity should not exceed 0.025 w/m k. The density shall be 40 to 60 kg.m3 and The insulation has to be covered and finished with 2 layers of fibre glass cloth with star bond, the colour cosde will be as per the specs mentioned & for Piping Running exposed ceiling / exposed to ambient shall be finished with 26G Al. cladding over the nitrile rubber refer tender specs for details"
+  ],
+  "payload": {
+   "id": 81,
+   "description": "50 mm - 32 mm thick Tubular section",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "AHU & CHW BOQ"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "AIR CONDITIONING WORKS"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "SITC of 'CLASS-O' Elastomeric nitrile rubber insulation thickness as specified in the tender specs., pipe insulation from 25 mm dia to 80 mm dia shall be with preformed pipe section & above 80mm dia it shall be with sheets, fittings, valves , unions, etc shall be insulated as per specs. Quoted price shall be inclusive of Adhesive, self adhesive nitrile rubber tapes, etc The thermal conductivity should not exceed 0.025 w/m k. The density shall be 40 to 60 kg.m3 and The insulation has to be covered and finished with 2 layers of fibre glass cloth with star bond, the colour cosde will be as per the specs mentioned & for Piping Running exposed ceiling / exposed to ambient shall be finished with 26G Al. cladding over the nitrile rubber refer tender specs for details",
+     "notes": {
+      "attached": [
+       "Post installation of the insulation in all respects, the Glass cloth shall be wrapped spirally and finished with the adhessive mentined above. LOW VOC adhesive to be used as per LEED v4.1 (simillar to insulation), Material shall be FM GLOBAL approved, with tender ( Class 'O' ).(VOC of non flamable adhesive to be less than 50g/l )",
+       "Glass Cloth - Colours - Black, grey, red, blue and green colours as standard. Pl. refer the tender doc. for the identification of colour Vs System pipe type. All valves which are to be insulated with the same material that has specified for the main piping, each valve 1 mtr pipe length insulation rate shall be paid"
+      ]
+     }
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "Glass Cloth with paint",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "as specified in the tender specs.",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "50 mm",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "the heading's own words"
+ },
+ {
+  "id": "f_xlpe_named",
+  "boq": "BOQ-26-00215",
+  "sheet": "PAC WORKS",
+  "excel_row": 36,
+  "unit": "Sqm",
+  "description": "Supply & Installation of 13 mm thick Class 'O' closed cell with 40-60Kg/m3 density XLPE with Al.Foil for Ceiling insulation. The quoted price inclusive of adhesives AL.cotton tapes, fixtures etc",
+  "headings": [
+   "FOR HUB ROOM"
+  ],
+  "payload": {
+   "id": 36,
+   "description": "Supply & Installation of 13 mm thick Class 'O' closed cell with 40-60Kg/m3 density XLPE with Al.Foil for Ceiling insulation. The quoted price inclusive of adhesives AL.cotton tapes, fixtures etc",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "PAC WORKS"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "FOR HUB ROOM"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "none of these",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "XLPE",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "Aluminium Foil",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "13 mm",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "the row names XLPE"
+ }
+]

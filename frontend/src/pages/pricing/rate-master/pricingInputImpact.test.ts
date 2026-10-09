@@ -13,9 +13,11 @@ import { computePricingInputReach, reachedSkuCount } from "./pricingInputReach";
 import {
   computeImpact, panelShapeOf, movedLegOf, multiplierFor, editableFieldsOf, workingLegs,
   LEG_LABEL, NOT_MOVED_NOTE, isPercentField, pctText,
-  skuKey,
+  skuKey, skuLabel, skuLabelContext, skuName,
 } from "./pricingInputImpact";
 import type { RateMasterItem } from "./rateMasterTypes";
+// SLICE 12c FINISH / F3 -- the real shipped asset, because the defect lives in the join
+import HVAC_V25 from "../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v25.json";
 
 const item = (uid: string, kind: string, attrs: Record<string, unknown>, rates: Record<string, number>): RateMasterItem =>
   ({ item_uid: uid, kind, discipline: "Electrical", unit: "Nos", attributes: attrs, rates } as unknown as RateMasterItem);
@@ -447,5 +449,194 @@ describe("skuKey - the identity the open detail is re-derived from", () => {
     const live = afterEdit.find((r) => skuKey(r) === skuKey(captured));
     expect(captured.becomes).toBe(10);        // the snapshot is frozen...
     expect(live!.becomes).toBe(15);           // ...the re-derived row is not
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * SLICE 12c FINISH -- THE SKU LABEL TELLS SIBLINGS APART (owner, 2026-10-03)
+ *
+ * "the SKu shows only item and not descriptio. it ius not possible to find which SKu is which"
+ *
+ * Measured on the live catalogue: 319 of HVAC's 331 named rows share a name (168 of them read
+ * "Nitrile Rubber Insulation"), and 142 Electrical rows share one too. A name is a label only where
+ * it identifies one row.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("SLICE 12c FINISH -- the SKU label distinguishes rows sharing a name", () => {
+  const ins = (cladding: string, thickness: number, pipe?: number) =>
+    item(`u-${cladding}-${thickness}-${pipe ?? "x"}`, "hvac_insulation_item",
+         pipe === undefined
+           ? { item: "Nitrile Rubber Insulation", cladding, thickness_mm: thickness }
+           : { item: "Nitrile Rubber Insulation", cladding, thickness_mm: thickness, pipe_size_mm: pipe },
+         { cost_insulation: 1 });
+
+  it("a UNIQUE name is the label, byte-identical to before -- nothing is appended", () => {
+    const only = item("u1", "k", { item_name: "Cable lug 16 sq.mm" }, { list_price: 10 });
+    const ctx = skuLabelContext([only]);
+    expect(ctx.size).toBe(0);                 // the name identifies it; nothing to disambiguate
+    expect(skuLabel(only, ctx)).toBe("Cable lug 16 sq.mm");
+    expect(skuLabel(only)).toBe("Cable lug 16 sq.mm");   // and with no context at all
+  });
+
+  it("a SHARED name is followed by the facts that differ -- and ONLY those", () => {
+    const rows = [ins("26G Aluminium", 25, 100), ins("26G Aluminium", 50, 100), ins("Aluminium Foil", 25, 100)];
+    const ctx = skuLabelContext(rows);
+    // pipe_size_mm is the SAME on all three, so it is NOT a distinguishing fact and is left out
+    expect(ctx.get("Nitrile Rubber Insulation")).toEqual(["cladding", "thickness_mm"]);
+    expect(skuLabel(rows[0], ctx)).toBe("Nitrile Rubber Insulation · cladding 26G Aluminium · thickness_mm 25");
+    expect(skuLabel(rows[1], ctx)).toBe("Nitrile Rubber Insulation · cladding 26G Aluminium · thickness_mm 50");
+    // THE DEFECT: without the context every one of them reads the same
+    expect(new Set(rows.map((r) => skuLabel(r))).size).toBe(1);
+    expect(new Set(rows.map((r) => skuLabel(r, ctx))).size).toBe(3);
+  });
+
+  it("a fact ABSENT on a row is skipped rather than printed as blank or null", () => {
+    const rows = [ins("26G Aluminium", 25, 100), ins("26G Aluminium", 25)];
+    const ctx = skuLabelContext(rows);
+    expect(ctx.get("Nitrile Rubber Insulation")).toEqual(["pipe_size_mm"]);
+    expect(skuLabel(rows[1], ctx)).toBe("Nitrile Rubber Insulation");
+    expect(skuLabel(rows[0], ctx)).toBe("Nitrile Rubber Insulation · pipe_size_mm 100");
+  });
+
+  it("the spec bookkeeping attributes never reach a label", () => {
+    const a = item("a", "k", { item: "X", spec_status: "ok", spec_note: "n", unit: "Mtr" }, { r: 1 });
+    const b = item("b", "k", { item: "X", spec_status: "flagged", spec_note: "m", unit: "Nos" }, { r: 1 });
+    const ctx = skuLabelContext([a, b]);
+    expect(ctx.get("X")).toEqual(["unit"]);
+    expect(skuLabel(a, ctx)).toBe("X · unit Mtr");
+  });
+
+  it("skuName reads the first of item / item_name / name, and null when none says anything", () => {
+    expect(skuName(item("a", "k", { item: " Padded ", item_name: "Other" }, {}))).toBe("Padded");
+    expect(skuName(item("a", "k", { item_name: "Second" }, {}))).toBe("Second");
+    expect(skuName(item("a", "k", { name: "Third" }, {}))).toBe("Third");
+    expect(skuName(item("a", "k", { item: "   " }, {}))).toBeNull();
+    expect(skuName(null)).toBeNull();
+  });
+
+  it("an UNNAMED row keeps its value-list fallback, unchanged", () => {
+    const it0 = item("u9", "k", { cladding: "26G Aluminium", thickness_mm: 25 }, { r: 1 });
+    expect(skuLabel(it0, skuLabelContext([it0]))).toBe("26G Aluminium · 25");
+  });
+
+  it("the label is capped, so one row can never push a table column off screen", () => {
+    const wide = (n: number) => item(`w${n}`, "k",
+      { item: "Same", a: n, b: n, c: n, d: n, e: n, f: n, g: n }, { r: 1 });
+    const rows = [wide(1), wide(2)];
+    const ctx = skuLabelContext(rows);
+    expect(ctx.get("Same")!.length).toBe(7);
+    expect(skuLabel(rows[0], ctx).split(" · ").length).toBe(6);   // the name + 5 facts
+  });
+
+  it("the impact rows carry the DISAMBIGUATED label, not the bare name", () => {
+    const rows = [ins("26G Aluminium", 25, 100), ins("Aluminium Foil", 25, 100)];
+    const ctx = skuLabelContext(rows);
+    const labels = rows.map((r) => skuLabel(r, ctx));
+    expect(labels.every((l) => l.includes("cladding"))).toBe(true);
+    expect(new Set(labels).size).toBe(rows.length);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * SLICE 12c FINISH, F3 -- AN ITEM-LIST SKU THE RULES REFUSE NEVER REACHES THE APPROXIMATE PATH
+ *
+ * The multiplier path in `computeImpact` is the approximate arithmetic the owner ruled against
+ * (2026-09-29): for an item-list category it is a second implementation of rules it cannot see. A
+ * CLADDING-ONLY SKU is exactly the row that used to fall into it -- the exact pricer refuses it for
+ * want of a geometry, the row kept going, and the multiplier quoted a confident figure for a
+ * geometry nobody named.
+ *
+ * Built over the REAL shipped asset and the REAL reach walk, because the defect lives in the join.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("SLICE 12c FINISH / F3 -- a refused item-list SKU is sampled or reported, never guessed", () => {
+  const INS = "hvac_insulation";
+  const cfgs = (HVAC_V25 as { category_configs: Array<Record<string, unknown> & { category_id: string }> })
+    .category_configs;
+  const insCfg = cfgs.find((c) => c.category_id === INS)!;
+  const allItems = (HVAC_V25 as unknown as { items: RateMasterItem[] }).items;
+  const byUid = new Map(allItems.map((i) => [String(i.item_uid ?? ""), i]));
+  const configs: Record<string, unknown> = {};
+  for (const c of cfgs) configs[c.category_id] = c;
+
+  /** the glass-cloth pricing input -- the one a cladding-only glass-cloth SKU reads */
+  const gc = allItems.find((i) => i.kind === "hvac_pricing_input"
+    && /glass/i.test(String((i.attributes as Record<string, unknown>)?.name ?? "")))!;
+
+  const reach = computePricingInputReach(
+    { [INS]: insCfg } as never,
+    allItems,
+  );
+
+  it("the reach walk finds the input and its SKUs at all (else the rest proves nothing)", () => {
+    expect(gc).toBeTruthy();
+    const inputId = String((gc.attributes as Record<string, unknown>).item ?? "");
+    expect(Object.keys(reach)).toContain(inputId);
+  });
+
+  it("⚠️ MEASURED: no input reaches a cladding-only SKU today, so the samples do not yet RENDER", () => {
+    /**
+     * The sampler, the no-guess guard and the panel rows are built and pinned (see
+     * `pricingInputExactItemList.test.ts`), but a row only appears in the impact list if the REACH
+     * WALK reports it -- and the walk records a SKU only where a step writes a STORED RATE COLUMN of
+     * the matched row. A cladding-only SKU stores no cost column at all: its pipelines build the
+     * assembly total. Measured on the shipped asset, every one of the seven HVAC inputs reaches only
+     * `cost_insulation` / `cost_adhesive` / `cost_cladding`, all on COMPOSITE rows.
+     *
+     * This is the `isFlatAdder` lesson one level further on -- a target-keyed walk measures what an
+     * input MULTIPLIES, not whose PRICE MOVES. Widening it changes the SKU counts and lists on a
+     * surface the owner has already reviewed twice, so it is a ruling, not a tidy-up. The pin states
+     * the measurement so the day the walk changes, this test says so instead of passing quietly.
+     */
+    const inputId = String((gc.attributes as Record<string, unknown>).item ?? "");
+    const r = reach[inputId];
+    const claddingOnlyUids = new Set(allItems
+      .filter((i) => (i.attributes as Record<string, unknown>)?.item === "Cladding Only")
+      .map((i) => String(i.item_uid ?? "")));
+    expect(claddingOnlyUids.size).toBe(5);
+    const reached = (r?.columns ?? []).filter((c) => claddingOnlyUids.has(c.itemUid));
+    expect(reached).toEqual([]);
+    // every input: the same answer, and only composite columns
+    for (const rr of Object.values(reach)) {
+      expect((rr.columns ?? []).filter((c) => claddingOnlyUids.has(c.itemUid))).toEqual([]);
+    }
+  });
+
+  it("and if one DID reach the panel it would be sampled, not guessed -- the row shape is ready", () => {
+    // the guard is in `computeImpact`: an item-list SKU with no legs takes the samples branch and
+    // leaves now/becomes at 0, so the multiplier path can never write a figure for it. Proven here
+    // on a SYNTHETIC reach column for a real cladding-only SKU.
+    const inputId = String((gc.attributes as Record<string, unknown>).item ?? "");
+    const co = allItems.find((i) => (i.attributes as Record<string, unknown>)?.item === "Cladding Only")!;
+    const r = {
+      ...reach[inputId],
+      columns: [{ itemUid: String(co.item_uid ?? ""), kind: co.kind, rateKey: "cost_cladding",
+                  categories: [INS] }],
+    } as never;
+    const stored = { ...(gc.rates ?? {}) } as Record<string, number>;
+    const out = computeImpact(stored, { ...stored, rate: Number(stored.rate ?? 0) + 50 },
+      r, byUid, null,
+      { items: allItems, inputItemKey: String(gc.item_uid ?? ""), configs } as never);
+    expect(out.rows.length).toBe(1);
+    const row = out.rows[0];
+    expect(!!row.samples || !!row.note).toBe(true);
+    if (row.samples) {
+      expect(row.now).toBe(0);            // ⚠️ the multiplier path would have written a figure here
+      expect(row.becomes).toBe(0);
+      expect(row.pctChange).toBeNull();
+      expect(row.samples.length).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("a GEOMETRY-CARRYING SKU of the same category is still priced directly, with no samples", () => {
+    const inputId = String((gc.attributes as Record<string, unknown>).item ?? "");
+    const stored = { ...(gc.rates ?? {}) } as Record<string, number>;
+    const out = computeImpact(stored, { ...stored, rate: Number(stored.rate ?? 0) + 50 },
+      reach[inputId], byUid, null,
+      { items: allItems, inputItemKey: String(gc.item_uid ?? ""), configs } as never);
+    const composites = out.rows.filter((row) => {
+      const it = byUid.get(row.itemUid);
+      return it && (it.attributes as Record<string, unknown>)?.item !== "Cladding Only";
+    });
+    expect(composites.length).toBeGreaterThan(0);
+    for (const row of composites) expect(row.samples).toBeUndefined();
   });
 });

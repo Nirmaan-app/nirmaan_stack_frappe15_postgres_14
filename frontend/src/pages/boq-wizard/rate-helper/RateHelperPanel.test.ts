@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { shouldShowLongOptionReadout, LONG_OPTION_CHARS } from "./RateHelperPanel";
+import { shouldShowLongOptionReadout, LONG_OPTION_CHARS, otherMode } from "./RateHelperPanel";
 
 // ══════════════════════════════════════════════════════════════════════════════════════════
 // THE LONG-OPTION WRAPPED READ-OUT (owner ruling 2026-09-04, option C)
@@ -136,9 +136,13 @@ describe("slice 11 / the unit label is opt-in per call site, which is what keeps
     expect(fn).toContain('unit.trim() !== ""');
   });
 
-  it("both ITEM-LIST surfaces pass the row's own unit: each priced item, and the row total", () => {
-    expect(src).toContain("<FiguresRow figures={b.figures} unit={view.unit} />");
-    expect(src).toContain("<FiguresRow figures={rowTotals(view)} copy={false} muted unit={view.unit} />");
+  it("both ITEM-LIST surfaces pass the unit the figure is a rate IN: the catalogue's word where the row's unit was resolved (12d-2 S6), else the row's own spelling", () => {
+    // INVERTED by 12d-2 (owner S6): the label used to be `view.unit` alone, which read "per R/O" on a
+    // rate-only row. `view.rateUnit` is present ONLY when the row's unit was resolved (12c-U), so every
+    // other row still shows its own spelling, exactly as slice 11 pinned.
+    expect(src).toContain("<FiguresRow figures={b.figures} unit={view.rateUnit ?? view.unit} />");
+    expect(src).toContain("<FiguresRow figures={rowTotals(view)} copy={false} muted unit={view.rateUnit ?? view.unit} />");
+    expect(src).not.toContain("unit={view.unit} />");
   });
 
   it("⚠️ NEGATIVE: the NON-item-list surface passes NO unit, so Electrical's figures are unchanged", () => {
@@ -156,5 +160,182 @@ describe("slice 11 / the unit label is opt-in per call site, which is what keeps
     for (const forbidden of ['"area"', '"length"', '"count"', "sq.m", "sqft"]) {
       expect(src, forbidden).not.toContain(forbidden);
     }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * CERT-FOUND DEFECT (2026-10-04) -- "Other..." COULD NOT BE TYPED INTO
+ *
+ * Reported from the live screen: pick "Other..." for Thickness, type a size, nothing lands. The
+ * cause was ONE binding. `ItemFieldView.value` is the RESOLVED size -- the ladder result, or blank
+ * where nothing fits (rule X3: the field shows the size that will be PRICED) -- and the typed box
+ * was bound to it. So every keystroke was rewritten to the rung it resolved to, or erased:
+ *
+ *   type "3"  -> 3 ladders up to 13   -> the box is rewritten to "13"
+ *   type "32" -> 32 composes, no rung -> the box is BLANKED, and the note reported a stray "2"
+ *
+ * The box's render CONDITION keyed on the same resolved value, so a typed 16 resolved to the stocked
+ * 19, `options.includes("19")` went true, and the box VANISHED mid-entry while the select jumped to a
+ * size nobody chose.
+ *
+ * TWO DIFFERENT QUESTIONS WERE SHARING ONE FIELD: "what will be priced" and "what did you enter".
+ * `typedValue` is the second, and `otherMode` keys on it. The resolution is not lost -- it shows in
+ * the select beside the box and in the note beneath, which is what C-R4 asks for.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("CERT-FOUND -- a size can be TYPED into Other...", () => {
+  const F = (over: Partial<{ allowOther: boolean; value: string; typedValue: string; options: string[] }>) => ({
+    allowOther: true, value: "", typedValue: "", options: ["13", "19", "25"], ...over,
+  });
+
+  it("THE DEFECT: a typed size that RESOLVES keeps the box open and keeps what was typed", () => {
+    expect(otherMode(F({ typedValue: "16", value: "19" }))).toBe(true);
+  });
+
+  it("THE DEFECT: a typed size that resolves to NOTHING also keeps the box open", () => {
+    expect(otherMode(F({ typedValue: "32", value: "" }))).toBe(true);
+  });
+
+  it("a STOCKED size, typed or picked, is NOT other-mode -- the plain dropdown is untouched", () => {
+    expect(otherMode(F({ typedValue: "19", value: "19" }))).toBe(false);
+    expect(otherMode(F({ typedValue: "", value: "19" }))).toBe(false);
+  });
+
+  it("picking Other... (which CLEARS the field) opens the box", () => {
+    expect(otherMode(F({ typedValue: "", value: "" }))).toBe(true);
+  });
+
+  it("a field without allowOther is NEVER other-mode, whatever it holds", () => {
+    expect(otherMode(F({ allowOther: false, typedValue: "32", value: "" }))).toBe(false);
+    expect(otherMode(F({ allowOther: false, typedValue: "", value: "" }))).toBe(false);
+  });
+
+  it("VACUITY: the OLD rule really did close the box on the case that broke", () => {
+    const old = (x: { allowOther: boolean; value: string; options: string[] }) =>
+      x.allowOther && (x.value === "" || !x.options.includes(x.value));
+    // a typed 16 resolving to the stocked 19: OLD says closed (the defect), NEW says open
+    expect(old({ allowOther: true, value: "19", options: ["13", "19", "25"] })).toBe(false);
+    expect(otherMode(F({ typedValue: "16", value: "19" }))).toBe(true);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+ * OWNER RULING 2026-10-04 -- THE PANEL SAYS WHICH RATE IT IS SHOWING
+ *
+ * "the calculator panel should clearly mention whether the final rates are BoQ or BCS rate. it
+ * should be BoQ rates."
+ *
+ * The screen gave a real reason to guess wrong: the working above each figure ends with
+ * "ROUNDUP(BCS supply, 0)" and "BCS cost x (1 + markup)", so the last words before the number are
+ * "BCS cost". The number is the BoQ rate -- what the CLIENT is charged.
+ *
+ * The label is written at the two CALL SITES, never inside `FiguresRow`, which is what keeps the
+ * non-item-list (Electrical) surface byte-identical -- the same opt-in rule the `unit` label
+ * follows. Both headings read ONE constant so they cannot drift.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe("the panel names the rate it shows -- BoQ, not BCS", () => {
+  const src = readFileSync(join(__dirname, "RateHelperPanel.tsx"), "utf-8");
+
+  it("there is ONE label constant, and it says BoQ", () => {
+    expect(src).toContain('const BOQ_RATE_LABEL = "BoQ rates";');
+    expect((src.match(/const BOQ_RATE_LABEL/g) ?? []).length).toBe(1);
+  });
+
+  it("BOTH figure surfaces carry it -- the row total and each priced item", () => {
+    expect(src).toContain("Row total per 1 {view.unit} &middot; {BOQ_RATE_LABEL}");
+    // the per-item label sits immediately above that block's FiguresRow
+    const i = src.indexOf("{BOQ_RATE_LABEL}");
+    const j = src.indexOf("<FiguresRow figures={b.figures}");
+    expect(i).toBeGreaterThan(-1);
+    expect(j).toBeGreaterThan(i);
+  });
+
+  it("⚠️ it is NOT a property of FiguresRow -- that would change Electrical's panel", () => {
+    // the same boundary the sibling unit-label test uses, so both read the identical span
+    const start = src.indexOf("function FiguresRow");
+    const fn = src.slice(start, src.indexOf("interface RateHelperPanelProps"));
+    expect(fn).toContain("function FiguresRow");
+    expect(fn).not.toContain("BOQ_RATE_LABEL");
+    // ⚠️ NOT a bare /BoQ/ match: FiguresRow's own doc comment says "as the BoQ writes it" about the
+    // UNIT, which is correct and unrelated. What must be absent is the rate LABEL it would render.
+    expect(fn).not.toContain("BoQ rates");
+  });
+
+  it("NEGATIVE: the panel never labels these figures as a BCS rate", () => {
+    // BCS appears in the WORKING the pricer emits, never as a heading over the final figures
+    expect(src).not.toMatch(/BCS rates?"/);
+    expect(src).not.toContain('const BCS_RATE_LABEL');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 12c-S -- "Other..." IS A THING THE PRICER DID (owner S5 on F15), AND EVERY NOTE IS A
+// BLUE INFO BOX (owner S7, "option A")
+// ══════════════════════════════════════════════════════════════════════════════════════════
+describe("SLICE 12c-S -- Other... mode and the note box", () => {
+  const src = readFileSync(join(__dirname, "RateHelperPanel.tsx"), "utf-8");
+  const f = (o: Partial<{ allowOther: boolean; value: string; typedValue: string; options: string[]; otherMode: boolean }>) =>
+    ({ allowOther: true, value: "", typedValue: "", options: ["13", "19"], ...o });
+
+  it("F15: the helper's own verdict is the authority when it is present", () => {
+    expect(otherMode(f({ otherMode: true }))).toBe(true);
+    expect(otherMode(f({ otherMode: false, value: "", typedValue: "" }))).toBe(false);
+    // ⚠️ THE WHOLE POINT: a FRESH field (nothing typed, nothing resolved) is NOT in Other mode.
+    // Derived from emptiness alone -- as the legacy branch below still does -- it was, and every
+    // new item opened already claiming a choice the pricer had not made.
+  });
+
+  it("F15 NEGATIVE: a field that cannot type is never in Other mode, whatever the flag says", () => {
+    expect(otherMode(f({ allowOther: false, otherMode: true }))).toBe(false);
+  });
+
+  it("the legacy derivation is UNCHANGED for a caller that passes no verdict", () => {
+    // every pre-slice caller hands this predicate a bare value / typedValue pair; those must behave
+    // exactly as they did, which is what keeps this an addition rather than a rewrite
+    expect(otherMode(f({ typedValue: "30" }))).toBe(true);        // typed, unstocked
+    expect(otherMode(f({ typedValue: "13" }))).toBe(false);       // typed, stocked
+    expect(otherMode(f({ value: "" }))).toBe(true);               // the old emptiness rule
+    expect(otherMode(f({ value: "13" }))).toBe(false);
+  });
+
+  /**
+   * S7 ("option A"): one blue info box, with an info icon, for every note -- panel AND calculator,
+   * both disciplines. Amber stays for a ruled DEFAULT and red for a refusal; those were explicitly
+   * left alone.
+   */
+  it("S7: notes render in a BLUE info box, and the amber default line is untouched", () => {
+    // the item-list field box and the Electrical attribute box are the SAME treatment
+    /**
+     * INVERTED at slice 12c-F (owner R-E: "blue boxes need to be made more prominent"). This pinned
+     * TWO `bg-accent/40` boxes -- the 40%-opacity theme tint the owner found invisible. The negative
+     * half is kept and is the point: the accent tint must never come back, and the two call sites must
+     * still share ONE declaration so they cannot drift apart again.
+     */
+    expect(src.match(/bg-accent\/40/g)).toBeNull();
+    expect(src.match(/className=\{NOTE_BOX_CLASS\}/g)?.length).toBe(2);
+    expect(src).toContain("bg-blue-50");
+    expect(src).toContain("<Info className=");
+    // the ruled default keeps amber -- the one tone this panel reserves for "we filled this in"
+    expect(src).toMatch(/\{f\.rule && <p className="pl-1 text-\[10px\] leading-tight text-amber-700/);
+  });
+
+  /**
+   * F4: both the note and the "How is this matched?" help were gated on the field NOT holding a
+   * stocked value, so they existed only while the row was broken and vanished the moment it priced.
+   * The gate is gone; this pins that it stays gone, because its return would be invisible in a
+   * repo with no DOM test environment.
+   */
+  it("F4: the guidance is no longer gated on the field being unresolved", () => {
+    expect(src).not.toContain('f.typedNote && (f.value === "" || !(f.options ?? []).includes(f.value))');
+    expect(src).not.toContain('&& (f.value === "" || !(f.options ?? []).includes(f.value)) && (');
+    // and it still renders at all
+    expect(src).toContain("{f.typedNote && <p");
+    expect(src).toContain("How is this matched?");
+  });
+
+  it("S7: choosing Other... is RECORDED through the edit op, not inferred from the field clearing", () => {
+    expect(src).toContain('op: "set_other"');
+    // a real pick closes the box in the SAME op, because two dispatches from one handler would
+    // both start from the rendered state and the second would discard the first
+    expect(src).toContain('onEdit({ op: "set_attr", index: i, id: f.id, value: e.target.value });');
   });
 });

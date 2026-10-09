@@ -20,7 +20,7 @@ Two real defects an adversarial review caught and we fixed + re-verified:
    capture screen didn't flag could be blocked at approval with no way for the read-only approver to add a
    reason. Fixed by computing the approval-side **Loss %** with the Target-prioritized benchmark (the ₹
    "Savings/Loss" column is left on `min(Target, L1)` to avoid regressing existing display — recorded as a
-   gotcha, see CLAUDE.md GOTCHA 2).
+   gotcha, see GOTCHA 2 in `.claude/context/domain/procurement.md`).
 
 ## Goal
 

@@ -25,7 +25,7 @@ import frappe
 # there is invisible to the product by design.
 #
 # PostgreSQL: `linked_tds_item` is a Link (a plain varchar column), so `["is",
-# "set"]` is safe here. The `get_all` JSON-field restriction in CLAUDE.md does
+# "set"]` is safe here. The `get_all` JSON-field restriction in CODING_STANDARDS.md does
 # not apply.
 # ─────────────────────────────────────────────────────────────────────────────
 

@@ -25,6 +25,12 @@ import { DOWNLOAD_COPY, downloadErrorMessage } from "./rateMasterDownload";
 import { RateMasterUploadDialog } from "./RateMasterUploadDialog";
 import { FREEZE_BLOCKED_MESSAGE } from "./rateMasterFreeze";
 import {
+  gridColumnKeys, attrColKey, rateColKey,
+  COL_ACTIONS, COL_KIND, COL_SPEC, COL_PI_NAME, COL_BRAND, COL_UNIT,
+  COL_PI_SHARED_BY, COL_PI_USED_BY, COL_PI_ITEMS,
+  COL_SOURCE_SHEET, COL_SOURCE_ROW, COL_FORMULA_SUPPLY, COL_FORMULA_INSTALL,
+} from "./rateMasterGridColumns";
+import {
   DEFAULT_RATE_FILE_FORMAT, FORMAT_COPY, RATE_FILE_FORMATS, TWIN_COPY, twinNumbers,
   type RateFileFormat, type TwinDecision, type UploadPlan, type UploadResult, type UploadTwin,
 } from "./rateMasterUpload";
@@ -39,7 +45,7 @@ import {
   specQuestion, splitSpecColumns,
   // SLICE 12a: the derived-cost marking and the two formula surfaces, rendered by the SAME helpers the
   // rate file uses on the server side (see the cross-language pin in rateMasterSpec.ts).
-  DERIVED_COPY, FORMULA_COLUMNS, FORMULA_TYPED, columnNote, derivedCountsByKey, isDerivedCell,
+  DERIVED_COPY, FORMULA_TYPED, columnNote, derivedCountsByKey, isDerivedCell,
   rowFormula, sideOfRateKey,
   type CreateItemPayload, type SaveItemPatch, type SpecConfirmationReply, type SpecDecision,
   isPricingInputConfig,
@@ -50,6 +56,9 @@ import {
   // SLICE 12b(B): the derived rate-column kind for the header (acceptance item 1).
   deriveRateColumnLabels,
   rateColumnLabel,
+  columnOrderForFile,
+  pricingInputUsedByText,
+  sourceOrder,
 } from "./rateMasterSpec";
 
 /**
@@ -106,6 +115,18 @@ interface Props {
   onDeactivateItem?: (name: string) => Promise<void>;
   /** SLICE 12b(B): {pricing-input id -> its reach}. Absent => no ITEMS column (every non-PI grid). */
   inputReach?: Record<string, { distinctSkus: string[]; isFlatAdder: boolean }>;
+  /** SLICE 12c: the DERIVED "used by", computed by the PAGE because it needs every category's config
+   *  (the same reason `inputReach` is). Used only where an item carries no stored `used_by`. */
+  derivedUsedBy?: Record<string, { sites: number; categories: string[] }>;
+  /** {category id: its display name} -- the used-by cell names the categories, not their ids (owner
+   * 2026-10-03). Built by the PAGE, the only holder of every category's config. */
+  categoryNameById?: Record<string, string>;
+  /** SLICE 12c FINISH (owner F4): {item_uid: [rate keys]} the RULES compute -- greyed, not editable.
+   *  Told by the server beside the items, so the screen never re-derives the rule. */
+  computedRateKeys?: Record<string, string[]>;
+  /** SLICE 12d-2F (owner F1): {item_uid: {rate key: live figure}} -- what a COMPUTED cell DISPLAYS.
+   *  `items[].rates` is the STORED catalogue (what pricing reads) and no longer carries the figure. */
+  computedRates?: Record<string, Record<string, number>>;
   /** opens the impact panel on that catalogue row; null closes it */
   onOpenImpact?: (itemUid: string | null) => void;
   openImpactUid?: string | null;
@@ -161,13 +182,38 @@ const PI_W = {
   unit: 90, sharedBy: 150, usedBy: 190, items: 84,
 } as const;
 
+/** what the hover says on a cell whose figure the rules compute (owner F4) */
+const COMPUTED_CELL_TITLE =
+  "Calculated from the Pricing Inputs and this row's own size. Change the Pricing Inputs to move it.";
+
+/**
+ * SLICE 12d-2F (owner F1, 2026-10-07): THE FIGURE A RATE CELL DISPLAYS. A COMPUTED cell (one the server
+ * names in `computed_rate_keys`) shows the live figure from `computed_rates`; every other cell shows the
+ * STORED rate. ⚠️ `items[].rates` is what every pricing path reads -- the rate-helper panel, the
+ * calculator, the impact panel -- so the display figure lives in its own map and is never written into
+ * it: a projected 555 in `rates` priced the GI framework TWICE (2574 where the catalogue prices 1757).
+ * PURE, exported for its own test.
+ */
+export function displayedRateValue(
+  it: Pick<RateMasterItem, "item_uid" | "rates">,
+  k: string,
+  computed: boolean,
+  computedRates?: Record<string, Record<string, number>>,
+): number | undefined {
+  if (computed) {
+    const v = computedRates?.[String(it.item_uid ?? "")]?.[k];
+    if (v !== undefined) return v;
+  }
+  return it.rates?.[k];
+}
+
 export function RateMasterDataViewer({
   items, config, disciplineLabel, categoryLabel, isAdmin, frozen, onSaveItem, onCreateItem,
   onDeactivateItem, onDownloadCsv, onDownloadAsset, onPreviewCsv, onApplyCsv, onUploadApplied,
   // SLICE 12b(B): the ITEMS column. The reach map is computed by the PAGE (it needs every category's
   // config, which this component does not have), so the viewer only RENDERS it. Both absent => no
   // column at all, which is what keeps every other category's grid byte-identical.
-  inputReach, onOpenImpact, openImpactUid,
+  inputReach, derivedUsedBy, categoryNameById, computedRateKeys, computedRates, onOpenImpact, openImpactUid,
 }: Props) {
   // SLICE 5: which download is in flight, so a slow one cannot be double-fired. One string rather
   // than three booleans -- only one download can be running at a time by construction.
@@ -227,8 +273,12 @@ export function RateMasterDataViewer({
   // still resolves a kind, so it is UNCHANGED.
   const categoryKinds = useMemo(() => categoryItemKinds(config), [config]);
   const emptyScope = useMemo(() => isCategoryDataScopeEmpty(config), [config]);
+  // SLICE 12c / ACCEPTANCE 4: the ROWS come out in the SOURCE WORKBOOK'S order -- the same order the
+  // rate file is written in (`sourceOrder`, the mirror of `csv_exporter._source_order`). The screen used
+  // to render the fetch order (kind, then source_row), which interleaved two categories drawn from two
+  // sheets and did not match the file a reader had just downloaded. PRESENTATION ONLY.
   const scopedItems = useMemo(
-    () => (emptyScope ? [] : items.filter((it) => categoryKinds.includes(it.kind))),
+    () => (emptyScope ? [] : sourceOrder(items.filter((it) => categoryKinds.includes(it.kind)))),
     [items, categoryKinds, emptyScope]
   );
   // The kind column + chips only appear when the category spans MORE THAN ONE kind.
@@ -241,10 +291,28 @@ export function RateMasterDataViewer({
   const specMode = isSpecDrivenConfig(config);
   const specCols = useMemo(() => splitSpecColumns(config.attribute_definitions), [config]);
   const textCols = useMemo(() => (specMode ? specCols.text : []), [specMode, specCols]);
-  const attrCols = useMemo(
-    () => (specMode ? specCols.derived : config.attribute_definitions.filter((d) => d.id !== "brand")),
-    [config, specMode, specCols]
-  );
+  // SLICE 12c / ACCEPTANCE 4: ordered the way the FILE orders them -- `columnOrderForFile`, the mirror
+  // of `csv_exporter.column_order_for`. A category declaring `rate_composition` keeps its declaration
+  // order (which IS the sheet's); every other category takes the sorted order the file uses. Any
+  // definition the items do not carry keeps its declared place at the end, so a template column never
+  // disappears off the screen.
+  const fileOrder = useMemo(() => columnOrderForFile(config, scopedItems), [config, scopedItems]);
+  // SLICE 12c: the DERIVED used-by, for an input whose item carries no stored copy. See the cell below.
+  const usedByText = useCallback((it: RateMasterItem) => {
+    const stored = it.attributes?.used_by;
+    if (stored !== undefined && stored !== null && String(stored).trim() !== "") return String(stored);
+    const id = String(it.attributes?.item ?? "");
+    return id
+      ? pricingInputUsedByText((derivedUsedBy ?? {})[id], (c) => (categoryNameById ?? {})[c] ?? c)
+      : "";
+  }, [derivedUsedBy, categoryNameById]);
+  const attrCols = useMemo(() => {
+    const defs = specMode ? specCols.derived : config.attribute_definitions.filter((d) => d.id !== "brand");
+    const rank = new Map(fileOrder.attrs.map((id, i) => [id, i]));
+    const known = defs.filter((d) => rank.has(d.id))
+      .sort((x, y) => (rank.get(x.id) as number) - (rank.get(y.id) as number));
+    return [...known, ...defs.filter((d) => !rank.has(d.id))];
+  }, [config, specMode, specCols, fileOrder]);
   // The attribute definitions a human may TYPE into: the text pair in spec mode, every column otherwise.
   const editableAttrCols = specMode ? textCols : attrCols;
 
@@ -288,12 +356,10 @@ export function RateMasterDataViewer({
         scopedItems.some((it) => (it.rates || {})[k] !== undefined && (it.rates || {})[k] !== null),
       );
     }
-    const seen: string[] = [];
-    for (const it of scopedItems) {
-      for (const k of Object.keys(it.rates || {})) if (!seen.includes(k)) seen.push(k);
-    }
-    return seen;
-  }, [scopedItems, piMode]);
+    // SLICE 12c / ACCEPTANCE 4: the FILE's order, not first-seen. First-seen depended on which row the
+    // mint happened to write first, so the screen and the file agreed only by accident.
+    return fileOrder.rates;
+  }, [fileOrder, scopedItems, piMode]);
 
   /** the plan's total, so the table declares its own width and cannot be squeezed by its container */
   const piTableWidth = useMemo(() => (
@@ -301,6 +367,15 @@ export function RateMasterDataViewer({
     + rateCols.length * PI_W.rate + PI_W.unit + PI_W.sharedBy + PI_W.usedBy
     + (showImpactCol ? PI_W.items : 0)
   ), [canEdit, showKindCol, rateCols.length, showImpactCol]);
+
+  /**
+   * THE ONE ORDERING of this grid's columns. The header row, the formula row, every body row and the
+   * empty-state colSpan all read THIS -- there is no second list to drift against (see
+   * `rateMasterGridColumns.ts` for what drifting cost).
+   */
+  const gridCols = useMemo(() => gridColumnKeys({
+    canEdit, showKindCol, piMode, specMode, showImpactCol, textCols, attrCols, rateCols,
+  }), [canEdit, showKindCol, piMode, specMode, showImpactCol, textCols, attrCols, rateCols]);
 
   // SLICE 12a: the row-level formula text for every scoped item, and how many rows declare each rate
   // column derived (what the formula row's count names). ONE pass, memoised on the items + config.
@@ -898,65 +973,95 @@ export function RateMasterDataViewer({
           ) : null}
           <TableHeader>
             <TableRow>
-              {/* EA-1c change 2: actions FIRST + sticky-left (absent entirely for non-admins).
+              {/* ⚠️ RENDERED BY MAPPING `gridCols` -- THE ONE ORDERING. Each cell's markup is unchanged;
+                  only its PLACEMENT now comes from the shared list, so the header cannot move without
+                  the body moving with it. That is precisely what broke on 2026-10-03 (`8fa8d3262`):
+                  the `unit` header moved here and the body cell stayed after the rate columns, and
+                  every value between the two rendered under the wrong heading.
+                  EA-1c change 2: actions FIRST + sticky-left (absent entirely for non-admins).
                   EA-2 rider 3: the whole header row is ALSO sticky-top; the actions CORNER cell gets
                   z-30 so it wins over both the sticky row (z-20) and the sticky body column (z-10) and
                   never ghosts. */}
-              {canEdit && <TableHead className="sticky left-0 top-0 z-30 bg-background text-right">actions</TableHead>}
-              {showKindCol && <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("kind", "kind")}</TableHead>}
-              {/* SLICE 1c (U3): the text pair FIRST, then the spec verdict, then brand, then the derived
-                  attributes each tagged "read from spec". Absent entirely for a non-spec category. */}
-              {textCols.map((d) => (
-                <TableHead key={d.id} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr(`attr:${d.id}`, d.label)}</TableHead>
-              ))}
-              {specMode && <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("spec", SPEC_COPY.specColumn)}</TableHead>}
-              {/* SLICE 12b(A): a Pricing Input's NAME leads the row -- it is what the reader is looking
-                  for, and `brand` / `source` mean nothing for a number a pricer edits. ACCEPTANCE 4. */}
-              {piMode && (
-                <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:name", "input")}</TableHead>
-              )}
-              {!piMode && <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("brand", "brand")}</TableHead>}
-              {attrCols.map((d) => (
-                <TableHead key={d.id} className={cn("sticky top-0 z-20 bg-background", piHead)}>
-                  {hdr(`attr:${d.id}`, d.label, false, specMode ? SPEC_COPY.readFromSpec : undefined)}
-                </TableHead>
-              ))}
-              {rateCols.map((k) => (
-                <TableHead key={k} className={cn("sticky top-0 z-20 bg-background text-right", piHead)}>
-                  {/* SLICE 12b(B) acceptance 1: the DERIVED kind rides beside the key. A Pricing
-                      Input carries its own fixed column label instead -- it is not a SKU rate. */}
-                  {hdr(`rate:${k}`,
-                       piMode ? (PRICING_INPUT_COLUMN_SHORT_LABELS[k] ?? PRICING_INPUT_COLUMN_LABELS[k] ?? k) : k, true,
-                       undefined, piMode ? undefined : rateLabelFor(k))}
-                </TableHead>
-              ))}
-              <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("unit", "unit")}</TableHead>
-              {/* ACCEPTANCE 12: sharing has its OWN column, never the name. ACCEPTANCE 4/13: the remark
-                  and the READ-ONLY used-by count. The SKU columns (source sheet / row, the two formula
-                  columns) are absent -- they are what "nothing borrowed from a SKU file" means. */}
-              {piMode ? (
-                <>
-                  <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:shared_by", "shared by")}</TableHead>
-                  {/* ⚠️ NO `remarks` COLUMN since 12b(B): it renders under the input's NAME (acceptance
-                      item 6). Its faceted filter goes with it -- a 255-character sentence was never a
-                      useful facet -- and the remark is now in the SEARCH haystack, which it was not
-                      before (see the `rows` memo). */}
-                  <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:used_by", "used by")}</TableHead>
-                  {/* SLICE 12b(B) / ACCEPTANCE 8: DISTINCT SKUs whose rate this input moves, clickable.
-                      ⚠️ NOT the `used_by` site count -- measured on v65 those correlate with nothing
-                      (`tray_supply` is 1 site / 450 SKUs; `conduit` is 10 sites / 8 SKUs). */}
-                  {showImpactCol ? (
-                    <TableHead className={cn("sticky top-0 z-20 bg-background text-right", piHead)}>items</TableHead>
-                  ) : null}
-                </>
-              ) : (
-                <>
-                  <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("source_sheet", "source sheet")}</TableHead>
-                  <TableHead className={cn("sticky top-0 z-20 bg-background text-right", piHead)}>{hdr("source_row", "row", true)}</TableHead>
-                  <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{DERIVED_COPY.columnHeaderSupply}</TableHead>
-                  <TableHead className={cn("sticky top-0 z-20 bg-background", piHead)}>{DERIVED_COPY.columnHeaderInstall}</TableHead>
-                </>
-              )}
+              {gridCols.map((key) => {
+                if (key === COL_ACTIONS) {
+                  return <TableHead key={key} className="sticky left-0 top-0 z-30 bg-background text-right">actions</TableHead>;
+                }
+                if (key === COL_KIND) {
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("kind", "kind")}</TableHead>;
+                }
+                if (key === COL_SPEC) {
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("spec", SPEC_COPY.specColumn)}</TableHead>;
+                }
+                if (key === COL_PI_NAME) {
+                  /* SLICE 12b(A): a Pricing Input's NAME leads the row -- it is what the reader is
+                     looking for, and `brand` / `source` mean nothing for a number a pricer edits. */
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:name", "input")}</TableHead>;
+                }
+                if (key === COL_BRAND) {
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("brand", "brand")}</TableHead>;
+                }
+                if (key === COL_UNIT) {
+                  /* SLICE 12c / ACCEPTANCE 4 (U4, approved): on a SKU grid `unit` sits right after
+                     `brand`, where the rate file puts it; in Pricing Inputs it stays after the rate
+                     columns. `gridColumnKeys` decides which, for the header AND the body at once. */
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("unit", "unit")}</TableHead>;
+                }
+                if (key.startsWith("attr:")) {
+                  const id = key.slice(5);
+                  const d = [...textCols, ...attrCols].find((c) => c.id === id);
+                  if (!d) return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)} />;
+                  const isText = textCols.some((c) => c.id === id);
+                  /* SLICE 1c (U3): the text pair FIRST, then the spec verdict, then brand, then the
+                     derived attributes each tagged "read from spec". */
+                  return (
+                    <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>
+                      {isText ? hdr(`attr:${d.id}`, d.label)
+                              : hdr(`attr:${d.id}`, d.label, false, specMode ? SPEC_COPY.readFromSpec : undefined)}
+                    </TableHead>
+                  );
+                }
+                if (key.startsWith("rate:")) {
+                  const k = key.slice(5);
+                  return (
+                    <TableHead key={key} className={cn("sticky top-0 z-20 bg-background text-right", piHead)}>
+                      {/* SLICE 12b(B) acceptance 1: the DERIVED kind rides beside the key. A Pricing
+                          Input carries its own fixed column label instead -- it is not a SKU rate. */}
+                      {hdr(`rate:${k}`,
+                           piMode ? (PRICING_INPUT_COLUMN_SHORT_LABELS[k] ?? PRICING_INPUT_COLUMN_LABELS[k] ?? k) : k, true,
+                           undefined, piMode ? undefined : rateLabelFor(k))}
+                    </TableHead>
+                  );
+                }
+                /* ACCEPTANCE 12: sharing has its OWN column, never the name. ACCEPTANCE 4/13: the
+                   remark and the READ-ONLY used-by count. The SKU columns (source sheet / row, the two
+                   formula columns) are absent in Pricing Inputs -- they are what "nothing borrowed
+                   from a SKU file" means. */
+                if (key === COL_PI_SHARED_BY) {
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:shared_by", "shared by")}</TableHead>;
+                }
+                if (key === COL_PI_USED_BY) {
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("pi:used_by", "used by")}</TableHead>;
+                }
+                if (key === COL_PI_ITEMS) {
+                  /* SLICE 12b(B) / ACCEPTANCE 8: DISTINCT SKUs whose rate this input moves, clickable.
+                     ⚠️ NOT the `used_by` site count -- measured on v65 those correlate with nothing
+                     (`tray_supply` is 1 site / 450 SKUs; `conduit` is 10 sites / 8 SKUs). */
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background text-right", piHead)}>items</TableHead>;
+                }
+                if (key === COL_SOURCE_SHEET) {
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{hdr("source_sheet", "source sheet")}</TableHead>;
+                }
+                if (key === COL_SOURCE_ROW) {
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background text-right", piHead)}>{hdr("source_row", "row", true)}</TableHead>;
+                }
+                if (key === COL_FORMULA_SUPPLY) {
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{DERIVED_COPY.columnHeaderSupply}</TableHead>;
+                }
+                if (key === COL_FORMULA_INSTALL) {
+                  return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)}>{DERIVED_COPY.columnHeaderInstall}</TableHead>;
+                }
+                return <TableHead key={key} className={cn("sticky top-0 z-20 bg-background", piHead)} />;
+              })}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -965,63 +1070,85 @@ export function RateMasterDataViewer({
                 (`csv_exporter.formula_row_cells`). Generated from the category's own pipelines, its
                 `rate_composition` and its `derived_rates`; an explanation, never data. */}
             <TableRow data-testid="formula-row" className="bg-sky-50/60 align-top [&>td]:max-h-24 [&>td]:overflow-y-auto">
-              {canEdit && <TableCell className="sticky left-0 z-10 bg-sky-50/60" />}
-              {showKindCol && <TableCell />}
-              {textCols.map((d) => <TableCell key={d.id} />)}
-              {specMode && <TableCell />}
-              <TableCell className="text-[10px] uppercase tracking-wide text-sky-800">
-                {DERIVED_COPY.formulaRowLabel}
-              </TableCell>
-              {attrCols.map((d) => <TableCell key={d.id} />)}
-              {/* ⚠️ IN PRICING-INPUTS MODE THIS IS ONE CELL ACROSS THE NUMERICS, NOT NINE NARROW COPIES.
-                  Each numeric column is ~68px wide, so the same sentence repeated under every one of
-                  them wrapped to five or six lines apiece and the formula row became a wall of prose.
-                  The FULL per-column explanation is unchanged in the rate file and stays on the hover,
-                  which is what `columnNote` is pinned to byte-for-byte across the two languages -- it
-                  is the RENDERING that is short here, never the note. */}
-              {piMode ? (
-                <TableCell
-                  colSpan={rateCols.length}
-                  className="whitespace-normal align-top text-[11px] italic leading-snug text-sky-900"
-                  title={rateCols.map((k) => `${PRICING_INPUT_COLUMN_LABELS[k] ?? k}: ${columnNote(config, k, derivedCounts[k] ?? 0)}`).join("\n\n")}
-                  data-testid="formula-note-pi"
-                >
-                  {DERIVED_COPY.formulaRowPiShort}
-                </TableCell>
-              ) : rateCols.map((k) => (
-                <TableCell
-                  key={k}
-                  // The note is scrollable rather than tall: unbounded, ONE long explanation made the
-                  // formula row ~250px and pushed the first item row off the screen. Same reasoning as
-                  // the .xlsx, where the owner asked for three standard rows and no more.
-                  className="max-w-[24rem] max-h-24 overflow-y-auto whitespace-pre-line text-left align-top text-[11px] italic text-sky-900"
-                  title={columnNote(config, k, derivedCounts[k] ?? 0)}
-                  data-testid={`formula-note-${k}`}
-                >
-                  {columnNote(config, k, derivedCounts[k] ?? 0)}
-                </TableCell>
-              ))}
-              <TableCell />
-              <TableCell />
-              <TableCell />
-              {/* ⚠️ `!piMode` TO MATCH THE HEADER AND THE BODY, which both leave these out in pricing-
-                  inputs mode (the body already does, at `!piMode && FORMULA_COLUMNS.map`). Rendering
-                  them here alone put two extra cells on this row only, outside the column plan, and
-                  the formula row stood 445px tall against a 1482px table. */}
-              {!piMode && FORMULA_COLUMNS.map((fc) => (
-                <TableCell key={fc} className="max-w-[22rem] whitespace-pre-line text-[11px] italic text-sky-900">
-                  {DERIVED_COPY.formulaRowHint}
-                </TableCell>
-              ))}
+              {/* ⚠️ ALSO RENDERED FROM `gridCols` -- this row carried a THIRD ordering of its own (one
+                  label cell where the header has brand + unit, then three bare cells and two formula
+                  cells against four header columns), so it drifted too. Mapping the shared list is what
+                  makes that impossible. In Pricing-Inputs mode the rate columns collapse to ONE
+                  colSpan cell, which is handled by skipping the rest of the rate keys. */}
+              {gridCols.map((key, idx) => {
+                if (key === COL_PI_NAME || key === COL_BRAND) {
+                  /* the label sits in the first NAME-ish column, as it always has */
+                  return (
+                    <TableCell key={key} className="text-[10px] uppercase tracking-wide text-sky-800">
+                      {DERIVED_COPY.formulaRowLabel}
+                    </TableCell>
+                  );
+                }
+                if (key.startsWith("rate:")) {
+                  const k = key.slice(5);
+                  if (piMode) {
+                    /* ⚠️ IN PRICING-INPUTS MODE THIS IS ONE CELL ACROSS THE NUMERICS, NOT NINE NARROW
+                       COPIES. Each numeric column is ~68px wide, so the same sentence repeated under
+                       every one of them wrapped to five or six lines apiece and the formula row became
+                       a wall of prose. The FULL per-column explanation is unchanged in the rate file
+                       and stays on the hover, which is what `columnNote` is pinned to byte-for-byte
+                       across the two languages -- it is the RENDERING that is short here, never the
+                       note. Emitted once, on the FIRST rate column; the others render nothing. */
+                    if (k !== rateCols[0]) return null;
+                    return (
+                      <TableCell
+                        key={key}
+                        colSpan={rateCols.length}
+                        className="whitespace-normal align-top text-[11px] italic leading-snug text-sky-900"
+                        title={rateCols.map((rk) => `${PRICING_INPUT_COLUMN_LABELS[rk] ?? rk}: ${columnNote(config, rk, derivedCounts[rk] ?? 0)}`).join("\n\n")}
+                        data-testid="formula-note-pi"
+                      >
+                        {DERIVED_COPY.formulaRowPiShort}
+                      </TableCell>
+                    );
+                  }
+                  return (
+                    <TableCell
+                      key={key}
+                      // The note is scrollable rather than tall: unbounded, ONE long explanation made the
+                      // formula row ~250px and pushed the first item row off the screen. Same reasoning as
+                      // the .xlsx, where the owner asked for three standard rows and no more.
+                      className="max-w-[24rem] max-h-24 overflow-y-auto whitespace-pre-line text-left align-top text-[11px] italic text-sky-900"
+                      title={columnNote(config, k, derivedCounts[k] ?? 0)}
+                      data-testid={`formula-note-${k}`}
+                    >
+                      {columnNote(config, k, derivedCounts[k] ?? 0)}
+                    </TableCell>
+                  );
+                }
+                if (key === COL_FORMULA_SUPPLY || key === COL_FORMULA_INSTALL) {
+                  return (
+                    <TableCell key={key} className="max-w-[22rem] whitespace-pre-line text-[11px] italic text-sky-900">
+                      {DERIVED_COPY.formulaRowHint}
+                    </TableCell>
+                  );
+                }
+                /* every other column of the plan gets an empty cell -- one per column, never more */
+                return <TableCell key={key ? key : `blank-${idx}`} />;
+              })}
             </TableRow>
             {filtered.map((r, i) => {
               const editing = canEdit && editingRow === r.it.name;
-              return (
-              /* ⚠️ COMPACT PADDING IN PRICING-INPUTS MODE ONLY -- the owner's rule is that no row
-                 exceeds five lines of text, and the default cell padding alone was over a line. */
-              <TableRow key={r.it.name ?? i} className={cn(piMode && "[&>td]:py-1.5 align-top")}>
-                {canEdit && (
-                  <TableCell className="sticky left-0 z-10 bg-background text-right">
+              /**
+               * ⚠️ EVERY CELL'S MARKUP IS UNCHANGED -- only its PLACEMENT moved. Each cell is built
+               * into a keyed map and the row then renders `gridCols.map(...)`, so the body cannot
+               * carry an ordering of its own. That is the defect this replaces: on 2026-10-03
+               * (`8fa8d3262`) the `unit` HEADER moved to just after `brand` and this row kept its cell
+               * after the rate columns, so every value in between rendered under the wrong heading --
+               * on Electrical's wiring grid the unit "Set" sat under `lug_list`, "COPPER" under
+               * `Insulation`; on HVAC Insulation a markup sat under `cost_supply`. The FILE was right
+               * throughout, which is why nothing downstream noticed and no test could: the screen
+               * showed plausible numbers under the wrong names.
+               */
+              const cells: Record<string, React.ReactNode> = {};
+
+              cells[COL_ACTIONS] = (
+                  <TableCell key={COL_ACTIONS} className="sticky left-0 z-10 bg-background text-right">
                     {editing ? (
                       <div className="flex flex-col items-end gap-1">
                         <div className="flex items-center justify-end gap-1">
@@ -1066,10 +1193,13 @@ export function RateMasterDataViewer({
                       </div>
                     )}
                   </TableCell>
-                )}
-                {showKindCol && <TableCell>{r.it.kind}</TableCell>}
-                {textCols.map((d) => (
-                  <TableCell key={d.id} className="max-w-[20rem] whitespace-normal">
+              );
+
+              cells[COL_KIND] = <TableCell key={COL_KIND}>{r.it.kind}</TableCell>;
+
+              for (const d of textCols) {
+                cells[attrColKey(d.id)] = (
+                  <TableCell key={attrColKey(d.id)} className="max-w-[20rem] whitespace-normal">
                     {editing ? (
                       <Input
                         className="h-7 w-56 text-xs"
@@ -1082,9 +1212,11 @@ export function RateMasterDataViewer({
                       cellText(r.it.attributes?.[d.id])
                     )}
                   </TableCell>
-                ))}
-                {specMode && (
-                  <TableCell className="whitespace-normal" data-testid="spec-cell">
+                );
+              }
+
+              cells[COL_SPEC] = (
+                  <TableCell key={COL_SPEC} className="whitespace-normal" data-testid="spec-cell">
                     {editing && rowAsk && rowAsk.name === r.it.name && rowAsk.reply.suggestion ? (
                       // SLICE 1d (owner T-b 6): the edit's text was not read exactly -- ask before saving.
                       <div className="max-w-[18rem] rounded border border-amber-500/40 bg-amber-50 p-1.5 text-[10px] text-amber-900 dark:bg-amber-950/30 dark:text-amber-200" data-testid="row-spec-question">
@@ -1117,15 +1249,14 @@ export function RateMasterDataViewer({
                       <span className="text-[10px] text-muted-foreground">{SPEC_COPY.readFromSpec}</span>
                     )}
                   </TableCell>
-                )}
-                {/* SLICE 12b(A): the input's NAME leads the row, where brand sits for a SKU. */}
-                {/* SLICE 12b(B) / ACCEPTANCE ITEM 6: the remark sits UNDER the name, as the mock draws
-                    it, instead of holding a column of its own. Measured: the longest remark is 255
-                    characters, so as a column it took the width the eight percentage columns needed.
-                    Under the name it wraps into the slack column and reads as what it is -- a sentence
-                    about the input above it. */}
-                {piMode ? (
-                  <TableCell className="font-medium align-top">
+              );
+
+              {/* SLICE 12b(A): the input's NAME leads the row, where brand sits for a SKU.
+                  SLICE 12b(B) / ACCEPTANCE ITEM 6: the remark sits UNDER the name, as the mock draws
+                  it, instead of holding a column of its own. Measured: the longest remark is 255
+                  characters, so as a column it took the width the eight percentage columns needed. */}
+              cells[COL_PI_NAME] = (
+                  <TableCell key={COL_PI_NAME} className="font-medium align-top">
                     <div>{String(r.it.attributes?.name ?? "")}</div>
                     {String(r.it.attributes?.remarks ?? "") ? (
                       <div
@@ -1136,12 +1267,15 @@ export function RateMasterDataViewer({
                       </div>
                     ) : null}
                   </TableCell>
-                ) : (
-                  <TableCell>{r.it.brand}</TableCell>
-                )}
-                {attrCols.map((d) => (
+              );
+
+              cells[COL_BRAND] = <TableCell key={COL_BRAND}>{r.it.brand}</TableCell>;
+              cells[COL_UNIT] = <TableCell key={COL_UNIT}>{r.it.unit}</TableCell>;
+
+              for (const d of attrCols) {
+                cells[attrColKey(d.id)] = (
                   <TableCell
-                    key={d.id}
+                    key={attrColKey(d.id)}
                     className={specMode ? "bg-muted/40 text-muted-foreground" : undefined}
                     title={specMode ? SPEC_COPY.readFromSpec : undefined}
                   >
@@ -1157,22 +1291,41 @@ export function RateMasterDataViewer({
                       cellText(r.it.attributes?.[d.id])
                     )}
                   </TableCell>
-                ))}
-                {rateCols.map((k) => {
+                );
+              }
+
+              for (const k of rateCols) {
                   // SLICE 12a (owner I-2 / I-3): a DERIVED cost belongs to another catalogue row. It is
                   // MARKED and NOT editable -- no input is rendered, so the value cannot be typed over;
                   // the upload path refuses it server-side as well (`csv_importer`). Every OTHER cell of
                   // the row, its own cost parts and its markups included, stays exactly as editable as
                   // it was.
                   const derived = isDerivedCell(config, r.it.item_uid, k);
-                  return (
+                  /**
+                   * SLICE 12c FINISH (owner F4): a COMPUTED cell shows the LIVE figure, GREYED and not
+                   * editable -- the owner asked to SEE the calculated number, which is what separates
+                   * it from a DERIVED cell (amber, and showing the word). Which cells are computed is
+                   * told to us by the server beside the items, so the screen never re-derives the rule.
+                   * An Aluminium Foil row is absent from that map and stays typed and editable.
+                   */
+                  const computed = !derived
+                    && (computedRateKeys?.[String(r.it.item_uid ?? "")] ?? []).includes(k);
+                  const readOnlyCell = derived || computed;
+                  // SLICE 12d-2F (owner F1): the figure this cell SHOWS. A computed cell shows the live
+                  // figure from `computed_rates`; `r.it.rates` is the stored catalogue and is never the
+                  // display source for it (nor is the display figure ever a price input).
+                  const shown = displayedRateValue(r.it, k, computed, computedRates);
+                  cells[rateColKey(k)] = (
                   <TableCell
-                    key={k}
-                    className={cn("text-right tabular-nums", derived && "bg-amber-50 text-amber-900")}
-                    title={derived ? formulaByUid.get(r.it.item_uid ?? "")?.[sideOfRateKey(k) === "install" ? 1 : 0] : undefined}
-                    data-testid={derived ? "derived-rate-cell" : undefined}
+                    key={rateColKey(k)}
+                    className={cn("text-right tabular-nums", derived && "bg-amber-50 text-amber-900",
+                                  computed && "bg-muted text-muted-foreground")}
+                    title={derived
+                      ? formulaByUid.get(r.it.item_uid ?? "")?.[sideOfRateKey(k) === "install" ? 1 : 0]
+                      : computed ? COMPUTED_CELL_TITLE : undefined}
+                    data-testid={derived ? "derived-rate-cell" : computed ? "computed-rate-cell" : undefined}
                   >
-                    {editing && !derived ? (
+                    {editing && !readOnlyCell ? (
                       <Input
                         className="h-7 w-24 text-right text-xs"
                         inputMode="decimal"
@@ -1181,14 +1334,14 @@ export function RateMasterDataViewer({
                         onChange={(e) => setDraftRates((p) => ({ ...p, [k]: e.target.value }))}
                         aria-label={`${k} value`}
                       />
-                    ) : r.it.rates?.[k] === undefined ? (
+                    ) : shown === undefined ? (
                       derived ? <span className="text-[10px] italic">{DERIVED_COPY.cellTag}</span> : ""
                     ) : (
                       <>
                         {/* ACCEPTANCE 6: a Pricing Input's factor reads as a PERCENTAGE. The stored
                             value is untouched -- `pricingInputCell` mirrors the server's `as_percent`,
                             so the screen and the rate file can never disagree about which number it is. */}
-                        {piMode ? pricingInputCell(k, r.it.rates[k]) : r.it.rates[k]}
+                        {piMode ? pricingInputCell(k, shown) : shown}
                         {derived && (
                           <span className="ml-1 text-[10px] italic">{DERIVED_COPY.cellTag}</span>
                         )}
@@ -1196,26 +1349,35 @@ export function RateMasterDataViewer({
                     )}
                   </TableCell>
                   );
-                })}
-                <TableCell>{r.it.unit}</TableCell>
-                {piMode && (
-                  <>
-                    <TableCell className="align-top text-[11px] text-muted-foreground">
+              }
+
+              cells[COL_PI_SHARED_BY] = (
+                    <TableCell key={COL_PI_SHARED_BY} className="align-top text-[11px] text-muted-foreground">
                       <span className="line-clamp-2" title={String(r.it.attributes?.shared_by ?? "")}>
                         {String(r.it.attributes?.shared_by ?? "") || "—"}
                       </span>
                     </TableCell>
+              );
                     {/* the remark moved under the NAME (acceptance item 6) -- no column of its own */}
                     {/* READ-ONLY: derived from the pricing rules, so there is no input to type into. */}
                     {/* ⚠️ NEVER `whitespace-nowrap` HERE. In a fixed 190px column a 65-character list
                         overflowed its cell and ran under the items badge -- the owner saw it. */}
-                    <TableCell className="align-top text-[11px] text-muted-foreground" data-testid="pi-used-by">
-                      <span className="line-clamp-2" title={String(r.it.attributes?.used_by ?? "")}>
-                        {String(r.it.attributes?.used_by ?? "")}
+                    {/* ⚠️ SLICE 12c: STORED FIRST, DERIVED WHERE NOTHING IS STORED. The rate FILE always
+                        DERIVES this (`csv_exporter.pricing_input_used_by`), and the comment at the top of
+                        this file says it is "derived from the pricing rules, never edited" -- but the
+                        SCREEN has always rendered a STORED attribute, and Electrical's items carry one in
+                        a DIFFERENT format (display names joined by a middot) from the derived string. So
+                        deriving unconditionally would change Electrical's column, which cert step 6
+                        requires byte-identical. */}
+              cells[COL_PI_USED_BY] = (
+                    <TableCell key={COL_PI_USED_BY} className="align-top text-[11px] text-muted-foreground" data-testid="pi-used-by">
+                      <span className="line-clamp-2" title={usedByText(r.it)}>
+                        {usedByText(r.it)}
                       </span>
                     </TableCell>
-                    {showImpactCol ? (
-                      <TableCell className="text-right">
+              );
+              cells[COL_PI_ITEMS] = (
+                      <TableCell key={COL_PI_ITEMS} className="text-right">
                         <button
                           type="button"
                           onClick={() => onOpenImpact?.(
@@ -1231,24 +1393,34 @@ export function RateMasterDataViewer({
                           {impactCountFor(r.it)}
                         </button>
                       </TableCell>
-                    ) : null}
-                  </>
-                )}
-                {!piMode && <TableCell>{r.it.source_sheet}</TableCell>}
-                {!piMode && <TableCell className="text-right tabular-nums">{r.it.source_row}</TableCell>}
-                {/* SLICE 12a (owner I-6): the two READ-ONLY formula columns, on every row of every
-                    discipline -- the same text the rate file carries, rendered by the same helpers. */}
-                {!piMode && FORMULA_COLUMNS.map((fc, fi) => (
-                  <TableCell key={fc} className="max-w-[22rem] whitespace-pre-line text-[11px] text-muted-foreground">
-                    {formulaByUid.get(r.it.item_uid ?? "")?.[fi] ?? FORMULA_TYPED}
+              );
+
+              cells[COL_SOURCE_SHEET] = <TableCell key={COL_SOURCE_SHEET}>{r.it.source_sheet}</TableCell>;
+              cells[COL_SOURCE_ROW] = <TableCell key={COL_SOURCE_ROW} className="text-right tabular-nums">{r.it.source_row}</TableCell>;
+              {/* SLICE 12a (owner I-6): the two READ-ONLY formula columns, on every row of every
+                  discipline -- the same text the rate file carries, rendered by the same helpers. */}
+              cells[COL_FORMULA_SUPPLY] = (
+                  <TableCell key={COL_FORMULA_SUPPLY} className="max-w-[22rem] whitespace-pre-line text-[11px] text-muted-foreground">
+                    {formulaByUid.get(r.it.item_uid ?? "")?.[0] ?? FORMULA_TYPED}
                   </TableCell>
-                ))}
+              );
+              cells[COL_FORMULA_INSTALL] = (
+                  <TableCell key={COL_FORMULA_INSTALL} className="max-w-[22rem] whitespace-pre-line text-[11px] text-muted-foreground">
+                    {formulaByUid.get(r.it.item_uid ?? "")?.[1] ?? FORMULA_TYPED}
+                  </TableCell>
+              );
+
+              return (
+              /* ⚠️ COMPACT PADDING IN PRICING-INPUTS MODE ONLY -- the owner's rule is that no row
+                 exceeds five lines of text, and the default cell padding alone was over a line. */
+              <TableRow key={r.it.name ?? i} className={cn(piMode && "[&>td]:py-1.5 align-top")}>
+                {gridCols.map((key) => cells[key] ?? <TableCell key={key} />)}
               </TableRow>
               );
             })}
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={(canEdit ? 1 : 0) + (showKindCol ? 1 : 0) + textCols.length + (specMode ? 1 : 0) + 1 + attrCols.length + rateCols.length + 3 + FORMULA_COLUMNS.length} className="text-center text-muted-foreground">
+                <TableCell colSpan={gridCols.length} className="text-center text-muted-foreground">
                   No rows match.
                 </TableCell>
               </TableRow>

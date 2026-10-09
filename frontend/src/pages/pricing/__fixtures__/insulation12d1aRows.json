@@ -1,0 +1,672 @@
+[
+ {
+  "id": "a_material_named",
+  "boq": "BOQ-26-00003",
+  "sheet": "PUNE HVAC BOQ",
+  "excel_row": 160,
+  "unit": "Sqmt",
+  "description": "SITC of Duct Acoustic Insulation applied inside of duct work with 15 mm thick of open cell nitrile rubber insulation Class \"1\" grade of 140-160Kg/Cum density as per the specifications and as shown in the drawings. manufacturer recommended Adhesive should be used to fix the Acoustic lining in the ducts. Low VOC adhesive shall be used.",
+  "headings": [
+   "Insulation"
+  ],
+  "payload": {
+   "id": 160,
+   "description": "SITC of Duct Acoustic Insulation applied inside of duct work with 15 mm thick of open cell nitrile rubber insulation Class \"1\" grade of 140-160Kg/Cum density as per the specifications and as shown in the drawings. manufacturer recommended Adhesive should be used to fix the Acoustic lining in the ducts. Low VOC adhesive shall be used.",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "PUNE HVAC BOQ"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "Insulation"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "15 mm",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "open_closed_cell",
+  "boq": "BOQ-26-00012",
+  "sheet": "HVAC - Low side",
+  "excel_row": 37,
+  "unit": "Sqmt",
+  "description": "13mm",
+  "headings": [
+   "THERMAL INSULATION",
+   "Supply, installation, and testing of closed cell thermal insulation for ductwork , made of nitrile butadiene rubber (NBR) or equivalent material, with a density of 40-60 kg/m³, thermal conductivity ≤ 0.036 W/m·K at 0°C, and water vapor diffusion resistance factor ≥ 7000. Insulation to be applied on copper piping and ducts, including all necessary adhesives, tape, cladding (where required), and accessories for a complete vapor-tight installation, ensuring protection against condensation and heat loss, as per specifications and approved shop drawings."
+  ],
+  "payload": {
+   "id": 37,
+   "description": "13mm",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "HVAC - Low side"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "THERMAL INSULATION"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "Supply, installation, and testing of closed cell thermal insulation for ductwork , made of nitrile butadiene rubber (NBR) or equivalent material, with a density of 40-60 kg/m³, thermal conductivity ≤ 0.036 W/m·K at 0°C, and water vapor diffusion resistance factor ≥ 7000. Insulation to be applied on copper piping and ducts, including all necessary adhesives, tape, cladding (where required), and accessories for a complete vapor-tight installation, ensuring protection against condensation and heat loss, as per specifications and approved shop drawings."
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "13mm",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "b_no_material_per_metre",
+  "boq": "BOQ-26-00234",
+  "sheet": "(CHW BOQ) AHU & Low Side",
+  "excel_row": 139,
+  "unit": "Rmt",
+  "description": "25 mm dia",
+  "headings": [
+   "CHILLED WATER PIPING WORKS",
+   "19 mm thick insulation from 25 mm dia to 32 mm dia"
+  ],
+  "payload": {
+   "id": 139,
+   "description": "25 mm dia",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "(CHW BOQ) AHU & Low Side"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "CHILLED WATER PIPING WORKS"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "19 mm thick insulation from 25 mm dia to 32 mm dia"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "19 mm",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "25 mm dia",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "c_no_material_per_sqm",
+  "boq": "BOQ-26-00088",
+  "sheet": "HVAC",
+  "excel_row": 57,
+  "unit": "M2",
+  "description": "THERMAL INSULATION 9MM TH",
+  "headings": [],
+  "payload": {
+   "id": 57,
+   "description": "THERMAL INSULATION 9MM TH",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "HVAC"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "9MM",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "d_no_material_sqm_acoustic_heading",
+  "boq": "BOQ-26-00012",
+  "sheet": "HVAC - Low side",
+  "excel_row": 44,
+  "unit": "Sqmt",
+  "description": "15mm thick for Ducts",
+  "headings": [
+   "ACOUSTIC INSULATION"
+  ],
+  "payload": {
+   "id": 44,
+   "description": "15mm thick for Ducts",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "HVAC - Low side"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "ACOUSTIC INSULATION",
+     "notes": {
+      "attached": [
+       "Supply & Fixing of Duct liner/Acoustic insulation of specified thickness of 15 mm manufactured as per ASTM E 84 test & which should also meet NFPA 90A supplementary materials for air distribution system which should not absorbs less 0.2% water by volume (ASTM c 209), should not support microbial growth (ASTM C1071, G21, G22) and should emit objectionable odors (ASTM C 665) and should have thermal conductivity of 0.036 ( R - 2.78 in 3.4\" thickness) and water vapor permeance of 0.10. Class -0 material with sound absorbing capacity & density 150 Kg/cum."
+      ]
+     }
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "15mm",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "e_cladding_silent",
+  "boq": "BOQ-26-00003",
+  "sheet": "PUNE HVAC BOQ",
+  "excel_row": 158,
+  "unit": "Sqmt",
+  "description": "SITC of Thermal Insulation of ducts with 13 mm thk. nitrile foam insulation. All joints shall be covered with 150 mm wide insulation strip wrapped around the joint and finished with 50 mm wide self adhesive cotton tape. Low VOC adhesive shall used.",
+  "headings": [
+   "Insulation"
+  ],
+  "payload": {
+   "id": 158,
+   "description": "SITC of Thermal Insulation of ducts with 13 mm thk. nitrile foam insulation. All joints shall be covered with 150 mm wide insulation strip wrapped around the joint and finished with 50 mm wide self adhesive cotton tape. Low VOC adhesive shall used.",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "PUNE HVAC BOQ"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "Insulation"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "13 mm",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "f_cladding_uv_coating",
+  "boq": "BOQ-26-00017",
+  "sheet": "Lowside ",
+  "excel_row": 94,
+  "unit": "Sq.m",
+  "description": "19 mm Thick thermal insulation for all outdoor ducts with FRP Wrapping and UV coatying",
+  "headings": [
+   "INSULATION"
+  ],
+  "payload": {
+   "id": 94,
+   "description": "19 mm Thick thermal insulation for all outdoor ducts with FRP Wrapping and UV coatying",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "Lowside "
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "INSULATION",
+     "notes": {
+      "attached": [
+       "Supply & installation of Thermal Insulation of the ducts material shall be class \" O \" insulation Closed cell Elastomeric Nitrle rubber insulation of density 40-60 Kg/CU.M .Thermal conductivity of the insulation material shall not exceed 0.038 W/mºK or 0.212 BTU / (Hr-ft² - ºF/inch) at an average temperature of 30ºC.The product shall have temperature range of -40 ºC to 105ºC. The insulation material shall be fire rated for Class O as per BS 476 Part 6 : 1989 for fire propagation test and for Class 1 as per BS 476 Part 7, 1987 for surface spread of flame test. Water vapour permeability shall be not less than 0.024 perm inch. Insulation shall be anti microbial and anti fungal.. Low VOC adhesive shall be considered in the cost"
+      ]
+     }
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "19 mm",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "g_foil_on_pipe",
+  "boq": "BOQ-26-00169",
+  "sheet": "HVAC",
+  "excel_row": 83,
+  "unit": "Rmt",
+  "description": "32 mm NB",
+  "headings": [
+   "CHILLED WATER WORKS",
+   "Supply & Installation of 25 mm thick insulation using closed Cell Factory aluminum foiled laminated Nitrile rubber (class-0) with insulation in pipe sections stuck to the pipe & fixtures using manufacturer approved cold adhesive on both outerface of the pipe and inner face of the pipe section"
+  ],
+  "payload": {
+   "id": 83,
+   "description": "32 mm NB",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "HVAC"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "CHILLED WATER WORKS",
+     "notes": {
+      "attached": [
+       "Supply, Installation, Testing, Balancing and Commissioning of following works - Scope should include related civil works i.e. openings & closing of wall openings, pedestals etc.",
+       "Scope of each AHU/CSU shall be inclusive of below:"
+      ]
+     }
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "Supply & Installation of 25 mm thick insulation using closed Cell Factory aluminum foiled laminated Nitrile rubber (class-0) with insulation in pipe sections stuck to the pipe & fixtures using manufacturer approved cold adhesive on both outerface of the pipe and inner face of the pipe section"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "Aluminium Foil",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "25 mm",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "32 mm NB",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "h_foil_on_acoustic",
+  "boq": "BOQ-26-00125",
+  "sheet": "Sheet1",
+  "excel_row": 180,
+  "unit": "m²",
+  "description": "Acoustic Insulation For Main Ducting Supply installation of 15 mm thick open cell elastomeric nitrile rubber foam fire retardant class \"1\", as per the approved shop drawings/ specifications. Density 150+/-10 Kg/m3",
+  "headings": [
+   "THERMAL G ACOUSTIC INSULATION - SECTION 'E'",
+   "Supplying and fixing of 19 mm thickness duly laminated aluminum foil of mat finish closed cell Nitrile rubber (Class \"O\") insulation on existing duct after applying suitable adhesive for Nitrile rubber. The joints shall be sealed with 50 mm wide and 3mm thick self adhesive nitrile rubber tape insulation"
+  ],
+  "payload": {
+   "id": 180,
+   "description": "Acoustic Insulation For Main Ducting Supply installation of 15 mm thick open cell elastomeric nitrile rubber foam fire retardant class \"1\", as per the approved shop drawings/ specifications. Density 150+/-10 Kg/m3",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "Sheet1"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "THERMAL G ACOUSTIC INSULATION - SECTION 'E'"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "Supplying and fixing of 19 mm thickness duly laminated aluminum foil of mat finish closed cell Nitrile rubber (Class \"O\") insulation on existing duct after applying suitable adhesive for Nitrile rubber. The joints shall be sealed with 50 mm wide and 3mm thick self adhesive nitrile rubber tape insulation"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "Aluminium Foil",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "15 mm",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "unstocked_xlpe",
+  "boq": "BOQ-26-00215",
+  "sheet": "PAC WORKS",
+  "excel_row": 36,
+  "unit": "Sqm",
+  "description": "Supply & Installation of 13 mm thick Class 'O' closed cell with 40-60Kg/m3 density XLPE with Al.Foil for Ceiling insulation. The quoted price inclusive of adhesives AL.cotton tapes, fixtures etc",
+  "headings": [
+   "FOR HUB ROOM"
+  ],
+  "payload": {
+   "id": 36,
+   "description": "Supply & Installation of 13 mm thick Class 'O' closed cell with 40-60Kg/m3 density XLPE with Al.Foil for Ceiling insulation. The quoted price inclusive of adhesives AL.cotton tapes, fixtures etc",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "PAC WORKS"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "FOR HUB ROOM"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "none of these",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "Aluminium Foil",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "13 mm",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "gi22_frame",
+  "boq": "BOQ-26-00174",
+  "sheet": "HVAC",
+  "excel_row": 122,
+  "unit": "Sqm",
+  "description": "SITC of AHU room acoustic insulation with 50 mm thick fibre glass insulation with 32 kg/cum density with 22G GI grid work in 600 mm X 600 mm. Air Gap of 50 mm to be provided behind the panels. Density shall be 32 kg/m3 and al. perforated sheet shall be of 26 G properly overlapped with RP tissue to ensure all the glass wool material is not exposed condition. Insulation shall be applied AHU room walls after completing all works and cleaning the AHU room walls properly. Contractor shall ensure insulation is cut properly and applied properly minimising the joints.",
+  "headings": [
+   "MECHANICAL SYSTEM",
+   "DUCT INSULATION MATERIALS"
+  ],
+  "payload": {
+   "id": 122,
+   "description": "SITC of AHU room acoustic insulation with 50 mm thick fibre glass insulation with 32 kg/cum density with 22G GI grid work in 600 mm X 600 mm. Air Gap of 50 mm to be provided behind the panels. Density shall be 32 kg/m3 and al. perforated sheet shall be of 26 G properly overlapped with RP tissue to ensure all the glass wool material is not exposed condition. Insulation shall be applied AHU room walls after completing all works and cleaning the AHU room walls properly. Contractor shall ensure insulation is cut properly and applied properly minimising the joints.",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "HVAC"
+    },
+    {
+     "relation": "grandparent",
+     "distance": 2,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "MECHANICAL SYSTEM",
+     "notes": {
+      "attached": [
+       "Vendor have to visit the site understand the requirements also the challenges at site before quoting.",
+       "AIR CONDITIONING WORKS",
+       "Supply, Installation, Testing & Commissioning & Handing over of the following:",
+       "Third party Air balancing to be considered as per the approved shop drawing using valid calibrated instruments, including Air Flow HOOD which has capability to measure volumetric flow rate with digital manometer, multi point averaging air flow sensor, airflow measurement station. Documentation,representation & Carrying on Air balancing using digital HOOD. Cost including of applying Sealent/Tightening of duct joints to reduce the air leakages with necessary tool to be considered."
+      ]
+     }
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "DUCT INSULATION MATERIALS"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": " Fiberglass Rigid Board Insulation, Density 48Kg/m3",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "50 mm",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "brand",
+  "boq": "BOQ-26-00063",
+  "sheet": "HVAC Lobby (GF)",
+  "excel_row": 64,
+  "unit": "Sqm",
+  "description": "Thermal insulation of ducts using 9.0 mm thick cold insulation using closed cell Nitrile rubber (class \"O\") insulation without aluminium foil in slab sections stuck to the duct & fixtures using manufacturer approved cold adhesive on inner face of the insulation slab section. Make: K-flex / Insulflex / Arma-flex /Superlon / thermo break",
+  "headings": [
+   "THERMAL INSULATION"
+  ],
+  "payload": {
+   "id": 64,
+   "description": "Thermal insulation of ducts using 9.0 mm thick cold insulation using closed cell Nitrile rubber (class \"O\") insulation without aluminium foil in slab sections stuck to the duct & fixtures using manufacturer approved cold adhesive on inner face of the insulation slab section. Make: K-flex / Insulflex / Arma-flex /Superlon / thermo break",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "HVAC Lobby (GF)"
+    },
+    {
+     "relation": "parent",
+     "distance": 1,
+     "tier": "full",
+     "node_type": "Preamble",
+     "description": "THERMAL INSULATION"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "No",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "9.0 mm",
+       "confidence": 0.9
+      },
+      "brand": {
+       "value": "K-flex / Insulflex / Arma-flex /Superlon / thermo break",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "r9_pipe_above_rung",
+  "boq": "BOQ-26-00104",
+  "sheet": "HVAC BOQ",
+  "excel_row": 24,
+  "unit": "M",
+  "description": "Installation,testing and Commissioning of following of 19 mm thick Closed cell nitrile rubber 'Class O' insulation for following MS Pipe, finished with 26G Aluminium cladding including all fitting like valves,strainer, gauges, flanges union, etc.,. as per approved shop drawings and specifications. Insulation shall be fire rated type. 150 mm Dia",
+  "headings": [],
+  "payload": {
+   "id": 24,
+   "description": "Installation,testing and Commissioning of following of 19 mm thick Closed cell nitrile rubber 'Class O' insulation for following MS Pipe, finished with 26G Aluminium cladding including all fitting like valves,strainer, gauges, flanges union, etc.,. as per approved shop drawings and specifications. Insulation shall be fire rated type. 150 mm Dia",
+   "ancestor_chain": [
+    {
+     "relation": "sheet",
+     "description": "HVAC BOQ"
+    }
+   ]
+  },
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "26G Aluminium",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "19 mm",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "150 mm Dia",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  }
+ }
+]

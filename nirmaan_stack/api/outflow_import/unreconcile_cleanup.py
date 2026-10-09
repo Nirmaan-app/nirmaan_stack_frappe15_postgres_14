@@ -6,7 +6,7 @@
 `unreconcile.unreconcile_row` calls `restore_derived_state` once, inside its savepoint, after every
 leg is written. Nothing here commits; a failure rolls every leg back with it.
 
-Each figure is RECOMPUTED FROM SOURCE, never rolled back from memory (root `CLAUDE.md`), and each is
+Each figure is RECOMPUTED FROM SOURCE, never rolled back from memory (`CODING_STANDARDS.md`), and each is
 here because the payment's own hooks do not get it right on a `Paid -> Approved` save:
 
   * VENDOR CREDIT -- `controllers/project_payments.on_update` recalculates only on `Approved -> Paid`.

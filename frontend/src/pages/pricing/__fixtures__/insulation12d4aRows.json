@@ -1,0 +1,3738 @@
+[
+ {
+  "id": "BOQ-26-00003|PUNE HVAC BOQ#565",
+  "boq": "BOQ-26-00003",
+  "sheet": "PUNE HVAC BOQ",
+  "excel_row": 565,
+  "unit": "Sqm",
+  "description": "SITC of AHU room wall acoustic with 22G GI frame work, 50 mm thick 48 Kg / cub mt. density open cell Elastromeric nitrile rubber insulation, RP tissue and mounted on a suitable GI channel frame work with 24 Gauge Al perforated sheet. , aluminium beading at all the joints, etc. Acoustic insulation around the corners, electrical boards, switches, etc. shall be finished properly with aluminium angles,Number of screw fixing per board shall be as per manufactures recommendation to achieve stability for desired height",
+  "headings": [
+   "Optional Costing - AHU ROOM WORKS"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "50 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "open cell Elastromeric nitrile rubber insulation",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00009|HVAC LOWSIDE BOQ#32",
+  "boq": "BOQ-26-00009",
+  "sheet": "HVAC LOWSIDE BOQ",
+  "excel_row": 32,
+  "unit": "Sqm",
+  "description": "SITC of AHU room wall acoustic with 22G GI frame work, 50 mm thick 48 Kg / cub mt. density open cell Elastromeric nitrile rubber insulation, RP tissue and mounted on a suitable GI channel frame work with 24 Gauge Al perforated sheet. , aluminium beading at all the joints, etc. Acoustic insulation around the corners, electrical boards, switches, etc. shall be finished properly with aluminium angles,Number of screw fixing per board shall be as per manufactures recommendation to achieve stability for desired height",
+  "headings": [
+   "AIR DISTRIBUTION WORKS"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.95
+      },
+      "thickness_mm": {
+       "value": "50 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "open cell Elastromeric nitrile rubber insulation",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00016|Bill 26-HVAC LOW_ABSTRACT#65",
+  "boq": "BOQ-26-00016",
+  "sheet": "Bill 26-HVAC LOW_ABSTRACT",
+  "excel_row": 65,
+  "unit": "Sqm",
+  "description": "50 mm thick Insualtion open cell insulation",
+  "headings": [
+   "AIR CONDITIONING WORKS",
+   "THERMAL AND ACOUSTIC INSULATION",
+   "Supply and installation of AHU wall insulation as indicated in the drawing and technical specification. The insulation shall be done with as per below thickness, open cell elastomeric foam class '1'. The density shall be 140-180 kg.m3 with thermal conductivity of 0.05 W/ m deg K. Material shall have antibacterial properties. It shall be covered with 26 G aluminum perforated sheet. The panels shall be supported on GI pattern frameworks it shall be 25mm X 25mm X 25mm of 1 m in one direction and 0.5 in the perpendicular direction complete with fixing bolt and nut arrangements. Quoted rate should be inclusive of all necessary accessories as per drawings & specifications."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.85
+      },
+      "thickness_mm": {
+       "value": "50 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "open cell elastomeric foam class '1'",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00016|Bill 26-HVAC LOW_ABSTRACT#66",
+  "boq": "BOQ-26-00016",
+  "sheet": "Bill 26-HVAC LOW_ABSTRACT",
+  "excel_row": 66,
+  "unit": "Sqm",
+  "description": "30 mm thick Insualtion open cell insulation",
+  "headings": [
+   "AIR CONDITIONING WORKS",
+   "THERMAL AND ACOUSTIC INSULATION",
+   "Supply and installation of AHU wall insulation as indicated in the drawing and technical specification. The insulation shall be done with as per below thickness, open cell elastomeric foam class '1'. The density shall be 140-180 kg.m3 with thermal conductivity of 0.05 W/ m deg K. Material shall have antibacterial properties. It shall be covered with 26 G aluminum perforated sheet. The panels shall be supported on GI pattern frameworks it shall be 25mm X 25mm X 25mm of 1 m in one direction and 0.5 in the perpendicular direction complete with fixing bolt and nut arrangements. Quoted rate should be inclusive of all necessary accessories as per drawings & specifications."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.85
+      },
+      "thickness_mm": {
+       "value": "30 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "open cell elastomeric foam class '1'",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00020|HVAC_-19TH FLOOR#517",
+  "boq": "BOQ-26-00020",
+  "sheet": "HVAC_-19TH FLOOR",
+  "excel_row": 517,
+  "unit": "Sq.m",
+  "description": "Supply, installation, testing and commissioning of AHU wall insulation. The insulation shall be 40 mm thick open cell elastomeric foam class '1' with anti microbial properties. The density shall be 140 kg.m3 with thermal conductivity of 0.047 W/ m Deg K.Material shall have anti-bacterial properties .It shall be covered with 26 G aluminum Perforated sheet with 70% free area. The panels shall be supported on GI pattern frame works it shall be 40 mm X 40 mm X 25 mm TW plugs at intevals of 1 m in one direction and 0.5 in the perpendicular direction complet with fixing bolt and nut arrangements.",
+  "headings": [
+   "INSULATION"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "40 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "open cell elastomeric foam",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00023|HVAC BOQ #34",
+  "boq": "BOQ-26-00023",
+  "sheet": "HVAC BOQ ",
+  "excel_row": 34,
+  "unit": "Sqm",
+  "description": "SITC of AHU room acoustic with 22G GI frame work, 50 mm thick 48 Kg / cub mt. density Elastromeric rubber insulation, RP tissue and 24 G aluminium perforated sheet, aluminium beading at all the joints, etc. Acoustic insulation around the corners, electrical boards, switches, etc. shall be finished properly with aluminium angles,Number of screw fixing per board shall be as per manufactures recommendation to achieve stability for desired height",
+  "headings": [
+   "AIR DISTRIBUTION WORKS"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.75
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "50 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "Elastromeric rubber insulation",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00033|LOWSIDE#183",
+  "boq": "BOQ-26-00033",
+  "sheet": "LOWSIDE",
+  "excel_row": 183,
+  "unit": "Sqm",
+  "description": "Supply, installation, testing and commissioning of AHU wall insulation using 50 mm thick open-cell elastomeric foam Class ‘1’, with density in the range of 140–180 kg/m³ and thermal conductivity of 0.05 W/m·K, having anti-bacterial properties. Insulation shall be externally covered with 26G perforated aluminum sheet and supported on a GI framework of size 40 mm × 40 mm × 25 mm, fixed using suitable plugs at intervals of 1.0 m in one direction and 0.5 m in the perpendicular direction, complete with all necessary supports, fasteners, nuts, bolts and accessories. installation shall be carried out as per approved drawings, technical specifications and manufacturer’s recommendations, ensuring proper finishing and durability",
+  "headings": [
+   "DUCT INSULATION MATERIALS"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.95
+      },
+      "thickness_mm": {
+       "value": "50 mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "open-cell elastomeric foam Class '1'",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00049|Fitout HVAC#40",
+  "boq": "BOQ-26-00049",
+  "sheet": "Fitout HVAC",
+  "excel_row": 40,
+  "unit": "Sqm",
+  "description": "50 Mm Thick - For Return Ducting - Pls refer the Layout for identification / Legend",
+  "headings": [
+   "AIR CONDITIONING WORKS",
+   "SITC of Acoustic Insulation for Ducting in rectangular ducting using No/Free formaldehyde (Non itching) Fiber glass or Glass wool insulation Al sheet having 20% perforation and the edges of acoustic insulation is side the duct finished using 26g GI 'C' angle all around the inside of the duct( ONLY FOR 50MM AND 25MM), Cut the panels of Insul & fix using adhesive to be less than 50g/l . refer Tech specs for the rest of details."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.4
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.55
+      },
+      "thickness_mm": {
+       "value": "50 Mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "Fiber glass or Glass wool insulation",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00049|Fitout HVAC#41",
+  "boq": "BOQ-26-00049",
+  "sheet": "Fitout HVAC",
+  "excel_row": 41,
+  "unit": "Sqm",
+  "description": "25 Mm Thick - For Supply Ducting, Post VAV (above 2000CFM) ducts - Pls refer the Layout for identification / Legend",
+  "headings": [
+   "AIR CONDITIONING WORKS",
+   "SITC of Acoustic Insulation for Ducting in rectangular ducting using No/Free formaldehyde (Non itching) Fiber glass or Glass wool insulation Al sheet having 20% perforation and the edges of acoustic insulation is side the duct finished using 26g GI 'C' angle all around the inside of the duct( ONLY FOR 50MM AND 25MM), Cut the panels of Insul & fix using adhesive to be less than 50g/l . refer Tech specs for the rest of details."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.4
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.55
+      },
+      "thickness_mm": {
+       "value": "25 Mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "Fiber glass or Glass wool insulation",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00049|Fitout HVAC#42",
+  "boq": "BOQ-26-00049",
+  "sheet": "Fitout HVAC",
+  "excel_row": 42,
+  "unit": "Sqm",
+  "description": "12.5 Mm Thick - For post VAV (below 2000CFM) ducts - Pls refer the Layout for identification / Legend",
+  "headings": [
+   "AIR CONDITIONING WORKS",
+   "SITC of Acoustic Insulation for Ducting in rectangular ducting using No/Free formaldehyde (Non itching) Fiber glass or Glass wool insulation Al sheet having 20% perforation and the edges of acoustic insulation is side the duct finished using 26g GI 'C' angle all around the inside of the duct( ONLY FOR 50MM AND 25MM), Cut the panels of Insul & fix using adhesive to be less than 50g/l . refer Tech specs for the rest of details."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.4
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.5
+      },
+      "thickness_mm": {
+       "value": "12.5 Mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "Fiber glass or Glass wool insulation",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00075|HVAC#248",
+  "boq": "BOQ-26-00075",
+  "sheet": "HVAC",
+  "excel_row": 248,
+  "unit": "Sqm",
+  "description": "Acoustic insulation of AHU plant room walls using 50mm thick open cell nitril rubber in GI frame work of 1000 x 500 or 600x600 grid on wall using 50x50 - 16 G GSS Channel sections and exposed surface finsihed with 22 G GSS Powder coated Perforated sheet Make: Arma-flex , Aeroflex",
+  "headings": [
+   "ACOUSTIC INSULATION",
+   "Sound Attenuators."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.92
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.95
+      },
+      "thickness_mm": {
+       "value": "50mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "Arma-flex , Aeroflex",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "open cell nitril rubber",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00137|LOWSIDE OFFICE WORKS#124",
+  "boq": "BOQ-26-00137",
+  "sheet": "LOWSIDE OFFICE WORKS",
+  "excel_row": 124,
+  "unit": "Sq.m",
+  "description": "Supply & Installation of Acoustic lining on the walls of AHU room wall exposed to office space with Acoustic lining material shall be 25mm thick Nitrile Rubber open cell foam. Thermal conductivity of the insulation material shall not exceed 0.047 W/moK at an average temperature of 20oC. Density of the nitrile rubber shall be 100 – 160 Kg/m3. The material should withstand maximum surface temperature of +85oC and minimum surface temperature of -20oC. The material should conform to Class 1 rating for surface spread of Flame in accordance to BS 476 Part 7 & UL 94 (HBF, HF 1 & HF 2) in accordance to UL 94, 1996. Installation arrangement with GI frame grid provided with 26G perforated GI sheet on the rearside & the same shall be kept 50 mm away from the AHU room wall to act as air gap to increase the acoustic property in accordance with the approved shop drawings and technical specifications.",
+  "headings": [
+   "INSULATION"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "25mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "Nitrile Rubber open cell foam",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00156|LOWSIDE OFFICE WORKS#125",
+  "boq": "BOQ-26-00156",
+  "sheet": "LOWSIDE OFFICE WORKS",
+  "excel_row": 125,
+  "unit": "Sq.m",
+  "description": "Supply & Installation of Acoustic lining on the walls of AHU room wall exposed to office space with Acoustic lining material shall be 25mm thick Nitrile Rubber open cell foam. Thermal conductivity of the insulation material shall not exceed 0.047 W/moK at an average temperature of 20oC. Density of the nitrile rubber shall be 100 – 160 Kg/m3. The material should withstand maximum surface temperature of +85oC and minimum surface temperature of -20oC. The material should conform to Class 1 rating for surface spread of Flame in accordance to BS 476 Part 7 & UL 94 (HBF, HF 1 & HF 2) in accordance to UL 94, 1996. Installation arrangement with GI frame grid provided with 26G perforated GI sheet on the rearside & the same shall be kept 50 mm away from the AHU room wall to act as air gap to increase the acoustic property in accordance with the approved shop drawings and technical specifications.",
+  "headings": [
+   "INSULATION"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "25mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "Nitrile Rubber open cell foam",
+       "confidence": 0.92
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00169|HVAC#290",
+  "boq": "BOQ-26-00169",
+  "sheet": "HVAC",
+  "excel_row": 290,
+  "unit": "Sqm",
+  "description": "Acoustic insulation of AHU plant room walls using 50mm thick open cell nitril rubber in GI frame work of 1000 x 500 or 600x600 grid on wall using 50x50 - 16 G GSS Channel sections and exposed surface finsihed with 22 G GSS Powder coated Perforated sheet Make: Arma-flex , Aeroflex",
+  "headings": [
+   "ACOUSTIC INSULATION",
+   "Sound Attenuators."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "50mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "Arma-flex , Aeroflex",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "open cell nitril rubber",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00215|LOW SIDE WORKS #162",
+  "boq": "BOQ-26-00215",
+  "sheet": "LOW SIDE WORKS ",
+  "excel_row": 162,
+  "unit": "Sqm",
+  "description": "Supply, installation, testing & commissioning of wall accoustic insulation with 50mm thick open cell nitrile rubber as per drawings and specifications, mounted on a suitable GI channel frame work with 24 Gauge Al perforated sheet.",
+  "headings": [
+   "INSULATION",
+   "Supply & fixing of Thermal insulation for supply air duct using class \" O \" Closed cell nitrile rubber based elastomeric insulation with the density of 40 - 55 kg /m³ . The insulation manufactured as per BS 476 Part 7test & which should also meet UL94 supplementary materials for air distribution system which should not absorbs less 0.2% water by volume (ASTM D 1056), should not support microbial growth (ASTM D2180, G21, G22) and should not emit objectionable odours (ASTM C 665) and should have thermal conductivity of 0.033W/m.k @ 0deg C as per DIN EN 12667. and water vapor permeance of 0.10. Joints should be sealed with 50 mm wide 3 mm thick self adhesive tape (Black Cotton Tape not acceptable). The Adhesive shall be used additionally with low VOC level not exceeding 50 grms / Litre."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "GI Framework with perforated Al sheet",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "50mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "open cell nitrile rubber",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D1"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Acoustic Nitrile Insulation: cladding GI Framework with perforated Al sheet)"
+  }
+ },
+ {
+  "id": "BOQ-26-00017|Lowside #94",
+  "boq": "BOQ-26-00017",
+  "sheet": "Lowside ",
+  "excel_row": 94,
+  "unit": "Sq.m",
+  "description": "19 mm Thick thermal insulation for all outdoor ducts with FRP Wrapping and UV coatying",
+  "headings": [
+   "INSULATION"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.6
+      },
+      "thickness_mm": {
+       "value": "19 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "Closed cell Elastomeric Nitrle rubber insulation",
+       "confidence": 0.85
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 594,
+    "install_rate": 154,
+    "combined_rate": 748
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00020|HVAC_-19TH FLOOR#515",
+  "boq": "BOQ-26-00020",
+  "sheet": "HVAC_-19TH FLOOR",
+  "excel_row": 515,
+  "unit": "Sq.m",
+  "description": "Supply & fixing of Thermal insulation of Rectangular ducting for supply air duct using Class \" 0 \" Fire Rating (BS 476 Part 6 & Part 7) 13 mm thick Antimicrobial Closed cell nitrile rubber with chemically treated glass cloth (Blue / Red / Green / Grey / Black Colour) of 7 mil / 0.18 mm thickness along with manufacturer recommended adhesive where the VOC level should not exceed more than 850 grams / Litre as per IGBC/ GRIHA. Insulation material shall be UL 94 approved & FM approved and prefered color shall be Black and density should be 40-60 kg /m³. Nitrile Rubber - 50 mm wide and 3 mm thick Tapes shall be procured from the insulation manufacturer. Cost includes all the accessories. (Will be used for Round duct, VAV cone piece and any site fabricated ducts)",
+  "headings": [
+   "INSULATION"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.6
+      },
+      "thickness_mm": {
+       "value": "13 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "Closed cell nitrile rubber",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3",
+   "D9b"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 464,
+    "install_rate": 154,
+    "combined_rate": 618
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00108|HVAC#420",
+  "boq": "BOQ-26-00108",
+  "sheet": "HVAC",
+  "excel_row": 420,
+  "unit": "SqM",
+  "description": "Supply and Application of 25mm thick Class 'O' closed cell nitrile rubber elastomeric insulation for ceiling/ exposed roof towards underdeck insulation. Quoted price shall be inclusive of Low VOC adhesive as required and as per the specifications. Quoted price shall also be inclusive of necessary scaffolding charges towards application of insulation as required. IC cladding shall provide protection from mechanical impact, ultra voilet radiations and Scratches etc. caldding shall not have any fibre erosion. Both insulation & cladding should have built in antimicrobial protection. Color of IC cladding shall be as per Architect's approval. Metal screws shall be fixed with dash fasteners at centre & Corners of each piece of insulation with a GI cleat at bottom to give extra precaution in fixing of insulation. Adhesive based tapes shall be applied on all longitudinal and transverse joints.",
+  "headings": [
+   "SECTION 'D' - UNDERDECK INSULATION",
+   "UNDERDECK INSULATION WITH IC CLADDING"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.5
+      },
+      "thickness_mm": {
+       "value": "25mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "Class 'O' closed cell nitrile rubber elastomeric insulation",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 663,
+    "install_rate": 154,
+    "combined_rate": 817
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00117|HVAC BOQ #189",
+  "boq": "BOQ-26-00117",
+  "sheet": "HVAC BOQ ",
+  "excel_row": 189,
+  "unit": "Sqm",
+  "description": "Supply & fixing of Acoustic insulation for wall acoustics using Open cell with 30 mm thick class 1 rating open cell nitrile rubber with density of 140 - 180 kg / m³. Adhesive should be of low VOC level . The Insulation to be provided with GI strip as at a grid distance of 1m X 1 m .Material should be Antimicrobial ,microban , Insulation to be selected based on the application & neccessary certificates from the OEM needs to be submitted Accoustic insulation to be fire retardant .",
+  "headings": [
+   "INSULATION WORKS"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.85
+      },
+      "thickness_mm": {
+       "value": "30 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "open cell nitrile rubber",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 2742,
+    "install_rate": 308,
+    "combined_rate": 3050
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00137|LOWSIDE OFFICE WORKS#128",
+  "boq": "BOQ-26-00137",
+  "sheet": "LOWSIDE OFFICE WORKS",
+  "excel_row": 128,
+  "unit": null,
+  "description": "Supply & Installation of Factory Pre Cut SMART Preinsulated Eco+ PIR Panels complete HCFC Free 20mm thick with 80 - 80 Micron Embossed Aluminium foil on on both the sides(Anti microbial, Anti fungal, Anti corrosiona and UV Protection coating) and close cell not less than 95% Rigid Cellular foam insulation of thickness as specified below and material shall be Class O as per BS 476 Part 6 & Part 7 with 2 hours fire rating, with Density of 46kg/m3 and should have Thermal Conductivity 0.021 W/mK , Water absorption shall be not more than 0.03% as per EN 13403 standard and panel should be GreenPro certifed. The ductwork should be capable of handling pressures upto 2000 Pascals. The joint between the ducts shall be with Polymer slide in type joint between the ducts. Supporting of (6mm)Rod & C Channel/ wire supporting of Manufacturer make to be provided. Shaft ducting Scaffoldings to be considered . Terrace exposed duct shall be laminated Aluminium cladding form factory .",
+  "headings": [
+   "INSULATION"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "none of these",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.5
+      },
+      "thickness_mm": {
+       "value": "20mm",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "Eco+ PIR Panels",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3",
+   "D11"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no unit on this row (R12)"
+  }
+ },
+ {
+  "id": "BOQ-26-00140|HVAC Lowside Works #59",
+  "boq": "BOQ-26-00140",
+  "sheet": "HVAC Lowside Works ",
+  "excel_row": 59,
+  "unit": "Sqm",
+  "description": "Under deck insulation 38mm (19+19)thick Nitrile rubber insulation with density not less than 40 to 60 kg / m3 suitably factory laminated with AL Foil /GC cloth ( (Client approval should be obtained ) & necessary accessories /supports to be include .",
+  "headings": [
+   "SITC of the following items -Lifting ,shifting , placement ,receiving at site, unloading, storing, effecting connections, anchoring, grouting testing , commissioning below equipment including supplying and installing all necessary indigenous accessories as required to complete the installation & 24 months warranty from the date of acceptance by Client / consultants of the following"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.85
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.5
+      },
+      "thickness_mm": {
+       "value": "38mm (19+19)",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "Nitrile rubber",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3",
+   "D9b"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 1127,
+    "install_rate": 308,
+    "combined_rate": 1435
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00149|HVAC-BOQ#439",
+  "boq": "BOQ-26-00149",
+  "sheet": "HVAC-BOQ",
+  "excel_row": 439,
+  "unit": "Sqm",
+  "description": "Supply & fixing of Acoustic insulation for wall acoustics using Open cell with 25 mm thick class 1 rating open cell nitrile rubber with density of 140 - 180 kg / m³. Adhesive VOC level should not exceed more than 850g/L less water . The Insulation to be provided with GI strip as at a grid distance of 1m X 1 m .Material should be Antimicrobial",
+  "headings": [
+   "HVAC DUCT WORKS AND ANCILLARIES",
+   "Insulation Works"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.75
+      },
+      "thickness_mm": {
+       "value": "25 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.7
+      },
+      "material_as_written": {
+       "value": "Open cell nitrile rubber",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 2330,
+    "install_rate": 308,
+    "combined_rate": 2638
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00164|BOQ#136",
+  "boq": "BOQ-26-00164",
+  "sheet": "BOQ",
+  "excel_row": 136,
+  "unit": "Sqm",
+  "description": "Supply & fixing of Acoustic insulation for wall acoustics using Open cell with 25 mm thick class 1 rating open cell nitrile rubber with density of 140 - 180 kg / m³. Adhesive VOC level should not exceed more than 850g/L less water . The Insulation to be provided with GI strip as at a grid distance of 1m X 1 m .Material should be Antimicrobial",
+  "headings": [
+   "Insulation Works"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.75
+      },
+      "thickness_mm": {
+       "value": "25 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "Open cell nitrile rubber",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 2330,
+    "install_rate": 308,
+    "combined_rate": 2638
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00197|HVAC BOQ #199",
+  "boq": "BOQ-26-00197",
+  "sheet": "HVAC BOQ ",
+  "excel_row": 199,
+  "unit": "Sqm",
+  "description": "Supply & fixing of Acoustic insulation for wall acoustics using Open cell with 30 mm thick class 1 rating open cell nitrile rubber with density of 140 - 180 kg / m³. Adhesive should be of low VOC level . The Insulation to be provided with GI strip as at a grid distance of 1m X 1 m .Material should be Antimicrobial ,microban , Accoustic insulation to be fire retardant .",
+  "headings": [
+   "INSULATION WORKS"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.8
+      },
+      "thickness_mm": {
+       "value": "30 mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "Open cell nitrile rubber",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 2742,
+    "install_rate": 308,
+    "combined_rate": 3050
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00140|HVAC Lowside Works #45",
+  "boq": "BOQ-26-00140",
+  "sheet": "HVAC Lowside Works ",
+  "excel_row": 45,
+  "unit": "Sqm",
+  "description": "10 mm thick- .",
+  "headings": [
+   "SITC of the following items -Lifting ,shifting , placement ,receiving at site, unloading, storing, effecting connections, anchoring, grouting testing , commissioning below equipment including supplying and installing all necessary indigenous accessories as required to complete the installation & 24 months warranty from the date of acceptance by Client / consultants of the following",
+   "Open cell elastomeric .Acoustic Insulation of below mentioned thickness of Nitrile Rubber open cell foam with Density 140 - 180 Kg/m3 passing Class 1 Fire Performance test as per BS 476 Part 7, Thermal conductivity 0.045 W/(m.K) ,adhesive shall be used for bonding the seams securely together. All butt & longitudinal joints, fittings and coverings must be closed with adhesive. G.I Bull nosing should be provided in front & back of every piece of duct .Joining tapes . maximum VOC content for fibreglass adhesives cannot exceed 50 grams/litre. Insulation shall be tested as per IS standards. The duct should be internally lined with acoustical insulation up to 5m from AHU machine and the first bend"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.5
+      },
+      "thickness_mm": {
+       "value": "10 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "Nitrile Rubber open cell foam",
+       "confidence": 0.85
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 1258,
+    "install_rate": 154,
+    "combined_rate": 1412
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00140|HVAC Lowside Works #46",
+  "boq": "BOQ-26-00140",
+  "sheet": "HVAC Lowside Works ",
+  "excel_row": 46,
+  "unit": "Sqm",
+  "description": "15 mm thick- .",
+  "headings": [
+   "SITC of the following items -Lifting ,shifting , placement ,receiving at site, unloading, storing, effecting connections, anchoring, grouting testing , commissioning below equipment including supplying and installing all necessary indigenous accessories as required to complete the installation & 24 months warranty from the date of acceptance by Client / consultants of the following",
+   "Open cell elastomeric .Acoustic Insulation of below mentioned thickness of Nitrile Rubber open cell foam with Density 140 - 180 Kg/m3 passing Class 1 Fire Performance test as per BS 476 Part 7, Thermal conductivity 0.045 W/(m.K) ,adhesive shall be used for bonding the seams securely together. All butt & longitudinal joints, fittings and coverings must be closed with adhesive. G.I Bull nosing should be provided in front & back of every piece of duct .Joining tapes . maximum VOC content for fibreglass adhesives cannot exceed 50 grams/litre. Insulation shall be tested as per IS standards. The duct should be internally lined with acoustical insulation up to 5m from AHU machine and the first bend"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.5
+      },
+      "thickness_mm": {
+       "value": "15 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "Nitrile Rubber open cell foam",
+       "confidence": 0.85
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 1371,
+    "install_rate": 154,
+    "combined_rate": 1525
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00140|HVAC Lowside Works #47",
+  "boq": "BOQ-26-00140",
+  "sheet": "HVAC Lowside Works ",
+  "excel_row": 47,
+  "unit": "Sqm",
+  "description": "25 mm thick- .",
+  "headings": [
+   "SITC of the following items -Lifting ,shifting , placement ,receiving at site, unloading, storing, effecting connections, anchoring, grouting testing , commissioning below equipment including supplying and installing all necessary indigenous accessories as required to complete the installation & 24 months warranty from the date of acceptance by Client / consultants of the following",
+   "Open cell elastomeric .Acoustic Insulation of below mentioned thickness of Nitrile Rubber open cell foam with Density 140 - 180 Kg/m3 passing Class 1 Fire Performance test as per BS 476 Part 7, Thermal conductivity 0.045 W/(m.K) ,adhesive shall be used for bonding the seams securely together. All butt & longitudinal joints, fittings and coverings must be closed with adhesive. G.I Bull nosing should be provided in front & back of every piece of duct .Joining tapes . maximum VOC content for fibreglass adhesives cannot exceed 50 grams/litre. Insulation shall be tested as per IS standards. The duct should be internally lined with acoustical insulation up to 5m from AHU machine and the first bend"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.5
+      },
+      "thickness_mm": {
+       "value": "25 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "Nitrile Rubber open cell foam",
+       "confidence": 0.85
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 2330,
+    "install_rate": 308,
+    "combined_rate": 2638
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00165|AC WORKS #14",
+  "boq": "BOQ-26-00165",
+  "sheet": "AC WORKS ",
+  "excel_row": 14,
+  "unit": "RM",
+  "description": "Aluminium Cladding for Exposed chilled water piping",
+  "headings": [
+   "CHILLED WATER PIPING"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Cladding Only",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "No",
+       "confidence": 0.3
+      },
+      "thickness_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "pipe_size_mm": {
+       "value": "None",
+       "confidence": 0.3
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": null,
+       "confidence": 0.0
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no pipe size stated"
+  }
+ },
+ {
+  "id": "BOQ-26-00117|HVAC BOQ #183",
+  "boq": "BOQ-26-00117",
+  "sheet": "HVAC BOQ ",
+  "excel_row": 183,
+  "unit": "Sqm",
+  "description": "Supply & fixing of Thermal insulation for supply air duct using 13mm thick class \" O \" Closed cell Nitrile rubber based /Site Adhesive elastomeric insulation. VOC level should not exceed more than 50 grms / Litre. which should also meet NFPA 90A supplementary materials for air distribution system which should not absorbs less than 0.2% water by volume (ASTM c 209), should not support microbial growth (ASTM C1071, G21, G22) and should not emit objectionable odors (ASTM C 665) and should have thermal conductivity of 0.27 and water vapor permeance of 0.10. Joints should be sealed with 50 mm wide 3 mm thick self adhesive tape (Black Cotton Tape not acceptable). Insulation of AC duct in exposed ceiling areas will have to be done internally , For rectangular GSS and GSS spiral ducts please note VOC level as per LEED requirement for adhesive , insulation to be microban , insulation to be FM approved , Insulation to be selected based on the application & neccessary certificates from the OEM needs to be submitted",
+  "headings": [
+   "INSULATION WORKS"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "13mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "Closed cell Nitrile rubber based /Site Adhesive elastomeric insulation",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 464,
+    "install_rate": 154,
+    "combined_rate": 618
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00149|HVAC-BOQ#435",
+  "boq": "BOQ-26-00149",
+  "sheet": "HVAC-BOQ",
+  "excel_row": 435,
+  "unit": "Sqm",
+  "description": "Supply & fixing of Thermal insulation for supply air duct using 19mm thick class \" O \" Closed cell nitrile rubber based /Site Adhesive elastomeric insulation. VOC level should not exceed more than 850g/L less water. Insulation manafactured as per ASTM E 84 test & which should also meet NFPA 90A supplementary materials for air distribution system which should not absorbs less 0.2% water by volume (ASTM c 209), should not support microbial growth (ASTM C1071, G21, G22) and should emit objectionable odors (ASTM C 665) and should have thermal conductivity of 0.27 ( R - 2.78 in 3.4\" thickness) and water vapor permeance of 0.10. Joints should be sealed with 50 mm wide 3 mm thick self adhesive tape (Black Cotton Tape not acceptable). Insulation of AC duct in exposed ceiling areas will have to be done internally , For rectangular GSS and GSS spiral ducts",
+  "headings": [
+   "HVAC DUCT WORKS AND ANCILLARIES",
+   "Insulation Works"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.8
+      },
+      "thickness_mm": {
+       "value": "19mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.7
+      },
+      "material_as_written": {
+       "value": "Closed cell nitrile rubber based /Site Adhesive elastomeric insulation",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 594,
+    "install_rate": 154,
+    "combined_rate": 748
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00164|BOQ#132",
+  "boq": "BOQ-26-00164",
+  "sheet": "BOQ",
+  "excel_row": 132,
+  "unit": "Sqm",
+  "description": "Supply & fixing of Thermal insulation for supply air duct using 13mm thick class \" O \" Closed cell nitrile rubber based /Site Adhesive elastomeric insulation. VOC level should not exceed more than 850g/L less water. Insulation manafactured as per ASTM E 84 test & which should also meet NFPA 90A supplementary materials for air distribution system which should not absorbs less 0.2% water by volume (ASTM c 209), should not support microbial growth (ASTM C1071, G21, G22) and should emit objectionable odors (ASTM C 665) and should have thermal conductivity of 0.27 ( R - 2.78 in 3.4\" thickness) and water vapor permeance of 0.10. Joints should be sealed with 50 mm wide 3 mm thick self adhesive tape (Black Cotton Tape not acceptable). Insulation of AC duct in exposed ceiling areas will have to be done internally , For rectangular GSS and GSS spiral ducts",
+  "headings": [
+   "Insulation Works"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.8
+      },
+      "thickness_mm": {
+       "value": "13mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "Closed cell nitrile rubber based /Site Adhesive elastomeric insulation",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 464,
+    "install_rate": 154,
+    "combined_rate": 618
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00197|HVAC BOQ #195",
+  "boq": "BOQ-26-00197",
+  "sheet": "HVAC BOQ ",
+  "excel_row": 195,
+  "unit": "Sqm",
+  "description": "Supply & fixing of Thermal insulation for supply air duct using 9mm thick class \" O \" Closed cell Nitrile rubber based /Site Adhesive elastomeric insulation. VOC level should not exceed more than 50 grms / Litre. which should also meet NFPA 90A supplementary materials for air distribution system which should not absorbs less than 0.2% water by volume (ASTM c 209), should not support microbial growth (ASTM C1071, G21, G22) and should not emit objectionable odors (ASTM C 665) and should have thermal conductivity of 0.27 and water vapor permeance of 0.10. Joints should be sealed with 50 mm wide 3 mm thick self adhesive tape (Black Cotton Tape not acceptable). Insulation of AC duct in exposed ceiling areas will have to be done internally , For rectangular GSS and GSS spiral ducts please note VOC level as per LEED requirement for adhesive , insulation to be microban , insulation to be FM approved",
+  "headings": [
+   "INSULATION WORKS"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.8
+      },
+      "thickness_mm": {
+       "value": "9mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "Closed cell Nitrile rubber based /Site Adhesive elastomeric insulation",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 383,
+    "install_rate": 154,
+    "combined_rate": 537
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#259",
+  "boq": "BOQ-26-00029",
+  "sheet": "HVAC WORK",
+  "excel_row": 259,
+  "unit": null,
+  "description": "a. 13mm thick",
+  "headings": [
+   "INSULATION",
+   "Supply and Application of external thermal insulation of ducting using closed cell elastomeric insulation with glass cloth facing (EPDM) with LEED compliant adhesive, longitudinal & transverse joints sealed with adhesive to form proper bonding. All insulation joints shall have tape of same material with equivalent fire rating as the insulation. No additional remuneration shall be paid for flange insulation."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.93
+      },
+      "cladding": {
+       "value": "Glass Cloth with paint",
+       "confidence": 0.5
+      },
+      "thickness_mm": {
+       "value": "13mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "closed cell elastomeric insulation with glass cloth facing (EPDM)",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Thermal Nitrile Insulation: cladding Glass Cloth with paint)"
+  }
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#260",
+  "boq": "BOQ-26-00029",
+  "sheet": "HVAC WORK",
+  "excel_row": 260,
+  "unit": "SqM",
+  "description": "b. 9 mm thick",
+  "headings": [
+   "INSULATION",
+   "Supply and Application of external thermal insulation of ducting using closed cell elastomeric insulation with glass cloth facing (EPDM) with LEED compliant adhesive, longitudinal & transverse joints sealed with adhesive to form proper bonding. All insulation joints shall have tape of same material with equivalent fire rating as the insulation. No additional remuneration shall be paid for flange insulation."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.93
+      },
+      "cladding": {
+       "value": "Glass Cloth with paint",
+       "confidence": 0.5
+      },
+      "thickness_mm": {
+       "value": "9 mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "closed cell elastomeric insulation with glass cloth facing (EPDM)",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Thermal Nitrile Insulation: cladding Glass Cloth with paint)"
+  }
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#268",
+  "boq": "BOQ-26-00029",
+  "sheet": "HVAC WORK",
+  "excel_row": 268,
+  "unit": "RM",
+  "description": "b. 65mm dia (19 mm)",
+  "headings": [
+   "INSULATION",
+   "Supply and Application of closed cell elastomeric insulation with glass cloth facing and UV treatment (EPDM) in tubing form/ flat sections for chilled water piping as per the specifications."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.93
+      },
+      "cladding": {
+       "value": "24G Aluminium",
+       "confidence": 0.4
+      },
+      "thickness_mm": {
+       "value": "19 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": "65mm dia",
+       "confidence": 0.95
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "closed cell elastomeric insulation with glass cloth facing and UV treatment (EPDM)",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "pipe size 65 is above the largest size on the sheet (53.98)"
+  }
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#269",
+  "boq": "BOQ-26-00029",
+  "sheet": "HVAC WORK",
+  "excel_row": 269,
+  "unit": "RM",
+  "description": "c. 50mm dia (19 mm)",
+  "headings": [
+   "INSULATION",
+   "Supply and Application of closed cell elastomeric insulation with glass cloth facing and UV treatment (EPDM) in tubing form/ flat sections for chilled water piping as per the specifications."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.93
+      },
+      "cladding": {
+       "value": "24G Aluminium",
+       "confidence": 0.4
+      },
+      "thickness_mm": {
+       "value": "19 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": "50mm dia",
+       "confidence": 0.95
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "closed cell elastomeric insulation with glass cloth facing and UV treatment (EPDM)",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 615,
+    "install_rate": 224,
+    "combined_rate": 839
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#270",
+  "boq": "BOQ-26-00029",
+  "sheet": "HVAC WORK",
+  "excel_row": 270,
+  "unit": "RM",
+  "description": "d. 40mm dia (19 mm)",
+  "headings": [
+   "INSULATION",
+   "Supply and Application of closed cell elastomeric insulation with glass cloth facing and UV treatment (EPDM) in tubing form/ flat sections for chilled water piping as per the specifications."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.93
+      },
+      "cladding": {
+       "value": "24G Aluminium",
+       "confidence": 0.4
+      },
+      "thickness_mm": {
+       "value": "19 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": "40mm dia",
+       "confidence": 0.95
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "closed cell elastomeric insulation with glass cloth facing and UV treatment (EPDM)",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 535,
+    "install_rate": 224,
+    "combined_rate": 759
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#271",
+  "boq": "BOQ-26-00029",
+  "sheet": "HVAC WORK",
+  "excel_row": 271,
+  "unit": "RM",
+  "description": "e. 32mm dia (19 mm)",
+  "headings": [
+   "INSULATION",
+   "Supply and Application of closed cell elastomeric insulation with glass cloth facing and UV treatment (EPDM) in tubing form/ flat sections for chilled water piping as per the specifications."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.93
+      },
+      "cladding": {
+       "value": "24G Aluminium",
+       "confidence": 0.4
+      },
+      "thickness_mm": {
+       "value": "19 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": "32mm dia",
+       "confidence": 0.95
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "closed cell elastomeric insulation with glass cloth facing and UV treatment (EPDM)",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 493,
+    "install_rate": 224,
+    "combined_rate": 717
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#275",
+  "boq": "BOQ-26-00029",
+  "sheet": "HVAC WORK",
+  "excel_row": 275,
+  "unit": null,
+  "description": "a. 40mm dia",
+  "headings": [
+   "INSULATION",
+   "Supply and Application of 9 mm thick closed cell elastomeric insulation with glass cloth facing (EPDM) in tubing form for condensate drain piping as per the specifications."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.92
+      },
+      "cladding": {
+       "value": "Glass Cloth with paint",
+       "confidence": 0.4
+      },
+      "thickness_mm": {
+       "value": "9 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": "40mm dia",
+       "confidence": 0.95
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "closed cell elastomeric insulation with glass cloth facing (EPDM)",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 329,
+    "install_rate": 84,
+    "combined_rate": 413
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#276",
+  "boq": "BOQ-26-00029",
+  "sheet": "HVAC WORK",
+  "excel_row": 276,
+  "unit": null,
+  "description": "b. 32mm dia",
+  "headings": [
+   "INSULATION",
+   "Supply and Application of 9 mm thick closed cell elastomeric insulation with glass cloth facing (EPDM) in tubing form for condensate drain piping as per the specifications."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.92
+      },
+      "cladding": {
+       "value": "Glass Cloth with paint",
+       "confidence": 0.4
+      },
+      "thickness_mm": {
+       "value": "9 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": "32mm dia",
+       "confidence": 0.95
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "closed cell elastomeric insulation with glass cloth facing (EPDM)",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 306,
+    "install_rate": 84,
+    "combined_rate": 390
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#277",
+  "boq": "BOQ-26-00029",
+  "sheet": "HVAC WORK",
+  "excel_row": 277,
+  "unit": null,
+  "description": "c. 25mm dia",
+  "headings": [
+   "INSULATION",
+   "Supply and Application of 9 mm thick closed cell elastomeric insulation with glass cloth facing (EPDM) in tubing form for condensate drain piping as per the specifications."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.92
+      },
+      "cladding": {
+       "value": "Glass Cloth with paint",
+       "confidence": 0.4
+      },
+      "thickness_mm": {
+       "value": "9 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": "25mm dia",
+       "confidence": 0.95
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "closed cell elastomeric insulation with glass cloth facing (EPDM)",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 289,
+    "install_rate": 84,
+    "combined_rate": 373
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#281",
+  "boq": "BOQ-26-00029",
+  "sheet": "HVAC WORK",
+  "excel_row": 281,
+  "unit": "SqM",
+  "description": "Supply and Application Closed cell elastomeric insulation for Roof exposed to sun using 25 mm thick closed cell elastomeric insulation with glass cloth facing (EPDM) material with factory faced glass cloth in sheet form with LEED compliant adhesive, longitudinal & transverse joints sealed with tape of same material as per specifications.",
+  "headings": [
+   "INSULATION"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "Glass Cloth with paint",
+       "confidence": 0.45
+      },
+      "thickness_mm": {
+       "value": "25 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "closed cell elastomeric insulation with glass cloth facing (EPDM)",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Thermal Nitrile Insulation: cladding Glass Cloth with paint)"
+  }
+ },
+ {
+  "id": "BOQ-26-00086|Low side#64",
+  "boq": "BOQ-26-00086",
+  "sheet": "Low side",
+  "excel_row": 64,
+  "unit": "m²",
+  "description": "19 mm thick",
+  "headings": [
+   "DUCT THERMAL INSULATION"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.85
+      },
+      "cladding": {
+       "value": "Aluminium Foil",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "19 mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "XLPE/Nitrile Rubber foam",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 712,
+    "install_rate": 154,
+    "combined_rate": 866
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00086|Low side#65",
+  "boq": "BOQ-26-00086",
+  "sheet": "Low side",
+  "excel_row": 65,
+  "unit": "m²",
+  "description": "13 mm thick",
+  "headings": [
+   "DUCT THERMAL INSULATION"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.85
+      },
+      "cladding": {
+       "value": "Aluminium Foil",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "13 mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "XLPE/Nitrile Rubber foam",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 581,
+    "install_rate": 154,
+    "combined_rate": 735
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00086|Low side#67",
+  "boq": "BOQ-26-00086",
+  "sheet": "Low side",
+  "excel_row": 67,
+  "unit": "m²",
+  "description": "25 mm thick",
+  "headings": [
+   "DUCT THERMAL INSULATION"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.85
+      },
+      "cladding": {
+       "value": "Aluminium Foil",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "25 mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "XLPE/Nitrile Rubber foam",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 780,
+    "install_rate": 154,
+    "combined_rate": 934
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00087|HVAC#32",
+  "boq": "BOQ-26-00087",
+  "sheet": "HVAC",
+  "excel_row": 32,
+  "unit": "m2",
+  "description": "Acoustic insulation for GI duct",
+  "headings": [
+   "Notes",
+   "The contractor shall coordinate with the hotel operator regarding the existing AHUs and ensure that all commissioning activities are carried out in coordination with the hotel operations team to avoid any disruption to ongoing operations.",
+   "ACOUSTIC INSULATION"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.6
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.4
+      },
+      "thickness_mm": {
+       "value": "25 mm",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "fiberglass / mineral wool insulation",
+       "confidence": 0.92
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 2330,
+    "install_rate": 308,
+    "combined_rate": 2638
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#263",
+  "boq": "BOQ-26-00029",
+  "sheet": "HVAC WORK",
+  "excel_row": 263,
+  "unit": null,
+  "description": "a. 25 mm thick",
+  "headings": [
+   "INSULATION",
+   "Supply and Application of thermal/ acoustic lining of walls & ceiling of AHU rooms using fibreglass board having density 80kg/cu.m, laminated with aluminium foil on one side and layers of black glass cloth on the other side. Installation guideline is as below: 1 The surface shall be cleaned and rubber based adhesive shall be put on wall and Acoustic Board (on Aluminium facing). 2 After 10-15 minutes of the coat of adhesive the Acoustic board has to be placed on the wall and it has to be fixed with the help of Anchor/Screw and Washer. 3. The Acoustic board should be placed in such a way that black glass cloth is visible from inside the AHU room. Complete as required and as per specifications. 4. GI (U shape) channel has to be fixed on top and end corner of the board."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "none of these",
+       "confidence": 0.85
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.6
+      },
+      "thickness_mm": {
+       "value": "25 mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "fibreglass board having density 80kg/cu.m, laminated with aluminium foil on one side and layers of black glass cloth on the other side",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D7",
+   "D11"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no unit on this row (R12)"
+  }
+ },
+ {
+  "id": "BOQ-26-00234|(CHW BOQ) AHU & Low Side#132",
+  "boq": "BOQ-26-00234",
+  "sheet": "(CHW BOQ) AHU & Low Side",
+  "excel_row": 132,
+  "unit": "Rmt",
+  "description": "100 mm dia",
+  "headings": [
+   "CHILLED WATER PIPING WORKS",
+   "25 mm thick - 2 Layers insulation from 40 mm dia to 100 mm dia"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.8
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "25 mm thick - 2 Layers",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "100 mm dia",
+       "confidence": 0.97
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "insulation",
+       "confidence": 0.4
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D4"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "several values stated for thickness ('25 mm thick - 2 Layers')"
+  }
+ },
+ {
+  "id": "BOQ-26-00234|(CHW BOQ) AHU & Low Side#133",
+  "boq": "BOQ-26-00234",
+  "sheet": "(CHW BOQ) AHU & Low Side",
+  "excel_row": 133,
+  "unit": "Rmt",
+  "description": "80 mm dia",
+  "headings": [
+   "CHILLED WATER PIPING WORKS",
+   "25 mm thick - 2 Layers insulation from 40 mm dia to 100 mm dia"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.8
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "25 mm thick - 2 Layers",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "80 mm dia",
+       "confidence": 0.97
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "insulation",
+       "confidence": 0.4
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D4"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "several values stated for thickness ('25 mm thick - 2 Layers')"
+  }
+ },
+ {
+  "id": "BOQ-26-00234|(CHW BOQ) AHU & Low Side#134",
+  "boq": "BOQ-26-00234",
+  "sheet": "(CHW BOQ) AHU & Low Side",
+  "excel_row": 134,
+  "unit": "Rmt",
+  "description": "65 mm dia",
+  "headings": [
+   "CHILLED WATER PIPING WORKS",
+   "25 mm thick - 2 Layers insulation from 40 mm dia to 100 mm dia"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.8
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "25 mm thick - 2 Layers",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "65 mm dia",
+       "confidence": 0.97
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "insulation",
+       "confidence": 0.4
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D4"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "several values stated for thickness ('25 mm thick - 2 Layers')"
+  }
+ },
+ {
+  "id": "BOQ-26-00234|(CHW BOQ) AHU & Low Side#135",
+  "boq": "BOQ-26-00234",
+  "sheet": "(CHW BOQ) AHU & Low Side",
+  "excel_row": 135,
+  "unit": "Rmt",
+  "description": "50 mm dia",
+  "headings": [
+   "CHILLED WATER PIPING WORKS",
+   "25 mm thick - 2 Layers insulation from 40 mm dia to 100 mm dia"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.8
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "25 mm thick - 2 Layers",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "50 mm dia",
+       "confidence": 0.97
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "insulation",
+       "confidence": 0.4
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D4"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "several values stated for thickness ('25 mm thick - 2 Layers')"
+  }
+ },
+ {
+  "id": "BOQ-26-00234|(CHW BOQ) AHU & Low Side#136",
+  "boq": "BOQ-26-00234",
+  "sheet": "(CHW BOQ) AHU & Low Side",
+  "excel_row": 136,
+  "unit": "Rmt",
+  "description": "40 mm dia",
+  "headings": [
+   "CHILLED WATER PIPING WORKS",
+   "25 mm thick - 2 Layers insulation from 40 mm dia to 100 mm dia"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.8
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "25 mm thick - 2 Layers",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "40 mm dia",
+       "confidence": 0.97
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "insulation",
+       "confidence": 0.4
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D4"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "several values stated for thickness ('25 mm thick - 2 Layers')"
+  }
+ },
+ {
+  "id": "BOQ-26-00140|HVAC Lowside Works #471",
+  "boq": "BOQ-26-00140",
+  "sheet": "HVAC Lowside Works ",
+  "excel_row": 471,
+  "unit": "Rmt",
+  "description": "25 mm thick - 2 Layers insulation from 40 mm dia to 100 mm dia",
+  "headings": [
+   "SITC of the following items -Lifting ,shifting , placement ,receiving at site, unloading, storing, effecting connections, anchoring, grouting testing , commissioning below equipment including supplying and installing all necessary indigenous accessories as required to complete the installation & 24 months warranty from the date of acceptance by Client / consultants of the following",
+   "Chilled Water Cassette Unit"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.85
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.5
+      },
+      "thickness_mm": {
+       "value": "25 mm - 2 Layers",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "40 mm dia to 100 mm dia",
+       "confidence": 0.9
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "Elastomeric nitrile rubber",
+       "confidence": 0.8
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D4"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "several values stated for pipe size ('40 mm dia to 100 mm dia')"
+  }
+ },
+ {
+  "id": "BOQ-26-00086|Low side#68",
+  "boq": "BOQ-26-00086",
+  "sheet": "Low side",
+  "excel_row": 68,
+  "unit": "m²",
+  "description": "Exposed Duct Coating The exposed insulation shall be covered with two coats of 500 micron (0.5 mm) WFT Flame Retardant coating confirming to “Surface spread flame as per ASTM E 84, Fungal Resistance -ASTM D 3273 & ASTM G21, Weathering Resistance - ASTM D 6695, Surface Flammability - ASTM E 84, Resistance to fire at liquid stage-ASTM D 3278, Content of VOC- EPA 24, Resistance to water vapour permeance-ASTM E 96, Algal Resistance -ASTM D 5589, Rain Water Resistance-As per ASTM D 6904, Antimicrobial Efficacy -ASTM E 2315, Fungal Resistance -ASTM G21, sandwiched with 10 Mil Class E Glass Cloth. The products should be certified for Griha and Greenpro. All TCs will be required while submitting the bill.",
+  "headings": [
+   "DUCT THERMAL INSULATION"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Cladding Only",
+       "confidence": 0.8
+      },
+      "cladding": {
+       "value": "Glass Cloth with paint",
+       "confidence": 0.75
+      },
+      "thickness_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": null,
+       "confidence": 0.0
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D9b"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 294,
+    "install_rate": 70,
+    "combined_rate": 364
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00086|Low side#74",
+  "boq": "BOQ-26-00086",
+  "sheet": "Low side",
+  "excel_row": 74,
+  "unit": "m²",
+  "description": "Supply, installation, testing and commissioning of 50mm thick stonewool insulation (of 150 kg per cubic meter density) around the MS exhaust duct and covering from outside complete as required. The insulated duct surface shall be finished with two coats of 500 micron (0.5 mm) WFT Flame Retardant coating “UL classified for Surface Burning Characteristics (UL 723) confirming to “Surface spread flame as per ASTM E 84, Resistance to fire at liquid stage-ASTM D 3278, Flammability resistance as per ASTM D 4804, Fungal Resistance -ASTM D sandwiched with 7 Mil Class Glass Cloth. The products should be certified for Griha and Greenpro. All TCs will be required while submitting the bill.",
+  "headings": [
+   "ROCKWOOL WITH AL CLADDING"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "none of these",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "Glass Cloth with paint",
+       "confidence": 0.6
+      },
+      "thickness_mm": {
+       "value": "50mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "stonewool",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D9b",
+   "D7"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "No SKU in the catalogue for stonewool - price this row by hand"
+  }
+ },
+ {
+  "id": "BOQ-26-00098|Lowside#173",
+  "boq": "BOQ-26-00098",
+  "sheet": "Lowside",
+  "excel_row": 173,
+  "unit": "Sqm.",
+  "description": "Glass cloth of approved color supplied by insullation manufacturer",
+  "headings": [
+   "INSULATION & ACOUSTICS",
+   "DUCT INSULATION"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Cladding Only",
+       "confidence": 0.75
+      },
+      "cladding": {
+       "value": "Glass Cloth with paint",
+       "confidence": 0.6
+      },
+      "thickness_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "Glass cloth of approved color",
+       "confidence": 0.85
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D9b"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 294,
+    "install_rate": 70,
+    "combined_rate": 364
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00100|HVAC #111",
+  "boq": "BOQ-26-00100",
+  "sheet": "HVAC ",
+  "excel_row": 111,
+  "unit": "SQM",
+  "description": "19 mm",
+  "headings": [
+   "AIR DISTRIBUTION PRODUCTS",
+   "SITC of nitrile rubber insulation with factory laminated 7 mill glass cloth with black mat finish/Closed cell nitrile rubber (class\"O\") insulation on existing duct after applying suitable adhesive for nitrile rubber.The joints shall be selaed with 50mm wide & 3mm thick self adhesive nitrile rubber tape insulation complete as per specifications and as required above."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "Glass Cloth with paint",
+       "confidence": 0.3
+      },
+      "thickness_mm": {
+       "value": "19 mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "nitrile rubber",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D9b"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "no SKU for this combination (Thermal Nitrile Insulation: cladding Glass Cloth with paint)"
+  }
+ },
+ {
+  "id": "BOQ-26-00140|VRF WORKS #95",
+  "boq": "BOQ-26-00140",
+  "sheet": "VRF WORKS ",
+  "excel_row": 95,
+  "unit": "Sqm",
+  "description": "Fiber glass cloth and two layers of shield coating on insulation of VRF piping (for outdoor application)",
+  "headings": [
+   "SITC of the following items -Lifting ,shifting , placement ,receiving at site, unloading, storing, effecting connections, anchoring, grouting testing , commissioning below equipment including supplying and installing all necessary indigenous accessories as required to complete the installation & 24 months warranty from the date of acceptance by Client / consultants of the following"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Cladding Only",
+       "confidence": 0.8
+      },
+      "cladding": {
+       "value": "Glass Cloth with paint",
+       "confidence": 0.6
+      },
+      "thickness_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "pipe_size_mm": {
+       "value": "None",
+       "confidence": 0.5
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.5
+      },
+      "material_as_written": {
+       "value": "Fiber glass cloth and two layers of shield coating",
+       "confidence": 0.8
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D9b"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 294,
+    "install_rate": 70,
+    "combined_rate": 364
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00158|ADS BOQ#67",
+  "boq": "BOQ-26-00158",
+  "sheet": "ADS BOQ",
+  "excel_row": 67,
+  "unit": "Sq.m",
+  "description": "Exposed insulation to be treated with glass wool cloth and 2 coats of UV paint",
+  "headings": [
+   "SUPPLY AIR PLENUM AND INSULATION",
+   "Thermal insulation of ducting with 13 mm thick, 40-60 Kg / M3 density, class 'O' rated nitrile rubber stuck to the cleaned external duct surface with synthetic rubber low VOC content ahdhesive of Pidlite industries or equivalent and to be used for tail end insulation of ducting. For joints PVC Tape is not allowed recommended as per OEM."
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Cladding Only",
+       "confidence": 0.85
+      },
+      "cladding": {
+       "value": "Glass Cloth with paint",
+       "confidence": 0.85
+      },
+      "thickness_mm": {
+       "value": "13 mm",
+       "confidence": 0.6
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "Armaflex / K flex / Supreme",
+       "confidence": 0.8
+      },
+      "material_as_written": {
+       "value": "glass wool cloth and 2 coats of UV paint",
+       "confidence": 0.8
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D9b"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 294,
+    "install_rate": 70,
+    "combined_rate": 364
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00233|Critical VRF System#41",
+  "boq": "BOQ-26-00233",
+  "sheet": "Critical VRF System",
+  "excel_row": 41,
+  "unit": "Sqm",
+  "description": "Fiber glass cloth and two layers of shield coating on insulation of VRF piping (for outdoor application)",
+  "headings": [
+   "VRV / VRF OUTDOOR UNIT"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Cladding Only",
+       "confidence": 0.75
+      },
+      "cladding": {
+       "value": "24G Aluminium with Glass Cloth",
+       "confidence": 0.3
+      },
+      "thickness_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "pipe_size_mm": {
+       "value": "None",
+       "confidence": 0.5
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "Fiber glass cloth and two layers of shield coating",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D9b"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 957,
+    "install_rate": 280,
+    "combined_rate": 1237
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00233|VRF System#65",
+  "boq": "BOQ-26-00233",
+  "sheet": "VRF System",
+  "excel_row": 65,
+  "unit": "Sqm",
+  "description": "Fiber glass cloth and two layers of shield coating on insulation of VRF piping (for outdoor application)",
+  "headings": [
+   "VRV / VRF OUTDOOR UNIT"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Cladding Only",
+       "confidence": 0.7
+      },
+      "cladding": {
+       "value": "Glass Cloth with paint",
+       "confidence": 0.6
+      },
+      "thickness_mm": {
+       "value": "None",
+       "confidence": 0.3
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.3
+      },
+      "material_as_written": {
+       "value": "Fiber glass cloth and two layers of shield coating",
+       "confidence": 0.8
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D9b"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 294,
+    "install_rate": 70,
+    "combined_rate": 364
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00060|HVAC#105",
+  "boq": "BOQ-26-00060",
+  "sheet": "HVAC",
+  "excel_row": 105,
+  "unit": "QRO - Sqm.",
+  "description": "10mm thick",
+  "headings": [
+   "Supply and installation of Acoustic insulation - Material shall be FM approved, open cell Nitrile Rubber foam. The density of the same shall be within 140-180 Kg/m3. The maximum surface temperature the material should withstand is 105º C and minimum temperature should be -20ºC. The material should conform to Class 1 rating for surface spread of Flame as per BS 476 Part 7. The Thickness of the insulation material shall be as follows"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Acoustic Nitrile Insulation",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "10mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "open cell Nitrile Rubber foam",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D10"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "unit 'QRO - Sqm.' is not a count, area or length unit (R12)"
+  }
+ },
+ {
+  "id": "BOQ-26-00060|HVAC#109",
+  "boq": "BOQ-26-00060",
+  "sheet": "HVAC",
+  "excel_row": 109,
+  "unit": "QRO - Sqm.",
+  "description": "Supply and installation of Floor & Ceiling Insulation of specified 19mm thickness of Elastromeric nitrile rubber insulation of FM approved Class \"O\" manafactured as per ASTM E 84 test & which should also meet NFPA 90A supplementary materials for air distribution system which should not absorbs less 0.2% water by volume (ASTM c 209), should not support microbial growth (ASTM C1071, G21, G22) and should emit objectionable odors (ASTM C 665) and should have thermal conductivity of 0.27 ( R - 2.78 in 3.4\" thickness) and water vapor permeance of 0.10. Joints should be sealed with 50 mm wide 3 mm thick self adhesive tape (Black Cotton Tape not acceptable)",
+  "headings": [
+   "Supply and installation of Acoustic insulation - Material shall be FM approved, open cell Nitrile Rubber foam. The density of the same shall be within 140-180 Kg/m3. The maximum surface temperature the material should withstand is 105º C and minimum temperature should be -20ºC. The material should conform to Class 1 rating for surface spread of Flame as per BS 476 Part 7. The Thickness of the insulation material shall be as follows"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.88
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.85
+      },
+      "thickness_mm": {
+       "value": "19mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "Elastromeric nitrile rubber insulation",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "D10"
+  ],
+  "before_12d3": {
+   "priced": false,
+   "totals": null,
+   "reason": "unit 'QRO - Sqm.' is not a count, area or length unit (R12)"
+  }
+ },
+ {
+  "id": "BOQ-26-00137|CHW pipes , Valves#39",
+  "boq": "BOQ-26-00137",
+  "sheet": "CHW pipes , Valves",
+  "excel_row": 39,
+  "unit": "RMT",
+  "description": "50NB",
+  "headings": [
+   "Supply, Installation, Testing & Commissioning & Handing over of the following:",
+   "CHILLED WATER PIPE INSULATION",
+   "Supply and installation of 19/ 25 / 32 mm thick Class 1 Closed Cell Elastometric Nitrile rubber tubular insulation for chilled water piping having density 40 - 70kg/m3, thermal conductivity 0.032 W/m K at 40 deg C.Including 26 G aluminium cladding with 50 mm overlap on joints and fixed with self tapping screws etc. as per standard practice.Vapor barrier should be part of detailing of insultion works . All Nut bolts to be of GI only. In all cases, the manufacturer’s recommended Adhesive should be used for the specified purpose. 25mm to 50 mm : 19mm thick - Single layer 65mm : 25mm thick - Single layer 80mm up to 350 mm : Double layer of 19mm thick 400mm up to 650 mm : Double layer of 25mm thick"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "26G Aluminium",
+       "confidence": 0.95
+      },
+      "thickness_mm": {
+       "value": "19mm thick",
+       "confidence": 0.9
+      },
+      "pipe_size_mm": {
+       "value": "50NB",
+       "confidence": 0.97
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "Class 1 Closed Cell Elastometric Nitrile rubber tubular insulation",
+       "confidence": 0.9
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "CONTROL"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 615,
+    "install_rate": 224,
+    "combined_rate": 839
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00169|HVAC#297",
+  "boq": "BOQ-26-00169",
+  "sheet": "HVAC",
+  "excel_row": 297,
+  "unit": "Sqm",
+  "description": "Thermal insulation of ducts using 9.0 mm thick cold insulation using closed cell Nitrile rubber (class \"O\") insulation with aluminium foil in slab sections stuck to the duct & fixtures using manufacturer approved cold adhesive on both surface of the duct and inner face of the insulation slab section. Make: K-flex /APL Aeroflex / Aerolam / Armacell",
+  "headings": [
+   "THERMAL INSULATION"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.9
+      },
+      "cladding": {
+       "value": "Aluminium Foil",
+       "confidence": 0.8
+      },
+      "thickness_mm": {
+       "value": "9.0 mm",
+       "confidence": 0.95
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": "K-flex /APL Aeroflex / Aerolam / Armacell",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "closed cell Nitrile rubber (class \"O\") insulation with aluminium foil",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "CONTROL"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 500,
+    "install_rate": 154,
+    "combined_rate": 654
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00003|PUNE HVAC BOQ#158",
+  "boq": "BOQ-26-00003",
+  "sheet": "PUNE HVAC BOQ",
+  "excel_row": 158,
+  "unit": "Sqmt",
+  "description": "SITC of Thermal Insulation of ducts with 13 mm thk. nitrile foam insulation. All joints shall be covered with 150 mm wide insulation strip wrapped around the joint and finished with 50 mm wide self adhesive cotton tape. Low VOC adhesive shall used.",
+  "headings": [
+   "Insulation"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Thermal Nitrile Insulation",
+       "confidence": 0.95
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "thickness_mm": {
+       "value": "13 mm",
+       "confidence": 0.97
+      },
+      "pipe_size_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "brand": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "material_as_written": {
+       "value": "nitrile foam insulation",
+       "confidence": 0.95
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "CONTROL"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 464,
+    "install_rate": 154,
+    "combined_rate": 618
+   },
+   "reason": null
+  }
+ },
+ {
+  "id": "BOQ-26-00140|HVAC Lowside Works #479",
+  "boq": "BOQ-26-00140",
+  "sheet": "HVAC Lowside Works ",
+  "excel_row": 479,
+  "unit": "Rmt",
+  "description": "25 mm dia",
+  "headings": [
+   "SITC of the following items -Lifting ,shifting , placement ,receiving at site, unloading, storing, effecting connections, anchoring, grouting testing , commissioning below equipment including supplying and installing all necessary indigenous accessories as required to complete the installation & 24 months warranty from the date of acceptance by Client / consultants of the following",
+   "Chilled Water Cassette Unit"
+  ],
+  "ownNotes": [],
+  "answer": {
+   "items": [
+    {
+     "attributes": {
+      "item": {
+       "value": "Nitrile Rubber Insulation",
+       "confidence": 0.8
+      },
+      "cladding": {
+       "value": "None",
+       "confidence": 0.5
+      },
+      "thickness_mm": {
+       "value": null,
+       "confidence": 0.0
+      },
+      "pipe_size_mm": {
+       "value": "25 mm dia",
+       "confidence": 0.95
+      },
+      "brand": {
+       "value": "None",
+       "confidence": 0.9
+      },
+      "material_as_written": {
+       "value": "Elastomeric nitrile rubber",
+       "confidence": 0.75
+      }
+     }
+    }
+   ]
+  },
+  "answer_note": "REAL model answer from the 12d-3 audit run (stored BoQ Rate Suggestion Run)",
+  "fixes": [
+   "CONTROL"
+  ],
+  "before_12d3": {
+   "priced": true,
+   "totals": {
+    "supply_rate": 238,
+    "install_rate": 14,
+    "combined_rate": 252
+   },
+   "reason": null
+  }
+ }
+]

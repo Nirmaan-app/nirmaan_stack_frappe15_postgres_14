@@ -192,6 +192,23 @@ PDD_DELETE_PROFILES = (
 )
 
 
+# Client billing tracker (`Project Billing Tracker` / `Project Billing` /
+# `Project Billing Packages`). Owner ruling 2026-10-03: Admin, PMO and billing
+# users set up billing and edit bills. This is the ENFORCEMENT boundary: the
+# doctypes grant `System Manager`, which also rides on the Project Lead and
+# other profiles, so a DocPerm alone cannot express "Admin + PMO + billing".
+# Mirrored client-side by `frontend/src/constants/roles.ts::PROJECT_BILLING_WRITE_PROFILES`.
+PROJECT_BILLING_WRITE_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + BILLING_PROFILES
+
+# The billing package master list: Admin and the Billing Lead only.
+PROJECT_BILLING_PACKAGE_WRITE_PROFILES = (ADMIN_PROFILE, BILLING_LEAD_PROFILE)
+
+
+def can_write_project_billing(user: str) -> bool:
+    """True when `user` may set up billing, add or edit bills, or log Supply DC."""
+    return has_role_profile(user, PROJECT_BILLING_WRITE_PROFILES)
+
+
 def can_delete_delivery_document(user: str) -> bool:
     """True when `user` may delete a DC / MIR. Administrator always passes."""
     return has_role_profile(user, PDD_DELETE_PROFILES)
@@ -200,3 +217,26 @@ def can_delete_delivery_document(user: str) -> bool:
 def can_action_invoice_approvals(user: str) -> bool:
     """True when `user` may act on the pending invoice-approval queue."""
     return has_role_profile(user, INVOICE_APPROVAL_PROFILES)
+
+
+PROJECT_MANAGER_PROFILE = "Nirmaan Project Manager Profile"
+PROJECT_LEAD_PROFILE = "Nirmaan Project Lead Profile"
+
+# May upload, edit and delete a Material Test Certificate (owner, 2026-10-07).
+#
+# ENFORCEMENT boundary, checked in `integrations/controllers/material_test_certificate.py`.
+# The doctype's Role rows cannot say this on their own: `System Manager` and
+# `Nirmaan Procurement Executive` also ride on the Project Lead profile, which must NOT
+# change MTCs. Mirrored client-side by `frontend/src/constants/roles.ts::MTC_MANAGE_PROFILES`
+# (display only). Keep the two in sync.
+MTC_MANAGE_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + PROCUREMENT_PROFILES
+
+# Use the MTC list page, and see only the projects assigned to them through
+# `User Permission` -- strictly: no assignment means no projects, NOT Frappe's
+# default of "everything" (owner, 2026-10-07). Mirrored by `MTC_PAGE_PROFILES`.
+MTC_PROJECT_SCOPED_PROFILES = (PROJECT_MANAGER_PROFILE, PROJECT_LEAD_PROFILE)
+
+
+def can_manage_mtc(user: str) -> bool:
+    """True when `user` may upload / edit / delete an MTC. Administrator always passes."""
+    return has_role_profile(user, MTC_MANAGE_PROFILES)

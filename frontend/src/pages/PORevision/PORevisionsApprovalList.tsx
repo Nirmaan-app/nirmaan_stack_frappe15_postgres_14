@@ -9,6 +9,7 @@ import { FrappeDoc, GetDocListArgs, useFrappeGetDocList } from "frappe-react-sdk
 import { memoize } from "lodash";
 import { TableSkeleton } from "@/components/ui/skeleton";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 export default function PORevisionsApprovalList() {
     const { counts } = useDocCountStore();
@@ -106,6 +107,7 @@ export default function PORevisionsApprovalList() {
     );
 
     const isLoadingOverall = isDataLoading || isProjectsLoading || isVendorsLoading;
+    const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
 
     return (
         <div className="flex-1 space-y-4 pt-2">
@@ -154,7 +156,7 @@ export default function PORevisionsApprovalList() {
                   : ""
               }`}
             >
-                {isLoadingOverall && !poRevisionsData?.length ? (
+                {!hasLoadedOnce && isLoadingOverall && !poRevisionsData?.length ? (
                     <TableSkeleton />
                 ) : (
                     <DataTable<any>

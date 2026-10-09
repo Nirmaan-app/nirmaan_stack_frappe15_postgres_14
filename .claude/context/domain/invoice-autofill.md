@@ -2,6 +2,8 @@
 
 **Status:** Gemini-only as of 2026-06. Google Document AI was **fully removed** (too costly for ~150–200 pages/month).
 
+**Invoice Autofill:** Opt-in only via InvoiceDialog. Never recreate `services/file_extractor.py` or the `DocumentSearch` page — both intentionally deleted.
+
 ## Why this exists
 
 Indian invoices and payment receipts need a handful of fields keyed in every time (invoice no/date/amount; UTR/date/amount). A multimodal LLM extracts them from the uploaded PDF/image. Document AI (a custom-trained processor billed per page) was replaced by the **Gemini API**, which at this volume costs well under $1/month and needs no per-model retraining.

@@ -121,7 +121,7 @@ import {
   type MarginSortDir,
 } from "./marginView";
 // BCS-S3a: a module-level stable empty -- a fresh [] per render would churn a grid prop and kill
-// the V0 React.memo shield (frontend/CLAUDE.md: "any new grid prop must stay identity-stable").
+// the V0 React.memo shield (boq-pricing-editor-frontend.md: "any new grid prop must stay identity-stable").
 const EMPTY_BCS_KINDS: BcsRateKind[] = [];
 // BCS-S14: what the grid gets for `childrenByParent` while a margin SORT is on. A collapse
 // chevron on a re-ordered list would offer to fold rows that are not underneath it -- so the grid
@@ -3227,7 +3227,8 @@ const SheetPricingPage = () => {
     const rateKinds = rateKindsOf(columnDescriptors.filter(isRateDescriptor));
     // SLICE 6: the row's UNIT rides the context -- an item-list row prices per its unit (R12); every other
     // helper ignores it.
-    return { ...buildRowContext(row, rateKinds, liveCategoriesByExcelRow.get(helperPanel.excelRow)), unit: row.unit ?? "" };
+    // SLICE 12d-1a (owner R2): `rows` rides along so the context carries the row's section headings.
+    return { ...buildRowContext(row, rateKinds, liveCategoriesByExcelRow.get(helperPanel.excelRow), rows), unit: row.unit ?? "" };
   }, [helperPanel, rows, columnDescriptors, liveCategoriesByExcelRow]);
   // The panel is open only with the flag on, a scoped cell, and a resolvable row context.
   const helperPanelOpen = RATE_HELPER_ENABLED && helperPanel !== null && helperPanelCtx !== null;

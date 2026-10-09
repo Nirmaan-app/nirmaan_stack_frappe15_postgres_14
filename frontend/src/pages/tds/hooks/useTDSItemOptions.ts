@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { TDSItem } from "../components/types";
+import { isTdsMemberEligible } from "@/utils/tdsMemberEligibility";
 
 interface UseTDSItemOptionsProps {
     selectedWP?: string;
@@ -8,7 +9,9 @@ interface UseTDSItemOptionsProps {
     watchedTdsItemId?: string;
     currentItem?: TDSItem | null; // For Edit mode preservation
     // When true, restrict standard item options to Items where billing_category = "Billable".
-    // Custom items (CUS-*) are unaffected — they are tracked separately in TDS Repository.
+    // Excluded categories (HVAC Junk, Additional Charges) are dropped either way; see
+    // `utils/tdsMemberEligibility`. Custom items (CUS-*) are unaffected — they are tracked
+    // separately in TDS Repository.
     billableOnly?: boolean;
 }
 
@@ -91,7 +94,7 @@ export const useTDSItemOptions = ({ selectedWP, selectedCategory, watchedTdsItem
         return itemList
             .filter(d => wpCategories.has(d.category))
             .filter(d => !selectedCategory || d.category === selectedCategory)
-            .filter(d => !billableOnly || d.billing_category === "Billable")
+            .filter(d => isTdsMemberEligible(d, billableOnly))
             .map(d => {
                 const category = catList.find(c => c.name === d.category);
                 return {

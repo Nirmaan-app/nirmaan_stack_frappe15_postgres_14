@@ -45,7 +45,14 @@ class TestIndex(unittest.TestCase):
 			if d.get("library"):
 				self.assertIn(d["library"], index.LIBRARY_DOCUMENTS)
 			if d["kind"] == index.FROM_APP:
-				self.assertIn(d["source"], (index.SRC_COMMISSION, index.SRC_TDS, index.SRC_SNAG, index.SRC_DESIGN))
+				self.assertIn(
+					d["source"], (index.SRC_COMMISSION, index.SRC_TDS, index.SRC_SNAG, index.SRC_DESIGN, index.SRC_MTC)
+				)
+
+	def test_factory_test_reports_read_material_test_certificates(self):
+		"""Owner 2026-10-07: 14 reads the MTCs; the Commission "Factory Test" tasks moved to 3."""
+		self.assertEqual(index.get("factory_test_reports")["source"], index.SRC_MTC)
+		self.assertNotIn("bucket", index.get("factory_test_reports"))
 
 	def test_only_inventory_prints_landscape(self):
 		self.assertEqual([d["key"] for d in index.DOCUMENTS if d.get("landscape")], ["inventory_list"])
@@ -493,7 +500,8 @@ class TestDates(unittest.TestCase):
 class TestSources(unittest.TestCase):
 	def test_commission_buckets(self):
 		self.assertEqual(sources.commission_bucket("HVAC VRF/DX Training Report"), "training")
-		self.assertEqual(sources.commission_bucket("LT Panel Factory Test Report"), "factory_test")
+		# Factory Test reports are commissioning-side now: 14 reads the Material Test Certificates.
+		self.assertEqual(sources.commission_bucket("LT Panel Factory Test Report"), "commissioning")
 		self.assertEqual(sources.commission_bucket("VRF Commissioning Report"), "commissioning")
 		self.assertEqual(sources.commission_bucket("Earthing Test Report"), "commissioning")
 
@@ -534,6 +542,14 @@ class TestSources(unittest.TestCase):
 		# A category that says nothing, an item name that does.
 		self.assertTrue(sources.tds_belongs("Panel", "4 Zone WLD Panel", ["WLD"], True))
 		self.assertFalse(sources.tds_belongs("Panel", "4 Zone WLD Panel", ["VESDA"], True))
+
+	def test_mtc_items_follow_the_tds_package_rule(self):
+		# One system on the package: every item of the package is the system's.
+		self.assertTrue(sources.mtc_item_belongs("VRF System", "16HP VRF ODU", ["HVAC"], False))
+		# Critical Room ELV is shared: the keywords decide, on the category or the item name.
+		self.assertTrue(sources.mtc_item_belongs("WLD", "WLD Hooter Cum Strobe", ["WLD", "RR"], True))
+		self.assertFalse(sources.mtc_item_belongs("WLD", "WLD Hooter Cum Strobe", ["Gas Supression"], True))
+		self.assertTrue(sources.mtc_item_belongs("Panel", "4 Zone WLD Panel", ["WLD"], True))
 
 	def test_tds_belongs_without_keywords_keeps_everything(self):
 		self.assertTrue(sources.tds_belongs("Wires & Cables", "2.5 sqmm", [], True))

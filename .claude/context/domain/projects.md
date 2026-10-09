@@ -8,11 +8,11 @@
 | **WIP** | Admin/PMO | Manually via UI; legacy patch set for old projects (`patches/v1_9/add_project_status.py`) |
 | **Completed** | Admin/PMO | Manually via UI |
 | **Halted** | Admin/PMO | Manually via UI |
-| **CEO Hold** | `nitesh@nirmaan.app` only | Blocks ALL operations. Backend validation in `projects.py` enforces user restriction |
+| **CEO Hold** | `nitesh@nirmaan.app` only | Blocks ALL operations. Backend validation in `nirmaan_stack/nirmaan_stack/doctype/projects/projects.py` enforces user restriction |
 
 **Field definition:** Simple `Data` field in `projects.json:160-163` (not a `Select` with constrained options).
 
-**No automatic transitions** exist. All status changes are manual. CEO Hold restricted to one authorized user (not role-based).
+Status changes are manual, with one exception: the system places and lifts **automatic CEO Holds** (ADR-0004; see `frontend/.claude/context/domain/ceo-hold.md` § Automatic CEO Hold). A manual CEO Hold is restricted to one authorized user (not role-based).
 
 ---
 
@@ -63,6 +63,7 @@ This is bypassed when `all={true}` prop is passed.
 2. **PR/SR creation pages don't use ProjectSelect** — They have their own project selection logic, so project status does not restrict new PR or SR creation at all.
 3. **Financial operations intentionally bypass** — `NewInflowPayment` and `NewProjectInvoiceDialog` pass `all={true}` to allow recording payments/invoices for completed projects.
 4. **"Created" is a one-way status** — Set only by system on project creation. The UI only offers WIP, Completed, and Halted as changeable statuses.
+5. **CEO Hold:** Only `nitesh@nirmaan.app` may set/unset — enforced in `Projects.validate` (`_validate_ceo_hold_status` in `doctype/projects/projects.py`, user constant `CEO_AUTHORIZED_USER` in `constants/authorized_users.py`), not role-based. Frontend behaviour: `frontend/.claude/context/domain/ceo-hold.md`.
 
 ---
 

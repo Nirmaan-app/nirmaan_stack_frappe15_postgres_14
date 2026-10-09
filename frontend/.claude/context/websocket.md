@@ -378,6 +378,6 @@ bench --site localhost console
 
 ## Related Documentation
 
-- Backend integrations: `../../../CLAUDE.md` (Real-time Events section)
+- Commit-before-publish and event naming rules: `../../../CODING_STANDARDS.md` § Writing backend Python, `../../CODING_STANDARDS.md` § Realtime events
 - Backend controllers: `../../../.claude/context/integrations.md`
 - Notification doctype: `../../../.claude/context/doctypes.md`

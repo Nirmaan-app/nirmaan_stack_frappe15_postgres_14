@@ -33,6 +33,7 @@ import { Customers } from "@/types/NirmaanStack/Customers";
 import { DEFAULT_INFLOW_FIELDS_TO_FETCH, INFLOW_SEARCHABLE_FIELDS, INFLOW_DATE_COLUMNS } from '../config/inflowPaymentsTable.config'; // Adjusted path
 import { getCustomerListOptions, getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { TruncatedText } from "@/components/common/TruncatedText";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 const DOCTYPE = 'Project Inflows';
 
@@ -231,6 +232,7 @@ export function InflowReportTable() {
     }, [columnFilters, setColumnFilters]); // Watch columnFilters but only remove once
 
     const isLoadingOverall = projectsLoading || customersLoading || listIsLoading;
+    const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
     const combinedErrorOverall = projectsError || customersError || listError;
 
     const handleClearDateFilter = useCallback(() => {
@@ -241,7 +243,7 @@ export function InflowReportTable() {
         return <AlertDestructive error={combinedErrorOverall} />;
     }
 
-    if (isLoadingOverall && !table.getRowModel().rows.length) {
+    if (!hasLoadedOnce && isLoadingOverall && !table.getRowModel().rows.length) {
         return <TableSkeleton />;
     }
 

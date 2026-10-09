@@ -71,10 +71,12 @@ import {
 import { Separator } from "../ui/separator";
 import { useCountsBridge } from "@/hooks/useSidebarCounts";
 import {
+  HOD_ACCESS,
   MATERIAL_PROCUREMENT_PROFILES,
   NON_PROJECT_INFLOWS_ACCESS,
   PROCUREMENT_PROFILES,
   SERVICE_PROCUREMENT_PROFILES,
+  canUseProjectBilling,
   isMaterialProcurementProfile,
   isProcurementProfile,
 } from "@/constants/roles";
@@ -741,6 +743,15 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(canUseProjectBilling(role as string, user_id)
+      ? [
+        {
+          key: '/billing-tracker',
+          icon: FileChartLine,
+          label: 'Billing Tracker',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile"].includes(role as string)
       ? [
         {
@@ -752,8 +763,8 @@ export function NewSidebar() {
       : []),
     // Handover Documents, across every project. The roles are the ones that WORK a handover --
     // the same four `Project HOD Document` grants write to (System Manager / PMO / Project Lead /
-    // Project Manager). Read is far wider on the doctype; the sidebar is not the access boundary.
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
+    // Project Manager). The `/hod-tracker` route guard reads the same list.
+    ...(user_id == "Administrator" || HOD_ACCESS.includes(role as string)
       ? [
         {
           key: '/hod-tracker',
@@ -870,6 +881,8 @@ export function NewSidebar() {
     "pmo-dashboard",
     "reminders",
     'commission-tracker',
+    // Billing Tracker; its /billing-tracker/:projectId page falls back to this first segment.
+    'billing-tracker',
     "upload-boq",
     // Pricing Module (PW-1): one key per registry workbook.
     ...PRICING_WORKBOOKS.map((w) => w.path.slice(1)),
@@ -924,6 +937,7 @@ export function NewSidebar() {
     '/warehouse': ['warehouse'],
     '/help-repository': ['help-repository'],
     '/commission-tracker': ['commission-tracker'],
+    '/billing-tracker': ['billing-tracker'],
     '/pmo-dashboard': ['pmo-dashboard'],
     '/reminders': ['reminders'],
     '/work-order-rate-card': ['work-order-rate-card'],
@@ -1045,6 +1059,8 @@ export function NewSidebar() {
                     // Inflows above: leave this label out and the item falls into the
                     // collapsible branch, rendering a chevron that swallows the click.
                     "HOD Tracker",
+                    // Flat nav button (no children), like the trackers around it.
+                    "Billing Tracker",
                     "PR Tracker",
                     "PO Tracker",
                     "Work Plan Tracker",

@@ -93,7 +93,7 @@ const ALL_SOURCES = "all";
  *
  * ⚠️ IT IS AN ITEM, NOT A PLACEHOLDER, BECAUSE A RADIX `Select` BOUND TO A VALUE IT CANNOT OFFER
  * RENDERS BLANK AND THEN OVERWRITES IT ON THE FIRST INTERACTION. That trapdoor is documented in
- * `frontend/CLAUDE.md` against the Rate Master type picker, which lost four `number_choice`
+ * `pricing-rate-master-frontend.md` against the Rate Master type picker, which lost four `number_choice`
  * definitions to exactly this. Here the value being silently overwritten would be a filter over the
  * whole screen. Choosing it explicitly means "every source", which is the only thing widening from
  * a mixed selection can honestly mean.

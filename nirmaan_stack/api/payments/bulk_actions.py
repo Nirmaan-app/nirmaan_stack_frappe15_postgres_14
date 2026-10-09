@@ -768,7 +768,7 @@ def _insert_summary_notification(
     })
     notif.insert(ignore_permissions=True)
     # Commit before publishing the realtime event so the socket consumer can
-    # look up the notification doc by id (see CLAUDE.md gotcha #4). Since the
+    # look up the notification doc by id (see CODING_STANDARDS.md, Transactions). Since the
     # engine's main commit has already fired (fix E7 moved _emit_approve_summary
     # after it), each notification lands in its own short transaction.
     frappe.db.commit()

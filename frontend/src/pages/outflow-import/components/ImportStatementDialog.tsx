@@ -1072,7 +1072,7 @@ const StatementPreview = ({
         <div className="grid gap-x-10 gap-y-5 sm:grid-cols-2">
             <section className="space-y-1.5">
                 <SectionLabel>In this file</SectionLabel>
-                {/* ⚠️ `dd-MMM-yyyy` VIA `formatDate`, THE APP-WIDE RULE (frontend/CLAUDE.md). The
+                {/* ⚠️ `dd-MMM-yyyy` VIA `formatDate`, THE APP-WIDE RULE (frontend/CODING_STANDARDS.md). The
                     server sends the period as ISO (`2026-05-02`) because that is what a date column
                     holds; every screen in this app renders `02-May-2026`, and a dialog that shows
                     the raw ISO is the one place an accountant has to re-read a date to be sure

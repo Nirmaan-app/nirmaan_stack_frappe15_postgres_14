@@ -12,6 +12,9 @@
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import {
+  gridColumnKeys, COL_SOURCE_SHEET, COL_SOURCE_ROW, COL_FORMULA_SUPPLY, COL_FORMULA_INSTALL,
+} from "./rateMasterGridColumns";
 import { join } from "node:path";
 import { coerceAttributeForStorage } from "./RateMasterDataViewer";
 import type { AttributeDefinition } from "./rateMasterTypes";
@@ -78,14 +81,37 @@ describe("coerceAttributeForStorage -- the existing types are UNCHANGED", () => 
 describe("SLICE 12b(A) -- the viewer wires the Pricing Inputs columns", () => {
   const src = readFileSync(join(__dirname, "RateMasterDataViewer.tsx"), "utf8");
 
+  // ⚠️ INVERTED 2026-10-07 (slice 12d-2F, owner F1) under mechanical authority, NOT deleted. The cell's
+  // figure is now `shown` = `displayedRateValue(r.it, k, computed, computedRates)` -- a COMPUTED cell reads
+  // the server's display map, every other cell the stored rate -- so the old `r.it.rates[k]` read in this
+  // expression is asserted ABSENT. The CLAIM is unchanged: a value cell renders through pricingInputCell.
   it("ACCEPTANCE 6: a value cell renders through pricingInputCell, so it reads as a percentage", () => {
-    expect(src).toContain("piMode ? pricingInputCell(k, r.it.rates[k]) : r.it.rates[k]");
+    expect(src).toContain("piMode ? pricingInputCell(k, shown) : shown");
+    expect(src).toContain("const shown = displayedRateValue(r.it, k, computed, computedRates);");
+    expect(src).not.toContain("piMode ? pricingInputCell(k, r.it.rates[k]) : r.it.rates[k]");   // the pre-12d-2F read
   });
 
+  // ⚠️ INVERTED 2026-10-05 under mechanical authority, NOT deleted. It pinned the ABSENCE of the SKU
+  // columns in Pricing Inputs by grepping for the `{!piMode && ...}` JSX that placed them. Those
+  // inline placements are gone: the header, the formula row and the body now all map ONE shared
+  // column list (`rateMasterGridColumns.gridColumnKeys`), because keeping the order in three places
+  // is what let the `unit` column drift out of step with its heading on every non-PI grid.
+  // The CLAIM is unchanged and is now asserted against the list itself -- behaviour, not source text.
   it("ACCEPTANCE 4: the SKU columns are ABSENT for a Pricing Input", () => {
+    const base = { canEdit: false, showKindCol: false, specMode: false, showImpactCol: false,
+                   textCols: [], attrCols: [{ id: "a" }], rateCols: ["r1"] };
+    const pi = gridColumnKeys({ ...base, piMode: true });
     // source sheet / row and the two formula columns are what "nothing borrowed from a SKU file" means
-    expect(src).toContain("{!piMode && <TableCell>{r.it.source_sheet}</TableCell>}");
-    expect(src).toContain("{!piMode && FORMULA_COLUMNS.map(");
+    for (const k of [COL_SOURCE_SHEET, COL_SOURCE_ROW, COL_FORMULA_SUPPLY, COL_FORMULA_INSTALL]) {
+      expect(pi).not.toContain(k);
+    }
+    // NEGATIVE HALF KEPT: a SKU grid still carries all four
+    const sku = gridColumnKeys({ ...base, piMode: false });
+    for (const k of [COL_SOURCE_SHEET, COL_SOURCE_ROW, COL_FORMULA_SUPPLY, COL_FORMULA_INSTALL]) {
+      expect(sku).toContain(k);
+    }
+    // and the retired inline placements must not come back
+    expect(src).not.toContain("{!piMode && <TableCell>{r.it.source_sheet}</TableCell>}");
   });
 
   // ⚠️ INVERTED at slice 12b(B), not deleted. This pin used to assert that `remarks` was its OWN
@@ -100,7 +126,8 @@ describe("SLICE 12b(A) -- the viewer wires the Pricing Inputs columns", () => {
     // the remark is NO LONGER a column of its own ...
     expect(src).not.toContain('hdr("pi:remarks"');
     // ... and it is rendered inside the name cell instead
-    const nameCell = src.slice(src.indexOf('<TableCell className="font-medium align-top">'));
+    // the cell now carries its column key, so the slice starts at the keyed open tag
+    const nameCell = src.slice(src.indexOf('<TableCell key={COL_PI_NAME} className="font-medium align-top">'));
     const upToClose = nameCell.slice(0, nameCell.indexOf("</TableCell>"));
     expect(upToClose).toContain("r.it.attributes?.name");
     expect(upToClose).toContain("r.it.attributes?.remarks");
@@ -145,12 +172,25 @@ describe("SLICE 12b(A) -- the viewer wires the Pricing Inputs columns", () => {
     expect(upTo).toContain("cellText(it.attributes?.used_by)");
   });
 
+  /**
+   * ⚠️ INVERTED BY SLICE 12c, claim unchanged. It asserted the cell renders `r.it.attributes?.used_by`
+   * DIRECTLY; it now renders `usedByText(r.it)`, which returns that stored value when there is one and
+   * the DERIVED text when there is not. HVAC's inputs carry no stored copy -- deliberately, because a
+   * stored count goes stale the moment a pipeline changes -- so the column read EMPTY for all seven
+   * while they priced 204 rows, which the live page showed and no test did. The READ-ONLY claim, which
+   * is what acceptance 13 is about, is unchanged and still asserted.
+   */
   it("ACCEPTANCE 13: the used-by cell is READ-ONLY -- rendered, never an input", () => {
     const cell = src.slice(src.indexOf('data-testid="pi-used-by"'));
     const upToClose = cell.slice(0, cell.indexOf("</TableCell>"));
-    expect(upToClose).toContain("r.it.attributes?.used_by");
+    expect(upToClose).toContain("usedByText(r.it)");
     expect(upToClose).not.toContain("<Input");
     expect(upToClose).not.toContain("onChange");
+    // and the resolver really is stored-first, so a stored value is never replaced by a derived one
+    const fn = src.slice(src.indexOf("const usedByText = useCallback"));
+    const body = fn.slice(0, fn.indexOf("}, [derivedUsedBy]);"));
+    expect(body).toContain("it.attributes?.used_by");
+    expect(body.indexOf("return String(stored)")).toBeLessThan(body.indexOf("pricingInputUsedByText"));
   });
 
   /**

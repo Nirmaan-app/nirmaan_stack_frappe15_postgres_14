@@ -126,7 +126,7 @@ def write_bytes_to_tempfile(file_bytes: bytes, file_name: str) -> str:
     """Write freshly-uploaded bytes to a NamedTemporaryFile; return its path.
 
     The upload endpoint parses from THIS, never from a path built out of `file_url`
-    (root CLAUDE.md, "BoQ File Reading (S3 safety)"): at the moment of upload the bytes
+    (root CODING_STANDARDS.md, "Reading uploaded file bytes"): at the moment of upload the bytes
     are in memory and the stored file may already be gone from local disk.
     Caller unlinks in a `finally` block.
     """

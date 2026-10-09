@@ -30,7 +30,7 @@ import frappe
 from frappe.utils import now
 from frappe.utils.file_manager import save_file
 
-from nirmaan_stack.api.snags import require_import_access
+from nirmaan_stack.api.snags import require_import_access, require_project_access
 from nirmaan_stack.api.snags import file_io
 
 _WHITESPACE = re.compile(r"\s+")
@@ -252,7 +252,7 @@ def _serials_for(rows):
 def inspect_workbook():
     """multipart POST: file, project -> InspectWorkbookResponse.
 
-    S3 safety (root CLAUDE.md, "BoQ File Reading"): the bytes are captured HERE, written
+    S3 safety (CODING_STANDARDS.md, "Reading uploaded file bytes"): the bytes are captured HERE, written
     to a NamedTemporaryFile and parsed from that. The stored File's `file_url` is an API
     redirect the moment the attachment plugin has run, so a local path built from it does
     not exist. The upload is persisted only AFTER the workbook reads cleanly, so a
@@ -261,6 +261,7 @@ def inspect_workbook():
     project = frappe.form_dict.get("project")
     _assert_project(project)
     require_import_access("import a snag list")
+    require_project_access(project, "import a snag list")
 
     files = frappe.request.files if frappe.request else None
     if not files or "file" not in files:
@@ -547,6 +548,7 @@ def ingest_batch(project=None, file_url=None, file_name=None, batch_name=None, s
     """
     _assert_project(project)
     require_import_access("import a snag list")
+    require_project_access(project, "import a snag list")
 
     sheets = frappe.parse_json(sheets) if isinstance(sheets, str) else sheets
     if not isinstance(sheets, list) or not sheets:

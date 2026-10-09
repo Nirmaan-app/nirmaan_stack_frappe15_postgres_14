@@ -48,6 +48,7 @@ import { usePODeliveryDocuments } from "@/pages/DeliveryChallansAndMirs/hooks/us
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
 import type { PODeliveryDocuments as PODeliveryDoc } from "@/types/NirmaanStack/PODeliveryDocuments";
 import { canDeleteDeliveryDocument } from "@/constants/roles";
+import { MTCCard } from "@/pages/MaterialTestCertificates/components/MTCCard";
 
 // Define a union type for the document data
 type DocumentType = ProcurementOrder | ServiceRequests;
@@ -627,9 +628,14 @@ export const DocumentAttachments = <T extends DocumentType>({
   };
 
   return (
+    // PO page: Invoices, DC & MIR and MTC each take their own full-width row (owner, 2026-10-07).
+    // The Work Order page also renders this component and keeps its two-column layout.
     <div
-      className={`grid gap-4 lg:grid-cols-2 ${showDcTable && !isProjectManager ? "lg:grid-cols-2" : "lg:grid-cols-1"
-        }`}
+      className={
+        isPO
+          ? "grid gap-4 grid-cols-1"
+          : `grid gap-4 lg:grid-cols-2 ${showDcTable && !isProjectManager ? "lg:grid-cols-2" : "lg:grid-cols-1"}`
+      }
     >
       {/* Invoice Card - Hidden for Project Manager */}
       {!isProjectManager && (
@@ -795,6 +801,11 @@ export const DocumentAttachments = <T extends DocumentType>({
         )
       }
 
+      {/* Material Test Certificates: the same viewers as the DC & MIR card, Billable POs only
+          (MTCCard renders nothing otherwise). Always its own full-width row. */}
+      {isPO && !isPMUserChallans && documentData && (
+        <MTCCard po={documentData as ProcurementOrder} className="col-span-full" />
+      )}
 
       <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
         <DialogContent className="sm:max-w-md">

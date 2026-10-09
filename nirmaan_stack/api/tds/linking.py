@@ -47,6 +47,13 @@ GROUP_DOCTYPE = "TDS Items"
 CATEGORY_DOCTYPE = "Category"
 LINK_FIELD = "linked_tds_item"  # Items.linked_tds_item → TDS Items (the group)
 
+# Member eligibility: these categories never hold a datasheet product, and a
+# member must be a Billable SKU. Checked on the bulk link path only, never in
+# `Items.validate`: SKUs linked before this rule (some Non-Billable) must stay
+# saveable. Pinned to `frontend/src/utils/tdsMemberEligibility.ts` by a parity test.
+TDS_EXCLUDED_CATEGORIES = ("HVAC Junk", "Additional Charges")
+BILLABLE = "Billable"
+
 # Roles allowed to author membership from the bulk write surfaces (ADR-0026).
 # DB-verified `Nirmaan Users.role_profile` strings (2026-08-03).
 MEMBERSHIP_WRITE_ROLES = (
@@ -83,6 +90,15 @@ def _assert_membership_write_permission():
 		"Not permitted: only Admin or PMO Executive can change TDS Item linkage.",
 		frappe.PermissionError,
 	)
+
+
+def member_refusal(category, billing_category):
+	"""Why an item may not become a TDS Item member, or None when it may."""
+	if category in TDS_EXCLUDED_CATEGORIES:
+		return f"Items in category '{category}' cannot be linked to a TDS Item."
+	if billing_category != BILLABLE:
+		return "Only Billable items can be linked to a TDS Item."
+	return None
 
 
 def _wp_by_item(item_names):
@@ -213,6 +229,8 @@ def set_items_tds_link(item_ids, tds_item):
 	    tds_item: a `TDS Items` id (the target group).
 
 	Per item:
+	  * if its category is excluded or it is not Billable (`member_refusal`) →
+	    record in `errors` and SKIP (no write);
 	  * derive its WP (`Items.category → Category.work_package`);
 	  * if the item has no category/WP, OR its WP != the group's WP → record in
 	    `errors` and SKIP (no write);
@@ -251,7 +269,7 @@ def set_items_tds_link(item_ids, tds_item):
 	current = frappe.get_all(
 		ITEMS_DOCTYPE,
 		filters={"name": ["in", ids]},
-		fields=["name", "item_name", LINK_FIELD],
+		fields=["name", "item_name", "category", "billing_category", LINK_FIELD],
 		limit_page_length=0,
 	)
 	current_by_id = {c.name: c for c in current}
@@ -276,6 +294,11 @@ def set_items_tds_link(item_ids, tds_item):
 		row = current_by_id.get(item)
 		if row is None:
 			errors.append({"item": item, "reason": "Item does not exist."})
+			continue
+
+		refusal = member_refusal(row.get("category"), row.get("billing_category"))
+		if refusal:
+			errors.append({"item": item, "reason": refusal})
 			continue
 
 		item_wp = wp_by_item.get(item, "")

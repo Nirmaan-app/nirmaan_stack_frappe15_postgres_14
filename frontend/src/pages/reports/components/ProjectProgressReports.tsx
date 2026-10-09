@@ -457,6 +457,7 @@ import { useCEOHoldProjects } from "@/hooks/useCEOHoldProjects";
 import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 import { UserContext } from "@/utils/auth/UserProvider";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 
 // --- NEW TYPES FOR NEW DATA SOURCES ---
@@ -944,13 +945,14 @@ export function ProjectProgressReports() {
 
 
     const isLoadingOverall = isProjectsLoading || isReportsLoading || isTableHookLoading;
+    const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
     const overallError = projectsError || reportsError || tableHookError;
 
     if (overallError) {
         return <AlertDestructive error={overallError as Error} />;
     }
 
-    if (isLoadingOverall && !mergedData?.length) {
+    if (!hasLoadedOnce && isLoadingOverall && !mergedData?.length) {
         return <LoadingFallback />;
     }
 

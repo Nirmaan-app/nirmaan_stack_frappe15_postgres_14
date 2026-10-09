@@ -1,0 +1,123 @@
+{
+ "Electrical/cabletray_raceway": {
+  "items": 450,
+  "kinds": [
+   "cable_tray"
+  ]
+ },
+ "Electrical/conduit_piping": {
+  "items": 8,
+  "kinds": [
+   "conduit"
+  ]
+ },
+ "Electrical/db_switchgear": {
+  "items": 163,
+  "kinds": [
+   "db_shell",
+   "db_switchgear_item"
+  ]
+ },
+ "Electrical/earthing": {
+  "items": 25,
+  "kinds": [
+   "earthing_item"
+  ]
+ },
+ "Electrical/electrical_pricing_inputs": {
+  "items": 35,
+  "kinds": [
+   "electrical_pricing_input"
+  ]
+ },
+ "Electrical/industrial_sockets": {
+  "items": 28,
+  "kinds": [
+   "industrial_socket"
+  ]
+ },
+ "Electrical/junction_box_raceway": {
+  "items": 6,
+  "kinds": [
+   "junction_box"
+  ]
+ },
+ "Electrical/lighting_mgmt_system": {
+  "items": 24,
+  "kinds": [
+   "lms_item"
+  ]
+ },
+ "Electrical/miscellaneous": {
+  "items": 13,
+  "kinds": [
+   "misc_item"
+  ]
+ },
+ "Electrical/point_wiring": {
+  "items": 0,
+  "kinds": []
+ },
+ "Electrical/popup_boxes": {
+  "items": 62,
+  "kinds": [
+   "popup_box_module",
+   "switch_socket_item"
+  ]
+ },
+ "Electrical/switches_sockets": {
+  "items": 61,
+  "kinds": [
+   "switch_socket_item"
+  ]
+ },
+ "Electrical/wiring_cabling": {
+  "items": 588,
+  "kinds": [
+   "cable",
+   "termination"
+  ]
+ },
+ "HVAC/hvac_adp": {
+  "items": 95,
+  "kinds": [
+   "hvac_adp_item"
+  ]
+ },
+ "HVAC/hvac_ahu": {
+  "items": 0,
+  "kinds": []
+ },
+ "HVAC/hvac_cables": {
+  "items": 0,
+  "kinds": []
+ },
+ "HVAC/hvac_dx_unit": {
+  "items": 0,
+  "kinds": []
+ },
+ "HVAC/hvac_insulation": {
+  "items": 229,
+  "kinds": [
+   "hvac_insulation_item"
+  ]
+ },
+ "HVAC/hvac_panels": {
+  "items": 0,
+  "kinds": []
+ },
+ "HVAC/hvac_pricing_inputs": {
+  "items": 7,
+  "kinds": [
+   "hvac_pricing_input"
+  ]
+ },
+ "HVAC/hvac_pumps": {
+  "items": 0,
+  "kinds": []
+ },
+ "HVAC/hvac_raceway": {
+  "items": 0,
+  "kinds": []
+ }
+}

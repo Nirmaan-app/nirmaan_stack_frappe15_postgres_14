@@ -19,6 +19,15 @@ interface CameraCaptureProps {
   project_id: string;
   onCaptureSuccess: (photo: CapturedPhotoData) => void;
   onCancel: () => void;
+  /** Google Maps key for the reverse-geocode (the `Map API` single). */
+  GEO_API?: string;
+  /**
+   * When given, the captured photo is HANDED BACK here instead of uploaded, and the remarks box
+   * is hidden. Snag List (2026-10-08) uploads its photo only when its own dialog saves, and the
+   * snag has its own Remarks field. `location` is the formatted string shown under the photo,
+   * including the failure text when GPS was refused. DPR passes nothing and is unchanged.
+   */
+  onCaptured?: (photo: { file: File; location: string | null }) => void;
 }
 
 // UPDATED: New helper to get coordinates and a user-friendly location string including city name
@@ -72,11 +81,17 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
   report_date,
   onCaptureSuccess,
   onCancel,
-  GEO_API
+  GEO_API,
+  onCaptured,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  // The LIVE stream, for the code that must stop it. `stream` above drives the buttons, but a
+  // callback memoised once (and an effect's cleanup) would only ever see its first value, null,
+  // and leave the camera running after the dialog closes.
+  const streamRef = useRef<MediaStream | null>(null);
+  const mountedRef = useRef(true);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -89,11 +104,23 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
   const frappeFileUpload = useFrappeFileUpload(); // Get the object directly
   const isUploading = frappeFileUpload.loading; // Use loading state from the hook
 
+  const releaseStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    streamRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const startCamera = useCallback(async (mode: 'user' | 'environment') => {
     setIsLoading(true);
 
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
+    if (streamRef.current) {
+      releaseStream();
      await new Promise(resolve => setTimeout(resolve, 300)); 
     }
     setStream(null);
@@ -115,6 +142,13 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
       };
 
       const newStream = await navigator.mediaDevices.getUserMedia(constraints);
+      // Closed while the permission prompt was up: nothing will ever stop this one.
+      if (!mountedRef.current) {
+        newStream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      releaseStream(); // an earlier start still in flight
+      streamRef.current = newStream;
       setStream(newStream);
 
       if (videoRef.current) {
@@ -159,22 +193,17 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
       setIsLoading(false);
 
     }
-  }, []);
+  }, [releaseStream]);
 
   useEffect(() => {
     startCamera(facingMode);
     return () => {
-      if (stream) {
-        // stream.getTracks().forEach(track => track.stop());
-        setTimeout(() => {
-  stream.getTracks().forEach(t => t.stop());
-}, 200);
-      }
+      releaseStream();
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }
     };
-  }, [facingMode, startCamera]);
+  }, [facingMode, startCamera, releaseStream]);
 
 
   const switchCamera = () => {
@@ -190,12 +219,11 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
       const video = videoRef.current;
       const canvas = canvasRef.current;
 
-      if (stream) {
-        // stream.getTracks().forEach(track => track.stop());
-        setTimeout(() => {
-  stream.getTracks().forEach(t => t.stop());
-}, 200);
-      }
+      // Stopped a beat LATER, as before: the frame is drawn below, and a stopped track blanks
+      // the video. This stream only -- a Retake by then has started a new one.
+      const captured = streamRef.current;
+      streamRef.current = null;
+      setTimeout(() => captured?.getTracks().forEach(t => t.stop()), 200);
       setStream(null);
 
       canvas.width = video.videoWidth;
@@ -260,21 +288,24 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
 
 
   const stopCameraStream = useCallback(() => {
-    if (stream) {
-        console.log("CameraCapture: Explicitly stopping camera stream tracks.");
-        stream.getTracks().forEach(track => track.stop());
-        setTimeout(() => {
-  stream.getTracks().forEach(t => t.stop());
-}, 200);
-    }
+    releaseStream();
     if (videoRef.current) {
-        console.log("CameraCapture: Clearing video srcObject.");
         videoRef.current.srcObject = null;
     }
-}, []);
+}, [releaseStream]);
 
   const uploadAndSave = async () => {
     if (!capturedImage) {
+      return;
+    }
+
+    if (onCaptured) {
+      const blob = await fetch(capturedImage).then(res => res.blob());
+      onCaptured({
+        file: new File([blob], `photo_${Date.now()}.jpeg`, { type: 'image/jpeg' }),
+        location: currentLocationString,
+      });
+      stopCameraStream();
       return;
     }
 
@@ -379,7 +410,7 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
             </Button>
             <Button variant="default" className="bg-red-600 hover:bg-red-700" onClick={uploadAndSave} disabled={isLoading || isUploading || !capturedImage}>
               {isUploading ? <TailSpin height={20} width={20} color="#fff" /> : <Upload className="h-5 w-5 mr-2" />}
-              Upload & Save
+              {onCaptured ? "Use photo" : "Upload & Save"}
             </Button>
           </>
         )}
@@ -392,13 +423,13 @@ const CameraCapture: React.FC<CameraCaptureProps> = ({
             <span className="font-semibold">Location:</span>
             <span className="ml-2">{currentLocationString || 'Location Not Found'}</span> {/* Use currentLocationString */}
           </div>
-          <textarea
+          {!onCaptured && <textarea
             value={currentRemarks} // Use currentRemarks
             onChange={(e) => setCurrentRemarks(e.target.value)}
             placeholder="Add remarks for this photo..."
             className="w-full p-2 border border-gray-700 rounded-md bg-gray-700 text-white text-sm min-h-[60px]"
             rows={2}
-          />
+          />}
         </div>
       )}
 

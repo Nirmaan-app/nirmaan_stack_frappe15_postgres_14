@@ -22,10 +22,9 @@ re-fetches a multi-megabyte workbook from cloud storage into a tempfile because 
 gone by then. A statement is a few kilobytes and we already hold its bytes, so there is nothing to
 re-fetch and no worker to coordinate. Do not "align" this with the BoQ flow.
 
-⚠️ THE ROOT CLAUDE.md "BoQ File Reading (S3 safety)" SECTION IS STALE about the BoQ worker (it
-describes a tempfile written from in-memory bytes; the code re-fetches by URL instead). The one
-invariant that IS still true, and that this module honours, is: read the werkzeug stream exactly
-ONCE -- it is consumed on read.
+Root CODING_STANDARDS.md "Reading uploaded file bytes" describes both shapes: this module is the
+in-request one, the BoQ worker the re-fetch-by-URL one. The invariant this module honours: read the
+werkzeug stream exactly ONCE -- it is consumed on read.
 """
 
 import os

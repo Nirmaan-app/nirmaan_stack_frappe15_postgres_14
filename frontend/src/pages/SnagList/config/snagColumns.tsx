@@ -19,7 +19,9 @@ import { Button } from "@/components/ui/button";
 import { formatDate } from "@/utils/FormatDate";
 
 import { SnagStatus } from "../types";
+import { SnagPhotoCell } from "../components/SnagPhotoCell";
 import { SnagStatusCell } from "../components/SnagStatusCell";
+import { SnagPhotoDraft } from "../photo/snagPhotoCapture";
 import { SnagListRow } from "./snagTable.config";
 
 export interface GetSnagColumnsOptions {
@@ -33,7 +35,8 @@ export interface GetSnagColumnsOptions {
   onStatusChange?: (
     snag: SnagListRow,
     next: SnagStatus,
-    remark: string | undefined
+    remark: string | undefined,
+    photo?: SnagPhotoDraft | null
   ) => Promise<boolean> | void;
   /**
    * Open the Edit dialog (Area / Category / Description). Withheld when the actor
@@ -155,10 +158,12 @@ export const getSnagColumns = ({
         description={row.original.description}
         area={row.original.area}
         category={row.original.category}
+        photoUrl={row.original.attachment}
+        photoLocation={row.original.location}
         isSaving={savingStatusFor === row.original.name}
         onChange={
           onStatusChange
-            ? (next, remark) => onStatusChange(row.original, next, remark)
+            ? (next, remark, photo) => onStatusChange(row.original, next, remark, photo)
             : undefined
         }
       />
@@ -191,6 +196,21 @@ export const getSnagColumns = ({
       exportHeaderName: "Remarks",
       exportValue: (r: SnagListRow) => r.remark || "",
     },
+  },
+  {
+    // The snag's ONE photo (owner 2026-10-08). Hover for the photo, where it was taken and a
+    // Location (maps) link. Set from the status dialog or the Edit dialog — never from this cell.
+    accessorKey: "attachment",
+    size: 90,
+    enableSorting: false,
+    header: () => <div className="text-xs">Attachment</div>,
+    cell: ({ row }) => (
+      <SnagPhotoCell
+        attachment={row.original.attachment}
+        location={row.original.location}
+      />
+    ),
+    meta: { excludeFromExport: true },
   },
   {
     // "Last updated" = the two status-change stamps, rendered as one column.
@@ -287,9 +307,11 @@ export const getSnagColumns = ({
                   description={row.original.description}
                   area={row.original.area}
                   category={row.original.category}
+                  photoUrl={row.original.attachment}
+                  photoLocation={row.original.location}
                   isSaving={savingStatusFor === row.original.name}
-                  onChange={(next, remark) =>
-                    onStatusChange(row.original, next, remark)
+                  onChange={(next, remark, photo) =>
+                    onStatusChange(row.original, next, remark, photo)
                   }
                 />
               )}
@@ -298,7 +320,7 @@ export const getSnagColumns = ({
                   variant="ghost"
                   size="sm"
                   className="h-7 w-7 p-0"
-                  title="Edit area, category and description"
+                  title="Edit area, category, description and photo"
                   aria-label="Edit snag details"
                   onClick={() => onEditRow(row.original)}
                 >

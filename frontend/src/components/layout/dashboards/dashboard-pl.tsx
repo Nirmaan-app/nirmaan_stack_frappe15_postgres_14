@@ -111,6 +111,12 @@ export const ProjectLead = () => {
                             <p className="text-center text-red-400 text-sm font-light py-6 font-bold text-gray-500">Track work plans across projects</p>
                         </Link>
                     </Card>
+                    <Card className="hover:animate-shadow-drop-center border-red-400 rounded-lg border-2 flex flex-col items-center justify-center">
+                        <Link to="/prs&milestones/material-test-certificates">
+                            <p className="text-center py-6 font-bold text-gray-500">Material Test Certificates</p>
+                            <p className="text-center text-red-400 text-sm font-light py-6 font-bold text-gray-500">View MTCs of your projects</p>
+                        </Link>
+                    </Card>
                 </div>
             </div>
             </div>

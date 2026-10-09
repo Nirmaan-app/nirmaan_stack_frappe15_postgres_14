@@ -23,6 +23,1028 @@ the full corrections-owed list.
 
 ---
 
+## Load-bearing invariants (owner-locked) — current
+
+_Moved verbatim from root `CLAUDE.md` when it was cut down to material every task needs (CLAUDE.md restructure, pass 2). CLAUDE.md now carries a one-line pointer here._ Where a rule below differs from an older copy further down this file, **this section
+is current**: it is the text root `CLAUDE.md` carried until the move, after pass 1 pruned it.
+
+**LMS PRICING IS INVERTED RELATIVE TO ITS OWN FIRST DESIGN, AND THE FACTOR IS 1.3 EITHER WAY
+(owner ruling, asset v55).** For `lighting_mgmt_system`: **BCS = the catalogue `rate`
+EXACTLY AS STORED, unrounded; BoQ = `roundup(rate x 1.3, tens)`.** The original design said the
+opposite (rate AS the BoQ rate, BCS = rate / 1.3) and the hand-priced data falsified it -- most
+matched rows land EXACTLY on 1.25 or 1.30 ABOVE the catalogue rate, so the rate is the COST basis. ⚠️ **Because the factor is 1.3 in both readings, a build with the division
+restored looks arithmetically correct and is systematically wrong (~23% under-quoted). IT WOULD
+SURVIVE REVIEW** -- which is why it is pinned from both sides: `test_lms_01`/`02`/`04` (config) and
+the `LMS: the inversion` block in `ratePipelineInterpreter.test.ts` (arithmetic). Worked example:
+Lutron 24,500 -> BoQ 31,850, BCS 24,500; the direction proof is 2,250 -> **2,930** (never 2,920).
+⚠️ **LIMIT: a wrong description pick yields a confident, plausible, wrong price with NOTHING
+downstream to check it** -- the pick IS the price. AI confidence and the panel's rendering of the
+chosen description are ADVISORY ONLY; neither gates anything.
+
+**A RATE-MASTER ITEM HASH USED AS A STABILITY GUARD MUST EXCLUDE `name`.** `load_rate_master(
+replace=True)` flips prior rows `active = 0` and INSERTS new ones, so `name` regenerates by design
+(freeze-and-supersede) and a raw hash ALWAYS moves across an import while nothing about the data
+changed. Hash the CONTENT (kind/brand/unit/attributes/rates/item_uid/source). `BoQ Cell Pricing`
+remains the unchanged-price guard.
+**AND THAT GUARD MUST ORDER BY A TOTAL KEY -- `ORDER BY name`, or hash the SORTED row set.** The
+same class of defect, one level down: an `ORDER BY` on non-unique columns (`boq, sheet_name,
+excel_row, col_letter, pricing_version`) lets PostgreSQL return tied rows in ANY physical order, so
+three consecutive runs produce three different hashes with ZERO database change. **A guard that reports a change when nothing changed is
+worse than no guard** -- it burns the trust that makes the real signal actionable.
+
+**SCOPE A SLICE BY WHAT IT CHANGES, NOT BY THE FILES YOU EXPECT TO TYPE IN (owner ruling,
+after repeated occurrences).** **WHEN A SLICE CHANGES BEHAVIOUR, EVERY TEST THAT PINS THAT
+BEHAVIOUR IS IN ITS BLAST RADIUS AND BELONGS IN ITS SCOPE** -- including every phrase pin on rule
+text it rewords, wherever that pin's file lives. Retire such a pin by INVERTING it -- assert the new
+truth (for a wording change: the old wording is ABSENT and the surviving claims are PRESENT) and keep
+it failing for anything else -- never by deleting it: a deleted pin checks nothing.
+
+**READ-TIME COLUMN PROJECTION -- a `BoQ Rate Master Item` COLUMN can behave like an ATTRIBUTE
+(owner-chosen option (C)).** A column named in `extraction.PROJECTED_ITEM_COLUMNS`
+(today: `brand`) is copied into the item's `attributes` map at READ TIME, at exactly **TWO
+chokepoints and no others**: the three `extraction.py` catalogue readers (via the shared
+`_row_attributes` / `_item_read_fields`) and `api/boq/rate_master.get_rate_master_items` -- the ONE
+`items` array that feeds every frontend dropdown reader AND all 13 `ratePipelineInterpreter.ts`
+matcher sites. **NOTHING IS STORED**: no write, no migration, no backfill, no asset mint, so every
+row past and future behaves identically and a historical row self-heals. Adding another column is
+**ONE word in that ONE tuple** -- the api site reads it from `extraction.py` (api -> service, the
+legal direction), so the two sites can never drift; a second copy is exactly the disagreement-at-the-
+worst-moment the BCS import-direction law forbids. A STORED attribute always WINS over the
+projection, and a blank column contributes NO KEY (never `""`, never `None`).
+**THE LOAD-BEARING INVARIANT: nothing may read a projected item and write its `attributes` back**
+-- that would PERSIST the projection and recreate the duplication this design was chosen to avoid;
+guarded by `test_rate_master.TestBrandColumnProjection.test_bp_07_a_write_path_never_persists_the_projection`.
+**A derived key now sits in a map whose other keys are stored, deliberately** -- precedent:
+`commit_pipeline._derive_attached_notes`, *"DERIVED, not carried"*.
+⚠️ **Two rejected alternatives, recorded so neither is re-proposed:** WRITING brand into the stored
+`attributes` breaks the CSV round trip (`csv_exporter._keys_for` derives columns from OBSERVED item
+keys while `LEAD_COLUMNS` already holds `brand` -> two `brand` headers -> `classify_columns` refuses
+the whole file, for the whole discipline) and reaches only new uploads; WIDENING the dropdown readers
+to a column whitelist is HALF-EXTENSIBLE, because the readers and the matchers are disjoint code
+(3 vs 13 sites, one of them dot-indexed) -- it would ship a picker selecting a value no pipeline can
+match on.
+
+**AN EXTRACTION RULE CANNOT BE EDITED IN ISOLATION (owner-locked, measured).** Every
+`rules` entry of a rate-master category config is injected into ONE `ESTIMATOR_RULES` block in the
+extraction prompt, so **a phrase quoted inside one rule is visible to every other question the
+payload asks** and the model will match it wherever it fits. Nothing in the config shape hints at
+this -- a rule reads like a private instruction and is not one. **THE CONVENTION: a rule STATES ITS
+TEST; it does NOT quote corpus text.** A stated test leaves no string for another question to
+collide with. Measured: an R12 rewrite that quoted corpus text fixed its own field and silently
+flipped a DIFFERENT rule's verdict (R13, circuit inclusion) on the rows carrying that string.
+`test_pw_cs_19` enforces the convention mechanically for R12 by asserting the guidance quotes
+no corpus text; **the same guard now covers R9 and R13** (`test_pw_cs_30`), and must be extended
+again when rewording any other rule.
+
+**THE GATE THAT COMES FIRST — FACT TO READ, OR CALCULATION TO APPLY? (owner-locked).**
+**Before writing ANY extraction wording, ask which it is. A CALCULATION DOES NOT GO IN THE PROMPT AT
+ALL.** The model READS FACTS; every substitution, ladder and conversion belongs in deterministic code
+or config -- the `extraction.py` corrector layer (`point_type_of`, `force_absent_dependents`,
+`correct_four_pole_mcb_picks`, `apply_conductor_floor`) exists for exactly this, and carries the
+doctrine in its own docstrings: *the prompt sentence is guidance; this is the enforcement.* Writing
+the point-wiring conductor floor as prose in R9 caused repeated cross-talk failures; moving the
+arithmetic into `apply_conductor_floor` stabilised the reads. **A rule may say how to READ a spec; it may not say what to COMPUTE from it.**
+
+**THE ATTRIBUTE `type` IS AN INSTRUCTION THE MODEL OBEYS OVER THE SHARED BLOCK -- A `number`
+ATTRIBUTE CANNOT BE ASKED FOR A TOKEN "AS WRITTEN" (measured on the bare-box size read).** Told in
+`ESTIMATOR_RULES` to write a box's module count "exactly as the text writes it", the model still
+CONVERTED: a written "9/8M" came back as the number 9 and a written "1/2 module" as 1 or null, never as
+the token. The projected `{id, label, type}` is a stronger channel than any sentence beside it. So a design
+that needs the raw token for a CODE pick must give the attribute a text-capable type (the api validator
+refuses a value-less `choice`), or accept that the model performs the pick; a `number` type plus a code
+parse only LOOKS like "as written, code picks" -- on a written range the model has already chosen.
+
+**A `module_fit` LADDER HAS TWO READ SITES, AND A LADDER KEY WIRED ON ONE ALONE SHIPS HALF
+(owner-locked).** The floor branch (rows with a plate or contents) and the zero branch (a
+bare box) are SEPARATE reads of the same ladder spec; `on_zero_from` is read only on the zero branch by
+design, `floor_from` only on the floor branch. A key that must reach the pricer on every row --
+`pick_from`, the pricer's pick -- is read at BOTH, through ONE shared reader (`readPick`) so the two
+sites cannot disagree. **Confine such a key by KEY PRESENCE, never by a category name in code**:
+point_wiring and popup_boxes carry the same ladder shape and no `pick_from`, and stay byte-identical.
+**Every ladder key that names an attribute is `_ref`-guarded in `_validate_config`** -- an unguarded
+`on_zero_from` typo once read silently as "assumed 3M".
+
+**A CONFIG ATTRIBUTE ADDED AFTER A RUN REFUSES EVERY OLDER ROW OF THAT CATEGORY -- A RECURRING DEFECT,
+AND THE READ SIDE IS NOW TOLERANT, NOT THE CAUSE (owner ruling: "Treat a never-asked field as
+answered").** A stored run row carries only the keys asked at ITS extraction; the panel gate walks the CURRENT
+config's list, so every later, panel-visible, non-derived attribute reads blank on every older row.
+`pricingSheetHelper` distinguishes **KEY
+ABSENT** (never asked -> the config default: `extraction_defaults` scalar / `requires_named`-on-a-filled-item,
+or `allow_none` -> "None"; badged `defaulted`, no confidence shown, a trace line naming it) from
+**PRESENT-NULL** (asked and blank -> a real read failure, still refuses). **The distinction holds ONLY because
+`extraction._extract_batch` writes a cell for EVERY asked attribute, null when unanswered -- an extractor that
+stops doing that silently turns every read failure into a "never asked" default.** A field with no sensible
+default (`face_mm`) keeps refusing by design; a `{default, text_overrides}` spec is not reproduced at read
+time. **The hazard, owner-accepted: a row that genuinely has a third socket now prices LOW with nothing
+downstream to catch it; the badge is the only guard.** A new visible attribute without a default or
+`allow_none` will break every older row again -- give it one, or accept the refusals knowingly.
+
+**THE SHARED AI-REPLY PARSER RETURNS THE FIRST BALANCED SPAN THAT PARSES AS A LIST OF DICTS -- NOT
+THE FIRST LIST.** `boq_category.ai_voter._extract_json_array`
+serves THREE callers by identity -- the classifier voter (`ai_voter._ai_batch`), the certified harness
+(`harness/electrical_classification_harness.py`) and the rate extractor (`boq_rate_master.extraction`,
+imported at module top) -- so a change there reaches all of them and both users must be proven unchanged.
+A whole-sheet rate run once halted because the model prefaced its answer with prose quoting its allowed
+values (a bracketed list of numbers) and the parser took that list as the reply. **The model was not misbehaving** -- any reply that
+reasons out loud and happens to contain a bracketed list trips the same wire, on any category, at random --
+so **the fix lives in the parser, never in a prompt**: a balanced span whose elements are not all dicts is
+skipped and the scan continues; a reply holding ONLY such a list still ends in the loud `ValueError`. Do not
+re-narrow it to "first list", and do not add a prompt sentence asking the model not to explain itself.
+
+**A DEF'S `type` IS BOTH THE SCREEN AND THE MODEL'S INSTRUCTION (owner-locked, v61).**
+`extraction.build_attribute_defs` projects `{id, label, type, values}` into the prompt, and a `number_choice` -- the
+on-screen dropdown type -- reaches the model as a CLOSED LIST that the prompt tells it to pick from; `_coerce_value_ex`
+then nulls anything off the list. Shown the ten stocked tray widths, the model returned 50 for an "80 x 50mm" tray and
+a live row priced wrong. **`extract_as: "number"` on a def is the split: the panel keeps its dropdown (the frontend
+keys on `type`), the model is asked for a FREE number with no `values`, and the ladder / the SWG map fit it code-side
+afterwards.** It is honoured at ONE chokepoint (the projection; the coercer reads the projected def, so it follows by
+construction) and guarded by `rate_master._KNOWN_DEF_KEYS` -- attribute definitions had no key allowlist, so a
+misspelled key would have shipped the closed-list behaviour silently. Only defs whose document number can
+legitimately be off-list carry it (cabletray `width_mm`, `thickness_mm`); for a catalogue pick or a Yes/No the closed
+list is right. **STORED DATA CANNOT PROVE THIS CLASS** -- stored verdicts showed nothing moved while the defect was live,
+because stored values never pass through the coercer again; only a fresh read (spend, on a live sheet) catches it.
+Where a stated value has no stocked match the field is left BLANK with the `no_match` note (never a snapped value).
+
+**AN ATTRIBUTE THE MODEL IS ASKED FOR IS NOT THEREBY READ AT PRICING TIME (owner rulings, v62).**
+`popup_boxes.has_modules` ("Includes modules") was an extraction instruction (rule P1) that no pricing step read, so a
+row priced identically with the switch at Yes AND at No. **A Yes/No switch that must change the price needs a DECLARED
+STEP KEY that ONE reader interprets** -- here `module_fit.params.include_when: {attr, equals}` and
+`ratePipelineInterpreter.moduleFitGateVerdict` (equal -> today's path byte-identical; blank -> refuse; anything else ->
+every term item, ladder bind and blank bind takes the None sentinel in `fitLabels`, so the existing `none_skips` lines
+zero and the selection is never written -- the picks stay on screen, uncharged). **Confined by KEY PRESENCE, never by a
+category name**: `module_fit` is shared, and a step without the key is pinned byte-identical per category. Four config
+mechanisms were measured unable to do this and must not be re-tried for it: `if_attr` on a qty (loses the stated
+quantity, leaves `module_fit` ungated), `conditions` (dead on the assembly shape), `absent_when` (absent from
+`module_fit` / `component_ref`), `map_attribute` (cannot override a stated value). The validator `_ref`-guards `attr`,
+checks `equals` against the def's `values` (a typo would exclude every Yes row) and requires `none_when` on every term;
+**the loader does not run the validator, so an asset typo passes at import.**
+
+**A UNIT CONVERSION BELONGS IN CODE, BUT AS THE VOCABULARY THE CATALOGUE SPEAKS, NEVER AS ARITHMETIC (owner-locked).**
+A conduit written in inches converts through a TRADE-SIZE table (`inch_trade_mm` on the def: three-quarter inch is
+20, one inch is 25, one-and-a-quarter is 32, one-and-a-half is 40, two inch is 50), applied by the extraction corrector
+`apply_inch_trade_size` on the `apply_conductor_floor` precedent. **Multiplying by 25.4 is wrong in a way that survives
+review**: 25.4 overshoots the 25 rung so a next-higher ladder buys 32, and 50.8 sits above the top rung so a stocked
+two-inch conduit refuses -- and the model, asked for a free number, converts arithmetically on EVERY sheet (measured on
+fresh reads of both sheets), so the table is the only thing that lands the value on a rung. The table may name an
+UNSTOCKED trade size (one-and-a-half is 40): that is correct, the `catalog_fit` ladder then buys 50. Confine such a
+corrector by KEY PRESENCE on the def, never by a category name -- the corpus's many non-conduit inch tokens sit on rows
+whose defs carry no table. ⚠️ A `catalog_fit` `bind` is a LABEL SLOT and a `where` "@" reference may name a
+`map_attribute` TARGET (industrial_sockets): the validator reference-guards neither as a plain definition, and
+re-tightening that refuses a shipped config.
+
+**A CONFIG KEY THAT VALIDATES BUT NEVER EXECUTES IS WORSE THAN ONE THAT DOES NEITHER (owner-locked).**
+It reads as live to the next author, and it is how a wrong price hides: `conditions` on an assembly-shape
+`component_ref` passed the validator and was never read; `qty.if_attr` naming a non-existent attribute passed and
+priced the row WITHOUT the component, silently. Three rules follow. **(1) The validator REFUSES a key the interpreter
+cannot run on that shape, by name -- it does not implement it** (the legacy semantics bind `cond.params` into a
+`formula`; assembly has neither, so there is no meaning to execute). **(2) Every name a step READS is checked in the
+NAMESPACE it reads from:** an attribute id through `_ref_or_map` (a `map_attribute` target needs no definition);
+`qty.from_fit` reads the RUN SCOPE, so it is checked against the ctx binds DECLARED BY AN EARLIER STEP of the same
+pipeline -- a plain `_ref` there refuses every shipped use (most read a module_fit `blanks.bind`, not a circuit_fit
+bind). **(3) The ONE predicate runs at BOTH writers:** it lives in `services/boq_rate_master/config_validation.py`
+(moved DOWN so the loader can import it without a service reaching into `api/`; `api/boq/rate_master.py` re-imports
+every name) and the loader runs it over the config AS STORED (`_loaded_config`: discipline stamped, goldens merged)
+BEFORE the first write. Before switching such a gate on, sweep every asset on disk plus the live rows (the one
+known refusal, v12 `point_wiring.switch_item`, a `choice` with no values, is a real defect in a retired asset).
+**A test that loads a historical asset through the loader is in the gate's blast radius** -- repair the fixture in memory and pin the untouched file as REFUSED; never add a `validate=False`.
+
+**EVERY HVAC RATE-MASTER ITEM KIND IS PREFIXED `hvac_`, AND AN ITEM KIND IS NEVER SHARED ACROSS DISCIPLINES
+(owner-locked).** The interpreter's `matchMasterRow` filters items by KIND and attributes, never by discipline, so
+one kind name used by two disciplines lets one discipline's rows into the other's matches with nothing on screen
+saying so. The mint gate's `--latest` mode proves the latest files of every series disjoint, and
+`test_rate_master` pins the prefix and the disjointness; a new HVAC category adds kinds under the prefix, never a
+bare or Electrical-shaped name.
+
+**EACH DISCIPLINE'S ASSET IS VERSIONED, MINTED, MERGED AND LOADED ON ITS OWN; ONLY THE DISCIPLINE THAT CHANGED
+MOVES (owner ruling).** The HVAC series is `rate_master_hvac_all_v<N>.json` with its OWN N, unrelated to
+Electrical's; a change to one discipline never mints, copies, edits or re-pins the other's asset file, and the
+handover names both versions in one line. The mint gate walks each series' history INDEPENDENTLY and, for a FIRST
+version, reports the removal check as NOT APPLICABLE rather than passed (a first file has no predecessor to lose
+atoms against; what it checks instead is the discipline stamp, the contents, and the kind disjointness). Snapshot
+versions were already per discipline (`write_snapshot` counts within the discipline) and are unrelated to N.
+
+**FOR A CATEGORY THAT DECLARES SPEC-DERIVED ATTRIBUTES, ITEM NAME AND ITEM DETAIL ARE THE SOURCE OF TRUTH;
+ATTRIBUTES ARE NEVER HAND-EDITED (owner-locked).** A category opts in with the config key
+`attributes_from_spec: true`; its items carry `item_name` / `item_detail` verbatim and every other attribute is
+READ from them by the deterministic `services/boq_rate_master/spec_reader.py` -- no AI, no fuzzy match, a spec
+either fits a rule or is stored flagged (`spec_status` / `spec_note` inside the attributes JSON) with the exact
+reason, never guessed. The CSV omits the derived columns and a typed derived value is refused; the screen shows
+them read-only ("read from spec"); the manual add / edit endpoints accept the two text keys only and run the SAME
+reader. A category without the key is byte-identical to before (`spec_categories` is empty for Electrical), so
+the fix for a wrong attribute is always the text or the reader's rules, never the cell. A flagged item must never
+match in pricing.
+
+**A SPEC SUGGESTION IS STORED ONLY AFTER A USER CONFIRMS IT; A CONFIRMED ITEM RECORDS WHO AND WHEN (owner-locked,
+T-a / T-b).** When the exact read refuses, `spec_reader.suggest_spec` offers ONE best match by FIXED RULES -- the synonym
+table, a one-letter correction of a word of five or more letters to a UNIQUE family word, the exact rules re-run --
+never AI, never a size invented, none when a word is ambiguous. Nothing writes a suggestion on its own: the CSV apply
+and the manual create / edit endpoints store it only with an explicit `accept` whose fingerprint matches the one that
+was previewed ("Suggestion out of date" otherwise), as `spec_status = "confirmed"` plus `spec_confirmed_by` /
+`spec_confirmed_at`; a reject, or no match, stays flagged exactly as before. A confirmed row re-uploaded with the same
+wording is not asked again; changed wording is a fresh read. A plan row the reader must ask about or flags is `major`
+(shown in full) -- the question box renders only in the expanded group and "Accept all shown" acts on every
+suggestion, so a collapsed question would be accepted unseen; the expansion rule stays on the server.
+
+**A RATE FILE CARRIES NO SYSTEM-GENERATED COLUMN EXCEPT `item_uid`, `discipline` AND `category`; `kind`
+APPEARS ONLY FOR A MULTI-KIND CATEGORY; THE SYSTEM FILLS THE REST ON UPLOAD (owner-locked).** The editable
+rate file (`csv_exporter`, both formats, both modes) holds `item_uid`, then
+`discipline` and `category` (filled on download, the category as its ID, both TEXT cells -- the only
+non-edited columns beside the id), `brand`, `unit`, every column a person edits and the rate / markup columns --
+and nothing else the system fills. **The upload REFUSES a file whose discipline / category do not describe the
+page it is uploaded on**, naming the rows (a foreign discipline is refused by its rows BEFORE the column check;
+a category that is not the discipline's, or a single-category file on another category's page, by row); an
+EXISTING item is never moved by editing these cells (a kind claimed by two configs belongs to both); a NEW row
+with the cells blank takes the one category the file's rows agree on, else the page's selection when no row says
+anything (and the preview's "Uploading into" banner says so); an older file without the columns uploads exactly
+as before. The mode ("one category" / "all categories") is decided by the file's VALUES, never by which columns
+it has. A hand-added item is minted an `item_uid` through the ONE mint `csv_importer.mint_item_uid`, so it round-trips like an uploaded row; the loader never mints (it carries the asset's uid). `source_sheet` / `source_row` are never written and, on an
+OLD file that still carries them, are IGNORED (never an error, never applied). `kind` is written only when the
+file holds a category whose config lists more than one item kind (Electrical wiring_cabling, db_switchgear,
+popup_boxes; every Electrical all-categories file); for a single-kind category the upload fills it from the
+category, and a blank kind on a new multi-kind row is refused by a message naming the kinds. The all-categories
+file keeps its `category` column for the same reason. EXCEL IS THE DEFAULT FORMAT and CSV the second option: a
+CSV carries no cell types and Excel rewrites "1:6" as a time; the .xlsx marks every
+text column TEXT ("@") at cell and column, rates as numbers. Upload accepts both, detected by CONTENT (`PK\x03\x04`),
+through ONE row pipeline (`csv_importer.read_upload`); the .xlsx and the .csv of the same content give the same
+preview and the same digest. The asset JSON path (exporter / loader / mint) never read the rate file's columns and
+is untouched. A same-meaning row is governed by the twin rule below.
+
+**TWO ACTIVE ITEMS THAT MEAN THE SAME ARE NEVER CREATED; A SAME-MEANING ROW UPDATES THE EXISTING
+ITEM'S RATES ONLY AFTER THE USER CONFIRMS (owner-locked, HVAC AND Electrical).** "The same" is the
+MEANING, never the wording: for a spec-read category (HVAC) the reader-derived attributes plus unit and
+brand (a not-understood item has no meaning and never counts; a confirmed one counts like a read one);
+for any other category kind, brand, unit and EVERY attribute -- two items differing only in brand are
+NOT the same. ONE definition, `csv_importer.twin_identity`, serves the upload preview, the upload apply
+(which RE-DERIVES the target and refuses a confirm whose fingerprint is not the one previewed) and both
+manual endpoints; do not write a second. It fires ONLY for a new row or an edit whose identity CHANGED --
+never for a rates-only edit or an unchanged row, so a re-upload of any file stays zero changes, zero
+warnings even where twins exist today. Confirm = the existing item takes the row's rates and markups and
+keeps its uid, wording, attributes and spec status (on an edit the OTHER item is updated and the edited
+one is not touched); decline = that row is skipped; unanswered = the apply is refused; two new rows that
+mean the same are an ERROR. A manual entry may carry no `item_uid` (older entries) and is still an
+existing item: the index keys it by document name.
+
+**A CATEGORY WITH NOTHING TO PRICE DECLARES ITS MESSAGE AND ITS PENDING MARK IN CONFIG, NEVER IN CODE
+(owner-locked; the HV-10 rule applied to messages).** A rate-master category config may carry two top-level keys:
+`helper_message` -- what the rate-helper panel and the calculator show instead of the generic "coming soon" when the
+config is not eligible for pricing (e.g. the HVAC vendor-quote categories AHU / DX Unit / Panels / Pumps say
+"Take Vendor Quotation") -- and `pending_label` -- the amber mark every EMPTY or ZERO rate cell of a row in that
+category shows until a non-zero rate is typed (a visible mark, NOT a submission block). Both are read from the config
+at ONE site each (`pricingSheetHelper.declineReasonFor`; the page-built `pendingLabelByCategory` map into the grid's
+per-row `pendingLabel` primitive); no category id and no message text appears in frontend code, and a test greps for
+both. Such a MESSAGE-ONLY config has empty `attribute_definitions`, empty `pipelines` and empty `item_kinds` -- the
+loader admits an empty definitions list ONLY beside empty pipelines -- so it is never eligible for pricing or
+extraction, holds no items, and is kept OFF the Rate Master page by the registry flag `holds_items: false`
+(`rateMasterPageEntry` is the ONE filter; the fetch targets and the calculator picker read the full list). Before a
+suggestion run, a row's decline card shows ONLY when the row's DISCIPLINE has nothing to price (no eligible config
+among that discipline's fetched configs, `disciplineHasNothingToPrice`); a discipline with an eligible config
+(Electrical) keeps its before-run panel exactly as it was, and the decline-only helper feeds the panel alone, never
+the badge map.
+
+**A CATEGORY MAY DECLARE `alias_of`; ITS ROWS RESOLVE TO THE TARGET DISCIPLINE'S CONFIG, ITEMS AND CATALOGUE --
+NOTHING IS EVER COPIED BETWEEN DISCIPLINES (owner-locked: "all logic all pricing must be same exactly"; stored ONCE,
+shared at lookup, because production edits rates by CSV and a copy would drift).** A rate-master category config may
+carry `alias_of: {discipline, category_id}`. Such a config holds NO items, NO pipelines and NO attribute definitions of
+its own (the validator refuses any of those beside the key, and a self-alias); every consumer resolves it ONE HOP --
+`extraction.resolve_alias` (called by `config_is_eligible(cfg, configs)`, `assemble_population` and `_group_context`,
+with `load_configs_with_alias_targets` pulling the target discipline's configs alongside) and the frontend
+`pricingSheetHelper.resolveAliasConfig` (used by the helper's `resolveConfig` AND the calculator's layout reads). A
+target that is missing, or itself an alias (a chain), has nothing of its own and is NOT eligible: the row shows the
+coming-soon card, never an error. An aliased row's extraction context and assembled prompt are BYTE-IDENTICAL to the
+target's (pinned), and the calculator gives the SAME figures for the same picks (pinned per golden). Because the
+calculator fetches configs and items PER DISCIPLINE, it also fetches each alias target's config and each target
+discipline's items (`aliasTargetConfigs` / `aliasTargetDisciplines`, merged behind its own items and deduplicated by
+item name -- a shared name would let the own discipline's row win silently, pinned); the BoQ page already fetches every
+registry target and Electrical items. Alias entries sit in the registry with `holds_items: false` (calculator-listed,
+never on the Rate Master page). **The pre-run rule keys on a discipline having NO eligible config OF ITS OWN
+(`disciplineHasNothingToRun`) -- an alias never counts as its own, whatever its target -- and such a discipline's
+before-run panel is the REAL helper over an EMPTY extraction map, so vendor / coming-soon cards stay as they were and an
+aliased row shows its fields; a discipline with an own eligible config (Electrical) keeps today's before-run panel.**
+No discipline or category id is named in code for any of this. The pending mark (`pending_label`) is drawn ONLY in the
+grid's editable rate branch -- a heading / preamble row that cannot take a rate shows nothing.
+
+**A RATE-MASTER CATEGORY MAY ASK THE MODEL FOR A LIST OF ITEMS PER ROW (`matching_mode: "item_list"` +
+`list_spec`), AND ITS ANSWER HAS THREE STATES THAT CODE MUST KEEP APART (owner-locked).** A VALUE means
+the text (row or ancestors) states it; the string `"None"` means NOT MENTIONED and is allowed only on an
+`allow_none` def -- it is what lets CODE apply the owner's default later; an ABSENT / null value means COULD NOT
+TELL and prices nothing. A row is COMPOSITE only when THAT ROW pays for more than one thing; a part built into a
+priced variant (a motorised damper's actuator) is never a second item. Sizes, torques and area bands come back AS
+STATED in `text` defs and are never parsed by the model; a `values_by_family` choice is enforced in the parse; a
+def's `note` is projected into ITEMS_SPEC (catalogue facts reach the model that way -- the item WORDING does not,
+the model picks from the family list). Two checks ride the batch: the TEXT CHECK flags an as-stated string absent
+from the row's own payload and NEVER drops it; the SECOND OPINION (`list_spec.second_opinion`, OFF unless declared)
+is one review call per row that only FLAGS -- it never rewrites, never drops, never halts, and its cost is counted
+apart. A batch drawn across many BoQs collides on `excel_row` (replies are keyed by it)
+-- a real batch is one sheet, so never measure with mixed-BoQ batches without ordering them collision-free.
+
+**A ROW MAY PRICE A LIST OF ITEMS; EVERY DEFAULT, LADDER AND CONVERSION IS CODE, NEVER THE MODEL; ONE
+UNPRICEABLE ITEM MEANS THE ROW HAS NO PRICE (owner rulings R1-R21 on ADP, owner-locked).** An `item_list` category's
+pricing rules live in `list_spec.pricing` (validated by `config_validation._validate_list_pricing`) and are executed
+by the PURE frontend module `rate-helper/itemListPricing.ts` through the interpreter's EXISTING steps -- the block
+sits INSIDE `list_spec` precisely because both eligibility predicates read `pipelines`, so a category can carry its
+whole pricing rule set while staying NOT eligible. Each item is priced on its own and the row is the SUM; the three
+states are kept apart in code: a STATED value is used as stated, `"None"` (not mentioned) takes the config default
+and is MARKED `defaulted` (the amber mechanism), an ABSENT value refuses with a reason in the owner's language
+("no torque stated", "neck 525 is above the largest size on the sheet (450)", "no unit on this row"). Ladders are
+next-size-up and refuse above the largest; a range reads as its top; several values refuse; a diffuser matches on
+its NECK, never the outer size -- which falls out of ONLY THE NEEDED FACTS reaching the matcher. The catalogue's
+`unit` is projected at READ TIME into a copy (`attributes.unit_class`, the brand-projection precedent -- nothing is
+written back) so a family's SQM row and its Nos rows are distinct SKUs; a per-number or per-metre row against a
+per-sq.m SKU converts by a config `convert` option (W x H, an area band's MAXIMUM, height) on BOTH sides BEFORE the
+ROUNDUP(cost x (1 + markup), 0) markup. Derived SKUs (cross-talk sizes, the 750 x 150 x 350 mixing boxes) read their
+base per-sq.m row LIVE through `component_ref`, so a CSV edit flows through. ⚠️ **The stored replies return
+`ul` as ABSENT on most actuator rows that say nothing about UL, where the prompt asked for "None". OWNER RULING S6
+(ADP live) REVERSED the earlier stance FOR UL ONLY: an absent UL answer is read as NOT MENTIONED and the non-UL
+default fires -- declared in config (`defaults.ul.absent_as_none`), and the prompt asset was fixed in the same change
+so the rule is not covering a prompt defect. ⚠️ **THE "damper and insulation keep absent = blank" HALF OF S6 IS
+SUPERSEDED BY OWNER RULING F-1: `absent_as_none` now sits on `damper`, `insulated` AND `variant` beside `ul`, and
+on nothing else.** The owner asked for exactly the widening the old line forbade, on measured evidence, so do not
+"restore" it. WHAT MADE IT SAFE, and what any further widening must reproduce: a hand read of a seeded sample of
+omitted slots found every one of them on a row that genuinely does not state the fact; `VALUE` answers were
+unchanged across the corpus, so the model is not reading LESS, it is answering the WRONG ONE of the two silent
+states; and `ul`, the one attribute already carrying the key, sat at zero omission while the three did not. **A
+widening to any FURTHER attribute still needs its own ruling and its own measurement** -- the evidence, and the
+replay that priced the recovered rows without losing any, are in the plan doc.**
+
+**A UNIT MAY BELONG TO A CLASS AND STILL BE A DIFFERENT UNIT OF IT -- AND THE TWO ARE DECLARED IN DIFFERENT
+PLACES (owner-locked).** A `list_spec.pricing.unit_classes` spelling is a SYNONYM: the same unit written
+differently, nothing scaled. A square foot is not that -- it is an area the catalogue does not quote in, so it is
+declared in `unit_factors` as `{class, factor, word}` and **the factor converts the RATE, never the BoQ's
+quantity**, before today's ROUNDUP. ⚠️ **Putting such a unit in `unit_classes` instead is the failure that
+survives review**: the row matches the class's SKUs and takes their rate unscaled, so the figure is wrong by the
+conversion and nothing on screen says so. The validator therefore refuses a `factor` of 1 by name (that is a
+synonym, and it belongs in `unit_classes`) and refuses a spelling that already appears in `unit_classes`, so a
+unit is declared in ONE place only; `unitClassOf` resolves a factor spelling to its class and `unitFactorOf`
+returns null for any spelling a class already holds. ABSENT `unit_factors` is byte-identical to before it existed.
+
+**A ROW THAT STATES NO UNIT, OR A RATE-ONLY SPELLING, IS PRICED IN THE CATALOGUE'S UNIT FOR ITS ITEM;
+SEVERAL UNITS REFUSES, NAMING THEM (owner-locked).** No unit at all, or `R/O` / `RO` / `R.O.` / `Rate Only`
+(one key -- case and every non-alphanumeric character dropped, so a BoQ may punctuate it how it likes), is
+priced in the item's unit WITH A NOTE SAYING SO; where the item is priced in MORE THAN ONE unit it REFUSES and
+names them, because there is no default and a guess is a silent wrong price. ⚠️ **This supersedes R12's "no unit
+-> refuse" FOR A MISSING OR RATE-ONLY UNIT ONLY**: a unit that IS a unit but is wrong for the item (a spigot row
+per metre, an actuator row per sq.m) still refuses -- the BoQ said something and it was wrong, which is a
+different fact from the BoQ saying nothing. ⚠️ **"MORE THAN ONE" IS DECIDED ON UNIT CLASSES, NEVER SPELLINGS,
+through the SAME `familyUnitClasses` the calculator's picker reads** -- so the rule inherits `units_not_offered`
+and every declared `convert` and cannot drift from the picker; counting SPELLINGS would refuse every ADP row,
+because `sqm` and `sqft` are two spellings of the one area class. Across a row's items it is the INTERSECTION (a
+row prices in ONE class). ⚠️ `unitClassOf` is consulted FIRST, so a real unit can never be read as "rate only",
+and a category that declared a unit spelled that way would keep it. The rule names no discipline or category and
+lives where the row unit is actually consulted -- a path that never reads the unit has nothing to fix.
+
+**AN UPLOAD MESSAGE NAMES THE PHYSICAL EXCEL ROW (owner-locked).** The number a refusal, a preview or an
+apply puts in front of a pricer is the row they see when they open the file: the header is row 1, the
+formula/explanation row is row 2 where present, data starts at row 3. ⚠️ **IT IS FIXED WHERE THE NUMBER IS
+BORN -- the two readers (`csv_importer.parse_csv_text`, `xlsx_io.read_xlsx`), through a named
+`PHYSICAL_FIRST_DATA_ROW` -- AND NEVER BY ADDING ONE AT THE MESSAGE SITES.** A dozen sites render a row number,
+so a per-site correction is a dozen chances to miss one, and the provenance stamped on a hand-added row would
+still disagree with the message that referred to it; one definition of "the row" is what keeps the preview, the
+apply, every refusal and the stored `source_row` from saying different things. The constant is declared in BOTH
+modules because `csv_importer` imports `xlsx_io` (sharing it the other way is a cycle) and a test pins them
+equal. It shifts the plan digest harmlessly, since preview and apply both derive it through the same reader, and
+a client's per-row answers are keyed by the numbers the preview showed. ⚠️ A docstring once claimed the messages
+"account for" the header offset; they did not -- believe a measurement on a real download, not the comment.
+
+**A VALUE WRITTEN AS AN ALTERNATIVE TAKES THE HIGHER; A LIST AND A TOLERANCE ARE NOT ALTERNATIVES
+(owner-locked).** Exactly TWO numbers joined by a BARE slash are a pair, and the higher is taken with a note
+naming it. The gap must carry no sign, because `25 +/- 2 mm` is a TOLERANCE, not a choice; three values and a
+comma list are not pairs either, and all three keep refusing by name. The rule lives in the one number reader, so
+it reaches a size axis, a ratio, a diameter and a torque alike -- the owner's own examples spanned a size and a
+panel ratio, so it is a rule about a VALUE, not about a size.
+
+**A DAMPER NAMED AS PART OF A GRILLE OR DIFFUSER IS THAT ITEM'S DAMPER, NEVER A SECOND ITEM (owner-locked,
+R19 applied one level down).** A row buying the damper ITSELF still returns a damper item -- that half is the
+negative pin, and losing it would suppress every row that genuinely buys dampers alone. The instruction sits in
+the item-list prompt beside R19; the worked shapes sit in the `family` and `damper` DEF NOTES, never in the shared
+rule (the cross-talk convention: a shared rule states its test and quotes no corpus text).
+
+**THE RATE-HELPER PANEL SHOWS THE UNIT A FIGURE IS A RATE IN, AND THE LABEL IS OPT-IN PER CALL SITE
+(owner-locked).** `FiguresRow` is THE ONE renderer of the three figures and the NON-item-list surface mounts it
+too -- which is what Electrical renders. The unit is therefore a prop the two ITEM-LIST call sites pass and the
+third does not; **making it a property of the component would change Electrical's panel**, so it must stay opt-in.
+The label is the ROW's own unit as the BoQ writes it, never a class name, and it rides IN ADDITION to the
+conversion working, never instead of it.
+
+**AN ITEM OR AN ATTRIBUTE COMES FROM THE ROW, OR FROM A HEADING DESCRIBING THIS ROW'S ITEM -- NEVER FROM A
+HEADING THAT NAMES ANOTHER SECTION (owner A-3).** A BoQ's ancestor chain carries the row's own
+heading beside its NEIGHBOURS' headings, and the model cannot tell them apart unless it is told the test: does
+this ancestor describe the thing this row pays for, or does it head a different part of the bill? Only the first
+kind contributes. Measured: a `Collar Damper` section heading standing over rows that say *without VCD* made the
+model answer `damper: with`, and diffuser rows gained a plenum box that no text in the row or its own ancestors
+mentions. **The row's own text always wins over any heading.** ⚠️ **THE RULE MUST BE
+READ AFTER THE THREE-STATES RULE, NOT BEFORE IT, AND MUST SAY SO IN ITS OWN WORDS** -- placed above it, a
+restriction on WHERE a value may come from reads as licence to OMIT, and an omission means *could not tell* (the
+row refuses) where `"None"` means *not mentioned* (the ruled default fires and the row prices). The prompt
+therefore ends the rule with *finding no licence for a value is NOT "could not tell": if the attribute is marked
+allow_none, the answer is "None"*. ⚠️ **AND A RATE MEASURED ON ROWS SELECTED FOR FAILING THAT RATE IS NOT A
+RATE** -- this rule was nearly reverted over an apparent "drift" in omissions that a seeded, unselected sample
+showed was an artefact of how the rows had been chosen. Re-measure on an unbiased draw before attributing a
+regression to wording.
+
+**A LIST-MODE ROW PRICES A LIST OF ITEMS; THE PANEL SHOWS ONE BLOCK PER ITEM; EDITS ARE SESSION-ONLY AND RECORDED
+AT USE (owner rulings S1-S9 on ADP, owner-locked).** The pricing-sheet helper's item-list path prices the model's
+items overlaid with the panel's session edits -- ONE override key (`__items__`, a JSON edit state; `__row_unit__`
+where no row supplies a unit) that the helper decodes -- and shapes them into `ItemListSuggestion.itemList`, which the
+panel renders as one block per item (family, model-identified or user-added, its fields with the same blank / default
+/ edited tones as every other field, a quantity per row unit, its own working and figures or its own refusal), with
+"Change item" and "+ Add item" drawn from the CONFIG's families and a remove control per block. A changed or added
+item starts BLANK. All or nothing: `values` is filled and "Use this value" enabled ONLY when every item priced. Nothing
+is written to the row; re-opening the panel shows the model's answers again; the Use event carries `items` on BOTH
+sides of the existing JSON fields (what the model returned, what was on screen) -- no doctype change. **A list-mode
+category is eligible by the SAME two facts as every other** (non-empty `pipelines` and definitions): its `pipelines`
+hold the shared per-item default that every unit block without pipelines of its own runs, so the switch is real code
+path, never an inert key. **The second opinion is a BUILD-TIME instrument: ON while a category's extraction is being
+built, OFF before it goes live.** The pre-run panel rule is PER ROW (`rowUsesPreRunHelper`): a row with nothing to run
+of its own (no config, an alias, a message-only config) keeps the pre-run helper even when its discipline has something
+to run -- but ONLY in a discipline that DECLARES before-run cards (`disciplineDeclaresPreRunCards`: some fetched config
+of it is an alias or not eligible). That opt-in is load-bearing and names no discipline: HVAC declares cards, so a
+vendor-quote, alias or no-config row's card never changes because a sibling category went live; Electrical declares
+none, so its no-config rows keep the plain before-run panel they always had. Widening the rule to every no-config row
+changes Electrical (`panels`, `ups`, `light_fixtures` rows); narrowing it to configs-that-exist drops HVAC's coming-soon
+cards -- both were measured live. `rateHelperTypes.ts` and `rateSuggestionModel.ts` were deliberately NOT widened for
+this: the unit, the items and the item-list view ride as optional extensions declared in the helper. **Two seams the
+live cert broke on, both now pinned: (a) `extraction._row_result` runs TWICE on the same batch-output entry (the SR-1
+checkpoint, then the final envelope) and must NEVER mutate its input -- popping `__items__` in place emptied every
+list-mode row before the envelope and the api layer's final write overwrote the checkpointed rows
+(`test_rate_suggest.TestItemListRowsSurviveTheCheckpoint`); (b) the BoQ pricing page must hold EVERY registry
+discipline's rate-master items (`RATE_MASTER_ITEM_DISCIPLINES` + the shared `RateItemsFetcher` / `mergeItemsByName`
+in `rateHelperPlumbing.tsx`), because a list-mode category prices from ITS discipline's SKUs -- with the default
+discipline's items alone every pick reports "no SKU".**
+
+**AN ATTRIBUTE WHOSE VALUES COME FROM THE CATALOGUE IS A DROPDOWN BUILT FROM THE SKUs; THE CONTROL IS DECLARED IN
+CONFIG AND NEVER REACHES THE MODEL (owner rulings V1-V7 on ADP, owner-locked).** A list-mode category declares
+`list_spec.pricing.panel_controls` -- one entry per attribute the panel can show (every `numbers` key, every
+`choice_attrs` entry, the family attribute, each `derive_when_none` source), each `dropdown` or `text`; the validator
+refuses an incomplete or foreign map, and ABSENT is today's controls. A dropdown's options are derived at READ TIME
+from the ACTIVE SKUs of the block's family, narrowed by the block's other answered dropdown attributes exactly as the
+ladder narrows its rungs (`fieldOptionsFromSkus`), so a new SKU is a new option with no code change; an attribute no
+SKU carries takes the definition's vocabulary. A dropdown SIZE field shows THE LADDER RESULT with the note naming the
+stated size; above the largest it shows no pick and keeps the refusal. **The block sits inside `list_spec.pricing`,
+which `extraction.build_items_spec` never reads, so the model's instructions cannot change** -- the "80 x 50mm" -> 50
+defect is exactly what a def-level type change would reopen; `test_il_14` pins the assembled call byte-identical.
+The same family may appear as several blocks on one row (blocks are keyed by INDEX, never by family), and a block's
+quantity means HOW MANY OF THAT ITEM ARE IN ONE UNIT OF THE ROW -- the row's own quantity is not an input the module
+has.
+
+**A PER-ITEM QUANTITY THE PRICER HAS NOT TYPED IS AN ASSUMPTION, AND THE PANEL MARKS IT AS ONE; NOTHING
+READS A COUNT FROM THE ROW (owner-locked).** On a list-mode row every block carries a quantity meaning how many
+of that item make ONE UNIT of the row, and it is **the only field that never refuses** -- a blank attribute
+stops the row, but 1 is a real number, so a row needing 2 of something prices low and looks complete. The
+assumed 1 therefore carries the amber fill and the same "default" tag every other assumed value carries. The
+mechanism is the edit state, not config: an edit holds a `qty` ONLY when the pricer typed one (exactly as
+`attrs` does), so an absent quantity is the assumption and the module has always priced an absent quantity as
+1 -- **the marking changes no rate anywhere**. A typed 1 is the pricer's and is not marked.
+**The model IS asked for the count, and a returned number is READ -- but the default is what the corpus
+actually exercises.** The question is the EXISTING optional `list_spec.qty_attribute_id` plus one `number` /
+`allow_none` definition, so it needs no new config key and no `extraction.py` change; a positive number becomes
+the block's quantity and is shown unmarked, while "None", an unreadable answer and no answer at all all leave
+code's 1, marked. **The corpus states no per-item count on any row classified `hvac_adp`:** the rows that
+carry a count-like phrase are every one something else -- a panel's CAPACITY ("up to 5 Nos of dampers",
+"distribution for 10 no damper actuators", four "For N no. fire dampers" VARIANTS of one control-panel row), a
+SLOT COUNT ("Plenum Box for 3 Slot Linear Diffuser") or a FEATURE ("with 2 air flow outlets"). Asking was
+therefore measured before it shipped: over those rows the model answered "None" every time, inventing no count,
+and read every count on invented count-stating rows onto the right item. **So the question is
+INSURANCE for BoQ styles that state counts, not something today's corpus exercises** -- and every one of those
+rows is a test fixture, so a later prompt change cannot quietly start reading capacities or slot
+counts as quantities. **Re-measure rather than assume before changing any of it:** a count is never to be
+inferred from a gauge, a thickness, a size, a slot count, a neck, a torque, an area band, a product's capacity
+or the row's own quantity.
+
+**A CATEGORY MAY DECLARE AN OVERRIDE ATTRIBUTE AND A SOLD-PER-PIECE STANDARD LENGTH — BOTH IN CONFIG,
+NEVER IN CODE (owner M-b / M-c).** `list_spec.pricing.override_when` carries the SAME five keys as
+`derive_when_none` (`attr` / `families` / `when` / `then` / `rule`) deliberately; what differs is WHEN it fires
+— `derive_when_none` only fills a value the row left unsaid (`"None"`), an **override REPLACES a value the row
+DID state** (HVAC: `ul = yes` forces the fire damper's `variant` to `UL`, so a row mentioning UL takes the UL
+555 SKU whatever variant it also names). Three properties are load-bearing. **(1) It fires ONLY when it
+CHANGES something** — that is what keeps a row already on that value byte-identical, trace included, and it
+drops any `defaulted` record it supersedes so the panel never claims a default that no longer applies.
+**(2) The CONDITION reads the POST-DEFAULT value, not the raw answer**, so a ruled default can never be
+overridden by a fact nobody stated (an absent UL reads as the non-UL default under S6 and does not fire).
+**(3) A sold-per-piece length is a CONVERSION, not a new key**: the family declares `convert.<row unit>` to the
+unit its SKUs are sold in, and the length rides as a NAMED numeric `scale` param (`standard_length_m`) in that
+option's pipelines — the interpreter has always bound a plain numeric param into a `scale` formula's env, so
+this needed no engine change at all. ⚠️ **THE ROUNDING MUST STAY LAST** (match → × the length → markup →
+ROUNDUP): rounding the per-metre rate first and multiplying afterwards yields a different, entirely plausible
+number that no test on either side of the seam would question.
+⚠️ **AND THE `or []` IDIOM SWALLOWS AN EMPTY DICT.** `pr.get(key) or []` reads `"override_when": {}` as absent
+and ships a silently inert rule — the exact failure the closed allowlists exist to prevent. A new list-valued
+config key must test PRESENCE before the idiom (`if key in pr and not isinstance(pr[key], list)`), which is
+what `override_when` does; the older sibling keys still carry the gap.
+
+**A DERIVED COST IS GENERATED FROM THE CONFIG'S OWN CROSS-ROW REFERENCE, FLATTENED AT MINT,
+MARKED, REFUSED ON UPLOAD, AND CHANGED ONLY BY MINTING (owner I-2..I-8).** A rate-master
+cell whose value comes from ANOTHER catalogue row is declared in the config key `derived_rates`
+(`{item_uid: {rate_key: [{from:{item_uid, rate_key}, multiplier, constant}]}}` -- a LIST, because one
+row can read two rows in two columns). It is **DESCRIPTIVE, never authoritative**: the price still
+comes from the pipeline, so if the two disagree the PIPELINE wins and the mint is wrong -- which is
+why `config_validation.derived_rates_from_pipelines` GENERATES it and no author writes it.
+**THE BOUNDARY IS A STEP TYPE:** a cell is derived iff a pipeline OVERWRITES A STORED RATE KEY OF THE
+MATCHED ROW with a value that entered through a `component_ref`. ⚠️ **"the pipeline carries a
+`component_ref`" is NOT the rule and would over-mark badly: half of Electrical's pipelines carry one**
+-- they build an ASSEMBLY total (`supply` / `install` / `bcs_supply`), which no item stores, so
+Electrical declares nothing BY CONSTRUCTION; and ADP's own-cost pipelines sit in `convert` blocks
+whose match is re-pointed. `_validate_derived_rates` enforces FLATTENING (no `from` pointing at a cell
+that is itself declared derived) whichever generator produced the map -- a category with NO pipelines
+(`hvac_insulation`) is generated from its SOURCE WORKBOOK'S formulas and is held to the same contract.
+⚠️ **A DERIVED RATE IS RECOMPUTED ON EVERY WRITE OF ITS BASE, ON EVERY WRITE PATH; A DECLARATION THAT
+IS RECORDED BUT NOT RECOMPUTED IS A DEFECT (owner R1/R5).** The pure rule is
+`config_validation.recompute_derived_values` / `derived_rate_updates` (chain order, loud refusal on a
+missing base or a cycle); the single write is `loader.recompute_derived_after_write`, called by the
+upload apply, the grid edit, the manual create, the twin-confirmed write and the deactivate, while the
+LOAD path verifies instead of repairing. ⚠️ **AN ABSENT DECLARED CELL IS NEVER WRITTEN**: the key
+serves two populations -- a STORED figure nothing recomputes (Insulation) and a cell the pipeline
+fetches live through a `component_ref` (ADP's cross-talk cells, which store nothing). The
+discriminator is whether the cell is stored, never a category name; without it an Insulation upload
+writes ADP.
+⚠️ **A DERIVED CELL IS EXPORTED EMPTY, and that is correctness, not tidiness:** openpyxl serialises a
+float into at most 17 CHARACTERS, so a figure like `291.43125000000003` returns as `291.43125` and the
+type-strict guard called an untouched cell an edit. Nothing may re-export the figure; the row's
+`supply_formula` / `install_formula` carries it, and names the row it comes from. The narrow relative
+tolerance in `csv_importer._same_rate` exists ONLY for a pre-12a file that still carries it.
+**Every rate file (BOTH disciplines) carries two read-only columns `supply_formula` / `install_formula`
+and, directly UNDER THE HEADER, a FORMULA ROW** explaining each computed rate column -- generated from
+the category's own pipelines, its `rate_composition` and its `derived_rates`, plus a note on each
+markup column (`BoQ rate = cost x (1 + markup), rounded up.`). **The header MUST stay row 1** --
+`csv_importer.parse_csv_text` and `xlsx_io.read_xlsx` both read row 1 as the headers. All three are
+INERT on upload: the columns go in the `ignored` bucket and the row is dropped by
+`csv_exporter.FORMULA_ROW_MARKER`, so blanked, overwritten and DELETED behave identically.
+⚠️ **The explanation renderer is DUPLICATED ACROSS THE LANGUAGE BOUNDARY** (`csv_exporter` for the
+file, `rateMasterSpec.ts` for the screen, which cannot call an exporter for one cell) and the two are
+pinned to byte-identical output on ONE shared fixture -- `test_rate_master.FORMULA_FIXTURE` +
+`rateMasterFormula.test.ts`. Change one side without the other and a suite goes red; that pin IS the
+mechanism.
+⚠️ **A DERIVED CELL CARRIES THREE SIGNALS AND EACH ONE ALONE WAS FOUND INSUFFICIENT (owner).** An EMPTY cell already means not-applicable, not-filled-in AND not-editable, so it signalled nothing: the cell now carries a GREY FILL with a border, the WORD `derived` (so it is never empty), and SHEET PROTECTION with no password and every other cell unlocked. **The CSV carries neither colour nor protection, so there the WORD carries it alone** -- do not remove it as redundant. The word and a blank BOTH read as UNTOUCHED on upload; a number there is still refused. Sorting, filtering and row/column insert-delete stay ALLOWED (`SheetProtection`'s flags are INVERTED -- True means blocked). The formula row is 3 standard rows tall and every DATA row carries an EXPLICIT standard height, because a wrapped cell with no explicit height makes Excel auto-fit and every row grew to three-plus lines.
+⚠️ **ROWS AND COLUMNS FOLLOW THE SOURCE WORKBOOK, AND THAT IS PRESENTATION ONLY.** Rows ascend by (source SHEET, source row) -- sheet first, because two categories draw from two sheets each; columns follow the sheet only where the category DECLARES an order (`rate_composition`), so every other category is byte-identical. A file with rows AND columns fully shuffled uploads as zero changes with an IDENTICAL digest: the importer matches columns by NAME and rows by `item_uid`.
+⚠️ **A COLUMN NOTE CARRIES THE PLAIN-ENGLISH EXPLANATION ONLY, AND ITS LENGTH CAP IS PER LINE.** The internal pipeline name and the step expression help nobody maintaining a rate. Capping the WHOLE note kept only the first line and dropped every other.
+
+**A BUSINESS NUMBER LIVES IN THE PRICING INPUTS CATEGORY, AND BOTH MULTIPLIERS ARE DERIVED, NEVER
+STORED (owner-locked, Electrical v64).** A discount, a markup, a wastage, a BCS ratio or
+an installation share is a rate-master ITEM in `<discipline>_pricing_inputs` that a pipeline READS
+with a `rate_ref` step — never a literal in a config. There are no "factors": every number names what
+it is and, for a markup, which leg it is on. `BoQ multiplier = (1 − discount) × (1 + markup)` and
+`BCS multiplier = (1 − discount) × (1 + wastage)` are COMPUTED from the two editable numbers by a
+preamble `scale`; storing the product is what a **fold** was, and folds were unfolded because
+a pre-multiplied number cannot be edited by the person who owns either half of it.
+⚠️ **THE PREAMBLE IS APPENDED AND HOISTED, AND THAT IS NOT A STYLE CHOICE.** `rate_ref` steps are
+APPENDED so every original `steps[N]` index in the asset survives — PREPENDING them shifted the
+indices and broke unrelated tests (conduit trade sizes, back-box ladders), which would then have carried a permanent assertion about where a pricing-input step sits. The interpreter's
+`hoistRateRefs` moves the preamble to the front at run time, which is sound ONLY because every
+shipped `rate_ref` was MEASURED to carry zero `@` binds and so cannot observe any earlier step.
+⚠️ **THE PREAMBLE IS TWO STEP SHAPES AND HOISTING ONLY ONE SHIPS A SILENTLY DEAD CATEGORY:** a
+`scale` that derives a multiplier must carry `pricing_input: true` to hoist with the refs, or it lands
+after its consumers and every one of them refuses for a missing input — the category stops pricing
+with nothing on screen saying why. An ordinary `scale` reads a running value and must NEVER carry the
+flag; `_validate_config` refuses it on any other step type, by name. A ref that cannot resolve
+REFUSES naming the bind — an input that did not load is not an input of 1.
+⚠️ **ZERO IS A LEGITIMATE VALUE** (some inputs are 0% by ruling); negative and non-numeric are
+refused. A Pricing Inputs category declares no pipelines and no attribute definitions, so it is never
+eligible to price a row and never reaches extraction — and its items are kept OUT of the
+all-categories rate file. Full record:
+`frontend/.claude/plans/boq-upload-plan.md` § "Build slice 12b(A)".
+
+**A RATE COLUMN'S KIND IS DERIVED FROM HOW THE RULES USE IT, NEVER FROM ITS NAME; A COLUMN THE
+RULES DO NOT SETTLE IS LEFT UNLABELLED (owner-locked, Electrical v65).** `csv_exporter`
+walks each category's pipelines to decide whether a stored rate column is a **List price**, a **BCS
+price** or a **BoQ price**, and whether it carries `(install)`. ⚠️ **IT MUST BE A PROVENANCE WALK** —
+`(kind, rate_key) → component → sum_components → scale/roundup → output` — because an assembly's
+multiplier lands on the SUM, so a walk reading only the step that touches the column reports nothing
+for every assembly. A name-based guess is the failure this replaces: `install_base_per_mtr` is a BCS
+price and `lug_list` is a List price, and neither says so. **Silence is a verdict**: where the rules
+do not settle a column it is left unlabelled rather than guessed, and the formula row can say so.
+Gated on the DISCIPLINE (`RATE_LABEL_DISCIPLINES`) with an INDEPENDENT second gate on the `rate_ref`
+vocabulary — HVAC produces zero labels and its headers are byte-identical; a discipline opts in
+deliberately, never by acquiring a pipeline shape. The TypeScript mirror in `rateMasterSpec.ts` is
+pinned to the Python, like the `FORMULA_FIXTURE` pair.
+
+**THE PRICING-INPUT IMPACT PANEL PRICES THROUGH THE PRODUCT'S OWN PIPELINE, NEVER THROUGH A SECOND
+IMPLEMENTATION OF IT (owner-locked).** It used to price a SKU as `stored rate x the
+multiplier the input contributes`. That is the same arithmetic the pipeline performs for a PAIR input
+with no rounding in the way, so it agreed to the rupee there and looked right — and it computed
+something else for the other two shapes: an INSTALLATION SHARE read 13 -> 32.5 where the product quoted
+10 -> 30 (the pipeline applies the share to the COMPUTED SUPPLY rate, then rounds UP TO TENS), and a
+FLAT ADDER read +44 where the product quoted +64 (the addend sits in the sum the markup multiplies).
+**`pricingInputExact` runs `runPipeline` over the catalogue as it stands and over the catalogue with the
+edited input patched in**, so the panel cannot drift from the product — a change to a pipeline, an order
+of operations or a rounding is picked up for free. **Do NOT re-derive pricing rules there; that is the
+bet that already failed once.** A pure ROUNDING difference of a rupee or two is acceptable; a different
+BASE, a different ORDER or a missing ROUNDING STEP is not. **EVERY output that moves is reported, not
+only the input's own leg** — a conduit DISCOUNT moves the install rate too, because install is a share
+OF supply, and a rate that moves unmentioned is how a pricer is surprised. Two traps that make the exact
+path look wired while doing nothing: a `no_match` is NORMAL (an input is read by pipelines spanning
+several kinds, and only one prices any given SKU), and the NEUTRAL branch test is **"every LITERAL is
+zero", not "every param is a literal"** — the cable-tray `cover` off-branch is a zero beside a ctx bind,
+and the stricter test left `cover` unset, so the pipeline never resolved and the panel silently fell
+back to the approximate arithmetic on every tray. The figure shown is the SKU's own rate, never a row
+total; the rounded row-level range stays the group summary.
+
+**AN ITEM-LIST CATEGORY KEEPS ITS PIPELINES INSIDE `list_spec`, SO ANY CODE THAT WALKS
+`cfg["pipelines"]` IS BLIND TO THEM -- AND REPORTS ZERO RATHER THAN FAILING (owner-locked).** That
+shape is deliberate (it is what lets a category carry a complete rule set while staying NOT eligible),
+and it broke three independent readers at once: `csv_exporter.pricing_input_used_by` reported every
+HVAC input as read by NOTHING, so the rate file's used-by column read *"not used"* while they priced 204
+rows and `refuse_if_in_use` would have allowed a DELETE; and `pricingInputReach` /
+`pricingInputImpact` reported no SKUs on the impact panel. **Every such walk goes through ONE resolver**
+-- `pricingInputReach.pipelinesOf` on the frontend, a recursive `steps` walk in `csv_exporter` -- and the
+NESTED id carries family and unit class, because a per-category map keyed on the pipeline id merges two
+families' `supply` pipelines otherwise. **The resolver that PRODUCES an id and the one that resolves it
+BACK must be the same function**, or the panel silently falls back to its approximate arithmetic.
+
+**AND THE PANEL PRICES AN ITEM-LIST SKU THROUGH `priceItemList`, THE RATE-HELPER PANEL'S OWN PRICER
+(owner acceptance 23, 2026-09-30) -- never by running one of its nested pipelines.** `priceItemList`
+resolves the unit class, the family, the block, the facts it needs, the defaults, the overrides and the
+PER-ROW conditions BEFORE running the pipeline that combination selects, so running a pipeline directly
+re-implements all of it -- the bet that already failed once. **It would also be wrong in a specific,
+plausible way:** a cladding component with six branches keyed on the row's own value cannot be resolved
+by `conditionsFor`, which picks ONE enabling branch, so every row would be priced as though it carried
+the input's own cladding -- plausible figures and a row count of 224 where 68 move. The branch conditions
+are therefore NOT passed on that path: each SKU's branch comes from its own attributes, which is what
+makes the moved COUNT fall out of the product rather than a guess.
+
+**A LADDER'S `label_attr` IS A CORRECTNESS KEY, NOT A DISPLAY ONE.** `buildModuleLadder` SKIPS any row
+whose label attribute is missing, so pointing it at an attribute the SKUs do not carry builds an EMPTY
+ladder and refuses EVERY row with *"no SKU for this combination"* -- naming a size, never the display
+field that actually caused it. It is declared in `list_spec.pricing.label_attr`; ABSENT means
+`item_detail` (what ADP carries), and the validator refuses an attribute no definition declares.
+
+**A COMPOSITION CARRIES AT LEAST TWO LAYERS, AND `max_layers < 2` IS REFUSED BY NAME (owner Q8).** One
+layer is what the ordinary ladder already is, so a one-layer "composition" is that ladder wearing the
+tolerance as a disguise -- able to shave a stated value DOWN, which the ladder never does. A first
+implementation allowed it and turned a stated 26 into a single 25, the exact exception the owner refused.
+The tolerance applies ONLY when composing; letting it reach the exact / next-size-up rules makes 26 -> 25
+legal again by the back door. `size_match` is its sibling: a stated value and a rung that are the SAME
+size written to different precision resolve to the rung, and a rounding depth that is NOT collision-free
+over the rungs is SKIPPED rather than resolved arbitrarily (otherwise the rung chosen depends on
+catalogue row order). ⚠️ Half-up rounding needs an explicit epsilon: 7/8" is `22.224999999999998`, so
+`toFixed(2)` drops it off its own 22.23 rung.
+
+**A PRICING-INPUT VALUE COLUMN IS A PERCENTAGE BY DEFAULT, SO A NON-PERCENTAGE ONE MUST BE NAMED.**
+`PRICING_INPUT_NON_PERCENT_COLUMNS` (`amount`, `rate`, `factor`) is a DENY-LIST for that reason: a column
+added without a thought renders 450 as `45000%`. The sense each column carries is a MAP
+(`PRICING_INPUT_COLUMN_SENSE`), not a two-way "percentage else rupees" -- that form labelled a 1.25
+overlap factor as rupees and stayed invisible until a discipline actually carried the column. The
+blank-column filter in `csv_exporter.build_category_rows` and `RateMasterDataViewer.rateCols` is KEPT
+(owner Ruling 1): a discipline whose inputs carry neither column never sees them, which is what keeps
+Electrical's file and page byte-identical. ⚠️ `factor` does NOT contradict *"there are no factors"*: that
+rule is about FOLDS, and this is a KIND-OF-NUMBER column like `amount` -- the MEANING lives in the item.
+
+**THE RATE MASTER SCREEN FOLLOWS THE RATE FILE, AND THE TWO ORDERINGS ARE ONE RULE IN TWO LANGUAGES.**
+`csv_exporter.column_order_for` and `rateMasterSpec.columnOrderForFile` (plus `_source_order` /
+`sourceOrder`) are pinned to identical output on ONE shared fixture -- the `FORMULA_FIXTURE` idiom, and
+the pin IS the mechanism, because the screen cannot call an exporter for one header. A category that
+declares no `rate_composition` keeps the SORTED order, which is what leaves every other discipline's file
+and screen byte-identical; inventing a sheet order for it would reorder files nobody asked about. SHEET
+comes before ROW in the row order, because two categories draw from two sheets each and a row-only sort
+interleaves them. ONE documented exception: a SPEC-DRIVEN category omits its derived attribute columns
+from the file (slice 1c) while the screen shows them read-only, so there they differ BY DESIGN.
+
+**A FLAT ADDER MOVES EVERY PRICE IN ITS PIPELINE; `isFlatAdder` MEANS "THIS INPUT ADDS RATHER THAN
+SCALES" (owner-locked).** An ADDITIVE `component` carries no `target` and no `bands`, so a reach walk
+keyed on the target records nothing and reports zero — which is measuring what an input MULTIPLIES,
+not whose PRICE MOVES. Such a step inherits the columns accumulated so far, exactly as
+`install_as_ratio` does. The flag must NOT be re-derived as "reaches no SKU": that was a symptom, it
+is false once the adders correctly reach their SKUs, and it cannot express the ruling that a markup ON
+an adder (`tray_cutting`, which carries only an `installation_markup`) shares the adder's panel and its
+condition. A flat adder is ONE row per SKU, never one per rate column — an addend lands once on the
+sum, so per-column rows read as double the money — and the enabling condition branch is the one that
+ADDS something, never one picked by name.
+
+**A DELIBERATE REMOVAL FROM AN ASSET IS DECLARED, NEVER ARGUED WITH — AND THE MINT GATE NOW SEES
+ITEM RATE KEYS (owner ruling).** `scripts/mint_completeness_check.py` reports every ATOM that
+disappears between two asset versions, and a removal counts as DECLARED when the new asset SAYS SO:
+`retired_category_ids`, `retired_kinds`, and now **`retired_rate_keys`** (entries `"<kind>:<rate_key>"`,
+or `"*:<rate_key>"` across every kind; a retired KIND cascades to its whole rate space, exactly as a
+retired category cascades to everything beneath it). ⚠️ **THE GATE WAS STRUCTURALLY BLIND TO ITEM DATA
+UNTIL v66**: from an item it read only `kind:<k>`, so `cable_tray.with_cover_list` vanished from every
+row while it reported *"No atoms disappeared"*. There is now a **`rate:<kind>:<key>`** atom — keyed by KIND, because a
+column is a property of the kind: one row missing it is data, every row missing it is a schema change —
+and a `retrate:` atom so losing a DECLARATION is itself reported. **⚠️ NEVER WEAKEN OR BYPASS THE GATE TO
+LET ONE CHANGE THROUGH** (owner: *"a gate quietly relaxed to let one change through stops guarding every
+change after it"*); declare the removal instead, and prove a new atom BOTH WAYS — undeclared must refuse,
+declared must pass — because **an atom that has never been seen to refuse is not a guard**.
+
+**A NEGATIVE PIN AIMED AT A SPECIFIC FUTURE NAME HAS A SHELF LIFE OF ONE MINT.** `test_h07`'s "no
+Electrical asset exists at a newer version" probe was hardcoded to `v64`, went stale at v65, was re-aimed
+at **v66 precisely because v66 could not exist** — and the very next slice minted v66. Derive such a probe
+(one past the highest N on disk), never name a future version. The same rule explains why a removal must be
+normalised on the OLD side of a cross-version comparison rather than by editing the pin: a pin claiming
+*"every other item is byte-equal to v59"* is a statement about THAT mint, and must not start failing for a
+removal made three mints later that it never spoke to. `_without_pricing_input_items` /
+`_without_with_cover_list` / `_without_wcl_note` in `test_rate_master` are that idiom.
+
+**A PANEL FIELD HAS TWO VALUES AND THEY ANSWER DIFFERENT QUESTIONS — "what will be priced" vs
+"what did you enter" (owner-locked, 2026-10-04).** `ItemFieldView.value` is the RESOLVED size (the
+ladder result, or blank where nothing fits — rule X3) and `typedValue` is the raw entry. Binding the
+`dropdown_or_other` typed box to `value` made a size IMPOSSIBLE TO TYPE: every keystroke was
+rewritten to the rung it resolved to, or erased (`3` → `13`, `32` → blank). The box's visibility keyed
+on the same field, so a typed 16 resolved to the stocked 19 and **the box vanished mid-entry while the
+select jumped to a size nobody chose** — the controlled-select trap in `frontend/CLAUDE.md` reached
+from the other side. The ONE predicate `RateHelperPanel.otherMode` keys on `typedValue`; the
+resolution still shows in the select beside it and in the note beneath (C-R4).
+
+**A COMPOSED ROW'S BLOCK MUST SUM ITS OWN LAYERS, AND `priced.items[i]` IS NOT THAT BLOCK'S ITEM.**
+A composition expands ONE user block into several priced layers, so `priced.items` and the edit
+state's items stop being one-to-one — the index then lands in whichever block the count reaches.
+Group by the `sourceIndex` the pricer stamps. ⚠️ **THIS CLASS HIDES BEHIND A COINCIDENCE OF SHAPE:
+block sum and row total AGREE on every uncomposed row**, so the existing `rowTotals` test passed
+before and after the defect that showed **219 where the row cost 474**, under a box labelled "Row
+total", beside a headline already reading 474. `rowTotals` reads the ROW's own totals (`view.totals`,
+the same figures the headline uses); the block sums its layers; the working names each layer with its
+money so the figure adds up on screen — which is also what makes the cladding's carrying layer
+visible.
+
+**THE PANEL NAMES THE RATE IT SHOWS: `BoQ rates`, NEVER BCS (owner-locked).** The working ends
+`ROUNDUP(BCS supply, 0)` then `BCS cost x (1 + markup)`, so the last words before the figure are "BCS
+cost" — while the figure is the BoQ rate, what the CLIENT is charged. ONE constant drives both
+headings, written at the two CALL SITES and never inside `FiguresRow`, the same opt-in rule the
+`unit` label follows — which is what keeps the non-item-list (Electrical) surface byte-identical.
+
+**A NOTE IS REQUIRED ON A FIELD THAT IS TYPED **AND** RENDERS **AND** IS MANDATORY — AND THE RULE
+LIVES IN THE FRONTEND BECAUSE IT HAS TO (owner-locked, final form 2026-10-04).** `itemFieldDefs`
+decides what renders and the PRICER decides what is mandatory; the Python validator can read neither,
+so re-deriving them server-side would be a SECOND LIST free to drift from the panel — which is how a
+field loses its note silently. `panelFieldAudit` measures all three by asking the product (rendering
+from the call the panel makes; mandatory by pricing with the field blank), and names no attribute,
+category or discipline. Python keeps the SHAPE checks only: a note must name a real typed control and
+say something; a note on a dropdown is refused by name. **A note that cannot be read is worse than
+none** — ADP's `face_h_mm` / `depth_mm` / `area_sqm` notes were removed because those fields render
+nowhere, and `face_w_mm` keeps the one that does.
+
+**AND A NOTE MUST NOT PROMISE WHAT THE READER REFUSES — THE NOTE AND ITS "How is this matched?"
+HELP ARE TWO SENTENCES ABOUT ONE BEHAVIOUR AND MUST CHANGE TOGETHER.** The thickness note said "Two
+layers may be written out" while the reader refuses `13+13`; correcting the CONFIG note left the same
+claim alive in the GENERATED HELP, which is code. Only a runtime read of the screen found the second
+one. The refusal is correct and stays: hand-written layers would bypass the C-R1 ordering (fewest
+layers → closest → cheapest) entirely.
+
+**A CONFIG-DECLARED `calculator_only: true` ADMITS A CATEGORY TO THE CALCULATOR ONLY, AND THE
+SLICE THAT MAKES THAT CATEGORY ELIGIBLE MUST REMOVE IT IN THE SAME CHANGE (owner ruling FA7).** Read
+at ONE site (`pricingSheetHelper.admitCalculatorOnly`, passed by `PricingCalculator` alone and never
+by the BoQ page), no discipline or category named in code. Once `pipelines` is non-empty the ordinary
+predicates admit the category by themselves, so leaving the key in place would be a SECOND on/off
+switch for one thing — two switches that can disagree about whether a category prices.
+
+**A DROPDOWN OFFERS ONLY VALUES THAT CAN STILL PRICE WITH THE ANSWERS ALREADY GIVEN (owner S1,
+2026-10-06).** One rule per vocabulary and no category named in code: `fieldOptionsFromSkus` narrows a
+family's SKUs, `attributeOptions` narrows a `values_from` kind. An answer no row CARRIES cannot narrow,
+and an answer that would EMPTY the list is SKIPPED — so narrowing can only ever remove options no SKU
+supports, never the last one. ⚠️ **THE TEST MUST INCLUDE `dropdown_or_other`, WHICH IS THE CONTROL EVERY
+SIZE FIELD USES**; an `=== "dropdown"` test excludes exactly the fields that most need narrowing, and
+Tubular PUF offered all four thicknesses at every pipe size while each pipe stocks ONE — pipe 100 with
+thickness 25 priced as 65. ⚠️ **AND `selection` CANNOT BE THE SOURCE OF THE ANSWERS**: it is filled one
+need at a time and RETURNS at the first missing one, so a row refusing for a missing thickness carries no
+pipe size. `ItemPriceResult.readValues` publishes every resolved fact for OPTIONS AND DISPLAY ONLY —
+nothing from it reaches `match_master_row`, so no price can move.
+
+**A PICK THE LATER ANSWERS NO LONGER STOCK IS CLEARED, NEVER SUBSTITUTED — AND THE RULE IS BOUNDED BY
+THREE CONDITIONS, TWO OF WHICH WERE LEARNED BY BREAKING THEM.** (1) Only a value the PRICER picked from a
+list: one typed through "Other…" must still ladder (composition and next-size-up exist for unstocked
+sizes) and one the MODEL supplied is evidence about the row, not a choice. (2) A field with NO options is
+exempt — it cannot have offered anything, and without this guard a correctly priced cladding-only row had
+both its sizes cleared and stopped pricing. (3) The test is **DIRECTIONAL, down the config's own `ladders`
+order**, because an unstocked pair is unstocked BOTH ways round and a symmetric check wipes the answer the
+pricer just gave.
+
+**A TYPED FIELD'S NOTE IS GENERATED FROM WHAT THE PRICING READS, NOT WRITTEN PER FAMILY (owner S3/S4/S5,
+2026-10-06).** A `panel_notes` entry may be a LIST OF CLAUSES, each conditioned on a fact about the block
+being drawn — `when_reads` (that SKU attribute is among the family's needs for this unit class) and
+`when_stocked` (the field has rungs to choose between). **The WORDING stays in config; only the CONDITION
+is code**, so no attribute English lives in the frontend. A plain string is still a note and is
+byte-identical, which is what keeps every frozen asset valid. This exists because a shared note lies
+family by family: the ADP size note invited "plus depth where the BoQ gives one" on `double-skin plenum`,
+whose pricing reads W and H and DISCARDS the depth, and the Insulation thickness note promised automatic
+layering to `Cladding Only`, which stocks no sizes at all. ⚠️ **A NOTE REMOVED ON THE GROUND THAT ITS FIELD
+"RENDERS NOWHERE" MUST BE MEASURED, NOT ASSUMED** — `area_sqm` was dropped for that reason and renders on
+**12 of 25** ADP families, typed, mandatory in the alternative, and setting the price linearly.
+
+**A FAMILY MAY DECLARE `units_not_offered`, AND IT CHANGES NO PRICE (OWNER RULING S10, 2026-10-06).**
+The generic rule is that a family is offered every unit class it can be priced in — its own `units`
+pipelines PLUS any declared `convert` — and `familyUnitClasses` subtracts what the family declares hidden.
+⚠️ **`convert` BELONGS IN THAT UNION**: twelve ADP families are quoted per sq.m and priced on a per-number
+row by converting a stated W × H or an area band, and that conversion is the ONLY path on which their Size
+and Area band fields render at all. The key exists because **`VCD` and `double-skin plenum` are identical
+on every axis a generic rule could key on** (area SKUs, an area pipeline, a count conversion), so the
+difference between them is knowledge about the product and has to be DECLARED; only `double-skin plenum`
+declares one. It is read at ONE site, by a control only the calculator and a unit-less row ever show — a
+BoQ row arriving in a hidden unit prices exactly as it always did.
+
+**THE GUIDANCE ON A FIELD DOES NOT STOP BEING TRUE WHEN THE ROW PRICES.** A note and its "How is this
+matched?" help were gated on the field NOT holding a stocked value, so both existed only while the row was
+broken and vanished at the moment the pricer had a figure to check. A line REPORTING something that
+happened is different: it is shown whenever the value USED is not the value ENTERED — which includes a
+precision match, where the stated size resolves onto the rung BEFORE the ladder runs, the ladder then fits
+exactly, and a test on `exact` sees nothing. Compare `requested` with `fitted`, never `exact`. And a
+refusal belongs to the FIELD IT IS ABOUT: composed from the row's state instead, one field's complaint
+appears under another's name.
+
+**A GREEN SUITE OVER AN ASSET FILE SAYS NOTHING ABOUT WHAT THE SITE IS SERVING.** The live
+Insulation config sat at v21 while the asset, the spec and 216 passing tests all described v22's inch
+reading — so `3/4"` would have been refused on the real screen. Before certifying a rate-master
+change, READ THE LIVE CONFIG, not the asset; and remember a host edit does not fire the container's
+inotify, so vite serves stale modules until it is restarted with `node_modules/.vite` purged.
+
+**A MODEL-READ VALUE PRICES ONLY THROUGH THE DROPDOWN OPTION IT MATCHES; NO MATCH -> REFUSE
+(owner R-B, 2026-10-06).** A controlled `<select>` can display only its own options, so a row priced
+from anything else is a figure whose provenance the screen CANNOT STATE -- the 12c-P cert photographed
+exactly that: a blank Slots select above a row priced 1160/352/1512 from the string `"2 slot"`. The
+value the model read is therefore matched to the option it MEANS, before anything prices, by
+`itemListPricing.matchStatedToOption` -- same text (trimmed, whitespace-collapsed, case-insensitive),
+else same number **read with the SAME `readNumber` the pricing uses**. ⚠️ **IT DEFINES NO SECOND
+PARSER**: `readNumber` is already how the pricing understood `"2 slot"`, which is why the row priced
+while the field sat blank; a private parser could read a value the pricing does not, and the field
+would then show a number the rate was not computed from -- the same defect inverted. ⚠️ **IT NEVER
+INVENTS**: an unstocked size matches nothing and is left for the LADDER, which still buys the next
+rung and still shows it; matching and laddering are different questions. ⚠️ **A VALUE THE PRICER TYPED
+IS NEVER REWRITTEN** -- an "Other..." entry is deliberately unstocked. The refusal half
+(`pricingSheetHelper.fieldCannotShowValue`) asks only of a PRICED row, and **three mechanisms answer
+it first because each SUPPLIES the shown value: a ladder hop, a ruled default, a config override** --
+the first draft lacked that and refused four rows for `Damper: None`, where `"None"` is POSITIVE
+ABSENCE that the defaults turn into `without`. **The test is what the field will DISPLAY, never what
+the model wrote.** No pricing function is touched: the match runs on the assembled attributes, the
+refusal is read off the result. ⚠️ **AND THE CALCULATOR OFFERS THE UNITS THE PRICING CAN CONVERT INTO
+ONE THE ITEM IS SOLD IN** (owner R-C + option A): a `unit_factors` spelling rides beside the class it
+converts into, ONE spelling per unit -- it adds a SPELLING, never a CLASS, so `units_not_offered`
+stays the only thing deciding classes (a plenum gains sq.ft and still offers no Nos, because the
+ruling is "priced by area, never by number").
+
+**EVERY CATEGORY SHIPS WITH A CALCULATOR = PANEL PARITY TEST OVER BOTH REAL PATHS, AND NEVER ONE
+PATH COMPARED WITH ITSELF (owner P1, standing: the two must always give the same price for the same
+inputs; any divergence is a failure).** The two paths are the SAME `pricingSheetHelper.compute` entered
+through different branches — the PANEL through a POPULATED `extractionByRow` (never-asked defaults,
+stored cells, the model's items), the CALCULATOR through `PricingCalculator`'s empty map plus
+`admitCalculatorOnly`, every value arriving as an OVERRIDE. A test that builds one of them twice proves
+nothing, which is why `calculatorPanelParity.test.ts` pins that it is driving two branches before it
+compares anything. **"The same inputs" means what the panel SHOWS, read through each control's own
+binding** — a select and a plain text box are bound to the RESOLVED value (`f.value`), only an open
+"Other…" box to what was typed (`f.typedValue`); feeding the raw typed value everywhere loses every
+ruled default and every ladder hop. A fact the calculator has no control for — a `panel: false`
+attribute, or an item answer the chosen family's block does not render — is an input-surface
+difference, to be COUNTED and REPORTED, never quietly supplied or quietly dropped. **A found divergence
+is listed BY NAME as awaiting the owner's ruling and the suite passes only if exactly those differ**, so
+a new one fails and so does a listed one that stops differing. ⚠️ **A big JSON fixture is READ at
+runtime, never `import`ed** — `tsc` infers a structural type for the whole file and dies on a few MB.
+⚠️ **And in the browser, a screenshot coordinate is NOT a DOM coordinate**: the CSS viewport is wider
+than the capture frame (measured 2071×1092 vs 1512×797, a factor of 0.730), so every
+`getBoundingClientRect()` must be scaled before it is clicked or the click lands a row away and reads
+as an unresponsive control.
+
+**A DEFAULT APPLIES ONLY TO "NOT MENTIONED"; A MENTIONED-BUT-UNMAPPABLE VALUE STAYS BLANK; AND THE
+ROW KIND OF A SILENT MATERIAL IS DECLARED, NEVER NAMED IN CODE (owner rulings R1-R9 on Insulation,
+owner-locked).** Three config mechanisms carry this, each with its own validator shape, each consumed
+at ONE site in `itemListPricing.priceOneItem`: `defaults` fires over the model's `"None"` (not
+mentioned) and, with `absent_as_none` OFF, never over an answer the model LEFT OUT (mentioned, could
+not map -- a UV coating, an RP tissue, an odd gauge), so such a row refuses "could not tell" instead of
+pricing a default; `family_when_none` supplies a family ONLY when the family answer is absent or
+`"None"`, by UNIT CLASS first and then by declared WORDS tested at a word start, case-insensitive, over
+the row's own text and its HEADINGS (the panel's row context now carries `headings`, built from the
+priced rows' parent chain; the calculator has none and a pricer picks there), and it is MARKED amber
+like every other assumed value; `value_map` turns a STATED choice value into another value of the same
+attribute for named families (foil on a pipe is 26G) or REFUSES with a reason (foil on an acoustic
+row) -- the one case neither `defaults` (fires over "None") nor `override_when` (cannot be conditioned
+on the attribute it sets) can express -- and it runs LAST, over what the pricing believes after the
+defaults. A stated family, `"none of these"` included, is never overridden; `"none of these"` refuses
+legibly through `no_sku_families`. The family refusal speaks the family definition's LABEL (`no
+insulation material could be told …`, `no item family …`), never a category name. `panel_readonly`
+declares text definitions the model answers and the panel SHOWS but nothing matches (a brand); the
+validator refuses any attribute the pricing reads. **Nitrile Rubber pipe SKUs stop at 53.98 mm and a
+larger pipe REFUSES by ruling** -- do not widen the ladder or alias it to PUF.
+
+**A STATED VALUE IS READ BEFORE ANY DEFAULT, AND AN UNREADABLE STATED VALUE REFUSES (owner T1,
+owner-locked).** In `priceOneItem`'s needs loop the `unreadable` refusal comes BEFORE `number_defaults`
+is consulted: a thickness the row DID state but code cannot read ("as per specification", a comma
+list, a typed "13+13") refuses by name; the 9 mm default fires only when NOTHING is mentioned, then the
+ladder. The order was the other way round and, with the default scoped to one family, the defect was
+latent -- widening the default to every family is what made it bite. **"Several" is a reader option,
+never a reader default:** `numbers[attr].several = "highest"` takes the highest of a BARE slash list of
+any length; absent, two values take the higher and three refuse, so a category that does not declare it
+is byte-identical. **A thickness the MODEL writes as layers ("a + b", "a x N", "N layers of a") rides
+the EXISTING composition path** (`composeInto` + `outer_only`: each layer at the row's pipe size, the
+cladding on the outer layer only) -- nothing new is priced -- and **a value the PRICER typed is never
+parsed as layers**: `assembleItems` marks a pricer's entries `typed: true` and the layers parse reads
+only model cells, which is what keeps the calculator's single-number entry as it is (owner T6, "let it
+be for now"). A row that states layers but no pipe size refuses per layer, exactly as before. **A
+schedule in a heading (thickness keyed to pipe size) is a FACT THE MODEL READS** for this row's size
+(the thickness note); "take the highest" is CODE for the case with no schedule. **A `no_sku_families`
+refusal may NAME the material as written** through `no_sku_named_by` (a text def the pricing never
+reads): "No SKU in the catalogue for XLPE - price this row by hand"; without the key the R18 sentence
+stands, which is how ADP's stays byte-identical. **A pipe-size field holding a slash list is not an
+inch fraction** -- a fraction is ONE slash between TWO numbers (or a mixed number).
+
+**A CATEGORY IS ELIGIBLE WHEN IT CARRIES PRICING RULES THAT RUN -- top-level `pipelines`, OR an
+item-list block whose EVERY unit block and convert option carries its own -- AND definitions; the
+`calculator_only` admission is RETIRED (owner S1, 2026-10-07).** The ONE predicate is
+`extraction.has_runnable_pricing_rules` / `pricingSheetHelper.hasRunnablePricingRules`, read on every
+surface (the BoQ panel, the calculator, the pre-run rules, the extraction population). ⚠️ **Do NOT make
+such a category eligible by adding a top-level `pipelines` entry**: Insulation's 7 unit blocks all carry
+their own, so a top-level entry would validate and NEVER execute -- the owner-locked defect class -- which
+is exactly why the predicate reads the block instead; Insulation's `pipelines` stays honestly `{}`. "Run"
+carries the weight: a block with un-piped units and no default (ADP at v7) is NOT runnable. The retired
+key is refused by the validator as unknown; the frozen v18..v28 files still carry it and are repaired
+IN MEMORY by their tests, never edited. Consequence, by design: there is no staging switch any more --
+a category is on the day its rules are complete.
+
+**THE ROW'S OWN THICKNESS BEATS A HEADING'S, AND THE PROMPT STATES THE ORDER WITHOUT THE ARITHMETIC
+(owner S3, 2026-10-08).** The thickness note reads: (1) the row's OWN value (description or attached
+note) always wins, even where a heading says otherwise; (2) else the heading SCHEDULE read for THIS
+row's pipe size; (3) else a list copied AS WRITTEN; (4) else left out. "The highest" (`several`) and the
+9 mm default (`number_defaults`) are CODE and never appear in the prompt -- a calculation does not go in
+the prompt, and naming them would prime the model to pick or invent. Measured on the paid sample: 25 of
+25 rows obeyed the order (the pipe rows read the schedule per size; every sheet row used its own number).
+
+**THE SENTINEL "None" IS NOT OFFERED WHERE A RULED DEFAULT MAPS IT TO A CATALOGUE VALUE (owner S4).**
+`ruledDefaultValue(spec, attr, family)` is the ONE reader of `defaults[attr]` (`value` / `by_family`),
+shared by the pricing and by `itemFieldDefs`; where it answers, the dropdown drops "None" and the field
+shows the default's value amber with its line. An `allow_none` attribute with NO ruled default keeps
+"None" first (the air stream), and the Electrical row-level surface ("MCB 2: None") is untouched.
+**"You typed" is said ONLY of a cell the pricer typed** (the 12d-1b `typed` marker); a model-read value
+reads "BoQ says" on every line, the composition line included. **A no-unit / rate-only row's note says
+"unit taken as <unit>" while it refuses and "priced per <unit>" once it prices**, and the figures' label
+reads the catalogue's word (`rateUnit`), never "per R/O".
+
+**PRICING NEVER READS A VALUE COMPUTED FOR DISPLAY, AND PRICING IS TESTED FROM THE SERVED PAYLOAD
+(owner F1, 12d-2F, owner-locked).** `get_rate_master_items` returns the ONE `items` array every pricing
+path consumes (the rate-helper panel, the calculator, the impact panel), so `items[].rates` is the
+STORED catalogue byte-for-byte and a figure the grid shows but the catalogue does not store rides in
+its own map (`computed_rates`, read by the greyed cell alone). The failure this closes was invisible to
+every pure suite: the 12c FINISH live cladding figure was written INTO `rates`, and the three area
+families' `cladding` component reads that cell as `base` and ADDS the GI framework it computes live, so
+a Fiberglass + GI framework row priced the framework twice on the live page while every fixture carried
+the stored 0 -- except `parityMaster.json`, which was snapshotted from the served endpoint and so proved
+the two surfaces agreed on the wrong number. Two standing rules follow. **(1)** a read-time projection
+may add an ATTRIBUTE (brand, unit_class) because matchers read attributes; it may never write a RATE,
+because pipelines read rates as money. **(2)** the pricing proof runs over the served payload AND the
+stored catalogue and asserts they price identically (`servedVsStoredPricing.test.ts` +
+`test_rate_master.TestServedRatesAreStored`); a fixture captured from the endpoint is re-captured after
+any change to what the endpoint serves, never hand-edited.
+
+**A VALUE NAMED IN THE ROW'S OWN TEXT NEVER FALLS TO A DEFAULT; A HEADING NEVER TRIGGERS THE
+RULE; A LISTED UNSTOCKED MATERIAL REFUSES BY NAME EVEN WHEN THE MODEL PICKED A STOCKED FAMILY (owner
+rulings D3 / D7 / D9b on the 12d-3 Insulation audit, owner-locked, 2026-10-08).** The R1 defaults fire over
+the model's `"None"` -- *not mentioned* -- and the audit found 9 rows where the row's OWN description
+named a cladding (FRP wrapping, glass cloth, a GI strip, foil) while the model answered `"None"`, so the
+cheapest cladding priced silently. Three config keys in `list_spec.pricing` carry the rulings, each
+consumed at ONE site in `itemListPricing.priceOneItem` and each a closed shape the validator checks:
+`named_in_row` (an `allow_none` attribute + the WORDS; `"None"` beside a word-start hit in the row's own
+text REFUSES with the configured sentence), `unstocked_materials` (words tested on the row's own text
+AND on the copied `material_as_written`; a hit refuses "No SKU in the catalogue for <material>" BEFORE
+the family is consulted, so EPDM priced as Thermal Nitrile can no longer happen), and
+`refuse_on_unit_class` (a unit class + an attribute value fragment, or the same words over `"None"`:
+glass cloth on a SHEET row refuses, on a pipe row it still prices). ⚠️ **"OWN TEXT" IS THE DESCRIPTION
+PLUS THE ROW'S OWN NOTES AND NEVER ITS HEADINGS** -- the pricer receives `rowText` (description |
+headings, for `family_when_none`) AND a separate `ownText` (`RateHelperRowContext.ownNotes`, built by
+`rateSuggestionModel.rowOwnNotes`), because a `Collar Damper` heading over a row that says *without VCD*
+is exactly the false trigger the owner excluded; three 00140 rows carrying the framework only in the
+PARENT heading's note are therefore NOT D3 rows, by ruling. The calculator has no row text, so these
+rules cannot fire there -- a row the panel refuses under them while the calculator prices is a NEW,
+named parity class (`F_row_text_not_an_input`), listed by row and not a defect. **A REFUSAL ORDER IS A
+RULING TOO (D11):** on a row with no unit, the named-material refusal is shown FIRST, before "no unit on
+this row", because it is the one the pricer can act on. **The matcher is `wordStartHit` -- one function
+for `family_when_none` and all three keys**; do not write a second word test. A rate-only unit may carry
+the real unit after it (`QRO - Sqm.`, D10, `splitRateOnlyUnit`): the remainder is the unit, with a note
+saying so. ⚠️ A `"N mm thick - 2 Layers"` suffix IS a double layer (D4, `readLayers`), beside the
+prefix forms; `"25 +/- 2"` and comma lists still refuse. ⚠️ **A SERVED-FIXTURE RE-SNAPSHOT REFRESHES
+ITEMS AND COMPUTED CELLS ONLY; CONFIGS STAY AS THE FIXTURE HELD THEM** (`parityMaster.json`, the 12d-2F
+and 12d-4a precedent) -- `servedVsStoredPricing.test.ts` prices through the ASSET's config, and the
+corpus parity test's configs are a dated snapshot by design; every count pin on that fixture (331
+items, 219 cells, 3 GI rows, 229 SKUs ...) is in the blast radius of a mint that adds SKUs and is
+INVERTED with its before/after lines, never deleted.
+
+**THE DERIVATION TAB IS DERIVED FROM THE CONFIG, NEVER A SECOND LIST -- AND IT NAMES NOTHING BY AN
+INTERNAL NAME (owner C5 / 5d, 2026-10-08).** `itemListRuleOrder(config, items)` writes the "How a row is priced"
+card from the config ALONE: a line exists iff the config key that carries the rule is present, in the order the
+pricing applies it, in the owner's language -- the ruled VALUES (cladding not mentioned -> No; thickness -> 9 mm,
+then the ladder), the refusal WORDS, the families a rule names, the ladders' size-match / composition /
+refuse-above-largest, the live cross-row reads, the derived cells. ⚠️ **A hand-written rule list beside the
+config is the defect this replaces**: since 12c the tab listed only the MECHANISMS the shape implied and
+"No rules configured", while every Insulation ruling lived in `list_spec.pricing` where no reader looked, so a
+pricer could not read the rules anywhere in the product. The pin is STRUCTURAL VACUITY -- delete any one key from
+the config and its line must be GONE -- beside a NEGATIVE pin that no config key, no `[RDTS]-nn` code, no
+`(owner ...)` tag and NO snake_case token reaches the screen, with the items supplied and without. A Pricing
+Input is named by the LABEL its Pricing Inputs row carries (`GI framework sheet factor`), never its item id; the
+label lives on the ITEM, so the tab receives the discipline's items; pipeline ids are written as plain words. A
+config message's `(R4)` / `(owner ...)` tag is stripped by `plainSentence` at render, so a config may keep its
+provenance without it reaching a pricer. The same mechanism lists ADP's rules (owner-approved); Electrical, alias
+and vendor-quote tabs stay EMPTY and are pinned so.
+
+**EVERY PRICER-FACING LINE PASSES THROUGH THE ONE PLAIN-ENGLISH FUNCTION (owner P1 / P2, 2026-10-08,
+slice 12d-5).** `frontend/src/pages/pricing/rate-master/plainEnglish.ts` holds `plainSentence`, the
+Pricing-Input label resolver and `plainPricerText`; the Derivation tab, the rate-helper PANEL and the
+CALCULATOR all read through it, and `pricingSheetHelper` applies it ONCE, where the item-list view is built,
+to every DISPLAY string (a field's rule / note / match help, a block's reason / SKU line / working lines /
+family rule, the row's reason / unit note / derivation). A config keeps its provenance -- `R14 / slice 11`,
+`(owner 2026-10-07)`, `(R15)`, `gi_sheet_rate`, `item_supply:` -- and the pricer never sees it. ⚠️ **DISPLAY
+STRINGS ONLY**: a value the pricing or a control MATCHES on (`value`, `typedValue`, option values, the edit
+state) is never touched -- a cleaned value stops matching its option (the controlled-select trap).
+⚠️ **IT KEEPS A LINE'S INDENTATION AND NORMALISES NOTHING BUT ITS OWN REMOVALS**: a layer's steps sit
+indented under their layer line, and a family name may begin with a space (` Fiberglass Rigid Board
+Insulation, Density 48Kg/m3`); the first draft trimmed both and the no-other-change sweep caught it as a
+2,842-line "other" class. ⚠️ **THE NON-ITEM-LIST (ELECTRICAL) PATH NEVER REACHES IT** -- its lines are the
+Electrical retrofit, by owner ruling P3 -- and the sweep pins Electrical byte-identical. A second
+cleaner beside this one, or a cleaned string written back into a config, is how one screen drifts from
+another; the NEGATIVE pin (`plainEnglish.test.ts`) runs every Insulation and ADP case of the 12c-S sweep
+through both paths and refuses any code, `slice N`, `(owner` or snake_case token on any display string.
+
+---
+
 ## Rate-master invariants filed under Domain Gotchas
 
 ### Extraction matching mode - item_identity
@@ -1767,3 +2789,188 @@ and is not "the rules of the switch socket module".
 
 Measured: without modules **10800/1200** (the p1 golden, unchanged); with modules **5760/680** =
 box 5400/600 + modules 360/80.
+
+
+---
+
+## Slice 12c — INSULATION PRICING RULES + HVAC PRICING INPUTS + the calculator (2026-10-03) — SHIPPED
+
+Seven commits: `c6d038983` (allowlist), `53ef18b12` (the two resolution rules), `d945eb558` (Rate and
+Factor columns), `7922020e5` (HVAC v16, the one asset commit), `bb8fef2f3` (the impact panel),
+`8fa8d3262` (the data viewer), `db372c0c6` (the Derivation tab), plus this docs commit.
+
+Built in the owner's stated order 1 → 3 → 4 → 5 → 2 → 6 → 7 → 8.
+
+### WHAT IT IS
+
+The seven business numbers that slice 12a baked into `cost_cladding` at mint time are now rate-master
+ITEMS a pricer edits, and Insulation's cladding is computed from them through the interpreter's existing
+steps. Insulation stays INELIGIBLE (owner Q13): every rule lives in `list_spec`, `config.pipelines` is
+empty, and every Insulation BoQ row keeps its coming-soon card. The calculator prices it; the BoQ helper
+declines it. That pair is intended and is stated out loud because it is surprising.
+
+### THE SEVEN INPUTS (`hvac_pricing_inputs`, kind `hvac_pricing_input`)
+
+| item | value | unit |
+|---|---:|---|
+| `alu_sheet_24g` | rate 450 | Rs per sq.m |
+| `alu_sheet_26g` | rate 450 | Rs per sq.m |
+| `glass_cloth` | rate 200 | Rs per sq.m |
+| `cladding_overlap` | factor 1.25 | factor |
+| `gi_sheet_rate` | rate 450 | Rs per sq.m |
+| `gi_framework_factor` | factor 0.9 | factor |
+| `gi_framework_adder` | amount 150 | Rs per sq.m |
+
+**SEVEN, not the design's six.** GI gets its OWN rate, which is the answer to design question O3-b. All
+three rates are 450 today, so binding GI to an aluminium input prices identically and LOOKS CORRECT —
+and would move three GI rows the first time aluminium alone changed, for a reason nobody could see.
+Measured on the product's own pricer: 26G 450→500 moves **68** rows and **not** the 3 GI ones; the GI
+rate moves exactly **3**; 24G moves a **disjoint 68**; glass cloth **84**; the overlap **136** (every
+aluminium-clad row, both grades). The 24G/26G separation is one no derivation in v15 could express.
+
+### THE ARITHMETIC IS UNCHANGED, AND THAT IS MEASURED
+
+`scripts/_instruments/replay_insulation.ts` prices all 224 Insulation SKUs through the PRODUCT'S OWN
+`priceItemList` and compares each figure with the SHEET RULE computed from v15's stored parts:
+**224/224, 0 refused, 0 figure mismatches.** The cladding formula was verified against the stored
+`cost_cladding` on all 224 rows BEFORE any config was written —
+`(aluminium × overlap + glass cloth) × girth`, girth `= 3.14 × (pipe + 2 × thickness) / 1000`, with GI
+as `sheet × factor + fabrication` and the Aluminium Foil rate staying on the SKU (owner Q4).
+
+### ⚠️ THE 3 GI ROWS' STORED `cost_cladding` IS ZEROED, NOT LEFT AT 555
+
+555 was a frozen copy of `450 × 0.9 + 150`, and a frozen copy of a derivation is exactly the defect
+12a-FIX was written for: the moment the GI rate moves, the stored figure asserts a number nothing
+recomputes. Zero means "the SKU adds nothing"; the whole 555 now arrives through the three GI inputs,
+so no figure moves. `cost_cladding` is dropped from the 204 PIPE rows and KEPT on the 20 sheet rows,
+because the area cladding component binds it as `base`. `derived_rates` 228 → 172 cells: the 56 cladding
+declarations dissolve structurally, with no stored cell left to declare.
+
+### FOUR DEFECTS FOUND BY RUNNING IT, NOT BY READING IT
+
+1. **`buildModuleLadder` SKIPS any row whose LABEL attribute is missing**, and the call hardcoded ADP's
+   `item_detail`. Insulation's SKUs do not carry it, so every ladder was EMPTY and all 224 rows reported
+   *"no SKU for this combination"* — with nothing on screen hinting that a DISPLAY field was the cause.
+   `label_attr` is now config-declared (ABSENT ⇒ `item_detail`, so ADP is byte-identical) and the
+   validator refuses an attribute the SKUs lack.
+2. **`pricing_input_used_by` walked `cfg["pipelines"]` only**, so the file's used-by column would have
+   read *"not used"* on all seven inputs while they priced 204 rows — and `refuse_if_in_use` would have
+   let a pricer DELETE one.
+3. **The same blindness in the frontend**, twice: `pricingInputReach` and `pricingInputImpact`. Measured:
+   0 inputs with reach before the fix, 7 after.
+4. **The formula row labelled a 1.25 overlap factor as "rupees"** — a gap commit 4 opened with its
+   two-way "percentage else rupees" line, invisible until a discipline actually carried the column.
+
+### ACCEPTANCE 23 — ONE PRICING PATH (owner, mid-slice)
+
+> "for the pricing input sheet panel, we need to use the same pipeline for pricing impact calculation as
+> the rate helper panel. just like we did for electrical."
+
+The function is **`priceItemList`**; the panel's single call site is
+`pricingInputExact.priceSkuExactItemList`, reached from one branch in `pricingInputImpact`'s `exactRows`.
+The category-level path keeps calling `runPipeline` through `priceSkuExact`, unchanged.
+
+⚠️ **Running a nested pipeline directly would have been wrong in a specific, plausible way.** Insulation's
+cladding is ONE component with six branches keyed on the row's own `cladding`, and `conditionsFor` can
+pick only one enabling branch — so a 26G input would price all 224 rows as though each were clad in 26G.
+The figures would look right and the count would read 224 instead of 68. Through `priceItemList` each
+SKU's branch comes from its own attributes, so the moved count falls out of the product. `conds` is
+deliberately NOT passed on that path: there is nothing to assume.
+
+**Parity (23b):** 448 before-figures and 3,136 after-figures against an INDEPENDENT call of
+`priceItemList`, 0 differences, counts asserted. The test builds the row itself rather than reusing the
+panel's builder, because what is at stake is the WIRING (right spec, right unit, right attributes), not
+the arithmetic — there is only one copy of that, which is the point.
+**Vacuity (23c):** perturbing the panel's figures by 1 reddens both parity tests; restored, green.
+
+### ⚠️ OWNER RULING 2 / U9 IS BUILT BUT NOT RENDERED, AND CANNOT BE YET
+
+Ruling 2 asks for 2–3 sample impact calculations on the **cladding-only SKUs**. There are **none in the
+catalogue**: design question O1 put the two shapes to the owner — (i) one SKU per cladding type per
+geometry, 200 new rows, or (ii) one SKU per cladding type, 5 new rows — and that choice is **still
+open**, as is Q7's PROVISIONAL rider on whether a per-sq.m cladding-only row takes the overlap factor.
+
+So the sample PICKER ships, pure and tested: `sampleGeometries` takes the distinct tuples of the
+category's ladder axes across the family's active SKUs, orders them by the DECLARED axis order and takes
+smallest / middle / largest — no size written in code, no category named. A NEGATIVE pin asserts no
+cladding-only row exists, and will fail loudly the moment one is minted, which is exactly when the panel
+work has a real row to render. **Minting those rows is what this is waiting on.**
+
+### TWO OF MY OWN TESTS WERE WRONG AND REAL DATA HID IT
+
+The sample helper's first test hardcoded pipe-major ordering while the rule is declared-axis order
+(thickness first). On this catalogue the two extremes COINCIDE, so the test was **green while asserting
+a rule the code does not follow**, and only a synthetic 9999 mm row exposed it. The expected order is now
+derived from `spec.ladders`. A green assertion over real data can still be the wrong assertion.
+
+### RULING 1 — THE BLANK-COLUMN FILTER STAYS (owner: "agree", option (b))
+
+`rate` and `factor` exist for every discipline and appear wherever an input CARRIES them, APPENDED after
+`amount` so no existing column moves. The filter is kept at BOTH sites, which is the whole of acceptance
+13: Electrical's 35 inputs carry neither column, so its page and its download are byte-identical —
+round-trip digest **`764e5bc30277`, the same figure as before the slice**, which VOIDS the design's
+warning that it would change. Both columns are declared non-percentage in a named deny-list, because the
+default is "percent" and a value column added without a thought renders 450 as 45000%.
+
+### ACCEPTANCE 4 — THE SCREEN FOLLOWS THE FILE
+
+Four presentation changes over one rule: rate columns and attribute columns from the shared order, `unit`
+right after `brand` (U4), rows in SOURCE WORKBOOK order (sheet first). `csv_exporter.column_order_for`
+and `rateMasterSpec.columnOrderForFile` are pinned to identical output on ONE shared fixture — the
+`FORMULA_FIXTURE` idiom, and the pin IS the mechanism. A category that declares no `rate_composition`
+keeps the sorted order, which is what leaves every Electrical file and screen byte-identical. ONE
+documented exception, asserted rather than skipped: a SPEC-DRIVEN category (ADP) omits its derived
+attribute columns from the file by the slice-1c ruling while the screen shows them read-only.
+
+### ACCEPTANCE 5 / U10 — THE DERIVATION TAB
+
+`itemListRuleOrder` (pure, unit-tested, ADR-0010 F4) describes the whole resolution order, because
+pricing one of these rows is not "run a pipeline" — the unit class, the kind, the block, the facts it
+needs, the ruled defaults and the size fitting are resolved first and none of that is visible in a list
+of steps. Driven entirely by the presence of `list_spec.pricing`, so every Electrical tab is
+byte-identical (pinned over all 13 v66 configs) and ADP's tab gains it too, which is what U10 approves.
+A negative pin asserts no internal key name reaches the screen.
+
+### PROOFS AND COUNTS
+
+* Insulation 224/224 reproduce the sheet rule; 0 refused.
+* ADP: 95 items and the `hvac_adp` config byte-identical v15 → v16; all 95 SKUs priced through the live
+  path before and after the O3-a generalisation — **0 differing rows, digest `001c7bea060cf884`**.
+* Electrical: 1402 items before and after the load; its own asset untouched; the whole reach map digests
+  **`51a10332e0ed260c2275c403`** before and after the walk widening.
+* Round trips: Electrical PI 35 unchanged / 0 errors; HVAC PI 7 unchanged; Insulation 224 unchanged;
+  xlsx digest == csv digest in all three.
+* Mint gate v15 → v16: no atoms disappeared. The `rate:hvac_insulation_item:cost_cladding` atom survives
+  because 20 rows still carry the key — data, not a schema change.
+* Python **541 → 587** OK across the slice; frontend **4701 → 4732** (the one standing failure is the
+  pre-existing `POAdjustment/writeOffControl.test.ts`, in code this slice never touches).
+* Vacuity proved and restored five times: the step allowlist, both resolution rules, the blank-column
+  filter, the `label_attr` default, the reach walk, and the panel's figures.
+
+### PINS MOVED UNDER MECHANICAL AUTHORITY — SIXTEEN, NONE DELETED
+
+Two on the column set (`rateMasterSpec.test.ts`, `test_e03` — the latter now asserts a column IN USE
+appears and one used by NO row does not, which is the filter's whole purpose), four on the HVAC registry
+shape, four on the 228 figure (228→172 and 240→184 for the one reason), `_PRICING_KEYS` learning three
+keys with ADP asserted to carry none, and the asset-series pins. `test_dr_03` was RE-AIMED rather than
+deleted — it read a `cost_cladding` declaration that no longer exists, so it now makes the same claim
+about a surviving one AND asserts the retired shape absent; `test_dr_02`'s name was changed too, because
+it said 228 while asserting 172.
+
+### A NON-DEFECT, RECORDED SO IT IS NOT RE-RAISED
+
+Two zero-change HVAC upload plans share a digest. `csv_importer._digest` fingerprints the discipline, the
+errors and **the changes the plan touches** — by design, so an unrelated edit elsewhere cannot block a
+correct upload — so two empty plans of one discipline are identical material, and applying either writes
+nothing.
+
+### OPEN, FOR THE OWNER
+
+1. **O1 — the cladding-only SKU shape:** (i) 200 rows or (ii) 5 rows. Ruling 2's samples cannot render
+   until those rows exist.
+2. **Q7's PROVISIONAL rider:** does a per-sq.m cladding-only row take the overlap factor?
+3. **The `factor` column vs 12b(A)'s "there are no factors".** That rule was about FOLDS — a
+   pre-multiplied `(1−discount)×(1+markup)` nobody who owned either half could edit. `factor` here is a
+   KIND-OF-NUMBER column like `amount` and `rate`, with the meaning carried by the ITEM (cladding
+   overlap; GI framework sheet factor), and the ban is kept in full force on the seven percentage
+   columns. That reading is mine, not the owner's, and is worth one line of confirmation.

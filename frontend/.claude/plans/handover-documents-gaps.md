@@ -17,7 +17,7 @@ Legend: **Owner** = who has to act (Team = site/owner team, Dev = code change).
 | P7 | ~~**Delete the list branch of `hod-document.html`**~~ **Not dead after all** | — | The binder stopped putting the list page in front of the records (2026-09-25), but Preview still shows it, so the branch stays. |
 | P4 | ~~Full binder from the button~~ **Fixed + verified 2026-09-23** | Dev | It never finished on screen: `job_id` is a parameter of `frappe.enqueue` ITSELF, so the job's own id never reached `_run_binder_job` — every event and the cached status were written for job `None` while the screen polled its own id. The id now travels as `hod_job_id`. Verified through `enqueue_binder` + the 2-second poll: 73 steps, 168 pages, ready with its token. Clicking it in a browser is still unseen (P3). |
 | P5 | ~~Commit~~ **Done** | Team | Committed 2026-09-22 on `hod/feature` in four commits (backend, tab, docs, print-format fixture); not pushed. |
-| P6 | **Go live** | Team | `bench migrate` on live (3 doctypes; `Project HOD Document.status` ships as `YES\nNO\nNA`, default NO — the derived Pending/Form Filled/Completed were retired 2026-09-24 and no row on live carries them); the two print formats arrive with the `Print Format` fixture; load the library with `bench --site <site> import-doc` (systems first, then content) or enter it under Packages Settings → Handover Documents — it is NOT shipped as fixtures (owner 2026-09-22); `bench start`/workers must run (binder is a background job). |
+| P6 | **Go live** | Team | `bench migrate` on live (3 doctypes; `Project HOD Document.status` ships as `YES\nNO\nNA`, default NO — the derived Pending/Form Filled/Completed were retired 2026-09-24 and no row on live carries them); the two print formats arrive with the `Print Format` fixture; load the library with `bench --site <site> import-doc` (systems first, then content) or enter it under Packages Settings → Handover Documents — it is NOT shipped as fixtures (owner 2026-09-22; the files briefly in `fixtures/` were deleted 2026-10-07, see G13); `bench start`/workers must run (binder is a background job). **Open 2026-10-07:** if live has not yet run a migrate with the old files, its library is empty — load the export once (copy on the owner's Desktop, `HOD_library_for_live_2026-10-07/`). |
 
 ---
 
@@ -94,7 +94,15 @@ done by eye (no OCR on this machine), so spot-check against the workbook. Two ty
 
 | # | Gap | Effect | Possible fix |
 |---|---|---|---|
-| G13 | **The library is loaded by hand, not by migrate** | It is exported to `fixtures/hod_system.json` + `hod_library_content.json`, but NOT listed in the hooks `fixtures` (owner 2026-09-23), so a migrate neither imports nor overwrites it | Load it deliberately: `bench --site <site> import-doc …/hod_system.json` then `…/hod_library_content.json`; re-export after on-screen edits |
+| G13 | **The library is loaded by hand, not by migrate** | **Corrected 2026-10-07.** This row used to say the exported files in `fixtures/` were safe because the hooks `fixtures` list did not name them. That was wrong: migrate imports EVERY `.json` in `fixtures/` with force, so each migrate overwrote the library with the file — on-screen edits vanished with no Version row (ACS and CCTV "New projects" switches flipped back on, twice on 2026-10-07). Both files are now DELETED (owner) | Load a saved export once per site with `bench --site <site> import-doc` (systems first, then content), from a path outside `fixtures/`; afterwards the site's own database is the only copy |
+
+### 3d-2. Who can see and change it (2026-10-07)
+
+| # | Gap | Effect | Possible fix |
+|---|---|---|---|
+| G15 | ~~**HOD Tracker listed projects the user cannot open**~~ **Fixed 2026-10-07** | `get_hod_trackers` is one GROUP BY with no project filter, so a Project Manager scoped to 2 projects saw all 4 started handovers; opening one threw "Not permitted to read this project" | The list is narrowed through `frappe.get_list("Projects")` (the snag list's scoping). Admin / PMO unchanged (4 → 4), the PM 4 → 1; browser-checked as that PM |
+| G16 | **The server does not enforce `HOD_ACCESS`** | The screens are four profiles only (tracker + project tab, `HOD_ACCESS`), but `Project HOD Document` grants write to System Manager, which also rides on Estimates Executive, HR Executive and Design Lead — they can still change rows by API. Read is open to almost every role. The library (`HOD System`, `HOD Library Content`) is Admin-only on screen but System Manager on the server | Owner to decide (asked 2026-10-07): a role-profile check on every HOD write (and read?), and Admin-only library writes, on the server |
+| G17 | **Guarded pages flash "Access Denied" on reload** | `RoleRoute` checks the role before it has loaded, so an allowed user sees the message for a moment on `/hod-tracker` and the six other guarded areas | Show a loader while the role is `"Loading"` (the PO / WO pages' pattern) — owner to decide |
 
 **4 Material Data Sheet opens the TDS tab's own "Confirm TDS Export" dialog (2026-09-24, owner).** HOD
 builds no TDS picker any more: `MaterialTdsDialog` hands the shared `TdsExportDialog` the items the server

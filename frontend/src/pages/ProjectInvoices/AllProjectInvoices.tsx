@@ -53,6 +53,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { useDialogStore } from "@/zustand/useDialogStore"; // For managing edit dialog state
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 interface AllProjectInvoicesProps {
   projectId?: string;
@@ -428,6 +429,7 @@ export const AllProjectInvoices: React.FC<AllProjectInvoicesProps> = ({
   // =================================================================================
   const isLoadingOverall =
     isDataLoading || isProjectsLoading || isCustomersLoading || isUsersLoading || isGstLoading;
+  const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
 
   return (
     <div
@@ -440,7 +442,7 @@ export const AllProjectInvoices: React.FC<AllProjectInvoicesProps> = ({
             : ""
       )}
     >
-      {isLoadingOverall && !projectInvoicesData?.length ? (
+      {!hasLoadedOnce && isLoadingOverall && !projectInvoicesData?.length ? (
         <TableSkeleton />
       ) : (
         <DataTable<ProjectInvoice>

@@ -24,6 +24,7 @@ import { toast } from "@/components/ui/use-toast";
 import { parseAssignedFromField, type AssignedPMODetail } from "../utils";
 import EditTaskModal from "./EditTaskModal";
 import { AssignPMODialog } from "./AssignPMODialog";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 interface FlattenedPMOTask {
     name: string;
@@ -377,6 +378,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ statusFilter }) =>
         urlSyncKey: "pmo_task_wise",
         additionalFilters,
     });
+    const hasLoadedOnce = useHasLoadedOnce(serverDataTable.isLoading);
 
     const table = useReactTable({
         data: serverDataTable.data || [],
@@ -462,7 +464,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ statusFilter }) =>
                 )}
             </div>
 
-            {serverDataTable.isLoading && !serverDataTable.data?.length ? (
+            {!hasLoadedOnce && serverDataTable.isLoading && !serverDataTable.data?.length ? (
                 <TableSkeleton />
             ) : (
                 <div>

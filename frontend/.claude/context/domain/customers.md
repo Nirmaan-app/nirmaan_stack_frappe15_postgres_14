@@ -6,6 +6,9 @@ The Customers module manages company/client entities that can be assigned to pro
 
 **Key Relationship**: `Customer → Projects → Financials (Inflows, Payments, Invoices)`
 
+**A project needs a customer before its financials:** a project without one cannot have invoices or inflow
+payments created — the UI shows validation warnings and disables those forms.
+
 ---
 
 ## File Structure

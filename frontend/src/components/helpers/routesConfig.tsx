@@ -61,6 +61,8 @@ import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewP
 import {
   BOQ_TEMPLATES_ACCESS,
   CUSTOMERS_ACCESS,
+  HOD_ACCESS,
+  MTC_PAGE_PROFILES,
   NON_PROJECT_INFLOWS_ACCESS,
   PROJECT_INVOICES_ACCESS,
   UPLOAD_BOQ_ACCESS,
@@ -89,6 +91,8 @@ const TDSItemDetail = lazy(() => import("@/pages/tds/TDSItemDetail"));
 
 // NEW COMMISSION REPORT PAGES
 import CommissionReportList from '@/pages/CommissionReport/commission-report-list';
+import BillingTrackerPage from '@/pages/ProjectBilling/BillingTrackerPage';
+import BillingProjectPage from '@/pages/ProjectBilling/BillingProjectPage';
 import ProjectCommissionReportDetail from '@/pages/CommissionReport/project-commission-report-details';
 import CommissionReportWizard from '@/pages/CommissionReport/report-wizard';
 
@@ -273,6 +277,13 @@ export const appRoutes: RouteObject[] = [
                 element: <DeliveryChallansAndMirs />,
               },
               {
+                // Project Manager + Project Lead only (owner ruling Q26). The server also limits
+                // them to their assigned projects (`mtc_api.mtc_allowed_projects`).
+                path: "material-test-certificates",
+                element: <RoleRoute allowed={MTC_PAGE_PROFILES} what="Material Test Certificates" />,
+                children: [{ index: true, lazy: () => import("@/pages/MaterialTestCertificates") }],
+              },
+              {
                 path: "update-inventory",
                 lazy: () => import("@/pages/remaining-items"),
               },
@@ -395,6 +406,10 @@ export const appRoutes: RouteObject[] = [
             path: "project-expenses",
             element: <Navigate to="/expense/project" replace />,
           },
+          // Client billing tracker (Project Wise / Bill Wise / My Bills).
+          { path: "billing-tracker", element: <BillingTrackerPage /> },
+          // One project's bills ("View Bills" on Project Wise).
+          { path: "billing-tracker/:projectId", element: <BillingProjectPage /> },
           // ======================================================
           // --- START: COMMISSION REPORT SECTION ---
           // ======================================================
@@ -426,8 +441,11 @@ export const appRoutes: RouteObject[] = [
           // Same shape as the Design Tracker below: a list, and a detail page of its own rather
           // than a redirect into the Project page. The detail mounts the very same
           // `HandoverDocumentsTab` the project page mounts, so the two cannot drift.
+          // Guarded to the sidebar's profiles (`HOD_ACCESS`): the doctype's own read/write
+          // rows are far wider, so without it a typed URL let Estimates / HR / Design Lead in.
           {
             path: "hod-tracker",
+            element: <RoleRoute allowed={HOD_ACCESS} what="the HOD Tracker" />,
             children: [
               // 1. List View (e.g. /hod-tracker)
               { index: true, element: <HodTrackerList /> },

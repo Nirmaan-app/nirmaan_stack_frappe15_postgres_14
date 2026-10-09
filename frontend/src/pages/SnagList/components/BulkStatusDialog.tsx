@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 
 import { SNAG_STATUSES, SnagStatus } from "../types";
+import { SNAG_PHOTO_REQUIRED_STATUS } from "../config/snagTable.config";
 
 export interface BulkStatusDialogProps {
   open: boolean;
@@ -82,6 +83,12 @@ export const BulkStatusDialog: React.FC<BulkStatusDialogProps> = ({
               ))}
             </SelectContent>
           </Select>
+          {status === SNAG_PHOTO_REQUIRED_STATUS && (
+            <p className="text-[11px] text-muted-foreground">
+              Snags without a photo are skipped: a snag needs its photo to be{" "}
+              {SNAG_PHOTO_REQUIRED_STATUS}.
+            </p>
+          )}
         </div>
 
         <DialogFooter>

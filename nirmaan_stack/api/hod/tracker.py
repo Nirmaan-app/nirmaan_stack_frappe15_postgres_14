@@ -61,9 +61,26 @@ def get_hod_trackers() -> list:
 		raise frappe.PermissionError(_("Not permitted to read handover documents."))
 
 	rows = frappe.db.sql(_COUNTS_SQL, as_dict=True)
+	if not rows:
+		return []
+
+	# The GROUP BY reads every project's rows, so the list is scoped here: `get_list` (not `get_all`)
+	# applies the user's Projects User Permissions, the same rule the tab's `_assert_can_read` enforces
+	# when the card is opened. Without it a Project Manager scoped to 2 projects was shown cards that
+	# only threw a permission error. Same scoping as `api/snags/project_list.py`.
+	visible = set(
+		frappe.get_list(
+			"Projects",
+			filters={"name": ("in", list({r.project for r in rows}))},
+			pluck="name",
+			limit_page_length=0,
+		)
+	)
 
 	by_project: dict = {}
 	for r in rows:
+		if r.project not in visible:
+			continue
 		needed = int(r.total or 0) - int(r.switched_off or 0)
 		completed = int(r.completed or 0)
 		wip = int(r.wip or 0)

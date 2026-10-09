@@ -58,6 +58,7 @@ import {
   useProjectsFinancialRollup,
 } from "./data/root/useProjectRootApi";
 import { TenderingProjectsTable } from "./tendering/TenderingProjectsTable";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 // --- Constants ---
 const DOCTYPE = "Projects";
 
@@ -850,6 +851,7 @@ export const Projects: React.FC<ProjectsProps> = ({
     financialRollupLoading ||
     listIsLoading ||
     userListLoading;
+  const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
 
   const combinedErrorOverall =
     financialRollupError ||
@@ -1012,7 +1014,7 @@ export const Projects: React.FC<ProjectsProps> = ({
               : ""
         )}
       >
-        {isLoadingOverall && !projectsDataForTable?.length ? (
+        {!hasLoadedOnce && isLoadingOverall && !projectsDataForTable?.length ? (
           <TableSkeleton />
         ) : (
           <DataTable<ProjectsType>

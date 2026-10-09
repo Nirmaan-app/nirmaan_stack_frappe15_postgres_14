@@ -6,7 +6,7 @@ matching the wire contract in `frontend/src/pages/SnagList/types.ts`.
 NOTHING in this package imports frappe, touches the database or reads request
 context: the API layer (`nirmaan_stack/api/snags/`) owns the file handling, the
 duplicate lookup and every write. That is what makes this package unit-testable
-with no bench context (root CLAUDE.md § Testing Conventions).
+with no bench context (root CODING_STANDARDS.md § Writing tests).
 
     from nirmaan_stack.services.snag_parser import inspect_workbook, guess_mapping, parse_sheet
 

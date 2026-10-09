@@ -1,0 +1,895 @@
+[
+ {
+  "id": "BOQ-26-00003|PUNE HVAC BOQ#565",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 5110,
+  "install": 672,
+  "layers": [
+   "15/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00009|HVAC LOWSIDE BOQ#32",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 5110,
+  "install": 672,
+  "layers": [
+   "15/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00016|Bill 26-HVAC LOW_ABSTRACT#65",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 5110,
+  "install": 672,
+  "layers": [
+   "15/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00016|Bill 26-HVAC LOW_ABSTRACT#66",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 3558,
+  "install": 518,
+  "layers": [
+   "15/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 30 mm -> priced as 15 + 15 mm (30 mm, +0) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00020|HVAC_-19TH FLOOR#517",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 3920,
+  "install": 518,
+  "layers": [
+   "19/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 40 mm -> priced as 19 + 19 mm (38 mm, -2) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00023|HVAC BOQ #34",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 5110,
+  "install": 672,
+  "layers": [
+   "15/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00033|LOWSIDE#183",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 5110,
+  "install": 672,
+  "layers": [
+   "15/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00049|Fitout HVAC#40",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 5110,
+  "install": 672,
+  "layers": [
+   "15/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00049|Fitout HVAC#41",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 3146,
+  "install": 518,
+  "layers": [
+   "9/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 25 mm -> priced as 9 + 15 mm (24 mm, -1) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00049|Fitout HVAC#42",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 2074,
+  "install": 364,
+  "layers": [
+   "13/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00075|HVAC#248",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 5110,
+  "install": 672,
+  "layers": [
+   "15/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00137|LOWSIDE OFFICE WORKS#124",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 3146,
+  "install": 518,
+  "layers": [
+   "9/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 25 mm -> priced as 9 + 15 mm (24 mm, -1) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00156|LOWSIDE OFFICE WORKS#125",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 3146,
+  "install": 518,
+  "layers": [
+   "9/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 25 mm -> priced as 9 + 15 mm (24 mm, -1) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00169|HVAC#290",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 5110,
+  "install": 672,
+  "layers": [
+   "15/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00215|LOW SIDE WORKS #162",
+  "fixes": [
+   "D1"
+  ],
+  "priced": true,
+  "supply": 5110,
+  "install": 672,
+  "layers": [
+   "15/GI Framework with perforated Al sheet"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00017|Lowside #94",
+  "fixes": [
+   "D3"
+  ],
+  "priced": false,
+  "reason": "cladding named in this row but not read - set the cladding",
+  "layers": [
+   "19/None"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00020|HVAC_-19TH FLOOR#515",
+  "fixes": [
+   "D3",
+   "D9b"
+  ],
+  "priced": false,
+  "reason": "glass cloth is not offered on sheet insulation - price this row by hand",
+  "layers": [
+   "13/None"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00108|HVAC#420",
+  "fixes": [
+   "D3"
+  ],
+  "priced": false,
+  "reason": "cladding named in this row but not read - set the cladding",
+  "layers": [
+   "25/None"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00117|HVAC BOQ #189",
+  "fixes": [
+   "D3"
+  ],
+  "priced": false,
+  "reason": "cladding named in this row but not read - set the cladding",
+  "layers": [
+   "30 mm/None"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00137|LOWSIDE OFFICE WORKS#128",
+  "fixes": [
+   "D3",
+   "D11"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for Eco+ PIR Panels - price this row by hand",
+  "layers": [
+   "/"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00140|HVAC Lowside Works #59",
+  "fixes": [
+   "D3",
+   "D9b"
+  ],
+  "priced": false,
+  "reason": "glass cloth is not offered on sheet insulation - price this row by hand",
+  "layers": [
+   "38mm (19+19)/None"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00149|HVAC-BOQ#439",
+  "fixes": [
+   "D3"
+  ],
+  "priced": false,
+  "reason": "cladding named in this row but not read - set the cladding",
+  "layers": [
+   "25 mm/None"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00164|BOQ#136",
+  "fixes": [
+   "D3"
+  ],
+  "priced": false,
+  "reason": "cladding named in this row but not read - set the cladding",
+  "layers": [
+   "25 mm/None"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00197|HVAC BOQ #199",
+  "fixes": [
+   "D3"
+  ],
+  "priced": false,
+  "reason": "cladding named in this row but not read - set the cladding",
+  "layers": [
+   "30 mm/None"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00140|HVAC Lowside Works #45",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "priced": true,
+  "supply": 1258,
+  "install": 154,
+  "layers": [
+   "13/No"
+  ],
+  "defaulted": [
+   "0:cladding=No"
+  ]
+ },
+ {
+  "id": "BOQ-26-00140|HVAC Lowside Works #46",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "priced": true,
+  "supply": 1371,
+  "install": 154,
+  "layers": [
+   "15/No"
+  ],
+  "defaulted": [
+   "0:cladding=No"
+  ]
+ },
+ {
+  "id": "BOQ-26-00140|HVAC Lowside Works #47",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "priced": true,
+  "supply": 2330,
+  "install": 308,
+  "layers": [
+   "9/None"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 25 mm -> priced as 9 + 15 mm (24 mm, -1) -- above the largest stocked size (19 mm)"
+ },
+ {
+  "id": "BOQ-26-00165|AC WORKS #14",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "priced": false,
+  "reason": "no pipe size stated",
+  "layers": [
+   "/No"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00117|HVAC BOQ #183",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "priced": true,
+  "supply": 464,
+  "install": 154,
+  "layers": [
+   "13/No"
+  ],
+  "defaulted": [
+   "0:cladding=No"
+  ]
+ },
+ {
+  "id": "BOQ-26-00149|HVAC-BOQ#435",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "priced": true,
+  "supply": 594,
+  "install": 154,
+  "layers": [
+   "19/No"
+  ],
+  "defaulted": [
+   "0:cladding=No"
+  ]
+ },
+ {
+  "id": "BOQ-26-00164|BOQ#132",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "priced": true,
+  "supply": 464,
+  "install": 154,
+  "layers": [
+   "13/No"
+  ],
+  "defaulted": [
+   "0:cladding=No"
+  ]
+ },
+ {
+  "id": "BOQ-26-00197|HVAC BOQ #195",
+  "fixes": [
+   "D3-NEGATIVE"
+  ],
+  "priced": true,
+  "supply": 383,
+  "install": 154,
+  "layers": [
+   "9/No"
+  ],
+  "defaulted": [
+   "0:cladding=No"
+  ]
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#259",
+  "fixes": [
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for closed cell elastomeric insulation with glass cloth facing (EPDM) - price this row by hand",
+  "layers": [
+   "13mm/Glass Cloth with paint"
+  ],
+  "defaulted": [],
+  "unitNote": "No unit on the BoQ row -> unit taken as sq.m, the catalogue's unit for this item"
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#260",
+  "fixes": [
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for closed cell elastomeric insulation with glass cloth facing (EPDM) - price this row by hand",
+  "layers": [
+   "9/Glass Cloth with paint"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#268",
+  "fixes": [
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for closed cell elastomeric insulation with glass cloth facing and UV treatment (EPDM) - price this row by hand",
+  "layers": [
+   "19/24G Aluminium"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#269",
+  "fixes": [
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for closed cell elastomeric insulation with glass cloth facing and UV treatment (EPDM) - price this row by hand",
+  "layers": [
+   "19/24G Aluminium"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#270",
+  "fixes": [
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for closed cell elastomeric insulation with glass cloth facing and UV treatment (EPDM) - price this row by hand",
+  "layers": [
+   "19/24G Aluminium"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#271",
+  "fixes": [
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for closed cell elastomeric insulation with glass cloth facing and UV treatment (EPDM) - price this row by hand",
+  "layers": [
+   "19/24G Aluminium"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#275",
+  "fixes": [
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for closed cell elastomeric insulation with glass cloth facing (EPDM) - price this row by hand",
+  "layers": [
+   "9 mm/Glass Cloth with paint"
+  ],
+  "defaulted": [],
+  "unitNote": "No unit on the BoQ row -> unit taken as metre, the catalogue's unit for this item"
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#276",
+  "fixes": [
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for closed cell elastomeric insulation with glass cloth facing (EPDM) - price this row by hand",
+  "layers": [
+   "9 mm/Glass Cloth with paint"
+  ],
+  "defaulted": [],
+  "unitNote": "No unit on the BoQ row -> unit taken as metre, the catalogue's unit for this item"
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#277",
+  "fixes": [
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for closed cell elastomeric insulation with glass cloth facing (EPDM) - price this row by hand",
+  "layers": [
+   "9 mm/Glass Cloth with paint"
+  ],
+  "defaulted": [],
+  "unitNote": "No unit on the BoQ row -> unit taken as metre, the catalogue's unit for this item"
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#281",
+  "fixes": [
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for closed cell elastomeric insulation with glass cloth facing (EPDM) - price this row by hand",
+  "layers": [
+   "25/Glass Cloth with paint"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00086|Low side#64",
+  "fixes": [
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for XLPE/Nitrile Rubber foam - price this row by hand",
+  "layers": [
+   "19/Aluminium Foil"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00086|Low side#65",
+  "fixes": [
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for XLPE/Nitrile Rubber foam - price this row by hand",
+  "layers": [
+   "13/Aluminium Foil"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00086|Low side#67",
+  "fixes": [
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for XLPE/Nitrile Rubber foam - price this row by hand",
+  "layers": [
+   "25/Aluminium Foil"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00087|HVAC#32",
+  "fixes": [
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for fiberglass / mineral wool insulation - price this row by hand",
+  "layers": [
+   "25 mm/None"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00029|HVAC WORK#263",
+  "fixes": [
+   "D7",
+   "D11"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for fibreglass board having density 80kg/cu.m, laminated with aluminium foil on one side and layers of black glass cloth on the other side - price this row by hand",
+  "layers": [
+   "/"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00234|(CHW BOQ) AHU & Low Side#132",
+  "fixes": [
+   "D4"
+  ],
+  "priced": false,
+  "reason": "item 1 (Nitrile Rubber Insulation): pipe size 100 is above the largest size on the sheet (53.98)",
+  "layers": [
+   "/None"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 25 mm thick - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only"
+ },
+ {
+  "id": "BOQ-26-00234|(CHW BOQ) AHU & Low Side#133",
+  "fixes": [
+   "D4"
+  ],
+  "priced": false,
+  "reason": "item 1 (Nitrile Rubber Insulation): pipe size 80 is above the largest size on the sheet (53.98)",
+  "layers": [
+   "/None"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 25 mm thick - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only"
+ },
+ {
+  "id": "BOQ-26-00234|(CHW BOQ) AHU & Low Side#134",
+  "fixes": [
+   "D4"
+  ],
+  "priced": false,
+  "reason": "item 1 (Nitrile Rubber Insulation): pipe size 65 is above the largest size on the sheet (53.98)",
+  "layers": [
+   "/None"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 25 mm thick - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only"
+ },
+ {
+  "id": "BOQ-26-00234|(CHW BOQ) AHU & Low Side#135",
+  "fixes": [
+   "D4"
+  ],
+  "priced": true,
+  "supply": 746,
+  "install": 28,
+  "layers": [
+   "25/None"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 25 mm thick - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only"
+ },
+ {
+  "id": "BOQ-26-00234|(CHW BOQ) AHU & Low Side#136",
+  "fixes": [
+   "D4"
+  ],
+  "priced": true,
+  "supply": 676,
+  "install": 28,
+  "layers": [
+   "25/None"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 25 mm thick - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only"
+ },
+ {
+  "id": "BOQ-26-00140|HVAC Lowside Works #471",
+  "fixes": [
+   "D4"
+  ],
+  "priced": false,
+  "reason": "item 1 (Nitrile Rubber Insulation): several values stated for pipe size ('40 mm dia to 100 mm dia')",
+  "layers": [
+   "25 mm - 2 Layers/None"
+  ],
+  "defaulted": [],
+  "working0": "BoQ says 25 mm - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only"
+ },
+ {
+  "id": "BOQ-26-00086|Low side#68",
+  "fixes": [
+   "D9b"
+  ],
+  "priced": true,
+  "supply": 294,
+  "install": 70,
+  "layers": [
+   "/Glass Cloth with paint"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00086|Low side#74",
+  "fixes": [
+   "D9b",
+   "D7"
+  ],
+  "priced": false,
+  "reason": "No SKU in the catalogue for stonewool - price this row by hand",
+  "layers": [
+   "/"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00098|Lowside#173",
+  "fixes": [
+   "D9b"
+  ],
+  "priced": true,
+  "supply": 294,
+  "install": 70,
+  "layers": [
+   "/Glass Cloth with paint"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00100|HVAC #111",
+  "fixes": [
+   "D9b"
+  ],
+  "priced": false,
+  "reason": "glass cloth is not offered on sheet insulation - price this row by hand",
+  "layers": [
+   "19/Glass Cloth with paint"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00140|VRF WORKS #95",
+  "fixes": [
+   "D9b"
+  ],
+  "priced": true,
+  "supply": 294,
+  "install": 70,
+  "layers": [
+   "/Glass Cloth with paint"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00158|ADS BOQ#67",
+  "fixes": [
+   "D9b"
+  ],
+  "priced": true,
+  "supply": 294,
+  "install": 70,
+  "layers": [
+   "/Glass Cloth with paint"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00233|Critical VRF System#41",
+  "fixes": [
+   "D9b"
+  ],
+  "priced": true,
+  "supply": 957,
+  "install": 280,
+  "layers": [
+   "/24G Aluminium with Glass Cloth"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00233|VRF System#65",
+  "fixes": [
+   "D9b"
+  ],
+  "priced": true,
+  "supply": 294,
+  "install": 70,
+  "layers": [
+   "/Glass Cloth with paint"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00060|HVAC#105",
+  "fixes": [
+   "D10"
+  ],
+  "priced": true,
+  "supply": 1258,
+  "install": 154,
+  "layers": [
+   "13/No"
+  ],
+  "defaulted": [
+   "0:cladding=No"
+  ],
+  "unitNote": "BoQ says QRO - Sqm. (rate only) -> priced per sq.m, the catalogue's unit for this item"
+ },
+ {
+  "id": "BOQ-26-00060|HVAC#109",
+  "fixes": [
+   "D10"
+  ],
+  "priced": true,
+  "supply": 594,
+  "install": 154,
+  "layers": [
+   "19/No"
+  ],
+  "defaulted": [
+   "0:cladding=No"
+  ],
+  "unitNote": "BoQ says QRO - Sqm. (rate only) -> priced per sq.m, the catalogue's unit for this item"
+ },
+ {
+  "id": "BOQ-26-00137|CHW pipes , Valves#39",
+  "fixes": [
+   "CONTROL"
+  ],
+  "priced": true,
+  "supply": 615,
+  "install": 224,
+  "layers": [
+   "19/26G Aluminium"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00169|HVAC#297",
+  "fixes": [
+   "CONTROL"
+  ],
+  "priced": true,
+  "supply": 500,
+  "install": 154,
+  "layers": [
+   "9/Aluminium Foil"
+  ],
+  "defaulted": []
+ },
+ {
+  "id": "BOQ-26-00003|PUNE HVAC BOQ#158",
+  "fixes": [
+   "CONTROL"
+  ],
+  "priced": true,
+  "supply": 464,
+  "install": 154,
+  "layers": [
+   "13/No"
+  ],
+  "defaulted": [
+   "0:cladding=No"
+  ]
+ },
+ {
+  "id": "BOQ-26-00140|HVAC Lowside Works #479",
+  "fixes": [
+   "CONTROL"
+  ],
+  "priced": true,
+  "supply": 238,
+  "install": 14,
+  "layers": [
+   "13/No"
+  ],
+  "defaulted": [
+   "0:cladding=No",
+   "0:thickness_mm=13"
+  ]
+ }
+]

@@ -5,27 +5,24 @@
 
 The database reads live in `api/hod/from_app.py`; the decisions -- which Commission Report task
 belongs under which handover document, which system a task belongs to, which HVAC parts a project
-starts with -- live here so they can be tested without a site.
+starts with, which Material Test Certificate items a system hands over -- live here so they can be tested
+without a site.
 """
 
 import re
 
 _TRAINING_RE = re.compile(r"training", re.IGNORECASE)
-_FACTORY_RE = re.compile(r"factory\s*test", re.IGNORECASE)
 
 
 def commission_bucket(task_name) -> str:
 	"""Which handover document a Commission Report task is filed under.
 
-	"training" -> 2 Demo & Training Certificate; "factory_test" -> 14 Factory Test Reports; every other
-	task (commissioning reports AND the other test reports -- Earthing, Megger, pressure tests ...)
-	-> 3 Commissioning Report (plan default: the other test reports are listed there).
+	"training" -> 2 Demo & Training Certificate; every other task -> 3 Commissioning Report: the commissioning
+	reports AND the test reports (Earthing, Megger, pressure tests, and the "Factory Test" reports too --
+	14 Factory Test Reports reads the Material Test Certificates instead, owner 2026-10-07).
 	"""
-	name = str(task_name or "")
-	if _TRAINING_RE.search(name):
+	if _TRAINING_RE.search(str(task_name or "")):
 		return "training"
-	if _FACTORY_RE.search(name):
-		return "factory_test"
 	return "commissioning"
 
 
@@ -59,6 +56,16 @@ def tds_belongs(category, item_name, keywords, package_shared: bool) -> bool:
 	if not package_shared:
 		return True
 	return matches_keywords(category, keywords) or matches_keywords(item_name, keywords)
+
+
+def mtc_item_belongs(category, item_name, keywords, package_shared: bool) -> bool:
+	"""Does a Material Test Certificate item (already in the system's package) belong to this system?
+
+	The same rule as `tds_belongs`, for the same reason: an item's category names the PART, so the
+	system's keywords are only asked on a package SHARED by several HOD Systems (Critical Room ELV = GSS,
+	VESDA, WLD & RRS). On a one-system package every item of the package is the system's.
+	"""
+	return tds_belongs(category, item_name, keywords, package_shared)
 
 
 def default_included(sub_systems, categories) -> list:

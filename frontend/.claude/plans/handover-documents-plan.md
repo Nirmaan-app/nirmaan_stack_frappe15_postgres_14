@@ -59,7 +59,7 @@ proposal, `{{Blank Name}}` with self-filling `{{Project}}` / `{{Date}}`, was not
 | 11 | Key List | Form — keys table + recipient details + declaration; can be switched off | layout received — Appendix E |
 | 12 | Equipment Warranty | Template list — equipment from `HOD System.warranty_equipment`, project can remove/add | workbook layout; escalation levels copied from #1 |
 | 13 | Completion Certificate | Template | workbook layout; DLP from the commissioning date |
-| 14 | Factory Test Reports | From app | Commission Report → "… Factory Test Report" tasks (vendor-obtained) |
+| 14 | Factory Test Reports | From app | **Material Test Certificates** of the system's package (owner, 2026-10-07; was the Commission Report's "… Factory Test Report" tasks, which now go to 3) |
 | 15 | Snag List | From app | Snag List — project-wide; the user ticks snag batches |
 | 16 | As Built Drawings | From app | Design Tracker → Handover-phase tasks, drawings downloaded from Drive (Correction 2 below) |
 
@@ -203,6 +203,34 @@ varies:
    **YES / NO / NA**, picked by hand (owner 2026-09-24), and the signed upload is gone.
 4. **Output**: one merged PDF binder per system in the workbook's order — cover → checklist → divider + content
    for each applicable document, with the From-app PDFs placed behind their dividers.
+
+## Owner ruling 2026-10-07: 14 Factory Test Reports reads Material Test Certificates
+
+Row 14 now reads the project's **Material Test Certificates** (MTC, uploaded on each PO) instead of the
+Commission Report's "Factory Test" tasks.
+
+**Matching (package-wise):**
+- An MTC belongs to a system when one of its items has `procurement_package` = the system's `work_package`.
+  The two masters share the name strings (see the next section).
+- Each system lists only its own items, so a certificate covering two packages appears under both systems,
+  split between them.
+- On the shared Critical Room ELV package, the items are narrowed by `source_keywords`, with the same rule as
+  TDS (`sources.mtc_item_belongs`).
+
+**What row 14 does:**
+- The tick list shows PO · Vendor · Items · Certificate Date · View. As with every other document, nothing is
+  ticked by default.
+- The binder adds each ticked MTC's own file: a PDF as it is, a photo fitted onto A4.
+
+**The old source:**
+- The Commission "Factory Test" tasks (71 in 25 projects on 2026-10-07) now go to **3 Commissioning Report**,
+  next to the other test reports. `sources.commission_bucket` no longer has a factory_test bucket.
+
+**Code:**
+- `index.SRC_MTC`, `from_app.mtc_for_system`, the MTC branch in `binder._content_steps`, the `"mtc"` table in
+  `SourcesView.tsx`, and the row-14 block in the "HOD Document" print.
+- No doctype change and no migrate: the key `factory_test_reports` is unchanged.
+- At the switch, none of the 9 existing row-14 entries had anything ticked.
 
 ## Work Packages, not Procurement Packages (owner question, 2026-09-21)
 
@@ -424,6 +452,11 @@ values that are still needed went:
    date + handed-over-to, O&M included parts + blank values, maintenance included parts + results + comments, the
    From-app records ticked for download, each form's date). Write: System Manager, PMO Executive, Project Lead,
    Project Manager; the other Nirmaan roles read.
+   **Screens (owner 2026-10-07):** the HOD Tracker (sidebar + `/hod-tracker` route guard) and the project page's
+   Handover Documents tab are shown to Admin / PMO / Project Lead / Project Manager ONLY — one list,
+   `HOD_ACCESS` / `canAccessHod` in `frontend/src/constants/roles.ts`. The tracker list shows only projects the
+   user may open. The server is NOT narrowed yet: System Manager also rides on Estimates, HR Executive and
+   Design Lead, so they can still write by API (gaps G16).
 
 **Deliberately NOT schema:** the 16-document index + kinds → `services/hod/index.py` only (the frontend reads it
 from the API); company letterhead / address / CIN / logo → inside the two print formats (the Commission print
@@ -445,11 +478,13 @@ frontend/src/pages/HandoverDocuments/     tab → system tabs → checklist + Ac
 frontend/src/pages/HandoverDocuments/print-formats/   source of the two print formats (pasted in Desk)
 ```
 
-No import script: the library is edited under Packages Settings → Handover Documents and exported to
-`fixtures/hod_system.json` + `hod_library_content.json` with `bench export-json`. Those files are NOT in the
-hooks `fixtures` list (owner 2026-09-23), so a migrate leaves them alone and another site loads them with
-`bench --site <site> import-doc`, systems first. The two print formats DO ship, through the existing
-`Print Format` fixture.
+No import script: the library is edited under Packages Settings → Handover Documents and lives in each site's
+database only. **The exported `fixtures/hod_system.json` + `hod_library_content.json` were DELETED
+2026-10-07 (owner).** Frappe's migrate imports EVERY `.json` in `<app>/fixtures/` with force, whether or not
+the hooks `fixtures` list names it, so those files overwrote on-screen library edits (the "New projects"
+switches flipped back on) on every migrate. A site without the library loads a saved export once with
+`bench --site <site> import-doc`, systems first, or enters it on screen. The two print formats DO ship,
+through the existing `Print Format` fixture.
 
 **Address (settled):** the Commission print format's corporate address "No.234, 1st Floor, 9th Main, 16th Cross,
 6th Sector, HSR Layout" — the HOD Excel's "No L-376/A, 17th Cross" was outdated.

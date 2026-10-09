@@ -27,6 +27,7 @@ import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useTotalInvoicedByDocument } from "../hooks/useTotalInvoicedByDocument";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import { invoiceRowClassName } from "../utils/invoiceRowStyle";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 const URL_SYNC_KEY = "inv_history";
 
@@ -221,6 +222,7 @@ export const TaskHistoryTable: React.FC = () => {
     }, [invoices]);
 
     const isLoadingOverall = attachmentsLoading;
+    const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
     const combinedError = listError || attachmentsError;
 
     if (combinedError) {
@@ -238,7 +240,7 @@ export const TaskHistoryTable: React.FC = () => {
                         : ""
             )}
         >
-            {isLoadingOverall && !invoices?.length ? (
+            {!hasLoadedOnce && isLoadingOverall && !invoices?.length ? (
                 <TableSkeleton />
             ) : (
                 <DataTable<VendorInvoice>

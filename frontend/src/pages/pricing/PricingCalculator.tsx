@@ -289,7 +289,13 @@ export function PricingCalculator({ discipline }: { discipline: string }) {
   const helper = useMemo<RateHelper | null>(
     () =>
       configsByCategory.size > 0
-        ? makePricingSheetHelper({ configsByCategory, items, extractionByRow: new Map() })
+        ? makePricingSheetHelper({
+            configsByCategory,
+            items,
+            extractionByRow: new Map(),
+            // SLICE 12d-2: the FA7 `admitCalculatorOnly` dep is retired -- the calculator and the BoQ
+            // pricing editor build this helper IDENTICALLY, and one predicate admits a category on both.
+          })
         : null,
     [configsByCategory, items],
   );

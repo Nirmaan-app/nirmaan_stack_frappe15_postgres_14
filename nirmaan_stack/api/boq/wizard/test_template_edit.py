@@ -14,7 +14,7 @@ per-sheet WP set, and the Admin+Estimates role gate.
 The master template is project-less, so no Projects fixture is needed. Each test gets a FRESH
 master (setUp) + full raw teardown so sheet-mutating tests stay isolated.
 
-Run via the bench runner (NOT raw unittest -- see CLAUDE.md BoQ test-runner note):
+Run via the bench runner (NOT raw unittest -- see root CLAUDE.md § Commands):
   bench --site localhost run-tests --module nirmaan_stack.api.boq.wizard.test_template_edit
 """
 import json

@@ -171,15 +171,41 @@ def decode_csv_bytes(raw):
         return raw.decode("cp1252", errors="replace"), "cp1252"
 
 
+# SLICE 12c-U (owner U6): the physical row the FIRST data row occupies in the file as Excel opens
+# it. The header is row 1, so data starts at row 2. Named once and shared by both readers (csv and
+# xlsx) so the two formats can never number a file differently.
+PHYSICAL_FIRST_DATA_ROW = 2
+
+
 def parse_csv_text(text):
-    """(headers, rows). Each row is a list of cells, paired with its 1-based DATA row number (the
-    number a user sees in Excel is that + 1 for the header, which the messages account for)."""
+    """(headers, rows). Each row is a list of cells paired with **the PHYSICAL row number it occupies
+    in the file as Excel opens it** -- the header is row 1, so the first data row is row 2.
+
+    ⚠️ SLICE 12c-U (owner U6, "Report the real Excel row"). This USED to number data rows from 1 and
+    its own docstring claimed "the number a user sees in Excel is that + 1 for the header, which the
+    messages account for". THE MESSAGES DID NOT ACCOUNT FOR IT: `apply_plan` renders `"Row %d -- "`
+    straight from this number, so a pricer told "Row 4" had to look at Excel row 5. Measured in
+    slice 12c-T on a live HVAC download: the SKU on physical row 5 was reported as row 4.
+
+    ⚠️ IT IS FIXED HERE, AT THE ONE PLACE THE NUMBER IS BORN, AND NOT AT THE MESSAGE SITES. There
+    are a dozen places that put a row number in front of a user; adding +1 to each would be a dozen
+    chances to miss one, and the provenance stamped on a hand-added row (`_source_for`) would still
+    disagree with the message that referred to it. One definition of "the row" means the preview, the
+    apply, every refusal and the stored `source_row` cannot say different things.
+
+    ⚠️ IT SHIFTS THE PLAN DIGEST, HARMLESSLY: `_digest` includes each change's row, and preview and
+    apply both derive it through this function, so they still agree. A client's per-row answers
+    (`decisions`, `twin_decisions`) are keyed by the numbers the preview SHOWED, so they shift with
+    it.
+
+    The formula/explanation row is numbered here like any other row and dropped later by its marker
+    (`build_plan`), which is why a downloaded file's first SKU is row 3 and not row 2."""
     reader = csv.reader(io.StringIO(text, newline=""))
     rows = list(reader)
     if not rows:
         return [], []
     headers = [h.strip() for h in rows[0]]
-    return headers, list(enumerate(rows[1:], start=1))
+    return headers, list(enumerate(rows[1:], start=PHYSICAL_FIRST_DATA_ROW))
 
 
 def read_upload(raw):
@@ -272,6 +298,30 @@ def derived_rate_map(discipline, active_rows):
                         else str(src.get("item_uid") or ""))
                 resolved.append((t, "%s of %s" % (src.get("rate_key"), word)))
             out[(uid, rate_key)] = resolved
+    return out
+
+
+def computed_rate_map(discipline, active_rows):
+    """{(item_uid, rate_key): live figure} -- the cells whose value the RULES compute (owner F4).
+
+    ⚠️ DIFFERENT FROM `derived_rate_map` IN WHAT IT COMPARES AGAINST. A declared-derived cell is
+    checked against the STORED figure; a computed one has no meaningful stored figure at all, so it is
+    checked against the value RECOMPUTED here and now. That is also what makes an untouched
+    download/upload a silent no-op: the file carries the figure we just computed, so it matches.
+    """
+    out = {}
+    by_cat = {}
+    for it in active_rows or []:
+        by_cat.setdefault(it.get("kind"), None)
+    cfgs = csv_exporter._load_configs(discipline)
+    kind_cat = {}
+    for cid, cfg in (cfgs or {}).items():
+        for k in csv_exporter._config_kinds(cfg):
+            kind_cat[k] = cid
+    for cid, cfg in (cfgs or {}).items():
+        kinds = [k for k, c in kind_cat.items() if c == cid]
+        for k in kinds:
+            out.update(csv_exporter.computed_cladding_cells(cfg, active_rows, cid, {cid: [k]}))
     return out
 
 
@@ -869,6 +919,8 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
     # names. ONE read per plan, from the same predicate the exporter and the screen use. {} for a
     # discipline whose configs declare nothing, so its rates loop is byte-identical to before.
     derived_map = derived_rate_map(discipline, active)
+    # SLICE 12c FINISH (owner F4): the cells the rules COMPUTE, recomputed once per plan.
+    computed_map = computed_rate_map(discipline, active)
     in_file_identities = {}      # identity -> [rows] over the rows whose identity is NEW or CHANGED (Y-b 2)
 
     plan = {
@@ -1157,6 +1209,27 @@ def build_plan(discipline, raw, decisions=None, category_id=None, twin_decisions
             # stay a silent no-op -- which is exactly what K2 checks. Every OTHER cell of the row,
             # including the row's own cost parts and its markups, is accepted as always (I-3).
             # ══════════════════════════════════════════════════════════════════════════════════
+            # ══════════════════════════════════════════════════════════════════════════════════
+            # SLICE 12c FINISH (owner F4) -- A COMPUTED CELL. Its figure comes from the Pricing
+            # Inputs and the row's own geometry, so a number typed here could only be ignored or
+            # wrong. The file carries the LIVE figure (the owner asked to SEE it), so an untouched
+            # download/upload matches and is a silent no-op; anything else is refused, and the
+            # refusal says where to go instead.
+            # ══════════════════════════════════════════════════════════════════════════════════
+            computed_now = computed_map.get((uid, name)) if uid else None
+            if computed_now is not None:
+                typed, terr = coerce_rate(raw_text, name)
+                if typed is None or (raw_text or "").strip().lower() == _DERIVED_CELL_TEXT:
+                    pass                      # blank, or the word -- both mean UNTOUCHED
+                elif terr:
+                    row_errors.append(terr)
+                elif not _same_rate(typed, computed_now):
+                    row_errors.append(
+                        "'%s' is CALCULATED from the Pricing Inputs and this row's own size -- it is "
+                        "not typed. Change the Pricing Inputs instead; a value typed here is refused."
+                        % name
+                    )
+                continue
             derived_terms = derived_map.get((uid, name)) if uid else None
             if derived_terms is not None:
                 typed, terr = coerce_rate(raw_text, name)

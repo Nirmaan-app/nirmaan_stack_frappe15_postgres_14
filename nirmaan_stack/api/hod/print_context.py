@@ -25,6 +25,7 @@ from nirmaan_stack.api.hod import header_roles
 from nirmaan_stack.api.hod.from_app import included_library, sources_for, system_meta
 from nirmaan_stack.api.hod.project_info import VENDOR, as_dict, project_info
 from nirmaan_stack.api.pdf_helper.pdf_merger_api import fetch_attachment_content
+from nirmaan_stack.api.tds.status_label import with_status_labels
 from nirmaan_stack.services.hod import (
 	blanks,
 	checklist,
@@ -67,7 +68,9 @@ def _fmt(value) -> str:
 
 
 def top_of_page(project: str, document: str = "") -> dict:
-	"""`{"letterhead": bool, "logos": [{label, name, src}]}` -- what heads a page of the handover.
+	"""`{"letterhead": bool, "logos": [{role, label, name, src}]}` -- what heads a page of the handover.
+
+	`role` is how the signature band finds Nirmaan's column (`mep_contractor`) to put the seal over.
 
 	`document` picks the letterhead for the two that carry it; pass "" for a page that belongs to no
 	single document (the cover, the checklist, the binder's divider pages), which always takes the strip.
@@ -84,7 +87,7 @@ def top_of_page(project: str, document: str = "") -> dict:
 		# report does with the same one. A STORED file has to be embedded (`_embedded`).
 		src = _embedded(item["logo"])
 		if src:
-			logos.append({"label": item["label"], "name": item["name"], "src": src})
+			logos.append({"role": item["role"], "label": item["label"], "name": item["name"], "src": src})
 	return {"letterhead": False, "logos": logos}
 
 
@@ -336,6 +339,9 @@ def hod_print_context(doc) -> dict:
 		src = sources_for(doc.project, doc.hod_system, key)
 		# The page introduces what the binder puts behind it, so it lists the ticked records only.
 		src["items"] = sources.selected_items(src.get("items"), fd.get("selected"))
+		if entry.get("source") == index.SRC_TDS:
+			# The template prints `tds_status` as is; it prints the words TDS History shows.
+			src["items"] = with_status_labels(src["items"])
 		ctx["sources"] = src
 	return ctx
 

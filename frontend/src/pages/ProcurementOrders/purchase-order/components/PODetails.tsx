@@ -87,6 +87,7 @@ import { ValidationMessages } from "@/components/validations/ValidationMessages"
 import { NirmaanAttachment } from "@/types/NirmaanStack/NirmaanAttachment";
 import SITEURL from "@/constants/siteURL";
 import { UploadDCMIRDialog } from "@/pages/DeliveryChallansAndMirs/components/UploadDCMIRDialog";
+import { UploadMTCButton } from "@/pages/MaterialTestCertificates/components/UploadMTCButton";
 import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { useVendorHoldGuard } from "@/hooks/useVendorHoldGuard";
 import { VendorHoldBanner } from "@/components/ui/vendor-hold-banner";
@@ -932,6 +933,10 @@ export const PODetails: React.FC<PODetailsProps> = ({
                   )}
                 </>
               )}
+
+              {/* Upload Test Certificate: outside the group above, because MTCs are allowed on a
+                  PO Approved PO too (owner ruling Q39). It hides itself when not allowed. */}
+              {po && <UploadMTCButton po={po} compact />}
 
               {/* Preview Button */}
               {/* Preview is read-only: everyone who can open the PO can look at the PDF. It

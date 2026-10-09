@@ -21,7 +21,7 @@ Two entry points, ONE apply path (`_apply`):
 
 ⚠️ `reconciled_amount` IS RECOMPUTED FROM SOURCE, NEVER INCREMENTED BY A DELTA. It is re-derived as
 `SUM(tds_amount)` over the deductions pointing at the challan (`_recompute_reconciled`). This is the
-repo's standing rule for a derived field (CLAUDE.md): a `+= total` drifts the moment anything else
+repo's standing rule for a derived field (CODING_STANDARDS.md): a `+= total` drifts the moment anything else
 touches a link — a correction, a delete, a future unlink path — whereas a recompute means ANY later
 repair pass lands on exactly the same number and a reconcile can always prove it.
 

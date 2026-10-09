@@ -38,6 +38,7 @@ import {
   useProjectPRStatusSummary,
   useProjectPRSupportingData,
 } from "@/pages/projects/data/tab/summary/useProjectPRSummaryApi";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 const PR_SUMMARY_FIELDS_TO_FETCH: (keyof ProcurementRequest | "name")[] = [
   "name",
@@ -517,6 +518,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
     statusCountsLoading ||
     wpLoading ||
     projectsLoading;
+  const hasLoadedOnce = useHasLoadedOnce(isLoading);
   const combinedError =
     quoteError || poError || listError || statusCountsError || wpError;
 
@@ -543,7 +545,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
         </CardContent>
       </Card>
 
-      {isLoading && !pr_data_from_hook?.length ? (
+      {!hasLoadedOnce && isLoading && !pr_data_from_hook?.length ? (
         <TableSkeleton />
       ) : (
         <DataTable<ProcurementRequest> // Use ProcessedPR type here

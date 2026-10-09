@@ -108,11 +108,56 @@ def get_rate_master_items(discipline=None, kind=None):
         )
         r["rates"] = _parse_json(r.get("rates"), {})
 
+    # ══════════════════════════════════════════════════════════════════════════════════════
+    # SLICE 12c FINISH (owner F4) -- THE LIVE CLADDING COST, PROJECTED AT READ TIME.
+    #
+    # The owner asked to SEE the calculated figure in the grid, greyed and not editable. It is
+    # computed from the Pricing Inputs and the row's own size, so it is a READ-TIME projection
+    # exactly like `brand` above: ⚠️ NOTHING IS STORED -- no write, no migration, no backfill.
+    #
+    # ⚠️ THE SAME helper the FILE uses (`csv_exporter.computed_cladding_cells`), so the screen and
+    # the download cannot disagree about a number neither of them owns. `computed_rate_keys` rides
+    # beside the items so the grid knows which cells to grey WITHOUT re-deriving the rule.
+    #
+    # ⚠️ The INVARIANT above applies unchanged: nothing may read a projected item and write its
+    # rates back. `update_rate_master_item` re-reads `doc.rates` from the document.
+    #
+    # ⚠️ SLICE 12d-2F (owner F1, 2026-10-07): THE FIGURE IS SERVED IN ITS OWN MAP, `computed_rates`,
+    # AND NEVER WRITTEN INTO `items[].rates`. A price must never be computed from a value that is
+    # itself computed for DISPLAY: the ONE `items` array this endpoint returns feeds every pricing
+    # path (the rate-helper panel, the calculator, the impact panel), and the Fiberglass / Acoustic /
+    # Thermal `cladding` component reads the SKU's own `cost_cladding` as `base` and ADDS the GI
+    # framework it computes live -- so a projected 555 in `rates` priced the framework TWICE (2574
+    # where the stored catalogue prices 1757). `items[].rates` is therefore the STORED catalogue,
+    # byte-for-byte; the grid reads the greyed cell's figure from `computed_rates` instead.
+    # Pinned by `test_rate_master.TestServedRatesAreStored` + `servedVsStoredPricing.test.ts`.
+    # ══════════════════════════════════════════════════════════════════════════════════════
+    computed = {}
+    try:
+        cfgs = csv_exporter._load_configs(discipline) or {}
+        for cid, cfg in cfgs.items():
+            kinds = sorted(csv_exporter._config_kinds(cfg))
+            if not kinds:
+                continue
+            computed.update(csv_exporter.computed_cladding_cells(cfg, rows, cid, {cid: kinds}))
+    except Exception:
+        # a projection must never take the page down; an absent figure shows the stored cell
+        frappe.log_error(frappe.get_traceback(), "rate_master computed cladding projection")
+        computed = {}
+    computed_rates = {}
+    for (uid, rate_key), val in computed.items():
+        computed_rates.setdefault(uid, {})[rate_key] = val
+
     return {
         "discipline": discipline,
         "kind": kind,
         "count": len(rows),
+        # the STORED catalogue -- what every pricing path reads; no projected figure lives in it
         "items": rows,
+        # which (item, rate) cells the RULES compute -- the grid greys exactly these
+        "computed_rate_keys": {u: sorted(v) for u, v in computed_rates.items()},
+        # the live figure for each of those cells -- DISPLAY ONLY (the greyed cell), never a price input
+        "computed_rates": computed_rates,
     }
 
 
@@ -152,6 +197,7 @@ from nirmaan_stack.services.boq_rate_master import extraction  # noqa: E402
 from nirmaan_stack.services.boq_rate_master import loader  # noqa: E402  (RM-4a: reuse _canonicalize_attributes)
 from nirmaan_stack.services.boq_rate_master import freeze  # noqa: E402  (deployment freeze guard)
 from nirmaan_stack.services.boq_rate_master import spec_reader  # noqa: E402  (slice 1c: item text -> attributes)
+from nirmaan_stack.services.boq_rate_master import csv_exporter  # noqa: E402  (12c FINISH: the computed cladding projection)
 from nirmaan_stack.api.boq.wizard import pricing  # noqa: E402  (D8 gate reuse; import UP api->api)
 
 RUN_DOCTYPE = "BoQ Rate Suggestion Run"
@@ -836,7 +882,7 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
                 ),
             )
 
-        frappe.db.commit()  # commit BEFORE publish (CLAUDE.md rule)
+        frappe.db.commit()  # commit BEFORE publish (CODING_STANDARDS.md rule)
         payload = {
             "status": "success" if complete else "partial",
             "boq": boq,
@@ -1826,19 +1872,35 @@ def export_rate_master_csv(discipline=None, category_id=None, fmt=None):
     if fmt not in csv_exporter.FORMATS:
         frappe.throw("fmt must be one of %s." % ", ".join(csv_exporter.FORMATS), title="Invalid value")
 
+    # ⚠️ ONE ROUTE, THROUGH THE EXPORTER'S OWN BUILDERS -- never a second argument list here.
+    #
+    # This used to call `to_xlsx(headers, rows, numeric)` / `to_csv(headers, rows)` inline, and so
+    # silently DROPPED the two things `build_category_rows` returns beside them: `formula_row` (the
+    # explanation row directly under the header, slice 12a) and `locked` (which fills every DERIVED
+    # cell and turns sheet protection on, owner 2026-09-27). The service's own `build_*_csv` /
+    # `build_*_xlsx` helpers always passed both -- and those helpers are what the TESTS call, so every
+    # exporter pin stayed green while the file a user actually downloaded carried no formula row, no
+    # protection and no fill. Found in the 12c browser cert, 2026-10-05; live since 12a (`2e8804298`),
+    # these lines last touched at slice 1e (`e5028f85b`), which predates it.
+    #
+    # Delegating means the argument list exists in exactly one place, so the endpoint cannot fall
+    # behind the builder again -- the same single-definition reasoning as the BCS import-direction law.
     if category_id:
-        built = csv_exporter.build_category_rows(discipline, category_id)
         mode, label = "category", category_id
+        if fmt == csv_exporter.FORMAT_XLSX:
+            payload, headers, n = csv_exporter.build_category_xlsx(discipline, category_id)
+        else:
+            text, headers, n = csv_exporter.build_category_csv(discipline, category_id)
+            payload = text.encode("utf-8")
     else:
-        built = csv_exporter.build_all_categories_rows(discipline)
         mode, label = "all", "all_categories"
-    headers, n = built["headers"], built["n"]
-    if fmt == csv_exporter.FORMAT_XLSX:
-        payload = csv_exporter.to_xlsx(headers, built["rows"], built["numeric"])
-        content_type = xlsx_io.XLSX_CONTENT_TYPE
-    else:
-        payload = csv_exporter.to_csv(headers, built["rows"]).encode("utf-8")
-        content_type = xlsx_io.CSV_CONTENT_TYPE
+        if fmt == csv_exporter.FORMAT_XLSX:
+            payload, headers, n = csv_exporter.build_all_categories_xlsx(discipline)
+        else:
+            text, headers, n = csv_exporter.build_all_categories_csv(discipline)
+            payload = text.encode("utf-8")
+    content_type = (xlsx_io.XLSX_CONTENT_TYPE if fmt == csv_exporter.FORMAT_XLSX
+                    else xlsx_io.CSV_CONTENT_TYPE)
 
     slug = re.sub(r"[^A-Za-z0-9_-]+", "_", "%s_%s" % (discipline, label)).strip("_").lower()
     return {
