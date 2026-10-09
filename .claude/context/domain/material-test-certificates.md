@@ -110,13 +110,13 @@ The full decision log (owner rulings Q1–Q39) and the build notes are in
 | Role constants, client copy | `frontend/src/constants/roles.ts` (`MTC_MANAGE_PROFILES`, `canManageMTC`, `MTC_PAGE_PROFILES`) |
 | PO page card, dialog, tables | `frontend/src/pages/MaterialTestCertificates/components/` |
 | List page and hooks | `frontend/src/pages/MaterialTestCertificates/` (`MaterialTestCertificates.tsx`, `hooks/useMTCs.ts`, `hooks/useMTCMutations.ts`) |
-| Hook-up points | `DocumentAttachments.tsx` (card), `PurchaseOrder.tsx` ("MTCs: n"), `dashboard-pm.tsx`, `dashboard-pl.tsx`, `routesConfig.tsx` (`RoleRoute` for PM and PL) |
+| Hook-up points | `DocumentAttachments.tsx` (card), `PODetails.tsx` (`UploadMTCButton` in the action row), `PurchaseOrder.tsx` ("MTCs: n"), `dashboard-pm.tsx`, `dashboard-pl.tsx`, `routesConfig.tsx` (`RoleRoute` for PM and PL) |
 
 **Reads:**
 - `get_mtcs(procurement_order | project)` takes exactly one argument. It returns each MTC with its items,
   `vendor_name` and `procurement_request`. The PR is needed for the PM-side PO link,
   `/prs&milestones/procurement-requests/<pr>/<po>`.
-- The PO header count and the card share the SWR key `mtcPoKey(po)`, so they make one fetch.
+- The PO header count, the card and both Upload buttons share the SWR key `mtcPoKey(po)`, so they make one fetch.
 
 **Writes:**
 - Create: upload the file (attached to the PO, private), then the SDK `createDoc`.
@@ -129,6 +129,10 @@ The full decision log (owner rulings Q1–Q39) and the build notes are in
   - Shown to everyone who sees the DC & MIR card, on **Billable POs only**. A Non-Billable PO never shows the card,
     even when MTCs exist; those still appear on the list page.
   - The accordion header shows "MTCs: n".
+  - The upload button reads **"Upload Test Certificate"** (owner, 2026-10-09). It is one component,
+    `UploadMTCButton`, shown in two places with the same rule: the card header, and the PO summary card's action
+    row (`PODetails.tsx`). In the action row it sits outside the DC/MIR/Invoice group, which hides on PO Approved,
+    because MTCs are allowed there.
   - Upload, Edit and Delete appear only for the managing profiles, and only under the status rule. Otherwise the
     card is read-only.
   - Columns: S.No · Certificate Date · Uploaded On · Items · Uploaded By · Actions.

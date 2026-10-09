@@ -1,21 +1,19 @@
-import { useCallback, useMemo, useState } from "react";
-import { CirclePlus } from "lucide-react";
+import { useCallback, useState } from "react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { useUserData } from "@/hooks/useUserData";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { canManageMTC } from "@/constants/roles";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { coverableLines, isPoOpenForMTC } from "@/utils/mtc";
+import { isPoOpenForMTC } from "@/utils/mtc";
 import type { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import type { MaterialTestCertificate } from "@/types/NirmaanStack/MaterialTestCertificate";
 
 import { MTCTable } from "./MTCTable";
+import { UploadMTCButton } from "./UploadMTCButton";
 import { UploadMTCDialog } from "./UploadMTCDialog";
 import { useMTCsForPO } from "../hooks/useMTCs";
 import { useMTCMutations } from "../hooks/useMTCMutations";
@@ -25,17 +23,13 @@ interface MTCCardProps {
   className?: string;
 }
 
-type DialogState =
-  | { open: false }
-  | { open: true; mode: "create" }
-  | { open: true; mode: "edit"; existing: MaterialTestCertificate };
-
 /**
  * "Material Test Certificates" -- the third card in the PO page's PO Attachments section.
  *
  * Shown to everyone who sees the DC & MIR card, on Billable POs only (owner rulings Q6/Q35).
- * Upload / Edit / Delete: Procurement, PMO, Admin, on any PO that is not Merged, Cancelled or
- * Inactive (owner ruling Q39). The server enforces both; this decides what renders.
+ * Upload (`UploadMTCButton`, also in the PO summary) / Edit / Delete: Procurement, PMO, Admin,
+ * on any PO that is not Merged, Cancelled or Inactive (owner ruling Q39). The server enforces
+ * both; this decides what renders.
  */
 export const MTCCard = ({ po, className }: MTCCardProps) => {
   const { toast } = useToast();
@@ -43,7 +37,7 @@ export const MTCCard = ({ po, className }: MTCCardProps) => {
   const { data: usersList } = useUsersList();
   const { mtcs, isLoading, mutate } = useMTCsForPO(po?.name);
   const { remove } = useMTCMutations(po?.name ?? "");
-  const [dialog, setDialog] = useState<DialogState>({ open: false });
+  const [editing, setEditing] = useState<MaterialTestCertificate | null>(null);
   const [deletingName, setDeletingName] = useState<string | null>(null);
 
   const getUserName = useCallback(
@@ -59,7 +53,6 @@ export const MTCCard = ({ po, className }: MTCCardProps) => {
   const isOpen = isPoOpenForMTC(po?.billing_status, po?.status);
   const canManage = canManageMTC(role, user_id);
   const canChange = canManage && isOpen;
-  const freeLines = useMemo(() => coverableLines(po?.items, mtcs), [po?.items, mtcs]);
   const poDisplayName = po?.name ? `PO-${po.name.split("/")[1]}` : "";
 
   const handleDelete = async (mtc: MaterialTestCertificate) => {
@@ -77,8 +70,6 @@ export const MTCCard = ({ po, className }: MTCCardProps) => {
 
   if (po?.billing_status !== "Billable") return null;
 
-  const allCovered = freeLines.length === 0;
-
   return (
     <Card className={cn("rounded-md shadow-sm border border-gray-200 overflow-hidden", className)}>
       <CardHeader className="border-b border-gray-200">
@@ -89,29 +80,7 @@ export const MTCCard = ({ po, className }: MTCCardProps) => {
               {list.length}
             </Badge>
           </div>
-          {canChange && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span tabIndex={0}>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-primary border-primary hover:bg-primary/5"
-                      onClick={() => setDialog({ open: true, mode: "create" })}
-                      disabled={allCovered || isLoading}
-                    >
-                      <CirclePlus className="h-4 w-4 mr-1" aria-hidden="true" />
-                      Upload MTC
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                {allCovered && !isLoading && (
-                  <TooltipContent>All billable items have an MTC</TooltipContent>
-                )}
-              </Tooltip>
-            </TooltipProvider>
-          )}
+          <UploadMTCButton po={po} />
         </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
@@ -121,7 +90,7 @@ export const MTCCard = ({ po, className }: MTCCardProps) => {
             getUserName={getUserName}
             poItems={po.items}
             canChange={canChange}
-            onEdit={(existing) => setDialog({ open: true, mode: "edit", existing })}
+            onEdit={setEditing}
             onDelete={handleDelete}
             deletingName={deletingName}
             isLoading={isLoading}
@@ -136,10 +105,10 @@ export const MTCCard = ({ po, className }: MTCCardProps) => {
 
       {canChange && (
         <UploadMTCDialog
-          open={dialog.open}
-          onOpenChange={(open) => !open && setDialog({ open: false })}
-          mode={dialog.open ? dialog.mode : "create"}
-          existing={dialog.open && dialog.mode === "edit" ? dialog.existing : undefined}
+          open={!!editing}
+          onOpenChange={(open) => !open && setEditing(null)}
+          mode="edit"
+          existing={editing ?? undefined}
           poName={po.name}
           poDisplayName={poDisplayName}
           vendorName={po.vendor_name}
