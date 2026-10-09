@@ -1708,7 +1708,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         // a legacy row with a BLANK tendering_status, which `isOperational` would call pre-Won.
         return <BoqProjectTab projectId={projectId} surface="won" />;
       case PROJECT_PAGE_TABS.BULK_DOWNLOAD:
-        return <Suspense fallback={<LoadingFallback />}><BulkDownloadPage projectId={projectId} projectName={data?.project_name} /></Suspense>;
+        return <Suspense fallback={<LoadingFallback />}><BulkDownloadPage scope={{ kind: "project", id: projectId, name: data?.project_name }} /></Suspense>;
       default:
         return <div>Select a tab.</div>;
     }

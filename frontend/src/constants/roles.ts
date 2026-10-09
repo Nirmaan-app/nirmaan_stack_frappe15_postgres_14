@@ -478,6 +478,30 @@ export const canAccessHod = (
   (!!role && HOD_ACCESS.includes(role));
 
 /**
+ * Vendor page > Bulk Download tab -- the ONLY profiles that see it, a typed `?tab=bulkDownload`
+ * included (owner, 2026-10-09: "only Admin, PMO, Accountant and procurement"). Accountant Lead
+ * mirrors Accountant.
+ *
+ * UI gate only. Every list and download still runs with the user's own read permissions and
+ * User Permissions on the server (`api/pdf_helper/bulk_download._reader`).
+ */
+export const VENDOR_BULK_DOWNLOAD_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+  ...PROCUREMENT_PROFILES,
+];
+
+/** True when `role` (a role PROFILE) sees the vendor page's Bulk Download tab. */
+export const canBulkDownloadVendor = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && VENDOR_BULK_DOWNLOAD_PROFILES.includes(role));
+
+/**
  * Reports > WO > Payment Voucher Uploads -- who may Upload / Delete a voucher (plus the
  * `Administrator` user, checked by the caller). Everyone else on the WO tab may still Gen /
  * download / view. SCREEN-ONLY: the write is `frappe.client.set_value`, and the WO page itself

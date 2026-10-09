@@ -363,6 +363,7 @@ queue — edit & revert" below).
 | Users | Assign Projects to Users | Y | Y | Y | - | - |
 | Items | Add/Edit Products | Y | Y | - | - | - |
 | Vendors | Export Ledger | Y | Y | - | Y (Accountant) | - |
+| Vendors | Bulk Download tab (`canBulkDownloadVendor`; a typed `?tab=bulkDownload` from anyone else is redirected) | Y | Y | - | - | Accountant, Accountant Lead, Procurement profiles only |
 
 **Key files:**
 - `project.tsx:1045,1058`

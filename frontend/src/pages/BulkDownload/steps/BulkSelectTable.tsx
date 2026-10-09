@@ -43,6 +43,9 @@ interface BulkSelectTableProps<T extends { name: string }> {
     dateFilterColumns?: string[];
     searchPlaceholder?: string;
     emptyMessage?: string;
+    /** What a screen reader calls a row's checkbox ("Select …"); defaults to the row's `name`. Pass
+     *  it when the name is an id users never see, e.g. an MTC. */
+    rowLabel?: (row: T) => string;
 }
 
 export function BulkSelectTable<T extends { name: string }>({
@@ -55,6 +58,7 @@ export function BulkSelectTable<T extends { name: string }>({
     dateFilterColumns = [],
     searchPlaceholder = "Search...",
     emptyMessage = "No items found.",
+    rowLabel,
 }: BulkSelectTableProps<T>) {
     const [sorting, setSorting] = useState<SortingState>([]);
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -234,7 +238,7 @@ export function BulkSelectTable<T extends { name: string }>({
                                         >
                                             <TableCell className="w-10 px-3 py-2" onClick={(e) => e.stopPropagation()}>
                                                 <Checkbox
-                                                    aria-label={`Select ${row.id}`}
+                                                    aria-label={`Select ${rowLabel ? rowLabel(row.original) : row.id}`}
                                                     checked={isSelected}
                                                     onCheckedChange={() => toggleRow(row.id)}
                                                     className="data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500"

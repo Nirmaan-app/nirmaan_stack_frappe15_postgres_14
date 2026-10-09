@@ -1,22 +1,36 @@
-import { useState, useContext, useCallback, useEffect } from "react";
+import { useState, useContext, useCallback, useEffect, useRef } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { FrappeContext, FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
+import { BulkDocType, BulkDownloadScope } from "@/utils/bulkDownload/bulkDownloadTypes";
+import { BulkDownloadReadyEvent, cancelBulkDownload, listenForDownload, newDownloadId } from "@/utils/bulkDownload/bulkDownloadEvents";
+import { DownloadRun, applyFailed, applyProgress, applyReady, isWorking, runDetails, startRun } from "@/utils/bulkDownload/bulkDownloadRun";
+import { readFrappeError } from "@/utils/frappeErrors";
 
-export type DownloadType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "ClientInvoice";
+export type DownloadType = BulkDocType;
 
-export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
+/** Quick Download ("download all") for one project or one vendor. */
+export const useBulkPdfDownload = (scope: BulkDownloadScope) => {
     const { toast } = useToast();
     const { socket } = useContext(FrappeContext) as FrappeConfig;
     const { role } = useUserData();
     const isProjectManager = role === "Nirmaan Project Manager Profile";
 
     const [loading, setLoading] = useState(false);
-    const [showProgress, setShowProgress] = useState(false);
-    const [progress, setProgress] = useState(0);
-    const [progressMessage, setProgressMessage] = useState("");
-    
-    const [downloadToken, setDownloadToken] = useState<{ token: string, filename: string } | null>(null);
+    // What the progress window shows; it stays open on the outcome (ready / failed) until closed.
+    const [run, setRun] = useState<DownloadRun | null>(null);
+    const showProgress = run !== null && isWorking(run.status);
+
+    const [downloadToken, setDownloadToken] = useState<BulkDownloadReadyEvent | null>(null);
+
+    // The download this button started: its id, and the function that removes its listeners.
+    const activeIdRef = useRef<string | null>(null);
+    const unlistenRef = useRef<(() => void) | null>(null);
+    const detach = useCallback(() => {
+        unlistenRef.current?.();
+        unlistenRef.current = null;
+        activeIdRef.current = null;
+    }, []);
 
     // PO/WO rate-selection dialog (shared)
     const [showRateDialog, setShowRateDialog] = useState(false);
@@ -54,13 +68,31 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
         document.body.removeChild(a);
     }, []);
 
+    /** The job is over (file, failure or refusal): stop listening. The window keeps its outcome. */
     const stopProgress = useCallback(() => {
         setLoading(false);
-        setShowProgress(false);
-        if (socket) {
-            ["bulk_download_progress", "bulk_download_all_ready", "bulk_download_failed"].forEach(ev => socket.off(ev));
-        }
-    }, [socket]);
+        detach();
+    }, [detach]);
+
+    /** The finished window's Close. */
+    const closeProgress = useCallback(() => setRun(null), []);
+
+    /** The progress window's Cancel: close it and tell the server to stop the job. */
+    const cancelDownload = useCallback(() => {
+        const id = activeIdRef.current;
+        stopProgress();
+        setRun(null);
+        setDownloadToken(null);
+        if (id) cancelBulkDownload(id);
+        toast({ title: "Download cancelled" });
+    }, [stopProgress, toast]);
+
+    // Leaving the page mid-download stops the job too: nobody would receive the file.
+    useEffect(() => () => {
+        const id = activeIdRef.current;
+        unlistenRef.current?.();
+        if (id) cancelBulkDownload(id);
+    }, []);
 
     // Full Auto-Completion Logic
     useEffect(() => {
@@ -76,46 +108,46 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
             if (type === "PO" || type === "WO") setShowRateDialog(false);
             if (type === "Invoice") setShowInvoiceDialog(false);
 
+            const effectiveWithRate = isProjectManager ? false : !!options?.withRate;
+            const invType = options?.invoiceType || invoiceType;
             setLoading(true);
-            setShowProgress(true);
-            setProgress(0);
-            setProgressMessage(`Starting ${label} download...`);
+            setRun(startRun(type, runDetails(type, { withRate: effectiveWithRate, invoiceType: invType })));
             setDownloadToken(null);
 
+            detach();
+            const downloadId = newDownloadId();
+            activeIdRef.current = downloadId;
             if (socket) {
-                socket.on("bulk_download_progress", (data: any) => {
-                    if (data.progress !== undefined) setProgress(data.progress);
-                    if (data.message) setProgressMessage(data.message);
-                });
-
-                socket.on("bulk_download_all_ready", (data: any) => {
-                    setDownloadToken(data);
-                });
-
-                socket.on("bulk_download_failed", (data: any) => {
-                    toast({ title: "Download Failed", description: data.message, variant: "destructive" });
-                    stopProgress();
+                unlistenRef.current = listenForDownload(socket, downloadId, {
+                    onProgress: (data) => setRun((r) => r && applyProgress(r, data, Date.now())),
+                    onReady: (data) => {
+                        setRun((r) => r && applyReady(r, data));
+                        setDownloadToken(data);
+                    },
+                    // The window shows the reason; no toast on top of it.
+                    onFailed: (data) => {
+                        setRun((r) => r && applyFailed(r, data));
+                        stopProgress();
+                    },
                 });
             }
 
             const formData = new FormData();
-            formData.append("project", projectId);
+            formData.append(scope.kind, scope.id);
+            formData.append("download_id", downloadId);
 
             let endpoint = "";
 
             switch (type) {
                 case "PO":
-                    const effectiveWithRate = isProjectManager ? false : !!options?.withRate;
                     endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_pos`;
                     formData.append("with_rate", effectiveWithRate ? "1" : "0");
                     break;
                 case "WO":
-                    const woWithRate = isProjectManager ? false : !!options?.withRate;
                     endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_all_wos`;
-                    formData.append("with_rate", woWithRate ? "1" : "0");
+                    formData.append("with_rate", effectiveWithRate ? "1" : "0");
                     break;
                 case "Invoice":
-                    const invType = options?.invoiceType || invoiceType;
                     endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments`;
                     formData.append("doc_type", invType);
                     break;
@@ -134,6 +166,18 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
                     endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments`;
                     formData.append("doc_type", "Client Invoices");
                     break;
+                case "POPaymentVoucher":
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments`;
+                    formData.append("doc_type", "PO Payment Vouchers");
+                    break;
+                case "WOPaymentVoucher":
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments`;
+                    formData.append("doc_type", "WO Payment Vouchers");
+                    break;
+                case "MTC":
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments`;
+                    formData.append("doc_type", "MTCs");
+                    break;
             }
 
             const response = await fetch(endpoint, {
@@ -145,25 +189,21 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
             });
 
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.message || `Failed to start ${label} download (Status: ${response.status})`);
+                throw new Error(await readFrappeError(response, `Failed to start ${label} download (Status: ${response.status})`));
             }
-
-            toast({ title: "Processing Started", description: "Your documents are being prepared in the background." });
 
         } catch (error: any) {
             toast({ title: "Error", description: error.message, variant: "destructive" });
-            setLoading(false);
-            setShowProgress(false);
+            setRun(null);
+            stopProgress();
         }
     };
 
     return {
         loading,
         showProgress,
-        setShowProgress,
-        progress,
-        progressMessage,
+        run,
+        closeProgress,
         showRateDialog,
         setShowRateDialog,
         rateDocType,
@@ -180,5 +220,6 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
         downloadToken,
         triggerDownload,
         stopProgress,
+        cancelDownload,
     };
 };

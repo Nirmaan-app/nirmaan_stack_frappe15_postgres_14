@@ -13,6 +13,8 @@ import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { urlStateManager } from "@/utils/urlStateManager";
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { useUserData } from "@/hooks/useUserData";
+import { canBulkDownloadVendor } from "@/constants/roles";
+import { vendorHandlesMaterial, vendorHandlesService } from "@/utils/bulkDownload/bulkDownloadTypes";
 import { VendorHoldBanner } from "@/components/ui/vendor-hold-banner";
 import { VendorCreditManagementCard } from "./components/VendorCreditManagementCard";
 import { VendorGstHoldCard } from "./components/VendorGstHoldCard";
@@ -32,12 +34,15 @@ const VendorQuotesTable = React.lazy(() => import("./components/VendorQuotesTabl
 const VendorRefundsTab = React.lazy(() => import("./components/VendorRefundsTab"));
 const PoInvoices = React.lazy(() => import("../tasks/invoices/components/PoInvoices").then(m => ({ default: m.PoInvoices })));
 const SrInvoices = React.lazy(() => import("../tasks/invoices/components/SrInvoices").then(m => ({ default: m.SrInvoices })));
+const BulkDownloadPage = React.lazy(() => import("@/pages/BulkDownload/BulkDownloadPage"));
+
+const BULK_DOWNLOAD_TAB = "bulkDownload";
 
 type MenuItem = { label: string; key: string };
 
 export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
 
-    const { role } = useUserData()
+    const { role, user_id } = useUserData()
 
     // --- Tab State Management ---
     const initialTab = useMemo(() => {
@@ -58,6 +63,16 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
             urlStateManager.updateParam("tab", currentTab);
         }
     }, [currentTab]);
+
+    // Bulk Download is for Admin, PMO, Accountant and procurement only (`canBulkDownloadVendor`).
+    // A typed `?tab=bulkDownload` from anyone else is bounced too -- but only once the role has
+    // loaded, or a correct deep link would be redirected before the role arrives.
+    const canBulkDownload = role !== "Loading" && canBulkDownloadVendor(role, user_id);
+    useEffect(() => {
+        if (currentTab === BULK_DOWNLOAD_TAB && role !== "Loading" && !canBulkDownloadVendor(role, user_id)) {
+            setCurrentTab("overview");
+        }
+    }, [currentTab, role, user_id]);
 
     // Effect to sync URL state TO tab state (for popstate/direct URL load)
     useEffect(() => {
@@ -87,22 +102,24 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
         { label: "Overview", key: "overview" },
         // (vendor?.vendor_type !== "Service") &&
         { label: "Vendor Ledger", key: "poVendorLedger" },
-        (vendor?.vendor_type === "Material" || vendor?.vendor_type === "Material & Service") &&
+        vendorHandlesMaterial(vendor?.vendor_type) &&
         { label: "Material Orders", key: "materialOrders" },
-        (vendor?.vendor_type === "Material" || vendor?.vendor_type === "Material & Service") &&
+        vendorHandlesMaterial(vendor?.vendor_type) &&
         { label: "Vendor Delivery Notes", key: "vendorDeliveryNotes" },
-        (vendor?.vendor_type === "Service" || vendor?.vendor_type === "Material & Service") &&
+        vendorHandlesService(vendor?.vendor_type) &&
         { label: "Work Orders", key: "serviceOrders" },
         { label: "Payments", key: "vendorPayments" },
         (vendor?.vendor_type !== "Service") &&
         { label: "Approved Quotes", key: "approvedQuotes" },
-        (vendor?.vendor_type === "Material" || vendor?.vendor_type === "Material & Service") &&
+        vendorHandlesMaterial(vendor?.vendor_type) &&
         { label: "PO Invoices", key: "poInvoices" },
-        (vendor?.vendor_type === "Service" || vendor?.vendor_type === "Material & Service") &&
+        vendorHandlesService(vendor?.vendor_type) &&
         { label: "SR Invoices", key: "srInvoices" },
         { label: "Vendor Quotes", key: "vendorQuotes" },
         { label: "Vendor Refunds", key: "vendorRefunds" },
-    ].filter(Boolean) as MenuItem[], [vendor?.vendor_type]);
+        canBulkDownload &&
+        { label: "Bulk Download", key: BULK_DOWNLOAD_TAB },
+    ].filter(Boolean) as MenuItem[], [vendor?.vendor_type, canBulkDownload]);
 
     // --- SR Counts Data ---
     const { approvedSRs, finalizedSRs } = useVendorServiceRequestCounts(vendorId);
@@ -217,6 +234,14 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                 return <VendorRefundsTab
                     vendorId={vendorId}
                     vendorName={vendor?.vendor_name || vendorId}
+                />;
+            case BULK_DOWNLOAD_TAB:
+                if (!canBulkDownload) return role === "Loading" ? <LoadingFallback /> : null;
+                // Keyed by vendor: moving to another vendor starts the wizard afresh, so a selection
+                // never carries over into another vendor's download.
+                return <BulkDownloadPage
+                    key={vendorId}
+                    scope={{ kind: "vendor", id: vendorId, name: vendor?.vendor_name, vendorType: vendor?.vendor_type }}
                 />;
             default:
                 return <div>Select a tab.</div>;
