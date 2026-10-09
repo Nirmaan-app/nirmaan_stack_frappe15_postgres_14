@@ -29,9 +29,13 @@ from typing import Callable
 
 from playwright.sync_api import sync_playwright
 
-BASE = "http://localhost:8080"
+# Defaults drive the main bench. To walk a devenv task instead, point these at its bench, site and vite,
+# e.g. TDS_WALK_BASE=http://t-<task>.localhost:8081 TDS_WALK_BENCH=/workspace/development/benches/<task>
+# TDS_WALK_SITE=t-<task>.localhost (see README.md).
+BASE = os.environ.get("TDS_WALK_BASE", "http://localhost:8080")
 CONTAINER = "frappe_docker_devcontainer-frappe-1"
-BENCH = "/workspace/development/frappe-bench"
+BENCH = os.environ.get("TDS_WALK_BENCH", "/workspace/development/frappe-bench")
+SITE = os.environ.get("TDS_WALK_SITE", "localhost")
 PROJECT = "TestCity-PROJ-00001"
 USER, PASSWORD = "playwright@claude.ai", "adminclaude1234"
 
@@ -56,9 +60,9 @@ CUSTOM_NAME_INPUT = 'input[placeholder="e.g. Facade Linear Light 24W"]'
 
 PRELUDE = r'''
 import os, json
-os.chdir("/workspace/development/frappe-bench/sites")
+os.chdir(__BENCH__ + "/sites")
 import frappe
-frappe.init(site="localhost")
+frappe.init(site=__SITE__)
 frappe.connect()
 P = json.loads(__PARAMS__)
 R = {}
@@ -138,9 +142,13 @@ class BackendError(RuntimeError):
 
 
 def backend(code: str, **params) -> dict:
-    script = PRELUDE.replace("__PARAMS__", repr(json.dumps(params))) + "\n" + code + "\n" + EPILOGUE
+    prelude = PRELUDE.replace("__BENCH__", repr(BENCH)).replace("__SITE__", repr(SITE))
+    script = prelude.replace("__PARAMS__", repr(json.dumps(params))) + "\n" + code + "\n" + EPILOGUE
+    # A devenv bench shares the main bench's Python env, whose editable install points at the main
+    # checkout, so put the bench's own app first on the path.
     proc = subprocess.run(
-        ["docker", "exec", "-i", "-w", BENCH, CONTAINER, "env/bin/python", "-"],
+        ["docker", "exec", "-i", "-w", BENCH, "-e", f"FRAPPE_BENCH_ROOT={BENCH}",
+         "-e", f"PYTHONPATH={BENCH}/apps/nirmaan_stack", CONTAINER, "env/bin/python", "-"],
         input=script, capture_output=True, text=True, timeout=300,
     )
     for line in proc.stdout.splitlines():
@@ -1414,12 +1422,19 @@ ITEM_PAGE = "/tds-repository/item/"
 GO_BACK = 'button[aria-label="Go back"]'  # the app header's back arrow
 
 
+def href(page):
+    """The page's live URL. The sync API handles browser events only during a Playwright call, so
+    `page.url` read between calls misses a navigation the app makes on its own after a request (a
+    delete) or a debounce (the table writing its view to the URL)."""
+    return page.evaluate("location.href")
+
+
 def open_tds_item_from_table(page, label=None):
     """Click a TDS Item link in the repository table (the one reading `label`, else the first) and
     wait for the item page to load."""
     links = page.locator("table tbody tr td button[title]")
     (links.filter(has_text=label) if label else links).first.click()
-    wait_for(lambda: ITEM_PAGE in page.url, 10)
+    wait_for(lambda: ITEM_PAGE in href(page), 10)
     settle(page, 2)
 
 
@@ -1429,7 +1444,7 @@ def delete_tds_item(page):
     dlg = page.locator('[role="alertdialog"]')
     dlg.wait_for(timeout=5000)
     dlg.get_by_role("button", name="Delete", exact=True).click()
-    wait_for(lambda: ITEM_PAGE not in page.url, 15)
+    wait_for(lambda: ITEM_PAGE not in href(page), 15)
     settle(page, 2)
 
 
@@ -1464,7 +1479,7 @@ frappe.db.commit()''', labels=["TDS WALK Delete A", "TDS WALK Delete B"], wp=WP)
             settle(page, 2)
         else:
             c.note("one page of matches only; the page step was not exercised")
-        before_url = page.url
+        before_url = href(page)
         before_rows = table.locator("tbody tr").all_inner_texts()
         c.check(all(k in before_url for k in ("tab=entries", "tds_entries_master_filters", "tds_entries_master_q")),
                 "the view is in the URL before opening an item", before_url)
@@ -1474,9 +1489,9 @@ frappe.db.commit()''', labels=["TDS WALK Delete A", "TDS WALK Delete B"], wp=WP)
         c.check("Back to TDS Repository" not in body, "item page has no 'Back to TDS Repository' button")
         w.shot(page, "c22_item_no_back")
         page.locator(GO_BACK).click()
-        wait_for(lambda: ITEM_PAGE not in page.url, 10)
-        settle(page, 3)
-        c.eq(page.url, before_url, "header back returns to the same URL")
+        wait_for(lambda: ITEM_PAGE not in href(page), 10)
+        settle(page, 3)  # long enough for the table's debounced search to run, which used to reset the page
+        c.eq(href(page), before_url, "header back returns to the same URL")
         c.eq(page.locator('input[placeholder^="Search by"]').first.input_value(), "a", "search term kept")
         c.eq(page.locator("table").first.locator("tbody tr").all_inner_texts(), before_rows, "same rows shown")
         w.shot(page, "c22_back_view", full=True)
@@ -1486,11 +1501,11 @@ frappe.db.commit()''', labels=["TDS WALK Delete A", "TDS WALK Delete B"], wp=WP)
         settle(page, 2)
         page.locator('input[placeholder^="Search by"]').first.fill("TDS WALK Delete")
         settle(page, 3)
-        before_url = page.url
+        before_url = href(page)
         c.check("tds_items_master_q" in before_url, "TDS Items search is in the URL", before_url)
         open_tds_item_from_table(page, "TDS WALK Delete A")
         delete_tds_item(page)
-        c.eq(page.url, before_url, "delete from the table returns to the searched view")
+        c.eq(href(page), before_url, "delete from the table returns to the searched view")
         rows = page.locator("table").first.locator("tbody tr").all_inner_texts()
         c.check(not any("TDS WALK Delete A" in r for r in rows), "the deleted item is gone from the table", rows)
         w.shot(page, "c22_after_delete_from_table", full=True)
@@ -1499,8 +1514,11 @@ frappe.db.commit()''', labels=["TDS WALK Delete A", "TDS WALK Delete B"], wp=WP)
         page.goto(f"{BASE}{ITEM_PAGE}{names[1]}")
         settle(page, 3)
         delete_tds_item(page)
-        c.eq(page.url.split("?")[0].rstrip("/"), f"{BASE}/tds-repository", "direct-URL delete lands on the repository")
-        c.check("?" not in page.url, "and with no saved view", page.url)
+        url = href(page)
+        c.eq(url.split("?")[0].rstrip("/"), f"{BASE}/tds-repository", "direct-URL delete lands on the repository")
+        # The table writes its defaults (page 0, page size, search field) to the URL; no tab, search,
+        # filter, sort or later page means no saved view.
+        c.check(not re.search(r"tab=|_q=|_filters=|_sort=|_pageIdx=[1-9]", url), "and with no saved view", url)
         gone = w.be('R["left"] = frappe.get_all("TDS Items", filters={"name": ["in", P["names"]]}, pluck="name")', names=names)
         c.eq(gone["left"], [], "both throwaway items deleted on the server")
 
@@ -1533,8 +1551,9 @@ def c23(w: Walk, page, c: Checks):
     settle(page, 3)
     if page.get_by_text("Continue your saved TDS request?").count():
         page.get_by_role("button", name="Start Fresh").click()
-    tabs = [t.strip() for t in page.get_by_role("tab").all_inner_texts()]
-    c.eq(tabs, ["TDS History"], "the tab row holds TDS History only")
+    # #1382 left TDS History alone on the tab row; #1385 added the two Client Status tabs, each with a count.
+    tabs = [t.split("\n")[0].strip() for t in page.get_by_role("tab").all_inner_texts()]
+    c.eq(tabs, list(TAB_LABELS.values()), "the tab row holds TDS History and the Client Status tabs")
     create = page.get_by_role("button", name="Create New Request")
     c.check(create.is_visible(), "Create New Request button on the tab row")
     table = history_table(page)
@@ -1556,7 +1575,8 @@ def c23(w: Walk, page, c: Checks):
     settle(page, 1)
     back = page.get_by_role("button", name="Back to TDS History")
     c.check(back.is_visible(), "the form shows a Back control")
-    c.check(page.get_by_role("button", name="Send For Approval").is_visible(), "the request form is shown")
+    # Send For Approval shows only under a non-empty cart, so the form's heading marks it.
+    c.check(page.get_by_text("Select Items for TDS", exact=True).is_visible(), "the request form is shown")
     c.check(not table.is_visible() and not create.is_visible(), "the tab row and table are hidden while the form is open")
     w.shot(page, "c23_form", full=True)
 
@@ -1590,12 +1610,17 @@ def c24(w: Walk, page, c: Checks):
         open_new_request(p2)
         add_pick(p2, "Locel")
         c.eq(cart_rows(p2).count(), 1, "pick in the cart")
-        c.check(wait_for(lambda: p2.evaluate(f"localStorage.getItem('{DRAFTS_KEY}')"), 10), "the cart is saved as a draft")
+        # The store writes an empty `drafts` on load, so wait for this project's cart: the autosave runs
+        # 1.5 s after the last change, and a reload before then loses it.
+        saved = lambda: json.loads(p2.evaluate(f"localStorage.getItem('{DRAFTS_KEY}')") or "{}").get(
+            "state", {}).get("drafts", {}).get(PROJECT, {}).get("cartItems", [])
+        c.check(wait_for(lambda: len(saved()) == 1, 10), "the cart is saved as a draft", saved())
         p2.reload()
         settle(p2, 3)
         prompt = p2.get_by_text("Continue your saved TDS request?")
         c.check(wait_for(lambda: prompt.count(), 10), "the draft prompt opens on TDS History")
-        c.check(p2.get_by_role("button", name="Create New Request").is_visible(), "the prompt is answered from TDS History")
+        # The open prompt hides the page behind it from the accessibility tree, so find the button by text.
+        c.check(p2.locator("button", has_text="Create New Request").is_visible(), "the prompt is answered from TDS History")
         w.shot(p2, "c24_prompt")
         p2.get_by_role("button", name="Continue").click()
         settle(p2, 1)
@@ -1603,6 +1628,8 @@ def c24(w: Walk, page, c: Checks):
         c.eq(cart_rows(p2).count(), 1, "the resumed cart holds the saved pick")
         w.shot(p2, "c24_resumed", full=True)
     finally:
+        if c.failures:
+            w.shot(p2, "c24_FAIL_draft_page", full=True)  # the walk's own FAIL shot is of an unused page
         try:
             p2.evaluate(f"localStorage.removeItem('{DRAFTS_KEY}')")
         except Exception:

@@ -69,6 +69,53 @@ python3 scripts/tds_walk/walk.py --headed           # watch it
 It prints a PASS / FAIL / SKIPPED table and exits non-zero when a case fails or the cleanup check finds a
 difference. A failing case also saves a `c<n>_FAIL.png` screenshot.
 
+## Walking a devenv task
+
+By default the walk drives the main bench (vite on `:8080`, site `localhost`). To walk a devenv task
+`<task>` (its own bench, site `t-<task>.localhost` and database) instead, `DEVENV` being
+`/Users/abhishek/work/nirmaan/deploy_setup/frappe_docker/development/devenv.sh`:
+
+1. Start the task's backend. The port is the `webserver_port` in the task bench's
+   `sites/common_site_config.json`:
+
+   ```bash
+   DEVENV run <task> serve --port 800N
+   DEVENV run <task> worker          # background jobs, e.g. the PDF export
+   ```
+
+   For realtime events, also start the task bench's socketio, inside the container, from the task bench:
+
+   ```bash
+   FRAPPE_BENCH_ROOT=/workspace/development/benches/<task> node apps/frappe/socketio.js
+   ```
+
+2. Start a vite from the task's frontend on `:8081`, inside the container. Its proxy reads the task bench's
+   `common_site_config.json`, so it talks to that backend:
+
+   ```bash
+   docker exec -w /workspace/development/benches/<task>/apps/nirmaan_stack/frontend \
+     frappe_docker_devcontainer-frappe-1 node node_modules/.bin/vite --host --port 8081 --strictPort
+   ```
+
+   The dev boot fetch in `src/main.tsx` is hard-coded to the main bench (`http://localhost:8000`), so the
+   page joins the main site's socket namespace and never hears the task's realtime events (the PDF export
+   waits forever). Realtime works only with a dev-only vite config outside git that rewrites that URL to the
+   proxy at serve time (for spec #1381: `benches/spec-1381/vite.devenv.config.ts`, passed as
+   `--config <path>`), and with the app opened at `http://t-<task>.localhost:8081`, so the socket server's
+   site check agrees. Leave `main.tsx` itself alone.
+
+3. Point the walk at the task with three environment variables:
+
+   ```bash
+   TDS_WALK_BASE=http://t-<task>.localhost:8081 \
+   TDS_WALK_BENCH=/workspace/development/benches/<task> \
+   TDS_WALK_SITE=t-<task>.localhost \
+   python3 scripts/tds_walk/walk.py --out <dir>
+   ```
+
+   `TDS_WALK_BENCH` and `TDS_WALK_SITE` route the seeding and cleanup to the task's site; `TDS_WALK_BASE` is
+   the browser's address.
+
 ## Uploads go to production storage
 
 Local file storage writes to the **production GCS bucket, with deletes turned off**. Anything uploaded stays
