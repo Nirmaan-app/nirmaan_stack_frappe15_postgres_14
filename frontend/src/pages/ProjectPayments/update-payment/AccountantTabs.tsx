@@ -20,6 +20,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappePostCall } from 'frappe-react-sdk';
 import { useUpdatePaymentRequest } from "../hooks/useUpdatePaymentRequests";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { GstPaymentTag } from "../components/GstPaymentTag";
 import { SETTLED_STATUSES } from '@/utils/settlement';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import {
@@ -65,7 +66,8 @@ import { useUserData } from "@/hooks/useUserData"
 import { canViewPaymentSummary } from "@/constants/roles"
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts"
 import { useRefreshApprovalCounts } from "../hooks/useRefreshApprovalCounts"
-import { countLabel, summarizeSelection } from "../bulkSelectionSummary"
+import { countLabel, selectionTotal, summarizeSelection } from "../bulkSelectionSummary"
+import { SelectionTotalPill } from "../components/SelectionTotalPill"
 import { IndianRupee } from "lucide-react"
 import { QueueRowEditDialog } from "../components/QueueRowEditDialog"
 import { canEditQueueRow, canHoldQueueRow, canWorkQueueRows, isHeldQueueRow } from "../config/queueRowActions"
@@ -361,11 +363,12 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     });
 
     // ⚠️ TWO EXPORTS ON THIS TAB, AND THEY ARE NOT VARIANTS OF EACH OTHER.
-    // The built-in Export button emits the BANK PAYOUT FILE (ICICI PAB_VENDOR or the
+    // The built-in "Export for Payment" button emits the BANK PAYOUT FILE (ICICI PAB_VENDOR or the
     // Cashfree template) from the ticked rows — a file you upload to a bank, whose
     // columns are the bank's, not the table's. It is selection-driven by design.
     // This second button emits the TABLE as a CSV: every column, every filtered row,
-    // no selection needed. Labelled "Export table" so the two are never confused —
+    // no selection needed. Labelled plain "Export" (owner, 2026-10-07) while the bank file
+    // is "Export for Payment", so the two are never confused —
     // uploading the wrong one of these to a bank is not a recoverable mistake.
     const { exportAll, isExportingAll } = useApprovalQueueExport({
         exportAllRows,
@@ -501,7 +504,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
     const selectedRows = table.getSelectedRowModel().rows;
     const confirmPaidTotal = useMemo(
-        () => (confirmPaidRows ?? []).reduce((sum, r) => sum + parseNumber(r.amount), 0),
+        () => selectionTotal(confirmPaidRows ?? []),
         [confirmPaidRows]
     );
 
@@ -716,9 +719,10 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     // intent the code did not implement. Removed rather than honoured:
                     // this button's selection-scoping is correct (it builds a payout
                     // file), and the export that genuinely ignores selection is the
-                    // "Export table" button in `toolbarActions` below.
+                    // plain "Export" button in `toolbarActions` below.
                     showExportButton={true}
                     onExport={tab === "New Payments" ? handlePrepareExport : 'default'}
+                    exportButtonLabel={tab === "New Payments" ? "Export for Payment" : "Export"}
                     onExportAll={exportAllRows}
                     isExporting={isExporting}
                     exportFileName={`${tab.replace(/\s+/g, '_')}_${formatDate(new Date())}`}
@@ -730,20 +734,23 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                 Same checkboxes as the bank-file export — but the export
                                 clears them when it finishes, so tick again before this. */}
                             {tab === "New Payments" && selectedRows.length > 0 && (
-                                <Button
-                                    size="sm"
-                                    className="h-8 gap-1 bg-green-600 hover:bg-green-700 text-white"
-                                    disabled={markingPaid}
-                                    onClick={() => setConfirmPaidRows(selectedRows.map((r) => r.original))}
-                                >
-                                    <IndianRupee className="h-4 w-4" />
-                                    Mark as Paid ({selectedRows.length})
-                                </Button>
+                                <>
+                                    <SelectionTotalPill rows={selectedRows.map((r) => r.original)} />
+                                    <Button
+                                        size="sm"
+                                        className="h-8 gap-1 bg-green-600 hover:bg-green-700 text-white"
+                                        disabled={markingPaid}
+                                        onClick={() => setConfirmPaidRows(selectedRows.map((r) => r.original))}
+                                    >
+                                        <IndianRupee className="h-4 w-4" />
+                                        Mark as Paid ({selectedRows.length})
+                                    </Button>
+                                </>
                             )}
                             <ApprovalExportButton
                                 onClick={exportAll}
                                 isExporting={isExportingAll}
-                                label="Export table"
+                                label="Export"
                             />
                         </>
                     }
@@ -842,6 +849,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                             </div>
                                             <div className="text-muted-foreground">
                                                 {formatToRoundedIndianRupee(row.amount)}
+                                                <GstPaymentTag payment={row} />
                                                 {row.vendor
                                                     ? ` · ${vendorLabelMap.get(row.vendor) || row.vendor}`
                                                     : ""}
@@ -892,6 +900,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                         </div>
                                         <div className="text-muted-foreground">
                                             {formatToRoundedIndianRupee(holdRow.amount)}
+                                            <GstPaymentTag payment={holdRow} />
                                             {holdRow.vendor
                                                 ? ` · ${vendorLabelMap.get(holdRow.vendor) || holdRow.vendor}`
                                                 : ""}
@@ -948,6 +957,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                         </div>
                                         <div className="text-muted-foreground">
                                             {formatToRoundedIndianRupee(deleteRow.amount)}
+                                            <GstPaymentTag payment={deleteRow} />
                                             {deleteRow.vendor
                                                 ? ` · ${vendorLabelMap.get(deleteRow.vendor) || deleteRow.vendor}`
                                                 : ""}

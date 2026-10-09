@@ -17,11 +17,11 @@ from nirmaan_stack.services.outflow_import.cashbook import (
     ACTION_SKIP,
     FALLBACK_EXPENSE_TYPE,
     SKIP_ALREADY_BOOKED,
-    SKIP_ALREADY_IMPORTED,
+    SKIP_ALREADY_IMPORTED_STATUS_CHANGED,
     SKIP_NOT_A_SPEND,
     SKIP_NOT_SUCCESSFUL,
     SKIP_NO_AMOUNT,
-    SKIP_REPEATED_IN_FILE,
+    SKIP_REPEATED_IN_FILE_STATUS_CHANGED,
     CashbookPlan,
     group_plan,
     pick_expense_type,
@@ -30,6 +30,11 @@ from nirmaan_stack.services.outflow_import.cashbook import (
 from nirmaan_stack.services.outflow_import.duplicates import index_prior_sightings
 from nirmaan_stack.services.outflow_import.parser import RawRow
 from nirmaan_stack.services.outflow_import.project_match import build_project_index
+from nirmaan_stack.services.outflow_import.skip_kinds import (
+    SKIP_KIND_ALREADY_IMPORTED,
+    SKIP_KIND_BANK_REFUSED,
+    SKIP_KIND_REPEATED_IN_FILE,
+)
 
 PROJECT_LEDGER = "Project Expenses"
 NON_PROJECT_LEDGER = "Non Project Expenses"
@@ -97,9 +102,13 @@ def _plan(rows, already=None, booked=None):
 
 
 def _sightings(*entries):
-    """`(transfer_id, amount, date, label)` tuples, in the earliest-first order the callers use."""
+    """`(transfer_id, amount, date, label[, bank_status])` tuples, earliest first as the callers use.
+
+    An earlier IMPORT ROW carries the bank status it was stored with (ADR-0031); a booked expense has
+    none, so its entries stop at the label.
+    """
     return index_prior_sightings(
-        (tid, Decimal(amount), when, label) for tid, amount, when, label in entries
+        (tid, Decimal(amount), when, label, *status) for tid, amount, when, label, *status in entries
     )
 
 
@@ -128,12 +137,65 @@ class TestWhatIsNotImported(unittest.TestCase):
         row = _plan([_row(amount="0")]).rows[0]
         self.assertEqual(row.reason, SKIP_NO_AMOUNT)
 
-    def test_a_transfer_seen_in_an_earlier_import_names_that_import(self):
-        """Naming the batch is what makes the message actionable rather than merely true."""
+    def test_a_transfer_seen_in_an_earlier_import_is_not_planned_and_is_counted(self):
+        """ADR-0031, INVERTED FROM "is skipped naming that import". An exact repeat -- same identity,
+        same bank status -- is left out of the plan entirely, so nothing is staged for it; the plan
+        keeps only a count, and the batch it came from for the refusal message to name."""
         raw = _row(transfer_id="OBO9", amount="250")
-        already = _sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007"))
-        row = _plan([raw], already=already).rows[0]
-        self.assertEqual(row.reason, SKIP_ALREADY_IMPORTED.format(batch="OFI-26-00007"))
+        already = _sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"))
+        plan = _plan([raw], already=already)
+        self.assertEqual(plan.rows, ())
+        self.assertEqual(plan.split.repeats_not_saved, 1)
+        self.assertEqual(plan.split.repeat_of_batch, "OFI-26-00007")
+
+    def test_a_repeat_whose_bank_status_changed_is_skipped_naming_both_statuses(self):
+        """A status change is news about the money, so it is kept -- skipped as Already imported
+        (an Unskip-locked kind), with both statuses in its reason."""
+        raw = _row(transfer_id="OBO9", amount="250", status="REVERSED")
+        already = _sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"))
+        plan = _plan([raw], already=already)
+        self.assertEqual(plan.split.repeats_not_saved, 0)
+        row = plan.rows[0]
+        self.assertEqual(row.action, ACTION_SKIP)
+        self.assertEqual(row.skip_kind, SKIP_KIND_ALREADY_IMPORTED)
+        self.assertEqual(
+            row.reason,
+            SKIP_ALREADY_IMPORTED_STATUS_CHANGED.format(
+                batch="OFI-26-00007", earlier="SUCCESS", now="REVERSED"
+            ),
+        )
+
+    def test_a_status_change_is_named_ahead_of_did_not_succeed(self):
+        """⚠️ THE ORDER MOVED FOR THIS ONE CASE. A SUCCESS line coming back REVERSED also "did not
+        succeed", but that sentence is a Bank-refused skip -- not locked, and silent about what
+        changed. The repeat is the fact worth reading, as on the Cashfree path."""
+        raw = _row(transfer_id="OBO9", amount="250", status="REVERSED")
+        already = _sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"))
+        self.assertNotEqual(_plan([raw], already=already).rows[0].reason, SKIP_NOT_SUCCESSFUL)
+
+    def test_any_earlier_sighting_with_the_same_status_makes_it_an_exact_repeat(self):
+        """Imported SUCCESS, then REVERSED: a third statement still saying REVERSED is not news."""
+        raw = _row(transfer_id="OBO9", amount="250", status="REVERSED")
+        already = _sightings(
+            ("OBO9", "250", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"),
+            ("OBO9", "250", date(2026, 8, 1), "OFI-26-00009", "REVERSED"),
+        )
+        plan = _plan([raw], already=already)
+        self.assertEqual(plan.rows, ())
+        self.assertEqual(plan.split.repeat_of_batch, "OFI-26-00009")
+
+    def test_the_status_is_compared_trimmed_and_upper_cased(self):
+        raw = _row(transfer_id="OBO9", amount="250", status=" success ")
+        already = _sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"))
+        self.assertEqual(_plan([raw], already=already).split.repeats_not_saved, 1)
+
+    def test_an_exact_repeat_of_a_row_that_was_not_a_spend_is_not_planned_either(self):
+        """Every exact repeat is left out, whatever skip its first sighting got -- a top-up's first
+        sighting is still stored as a visible skip, its copies are not."""
+        raw = _row(transfer_id="VA9", amount="0", kind="VA → Wallet")
+        already = _sightings(("VA9", "0", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"))
+        plan = _plan([raw], already=already)
+        self.assertEqual((plan.rows, plan.split.repeats_not_saved), ((), 1))
 
     def test_a_transfer_already_booked_as_an_expense_is_skipped_naming_the_record(self):
         """THE GAP THIS SLICE CLOSED. An expense can exist for a wallet spend without this import
@@ -169,24 +231,81 @@ class TestWhatIsNotImported(unittest.TestCase):
 
     def test_an_earlier_batch_is_named_ahead_of_an_existing_expense(self):
         """⚠️ BOTH ARE TRUE whenever a previous batch created the expense, and the batch is the
-        answer somebody can act on -- it is a screen in this feature. Order is the message."""
-        raw = _row(transfer_id="OBO9", amount="250")
+        answer somebody can act on -- it is a screen in this feature. Order is the message. Since
+        ADR-0031 only a STATUS-CHANGED repeat reaches a sentence at all."""
+        raw = _row(transfer_id="OBO9", amount="250", status="REVERSED")
         row = _plan(
             [raw],
-            already=_sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007")),
+            already=_sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007", "SUCCESS")),
             booked=_sightings(("OBO9", "250", date(2026, 8, 1), "Project Expenses PE-1")),
         ).rows[0]
-        self.assertEqual(row.reason, SKIP_ALREADY_IMPORTED.format(batch="OFI-26-00007"))
+        self.assertEqual(
+            row.reason,
+            SKIP_ALREADY_IMPORTED_STATUS_CHANGED.format(
+                batch="OFI-26-00007", earlier="SUCCESS", now="REVERSED"
+            ),
+        )
 
-    def test_an_existing_expense_is_named_ahead_of_a_repeat_within_the_file(self):
-        """Naming the record beats "it is further up this sheet"."""
+    def test_an_exact_repeat_is_left_out_even_when_an_expense_is_booked(self):
+        """The earlier batch holds the line, and the expense it created is that line's money."""
+        raw = _row(transfer_id="OBO9", amount="250")
+        plan = _plan(
+            [raw],
+            already=_sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007", "SUCCESS")),
+            booked=_sightings(("OBO9", "250", date(2026, 8, 1), "Project Expenses PE-1")),
+        )
+        self.assertEqual((plan.rows, plan.split.repeats_not_saved), ((), 1))
+
+    def test_an_identical_copy_of_a_booked_line_is_counted_not_staged(self):
+        """INVERTED by #1359 (it was "both copies name the record", #1358). A line already booked is
+        not created, but the system holds it once staged, so an identical copy further down the sheet
+        is an exact repeat: one row names the record, the copy is counted."""
         rows = [_row(transfer_id="OBO9", amount="250"), _row(number=2, transfer_id="OBO9", amount="250")]
         booked = _sightings(("OBO9", "250", date(2026, 8, 1), "Project Expenses PE-1"))
         plan = _plan(rows, booked=booked)
         self.assertEqual(
-            [r.reason for r in plan.rows],
-            [SKIP_ALREADY_BOOKED.format(record="Project Expenses PE-1")] * 2,
+            [r.reason for r in plan.rows], [SKIP_ALREADY_BOOKED.format(record="Project Expenses PE-1")]
         )
+        self.assertEqual((plan.split.repeats_not_saved, plan.split.repeated_in_file), (1, 1))
+
+    def test_an_identical_in_flight_line_twice_is_staged_once_and_counted_once(self):
+        """#1359: an in-flight line creates nothing, but an identical copy of it is still a repeat."""
+        plan = _plan([_row(transfer_id="OBO5", status="PENDING"), _row(number=2, transfer_id="OBO5", status="PENDING")])
+        self.assertEqual((len(plan.rows), plan.split.repeats_not_saved), (1, 1))
+
+    def test_an_identical_in_flight_line_from_an_earlier_import_is_counted(self):
+        raw = _row(transfer_id="OBO9", amount="250", status="REFUNDED")
+        already = _sightings(
+            ("OBO9", "250", date(2026, 8, 1), "OFI-26-00007", "SUCCESS", (), True),
+            ("OBO9", "250", date(2026, 8, 1), "OFI-26-00008", "REFUNDED", (), False),
+        )
+        plan = _plan([raw], already=already)
+        self.assertEqual((plan.rows, plan.split.repeat_of_batch), ((), "OFI-26-00008"))
+
+    def test_a_refund_of_a_success_is_a_status_change(self):
+        raw = _row(transfer_id="OBO9", amount="250", status="REFUNDED")
+        already = _sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"))
+        (row,) = _plan([raw], already=already).rows
+        self.assertEqual(
+            row.reason,
+            "Already imported in batch OFI-26-00007, bank status changed SUCCESS → REFUNDED.",
+        )
+
+    def test_an_in_flight_earlier_import_is_never_a_status_change(self):
+        """D4: a stored PENDING line never blocks its later SUCCESS."""
+        raw = _row(transfer_id="OBO9", amount="250")
+        already = _sightings(("OBO9", "250", date(2026, 8, 1), "OFI-26-00007", "PENDING", (), False))
+        (row,) = _plan([raw], already=already).rows
+        self.assertEqual(row.action, ACTION_CREATE)
+
+    def test_the_status_change_sentence_is_cashfrees_word_for_word(self):
+        """#1359: it read "Already imported in OFI-…, bank status changed A → B" -- no "batch", no
+        full stop."""
+        from nirmaan_stack.services.outflow_import.status import (
+            SKIP_REASON_ALREADY_IMPORTED_STATUS_CHANGED,
+        )
+
+        self.assertEqual(SKIP_ALREADY_IMPORTED_STATUS_CHANGED, SKIP_REASON_ALREADY_IMPORTED_STATUS_CHANGED)
 
     def test_a_transfer_nobody_has_booked_still_creates(self):
         """The negative case. A guard that blocks everything would also look like it works."""
@@ -194,10 +313,66 @@ class TestWhatIsNotImported(unittest.TestCase):
         booked = _sightings(("OBO-OTHER", "250", date(2026, 8, 1), "Project Expenses PE-1"))
         self.assertEqual(_plan([raw], booked=booked).rows[0].action, ACTION_CREATE)
 
-    def test_a_transfer_repeated_within_one_file_creates_once(self):
+    def test_a_transfer_repeated_within_one_file_creates_once_and_the_copy_is_counted(self):
+        """INVERTED FROM "the copy is skipped as repeated": an exact in-file copy is not planned."""
         plan = _plan([_row(transfer_id="OBO5"), _row(number=2, transfer_id="OBO5")])
-        self.assertEqual(plan.rows[0].action, ACTION_CREATE)
-        self.assertEqual(plan.rows[1].reason, SKIP_REPEATED_IN_FILE)
+        self.assertEqual([r.action for r in plan.rows], [ACTION_CREATE])
+        self.assertEqual(plan.rows[0].row_number, 1)
+        self.assertEqual(plan.split.repeats_not_saved, 1)
+        # No earlier IMPORT holds it, so there is no batch for a message to name.
+        self.assertIsNone(plan.split.repeat_of_batch)
+
+    def test_an_in_file_repeat_whose_status_changed_is_skipped_naming_both_statuses(self):
+        plan = _plan([
+            _row(transfer_id="OBO5"),
+            _row(number=2, transfer_id="OBO5", status="REVERSED"),
+        ])
+        self.assertEqual(plan.split.repeats_not_saved, 0)
+        copy = plan.rows[1]
+        self.assertEqual(copy.skip_kind, SKIP_KIND_REPEATED_IN_FILE)
+        self.assertEqual(
+            copy.reason,
+            SKIP_REPEATED_IN_FILE_STATUS_CHANGED.format(earlier="SUCCESS", now="REVERSED"),
+        )
+
+    def test_an_in_flight_line_is_no_sighting_for_a_later_line(self):
+        """Only a TERMINAL line becomes an in-file sighting, matching the cross-batch lookup's D4
+        rule -- a PENDING line may yet say something new, so it cannot make a later line a repeat."""
+        plan = _plan([
+            _row(transfer_id="OBO5", status="PENDING"),
+            _row(number=2, transfer_id="OBO5"),
+        ])
+        self.assertEqual(plan.split.repeats_not_saved, 0)
+        self.assertEqual(plan.rows[1].action, ACTION_CREATE)
+
+    def test_a_failed_line_does_not_stop_a_later_success_of_the_same_transfer(self):
+        """#1358, the regression: an in-file sighting on Cashbook is a line that will be CREATED.
+        Txn X FAILED, then Txn X SUCCESS -- the spend still becomes an expense."""
+        plan = _plan([
+            _row(transfer_id="OBO5", status="FAILED"),
+            _row(number=2, transfer_id="OBO5"),
+        ])
+        self.assertEqual([r.action for r in plan.rows], [ACTION_SKIP, ACTION_CREATE])
+        self.assertEqual(plan.rows[0].skip_kind, SKIP_KIND_BANK_REFUSED)
+        self.assertEqual(plan.split.repeats_not_saved, 0)
+
+    def test_a_line_that_is_not_a_spend_does_not_stop_a_later_spend(self):
+        plan = _plan([
+            _row(transfer_id="OBO5", kind="VA → Wallet"),
+            _row(number=2, transfer_id="OBO5"),
+        ])
+        self.assertEqual([r.action for r in plan.rows], [ACTION_SKIP, ACTION_CREATE])
+        self.assertEqual(plan.split.repeats_not_saved, 0)
+
+    def test_the_first_batch_an_exact_repeat_came_from_is_the_one_named(self):
+        plan = _plan(
+            [_row(transfer_id="OBO5"), _row(number=2, transfer_id="OBO6")],
+            already=_sightings(
+                ("OBO5", "100", date(2026, 8, 1), "OFI-26-00007", "SUCCESS"),
+                ("OBO6", "100", date(2026, 8, 1), "OFI-26-00008", "SUCCESS"),
+            ),
+        )
+        self.assertEqual((plan.split.repeats_not_saved, plan.split.repeat_of_batch), (2, "OFI-26-00007"))
 
     def test_two_spends_alike_but_for_their_transfer_id_both_create(self):
         """Measured on a real export: two porter payments minutes apart, same payee and amount."""

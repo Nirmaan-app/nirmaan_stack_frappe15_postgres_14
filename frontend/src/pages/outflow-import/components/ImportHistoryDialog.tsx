@@ -17,6 +17,7 @@ import {
     importStatusTone,
     importUploaderLabel,
     importsForSource,
+    repeatsNotSavedLabel,
 } from "../outflowTableModel";
 
 /**
@@ -162,6 +163,8 @@ const HistoryRow = ({
      * display/stored split `importUploaderLabel` documents.
      */
     const uploader = importUploaderLabel(option);
+    /** ADR-0031: the lines this import left out as already imported. Not saved, so only counted. */
+    const repeats = repeatsNotSavedLabel(option.repeats_not_saved);
 
     return (
         <li>
@@ -198,6 +201,9 @@ const HistoryRow = ({
                         {importPeriodLabel(option)}
                         {uploader ? ` · ${uploader}` : ""}
                     </div>
+                    {repeats && (
+                        <div className="truncate text-xs text-muted-foreground">{repeats}</div>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-4">

@@ -30,6 +30,7 @@ import {
   Landmark, PencilRuler, SquareStack,
   Warehouse, ClipboardList,
   FileChartLine,
+  PackageCheck,
   Tickets,
   Table2,
   TriangleAlert
@@ -70,10 +71,12 @@ import {
 import { Separator } from "../ui/separator";
 import { useCountsBridge } from "@/hooks/useSidebarCounts";
 import {
+  HOD_ACCESS,
   MATERIAL_PROCUREMENT_PROFILES,
   NON_PROJECT_INFLOWS_ACCESS,
   PROCUREMENT_PROFILES,
   SERVICE_PROCUREMENT_PROFILES,
+  canUseProjectBilling,
   isMaterialProcurementProfile,
   isProcurementProfile,
 } from "@/constants/roles";
@@ -586,9 +589,9 @@ export function NewSidebar() {
       ]
       : []),
     // Payment TDS Deduction (Tax Deducted at Source) has NO sidebar item of its own -- the ledger
-    // lives in the Reports hub as the "Payment TDS Deduction" tab (pages/reports), gated there by
-    // the same PAYMENT_TDS_ACCESS constant. `/payment-tds-deductions` still resolves; routesConfig
-    // redirects it into that tab.
+    // lives in the Reports hub under the "Payment" tab (pages/reports), gated there by
+    // the same PAYMENT_TDS_ACCESS constant. Its old `/payment-tds-deductions` route was removed
+    // (owner, 2026-10-07).
     // ── "Expense" HIDDEN from the sidebar (owner, 15 Sep 2026) ──────────────────
     //
     // Expenses are now raised and worked from "Project Payment & Expense": the unified
@@ -740,12 +743,33 @@ export function NewSidebar() {
         },
       ]
       : []),
+    ...(canUseProjectBilling(role as string, user_id)
+      ? [
+        {
+          key: '/billing-tracker',
+          icon: FileChartLine,
+          label: 'Billing Tracker',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile"].includes(role as string)
       ? [
         {
           key: '/commission-tracker',
           icon: FileChartLine,
           label: 'Commission Report Tracker',
+        },
+      ]
+      : []),
+    // Handover Documents, across every project. The roles are the ones that WORK a handover --
+    // the same four `Project HOD Document` grants write to (System Manager / PMO / Project Lead /
+    // Project Manager). The `/hod-tracker` route guard reads the same list.
+    ...(user_id == "Administrator" || HOD_ACCESS.includes(role as string)
+      ? [
+        {
+          key: '/hod-tracker',
+          icon: PackageCheck,
+          label: 'HOD Tracker',
         },
       ]
       : []),
@@ -842,6 +866,7 @@ export function NewSidebar() {
     'reports',
     'design-tracker',
     'snag-list',
+    'hod-tracker',
     'critical-po-tracker',
     'pr-tracker',
     'work-plan-tracker',
@@ -856,6 +881,8 @@ export function NewSidebar() {
     "pmo-dashboard",
     "reminders",
     'commission-tracker',
+    // Billing Tracker; its /billing-tracker/:projectId page falls back to this first segment.
+    'billing-tracker',
     "upload-boq",
     // Pricing Module (PW-1): one key per registry workbook.
     ...PRICING_WORKBOOKS.map((w) => w.path.slice(1)),
@@ -898,6 +925,7 @@ export function NewSidebar() {
     "/reports": ["reports"],
     '/design-tracker': ['design-tracker'],
     '/snag-list': ['snag-list'],
+    '/hod-tracker': ['hod-tracker'],
     '/critical-po-tracker': ['critical-po-tracker'],
     '/pr-tracker': ['pr-tracker'],
     '/work-plan-tracker': ['work-plan-tracker'],
@@ -909,6 +937,7 @@ export function NewSidebar() {
     '/warehouse': ['warehouse'],
     '/help-repository': ['help-repository'],
     '/commission-tracker': ['commission-tracker'],
+    '/billing-tracker': ['billing-tracker'],
     '/pmo-dashboard': ['pmo-dashboard'],
     '/reminders': ['reminders'],
     '/work-order-rate-card': ['work-order-rate-card'],
@@ -1026,6 +1055,12 @@ export function NewSidebar() {
                     // renders a chevron and swallows the click (see the note further down).
                     "Snag List",
                     "Commission Report Tracker",
+                    // Flat nav button, NOT a group. Same trap as Snag List and Non-Project
+                    // Inflows above: leave this label out and the item falls into the
+                    // collapsible branch, rendering a chevron that swallows the click.
+                    "HOD Tracker",
+                    // Flat nav button (no children), like the trackers around it.
+                    "Billing Tracker",
                     "PR Tracker",
                     "PO Tracker",
                     "Work Plan Tracker",

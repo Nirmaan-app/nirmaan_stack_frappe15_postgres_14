@@ -61,6 +61,8 @@ import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewP
 import {
   BOQ_TEMPLATES_ACCESS,
   CUSTOMERS_ACCESS,
+  HOD_ACCESS,
+  MTC_PAGE_PROFILES,
   NON_PROJECT_INFLOWS_ACCESS,
   PROJECT_INVOICES_ACCESS,
   UPLOAD_BOQ_ACCESS,
@@ -89,8 +91,15 @@ const TDSItemDetail = lazy(() => import("@/pages/tds/TDSItemDetail"));
 
 // NEW COMMISSION REPORT PAGES
 import CommissionReportList from '@/pages/CommissionReport/commission-report-list';
+import BillingTrackerPage from '@/pages/ProjectBilling/BillingTrackerPage';
+import BillingProjectPage from '@/pages/ProjectBilling/BillingProjectPage';
 import ProjectCommissionReportDetail from '@/pages/CommissionReport/project-commission-report-details';
 import CommissionReportWizard from '@/pages/CommissionReport/report-wizard';
+
+// HOD Tracker — the cross-project handover list and its own detail page. The detail mounts the same
+// `HandoverDocumentsTab` the project page does, so there is one screen, not two.
+import HodTrackerList from "@/pages/HandoverDocuments/hod-tracker-list";
+import HodTrackerDetail from "@/pages/HandoverDocuments/hod-tracker-detail";
 
 
 //Design Tracker
@@ -268,6 +277,13 @@ export const appRoutes: RouteObject[] = [
                 element: <DeliveryChallansAndMirs />,
               },
               {
+                // Project Manager + Project Lead only (owner ruling Q26). The server also limits
+                // them to their assigned projects (`mtc_api.mtc_allowed_projects`).
+                path: "material-test-certificates",
+                element: <RoleRoute allowed={MTC_PAGE_PROFILES} what="Material Test Certificates" />,
+                children: [{ index: true, lazy: () => import("@/pages/MaterialTestCertificates") }],
+              },
+              {
                 path: "update-inventory",
                 lazy: () => import("@/pages/remaining-items"),
               },
@@ -390,6 +406,10 @@ export const appRoutes: RouteObject[] = [
             path: "project-expenses",
             element: <Navigate to="/expense/project" replace />,
           },
+          // Client billing tracker (Project Wise / Bill Wise / My Bills).
+          { path: "billing-tracker", element: <BillingTrackerPage /> },
+          // One project's bills ("View Bills" on Project Wise).
+          { path: "billing-tracker/:projectId", element: <BillingProjectPage /> },
           // ======================================================
           // --- START: COMMISSION REPORT SECTION ---
           // ======================================================
@@ -414,6 +434,28 @@ export const appRoutes: RouteObject[] = [
           },
           // ======================================================
           // --- END: COMMISSION REPORT SECTION ---
+          // ======================================================
+          // ======================================================
+          // --- START: HOD TRACKER SECTION ---
+          // ======================================================
+          // Same shape as the Design Tracker below: a list, and a detail page of its own rather
+          // than a redirect into the Project page. The detail mounts the very same
+          // `HandoverDocumentsTab` the project page mounts, so the two cannot drift.
+          // Guarded to the sidebar's profiles (`HOD_ACCESS`): the doctype's own read/write
+          // rows are far wider, so without it a typed URL let Estimates / HR / Design Lead in.
+          {
+            path: "hod-tracker",
+            element: <RoleRoute allowed={HOD_ACCESS} what="the HOD Tracker" />,
+            children: [
+              // 1. List View (e.g. /hod-tracker)
+              { index: true, element: <HodTrackerList /> },
+
+              // 2. Detail View (e.g. /hod-tracker/KOLKATA-PROJ-00102)
+              { path: ":projectId", element: <HodTrackerDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: HOD TRACKER SECTION ---
           // ======================================================
           // ======================================================
           // --- START: NEW DESIGN TRACKER SECTION ---
@@ -577,6 +619,8 @@ export const appRoutes: RouteObject[] = [
             path: "reports",
             children: [
               { index: true, element: <ReportsContainer /> },
+              // A PO opened from a report stays under Reports (see `orderDetailPath`).
+              { path: "po/:poId", lazy: () => import("@/components/POSummary") },
             ],
           },
           // --- Project Invoices Section ---
@@ -604,17 +648,6 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <RenderProjectPaymentsComponent /> },
               { path: ":id", element: <OrderPaymentSummary /> } // Consider :paymentId or :orderId for clarity
             ]
-          },
-          // --- Payment TDS Deduction (Tax Deducted at Source) ---
-          // The ledger MOVED into the Reports hub (Reports > "Payment TDS Deduction" tab), so this
-          // legacy path is now a redirect -- old links and bookmarks still land on the ledger.
-          // No RoleRoute: the tab itself is gated by PAYMENT_TDS_ACCESS inside ReportsContainer,
-          // and a guard here would only decide who gets bounced vs who sees "Access Denied".
-          // ⚠️ NOT the `/tds-repository` / `/tds-approval` family above, which is the TECHNICAL
-          // DATA SHEET module. The path is spelled out in full so the two never collide.
-          {
-            path: "payment-tds-deductions",
-            element: <Navigate to="/reports?tab=payment_tds" replace />,
           },
           // --- Project Payments ---
           {

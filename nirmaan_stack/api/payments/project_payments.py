@@ -14,6 +14,7 @@ from nirmaan_stack.services.approval_tiers import (
     is_auto_approved,
     steps_cleared_by_raiser,
 )
+from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services import cheque_payments
 # api -> service is the one legal direction (ADR-0010). See `reference_guard.py`'s module
 # docstring: this call site and `settle._assert_reference_is_free` must move together.
@@ -58,6 +59,26 @@ def _comment_raiser_approval(pay, ceo_cleared: bool) -> None:
         frappe.utils.get_fullname(frappe.session.user), _("L1 and CEO approval") if ceo_cleared else _("L1 approval")))
 
 
+def _assert_within_po_balance(src, amount):
+    """A PO request: value incl. GST − Paid − open requests − Reconciliation Pending, ₹10 tolerance."""
+    from nirmaan_stack.services.finance import (
+        get_source_document_financials,
+        get_total_paid,
+        get_total_pending,
+        get_total_reconciliation_pending,
+    )
+    available = (
+        get_source_document_financials(src).get("payable_total")
+        - get_total_paid(src)
+        - get_total_pending(src)
+        - get_total_reconciliation_pending(src)
+    )
+    if amount > (available + 10):
+        frappe.throw(_(
+            "Maximum amount you can request is {0} (available balance)"
+        ).format(frappe.format_value(available, "Currency")))
+
+
 @frappe.whitelist()
 def create_payment_request_for_service(data: str) -> str:
     """
@@ -68,6 +89,7 @@ def create_payment_request_for_service(data: str) -> str:
             "doctype" : "Procurement Orders" | "Service Requests",
             "docname": "<PO/000/00000/25-26>",
             "amount" : 12345.67,
+            "is_gst_payment": 0 | 1,                        # Work Orders only; base when absent
             "mode_of_payment": "Online" | "Cheque",           # optional, Online when absent
             "cheque_no": "...", "cheque_date": "YYYY-MM-DD"    # required for a cheque
         }
@@ -86,28 +108,18 @@ def create_payment_request_for_service(data: str) -> str:
     if amount == 0:
         frappe.throw(_("Amount cannot be zero"))
 
+    # A Work Order payment is a base payment or a GST payment, never a mix (ADR-0030).
+    gst_payment = bool(frappe.utils.cint(payload.get("is_gst_payment")))
+    if gst_payment and doctype != "Service Requests":
+        frappe.throw(_("A GST payment can only be requested on a Work Order."))
+
     # ── fetch source document inside the txn ───────────────────────
     src = frappe.get_doc(doctype, docname)
 
-    # ── calculate financials --------------------------------------
-    from nirmaan_stack.services.finance import (
-        get_source_document_financials,        # returns grand_total, grand_total_excl_gst
-        get_total_paid,   # returns sum of approved+paid Project Payments
-        get_total_pending, # returns sum of Requested (pending) Payments
-        get_total_reconciliation_pending,
-    )
-    totals = get_source_document_financials(src)
-    paid         = get_total_paid(src)
-    pending      = get_total_pending(src)
-    available    = (
-        totals.get("payable_total") - paid - pending - get_total_reconciliation_pending(src)
-    )
-    print(f"paid: {paid}, pending: {pending}, available: {available}, grand: {totals}")
-
-    if amount > (available + 10):
-        frappe.throw(_(
-            "Maximum amount you can request is {0} (available balance)"
-        ).format(frappe.format_value(available, "Currency")))
+    if doctype == "Service Requests":
+        assert_within_work_order_limit(src, amount, gst_payment)
+    else:
+        _assert_within_po_balance(src, amount)
 
     # ── create payment doc  (ACID wrapper) ─────────────────────────
     # Small payments auto-approve; negative refunds (amount < 0) always go
@@ -123,6 +135,7 @@ def create_payment_request_for_service(data: str) -> str:
         "vendor"        : src.vendor,
         "amount"        : round(amount),
         "status"        : status,
+        "is_gst_payment": 1 if gst_payment else 0,
         **_mode_fields(payload),
     })
     if auto_approve:
@@ -131,6 +144,9 @@ def create_payment_request_for_service(data: str) -> str:
         pay.ceo_approval_date = nowdate()
     else:
         _stamp_raiser_approval(pay, l1_cleared, ceo_cleared)
+    # Checked above against the amount AS REQUESTED; the insert validation must not check the
+    # rounded figure again and refuse what this endpoint just allowed.
+    pay.flags.work_order_limit_checked = True
     pay.insert()
 
     if auto_approve:

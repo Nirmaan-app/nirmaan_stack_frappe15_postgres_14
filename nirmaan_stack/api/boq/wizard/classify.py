@@ -250,7 +250,7 @@ def _classify_worker(boq=None, sheet_name=None, discipline="Electrical", scope=N
         summary = orchestrator.classify_sheet_rows(
             boq, sheet_name, discipline, row_filter=row_filter, progress_cb=_progress
         )
-        frappe.db.commit()  # commit BEFORE publish (CLAUDE.md rule)
+        frappe.db.commit()  # commit BEFORE publish (CODING_STANDARDS.md rule)
         # G2d: on a SUCCESSFUL WHOLE-SHEET re-classify, clear the category-gate override for this
         # sheet. Placed AFTER the classify commit, never fails the run (see helper). Per-engine by
         # design -- each engine's worker clears independently (there is no single all-engines

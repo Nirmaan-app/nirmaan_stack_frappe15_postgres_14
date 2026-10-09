@@ -11,6 +11,7 @@ import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { GstPaymentTag } from "./GstPaymentTag";
 import {
   barSegments,
   leftAfter,
@@ -132,7 +133,10 @@ export const PaymentSummaryBlock = ({ summary, isLoading, thisAmount }: PaymentS
             <div className="mt-1 max-h-40 overflow-y-auto rounded-md border text-xs">
               {summary.payments.map((p) => (
                 <div key={p.name} className="grid grid-cols-[1fr_auto] gap-x-2 border-b px-2 py-1 last:border-b-0">
-                  <span className="truncate font-medium">{p.name}</span>
+                  <span className="truncate font-medium">
+                    {p.name}
+                    <GstPaymentTag payment={p} />
+                  </span>
                   <span className="text-right tabular-nums">{formatToIndianRupee(p.gross_amount)}</span>
                   <span className="truncate text-muted-foreground">
                     {STATUS_LABEL[p.status] ?? p.status}

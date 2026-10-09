@@ -11,6 +11,7 @@ import {
   Truck,
   PencilRuler,
   Package,
+  ShieldCheck,
   TriangleAlert,
   Warehouse,
 } from "lucide-react";
@@ -137,6 +138,12 @@ export const ProjectManager = () => {
             title="Update Inventory"
             icon={<Warehouse className="h-8 w-8" strokeWidth={1.5} />}
             onClick={() => navigate("/prs&milestones/update-inventory")}
+            variant="primary"
+          />
+          <DashboardCard
+            title="Material Test Certificates"
+            icon={<ShieldCheck className="h-8 w-8" strokeWidth={1.5} />}
+            onClick={() => navigate("/prs&milestones/material-test-certificates")}
             variant="primary"
           />
         </div>

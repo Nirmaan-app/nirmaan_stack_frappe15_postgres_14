@@ -7,7 +7,83 @@
 >
 > NOTE: any "DOCS-UPDATE RULE (all three, every commit)" text reproduced BELOW is **SUPERSEDED** — the
 > revised rule (per-slice detail → these reference docs + the plan, not the always-loaded `CLAUDE.md`)
-> lives in `frontend/CLAUDE.md`.
+> lives in root `CLAUDE.md` § Session workflow.
+
+---
+
+## Load-bearing invariants (owner-locked)
+
+_Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every frontend task needs (CLAUDE.md restructure, pass 2). `frontend/CLAUDE.md` now carries a one-line pointer here._ The pricing editor's invariants moved to `boq-pricing-editor-frontend.md`.
+
+All BoQ wizard / pricing frontend code lives in `src/pages/boq-wizard/`; do not scatter wizard
+components into other page folders. This section keeps ONLY the stable conventions + load-bearing /
+owner-locked invariants. The full as-built detail (component contracts, per-slice records) is further down this file: find the section you need with `grep -n '^#'`, never load it whole. Live status = `frontend/.claude/plans/boq-upload-plan.md`.
+**Pricing Module + Rate Master frontend detail** (the rate-helper panel's attribute semantics, the workbook pages, the RM-2 screens): `frontend/.claude/context/domain/pricing-rate-master-frontend.md`.
+
+### Wizard (hub / spoke / review) -- stable conventions
+
+- **Routes** (React Router v6 `lazy()`, module `export { X as Component }`): upload `/upload-boq` (`?project=<id>`);
+  hub `/upload-boq/hub/:boqId`; spoke `/upload-boq/hub/:boqId/sheet/:sheetName`; review
+  `/upload-boq/hub/:boqId/review/:sheetName`. RR v6 AUTO-decodes path params; the hub encodes with
+  `encodeURIComponent`. Back-nav ALWAYS routes by entity ID, never `navigate(-1)` (routes are deep-linkable with
+  no guaranteed history).
+- **`sheet_name` is matched VERBATIM (#152)** everywhere (React keys, every endpoint arg) — trailing/leading
+  spaces exist in real data; `.trim()` ONLY for display.
+- **General-specs badge is DERIVED** from `BOQs.general_specs_sheets` child membership (`source_sheet_name`),
+  NEVER from `wizard_status` (the backend never writes "General specs" there).
+- **State / mutations:** transient `useBoqWizardStore` (no `persist`). JSON mutations use `useFrappePostCall` +
+  `mutate()` (server is authoritative); raw `fetch` ONLY for the multipart file upload. Errors are inline, no toasts.
+- **Work-package read path:** WP assignments are GRANDCHILD rows that do NOT serialize on `useFrappeGetDoc("BOQs")`
+  — read via `get_boq_work_packages` (hub and spoke both consume it). Never `order_by` a Frappe field
+  literally named `order` (PG reserved word Frappe's REST list layer does not quote → 500): keep it in
+  `fields` and sort client-side.
+- **Parse / commit hub flows** are socket-driven (`boq:parse_run_done`, screen-scoped) with on-mount
+  `parse_in_progress` recovery + reconnect self-heal; the acknowledge-only completion / commit-results modals are
+  hub-scoped. See the wizard-upload surface.
+- **SheetCard is a persistent 3-zone stepper** (`① Configure → ② Review → ③ Commit & Tender`). The
+  effective-status → zone mapping lives in the PURE `sheetCardStages.ts` (`computeSheetStages`, unit-tested,
+  ADR-0010 F4); `SheetCard.tsx` only renders descriptors + interpolates dynamic text (dates/reasons). There is
+  **no header status pill** — the status IS the button-bearing zone's marker; the header holds only name +
+  summary + transient chips (Parsing…, needs-re-parse, N-issues). **Stage ③ is READ-ONLY** (committed badge
+  alone on its line, priced/orphan chips stacked below; Commit + Tender are footer-only actions). Aside sheets
+  (Skip/Hidden) collapse the rail; a committed general-specs sheet still lights ③.
+- **Parse-gate rule:** `canParse = reviewedCount >= 1` (≥1 Config-Done sheet). Pending / Parse-failed sheets do
+  NOT block — `ParseRunDialog` shows them read-only and only ticks Config-Done sheets.
+- **Tendering is direct-nav:** the footer button navigates straight to `/pricing/{first committed sheet by
+  sheet_order}`; the pricing editor's in-editor sheet-tab strip is the sheet picker (no picker dialog).
+- **Commit dialog is one step:** all eligible sheets pre-ticked; a hard error routes to a slim errors-only notice
+  (no per-warning "Looks OK" acks, no supersede-ack). Server gate re-check + `{committed, failed}` results modal +
+  `BOQ_DOWNSTREAM_ORPHAN` confirm are the safety boundary. See the revised-boq surface.
+
+### Review screen (`ReviewTree.tsx`) -- load-bearing invariants
+
+- **Depth / indent comes from the `effective_parent_index` chain (`computeDepths`), NEVER the stored `level`** (which
+  diverges after `human_parent` edits). `isVisible` walks from the PARENT, so a collapsed row stays visible.
+- **Description is a FAN-OUT of the original columns (MC-4), not the single joined anchor.** When any row carries
+  `description_parts_raw` (`sheetHasDescriptionParts`), the Description anchor becomes one column per mapped
+  description column via the pure helpers in `reviewRender.tsx` (`buildDescriptionColumns` / `descriptionCellValue`):
+  set+order from the `role:"description"` descriptors; per-cell value by `col_letter`; LABEL from the triples'
+  `header_label` **union-across-rows** (letter fallback), `" 2"/" 3"`-suffixed on duplicates. The FIRST column is the
+  always-on wide anchor (depth indent + `(no description)` fallback via the shared `DescriptionCellInner`); the rest
+  are narrower and join the `visibleCols` picker via `pickerColumns`. `totalCols` keeps base `8` + extra visible
+  description cols so `colSpan`s stay aligned. **LEGACY FALLBACK:** no parts on any row (pre-MC-2 drafts) -> the
+  single anchor renders via the SAME `DescriptionCellInner` (byte-identical). Search still reads the joined
+  `row.description` (unchanged); exports keep the single joined Description (MC-5/owner-deferred).
+- **Description search uses the shared `boqDescriptionSearch.ts` (`fuzzyDescriptionMatchSet`)** — token-AND, min
+  length 2; fuzzy decides MEMBERSHIP, document order drives prev/next. ReviewTree + SheetSearchView both call it;
+  RestructureModal inherits via SheetSearchView. Never inline a second matcher.
+- **Search highlight = RINGS (`ring-inset`), never backgrounds** (a background would mask the edited-green tint).
+- **Filters gate on the FILTER axis (`classificationVisible && passesFilter`), NOT the collapse axis** — a hit can
+  never be a filtered-out row, and stepping auto-expands a collapsed-parent hit via `revealAndScrollToRow`.
+- **Finalized / "Parsed Check Done" freeze:** `readOnly` HIDES every write affordance; backend
+  `_guard_sheet_not_frozen` is the durable backstop. Restructure goes through `RestructureModal` (5 child-placement
+  options + a batch cycle-guard). A flag dismissal / remark is NOT an edit (the row stays "Original").
+
+**Wizard-screen detail (project picker, global entry + in-project tab, sidebar gating, colour tokens, UI
+library, the Tendering create-modal, `useBoqWizardStore`, the upload screen / drop zone, the
+blank-until-parsed + confirm-reset rule, the `uploadStatus` lifecycle, both socket-listener patterns, the
+hub parse-completion / recovery / reconnect / dismiss conventions, and the Continue + pre-fill gates)
+lives further down this file.
 
 ---
 

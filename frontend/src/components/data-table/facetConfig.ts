@@ -65,7 +65,7 @@ export interface FacetDeclaration {
    * This belongs on the DECLARATION, not `FacetOverride`, because it is a property of the
    * FIELD — a link field either has a meaningful "unset" state or it does not — so every
    * page rendering that column wants the same answer. Backend-side it only applies to
-   * text-storing, top-level (non-child, non-JSON) fields.
+   * text-storing or JSON top-level (non-child) fields; for JSON, "blank" = an empty value list.
    */
   includeBlankBucket?: boolean;
   /**

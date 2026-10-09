@@ -29,7 +29,7 @@ from nirmaan_stack.services.extraction.validation import (
 
 # ---- Tunable knobs ----------------------------------------------------------
 # ₹ tolerance for cumulative amount checks (gates 9 & 10). Matches the
-# existing `_check_po_amount_overage` tolerance in update_invoice_data.py.
+# existing `_check_invoice_amount_overage` tolerance in update_invoice_data.py.
 AMOUNT_TOLERANCE_RUPEES = 10
 # Currency comparison tolerance — guards against float wobble when comparing
 # stored Currency values to extracted string amounts.

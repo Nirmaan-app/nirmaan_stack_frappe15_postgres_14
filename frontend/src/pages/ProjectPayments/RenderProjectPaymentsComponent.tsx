@@ -1,7 +1,8 @@
 import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { getUrlStringParam } from "@/hooks/useServerDataTable";
 import { useUserData } from "@/hooks/useUserData";
-import { parseNumber } from "@/utils/parseNumber";
+// Only the hidden "Payments Pending" tab used this -- uncomment with it.
+// import { parseNumber } from "@/utils/parseNumber";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
 import { APPROVAL_COUNTS_API, APPROVAL_COUNTS_SWR_KEY, APPROVAL_STATUS } from "./config/approvalsTable.config";
@@ -106,9 +107,10 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         const accountantDefault = PP_TABS.NEW_PAYMENTS;
         const userDefault = PP_TABS.PAYMENTS_DONE;
         const remDefault = PP_TABS.PO_WISE;
-        // PMO sees neither the approval nor the settle tabs (2026-09-17), so it defaults to
-        // Payments Pending -- falling through to PO Wise would open a tab with no button.
-        const pmoDefault = PP_TABS.PAYMENTS_PENDING;
+        // PMO sees neither the approval nor the settle tabs (2026-09-17). It used to default to
+        // Payments Pending; that button is hidden (2026-10-07), so it lands on Payments Done
+        // instead -- falling through to PO Wise would open a tab with no button.
+        const pmoDefault = PP_TABS.PAYMENTS_DONE;
         return getUrlStringParam("tab", isHR ? PP_TABS.PAYMENT_BY_ME : isCEO ? ceoDefault : canApprovePayments ? adminDefault : isPMO ? pmoDefault : isAccountant ? accountantDefault : isProjectRole ? userDefault : remDefault);
     }, [isHR, isCEO, canApprovePayments, isPMO, isAccountant, isProjectRole]); // Calculate only once based on role
 
@@ -182,18 +184,16 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
             value: PP_TABS.PAYMENTS_DONE,
             countValue: unionCount(APPROVAL_STATUS.PAID, counts.pay.paid)
         },
-        {
-            // ⚠️ NOT in the owner's five-tab list, and NOT in the hide list either --
-            // left visible deliberately rather than quietly dropped. It is exactly the
-            // sum of tabs one, two and three, so it is a candidate to retire; say the
-            // word and it is this one object.
-            label: "Payments Pending",
-            value: PP_TABS.PAYMENTS_PENDING,
-            countValue:
-                parseNumber(unionCount(APPROVAL_STATUS.REQUESTED, counts.pay.requested))
-                + parseNumber(unionCount(APPROVAL_STATUS.CEO_PENDING, counts.pay.ceopending))
-                + parseNumber(unionCount(APPROVAL_STATUS.APPROVED, counts.pay.approved))
-        }
+        // HIDDEN from the tab strip (owner, 2026-10-07). The tab stays ROUTED, so a
+        // `?tab=Payments Pending` deep link still opens it. Uncomment to restore.
+        // {
+        //     label: "Payments Pending",
+        //     value: PP_TABS.PAYMENTS_PENDING,
+        //     countValue:
+        //         parseNumber(unionCount(APPROVAL_STATUS.REQUESTED, counts.pay.requested))
+        //         + parseNumber(unionCount(APPROVAL_STATUS.CEO_PENDING, counts.pay.ceopending))
+        //         + parseNumber(unionCount(APPROVAL_STATUS.APPROVED, counts.pay.approved))
+        // }
     ], [counts, unionCount]);
     // "Payment By Me" — every role on the page. The badge stays hidden until the count
     // loads (`countValue` undefined renders no badge) rather than flashing a 0.

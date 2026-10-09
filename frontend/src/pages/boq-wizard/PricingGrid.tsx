@@ -3817,7 +3817,8 @@ PricingGridRow.displayName = "PricingGridRow";
 // poll/save-status churn) now bails here instead of re-executing the whole grid body + running
 // pricingRowPropsAreEqual across every row. This is only sound because SheetPricingPage keeps ALL
 // grid props identity-stable (the 12 useMemo/useCallback wraps -- esp. `rows`/`displayRows`); a
-// future non-stable prop silently kills the shield (see frontend/CLAUDE.md).
+// future non-stable prop silently kills the shield (see frontend/.claude/context/domain/
+// boq-pricing-editor-frontend.md).
 export const PricingGrid = memo(forwardRef<PricingGridHandle, PricingGridProps>(function PricingGrid(
   { rows, columnDescriptors, onSaveRate, onBatchWrite, onDirtyChange, onHistoryChange, override = false, formulasComplete = true, categoryGateOpen = true, onSaveRemark, onSaveColor, columnFormulas = [], onSaveFormula, rowFlags, expanded = false, reconChoices = [], categoriesByExcelRow = EMPTY_CATEGORY_MAP, hasRun = false, rowTypeFilterOptions = EMPTY_FILTER_OPTIONS, rowTypeFilter = EMPTY_FILTER_SET, onRowTypeFilterChange, categoryFilterOptions = EMPTY_FILTER_OPTIONS, categoryFilter = EMPTY_FILTER_SET, onCategoryFilterChange, categoryLabelById = EMPTY_CATEGORY_LABEL_MAP, pendingLabelByCategory = EMPTY_PENDING_LABEL_MAP, onCategoryClick, rowSuggestionsByExcelRow = EMPTY_SUGGESTIONS_MAP, onSuggestionBadgeClick, tickableRows = EMPTY_ROW_SET, selectedRows = EMPTY_ROW_SET, onToggleTick, showOnlyTicked = false, onToggleTicked, onSaveReconChoice, hiddenCols, currentHitExcelRow = null, collapsed, childrenByParent, onToggleCollapse, onRevealRow, frozen = false, virtualized = false, bcsKinds = EMPTY_BCS_KINDS, bcsRatesByExcelRow = EMPTY_BCS_RATES_MAP, bcsQtySource = null, bcsAmountSource = null, onSaveBcsRates, bcsReadOnlyReason = null, marginFrom = "", marginTo = "", marginRangeCount = null, onApplyMarginRange, marginSortDir = null, onCycleMarginSort, viewFiltersActive = false, onClearViewFilters },
   ref,

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
     useReactTable,
     getCoreRowModel,
@@ -163,6 +163,19 @@ export interface ServerDataTableConfig<TData> {
     enableRowSelection?: boolean | ((row: Row<TData>) => boolean); // Allow function type
     /** Hook for row selection changes */
     onRowSelectionChange?: (updater: React.SetStateAction<RowSelectionState>) => void;
+    /**
+     * Row id for selection state. Pass `row => row.name` on a table with ticks: the default id is the
+     * row's index on the current page, so ticks would land on other rows after paging, sorting or
+     * filtering.
+     */
+    getRowId?: (row: TData, index: number) => string;
+    /**
+     * Clear the ticks whenever what the table shows changes: page, page size, search, search field,
+     * filters or sort. The selection then only ever holds rows on screen, so a count, an action or an
+     * export that reads `getSelectedRowModel()` (the current page) sees every tick. Applies to the
+     * hook's own selection state, not to an `onRowSelectionChange` the caller owns.
+     */
+    resetRowSelectionOnViewChange?: boolean;
     /** Optional Frappe orderBy string (e.g., "creation desc") */
     defaultSort?: string;
 
@@ -299,6 +312,8 @@ export function useServerDataTable<TData extends { name: string }>({
     initialState = {},
     enableRowSelection: configEnableRowSelection = false,
     onRowSelectionChange,
+    getRowId,
+    resetRowSelectionOnViewChange = false,
     defaultSort = 'creation desc',
     urlSyncKey,
     // --- NEW ---
@@ -375,7 +390,7 @@ export function useServerDataTable<TData extends { name: string }>({
     const { mutate } = useSWRConfig();
     // -----------------------------------------
     // --- State Management ---
-    const [pagination, setPagination] = useState<PaginationState>(() => ({
+    const [pagination, setPaginationState] = useState<PaginationState>(() => ({
         pageIndex: urlSyncKey ? getUrlIntParam(`${urlSyncKey}_pageIdx`, 0) : (initialState.pagination?.pageIndex ?? 0),
         // The URL wins when it carries a size; otherwise a caller's seeded page size is
         // the default, exactly as every other URL-synced param below treats initialState.
@@ -384,7 +399,7 @@ export function useServerDataTable<TData extends { name: string }>({
         pageSize: urlSyncKey ? getUrlIntParam(`${urlSyncKey}_pageSize`, initialState.pagination?.pageSize ?? 50) : (initialState.pagination?.pageSize ?? 50),
     }));
 
-    const [sorting, setSorting] = useState<SortingState>(() =>
+    const [sorting, setSortingState] = useState<SortingState>(() =>
         urlSyncKey
             ? getUrlJsonParam<SortingState>(`${urlSyncKey}_sort`, initialState.sorting ?? [])
             : (initialState.sorting ?? [])
@@ -395,13 +410,13 @@ export function useServerDataTable<TData extends { name: string }>({
         searchableFields?.find(f => f.default)?.value || searchableFields?.[0]?.value || 'name',
         [searchableFields]);
 
-    const [selectedSearchField, setSelectedSearchField] = useState<string>(() =>
+    const [selectedSearchField, setSelectedSearchFieldState] = useState<string>(() =>
         urlSyncKey
             ? getUrlStringParam(`${urlSyncKey}_searchBy`, initialState.selectedSearchField ?? defaultInitialSearchField)
             : (initialState.selectedSearchField ?? defaultInitialSearchField)
     );
 
-    const [searchTerm, setSearchTerm] = useState<string>(() => // This is the immediate input value
+    const [searchTerm, setSearchTermState] = useState<string>(() => // This is the immediate input value
         urlSyncKey
             ? getUrlStringParam(`${urlSyncKey}_q`, initialState.searchTerm ?? '')
             : (initialState.searchTerm ?? '')
@@ -409,7 +424,7 @@ export function useServerDataTable<TData extends { name: string }>({
     // -------------------------
 
     // --- Initialize columnFilters from single URL param ---
-    const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(() => {
+    const [columnFilters, setColumnFiltersState] = useState<ColumnFiltersState>(() => {
         if (urlSyncKey) {
             const encodedFilters = urlStateManager.getParam(`${urlSyncKey}_filters`); // Use single key
             const decoded = decodeFiltersFromUrl(encodedFilters);
@@ -459,11 +474,36 @@ export function useServerDataTable<TData extends { name: string }>({
     const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(initialState.columnVisibility ?? {});
     const [rowSelection, setRowSelection] = useState<RowSelectionState>(initialState.rowSelection ?? {});
 
+    // The setters of what the table shows. With `resetRowSelectionOnViewChange` each also clears the
+    // ticks, so every path that changes the view (the table, the toolbar, the URL) clears them too.
+    const { setPagination, setSorting, setSelectedSearchField, setSearchTerm, setColumnFilters } = useMemo(() => {
+        const clearingTicks = <S,>(set: React.Dispatch<React.SetStateAction<S>>): React.Dispatch<React.SetStateAction<S>> =>
+            resetRowSelectionOnViewChange
+                ? value => {
+                    set(value);
+                    setRowSelection({});
+                }
+                : set;
+        return {
+            setPagination: clearingTicks(setPaginationState),
+            setSorting: clearingTicks(setSortingState),
+            setSelectedSearchField: clearingTicks(setSelectedSearchFieldState),
+            setSearchTerm: clearingTicks(setSearchTermState),
+            setColumnFilters: clearingTicks(setColumnFiltersState),
+        };
+    }, [resetRowSelectionOnViewChange]);
+
+    // The search term the API is using now. The debounce below also fires on mount with the term read
+    // from the URL; resetting the page then would throw away a page index restored from the URL
+    // (a reload, or the header back arrow), so only a changed term starts again from page 1.
+    const apiSearchTermRef = useRef(debouncedSearchTermForApi);
+
     // --- Debounce Logic using lodash.debounce ---
     const debouncedSetApiSearchTerm = useMemo(
         () => debounce(
             (value: string) => {
-                if (!isClientSideMode) { // Only relevant for server-side mode
+                if (!isClientSideMode && value !== apiSearchTermRef.current) { // Only relevant for server-side mode
+                    apiSearchTermRef.current = value;
                     setDebouncedSearchTermForApi(value);
                     setPagination(p => ({ ...p, pageIndex: 0 }));
                 }
@@ -841,6 +881,7 @@ export function useServerDataTable<TData extends { name: string }>({
         // Configuration
         getPaginationRowModel: getPaginationRowModel(),
         enableRowSelection: configEnableRowSelection,
+        getRowId,
         // debugTable: import.meta.env.MODE === 'development', // Enable debugging in dev
         // debugAll: import.meta.env.MODE === 'development', // Enable debugging in dev
     });

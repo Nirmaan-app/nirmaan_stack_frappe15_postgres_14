@@ -15,11 +15,14 @@ from decimal import Decimal
 from nirmaan_stack.services.outflow_import.duplicates import (
     DUPLICATE_WARN_RATIO,
     PriorSighting,
+    Repeat,
     assess_duplicates,
     dates_agree,
     WIDE_IDENTITY_SOURCES,
     find_prior_sighting,
+    find_prior_sightings,
     index_prior_sightings,
+    match_repeat,
     row_identity,
     row_identity_of,
 )
@@ -175,9 +178,41 @@ class TestOrdinaryStatements(unittest.TestCase):
         self.assertEqual(verdict.message, "")
 
     def test_a_few_duplicates_explain_what_will_happen_to_them(self):
+        """ADR-0031: an exact repeat is not saved at all. The old promise ("staged and skipped") is
+        asserted ABSENT so it cannot come back to describe something the import no longer does."""
         verdict = assess_duplicates(total=43, duplicates=3, earliest_batch="OFI-26-00007")
-        self.assertIn("staged and skipped", verdict.message)
+        self.assertIn("will not be saved", verdict.message)
+        self.assertNotIn("staged and skipped", verdict.message)
         self.assertIn("OFI-26-00007", verdict.message)
+
+    def test_a_repeat_only_within_the_file_is_not_called_already_imported(self):
+        """#1359: "1 of 2 transfers were already imported" was said of a line repeated in the file."""
+        verdict = assess_duplicates(total=2, duplicates=1, repeated_in_file=1)
+        self.assertEqual(
+            verdict.message, "1 of 2 transfers are repeated in this file. They will not be saved."
+        )
+
+    def test_repeats_of_both_kinds_name_both(self):
+        verdict = assess_duplicates(
+            total=10, duplicates=3, earliest_batch="OFI-26-00007", repeated_in_file=1
+        )
+        self.assertEqual(
+            verdict.message,
+            "3 of 10 transfers were already imported in batch OFI-26-00007 or repeated in this "
+            "file. They will not be saved.",
+        )
+
+    def test_the_warning_says_in_file_repeats_are_repeated_in_this_file(self):
+        verdict = assess_duplicates(total=10, duplicates=9, repeated_in_file=9)
+        self.assertEqual(
+            verdict.message,
+            "Only 1 of 10 transfers in this file are new. "
+            "The other 9 are repeated in this file and will not be saved.",
+        )
+
+    def test_the_warning_also_says_the_repeats_will_not_be_saved(self):
+        verdict = assess_duplicates(total=43, duplicates=40, earliest_batch="OFI-26-00007")
+        self.assertIn("will not be saved", verdict.message)
 
     def test_an_empty_statement_is_not_a_hundred_percent_duplicated(self):
         """0/0 is not 100%. An empty file is a FORMAT problem, reported by the parser -- reading it
@@ -303,6 +338,102 @@ class TestPriorSightings(unittest.TestCase):
         self.assertEqual(
             index[("OBO1", Decimal("250"))],
             (PriorSighting(added_on_date=None, label="Non Project Expenses 7u93vm8hhe"),),
+        )
+
+
+class TestBankStatusOnASighting(unittest.TestCase):
+    """ADR-0031: an earlier IMPORT ROW carries the bank status it was stored with."""
+
+    def test_a_fifth_element_is_the_bank_status(self):
+        index = index_prior_sightings(
+            [("OBO1", Decimal("250"), date(2026, 8, 1), "BATCH-A", "SUCCESS")]
+        )
+        self.assertEqual(index[("OBO1", Decimal("250"))][0].bank_status, "SUCCESS")
+
+    def test_a_four_element_entry_still_indexes_with_a_blank_status(self):
+        """The booked-expense corpus has no bank status; its entries stay four long."""
+        index = index_prior_sightings([("OBO1", Decimal("250"), None, "Project Expenses X")])
+        self.assertEqual(index[("OBO1", Decimal("250"))][0].bank_status, "")
+
+    def test_a_seventh_element_says_whether_the_sighting_is_final(self):
+        index = index_prior_sightings(
+            [
+                ("OBO1", Decimal("250"), None, "BATCH-A", "QUEUED", (), False),
+                ("OBO1", Decimal("250"), None, "BATCH-B", "SUCCESS", ()),
+            ]
+        )
+        self.assertEqual([s.final for s in index[("OBO1", Decimal("250"))]], [False, True])
+
+    def test_find_prior_sightings_returns_every_agreeing_sighting_in_order(self):
+        index = index_prior_sightings(
+            [
+                ("OBO1", Decimal("250"), date(2026, 8, 1), "BATCH-A", "SUCCESS"),
+                ("OBO1", Decimal("250"), date(2026, 7, 1), "BATCH-OTHER-DAY", "SUCCESS"),
+                ("OBO1", Decimal("250"), date(2026, 8, 1), "BATCH-B", "REVERSED"),
+            ]
+        )
+        found = find_prior_sightings(index, "OBO1", Decimal("250"), date(2026, 8, 1))
+        self.assertEqual([s.label for s in found], ["BATCH-A", "BATCH-B"])
+        self.assertEqual(find_prior_sightings(index, "", Decimal("250"), None), ())
+
+
+class TestMatchRepeat(unittest.TestCase):
+    """Exact repeat (same bank status: not saved) or status change (saved, both statuses named)."""
+
+    def _sightings(self, *pairs):
+        return tuple(
+            PriorSighting(added_on_date=None, label=label, bank_status=status)
+            for label, status in pairs
+        )
+
+    @staticmethod
+    def _in_flight(label, status):
+        return PriorSighting(added_on_date=None, label=label, bank_status=status, final=False)
+
+    def test_no_sighting_is_no_repeat(self):
+        self.assertIsNone(match_repeat((), "SUCCESS"))
+
+    def test_the_same_status_is_an_exact_repeat(self):
+        self.assertEqual(
+            match_repeat(self._sightings(("B1", "SUCCESS")), "SUCCESS"),
+            Repeat(label="B1", earlier_status="SUCCESS", exact=True),
+        )
+
+    def test_status_is_compared_trimmed_and_upper_cased(self):
+        """The same normalisation as the terminal-status filter: padding or case is not news."""
+        repeat = match_repeat(self._sightings(("B1", " success ")), "Success")
+        self.assertTrue(repeat.exact)
+
+    def test_a_different_status_is_a_status_change_naming_the_earliest_sighting(self):
+        self.assertEqual(
+            match_repeat(self._sightings(("B1", "SUCCESS"), ("B2", "SUCCESS")), "REVERSED"),
+            Repeat(label="B1", earlier_status="SUCCESS", exact=False),
+        )
+
+    def test_any_sighting_with_the_same_status_makes_it_exact(self):
+        """SUCCESS in B1, REVERSED saved in B2: a third statement's REVERSED line is already held.
+        Comparing only against the earliest sighting would save it again on every later upload."""
+        self.assertEqual(
+            match_repeat(self._sightings(("B1", "SUCCESS"), ("B2", "REVERSED")), "REVERSED"),
+            Repeat(label="B2", earlier_status="REVERSED", exact=True),
+        )
+
+    def test_an_in_flight_sighting_with_the_same_status_makes_it_exact(self):
+        """#1359: an identical in-flight line is already held."""
+        self.assertEqual(
+            match_repeat((self._in_flight("B1", "QUEUED"),), "QUEUED"),
+            Repeat(label="B1", earlier_status="QUEUED", exact=True),
+        )
+
+    def test_an_in_flight_sighting_is_never_the_basis_of_a_status_change(self):
+        """D4: a QUEUED line must never block its later SUCCESS."""
+        self.assertIsNone(match_repeat((self._in_flight("B1", "QUEUED"),), "SUCCESS"))
+
+    def test_a_status_change_steps_over_in_flight_sightings_to_the_first_final_one(self):
+        sightings = (self._in_flight("B1", "QUEUED"), *self._sightings(("B2", "SUCCESS")))
+        self.assertEqual(
+            match_repeat(sightings, "REVERSED"),
+            Repeat(label="B2", earlier_status="SUCCESS", exact=False),
         )
 
 

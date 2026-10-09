@@ -118,7 +118,7 @@ choice:
   side effect of an ordinary edit.
 - **History.** On the dev database every one of the 323 expenses with Settled slips is Paid with one slip
   within ₹5 of its amount, so rule 4 flips none of them. Recount on production before release.
-- **Held until the build is finished (owner instruction):** the `CONTEXT.md` glossary entry *Bounced
+- **Held until the build is finished (owner instruction):** the `GLOSSARY.md` glossary entry *Bounced
   transfer*, worded to say the back line is the system skip *Failed payment bounced back*; and the stale
   *Skipped by hand* entry, which ADR-0022 Amendment C already contradicts.
 - **Future:** a snapshot of the record amount on each slip so multi-slip undo can check for drift (Q21);

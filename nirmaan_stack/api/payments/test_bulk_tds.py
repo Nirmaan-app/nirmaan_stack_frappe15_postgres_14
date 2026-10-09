@@ -116,16 +116,17 @@ class TestBulkApproveTDS(FrappeTestCase):
 		super().tearDown()
 
 	# -- helpers ---------------------------------------------------------------------------
-	def _pay(self, amount, status="CEO Pending", parent_dt=SR, parent=None):
+	def _pay(self, amount, status="CEO Pending", parent_dt=SR, parent=None, gst=False):
 		"""A payment planted straight into the table — see `test_payment_tds`'s note on why."""
 		name = f"{P}PAY-{frappe.generate_hash(length=8)}"
 		frappe.db.sql(
 			f"""INSERT INTO "tab{PAYMENT}" (name, creation, modified, modified_by, owner,
-					docstatus, idx, project, vendor, amount, status, document_type, document_name)
-				VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s)""",
+					docstatus, idx, project, vendor, amount, status, document_type, document_name,
+					is_gst_payment)
+				VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, %s)""",
 			(
 				name, U, U, self.project, self.vendor, amount, status,
-				parent_dt, parent or (self.sr if parent_dt == SR else self.po),
+				parent_dt, parent or (self.sr if parent_dt == SR else self.po), 1 if gst else 0,
 			),
 		)
 		frappe.db.commit()
@@ -168,6 +169,22 @@ class TestBulkApproveTDS(FrappeTestCase):
 		self.assertEqual(self._amount(ordinary), 784.0)
 		self.assertEqual(frappe.db.get_value(TDS_DOCTYPE, self._deduction(borne), "tds_amount"), 16.0)
 		self.assertEqual(frappe.db.get_value(TDS_DOCTYPE, self._deduction(ordinary), "tds_amount"), 16.0)
+
+	def test_bulk_approve_never_taxes_a_gst_payment(self):
+		"""A mixed batch (ADR-0030): the GST payment keeps its full amount and gets no row; the base
+		payment beside it on the same Work Order is taxed exactly as before."""
+		gst, base = self._pay(10000, gst=True), self._pay(10000)
+
+		res = bulk_actions.bulk_ceo_approve_payments([gst, base], "approve")["data"]
+
+		self.assertEqual(sorted(res["succeeded"]), sorted([gst, base]))
+		self.assertEqual(res["tds_recorded"], 1)
+		self.assertEqual(res["tds_failed"], [])
+		self.assertEqual(self._status(gst), "Approved")
+		self.assertEqual(self._amount(gst), 10000.0)
+		self.assertIsNone(self._deduction(gst))
+		self.assertEqual(self._amount(base), 9800.0)
+		self.assertTrue(self._deduction(base))
 
 	def test_the_deduction_row_keeps_the_gross(self):
 		"""`Project Payments.amount` is the net afterwards, so the row is the only gross left."""

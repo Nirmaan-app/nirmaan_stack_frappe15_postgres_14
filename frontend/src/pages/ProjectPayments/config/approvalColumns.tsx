@@ -16,7 +16,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToApproxLakhs, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { CircleCheck, CirclePause, CirclePlay, CircleX, IndianRupee, Paperclip, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { CircleCheck, CirclePause, CirclePlay, CircleX, IndianRupee, Paperclip, Pencil, RotateCcw, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import SITEURL from "@/constants/siteURL";
@@ -27,6 +27,7 @@ import {
   VendorDetailPopover,
 } from "../components/DetailPopovers";
 import { ExpenseBankLinesPopover } from "../components/ExpenseBankLinesPopover";
+import { GstPaymentTag } from "../components/GstPaymentTag";
 import { partReconciled } from "../components/expenseBankLinesView";
 
 import {
@@ -93,6 +94,13 @@ export interface ApprovalColumnCtx {
    * PO / SR page instead).
    */
   onDelete?: (row: ApprovalQueueRow) => void;
+  /**
+   * Upload / replace an expense's invoice on "Payment Done / Reconciliation Done" — the row's own
+   * button, beside the pencil, only where `canUploadInvoice` (`queueRowActions.canUploadInvoiceRow`)
+   * admits it. A small "Upload Inv" until one is attached, then a green "Edit Inv" (paperclip).
+   */
+  onUploadInvoice?: (row: ApprovalQueueRow) => void;
+  canUploadInvoice?: (row: ApprovalQueueRow) => boolean;
 }
 
 const AGAINST_LINE_LIMIT = 40;
@@ -182,7 +190,8 @@ const REGISTRY: Record<
       // (the expense pencil, the payment revert) takes 32 more.
       (ctx.tab === PP_TABS.NEW_PAYMENTS ? (ctx.onDelete ? 180 : 148) + (ctx.onToggleHold ? 32 : 0)
         : ctx.tab === PP_TABS.RECONCILIATION_PENDING ? (ctx.onRevert ? 192 : 160)
-        : ctx.tab === PP_TABS.PAYMENTS_DONE ? 80
+        // 140 with the invoice button: the small "Upload Inv" button is ~88px, plus the pencil beside it.
+        : ctx.tab === PP_TABS.PAYMENTS_DONE ? (ctx.onUploadInvoice ? 140 : 80)
         : ctx.tab === PP_TABS.PAYMENT_BY_ME ? 64
         : 72) + (ctx.onEdit && ctx.tab !== PP_TABS.PAYMENTS_DONE ? 32 : 0),
     cell: ({ row }) => {
@@ -197,11 +206,39 @@ const REGISTRY: Record<
       ) : null;
       const none = <span className="text-muted-foreground">--</span>;
 
-      // Settled and mixed-status tabs: nothing to approve or settle here, so the pencil is the
+      // Paid tab: a Paid expense's invoice can be added or replaced here, beside the pencil.
+      // ⚠️ MUST stay above the Approve / Reject fall-through below, like the branch after it.
+      if (ctx.tab === PP_TABS.PAYMENTS_DONE) {
+        const invoice = ctx.onUploadInvoice && ctx.canUploadInvoice?.(r) ? (
+          r.has_invoice ? (
+            <Button size="sm" variant="outline" title="Edit invoice"
+              className="h-6 px-1.5 text-[11px] border-green-600 text-green-700 hover:text-green-800 dark:text-green-400"
+              onClick={() => ctx.onUploadInvoice?.(r)}>
+              <Paperclip className="mr-1 h-3 w-3" />
+              Edit Inv
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" title="Upload invoice"
+              className="h-6 px-1.5 text-[11px] border-primary text-primary"
+              onClick={() => ctx.onUploadInvoice?.(r)}>
+              <Upload className="mr-1 h-3 w-3" />
+              Upload Inv
+            </Button>
+          )
+        ) : null;
+        if (!invoice) return edit ?? none;
+        return (
+          <div className="flex items-center gap-1">
+            {invoice}
+            {edit}
+          </div>
+        );
+      }
+
+      // Mixed-status tabs: nothing to approve or settle here, so the pencil is the
       // whole cell. ⚠️ These MUST stay above the Approve / Reject fall-through below.
       if (
-        ctx.tab === PP_TABS.PAYMENTS_DONE
-        || ctx.tab === PP_TABS.PAYMENTS_PENDING
+        ctx.tab === PP_TABS.PAYMENTS_PENDING
         || ctx.tab === PP_TABS.ALL_PAYMENTS
       ) {
         return edit ?? none;
@@ -332,7 +369,12 @@ const REGISTRY: Record<
     id: "source_type",
     accessorKey: "source_type",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Type" />,
-    cell: ({ row }) => <TypeChip type={row.original.source_type} />,
+    cell: ({ row }) => (
+      <span className="inline-flex items-center">
+        <TypeChip type={row.original.source_type} />
+        <GstPaymentTag payment={row.original} />
+      </span>
+    ),
     // Sized for the longest label, "Non Project Expense", rendered as a pill.
     size: 158,
     meta: { exportHeaderName: "Type", exportValue: (r: ApprovalQueueRow) => TYPE_LABEL[r.source_type] ?? r.source_type },

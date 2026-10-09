@@ -22,10 +22,9 @@ re-fetches a multi-megabyte workbook from cloud storage into a tempfile because 
 gone by then. A statement is a few kilobytes and we already hold its bytes, so there is nothing to
 re-fetch and no worker to coordinate. Do not "align" this with the BoQ flow.
 
-⚠️ THE ROOT CLAUDE.md "BoQ File Reading (S3 safety)" SECTION IS STALE about the BoQ worker (it
-describes a tempfile written from in-memory bytes; the code re-fetches by URL instead). The one
-invariant that IS still true, and that this module honours, is: read the werkzeug stream exactly
-ONCE -- it is consumed on read.
+Root CODING_STANDARDS.md "Reading uploaded file bytes" describes both shapes: this module is the
+in-request one, the BoQ worker the re-fetch-by-URL one. The invariant this module honours: read the
+werkzeug stream exactly ONCE -- it is consumed on read.
 """
 
 import os
@@ -35,17 +34,21 @@ from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.services.outflow_import.bank_exclusions import should_skip
-from nirmaan_stack.services.outflow_import.candidates import find_earlier_batches_for_rows
-from nirmaan_stack.services.outflow_import.duplicates import assess_duplicates, row_identity_of
+from nirmaan_stack.services.outflow_import.candidates import find_earlier_sightings_for_rows
+from nirmaan_stack.services.outflow_import.duplicates import (
+    assess_duplicates,
+    row_identity_of,
+)
 from nirmaan_stack.services.outflow_import.parser import (
     DIRECTION_CREDIT,
     DIRECTION_DEBIT,
     SUPPORTED_SOURCES,
     StatementFormatError,
     describe_mapped_columns,
-    is_terminal_status,
     parse_statement,
+    stored_money,
 )
+from nirmaan_stack.services.outflow_import.repeats import RepeatSplit, split_repeats
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     resolve_settlement_reference,
 )
@@ -123,7 +126,8 @@ def preview_outflow_statement():
     see it. This endpoint is where it becomes visible BEFORE anything is written.
     """
     _, source, filename, _, parsed = _read_and_parse()
-    verdict, overlaps = _assess_statement(parsed, filename)
+    verdict = _assess_statement(parsed, filename)
+    overlaps = _find_overlapping_batch(parsed.period_from, parsed.period_to)
 
     payload = {
         "preview": True,
@@ -233,12 +237,15 @@ def upload_outflow_statement():
     URL: /api/method/nirmaan_stack.api.outflow_import.upload.upload_outflow_statement
     """
     user, source, filename, file_content, parsed = _read_and_parse()
+    # Planned ONCE (#1358): the refusal below and the staging both read this plan, so an upload asks
+    # the earlier-sightings question once and the two can never disagree about which lines repeat.
+    plan = _plan_lines(parsed)
 
     # ⚠️ THE REFUSAL HAPPENS BEFORE `save_file`, WHICH IS THE ONLY PLACE IT CAN. `save_file` is not
     # rollback-able -- the cloud attachment hook commits inside this request -- so a refusal after
     # it would leave an orphan File behind for a statement we declined. Owner ruling Q2: a wholly
     # duplicated sheet writes NOTHING AT ALL.
-    verdict, _ = _assess_statement(parsed, filename)
+    verdict = _assess_statement(parsed, filename, plan)
     if verdict.refuse:
         frappe.throw(verdict.message, title="Already imported")
 
@@ -247,7 +254,7 @@ def upload_outflow_statement():
     # insert, so any URL computed beforehand is already wrong.
     file_url = ret.file_url
 
-    batch = _stage_batch(parsed, file_url=file_url, filename=filename, user=user)
+    batch = _stage_batch(parsed, file_url=file_url, filename=filename, user=user, plan=plan)
 
     # Link the File to the batch so the CSV appears under its attachments. Done after the batch
     # exists, because the File is created first (see the module docstring).
@@ -348,34 +355,58 @@ def _posted_header_row() -> int | None:
     return int(raw)
 
 
-def _assess_statement(parsed, filename: str):
-    """How much of this statement is already imported, and the overlap warning. READ-ONLY.
+def _assess_statement(parsed, filename: str, plan: RepeatSplit | None = None):
+    """How much of this statement is already imported -- refuse, warn or proceed. READ-ONLY.
 
-    Returns `(DuplicateVerdict, overlapping_batch_name)`. Called by BOTH the preview and the
-    upload, so what the preview promised is what the upload enforces.
+    Called by BOTH the preview and the upload, so what the preview promised is what the upload
+    enforces. The upload passes the plan it stages from; without one (the preview, and the tests that
+    call this directly) it is planned here.
+
+    ⚠️ IT COUNTS FROM `_plan_lines`, THE SAME PLAN `_stage_batch` WRITES FROM (ADR-0031). The
+    preview's "already imported" count is the number of lines the upload will leave out, in-file
+    repeats included, and `new` is the number it will save. Counting them any other way here is how
+    the preview would promise a number the upload then misses.
+    """
+    if plan is None:
+        plan = _plan_lines(parsed)
+    return assess_duplicates(
+        total=len(parsed.rows),
+        duplicates=plan.repeats_not_saved,
+        earliest_batch=plan.repeat_of_batch,
+        filename=filename,
+        repeated_in_file=plan.repeated_in_file,
+    )
+
+
+def _plan_lines(parsed) -> RepeatSplit:
+    """Decide, line by line, what an upload of this statement saves. READ-ONLY. ADR-0031.
+
+    An EXACT repeat -- the same identity and the same bank status as a line the system already
+    holds, from an earlier import or from earlier in this file -- is left out and counted. Every
+    other line is saved (`kept`), including a repeat whose bank status changed (SUCCESS earlier,
+    REVERSED now), which is new information about the money.
+
+    ⚠️ ONE PLAN FOR THE PREVIEW AND THE UPLOAD. `_assess_statement` counts from it and `_stage_batch`
+    writes from it, so the two cannot disagree about which lines are repeats.
+
+    ⚠️ THE IN-FILE CHECK WIDENED WITH THE CROSS-BATCH ONE (slice D3), AND HAD TO. These two ask the
+    same question -- "is this the same transfer?" -- about different populations, so a key that
+    differed between them would let one call a pair of rows duplicates while the other called them
+    distinct, on one screen, about the same two lines. Both read `_row_identity`.
+
+    ⚠️ THE WALK ITSELF IS `repeats.split_repeats`, SHARED WITH CASHBOOK (#1355). This passes the
+    things that stay per-source: the identity, and the PERIOD-NARROWED earlier sightings (in-flight ones
+    included, never final -- #1359). The in-file rule is the default: every line is a sighting for an
+    identical copy, and a terminal line is also final, the basis of a status change.
     """
     already_imported = _already_imported(parsed)
-
-    # ⚠️ COUNT ROWS, NOT KEYS. `already_imported` is keyed by row IDENTITY, and a statement may
-    # carry the same transfer TWICE -- the fixture does, deliberately. Using `len()` of the map
-    # against a row count compares two different populations, and the arithmetic is off by exactly
-    # the number of in-file repeats: a fully duplicated 11-row sheet with one repeat reported 10 of
-    # 11 and warned instead of refusing. Both numbers must count the same thing.
-    duplicates = sum(
-        1 for row in parsed.rows if _row_identity(row, parsed.source) in already_imported
+    return split_repeats(
+        parsed.rows,
+        identity_of=lambda row: _row_identity(row, parsed.source),
+        earlier_sightings_of=lambda row: already_imported.get(
+            _row_identity(row, parsed.source), ()
+        ),
     )
-    earliest = next(
-        (already_imported[_row_identity(row, parsed.source)] for row in parsed.rows
-         if _row_identity(row, parsed.source) in already_imported),
-        None,
-    )
-    verdict = assess_duplicates(
-        total=len(parsed.rows),
-        duplicates=duplicates,
-        earliest_batch=earliest,
-        filename=filename,
-    )
-    return verdict, _find_overlapping_batch(parsed.period_from, parsed.period_to)
 
 
 def _row_identity(row, source: str):
@@ -445,12 +476,15 @@ def _already_imported(parsed, exclude_batch: str | None = None) -> dict:
     returned map is keyed by that same tuple, which is why every caller here looks up through
     `_row_identity`.
 
+    ⚠️ IT RETURNS EVERY EARLIER SIGHTING, WITH ITS BANK STATUS (ADR-0031), because whether a line is
+    an exact repeat depends on whether ANY of them carries its status -- see `_plan_lines`.
+
     ⚠️ AND IT HANDS OVER THE SOURCE (slice B3), BECAUSE THE SOURCE CHOOSES THE KEY. The map this
     returns is keyed by the identity and the callers look up by recomputing it, so the two have to
     be computing the same shape. Drop `source` here and every ICICI lookup misses -- which does not
     raise, it just reports a re-uploaded statement as entirely new and stages all 1,274 rows again.
     """
-    return find_earlier_batches_for_rows(
+    return find_earlier_sightings_for_rows(
         parsed.rows,
         exclude_batch=exclude_batch,
         period_from=parsed.period_from,
@@ -459,19 +493,36 @@ def _already_imported(parsed, exclude_batch: str | None = None) -> dict:
     )
 
 
-def _stage_batch(parsed, file_url: str, filename: str, user: str):
+def _stage_batch(parsed, file_url: str, filename: str, user: str, plan: RepeatSplit | None = None):
     """Create the batch and one row per parsed transfer. No matching happens here -- that is S4.
 
-    ⚠️ EVERY PARSED ROW IS STAGED, INCLUDING THE ONES WE HAVE ALREADY DECIDED ARE NOT WORK (slice
-    B3). A bank statement carries hundreds of lines that are not spending at all -- wallet top-ups,
-    the bank's own ledger shuffles, failed payments bouncing home -- and 405 of the real 1,274 match
-    a `bank_exclusions` rule. They are staged `Skipped`, carrying the id of the rule that decided
-    it, rather than dropped at the door. The rows are cheap and the alternative is not: a dropped
-    row is an absence, and nobody can review, count or argue with an absence. It is the same
-    contract the parser already keeps for a FAILED transfer, for the same reason.
+    `plan` is the upload's own `_plan_lines` (#1358: planned once per upload). Tests stage directly
+    and omit it; it is then planned here.
+
+    ⚠️ EVERY PARSED ROW IS STAGED **EXCEPT AN EXACT REPEAT**, WHICH IS COUNTED INSTEAD (ADR-0031).
+
+    An exact repeat is a line the system already holds with the same bank status -- from an earlier
+    import or from earlier in this file (`_plan_lines`). It is not saved; the batch keeps only
+    `repeats_not_saved`, the one trace it leaves. This REVERSES the slice-B3 ruling that every parsed
+    row is staged: overlapping daily statements made 65% of all stored rows copies of lines already
+    dealt with, burying the real skips. A repeat whose bank status CHANGED is still staged, skipped,
+    with a reason naming both statuses. `total_rows` and the other counters are derived from the
+    stored rows, so they exclude the exact repeats.
+
+    ⚠️ EVERYTHING ELSE IS STILL STAGED, INCLUDING THE LINES WE HAVE ALREADY DECIDED ARE NOT WORK
+    (slice B3). A bank statement carries hundreds of lines that are not spending at all -- wallet
+    top-ups, the bank's own ledger shuffles, failed payments bouncing home -- and 405 of the real
+    1,274 match a `bank_exclusions` rule. The FIRST sighting of each is staged `Skipped`, carrying the
+    id of the rule that decided it, rather than dropped at the door, so it can be reviewed, counted
+    and argued with. It is the same contract the parser already keeps for a FAILED transfer.
+
+    ⚠️ THE RISK ADR-0031 ACCEPTED: if the repeat check ever wrongly calls a real line a repeat (the
+    D4 stranding bug was that shape), no row is left to notice or repair. `repeats_not_saved` is the
+    only remaining signal -- a count that looks wrong for a file is the cue to investigate.
     """
     overlaps = _find_overlapping_batch(parsed.period_from, parsed.period_to)
-    already_imported = _already_imported(parsed)
+    if plan is None:
+        plan = _plan_lines(parsed)
     # Resolved ONCE per batch rather than per row: it is a fact about the statement, and asking it
     # 1,274 times invites a call site that asks it differently.
     #
@@ -480,6 +531,8 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
     # a staging decision that said `Mismatched` while the match run still ran the tier ladder would
     # be the two halves of one ruling disagreeing.
     no_settlement_path = not source_has_settlement_path(parsed.source)
+
+    gross, charges = stored_money([line.row for line in plan.kept])
 
     batch = frappe.new_doc(BATCH_DOCTYPE)
     batch.update(
@@ -490,8 +543,11 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
             "period_from": parsed.period_from,
             "period_to": parsed.period_to,
             "overlaps_batch": overlaps,
-            "gross_amount": float(parsed.gross_amount),
-            "charges_amount": float(parsed.charges_amount),
+            # The SAVED lines' money, not the file's -- see `parser.stored_money` (#1354).
+            "gross_amount": float(gross),
+            "charges_amount": float(charges),
+            # Written ONCE, here, and never recomputed: the rows it counts do not exist (ADR-0031).
+            "repeats_not_saved": plan.repeats_not_saved,
             "uploaded_by": user,
             "uploaded_at": frappe.utils.now_datetime(),
             "status": "Draft",
@@ -500,28 +556,19 @@ def _stage_batch(parsed, file_url: str, filename: str, user: str):
     batch.insert(ignore_permissions=True)
 
     statuses = []
-    # ⚠️ THE IN-FILE CHECK WIDENED WITH THE CROSS-BATCH ONE (slice D3), AND HAD TO. These two ask
-    # the same question -- "is this the same transfer?" -- about different populations, so a key
-    # that differed between them would let one call a pair of rows duplicates while the other
-    # called them distinct, on one screen, about the same two lines. Both read `_row_identity`.
-    seen_in_file: set = set()
-    for row in parsed.rows:
-        identity = _row_identity(row, parsed.source)
+    for line in plan.kept:
+        row = line.row
+        # A planned repeat is always a STATUS CHANGE (an exact one is not planned); the earlier
+        # batch's status wins the sentence when both kinds apply, as `already_imported_in` does.
+        repeat = line.earlier or line.in_file
         outcome = derive_staged_row_outcome(
             row,
-            already_imported.get(identity),
-            duplicate_in_file=identity in seen_in_file,
+            line.earlier.label if line.earlier else None,
+            duplicate_in_file=line.in_file is not None,
             excluded_category=_exclusion_category(row, parsed.source),
             no_settlement_path=no_settlement_path,
+            earlier_bank_status=repeat.earlier_status if repeat else "",
         )
-        # ⚠️ ONLY A TERMINAL ROW JOINS THE SET, matching the rule the CROSS-BATCH lookup now applies
-        # (`candidates.find_earlier_batches_for_rows`). The two ask the same question of different
-        # populations, so a row that could block a later import from an earlier BATCH but not from
-        # an earlier LINE would be the two-answers-about-one-file split the comment above exists to
-        # prevent. An export is a snapshot and should never list one transfer twice, so this is
-        # closing the shape rather than a case seen in the wild.
-        if is_terminal_status(row.status_raw):
-            seen_in_file.add(identity)
         statuses.append(outcome.status)
 
         doc = frappe.new_doc(ROW_DOCTYPE)
@@ -632,8 +679,11 @@ def _summarize(batch, parsed):
         "status": batch.status,
         "total_rows": batch.total_rows,
         "skipped_rows": batch.skipped_rows,
-        "gross_amount": float(parsed.gross_amount),
-        "charges_amount": float(parsed.charges_amount),
+        "repeats_not_saved": batch.repeats_not_saved,
+        # Read off the BATCH, beside the counters above, so the upload result describes the same
+        # rows it counts (#1354). The file's whole figures are the preview's to show.
+        "gross_amount": float(batch.gross_amount),
+        "charges_amount": float(batch.charges_amount),
         "overlaps_batch": batch.overlaps_batch,
         "warnings": list(parsed.warnings),
         "duplicate_transfer_ids": list(parsed.duplicate_transfer_ids),

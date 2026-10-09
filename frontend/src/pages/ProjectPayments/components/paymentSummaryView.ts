@@ -24,18 +24,49 @@ export interface SummaryPayment {
   raised_by: string | null;
   raised_by_name: string | null;
   mode_of_payment?: string | null;
+  /** 1 on a GST payment (ADR-0030). */
+  is_gst_payment?: number;
+}
+
+/**
+ * A Work Order's payment limit (ADR-0030), from `services/work_order_payment_limit.py`. Every figure
+ * is the server's; the dialog shows them and never re-derives one.
+ */
+export interface WorkOrderLimit {
+  gst_on: boolean;
+  base_value: number;
+  work_order_gst: number;
+  gst_invoiced: number;
+  /** min(GST Invoiced, Work Order GST): the GST that may be paid at all. */
+  gst_released: number;
+  base_paid: number;
+  gst_paid: number;
+  base_left: number;
+  gst_left: number;
+  total_left: number;
+  /** What each part may take: min(its own left, total left), and which of the two binds. */
+  caps: Record<PayFor, PartCap>;
+}
+
+export type PayFor = "base" | "gst";
+
+export interface PartCap {
+  cap: number;
+  binds: "part" | "total";
 }
 
 export interface PaymentSummary {
   document_type: "Procurement Orders" | "Service Requests";
   document_name: string;
-  value_basis: "incl_gst" | "ex_gst" | "total";
+  value_basis: "incl_gst" | "total";
   line_order: SummaryLineKey[];
   value: number;
   lines: Record<SummaryLineKey, number>;
   committed: number;
   left: number;
   payments: SummaryPayment[];
+  /** Work Orders only. */
+  limit?: WorkOrderLimit;
 }
 
 /** Display order, server-independent: money that has left, money on its way, money held. */
@@ -75,7 +106,6 @@ export const orderNoun = (documentType: string) =>
 
 export const valueLabel = (summary: Pick<PaymentSummary, "document_type" | "value_basis">): string => {
   const noun = orderNoun(summary.document_type);
-  if (summary.value_basis === "ex_gst") return `${noun} base amount (ex-GST)`;
   if (summary.value_basis === "incl_gst") return `${noun} value (incl. GST)`;
   return `${noun} value`;
 };
@@ -120,3 +150,37 @@ export const barSegments = (
   const left = Math.max(0, total - settled - onItsWay - current);
   return { settled: pct(settled), onItsWay: pct(onItsWay), current: pct(current), left: pct(left) };
 };
+
+/**
+ * The most a request for one part of a GST-on Work Order may be -- Full, %, Due and the cap all
+ * measure against it -- and what to call it. Both come from the server's `limit.caps`
+ * (`services/work_order_payment_limit.part_cap`); this only names the figure.
+ */
+export const payForCap = (limit: WorkOrderLimit, payFor: PayFor) => {
+  const { cap, binds } = limit.caps[payFor];
+  return {
+    max: cap,
+    capLabel: binds === "total" ? "total left" : payFor === "gst" ? "GST left" : "Base left",
+  };
+};
+
+/** Why GST left reads 0, or null while some is left. */
+export const gstLeftNote = (limit: WorkOrderLimit): string | null => {
+  if (limit.gst_left > 0) return null;
+  return limit.gst_released <= 0
+    ? "Opens when an invoice with GST is approved"
+    : "All approved invoice GST is already requested";
+};
+
+/**
+ * The most a new payment on a Work Order may be, as the server's limit checks it: the chosen part's
+ * cap on a GST-on Work Order, otherwise what is left of its total. For the Accountant's paid entry,
+ * which records a payment straight as Paid and has no Full / % / Due shortcuts.
+ */
+export const workOrderPaymentCap = (
+  summary: Pick<PaymentSummary, "left" | "limit">,
+  payFor: PayFor
+): { max: number; capLabel: string } =>
+  summary.limit?.gst_on
+    ? payForCap(summary.limit, payFor)
+    : { max: Math.max(0, summary.left), capLabel: "balance" };

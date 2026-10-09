@@ -48,6 +48,10 @@ describe("paymentMode", () => {
 			expect(chequeAmountFor(50000, forecastTds("Service Requests", 50000, 2, true))).toBe(50000);
 		});
 
+		it("a GST payment is never taxed and is written for the full amount", () => {
+			expect(chequeAmountFor(50000, forecastTds("Service Requests", 50000, 2, false, true))).toBe(50000);
+		});
+
 		it("a Procurement Order has no TDS and is written for the amount", () => {
 			expect(chequeAmountFor(50000, forecastTds("Procurement Orders", 50000, 2))).toBe(50000);
 		});

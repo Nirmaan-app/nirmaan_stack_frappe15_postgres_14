@@ -882,7 +882,7 @@ def _suggest_worker(boq=None, sheet_name=None, user=None, resume_run_id=None, on
                 ),
             )
 
-        frappe.db.commit()  # commit BEFORE publish (CLAUDE.md rule)
+        frappe.db.commit()  # commit BEFORE publish (CODING_STANDARDS.md rule)
         payload = {
             "status": "success" if complete else "partial",
             "boq": boq,

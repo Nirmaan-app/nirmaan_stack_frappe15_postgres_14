@@ -1,0 +1,38 @@
+{
+  "_about": "Shared cases for the Vendor Invoice base / GST / total rules (ADR-0030). Read by BOTH services/test_invoice_amounts.py and frontend/src/utils/invoiceAmounts.test.ts, so the server rules and their frontend twin cannot drift. Inputs are the figures as typed; `stored_*` are as saved (a credit note's are negative); `missing` is what an upload lacks; `split_warns` / `gst_off_warns` are the two soft warnings.",
+  "tolerance": 5,
+  "cases": [
+    {"name": "a gap of exactly the tolerance is silent", "amount": "1185", "base": "1000", "gst": "180", "is_credit_note": false,
+     "stored_base": 1000, "stored_gst": 180, "missing": [], "split_warns": false},
+    {"name": "just over the tolerance warns", "amount": "1185.01", "base": "1000", "gst": "180", "is_credit_note": false,
+     "stored_base": 1000, "stored_gst": 180, "missing": [], "split_warns": true},
+    {"name": "just under the total by more than the tolerance warns", "amount": "1174.99", "base": "1000", "gst": "180", "is_credit_note": false,
+     "stored_base": 1000, "stored_gst": 180, "missing": [], "split_warns": true},
+    {"name": "a credit note typed positive is stored negative and matches", "amount": "1180", "base": "1000", "gst": "180", "is_credit_note": true,
+     "stored_base": -1000, "stored_gst": -180, "missing": [], "split_warns": false},
+    {"name": "a credit note typed negative is stored negative and matches", "amount": "-1180", "base": "-1000", "gst": "-180", "is_credit_note": true,
+     "stored_base": -1000, "stored_gst": -180, "missing": [], "split_warns": false},
+    {"name": "a credit note with a real gap warns", "amount": "1200", "base": "1000", "gst": "180", "is_credit_note": true,
+     "stored_base": -1000, "stored_gst": -180, "missing": [], "split_warns": true},
+    {"name": "an invoice keeps the sign it was given (a return note)", "amount": "-1180", "base": "-1000", "gst": "-180", "is_credit_note": false,
+     "stored_base": -1000, "stored_gst": -180, "missing": [], "split_warns": false},
+    {"name": "0 / 0 means never entered and does not warn", "amount": "1180", "base": "0", "gst": "0", "is_credit_note": false,
+     "stored_base": 0, "stored_gst": 0, "missing": [], "split_warns": false},
+    {"name": "a bill with no GST says 0, which is a figure", "amount": "1000", "base": "1000", "gst": "0", "is_credit_note": false,
+     "stored_base": 1000, "stored_gst": 0, "missing": [], "split_warns": false},
+    {"name": "a blank split is missing both and does not warn", "amount": "1180", "base": "", "gst": "", "is_credit_note": false,
+     "stored_base": null, "stored_gst": null, "missing": ["Invoice Base Amount", "Invoice GST Amount"], "split_warns": false},
+    {"name": "a missing GST figure is named", "amount": "1180", "base": "1000", "gst": " ", "is_credit_note": false,
+     "stored_base": 1000, "stored_gst": null, "missing": ["Invoice GST Amount"], "split_warns": false},
+    {"name": "junk reads as missing", "amount": "1180", "base": "abc", "gst": "-", "is_credit_note": false,
+     "stored_base": null, "stored_gst": null, "missing": ["Invoice Base Amount", "Invoice GST Amount"], "split_warns": false},
+    {"name": "grouped figures are read", "amount": "1,18,000", "base": "1,00,000", "gst": "18,000", "is_credit_note": false,
+     "stored_base": 100000, "stored_gst": 18000, "missing": [], "split_warns": false}
+  ],
+  "gst_off_cases": [
+    {"name": "GST on a GST-off Work Order warns", "gst": "180", "gst_off_work_order": true, "gst_off_warns": true},
+    {"name": "no GST on a GST-off Work Order is silent", "gst": "0", "gst_off_work_order": true, "gst_off_warns": false},
+    {"name": "no figure on a GST-off Work Order is silent", "gst": "", "gst_off_work_order": true, "gst_off_warns": false},
+    {"name": "GST on a GST-on Work Order is silent", "gst": "180", "gst_off_work_order": false, "gst_off_warns": false}
+  ]
+}

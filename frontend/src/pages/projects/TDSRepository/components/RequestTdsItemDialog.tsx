@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -23,20 +23,24 @@ import RSelect from "react-select";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
+import { foldItemName } from "@/utils/tdsRequestRules";
+import { TDS_REQUEST_MODES, TdsRequestTypeRadio, type TdsRequestMode } from "@/components/common/TdsRequestTypeRadio";
+import { useTdsProjectCustomOptions } from "@/hooks/useTdsProjectCustomOptions";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 2 (ADR-0025) — group-aware "Request new" dialog.
-//
-// A project files a "New" request proposing a (TDS Item group, Make) it can't pick
-// because the group is missing that make's datasheet, or because the group itself
-// doesn't exist yet. The user chooses:
-//   • Existing group → pick it via the group picker (backed by `search_tds_items`).
-//     `tds_item_id` = the frozen group id; `tds_item_name` / `tds_work_package`
-//     snapshot the group's name + WP.
-//   • New group → free-text label + a Work Package. `tds_item_id` stays empty; the
-//     backend creates the member-less TDS Item on approval (BE-APPROVE).
-// Plus: a make from the FULL Makelist (NO "+ Others" custom-make path), a REQUIRED
-// datasheet PDF, and optional description / BOQ. The result is a "New" cart row.
+// "Request New TDS Item" dialog (ADR-0025 Amendment A, #1377). The first field is
+// Type, with two choices:
+//   • New Make → a make the picked TDS Item has no datasheet for. Picked via the
+//     group picker (backed by `search_tds_items`); `tds_item_id` = the frozen group
+//     id, `tds_item_name` / `tds_work_package` snapshot the group's name + WP.
+//     Approval adds a Verified Repository Entry.
+//   • Project Custom → an item only this project uses: name, Work Package
+//     (Procurement Packages, the list TDS Items link to), a Category under that
+//     package. The server issues its project-only `PCUS-` id; it never enters the
+//     TDS Repository.
+// A project can no longer create a shared TDS Item.
+// Both: a make from the FULL Makelist (NO "+ Others" custom-make path), a REQUIRED
+// datasheet PDF, and optional description / BOQ.
 //
 // `tds_make` stores the Makelist row id (label = make_name) — matching the rest of
 // the TDS flow which keys makes by their Makelist `name`.
@@ -62,30 +66,45 @@ interface GroupResult {
 
 const formSchema = z
     .object({
-        mode: z.enum(["existing", "new"]),
-        // existing-group selection
+        mode: z.enum(TDS_REQUEST_MODES),
+        // New Make: the picked group + its snapshot
         tds_item_id: z.string().optional(),
-        // shared
         tds_item_name: z.string().optional(),
         work_package: z.string().optional(),
+        // Project Custom
+        custom_name: z.string().optional(),
+        custom_work_package: z.string().optional(),
+        category: z.string().optional(),
+        // both
         make: z.string().min(1, "Make is required"),
         boq_ref: z.string().optional(),
         description: z.string().optional(),
     })
     .superRefine((val, ctx) => {
-        if (val.mode === "existing") {
-            if (!val.tds_item_id) {
-                ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["tds_item_id"], message: "Select a TDS item" });
-            }
+        const require = (path: "tds_item_id" | "custom_name" | "custom_work_package" | "category", message: string) => {
+            if (!(val[path] ?? "").trim()) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+        };
+        if (val.mode === "new_make") {
+            require("tds_item_id", "Select a TDS item");
         } else {
-            if (!val.tds_item_name || !val.tds_item_name.trim()) {
-                ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["tds_item_name"], message: "Group label is required" });
-            }
-            if (!val.work_package) {
-                ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["work_package"], message: "Work Package is required" });
-            }
+            require("custom_name", "Item Name is required");
+            require("custom_work_package", "Work Package is required");
+            require("category", "Category is required");
         }
     });
+
+const EMPTY_FORM: z.infer<typeof formSchema> = {
+    mode: "new_make",
+    tds_item_id: "",
+    tds_item_name: "",
+    work_package: "",
+    custom_name: "",
+    custom_work_package: "",
+    category: "",
+    make: "",
+    boq_ref: "",
+    description: "",
+};
 
 interface RequestTdsItemDialogProps {
     open: boolean;
@@ -97,42 +116,42 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [fileError, setFileError] = useState<string | null>(null);
 
-    // Existing-group picker state. No typed-query state: the whole (optionally
+    // New Make picker state. No typed-query state: the whole (optionally
     // WP-scoped) set is loaded once and FuzzySearchSelect filters it client-side.
-    // `filterWP` is the EXISTING tab's scope only — deliberately separate from the
-    // form's `work_package` (which is the NEW tab's declared value + the snapshot
-    // `handleGroupChange` writes). The two draw from different option lists, so
-    // sharing one field would let a value valid in one tab be absent in the other.
+    // `filterWP` is the New Make scope only — deliberately separate from the
+    // form's `work_package` (the snapshot `handleGroupChange` writes) and from
+    // `custom_work_package` (Project Custom's declared package).
     const [filterWP, setFilterWP] = useState<string>("");
     const [selectedGroup, setSelectedGroup] = useState<GroupResult | null>(null);
+    // The make chosen before switching into New Make. Picking a TDS Item there blanks a make that
+    // already has a datasheet under it; back in Project Custom that make is valid again, so it returns.
+    const makeBeforeNewMake = useRef("");
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
-        defaultValues: {
-            mode: "existing",
-            tds_item_id: "",
-            tds_item_name: "",
-            work_package: "",
-            make: "",
-            boq_ref: "",
-            description: "",
-        },
+        defaultValues: EMPTY_FORM,
     });
 
     const mode = form.watch("mode");
+    const customName = form.watch("custom_name") ?? "";
+    const customWP = form.watch("custom_work_package") ?? "";
 
     // ── Reference data ──────────────────────────────────────────────────────────
-    // Full Makelist (no "+ Others"). Work Packages for the new-group WP dropdown.
+    // Full Makelist (no "+ Others"). Project Custom's Work Package comes from
+    // Procurement Packages — the list `TDS Items.work_package` and
+    // `Category.work_package` link to — and its Category from that package only.
     const { data: makeList } = useFrappeGetDocList("Makelist", { fields: ["name", "make_name"], limit: 0 });
-    const { data: wpList } = useFrappeGetDocList("Work Packages", { fields: ["name", "work_package_name"], limit: 0 });
+    const { packageOptions, categoryOptions, isLoadingCategories } = useTdsProjectCustomOptions(
+        open && mode === "project_custom",
+        customWP
+    );
 
     // Makes the PICKED GROUP already has a Repository Entry (datasheet) for.
     // `search_tds_items` returns these on every result; the dialog used to ignore
     // them and offer all ~372 Makelist rows, so a user could file a "New" request
-    // for a datasheet that already exists. Approval then does NOTHING useful:
-    // `_ensure_entry` returns early on an existing entry and never applies the
-    // uploaded `tds_attachment`, so the PDF is silently discarded while the
-    // project row keeps it — master and project end up on different documents.
+    // for a datasheet that already exists. Approval then makes the Admin choose
+    // between the entry's datasheet and the uploaded one (`approve.py`
+    // `_approve_new_make`), work the requester could have skipped.
     //
     // Requesting is the EXCEPTION path (add what is missing); the normal
     // "Select Items for TDS" picker is the path for makes that already have a
@@ -160,10 +179,6 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
             })),
         [makeList, takenMakes]
     );
-    const wpOptions = useMemo(
-        () => (wpList || []).map((w: any) => ({ label: w.work_package_name, value: w.name })),
-        [wpList]
-    );
 
     // ── Existing tab: Work Package scope ────────────────────────────────────────
     // Sourced from `TDS Items` itself (NOT a work-package doctype), so every
@@ -190,15 +205,26 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
     // unlimited; no `query` is sent. The server matches ONE CONTIGUOUS substring
     // while FuzzySearchSelect tokenizes, so running the server first made its
     // strictness win ("hydrogen exhaust" found nothing for a group that exists).
-    // Only fetches while the dialog is open AND on the existing tab.
+    // Only fetches while the dialog is open. Project Custom reads the unscoped
+    // list for its name-clash warning; with no scope picked, New Make shares
+    // that same fetch.
+    const groupScope = mode === "new_make" ? filterWP : "";
     const { data: searchData, isLoading: isSearching } = useFrappeGetCall<{ message: GroupResult[] }>(
         "nirmaan_stack.api.tds.picker.search_tds_items",
-        { work_package: filterWP || undefined, limit: 0 },
-        open && mode === "existing" ? `tds_request_groups_${filterWP || "all"}` : null
+        { work_package: groupScope || undefined, limit: 0 },
+        open ? `tds_request_groups_${groupScope || "all"}` : null
     );
 
+    // Project Custom name clash: a repository TDS Item with the same name,
+    // ignoring case. Advisory only — a different item may share a name.
+    const clashGroup = useMemo(() => {
+        const typed = foldItemName(customName);
+        if (mode !== "project_custom" || !typed) return null;
+        return (searchData?.message ?? []).find(g => foldItemName(g.tds_item_name) === typed) ?? null;
+    }, [mode, customName, searchData]);
+
     // Member count per group — ONE batched pass over `Items`. A group ABSENT from
-    // `counts` has ZERO members: a "custom item" (Work Package + label only).
+    // `counts` has ZERO members: an Unlinked TDS Item (Work Package + label only).
     //
     // It matters HERE too, not just on the create form: a "New" request against
     // an existing group still produces a `Project TDS Item List` row, and the
@@ -263,28 +289,41 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
         form.setValue("work_package", "");
     };
 
-    const handleModeChange = (next: "existing" | "new") => {
+    // Each type keeps its own fields, so a round-trip loses nothing typed. Only
+    // the New Make pick is dropped on leaving it: its greyed-out makes would
+    // otherwise follow the user into Project Custom. A make that pick blanked
+    // comes back with it.
+    // (Everything resets on dialog close via handleCancel.)
+    const handleModeChange = (next: TdsRequestMode) => {
         if (next === mode) return;
+        if (next === "new_make") makeBeforeNewMake.current = form.getValues("make");
         form.setValue("mode", next);
-
-        // `tds_item_name` / `work_package` are SHARED between the two tabs, and
-        // who wrote them decides whether they may survive the switch:
-        //   • typed by the user in "new" mode  → keep, so a half-finished custom
-        //     label is not lost on a tab round-trip;
-        //   • snapshotted from a PICKED GROUP by `handleGroupChange` → drop, or
-        //     the New tab opens pre-filled with the existing item's name.
-        // `selectedGroup` is the discriminator: it is set only while a group is
-        // picked, which is exactly when those fields hold the group's values.
-        if (mode === "existing" && selectedGroup) {
+        form.clearErrors();
+        if (mode === "new_make") {
+            setSelectedGroup(null);
+            setFilterWP("");
+            form.setValue("tds_item_id", "");
             form.setValue("tds_item_name", "");
             form.setValue("work_package", "");
+            if (!form.getValues("make") && makeBeforeNewMake.current) {
+                form.setValue("make", makeBeforeNewMake.current);
+            }
         }
+    };
 
-        // The picked-group identity + picker UI state are meaningful only in
-        // "existing" mode. (Everything resets on dialog close via handleCancel.)
-        setSelectedGroup(null);
-        setFilterWP("");
-        form.setValue("tds_item_id", "");
+    // The clash warning's one-click fix: switch to New Make with that item picked.
+    const switchToNewMake = (g: GroupResult) => {
+        handleModeChange("new_make");
+        handleGroupChange({ group: g });
+    };
+
+    // A HANDLER, not an effect: a Category belongs to one package, so any
+    // package change strands it.
+    const handleCustomWPChange = (opt: { value: string } | null) => {
+        const next: string = opt?.value || "";
+        if (next === customWP) return;
+        form.setValue("custom_work_package", next, { shouldValidate: form.formState.isSubmitted });
+        form.setValue("category", "");
     };
 
     const onSubmit = (values: z.infer<typeof formSchema>) => {
@@ -293,33 +332,39 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
             return;
         }
         const makeName = makeOptions.find(m => m.value === values.make)?.label || values.make;
-        onAddItem({
-            // For an existing group: the frozen group id. For a new group: empty
-            // (backend creates the member-less TDS Item on approval).
-            tds_item_id: values.mode === "existing" ? (values.tds_item_id || "") : "",
-            tds_item_name: values.tds_item_name || "",
+        const shared = {
             make: makeName,                  // human make name (frozen as tds_make)
-            work_package: values.work_package || "",
-            category: "",
             description: values.description || "",
             tds_boq_line_item: values.boq_ref || "",
             attachmentFile: selectedFile,
             is_new_request: true,
-        });
+        };
+        onAddItem(
+            values.mode === "new_make"
+                ? {
+                    ...shared,
+                    tds_item_id: values.tds_item_id || "",
+                    tds_item_name: values.tds_item_name || "",
+                    work_package: values.work_package || "",
+                    category: "",
+                }
+                : {
+                    ...shared,
+                    // The server issues the project-only PCUS- id on send.
+                    tds_item_id: "",
+                    tds_item_name: (values.custom_name || "").trim(),
+                    work_package: values.custom_work_package || "",
+                    category: values.category || "",
+                    is_project_custom: true,
+                }
+        );
         handleCancel();
     };
 
     const handleCancel = () => {
         onOpenChange(false);
-        form.reset({
-            mode: "existing",
-            tds_item_id: "",
-            tds_item_name: "",
-            work_package: "",
-            make: "",
-            boq_ref: "",
-            description: "",
-        });
+        form.reset(EMPTY_FORM);
+        makeBeforeNewMake.current = "";
         setSelectedGroup(null);
         setFilterWP("");
         setSelectedFile(null);
@@ -336,39 +381,9 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                 <div className="p-6 py-4 overflow-y-auto flex-1 custom-scrollbar">
                     <Form {...form}>
                         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                            {/* Mode toggle: existing group vs new group.
-                                The house segmented control — same shape, same red
-                                active fill, and the same two labels as the Edit
-                                dialog, which offers this identical choice. Label
-                                left, toggle right on one row. */}
-                            <div className="space-y-1">
-                                <div className="flex items-center justify-between gap-3">
-                                    <FormLabel className="text-sm font-bold text-gray-700">TDS Item :</FormLabel>
-                                    <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
-                                        <button
-                                            type="button"
-                                            onClick={() => handleModeChange("existing")}
-                                            className={`px-5 py-1.5 text-sm font-medium rounded-md transition-colors ${mode === "existing" ? "bg-[#dc2626] text-white shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
-                                        >
-                                            Existing Item
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleModeChange("new")}
-                                            className={`px-5 py-1.5 text-sm font-medium rounded-md transition-colors ${mode === "new" ? "bg-[#dc2626] text-white shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
-                                        >
-                                            New Item
-                                        </button>
-                                    </div>
-                                </div>
-                                <p className="mt-1.5 text-xs text-muted-foreground">
-                                    {mode === "existing"
-                                        ? "Pick a TDS Item already in the repository."
-                                        : "Create a new TDS Item — needs a name, Work Package and datasheet."}
-                                </p>
-                            </div>
+                            <TdsRequestTypeRadio value={mode} onChange={handleModeChange} />
 
-                            {mode === "existing" ? (
+                            {mode === "new_make" ? (
                               <>
                                 {/* Work Package scope for the existing-group picker.
                                     Narrows the list; picking an item DERIVES it. */}
@@ -434,7 +449,7 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                                 {/* No members ⇒ the frozen category will be blank. */}
                                                                 {option.memberCount === 0 && (
                                                                     <span className="ml-2 text-[10px] uppercase text-amber-600">
-                                                                        custom · no SKUs
+                                                                        No linked SKUs
                                                                     </span>
                                                                 )}
                                                             </span>
@@ -452,7 +467,7 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                 the blank only surfaces in the history / exported PDF. */}
                                             {selectedGroup && (memberCounts[selectedGroup.tds_item] ?? 0) === 0 && (
                                                 <p className="text-xs text-amber-600">
-                                                    Custom item — no linked product SKUs, so this row's <b>Category will be blank</b>.
+                                                    Unlinked TDS Item — no linked product SKUs, so this row's <b>Category will be blank</b>.
                                                     Category is derived from the item's linked SKUs; link SKUs to it in the TDS
                                                     Repository first if the report needs one.
                                                 </p>
@@ -463,42 +478,81 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                 />
                               </>
                             ) : (
-                                /* New group: free-text label + Work Package */
+                                /* Project Custom: name, Work Package, Category */
                                 <>
                                     <FormField
                                         control={form.control}
-                                        name="tds_item_name"
+                                        name="custom_name"
                                         render={({ field }) => (
                                             <FormItem className="space-y-1">
-                                                <FormLabel className="text-sm font-bold text-gray-700">New Item Label<span className="text-red-500 ml-0.5">*</span></FormLabel>
+                                                <FormLabel className="text-sm font-bold text-gray-700">Item Name<span className="text-red-500 ml-0.5">*</span></FormLabel>
                                                 <FormControl>
-                                                    <Input {...field} placeholder="e.g. MCB 32A Type C" className="h-11 border-gray-200 rounded-lg bg-gray-50/30 focus:bg-white transition-all font-medium" />
+                                                    <Input {...field} placeholder="e.g. Facade Linear Light 24W" className="h-11 border-gray-200 rounded-lg bg-gray-50/30 focus:bg-white transition-all font-medium" />
                                                 </FormControl>
+                                                {clashGroup && (
+                                                    <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                                                        <b>"{clashGroup.tds_item_name}" already exists in the TDS Repository.</b> Use{" "}
+                                                        <button
+                                                            type="button"
+                                                            className="underline font-semibold"
+                                                            onClick={() => switchToNewMake(clashGroup)}
+                                                        >
+                                                            Add New Make
+                                                        </button>{" "}
+                                                        instead? You can still create it as a Project Custom item.
+                                                    </div>
+                                                )}
                                                 <FormMessage />
                                             </FormItem>
                                         )}
                                     />
-                                    <FormField
-                                        control={form.control}
-                                        name="work_package"
-                                        render={({ field }) => (
-                                            <FormItem className="space-y-1">
-                                                <FormLabel className="text-sm font-bold text-gray-700">Work Package<span className="text-red-500 ml-0.5">*</span></FormLabel>
-                                                <FormControl>
-                                                    <RSelect
-                                                        options={wpOptions}
-                                                        value={wpOptions.find(opt => opt.value === field.value) || null}
-                                                        onChange={(opt: any) => field.onChange(opt?.value || "")}
-                                                        placeholder="Select Work Package"
-                                                        classNamePrefix="react-select"
-                                                        // Inline, not portalled — see the Make select for why.
-                                                        menuPlacement="auto"
-                                                    />
-                                                </FormControl>
-                                                <FormMessage />
-                                            </FormItem>
-                                        )}
-                                    />
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <FormField
+                                            control={form.control}
+                                            name="custom_work_package"
+                                            render={({ field }) => (
+                                                <FormItem className="space-y-1 min-w-0">
+                                                    <FormLabel className="text-sm font-bold text-gray-700">Work Package<span className="text-red-500 ml-0.5">*</span></FormLabel>
+                                                    <FormControl>
+                                                        <RSelect
+                                                            options={packageOptions}
+                                                            value={packageOptions.find(opt => opt.value === field.value) || null}
+                                                            onChange={handleCustomWPChange}
+                                                            placeholder="Select Work Package"
+                                                            classNamePrefix="react-select"
+                                                            // Inline, not portalled — see the Make select for why.
+                                                            menuPlacement="auto"
+                                                        />
+                                                    </FormControl>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                        <FormField
+                                            control={form.control}
+                                            name="category"
+                                            render={({ field }) => (
+                                                <FormItem className="space-y-1 min-w-0">
+                                                    <FormLabel className="text-sm font-bold text-gray-700">Category<span className="text-red-500 ml-0.5">*</span></FormLabel>
+                                                    <FormControl>
+                                                        <RSelect
+                                                            options={categoryOptions}
+                                                            value={categoryOptions.find(opt => opt.value === field.value) || null}
+                                                            onChange={(opt: any) => field.onChange(opt?.value || "")}
+                                                            placeholder={customWP ? "Select Category" : "Pick a Work Package first"}
+                                                            isDisabled={!customWP}
+                                                            isLoading={isLoadingCategories}
+                                                            noOptionsMessage={() => "No categories under this package"}
+                                                            classNamePrefix="react-select"
+                                                            menuPlacement="auto"
+                                                        />
+                                                    </FormControl>
+                                                    <p className="text-[11px] text-gray-500">Categories under the chosen package.</p>
+                                                    <FormMessage />
+                                                </FormItem>
+                                            )}
+                                        />
+                                    </div>
                                 </>
                             )}
 
@@ -544,6 +598,9 @@ export const RequestTdsItemDialog: React.FC<RequestTdsItemDialogProps> = ({ open
                                                 )}
                                             />
                                         </FormControl>
+                                        {mode === "project_custom" && (
+                                            <p className="text-[11px] text-gray-500">From the Makelist only.</p>
+                                        )}
                                         {selectedGroup && takenMakes.size > 0 && (
                                             <p className="text-xs text-muted-foreground">
                                                 {takenMakes.size} make{takenMakes.size === 1 ? "" : "s"} already

@@ -29,6 +29,10 @@ corrections-owed list.
 
 ## Rate-helper panel and attribute semantics (from the Pricing editor section)
 
+The item-list panel's owner-locked rules (a field's resolved vs typed value, notes, dropdown narrowing, defaults
+vs stated values, calculator = panel parity, the `BoQ rates` label, the plain-English function) live in
+root `.claude/context/domain/boq-rate-master.md` § Load-bearing invariants — read them before panel work.
+
 ### The rate-helper panel - attribute state, defaults and overrides
 
 - **The rate-helper panel's three-way attribute state (owner-locked).** `ExtractedAttr` and

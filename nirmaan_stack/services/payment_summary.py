@@ -40,6 +40,11 @@ _LINE_OF_STATUS = {
 }
 
 
+def is_counted(status) -> bool:
+	"""Does a payment at this status hold a share of the order's balance?"""
+	return (status or "").strip() in _LINE_OF_STATUS
+
+
 def gross_amount(payment, tds_by_payment, company_borne: bool) -> float:
 	"""The figure a payment counts for: its amount, plus any tax withheld from it."""
 	amount = flt(payment.get("amount"))

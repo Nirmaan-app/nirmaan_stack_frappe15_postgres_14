@@ -14,7 +14,7 @@ The alternative -- a group id on the row plus a subset-sum search -- was analyse
 2026-08-10; the reasoning is kept struck-through under "Known limits" in
 `.claude/context/domain/outflow-import.md`.
 
-⚠️ `allocated` IS ALWAYS A FRESH SUM, NEVER `+= leg`. Root `CLAUDE.md`: "a derived field must be
+⚠️ `allocated` IS ALWAYS A FRESH SUM, NEVER `+= leg`. `CODING_STANDARDS.md`: "a derived field must be
 RECOMPUTED FROM SOURCE, never incremented by a delta, so that any later ordinary save repairs it
 exactly and a reconcile pass can always prove it."
 

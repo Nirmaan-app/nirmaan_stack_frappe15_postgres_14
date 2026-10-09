@@ -16,7 +16,7 @@ services/boq_rate_master/freeze.py writes through doc.save(ignore_version=False)
 NEVER through frappe.db.set_single_value (which bypasses the doc lifecycle and would
 write no Version row at all).
 
-Controller stays minimal per the CLAUDE.md doctype convention. No validate: the two
+Controller stays minimal per the CODING_STANDARDS.md doctype convention. No validate: the two
 provenance fields are stamped together by the service writer, never by hand, and a
 Single has no identity to validate.
 """

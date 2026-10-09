@@ -18,8 +18,31 @@
       arrays on the query string). Absent = all.
     - LAYOUT: page 1 = header + PROJECT banner + overall status summary.
       Then ONE PAGE PER CATEGORY: category banner + that category's status
-      summary + its table (S.No / Area / Description / Status / Remarks).
-      S.No restarts on every category page.
+      summary + its table (S.No / Area / Description / Status / Remarks /
+      Attachment). S.No restarts on every category page.
+    - ATTACHMENT (2026-10-08): the snag's one photo as a 50x50 thumbnail. Clicking
+      it JUMPS to the same photo on the photo pages. No Map link (owner
+      2026-10-08). Private files: `snag_print_photos`
+      (a Jinja method, `api/snags/print_photos.py`) fetches and EMBEDS them --
+      wkhtmltopdf has no session. Full report only; the Master Summary has no snag rows.
+    - PHOTO PAGES (2026-10-08, final): each category's photos start on the page
+      right after that category's table, 3 per row, under a one-line header:
+      "<CATEGORY> · n photos" in black bold, then "(Click a photo to go to its
+      snag row)".
+      Each photo is padded to a square (never cropped) and is itself the
+      link back to its snag row; the table's thumbnail jumps to the photo.
+      Download All gets the same per-category pages inside each file's section.
+      The jump links survive only the `pdf_generator=nirmaan_keep_links` render
+      (`api/pdf_helper/keep_links.py`): Frappe's own PDF path drops in-document links,
+      so a Desk print's jump links open the site instead. Harmless.
+      A jump TARGET must be an element with content (the ids sit on the cells):
+      wkhtmltopdf never places an empty `<a name="..."></a>`.
+    - MASTER SUMMARY (`mode=master`): the first section of "Download All"
+      (title "All Snag List"), and the single-tab "Summary only" download
+      (with `batches` = that tab; title "Snag List — Summary").
+      One File block per imported file (+ "Added manually"): its own status
+      tiles and category table, flowing across pages (split between rows only). No snag rows. Rendered by
+      `api/snags/bulk_download.py` with NO `batches` param.
 
     Deliberately NOT here (owner call): batch + source row, editor names,
     signature block. The PDF shows the project's snag data and nothing else.
@@ -37,6 +60,7 @@
        batches     e.g. ["SNAGB-26-00001"]       (filter only -- never printed)
        search      free text, e.g. "cable"       (the tab's search box)
        search_field  "description" | "area" | "category"   (default: description)
+       mode        "master" -> the Master Summary only; absent -> the normal report
 
    Read off form_dict ONLY. `frappe.request.args` is NOT a safe fallback --
    outside an HTTP request it raises in the Jinja sandbox and kills the render.
@@ -47,6 +71,7 @@
 {%- set batches_param    = frappe.form_dict.batches    -%}
 {%- set search_param     = frappe.form_dict.search     -%}
 {%- set search_field     = frappe.form_dict.search_field or "description" -%}
+{%- set is_master        = (frappe.form_dict.mode == "master") -%}
 
 {%- set sel_statuses   = json.loads(statuses_param)   if statuses_param   else none -%}
 {%- set sel_areas      = json.loads(areas_param)      if areas_param      else none -%}
@@ -135,10 +160,17 @@
 {%- set snags = frappe.get_all("Project Snag",
         filters=snag_filters,
         fields=["name", "area", "category", "description", "status", "remark",
-                "creation", "source_row", "source_serial", "batch"],
+                "creation", "source_row", "source_serial", "batch",
+                "attachment"],
         order_by="category asc, area asc, source_row asc, creation asc",
         limit_page_length=0
 ) -%}
+
+{# --- THE PHOTOS (Attachment column + each category's photo page) ---
+   {snag name: {thumb, grid}} for every printed snag that has a photo. Fetched in
+   parallel, ONCE, and embedded (private files; wkhtmltopdf has no session). Skipped
+   for the Master Summary, which prints no snag rows. #}
+{%- set snag_photos = snag_print_photos(snags) if not is_master else {} -%}
 
 {# --- THE SOURCE FILES BEHIND THE PRINTED ROWS ---
    Derived from the snags ACTUALLY ON THE PAGE, never from the project's batch list:
@@ -203,19 +235,71 @@
     }) -%}
 {%- endfor -%}
 
-{# The Not Applicable column/tile ALWAYS renders, mirroring the app's stats strip,
-   which shows all five tiles and prints a plain 0. A tile that hides at zero cannot be
-   told apart from a tile that is missing -- which is exactly how the count above went
-   unnoticed. A zero here is information: it says nothing was written off. #}
-{%- set show_na = true -%}
+{# The Not Applicable column/tile renders whenever N/A is IN SCOPE, even at 0, mirroring
+   the app's stats strip. A tile that hides at zero cannot be told apart from a tile that
+   is missing -- which is exactly how the count above once went unnoticed. A zero here is
+   information: it says nothing was written off.
+
+   It hides ONLY when the caller's `statuses` leave N/A out (the Download All dialog's
+   "Include Not Applicable" unticked, or a Status filter without it). Then those rows were
+   never fetched, so a 0 would claim "none written off" when the truth is "not counted". #}
+{%- set show_na = "Not Applicable" in statuses -%}
 
 
-{# --- FILTER LABELS ---
-   Only ever rendered by the "Filtered:" note, and that note only renders for an
-   axis the caller actually narrowed -- so there is no "All ..." label any more. #}
-{%- set status_label   = statuses | join(", ") -%}
-{%- set area_label     = (sel_areas | join(", ")) if sel_areas is not none else "" -%}
-{%- set category_label = (sel_categories | map("default", "Uncategorized", true) | join(", ")) if sel_categories is not none else "" -%}
+{# --- MASTER SUMMARY: ONE BLOCK PER FILE (built only when `mode=master`) ---
+   Files come from `source_files` -- the batches behind the PRINTED rows, oldest upload
+   first -- so a filter that empties a file drops its block instead of printing zeros.
+   Snags with no batch (added by hand) form one last block, "Added manually".
+   Each block carries its own tally and its own category breakdown, in the SAME category
+   order as the rest of the report. #}
+{%- set file_index = [] -%}
+{%- if is_master -%}
+    {%- set file_groups = [] -%}
+    {%- for f in source_files -%}
+        {%- set _ = file_groups.append({"key": f.name, "label": f.batch_name or f.name, "uploaded_on": f.uploaded_on}) -%}
+    {%- endfor -%}
+    {%- set has_manual = namespace(v=false) -%}
+    {%- for s in snags -%}
+        {%- if not s.batch -%}{%- set has_manual.v = true -%}{%- endif -%}
+    {%- endfor -%}
+    {%- if has_manual.v -%}
+        {%- set _ = file_groups.append({"key": "", "label": "Added manually", "uploaded_on": none}) -%}
+    {%- endif -%}
+
+    {%- for g in file_groups -%}
+        {%- set f_rows = [] -%}
+        {%- set f_tally = {"Pending": 0, "WIP": 0, "Completed": 0, "Not Applicable": 0} -%}
+        {%- for s in snags -%}
+            {%- if (s.batch or "") == g.key -%}
+                {%- set _ = f_rows.append(s) -%}
+                {%- set _ = f_tally.update({s.status: (f_tally.get(s.status) or 0) + 1}) -%}
+            {%- endif -%}
+        {%- endfor -%}
+        {%- set f_cats = [] -%}
+        {%- for cname in category_order -%}
+            {%- set fc_tally = {"Pending": 0, "WIP": 0, "Completed": 0, "Not Applicable": 0} -%}
+            {%- set fc_count = namespace(n=0) -%}
+            {%- for s in f_rows -%}
+                {%- if ((s.category or "") | string | trim) == cname -%}
+                    {%- set fc_count.n = fc_count.n + 1 -%}
+                    {%- set _ = fc_tally.update({s.status: (fc_tally.get(s.status) or 0) + 1}) -%}
+                {%- endif -%}
+            {%- endfor -%}
+            {%- if fc_count.n > 0 -%}
+                {%- set _ = f_cats.append({"label": cname or "Uncategorized", "total": fc_count.n, "tally": fc_tally}) -%}
+            {%- endif -%}
+        {%- endfor -%}
+        {%- set _ = file_index.append({
+            "label": g.label,
+            "uploaded_on": g.uploaded_on,
+            "total": f_rows | length,
+            "tally": f_tally,
+            "cats": f_cats
+        }) -%}
+    {%- endfor -%}
+{%- endif -%}
+
+
 
 
 <!-- ========================================== -->
@@ -298,8 +382,6 @@
        project banner + the overall totals and nothing else. */
     .category-page { page-break-before: always; break-before: page; }
 
-    /* --- FILTER NOTE (only when the caller narrowed category / status) --- */
-    .filter-note { font-size: 9px; font-weight: 600; color: #B45309; background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 4px; padding: 6px 10px; margin-bottom: 14px; }
 
     /* --- SMALL SECTION HEADINGS ("Task Summary", "Category Index") --- */
     .index-title { font-size: 11px; font-weight: 800; color: #6b7280; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 6px; }
@@ -351,6 +433,47 @@
 
     .desc-text { font-size: 10px; color: #111827; line-height: 1.35; word-break: break-word; white-space: pre-wrap; }
     .note-text { font-size: 9px; color: #374151; line-height: 1.35; word-break: break-word; white-space: pre-wrap; }
+    /* Attachment column: the photo arrives pre-cropped square -- wkhtmltopdf has no object-fit.
+       The LINK is the block, not the image: wkhtmltopdf sizes a link by its own box, and an
+       inline <a> around a block <img> has none -- its click area lands, empty, on page 1. */
+    .photo-jump { display: block; width: 52px; margin: 0 auto; }
+    .snag-photo { display: block; width: 50px; height: 50px; border: 1px solid #E5E7EB; border-radius: 3px; }
+    .photo-link { font-size: 8px; font-weight: 600; color: #0369A1; text-decoration: none; }
+
+    /* --- PHOTO PAGES (after each category's table) ---
+       Each row of 3 is its OWN table, so a row moves whole to the next page. No <div>
+       inside a cell: Frappe's print CSS sets `table td div { page-break-inside: avoid }`,
+       which makes wkhtmltopdf push rows down at random. The photo arrives already padded
+       to a square (wkhtmltopdf has no object-fit). */
+    .category-photos { page-break-before: always; break-before: page; }
+    /* The photo page's one-line header: the category + count in black bold, the click hint
+       straight after it in small grey (owner 2026-10-08). */
+    .photos-head { margin: 0 0 8px 0; }
+    .photos-title { font-size: 11px; font-weight: 800; color: #111827; text-transform: uppercase; letter-spacing: 1.2px; }
+    .photos-hint { font-size: 9px; font-weight: 400; color: #6b7280; margin-left: 6px; }
+    .photo-row { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 4px; }
+    /* Frappe's print CSS forces `.print-format td { padding: 6px !important }` and a 9pt
+       font. The side padding sets the photo's size (~52 mm), small enough for 4 rows a page. */
+    .print-format .photo-row td { width: 33.33%; padding: 2px 15px 4px 15px !important; vertical-align: top; font-size: 8px; line-height: 1.3; }
+    .grid-link { display: block; margin-bottom: 3px; text-decoration: none; }
+    .grid-photo { display: block; width: 100%; border: 1px solid #E5E7EB; }
+    /* A photo that could not be fetched: a grey square the size of a photo. */
+    .grid-missing { display: block; position: relative; width: 100%; padding-bottom: 100%; margin-bottom: 4px; background-color: #F3F4F6; border: 1px dashed #D1D5DB; }
+    .grid-missing span { position: absolute; top: 46%; left: 0; right: 0; text-align: center; font-size: 9px; color: #6B7280; }
+
+    /* --- MASTER SUMMARY: one File block per imported file --- */
+    /* Blocks FLOW (owner 2026-09-30): a file's category table may continue on the next
+       page, split BETWEEN rows only (the global tr/td rule) with its thead repeated.
+       Only the heading + tiles (.file-top) are kept together, so a file's name is never
+       stranded at the foot of a page away from its figures. */
+    .file-block { margin-bottom: 18px; }
+    .file-top { page-break-inside: avoid; break-inside: avoid; }
+    .file-head { width: 100%; border-collapse: collapse; margin-bottom: 8px; border-bottom: 2px solid #111827; }
+    .file-head td { padding: 0 0 5px 0; vertical-align: bottom; }
+    .file-title { font-size: 12px; font-weight: 800; color: #111827; }
+    .file-title-tag { color: #dc2626; margin-right: 4px; }
+    .file-date { font-size: 9px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.6px; text-align: right; white-space: nowrap; }
+
 </style>
 
 
@@ -361,10 +484,11 @@
    Defined ONCE and called twice: for the whole project on page 1, and for one
    category on each of the pages after it. `t` is a status -> count mapping, and
    `label` is the heading printed above the tiles.
-   `Not Applicable` earns a tile only when something in scope actually carries it.
+   `na` is `show_na`, passed in (a macro does not see the template's own `set`s):
+   the N/A tile renders whenever N/A is in scope. `label=""` prints no heading.
 #}
-{%- macro stats_card(total, t, label="Task Summary") -%}
-    <div class="index-title">{{ label }}</div>
+{%- macro stats_card(total, t, label="Task Summary", na=true) -%}
+    {% if label %}<div class="index-title">{{ label }}</div>{% endif %}
     <table class="stats-table">
         <tr>
             <td class="stat-total">
@@ -383,15 +507,17 @@
                 <div class="stat-value">{{ t["Completed"] }}</div>
                 <div class="stat-label">Completed</div>
             </td>
-            {# ALWAYS rendered -- see `show_na`. This was a SECOND, independent gate on
-               the same number, so removing only one of them would have changed nothing. #}
+            {# Gated by the SAME `show_na` as the index column -- one rule, passed in. #}
+            {% if na %}
             <td class="stat-na">
                 <div class="stat-value">{{ t["Not Applicable"] }}</div>
                 <div class="stat-label">Not Applicable</div>
             </td>
+            {% endif %}
         </tr>
     </table>
 {%- endmacro -%}
+
 
 
 <!-- ========================================== -->
@@ -409,6 +535,97 @@
 
 <div class="print-format">
 
+{% if is_master %}
+    <!-- ========================================== -->
+    <!-- M. MASTER SUMMARY (mode=master)            -->
+    <!-- ========================================== -->
+    <table class="report-meta-table">
+        <tr>
+            {# Download All renders this with NO batch filter -> the whole project.
+               The single-tab "Summary only" download renders it for ONE file. #}
+            <td class="report-title-lg">{{ "Snag List" if sel_batches is not none else "All Snag List" }}</td>
+            <td class="report-date-lg">REPORT DATE : {{ frappe.utils.formatdate(frappe.utils.nowdate(), "dd-MMM-yyyy") }}</td>
+        </tr>
+    </table>
+
+    {% set file_count = source_files | length %}
+    <div class="banner-card">
+        <table class="banner-table">
+            <tr>
+                <td class="banner-bar"></td>
+                <td class="banner-cell">
+                    <div class="banner-label">Project</div>
+                    <div class="banner-value">{{ doc.project_name }}</div>
+                </td>
+                <td class="banner-cell-right">
+                    <div class="banner-label">Files</div>
+                    <div class="banner-value-right">{{ file_count }}{% if file_index and file_index[-1].label == "Added manually" %} + Manual{% endif %}</div>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+
+    {% for f in file_index %}
+    <div class="file-block">
+        <div class="file-top">
+        <table class="file-head">
+            <tr>
+                <td class="file-title">
+                    {% if f.uploaded_on %}<span class="file-title-tag">FILE {{ loop.index }}</span>{% endif %}{{ f.label }}
+                </td>
+                <td class="file-date">
+                    {% if f.uploaded_on %}Imported {{ frappe.utils.formatdate(f.uploaded_on, "dd-MMM-yyyy") }}{% else %}No source file{% endif %}
+                </td>
+            </tr>
+        </table>
+
+        {{ stats_card(f.total, f.tally, label="", na=show_na) }}
+        </div>
+
+        <table class="custom-table">
+            <thead>
+                <tr>
+                    <th>Category</th>
+                    <th style="width: 10%; text-align: center;">Total</th>
+                    <th style="width: 10%; text-align: center;">Pending</th>
+                    <th style="width: 10%; text-align: center;">WIP</th>
+                    <th style="width: 10%; text-align: center;">Done</th>
+                    {% if show_na %}<th style="width: 9%; text-align: center;">N/A</th>{% endif %}
+                    <th style="width: 9%; text-align: center;">%</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in f.cats %}
+                {% set c_denom = c.total - c.tally["Not Applicable"] %}
+                <tr>
+                    <td style="font-weight: 600; color: #111;">{{ c.label }}</td>
+                    <td style="text-align: center; font-weight: 700;">{{ c.total }}</td>
+                    <td style="text-align: center;" class="{{ 'num-zero' if c.tally['Pending'] == 0 else 'num-pending' }}">{{ c.tally["Pending"] }}</td>
+                    <td style="text-align: center;" class="{{ 'num-zero' if c.tally['WIP'] == 0 else 'num-wip' }}">{{ c.tally["WIP"] }}</td>
+                    <td style="text-align: center;" class="{{ 'num-zero' if c.tally['Completed'] == 0 else 'num-completed' }}">{{ c.tally["Completed"] }}</td>
+                    {% if show_na %}<td style="text-align: center;" class="{{ 'num-zero' if c.tally['Not Applicable'] == 0 else 'num-na' }}">{{ c.tally["Not Applicable"] }}</td>{% endif %}
+                    <td style="text-align: center; font-weight: 700;">{{ ((c.tally["Completed"] * 100.0 / c_denom) | round(0) | int) ~ "%" if c_denom > 0 else "—" }}</td>
+                </tr>
+                {% endfor %}
+                {% set f_denom = f.total - f.tally["Not Applicable"] %}
+                <tr class="index-total">
+                    <td>Total</td>
+                    <td style="text-align: center;">{{ f.total }}</td>
+                    <td style="text-align: center;" class="num-pending">{{ f.tally["Pending"] }}</td>
+                    <td style="text-align: center;" class="num-wip">{{ f.tally["WIP"] }}</td>
+                    <td style="text-align: center;" class="num-completed">{{ f.tally["Completed"] }}</td>
+                    {% if show_na %}<td style="text-align: center;" class="num-na">{{ f.tally["Not Applicable"] }}</td>{% endif %}
+                    <td style="text-align: center;">{{ ((f.tally["Completed"] * 100.0 / f_denom) | round(0) | int) ~ "%" if f_denom > 0 else "—" }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p style="text-align: center; color: #777;">No snags match the selected category, area and status.</p>
+    {% endfor %}
+
+{% else %}
     <!-- 4.2 TITLE & DATE (page 1 only) -->
     <table class="report-meta-table">
         <tr>
@@ -452,19 +669,8 @@
     {%- endif -%}
 
     <!-- 4.4 OVERALL STATUS SUMMARY -->
-    {{ stats_card(snags | length, tally) }}
+    {{ stats_card(snags | length, tally, na=show_na) }}
 
-    {# A filtered PDF that looks exactly like a full one is a trap -- whenever the
-       caller narrowed an axis, say so. Nothing renders in the ordinary "print
-       everything" case. AREA lives here alone now that the banner no longer
-       carries a scope cell. #}
-    {% set narrowed = [] %}
-    {% if sel_areas is not none %}{% set _ = narrowed.append("Area — " ~ area_label) %}{% endif %}
-    {% if sel_categories is not none %}{% set _ = narrowed.append("Category — " ~ category_label) %}{% endif %}
-    {% if sel_statuses is not none %}{% set _ = narrowed.append("Status — " ~ status_label) %}{% endif %}
-    {% if narrowed %}
-        <div class="filter-note">Filtered: {{ narrowed | join(" · ") }}</div>
-    {% endif %}
 
     <!-- 4.5 CATEGORY INDEX -- what is on the pages that follow -->
     {% if cat_index %}
@@ -534,17 +740,18 @@
                 </div>
 
                 <!-- CATEGORY STATUS SUMMARY -->
-                {{ stats_card(cat.rows | length, cat.tally) }}
+                {{ stats_card(cat.rows | length, cat.tally, na=show_na) }}
 
                 <!-- CATEGORY SNAG TABLE -->
                 <table class="custom-table">
                     <thead>
                         <tr>
                             <th style="width: 40px; text-align: center;">S.No</th>
-                            <th style="width: 18%;">Area</th>
-                            <th style="width: 42%;">Description</th>
+                            <th style="width: 15%;">Area</th>
+                            <th style="width: 34%;">Description</th>
                             <th style="width: 13%;">Status</th>
-                            <th style="width: 22%;">Remarks</th>
+                            <th style="width: 19%;">Remarks</th>
+                            <th style="width: 84px; text-align: center;">Attachment</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -559,8 +766,8 @@
                            the field existed -- so a row is never left blank. #}
                         {% for row in cat.rows %}
                         <tr>
-                            <!-- S.No -->
-                            <td style="text-align: center; color: #6B7280;">{{ row.source_serial or loop.index }}</td>
+                            <!-- S.No. Its id is where a click on the snag's photo jumps back to. -->
+                            <td id="snag-row-{{ row.name }}" style="text-align: center; color: #6B7280;">{{ row.source_serial or loop.index }}</td>
 
                             <!-- Area -->
                             <td style="font-weight: 600; color: #111;">
@@ -595,10 +802,53 @@
                                 {% endif %}
                             </td>
 
+                            <!-- Attachment: the photo (jumps to it on this category's photo
+                                 page). A photo that could not be fetched still gets its jump
+                                 link. -->
+                            <td style="text-align: center;">
+                                {% set ph = snag_photos.get(row.name) %}
+                                {% if ph %}
+                                    {% if ph.thumb %}
+                                        <a class="photo-jump" href="#snag-photo-{{ row.name }}"><img class="snag-photo" src="{{ ph.thumb }}" alt="Photo"></a>
+                                    {% else %}
+                                        <a class="photo-link" href="#snag-photo-{{ row.name }}">Photo</a>
+                                    {% endif %}
+                                {% else %}
+                                    <span style="color:#999;">-</span>
+                                {% endif %}
+                            </td>
+
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
+
+                <!-- CATEGORY PHOTOS -- on the NEXT page, 3 per row, in the table's order.
+                     Nothing (no page) when no snag of this category has a photo. -->
+                {%- set cat_photos = [] -%}
+                {%- for row in cat.rows -%}
+                    {%- if snag_photos.get(row.name) -%}{%- set _ = cat_photos.append(row) -%}{%- endif -%}
+                {%- endfor -%}
+                {% if cat_photos %}
+                <div class="category-photos">
+                    {# One line: which category, how many, then what a click does. #}
+                    <div class="photos-head"><span class="photos-title">{{ cat.label }} &middot; {{ cat_photos | length }} {{ "photo" if cat_photos | length == 1 else "photos" }}</span><span class="photos-hint">(Click a photo to go to its snag row)</span></div>
+                    {% for chunk in cat_photos | batch(3) %}
+                    <table class="photo-row">
+                        <tr>
+                            {% for row in chunk %}
+                            {% set ph = snag_photos.get(row.name) %}
+                            {# The photo IS the link back to its snag row (owner 2026-10-08). #}
+                            <td id="snag-photo-{{ row.name }}">
+                                <a class="grid-link" href="#snag-row-{{ row.name }}">{% if ph.grid %}<img class="grid-photo" src="{{ ph.grid }}" alt="Photo">{% else %}<span class="grid-missing"><span>Photo unavailable</span></span>{% endif %}</a>
+                            </td>
+                            {% endfor %}
+                            {% for _ in range(3 - chunk | length) %}<td></td>{% endfor %}
+                        </tr>
+                    </table>
+                    {% endfor %}
+                </div>
+                {% endif %}
             </div>
             {% endif %}
 
@@ -607,5 +857,6 @@
     {% else %}
         <p style="text-align: center; color: #777;">No snags match the selected category, area and status.</p>
     {% endif %}
+{% endif %}{# /is_master #}
 
 </div>

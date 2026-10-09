@@ -68,6 +68,16 @@ export const canHoldQueueRow = (row: QueueRowLike, role?: string | null): boolea
   row.doctype === "Project Payments" &&
   statusOf(row) === APPROVAL_STATUS.APPROVED;
 
+/**
+ * Upload / replace the invoice on a Paid expense (either ledger), from "Payment Done / Reconciliation
+ * Done" — the same three roles that work the queue. Project Expenses were added 2026-10-07 (owner);
+ * a PO / WO payment never: its invoices are Vendor Invoices.
+ */
+export const canUploadInvoiceRow = (row: QueueRowLike, role?: string | null): boolean =>
+  canWorkQueueRows(role) &&
+  EXPENSE_DOCTYPES.includes(row.doctype) &&
+  isPaidExpense(row.status);
+
 /** Is this payment held? It stays Approved but cannot be marked as paid or ticked. */
 export const isHeldQueueRow = (row: Pick<ApprovalQueueRow, "on_hold">): boolean =>
   Number(row.on_hold) === 1;

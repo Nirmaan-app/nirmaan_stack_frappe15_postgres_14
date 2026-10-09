@@ -4,6 +4,14 @@ Reference documentation for the Delivery Note system on Purchase Orders. Load wh
 
 ---
 
+## Load-bearing invariants (owner-locked)
+
+_Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every frontend task needs (CLAUDE.md restructure, pass 2). `frontend/CLAUDE.md` now carries a one-line pointer here._
+
+- **Return Notes:** DN variant for items returned to vendor (`is_return` field on Delivery Notes doctype). Negative `delivered_quantity`, red-tinted "RN-" columns in pivot table. Only available in PO accordion (not standalone DN page). Roles: Admin, PMO, PL, Procurement (PM excluded). See `.claude/context/domain/delivery-notes.md` for full docs.
+
+---
+
 ## Overview
 
 Delivery Notes are a **standalone Frappe doctype** (`Delivery Notes` with `Delivery Note Item` child table). Each delivery event creates a DN record.

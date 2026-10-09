@@ -19,7 +19,12 @@
   "tds_description",
   "tds_attachment",
   "tds_status",
-  "tds_rejection_reason"
+  "tds_rejection_reason",
+  "client_status_section",
+  "client_status",
+  "client_status_by",
+  "client_status_on",
+  "client_rejection_reason"
  ],
  "fields": [
   {
@@ -98,12 +103,44 @@
    "fieldname": "tds_boq_line_item",
    "fieldtype": "Text",
    "label": "TDS BOQ Line Item"
+  },
+  {
+   "fieldname": "client_status_section",
+   "fieldtype": "Section Break",
+   "label": "Client Status"
+  },
+  {
+   "fieldname": "client_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Client Status",
+   "options": "\nApproved by Client\nRejected by Client",
+   "read_only": 1
+  },
+  {
+   "fieldname": "client_status_by",
+   "fieldtype": "Link",
+   "label": "Marked By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "client_status_on",
+   "fieldtype": "Datetime",
+   "label": "Marked On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "client_rejection_reason",
+   "fieldtype": "Small Text",
+   "label": "Client's Reason",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-06 12:39:43.344323",
+ "modified": "2026-10-08 22:07:44.028662",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project TDS Item List",

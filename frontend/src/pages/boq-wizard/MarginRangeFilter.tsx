@@ -14,7 +14,7 @@
  * % Margin header and are told apart by icon and colour, never by position.
  *
  * ── WHY IT IS NOT WITHHELD WHEN THE SHEET IS LOCKED ──────────────────────────────────────────
- * The grid's read-only rule is "gating = PRESENCE of the save callback" (frontend/CLAUDE.md), and
+ * The grid's read-only rule is "gating = PRESENCE of the save callback" (boq-pricing-editor-frontend.md), and
  * every callback it names is a WRITE. Filtering writes nothing. A locked or taken-over sheet is
  * exactly when someone is reading rather than editing, so removing the one control that helps
  * them read would be backwards. `onApply` is therefore always supplied.

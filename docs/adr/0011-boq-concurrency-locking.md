@@ -204,7 +204,7 @@ re-parse → inline warning, review/config ack → dropped; see Update below.)_
   (retained) keep it recoverable.
 - The 3 shipped guards are **repurposed, not replaced** — they are already warn-only confirms with state-floor
   detection (verified live 2026-07-03); only their message gains the Live name.
-- Terms coined this session are in `CONTEXT.md` → **BoQ concurrency & directional guard**.
+- Terms coined this session are in `GLOSSARY.md` → **BoQ concurrency & directional guard**.
 
 ### Update 2026-07-06 (owner) — force re-parse softened to a warning, review/config ack dropped
 

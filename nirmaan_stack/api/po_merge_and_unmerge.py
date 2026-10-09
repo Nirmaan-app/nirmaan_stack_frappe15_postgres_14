@@ -2,6 +2,7 @@ import frappe
 import json
 from frappe.utils import flt,getdate, nowdate
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
+from nirmaan_stack.integrations.controllers.material_test_certificate import delete_mtcs_for_po
 
 @frappe.whitelist()
 def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_terms: list):
@@ -72,6 +73,12 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
         new_po_doc.vendor_name = po_doc.vendor_name
         new_po_doc.vendor_address = po_doc.vendor_address
         new_po_doc.vendor_gst = po_doc.vendor_gst
+        # Billing GST: first PO's, else any merged PO's, else the project's
+        new_po_doc.project_gst = (
+            po_doc.project_gst
+            or next((g for g in (frappe.db.get_value("Procurement Orders", n, "project_gst") for n in all_po_names) if g), None)
+            or frappe.db.get_value("Projects", po_doc.project, "project_gst")
+        )
         # Set the items from the payload
         # new_po_doc.items = order_data
         new_po_doc.merged = "true"
@@ -139,7 +146,9 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
         for po_name in pos_to_update:
             frappe.db.set_value("Procurement Orders", po_name, "status", "Merged")
             frappe.db.set_value("Procurement Orders", po_name, "merged", new_po_doc.name)
-        
+            # A merged PO takes its Material Test Certificates with it (owner ruling Q28).
+            delete_mtcs_for_po(po_name)
+
         # Vendor credit recalculation after PO merge
         if po_doc.vendor:
             recalculate_vendor_credit(po_doc.vendor, "PO Merged", po_id=new_po_doc.name, project=po_doc.project)

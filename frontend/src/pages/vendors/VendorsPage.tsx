@@ -201,9 +201,12 @@ export default function VendorsPage() {
         meta: {
           // JSON field: the backend lists the names inside `categories` and filters
           // vendors holding ANY ticked one (data_table/facets.py + utils.py).
+          // "N/A" = vendors with no categories (same label the cell shows).
           facet: {
             field: "vendor_category",
             title: "Category",
+            includeBlankBucket: true,
+            blankLabel: "N/A",
           } satisfies FacetDeclaration,
           exportHeaderName: "Categories",
           exportValue: (row: VendorsType) =>

@@ -9,6 +9,7 @@ import { DCMIRReportType } from "../../store/useReportStore";
 import { Link } from "react-router-dom";
 import { Paperclip } from "lucide-react";
 import { CriticalPOCell, criticalPOLabel } from "@/components/helpers/CriticalPOCell";
+import { OrderDetailLink } from "@/pages/ProjectPayments/components/OrderDetailLink";
 
 // --- Items popover column cell ---
 const ItemsSummaryCell = ({ row }: { row: { original: DCMIRReportRowData } }) => {
@@ -96,12 +97,12 @@ const poColumn: ColumnDef<DCMIRReportRowData> = {
         const po = row.original.parent_docname || row.original.procurement_order;
         if (!po) return <span className="text-gray-400 text-xs">—</span>;
         return (
-            <Link
-                to={`/project-payments/${po.split("/").join("&=")}`}
+            <OrderDetailLink
+                docName={po}
                 className="text-xs text-blue-600 hover:text-blue-800 hover:underline font-medium"
             >
                 {po}
-            </Link>
+            </OrderDetailLink>
         );
     },
     meta: {

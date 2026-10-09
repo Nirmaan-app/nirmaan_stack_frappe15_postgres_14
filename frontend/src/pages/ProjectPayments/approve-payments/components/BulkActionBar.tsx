@@ -11,8 +11,6 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { useRefreshApprovalCounts } from "../../hooks/useRefreshApprovalCounts";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { parseNumber } from "@/utils/parseNumber";
 // The unified queue hands this a normalized row that carries every field the bulk
 // path reads (amount, name, document_name, vendor, document_type) under their
 // PAYMENT names, so nothing in here had to change — only the type widened.
@@ -22,6 +20,7 @@ import { BulkAction, BulkFailure, BulkMode } from "../hooks/useBulkPaymentAction
 import { useBulkApprovalActions } from "../hooks/useBulkApprovalActions";
 import { countLabel, summarizeSelection } from "../../bulkSelectionSummary";
 import { BulkConfirmDialog } from "./BulkConfirmDialog";
+import { SelectionTotalPill } from "../../components/SelectionTotalPill";
 
 interface BulkActionBarProps {
   table: Table<ApprovalQueueRow>;
@@ -55,12 +54,6 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
   // Every user-facing string on this path reads its noun from here — the queue holds
   // three ledgers, so "payment" is only sometimes the right word.
   const mix = useMemo(() => summarizeSelection(selectedPayments), [selectedPayments]);
-
-  const totalReqAmount = useMemo(
-    () =>
-      selectedPayments.reduce((sum, p) => sum + parseNumber(p.amount), 0),
-    [selectedPayments]
-  );
 
   const openDialog = useCallback((action: BulkAction) => {
     setDialogAction(action);
@@ -123,16 +116,7 @@ export const BulkActionBar: React.FC<BulkActionBarProps> = ({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div
-        className="flex h-8 items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 text-sm"
-        title={`${countLabel(mix)} selected · Total Req. Amount ${formatToRoundedIndianRupee(totalReqAmount)}`}
-      >
-        <span className="text-muted-foreground">Req. Amt :</span>
-        <span className="font-bold tabular-nums text-foreground">
-          {formatToRoundedIndianRupee(totalReqAmount)}
-        </span>
-        <span className="font-semibold text-foreground tabular-nums">({count})</span>
-      </div>
+      <SelectionTotalPill rows={selectedPayments} />
       <Button
         size="sm"
         variant="default"

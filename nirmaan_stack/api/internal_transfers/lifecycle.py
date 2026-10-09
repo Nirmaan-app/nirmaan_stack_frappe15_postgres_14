@@ -31,7 +31,8 @@ def dispatch_itm(name: str) -> dict:
         frappe.throw(_("Authentication required."), frappe.PermissionError)
 
     _require_dispatcher(
-        _("Only administrators or procurement executives can dispatch ITMs.")
+        _("Only administrators, PMO executives, or procurement executives "
+          "can dispatch ITMs.")
     )
 
     doc = frappe.get_doc("Internal Transfer Memo", name)

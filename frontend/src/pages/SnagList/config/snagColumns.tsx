@@ -19,7 +19,9 @@ import { Button } from "@/components/ui/button";
 import { formatDate } from "@/utils/FormatDate";
 
 import { SnagStatus } from "../types";
+import { SnagPhotoCell } from "../components/SnagPhotoCell";
 import { SnagStatusCell } from "../components/SnagStatusCell";
+import { SnagPhotoDraft } from "../photo/snagPhotoCapture";
 import { SnagListRow } from "./snagTable.config";
 
 export interface GetSnagColumnsOptions {
@@ -33,7 +35,8 @@ export interface GetSnagColumnsOptions {
   onStatusChange?: (
     snag: SnagListRow,
     next: SnagStatus,
-    remark: string | undefined
+    remark: string | undefined,
+    photo?: SnagPhotoDraft | null
   ) => Promise<boolean> | void;
   /**
    * Open the Edit dialog (Area / Category / Description). Withheld when the actor
@@ -44,6 +47,13 @@ export interface GetSnagColumnsOptions {
   onEditRow?: (snag: SnagListRow) => void;
   /** `name` of the row whose write is currently in flight, if any. */
   savingStatusFor?: string | null;
+  /**
+   * User ID (the login email, or `Administrator`) -> the person's full name, from
+   * `useUsersForLookup`. An ID it does not know (a deleted user, an account missing
+   * from Nirmaan Users) comes back UNCHANGED, so the cell still says who it was.
+   * Absent => the raw ID, as before.
+   */
+  userName?: (userId: string) => string;
 }
 
 const dash = (v?: string | null) => (v && v.trim() ? v : "--");
@@ -52,6 +62,7 @@ export const getSnagColumns = ({
   onStatusChange,
   onEditRow,
   savingStatusFor,
+  userName = (userId) => userId,
 }: GetSnagColumnsOptions): ColumnDef<SnagListRow>[] => [
   {
     // The number the snag is quoted by: the consultant's own, or the position the
@@ -147,10 +158,12 @@ export const getSnagColumns = ({
         description={row.original.description}
         area={row.original.area}
         category={row.original.category}
+        photoUrl={row.original.attachment}
+        photoLocation={row.original.location}
         isSaving={savingStatusFor === row.original.name}
         onChange={
           onStatusChange
-            ? (next, remark) => onStatusChange(row.original, next, remark)
+            ? (next, remark, photo) => onStatusChange(row.original, next, remark, photo)
             : undefined
         }
       />
@@ -185,6 +198,21 @@ export const getSnagColumns = ({
     },
   },
   {
+    // The snag's ONE photo (owner 2026-10-08). Hover for the photo, where it was taken and a
+    // Location (maps) link. Set from the status dialog or the Edit dialog — never from this cell.
+    accessorKey: "attachment",
+    size: 90,
+    enableSorting: false,
+    header: () => <div className="text-xs">Attachment</div>,
+    cell: ({ row }) => (
+      <SnagPhotoCell
+        attachment={row.original.attachment}
+        location={row.original.location}
+      />
+    ),
+    meta: { excludeFromExport: true },
+  },
+  {
     // "Last updated" = the two status-change stamps, rendered as one column.
     // They answer "who last moved the STATUS" — NOT generic "last edited"
     // attribution (ADR-0018): a `Not Applicable` change carries no remark, so the
@@ -208,7 +236,7 @@ export const getSnagColumns = ({
               className="truncate text-[11px] text-muted-foreground"
               title={status_changed_by}
             >
-              {status_changed_by}
+              {userName(status_changed_by)}
             </div>
           )}
         </div>
@@ -233,13 +261,16 @@ export const getSnagColumns = ({
         className="truncate text-xs"
         title={row.original.status_changed_by || undefined}
       >
-        {dash(row.original.status_changed_by)}
+        {row.original.status_changed_by
+          ? userName(row.original.status_changed_by)
+          : dash(null)}
       </div>
     ),
     meta: {
       columnLabel: "Last updated by",
       exportHeaderName: "Last Updated By",
-      exportValue: (r: SnagListRow) => r.status_changed_by || "",
+      exportValue: (r: SnagListRow) =>
+        r.status_changed_by ? userName(r.status_changed_by) : "",
     },
   },
   /* ── Actions ────────────────────────────────────────────────────────────────
@@ -276,9 +307,11 @@ export const getSnagColumns = ({
                   description={row.original.description}
                   area={row.original.area}
                   category={row.original.category}
+                  photoUrl={row.original.attachment}
+                  photoLocation={row.original.location}
                   isSaving={savingStatusFor === row.original.name}
-                  onChange={(next, remark) =>
-                    onStatusChange(row.original, next, remark)
+                  onChange={(next, remark, photo) =>
+                    onStatusChange(row.original, next, remark, photo)
                   }
                 />
               )}
@@ -287,7 +320,7 @@ export const getSnagColumns = ({
                   variant="ghost"
                   size="sm"
                   className="h-7 w-7 p-0"
-                  title="Edit area, category and description"
+                  title="Edit area, category, description and photo"
                   aria-label="Edit snag details"
                   onClick={() => onEditRow(row.original)}
                 >

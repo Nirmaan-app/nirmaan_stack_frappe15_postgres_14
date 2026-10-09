@@ -9,7 +9,7 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 
 import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { Button } from '@/components/ui/button';
-import { Edit, Download, Plus, Check, Info, X, ChevronDown, EyeOff, CheckCircle2, User as UserIcon } from 'lucide-react';
+import { Edit, Download, Plus, Check, Info, X, ChevronDown, EyeOff, CheckCircle2, Trash2, User as UserIcon } from 'lucide-react';
 import { ProgressCircle } from '@/components/ui/ProgressCircle';
 import {
     Collapsible,
@@ -31,6 +31,7 @@ import { TaskEditModal } from './components/TaskEditModal';
 import { BulkUpdateDialog } from './components/BulkUpdateDialog';
 import { useFrappePostCall } from 'frappe-react-sdk';
 import { RenameZoneDialog } from './components/RenameZoneDialog';
+import { DeleteZoneDialog } from './components/DeleteZoneDialog';
 import { DownloadReportDialog, useDownloadReport } from './download';
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
@@ -826,6 +827,9 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
     // Rename Modal State
     const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
     const [zoneToRename, setZoneToRename] = useState("");
+
+    // Delete Zone State (Admin only)
+    const [zoneToDelete, setZoneToDelete] = useState("");
 
     // Phase Tab State (Onboarding / Handover)
     const [activePhase, setActivePhase] = useState<"Onboarding" | "Handover">("Onboarding");
@@ -1658,6 +1662,17 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                                                     }}
                                                 />
                                             )}
+                                            {isAdmin && uniqueZones.length > 1 && (
+                                                <Trash2
+                                                    className={`w-2.5 h-2.5 cursor-pointer ${
+                                                        isActive ? 'text-white/70 hover:text-white' : 'text-red-400 hover:text-red-700'
+                                                    }`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setZoneToDelete(zone!);
+                                                    }}
+                                                />
+                                            )}
                                         </button>
                                     );
                                 })}
@@ -1807,6 +1822,19 @@ export const ProjectDesignTrackerDetailV2: React.FC<ProjectDesignTrackerDetailPr
                 initialZone={zoneToRename}
                 onSuccess={() => {
                     window.location.reload();
+                }}
+            />
+
+            <DeleteZoneDialog
+                isOpen={!!zoneToDelete}
+                onClose={() => setZoneToDelete("")}
+                trackerId={trackerId!}
+                zone={zoneToDelete}
+                taskCount={(trackerDoc?.design_tracker_task || []).filter(t => t.task_zone === zoneToDelete).length}
+                handoverTaskCount={(trackerDoc?.design_tracker_task || []).filter(t => t.task_zone === zoneToDelete && t.task_phase === "Handover").length}
+                onSuccess={() => {
+                    if (activeTab === zoneToDelete) setActiveTab("");
+                    refetchTracker();
                 }}
             />
 

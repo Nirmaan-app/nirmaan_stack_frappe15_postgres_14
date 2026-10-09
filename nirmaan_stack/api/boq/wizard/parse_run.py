@@ -974,7 +974,7 @@ def _run_parse_worker(
         if parsed_sheets:
             frappe.db.set_value("BOQs", boq_name, "parsed_at", frappe.utils.now())
 
-        # Commit BEFORE publish (CLAUDE.md rule: commit-before-publish avoids race conditions)
+        # Commit BEFORE publish (CODING_STANDARDS.md rule: commit-before-publish avoids race conditions)
         frappe.db.commit()
 
         # Step 8: Publish result targeted to the enqueueing user

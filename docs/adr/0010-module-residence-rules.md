@@ -9,7 +9,7 @@ Date: 2026-07-01
 Derived from the pass-3 architecture review *"Architecture review — Procurement + codebase
 residence rules"* (2026-06-25) and the procurement **performance investigation** (2026-07-01).
 This ADR ratifies the residence rules; its first worked proof is the `sidebar_counts` aggregate
-rewrite (below). Terms in [CONTEXT.md](../../CONTEXT.md) ("Module residence"). Numbered `0010`
+rewrite (below). Terms in [GLOSSARY.md](../../GLOSSARY.md) ("Module residence"). Numbered `0010`
 because `0007`–`0009` are already taken (existing files collide on `0002`/`0007`/`0008`; those
 are **not** renumbered here — out of scope).
 

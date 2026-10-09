@@ -115,6 +115,10 @@ class PaymentSettlementFixture(unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.batches, self.payments, self.pos = [], [], []
+        # The safety net for when tearDown never commits: a setUp that raises skips tearDown, and a
+        # tearDown that raises (an aborted transaction makes every delete fail) loses every purge
+        # with it. Registered first, so it runs LAST, after every subclass's own cleanup.
+        self.addCleanup(self._purge_after_a_failure)
         self.parsed = _fresh_parse()
         self.batch = _stage_batch(
             self.parsed,
@@ -215,7 +219,7 @@ class PaymentSettlementFixture(unittest.TestCase):
         project's CEO-Hold state and leave the residue there after the test ends. This throwaway
         project, deleted in `tearDown`, is what keeps that residue inside the fixture instead.
 
-        Follows the documented Projects-row fixture pattern (root `CLAUDE.md`): `generate_pwm`'s
+        Follows the documented Projects-row fixture pattern (root `CODING_STANDARDS.md`): `generate_pwm`'s
         `after_insert` hook needs second-precision start/end dates and a `project_scopes` dict
         carrying a `scopes` key. It is still never appropriate to flip an EXISTING project's
         `tendering_status` to make one settle -- this fixture creates its own instead, for that
@@ -304,6 +308,15 @@ class PaymentSettlementFixture(unittest.TestCase):
         )
 
     def tearDown(self):
+        self._purge_settlement_fixtures()
+        super().tearDown()
+
+    def _purge_after_a_failure(self):
+        """Idempotent: after a clean tearDown every delete below finds nothing."""
+        frappe.db.rollback()
+        self._purge_settlement_fixtures()
+
+    def _purge_settlement_fixtures(self):
         # #1275: a reversal saves its match record through the document layer (a Version row, the
         # doctype tracks changes) and comments on the line. Purged with what they describe.
         legs = frappe.get_all(MATCH_DOCTYPE, {"import_batch": ["in", self.batches]}, pluck="name")
@@ -346,13 +359,15 @@ class PaymentSettlementFixture(unittest.TestCase):
             frappe.db.delete(PAYMENT, {"name": name})
         for name in self.pos:
             frappe.db.delete("Procurement Orders", {"name": name})
+        # Committed BEFORE the project delete: `delete_doc` runs hooks and can raise, and it used
+        # to take every purge above down with it.
+        frappe.db.commit()
         # The dedicated allocation project (Ruling C), after its PO and payments are gone.
         if getattr(self, "_alloc_project_name", None):
             frappe.delete_doc(
                 "Projects", self._alloc_project_name, force=True, ignore_permissions=True
             )
         frappe.db.commit()
-        super().tearDown()
 
     def _po_amount_paid(self) -> float:
         return float(frappe.db.get_value("Procurement Orders", self.po, "amount_paid") or 0)
@@ -1066,6 +1081,23 @@ class TestPartialSettlementHappyPath(PartialSettlementFixture):
             SETTLEABLE,
             "the balance waits for its own bank line, never back at Approved (#1289)",
         )
+
+    def test_a_gst_payments_leftover_keeps_the_gst_kind(self):
+        """ADR-0030: the balance of a part-paid GST payment is still a GST payment. The copy is
+        parent-blind -- this fixture's payment sits on a PO, which is all the split needs."""
+        frappe.db.set_value(PAYMENT, self.big_payment, "is_gst_payment", 1, update_modified=False)
+        frappe.db.commit()
+
+        settle_row_partial(self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT)
+
+        balance = self._balance_of(self.big_payment)[0]
+        self.assertEqual(frappe.db.get_value(PAYMENT, balance, "is_gst_payment"), 1)
+        self.assertEqual(frappe.db.get_value(PAYMENT, self.big_payment, "is_gst_payment"), 1)
+
+    def test_a_base_payments_leftover_stays_a_base_payment(self):
+        settle_row_partial(self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT)
+        balance = self._balance_of(self.big_payment)[0]
+        self.assertEqual(frappe.db.get_value(PAYMENT, balance, "is_gst_payment"), 0)
 
     def test_the_two_halves_sum_to_what_was_approved(self):
         settle_row_partial(self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT)

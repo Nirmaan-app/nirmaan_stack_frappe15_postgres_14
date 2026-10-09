@@ -121,7 +121,9 @@ interface DataTableProps<T> {
   onSearchTermChange: (v: string) => void;
 
   // Filters
-  facetFilterOptions?: Record<string, { title: string; options: { label: string, value: string }[]; isLoading?: boolean }>;
+  facetFilterOptions?: Record<string, { title: string; options: { label: string, value: string }[]; isLoading?: boolean }>;  // legacy; new pages declare meta.facet
+  facetDoctype?: string;                  // opts into self-fetching facets (frontend/CODING_STANDARDS.md § Building a table)
+  facetOverrides?: FacetOverrides;        // per-column render-scope context (additionalFilters / enabled gate)
   dateFilterColumns?: string[];
 
   // Export

@@ -1,0 +1,154 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:{project}-{package}",
+ "creation": "2026-10-03 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "project",
+  "package",
+  "billing_managers",
+  "po_value",
+  "cb_dc",
+  "supply_dc",
+  "dc_updated_on",
+  "sb_dc_log",
+  "dc_log",
+  "sb_remarks",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Project",
+   "options": "Projects",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "package",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Package",
+   "options": "Project Billing Packages",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "description": "One or more people who manage this package's billing.",
+   "fieldname": "billing_managers",
+   "fieldtype": "Table MultiSelect",
+   "label": "Billing Managers",
+   "options": "Project Billing Manager"
+  },
+  {
+   "description": "Client PO value for this package (incl GST). Entered when billing is set up; editable from the same dialog.",
+   "fieldname": "po_value",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "PO Value (incl GST)"
+  },
+  {
+   "fieldname": "cb_dc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Sum of this package's DC log rows (incl GST).",
+   "fieldname": "supply_dc",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Supply DC Till Date",
+   "read_only": 1
+  },
+  {
+   "description": "Latest DC log date; drives \"Updated today / N days ago\".",
+   "fieldname": "dc_updated_on",
+   "fieldtype": "Date",
+   "label": "Supply DC Updated On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sb_dc_log",
+   "fieldtype": "Section Break",
+   "label": "Supply DC Log"
+  },
+  {
+   "fieldname": "dc_log",
+   "fieldtype": "Table",
+   "label": "DC Log",
+   "options": "Project Billing DC Log"
+  },
+  {
+   "fieldname": "sb_remarks",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-03 16:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Project Billing Tracker",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "share": 1,
+   "write": 1,
+   "role": "System Manager"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "write": 1,
+   "role": "Nirmaan PMO Executive"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "write": 1,
+   "role": "Nirmaan Billing Lead"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "write": 1,
+   "role": "Nirmaan Billing Executive"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "search_fields": "project,package",
+ "track_changes": 1,
+ "title_field": "project"
+}

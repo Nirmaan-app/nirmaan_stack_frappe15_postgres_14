@@ -25,6 +25,10 @@ export interface VendorInvoice {
   invoice_no: string;
   invoice_date: string;
   invoice_amount: number;
+  /** Invoice Base Amount: taxable value before GST (ADR-0030). 0 with GST 0 = never entered. */
+  invoice_base_amount?: number;
+  /** Invoice GST Amount: all GST on the bill (ADR-0030). Negative on a credit note. */
+  invoice_gst_amount?: number;
   invoice_attachment?: string;
   /** 1 if this invoice is a credit note — EXCLUDED from Purchase Order Item.invoice_qty. */
   is_credit_note?: 0 | 1;
@@ -49,6 +53,8 @@ export interface VendorInvoice {
   autofill_extracted_invoice_no?: string;
   autofill_extracted_invoice_date?: string;
   autofill_extracted_amount?: number;
+  autofill_extracted_base_amount?: number;
+  autofill_extracted_gst_amount?: number;
   autofill_extracted_supplier_gstin?: string;
   autofill_extracted_receiver_gstin?: string;
   /** JSON string of `{invoice_no, invoice_date, amount}` confidence scores */

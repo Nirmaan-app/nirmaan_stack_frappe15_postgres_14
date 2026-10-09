@@ -6,7 +6,7 @@ export const PO_ATTACHMENT_RECONCILE_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "vendorName", label: "Vendor", placeholder: "Search by Vendor...", default: true  },
 ];
 
-export const PO_ATTACHMENT_RECONCILE_DATE_COLUMNS: string[] = ["creation", "latestDeliveryDate"];
+export const PO_ATTACHMENT_RECONCILE_DATE_COLUMNS: string[] = ["creation", "latestDeliveryDate", "latestPaymentDate"];
 
 export const PO_ATTACHMENT_STATUS_OPTIONS = [
     { label: "Delivered", value: "Delivered" },

@@ -983,6 +983,37 @@ class TestStagedOutcome(unittest.TestCase):
         self.assertEqual(outcome.status, ROW_SKIPPED)
         self.assertIn("same statement", outcome.note)
 
+    def test_a_status_changed_repeat_from_an_earlier_batch_names_both_statuses(self):
+        """ADR-0031: only a repeat whose bank status CHANGED is saved, and its reason says so."""
+        outcome = derive_staged_row_outcome(
+            _Row(is_success=False, status_raw=" reversed "),
+            already_imported_in="OFI-26-00003",
+            earlier_bank_status="SUCCESS",
+        )
+        self.assertEqual(outcome.status, ROW_SKIPPED)
+        self.assertEqual(outcome.skip_kind, "Already imported")
+        self.assertEqual(
+            outcome.note,
+            "Already imported in batch OFI-26-00003, bank status changed SUCCESS → REVERSED.",
+        )
+
+    def test_a_status_changed_repeat_in_the_same_file_names_both_statuses(self):
+        outcome = derive_staged_row_outcome(
+            _Row(is_success=False, status_raw="REVERSED"),
+            duplicate_in_file=True,
+            earlier_bank_status="SUCCESS",
+        )
+        self.assertEqual(outcome.skip_kind, "Repeated in same file")
+        self.assertIn("same statement", outcome.note)
+        self.assertIn("SUCCESS → REVERSED", outcome.note)
+
+    def test_an_earlier_status_alone_is_not_a_repeat(self):
+        """The status names a change only on a repeat branch; it cannot skip a line by itself."""
+        self.assertEqual(
+            derive_staged_row_outcome(_Row(), earlier_bank_status="QUEUED").status,
+            ROW_PENDING_MATCH,
+        )
+
     def test_skip_reasons_are_worded_identically_at_upload_and_after_matching(self):
         row = _Row(is_success=False, status_raw="FAILED")
         self.assertEqual(

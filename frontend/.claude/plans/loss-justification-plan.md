@@ -2,7 +2,7 @@
 
 **Status:** SHIPPED / as-built 2026-06-23 (branch `prsb-loss-reason`). Migrated (column verified in DB),
 tsc clean (zero new errors, 3181→3181), 7/7 backend calc scenarios pass. Production bundle: build in the
-CONTAINER (host rollup native binary is Linux/container-only). Terms in `CONTEXT.md`; scope ADR
+CONTAINER (host rollup native binary is Linux/container-only). Terms in `GLOSSARY.md`; scope ADR
 `docs/adr/0002-loss-justification-scope.md`; gotchas in root + frontend CLAUDE.md.
 **Date:** 2026-06-23
 
@@ -20,7 +20,7 @@ Two real defects an adversarial review caught and we fixed + re-verified:
    capture screen didn't flag could be blocked at approval with no way for the read-only approver to add a
    reason. Fixed by computing the approval-side **Loss %** with the Target-prioritized benchmark (the ₹
    "Savings/Loss" column is left on `min(Target, L1)` to avoid regressing existing display — recorded as a
-   gotcha, see CLAUDE.md GOTCHA 2).
+   gotcha, see GOTCHA 2 in `.claude/context/domain/procurement.md`).
 
 ## Goal
 

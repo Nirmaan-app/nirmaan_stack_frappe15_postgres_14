@@ -4,6 +4,7 @@ from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_us
 from .procurement_requests import get_user_name
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 from nirmaan_stack.api.projects._tendering_guard import validate_won
+from .material_test_certificate import delete_mtcs_for_po
 
 def after_insert(doc, method):
         proc_admin_account_users = get_allowed_procurement_users(doc) + get_admin_users() + get_allowed_accountants(doc)
@@ -345,6 +346,10 @@ def cleanup_po_linked_docs(po_name):
         pluck="name",
     ):
         frappe.delete_doc("Project Action Item", ai_name, force=True, ignore_permissions=True)
+
+    # 4. Material Test Certificates of this PO (owner ruling: a cancelled or deleted PO
+    #    takes its MTCs with it).
+    delete_mtcs_for_po(po_name)
 
 
 def _all_items_dispatched(doc):

@@ -208,6 +208,8 @@ The frontend and backend integrate through several mechanisms:
 
 ## Best Practices for Development
 
+The binding rules are in [`CODING_STANDARDS.md`](CODING_STANDARDS.md); where this overview disagrees, that file wins.
+
 ### Adding New Frontend Features
 
 1. **Create Components**:

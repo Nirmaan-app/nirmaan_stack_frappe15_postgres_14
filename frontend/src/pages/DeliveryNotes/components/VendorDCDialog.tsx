@@ -21,8 +21,8 @@ import { Switch } from "@/components/ui/switch";
 import { Pencil, RotateCcw } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { useFrappeGetDoc } from "frappe-react-sdk";
+import VendorSelect, { OTHERS_VENDOR_VALUE } from "@/components/custom-select/vendor-select";
 import { formatDate } from "@/utils/FormatDate";
-import { DeliveryNote } from "@/types/NirmaanStack/DeliveryNotes";
 
 /** Per-challan vendor overrides. Blank name/address mean "use the vendor master". */
 export interface VendorDCOverrides {
@@ -31,11 +31,31 @@ export interface VendorDCOverrides {
   hideVendor: boolean;
 }
 
+/**
+ * The delivery-note fields the challan reads. A PO note (`DeliveryNote`) and an ITM
+ * note (a `get_delivery_notes_for_itm` row) both satisfy it.
+ */
+export interface VendorDCNote {
+  name: string;
+  note_no: number;
+  delivery_date: string;
+  is_return?: number;
+  vendor?: string | null;
+  procurement_order?: string | null;
+  parent_docname?: string | null;
+  items: { name?: string; item_name?: string; unit?: string; delivered_quantity: number }[];
+}
+
 interface VendorDCDialogProps {
-  dn: DeliveryNote | null;
+  dn: VendorDCNote | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onGenerate: (modifiedItems: any[], vendorOverrides: VendorDCOverrides) => void;
+  /**
+   * ITM notes carry no vendor, so the user picks one: a vendor from the master prints
+   * its name + address as-is, "Others" opens blank fields to type them by hand.
+   */
+  pickVendor?: boolean;
 }
 
 /**
@@ -54,7 +74,13 @@ function composeAddress(addr?: Record<string, any>): string {
   return parts.join("\n");
 }
 
-export function VendorDCDialog({ dn, open, onOpenChange, onGenerate }: VendorDCDialogProps) {
+export function VendorDCDialog({
+  dn,
+  open,
+  onOpenChange,
+  onGenerate,
+  pickVendor = false,
+}: VendorDCDialogProps) {
   const [items, setItems] = useState<any[]>([]);
   const [vendorName, setVendorName] = useState("");
   const [vendorAddress, setVendorAddress] = useState("");
@@ -62,11 +88,16 @@ export function VendorDCDialog({ dn, open, onOpenChange, onGenerate }: VendorDCD
   const [editingVendor, setEditingVendor] = useState(false);
   // Once the user types, stop re-seeding from the master (the docs resolve async).
   const [vendorTouched, setVendorTouched] = useState(false);
+  // `pickVendor` only: a vendor id, the Others sentinel, or null (nothing picked yet).
+  const [pickedVendor, setPickedVendor] = useState<string | null>(null);
+  const isOthers = pickedVendor === OTHERS_VENDOR_VALUE;
 
+  // The vendor whose master seeds the fields: the note's own, or the one picked.
+  const vendorId = pickVendor ? (isOthers ? null : pickedVendor) : dn?.vendor;
   const { data: vendorDoc } = useFrappeGetDoc<any>(
     "Vendors",
-    dn?.vendor,
-    dn?.vendor && open ? undefined : null
+    vendorId ?? undefined,
+    vendorId && open ? undefined : null
   );
 
   const addressId = vendorDoc?.vendor_address;
@@ -98,6 +129,7 @@ export function VendorDCDialog({ dn, open, onOpenChange, onGenerate }: VendorDCD
     setHideVendor(false);
     setEditingVendor(false);
     setVendorTouched(false);
+    setPickedVendor(null);
   }, [open, dn?.name]);
 
   // Seed the vendor fields as the linked docs arrive, until the user edits them.
@@ -121,6 +153,10 @@ export function VendorDCDialog({ dn, open, onOpenChange, onGenerate }: VendorDCD
   const vendorIsEdited =
     vendorName !== defaultVendorName || vendorAddress !== defaultVendorAddress;
 
+  // An ITM note has no vendor master to fall back on: with no name the PDF would
+  // print "Vendor N/A", so a picked-vendor challan needs a name or the vendor hidden.
+  const canGenerate = !pickVendor || hideVendor || vendorName.trim() !== "";
+
   if (!dn) return null;
 
   const noteLabel = dn.is_return === 1 ? `RN-${dn.note_no}` : `DN-${dn.note_no}`;
@@ -129,6 +165,15 @@ export function VendorDCDialog({ dn, open, onOpenChange, onGenerate }: VendorDCD
     const updatedItems = [...items];
     updatedItems[idx].delivered_quantity = parseFloat(newQty) || 0;
     setItems(updatedItems);
+  };
+
+  // Clearing the fields lets the seeding effect fill them from the newly picked
+  // vendor's master; Others has no master, so its fields stay blank to type into.
+  const handlePickVendor = (option: { value: string } | null) => {
+    setPickedVendor(option?.value ?? null);
+    setVendorName("");
+    setVendorAddress("");
+    setVendorTouched(false);
   };
 
   const handleResetVendor = () => {
@@ -149,6 +194,42 @@ export function VendorDCDialog({ dn, open, onOpenChange, onGenerate }: VendorDCD
       hideVendor,
     });
   };
+
+  const vendorFields = (
+    <>
+      <div className="space-y-1">
+        <Label htmlFor="vendor-dc-name" className="text-xs text-muted-foreground">
+          Vendor Name
+        </Label>
+        <Input
+          id="vendor-dc-name"
+          value={vendorName}
+          onChange={(e) => {
+            setVendorTouched(true);
+            setVendorName(e.target.value);
+          }}
+          className="h-8"
+          placeholder="Vendor name as it should print"
+        />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="vendor-dc-address" className="text-xs text-muted-foreground">
+          Vendor Address
+        </Label>
+        <Textarea
+          id="vendor-dc-address"
+          value={vendorAddress}
+          onChange={(e) => {
+            setVendorTouched(true);
+            setVendorAddress(e.target.value);
+          }}
+          rows={4}
+          placeholder="One line per address line"
+          className="text-sm"
+        />
+      </div>
+    </>
+  );
 
   const printToggle = (
     <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer shrink-0">
@@ -171,7 +252,7 @@ export function VendorDCDialog({ dn, open, onOpenChange, onGenerate }: VendorDCD
             Vendor Delivery Challan · {noteLabel}
           </DialogTitle>
           <p className="text-xs text-muted-foreground">
-            {dn.procurement_order || "—"} · {formatDate(dn.delivery_date)}
+            {dn.procurement_order || dn.parent_docname || "—"} · {formatDate(dn.delivery_date)}
           </p>
         </DialogHeader>
 
@@ -197,6 +278,32 @@ export function VendorDCDialog({ dn, open, onOpenChange, onGenerate }: VendorDCD
             <p className="text-xs text-muted-foreground">
               Not printed — Buyer (Bill to) moves up into this space.
             </p>
+          ) : pickVendor ? (
+            <div className="space-y-2">
+              <VendorSelect
+                usePortal
+                value={pickedVendor}
+                onChange={handlePickVendor}
+                placeholder="Select a vendor, or 'Others' to type one"
+              />
+              {isOthers ? (
+                <>
+                  {vendorFields}
+                  <p className="text-[11px] text-muted-foreground">
+                    This challan only. Nothing is saved.
+                  </p>
+                </>
+              ) : pickedVendor ? (
+                <div className="min-w-0">
+                  <p className="text-sm font-medium break-words">
+                    {vendorName || <span className="text-muted-foreground">Loading…</span>}
+                  </p>
+                  <p className="text-xs text-muted-foreground whitespace-pre-line break-words">
+                    {vendorAddress || "No address on file"}
+                  </p>
+                </div>
+              ) : null}
+            </div>
           ) : editingVendor ? (
             <div className="space-y-2">
               <div className="flex items-center justify-end gap-1">
@@ -227,37 +334,7 @@ export function VendorDCDialog({ dn, open, onOpenChange, onGenerate }: VendorDCD
                   Done
                 </Button>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="vendor-dc-name" className="text-xs text-muted-foreground">
-                  Vendor Name
-                </Label>
-                <Input
-                  id="vendor-dc-name"
-                  value={vendorName}
-                  onChange={(e) => {
-                    setVendorTouched(true);
-                    setVendorName(e.target.value);
-                  }}
-                  className="h-8"
-                  placeholder="Vendor name as it should print"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="vendor-dc-address" className="text-xs text-muted-foreground">
-                  Vendor Address
-                </Label>
-                <Textarea
-                  id="vendor-dc-address"
-                  value={vendorAddress}
-                  onChange={(e) => {
-                    setVendorTouched(true);
-                    setVendorAddress(e.target.value);
-                  }}
-                  rows={4}
-                  placeholder="One line per address line"
-                  className="text-sm"
-                />
-              </div>
+              {vendorFields}
               <p className="text-[11px] text-muted-foreground">
                 This challan only. Vendor master unchanged.
               </p>
@@ -345,7 +422,7 @@ export function VendorDCDialog({ dn, open, onOpenChange, onGenerate }: VendorDCD
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleGenerate}>
+          <Button onClick={handleGenerate} disabled={!canGenerate}>
             Generate PDF
           </Button>
         </DialogFooter>

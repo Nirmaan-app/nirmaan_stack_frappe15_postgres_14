@@ -2,7 +2,7 @@
 
 **Status:** BUILT on branch `feature/snag-list`, 2026-08-21. Not committed, not merged.
 See § 10 As-built for what actually shipped and what is still unverified.
-Decisions settled in a grilling session, 2026-08-21. Glossary: root `CONTEXT.md` § Snag tracking.
+Decisions settled in a grilling session, 2026-08-21. Glossary: root `GLOSSARY.md` § Snag tracking.
 Decisions of record: [ADR-0016](../../../docs/adr/0016-snag-category-is-free-text.md),
 [ADR-0017](../../../docs/adr/0017-snag-rows-are-standalone-documents.md).
 
@@ -131,6 +131,18 @@ Flat `DataTable` (the app's standard `useServerDataTable` + `DataTable` pattern)
 | Import / delete batch / add manual snag | Admin, Project Lead, PMO |
 | Change one row's status | Admin, Project Lead, PMO, **Project Manager** |
 | **Bulk** status change | **Admin only** (mirrors Design Tracker's `bulk_update_task_status`) |
+
+**Project scope (owner 2026-10-08).** Every snag WRITE also needs access to that snag's project:
+`api/snags/__init__.require_project_access`. The writes are status, details, bulk, manual add,
+rename batch, delete batch, and import (`inspect_workbook` + `ingest_batch`).
+
+- **Why:** the tiers above check the role only, then save with `ignore_permissions`. So a Project
+  Manager could change another project's snag by name.
+- **The rule:** Frappe User Permissions on Projects, applied to Project Snag's `project` link. That is
+  the same rule that filters the Snag table's rows, so a user can change exactly the snags they can
+  see. A user with no Projects rules stays unrestricted. Bulk checks every selected snag's project
+  before writing anything.
+- **Reads are NOT scoped yet:** `get_snag_stats`, `get_snag_field_values`, and the previews.
 
 ---
 
@@ -283,7 +295,7 @@ that is then accepted). The regression test is owed.
 | — | bulk status change | **takes no remark** (Q12a) — it would overwrite N different remarks with one sentence |
 | — | `get_snag_stats` | **gains the missing permission guard** (Q13) — today any logged-in user can read it |
 
-Decision of record for 6+8+9: **ADR-0018**. Glossary term: root `CONTEXT.md` § Snag tracking, *Remark*.
+Decision of record for 6+8+9: **ADR-0018**. Glossary term: root `GLOSSARY.md` § Snag tracking, *Remark*.
 
 ## R2.3 — What the changes actually mean (each of these surprised the plan)
 

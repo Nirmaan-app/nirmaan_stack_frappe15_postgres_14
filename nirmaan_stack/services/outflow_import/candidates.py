@@ -71,8 +71,11 @@ from nirmaan_stack.services.outflow_import.contains_guard import (
 from nirmaan_stack.services.outflow_import.expense_links import linked_totals_join
 from nirmaan_stack.services.outflow_import.duplicates import (
     RowIdentity,
-    find_prior_sighting,
+    PriorSighting,
+    find_prior_sightings,
+    identity_wide_fields,
     index_prior_sightings,
+    row_identity,
     row_identity_of,
 )
 from nirmaan_stack.services.outflow_import.ledgers import (
@@ -90,9 +93,9 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 from nirmaan_stack.services.outflow_import.matcher import TargetRef, VendorIndex, VendorRef, build_vendor_index
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount, normalize_reference
 # ⚠️ THE BANK'S OWN VOCABULARY FOR "this transfer's story is over", bound into the duplicate lookup
-# rather than spelled a second time. See `find_earlier_batches_for_rows`. `parser` imports only
+# rather than spelled a second time. See `find_earlier_sightings_for_rows`. `parser` imports only
 # `duplicates` and `normalize`, so this direction adds no cycle.
-from nirmaan_stack.services.outflow_import.parser import BANK_TERMINAL_STATUSES
+from nirmaan_stack.services.outflow_import.parser import BANK_TERMINAL_STATUSES, is_terminal_status
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
 from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
 
@@ -111,7 +114,7 @@ __all__ = [
     # ⚠️ RENAMED FROM `find_earlier_batches_for_transfers` AT SLICE D3. It takes ROWS now, because
     # duplicate identity is `(transfer_id, amount, date)` and a list of ids can no longer express
     # the question. The old name is deliberately not kept as an alias -- see the function.
-    "find_earlier_batches_for_rows",
+    "find_earlier_sightings_for_rows",
     "prior_import_sightings",
     "amount_window_sql",
     "PAYMENT_DOCTYPE",
@@ -790,14 +793,19 @@ def load_expense_targets(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]:
     return tuple(out)
 
 
-def find_earlier_batches_for_rows(
+def find_earlier_sightings_for_rows(
     rows: Sequence,
     exclude_batch: str | None = None,
     period_from: date | None = None,
     period_to: date | None = None,
     source: str = "",
-) -> dict[RowIdentity, str]:
-    """Map each row's `RowIdentity` -> the earliest OTHER batch that already staged that transfer.
+) -> dict[RowIdentity, tuple[PriorSighting, ...]]:
+    """Map each row's `RowIdentity` -> every earlier sighting of that transfer, earliest first.
+
+    Each sighting's `label` is the OTHER batch that staged it, and its `bank_status` is what that
+    stored row says (ADR-0031). All of them are returned, not just the earliest, because whether a
+    line is an EXACT repeat depends on whether ANY of them carries its bank status --
+    `duplicates.match_repeat` decides that, and names the batch.
 
     This is the precise duplicate guard. The batch-level Added-On overlap only warns; two exports
     can carry the same transfer without their periods overlapping at all, and can carry different
@@ -816,13 +824,13 @@ def find_earlier_batches_for_rows(
     full. `upload._already_imported` is the one caller that threads it. Omit it and you get the
     triple, which is correct for Cashfree and Cashbook and is why the parameter has a default.
 
-    ⚠️ THE **MATCH** IS STILL SETTLED ON `(transfer_id, amount)` PLUS `dates_agree`, whatever the
-    identity is. `find_prior_sighting` never sees a direction or a narration, and it must not: the
-    stored corpus is the `Outflow Import Row` table, and a row imported before those fields existed
-    carries neither. What the wide identity changes is which PARSED rows are treated as the same
-    line of the same file -- the two SGST/CGST legs now get an entry each instead of sharing one --
-    not which stored row answers for them. Both legs of a genuine re-upload still resolve to the
-    same earlier batch, which is the right answer: both really were imported before.
+    ⚠️ A STORED ROW ANSWERS ONLY ON THE SOURCE'S FULL IDENTITY (#1358, reversing the B3 note that
+    stood here). The bucket is `(transfer_id, amount)` plus `dates_agree`, and on a bank passbook the
+    stored row's direction and remarks must ALSO equal the line's (`find_prior_sightings`'
+    `wide_fields`). Before, the other leg of an SGST/CGST pair or a GL transfer -- same id, amount and
+    date -- answered for a line it is not. That was a visible skip once; since ADR-0031 a matched line
+    is dropped silently, so it lost a real line. A genuine re-upload still finds both legs: each
+    stored leg answers for its own. A triple source is unchanged (no wide fields on either side).
 
     ⚠️ THE SQL STILL NARROWS ON `transfer_id` ONLY, AND THE TRIPLE IS APPLIED IN PYTHON. That is
     deliberate twice over: `transfer_id` is the indexed column and remains the cheap first cut, and
@@ -843,6 +851,13 @@ def find_earlier_batches_for_rows(
     ⚠️ A BATCH WITH NO RECORDED PERIOD IS ALWAYS SEARCHED. It cannot be excluded on evidence we do
     not have, and dropping it would turn "we could not date this batch" into "this batch contains
     nothing".
+
+    ⚠️ #1359 NARROWS THE NOTES BELOW: EVERY STORED ROW IS RETURNED, AND ONLY A TERMINAL ONE IS
+    `final`. An in-flight stored row (QUEUED, PENDING, RECEIVED) answers for an IDENTICAL line only --
+    `duplicates.match_repeat` never makes a different status a repeat of it. Without this, each
+    overlapping statement stored the same QUEUED line again (110 rows over 66 lines on the
+    2026-10-01 backup). The D4 rule below still holds in full: a QUEUED row never makes its later
+    SUCCESS a repeat, and is never the basis of a status change.
 
     ⚠️ ONLY A **TERMINAL** STORED ROW CAN BE A DUPLICATE, AND THIS IS THE ONE CLAUSE THAT SAYS SO.
     A transfer still QUEUED when yesterday's sheet was exported stages with no bank reference and
@@ -884,20 +899,24 @@ def find_earlier_batches_for_rows(
         exclude_batch=exclude_batch,
         period_from=period_from,
         period_to=period_to,
+        source=source,
+        in_flight=True,
     )
     if not index:
         return {}
 
-    seen: dict[RowIdentity, str] = {}
+    seen: dict[RowIdentity, tuple[PriorSighting, ...]] = {}
     for row in rows:
         if not row.transfer_id:
             continue
         identity = row_identity_of(row, source)
         if identity in seen:
             continue
-        batch = find_prior_sighting(index, row.transfer_id, row.amount, row.added_on_date)
-        if batch:
-            seen[identity] = batch
+        sightings = find_prior_sightings(
+            index, row.transfer_id, row.amount, row.added_on_date, identity_wide_fields(identity)
+        )
+        if sightings:
+            seen[identity] = sightings
     return seen
 
 
@@ -906,11 +925,22 @@ def prior_import_sightings(
     exclude_batch: str | None = None,
     period_from: date | None = None,
     period_to: date | None = None,
+    source: str = "",
+    in_flight: bool = False,
 ) -> dict:
     """Every TERMINAL stored import row for these transfer ids, as a `duplicates` sightings index.
 
+    `in_flight=True` returns the in-flight rows too, each with `final=False` (#1359). The two upload
+    plans ask for them -- an identical copy of an in-flight line is an exact repeat -- and so does the
+    cleanup patch that replays them. The Skipped popup does not: it names the original a STATUS
+    CHANGE was judged against, which is always a final row.
+
+    `source` is the source ASKING: each stored row carries its `identity_wide_fields` under it, so a
+    bank passbook's lookup can require the full identity (#1358). Omit it and every sighting carries
+    `()` -- the triple, right for Cashfree and Cashbook.
+
     THE ONE QUERY BEHIND BOTH SOURCES' "have we imported this before?" CHECK (slice CB-DUP-2).
-    `find_earlier_batches_for_rows` (Cashfree) is a thin adapter over it, and
+    `find_earlier_sightings_for_rows` (Cashfree) is a thin adapter over it, and
     `api.outflow_import.cashbook._already_imported` calls it directly. Before this, the two were
     hand-written copies of one question -- same identity, same terminal-status clause, same
     earliest-first ordering -- which is how one gets corrected and the other does not. Both write to
@@ -919,7 +949,7 @@ def prior_import_sightings(
     ⚠️ THE PERIOD NARROWING IS THE **ONE** DIFFERENCE BETWEEN THE TWO CALLERS, AND IT IS DELIBERATE
     -- DO NOT "FINISH THE JOB" BY DEFAULTING IT ON. Cashfree passes the statement's period;
     Cashbook passes nothing and searches every batch. The narrowing is ergonomics, not safety, and
-    its whole licence is the sentence in `find_earlier_batches_for_rows`: a miss cannot cause double
+    its whole licence is the sentence in `find_earlier_sightings_for_rows`: a miss cannot cause double
     payment because the `Outflow Row Match` unique constraint is the real backstop. **That licence
     does not exist on the Cashbook path** -- a wallet row CREATES its target, so `target_name` is
     new every time and the constraint can never fire. A missed duplicate costs Cashfree a worse
@@ -959,7 +989,11 @@ def prior_import_sightings(
     terminal_placeholders = ", ".join(["%s"] * len(terminal))
     # Order matters: every param is appended in the order its clause appears in the SQL below, and
     # the status ones sit directly after the id list because their clause does too.
-    params: list = [*wanted, *terminal]
+    params: list = [*wanted]
+    terminal_clause = ""
+    if not in_flight:
+        terminal_clause = f" AND UPPER(BTRIM(COALESCE(status_raw, ''))) IN ({terminal_placeholders})"
+        params.extend(terminal)
     exclude_clause = ""
     if exclude_batch:
         exclude_clause = " AND import_batch <> %s"
@@ -978,10 +1012,10 @@ def prior_import_sightings(
 
     stored = frappe.db.sql(
         f"""
-        SELECT transfer_id, amount, added_on, import_batch, creation
+        SELECT transfer_id, amount, added_on, import_batch, status_raw, direction, remarks, creation
         FROM "tabOutflow Import Row"
         WHERE transfer_id IN ({placeholders})
-          AND UPPER(BTRIM(COALESCE(status_raw, ''))) IN ({terminal_placeholders})
+          {terminal_clause}
           {exclude_clause}
           {period_clause}
         ORDER BY creation ASC
@@ -990,15 +1024,18 @@ def prior_import_sightings(
         as_dict=True,
     )
 
-    return index_prior_sightings(
-        (
-            r["transfer_id"],
-            normalize_amount(r.get("amount")),
-            _stored_date(r.get("added_on")),
-            r["import_batch"],
+    entries = []
+    for r in stored:
+        amount, added_on_date = normalize_amount(r.get("amount")), _stored_date(r.get("added_on"))
+        identity = row_identity(
+            r["transfer_id"], amount, added_on_date, source=source,
+            direction=r.get("direction") or "", remarks=r.get("remarks") or "",
         )
-        for r in stored
-    )
+        entries.append(
+            (r["transfer_id"], amount, added_on_date, r["import_batch"], r.get("status_raw") or "",
+             identity_wide_fields(identity), is_terminal_status(r.get("status_raw")))
+        )
+    return index_prior_sightings(entries)
 
 
 def _stored_date(value) -> date | None:

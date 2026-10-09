@@ -16,12 +16,12 @@
 // MultiAddMembersDialog components.
 //
 // Design source of truth:
-//   .claude/context/domain/tds/phase-1-plan.md (T8) + CONTEXT.md
+//   .claude/context/domain/tds/phase-1-plan.md (T8) + GLOSSARY.md
 //
 // Non-admins see a read-only view (no add/remove/edit/delete actions).
 
 import React, { useMemo, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
     useFrappeGetCall,
     useFrappeGetDoc,
@@ -42,7 +42,6 @@ import {
     useReactTable,
 } from "@tanstack/react-table";
 import {
-    ArrowLeft,
     Plus,
     Trash2,
     Pencil,
@@ -91,6 +90,7 @@ import { MultiAddMembersDialog } from "./components/MultiAddMembersDialog";
 import { StatusBadge, AttachmentCell } from "./components/cells";
 import { TDSItem, TDSItemMember } from "@/types/NirmaanStack/TDSItem";
 import { TDSRepository } from "@/types/NirmaanStack/TDSRepository";
+import { TDS_REPOSITORY_PATH, whereAfterTdsItemDelete } from "@/utils/tdsRepositoryNavigation";
 
 /** Frappe's link errors arrive with `<a href>` markup inside `_server_messages`;
  *  a toast renders text, so the tags have to come off before display. */
@@ -219,6 +219,7 @@ function ClientTableShell<TData>({
 export const TDSItemDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    const location = useLocation();
 
     const { user_id, role } = useUserData();
     const isAdmin = role === "Nirmaan Admin Profile" || user_id === "Administrator";
@@ -263,7 +264,7 @@ export const TDSItemDetail: React.FC = () => {
     const members: TDSItemMember[] = memberRows?.message || [];
     const memberCount = members.length;
     const entryCount = entries?.length ?? 0;
-    const isCustom = memberCount === 0;
+    const isUnlinked = memberCount === 0;
 
     // ---- Mutations ----
     const { deleteDoc, loading: deletingEntry } = useFrappeDeleteDoc();
@@ -430,7 +431,10 @@ export const TDSItemDetail: React.FC = () => {
                     : undefined,
                 variant: "success",
             });
-            navigate("/tds-repository");
+            // Back in history restores the table view (tab, page, sort, search, filters) the user came from.
+            const exit = whereAfterTdsItemDelete(location.key);
+            if (exit.kind === "back") navigate(-1);
+            else navigate(exit.path, { replace: true });
         } catch (e: any) {
             console.error("Error deleting TDS Item:", e);
             // Frappe's real reason rides `_server_messages`, and for a link error
@@ -632,12 +636,13 @@ export const TDSItemDetail: React.FC = () => {
     if (docError || !doc) {
         return (
             <div className="flex-1 space-y-4 p-4 md:p-6">
-                <Button variant="ghost" onClick={() => navigate("/tds-repository")} className="gap-2">
-                    <ArrowLeft className="h-4 w-4" /> Back to TDS Repository
-                </Button>
                 <div className="rounded-md border border-rose-200 bg-rose-50 p-6 text-center text-rose-700">
                     {docError ? "Failed to load TDS Item." : "TDS Item not found."}
                 </div>
+                {/* A plain link, not history: someone arriving from a shared link has nothing to go back to. */}
+                <Link to={TDS_REPOSITORY_PATH} className="inline-block text-sm text-blue-600 hover:underline">
+                    Go to TDS Repository
+                </Link>
             </div>
         );
     }
@@ -656,15 +661,6 @@ export const TDSItemDetail: React.FC = () => {
 
     return (
         <div className="flex-1 space-y-6 p-4 md:p-6">
-            {/* Back */}
-            <Button
-                variant="ghost"
-                onClick={() => navigate("/tds-repository")}
-                className="gap-2 text-slate-600 hover:text-slate-900 -ml-2"
-            >
-                <ArrowLeft className="h-4 w-4" /> Back to TDS Repository
-            </Button>
-
             {/* ---- Header ---- */}
             <Card>
                 <CardHeader className="pb-4">
@@ -678,11 +674,11 @@ export const TDSItemDetail: React.FC = () => {
                                 <Badge variant="outline" className="font-medium">{doc.work_package}</Badge>
                                 <span className="text-slate-300">•</span>
                                 <span className="font-mono text-xs">{doc.name}</span>
-                                {isCustom && (
+                                {isUnlinked && (
                                     <>
                                         <span className="text-slate-300">•</span>
                                         <Badge className="bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20 border-0">
-                                            Custom item
+                                            Unlinked TDS Item
                                         </Badge>
                                     </>
                                 )}
@@ -743,10 +739,10 @@ export const TDSItemDetail: React.FC = () => {
                             <div className="text-lg font-semibold text-slate-800">{entryCount}</div>
                         </div>
                     </div>
-                    {isCustom && (
+                    {isUnlinked && (
                         <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded p-2">
-                            This is a custom item — it has no member Items SKUs (Work Package + label only).
-                            Adding members converts it into a normal group.
+                            This is an Unlinked TDS Item — it has no linked Items SKUs (Work Package + label only).
+                            Linking SKUs makes it a normal TDS Item.
                         </p>
                     )}
                 </CardContent>
@@ -790,7 +786,7 @@ export const TDSItemDetail: React.FC = () => {
                             facetColumnId="category"
                             facetTitle="Category"
                             columnCount={memberColumnCount}
-                            emptyMessage="No member items — this is a custom item."
+                            emptyMessage="No linked SKUs — this is an Unlinked TDS Item."
                             action={
                                 isAdmin ? (
                                     <Button

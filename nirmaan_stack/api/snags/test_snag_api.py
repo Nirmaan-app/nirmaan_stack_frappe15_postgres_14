@@ -9,16 +9,44 @@ its own unit tests against its own fixture, and duplicating it here would only c
 suites to one another.
 
 The suite runs against the LIVE localhost site, so every row it creates is deleted in
-tearDownClass, including the `Deleted Document` rows the delete test deliberately produces.
+tearDownClass -- and so is the trail those deletes leave (`_erase_delete_trail`): the
+`Deleted Document` rows and "Deleted" feed comments of its snags, batches, projects, photo
+files and error logs, and the Error Logs its failing imports write.
 """
 
+import contextlib
+import io
 import os
 import tempfile
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.snags import import_wizard, tracking
+from nirmaan_stack.api.snags import bulk_download, import_wizard, print_photos, tracking
+
+
+def _erase_delete_trail(doctype, names):
+    """Remove what `frappe.delete_doc` leaves behind for each deleted `doctype` row in `names`:
+    its `Deleted Document` row and its "Deleted" feed comment. The comment names the row only
+    in its SUBJECT (`frappe.model.delete_doc.insert_feed`; `reference_name` is empty).
+
+    Raw deletes on purpose: both are append-only trail rows, with no hooks and nothing derived
+    from them.
+    """
+    names = list(names)
+    if not names:
+        return
+    frappe.db.delete(
+        "Deleted Document", {"deleted_doctype": doctype, "deleted_name": ("in", names)}
+    )
+    frappe.db.delete(
+        "Comment",
+        {
+            "comment_type": "Deleted",
+            "reference_doctype": doctype,
+            "subject": ("in", [f"{doctype} {name}" for name in names]),
+        },
+    )
 
 
 #: Column labels the stub reader recomputes for a header row. Keyed by header row, so a
@@ -211,33 +239,34 @@ class TestSnagApi(FrappeTestCase):
         for name in snag_names:
             frappe.delete_doc("Project Snag", name, force=True, ignore_permissions=True)
 
-        for name in frappe.get_all(
+        batch_names = frappe.get_all(
             "Project Snag Batch",
             filters={"project": cls.project},
             pluck="name",
             limit_page_length=0,
-        ):
+        )
+        for name in batch_names:
             frappe.delete_doc("Project Snag Batch", name, force=True, ignore_permissions=True)
 
-        # The delete test deliberately produces `Deleted Document` rows; clear the ones we caused.
-        for name in frappe.get_all(
-            "Deleted Document",
-            filters={"deleted_doctype": ("in", ["Project Snag", "Project Snag Batch"])},
-            fields=["name", "deleted_name"],
-            limit_page_length=0,
-        ):
-            if name.deleted_name in cls._created_names:
-                frappe.delete_doc(
-                    "Deleted Document", name.name, force=True, ignore_permissions=True
-                )
-
         frappe.delete_doc("Projects", cls.project, force=True, ignore_permissions=True)
+
+        # The trail of every delete above, of the ones the tests made themselves (the delete
+        # test does so deliberately), and of the photo Files each snag delete took with it.
+        _erase_delete_trail("Project Snag", set(snag_names) | cls._created_names)
+        _erase_delete_trail("Project Snag Batch", set(batch_names) | cls._created_names)
+        _erase_delete_trail("File", cls._created_files)
+        _erase_delete_trail("Projects", [cls.project])
+        # Every PDF render logs a "Print" Access Log against the project (`get_print`).
+        frappe.db.delete("Access Log", {"export_from": "Projects", "reference_document": cls.project})
         frappe.db.commit()
         super().tearDownClass()
 
     #: Every Snag / Batch name this suite mints, so tearDownClass can find the
     #: `Deleted Document` rows it caused without touching anyone else's.
     _created_names = set()
+    #: Every File `_attach_file` makes. They go when their snag is deleted, which leaves a
+    #: `Deleted Document` row each.
+    _created_files = set()
 
     def setUp(self):
         frappe.set_user("Administrator")
@@ -321,6 +350,13 @@ class TestSnagApi(FrappeTestCase):
             "Project Snag", filters={"project": self.project}, pluck="name", limit_page_length=0
         ):
             type(self)._created_names.add(name)
+        # The failure is logged by design (`import_wizard.ingest_batch`); drop THIS project's
+        # logs. Raw: an Error Log has no hooks, and a delete_doc would only leave a trail.
+        frappe.db.delete(
+            "Error Log",
+            {"method": ("like", "Snag ingest failed%"), "error": ("like", f"%project={self.project!r}%")},
+        )
+        frappe.db.commit()
         return caught.exception
 
     def _one_sheet(self, sheet="Sheet1", batch_name="Batch A", rows=None):
@@ -1335,14 +1371,15 @@ class TestSnagApi(FrappeTestCase):
         self.assertEqual(payload["remark"], "Plumber booked")
         self.assertEqual(frappe.db.get_value("Project Snag", snag, "remark"), "Plumber booked")
 
-        # None -> NOT SUPPLIED. The remark must survive untouched.
-        payload = tracking.update_snag_status(snag=snag, status="Completed")
-        self.assertEqual(payload["status"], "Completed")
+        # None -> NOT SUPPLIED. The remark must survive untouched. (Pending, not Completed:
+        # Completed needs a photo since 2026-10-08, and this test is about the remark.)
+        payload = tracking.update_snag_status(snag=snag, status="Pending")
+        self.assertEqual(payload["status"], "Pending")
         self.assertEqual(payload["remark"], "Plumber booked")
         self.assertEqual(frappe.db.get_value("Project Snag", snag, "remark"), "Plumber booked")
 
         # "" -> an explicit CLEAR.
-        payload = tracking.update_snag_status(snag=snag, status="Pending", remark="")
+        payload = tracking.update_snag_status(snag=snag, status="WIP", remark="")
         self.assertFalse(payload["remark"])
         self.assertFalse(frappe.db.get_value("Project Snag", snag, "remark"))
 
@@ -1404,13 +1441,12 @@ class TestSnagApi(FrappeTestCase):
             len(names),
         )
 
-        # Admin is allowed, and every row moves.
-        payload = tracking.bulk_update_snag_status(snags=names, status="Completed")
+        # Admin is allowed, and every row moves. (WIP: these rows have no photo, so a bulk
+        # Completed would skip every one -- see the bulk photo test.)
+        payload = tracking.bulk_update_snag_status(snags=names, status="WIP")
         self.assertEqual(payload["updated"], len(names))
         self.assertEqual(
-            frappe.db.count(
-                "Project Snag", {"batch": result["batch"], "status": "Completed"}
-            ),
+            frappe.db.count("Project Snag", {"batch": result["batch"], "status": "WIP"}),
             len(names),
         )
 
@@ -1684,7 +1720,7 @@ class TestSnagApi(FrappeTestCase):
 
         tracking.update_snag_status(
             snag=frappe.get_all("Project Snag", filters={"batch": batch}, pluck="name")[0],
-            status="Completed",
+            status="WIP",
         )
 
         preview = tracking.get_batch_delete_preview(batch=batch)
@@ -1811,16 +1847,19 @@ class TestSnagApi(FrappeTestCase):
         frappe.db.commit()
 
         def cleanup():
-            for name in frappe.get_all(
+            names = frappe.get_all(
                 "Project Snag",
                 filters={"project": stats_project.name},
                 pluck="name",
                 limit_page_length=0,
-            ):
+            )
+            for name in names:
                 frappe.delete_doc("Project Snag", name, force=True, ignore_permissions=True)
             frappe.delete_doc(
                 "Projects", stats_project.name, force=True, ignore_permissions=True
             )
+            _erase_delete_trail("Project Snag", names)
+            _erase_delete_trail("Projects", [stats_project.name])
             frappe.db.commit()
 
         self.addCleanup(cleanup)
@@ -1833,10 +1872,16 @@ class TestSnagApi(FrappeTestCase):
                     "area": "A",
                     "category": "C",
                     "description": f"Snag {status}",
-                    "status": status,
+                    # A new snag can carry no photo, and Completed needs one -- so the
+                    # Completed row is inserted as WIP and set straight to Completed below.
+                    "status": "WIP" if status == "Completed" else status,
                 }
             )
             doc.insert(ignore_permissions=True)
+            if status == "Completed":
+                # DELIBERATELY past the controller: this test counts statuses, and the photo
+                # rules have their own tests below. Nothing stored is derived from `status`.
+                frappe.db.set_value("Project Snag", doc.name, "status", "Completed")
         frappe.db.commit()
 
         stats = tracking.get_snag_stats(project=stats_project.name)
@@ -1879,3 +1924,678 @@ class TestSnagApi(FrappeTestCase):
         finally:
             snag_pkg._user_role = original
             frappe.session.user = "Administrator"
+
+    # -- the photo (owner 2026-10-08: one per snag, Completed needs it) --------
+
+    _photo_count = 0
+
+    def _photo(self, snag, field="attachment"):
+        """A real, tiny JPEG `File` attached to `snag` (to `field`), kept LOCAL.
+
+        The GCS hook uploads every File attached to a doctype not in
+        `ignore_gcs_upload_for_doctype`, and the bucket is append-only here, so the suite adds
+        Project Snag to that list for the one insert -- no test photo ever reaches the bucket.
+        The File goes when its snag is deleted in tearDownClass.
+        """
+        from PIL import Image
+
+        # A DIFFERENT image every call: Frappe dedups identical content onto the first File's
+        # URL, which would make a "replacement" photo the same URL as the one it replaces. The
+        # SIZE varies, not the colour -- JPEG quantises a one-step colour change away.
+        type(self)._photo_count += 1
+        buf = io.BytesIO()
+        Image.new("RGB", (100 + type(self)._photo_count, 80), (200, 30, 30)).save(
+            buf, format="JPEG"
+        )
+        return self._attach_file(
+            snag, f"snag-photo-{frappe.generate_hash(length=8)}.jpg", buf.getvalue(), field
+        )
+
+    def _attach_file(self, snag, file_name, content, field="attachment"):
+        """A private `File` attached to `snag` (to `field`; None = the sidebar), kept LOCAL --
+        see `_photo`. Returns its URL."""
+        conf = frappe.local.conf
+        original = conf.get("ignore_gcs_upload_for_doctype")
+        conf["ignore_gcs_upload_for_doctype"] = ["Data Import", "Project Snag"]
+        try:
+            file_doc = frappe.get_doc(
+                {
+                    "doctype": "File",
+                    "file_name": file_name,
+                    "attached_to_doctype": "Project Snag",
+                    "attached_to_name": snag,
+                    # As the dialog uploads it. Without the field, Frappe's
+                    # `attach_files_to_document` would copy a local file into a second File.
+                    "attached_to_field": field,
+                    "is_private": 1,
+                    "content": content,
+                }
+            ).insert(ignore_permissions=True)
+        finally:
+            if original is None:
+                conf.pop("ignore_gcs_upload_for_doctype", None)
+            else:
+                conf["ignore_gcs_upload_for_doctype"] = original
+        type(self)._created_files.add(file_doc.name)
+        frappe.db.commit()
+        return file_doc.file_url
+
+    def _details(self, snag, **photo):
+        """`update_snag_details` with the snag's OWN area / category / description resent, so a
+        test about the photo changes nothing else."""
+        doc = frappe.get_doc("Project Snag", snag)
+        return tracking.update_snag_details(
+            snag=snag,
+            area=doc.area,
+            category=doc.category,
+            description=doc.description,
+            **photo,
+        )
+
+    def test_completed_is_refused_without_a_photo_and_accepted_with_one_in_the_same_call(self):
+        snag = self._a_snag("PhotoDone", "Photo done batch")
+
+        with self.assertRaises(frappe.ValidationError):
+            tracking.update_snag_status(snag=snag, status="Completed")
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "status"), "Pending")
+
+        url = self._photo(snag)
+        location = "Site gate, Bengaluru (Lat: 12.9716, Lon: 77.5946)"
+        payload = tracking.update_snag_status(
+            snag=snag, status="Completed", attachment=url, location=location
+        )
+        self.assertEqual(payload["status"], "Completed")
+        self.assertEqual(payload["attachment"], url)
+        self.assertEqual(payload["location"], location)
+        self.assertEqual(
+            frappe.db.get_value("Project Snag", snag, ["status", "attachment"]),
+            ("Completed", url),
+        )
+
+    def test_a_photo_must_be_a_file_uploaded_to_this_snag(self):
+        snag = self._a_snag("PhotoOwn", "Photo own batch")
+        other = self._a_snag("PhotoOther", "Photo other batch")
+        foreign = self._photo(other)
+
+        for url in (foreign, "/private/files/never-uploaded.jpg"):
+            with self.assertRaises(frappe.ValidationError):
+                tracking.update_snag_status(snag=snag, status="WIP", attachment=url)
+            with self.assertRaises(frappe.ValidationError):
+                self._details(snag, attachment=url)
+        self.assertFalse(frappe.db.get_value("Project Snag", snag, "attachment"))
+
+    def test_a_direct_save_meets_the_same_photo_checks_as_the_endpoints(self):
+        """PM / PL / PMO hold DocPerm write, so a REST or Desk save skips the endpoints. The
+        controller still refuses a photo that is not an image uploaded to this snag's photo
+        field -- the PDF would otherwise fetch whatever it names, server-side."""
+        snag = self._a_snag("PhotoDirect", "Photo direct batch")
+        other = self._a_snag("PhotoDirectOther", "Photo direct other batch")
+        refused = (
+            self._photo(other),  # another snag's photo
+            "http://169.254.169.254/latest/meta-data",  # not a file at all
+            self._attach_file(snag, "notes.txt", b"not a photo"),  # not an image
+            self._photo(snag, field=None),  # an image, but a sidebar attachment
+        )
+        for url in refused:
+            doc = frappe.get_doc("Project Snag", snag)
+            doc.attachment = url
+            with self.assertRaises(frappe.ValidationError, msg=url):
+                doc.save(ignore_permissions=True)
+        self.assertFalse(frappe.db.get_value("Project Snag", snag, "attachment"))
+
+        # Its own photo, saved the same way, is accepted -- and re-saving it is not judged again.
+        doc = frappe.get_doc("Project Snag", snag)
+        doc.attachment = self._photo(snag)
+        doc.save(ignore_permissions=True)
+        doc.remark = "Re-saved"
+        doc.save(ignore_permissions=True)
+
+        # A NEW snag cannot carry one: nothing can be attached to it before it exists.
+        new = frappe.get_doc(
+            {
+                "doctype": "Project Snag",
+                "project": self.project,
+                "area": "A",
+                "category": "C",
+                "description": "Born with a photo",
+                "status": "WIP",
+                "attachment": doc.attachment,
+            }
+        )
+        with self.assertRaises(frappe.ValidationError):
+            new.insert(ignore_permissions=True)
+
+    def test_a_completed_snag_keeps_its_photo_but_may_replace_it(self):
+        snag = self._a_snag("PhotoKeep", "Photo keep batch")
+        first = self._photo(snag)
+        tracking.update_snag_status(
+            snag=snag, status="Completed", attachment=first, location="Lobby (Lat: 1.5, Lon: 2.5)"
+        )
+
+        with self.assertRaises(frappe.ValidationError):
+            self._details(snag, remove_photo=True)
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "attachment"), first)
+
+        # A replacement with no location: the OLD location must not survive under the new photo.
+        second = self._photo(snag)
+        self.assertNotEqual(second, first)
+        payload = self._details(snag, attachment=second)
+        self.assertEqual(payload["attachment"], second)
+        self.assertIsNone(payload["location"])
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "status"), "Completed")
+
+    def test_removing_the_photo_of_a_snag_that_is_not_completed_clears_its_location(self):
+        snag = self._a_snag("PhotoRemove", "Photo remove batch")
+        url = self._photo(snag)
+        tracking.update_snag_status(
+            snag=snag, status="WIP", attachment=url, location="Roof (Lat: 3.25, Lon: 4.75)"
+        )
+
+        payload = self._details(snag, remove_photo=True)
+        self.assertIsNone(payload["attachment"])
+        self.assertIsNone(payload["location"])
+        self.assertEqual(
+            frappe.db.get_value("Project Snag", snag, ["attachment", "location"]), (None, None)
+        )
+
+    def test_a_new_photo_and_remove_photo_together_are_refused(self):
+        snag = self._a_snag("PhotoBoth", "Photo both batch")
+        url = self._photo(snag)
+        with self.assertRaises(frappe.ValidationError):
+            self._details(snag, attachment=url, remove_photo=True)
+        self.assertFalse(frappe.db.get_value("Project Snag", snag, "attachment"))
+
+    def test_a_legacy_completed_snag_without_a_photo_stays_editable(self):
+        """Every snag Completed before the photo existed has none. The rule fires on a move INTO
+        Completed or on dropping a photo -- never on a bare save -- so these stay editable."""
+        snag = self._a_snag("PhotoLegacy", "Photo legacy batch")
+        # Recreating PRE-PHOTO data: `set_value` bypasses the `before_save` hook on purpose,
+        # because that is exactly how such a row came to exist (CODING_STANDARDS, raw SQL).
+        # No recompute is skipped: the stamp it leaves unmoved is not under test here.
+        frappe.db.set_value("Project Snag", snag, "status", "Completed", update_modified=False)
+        frappe.db.commit()
+
+        doc = frappe.get_doc("Project Snag", snag)
+        payload = tracking.update_snag_details(
+            snag=snag, area="Lobby", category=doc.category, description=doc.description
+        )
+        self.assertEqual(payload["area"], "Lobby")
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "status"), "Completed")
+
+        # Re-sending the status it already has is not a move INTO Completed either.
+        self.assertEqual(
+            tracking.update_snag_status(snag=snag, status="Completed")["status"], "Completed"
+        )
+
+    def test_bulk_completed_skips_the_snags_without_a_photo(self):
+        result = self._one_sheet(sheet="BulkPhoto", batch_name="Bulk photo batch")
+        names = sorted(
+            frappe.get_all("Project Snag", filters={"batch": result["batch"]}, pluck="name")
+        )
+        with_photo = names[0]
+        tracking.update_snag_status(snag=with_photo, status="WIP", attachment=self._photo(with_photo))
+
+        payload = tracking.bulk_update_snag_status(snags=names, status="Completed")
+        self.assertEqual(payload["updated"], 1)
+        self.assertEqual(sorted(payload["skipped"]), names[1:])
+        self.assertEqual(frappe.db.get_value("Project Snag", with_photo, "status"), "Completed")
+        for name in names[1:]:
+            self.assertEqual(frappe.db.get_value("Project Snag", name, "status"), "Pending")
+
+    def test_a_project_manager_may_add_a_photo_with_a_status_change_but_not_remove_one(self):
+        snag = self._a_snag("PhotoPM", "Photo PM batch")
+        url = self._photo(snag)
+
+        import nirmaan_stack.api.snags as snag_pkg
+
+        original = snag_pkg._user_role
+        snag_pkg._user_role = lambda: "Nirmaan Project Manager Profile"
+        frappe.session.user = "snag-pm@example.com"
+        try:
+            tracking.update_snag_status(snag=snag, status="Completed", attachment=url)
+            with self.assertRaises(frappe.PermissionError):
+                self._details(snag, remove_photo=True)
+        finally:
+            snag_pkg._user_role = original
+            frappe.session.user = "Administrator"
+
+        self.assertEqual(
+            frappe.db.get_value("Project Snag", snag, ["status", "attachment"]),
+            ("Completed", url),
+        )
+
+    def test_the_print_embeds_a_reachable_photo_and_skips_an_unreachable_one(self):
+        snag = self._a_snag("PhotoPrint", "Photo print batch")
+        url = self._photo(snag)
+        rows = [
+            {"name": snag, "attachment": url, "location": "Gate (Lat: 12.9716, Lon: 77.5946)"},
+            {"name": "SNAG-MISSING", "attachment": "/private/files/gone.jpg", "location": None},
+            {"name": "SNAG-NO-PHOTO", "attachment": None, "location": None},
+        ]
+
+        # The unreachable photo is LOGGED by design (here and by `fetch_attachment_content`);
+        # this test removes the two logs it causes, and nothing older.
+        started = frappe.utils.now()
+
+        def drop_logs():
+            for title in ("Snag print:%", "fetch_attachment_content failed: /private/files/gone.jpg%"):
+                names = frappe.get_all(
+                    "Error Log",
+                    filters={"method": ["like", title], "creation": [">=", started]},
+                    pluck="name",
+                )
+                for name in names:
+                    frappe.delete_doc("Error Log", name, force=True, ignore_permissions=True)
+                _erase_delete_trail("Error Log", names)
+            frappe.db.commit()
+
+        self.addCleanup(drop_logs)
+
+        photos = print_photos.snag_print_photos(rows)
+
+        self.assertEqual(set(photos), {snag, "SNAG-MISSING"})
+        self.assertTrue(photos[snag]["thumb"].startswith("data:image/jpeg;base64,"))
+        self.assertTrue(photos[snag]["grid"].startswith("data:image/jpeg;base64,"))
+        self.assertIsNone(photos["SNAG-MISSING"]["thumb"])
+        self.assertIsNone(photos["SNAG-MISSING"]["grid"])
+
+    def test_the_print_never_fetches_an_address_off_the_site(self):
+        """A value written past the controller (raw SQL, `set_value`) must still not make the
+        server request an arbitrary URL."""
+        from unittest import mock
+
+        off_site = {"http://169.254.169.254/latest/meta-data", "//evil.example/x.jpg"}
+        with mock.patch.object(print_photos, "fetch_attachment_content") as fetch:
+            sources, failed = print_photos._sources(off_site)
+        fetch.assert_not_called()
+        self.assertEqual(sources, {})
+        self.assertEqual(set(failed), off_site)
+
+    def test_each_cloud_photo_is_signed_on_its_worker_just_before_its_download(self):
+        """Signing every URL up front let the later ones expire (~2 min) while a big render
+        was still downloading the earlier ones; those photos printed as unavailable."""
+        import threading
+        from unittest import mock
+
+        from PIL import Image
+
+        buf = io.BytesIO()
+        Image.new("RGB", (20, 20), (10, 120, 200)).save(buf, format="JPEG")
+        signed = []
+
+        class FakeGcs:
+            def get_url(self, key, file_name=None):
+                signed.append((key, threading.current_thread() is threading.main_thread()))
+                return f"https://signed.example/{key}"
+
+        response = mock.Mock(content=buf.getvalue())
+        urls = {
+            f"/api/method/frappe_gcp_attachment.controller.generate_file?key=k{i}&file_name=p{i}.jpg"
+            for i in range(3)
+        }
+        with mock.patch("frappe_gcp_attachment.controller.S3Operations", FakeGcs), mock.patch.object(
+            print_photos.requests, "get", return_value=response
+        ) as get:
+            print_photos._sources(urls)
+            self.assertEqual(signed, [], "resolving must not sign anything yet")
+
+            images = print_photos._encoded(urls)
+
+        self.assertEqual(set(images), urls)
+        self.assertEqual(sorted(key for key, _ in signed), ["k0", "k1", "k2"])
+        self.assertFalse(any(on_main for _, on_main in signed), "signed on the worker threads")
+        self.assertEqual(
+            sorted(call.args[0] for call in get.call_args_list),
+            [f"https://signed.example/k{i}" for i in range(3)],
+        )
+
+    def test_a_stalled_cloud_photo_is_fetched_again_with_a_fresh_url(self):
+        """A GCS read now and then stalls on a small file (a 70 KB photo printed as unavailable,
+        2026-10-08). It is retried -- each try newly signed -- but only for what can heal."""
+        from unittest import mock
+
+        import requests
+
+        ok = mock.Mock(content=b"jpeg-bytes")
+        signed = []
+
+        def sign():
+            signed.append(len(signed) + 1)
+            return f"https://signed.example/photo?try={len(signed)}"
+
+        def http_error(status):
+            response = mock.Mock(status_code=status)
+            response.raise_for_status.side_effect = requests.HTTPError(response=response)
+            return response
+
+        with mock.patch.object(print_photos.time, "sleep") as sleep:
+            # Stalls, then a throttle, then comes through: three fresh URLs, two pauses.
+            with mock.patch.object(
+                print_photos.requests,
+                "get",
+                side_effect=[requests.exceptions.ReadTimeout(), http_error(503), ok],
+            ) as get:
+                self.assertEqual(print_photos._download(sign), b"jpeg-bytes")
+            self.assertEqual(signed, [1, 2, 3])
+            self.assertEqual(
+                [call.args[0] for call in get.call_args_list],
+                [f"https://signed.example/photo?try={n}" for n in (1, 2, 3)],
+            )
+            self.assertEqual(sleep.call_count, 2)
+
+            # A missing file never heals: one try only.
+            signed.clear()
+            with mock.patch.object(print_photos.requests, "get", return_value=http_error(404)):
+                with self.assertRaises(requests.HTTPError):
+                    print_photos._download(sign)
+            self.assertEqual(signed, [1])
+
+            # Still stalled after every try: it gives up, and the photo prints as unavailable.
+            signed.clear()
+            with mock.patch.object(
+                print_photos.requests, "get", side_effect=requests.exceptions.ReadTimeout()
+            ):
+                with self.assertRaises(requests.Timeout):
+                    print_photos._download(sign)
+            self.assertEqual(len(signed), print_photos.FETCH_ATTEMPTS)
+
+    # -- the PDF is built in a background job (review #8) --------------------------
+
+    def _forget_pdf_requests(self, *request_ids):
+        """Drop the caller's lock and these requests' status, whatever a test left behind -- a
+        stuck lock would block this user's real downloads on the live site for half an hour."""
+        cache = frappe.cache()
+        cache.delete(cache.make_key(bulk_download._lock_name(frappe.session.user)))
+        for request_id in request_ids:
+            cache.delete(cache.make_key(bulk_download._status_name(request_id)))
+            with contextlib.suppress(OSError):
+                os.remove(bulk_download._pdf_path(request_id))
+
+    def _queue_pdf(self, **request):
+        """`enqueue_snag_pdf` as the screen calls it, with the queue mocked out. Returns the
+        request id and the job's kwargs, for the test to run (or not) itself."""
+        from unittest import mock
+
+        self.addCleanup(setattr, frappe.local, "form_dict", frappe._dict())
+        frappe.local.form_dict = frappe._dict()
+        with mock.patch.object(bulk_download.frappe, "enqueue") as enqueue:
+            request_id = bulk_download.enqueue_snag_pdf(project=self.project, **request)["request_id"]
+        self.addCleanup(self._forget_pdf_requests, request_id)
+        job = dict(enqueue.call_args.kwargs)
+        self.assertEqual(job.pop("queue"), "long")
+        self.assertNotIn("job_id", job)  # `frappe.enqueue` would swallow it
+        job.pop("timeout")
+        return request_id, job
+
+    def _run_pdf(self, **request):
+        """Queue a request and run its job HERE. Returns `(request_id, status)`."""
+        request_id, job = self._queue_pdf(**request)
+        bulk_download.run_snag_pdf_job(**job)
+        return request_id, bulk_download.get_snag_pdf_status(request_id=request_id)
+
+    def test_the_single_download_builds_a_pdf_that_keeps_its_jump_links(self):
+        """Queued, built by the job, collected ONCE -- with the photo <-> row jump links intact
+        (Frappe's own `download_pdf` refuses the generator that keeps them)."""
+        from pypdf import PdfReader
+
+        snag = self._a_snag("SingleDownload", "Single download batch")
+        self._details(snag, attachment=self._photo(snag))
+
+        request_id, status = self._run_pdf(kind="tab")
+        self.assertEqual(status, {"state": "ready", "done": 1, "total": 1, "message": None})
+
+        bulk_download.fetch_snag_pdf(request_id=request_id)
+        pdf = frappe.local.response.filecontent
+        self.assertEqual(frappe.local.response.type, "download")
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        targets = PdfReader(io.BytesIO(pdf)).trailer["/Root"].get_object()["/Dests"].get_object()
+        names = {str(name)[1:] for name in targets}
+        # Thumbnail -> photo, and photo -> row: both targets survived the render.
+        self.assertIn(f"snag-photo-{snag}", names)
+        self.assertIn(f"snag-row-{snag}", names)
+
+        # Handed over once: the file and its status are gone.
+        self.assertFalse(os.path.exists(bulk_download._pdf_path(request_id)))
+        with self.assertRaises(frappe.ValidationError):
+            bulk_download.fetch_snag_pdf(request_id=request_id)
+
+        # A tab's mode is the RENDER's (`master`), not the file's.
+        with self.assertRaises(frappe.ValidationError):
+            self._queue_pdf(kind="tab", mode="full")
+
+    def test_download_all_reports_progress_per_render_and_merges_every_batch(self):
+        """The master summary, then one render per batch -- each counted as it lands. `_render`
+        is stubbed to a one-page PDF: this pins the orchestration, not the print format."""
+        from unittest import mock
+
+        from pypdf import PdfReader, PdfWriter
+
+        self._a_snag("AllProgress", "All progress batch")
+        batches = bulk_download._project_batches(self.project)
+        writer = PdfWriter()
+        writer.add_blank_page(width=100, height=100)
+        page = io.BytesIO()
+        writer.write(page)
+
+        seen = []
+        real_save = bulk_download._save_status
+
+        def recording_save(request_id, record):
+            seen.append((record["state"], record["done"], record["total"]))
+            real_save(request_id, record)
+
+        with mock.patch.object(bulk_download, "_render", return_value=page.getvalue()), mock.patch.object(
+            bulk_download, "_save_status", side_effect=recording_save
+        ):
+            request_id, status = self._run_pdf(kind="all", mode="full")
+
+        total = 1 + len(batches)
+        self.assertEqual(status["state"], "ready")
+        self.assertEqual((status["done"], status["total"]), (total, total))
+        self.assertEqual(
+            [done for state, done, _ in seen if state == "running" and done], list(range(1, total + 1))
+        )
+        bulk_download.fetch_snag_pdf(request_id=request_id)
+        self.assertEqual(len(PdfReader(io.BytesIO(frappe.local.response.filecontent)).pages), total)
+        self.assertTrue(frappe.local.response.filename.startswith("Snag_List_ALL_"))
+
+    def test_the_downloads_refuse_a_role_denied_the_snag_list_before_queueing(self):
+        """Refused at once, as the user clicks -- and no lock is taken for a refusal."""
+        import nirmaan_stack.api.snags as snag_pkg
+        from unittest import mock
+
+        original = snag_pkg._user_role
+        frappe.session.user = "snag-accountant@example.com"
+        try:
+            with mock.patch.object(bulk_download.frappe, "enqueue") as enqueue:
+                for role in ("Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"):
+                    snag_pkg._user_role = lambda role=role: role
+                    for kind in ("tab", "all"):
+                        with self.assertRaises(frappe.PermissionError):
+                            bulk_download.enqueue_snag_pdf(kind=kind, project=self.project)
+            enqueue.assert_not_called()
+            cache = frappe.cache()
+            self.assertFalse(cache.get(cache.make_key(bulk_download._lock_name(frappe.session.user))))
+        finally:
+            snag_pkg._user_role = original
+            frappe.session.user = "Administrator"
+
+    def test_one_snag_pdf_per_user_at_a_time_and_the_job_frees_the_user(self):
+        from unittest import mock
+
+        _, job = self._queue_pdf(kind="tab")
+        with self.assertRaisesRegex(frappe.ValidationError, "already being prepared"):
+            self._queue_pdf(kind="tab", mode="master")  # the first is still queued
+
+        # The job frees the user however it ends -- here, by failing.
+        with mock.patch.object(bulk_download, "_build_tab_pdf", side_effect=frappe.ValidationError("Nope")):
+            bulk_download.run_snag_pdf_job(**job)
+        self._queue_pdf(kind="tab")  # accepted again
+
+        # A request the queue would not take frees the user at once, too.
+        cache = frappe.cache()
+        cache.delete(cache.make_key(bulk_download._lock_name(frappe.session.user)))
+        with mock.patch.object(bulk_download.frappe, "enqueue", side_effect=RuntimeError("redis down")):
+            with self.assertRaises(RuntimeError):
+                bulk_download.enqueue_snag_pdf(kind="tab", project=self.project)
+        self.assertFalse(cache.get(cache.make_key(bulk_download._lock_name(frappe.session.user))))
+
+    def test_a_failed_job_says_why_and_logs_only_the_unexpected(self):
+        from unittest import mock
+
+        started = frappe.utils.now()
+        self.addCleanup(
+            lambda: (
+                frappe.db.delete(
+                    "Error Log", {"method": "Snag PDF job failed", "creation": (">=", started)}
+                ),
+                frappe.db.commit(),
+            )
+        )
+
+        # A refusal the user can act on: its own words, no log.
+        with mock.patch.object(
+            bulk_download, "_build_tab_pdf", side_effect=frappe.ValidationError("<b>No snags</b> match.")
+        ):
+            _, status = self._run_pdf(kind="tab")
+        self.assertEqual((status["state"], status["message"]), ("failed", "No snags match."))
+
+        # Anything else: a plain message, and the traceback logged.
+        with mock.patch.object(bulk_download, "_build_tab_pdf", side_effect=RuntimeError("boom")):
+            _, status = self._run_pdf(kind="tab")
+        self.assertEqual(status["state"], "failed")
+        self.assertNotIn("boom", status["message"])
+        self.assertEqual(
+            frappe.db.count("Error Log", {"method": "Snag PDF job failed", "creation": (">=", started)}),
+            1,
+        )
+
+    def test_a_request_is_visible_only_to_its_requester(self):
+        request_id, _ = self._run_pdf(kind="tab", mode="master")
+        for bad in (request_id.upper(), "../../site_config", "", None):
+            with self.assertRaises(frappe.ValidationError, msg=bad):
+                bulk_download.get_snag_pdf_status(request_id=bad)
+
+        frappe.session.user = "snag-stranger@example.com"
+        try:
+            with self.assertRaises(frappe.ValidationError):
+                bulk_download.get_snag_pdf_status(request_id=request_id)
+            with self.assertRaises(frappe.ValidationError):
+                bulk_download.fetch_snag_pdf(request_id=request_id)
+        finally:
+            frappe.session.user = "Administrator"
+        # Still there for its owner.
+        self.assertEqual(bulk_download.get_snag_pdf_status(request_id=request_id)["state"], "ready")
+
+    # -- project scope (owner 2026-10-08) -------------------------------------------
+
+    def _restricted_user(self, *projects):
+        """A throwaway user whose Projects User Permissions allow only `projects` (none = no
+        rules, i.e. unrestricted).
+
+        Everything is written straight to the tables (`db_insert`): a normal User insert runs
+        our hooks (a Nirmaan Users profile, a welcome mail) and a normal User Permission insert
+        writes a mirror row. The User row exists only so the snag's `status_changed_by` link
+        resolves. The rule under test reads `tabUser Permission` through Frappe's per-user
+        cache, so that cache is dropped on the way in and out.
+        """
+        user = f"snag-scope-{frappe.generate_hash(length=8)}@example.com"
+
+        def drop():
+            frappe.db.delete("User Permission", {"user": user})
+            frappe.db.delete("User", {"name": user})
+            frappe.cache.hdel("user_permissions", user)
+            frappe.db.commit()
+
+        self.addCleanup(drop)
+        now = frappe.utils.now()
+        bare = frappe.get_doc(
+            {"doctype": "User", "email": user, "first_name": "Snag scope test", "enabled": 1,
+             "user_type": "Website User", "send_welcome_email": 0}
+        )
+        bare.name = user
+        bare.creation = bare.modified = now
+        bare.owner = bare.modified_by = "Administrator"
+        bare.db_insert()
+        for project in projects:
+            row = frappe.get_doc(
+                {"doctype": "User Permission", "user": user, "allow": "Projects", "for_value": project}
+            )
+            row.name = f"snag-scope-{frappe.generate_hash(length=10)}"
+            row.creation = row.modified = now
+            row.owner = row.modified_by = "Administrator"
+            row.db_insert()
+        frappe.cache.hdel("user_permissions", user)
+        frappe.db.commit()
+        return user
+
+    @contextlib.contextmanager
+    def _acting_as(self, user, role_profile):
+        import nirmaan_stack.api.snags as snag_pkg
+
+        original = snag_pkg._user_role
+        snag_pkg._user_role = lambda: role_profile
+        frappe.session.user = user
+        try:
+            yield
+        finally:
+            snag_pkg._user_role = original
+            frappe.session.user = "Administrator"
+
+    def _another_project(self):
+        return frappe.get_all(
+            "Projects", filters={"name": ["!=", self.project]}, pluck="name", order_by="name asc", limit=1
+        )[0]
+
+    def test_a_status_change_is_refused_outside_the_users_projects_and_allowed_inside(self):
+        snag = self._a_snag("ScopeStatus", "Scope status batch")
+        before = frappe.db.get_value("Project Snag", snag, "status")
+        other = "WIP" if before != "WIP" else "Pending"
+        elsewhere = self._restricted_user(self._another_project())
+        here = self._restricted_user(self._another_project(), self.project)
+        # No Projects rules at all: unrestricted, as everywhere else in the app.
+        unrestricted = self._restricted_user()
+
+        with self._acting_as(elsewhere, "Nirmaan Project Manager Profile"):
+            with self.assertRaises(frappe.PermissionError):
+                tracking.update_snag_status(snag=snag, status=other)
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "status"), before)
+
+        with self._acting_as(here, "Nirmaan Project Manager Profile"):
+            tracking.update_snag_status(snag=snag, status=other)
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "status"), other)
+
+        with self._acting_as(unrestricted, "Nirmaan Project Manager Profile"):
+            tracking.update_snag_status(snag=snag, status=before)
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, "status"), before)
+
+    def test_every_other_snag_write_is_refused_outside_the_users_projects(self):
+        batch = self._one_sheet(sheet="ScopeAll", batch_name="Scope all batch")["batch"]
+        snag = frappe.get_all("Project Snag", filters={"batch": batch}, pluck="name")[0]
+        fields = ["status", "area", "category", "description"]
+        before = frappe.db.get_value("Project Snag", snag, fields, as_dict=True)
+        user = self._restricted_user(self._another_project())
+
+        attempts = {
+            "details": lambda: self._details(snag),
+            "bulk": lambda: tracking.bulk_update_snag_status(snags=[snag], status="WIP"),
+            "add": lambda: tracking.add_manual_snag(
+                project=self.project, area="Scope", description="Added from outside"
+            ),
+            "rename": lambda: tracking.rename_batch(batch=batch, batch_name="Renamed from outside"),
+            "delete": lambda: tracking.delete_batch(batch=batch),
+            "import": lambda: import_wizard.ingest_batch(
+                project=self.project, file_url=self.file_url, sheets=[{"sheet_name": "x"}]
+            ),
+        }
+        # The WIDEST role, so only the project can be what refuses.
+        with self._acting_as(user, "Nirmaan Admin Profile"):
+            for label, attempt in attempts.items():
+                with self.subTest(label), self.assertRaises(frappe.PermissionError):
+                    attempt()
+
+        self.assertEqual(frappe.db.get_value("Project Snag", snag, fields, as_dict=True), before)
+        self.assertEqual(frappe.db.get_value("Project Snag Batch", batch, "batch_name"), "Scope all batch")
+        self.assertFalse(
+            frappe.db.exists("Project Snag", {"project": self.project, "description": "Added from outside"})
+        )

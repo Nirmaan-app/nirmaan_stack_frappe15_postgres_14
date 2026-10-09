@@ -1,0 +1,276 @@
+{#-
+  PRINT FORMAT: Vendor Material Orders              DocType: Vendors
+  Reference copy of the Desk record "Vendor Material Orders" -- the DB record is the runtime
+  source; keep this file equal to it.
+
+  Rows come from the SAME endpoint, filters, search and sort as the Vendor page's Material
+  Orders table (nirmaan_stack.api.data-table.get_list_with_count_enhanced, like its
+  "Export all"), so the PDF lists exactly what the table shows. Query-string params
+  (absent = all of the vendor's POs, newest first):
+    po_filters      JSON array of the table's column filters (Frappe filter list)
+    order_by        e.g. "creation desc"
+    search_term     the table's search box
+    search_field    the field the search box searches
+    item_search     "1" when that field is the item-name (JSON) search
+  The vendor + "not Merged" filters are always added here, so a request can only narrow
+  the list to this vendor's POs.
+-#}
+
+{%- set extra_filters = json.loads(frappe.form_dict.po_filters) if frappe.form_dict.po_filters else [] -%}
+{%- set search_term = frappe.form_dict.search_term or None -%}
+{%- set search_field = frappe.form_dict.search_field or None -%}
+{%- set res = frappe.call(
+    "nirmaan_stack.api.data-table.get_list_with_count_enhanced",
+    doctype="Procurement Orders",
+    fields=["name", "status", "creation", "project_name", "amount", "total_amount", "amount_invoiced",
+            "amount_paid", "po_amount_delivered", "amount_due"],
+    filters=[["vendor", "=", doc.name], ["status", "not in", ["Merged"]]] + extra_filters,
+    order_by=frappe.form_dict.order_by or "creation desc",
+    limit_start=0,
+    limit_page_length=0,
+    search_term=search_term,
+    current_search_fields=json.dumps([search_field]) if (search_term and search_field) else None,
+    is_item_search=bool(search_term and frappe.form_dict.item_search == "1"),
+    require_pending_items=False,
+    to_cache=False,
+    for_export=True,
+    doc=None
+) -%}
+{#- doc=None is required: frappe.call hands the endpoint the whole request form_dict, and in a real
+    download_pdf that includes `doc` (the Vendors document object). The endpoint keeps unknown args in
+    **kwargs and json.dumps them, which fails on a document ("not JSON serializable"). -#}
+{%- set pos = res["data"] if res else [] -%}
+
+{%- macro money(v) -%}{{ frappe.utils.fmt_money(v or 0, 2, None, "#,##,###.##") }}{%- endmacro -%}
+{%- macro day(d) -%}{{ frappe.utils.formatdate(d, "dd-MMM-yyyy") if d else "" }}{%- endmacro -%}
+
+{%- set tot = namespace(amount=0, total_amount=0, amount_invoiced=0, amount_paid=0, po_amount_delivered=0, amount_due=0, inactive=false) -%}
+{%- for po in pos -%}
+    {%- set tot.amount = tot.amount + (po.amount or 0) -%}
+    {%- set tot.total_amount = tot.total_amount + (po.total_amount or 0) -%}
+    {%- set tot.amount_invoiced = tot.amount_invoiced + (po.amount_invoiced or 0) -%}
+    {%- set tot.amount_paid = tot.amount_paid + (po.amount_paid or 0) -%}
+    {%- set tot.po_amount_delivered = tot.po_amount_delivered + (po.po_amount_delivered or 0) -%}
+    {%- set tot.amount_due = tot.amount_due + (po.amount_due or 0) -%}
+    {%- if po.status == "Inactive" %}{% set tot.inactive = true %}{% endif -%}
+{%- endfor -%}
+
+{#- "Invoice Summary (all POs)" -- vendor-wide, ignores the table filters, exactly like the
+    screen's card: Total Invoiced = every PO's amount_invoiced; Amount Due = that minus the
+    vendor's Paid PO payments. -#}
+{%- set inv = namespace(invoiced=0, paid=0) -%}
+{%- for r in frappe.get_all("Procurement Orders", filters={"vendor": doc.name}, fields=["amount_invoiced"]) -%}
+    {%- set inv.invoiced = inv.invoiced + (r.amount_invoiced or 0) -%}
+{%- endfor -%}
+{%- for r in frappe.get_all("Project Payments", filters={"vendor": doc.name, "document_type": "Procurement Orders", "status": "Paid"}, fields=["amount"]) -%}
+    {%- set inv.paid = inv.paid + (r.amount or 0) -%}
+{%- endfor -%}
+{%- set amount_due_all = inv.invoiced - inv.paid -%}
+
+{#- Company header: the default GSTIN's billing address (a vendor spans projects). -#}
+{%- set default_gstin = "29ABFCS9095N1Z9" -%}
+{%- set company_name = "Nirmaan (Stratos Infra Technologies Pvt. Ltd.)" -%}
+{%- set logo_url = "https://stack.nirmaan.app/assets/nirmaan_stack/frontend/assets/logo-svg-BptBZTzQ.svg" -%}
+{%- set company_addr = "Billing address not configured (Check Project GST DocType)" -%}
+{%- set gst_name = frappe.db.get_value("Project GST", {"gstin": default_gstin}, "name") -%}
+{%- if gst_name -%}
+    {%- set g = frappe.db.get_value("Project GST", gst_name, ["address", "city", "pincode", "state"], as_dict=True) -%}
+    {%- set company_addr = [g.address, [g.city, g.pincode] | select | join("-"), g.state] | select | join(", ") -%}
+{%- endif -%}
+
+<style>
+    /* Landscape A4. Frappe >= 15.115 reads orientation/margins ONLY from this top-level rule
+       (pdfkit meta tags are ignored). margin-top makes room for the repeating Nirmaan header:
+       Frappe's header page pads 15mm on top, then the header itself. */
+    .print-format { orientation: Landscape; margin-top: 36mm; margin-bottom: 15mm; margin-left: 10mm; margin-right: 10mm; }
+    /* The rule above is read as PDF page options, but the browser would ALSO apply it as CSS
+       margins (in the body and inside the header/footer pages). Frappe reads options only from
+       a bare `.print-format` selector, so this one cancels the CSS side without touching them. */
+    div.print-format { margin: 0 !important; }
+    .print-format, .print-format td, .print-format th { font-family: Arial, sans-serif; color: #000; }
+
+    .header-wrapper { width: 100%; font-family: Arial, sans-serif; color: #000; }
+    .logo-img { height: 28px; display: block; margin-bottom: 4px; }
+    .company-name-lg { font-size: 12px; font-weight: bold; margin-bottom: 2px; }
+    .company-addr-lg { font-size: 9px; color: #555; margin-bottom: 6px; }
+    .header-border { border-bottom: 3px solid #000; }
+
+    .title-row { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+    .title-row td { border: none; padding: 0; vertical-align: bottom; }
+    .doc-title { font-size: 15px; font-weight: bold; letter-spacing: 0.5px; }
+    .report-date { text-align: right; font-size: 9.5px; color: #555; }
+
+    .info-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+    .info-table td { width: 50%; border: 1px solid #ccc; padding: 6px 8px; vertical-align: top; font-size: 9.5px; line-height: 1.45; }
+    .info-label { font-size: 8.5px; font-weight: bold; text-transform: uppercase; color: #555; margin-bottom: 3px; }
+    .vendor-name { font-size: 11px; font-weight: bold; }
+    /* Vendor box + the screen's Summary card side by side. wkhtmltopdf has no flex/grid, so the
+       card's sections and tiles are tables; colours are the screen's Tailwind ones. */
+    .top-row { width: 100%; border-collapse: separate; border-spacing: 0; margin-bottom: 12px; }
+    .print-format td.vendor-box { width: 34%; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px !important; vertical-align: top; font-size: 9.5px; line-height: 1.5; }
+    .print-format td.gap { width: 1.5%; border: none; padding: 0 !important; }
+    .print-format td.card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 10px !important; vertical-align: top; }
+    .card-inner { width: 100%; border-collapse: collapse; }
+    .print-format .card-inner td.section { border: none; padding: 0 !important; vertical-align: top; }
+    .print-format .card-inner td.sep { width: 1px; border: none; border-left: 1px solid #e2e8f0; padding: 0 !important; }
+    .print-format .card-inner td.sep-space { width: 10px; border: none; padding: 0 !important; }
+    .sc-title { font-size: 8px; font-weight: bold; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+    .sc-title span { font-size: 7px; color: #94a3b8; text-transform: none; letter-spacing: 0; }
+    .tiles { width: 100%; border-collapse: collapse; }
+    .print-format .tiles td { border: none; padding: 0 6px 0 0 !important; vertical-align: top; }
+    .print-format .tiles td:last-child { padding-right: 0 !important; }
+    .tile { border-radius: 5px; padding: 6px 8px; border: 1px solid; }
+    .tile-slate { background: #f8fafc; border-color: #e2e8f0; }
+    .tile-amber { background: #fffbeb; border-color: #fde68a; }
+    .tile-label { font-size: 7.5px; font-weight: bold; color: #64748b; text-transform: uppercase; letter-spacing: 0.3px; }
+    .tile-value { font-size: 11px; font-weight: bold; margin-top: 3px; white-space: nowrap; }
+    /* `.print-format` prefix: `.print-format td { color: #000 }` above would otherwise win on table cells. */
+    .print-format .c-blue { color: #2563eb; }
+    .print-format .c-emerald { color: #059669; }
+    .print-format .c-amber { color: #d97706; }
+    .print-format .c-green { color: #15803d; }
+    .print-format .c-red { color: #dc2626; }
+
+    /* `separate`, not `collapse`: with collapsed borders wkhtmltopdf leaves a blank band under
+       the repeated header row on every continuation page. Borders are drawn right + bottom only
+       (plus the outer left / top edges) so they stay single-width. */
+    .orders { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+    .orders th, .orders td { border-style: solid; border-width: 0 1px 1px 0; }
+    .orders tr > :first-child { border-left-width: 1px; }
+    .orders thead th { border-top-width: 1px; }
+    .orders thead { display: table-header-group; }
+    /* Rows are kept whole on the <tr>. Do NOT wrap cell contents in <div>s: Frappe's print CSS
+       puts `page-break-inside: avoid` on every `table td div`, and with hundreds of them
+       wkhtmltopdf pushes rows down mid-page (blank bands under random rows). */
+    .orders tr { page-break-inside: avoid; }
+    .orders th { background: #f8fafc; color: #475569; font-size: 10.5px; font-weight: bold; text-align: left; border-color: #cbd5e1; line-height: 1.3; vertical-align: bottom; }
+    .orders td { font-size: 11px; border-color: #e2e8f0; vertical-align: top; word-wrap: break-word; line-height: 1.35; }
+    .orders .num { text-align: right; }
+    .orders td.num, .orders td.date { white-space: nowrap; }
+    /* Frappe's print stylesheet forces `padding: 6px !important` on every print table cell. */
+    .print-format .orders th { padding: 5px 4px !important; }
+    .print-format .orders td { padding: 4px !important; }
+    .orders .strong { font-weight: bold; }
+    .orders tr.inactive td { background: #fef2f2; }
+    .orders tr.summary td { background: #f1f5f9; font-weight: bold; border-color: #cbd5e1; }
+    .orders tr.empty td { text-align: center; color: #555; padding: 14px 4px; }
+
+    .legend { font-size: 8.5px; color: #555; margin-top: 6px; }
+    .legend-swatch { display: inline-block; width: 10px; height: 8px; background: #fef2f2; border: 1px solid #f5c2c2; vertical-align: middle; }
+</style>
+
+{#- Repeats on every page (wkhtmltopdf header). -#}
+<div id="header-html" style="display: none;">
+    <div class="header-wrapper">
+        <img src="{{ logo_url }}" class="logo-img">
+        <div class="company-name-lg">{{ company_name }}</div>
+        <div class="company-addr-lg">{{ company_addr | e }}</div>
+        <div class="header-border"></div>
+    </div>
+</div>
+
+<table class="title-row">
+    <tr>
+        <td class="doc-title">VENDOR MATERIAL ORDERS</td>
+        <td class="report-date">REPORT DATE: {{ day(frappe.utils.nowdate()) }}</td>
+    </tr>
+</table>
+
+<table class="top-row">
+    <tr>
+        <td class="vendor-box">
+            <div class="info-label">Vendor</div>
+            {#- Three lines: name / GSTIN + PAN / city, state. -#}
+            <div class="vendor-name">{{ (doc.vendor_name or doc.name) | e }}</div>
+            <div><b>GSTIN:</b> {{ (doc.vendor_gst or "-") | e }} &nbsp;&nbsp;|&nbsp;&nbsp; <b>PAN:</b> {{ (doc.vendor_pan or "-") | e }}</div>
+            <div>{{ ([doc.vendor_city, doc.vendor_state] | select | join(", ")) | e }}</div>
+        </td>
+        <td class="gap"></td>
+        <td class="card">
+            {#- The screen's Summary card, minus Amt. Delivered. -#}
+            <table class="card-inner">
+                <tr>
+                    <td class="section">
+                        <div class="sc-title">PO Totals</div>
+                        <table class="tiles"><tr>
+                            <td><div class="tile tile-slate"><div class="tile-label">PO Amt (Excl. GST)</div><div class="tile-value c-blue">&#8377; {{ money(tot.amount) }}</div></div></td>
+                            <td><div class="tile tile-slate"><div class="tile-label">PO Amt (Incl. GST)</div><div class="tile-value c-blue">&#8377; {{ money(tot.total_amount) }}</div></div></td>
+                            <td><div class="tile tile-slate"><div class="tile-label">Amount Paid</div><div class="tile-value c-emerald">&#8377; {{ money(tot.amount_paid) }}</div></div></td>
+                        </tr></table>
+                    </td>
+                    <td class="sep-space"></td>
+                    <td class="sep"></td>
+                    <td class="sep-space"></td>
+                    <td class="section" style="width: 36%;">
+                        <div class="sc-title">Invoice Summary <span>(all POs)</span></div>
+                        <table class="tiles"><tr>
+                            <td><div class="tile tile-amber"><div class="tile-label">Total Invoiced</div><div class="tile-value c-amber">&#8377; {{ money(inv.invoiced) }}</div></div></td>
+                            <td><div class="tile tile-amber"><div class="tile-label">Amount Due</div><div class="tile-value {{ 'c-red' if amount_due_all < 0 else 'c-amber' }}">&#8377; {{ money(amount_due_all) }}</div></div></td>
+                        </tr></table>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+
+<table class="orders">
+    <colgroup>
+        <col style="width: 3%">
+        <col style="width: 15%">
+        <col style="width: 9%">
+        <col style="width: 16.5%">
+        <col style="width: 9.5%">
+        <col style="width: 9.5%">
+        <col style="width: 9.5%">
+        <col style="width: 9.5%">
+        <col style="width: 9%">
+        <col style="width: 9.5%">
+    </colgroup>
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>PO ID</th>
+            <th>Created On</th>
+            <th>Project Name</th>
+            <th class="num">PO Amount (Excl. GST) (&#8377;)</th>
+            <th class="num">PO Amount (Incl. GST) (&#8377;)</th>
+            <th class="num">Total Invoiced (&#8377;)</th>
+            <th class="num">Amount Paid (&#8377;)</th>
+            <th class="num">Amt. Delivered (&#8377;)</th>
+            <th class="num">Amount Due (&#8377;)</th>
+        </tr>
+    </thead>
+    <tbody>
+        {%- for po in pos %}
+        <tr{% if po.status == "Inactive" %} class="inactive"{% endif %}>
+            <td>{{ loop.index }}</td>
+            <td class="strong c-blue">{{ po.name | e }}</td>
+            <td class="date">{{ day(po.creation) }}</td>
+            <td>{{ (po.project_name or "") | e }}</td>
+            <td class="num">{{ money(po.amount) }}</td>
+            <td class="num">{{ money(po.total_amount) }}</td>
+            <td class="num{{ ' c-blue' if po.amount_invoiced else '' }}">{{ money(po.amount_invoiced) }}</td>
+            <td class="num {{ 'c-blue' if po.amount_paid else 'c-green' }}">{{ money(po.amount_paid) }}</td>
+            <td class="num">{{ money(po.po_amount_delivered) }}</td>
+            <td class="num strong {{ 'c-red' if (po.amount_due or 0) < 0 else 'c-amber' }}">{{ money(po.amount_due) }}</td>
+        </tr>
+        {%- else %}
+        <tr class="empty"><td colspan="10">No purchase orders match.</td></tr>
+        {%- endfor %}
+
+        <tr class="summary">
+            <td colspan="4">Total ({{ pos | length }} POs)</td>
+            <td class="num">{{ money(tot.amount) }}</td>
+            <td class="num">{{ money(tot.total_amount) }}</td>
+            <td class="num">{{ money(tot.amount_invoiced) }}</td>
+            <td class="num">{{ money(tot.amount_paid) }}</td>
+            <td class="num">{{ money(tot.po_amount_delivered) }}</td>
+            <td class="num">{{ money(tot.amount_due) }}</td>
+        </tr>
+    </tbody>
+</table>
+
+{%- if tot.inactive %}
+<div class="legend"><span class="legend-swatch"></span> Rows shaded red are Inactive POs (superseded by a revision); they are included in the totals.</div>
+{%- endif %}

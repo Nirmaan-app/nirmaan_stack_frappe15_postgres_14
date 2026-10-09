@@ -2095,7 +2095,7 @@ class TestOptionBCapture(FrappeTestCase):
 # final envelope -- and `_row_result` popped `__items__` out of that dict IN PLACE, so the second
 # call found nothing and the envelope's empty rows overwrote the checkpointed ones in the api layer.
 # The slice-4 pilot called `_extract_batch` directly and never crossed this seam. A test on each
-# side of a boundary is not a test of the boundary (CLAUDE.md standing rule): this one asserts the
+# side of a boundary is not a test of the boundary (CODING_STANDARDS.md, Writing tests): this one asserts the
 # value ARRIVES on BOTH sides -- the checkpoint rows AND the envelope -- from ONE fake reply.
 # ══════════════════════════════════════════════════════════════════════════════════════════
 class TestItemListRowsSurviveTheCheckpoint(FrappeTestCase):

@@ -1,5 +1,14 @@
 # CEO Hold Status - Feature Documentation
 
+## Load-bearing invariants (owner-locked)
+
+_Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every frontend task needs (CLAUDE.md restructure, pass 2). `frontend/CLAUDE.md` now carries a one-line pointer here._
+
+- **CEO Hold Status**: Projects with "CEO Hold" status block ALL procurement, payment, and expense operations. Use `useCEOHoldGuard` hook for single-project pages, `useCEOHoldProjects` for list pages. Full detail below, including automatic holds (§ Automatic CEO Hold). **Authorization:** Only `nitesh@nirmaan.app` can set/unset CEO Hold (not role-based). The `CEO_HOLD_AUTHORIZED_USER` constant is in `src/constants/ceoHold.ts`. The `ceo_hold_by` field on Projects tracks who set the hold. Backend validation in `nirmaan_stack/nirmaan_stack/doctype/projects/projects.py` enforces this restriction.
+- **DN/CEO Hold Exemption**: Delivery Note operations (create, edit, return) are exempt from CEO Hold blocking — DNs can be managed even on held projects.
+
+---
+
 ## Overview
 
 "CEO Hold" is a project status that **suspends all financial and procurement operations** for a project. When active, users cannot create, edit, or approve procurement requests, purchase orders, service requests, payments, invoices, or expenses for that project.
@@ -187,7 +196,7 @@ function MyListPage() {
 Beyond the manual hold below, the system **auto-holds** projects for one or more automatic conditions. Each is a row in the **`CEO Hold Reason`** doctype (`source` = `cashflow` or `dn_pending`, plus a live `reason_text`); a project is on CEO Hold while it has any reason row **or** a manual hold, and leaves only when **none** remain. `status` / `ceo_hold_by` are derived mirrors maintained by `services/ceo_hold/core.recompute_ceo_hold` (the single serialized owner).
 
 - **Cashflow gap** — auto-held when the cashflow gap exceeds the project's limit. See `docs/ceo_hold_auto_management.md`.
-- **Delivery-Pending** — auto-held when the project has **more than 4 POs awaiting delivery** (the `DN_PENDING` action-item count); auto-releases at ≤ 4.
+- **Delivery-Pending** — auto-held when the project has **more than `DN_PENDING_HOLD_THRESHOLD` POs awaiting delivery** (currently 10, so 11+; `services/ceo_hold/core.py`; the `DN_PENDING` action-item count); auto-releases at or below the threshold.
 
 `ceo_hold_by = "System (Cashflow Cron)"` marks *any* system hold (generic); the per-source *why* is in the reason rows. **The frontend surfaces the reasons** via `<CEOHoldBanner reasons={...} />` on the Project Detail + PMO banners and the `useCEOHoldGuard` blocked-action toast (`holdReasons`). The ~22 generic banner mounts and the `useCEOHoldProjects` list tint are unchanged (FORK 6 scope).
 

@@ -56,6 +56,8 @@ import { AddSnagDialog } from "./components/AddSnagDialog";
 import { BulkStatusDialog } from "./components/BulkStatusDialog";
 import { SnagBatchTabs } from "./components/SnagBatchTabs";
 import { SnagBatchesPanel } from "./components/SnagBatchesPanel";
+import { SnagDownloadAllDialog } from "./components/SnagDownloadAllDialog";
+import { SnagDownloadDialog } from "./components/SnagDownloadDialog";
 import { RenameBatchDialog } from "./components/RenameBatchDialog";
 import { SnagEmptyState } from "./components/SnagEmptyState";
 import { SnagEditDialog } from "./components/SnagEditDialog";
@@ -87,7 +89,9 @@ import { useSnagBatches } from "./hooks/useSnagBatches";
 import { useSnagFieldValues } from "./hooks/useSnagFieldValues";
 import { useSnagMutations } from "./hooks/useSnagMutations";
 import { useSnagStats } from "./hooks/useSnagStats";
+import { SnagPhotoDraft } from "./photo/snagPhotoCapture";
 import { IngestBatchResponse, SnagStatus } from "./types";
+import { useUsersForLookup } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useUsersForLookup";
 
 export interface SnagListTabProps {
   projectId: string;
@@ -135,6 +139,10 @@ export function SnagListTab({
   const [importOpen, setImportOpen] = React.useState(false);
   const [addOpen, setAddOpen] = React.useState(false);
   const [bulkOpen, setBulkOpen] = React.useState(false);
+  // The Download dialog (Include N/A) and the Download All dialog (report type +
+  // Include N/A).
+  const [downloadOpen, setDownloadOpen] = React.useState(false);
+  const [downloadAllOpen, setDownloadAllOpen] = React.useState(false);
   // The row whose Area / Category / Description is being edited. `null` = closed.
   const [editRow, setEditRow] = React.useState<SnagListRow | null>(null);
   // The batch whose Rename dialog is open (its document `name`). `null` = closed.
@@ -204,8 +212,12 @@ export function SnagListTab({
   // stored text alone" and must NOT be turned into `""` on the way past — that
   // would clear the imported remark on every ordinary status change.
   const handleStatusChange = React.useCallback(
-    (snag: SnagListRow, next: SnagStatus, remark: string | undefined) =>
-      updateStatus(snag.name, next, remark),
+    (
+      snag: SnagListRow,
+      next: SnagStatus,
+      remark: string | undefined,
+      photo?: SnagPhotoDraft | null
+    ) => updateStatus(snag.name, next, remark, photo),
     [updateStatus]
   );
 
@@ -213,6 +225,10 @@ export function SnagListTab({
     (snag: SnagListRow) => setEditRow(snag),
     []
   );
+
+  // "Last updated" shows WHO by name, not login email. One Nirmaan Users fetch
+  // (name + full_name), shared by SWR key with every other screen using this hook.
+  const { getFullName } = useUsersForLookup();
 
   const columns = React.useMemo<ColumnDef<SnagListRow>[]>(
     () =>
@@ -223,6 +239,7 @@ export function SnagListTab({
         onStatusChange: perms.canEditStatus ? handleStatusChange : undefined,
         onEditRow: perms.canEditRow ? handleEditRow : undefined,
         savingStatusFor,
+        userName: getFullName,
       }),
     [
       perms.canEditStatus,
@@ -230,6 +247,7 @@ export function SnagListTab({
       handleStatusChange,
       handleEditRow,
       savingStatusFor,
+      getFullName,
     ]
   );
 
@@ -329,9 +347,10 @@ export function SnagListTab({
 
   // --- Download (PDF) ---
   // Prints the "Project Snag" format off the PROJECT doc, narrowed by whatever is
-  // on screen right now: the facets, the Batch funnel and the search box all ride
-  // along as query params. There is no picker dialog on purpose — the toolbar IS
-  // the picker, so the PDF cannot disagree with the table above it.
+  // on screen right now: the facets, the batch tab and the search box all ride
+  // along as query params. The button opens `SnagDownloadDialog`, whose ONE choice
+  // ("Include Not Applicable") can only narrow the Status filter — the toolbar is
+  // still the picker, so the PDF cannot disagree with the table above it.
   const { isDownloading, download } = useSnagDownload({
     projectId,
     projectLabel: projectName,
@@ -344,11 +363,13 @@ export function SnagListTab({
   });
 
   /**
-   * "Download All" — every batch's report merged into one PDF.
+   * "Download All" — a master summary, then (Full report) every batch's report, merged
+   * into one PDF. The button OPENS `SnagDownloadAllDialog`; the dialog calls
+   * `downloadAll(options)` with the report type + Include-N/A choice.
    *
-   * Shown only with MORE THAN ONE batch: with one it would produce byte-for-byte what
-   * Download already gives, and two buttons doing the same thing is how a user learns
-   * to distrust both.
+   * Shown whenever the project has AT LEAST ONE batch (owner 2026-09-30, reversing the
+   * old "more than one" rule): since the master summary exists, even a single-import
+   * file differs from Download, and "Summary only" has no other entry point.
    */
   const { isDownloading: isDownloadingAll, download: downloadAll } = useSnagDownloadAll({
     projectId,
@@ -359,7 +380,8 @@ export function SnagListTab({
   });
 
   const batchCount = batches.length;
-  const canDownloadAll = batchCount > 1;
+  const batchIds = React.useMemo(() => batches.map((b) => b.name), [batches]);
+  const canDownloadAll = batchCount >= 1;
 
   /**
    * How many snags "Download All" will NOT contain.
@@ -494,7 +516,7 @@ export function SnagListTab({
               ? "Nothing to print in this view"
               : "Download this view as a PDF"
         }
-        onClick={download}
+        onClick={() => setDownloadOpen(true)}
       >
         {isDownloading ? (
           <>
@@ -553,10 +575,10 @@ export function SnagListTab({
           disabled={isDownloadingAll}
           title={
             unbatchedCount > 0
-              ? `One PDF holding all ${batchCount} imports, one report each. Does NOT include the ${unbatchedCount} manually added snag${unbatchedCount === 1 ? "" : "s"} — they belong to no import.`
-              : `One PDF holding all ${batchCount} imports, one report each`
+              ? `Master summary + a report for each of the ${batchCount} import${batchCount === 1 ? "" : "s"}. The ${unbatchedCount} manually added snag${unbatchedCount === 1 ? "" : "s"} appear in the summary only — they belong to no import.`
+              : `Master summary + a report for each of the ${batchCount} import${batchCount === 1 ? "" : "s"}`
           }
-          onClick={downloadAll}
+          onClick={() => setDownloadAllOpen(true)}
         >
           {isDownloadingAll ? (
             <>
@@ -762,6 +784,41 @@ export function SnagListTab({
           isSaving={isRenamingBatch}
           onCancel={() => setRenamingBatch(null)}
           onSubmit={renameBatch}
+        />
+      )}
+
+      {/* Rendered ONLY while open: each open starts from the default (N/A included).
+          Counts come from the CURRENT TAB's stats — the same slice the strip shows. */}
+      {downloadOpen && !downloadUnavailable && (
+        <SnagDownloadDialog
+          open={downloadOpen}
+          onOpenChange={setDownloadOpen}
+          projectLabel={projectName || projectId}
+          tabStats={statsLoading || statsError ? null : scopedStats}
+          columnFilters={columnFilters}
+          searchTerm={searchTerm}
+          selectedSearchField={selectedSearchField}
+          isDownloading={isDownloading}
+          onDownload={download}
+        />
+      )}
+
+      {/* Rendered ONLY while open, like the Add / Edit dialogs: each open starts from
+          the defaults (Full report, N/A included). Counts come from the stats this
+          page already holds — `null` while loading or refused, so the dialog omits
+          them rather than showing a zero. */}
+      {canDownloadAll && downloadAllOpen && (
+        <SnagDownloadAllDialog
+          open={downloadAllOpen}
+          onOpenChange={setDownloadAllOpen}
+          projectLabel={projectName || projectId}
+          batchIds={batchIds}
+          stats={statsLoading || statsError ? null : stats}
+          columnFilters={columnFilters}
+          searchTerm={searchTerm}
+          selectedSearchField={selectedSearchField}
+          isDownloading={isDownloadingAll}
+          onDownload={downloadAll}
         />
       )}
 

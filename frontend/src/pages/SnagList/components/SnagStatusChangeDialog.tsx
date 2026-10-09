@@ -15,7 +15,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 import { SnagStatus } from "../types";
-import { SNAG_STATUS_BADGE_STYLES } from "../config/snagTable.config";
+import {
+  SNAG_PHOTO_REQUIRED_STATUS,
+  SNAG_STATUS_BADGE_STYLES,
+} from "../config/snagTable.config";
+import { SnagPhotoDraft } from "../photo/snagPhotoCapture";
+import { SnagPhotoField } from "./SnagPhotoField";
 
 export interface SnagStatusChangeDialogProps {
   /** The status the user picked. */
@@ -32,14 +37,24 @@ export interface SnagStatusChangeDialogProps {
   description?: string;
   area?: string;
   category?: string;
+  /** The stored photo and where it was taken (owner 2026-10-08). */
+  photoUrl?: string | null;
+  photoLocation?: string | null;
   isSaving?: boolean;
   onCancel: () => void;
   /**
    * `remark === undefined` means LEAVE THE STORED TEXT ALONE — it is not the same
    * as `""`, which CLEARS it. The caller must preserve that distinction all the way
    * to the wire (ADR-0018).
+   *
+   * `photo` is a NEW photo picked here, or null to leave the stored one as it is. This
+   * dialog never removes a photo — that is the Edit dialog's, under its narrower tier.
    */
-  onConfirm: (next: SnagStatus, remark: string | undefined) => void;
+  onConfirm: (
+    next: SnagStatus,
+    remark: string | undefined,
+    photo: SnagPhotoDraft | null
+  ) => void;
 }
 
 /**
@@ -66,6 +81,11 @@ export interface SnagStatusChangeDialogProps {
  *    the user can see they are editing it, not adding to it.
  *  - "Not Applicable" shows NO box at all (Q2a). This dialog is never opened for it;
  *    the caller writes that status straight through, with no `remark` on the wire.
+ *
+ * THE PHOTO (owner 2026-10-08): this dialog is one of the two places a snag's one photo is
+ * added or replaced, and the only one a Project Manager has. Moving to Completed NEEDS a photo
+ * — the stored one or one picked here — so the button stays disabled until there is one. The
+ * server refuses the same thing, so this is the courtesy, not the boundary.
  */
 export const SnagStatusChangeDialog: React.FC<SnagStatusChangeDialogProps> = ({
   nextStatus,
@@ -74,6 +94,8 @@ export const SnagStatusChangeDialog: React.FC<SnagStatusChangeDialogProps> = ({
   description,
   area,
   category,
+  photoUrl = null,
+  photoLocation = null,
   isSaving = false,
   onCancel,
   onConfirm,
@@ -84,6 +106,10 @@ export const SnagStatusChangeDialog: React.FC<SnagStatusChangeDialogProps> = ({
   // clobber. The read-only context props above are RENDER-ONLY and must never be
   // folded into this seeding.
   const [draft, setDraft] = React.useState(stored);
+  const [photo, setPhoto] = React.useState<SnagPhotoDraft | null>(null);
+
+  const needsPhoto = nextStatus === SNAG_PHOTO_REQUIRED_STATUS;
+  const missingPhoto = needsPhoto && !photoUrl && !photo;
 
   const meta = [
     { label: "Area", value: area },
@@ -94,7 +120,7 @@ export const SnagStatusChangeDialog: React.FC<SnagStatusChangeDialogProps> = ({
     // Untouched -> send NOTHING, so the server leaves the stored text exactly as it
     // is. Sending the same string back would still be a write, and "leave it alone"
     // is a distinct third state from "clear it" (`""`).
-    onConfirm(nextStatus, draft === stored ? undefined : draft);
+    onConfirm(nextStatus, draft === stored ? undefined : draft, photo);
   };
 
   return (
@@ -104,7 +130,7 @@ export const SnagStatusChangeDialog: React.FC<SnagStatusChangeDialogProps> = ({
         if (!open && !isSaving) onCancel();
       }}
     >
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Update status</DialogTitle>
           <DialogDescription asChild>
@@ -159,6 +185,15 @@ export const SnagStatusChangeDialog: React.FC<SnagStatusChangeDialogProps> = ({
           </div>
         )}
 
+        <SnagPhotoField
+          storedUrl={photoUrl}
+          storedLocation={photoLocation}
+          draft={photo}
+          onDraftChange={setPhoto}
+          required={needsPhoto}
+          disabled={isSaving}
+        />
+
         <div className="space-y-1.5 py-1">
           <label htmlFor="snag-remark" className="text-xs font-medium">
             Remarks <span className="text-muted-foreground">(optional)</span>
@@ -166,7 +201,7 @@ export const SnagStatusChangeDialog: React.FC<SnagStatusChangeDialogProps> = ({
           <Textarea
             id="snag-remark"
             autoFocus
-            rows={4}
+            rows={3}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="What was done, who is on it, when it will close…"
@@ -181,11 +216,17 @@ export const SnagStatusChangeDialog: React.FC<SnagStatusChangeDialogProps> = ({
           </p>
         </div>
 
+        {missingPhoto && (
+          <p className="text-[11px] font-medium text-amber-700">
+            A photo is required to complete a snag. Take one or upload one above.
+          </p>
+        )}
+
         <DialogFooter>
           <Button variant="ghost" onClick={onCancel} disabled={isSaving}>
             Cancel
           </Button>
-          <Button onClick={handleConfirm} disabled={isSaving}>
+          <Button onClick={handleConfirm} disabled={isSaving || missingPhoto}>
             {isSaving ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving…

@@ -66,8 +66,11 @@ export function SelfFetchingFacetFilter({
   const options = React.useMemo(() => {
     if (!facet.includeBlankBucket) return facetOptions;
     const blankLabel = facet.blankLabel ?? "Not Set";
+    // Swap only the sentinel text: the hook's label is "<label> (<count>)", keep the count.
     return facetOptions.map((o) =>
-      o.value === NOT_SET_FACET_VALUE ? { ...o, label: blankLabel } : o
+      o.value === NOT_SET_FACET_VALUE
+        ? { ...o, label: o.label.replace(NOT_SET_FACET_VALUE, blankLabel) }
+        : o
     );
   }, [facetOptions, facet.includeBlankBucket, facet.blankLabel]);
 

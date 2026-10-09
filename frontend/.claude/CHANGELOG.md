@@ -4,6 +4,24 @@ This file tracks significant changes made by Claude Code sessions.
 
 ---
 
+## 2026-10-05 — Payments queue: Upload / Edit invoice on Paid Non Project Expenses
+
+Backend and verification: `../../.claude/CHANGELOG.md` (same date).
+
+### What changed
+
+- **Row action:** `queueRowActions.canUploadInvoiceRow` (+ tests) — queue role AND Non Project Expenses AND
+  Paid. `approvalColumns` renders a small **Upload Inv** (or green **Edit Inv** when `has_invoice`) beside
+  the pencil on the Payment Done tab only; Actions column 140px there. Project Expenses do not get it.
+- **Dialog:** `NonProjectExpenses/components/UpdateInvoiceDetailsDialog` is reused from `AllPayments` (full
+  doc fetched on open). New props `doctype` and `requireAttachment`; with the latter Save stays disabled
+  until the file and the ref are both present. The Non Project page's Record Invoice does not pass it.
+- **Fixes in that dialog (both surfaces):** Save no longer closes the dialog before the save runs (Radix
+  `AlertDialogAction` closes on click — now `preventDefault`, closed on success); no closing mid-upload; a
+  picked file can be cleared; future invoice dates are refused; Frappe's error text is shown.
+
+---
+
 ## 2026-09-21 — Payments queue: edit & revert, payment summary, raiser note, in-place delete, expense approval details
 
 Backend, rules, commits and verification: `../../.claude/CHANGELOG.md` (same date); terms in root `CONTEXT.md`.
