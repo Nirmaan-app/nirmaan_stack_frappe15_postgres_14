@@ -1,0 +1,52 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-10-03 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "dc_date",
+  "amount",
+  "entered_by"
+ ],
+ "fields": [
+  {
+   "default": "Today",
+   "fieldname": "dc_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "DC Date",
+   "reqd": 1
+  },
+  {
+   "description": "Value delivered (incl GST). 0 = no delivery that day; negative corrects an earlier row.",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount"
+  },
+  {
+   "fieldname": "entered_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Entered By",
+   "options": "User",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-03 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Project Billing DC Log",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "istable": 1,
+ "rows_threshold_for_grid_search": 1
+}

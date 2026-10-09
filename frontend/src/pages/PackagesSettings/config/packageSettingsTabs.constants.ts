@@ -49,6 +49,12 @@ const HodLibrary = React.lazy(() =>
   }))
 );
 
+const BillingPackages = React.lazy(() =>
+  import("@/components/billing-packages").then((module) => ({
+    default: module.BillingPackages,
+  }))
+);
+
 const CriticalPOCategories = React.lazy(() =>
   import("@/components/layout/critical-po-categories").then((module) => ({
     default: module.CriticalPOCategories,
@@ -64,6 +70,7 @@ export const PACKAGE_SETTINGS_TABS = {
   PR_HEADER_PACKAGES: "pr-header-packages",
   PMO_PACKAGES: "pmo-packages",
   HANDOVER_DOCUMENTS: "handover-documents",
+  BILLING_PACKAGES: "billing-packages",
   CRITICAL_PO_CATEGORIES: "critical-po-categories",
 } as const;
 
@@ -116,6 +123,11 @@ export const PACKAGE_SETTINGS_TAB_OPTIONS: PackageSettingsTabOption[] = [
     label: "Handover Documents",
     value: PACKAGE_SETTINGS_TABS.HANDOVER_DOCUMENTS,
     component: HodLibrary,
+  },
+  {
+    label: "Billing Packages",
+    value: PACKAGE_SETTINGS_TABS.BILLING_PACKAGES,
+    component: BillingPackages,
   },
   {
     label: "Critical PO Categories",

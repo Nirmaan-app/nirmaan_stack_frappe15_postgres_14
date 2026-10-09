@@ -99,6 +99,7 @@ const ProjectDCMIRTab = React.lazy(() => import("./components/ProjectDCMIRTab").
 const BulkDownloadPage = React.lazy(() => import("@/pages/BulkDownload/BulkDownloadPage"));
 const ProjectTransferMemosTab = React.lazy(() => import("./components/ProjectTransferMemosTab"));
 const BoqProjectTab = React.lazy(() => import("@/pages/boq-wizard/BoqProjectTab"));
+const ProjectBillingTab = React.lazy(() => import("@/pages/ProjectBilling/ProjectBillingTab"));
 
 import { ProjectWorkReportTab } from "./ProjectWorkReportTab";
 import { SevenDayPlanningTab } from "./SevenDayPlanningTab";
@@ -115,7 +116,7 @@ import {
   useProjectViewMeta,
   useProjectViewMutations,
 } from "./data/root/useProjectRootApi";
-import { isProcurementProfile } from "@/constants/roles";
+import { canUseProjectBilling, isProcurementProfile } from "@/constants/roles";
 
 // v3 dual-field model: this list covers the EXECUTION status (`status` field
 // — Created / WIP / Completed / Halted / Handover / CEO Hold). The bid
@@ -341,6 +342,7 @@ export const PROJECT_PAGE_TABS = {
   COMMISSION_REPORT: 'commission-report',
   HANDOVER_DOCUMENTS: 'handover-documents',
   BOQ: 'boq',
+  BILLING: 'billing',
 } as const;
 
 type ProjectPageTabValue = typeof PROJECT_PAGE_TABS[keyof typeof PROJECT_PAGE_TABS];
@@ -509,6 +511,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   const isEstimatesExecutive = role === "Nirmaan Estimates Executive Profile" || role === "Nirmaan Billing Executive Profile";
   const isProjectManager = role === "Nirmaan Project Manager Profile";
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
+  // Client billing tracker (owner, 2026-10-03): Admin, PMO and billing profiles only.
+  // Tendering projects never reach this view (TenderingProjectView), so the tab is Won-only.
+  const canSeeBilling = canUseProjectBilling(role, user_id);
+  const billingTab: MenuItem[] = canSeeBilling ? [{ label: "Billing", key: PROJECT_PAGE_TABS.BILLING }] : [];
 
   // Allowed tabs for non-privileged users (all roles except Admin, PMO, Accountant)
   const nonPrivilegedAllowedTabs = useMemo<Set<ProjectPageTabValue>>(() => new Set([
@@ -526,7 +532,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
     PROJECT_PAGE_TABS.BOQ,
     PROJECT_PAGE_TABS.TDS_REPOSITORY,
-  ]), []);
+    ...(canSeeBilling ? [PROJECT_PAGE_TABS.BILLING] : []),
+  ]), [canSeeBilling]);
 
   // Allowed tabs for Procurement Executive
   const procurementExecutiveAllowedTabs = useMemo<Set<ProjectPageTabValue>>(() => new Set([
@@ -568,6 +575,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       PROJECT_PAGE_TABS.COMMISSION_REPORT,
       PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
       PROJECT_PAGE_TABS.BOQ,
+      ...(canSeeBilling ? [PROJECT_PAGE_TABS.BILLING] : []),
     ]);
     // Billing Executive KEEPS the BoQ tab (owner request). This used to delete it, with the
     // note "it would 403 on BOQs" -- which was true and is the server-side half of this change:
@@ -575,7 +583,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     // whatever this set says. Nothing else here is billing-specific, so the memo no longer
     // depends on isBilling.
     return tabs;
-  }, []);
+  }, [canSeeBilling]);
 
   // Redirect users to allowed tab if on restricted tab
   useEffect(() => {
@@ -668,6 +676,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "Handover Documents",
           key: PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
         },
+        ...billingTab,
       ];
     }
 
@@ -764,6 +773,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "Financials",
           key: PROJECT_PAGE_TABS.FINANCIALS,
         },
+        ...billingTab,
         {
           label: "WO Summary",
           key: PROJECT_PAGE_TABS.SR_SUMMARY,
@@ -851,6 +861,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         label: "Financials",
         key: PROJECT_PAGE_TABS.FINANCIALS,
       },
+      ...billingTab,
       {
         label: "WO Summary",
         key: PROJECT_PAGE_TABS.SR_SUMMARY,
@@ -916,7 +927,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         key: PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
       }] : []),
     ];
-  }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, isProjectManager, isSales]);
+  }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, isProjectManager, isSales, canSeeBilling]);
 
   // Define tabs available based on role or other logic
   // const availableTabs = useMemo(() => {
@@ -1658,6 +1669,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         );
       case PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS:
         return <Suspense fallback={<LoadingFallback />}><HandoverDocumentsTab projectId={projectId} projectName={data?.project_name} /></Suspense>;
+      case PROJECT_PAGE_TABS.BILLING:
+        return canSeeBilling ? <ProjectBillingTab projectId={projectId} projectName={data.project_name} /> : null;
       case PROJECT_PAGE_TABS.PR_SUMMARY:
         return <ProjectPRSummaryTable projectId={projectId} />;
       case PROJECT_PAGE_TABS.SR_SUMMARY:
