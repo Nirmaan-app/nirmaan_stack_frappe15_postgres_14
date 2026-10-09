@@ -12,17 +12,17 @@ import { useBulkPdfDownload } from "@/hooks/useBulkPdfDownload";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { Label } from "@/components/ui/label";
 import { useUserData } from "@/hooks/useUserData";
+import { BulkDocType, BulkDownloadScope, INVOICE_SUB_TYPES, TYPE_INFO, invoiceSubTypesFor } from "@/utils/bulkDownload/bulkDownloadTypes";
 
 interface BulkPdfDownloadButtonProps {
-  projectId: string;
-  projectName?: string;
+  scope: BulkDownloadScope;
+  /** The types this scope and role may download (`allowedBulkTypes`), in menu order. */
+  types: BulkDocType[];
 }
 
-export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloadButtonProps) => {
+export const BulkPdfDownloadButton = ({ scope, types }: BulkPdfDownloadButtonProps) => {
   const { role } = useUserData();
   const isProjectManager = role === "Nirmaan Project Manager Profile";
-  // PMO loses Client Invoices only -- Vendor Invoices stays.
-  const isPMO = role === "Nirmaan PMO Executive Profile";
 
   const {
     loading,
@@ -44,8 +44,21 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
     completedBatches,
     finalMergeToken,
     triggerDownload,
-    stopProgress
-  } = useBulkPdfDownload(projectId, projectName);
+    stopProgress,
+    cancelDownload
+  } = useBulkPdfDownload(scope);
+
+  // PO / WO ask about rates and invoices about their kind first; the rest start straight away.
+  const onMenuClick: Record<BulkDocType, () => void> = {
+    PO: initiatePODownload,
+    WO: initiateWODownload,
+    Invoice: initiateInvoiceDownload,
+    DC: () => handleBulkDownload("DC", TYPE_INFO.DC.card),
+    MIR: () => handleBulkDownload("MIR", TYPE_INFO.MIR.card),
+    DN: () => handleBulkDownload("DN", TYPE_INFO.DN.card),
+    ClientInvoice: () => handleBulkDownload("ClientInvoice", TYPE_INFO.ClientInvoice.card),
+  };
+  const invoiceChoices = INVOICE_SUB_TYPES.filter((c) => invoiceSubTypesFor(scope).includes(c.value));
 
   const rateLabel = rateDocType === "WO" ? "WOs" : "POs";
   const rateDocTypeLabel = rateDocType === "WO" ? "Work Orders" : "POs";
@@ -56,42 +69,16 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
         <DropdownMenuTrigger asChild>
           <Button variant="outline" className="w-full md:w-auto px-4 border-red-400 text-red-500 hover:bg-red-50 hover:text-red-600 transition-colors duration-200 flex items-center gap-2">
             <Download className="h-4 w-4" />
-            <span className="font-semibold text-sm">Project Bulk Download</span>
+            <span className="font-semibold text-sm">{scope.kind === "vendor" ? "Vendor" : "Project"} Bulk Download</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64 p-1">
-          <DropdownMenuItem onClick={initiatePODownload} className="cursor-pointer">
-            <Download className="mr-2 h-4 w-4" />
-            <span>Download All POs</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={initiateWODownload} className="cursor-pointer">
-            <Download className="mr-2 h-4 w-4" />
-            <span>Download All WOs</span>
-          </DropdownMenuItem>
-          {!isProjectManager && (
-            <DropdownMenuItem onClick={initiateInvoiceDownload} className="cursor-pointer">
+          {types.map((type) => (
+            <DropdownMenuItem key={type} onClick={onMenuClick[type]} className="cursor-pointer">
               <Download className="mr-2 h-4 w-4" />
-              <span>Download All Vendor Invoices</span>
+              <span>{TYPE_INFO[type].menu}</span>
             </DropdownMenuItem>
-          )}
-          <DropdownMenuItem onClick={() => handleBulkDownload("DC", "Delivery Challans")} className="cursor-pointer">
-            <Download className="mr-2 h-4 w-4" />
-            <span>Download All DCs</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleBulkDownload("MIR", "Material Inspection Reports")} className="cursor-pointer">
-            <Download className="mr-2 h-4 w-4" />
-            <span>Download All MIRs</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => handleBulkDownload("DN", "Delivery Notes")} className="cursor-pointer">
-            <Download className="mr-2 h-4 w-4" />
-            <span>Download All DNs</span>
-          </DropdownMenuItem>
-          {!isProjectManager && !isPMO && (
-            <DropdownMenuItem onClick={() => handleBulkDownload("ClientInvoice", "Client Invoices")} className="cursor-pointer">
-              <Download className="mr-2 h-4 w-4" />
-              <span>Download All Client Invoices</span>
-            </DropdownMenuItem>
-          )}
+          ))}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -139,23 +126,17 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
           <DialogHeader>
             <DialogTitle>Download All Invoices</DialogTitle>
             <DialogDescription>
-              Select the type of invoices to download for this project.
+              Select the type of invoices to download for this {scope.kind}.
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-4">
             <RadioGroup value={invoiceType} onValueChange={setInvoiceType} className="grid gap-2">
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="PO Invoices" id="po-inv" />
-                <Label htmlFor="po-inv" className="cursor-pointer">PO Invoices</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="WO Invoices" id="wo-inv" />
-                <Label htmlFor="wo-inv" className="cursor-pointer">WO Invoices (SR)</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="All Invoices" id="all-inv" />
-                <Label htmlFor="all-inv" className="cursor-pointer">All Invoices</Label>
-              </div>
+              {invoiceChoices.map(({ value, label }) => (
+                <div key={value} className="flex items-center space-x-2">
+                  <RadioGroupItem value={value} id={`quick-${value}`} />
+                  <Label htmlFor={`quick-${value}`} className="cursor-pointer">{label}</Label>
+                </div>
+              ))}
             </RadioGroup>
             <Button
               className="mt-4"
@@ -189,6 +170,12 @@ export const BulkPdfDownloadButton = ({ projectId, projectName }: BulkPdfDownloa
                 <span>{progress}% - {progressMessage}</span>
               </div>
             </div>
+            {loading && (
+              <div className="flex items-center justify-between gap-3 border-t pt-3">
+                <p className="text-xs text-muted-foreground">Wait for the file, or cancel to stop the download.</p>
+                <Button variant="outline" size="sm" onClick={cancelDownload}>Cancel download</Button>
+              </div>
+            )}
 
             {/* {(progress === 100 || !loading) && (
                     <div className="pt-2 flex justify-end">

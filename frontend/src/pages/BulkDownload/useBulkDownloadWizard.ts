@@ -1,20 +1,21 @@
-import { useState, useContext, useCallback, useMemo, useEffect } from "react";
+import { useState, useContext, useCallback, useMemo, useEffect, useRef } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { FrappeContext, FrappeConfig, useFrappeGetDocList } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { useProjectPOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
 import { attachLinkedPOs } from "@/pages/projects/CriticalPOTasks/utils";
+import { BulkDocType, BulkDownloadScope, InvoiceSubType, TYPE_INFO } from "@/utils/bulkDownload/bulkDownloadTypes";
+import { cancelBulkDownload, listenForDownload, newDownloadId } from "@/utils/bulkDownload/bulkDownloadEvents";
 
-export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "ClientInvoice";
-export type InvoiceSubType = "PO Invoices" | "WO Invoices" | "All Invoices";
+export type { BulkDocType, InvoiceSubType };
 
-const BULK_SOCKET_EVENTS = [
-    "bulk_download_progress",
-    "bulk_download_all_ready",
-    "bulk_download_failed",
-] as const;
+/** Vendor scope only: the facet column is the project, not the vendor. */
+interface ProjectFields {
+    project?: string;
+    project_name?: string;
+}
 
-export interface POItem {
+export interface POItem extends ProjectFields {
     name: string;
     vendor_name?: string;
     vendor?: string;
@@ -28,11 +29,13 @@ export interface POItem {
 import { VendorInvoice as BaseVendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 export interface VendorInvoice extends BaseVendorInvoice {
     vendor_name?: string;
+    project_name?: string;
 }
 
 import { PODeliveryDocuments as BasePODeliveryDocuments } from "@/types/NirmaanStack/PODeliveryDocuments";
 export interface PODeliveryDocuments extends BasePODeliveryDocuments {
     vendor_name?: string;
+    project_name?: string;
     dc_date?: string;
 }
 
@@ -41,7 +44,7 @@ export interface ProjectInvoice extends BaseProjectInvoice {
     company_name?: string;
 }
 
-export interface WOItem {
+export interface WOItem extends ProjectFields {
     name: string;
     vendor?: string;
     vendor_name?: string;
@@ -63,7 +66,15 @@ export interface CriticalPOTask {
     linked_pos?: string[];
 }
 
-export const useBulkDownloadWizard = (projectId: string, projectName?: string) => {
+/** The wizard for one project or one vendor. */
+export const useBulkDownloadWizard = (scope: BulkDownloadScope) => {
+    const { kind, id } = scope;
+    const isProject = kind === "project";
+    const scopeFilter: [string, "=", string] = [kind, "=", id];
+    const scopeKey = id ? `${kind}-${id}` : null;
+    // The facet column of a vendor's tables is the project (a project's tables show the vendor).
+    const projectFields = isProject ? [] : ["project", "project.project_name"];
+
     const { toast } = useToast();
     const { socket } = useContext(FrappeContext) as FrappeConfig;
     const { role } = useUserData();
@@ -84,46 +95,53 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
 
     const [downloadToken, setDownloadToken] = useState<{ token: string, filename: string } | null>(null);
 
-    const offAllListeners = useCallback(() => {
-        if (!socket) return;
-        BULK_SOCKET_EVENTS.forEach(e => socket.off(e));
-    }, [socket]);
+    // The download this wizard started: its id, and the function that removes its listeners.
+    const activeIdRef = useRef<string | null>(null);
+    const unlistenRef = useRef<(() => void) | null>(null);
+    const detach = useCallback(() => {
+        unlistenRef.current?.();
+        unlistenRef.current = null;
+        activeIdRef.current = null;
+    }, []);
 
-    useEffect(() => {
-        return () => { offAllListeners(); };
-    }, [offAllListeners]);
+    // Leaving the page mid-download stops the job too: nobody would receive the file.
+    useEffect(() => () => {
+        const activeId = activeIdRef.current;
+        unlistenRef.current?.();
+        if (activeId) cancelBulkDownload(activeId);
+    }, []);
 
     const { data: poList = [], isLoading: posLoading } = useFrappeGetDocList<POItem>(
         "Procurement Orders",
         {
-            fields: ["name", "vendor_name", "vendor", "status", "amount", "total_amount", "creation", "latest_delivery_date"],
-            filters: [["project", "=", projectId], ["status", "not in", ["Merged", "Inactive", "Cancelled"]]],
+            fields: ["name", "vendor_name", "vendor", "status", "amount", "total_amount", "creation", "latest_delivery_date", ...(isProject ? [] : (["project", "project_name"] as const))],
+            filters: [scopeFilter, ["status", "not in", ["Merged", "Inactive", "Cancelled"]]],
             limit: 0,
             orderBy: { field: "creation", order: "asc" },
         },
-        projectId ? `bulk-po-${projectId}` : null
+        scopeKey && `bulk-po-${scopeKey}`
     );
 
     const { data: woList = [], isLoading: wosLoading } = useFrappeGetDocList<WOItem>(
         "Service Requests",
         {
-            fields: ["name", "vendor", "vendor.vendor_name" as any, "status", "total_amount", "creation"],
-            filters: [["project", "=", projectId], ["status", "=", "Approved"]],
+            fields: ["name", "vendor", "vendor.vendor_name" as any, "status", "total_amount", "creation", ...projectFields as any[]],
+            filters: [scopeFilter, ["status", "=", "Approved"]],
             limit: 0,
             orderBy: { field: "`tabService Requests`.creation", order: "asc" },
         },
-        projectId ? `bulk-wo-${projectId}` : null
+        scopeKey && `bulk-wo-${scopeKey}`
     );
 
     const { data: vendorInvoices = [], isLoading: invoicesLoading } = useFrappeGetDocList<VendorInvoice>(
         "Vendor Invoices",
         {
-            fields: ["name", "vendor", "vendor.vendor_name" as any, "document_type", "document_name", "invoice_no", "invoice_date", "invoice_amount", "invoice_attachment"],
-            filters: [["project", "=", projectId], ["status", "=", "Approved"]],
+            fields: ["name", "vendor", "vendor.vendor_name" as any, "document_type", "document_name", "invoice_no", "invoice_date", "invoice_amount", "invoice_attachment", ...projectFields as any[]],
+            filters: [scopeFilter, ["status", "=", "Approved"]],
             limit: 0,
             orderBy: { field: "`tabVendor Invoices`.creation", order: "asc" },
         },
-        projectId ? `bulk-vi-${projectId}` : null
+        scopeKey && `bulk-vi-${scopeKey}`
     );
 
     // PO-only by design: the Bulk Download wizard's UX (vendor facet, vendor_name
@@ -136,41 +154,43 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     const { data: poDeliveryDocs = [], isLoading: poDeliveryDocsLoading } = useFrappeGetDocList<PODeliveryDocuments>(
         "PO Delivery Documents",
         {
-            fields: ["name", "vendor", "vendor.vendor_name" as any, "type", "parent_docname", "procurement_order", "creation", "nirmaan_attachment", "dc_date", "reference_number", "dc_reference"],
+            fields: ["name", "vendor", "vendor.vendor_name" as any, "type", "parent_docname", "procurement_order", "creation", "nirmaan_attachment", "dc_date", "reference_number", "dc_reference", ...projectFields as any[]],
             filters: [
-                ["project", "=", projectId],
+                scopeFilter,
                 ["parent_doctype", "=", "Procurement Orders"],
             ],
             limit: 0,
             orderBy: { field: "`tabPO Delivery Documents`.dc_date", order: "asc" },
         },
-        projectId ? `bulk-podd-${projectId}` : null
+        scopeKey && `bulk-podd-${scopeKey}`
     );
 
     const { data: projectInvoices = [], isLoading: projectInvoicesLoading } = useFrappeGetDocList<ProjectInvoice>(
         "Project Invoices",
         {
             fields: ["name", "customer", "customer.company_name" as any, "invoice_no", "invoice_date", "amount", "attachment", "creation"],
-            filters: [["project", "=", projectId]],
+            filters: [scopeFilter],
             limit: 0,
             orderBy: { field: "`tabProject Invoices`.invoice_date", order: "asc" },
         },
-        projectId ? `bulk-pi-${projectId}` : null
+        // Project Invoices carry no vendor.
+        isProject && scopeKey ? `bulk-pi-${scopeKey}` : null
     );
 
     const { data: rawCriticalTasks, isLoading: criticalTasksListLoading } = useFrappeGetDocList<CriticalPOTask>(
         "Critical PO Tasks",
         {
             fields: ["name", "item_name", "critical_po_category"],
-            filters: [["project", "=", projectId]],
+            filters: [scopeFilter],
             limit: 0,
             orderBy: { field: "creation", order: "desc" },
         },
-        projectId ? `bulk-critical-${projectId}` : null
+        // Critical PO Tasks exist only inside a project.
+        isProject && scopeKey ? `bulk-critical-${scopeKey}` : null
     );
 
     // Which POs each task has comes from the Critical PO Task Child Table.
-    const { taskPOMap, isLoading: criticalLinksLoading } = useProjectPOTaskLinks(projectId || "", !!projectId);
+    const { taskPOMap, isLoading: criticalLinksLoading } = useProjectPOTaskLinks(isProject ? id : "", isProject && !!id);
     const criticalTasks = useMemo(
         () => attachLinkedPOs(rawCriticalTasks, taskPOMap) ?? [],
         [rawCriticalTasks, taskPOMap]
@@ -200,7 +220,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
 
     const goToStep2 = useCallback((t: BulkDocType) => { setDocType(t); setSelectedIds([]); setStep(2); }, []);
     const goBack = useCallback(() => { setStep(1); setDocType(null); setSelectedIds([]); }, []);
-    const resetToTypeSelection = useCallback(() => { offAllListeners(); setStep(1); setDocType(null); setSelectedIds([]); setDownloadedCount(0); setDownloadedLabel(""); setDownloadToken(null); }, [offAllListeners]);
+    const resetToTypeSelection = useCallback(() => { detach(); setStep(1); setDocType(null); setSelectedIds([]); setDownloadedCount(0); setDownloadedLabel(""); setDownloadToken(null); }, [detach]);
 
     // Switching invoice type swaps the list under the table, so the selection goes with it -- a
     // download must never carry an invoice the current type hides.
@@ -225,31 +245,27 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
     const handleDownload = async () => {
         if (loading) return;
         if (!selectedIds.length) { toast({ title: "No items selected", variant: "destructive" }); return; }
-        const labelMap: Record<BulkDocType, string> = { PO: "POs", WO: "WOs", Invoice: "Invoices", DC: "DCs", MIR: "MIRs", DN: "DNs", ClientInvoice: "Client Invoices" };
-        const label = labelMap[docType!];
+        const label = TYPE_INFO[docType!].short;
 
         try {
             setLoading(true); setShowProgress(true); setProgress(0); setProgressMessage(`Preparing ${label}...`);
             setDownloadToken(null);
 
+            detach();
+            const downloadId = newDownloadId();
+            activeIdRef.current = downloadId;
             if (socket) {
-                offAllListeners();
-                socket.on("bulk_download_progress", (d: any) => {
-                    if (d.progress !== undefined) {
-                        setProgress(d.progress);
-                        // If progress reached 100% and we only have one batch and no merge yet,
-                        // it might be a single-batch job. We'll handle it in batch_ready or here.
-                    }
-                    if (d.message) setProgressMessage(d.message);
+                unlistenRef.current = listenForDownload(socket, downloadId, {
+                    onProgress: (d) => {
+                        if (d.progress !== undefined) setProgress(d.progress);
+                        if (d.message) setProgressMessage(d.message);
+                    },
+                    onReady: (data) => setDownloadToken(data),
+                    onFailed: (d) => { toast({ title: "Failed", description: d.message, variant: "destructive" }); stopProgress(); },
                 });
-
-                socket.on("bulk_download_all_ready", (data: any) => {
-                    setDownloadToken(data);
-                });
-                socket.on("bulk_download_failed", (d: any) => { toast({ title: "Failed", description: d.message, variant: "destructive" }); stopProgress(); });
             }
 
-            const formData = new FormData(); formData.append("project", projectId);
+            const formData = new FormData(); formData.append(kind, id); formData.append("download_id", downloadId);
             let endpoint = "";
 
             switch (docType) {
@@ -288,14 +304,23 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
             const res = await fetch(endpoint, { method: "POST", headers: { "X-Frappe-CSRF-Token": (window as any).csrf_token || "" }, body: formData });
             if (!res.ok) throw new Error((await res.json())?.message || "Internal error");
             toast({ title: "Started", description: "Worker is processing your request." });
-        } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); setLoading(false); setShowProgress(false); }
+        } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); detach(); setLoading(false); setShowProgress(false); }
     };
 
     const stopProgress = useCallback(() => {
         setLoading(false); setShowProgress(false);
-        offAllListeners();
+        detach();
         if (progress === 100) { setDownloadedCount(selectedIds.length || 1); setDownloadedLabel(docType || "batch"); setStep(3); }
-    }, [offAllListeners, progress, selectedIds, docType]);
+    }, [detach, progress, selectedIds, docType]);
+
+    /** The progress window's Cancel: close it, stop the job, and stay on the selection (it is kept). */
+    const cancelDownload = useCallback(() => {
+        const activeId = activeIdRef.current;
+        detach();
+        setLoading(false); setShowProgress(false); setDownloadToken(null);
+        if (activeId) cancelBulkDownload(activeId);
+        toast({ title: "Download cancelled" });
+    }, [detach, toast]);
 
     // Full Auto-Completion Logic
     useEffect(() => {
@@ -315,6 +340,7 @@ export const useBulkDownloadWizard = (projectId: string, projectName?: string) =
         downloadToken,
         triggerDownload,
         stopProgress,
+        cancelDownload,
         projectInvoiceItems,
         projectInvoicesLoading,
     };

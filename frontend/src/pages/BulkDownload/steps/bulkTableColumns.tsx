@@ -10,9 +10,11 @@ import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
+import type { BulkScopeKind } from "@/utils/bulkDownload/bulkDownloadTypes";
 import type { POItem, WOItem, VendorInvoice, PODeliveryDocuments, ProjectInvoice } from "../useBulkDownloadWizard";
 
 type VendorRow = { name: string; vendor?: string; vendor_name?: string };
+type ProjectRow = { project?: string; project_name?: string };
 
 /** `yyyy-MM-dd[ time]` -> `dd-MMM-yyyy`, read at local midnight so the day never shifts. */
 const displayDate = (value?: string) => (value ? formatDate(`${value.slice(0, 10)}T00:00:00`) : "—");
@@ -34,6 +36,16 @@ const facetColumn = <T,>(id: string, title: string, get: (row: T) => string | un
 
 const vendorColumn = <T extends VendorRow>(): ColumnDef<T, any> =>
     facetColumn<T>("vendor", "Vendor", (row) => row.vendor_name || row.vendor);
+
+const projectColumn = <T extends ProjectRow>(): ColumnDef<T, any> =>
+    facetColumn<T>("project", "Project", (row) => row.project_name || row.project);
+
+/**
+ * A project's documents span vendors, a vendor's span projects: in vendor scope the Vendor column
+ * becomes a Project column (same place, same facet behaviour). Project scope returns `columns` as is.
+ */
+export const forScope = <T extends ProjectRow>(columns: ColumnDef<T, any>[], kind: BulkScopeKind): ColumnDef<T, any>[] =>
+    kind === "vendor" ? columns.map((column) => (column.id === "vendor" ? projectColumn<T>() : column)) : columns;
 
 const statusColumn = <T extends { status?: string }>(): ColumnDef<T, any> => ({
     id: "status",

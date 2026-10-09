@@ -1,97 +1,37 @@
 import { FileDown, ClipboardList, Receipt, Truck, ClipboardCheck, FileText, ReceiptText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { BulkDocType } from "./useBulkDownloadWizard";
-import { useUserData } from "@/hooks/useUserData";
+import { TYPE_INFO } from "@/utils/bulkDownload/bulkDownloadTypes";
 
 interface Step1Props {
     onSelect: (type: BulkDocType) => void;
+    /** The cards to show (`allowedBulkTypes` for the scope and role). */
+    types: BulkDocType[];
     /** Item counts for each doc type – shown as badges on the cards */
     counts?: Partial<Record<BulkDocType, number>>;
 }
 
-const TYPE_CONFIG: {
-    type: BulkDocType;
-    label: string;
-    description: string;
-    icon: React.ElementType;
-    iconBg: string;
-    iconColor: string;
-}[] = [
-        {
-            type: "PO",
-            label: "Procurement Orders",
-            description: "Download selected POs with or without rates",
-            icon: FileDown,
-            iconBg: "bg-blue-50 group-hover:bg-blue-100",
-            iconColor: "text-blue-600",
-        },
-        {
-            type: "WO",
-            label: "Work Orders",
-            description: "Download selected approved WOs / SRs",
-            icon: ClipboardList,
-            iconBg: "bg-green-50 group-hover:bg-green-100",
-            iconColor: "text-green-600",
-        },
-        {
-            type: "Invoice",
-            label: "Vendor Invoices",
-            description: "Download PO invoices, WO invoices, or all",
-            icon: Receipt,
-            iconBg: "bg-purple-50 group-hover:bg-purple-100",
-            iconColor: "text-purple-600",
-        },
-        {
-            type: "DC",
-            label: "Delivery Challans",
-            description: "Download selected delivery challan attachments",
-            icon: Truck,
-            iconBg: "bg-orange-50 group-hover:bg-orange-100",
-            iconColor: "text-orange-600",
-        },
-        {
-            type: "MIR",
-            label: "Material Inspection Reports",
-            description: "Download selected MIR attachments",
-            icon: ClipboardCheck,
-            iconBg: "bg-teal-50 group-hover:bg-teal-100",
-            iconColor: "text-teal-600",
-        },
-        {
-            type: "DN",
-            label: "Delivery Notes",
-            description: "Download delivery note PDFs for selected POs",
-            icon: FileText,
-            iconBg: "bg-rose-50 group-hover:bg-rose-100",
-            iconColor: "text-rose-600",
-        },
-        {
-            type: "ClientInvoice",
-            label: "Client Invoices",
-            description: "Download client invoice attachments raised on the project",
-            icon: ReceiptText,
-            iconBg: "bg-indigo-50 group-hover:bg-indigo-100",
-            iconColor: "text-indigo-600",
-        },
-    ];
+// Names and descriptions live in TYPE_INFO (one place for cards, menu and progress text); this is
+// only how each card looks. A `Record`, so a new type without a style fails the build.
+const TYPE_STYLE: Record<BulkDocType, { icon: React.ElementType; iconBg: string; iconColor: string }> = {
+    PO: { icon: FileDown, iconBg: "bg-blue-50 group-hover:bg-blue-100", iconColor: "text-blue-600" },
+    WO: { icon: ClipboardList, iconBg: "bg-green-50 group-hover:bg-green-100", iconColor: "text-green-600" },
+    Invoice: { icon: Receipt, iconBg: "bg-purple-50 group-hover:bg-purple-100", iconColor: "text-purple-600" },
+    DC: { icon: Truck, iconBg: "bg-orange-50 group-hover:bg-orange-100", iconColor: "text-orange-600" },
+    MIR: { icon: ClipboardCheck, iconBg: "bg-teal-50 group-hover:bg-teal-100", iconColor: "text-teal-600" },
+    DN: { icon: FileText, iconBg: "bg-rose-50 group-hover:bg-rose-100", iconColor: "text-rose-600" },
+    ClientInvoice: { icon: ReceiptText, iconBg: "bg-indigo-50 group-hover:bg-indigo-100", iconColor: "text-indigo-600" },
+};
 
-export const BulkDownloadStep1 = ({ onSelect, counts = {} }: Step1Props) => {
-    const { role } = useUserData();
-    const isProjectManager = role === "Nirmaan Project Manager Profile";
-    const isPMO = role === "Nirmaan PMO Executive Profile";
-
-    const filteredTypeConfig = TYPE_CONFIG.filter((config) => {
-        if (isProjectManager && (config.type === "Invoice" || config.type === "ClientInvoice")) return false;
-        // PMO loses Client Invoices only -- Vendor Invoices stays.
-        if (isPMO && config.type === "ClientInvoice") return false;
-        return true;
-    });
+export const BulkDownloadStep1 = ({ onSelect, types, counts = {} }: Step1Props) => {
 
     return (
         <div className="flex flex-col items-center gap-8 py-4">
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
-                {filteredTypeConfig.map(({ type, label, description, icon: Icon, iconBg, iconColor }) => {
+                {types.map((type) => {
+                    const { card: label, description } = TYPE_INFO[type];
+                    const { icon: Icon, iconBg, iconColor } = TYPE_STYLE[type];
                     const count = counts[type];
                     return (
                         <button

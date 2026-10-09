@@ -6,9 +6,11 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { BulkSelectTable } from "./BulkSelectTable";
-import { woColumns } from "./bulkTableColumns";
+import { useMemo } from "react";
+import { forScope, woColumns } from "./bulkTableColumns";
 import { WOItem } from "../useBulkDownloadWizard";
 import { useUserData } from "@/hooks/useUserData";
+import { BulkScopeKind, scopeFacet } from "@/utils/bulkDownload/bulkDownloadTypes";
 
 interface WOStepsProps {
     items: WOItem[];
@@ -20,14 +22,17 @@ interface WOStepsProps {
     loading: boolean;
     withRate: boolean;
     onWithRateChange: (v: boolean) => void;
+    scopeKind: BulkScopeKind;
 }
 
 export const WOSteps = ({
     items, isLoading, selectedIds, onSelectAll,
     onBack, onDownload, loading,
-    withRate, onWithRateChange,
+    withRate, onWithRateChange, scopeKind,
 }: WOStepsProps) => {
     const { role } = useUserData();
+    const facet = scopeFacet(scopeKind);
+    const columns = useMemo(() => forScope(woColumns, scopeKind), [scopeKind]);
     const isProjectManager = role === "Nirmaan Project Manager Profile";
     const effectiveWithRate = isProjectManager ? false : withRate;
 
@@ -55,14 +60,14 @@ export const WOSteps = ({
 
             <BulkSelectTable
                 data={items}
-                columns={woColumns}
+                columns={columns}
                 isLoading={isLoading}
                 selectedIds={selectedIds}
                 onSelectedIdsChange={onSelectAll}
-                facetColumns={{ vendor: "Vendor" }}
+                facetColumns={{ [facet.id]: facet.title }}
                 dateFilterColumns={["creation"]}
-                searchPlaceholder="Search by WO ID or Vendor"
-                emptyMessage="No Work Orders found for this project."
+                searchPlaceholder={`Search by WO ID or ${facet.title}`}
+                emptyMessage={`No Work Orders found for this ${scopeKind}.`}
             />
 
             <div className="flex items-center justify-between pt-2">

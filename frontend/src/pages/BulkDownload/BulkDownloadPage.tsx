@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { WizardSteps, WizardStep } from "@/components/ui/wizard-steps";
@@ -9,10 +10,12 @@ import { BulkPdfDownloadButton } from "@/components/common/BulkPdfDownloadButton
 import { BulkDownloadStep1 } from "./BulkDownloadStep1";
 import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps, ClientInvoiceSteps } from "./steps";
 import { useBulkDownloadWizard } from "./useBulkDownloadWizard";
+import { useUserData } from "@/hooks/useUserData";
+import { BulkDownloadScope, allowedBulkTypes, invoiceSubTypesFor } from "@/utils/bulkDownload/bulkDownloadTypes";
 
 interface BulkDownloadPageProps {
-    projectId: string;
-    projectName?: string;
+    /** The project tab passes its project, the vendor tab its vendor (with `vendorType`). */
+    scope: BulkDownloadScope;
 }
 
 const WIZARD_STEPS: WizardStep[] = [
@@ -21,7 +24,12 @@ const WIZARD_STEPS: WizardStep[] = [
     { key: "done", title: "Done", shortTitle: "Done", icon: CheckCircle2 },
 ];
 
-export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPageProps) => {
+export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
+    const { role } = useUserData();
+    const { kind, vendorType } = scope;
+    const types = useMemo(() => allowedBulkTypes({ kind, vendorType }, role), [kind, vendorType, role]);
+    const invoiceSubTypes = useMemo(() => invoiceSubTypesFor({ kind, vendorType }), [kind, vendorType]);
+
     const {
         step,
         docType,
@@ -62,7 +70,8 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
         showProgress,
         handleDownload,
         stopProgress,
-    } = useBulkDownloadWizard(projectId, projectName);
+        cancelDownload,
+    } = useBulkDownloadWizard(scope);
 
     const currentWizardStep = step === 1 ? 0 : step === 2 ? 1 : 2;
 
@@ -85,12 +94,12 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                     <div>
                         <h3 className="text-base font-bold text-gray-900 leading-tight">Quick Download</h3>
                         <p className="text-sm text-gray-500 mt-1">
-                            Download all documents for this project at once.
+                            Download all documents for this {scope.kind} at once.
                         </p>
                     </div>
                 </div>
                 <div className="shrink-0">
-                    <BulkPdfDownloadButton projectId={projectId} projectName={projectName} />
+                    <BulkPdfDownloadButton scope={scope} types={types} />
                 </div>
             </div>
 
@@ -127,7 +136,7 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
 
                 <div className="p-6">
                     {step === 1 && (
-                        <BulkDownloadStep1 onSelect={goToStep2} counts={itemCounts} />
+                        <BulkDownloadStep1 onSelect={goToStep2} types={types} counts={itemCounts} />
                     )}
 
                     {step === 2 && docType === "PO" && (
@@ -139,6 +148,7 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             onWithRateChange={setWithRate}
                             criticalTasks={criticalTasks}
                             onSelectMultipleCriticalTaskPOs={selectMultipleCriticalTaskPOs}
+                            scopeKind={scope.kind}
                         />
                     )}
 
@@ -149,6 +159,7 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             isLoading={wosLoading}
                             withRate={withRate}
                             onWithRateChange={setWithRate}
+                            scopeKind={scope.kind}
                         />
                     )}
 
@@ -159,18 +170,20 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             isLoading={invoicesLoading}
                             invoiceSubType={invoiceSubType}
                             onInvoiceSubTypeChange={setInvoiceSubType}
+                            subTypes={invoiceSubTypes}
+                            scopeKind={scope.kind}
                         />
                     )}
 
                     {step === 2 && docType === "DC" && (
-                        <DCSteps {...sharedProps} items={dcItems} isLoading={poDeliveryDocsLoading} />
+                        <DCSteps {...sharedProps} items={dcItems} isLoading={poDeliveryDocsLoading} scopeKind={scope.kind} />
                     )}
 
                     {step === 2 && docType === "MIR" && (
-                        <MIRSteps {...sharedProps} items={mirItems} isLoading={poDeliveryDocsLoading} />
+                        <MIRSteps {...sharedProps} items={mirItems} isLoading={poDeliveryDocsLoading} scopeKind={scope.kind} />
                     )}
 
-                    {step === 2 && docType === "ClientInvoice" && (
+                    {step === 2 && docType === "ClientInvoice" && scope.kind === "project" && (
                         <ClientInvoiceSteps {...sharedProps} items={projectInvoiceItems} isLoading={projectInvoicesLoading} />
                     )}
 
@@ -181,6 +194,7 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                             isLoading={posLoading}
                             criticalTasks={criticalTasks}
                             onSelectMultipleCriticalTaskPOs={selectMultipleCriticalTaskPOs}
+                            scopeKind={scope.kind}
                         />
                     )}
 
@@ -236,6 +250,12 @@ export const BulkDownloadPage = ({ projectId, projectName }: BulkDownloadPagePro
                                 <span>{progress}% — {progressMessage}</span>
                             </div>
                         </div>
+                        {loading && (
+                            <div className="flex items-center justify-between gap-3 border-t pt-3">
+                                <p className="text-xs text-muted-foreground">Wait for the file, or cancel to stop the download.</p>
+                                <Button variant="outline" size="sm" onClick={cancelDownload}>Cancel download</Button>
+                            </div>
+                        )}
                     </div>
                 </DialogContent>
             </Dialog>

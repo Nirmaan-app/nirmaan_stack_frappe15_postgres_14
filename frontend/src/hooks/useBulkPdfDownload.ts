@@ -1,11 +1,14 @@
-import { useState, useContext, useCallback, useEffect } from "react";
+import { useState, useContext, useCallback, useEffect, useRef } from "react";
 import { useToast } from "@/components/ui/use-toast";
 import { FrappeContext, FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
+import { BulkDocType, BulkDownloadScope } from "@/utils/bulkDownload/bulkDownloadTypes";
+import { cancelBulkDownload, listenForDownload, newDownloadId } from "@/utils/bulkDownload/bulkDownloadEvents";
 
-export type DownloadType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "ClientInvoice";
+export type DownloadType = BulkDocType;
 
-export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
+/** Quick Download ("download all") for one project or one vendor. */
+export const useBulkPdfDownload = (scope: BulkDownloadScope) => {
     const { toast } = useToast();
     const { socket } = useContext(FrappeContext) as FrappeConfig;
     const { role } = useUserData();
@@ -17,6 +20,15 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
     const [progressMessage, setProgressMessage] = useState("");
     
     const [downloadToken, setDownloadToken] = useState<{ token: string, filename: string } | null>(null);
+
+    // The download this button started: its id, and the function that removes its listeners.
+    const activeIdRef = useRef<string | null>(null);
+    const unlistenRef = useRef<(() => void) | null>(null);
+    const detach = useCallback(() => {
+        unlistenRef.current?.();
+        unlistenRef.current = null;
+        activeIdRef.current = null;
+    }, []);
 
     // PO/WO rate-selection dialog (shared)
     const [showRateDialog, setShowRateDialog] = useState(false);
@@ -57,10 +69,24 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
     const stopProgress = useCallback(() => {
         setLoading(false);
         setShowProgress(false);
-        if (socket) {
-            ["bulk_download_progress", "bulk_download_all_ready", "bulk_download_failed"].forEach(ev => socket.off(ev));
-        }
-    }, [socket]);
+        detach();
+    }, [detach]);
+
+    /** The progress window's Cancel: close it and tell the server to stop the job. */
+    const cancelDownload = useCallback(() => {
+        const id = activeIdRef.current;
+        stopProgress();
+        setDownloadToken(null);
+        if (id) cancelBulkDownload(id);
+        toast({ title: "Download cancelled" });
+    }, [stopProgress, toast]);
+
+    // Leaving the page mid-download stops the job too: nobody would receive the file.
+    useEffect(() => () => {
+        const id = activeIdRef.current;
+        unlistenRef.current?.();
+        if (id) cancelBulkDownload(id);
+    }, []);
 
     // Full Auto-Completion Logic
     useEffect(() => {
@@ -82,24 +108,26 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
             setProgressMessage(`Starting ${label} download...`);
             setDownloadToken(null);
 
+            detach();
+            const downloadId = newDownloadId();
+            activeIdRef.current = downloadId;
             if (socket) {
-                socket.on("bulk_download_progress", (data: any) => {
-                    if (data.progress !== undefined) setProgress(data.progress);
-                    if (data.message) setProgressMessage(data.message);
-                });
-
-                socket.on("bulk_download_all_ready", (data: any) => {
-                    setDownloadToken(data);
-                });
-
-                socket.on("bulk_download_failed", (data: any) => {
-                    toast({ title: "Download Failed", description: data.message, variant: "destructive" });
-                    stopProgress();
+                unlistenRef.current = listenForDownload(socket, downloadId, {
+                    onProgress: (data) => {
+                        if (data.progress !== undefined) setProgress(data.progress);
+                        if (data.message) setProgressMessage(data.message);
+                    },
+                    onReady: (data) => setDownloadToken(data),
+                    onFailed: (data) => {
+                        toast({ title: "Download Failed", description: data.message, variant: "destructive" });
+                        stopProgress();
+                    },
                 });
             }
 
             const formData = new FormData();
-            formData.append("project", projectId);
+            formData.append(scope.kind, scope.id);
+            formData.append("download_id", downloadId);
 
             let endpoint = "";
 
@@ -153,8 +181,7 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
 
         } catch (error: any) {
             toast({ title: "Error", description: error.message, variant: "destructive" });
-            setLoading(false);
-            setShowProgress(false);
+            stopProgress();
         }
     };
 
@@ -180,5 +207,6 @@ export const useBulkPdfDownload = (projectId: string, projectName?: string) => {
         downloadToken,
         triggerDownload,
         stopProgress,
+        cancelDownload,
     };
 };
