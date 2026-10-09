@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
     useReactTable,
     getCoreRowModel,
@@ -493,11 +493,17 @@ export function useServerDataTable<TData extends { name: string }>({
         };
     }, [resetRowSelectionOnViewChange]);
 
+    // The search term the API is using now. The debounce below also fires on mount with the term read
+    // from the URL; resetting the page then would throw away a page index restored from the URL
+    // (a reload, or the header back arrow), so only a changed term starts again from page 1.
+    const apiSearchTermRef = useRef(debouncedSearchTermForApi);
+
     // --- Debounce Logic using lodash.debounce ---
     const debouncedSetApiSearchTerm = useMemo(
         () => debounce(
             (value: string) => {
-                if (!isClientSideMode) { // Only relevant for server-side mode
+                if (!isClientSideMode && value !== apiSearchTermRef.current) { // Only relevant for server-side mode
+                    apiSearchTermRef.current = value;
                     setDebouncedSearchTermForApi(value);
                     setPagination(p => ({ ...p, pageIndex: 0 }));
                 }
