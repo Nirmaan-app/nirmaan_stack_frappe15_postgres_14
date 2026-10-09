@@ -155,7 +155,11 @@ class TestBulkDownloadJob(FrappeTestCase):
             "both scopes": dict(doc_type="PO", vendor=self.vendor, project="ANY-PROJECT", names='["PO-X"]'),
             "bad json": dict(doc_type="PO", vendor=self.vendor, names="not json"),
         }
+        # A site can already hold committed rows from real failures (a restored backup does): they
+        # must not count, or the check passes with logging removed.
+        committed = set(self._failure_logs())
         for label, kwargs in cases.items():
+            frappe.db.rollback()  # each case starts clean, so the new row below is this case's alone
             self.events.clear()
             if label == "unexpected error":
                 with patch.object(bd, "_all_attachments", side_effect=RuntimeError("boom")):
@@ -163,7 +167,12 @@ class TestBulkDownloadJob(FrappeTestCase):
             else:
                 self._job(**kwargs)
             self.assertEqual(self.events, [("bulk_download_failed", {"message": "The download failed. Please try again.", "download_id": "test-download-0001"})], label)
-        self.assertTrue(frappe.db.exists("Error Log", {"method": ["like", "Bulk download failed:%"]}))
+            logged = [method for name, method in self._failure_logs().items() if name not in committed]
+            self.assertEqual(logged, [f"Bulk download failed: {kwargs['doc_type']}"], label)
+
+    def _failure_logs(self):
+        """Error Log name -> title, for the job's failure logs."""
+        return dict(frappe.get_all("Error Log", filters={"method": ["like", "Bulk download failed:%"]}, fields=["name", "method"], as_list=True))
 
     def test_a_cancelled_download_that_has_not_started_does_nothing(self):
         self._cancel("cancel-before-0001")

@@ -52,6 +52,7 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
         mirItems,
         poDeliveryDocsLoading,
         criticalTasks,
+        dnCriticalTasks,
         projectInvoiceItems,
         projectInvoicesLoading,
         voucherPayments,
@@ -196,7 +197,7 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
                             {...sharedProps}
                             items={dnList}
                             isLoading={posLoading}
-                            criticalTasks={criticalTasks}
+                            criticalTasks={dnCriticalTasks}
                             onSelectMultipleCriticalTaskPOs={selectMultipleCriticalTaskPOs}
                             scopeKind={scope.kind}
                         />

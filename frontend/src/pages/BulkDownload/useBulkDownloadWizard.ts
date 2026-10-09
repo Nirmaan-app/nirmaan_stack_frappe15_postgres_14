@@ -6,6 +6,7 @@ import { useProjectPOTaskLinks } from "@/pages/projects/data/critical-po/useCrit
 import { attachLinkedPOs } from "@/pages/projects/CriticalPOTasks/utils";
 import { BulkDocType, BulkDownloadScope, InvoiceSubType, TYPE_INFO, compareMtcs } from "@/utils/bulkDownload/bulkDownloadTypes";
 import { cancelBulkDownload, listenForDownload, newDownloadId } from "@/utils/bulkDownload/bulkDownloadEvents";
+import { readFrappeError } from "@/utils/frappeErrors";
 
 export type { BulkDocType, InvoiceSubType };
 
@@ -277,11 +278,20 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
     const selectAll = useCallback((ids: string[]) => setSelectedIds(ids), []);
     const deselectAll = useCallback(() => setSelectedIds([]), []);
 
+    // The DN step offers only POs with deliveries, so its Critical POs tab links only those: a task's
+    // PO chips and count match what ticking it queues, and a task with no delivered PO drops out.
+    const dnCriticalTasks = useMemo(() => {
+        const delivered = new Set(dnList.map(p => p.name));
+        return criticalTasks.map(t => ({ ...t, linked_pos: (t.linked_pos ?? []).filter(p => delivered.has(p)) }));
+    }, [criticalTasks, dnList]);
+
+    // Ticking tasks selects their POs from the CURRENT step's own list (DN: delivered POs only).
     const selectMultipleCriticalTaskPOs = useCallback((taskNames: string[]) => {
+        const [tasks, eligible] = docType === "DN" ? [dnCriticalTasks, dnList] : [criticalTasks, poList];
         const all = new Set<string>();
-        taskNames.forEach(n => (criticalTasks.find(t => t.name === n)?.linked_pos ?? []).forEach(p => all.add(p)));
-        setSelectedIds(poList.filter(p => all.has(p.name)).map(p => p.name));
-    }, [criticalTasks, poList]);
+        taskNames.forEach(n => (tasks.find(t => t.name === n)?.linked_pos ?? []).forEach(p => all.add(p)));
+        setSelectedIds(eligible.filter(p => all.has(p.name)).map(p => p.name));
+    }, [docType, criticalTasks, dnCriticalTasks, poList, dnList]);
 
     const triggerDownload = useCallback((token: string, filename: string) => {
         const url = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.fetch_temp_file?token=${token}&filename=${encodeURIComponent(filename)}`;
@@ -359,16 +369,17 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
             }
 
             const res = await fetch(endpoint, { method: "POST", headers: { "X-Frappe-CSRF-Token": (window as any).csrf_token || "" }, body: formData });
-            if (!res.ok) throw new Error((await res.json())?.message || "Internal error");
+            if (!res.ok) throw new Error(await readFrappeError(res, `Failed to start ${label} download (Status: ${res.status})`));
             toast({ title: "Started", description: "Worker is processing your request." });
         } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); detach(); setLoading(false); setShowProgress(false); }
     };
 
+    /** Closes the progress window and drops this download's listeners. It never moves to the Done
+     *  step: a failed download keeps its selection, and only a delivered file counts as done. */
     const stopProgress = useCallback(() => {
         setLoading(false); setShowProgress(false);
         detach();
-        if (progress === 100) { setDownloadedCount(selectedIds.length || 1); setDownloadedLabel(docType === "PaymentVoucher" ? "Payment Voucher" : docType || "batch"); setStep(3); }
-    }, [detach, progress, selectedIds, docType]);
+    }, [detach]);
 
     /** The progress window's Cancel: close it, stop the job, and stay on the selection (it is kept). */
     const cancelDownload = useCallback(() => {
@@ -379,19 +390,22 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
         toast({ title: "Download cancelled" });
     }, [detach, toast]);
 
-    // Full Auto-Completion Logic
+    // The file is ready: hand it to the browser and show the Done step. This is the ONLY way to Done --
+    // `progress` proves nothing (the previous download leaves it at 100, and the failure listener
+    // holds the values of the render in which Download was clicked).
     useEffect(() => {
-        if (!loading) return;
-        if (downloadToken) {
-            triggerDownload(downloadToken.token, downloadToken.filename);
-            stopProgress();
-        }
-    }, [downloadToken, loading, triggerDownload, stopProgress]);
+        if (!loading || !downloadToken) return;
+        triggerDownload(downloadToken.token, downloadToken.filename);
+        stopProgress();
+        setDownloadedCount(selectedIds.length || 1);
+        setDownloadedLabel(docType === "PaymentVoucher" ? "Payment Voucher" : docType || "batch");
+        setStep(3);
+    }, [downloadToken, loading, triggerDownload, stopProgress, selectedIds, docType]);
 
     return {
         step, docType, selectedIds, toggleId, selectAll, deselectAll, selectMultipleCriticalTaskPOs, goToStep2, goBack, resetToTypeSelection,
         downloadedCount, downloadedLabel, poList, posLoading, woList, wosLoading, dnList,
-        invoicesLoading, dcItems, mirItems, poDeliveryDocsLoading, criticalTasks, criticalTasksLoading,
+        invoicesLoading, dcItems, mirItems, poDeliveryDocsLoading, criticalTasks, dnCriticalTasks, criticalTasksLoading,
         withRate, setWithRate, itemCounts, invoiceSubType, setInvoiceSubType, filteredInvoiceItems,
         loading, progress, progressMessage, showProgress, setShowProgress, handleDownload,
         downloadToken,

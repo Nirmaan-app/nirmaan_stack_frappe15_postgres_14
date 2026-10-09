@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, Download, Loader2 } from "lucide-react";
 import { BulkScopeKind, scopeFacet } from "@/utils/bulkDownload/bulkDownloadTypes";
 import { BulkSelectTable } from "./BulkSelectTable";
-import { forScope, mtcColumns } from "./bulkTableColumns";
+import { forScope, mtcColumns, mtcItemsText } from "./bulkTableColumns";
 import { MTCRow } from "../useBulkDownloadWizard";
 
 interface MTCStepsProps {
@@ -46,6 +46,7 @@ export const MTCSteps = ({
                 dateFilterColumns={["certificate_date", "creation"]}
                 searchPlaceholder={`Search by item, PO or ${facet.title}`}
                 emptyMessage={`No material test certificates found for this ${scopeKind}.`}
+                rowLabel={mtcItemsText}
             />
 
             <div className="flex items-center justify-between pt-2">

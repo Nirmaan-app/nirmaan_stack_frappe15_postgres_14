@@ -124,7 +124,8 @@ project's "All POs" already handles on the `long` queue.
 ## 6b. Material Test Certificates (both tabs)
 
 **One row per certificate, like a DC**, oldest **certificate date** first (the merged PDF keeps that order). A row
-is told apart by the items it covers, because MTC ids are never shown. The card follows the **Delivery Challans
+is told apart by the items it covers, because MTC ids are never shown — not even to a screen reader: the row
+checkboxes are labelled by their items (`rowLabel={mtcItemsText}` on `BulkSelectTable`). The card follows the **Delivery Challans
 rule** exactly (owner): every role, Material and Material & Service vendors — pinned by a test over every role,
 tab and vendor type. The list comes from the MTC module's own read, `mtc_api.get_mtcs(project | vendor)`; the
 browser sends **MTC names**, and `bulk_download._mtc_files` reads the files back with `get_list` plus the MTC
@@ -143,7 +144,7 @@ page's project rule (`mtc_allowed_projects`: a PM / PL sees only assigned projec
 | Every type's names; the invoice choices; the vendor-type rule (also used by the vendor page's tabs) | `TYPE_INFO`, `INVOICE_SUB_TYPES`, `vendorHandlesMaterial` / `vendorHandlesService` in `bulkDownloadTypes.ts` |
 | Quick Download menu | `src/components/common/BulkPdfDownloadButton.tsx`, `src/hooks/useBulkPdfDownload.ts` |
 | Backend endpoints and job | `nirmaan_stack/api/pdf_helper/bulk_download.py` (`_scope`, `_reader`, `_voucher_files`, `_mtc_files`) |
-| Tests | `bulkDownloadTypes.test.ts`, `steps/bulkTableColumns.test.ts`, `api/pdf_helper/test_bulk_download_scope.py`, `test_bulk_download_job.py`, `test_bulk_download_mtc.py` |
+| Tests | `bulkDownloadTypes.test.ts`, `steps/bulkTableColumns.test.ts`, `useBulkDownloadWizard.dom.test.tsx`, `steps/MTCSteps.dom.test.tsx`, `src/utils/frappeErrors.test.ts`, `api/pdf_helper/test_bulk_download_scope.py`, `test_bulk_download_job.py`, `test_bulk_download_mtc.py` |
 
 ## 8. Rules not to break
 
@@ -162,6 +163,14 @@ page's project rule (`mtc_allowed_projects`: a PM / PL sees only assigned projec
 - **The job never ends silently:** any failure publishes `bulk_download_failed` (and writes an Error Log). The
   progress window's **Cancel download** calls `cancel_bulk_download`; the job checks a per-user Redis flag
   (`frappe.cache.exists`, never `get_value`, which caches per process) before each document.
+- **Only a delivered file reaches the wizard's Done step** (the `bulk_download_all_ready` token). A failure or a
+  cancel closes the progress window and keeps the selection. Never decide "done" from `progress`: the previous
+  download leaves it at 100, and the failure listener holds the values of the render in which Download was clicked.
+- **A refused start shows Frappe's own reason.** Read it with `readFrappeError(response, fallback)`
+  (`src/utils/frappeErrors.ts`, which wraps `getFrappeError`), never `res.json().message`: Frappe puts the reason in
+  `_server_messages` / `exception`, and an HTML error page is not JSON.
+- **The DN step's Critical POs tab uses `dnCriticalTasks`**: each task's links narrowed to POs with deliveries, so
+  a task's chips, its count and what ticking it queues all agree. Ticking selects from the current step's own list.
 
 ## 9. Adding a new document type
 

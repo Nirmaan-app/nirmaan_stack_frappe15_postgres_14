@@ -171,7 +171,7 @@ export const voucherColumns: ColumnDef<PaymentVoucherRow, any>[] = [
 ];
 
 /** What a certificate covers, e.g. "Copper Cable 4 sq mm (Polycab), Cable Tray". It tells certificates of one PO apart (MTC ids are never shown). */
-const mtcItemsText = (row: MTCRow) =>
+export const mtcItemsText = (row: MTCRow) =>
     (row.items ?? []).map((i) => (i.make ? `${i.item_name || i.item_id} (${i.make})` : i.item_name || i.item_id)).join(", ");
 
 /** Material Test Certificates: one row per certificate, like a DC. */

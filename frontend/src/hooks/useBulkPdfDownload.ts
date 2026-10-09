@@ -4,6 +4,7 @@ import { FrappeContext, FrappeConfig } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { BulkDocType, BulkDownloadScope } from "@/utils/bulkDownload/bulkDownloadTypes";
 import { cancelBulkDownload, listenForDownload, newDownloadId } from "@/utils/bulkDownload/bulkDownloadEvents";
+import { readFrappeError } from "@/utils/frappeErrors";
 
 export type DownloadType = BulkDocType;
 
@@ -181,8 +182,7 @@ export const useBulkPdfDownload = (scope: BulkDownloadScope) => {
             });
 
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.message || `Failed to start ${label} download (Status: ${response.status})`);
+                throw new Error(await readFrappeError(response, `Failed to start ${label} download (Status: ${response.status})`));
             }
 
             toast({ title: "Processing Started", description: "Your documents are being prepared in the background." });
