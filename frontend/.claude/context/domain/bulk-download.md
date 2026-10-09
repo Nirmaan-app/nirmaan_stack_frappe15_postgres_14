@@ -169,7 +169,8 @@ page's project rule (`mtc_allowed_projects`: a PM / PL sees only assigned projec
 ## 9. Adding a new document type
 
 1. Add it to `BulkDocType` / `BULK_DOC_TYPES`, give it a rule in `allowedBulkTypes`, and add a test.
-2. Give it its names in `TYPE_INFO` (card, description, menu, progress text) — the build fails until you do —
+2. Give it its names in `TYPE_INFO` (card, description, progress text) — the build fails until you do — a
+   section in `MENU_GROUPS` (a test fails until you do),
    then a look in `TYPE_STYLE` (`utils/bulkDownload/bulkDownloadStyle.ts`), a click handler in `onMenuClick`
    (`BulkPdfDownloadButton.tsx`), and a step in `steps/`. An invoice choice goes in `INVOICE_SUB_TYPES` only.
 3. Add its query to the wizard, filtered by the scope, with columns through `forScope`.

@@ -21,26 +21,39 @@ export interface BulkDownloadScope {
     vendorType?: string;
 }
 
-/** Card and menu order. */
+/** Card order. */
 export const BULK_DOC_TYPES: readonly BulkDocType[] = ["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "ClientInvoice", "POPaymentVoucher", "WOPaymentVoucher"];
 
+/** The Quick Download menu's sections, in menu order. Every type sits in exactly one (a test holds it). */
+export const MENU_GROUPS: readonly { label: string; types: readonly BulkDocType[] }[] = [
+    { label: "Orders", types: ["PO", "WO"] },
+    { label: "Delivery & Quality", types: ["DC", "MIR", "DN", "MTC"] },
+    { label: "Finance", types: ["Invoice", "ClientInvoice", "POPaymentVoucher", "WOPaymentVoucher"] },
+];
+
+/** The menu's sections holding only the allowed `types`; a section left empty is dropped. */
+export const menuGroups = (types: readonly BulkDocType[]) =>
+    MENU_GROUPS
+        .map(({ label, types: inGroup }) => ({ label, types: inGroup.filter((t) => types.includes(t)) }))
+        .filter((group) => group.types.length > 0);
+
 /**
- * Every name a type goes by, in ONE place: the Step 1 card (`card`, `description`), the Quick
- * Download menu item (`menu`) and the wizard's progress text (`short`). A `Record` over
- * `BulkDocType`, so a new type without an entry fails the build.
+ * Every name a type goes by, in ONE place: the Step 1 card and the Quick Download menu item
+ * (`card`, plus the card's `description`) and the short form in the progress window's "All …"
+ * (`short`). A `Record` over `BulkDocType`, so a new type without an entry fails the build.
  */
-export const TYPE_INFO: Record<BulkDocType, { card: string; description: string; menu: string; short: string }> = {
-    PO: { card: "Procurement Orders", description: "Download selected POs with or without rates", menu: "Download All POs", short: "POs" },
-    WO: { card: "Work Orders", description: "Download selected approved WOs / SRs", menu: "Download All WOs", short: "WOs" },
-    Invoice: { card: "Vendor Invoices", description: "Download PO invoices, WO invoices, or all", menu: "Download All Vendor Invoices", short: "Invoices" },
-    DC: { card: "Delivery Challans", description: "Download selected delivery challan attachments", menu: "Download All DCs", short: "DCs" },
-    MIR: { card: "Material Inspection Reports", description: "Download selected MIR attachments", menu: "Download All MIRs", short: "MIRs" },
-    DN: { card: "Delivery Notes", description: "Download delivery note PDFs for selected POs", menu: "Download All DNs", short: "DNs" },
-    MTC: { card: "Material Test Certificates", description: "Download selected material test certificates", menu: "Download All MTCs", short: "MTCs" },
-    ClientInvoice: { card: "Client Invoices", description: "Download client invoice attachments raised on the project", menu: "Download All Client Invoices", short: "Client Invoices" },
+export const TYPE_INFO: Record<BulkDocType, { card: string; description: string; short: string }> = {
+    PO: { card: "Procurement Orders", description: "Download selected POs with or without rates", short: "POs" },
+    WO: { card: "Work Orders", description: "Download selected approved WOs / SRs", short: "WOs" },
+    Invoice: { card: "Vendor Invoices", description: "Download PO invoices, WO invoices, or all", short: "Invoices" },
+    DC: { card: "Delivery Challans", description: "Download selected delivery challan attachments", short: "DCs" },
+    MIR: { card: "Material Inspection Reports", description: "Download selected MIR attachments", short: "MIRs" },
+    DN: { card: "Delivery Notes", description: "Download delivery note PDFs for selected POs", short: "DNs" },
+    MTC: { card: "Material Test Certificates", description: "Download selected material test certificates", short: "MTCs" },
+    ClientInvoice: { card: "Client Invoices", description: "Download client invoice attachments raised on the project", short: "Client Invoices" },
     // PO payments have no uploaded voucher: the server generates each one, as the PO page does.
-    POPaymentVoucher: { card: "PO Payment Vouchers", description: "Download generated vouchers of paid PO payments", menu: "Download All PO Payment Vouchers", short: "PO Payment Vouchers" },
-    WOPaymentVoucher: { card: "WO Payment Vouchers", description: "Download uploaded vouchers of paid WO payments", menu: "Download All WO Payment Vouchers", short: "WO Payment Vouchers" },
+    POPaymentVoucher: { card: "PO Payment Vouchers", description: "Download generated vouchers of paid PO payments", short: "PO Payment Vouchers" },
+    WOPaymentVoucher: { card: "WO Payment Vouchers", description: "Download uploaded vouchers of paid WO payments", short: "WO Payment Vouchers" },
 };
 
 /**

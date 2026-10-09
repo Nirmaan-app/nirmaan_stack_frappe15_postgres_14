@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { canBulkDownloadVendor } from "@/constants/roles";
-import { allowedBulkTypes, compareMtcs, invoiceSubTypesFor, scopeFacet } from "./bulkDownloadTypes";
+import { BULK_DOC_TYPES, MENU_GROUPS, allowedBulkTypes, compareMtcs, invoiceSubTypesFor, menuGroups, scopeFacet } from "./bulkDownloadTypes";
 
 const ADMIN = "Nirmaan Admin Profile";
 const PM = "Nirmaan Project Manager Profile";
@@ -179,5 +179,31 @@ describe("compareMtcs — the wizard lists certificates in the order the PDF hol
             { id: "undated-empty", certificate_date: "", creation: "2026-10-07 11:00:00" },
         ];
         expect([...rows].sort(compareMtcs).map((r) => r.id)).toEqual(["sep-1", "oct-7-early", "oct-7-late", "undated-early", "undated-empty"]);
+    });
+});
+
+describe("menuGroups — the Quick Download menu's sections", () => {
+    it("puts every type in exactly one section, so a new type cannot drop out of the menu", () => {
+        const placed = MENU_GROUPS.flatMap((g) => g.types);
+        expect([...placed].sort()).toEqual([...BULK_DOC_TYPES].sort());
+    });
+
+    it("Admin on a project gets all three sections", () => {
+        expect(menuGroups(allowedBulkTypes(project, ADMIN))).toEqual([
+            { label: "Orders", types: ["PO", "WO"] },
+            { label: "Delivery & Quality", types: ["DC", "MIR", "DN", "MTC"] },
+            { label: "Finance", types: ["Invoice", "ClientInvoice", "POPaymentVoucher", "WOPaymentVoucher"] },
+        ]);
+    });
+
+    it("a Project Manager has no Finance section at all", () => {
+        expect(menuGroups(allowedBulkTypes(project, PM)).map((g) => g.label)).toEqual(["Orders", "Delivery & Quality"]);
+    });
+
+    it("a Service vendor keeps only what a service vendor has", () => {
+        expect(menuGroups(allowedBulkTypes(vendor("Service"), ADMIN))).toEqual([
+            { label: "Orders", types: ["WO"] },
+            { label: "Finance", types: ["Invoice", "WOPaymentVoucher"] },
+        ]);
     });
 });
