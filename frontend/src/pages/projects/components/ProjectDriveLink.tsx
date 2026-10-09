@@ -24,6 +24,7 @@ import {
     useProjectDriveLinksDoc,
     useProjectDriveLinksMutations,
 } from "@/pages/projects/data/tab/overview/useProjectDriveLinksApi";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 export interface ProjectDriveLinkDetail {
     name: string;
@@ -452,6 +453,7 @@ export const ProjectDriveLink: React.FC<ProjectDriveLinkProps> = ({ projectId, r
     });
 
     const isLoading = projectLoading || tableLoading;
+    const hasLoadedOnce = useHasLoadedOnce(isLoading);
 
     return (
         <Card>
@@ -471,7 +473,7 @@ export const ProjectDriveLink: React.FC<ProjectDriveLinkProps> = ({ projectId, r
                 </CardDescription>
             </CardHeader>
             <CardContent>
-                 {isLoading && !tableData?.length ? (
+                 {!hasLoadedOnce && isLoading && !tableData?.length ? (
                     <div className="flex items-center justify-center p-8"><TailSpin color="#ef4444" height={20} width={20} /></div>
                 ) : (
                     <DataTable<ProjectDriveLinkTableRow>

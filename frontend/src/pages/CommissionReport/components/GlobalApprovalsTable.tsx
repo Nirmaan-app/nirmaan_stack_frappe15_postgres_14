@@ -31,6 +31,7 @@ import { ReportPreviewDialog } from "./ReportPreviewDialog";
 import { ApprovalActionDialog, type ApprovalTaskRef } from "./ApprovalActionDialog";
 import { BulkApprovalDialog } from "./BulkApprovalDialog";
 import { useMasterTaskMap } from "../report-wizard/data/useMasterTaskMap";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 const PARENT_DOCTYPE = "Project Commission Report";
 const PREVIEW_PORTRAIT = "Project Commission Report - Filled Task";
@@ -282,6 +283,7 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh, 
         urlSyncKey: trackerName ? "cr_proj_approvals" : "cr_approvals",
         additionalFilters,
     });
+    const hasLoadedOnce = useHasLoadedOnce(serverDataTable.isLoading);
 
     refetchRef.current = serverDataTable.refetch;
 
@@ -318,7 +320,7 @@ export const GlobalApprovalsTable: React.FC<Props> = ({ trackerName, onRefresh, 
         [rowSelection, serverDataTable.data],
     );
 
-    if (serverDataTable.isLoading && !serverDataTable.data?.length) {
+    if (!hasLoadedOnce && serverDataTable.isLoading && !serverDataTable.data?.length) {
         return <TableSkeleton />;
     }
 

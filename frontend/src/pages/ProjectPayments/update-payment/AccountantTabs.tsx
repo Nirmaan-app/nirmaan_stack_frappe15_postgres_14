@@ -72,6 +72,7 @@ import { IndianRupee } from "lucide-react"
 import { QueueRowEditDialog } from "../components/QueueRowEditDialog"
 import { canEditQueueRow, canHoldQueueRow, canWorkQueueRows, isHeldQueueRow } from "../config/queueRowActions"
 import { PAYMENT_HOLD_ROW_CLASSES, PaymentHoldNotice } from "../components/PaymentHoldNotice"
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -666,6 +667,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
 
     const isLoadingOverall = projectsLoading || vendorsLoading;
+    const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
     const combinedErrorOverall = projectsError || vendorsError || listError;
 
     if (combinedErrorOverall && !data?.length) { // Show prominent error if main list fails
@@ -674,7 +676,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
     return (
         <div className="flex-1 space-y-4">
-            {isLoadingOverall && !data?.length ? ( // Show skeleton on initial full load
+            {!hasLoadedOnce && isLoadingOverall && !data?.length ? ( // Show skeleton on initial full load
                 <TableSkeleton />
             ) : (
                 <DataTable<ApprovalQueueRow>

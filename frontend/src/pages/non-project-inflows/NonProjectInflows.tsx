@@ -58,6 +58,7 @@ import {
     NON_PROJECT_INFLOW_URL_SYNC_KEY,
 } from "./config/nonProjectInflowsTable.config";
 import { DOCTYPE, canDeleteNonProjectInflow, canEditNonProjectInflow } from "./nonProjectInflowModel";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 export const NonProjectInflows: React.FC = () => {
     const { role, user_id } = useUserData();
@@ -224,6 +225,7 @@ export const NonProjectInflows: React.FC = () => {
         enableRowSelection: false,
         aggregatesConfig: NON_PROJECT_INFLOW_AGGREGATES_CONFIG,
     });
+    const hasLoadedOnce = useHasLoadedOnce(isLoading);
 
     const confirmDelete = useCallback(async () => {
         if (!inflowToDelete) return;
@@ -245,7 +247,7 @@ export const NonProjectInflows: React.FC = () => {
                 totalCount > 10 ? "max-h-[calc(100vh-80px)]" : totalCount > 0 ? "h-auto" : ""
             )}
         >
-            {isLoading && !data?.length ? (
+            {!hasLoadedOnce && isLoading && !data?.length ? (
                 <TableSkeleton />
             ) : (
                 <DataTable<NonProjectInflowRow>

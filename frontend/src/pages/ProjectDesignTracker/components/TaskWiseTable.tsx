@@ -32,6 +32,7 @@ import { useFrappeUpdateDoc } from "frappe-react-sdk";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { getUnifiedStatusStyle, getTaskSubStatusStyle ,formatDeadlineShort,getAssignedNameForDisplay } from "../utils";
 import {dateFilterFn} from "@/utils/tableFilters"
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 // --- CONSTANTS ---
 const PARENT_DOCTYPE = 'Project Design Tracker';
 const CHILD_DOCTYPE = 'Design Tracker Task Child Table';
@@ -402,6 +403,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
         urlSyncKey: 'dt_task_wise',
         additionalFilters: additionalFilters,
     });
+    const hasLoadedOnce = useHasLoadedOnce(serverDataTable.isLoading);
 
     // Client-side filtering removed as API handles it natively
     const table = useReactTable({
@@ -462,7 +464,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({ refetchList, user_
 
     return (
         <>
-            {serverDataTable.isLoading && !serverDataTable.data?.length ? (
+            {!hasLoadedOnce && serverDataTable.isLoading && !serverDataTable.data?.length ? (
                 <TableSkeleton />
             ) : (
                 <div className="overflow-x-auto  rounded-lg shadow-sm bg-white">

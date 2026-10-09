@@ -477,6 +477,7 @@ import {
     useCustomerPOActions,
     useCustomerPOProjectDoc,
 } from "@/pages/projects/data/tab/financials/useCustomerPOApi";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 
 // --- CONSTANTS ---
@@ -987,6 +988,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
     }, [poDataForPage, listIsLoading, projectDocLoading]);
 
     const combinedLoading = listIsLoading || projectDocLoading;
+    const hasLoadedOnce = useHasLoadedOnce(combinedLoading);
 
     return (
         <Card>
@@ -1050,7 +1052,7 @@ export const CustomerPODetailsCard: React.FC<CustomerPODetailsCardProps> = ({ pr
 
             </CardHeader>
             <CardContent>
-               {combinedLoading && !poDataForPage?.length ? (
+               {!hasLoadedOnce && combinedLoading && !poDataForPage?.length ? (
                     <div className="flex items-center justify-center p-8"><TailSpin color={"red"} height={20} width={20} /></div>
                 ) : (isDataInvalid ? (
                     <div className="flex items-center justify-center p-8 text-gray-500 font-semibold">

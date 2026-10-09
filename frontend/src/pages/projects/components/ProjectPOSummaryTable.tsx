@@ -59,6 +59,7 @@ import {
   useProjectPOSupportingData,
 } from "@/pages/projects/data/tab/summary/useProjectPOSummaryApi";
 import { useProjectAllCredits } from "../hooks/useProjectAllCredits";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 // Fields to fetch for the PO Summary table list view
 export const PO_SUMMARY_LIST_FIELDS_TO_FETCH: (
@@ -753,6 +754,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     aggregatesLoading ||
     projectPaymentsLoading ||
     criticalPOTasksLoading;
+  const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
   const combinedErrorOverall =
     vendorsError ||
     userListError ||
@@ -874,7 +876,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
       </div>
       */}
 
-      {isLoadingOverall && !poDataForPage?.length ? (
+      {!hasLoadedOnce && isLoadingOverall && !poDataForPage?.length ? (
         <TableSkeleton />
       ) : (
         <DataTable<ProcurementOrder>

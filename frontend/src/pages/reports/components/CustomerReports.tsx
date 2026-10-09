@@ -25,6 +25,7 @@ import {
 import { facetedFilterFn } from "@/utils/tableFilters";
 import { Link } from "react-router-dom";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 interface CustomerReceivableData {
   customer: string;
@@ -48,6 +49,7 @@ export default function CustomerReports() {
     "nirmaan_stack.api.reports.customer_receivable_report.get_customer_receivables_report",
     {}
   );
+  const hasLoadedOnce = useHasLoadedOnce(isLoading);
 
   const reportData = apiResponse?.message || [];
 
@@ -215,7 +217,7 @@ export default function CustomerReports() {
     return <AlertDestructive error={error} />;
   }
 
-  if (isLoading && !reportData.length) {
+  if (!hasLoadedOnce && isLoading && !reportData.length) {
     return <LoadingFallback />;
   }
 

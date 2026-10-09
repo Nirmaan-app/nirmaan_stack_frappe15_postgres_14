@@ -45,6 +45,7 @@ import {
   useDeleteTenderingProject,
   useMarkTenderingProjectLost,
 } from "./hooks/useTenderingMutations";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 const DOCTYPE = "Projects";
 
@@ -418,6 +419,7 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
     enableRowSelection: false,
     additionalFilters: staticFilters,
   });
+  const hasLoadedOnce = useHasLoadedOnce(isLoading);
 
   refetchRef.current = refetch;
 
@@ -454,7 +456,7 @@ export const TenderingProjectsTable: React.FC<TenderingProjectsTableProps> = ({
               : ""
         )}
       >
-      {isLoading && !data?.length ? (
+      {!hasLoadedOnce && isLoading && !data?.length ? (
         <TableSkeleton />
       ) : (
         <DataTable<ProjectsType>

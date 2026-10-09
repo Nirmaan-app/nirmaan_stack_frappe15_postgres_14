@@ -25,6 +25,7 @@ import {
     getUnifiedStatusStyle,
 } from "../utils";
 import { useUpdateCommissionTaskChild } from "../data/useCommissionMutations";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 const PARENT_DOCTYPE = "Project Commission Report";
 
@@ -238,6 +239,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
         urlSyncKey: "cr_task_wise",
         additionalFilters,
     });
+    const hasLoadedOnce = useHasLoadedOnce(serverDataTable.isLoading);
 
     refetchRef.current = serverDataTable.refetch;
 
@@ -287,7 +289,7 @@ export const TaskWiseTable: React.FC<TaskWiseTableProps> = ({
 
     return (
         <>
-            {serverDataTable.isLoading && !serverDataTable.data?.length ? (
+            {!hasLoadedOnce && serverDataTable.isLoading && !serverDataTable.data?.length ? (
                 <TableSkeleton />
             ) : (
                 <div className="overflow-x-auto rounded-lg shadow-sm bg-white">

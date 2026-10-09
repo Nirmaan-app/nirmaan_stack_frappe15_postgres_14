@@ -54,6 +54,7 @@ import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 import { StandaloneDateFilter } from "@/components/ui/StandaloneDateFilter";
 import { formatISO } from "date-fns";
 import { useSharedReportDateRange } from "../store/useReportDateStore";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 const projectBaseFields: (keyof Projects)[] = [
   "name",
@@ -162,6 +163,7 @@ function CashSheetReport() {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "cashflowGap", desc: true },
   ]);
+  const hasLoadedOnce = useHasLoadedOnce(isLoading);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
 
@@ -336,7 +338,7 @@ function CashSheetReport() {
     return <AlertDestructive error={globalDepsError as Error} />;
   }
 
-  if (isLoading && !tableData.length) {
+  if (!hasLoadedOnce && isLoading && !tableData.length) {
     return <LoadingFallback />;
   }
 

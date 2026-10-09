@@ -35,6 +35,7 @@ import { invoiceRowClassName } from "../utils/invoiceRowStyle";
 import { canActionInvoiceApprovals } from "@/constants/roles";
 import { useRecheckAutoApprove } from "../hooks/useRecheckAutoApprove";
 import { RecheckResultDialog } from "./RecheckResultDialog";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 const URL_SYNC_KEY = "inv_pending";
 
@@ -270,6 +271,7 @@ export const PendingTasksTable: React.FC = () => {
     refetchRef.current = refetch;
 
     const isLoadingOverall = attachmentsLoading;
+    const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
     const combinedError = listError || attachmentsError;
 
     if (combinedError) {
@@ -295,7 +297,7 @@ export const PendingTasksTable: React.FC = () => {
                 isRechecking={isRecheckPreviewing}
             />
 
-            {isLoadingOverall && !invoices?.length ? (
+            {!hasLoadedOnce && isLoadingOverall && !invoices?.length ? (
                 <TableSkeleton />
             ) : (
                 <DataTable<VendorInvoice>

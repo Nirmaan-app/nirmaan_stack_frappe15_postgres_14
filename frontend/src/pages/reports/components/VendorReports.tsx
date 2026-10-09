@@ -17,6 +17,7 @@ import { toast } from "@/components/ui/use-toast"; // 👈 Import toast for feed
 import { exportToCsv } from "@/utils/exportToCsv"; // 👈 Import the CSV utility
 import { ColumnDef } from "@tanstack/react-table"; //
 import { formatForReport } from "@/utils/FormatPrice";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 // Configuration for this specific table
 const VENDOR_REPORTS_SEARCHABLE_FIELDS: SearchFieldOption[] = [
@@ -134,6 +135,7 @@ export default function VendorReports() {
   }, [searchTerm, selectedSearchField]);
 
   const isLoading = isLoadingGlobalDeps || isVendorsLoading;
+  const hasLoadedOnce = useHasLoadedOnce(isLoading);
   const error = globalDepsError || vendorsError;
   // --- 👇 THIS IS THE NEW CUSTOM EXPORT HANDLER ---
   const handleCustomExport = useCallback(async () => {
@@ -242,7 +244,7 @@ export default function VendorReports() {
         {/* You can add more global controls here later */}
       </div>
 
-      {isLoading && !vendorsData?.length ? (
+      {!hasLoadedOnce && isLoading && !vendorsData?.length ? (
         <LoadingFallback />
       ) : (
         <DataTable<VendorReportRow>

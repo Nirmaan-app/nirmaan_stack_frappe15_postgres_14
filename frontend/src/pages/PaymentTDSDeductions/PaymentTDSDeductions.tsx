@@ -53,6 +53,7 @@ import {
 } from "./config/paymentTdsDeductions.config";
 import { PaymentTDSSummaryCard } from "./components/PaymentTDSSummaryCard";
 import { PayTdsDialog } from "./components/PayTdsDialog";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 /** The two halves of the ledger. Mirrors the doctype's `status` Select, which has exactly these
  *  two options and defaults to `Pending`. */
@@ -198,8 +199,9 @@ const PaymentTDSLedgerTable: React.FC<PaymentTDSLedgerTableProps> = ({
     const [isPayTdsOpen, setIsPayTdsOpen] = useState(false);
 
     const isLoadingOverall = isDataLoading || isLookupsLoading;
+    const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
 
-    if (isLoadingOverall && !data?.length) {
+    if (!hasLoadedOnce && isLoadingOverall && !data?.length) {
         return <TableSkeleton />;
     }
 

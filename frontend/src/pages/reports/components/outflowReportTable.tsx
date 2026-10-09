@@ -33,6 +33,7 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 import { OUTFLOW_SEARCHABLE_FIELDS, OUTFLOW_DATE_COLUMNS } from '../config/outflowReportsTable.config'; // We will create this config file next
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 // Configuration for the summary card aggregations
 const OUTFLOW_AGGREGATES_CONFIG: AggregationConfig[] = [
@@ -271,6 +272,7 @@ export function OutflowReportTable() {
 
 
     const isLoadingOverall = isLoadingInitialData || projectsLoading || vendorsLoading || expenseTypesLoading || isTableHookLoading;
+    const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
     const combinedErrorOverall = initialDataError || tableHookError;
 
     const handleClearDateFilter = useCallback(() => {
@@ -281,7 +283,7 @@ export function OutflowReportTable() {
         return <AlertDestructive error={combinedErrorOverall} />;
     }
 
-    if (isLoadingOverall && !table.getRowModel().rows.length) {
+    if (!hasLoadedOnce && isLoadingOverall && !table.getRowModel().rows.length) {
         return <TableSkeleton />;
     }
 

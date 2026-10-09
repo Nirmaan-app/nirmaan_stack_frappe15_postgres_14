@@ -50,6 +50,7 @@ import {
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useUserData } from "@/hooks/useUserData";
 import { useDocCountStore } from "@/zustand/useDocCountStore";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 // --- Constants ---
 
@@ -512,6 +513,7 @@ export const AllSRList: React.FC<AllSRListProps> = ({
   );
 
   const isLoadingOverall = projectsLoading || vendorsLoading || listIsLoading;
+  const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
   const combinedError = projectsError || vendorsError || listError;
 
   const getRowClassName = useCallback(
@@ -530,7 +532,7 @@ export const AllSRList: React.FC<AllSRListProps> = ({
   return (
     <div className="flex-1 space-y-4">
       <div className={cn("flex flex-col gap-2 overflow-hidden", totalCount > 10 ? "h-[calc(100vh-120px)]" : "h-auto")}>
-        {isLoadingOverall && !serviceRequestsData?.length ? (
+        {!hasLoadedOnce && isLoadingOverall && !serviceRequestsData?.length ? (
           <TableSkeleton />
         ) : (
           <>

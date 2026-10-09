@@ -80,6 +80,7 @@ import { CEO_HOLD_ROW_CLASSES } from "@/utils/ceoHoldRowStyles";
 
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 import { useRefreshApprovalCounts } from "../hooks/useRefreshApprovalCounts";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -778,6 +779,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     poLoading ||
     srLoading ||
     paidPaymentsLoading;
+  const hasLoadedOnce = useHasLoadedOnce(isPageLoading);
 
   const combinedError =
     projectsError ||
@@ -799,7 +801,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     <VendorTdsRateContext.Provider value={tdsRateFor}>
     <CompanyBorneTdsContext.Provider value={tdsCompanyBorneFor}>
     <div className="flex-1 space-y-4">
-      {isPageLoading && !data?.length ? (
+      {!hasLoadedOnce && isPageLoading && !data?.length ? (
         <TableSkeleton />
       ) : (
         <DataTable<ApprovalQueueRow>

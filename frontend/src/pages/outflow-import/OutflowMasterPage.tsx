@@ -87,6 +87,7 @@ import {
     tabFromCarried,
     visibleTabs,
 } from "./outflowTableModel";
+import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 /**
  * Bulk Import Transactions -- ONE screen (slices X3 + X4).
@@ -286,6 +287,7 @@ export const OutflowMasterPage = () => {
      */
     const table = useOutflowRows({ scope: SCOPE_FOR_TAB[tab], batch: selectedImport });
     const { rows, loading: rowsLoading, mutate: mutateRows } = table;
+    const hasLoadedOnce = useHasLoadedOnce(rowsLoading);
     /**
      * The grid page each ticked line was ticked on (#1298), so "Link N to one expense" can say WHICH
      * page holds a tick that is not on this one (ADR-0027 R2).
@@ -1467,7 +1469,7 @@ export const OutflowMasterPage = () => {
             </AlertDialog>
 
             {!showingApproved &&
-                (rowsLoading && !rows.length ? (
+                (!hasLoadedOnce && rowsLoading && !rows.length ? (
                 <div className="flex h-40 items-center justify-center">
                     <TailSpin color="#D03B45" height={30} width={30} />
                 </div>
