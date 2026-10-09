@@ -373,10 +373,49 @@ def _config_kinds(cfg):
     return out
 
 
+def has_runnable_pricing_rules(cfg):
+    """SLICE 12d-2 (owner S1, 2026-10-07) -- does this config carry PRICING RULES THAT RUN? Either
+    non-empty top-level `pipelines` (every row-level category; ADP's shared per-item default, which
+    really runs for 29 of its 30 unit blocks), OR an item-list pricing block --
+    `list_spec.pricing.families` -- whose unit blocks carry their own pipelines (Insulation: 7 of 7).
+
+    ⚠️ WHY THE SECOND ARM EXISTS, measured rather than assumed (`test_fa7_09`): every Insulation
+    unit block has its own pipelines, so a top-level `pipelines` entry added merely to satisfy the
+    old `pipelines`-only test would be a key that VALIDATES AND NEVER EXECUTES -- the exact defect
+    class the owner locked out on 2026-09-10. The generic predicate therefore recognises the place
+    an item-list category keeps its rules, and Insulation's `pipelines` stays honestly empty.
+
+    ⚠️ "RUN" IS THE WORD THAT CARRIES THE WEIGHT. Without a top-level default, an item-list block
+    runs only if EVERY unit block and every convert option carries pipelines of its own -- a block
+    without them would fall back to a default that does not exist and price nothing. So a pricing
+    block with un-piped blocks and no default (ADP as it stood at v7, before its default shipped)
+    reads NOT runnable, exactly as the slice-5 / slice-6 pins say. No discipline or category is
+    named here. PURE; mirrored by `pricingSheetHelper.hasRunnablePricingRules`."""
+    if cfg.get("pipelines"):
+        return True
+    fams = (((cfg.get("list_spec") or {}).get("pricing") or {}).get("families"))
+    if not isinstance(fams, dict) or not fams:
+        return False
+    for fam in fams.values():
+        units = (fam or {}).get("units") or {}
+        if not isinstance(units, dict) or not units:
+            return False
+        for blk in units.values():
+            if not ((blk or {}).get("pipelines") or {}):
+                return False
+        for options in ((fam or {}).get("convert") or {}).values():
+            for opt in options or []:
+                if not ((opt or {}).get("pipelines") or {}):
+                    return False
+    return True
+
+
 def config_is_eligible(cfg, configs=None):
-    """A config participates in extraction iff it has BOTH non-empty pipelines AND non-empty
-    attribute_definitions. Empty-pipelines DATA-ONLY configs (e.g. lighting_mgmt_system) are
-    excluded automatically -- NO special case.
+    """A config participates in extraction iff it has BOTH pricing rules that run
+    (`has_runnable_pricing_rules`: non-empty pipelines, or an item-list pricing block) AND non-empty
+    attribute_definitions. Empty-pipelines DATA-ONLY configs (e.g. lighting_mgmt_system, the
+    message-only vendor-quote configs, a Pricing Inputs category) are excluded automatically -- NO
+    special case.
 
     SLICE 3 (owner Q-a / Q-b): with `configs` ({(discipline, category_id): cfg}) given, an ALIAS
     config (`alias_of`) is eligible iff its TARGET is -- resolved ONE HOP by `resolve_alias`. A
@@ -384,8 +423,8 @@ def config_is_eligible(cfg, configs=None):
     eligible. Without `configs` the plain test runs, so an alias on its own is never eligible."""
     if configs is not None and alias_target(cfg):
         _d, _c, target = resolve_alias(configs, cfg.get("discipline"), cfg.get("category_id"), cfg)
-        return bool(target.get("pipelines")) and bool(target.get("attribute_definitions"))
-    return bool(cfg.get("pipelines")) and bool(cfg.get("attribute_definitions"))
+        return has_runnable_pricing_rules(target) and bool(target.get("attribute_definitions"))
+    return has_runnable_pricing_rules(cfg) and bool(cfg.get("attribute_definitions"))
 
 
 def alias_target(cfg):

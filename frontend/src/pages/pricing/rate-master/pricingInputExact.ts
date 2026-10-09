@@ -28,7 +28,10 @@
  */
 import { runPipeline } from "./ratePipelineInterpreter";
 import type { Pipeline, PipelineResult, RateMasterItem } from "./rateMasterTypes";
-import type { AdderSpec, InputReach } from "./pricingInputReach";
+import type { AdderSpec, CandidateSku, InputReach } from "./pricingInputReach";
+// ACCEPTANCE 23: the rate-helper panel's own pricer. See the block at the foot of this file for why
+// this import edge exists and why a copy was not an option.
+import { itemListPricingSpec, priceItemList, projectUnitClass } from "../../boq-wizard/rate-helper/itemListPricing";
 
 /** a pipeline the panel can price a SKU through */
 export interface ExactPipelineRef {
@@ -234,6 +237,335 @@ export function neutralConditions(
       for (const [k, v] of Object.entries(neutral?.when ?? {})) {
         if (!(k in out)) out[k] = v;
       }
+    }
+  }
+  return out;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 12c, ACCEPTANCE ITEM 23 -- ONE PRICING PATH FOR AN ITEM-LIST CATEGORY
+//
+// Owner: "for the pricing input sheet panel, we need to use the same pipeline for pricing impact
+// calculation as the rate helper panel. just like we did for electrical."
+//
+// For a category-level category that is `runPipeline`, which `priceSkuExact` above already calls. An
+// ITEM-LIST category does NOT price a row by running one pipeline: `priceItemList` resolves the
+// family, the unit class, the ladders, the defaults, the overrides and the per-row conditions FIRST,
+// and only then runs the pipeline that combination selects. So pricing such a SKU by picking a
+// pipeline out of `list_spec` and running it directly would be a SECOND IMPLEMENTATION of all of that
+// -- the precise bet that failed once already and produced an install share of 32.5 against the
+// product's 30.
+//
+// ⚠️ AND IT WOULD BE WRONG IN A SPECIFIC, PLAUSIBLE WAY HERE. Insulation's cladding is one component
+// with six branches keyed on the row's OWN `cladding`; `conditionsFor` can only pick ONE enabling
+// branch, so a 26G input would be priced as though every one of the 224 rows were clad in 26G. The
+// figures would look right and the row count would be 224 instead of the 68 that actually move.
+// Going through `priceItemList` resolves each SKU's branch from its own attributes, so the count and
+// every figure fall out of the product's own code.
+//
+// THE ONE IMPORT EDGE this creates (rate-master -> rate-helper) is deliberate and is the point: the
+// alternative is a copy. `itemListPricing` imports the interpreter and the types from THIS folder and
+// nothing from this file, so there is no cycle.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Price ONE SKU of an ITEM-LIST category before and after, through `priceItemList` -- the exact
+ * function the rate-helper panel and the calculator price a BoQ row with.
+ *
+ * The "row" is built from the SKU's own attributes, which is what makes this a statement about that
+ * SKU: a perfectly-stated row for it. Its unit is the SKU's own unit, resolved through the same
+ * `unit_classes` the read-time projection uses.
+ */
+export function priceSkuExactItemList(
+  item: RateMasterItem,
+  config: unknown,
+  itemsNow: readonly RateMasterItem[],
+  itemsNext: readonly RateMasterItem[],
+): ExactSkuResult {
+  const uid = String(item.item_uid ?? "");
+  const spec = itemListPricingSpec(config as never);
+  if (!spec) return { itemUid: uid, legs: [], ok: false, note: "this category has no item-list pricing rules" };
+
+  const attributes: Record<string, { value: string | number | null }> = {};
+  for (const [k, v] of Object.entries((item.attributes ?? {}) as Record<string, unknown>)) {
+    // the projected unit class is not a stated fact -- the ROW's unit carries that
+    if (k === spec.unit_class_attr) continue;
+    if (v === null || v === undefined || v === "") continue;
+    attributes[k] = { value: String(v) };
+  }
+  const rowUnit = String(item.unit ?? "");
+  const ext = [{ attributes } as never];
+
+  let a: ReturnType<typeof priceItemList>;
+  let b: ReturnType<typeof priceItemList>;
+  try {
+    a = priceItemList(spec, itemsNow as RateMasterItem[], rowUnit, ext);
+    b = priceItemList(spec, itemsNext as RateMasterItem[], rowUnit, ext);
+  } catch {
+    return { itemUid: uid, legs: [], ok: false, note: "the pricing rules could not price this SKU" };
+  }
+  if (!a.priced || !b.priced) {
+    // a SKU the rules refuse is REPORTED with its own reason, never silently dropped
+    return { itemUid: uid, legs: [], ok: false, note: a.reason ?? b.reason ?? "not priced" };
+  }
+
+  const legs: ExactLeg[] = [];
+  // EVERY output that moves, exactly as the category-level path: an input that moves supply may move
+  // install too, and a rate that moves unmentioned is how a pricer is surprised.
+  for (const [output, now, becomes] of [
+    ["supply", a.supply, b.supply] as const,
+    ["install", a.install, b.install] as const,
+  ]) {
+    if (typeof now !== "number" || typeof becomes !== "number") continue;
+    legs.push({ output, pipelineId: "item_list", now, becomes, moved: Math.abs(becomes - now) > EPS });
+  }
+  legs.sort((x, y) => x.output.localeCompare(y.output));
+  return { itemUid: uid, legs, ok: legs.length > 0,
+           note: legs.length ? undefined : "the rules returned no figure for this SKU" };
+}
+
+/** True when this config prices a row through `priceItemList` rather than one named pipeline. */
+export function isItemListConfig(config: unknown): boolean {
+  return !!itemListPricingSpec(config as never);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 12c, OWNER RULING 2 / U9 -- SAMPLE GEOMETRIES FOR A SKU WITH NO GEOMETRY OF ITS OWN
+//
+// Owner: "show 2-3 sample impact calculations based on sizes stored in SKU."
+//
+// A CLADDING-ONLY SKU is a row that prices a cladding and nothing else, so it carries no pipe size
+// and no thickness -- and a cladding cost is proportional to the girth, which is made of exactly
+// those two. One figure for such a row would therefore be a figure for a geometry nobody named. The
+// ruling is to show a FEW, at sizes the catalogue actually stocks.
+//
+// THE RULE, fixed and documented so no sample is ever a hand-picked number: take the DISTINCT tuples
+// of the category's LADDER attributes across the family's active SKUs, order them, and take the
+// SMALLEST, the MIDDLE and the LARGEST. Three samples show the range and its middle, which is what a
+// reader needs to judge a per-girth rate; fewer than three distinct tuples yields however many exist.
+// No size is written in code and no category is named -- the axes come from `spec.ladders` and the
+// values from the catalogue.
+//
+// ⚠️ HISTORY, AND THE DEFECT IT CAUSED -- READ BEFORE CHANGING THE REACH WALK. This was written while
+// the catalogue held NO cladding-only SKUs: design question O1 offered (i) one SKU per cladding type
+// per geometry, 200 rows, or (ii) one SKU per cladding type, 5 rows. The owner took (ii) and the five
+// rows were minted (live at HVAC v25: 24G, 26G, Glass Cloth with paint, and the two +Glass Cloth
+// composites, all `unit = Mts`). The picker was "ready for it" -- but nothing OPENED THE WALK to it,
+// so `pricingInputReach.matching()` kept dropping those rows at `rates[rateKey] === undefined` (they
+// store only `cost_install_cladding` and the markups) and this function stayed unreachable for the one
+// population it exists for. Found in the 12c browser cert, 2026-10-05, not by any test: the producer
+// and the consumer were both green and the JOIN was never asserted.
+//
+// It is now reached through `InputReach.candidateSkus` + `confirmedCandidateSkus` below. Q7's
+// PROVISIONAL rider -- whether a per-sq.m cladding-only row takes the overlap factor -- is still open
+// and is a CONFIG question, untouched by this wiring.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** One sample geometry: the ladder attribute values a sample calculation is run at. */
+export type SampleGeometry = Record<string, number>;
+
+/**
+ * Up to `want` sample geometries for a family, taken from the catalogue's own stocked combinations.
+ * PURE. Returns [] when the category has no ladders or the family has no stocked tuple.
+ */
+export function sampleGeometries(
+  spec: Parameters<typeof projectUnitClass>[0],
+  items: readonly RateMasterItem[],
+  /**
+   * The family whose stocked geometries to sample, or NULL for "any family of this kind and unit
+   * class". ⚠️ NULL IS WHAT A CLADDING-ONLY SKU NEEDS: its own family deliberately stores no pipe
+   * size and no thickness (that is the whole point of its shape), so the sizes can only come from
+   * the rows that DO store them. The owner's words are "based on sizes stored in SKU" -- stored in
+   * the catalogue, not stored on that one row.
+   */
+  family: string | null,
+  unitClass: string,
+  want = 3,
+): SampleGeometry[] {
+  const famAttr = spec.family_attribute_id ?? "family";
+  const axes = (spec.ladders ?? []).filter((a) => typeof a === "string" && a);
+  if (!axes.length) return [];
+
+  // ⚠️ THROUGH THE REAL PROJECTOR. The unit class is NOT stored on a catalogue row -- it is projected
+  // at READ TIME from the row's `unit` through `unit_classes`, so a raw item carries no such attribute
+  // and filtering on it found nothing at all. Calling `projectUnitClass` rather than re-deriving the
+  // mapping is the same single-definition rule the rest of this file follows.
+  const seen = new Map<string, SampleGeometry>();
+  for (const it of projectUnitClass(spec, items as RateMasterItem[])) {
+    if (it.kind !== spec.kind) continue;
+    const at = (it.attributes ?? {}) as Record<string, unknown>;
+    if (family !== null && String(at[famAttr] ?? "") !== family) continue;
+    if (String(at[spec.unit_class_attr] ?? "") !== unitClass) continue;
+    const tuple: SampleGeometry = {};
+    let complete = true;
+    for (const a of axes) {
+      const n = typeof at[a] === "number" ? (at[a] as number) : Number(at[a]);
+      if (!Number.isFinite(n)) { complete = false; break; }
+      tuple[a] = n;
+    }
+    // a row that does not carry every axis is not a stocked GEOMETRY and cannot be a sample
+    if (!complete) continue;
+    seen.set(axes.map((a) => tuple[a]).join("\u0000"), tuple);
+  }
+  const all = Array.from(seen.values()).sort((x, y) => {
+    for (const a of axes) if (x[a] !== y[a]) return x[a] - y[a];
+    return 0;
+  });
+  if (all.length <= want) return all;
+  if (want <= 1) return [all[0]];
+  if (want === 2) return [all[0], all[all.length - 1]];
+  // SMALLEST, MIDDLE, LARGEST -- and then evenly spaced for a larger `want`, so the rule stays one rule
+  const picks: SampleGeometry[] = [];
+  for (let i = 0; i < want; i++) {
+    const idx = Math.round((i * (all.length - 1)) / (want - 1));
+    if (!picks.includes(all[idx])) picks.push(all[idx]);
+  }
+  return picks;
+}
+
+
+/** One priced sample: the geometry it was run at, and the figures the rules returned there. */
+export interface SampleImpact {
+  geometry: SampleGeometry;
+  result: ExactSkuResult;
+}
+
+/**
+ * Does this SKU carry every geometry axis the rules ladder on? A row that does not cannot be priced
+ * on its own -- it needs a geometry from somewhere, which is what the samples supply. PURE.
+ */
+export function skuCarriesGeometry(config: unknown, item: RateMasterItem): boolean {
+  const spec = itemListPricingSpec(config as never);
+  const axes = ((spec?.ladders ?? []) as unknown[]).filter(
+    (a): a is string => typeof a === "string" && !!a,
+  );
+  if (!spec || !axes.length) return true;        // nothing to carry; the SKU is self-sufficient
+  const at = (item.attributes ?? {}) as Record<string, unknown>;
+  return axes.every((a) =>
+    Number.isFinite(typeof at[a] === "number" ? (at[a] as number) : Number(at[a])),
+  );
+}
+
+/**
+ * OWNER F3: "show 2-3 sample impact calculations based on sizes stored in SKU."
+ *
+ * Up to `want` priced samples for a SKU that carries no geometry of its own. Each one runs the SAME
+ * `priceSkuExactItemList` -- the product's own pricer -- over the SKU's attributes PLUS one stocked
+ * geometry, so a sample cannot drift from what the panel would quote for a real row of that size.
+ *
+ * ⚠️ IT NEVER MUTATES THE CATALOGUE ROW: the geometry goes into a shallow COPY whose `attributes` is
+ * a fresh object. Writing it onto the row would persist a geometry the SKU deliberately does not
+ * have -- the read-time-projection rule, one level down.
+ *
+ * Empty when the SKU already carries its geometry (it is priced directly, no samples needed) or when
+ * the catalogue stocks no complete geometry to sample. PURE.
+ */
+export function priceSkuExactSamples(
+  item: RateMasterItem,
+  config: unknown,
+  itemsNow: readonly RateMasterItem[],
+  itemsNext: readonly RateMasterItem[],
+  want = 3,
+): SampleImpact[] {
+  const spec = itemListPricingSpec(config as never);
+  if (!spec || skuCarriesGeometry(config, item)) return [];
+  const unitClass = String(
+    ((projectUnitClass(spec, [item])[0]?.attributes ?? {}) as Record<string, unknown>)[
+      spec.unit_class_attr
+    ] ?? "",
+  );
+  // family NULL: the sizes come from whatever this kind + unit class actually stocks
+  const geometries = sampleGeometries(spec, itemsNow, null, unitClass, want);
+  const out: SampleImpact[] = [];
+  for (const geometry of geometries) {
+    const probe = {
+      ...item,
+      attributes: { ...((item.attributes ?? {}) as Record<string, unknown>), ...geometry },
+    } as RateMasterItem;
+    out.push({ geometry, result: priceSkuExactItemList(probe, config, itemsNow, itemsNext) });
+  }
+  return out;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 12c CERT FIX (U9/F3, owner ruling 2026-10-05) -- CONFIRMING THE UNTESTABLE POPULATION
+//
+// `pricingInputReach.candidateSkus` names the rows the structural walk could not test: an item-list
+// category's rows that store none of the walked rate columns, because their whole cost is assembled
+// from pricing INPUTS. The walk is deliberately over-inclusive there (for the 26G sheet input it
+// names all five cladding types), so SOMETHING has to decide which of them an input really moves.
+//
+// ⚠️ THAT DECISION IS A PRICING QUESTION AND IS ANSWERED BY RUNNING THE PRODUCT, exactly as the
+// 2026-09-29 ruling requires of the whole panel. The probe perturbs the one input and asks the SKU's
+// own pricer whether any figure moves. Re-deriving "a 26G SKU is moved by the 26G input" from names
+// or attributes would be the second implementation that ruling exists to forbid -- and it would be
+// wrong for the composites (`26G Aluminium with Glass Cloth` is moved by the glass cloth input too).
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The perturbation the probe applies. Multiplicative so it is meaningful at any scale, with an
+ * additive fallback because scaling ZERO moves nothing and a zero input is legitimate (three of
+ * Electrical's are 0% by ruling).
+ */
+function probeRates(item: RateMasterItem | undefined): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries((item?.rates ?? {}) as Record<string, unknown>)) {
+    if (typeof v !== "number" || !Number.isFinite(v)) continue;
+    out[k] = v === 0 ? 1 : v * 1.1;
+  }
+  return out;
+}
+
+/**
+ * Does this input actually move this SKU's price? Runs the SKU's own pricer over the catalogue as it
+ * stands and over the catalogue with ONLY this input perturbed, and reports whether any figure moved.
+ *
+ * A geometry-less SKU is probed through its SAMPLES (the same `priceSkuExactSamples` the panel
+ * renders), because it cannot be priced on its own at all -- which is the entire reason this
+ * population exists. PURE apart from reading the arrays it is given.
+ */
+export function confirmInputMovesSku(
+  item: RateMasterItem,
+  config: unknown,
+  items: readonly RateMasterItem[],
+  inputItemKey: string,
+): boolean {
+  if (!isItemListConfig(config)) return false;
+  const inputItem = items.find(
+    (i) => String(i.kind ?? "").endsWith("_pricing_input")
+      && String(((i.attributes ?? {}) as Record<string, unknown>).item ?? "") === inputItemKey,
+  );
+  const patch = probeRates(inputItem);
+  if (!Object.keys(patch).length) return false;
+  const itemsNext = itemsWithInput(items, inputItemKey, patch);
+  if (skuCarriesGeometry(config, item)) {
+    return priceSkuExactItemList(item, config, items, itemsNext).legs.some((l) => l.moved);
+  }
+  return priceSkuExactSamples(item, config, items, itemsNext).some(
+    (s) => s.result.legs.some((l) => l.moved),
+  );
+}
+
+/**
+ * The confirmed subset of a reach's `candidateSkus`, in catalogue order. ONE function, used by the
+ * impact panel for its rows AND by the Rate Master grid for its `items` count -- so the count and
+ * the list it opens can never disagree about which rows an input moves.
+ */
+export function confirmedCandidateSkus(
+  candidateSkus: readonly CandidateSku[] | null | undefined,
+  itemsByUid: ReadonlyMap<string, RateMasterItem> | null | undefined,
+  configs: Record<string, unknown> | null | undefined,
+  items: readonly RateMasterItem[] | null | undefined,
+  inputItemKey: string,
+): CandidateSku[] {
+  if (!candidateSkus?.length || !items?.length) return [];
+  const out: CandidateSku[] = [];
+  for (const cand of candidateSkus) {
+    const sku = itemsByUid?.get(cand.itemUid);
+    if (!sku) continue;
+    for (const cat of cand.categories) {
+      const cfg = configs?.[cat];
+      if (cfg && confirmInputMovesSku(sku, cfg, items, inputItemKey)) { out.push(cand); break; }
     }
   }
   return out;

@@ -37,6 +37,26 @@
  * is the badge AND the list length; the categories ride ON the row.
  */
 import type { RateCategoryConfig, RateMasterItem } from "./rateMasterTypes";
+// the SAME spec reader `isItemListConfig` is built on -- imported rather than re-tested here,
+// so "is this category item-list" has one definition. Taken from `itemListPricing` directly so
+// this module keeps no edge back to `pricingInputExact`, which imports a type from here.
+import { itemListPricingSpec } from "../../boq-wizard/rate-helper/itemListPricing";
+// the SHARED "does this row carry the axes the rules ladder on" predicate. `pricingInputExact`
+// imports only TYPES from this module, so this value import creates no runtime cycle.
+import { skuCarriesGeometry } from "./pricingInputExact";
+
+/**
+ * A row the structural walk could not TEST -- see `InputReach.candidateSkus`. It carries its own
+ * kind and categories for the same reason `ReachedColumn` does: the confirmer needs the CONFIG that
+ * prices it, and looking that up from a bare uid would mean re-deriving a mapping the walk already
+ * had in hand.
+ */
+export interface CandidateSku {
+  itemUid: string;
+  kind: string;
+  /** every item-list category of this kind that applied the input, sorted */
+  categories: string[];
+}
 
 /** One SKU column a pricing input moves. */
 export interface ReachedColumn {
@@ -53,6 +73,25 @@ export interface InputReach {
   distinctSkus: string[];
   /** one entry per (SKU, rate column); a row moved on two columns appears twice */
   columns: ReachedColumn[];
+  /**
+   * SKUs this walk could not TEST, never SKUs it has cleared -- the population an EXACT run must
+   * confirm or discard (`pricingInputExact.confirmInputMovesSku`).
+   *
+   * ⚠️ WHY A SECOND CHANNEL IS NEEDED AT ALL. `matching()` keeps a SKU only when it STORES the rate
+   * column the step touches, which is the right test for an input that SCALES a stored rate. An
+   * ITEM-LIST category builds an ASSEMBLY instead, so a row whose whole cost comes from pricing
+   * INPUTS stores no cost column of its own -- Insulation's five cladding-only SKUs carry only
+   * `cost_install_cladding` and the markups. They were therefore dropped before anything could ask
+   * whether their price moves, and the F3 samples branch downstream became unreachable for the only
+   * population it was written for (U9/F3, found in the 12c cert, 2026-10-05).
+   *
+   * ⚠️ THIS LIST IS DELIBERATELY OVER-INCLUSIVE AND MUST NEVER DRIVE A COUNT OR A PANEL ON ITS OWN.
+   * It is structural -- "of a kind this input touched, in an item-list category, storing none of the
+   * walked rate keys" -- so for the 26G sheet input it holds all five cladding types, where only the
+   * two 26G ones actually move. Deciding WHICH move is a pricing question, and the answer comes from
+   * running the product. A structural guess here would report 5 where 2 is the truth.
+   */
+  candidateSkus: CandidateSku[];
   /** distinct SKU uids per category, for the panel's grouping and its summary line */
   byCategory: Record<string, string[]>;
   /**
@@ -124,6 +163,14 @@ function ctxOwners(pipeline: { steps?: any[] } | null | undefined): Record<strin
   const steps = pipeline?.steps ?? [];
   for (const s of steps) {
     if (s?.step !== "rate_ref") continue;
+    /**
+     * ⚠️ ONLY A RATE_REF THAT READS A PRICING INPUT MAKES ONE. `rate_ref` is a general "read one
+     * stored rate off one row" step, and slice 12c FINISH uses it to read a CATALOGUE row's own
+     * wastage and markups -- which made the catalogue row appear in this map as an input with zero
+     * SKUs, a name the Pricing Inputs page has never heard of. Keyed on the kind SUFFIX, exactly as
+     * `is_pricing_input_kind` is, so no discipline or category is named here.
+     */
+    if (!String(s?.ref?.kind ?? "").endsWith("_pricing_input")) continue;
     const id = s?.ref?.item;
     if (typeof id !== "string") continue;
     (own[s.result] ??= new Set<string>()).add(id);
@@ -166,6 +213,76 @@ function inputsRead(step: any, owners: Record<string, Set<string>>): Set<string>
  *
  * Measured on v65: **8 ms** for all 35 inputs over 1,402 items. Memoise on [configs, items].
  */
+/**
+ * Every pipeline a config can run, as [id, pipeline] pairs: the config's OWN `pipelines` plus each
+ * `list_spec.pricing.families[*].units[*].pipelines` of an ITEM-LIST category.
+ *
+ * ⚠️ WITHOUT THE SECOND HALF THE PANEL REPORTS ZERO FOR EVERY INPUT OF AN ITEM-LIST CATEGORY. An
+ * item-list category keeps its rules inside `list_spec` (that is what lets it hold a full rule set
+ * while staying ineligible), so a walk over `cfg.pipelines` alone sees nothing -- HVAC's seven inputs
+ * priced 204 rows and would have shown "no SKUs affected" on their own impact panel. The Python
+ * reach walk (`csv_exporter.pricing_input_used_by`) had the identical blindness and is fixed in the
+ * same slice.
+ *
+ * The nested id carries family and unit class, so two families' `supply` pipelines are distinct keys
+ * -- `pipesBy` is keyed by "category|pipelineId" and would otherwise merge them.
+ */
+export function pipelinesOf(cfg: unknown): Array<[string, any]> {
+  const out: Array<[string, any]> = [];
+  const own = (cfg as any)?.pipelines ?? {};
+  for (const pid of Object.keys(own).sort()) out.push([pid, own[pid] ?? {}]);
+  const fams = (cfg as any)?.list_spec?.pricing?.families ?? {};
+  for (const fam of Object.keys(fams).sort()) {
+    const units = fams[fam]?.units ?? {};
+    for (const uc of Object.keys(units).sort()) {
+      const pls = units[uc]?.pipelines ?? {};
+      for (const pid of Object.keys(pls).sort()) out.push([`${fam}/${uc}/${pid}`, pls[pid] ?? {}]);
+    }
+  }
+  return out;
+}
+
+/**
+ * Note a CONDITIONAL additive component's inherited columns PER BRANCH, narrowed to the SKUs that
+ * branch selects. Returns false when there is nothing to narrow by, so the caller falls back to the
+ * un-narrowed note and every existing category stays byte-identical.
+ */
+function narrowAdditiveByBranch(
+  step: any,
+  ks: readonly string[],
+  owners: Record<string, Set<string>> | Record<string, string[]>,
+  note: (ids: Set<string>, keys: readonly string[]) => void,
+  remember: (c: Col) => string,
+  colLookup: Map<string, Col>,
+  attrKeysByKind: Map<string, Set<string>>,
+): boolean {
+  let narrowedAny = false;
+  const planned: Array<{ ids: Set<string>; keys: string[] }> = [];
+  for (const cond of step?.conditions ?? []) {
+    const ids = new Set<string>();
+    for (const [k, v] of Object.entries(cond?.params ?? {})) {
+      if (!k.endsWith(CTX_SUFFIX) || typeof v !== "string") continue;
+      for (const id of owners[v] ?? []) ids.add(id);
+    }
+    if (!ids.size) continue;                       // a branch that reads no input contributes nothing
+    const keys: string[] = [];
+    for (const colK of ks) {
+      const base = colLookup.get(colK);
+      if (!base) continue;
+      const carried = attrKeysByKind.get(base.kind) ?? new Set<string>();
+      const extra: Record<string, unknown> = {};
+      for (const [wk, wv] of Object.entries(cond?.when ?? {})) if (carried.has(wk)) extra[wk] = wv;
+      if (!Object.keys(extra).length) { keys.push(colK); continue; }
+      narrowedAny = true;
+      keys.push(remember({ kind: base.kind, rateKey: base.rateKey, where: { ...base.where, ...extra } }));
+    }
+    if (keys.length) planned.push({ ids, keys });
+  }
+  if (!narrowedAny) return false;                  // nothing SKU-shaped to narrow by -- leave as it was
+  for (const p of planned) note(p.ids, p.keys);
+  return true;
+}
+
 export function computePricingInputReach(
   configs: Record<string, RateCategoryConfig | null | undefined> | null | undefined,
   items: readonly RateMasterItem[] | null | undefined,
@@ -190,6 +307,18 @@ export function computePricingInputReach(
     return got;
   };
 
+  /**
+   * The attribute keys the catalogue's rows of a kind actually CARRY. Used to tell a branch that
+   * selects a SKU SUBSET from one that selects a BoQ-ROW option.
+   */
+  const attrKeysByKind = new Map<string, Set<string>>();
+  for (const it of items ?? []) {
+    const k = String(it.kind ?? "");
+    if (!attrKeysByKind.has(k)) attrKeysByKind.set(k, new Set<string>());
+    const set = attrKeysByKind.get(k)!;
+    for (const a of Object.keys(it.attributes ?? {})) set.add(a);
+  }
+
   const colLookup = new Map<string, Col>();
   const hits = new Map<string, Map<string, Set<string>>>();   // inputId -> colKey -> categories
   const readBy = new Map<string, Set<string>>();
@@ -199,8 +328,7 @@ export function computePricingInputReach(
 
   for (const cid of Object.keys(configs ?? {}).sort()) {
     const cfg = (configs ?? {})[cid];
-    for (const pid of Object.keys(cfg?.pipelines ?? {}).sort()) {
-      const pl: any = (cfg!.pipelines as any)[pid] ?? {};
+    for (const [pid, pl] of pipelinesOf(cfg)) {
       const steps: any[] = pl.steps ?? [];
       const owners = ctxOwners(pl);
       const prov = new Map<string, Set<string>>();
@@ -281,7 +409,28 @@ export function computePricingInputReach(
           provAdd(s?.name, ks);
           for (const k of ks) acc.add(k);
           const readers = inputsRead(s, owners);
-          note(readers, ks);
+          /**
+           * ⚠️ PER BRANCH, for the same reason `apply_effective_multiplier` below is. A CONDITIONAL
+           * additive component does not move every row of its pipeline -- it moves the rows whose
+           * branch it is. Insulation's cladding is ONE component with six branches keyed on the row's
+           * own `cladding`, so folding them together reported 224 SKUs for an input that moves 68, and
+           * 20 for one that moves 3. The owner found it on the live page: "can you check if only the
+           * really linked SKUs for a parameter are coming in the SKUs count and list for it?"
+           *
+           * ⚠️ NARROWED ONLY BY `when` KEYS THE SKUs ACTUALLY CARRY. A branch may key on a BoQ-ROW
+           * option instead -- `cover`, `installation_type`, `floor_refilling`, `floor_cutting`, which
+           * is EVERY conditional component Electrical has, verified over v66 -- and no SKU carries
+           * those, so narrowing on them would filter every row out and report zero. With this test
+           * Electrical narrows by nothing and its whole reach map is byte-identical.
+           */
+          // ⚠️ ANY conditional component, additive or TARGETED. The first version gated on `additive`
+          // and left the three GI inputs reporting 20 where 3 move: Insulation's AREA cladding has a
+          // `target`, so its columns come from the target rather than from `acc` -- a different code
+          // path, the same over-report. The narrowing is about WHICH SKUs a branch selects, which has
+          // nothing to do with where the columns came from.
+          const branchNoted = Array.isArray(s?.conditions) && s.conditions.length > 0
+            && narrowAdditiveByBranch(s, ks, owners, note, remember, colLookup, attrKeysByKind);
+          if (!branchNoted) note(readers, ks);
           if (additive) {
             const branches = (s?.conditions ?? []).map((c: any) => {
               const ctxBinds: Record<string, string> = {};
@@ -347,19 +496,61 @@ export function computePricingInputReach(
     const columns: ReachedColumn[] = [];
     const byCategory: Record<string, Set<string>> = {};
     const distinct = new Set<string>();
+    /**
+     * Per KIND this input touched: the rate keys the walk asked for, and whether any category that
+     * applied it there is ITEM-LIST. Both are needed to name the untestable population below.
+     */
+    const walkedKeys = new Map<string, Set<string>>();
+    const itemListKind = new Set<string>();
+    const itemListCats = new Map<string, Set<string>>();
     for (const [k, cats] of byCol) {
       const c = colLookup.get(k);
       if (!c || !c.kind || !c.rateKey) continue;
       const catList = Array.from(cats).sort();
+      (walkedKeys.get(c.kind) ?? walkedKeys.set(c.kind, new Set<string>()).get(c.kind)!).add(c.rateKey);
+      for (const cat of catList) {
+        if (!itemListPricingSpec(configs?.[cat] as never)) continue;
+        itemListKind.add(c.kind);
+        (itemListCats.get(c.kind) ?? itemListCats.set(c.kind, new Set<string>()).get(c.kind)!).add(cat);
+      }
       for (const uid of matching(c)) {
         columns.push({ itemUid: uid, kind: c.kind, rateKey: c.rateKey, categories: catList });
         distinct.add(uid);
         for (const cat of catList) (byCategory[cat] ??= new Set<string>()).add(uid);
       }
     }
+    /**
+     * The untestable population -- see `candidateSkus`. A row of a touched kind, in an item-list
+     * category, that stores NONE of the rate keys the walk asked for, so `matching()` could not
+     * reach a verdict about it either way. Already-matched rows are excluded: they have a verdict.
+     */
+    const candidates: CandidateSku[] = [];
+    for (const it of items ?? []) {
+      const kind = String(it.kind ?? "");
+      if (!itemListKind.has(kind)) continue;
+      const uid = it.item_uid;
+      if (!uid || distinct.has(uid)) continue;
+      const rates = (it.rates ?? {}) as Record<string, unknown>;
+      let storesOne = false;
+      for (const rk of walkedKeys.get(kind) ?? []) if (rates[rk] !== undefined) { storesOne = true; break; }
+      if (storesOne) continue;
+      /**
+       * ⚠️ AND IT MUST CARRY NO GEOMETRY. Without this the net is far too wide: 209 of Insulation's
+       * 229 rows store no `cost_cladding`, so the three GI inputs each nominated 209 candidates and
+       * every one of them cost a pricing probe to rule out (measured 2026-10-05; all 209 confirmed
+       * NEGATIVE). A row that CARRIES its geometry is priced directly and already has a verdict from
+       * the column walk -- the population this channel exists for is exactly the rows that cannot be
+       * priced on their own, which is what the samples supply a geometry for. Narrowing here takes
+       * every input to 5 candidates and changes no confirmed answer.
+       */
+      const cats = Array.from(itemListCats.get(kind) ?? []).sort();
+      if (cats.every((cat) => skuCarriesGeometry(configs?.[cat], it))) continue;
+      candidates.push({ itemUid: uid, kind, categories: cats });
+    }
     out[id] = {
       distinctSkus: Array.from(distinct).sort(),
       columns,
+      candidateSkus: candidates.sort((a, b) => a.itemUid.localeCompare(b.itemUid)),
       byCategory: Object.fromEntries(
         Object.entries(byCategory).map(([k, v]) => [k, Array.from(v).sort()]),
       ),

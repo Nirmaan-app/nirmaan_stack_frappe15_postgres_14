@@ -107,6 +107,13 @@ export const RATE_MASTER_DISCIPLINES: readonly RateMasterDisciplineEntry[] = [
       // Its config carries NO pipelines this slice, so it is not eligible for pricing or extraction --
       // pricing, extraction and the panel are 12b -- and no BoQ screen changes.
       { category_id: "hvac_insulation", label: "Insulation" },
+      // SLICE 12c (2026-10-03): HVAC's Pricing Inputs -- the seven numbers Insulation's cladding rule
+      // reads. BORN CONNECTED, which is the whole point of minting them with the rule in one asset: an
+      // input no pipeline reads shows "not used" and a zero-SKU impact panel. It DOES hold items, so
+      // `holds_items` is omitted and the category appears on the Rate Master page, exactly like
+      // Electrical's. Its config carries no pipelines and no attribute definitions, so it can never
+      // price a BoQ row.
+      { category_id: "hvac_pricing_inputs", label: "Pricing Inputs" },
     ],
   },
 ];

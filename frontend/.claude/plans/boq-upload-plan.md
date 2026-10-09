@@ -43071,3 +43071,2347 @@ Electrical 1402/13.
 `update_rate_master_item`) because the file edits need openpyxl; steps 1, 2 and 4 were read from the
 live page, and a harmless CSRF probe confirmed the `:8080` session's write path was open before any of
 it. Stated plainly rather than implied.
+
+
+---
+
+## Slice 12c — INSULATION PRICING RULES + HVAC PRICING INPUTS + the calculator (2026-10-03) — SHIPPED
+
+Seven commits: `c6d038983` (allowlist), `53ef18b12` (the two resolution rules), `d945eb558` (Rate and
+Factor columns), `7922020e5` (HVAC v16, the one asset commit), `bb8fef2f3` (the impact panel),
+`8fa8d3262` (the data viewer), `db372c0c6` (the Derivation tab), plus this docs commit.
+
+Built in the owner's stated order 1 → 3 → 4 → 5 → 2 → 6 → 7 → 8.
+
+### WHAT IT IS
+
+The seven business numbers that slice 12a baked into `cost_cladding` at mint time are now rate-master
+ITEMS a pricer edits, and Insulation's cladding is computed from them through the interpreter's existing
+steps. Insulation stays INELIGIBLE (owner Q13): every rule lives in `list_spec`, `config.pipelines` is
+empty, and every Insulation BoQ row keeps its coming-soon card. The calculator prices it; the BoQ helper
+declines it. That pair is intended and is stated out loud because it is surprising.
+
+### THE SEVEN INPUTS (`hvac_pricing_inputs`, kind `hvac_pricing_input`)
+
+| item | value | unit |
+|---|---:|---|
+| `alu_sheet_24g` | rate 450 | Rs per sq.m |
+| `alu_sheet_26g` | rate 450 | Rs per sq.m |
+| `glass_cloth` | rate 200 | Rs per sq.m |
+| `cladding_overlap` | factor 1.25 | factor |
+| `gi_sheet_rate` | rate 450 | Rs per sq.m |
+| `gi_framework_factor` | factor 0.9 | factor |
+| `gi_framework_adder` | amount 150 | Rs per sq.m |
+
+**SEVEN, not the design's six.** GI gets its OWN rate, which is the answer to design question O3-b. All
+three rates are 450 today, so binding GI to an aluminium input prices identically and LOOKS CORRECT —
+and would move three GI rows the first time aluminium alone changed, for a reason nobody could see.
+Measured on the product's own pricer: 26G 450→500 moves **68** rows and **not** the 3 GI ones; the GI
+rate moves exactly **3**; 24G moves a **disjoint 68**; glass cloth **84**; the overlap **136** (every
+aluminium-clad row, both grades). The 24G/26G separation is one no derivation in v15 could express.
+
+### THE ARITHMETIC IS UNCHANGED, AND THAT IS MEASURED
+
+`scripts/_instruments/replay_insulation.ts` prices all 224 Insulation SKUs through the PRODUCT'S OWN
+`priceItemList` and compares each figure with the SHEET RULE computed from v15's stored parts:
+**224/224, 0 refused, 0 figure mismatches.** The cladding formula was verified against the stored
+`cost_cladding` on all 224 rows BEFORE any config was written —
+`(aluminium × overlap + glass cloth) × girth`, girth `= 3.14 × (pipe + 2 × thickness) / 1000`, with GI
+as `sheet × factor + fabrication` and the Aluminium Foil rate staying on the SKU (owner Q4).
+
+### ⚠️ THE 3 GI ROWS' STORED `cost_cladding` IS ZEROED, NOT LEFT AT 555
+
+555 was a frozen copy of `450 × 0.9 + 150`, and a frozen copy of a derivation is exactly the defect
+12a-FIX was written for: the moment the GI rate moves, the stored figure asserts a number nothing
+recomputes. Zero means "the SKU adds nothing"; the whole 555 now arrives through the three GI inputs,
+so no figure moves. `cost_cladding` is dropped from the 204 PIPE rows and KEPT on the 20 sheet rows,
+because the area cladding component binds it as `base`. `derived_rates` 228 → 172 cells: the 56 cladding
+declarations dissolve structurally, with no stored cell left to declare.
+
+### FOUR DEFECTS FOUND BY RUNNING IT, NOT BY READING IT
+
+1. **`buildModuleLadder` SKIPS any row whose LABEL attribute is missing**, and the call hardcoded ADP's
+   `item_detail`. Insulation's SKUs do not carry it, so every ladder was EMPTY and all 224 rows reported
+   *"no SKU for this combination"* — with nothing on screen hinting that a DISPLAY field was the cause.
+   `label_attr` is now config-declared (ABSENT ⇒ `item_detail`, so ADP is byte-identical) and the
+   validator refuses an attribute the SKUs lack.
+2. **`pricing_input_used_by` walked `cfg["pipelines"]` only**, so the file's used-by column would have
+   read *"not used"* on all seven inputs while they priced 204 rows — and `refuse_if_in_use` would have
+   let a pricer DELETE one.
+3. **The same blindness in the frontend**, twice: `pricingInputReach` and `pricingInputImpact`. Measured:
+   0 inputs with reach before the fix, 7 after.
+4. **The formula row labelled a 1.25 overlap factor as "rupees"** — a gap commit 4 opened with its
+   two-way "percentage else rupees" line, invisible until a discipline actually carried the column.
+
+### ACCEPTANCE 23 — ONE PRICING PATH (owner, mid-slice)
+
+> "for the pricing input sheet panel, we need to use the same pipeline for pricing impact calculation as
+> the rate helper panel. just like we did for electrical."
+
+The function is **`priceItemList`**; the panel's single call site is
+`pricingInputExact.priceSkuExactItemList`, reached from one branch in `pricingInputImpact`'s `exactRows`.
+The category-level path keeps calling `runPipeline` through `priceSkuExact`, unchanged.
+
+⚠️ **Running a nested pipeline directly would have been wrong in a specific, plausible way.** Insulation's
+cladding is ONE component with six branches keyed on the row's own `cladding`, and `conditionsFor` can
+pick only one enabling branch — so a 26G input would price all 224 rows as though each were clad in 26G.
+The figures would look right and the count would read 224 instead of 68. Through `priceItemList` each
+SKU's branch comes from its own attributes, so the moved count falls out of the product. `conds` is
+deliberately NOT passed on that path: there is nothing to assume.
+
+**Parity (23b):** 448 before-figures and 3,136 after-figures against an INDEPENDENT call of
+`priceItemList`, 0 differences, counts asserted. The test builds the row itself rather than reusing the
+panel's builder, because what is at stake is the WIRING (right spec, right unit, right attributes), not
+the arithmetic — there is only one copy of that, which is the point.
+**Vacuity (23c):** perturbing the panel's figures by 1 reddens both parity tests; restored, green.
+
+### ⚠️ OWNER RULING 2 / U9 IS BUILT BUT NOT RENDERED, AND CANNOT BE YET
+
+Ruling 2 asks for 2–3 sample impact calculations on the **cladding-only SKUs**. There are **none in the
+catalogue**: design question O1 put the two shapes to the owner — (i) one SKU per cladding type per
+geometry, 200 new rows, or (ii) one SKU per cladding type, 5 new rows. **BOTH ARE NOW RULED AND
+BUILT (2026-10-04): O1 = option (ii), five SKUs; and Q7's rider is settled -- a per-sq.m cladding-only row takes NO overlap factor (owner F2, confirmed "FA3 is ok. nothng to do here"). The paragraph below records the state BEFORE that and is kept as history.**
+
+So the sample PICKER ships, pure and tested: `sampleGeometries` takes the distinct tuples of the
+category's ladder axes across the family's active SKUs, orders them by the DECLARED axis order and takes
+smallest / middle / largest — no size written in code, no category named. A NEGATIVE pin asserts no
+cladding-only row exists, and will fail loudly the moment one is minted, which is exactly when the panel
+work has a real row to render. **Minting those rows is what this is waiting on.**
+
+### TWO OF MY OWN TESTS WERE WRONG AND REAL DATA HID IT
+
+The sample helper's first test hardcoded pipe-major ordering while the rule is declared-axis order
+(thickness first). On this catalogue the two extremes COINCIDE, so the test was **green while asserting
+a rule the code does not follow**, and only a synthetic 9999 mm row exposed it. The expected order is now
+derived from `spec.ladders`. A green assertion over real data can still be the wrong assertion.
+
+### RULING 1 — THE BLANK-COLUMN FILTER STAYS (owner: "agree", option (b))
+
+`rate` and `factor` exist for every discipline and appear wherever an input CARRIES them, APPENDED after
+`amount` so no existing column moves. The filter is kept at BOTH sites, which is the whole of acceptance
+13: Electrical's 35 inputs carry neither column, so its page and its download are byte-identical —
+round-trip digest **`764e5bc30277`, the same figure as before the slice**, which VOIDS the design's
+warning that it would change. Both columns are declared non-percentage in a named deny-list, because the
+default is "percent" and a value column added without a thought renders 450 as 45000%.
+
+### ACCEPTANCE 4 — THE SCREEN FOLLOWS THE FILE
+
+Four presentation changes over one rule: rate columns and attribute columns from the shared order, `unit`
+right after `brand` (U4), rows in SOURCE WORKBOOK order (sheet first). `csv_exporter.column_order_for`
+and `rateMasterSpec.columnOrderForFile` are pinned to identical output on ONE shared fixture — the
+`FORMULA_FIXTURE` idiom, and the pin IS the mechanism. A category that declares no `rate_composition`
+keeps the sorted order, which is what leaves every Electrical file and screen byte-identical. ONE
+documented exception, asserted rather than skipped: a SPEC-DRIVEN category (ADP) omits its derived
+attribute columns from the file by the slice-1c ruling while the screen shows them read-only.
+
+### ACCEPTANCE 5 / U10 — THE DERIVATION TAB
+
+`itemListRuleOrder` (pure, unit-tested, ADR-0010 F4) describes the whole resolution order, because
+pricing one of these rows is not "run a pipeline" — the unit class, the kind, the block, the facts it
+needs, the ruled defaults and the size fitting are resolved first and none of that is visible in a list
+of steps. Driven entirely by the presence of `list_spec.pricing`, so every Electrical tab is
+byte-identical (pinned over all 13 v66 configs) and ADP's tab gains it too, which is what U10 approves.
+A negative pin asserts no internal key name reaches the screen.
+
+### PROOFS AND COUNTS
+
+* Insulation 224/224 reproduce the sheet rule; 0 refused.
+* ADP: 95 items and the `hvac_adp` config byte-identical v15 → v16; all 95 SKUs priced through the live
+  path before and after the O3-a generalisation — **0 differing rows, digest `001c7bea060cf884`**.
+* Electrical: 1402 items before and after the load; its own asset untouched; the whole reach map digests
+  **`51a10332e0ed260c2275c403`** before and after the walk widening.
+* Round trips: Electrical PI 35 unchanged / 0 errors; HVAC PI 7 unchanged; Insulation 224 unchanged;
+  xlsx digest == csv digest in all three.
+* Mint gate v15 → v16: no atoms disappeared. The `rate:hvac_insulation_item:cost_cladding` atom survives
+  because 20 rows still carry the key — data, not a schema change.
+* Python **541 → 587** OK across the slice; frontend **4701 → 4732** (the one standing failure is the
+  pre-existing `POAdjustment/writeOffControl.test.ts`, in code this slice never touches).
+* Vacuity proved and restored five times: the step allowlist, both resolution rules, the blank-column
+  filter, the `label_attr` default, the reach walk, and the panel's figures.
+
+### PINS MOVED UNDER MECHANICAL AUTHORITY — SIXTEEN, NONE DELETED
+
+Two on the column set (`rateMasterSpec.test.ts`, `test_e03` — the latter now asserts a column IN USE
+appears and one used by NO row does not, which is the filter's whole purpose), four on the HVAC registry
+shape, four on the 228 figure (228→172 and 240→184 for the one reason), `_PRICING_KEYS` learning three
+keys with ADP asserted to carry none, and the asset-series pins. `test_dr_03` was RE-AIMED rather than
+deleted — it read a `cost_cladding` declaration that no longer exists, so it now makes the same claim
+about a surviving one AND asserts the retired shape absent; `test_dr_02`'s name was changed too, because
+it said 228 while asserting 172.
+
+### A NON-DEFECT, RECORDED SO IT IS NOT RE-RAISED
+
+Two zero-change HVAC upload plans share a digest. `csv_importer._digest` fingerprints the discipline, the
+errors and **the changes the plan touches** — by design, so an unrelated edit elsewhere cannot block a
+correct upload — so two empty plans of one discipline are identical material, and applying either writes
+nothing.
+
+### OPEN, FOR THE OWNER
+
+1. ~~**O1 -- the cladding-only SKU shape:** (i) 200 rows or (ii) 5 rows.~~ **RULED 2026-10-04:
+   option (ii), five SKUs, one per cladding type -- built and live from HVAC v17 onward.**
+2. ~~**Q7's PROVISIONAL rider:** does a per-sq.m cladding-only row take the overlap factor?~~ **RULED: NO. The `Cladding Only` family's `area` pipeline computes `al + gc` and references `cladding_overlap` nowhere. Owner confirmed 2026-10-04: "FA3 is ok. nothng to do here." NO LONGER PROVISIONAL.**
+3. **The `factor` column vs 12b(A)'s "there are no factors".** That rule was about FOLDS — a
+   pre-multiplied `(1−discount)×(1+markup)` nobody who owned either half could edit. `factor` here is a
+   KIND-OF-NUMBER column like `amount` and `rate`, with the meaning carried by the ITEM (cladding
+   overlap; GI framework sheet factor), and the ban is kept in full force on the seven percentage
+   columns. That reading is mine, not the owner's, and is worth one line of confirmation.
+
+---
+
+## Slice 12c FINISH — THE CALCULATOR ADMISSION, COMPOSITION ORDER, TYPEABLE SIZES, NOTES ON WHAT YOU TYPE; HVAC v18–v25 (2026-10-04) — SHIPPED
+
+Six code commits on top of the seven above, plus this docs commit. In the order the owner set them:
+
+| commit | what |
+|---|---|
+| `1dbb2c1ec` | the FA8 deep-clones use `structuredClone`, not `JSON.parse` (the F2 ratchet) |
+| `97222f6f1` | ADP's four typed fields carry their notes; HVAC v20 |
+| `1e5270564` | a composition stays within one pipe size, closest first, then cheapest; HVAC v21 |
+| `7fd50da82` | a size field says what to type, how it matched, and takes inches; HVAC v22/v23 |
+| `a03af1416` | a note is required on a typed, rendered, mandatory field; HVAC v24 |
+| `5fe7cf8c2` | the thickness note no longer promises what the reader refuses; HVAC v25 |
+| `948319afa` | a size can be typed into "Other...", and a composed row shows its own total |
+| `469767be1` | a composed block shows all its layers and sums them; the panel names the BoQ rate |
+
+### FA7 — `calculator_only`, AND WHEN IT MUST BE REMOVED
+
+Insulation is admitted to the HVAC Pricing **calculator** by the config key `calculator_only: true`,
+read at ONE site (`pricingSheetHelper.admitCalculatorOnly`), with no discipline or category named in
+code. BoQ rows and extraction are untouched: `config.pipelines` stays empty, so both eligibility
+predicates still say no and every Insulation BoQ row keeps its coming-soon card. Pinned both ways —
+with the key the calculator prices it, without the key it declines, and `test_co_f1_09` stands as
+written.
+
+> ⚠️ **SLICE 12d MUST REMOVE THIS ADMISSION IN THE SAME SLICE THAT MAKES INSULATION FULLY ELIGIBLE.**
+> Once `pipelines` is non-empty the ordinary predicates admit the category on their own, and leaving
+> `calculator_only` in place would be a SECOND on/off switch for one thing — two switches that can
+> disagree about whether a category prices, which is the shape of defect this project keeps paying
+> for. Removing it is not cleanup; it is part of making Insulation eligible.
+
+### ⚠️ A SLICE-12d TRAP FOUND WHILE CERTIFYING, NOT YET A DEFECT
+
+`itemListPricing`'s composition line reads **"You typed 30 mm -> priced as 13 + 19 mm"**, with the
+literal *You typed*. The panel's per-field note is source-honest (`said = userEdited ? "You typed" :
+"BoQ says"`, FA8(h)) — but the PRICER cannot know who typed what, so its own sentence asserts a
+source.
+
+Today that sentence is always TRUE, and the reason is structural: `compose` is declared by
+`hvac_insulation` **alone**, and that category is `calculator_only`, so every composition that exists
+is a calculator entry the pricer did type. **The moment slice 12d makes Insulation BoQ-eligible, the
+same line will tell a pricer they typed a thickness the model read off the BoQ.** The fix is a
+provenance marker set where it is known (`assembleItems`, which merges the edits) and read at the one
+sentence that needs it — never a second who-said-it list. Not built now: it would change a rendered
+string mid-cert for a case no shipped path can reach.
+
+### C-R1 / C-R2 / C-R3 — HOW A COMPOSITION IS CHOSEN
+
+Within ±2 mm → **fewest layers** → **closest** to the stated thickness → if still tied, **lowest
+`cost_insulation` summed**. Closeness before cost, by explicit ruling: Thermal Nitrile 30 takes
+16 + 13 (29, one off) over 19 + 9 (28) and 19 + 13 (32), whatever they cost; cost then separates
+genuine ties, which is what makes Nitrile 38 take 13 + 25 (118 + 165 = **283**) over 19 + 19
+(143 + 143 = **286**). The cost key is declared in config (`compose.cost_key`), so no rate name is
+written in code, and a rung whose cost is unknown makes the whole candidate unrankable by cost rather
+than ranking it on half the information.
+
+**All three rulings had ONE root cause**, which is worth recording because it looked like three bugs:
+the thickness ladder was built across the whole family instead of the rows of ONE pipe size, so the
+rungs on offer came from every pipe at once. Resolving the SELECTING axis first (`ladders:
+["pipe_size_mm", "thickness_mm"]`) fixes the pipe-size scope (C-R2), the stocked-size-up rule (C-R3)
+and the candidate set the cost tie-break ranks (C-R1) together. A property test now sweeps every
+family × pipe size and asserts no composition ever uses a layer that pipe does not stock.
+
+⚠️ **I over-reported C-R2 once and the correction matters:** a direct `composeSize` probe suggested
+PUF 75 composed as 50 + 25 across two pipe sizes. Through the real pricer it never did — PUF at pipe
+50 composed 50 + 50 correctly. The probe bypassed the narrowing; the defect was the ladder's scope,
+which is what was fixed.
+
+### FA8 — EVERY ATTRIBUTE INPUT
+
+Every catalogue attribute is a **live dropdown built from the active SKUs** (`fieldOptionsFromSkus`),
+narrowed by the block's other answered attributes exactly as the ladder narrows its rungs — so a new
+SKU is a new option with no code change. The two sizes are `dropdown_or_other`: the stocked values
+**plus "Other…"**, which opens a typed box, because an unstocked size must be enterable. Every number
+in the on-screen help and in the worked examples is **generated from the live options** — no size is
+written in code anywhere.
+
+Proved dynamic against the live database, not a fixture: adding a test SKU moved the thickness options
+`[13, 19, 25] → [13, 19, 25, 31]` and deactivating it moved them back to `[13, 19, 25]`, with the row
+left in place as history.
+
+A pipe size may be typed **in mm or in inches** (`numbers.<attr>.inches`, HVAC v22). ⚠️ **A BARE
+FRACTION IS INCHES**: before this, `7/8` parsed as the number 0.875 and priced silently as a 9.52 mm
+pipe — a plausible wrong size with nothing on screen to catch it. The conversion is ×25.4 and that is
+correct HERE, against the standing "a conversion is the vocabulary the catalogue speaks, never
+arithmetic" rule, for a stated reason: this catalogue's own pipe sizes ARE inch-derived (6.35 = 1/4",
+22.23 = 7/8"), so ×25.4 lands on a real rung and the 2-decimal `size_match` closes the gap. Conduit's
+TRADE sizes are the opposite case and keep their table.
+
+### THE NOTE RULE — THREE CONDITIONS, MEASURED FROM THE PRODUCT
+
+A note is required when ALL THREE hold: the user **TYPES** it, it **RENDERS** on the panel, and it is
+**MANDATORY**. ⚠️ **The rule lives in the frontend and that is forced, not preferred:** `itemFieldDefs`
+decides what renders and the PRICER decides what is mandatory, and the Python validator can read
+neither. Re-deriving them server-side would be exactly the second list the owner forbade — free to
+drift from the panel, which is how a field loses its note silently. `panelFieldAudit` therefore asks
+the product (rendering from the call the panel makes; mandatory by pricing the item with the field
+blank and seeing whether it refuses), and names no attribute, category or discipline — pinned by a
+grep. Python keeps the SHAPE checks: a note must name a real typed control and must say something; a
+note on a dropdown is refused by name.
+
+### ADP — ONE NOTE, AND TWO RETROFIT ITEMS
+
+ADP shows 12 fields: 11 dropdowns (10 from the live SKUs, one from the definition's vocabulary) and
+**one typed field, `face_w_mm`**, which IS mandatory, so it carries the owner's reworded note:
+
+> *Type the size as the BoQ states it, in mm: width x height, plus depth where the BoQ gives one.*
+
+The other three approved notes were **removed from the asset** because their fields render NOWHERE —
+`face_h_mm` and `depth_mm` are two more axes of the ONE size phrase the panel shows once, and
+`area_sqm` has no field on any family or unit. A note that cannot be read is worse than none. The
+approved wording is kept in the tests, for the retrofit.
+
+**ADP RETROFIT, OWED:**
+1. **Split width / height / depth into their own fields**, so the three approved notes render and a
+   pricer can correct one axis without retyping the phrase.
+2. **`area_sqm` renders nowhere** — decide whether it should have a field at all, or stay a derived
+   value with no control.
+
+**12d-4c (owner, 2026-10-08): the RULE LISTING on the Derivation tab is now DELIVERED** -- ADP's "How a row is
+priced" card lists ADP's rules from its config by the same mechanism that lists Insulation's (its defaults with
+their values, the UL 555 override, its five ladders, the derived cells; owner-approved under UI CHANGE CONTROL
+5d). The plain-English explanations (the formula row, the column notes, the "How is this matched?" help) remain
+as they were. The owner called this "item A1's rule listing"; no item labelled A1 exists in this list or in the
+12c-S F10-F14 / F18 set, so it is recorded here, under the retrofit, as given.
+
+### ELECTRICAL — READ-ONLY, MEASURED, PARKED
+
+Nothing in Electrical was changed. Measured for the record: of **50** typed fields, **33** render and
+**28** of those are mandatory; **5** are optional. Three categories (`earthing`,
+`industrial_sockets`, `wiring_cabling`) do not price from a synthetic fill, so they are **not
+measurable this way** and are reported as such rather than counted as zero. The 28 note-less
+rendered-mandatory fields are the **Electrical note retrofit**, parked by the owner.
+
+### ⚠️ TWO DEFECTS THE BROWSER CERT FOUND THAT NO TEST COULD — v25
+
+Both were found by reading the LIVE database before the browser walk, and both are the same class: a
+green suite over an asset says nothing about what the site is serving.
+
+1. **A LOAD GAP.** The live `hvac_insulation` config was still at **v21** — v22's `inches: true` was
+   minted and never loaded, so typing `3/4"` on the real screen would have been refused while the
+   asset, the spec and 216 passing tests all said it worked. Cert case C13 would have failed. Fixed by
+   a **config-only supersede** (items are never touched: all 4,557 HVAC rows digest-identical before
+   and after, ADP's config row untouched down to `modified`).
+2. **A NOTE THAT PROMISED WHAT THE READER REFUSES.** The shipped thickness note read *"Two layers may
+   be written out."* — and the reader refuses `13+13` with *"several values stated for thickness"*.
+   Nothing was wrong with the pricing; the SENTENCE was wrong, which is the harder kind to notice: it
+   reads as a documented capability, and a pricer who believes it gets a refusal they cannot explain.
+   **The refusal is correct and stays** — accepting written-out layers would let a pricer hand-pick
+   the layers and so bypass C-R1 entirely, the ordering the owner spent three rulings pinning. So the
+   NOTE was corrected, not the reader:
+
+   > *Type the thickness the BoQ states, in mm - a single number. Where no stocked size fits, two or
+   > more layers are combined automatically.*
+
+   Pinned both ways: the refusal still fires on all three written-out forms, a single `26` still
+   composes to 13 + 13, and the shipped note no longer claims otherwise. The pipe note's inch claim is
+   pinned against the shipped reader in the same test, so the other half of the audit cannot rot.
+
+**v25 moved nothing but that one string:** structurally identical to v24 with the note stripped, 331
+items and 9 configs unchanged, mint gate "no atoms disappeared", and all 21 cert-9b figures byte-identical
+v24 → v25.
+
+### ⚠️ TWO MORE DEFECTS THE SCREEN FOUND, AND ONE THE OWNER FOUND BY HAND
+
+Both commits below exist because the browser cert was re-done from scratch. Neither defect was
+reachable from any test, and one of them was a WRONG PRICE on screen.
+
+**(3) `Other…` could not be typed into** (owner, by hand: *"i am not able to do it from UI"*). One
+binding. `ItemFieldView.value` is the RESOLVED size — the ladder result, or blank where nothing
+fits (rule X3: the field shows the size that will be PRICED) — and the typed box was bound to it.
+Every keystroke was rewritten or erased: `3` laddered up to 13 and the box became `13`; `32`
+composed, so the box was BLANKED and the note reported a stray `2`. The box's render CONDITION keyed
+on the same resolved value, so a typed 16 resolved to the stocked 19, `options.includes("19")` went
+true, and the box VANISHED mid-entry while the select jumped to a size nobody chose — the
+controlled-select trap in `frontend/CLAUDE.md`, reached from the other side.
+
+⚠️ **TWO DIFFERENT QUESTIONS WERE SHARING ONE FIELD:** *what will be priced* and *what did you
+enter*. `typedValue` is the second, and the pure `otherMode` keys on it. Nothing is lost — the
+resolution shows in the select beside the box and in the note beneath, which is what C-R4 asks for.
+
+**(4) `Row total` showed ONE LAYER of a composed row — 219 where the row cost 474**, beside a
+headline already reading 474. `rowTotals` summed `view.items`, the USER's blocks; a composition
+expands ONE block into several priced layers, so the block count and the priced count stop agreeing.
+
+⚠️ **IT SURVIVED BECAUSE THE TWO AGREE ON EVERY UNCOMPOSED ROW** — one block, one priced item, so
+the block sum is right by coincidence of shape. The existing ADP `rowTotals` test passes before AND
+after the fix and could never have caught it.
+
+**(5) And fixing only the row total left the two visibly disagreeing** (owner: *"the row total line
+does not match with the individual supply, install and combined rates in the calculation block,
+which is confusing"*). The BLOCK now sums its own layers, and the working names each one with its
+own money, so the figure can be ADDED UP ON SCREEN:
+
+```
+You typed 32 mm -> priced as 13 + 19 mm (32 mm, +0) -- above the largest stocked size (25 mm)
+Layer 1 of 2 -- supply 219, install 14
+Layer 2 of 2 -- supply 255, install 14
+BOQ RATES   Supply 474   Install 28   Combined 502
+```
+
+This also answers a question cert 9b asks that the old rendering could not: **which layer carries
+the cladding** — the outer one, visible as install 224 against the inner layer's 14. The pricer
+stamps `sourceIndex` on every priced item so the panel can group layers back to their block;
+`priced.items[i]` was the latent trap, correct only while the two lists are one-to-one.
+
+**(6) The panel now names the rate it shows: `BoQ rates`** (owner: *"the calculator panel should
+clearly mention whether the final rates are BoQ or BCS rate. it should be BoQ rates."*).
+⚠️ **THE SCREEN GAVE A REAL REASON TO GUESS WRONG:** the working ends with
+`ROUNDUP(BCS supply, 0) = 156` and `BCS cost x (1 + markup)`, so the last words a reader sees before
+the number are *BCS cost*. The number is the BoQ rate — what the CLIENT is charged — and the BCS
+line is an intermediate step toward it. Reading a BoQ rate as a cost is the same confusion the BCS
+export-leak boundary exists to prevent, made by a person rather than by a file. ONE constant drives
+both headings, written at the two CALL SITES and never inside `FiguresRow` — the same opt-in rule
+the `unit` label follows, which is what keeps the non-item-list (Electrical) surface byte-identical.
+
+### CERT 9b — ALL 21 CASES, EVERY FIGURE STATED IN ADVANCE, ALL MATCHED
+
+Predicted from the shipped asset through the product's own `priceItemList`, then observed on the
+live calculator. The owner's set is C1–C13 + S1–S5 + P1 = 19; the revision expanded P1 into three,
+and three cladding variants were walked as well.
+
+| case | entry | priced as | supply / install / combined |
+|---|---|---|---|
+| C1 | NR 32 @ 19.05 | 13 + 19 | 474 / 28 / 502 |
+| C2 | NR 30 | 13 + 19 (+2) | 474 / 28 / 502 |
+| C3 | NR 27 | 13 + 13 (−1) | 438 / 28 / 466 |
+| C4 | NR 29 | **not priced** — above the largest (25) | — |
+| C5 | NR 38 | 13 + 25 (the cost tie-break) | 506 / 28 / 534 |
+| C6 | NR 50 | 25 + 25 | 574 / 28 / 602 |
+| C7 | NR 64 | 13 + 25 + 25 | 793 / 42 / 835 |
+| C8 | NR 100 | 25 × 4 (max_layers) | 1148 / 56 / 1204 |
+| C9 | NR 110 | **not priced** — beyond 4 layers | — |
+| C10 | NR 25 @ 6.35 | 13 + 13 | 382 / 28 / 410 |
+| C11 | NR `13+13` typed | **refused** — several values stated | — |
+| C12 | NR 20 | ladder → 25 (one layer) | 287 / 14 / 301 |
+| C13 | NR 32, pipe typed `3/4"` | 13 + 19 | 474 / 28 / 502 |
+| C1-clad | + 26G Aluminium | 13 + 19, cladding on the OUTER layer | 623 / 238 / 861 |
+| C5-clad | + 26G Aluminium | 13 + 25 | 686 / 238 / 924 |
+| C6-clad | + 26G Aluminium | 25 + 25 | 754 / 238 / 992 |
+| S1 | Thermal 30 | 13 + 16 (closeness beats cost) | 1058 / 308 / 1366 |
+| S2 | Thermal 32 | 13 + 19 (cost decides an exact tie) | 1058 / 308 / 1366 |
+| S3 | Fiberglass 75 | 25 + 50 | 1471 / 308 / 1779 |
+| S4 | Thermal 30 + Aluminium Foil | 13 + 16 | 1176 / 308 / 1484 |
+| S5 | Thermal 97 | **not priced** | — |
+| P1a | PUF 100 @ pipe 50 | 50 + 50 (C-R2, one pipe size) | 420 / 28 / 448 |
+| P1b | PUF 75 @ pipe 50 | **not priced** — cannot mix pipe sizes | — |
+| P1c | PUF 25 @ pipe 50 | 50 (C-R3, next size up) | 210 / 14 / 224 |
+
+All 21 figures were byte-identical v24 → v25, and the screen agreed with every one.
+
+---
+
+## Slice 12c CERT FIXES — U9/F3 REACHABLE, THE DOWNLOAD ENDPOINT, AND WHAT THE CERT CAUGHT IN THE FIX (2026-10-05) — SHIPPED
+
+**Commits:** `84e2e5fde` · `f99fe75e2` · `ad41901d8` · `6be1b0eed` · `3f1d2bf5d`. Tip 34 ahead of
+`c3f6185a3`, **unpushed**. No asset minted — HVAC stays at v25, Electrical at v66.
+
+The 12c completion cert found two blocking defects. The owner ruled both "fix now" (the freeze allows a
+blocking defect in the slice's own area). A third and fourth defect then turned up *inside the first
+fix*, found by re-running the cert rather than by any test.
+
+### 1. U9/F3 — the cladding-only SKUs were unreachable (`84e2e5fde`)
+
+**The symptom:** no cladding-only SKU appeared in ANY pricing input's impact panel, so the F3 samples
+branch never rendered for the one population it exists for. Both acceptance items had been recorded as
+built.
+
+**WHICH SIDE WAS AT FAULT — the REACH WALK, never `exactRows`**, established by a harness run
+(`scripts/_instruments/diag_u9_samples.ts`) and not by reading code.
+`pricingInputReach.matching()` keeps a SKU only when it **stores** the rate column a step touches:
+
+```ts
+if ((it.rates ?? {})[c.rateKey] === undefined) continue;
+```
+
+Right for an input that SCALES a stored rate; wrong for an item-list category, which builds an
+ASSEMBLY. A row whose whole cost comes from pricing INPUTS stores no cost column at all — Insulation's
+five cladding-only SKUs carry only `cost_install_cladding` plus the markups and wastage, while every
+reach column for these inputs asks for `cost_adhesive`, `cost_cladding` or `cost_insulation`. They were
+dropped *before anything could ask whether their price moves*, so `exactRows` was never consulted for
+them and could not be the cause.
+
+⚠️ **IT WAS NEVER A REGRESSION, AND THE CODE SAID SO IN A COMMENT THAT HAD GONE STALE.**
+`priceSkuExactSamples` shipped while the catalogue held **no** cladding-only SKUs — design question O1
+offered 200 rows or 5, the owner took the 5, they were minted at v25, and **nothing opened the walk to
+them**. The comment still read "not rendered … the picker is ready for it"; it is corrected in the same
+commit, with the history and the defect it caused written out.
+
+**The fix — a second channel, confirmed by running the product:**
+
+* **`InputReach.candidateSkus`** names the rows the structural walk could not **TEST**: of a touched
+  kind, in an item-list category, storing none of the walked rate keys, and carrying no geometry. It is
+  **DELIBERATELY OVER-INCLUSIVE and must never drive a count or a panel on its own** — the 26G sheet
+  input nominates all five cladding types where only the two 26G ones move.
+* **`confirmInputMovesSku` / `confirmedCandidateSkus`** decide which of them an input really moves, by
+  perturbing that ONE input and asking the SKU's own pricer. Deriving "a 26G SKU is moved by the 26G
+  input" from names would be the second implementation the 2026-09-29 ruling forbids — and would be
+  **wrong for the composites**, since `26G Aluminium with Glass Cloth` is moved by the glass cloth input
+  too.
+* **ONE confirmer serves the panel's rows AND the grid's `items` badge**, so the count and the list it
+  opens cannot disagree.
+
+Measured confirmation: **26G → 2, 24G → 2, glass cloth → 3, overlap → 4, the three GI inputs → 0.**
+
+⚠️ **THE GEOMETRY NARROWING IS A COST REQUIREMENT, NOT TIDINESS.** Without it, 209 of Insulation's 229
+rows are nominated for each of the three GI inputs and every one costs a pricing probe to rule out
+(measured; all 209 confirmed NEGATIVE). Narrowing takes every input to 5 candidates and changes no
+confirmed answer.
+
+**Same commit — the `now` column meant two things.** It reported the SKU's STORED RATE when nothing was
+edited and the pipeline's COMPUTED leg when something was: measured **109 against 306 on the same row**,
+under one unlabelled heading. `computeImpact` now runs the exact path in BOTH branches (an empty patch
+hands back the same array, so every leg comes out `moved: false` and `becomes` still renders a dash) and
+the header NAMES the leg — `now (SKU rate (BoQ supply))`.
+
+### 2. The download endpoint returned a different file from the exporter (`f99fe75e2`)
+
+`api/boq/rate_master.export_rate_master_csv` built its payload with its own inline
+`to_xlsx(headers, rows, numeric)` / `to_csv(headers, rows)` call, silently dropping the two things
+`build_category_rows` returns beside them: **`formula_row`** (slice 12a) and **`locked`** (the derived-cell
+fill and sheet protection, owner 2026-09-27). Measured on `hvac_insulation` before the fix — service
+builder: 231 rows, protected, 391 filled cells; endpoint: **230 rows, unprotected, 0 filled**. Of the
+owner's three signals on a derived cell, only the **word** reached the user.
+
+It now delegates to `build_category_xlsx` / `build_all_categories_xlsx` and the CSV pair — ONE route, so
+the argument list exists in exactly one place and the endpoint cannot fall behind the builder again. Same
+single-definition reasoning as the BCS import-direction law.
+
+⚠️ **WHY NO TEST CAUGHT IT, AND THE RULE IT PROVES.** Every rate-file pin in `test_rate_master` calls the
+SERVICE helpers, which always passed both arguments. Producer green, consumer green, **the join broken** —
+the standing "a test on each side of a boundary is not a test of the boundary" rule, caught by the browser
+cert. The new pin `TestDownloadEndpointCarriesTheFormulaRow` (7 tests) therefore reads the **ENDPOINT's
+decoded bytes**: marker in row 2 with the header still row 1, protection on, non-zero fill count, the CSV's
+row directly under the header, byte-for-byte agreement with the builder, and the all-categories branch
+(the defect was in both). A negative asserts the marker is on row 2 **ALONE**, so the rest cannot pass
+vacuously. **Vacuity proven both ways:** with the pre-fix inline call restored, six of the seven FAIL.
+
+**INTRODUCED BY `2e8804298` (slice 12a)**, which wired the service and its helpers but not the endpoint;
+those endpoint lines last changed at `e5028f85b` (slice 1e), which predates it. `formula_row` has never
+appeared in that api module (`git log -S` finds no commit).
+
+⚠️ **IT NEVER REACHED PRODUCTION.** `origin/develop` and `main` do not contain 12a at all: their
+`csv_exporter` has **zero** occurrences of `formula_row` and `xlsx_io` none of
+`formula_row`/`SheetProtection`. On deployed code there is nothing to drop, so the inline call is correct
+and complete there. The gap lived only on this unpushed branch, and **FA4 was never broken for a user.**
+
+### 3. Two defects the cert caught INSIDE the first fix (`6be1b0eed`)
+
+Both rendering-only, both invisible to every test, and both the argument for running the cert at all.
+
+1. **The parent rows printed `0 → 0`.** A cladding-only SKU stores no cost column, so its `now` /
+   `becomes` are structurally ABSENT — and a `0` is a CLAIM ("this costs nothing") where an absence is
+   not. The standing "a blank is never a 0" rule, reached from the one direction the row shape makes easy
+   to miss. They now render an em dash; the figures are carried by the SAMPLES, each at a NAMED geometry.
+2. **The samples were detached from their parents.** They rendered in a SECOND `g.rows.filter(...)` pass
+   after every row, so parents sat at table indices 0–1 with their samples at 70–75 — nothing on screen
+   said which three geometries belonged to which cladding. Harmless for as long as nothing reached the
+   samples branch; unreadable the moment the cladding-only SKUs did. The tbody is now ONE pass emitting
+   each parent together with its own samples.
+
+### 4. The stale pin, and the two that were not stale (`3f1d2bf5d`)
+
+The full frontend suite surfaced four failures: the known `writeOffControl` timeout and three others.
+
+**One was genuinely stale and is INVERTED, never deleted.**
+`PricingInputImpactPanel.test.ts > ACCEPTANCE 10` pinned the literal `>now<`, which `84e2e5fde` had to
+change. The new literals are asserted present and `>now<` is asserted **ABSENT**, so re-introducing the
+bare heading — the state in which the column lied about its own quantity — turns it red again. Vacuity
+proven.
+
+⚠️ **THE OTHER TWO WERE NOT STALE. THEY FAILED ON INVISIBLE CARRIAGE RETURNS, AND INVERTING THEM WOULD
+HAVE ENCODED AN ACCIDENT INTO TWO WORKING GUARDS.** `io.open(path, "w")` in Python on Windows translates
+`\n` to `\r\n`, so a read-modify-write converts the WHOLE file to CRLF — nine files, up to 17,944 CRs in
+`test_rate_master.py`. `.gitattributes` carries `text=auto eol=lf`, so git normalised on commit and **no
+commit was ever polluted** (`git diff HEAD` showed nothing) — but **vitest reads the WORKTREE**, so any
+multi-line `toContain("a\n  b")` pin stopped matching. One of the two pinned a region of
+`RateMasterPage.tsx` with **zero diff lines** against origin; the other's `{piMode ? (` had changed
+INDENTATION only. Both pass untouched once LF is restored. Detect with `git ls-files --eol` and look for
+`w/crlf` where the attr says `eol=lf`.
+
+### Verification
+
+**The blast radius was enumerated, not guessed:** all 420 test files searched for each of the 23 changed
+sources' names; **21 tests reference one**, and every one was run.
+
+| | |
+|---|---|
+| 19 frontend blast-radius files | **1,601 / 1,601** |
+| `api.boq.test_rate_master` | **660 tests, OK** (1001 s) |
+| `services.boq_rate_master.test_extraction_coercion` | **181 tests, OK** (57 s) |
+| full Python suite | 7,293 tests / 1,607 s — **exactly the 19 approved knowns**; `test_il_02` now passes |
+| full frontend suite | 4,882 tests — **1 failure, the known `writeOffControl` 5 s timeout** |
+| tsc | **the three known pre-existing errors**, no more |
+| residence ratchet | holding (B2 8, F5 117, F2 219) |
+
+**The cert was re-done in full from de-stale**, steps 0–13 + 9b: 9b **21/21** composition cases matched
+figures stated in advance; step 7 **168 cells / 0 differences** across three categories; step 10's round
+trip moved the base **and all five** declared dependents and restored to a content hash byte-equal to the
+asset; step 13's hashes identical in both disciplines AFTER the 450→500→450 cycle. Step 12 is PARTIAL —
+the Insulation-vs-ADP contrast is certified, the "step-1 figures" half is not, because that BoQ carries a
+pre-existing partial run and resuming it costs an AI call nobody asked for. Full record:
+`2026-10-05_12c_Cert_Redo_Log.md` and `2026-10-04_12c_Ledger.md`.
+
+---
+
+## Slice 12c-S — CALCULATOR AND PANEL SCREEN FIXES; HVAC v26 (2026-10-06) — SHIPPED
+
+Commit `a3ff9579d` (code + tests + asset), docs commit separate. Branch `feature/boq-pricing-helper`,
+from `5dd86e24c`. **NOT PUSHED.**
+
+The screen half of the 2026-10-05 calculator audit (`2026-10-05_Calculator_Notes_Audit.md`, findings
+F1–F18). **No figure changed anywhere:** every active item of both disciplines was priced through its
+live path before and after — **3,480 combinations, 0 differences**.
+
+### OWNER RULING S10 (2026-10-06) — a family may declare `units_not_offered`
+
+The slice STOPPED before any code was written, on a collision the brief could not resolve: cert step 3
+wanted `double-skin plenum` to offer **sq.m only**, while item 3 needed `VCD` to keep its per-number
+unit so the Area band field (and its new note) renders at all. Measured against the live config, the
+two families are **identical on every axis a generic rule could key on**:
+
+| family | SKU unit classes | `units[]` | `convert[]` |
+|---|---|---|---|
+| VCD | `area` | `area` | `count` |
+| double-skin plenum | `area` | `area` | `count` |
+
+Any rule giving one "sq.m only" gives the other the same, and that would have taken the per-number unit
+off **13** families — the 12 that render Area band, plus `flexible duct`. The owner's four worked
+examples did not separate them either: *"Cladding Only → metre and sq.m"* rules out "the unit the SKUs
+are sold in", because all five of its SKUs are per-metre.
+
+**The ruling:** the generic rule is *every class the family can be priced in — its own pipelines plus any
+declared conversion* — and a family may DECLARE in config which of those the PICKER must not offer.
+Only `double-skin plenum` declares one (`["count"]`). **It changes no price:** a BoQ row arriving in Nos
+still prices 1723 / 231, exactly as before — the key is read at ONE site, by a control only the
+calculator and a unit-less row ever show. No family is named in code.
+
+### What was built
+
+**Dependent dropdowns (S1, F2).** Options narrow by the answers already given, one rule per vocabulary:
+`fieldOptionsFromSkus` for a family's SKUs, `attributeOptions` for a `values_from` kind. ⚠️ The old test
+was `=== "dropdown"`, which **excludes `dropdown_or_other`** — the control every size field uses — so an
+answered pipe size narrowed nothing. An answer that would empty a list is SKIPPED, so narrowing can
+never blank a dropdown.
+
+⚠️ **`selection` could not carry this, and that is why `readValues` exists.** `selection` is filled one
+need at a time and RETURNS at the first missing one, so a row refusing for a missing thickness had no
+pipe size in it and the thickness list narrowed to nothing. `readValues` publishes every resolved fact
+for OPTIONS AND DISPLAY ONLY; nothing from it reaches `match_master_row`.
+
+**A stale pick is CLEARED, not substituted (E2E-1).** Once a list narrows, a value picked earlier can
+stop being offered; leaving it priced the row at a size the screen did not show (pipe 100 + thickness 25
+→ 65, 2.6×). It is dropped BEFORE pricing and the field names the value that went.
+⚠️ **Three conditions bound it, and the first two forms of this rule were both wrong:**
+* only a value the PRICER picked from a list (`edit.attrs`, not in `edit.other`) — a typed "Other…" size
+  must still ladder and a model-supplied value is evidence, not a choice;
+* a field with **no options at all** is exempt — it cannot have offered anything, and without this guard
+  a correctly priced cladding-only row had both sizes cleared and stopped pricing;
+* the test is **DIRECTIONAL, down the config's own `ladders` order** — pipe 100 with thickness 25 is
+  unstocked BOTH ways round, and a symmetric check wiped the pair.
+
+**Notes generated from what the pricing reads (S3, S4, S5).** A `panel_notes` entry may be a LIST OF
+CLAUSES, each conditioned on a fact about the block being drawn: `when_reads` (the family's pricing
+really needs that attribute) and `when_stocked` (the field has rungs to choose between). The wording
+stays in config; only the condition is code. A plain string is unchanged, so every historical asset
+still validates.
+
+**Three false promises removed.** The ADP size note invited a depth on `double-skin plenum`, whose
+pricing reads W and H and discards it (F1). The Insulation thickness note promised automatic layering
+to `Cladding Only`, which stocks no sizes (F16). And `area_sqm` carried no note at all — removed at 12c
+FINISH on the belief that it *"renders nowhere"*, which the audit measured as **12 of 25 families**,
+typed and mandatory in the alternative, setting the price linearly (F3).
+
+**What each field says.** The note and the matched-how help no longer vanish when the row prices — they
+were gated on the field NOT holding a stocked value, so the guidance existed only while the row was
+broken (F4). A substitution is reported whenever the value used differs from the value entered, which
+now includes a precision match: 22.2 resolves to 22.23 BEFORE the ladder runs, so the ladder fitted
+exactly, `hop.exact` was true and **no line was shown at all** — the test is now `requested !== fitted`
+(F5). A refusal belongs to the field it is about (F6). A priced row no longer claims nothing fits (F7).
+
+**Cladding Only at sq.m** offered 9 claddings, 4 unable to price and 3 belonging to other families: the
+unit-class filter found no rows and the fallback handed over the whole definition vocabulary. It now
+reads the family's own rows whatever unit they are sold in — exactly the 6 that price (S6). The
+developer-language refusal behind three of them is plain English (F9).
+
+**A fresh field no longer opens on "Other…" (F15).** Picking it CLEARS the field, so an untouched field
+and one just opened were indistinguishable; choosing it is now recorded in `ItemEdit.other`.
+
+**Every note is one blue info box with an info icon (S7)**, in both the item-list and the Electrical
+field render. Amber stays for a ruled default, red for a refusal.
+
+### HVAC v26 — note strings plus ONE key
+
+Items byte-identical (331), every other top-level key byte-identical, every config byte-identical once
+`panel_notes` and `units_not_offered` are stripped from both sides. Only:
+`hvac_adp.panel_notes.face_w_mm` → clauses · `hvac_adp.panel_notes.area_sqm` added ·
+`hvac_insulation.panel_notes.thickness_mm` → clauses · `double-skin plenum.units_not_offered = ["count"]`.
+Loaded to dev as batch `rmbulk-a9f73bc546b9`. Electrical untouched at v66 / `rmbulk-13bf7920a9d0`.
+
+### Findings disposition
+
+| fixed here | F1 F2 F3 F4 F5 F6 F7 F8 F9 F15 F16 |
+|---|---|
+| **moved to the ADP retrofit** | F10 F11 F12 F13 F14 F18 |
+| **moved to 12d** | F17 ("You typed" after a dropdown pick) |
+
+### Tests
+
+vitest **4916** (4882 before; +34), one known `writeOffControl` timeout. Python **7303** (7293 before;
++10), 14 failures + 7 errors — the approved known set, unchanged. tsc **3169**, the same 3 in-area errors.
+Vacuity: three probes turned exactly **10** tests red, including **two pre-existing narrowing pins**;
+11 negative validator cases each shown to refuse.
+
+**Pins inverted (MECHANICAL AUTHORITY, never deleted).** Two in `pricingSheetHelper.test.ts` asserted the
+GLOBAL option list that S1 supersedes — inverted with their negative halves AND a positive control that
+the un-narrowed read still offers the value. Six groups in `test_rate_master.py` asserted the pre-slice
+note shape; `test_co_f1_08` normalises this slice's two keys out on the new side, because that pin is a
+statement about the **v16 → v17 mint** and must not fail for a declaration made nine mints later.
+
+### Deviation
+
+Declared commits 1–3 landed as **one**. The three bodies of work are interleaved inside three shared
+files, so splitting meant reconstructing intermediate states by hand; a mis-reconstructed commit would
+not build or would fail its own targeted set. One verified commit was preferred to three unverified ones.
+
+### Owed
+
+**cert step 4 is PARTIAL** — `db_switchgear` priced no figure in the calculator. Its option lists were
+measured and are UNCHANGED, which is correct: its shell and MCB lists come from **different SKU kinds**
+with no shared key, so there is nothing to narrow by. The narrowing itself is certified on
+`wiring_cabling` (Core 15→5, Thickness 20→16, priced Cable 1170/Mtr + Termination 2100/Set).
+
+Full record: `2026-10-06_12cS_Report.md` and `2026-10-06_12cS_Ledger.md` on the Desktop;
+screenshots in `2026-10-06_12cS_Screens/`.
+
+---
+
+## Slice 12c-P — CALCULATOR = RATE HELPER PANEL, ALWAYS: THE PERMANENT PARITY PROOF (2026-10-06) — SHIPPED
+
+**Commits** `db341c348` (test) + the docs commit. **No product file changed.** Branch
+`feature/boq-pricing-helper`, from `047001de5`.
+
+Owner P1 (standing, verbatim): *"we need to do comrpensive browser certs to verify if both calculator
+and proicing helper giove same price for same inpiuts. they must always do so. any case of divergence
+is failure. we need to check this for both ADP and Insyulation now and other categories as theyu get
+buily in future. electrcial verifcation was done at its build time."* Owner item 7, amended mid-slice:
+*a divergence does NOT stop the run — record it in full, group it by cause, and the permanent test
+lists every found divergence BY NAME as awaiting owner review, passing only if exactly those differ.*
+
+### The two paths, named
+
+| | How it is constructed | Which branch of `compute` runs |
+|---|---|---|
+| **PANEL** | `pricingSheetHelper.makePricingSheetHelper({ configsByCategory, items, extractionByRow })` over a map that HOLDS the row, then `compute(ctx)` with **no** overrides. Built at `SheetPricingPage.tsx:2949`; its ctx (`helperPanelCtx`, line 3230) carries `unit: row.unit ?? ""`. | the **`ext`** branch: the never-asked-default pass runs, `cellOf` reads the stored cells, `defaulted` marks come off the extraction, and for an item-list category the model's `ext.items` become the blocks. |
+| **CALCULATOR** | the same factory with `extractionByRow: new Map()` and `admitCalculatorOnly: true`, then `compute(calculatorCtx(discipline, categoryId), overrides)`. Built at `PricingCalculator.tsx:292`; `calculatorCtx` supplies no `unit`, so the row unit is PICKED. | the **override** branch: `ext` is undefined, none of the above runs, and every value arrives through the override map the panel's controls write (`__items__` / `__row_unit__` for an item-list category, one key per attribute otherwise). |
+
+Shared: the whole of `compute`, `runPipeline`, `priceItemList`, the config and the item set. **Not**
+shared: exactly the wiring that slice 12c found broken (a family written to one key and read from
+another). `calculatorPanelParity.harness.ts` drives both, and two structural tests pin that it is
+driving two different branches — `producibleKinds` is emitted only on the `ext` branch, and the
+BoQ-shaped helper declines `calculator_only` Insulation where the calculator-shaped one prices it.
+
+### What "the same inputs" means, and the one place it had to be decided
+
+The calculator has no row — it has the CONTROLS the panel renders. So the feed is built from what the
+panel SHOWS, exactly as a pricer re-typing every field would produce it:
+
+* row-level: `WorkingsAttribute.value` (the **coerced** value the control is bound to) for every
+  control that is not `readOnly` or `disabled`;
+* item-list: the block's PRICING family, each rendered field read **through the control's own
+  binding** — `f.value` for a select or a plain text box, `f.typedValue` only where the "Other…" box is
+  open — the "Other…" set, and the quantity the block shows.
+
+⚠️ **Reading `typedValue` everywhere was wrong and the live cert proved the binding rule right.** On
+ADP, `neck_mm` is a plain `dropdown` whose options on the real screen are exactly `300 / 375 / 450`
+with **no "Other…"** — so the only thing a pricer can give the calculator is the LADDER RESULT, which
+is what `f.value` holds. Feeding `typedValue` would have lost every ruled default and every ladder hop.
+
+Two input surfaces the calculator structurally lacks are declared, counted and reported rather than
+smoothed away: a `panel: false` attribute (a fact with no control — `cabletray_raceway.thickness_swg`,
+`industrial_sockets`' four MCB facts, `switches_sockets`' two, `point_wiring`'s six) and an item-list
+answer the chosen family's block does not render. The harness therefore runs in two declared modes,
+`visible` (controls only) and `full` (controls plus those facts); `full` is the arithmetic question and
+is what the permanent test asserts.
+
+### What it covers — asserted, not described
+
+* **Every row of every stored `BoQ Rate Suggestion Run`**: 96 runs, 10,460 rows, 15 categories across
+  Electrical and HVAC, every run at its sheet's CURRENT committed version (so every row is one the page
+  would actually adopt — `rows_in_version_stale_runs` is 0). Rows are grouped into **4,695 distinct
+  input classes** and one representative of each is computed; `compute` is pure, so a class stands for
+  its members exactly, and the fixture carries every member's `run#row` so the coverage claim is
+  checkable from the file.
+* **Every active SKU of every row-level category**: 1,929 cases (one per SKU of each category's
+  declared `item_kinds`, plus one all-blank refusal per category) — **zero divergences**.
+* **Both item-list categories by family × unit class × ladder path**: ADP 120 cases over all 25
+  families; Insulation 24 cases over all 6 — **zero divergences on Insulation**.
+* **db_switchgear by name** (owner P3, discharging the 12c-S partial): 512 classes / 1,098 stored rows
+  + 163 SKU cases, zero divergences, and the priced rows compared figure-for-figure.
+* The resolution paths each sweep reached, named one by one and asserted present.
+
+Fixtures: `frontend/src/pages/pricing/__fixtures__/parityCorpus.json` (1.96 MB) and
+`parityMaster.json` (1.05 MB), snapshotted from the live site on 2026-10-06 — configs digest
+`d017732c773cf03b`, Electrical items `4d9e208c4232e9d1` (1,402), HVAC `bcdbf4941a446c7a` (331).
+⚠️ **They are READ at runtime, not imported.** `import x from "./big.json"` makes `tsc` infer a
+structural type for the whole file, and `tsc --noEmit` died with *"Ineffective mark-compacts near heap
+limit"* on a 2 GB heap — it would have broken the project's type gate for everyone. The 423 KB
+`convertedCorpus.json` that `pricingPipeline.test.ts` imports sits below that cliff and is not a
+precedent for a file this size.
+
+### The divergences — all 97 classes / 212 rows, four causes, zero unclassified
+
+Every one is named in `calculatorPanelParity.awaiting.ts`; the suite passes only if **exactly** those
+differ, so a new divergence fails it and so does a listed one that stops differing. Nothing was fixed.
+
+| Cause | Classes / rows | What differs | Does a figure move? |
+|---|---|---|---|
+| **A** `A_wiring_primary` | 73 / 188 | On `wiring_cabling` the row TEXT decides which block is PRIMARY (`isTerminationRow`), and the calculator has no text field. | **No block's figure.** Only `values` / `finalValues` — which figure is OFFERED. On 9 classes / 10 rows the other pipeline has no matching rate row, so the offered figure is absent on one side. |
+| **B** `B_stale_pick` | 11 / 11 | The 12c-S stale-pick clearing exempts a value the MODEL read off the BoQ but not the same value typed by a pricer. | 8 rows: the panel prices, the calculator refuses. **See the live finding below — no figure is computed differently.** |
+| **C** `C_unit_not_offered` | 5 / 5 | The row's unit is not one the picker offers (a `unit_factors` conversion unit, a unit of no declared class, or a class the family hides). | 3 rows: one surface prices and the other refuses, for the unit. |
+| **D** `D_reason_only` | 8 / 8 | Both refuse; the panel's reason quotes BoQ text that has no box on screen (*"several values stated for torque ('3.5, 7.9 & 15.9 Nm')"* vs *"no torque stated"*). | No. |
+
+Plus 13 catalogue-sweep cases, all cause D, on the synthetic above-the-largest / between-rung sizes the
+sweep generates; none moves a price.
+
+**No item-list row anywhere produces a figure on both surfaces that disagree**, and **no row-level
+block's figures ever differ** — the two strongest statements the slice establishes, and both are
+asserted tests rather than prose.
+
+### ⚠️ What the live cert added to cause B, and why the characterisation changed
+
+`slot_count` is a plain `dropdown` (`panel_controls`), and the live calculator offers exactly `2 / 3` —
+no "Other…". On `BOQ-26-00071 / LOW SIDE WORKS / 276` the extraction read `"3 Slot"`, which is **not one
+of those options**, so by this repo's own controlled-select rule the panel's select shows
+*"— select —"* while the row prices 2204 / 352 / 2556 from the raw string. Entering what a pricer
+CAN enter — slot diffuser, damper `with`, slot count `3`, unit `rmt` — the live calculator returns
+**2204 / 352 / 2556**, identical to the panel.
+
+So cause B is not "the two surfaces price the same thing differently". It is: **the panel accepts a raw
+model string its own control cannot display, prices from it, and exempts it from the stale-pick rule;
+the calculator has no way to be given that string, and the same answer expressed through the control
+gives the same figures.** That is the question for the owner — whether a value the field cannot show
+should price a row at all — not an arithmetic disagreement.
+
+### Vacuity
+
+| Perturbation (product, reverted immediately) | Result |
+|---|---|
+| `compute`: `overrides = undefined` (one line) | **14 of 28 red**, every corpus / SKU / item-list assertion among them |
+| `assembleItems`: family written to `"family_vacuity_12cP"` — the exact 12c defect class | **9 of 28 red**, including both item-list suites and both awaiting-list assertions |
+
+Both restored byte-identically (`git diff` clean, LF intact) and the suite green again. Three
+in-suite vacuity tests ride permanently, and two of them record a trap: emptying one item's ANSWERS
+does **not** bite (several ADP families price from the family alone through ruled defaults), and
+feeding a unit the picker does not offer for the chosen family is a **no-op by design** (12c-S: a
+stored pick the picker no longer lists is not honoured), so each perturbation had to be chosen to
+actually change something.
+
+### Browser live cert
+
+De-stale run in full: bench + honcho + vite killed by PID, all three ports confirmed free,
+`__pycache__` / `*.pyc` / `node_modules/.vite` purged, `bench clear-cache` + `clear-website-cache`,
+bench restarted and **polled until `/api/method/ping` ANSWERED** (~110 s), then vite, then :8080.
+PROOF 1: the served `pricingSheetHelper.ts` (280,264 bytes transformed) and `PricingCalculator.tsx`
+(58,530 bytes) greped for CODE strings — `admitCalculatorOnly` ×2, `familyAttrId` ×2, and
+`family_vacuity` **0**, so the vacuity edit is provably not in what the browser executes. PROOF 2: the
+app boots a real session (sidebar renders as `admins@nirmaan.app`).
+
+| Step | Result |
+|---|---|
+| **E2E-1** `BOQ-26-00175 / Ground floor / 164` | Panel: square diffuser, damper `with`, neck `300`, qty 1 (default), SKU *Diffuser With Al Collar Damper / NECK:300X300/OUTER: 595X595 (600X600)* → **1972 / 576 / 2548**. Calculator, same answers → **identical SKU, identical working lines, 1972 / 576 / 2548**. Stated in advance from the automated layer; SEEN. |
+| **8 — ladder size-up** `… / 163` | Panel: *"neck size 225 is not on the sheet → 300 (next size up, R6)"* → 1972 / 576 / 2548. The calculator's neck control offers only the stocked sizes with no "Other…", so the only enterable answer is the ladder result 300 → **1972 / 576 / 2548**. |
+| **the cause-B row** `BOQ-26-00071 / 276` | Calculator, slot diffuser / `with` / `3` / `rmt` → **2204 / 352 / 2556** = the panel's figures. Recorded above. |
+| **2–7, 9–12** | **NOT RUN.** See *Owed*. |
+
+### Owed
+
+**Browser cert steps 2–7 and 9–12 were not completed.** They were blocked on driving the virtualized
+grid: on `BOQ-26-00071 / LOW SIDE WORKS` the search's *Next match* does not move the row window (the
+window stayed on rows 9–18 through a full-screen toggle and repeated clicks), so the target rows could
+not be brought on screen. Two mechanics learned on the way are worth keeping:
+
+* ⚠️ **SCREENSHOT COORDINATES ARE NOT DOM COORDINATES HERE.** The CSS viewport is 2071 × 1092 while the
+  screenshot frame is 1512 × 797 — a factor of **0.730** on both axes (`devicePixelRatio` 0.9). Every
+  `getBoundingClientRect()` must be multiplied by 0.73 before it is clicked, and a click computed
+  without it lands a row or two away and looks like an unresponsive control.
+* The rate-helper badge is reachable as `button[aria-label="Open rate suggestions"]` inside the row's
+  `<tr>`, and `.click()` on it works; expanding the card needs a real pointer click on its header.
+
+The automated layer covers every one of those rows and SKUs exhaustively, so what is missing is the
+on-screen confirmation, not the result.
+
+Full record: `2026-10-06_12cP_Report.md` and `2026-10-06_12cP_Ledger.md` on the Desktop; the
+per-divergence detail (inputs, both figures, both item lists, both reasons, the first differing step)
+is in the report's §3; screenshots in `2026-10-06_12cP_Screens/`.
+
+---
+
+## Slice 12c-F — PARITY FIXES B AND C, AND THE NOTE BOX MADE PROMINENT (2026-10-06) — SHIPPED
+
+**Commits** `d68c30eb5` (fix) + `8c0891fd0` (style) + the docs commit. Branch
+`feature/boq-pricing-helper`, from `7d6407ecc`. No config, no asset, no doctype, no new HVAC version.
+
+Owner rulings this slice executes: **R-A** cause A accepted ("A is ok - nothin gto be done");
+**R-B** fix B; **R-C** fix C, settled mid-slice as **option (A)** ("sq.ft is an area spelling; the
+ruling was 'priced by area, never by number'"); **R-D** cause D accepted ("its ok. let it be");
+**R-E** the blue boxes; **R-F** the skipped 12c-P on-screen checks go to 12d-2, not here.
+
+### Fix B — a model-read value prices only through the option it means
+
+The 12c-P cert photographed the defect: the extraction read `"2 slot"`, the Slots dropdown offers
+`2` and `3`, and a controlled select with no matching option falls back to its placeholder — so the
+field read *"— select —"* beside a row priced at 1160 / 352 / 1512 **from the raw string**. The figure
+was right; the screen could not say where it came from, and a pricer reproducing the row in the
+calculator could only pick `2` with no way to know that was the same answer.
+
+`matchStatedToOption(stated, options, reader)` (in `itemListPricing.ts`, beside the one number
+reader) states the rule in order: no options → no match; same TEXT (trimmed, whitespace-collapsed,
+case-insensitive); same NUMBER read with the SAME `readNumber` the pricing uses. That takes
+`"3 Slot"` → `3`, `"200 Dia"` → `200`, `"6mm"` → `6`, `"1:6"` → `6`.
+
+⚠️ **IT DEFINES NO SECOND PARSER, AND THAT IS THE WHOLE DESIGN.** `readNumber` is already how the
+PRICING understood `"2 slot"` — which is precisely why the row priced correctly while the field sat
+blank. A private parser here could read a value the pricing does not, and the field would then show a
+number the rate was not computed from: the same defect inverted.
+
+⚠️ **IT NEVER INVENTS.** An unstocked 225 against 300 / 375 / 450 matches NOTHING and is left alone,
+so the ladder still buys the next rung and the field still shows it. Matching and laddering are
+different questions and this answers only the first. Proven live in the browser:
+`matchStatedToOption("225", ["300","375","450"], …)` → `null`.
+
+⚠️ **A VALUE THE PRICER TYPED IS NEVER REWRITTEN** — `edit.attrs` is theirs, and an "Other…" entry is
+deliberately unstocked; rewriting it would be the substitution 12c-S forbids.
+
+The second half is the owner's rule that *a row must never price from a value its field cannot show*.
+`fieldCannotShowValue` asks that of a priced row, and **three mechanisms answer it first because each
+SUPPLIES the shown value**: a ladder hop, a ruled default, a config override.
+
+⚠️ **THE FIRST DRAFT LACKED THAT AND REFUSED FOUR ROWS FOR `Damper: None`.** `"None"` is POSITIVE
+ABSENCE — the answer the ruled defaults consume ("damper not mentioned = without") — so the field
+shows `without` and nothing is hidden. The test is **what the field will DISPLAY**, not what the model
+wrote. Caught by the corpus sweep, not by a unit test.
+
+⚠️ **NO PRICING FUNCTION WAS TOUCHED.** The match runs on the assembled attributes before
+`priceItemList`; the refusal is read off its result, exactly as the stale-pick rule already withholds
+a cleared value.
+
+### Fix C — the picker offers the units the pricing can convert into
+
+A `unit_factors` unit belongs to a class AND scales the rate (sq.ft → sq.m × 0.0929). It was offered
+nowhere, so a BoQ row written in sq.ft priced on the panel and was unreachable in the calculator.
+`unitChoicesOf` now appends it — **one spelling per unit** (ADP declares four spellings of the same
+square foot), filtered through the SAME `allowed` set the native classes are.
+
+⚠️ **IT ADDS A SPELLING, NEVER A CLASS**, which is what keeps `units_not_offered` the only thing
+deciding classes. Double-skin plenum gains sq.ft and still offers **no Nos** — owner option (A).
+
+### Measured, both paths, before and after
+
+Over all 96 stored runs (10,460 rows, 4,695 input classes), by stashing the three product files and
+re-running the identical sweep:
+
+* **PANEL OUTCOMES: zero diff lines.** Not one row, either discipline. No Electrical row changed.
+* **UNIT CHOICES: the only diff is `sqft`**, calculator-side, on every area-priced family.
+* cause **B 11 → 0**: eight rows now agree to the rupee; the other three were never value problems and
+  are reclassified C.
+* cause **C 5 → 5**: the three sq.ft rows now agree; the two always-unit-shaped remain, joined by the
+  three from B.
+* The parity list drops **97 → 86 classes**; `STATUS_BY_CAUSE` records A and D as ACCEPTED BY OWNER.
+
+**The five still awaiting, by name** — every one is "the row's unit is one its family cannot be priced
+in at all", and **none is the double-skin Nos case**, which is a FAMILY-level observation with no row
+in this corpus and is left for 12d:
+
+| Row | Family | Row unit | What differs |
+|---|---|---|---|
+| `BRSR-26-01311#25` | spigot | `Rmt` | spigot is per-number only; panel refuses *"no SKU per metre for spigot"*, the calculator prices in a unit it can offer |
+| `BRSR-26-01311#27` | spigot | `Rmt` | same |
+| `BRSR-26-01311#52` | actuator | `Sqm` | actuator is per-number only; panel refuses *"no SKU per sq.m for actuator"* |
+| `BRSR-26-01312#51` | butterfly damper | `R/O` | `"R/O"` is not a unit at all — panel refuses *"unit 'R/O' is not a count, area or length unit (R12)"* |
+| `BRSR-26-01369#43` | round diffuser | *(none)* | the row carries no unit — panel refuses *"no unit on this row (R12)"* |
+
+**No row now refuses under fix B.** The refusal is a backstop: after the matcher, every corpus value
+that could price also matches an option. It is tested as a predicate rather than left unreachable and
+unexercised.
+
+### R-E — the note box
+
+Was a 40%-opacity accent tint with ordinary foreground text; now a solid blue box, blue text, info
+icon, both themes. Raw `blue-*` utilities **deliberately**: this panel's other annotation tones are
+already raw colours (the amber default fill, the amber rule line) because these are MEANINGS, not
+theme roles — and `accent` IS a theme role, the same token hover states use, which is why the box
+vanished into the card. The two call sites (Electrical's attribute notes, HVAC's item-list field
+notes) were two identical hand-written strings free to drift; they now share ONE exported
+declaration, which 12c-S's "the two disciplines must not read in two different colours" ruling
+requires and could not previously enforce.
+
+### Tests
+
+New `modelValueMatching.test.ts` (19) and `noteBoxStyle.test.ts` (3); the parity suite grew to 33.
+Six pins were **INVERTED, never deleted**, each keeping its negative half: the `panel_ratio` record
+(`"1:6"` → `6`), the `150MM DIA` silence, the note-box class count, and three unit lists including the
+double-skin one the owner ruled on by name.
+
+Vacuity, each applied and reverted: disabling the numeric match → 7 red; disabling fix C → 7 red;
+disabling the refusal predicate → 1 red; reverting the blue box → 3 red.
+
+### Browser live cert
+
+De-stale in full. `kill -TERM` did not take honcho (the documented 2026-09-29 behaviour) — escalated
+to `-9`; a `<defunct>` row remained and `NOLISTENERS` confirmed all three ports free, which is why the
+rule is *check listeners, not process rows*. Bench first, polled to **ANSWERING** (~80 s), then vite.
+PROOF 1: the served `RateHelperPanel.tsx` carries `NOTE_BOX_CLASS` ×3 and `bg-blue-50` ×1 with
+**`bg-accent` = 0**. PROOF 2: a runtime `await import()` ran `matchStatedToOption("2 slot",["2","3"])`
+→ `"2"` and `("225",["300","375","450"])` → `null` in the browser.
+
+| Step | Expected | Seen |
+|---|---|---|
+| E2E-1 `BOQ-26-00071/276` | Slots `3`, 2204 / 352 / 2556 | panel: Slots **3** + *"BoQ says 3 Slot → 3"*, **2204 / 352 / 2556**; calculator at slots 3: **identical** |
+| fix-B no-match row | a row refusing by name | **none exists** — after the matcher no corpus value both prices and fails to match. Reported, not faked |
+| fix C `BOQ-26-00210/83` | sq.ft offered, equal to panel | panel **728 / 179 / 907** per Sqft via *"per sq.ft: sq.m rate x 0.0929"*; calculator at `sqft`: **728 / 179 / 907** |
+| double-skin plenum | no Nos | offers `sqm, sqft`, **no Nos** |
+| blue boxes | panel + calculator, both disciplines | HVAC panel ✓, Electrical panel ✓ (2 boxes, row 148), HVAC calculator ✓ (2 boxes, Insulation) |
+| samples unchanged | Electrical + ADP | db_switchgear row 94 **19630 / 3930**; ADP row 82 **1160 / 352 / 1512** |
+| counts / checksums | unchanged | configs `d017732c773cf03b`; Electrical 1,402 `ae386e014ca9d001`; HVAC 331 `e85bb49cc3b181ac`; 96 runs; 37,702 cell-pricing rows |
+
+⚠️ **ONE AUTHORISED WRITE.** `BOQ-26-00071 / LOW SIDE WORKS` had its category gate shut, so no
+rate-suggestion badge renders and E2E-1's named row was unreachable read-only. Owner authorisation of
+2026-10-06 was used: **"Override the check" applied at 2026-10-06 13:24:26 IST by `admins@nirmaan.app`**,
+reason *"12c-F parity cert (owner-authorised 2026-10-06) -- read-only, no rate written"*. It is the
+most recent of 84 such overrides in the database and the only one from this slice. **It was left in
+place** (the standing rule is to report, not repair). No rate, item, config or run was written —
+`BoQ Cell Pricing` is unchanged at 37,702 rows and "Use this value" was never pressed.
+
+Fast render needed no restoring: it is session-only page state with no `localStorage` key, and every
+fresh page load reads "on".
+
+Full record: `2026-10-06_12cF_Report.md` and `2026-10-06_12cF_Ledger.md` on the Desktop; screenshots
+in `2026-10-06_12cF_Screens/`.
+
+## Slice 12c-T — TEST TIDYING, THE DEV RESIDUE CLEAN-UP, AND A DOM TEST ENVIRONMENT (2026-10-07) — SHIPPED
+
+**Build slice; tests + one authorised dev-data clean-up. No product source file, config, asset or
+real item changed.** Branch `feature/boq-pricing-helper`, slice-start tip `bf80bca9f` (= origin).
+Commits: `87917d6d3`, `f2170c17d`, `4a7d44171`, plus this docs commit. Not pushed.
+
+### Why
+
+12c's full runs carried **19 known failures**. Nine were ours: five rate-file tests that never
+followed the owner's own changes, and four that tripped over test residue or the live site's
+settings. The dev database held **861 configs / 103,135 items / 348 retirements**, all `TEST_RM_*`.
+12d's full runs should start clean so a new failure stands out.
+
+### The before / after, measured in-session (never quoted from a document)
+
+| suite | before (`bf80bca9f`) | after |
+|---|---|---|
+| Python, full app | `Ran 7303 tests in 2241.419s` — failures=14, errors=7 (21 entries = **19 distinct** + a `tearDownClass` + `two_sources` listed twice) | see the final-run table below |
+| vitest, full | 1 failed / 4970 passed (**4971**), 139 files, 246.3 s | 1 failed / 4974 passed (**4975**), **140** files |
+| `tsc --noEmit` | **3,169** errors app-wide; exactly **3** in rate-master/rate-helper files | **3,169**; still exactly **3**; 0 in the new file; the two error sets diff-clean |
+
+### What shipped
+
+**1 — the rate-file tests follow the owner's columns and explanation row (`87917d6d3`).**
+t05 / t06 / t21 had failed since the commits that changed the file under them: `supply_formula` /
+`install_formula` (`2e8804298`, 2026-09-27, slice 12a) and the formula/EXPLANATION row from the same
+commit. `read_xlsx` returns that row as data row 1 and the IMPORTER drops it by its marker, so a raw
+sheet read sees 96 rows where it saw 95 and the SKUs start at physical row 3. Each claim retired by
+INVERSION, never deletion.
+
+⚠️ **The derived rate-column LABELS (`09c289fd4`, slice 12b(B)) do NOT apply to these three tests,
+and that is the gate working rather than a gap** — `derive_rate_column_labels` returns `{}` unless
+the discipline is literally in `RATE_LABEL_DISCIPLINES`, and all three load their asset under a
+scratch `TEST_RM_*` discipline. The slice prompt asked for the labels here; asserting one would
+assert a falsehood. t06 now pins the EMPTY label map and that no header carries a bracket suffix;
+the labels themselves stay pinned by `TestRateColumnLabels12bB` / `TestRateColumnLabelHeader12bB`,
+which call the deriver with the real discipline name.
+
+**2 — tests clean up after themselves (`f2170c17d`).** One shared `_purge_test_disciplines` replaces
+12 copies of an unguarded purge; `test_spec_reader` imports the same function rather than keeping a
+copy (two copies either side of a shared live database is the disagreement-at-the-worst-moment the
+BCS import-direction law forbids). It ROLLS BACK FIRST, then purges each discipline in its own
+try/except and reports failures instead of swallowing them. `ai_settings` isolates its own state
+without ever reading the real key; `ceo_hold`'s `two_sources` ends the poisoned transaction its
+predecessor leaves.
+
+**3 — a DOM test environment (`4a7d44171`).** `jsdom@^26`, devDependency only, container-installed;
+two vitest projects so jsdom reaches ONLY the files that opt in; and the first DOM test — the Rate
+Master data viewer rendered for HVAC Insulation and Electrical wiring_cabling, asserting every cell
+sits under its correct header. That is the class `rateMasterGridColumns.ts` records: the header row
+and the body row each carried their own ordering, the `unit` header moved and the body cell did not,
+and every grid rendered its values one place LEFT of their headings. Invisible, because every figure
+was still plausible and only its label was wrong.
+
+### ⚠️ ITEM 2 IS BLOCKED, BY THE SLICE'S OWN STOPPING CONDITION — the owner rules
+
+The Excel-row proof was run FIRST, read-only, on the live `HVAC` / `hvac_adp` download:
+
+| | |
+|---|---|
+| physical row 1 / row 2 | HEADER / FORMULA row (`FORMULA_ROW_MARKER` confirmed) |
+| first five SKU physical rows | 3, 4, 5, 6, 7 |
+| chosen SKU | physical Excel row **5** (`rmi-11efe4d759d4`) |
+| its `category` cell corrupted, through the PREVIEW | `Row 4 -- the file says category 'zz_not_a_category', which is not a category of HVAC (…)` |
+| **message row 4 vs physical row 5** | **NOT EQUAL** |
+| did the preview write anything? | **No** — all four table counts identical before and after |
+
+**The row number in a refusal is the DATA-ROW INDEX, and it has always been one less than the
+physical Excel row.** `csv_importer.parse_csv_text`'s own docstring claims *"the number a user sees
+in Excel is that + 1 for the header, which the messages account for"* — **they do not**; `apply_plan`
+renders `"Row %d -- "` from the raw index. This predates slice 12a: before the formula row existed,
+data row 1 was physical row 2, the same one-row gap. **What 12a changed is which numbers appear, not
+the size of the gap** — the formula row is numbered as a data row and only then dropped by its
+marker, so the first SKU now reports 2 instead of 1, which is exactly t32's symptom.
+
+**t22 and t32 are therefore UNTOUCHED.** Updating them to the numbering the code emits today would
+bake the off-by-one into the test suite, which is what the stopping condition exists to prevent. Two
+candidate remedies for the owner, NEITHER APPLIED:
+
+1. **Report the physical row** — add back the header (and the formula row where present) when a
+   message names a row, so "Row 5" means Excel row 5. A `csv_importer` change, out of this slice's
+   scope; t32's expected list would become `[3..97]`.
+2. **Keep the numbering and say what it counts** — e.g. "data row 4". Cheaper, still a product
+   change, and still leaves a pricer counting rows by hand.
+
+⚠️ t22's `97 != 96` has a second, test-local cause worth separating: it rebuilds the file from
+`xlsx_io.read_xlsx`, which hands back the formula row AS A DATA ROW, so its own fixture carries 96
+rows before the new SKU and the new row lands at data index 97. The product's `unchanged` count is
+still 95.
+
+### The residue — a premise that measurement reversed
+
+The slice prompt said the residue is *"left behind by tests that never clean up"*. **Measured in
+session: FALSE for a clean run.** The before full run (7,303 tests) left ZERO new rows — 861 /
+103,135 / 348 and 90 disciplines before it and after it. Every one of the 13 rate-master suites
+already had a purge and all of them worked.
+
+**The leak is CONDITIONAL.** A primary-key violation ABORTS the postgres transaction;
+`FrappeTestCase` has NO per-test rollback (its only one is `addClassCleanup(_rollback_db)`, which
+runs AFTER `tearDownClass`); so in a purge written as one unguarded block the FIRST delete raises
+and every discipline after it is stranded — silently, while the tests report OK. `test_f18` already
+documents the same cascade ("18 cascading errors plus tearDownClass") and guards itself with a
+savepoint. Proved with a throwaway probe (two scratch loads then a bare `SELECT 1/0`, no savepoint),
+deleted immediately afterwards:
+
+| purge shape | outcome | residue delta | the tests said |
+|---|---|---|---|
+| OLD, unguarded (what all 12 classes carried) | RAISED `current transaction is aborted, commands ignored until end of transaction block` | **+2 configs / +1,176 items** | `OK` |
+| NEW, shared, abort-proof | clean, no warning | **+0 / +0** | `OK` |
+
+So the honest answer to *"enumerate every test that creates TEST_RM_* without removing it"* is
+**none, under a clean run** — what existed was 13 suites whose purge could be stranded by any
+transaction-aborting failure in their own class. Search space: `grep -rn "TEST_RM_" --include=*.py .`
+over the whole app (14 call sites in 2 files). `TEST_RMF_*` and `TEST_BP_*` left **0** rows, so their
+purges demonstrably worked too.
+
+### The clean-up (authorised, T1)
+
+Filter `discipline LIKE 'TEST\_RM\_%'` — a literal prefix, the escaped `_` keeping `TEST_RMF_` and
+`TEST_BP_` out — plus the `Version` rows pointing at those documents. `BoQ Rate Master Freeze` is a
+Single with no `discipline` column and is excluded.
+
+Dry run matched **863 configs / 104,311 items / 348 retirements / 19 snapshots / 15 Versions**:
+**+2 and +1,176 against the triage register, and that difference is exactly what this slice's own
+probe added**. Every matched discipline was `TEST_RM_`-prefixed; **0** rows of `Electrical` / `HVAC`
+/ `ELV` matched; **0** rows whose discipline was not a `TEST*` discipline. Backed up to
+`2026-10-07_12cT_Residue_Backup.json` (100,935,604 bytes) and verified by re-reading the file BEFORE
+any delete. Deleted in batches of 5,000; all four remaining counts **0**. Raw SQL was correct here:
+`hooks.py` carries **no `doc_events` on any rate-master doctype**, so the document layer had nothing
+to fire and nothing derived is left stale.
+
+**Untouched, digests ordered by a TOTAL key:** active configs 22 and active items 1,733 (Electrical
+1,402 / HVAC 331) with **IDENTICAL** digests before and after, 6 retirements identical, 96 runs,
+`BoQ Cell Pricing` 37,702. Only the totals moved, by exactly the deleted counts (items 128,460 →
+24,149; configs 1,201 → 338).
+
+### jsdom — what it cost, and what it does not buy
+
+⚠️ **The owner's one-project `// @vitest-environment jsdom` form COULD NOT WORK, and the reason is
+structural.** jsdom's environment bootstrap measures **~36 s** here, against vitest's worker-start
+limit of a **HARDCODED 60 s** (`START_TIMEOUT` in its dist — not a config option and not a CLI flag;
+`--testTimeout` / `--hookTimeout` / `--teardownTimeout` do not govern it). Under full-suite load the
+jsdom worker lost that race and vitest dropped the file with *"Failed to start forks worker"*,
+reported as an **UNHANDLED ERROR rather than a failed file** — so the counts read exactly as the
+baseline (139 / 4971) while the test never ran. It failed at 73 files too, so it was not a tail
+effect. **A silently skipped test is worse than no test.**
+
+The owner then authorised a `vitest.config.ts` change **on condition it reach only files that opt
+in**. Two projects: `unit` keeps environment `node`, the same include glob, the same pool and the
+same timeouts and merely EXCLUDES the DOM glob; `dom` runs the jsdom files alone (`maxWorkers: 1`,
+`singleFork`). Opt-in is by filename (`*.dom.test.tsx`) and each DOM file also carries the docblock,
+so the opt-in stays legible in the file itself.
+
+| run | files | tests | known failure | `environment` |
+|---|---:|---:|---|---|
+| baseline, pre-jsdom | 139 | 4971 | writeOffControl | 19 ms |
+| `--project unit` alone | **139** | **4971** | same | **11 ms** |
+| `--project dom` alone | 1 | 4 | — | 35.68 s |
+| both (plain `vitest run`) | **140** | **4975** | same | 36.86 s |
+
+The `environment` timing is the confinement proof: 11 ms in `unit`, every millisecond of jsdom's
+cost inside `dom`. Total time 222–230 s against a 181–246 s baseline range.
+
+Vacuity proved from BOTH sides and restored each time: a one-sided HEADER move (the `8fa8d3262`
+shape) turns test (a) red and names the drift in the owner's own terms — "Insulation material" under
+"Cladding", a markup under `cost_cladding`; a one-sided BODY move turns test (b) red on 90 cells.
+(b) stays green for a header-only move BY DESIGN — the body maps `cells[key]`, keyed, so only the
+header can drift today, and (b) is what guards the day someone rewrites the body positionally. A
+floor on the number of cells actually compared stops the whole file passing vacuously.
+
+⚠️ **jsdom is the DOM, not the browser**: it does no layout, `getBoundingClientRect()` returns
+zeros, and `ResizeObserver` is absent and stubbed IN THE TEST FILE, never in product code.
+Sticky-column widths, the Radix pickers and the controlled-`<select>` trap remain live-browser
+questions. **Still owed:** a DOM test for the app-shell same-route-param remount invariant, which
+was the deferred reminder's original subject.
+
+⚠️ `yarn add --dev --exact=false` made yarn 1 install a package literally named `false`; it was
+removed and neither it nor its lock entry survives. **Abhishek should know: this slice adds a
+devDependency and moves `frontend/yarn.lock`.**
+
+### Anomalies disclosed rather than smoothed
+
+- The first draft of `test_24i`'s cleanup captured the config blob and handed it back to `set_value`;
+  `frappe.db.get_value` PARSES a JSON field, so postgres received a python dict literal, answered
+  `syntax error at or near "{"`, and took out the next 66 tests in the class — the very cascade this
+  slice is about. It purges the scratch discipline instead, which needs no round trip through a value.
+- The T5 security pin caught the new `ai_settings` negative test handing the key getter's result
+  straight to an assertion. The pin is right and absolute — it carves out no exception for a
+  harmless stand-in — and the test was restructured to assert only locals and derived booleans.
+- `ai_settings` now passes on a site that HAS a key configured and `enabled=1`. The Single's real
+  values (`enabled=1`, `request_timeout_seconds=400`) were captured and restored; a hardcoded 120
+  would have silently rewritten the owner's 400, with no Version row to show it.
+- No browser cert: no user-visible change was expected or made, and UI change control (#57) says a
+  visible change would have been a STOP.
+
+## Slice 12c-U — THE MISSING-UNIT / RATE-ONLY RULE, THE PARITY LABELS, AND REAL EXCEL ROWS IN UPLOAD ERRORS (2026-10-07) — SHIPPED
+
+Branch `feature/boq-pricing-helper`, slice-start tip `19af6b2ed` (= origin). Commits `8a6abfa36`,
+`ced31a6f0`-class fix for the row numbering, plus this docs commit. Not pushed. No AI calls — every
+measurement replays stored extractions. No config, asset or item changed; no new asset version.
+
+### The rule (owner U1–U5)
+
+A BoQ row that states **no unit**, or a **rate-only** spelling, is priced in **the catalogue's unit
+for its item**, and says so. Where the item can be priced in **more than one** unit it **refuses and
+names them** — it never guesses.
+
+| the row's unit cell | what happens |
+|---|---|
+| blank | the item's one unit, note *"No unit on the BoQ row -> priced per `<unit>`, the catalogue's unit for this item"* |
+| `R/O`, `RO`, `R.O.`, `R O`, `Rate Only` (case and punctuation ignored) | the same, note *"BoQ says `<as written>` (rate only) -> priced per `<unit>`, …"* |
+| blank or rate-only, but the item is priced in SEVERAL units | REFUSES: *"… - this item is priced per `<a>` or per `<b>`; set the unit"* |
+| a unit that IS a unit but is wrong for the item (spigot per metre, actuator per sq.m) | refuses exactly as before — **owner U1, unchanged** |
+
+⚠️ **THIS SUPERSEDES ADP's R12 ("no unit -> refuse") FOR A MISSING OR RATE-ONLY UNIT ONLY.** Owner
+U2: *"no unit at all should be priced in the default unit of the SKU with proper comment"*. U3:
+*"R/O is rate only. tthese should also be priced in the default SKU unit with appropriate comment"*.
+U4 (*"agreed"*): more than one unit refuses, naming them. Nothing else in R12 changes — a unit the
+row STATED and that is wrong for the item still refuses, because the BoQ said something and it was
+wrong, which is a different fact from the BoQ saying nothing (owner U1: *"all theseshould refuse
+pricing"*).
+
+⚠️ **"MORE THAN ONE" IS DECIDED ON UNIT CLASSES, NEVER SPELLINGS.** The set comes from
+`familyUnitClasses` — the SAME function `unitChoicesOf` reads for the calculator's picker — so the
+rule inherits 12c-S's `units_not_offered` and 12c-F's `convert` conversions and cannot drift from
+it. **Counting spellings would refuse every ADP row**, because `sqm` and `sqft` are two spellings of
+the one `area` class. Across a row's items it is the **INTERSECTION**: a row prices in ONE class, so
+a class counts only if every item on the row can be priced in it. (`unitChoicesOf` takes the UNION,
+because a picker offers what ANY block could use; a ROW must be priceable in the class it picks. One
+source, two questions.)
+
+⚠️ **THE RATE-ONLY TEST CANNOT SHADOW A REAL UNIT, AND THAT WAS MEASURED.** `unitClassOf` is
+consulted FIRST, and over both shipped item-list categories' live `unit_classes` + `unit_factors`
+every rate-only spelling resolves to `null`. A category that one day declares a unit spelled "ro"
+would keep it.
+
+⚠️ **THE SCOPE IS NARROWER THAN U5 READS, AND THE MEASUREMENT IS WHY.** Electrical rows with no unit
+or "R/O" **already price**: the row unit is not an input to the non-item-list path at all
+(`BRSR-26-00032#302` point_wiring "R/O" prices 15411/2260/13151 on both surfaces;
+`BRSR-26-00039#90` db_switchgear blank prices 32000/5340/26660; `BRSR-26-00041#115`
+switches_sockets blank prices 90/20/70). Of **31** blank/rate-only row-classes in the corpus only
+**2** are item-list. So the rule lives in the shared `priceItemList` path, names no discipline or
+category (U5 honoured), and nothing Electrical moves.
+
+### Item 4 — the before/after, both real paths, every discipline
+
+7,094 outcome lines (every corpus class + the whole catalogue sweep, panel AND calculator).
+**Exactly two changed**, both in the permitted set, and **both close a parity divergence**:
+
+| discipline | BoQ#row | item | unit | before (panel) | after (panel) |
+|---|---|---|---|---|---|
+| HVAC | `BRSR-26-01312#51` | butterfly damper, dia 100 | `R/O` | REFUSED *"unit 'R/O' is not a count, area or length unit (R12)"* | **PRICED 334 / 0 / 334**, = the calculator |
+| HVAC | `BRSR-26-01369#43` | round diffuser, **dia_mm null** | *(none)* | REFUSED *"no unit on this row (R12)"* | **REFUSED *"no diameter stated"***, = the calculator |
+
+⚠️ **`#43` DOES NOT PRICE, AND THAT IS CORRECT.** Its stored extraction carries no diameter, so
+resolving the unit could not conjure one. The fix makes the two surfaces AGREE; it does not invent a
+figure. Both rows now report 0 divergences.
+
+### The parity list
+
+Cause C **splits 5 -> 3**, because the five rows were never one thing: some BoQs stated a unit that
+was WRONG for the item and some stated NOTHING, and the owner ruled those opposite ways. The two
+above are REMOVED (they agree); `BRSR-26-01311#25`, `#27` (spigot per metre) and `#52` (actuator per
+sq.m) stay listed and are now **accepted by owner** under U1. **Nothing in this corpus awaits a
+ruling.** The double-skin-plenum Nos case remains a family-level observation with no row here; it is
+still 12d's.
+
+### Item 3 / U6 — real Excel rows in upload messages
+
+> Owner U6: *"Report the real Excel row"* — the number in an upload message is the row the pricer
+> sees in Excel (header = row 1, the explanation row = row 2 where present, data from row 3).
+
+⚠️ **FIXED AT THE TWO PLACES THE NUMBER IS BORN, NOT AT THE MESSAGE SITES.**
+`csv_importer.parse_csv_text` and `xlsx_io.read_xlsx` now pair each row with its PHYSICAL row,
+through a named `PHYSICAL_FIRST_DATA_ROW = 2` in each module. A dozen sites put a row number in
+front of a user, so +1 at each would be a dozen chances to miss one — and the provenance stamped on
+a hand-added row (`_source_for`) would still disagree with the message that referred to it. One
+definition of "the row" means the preview, the apply, every refusal and the stored `source_row`
+cannot say different things.
+
+The constant is declared in BOTH modules because `csv_importer` imports `xlsx_io`, so sharing it the
+other way would be a cycle; `test_u01` pins the two equal, so they cannot drift.
+It shifts the plan digest harmlessly (preview and apply both derive it through the same reader) and
+a client's per-row answers are keyed by the numbers the preview showed, so they shift with it.
+
+**`parse_csv_text`'s docstring had claimed the messages corrected for the header. They did not** —
+`apply_plan` renders `"Row %d -- "` straight from the index, which is what 12c-T measured on a live
+download (the SKU on physical row 5 reported as row 4).
+
+**Proved on a real file per format per discipline, rate files AND Pricing Inputs — 8 combinations,
+all equal, and the preview wrote nothing** (table counts identical before and after):
+
+| discipline | file | .xlsx | .csv |
+|---|---|---|---|
+| HVAC | rate file (`hvac_adp`) | row 5 = 5 | row 5 = 5 |
+| HVAC | Pricing Inputs | row 5 = 5 | row 5 = 5 |
+| Electrical | rate file (`cabletray_raceway`) | row 5 = 5 | row 5 = 5 |
+| Electrical | Pricing Inputs | row 5 = 5 | row 5 = 5 |
+
+**t22 and t32 were held in 12c-T for exactly this** and are now updated to the physical numbering:
+t22's appended SKU `source_row` 96 -> 98 and its old-format row 1 -> 2; t32's 95 per-row refusals
+`range(1, 96)` -> `range(3, 98)`.
+
+⚠️ **THIRTEEN MORE TESTS MOVED, ALL ONE MECHANICAL CAUSE** (inverted under the mechanical authority,
+never deleted): eight in `test_spec_reader` (t17, t18, t24–t28, t32) and five in `test_rate_master`
+(test_89, e05, e10, e13, e15). Each either keys per-row DECISIONS by the numbers the preview showed,
+or asserts a row number inside a message. Two needed thought rather than a +1: t26's NEGATIVE 1 key
+is a DECOY that must name the row which is NOT the twin (2 -> 3), and its NEGATIVE 2
+wrong-fingerprint key must name the twin row (1 -> 2).
+
+⚠️ **A LATENT FIXTURE DEFECT IN t32 SURFACED, IN TWO PLACES, AND IS WORTH REMEMBERING.** It rebuilds
+rows from `read_xlsx`, whose FIRST row is the formula/explanation row, and casts its cells to
+`float` — which raises on prose. It had never been reached, because t32 failed at the row-number
+assertion above it. Fixing one assertion exposed a second defect underneath; both sites now skip the
+marker row. A test-fixture repair, not a product change.
+
+### Vacuity, every mechanism, each restored immediately
+
+| mechanism | the line disabled | result |
+|---|---|---|
+| the missing-unit / rate-only rule | `if (false && cls === null && …)` | **6 red** |
+| U4's refuse-rather-than-guess | `classes.length === 1` -> `>= 1` | **exactly the 2 U4 tests red** |
+| the physical row numbering | `PHYSICAL_FIRST_DATA_ROW` 2 -> 1, both readers | t22 + t32 red; `test_u01` red with `1 != 2` |
+
+### Records
+
+ADP's **R12 is SUPERSEDED for a missing or rate-only unit** by U2–U4, in the owner's words quoted
+above. Nothing else in R12 changes. The `unitNote` rides on `RowPriceResult` and `ItemListView` as an
+OPTIONAL field present only on such a row, so every other row's result and panel are byte-identical.
+
+## Slice 12d-1a — INSULATION: MATERIAL, CLADDING AND THE MODEL'S QUESTIONS; HVAC v27 (2026-10-07) — SHIPPED
+
+Four code commits + this docs commit: `c8934cf17` (family_when_none + headings on the row context +
+validator), `2b1bbd0e2` (value_map + validator), `fc6752fd0` ("none of these", the neutral sentence, brand
+read-only + validator), `99c224afd` (HVAC v27, the E2E-1 suite + fixture, the asset and model-call pins).
+NO AI call was made. Insulation stays `calculator_only` — eligibility is 12d-2's.
+
+### Each ruling and where it lives
+
+| ruling | lives in | how |
+|---|---|---|
+| **R1** a default only on "not mentioned"; "can't tell" blank; amber; cladding silent -> No; glass cloth silent -> without (inside the cladding value); GI only when stated; density ignored | v27 `list_spec.pricing.defaults.cladding = {value: "No", absent_as_none: false}`; `priceOneItem` (slice-5 defaults path, unchanged) | the model's `"None"` = not mentioned -> No, marked `defaulted` (amber); an answer LEFT OUT stays absent -> "could not tell cladding" |
+| **R2** material not mentioned -> Nitrile by row kind; the named material decides, else the UNIT, acoustic only on "acoustic"/"lining" in the row or its headings | NEW `list_spec.pricing.family_when_none` (`by_unit_class` + `when_words` + `rule`), `itemListPricing.familyWhenNone`, consumed in `priceOneItem` ONLY when the family answer is absent or `"None"`; `rateSuggestionModel.rowHeadings` builds the heading chain from `effective_parent_index` and `buildRowContext(..., rows)` carries it as `headings`; `SheetPricingPage` passes `rows`; `computeItemList` joins description + headings into the pricer's `rowText` | the order is exactly R2's: a stated family wins (never touched); else unit class (length -> Nitrile Rubber, area -> Thermal Nitrile); else, on an AREA row, a declared word at a WORD START (`acoustic`, `accoustic`, `lining`) in the row or a heading -> Acoustic Nitrile. Marked: `familyDefaulted` on the item and the block; amber family + "Not mentioned on the BoQ: <rule>" on the panel; a working line |
+| **R3** an unmappable cladding stays blank; a 22G GI frame = GI Framework | `absent_as_none: false` on the cladding default; the cladding def's `note` (v27) | the prompt's own rule ("cannot map confidently -> leave the attribute out") + the default not firing on an absent answer |
+| **R4** foil on a pipe -> 26G; no foil -> no cladding; sheet -> Aluminium Foil; acoustic + foil -> refuse | NEW `list_spec.pricing.value_map` (two rules in v27), applied LAST in `priceOneItem`, recorded in `overrides` (the panel shows "26G Aluminium") | neither `defaults` (fires over "None") nor `override_when` (refuses a condition on the attribute it sets) could express it |
+| **R5** open cell -> Acoustic; closed cell -> Thermal (sheet) / Nitrile Rubber (pipe) | the `item` def's `note` (v27) — a catalogue fact the model reads | a prompt fact, not a calculation; the family pick is the model's |
+| **R6** unstocked materials -> "none of these", refusing legibly; the "ADP kind" sentence neutral | `item` values + `no_sku_families: ["none of these"]` (v27); `itemListPricingSpec` carries `family_label`; `priceOneItem` says `no <label> could be told for this item` | "no SKU in the catalogue for 'none of these' -- the user decides (R18)" unchanged; the family sentence now "no insulation material …" / "no item family …" (ADP) |
+| **R7** brand returned, shown read-only, never matched | `brand` text def (v27); NEW `list_spec.pricing.panel_readonly: ["brand"]`; `ItemBlockView.readOnly`; the panel's "Brand (BoQ): …" line | the validator refuses any attribute the pricing reads; `itemFieldDefs` never renders it; two rows differing only in brand price identically (pinned) |
+| **R8** second opinion ON while building, OFF before go-live; ADP's untouched | v27 `list_spec.second_opinion: true` on Insulation; ADP's `false` pinned | the asset that goes live in 12d-2 must flip it OFF |
+| **R9** nitrile above 53.98 mm refuses | no change; pinned (`test_v27_05`, E2E-1 R9 case on BOQ-26-00104 r24: "pipe size 150 is above the largest size on the sheet (53.98)") | the catalogue's Nitrile Rubber rungs stop at 53.98 |
+| **R10** thickness rules are 12d-1b's | untouched: `thickness_mm` / `pipe_size_mm` defs byte-identical (pinned `test_mc_03`) | |
+
+### The row-kind order, as code reads it
+
+1. the model's family answer (a stated family, `"none of these"` included) — never overridden;
+2. `by_unit_class[rowUnitClass]` — `length` -> Nitrile Rubber Insulation, `area` -> Thermal Nitrile Insulation; an
+   unmapped class (count, a blank unit before U2 resolves it) -> no default, the old refusal;
+3. for the matched class only, the first `when_words` rule whose words appear (word start, case-insensitive) in
+   the row's description or any heading -> that family (Acoustic Nitrile Insulation).
+Measured on the 466 rate-editable Insulation rows (recon 2026-10-08): the unit class alone decides 444; the
+words move 174 area rows to acoustic; 22 rows have no unit class and keep refusing.
+
+### E2E-1 — thirteen real payloads, both paths, every figure stated in advance
+
+`frontend/src/pages/pricing/insulation12d1a.e2e.test.ts` over `__fixtures__/insulation12d1aRows.json` (payloads
+built by `extraction._ai_item` from the live corpus; hand-written answers in the response shape). Panel path =
+`makePricingSheetHelper` with the synthesized extraction; calculator path = `PricingCalculator`'s construction
+fed what the panel shows (`runParity`). **15/15, 0 divergences on every priced case.** Figures (supply / install),
+all computed by hand from the v27 stored parts before the run: (a) AN 15 No 1371/154 · closed cell TN 13 No
+464/154 · (b) silent material per metre NR amber, 25 mm dia -> 28.58, 19 mm: 286/14 · (c) silent per sq.m TN amber
+9 mm: 383/154 · (d) silent + "ACOUSTIC INSULATION" heading AN amber 15 mm: 1371/154 · (e) cladding silent -> No
+amber TN 13: 464/154 · (f) UV coating -> "could not tell cladding", not priced · (g) foil on 32 NB pipe -> 26G
+(shown), 25 mm at 34.93: 545/224 · (h) foil on acoustic -> "foil on an acoustic row - … set the cladding (R4)" ·
+XLPE -> "no SKU in the catalogue for 'none of these' -- the user decides (R18)" · 22G GI frame on Fiberglass 50:
+1757/518 · brand read-only, TN 9: 383/154 · R9 150 mm: refuses.
+
+### What 12d-1b inherits
+
+Thickness: the read-first order, "take the highest" of a slash list (today a 3-value list refuses), the size
+schedule in a heading, double layers (`65 mm + 32 mm`, "2 Layers") — and the latent ordering defect the recon
+found: `number_defaults` is consulted BEFORE `unreadable[n]`, so a stated-but-unreadable thickness would default
+to 9 mm once that default is widened past `Cladding Only`. Also open from the recon: Cladding Only + foil (no
+rule; refuses as "no SKU for this combination"), Fiberglass + foil (same), and the 44 corpus pipe rows above
+53.98 mm that R9 refuses.
+
+### Tests (measured in-session)
+
+vitest **4983 -> 5027 (141 files)** (+44), the same 1 known `writeOffControl` timeout; Python
+**7305 -> 7322** (`Ran 7322 tests in 1573.930s, failures=7, errors=5`), the other teams' 10 + teardown + `test_daily_window_picks_a_wo_touched_since`
+(FAILING IN THE BASELINE TOO, not on the known list — disclosed); tsc **3169 = 3169**, error set identical.
+Vacuity: family_when_none line -> 8 red; value_map loop -> 4 red; readOnly list -> 1 red; each restored green.
+Pins inverted (never deleted, negative halves kept): `test_p01`'s key set (+3 keys, +3 `assertNotIn`), the two
+"ADP kind" / "kind could be told" wording pins, `test_s10_10` re-pointed to v26 by name, `TestSlice12d1aPanelReadonly`
+built on v26 by name.
+
+### Cert
+
+De-staled in full (every step reported in the Report): bench / honcho / vite / esbuild killed BY PID (all died on
+TERM, `-9` needed on nothing), :8000 / :8080 / :9000 FREE by listeners, 202 `__pycache__` dirs + every `.pyc` purged,
+`clear-cache` + `clear-website-cache`, `node_modules/.vite` removed; bench restarted and `/api/method/ping` ANSWERED
+after 238 s; THEN vite (:8080 200 after 45 s); service worker unregistered, storage cleared, tab closed and reopened,
+hard refresh. PROOF 1: the served `itemListPricing.ts` carries `familyWhenNone` x2, `by_unit_class`, `value_map`,
+`family_label` x2, "could be told for this item" (the comment string greps 0); the helper carries `panel_readonly`,
+`readOnly:`, `familyDefaulted`, `ctx.headings`; the panel carries both new test ids. PROOF 2 (runtime import in the
+live page): `familyWhenNone` area -> TN, area + "ACOUSTIC INSULATION" -> AN, length + "acoustic lining" -> NR,
+count -> null. Steps: (1) Calculator -> Insulation: the picker offers the six priceable families and NO "none of
+these"; Thermal Nitrile + Aluminium Foil 13 mm = 581 / 154; Thermal Nitrile + "None" -> the R1 default "No" (the
+working line names the ruling) = 464 / 154; Acoustic Nitrile offers cladding "None" / "No" only (no foil, as the
+catalogue allows), 15 mm = 1371 / 154. (2) BOQ-26-00117 "HVAC BOQ " row 84 (ADP, model answered "none of these"):
+"Not priced -- no SKU in the catalogue for 'none of these' -- the user decides (R18)", wording UNCHANGED. (3) ADP row
+82 = 1160 / 352 / 1512; Electrical BOQ-26-00174 "Electrical " db_switchgear row 94 = 19630 / 3930 (23560). (4)
+After the session: 1,733 items (1,402 / 331), 22 configs (13 / 9), 6 retirements, 96 runs, 37,702 cell-pricing
+rows; every content digest identical before and after the browser work (Electrical items `232744c5`, configs
+`15c3db98`). "Fast render" was turned OFF to reach rows and back ON; no category-lock override was needed; "Use
+this value" never pressed. ⚠️ The Chrome window was NOT foregrounded (the tab reported `visibilityState: hidden`):
+pointer clicks on Radix pickers did not take, so the picks were driven by synthetic ArrowDown / Enter and DOM
+clicks, and `Page.captureScreenshot` timed out on roughly every second attempt -- five screenshots were captured on
+retry and filed; every SEEN value was ALSO read from the live DOM.
+
+### Files
+
+`itemListPricing.ts` (+ `.test.ts`), `pricingSheetHelper.ts` (+ `.test.ts`), `RateHelperPanel.tsx`,
+`rateHelperTypes.ts`, `rateSuggestionModel.ts` (+ `.test.ts`), `SheetPricingPage.tsx` (one line),
+`calculatorPanelParity.harness.ts`, `insulation12d1a.e2e.test.ts` + fixture, `config_validation.py`,
+`test_rate_master.py`, `test_extraction_coercion.py`, `rate_master_hvac_all_v27.json`, root `CLAUDE.md`, this file.
+Full record: `2026-10-08_12d1a_Report.md` + `_Ledger.md` on the Desktop; screenshots in `2026-10-08_12d1a_Screens/`.
+
+---
+## Slice 12d-1b — INSULATION: THICKNESS, DOUBLE LAYERS, AND THE NAMED "NONE OF THESE"; HVAC v28 (2026-10-07) — SHIPPED
+
+Four code commits + this docs commit: `7ad62fb14` (T1 order fix), `c8b694d8e` (T2 `several` + the hazard pins),
+`699f9d945` (T4 layers + the T6 `typed` gate), `c4d3dfcf0` (HVAC v28, T5, the named sweeps, E2E-1). NO AI call.
+Insulation stays `calculator_only` -- eligibility is 12d-2's.
+
+### T1-T8 and where each lives
+
+| ruling | lives in |
+|---|---|
+| **T1** a stated thickness is read first; unreadable refuses; 9 mm only when nothing is mentioned | `priceOneItem` needs loop: `unreadable[n]` BEFORE `number_defaults` (commit 1); v28 `number_defaults.thickness_mm` with no `families` scope |
+| **T2** several thicknesses -> the highest (a bare slash list of any length) | `NumberReader.several = "highest"` (`readNumber`, commit 2); v28 `numbers.thickness_mm.several`; validator closes the value to `"highest"` |
+| **T3** a size schedule is read by the MODEL for this row's size | the v28 thickness note ("read the thickness for THIS row's pipe size"; a list / two layers copied AS WRITTEN); pinned by `test_mc1b_03` |
+| **T4** double layers -> each layer its own item, cladding on the outer only | `readLayers` ("a + b", "a x N" / "N x a", "N layers of a"; N a digit or two / double) -> `composeInto` with `outer_only`, through the UNCHANGED expansion in `priceItemList`; the line "BoQ says 65 mm + 32 mm -> priced as two layers, 32 + 65 mm (97 mm); cladding on the outer layer only" (commit 3) |
+| **T5** "none of these" names the material | v28 `material_as_written` text def + `no_sku_named_by`; `priceOneItem`: "No SKU in the catalogue for XLPE - price this row by hand"; ADP keeps the R18 sentence (no key) |
+| **T6** the calculator's typed "13+13" stays refused | `assembleItems` marks a pricer's entries `typed: true`; the layers parse reads model cells only (commit 3) |
+| **T7** nitrile above 53.98 refuses | unchanged; E2E-1 (c) 80NB |
+| **T8** known Python failures | the baseline's 11 (the 10 + teardown); `test_daily_window…` passed in this slice's baseline |
+
+### The thickness order, as code reads it
+
+1. a STATED thickness is read (`readNumber`): a number; a range -> its top; two slash values -> the higher; with
+   `several: "highest"` any bare slash list -> its highest; inches only on an `inches` reader and only a real
+   fraction (one slash, two numbers) -- a slash list is never an inch;
+2. a stated text the reader cannot take -> if the compose axis and a MODEL answer that `readLayers` accepts ->
+   the layers go to the composition path; otherwise REFUSE by name ("no number in '…' for thickness", "several
+   values stated …") -- never a default;
+3. nothing mentioned -> `number_defaults` 9 mm, marked amber, then the ladder (13 on Nitrile Rubber at any pipe,
+   9 on Thermal / Acoustic, 12 on Fiberglass, the pipe's stocked size on PUF) / composition above the top rung.
+
+### E2E-1 -- thirteen real payloads, both paths, every figure stated in advance (two corrected, recorded)
+
+`insulation12d1b.e2e.test.ts` over `__fixtures__/insulation12d1bRows.json`: 12/12. (a) NR 238/14 · TN 383/154 · FG with
+its GI frame **1126/385** (first stated 310/154 for cladding "No" -- corrected by the sheet rule before the line changed) ·
+PUF 50@50 with 26G **600/224** (first stated 210/14, same correction) · (b) 743/238 composed 13 (No) + 19 (26G) · (c) 50NB
+615/224, 80NB refuses (53.98) · (d) 476/28 as two 13 mm layers -- **the calculator path diverges BY RULING (T6) and the
+test names it** · the 65/80/100 + 32 rows refuse "no pipe size stated" · (e) "no number in 'as specified in the tender
+specs.' for thickness" · (f) "No SKU in the catalogue for XLPE - price this row by hand". Disclosed: no corpus pipe row
+is silent on thickness and every slash-list heading carries a schedule, so (a) and (b) are hand-written answers on real
+payload shapes (the fixture's `answer_note` says so per row).
+
+### What 12d-2 inherits
+
+Eligibility (the `pipelines` key + removing `calculator_only`, in ONE change -- FA7); `second_opinion` OFF in the asset that
+goes live (R8); the first production classify / suggest runs as the out-of-sample measurement; the calculator's typed
+layers (T6 "let it be for now"); Cladding Only + foil and Fiberglass + foil (refuse "no SKU for this combination"); the 44
+corpus pipe rows above 53.98 mm (R9 / T7).
+
+### Tests (measured in-session)
+
+vitest **5027 -> 5059 (142 files)**, the same 1 known failure; Python **7322 -> 7335** (`Ran 7335 tests in 1466.192s, failures=6, errors=5`); tsc **3169 =
+3169**. Vacuity: T1 order swap 2 red; `several` branch 2 red; layers hook 4 red; named refusal 1 red; each restored green.
+Pins inverted (never deleted): two 12c-S "written-out layers refuse" pins (typed still refuses; a model answer now
+prices -- the positive half added), this slice's own T1 negative (typed), the `assembleItems` cell-shape pin (`typed: true`
+on a pricer's entry, none on a model cell), `test_p01`'s key set (+`no_sku_named_by`), `TestSlice12d1aAsset` re-pointed to
+v27 by name with `test_v27_01` inverted ("CURRENT has moved past v27").
+
+### Cert
+
+Full de-stale first (every process ended on TERM, ports free, 202 `__pycache__` purged, `.vite` removed, bench + vite
+restarted, site data cleared, fresh login). PROOF 1 (served source): `function readLayers` x1, `reader.several ===
+"highest"` x1, `no_sku_named_by` x1, `price this row by hand` x1, `layersFrom` x6, `slashCount` x2; the helper's `typed:
+true` x1. PROOF 2 (runtime `await import(...)` in the live page): `readLayers("65 mm + 32 mm thick")` -> `[32, 65]`,
+`"19 x 2"` / `"2 layers of 19 mm"` -> `[19, 19]`, `"600 x 600"` -> null; `readNumber("19/ 25 / 32 mm", {several:
+"highest"})` -> 32 with the note, without `several` -> refuses; on an `inches` reader the same list refuses ("several
+values") and `7/8"` -> 22.225. `document.visibilityState === "visible"` throughout (the window WAS foregrounded this time).
+
+| step | stated in advance | seen |
+|---|---|---|
+| 1 | Calculator -> Insulation (mts) -> Nitrile Rubber, pipe 19.05, cladding No, thickness Other... 32: composed 13 + 19, 219 + 255 = **474 / 28 / 502** (the 12c figure, so the T1 order moved nothing); then cladding 26G: inner layer install stays **14** (cladding 0), outer **224** = (10 + 150) x 1.4 | **SEEN** both: "You typed 32 mm -> priced as 13 + 19 mm (32 mm, +0)", Layer 1 219/14, Layer 2 255/14, row 474 / 28 / 502 (screen 01); with 26G Layer 1 219/14 "installing the cladding = 0", Layer 2 404/224 "= 150", row 623 / 238 / 861 (screen 02) |
+| 2 | thickness Other... "13+13" refuses (T6); the note still says "a single number" | **SEEN**: "Not priced -- several values stated for thickness ('13+13')", 1 of 1 item needs a person; note unchanged (screen 03) |
+| 3 | ADP BOQ-26-00117 `HVAC BOQ ` r82 = 1160 / 352 / 1512; Electrical BOQ-26-00174 `Electrical ` r94 = 19630 / 3930 | **SEEN** both unchanged: r82 slot diffuser **1160 / 352 / 1512** with the R1 damper default line (screen 04); r94 **19630 / 3930 (23560)** (screen 05). "Fast render" OFF to reach each row, back ON after; "All changes saved" before leaving each sheet |
+| 4 | counts and digests unchanged except HVAC's configs (v28) | **SEEN**: 1,733 items (Electrical 1,402 / HVAC 331), 22 configs (13 / 9), 6 retirements, 96 runs, 37,702 cell-pricing rows -- identical before and after the browser session; Electrical items `232744c5` / configs `15c3db98` identical; live HVAC items AND all 9 configs re-verified `== v28` by content after the session |
+
+"Use this value" never pressed; no category-lock override was needed (both sheets fully priced); nothing written.
+Screenshots (`2026-10-08_12d1b_Screens/`): 01 calculator 32 -> 13 + 19 = 474/28/502; 02 the same with 26G, cladding on
+the outer layer only; 03 "13+13" refused; 04 BOQ117 r82; 05 BOQ174 r94.
+
+### Files
+
+`itemListPricing.ts` (+ `.test.ts`), `pricingSheetHelper.ts` (+ `.test.ts`), `insulation12d1b.e2e.test.ts` + fixture,
+`config_validation.py`, `test_rate_master.py`, `test_extraction_coercion.py`, `rate_master_hvac_all_v28.json`, root `CLAUDE.md`,
+this file. Full record: `2026-10-08_12d1b_Report.md` + `_Ledger.md`; screenshots `2026-10-08_12d1b_Screens/`.
+
+---
+## Slice 12d-2 — SWITCH INSULATION ON (WITH A SMALL PAID SAMPLE); HVAC v29 (2026-10-07) — SHIPPED
+
+Three code commits + this docs commit: `a77e450d1` (eligibility through the one generic predicate, the FA7
+admission retired, HVAC v29 with the S3 thickness note), `6137ce4c4` (S4 "None" not offered where defaulted,
+S5 "BoQ says" / "You typed", S6 the 12c-U wordings + `rateUnit`), `814343acd` (the paid sample's 25 rows
+through both paths, pinned). ONE paid run per sampled BoQ (the real "Suggest rates" button), nothing else.
+Insulation is LIVE on BoQ rows; the first production classify/suggest runs are the out-of-sample measurement.
+
+### S1-S8 and where each lives
+
+| ruling | lives in |
+|---|---|
+| **S1** switch on; `calculator_only` removed, config AND code | the ONE predicate `extraction.has_runnable_pricing_rules` + `config_is_eligible` / `pricingSheetHelper.hasRunnablePricingRules` + `isEligibleConfig`: top-level `pipelines` OR an item-list block whose EVERY unit block and convert option carries its own pipelines, AND definitions. Removed: `isCalculatorOnlyConfig`, `isCalculatorPriceableConfig`, `Deps.admitCalculatorOnly` (helper, calculator, parity harness), `rateMasterTypes.calculator_only`, `config_validation._validate_calculator_only` + `CALCULATOR_ONLY_KEY` + the allowlist entry (the key is refused as unknown). v29's Insulation carries NO key and `pipelines: {}` -- a top-level entry would never execute (`test_fa7_09`'s measurement, kept) |
+| **S2** the sample | run 1 BOQ-26-00137 `CHW pipes , Valves` (11 rows, whole sheet); run 2 BOQ-26-00169 `HVAC` (57 rows whole sheet, 14 Insulation, by the owner's mid-slice direction after the selected-rows button was refused by design: "no completed run to carry forward from") |
+| **S3** thickness order | the v29 `thickness_mm` note: (1) the row's OWN value wins, even where a heading says otherwise; (2) else the heading schedule for THIS row's size; (3) else the list as written; (4) else left out. Pinned by `test_v29_05` + `test_mc2_03` (order + the 12d-1b sentences kept + no "highest"/"default"/"9 mm" in the prompt) |
+| **S4** "None" not offered where defaulted | `itemListPricing.ruledDefaultValue` (ONE reader, shared by `priceOneItem` and `itemFieldDefs`); options drop "None" iff it answers; the field shows the default's catalogue value amber (unchanged `defaulted` rendering) |
+| **S5** "You typed" / "BoQ says" | the composition line reads the 12d-1b `typed` marker on the axis's source cells (`typedByPricer`); the field note already keyed on `userEdited` |
+| **S6** the 12c-U wordings | `priceItemList`: `unitResolved(priced)` -> "priced per <unit>" / "unit taken as <unit>"; `RowPriceResult.rateUnit` -> `ItemListView.rateUnit` -> both `FiguresRow` sites `view.rateUnit ?? view.unit` |
+| **S7** parity always; divergences recorded | `insulation12d2Sample.e2e.test.ts`: 25 real rows, both paths, EXACTLY the named divergences; `AWAITING_SAMPLE_DIVERGENCES` = #290 (`C_option_not_offered`) |
+| **S8** second opinion ON | v29 `list_spec.second_opinion: true` (OFF is 12d-4's) |
+
+### The paid sample (item 9)
+
+| | run 1 | run 2 |
+|---|---|---|
+| sheet | BOQ-26-00137 `CHW pipes , Valves` cv1 | BOQ-26-00169 `HVAC` cv1 |
+| button | whole sheet ("Re-extract the whole sheet (11 rows)?") | whole sheet ("57 rows") -- the 14-row selected pass was REFUSED by the product (417, no prior run) with no call and no write; the owner directed the whole sheet |
+| run | `b0209701d1ee55f99af0167f1afe7e27`, complete, ai ran, 82 s | `dcf2f757c7dc0e056a627ebe2a1dfb6e`, complete, ai ran, 188 s |
+| batch calls (capture log, `claude-opus-4-8`) | 1: 10,114 in / 2,461 out | 8: 41,462 in / 12,436 out (insulation 14, raceway 5, wiring 4, adp 20+11, conduit 1, earthing 1, switches 1) |
+| second opinions | 11 (ON; unmetered -- `second_opinion_usage` is in-memory only) | 14; 3 disagreement flags stored (r289/290/293, all "GSS, not aluminium" on cladding) |
+| totals | 25 Insulation rows (+43 ADP/Electrical on 00169); 9 batch calls = 51,576 / 14,897 tokens; 34 calls in all (cap 80) | |
+
+The per-row table, the S3 check (25 of 25 obeyed the order; 0 rows where the row's own thickness lost to a
+heading) and every refusal by reason are in `2026-10-09_12d2_Report.md`. Headline outcomes on v29 (pure, both
+paths): 00137 r32-r38 refuse "above the largest size on the sheet (53.98)"; r39-r42 615/535/493/460 + 224
+(19 mm single layer from the schedule, 26G); 00169 r80 refuses (65 mm NB); r81-r84 643/574/545/510 + 224
+(25 mm from the heading, foil on a pipe -> 26G by R4); r289 1757/518, r293 1346/385 (Fiberglass, GI
+framework); r290 refuses "no SKU for this combination"; r291 1371/154; r292 "could not tell cladding"
+(R3); r297 500/154, r298 383/154; r301/r302 "No SKU in the catalogue for <material> - price this row by
+hand". Absent from the sample, disclosed: a composed thickness, a double layer in a row's OWN text (the
+00137 80-250 NB rows answered "Double layer of 19mm thick" from the heading but refuse on the pipe size
+first), a defaulted material.
+
+### Live cert (de-stale -> PROOF 1 -> PROOF 2 -> steps 1-7)
+
+Every process ended on TERM; ports free; 202 `__pycache__` purged; caches cleared; `.vite` removed; bench
+ping after 247 s, THEN vite (36 s). PROOF 1: `function hasRunnablePricingRules` / `ruledDefaultValue` /
+`typedByPricer` / `unit taken as` / `rateUnit: resolvedUnit.word` / `view.rateUnit ?? view.unit` all served;
+no `admitCalculatorOnly` code (one `//` comment in the TSX transform). PROOF 2 (runtime import): the retired
+exports undefined; the LIVE config has no key, `pipelines` [], eligible; cladding offers no "None"; the
+thickness note carries the order. E2E-1: the impact panel predicted 615 -> 642 (+4.4%) for the 53.98 x 19
+26G SKU; 00137 r39 moved to EXACTLY 642/224; the calculator with the same picks 642/224/866; restored 450 ->
+615/224 on both. Item 7 cases: schedule row, foil on a pipe (r83 545/224 with the R4 line), named "none of
+these" (r301/r302), R3 (r292), the unstocked combination (r290) -- panel = calculator on every row the
+calculator can express. S6: 00137 LOWSIDE r51 "BoQ says R/O (rate only) -> priced per number ..." with
+figures "per number"; 00216 MECHANICAL r43 "No unit on the BoQ row -> unit taken as number ..." beside
+"Not priced -- no diameter stated". ADP r82 1160/352/1512 and Electrical r94 19630/3930 unchanged; the ADP
+damper dropdown offers no "None" beside its amber default. Digests: Electrical items/configs identical;
+HVAC items identical (the 26G round trip left content byte-equal); the only config change `hvac_insulation`;
+runs 96 -> 98. Screenshots: `2026-10-09_12d2_Screens/` (17).
+
+**FINDING (not fixed, owed a ruling):** Fiberglass + GI Framework prices the framework TWICE on the live
+page (r289 live 2574/518 vs pure 1757/518; r293 2162/385 vs 1346/385). Cause measured:
+`get_rate_master_items` projects the live cladding cost into `cost_cladding` at read time (12c FINISH F4,
+`0e8408e74`), so the served GI-framework Fiberglass SKUs carry 555 where the stored row and every fixture
+carry 0, and the family's pipeline adds "the SKU's own foil rate" to the GI framework it computes live.
+Panel = calculator on the live page; both differ from the pure figure. Pre-existing; nothing in 12d-2
+touched that path.
+
+### Pins inverted (never deleted) and the measured consequence of the predicate
+
+Python: the FA7 class (-> `TestCalculatorAdmissionRetired`, the measurement `test_fa7_09` kept), the five
+"every asset on disk validates" sweeps (+`RETIRED_KEY_REFUSALS`: the frozen v18..v28 Insulation configs are
+refused by name), `test_c1_12`, `test_an_06`, `test_v27_05/06`, `test_v28_01/05`, `test_q04`, `test_p03/p04`,
+`test_pi7_07`, `test_co_f1_09`, `test_h06`/`test_s03`/`test_il_08` (the predicate's body shape), the 12d-1a
+panel-readonly and 12d-1b no-sku fixtures repaired IN MEMORY (`_without_retired_calculator_only`), the
+coercion-side "only ADP reaches extraction" (-> ADP AND Insulation). Frontend: the FA7 block (-> the
+admission is retired), the slice-5 P8 / slice-6 T7 v7-ADP pins, the parity admission pin, the e2e
+`calculator_only` pins (frozen files still carry the key AND read eligible), the slice-6/6b "None first"
+option lists, the FA8(c) / 12d-1b "You typed" composition lines on model cells, the slice-11 FiguresRow
+unit pin. Measured over every HVAC asset: v7-v13 ADP (fully piped, no default) and v16-v17 Insulation
+now read eligible by the predicate; v18-v28 Insulation read eligible but refuse validation (retired key).
+
+### Tests (measured in-session)
+
+Baselines were re-run fresh at the start (the 12d-1b logs had been purged from the temp dir): Python
+**7335** (6F/5E, the known 11) -> after: see the Report; vitest **5059** (1 known) -> after: see the Report;
+tsc 3169 = 3169. Vacuity: predicate arm off -> Python 9 red of 10 named / TS 16 red of 288; S4 line 5 red;
+S5 line 3 red; S6 line 2 red; each restored green. Mint gate v28 -> v29 PASS (the removal DECLARED via
+`intentional_removals`); `--latest` kinds disjoint.
+
+### What 12d-3 inherits
+
+The FG + GI Framework double count (a ruling on the read-time projection vs the pipeline's "own foil rate"
+term); the full audit over the production runs as they accrue; the panel's "BoQ says 19mm thick mm ->
+19 mm" raw-text-plus-unit wording on a precision match (pre-existing); the calculator cannot express a
+cladding the family's SKUs do not stock (#290, `C_option_not_offered`); `second_opinion` OFF (12d-4).
+A category now goes live the day its rules are complete -- there is no staging switch; if one is wanted
+again it must be ruled, not re-grown.
+
+### Files
+
+`extraction.py`, `config_validation.py`, `data/rate_master_hvac_all_v29.json`, `pricingSheetHelper.ts` (+ `.test.ts`),
+`itemListPricing.ts` (+ `.test.ts`), `RateHelperPanel.tsx` (+ `.test.ts`), `PricingCalculator.tsx`, `rateMasterTypes.ts`,
+`calculatorPanelParity.harness.ts` / `.test.ts`, `pricingCalculator.test.ts`, `insulation12d1a/1b.e2e.test.ts`,
+`insulation12d2Sample.e2e.test.ts` + 2 fixtures, `test_rate_master.py`, `test_extraction_coercion.py`, root `CLAUDE.md`,
+this file. Full record: `2026-10-09_12d2_Report.md` + `_Ledger.md`; screenshots `2026-10-09_12d2_Screens/`.
+
+---
+
+## Slice 12d-2F — THE FIBERGLASS + GI FRAMEWORK DOUBLE COUNT, THE GSS SHEET, ROW 290, SECOND-OPINION COST; HVAC v30 (2026-10-07) — SHIPPED
+
+Commits (unpushed): `5aea6b517` (fix: pricing reads the stored catalogue, never the display projection; the
+served-vs-stored test), `fd23b9925` (feat: GSS perforated sheet in the cladding note (HVAC v30); row 290 accepted;
+second-opinion usage recorded), then the docs commit. Build slice, NO AI calls. Full record on the Desktop:
+`2026-10-09_12d2F_Report.md` + `_Ledger.md`; screenshots `2026-10-09_12d2F_Screens/01..09`.
+
+### The cause (owner F1: "a price must never be computed from a value that is itself computed for DISPLAY")
+
+`get_rate_master_items` returns the ONE `items` array every pricing path consumes — the rate-helper panel, the
+calculator, the impact panel. Slice 12c FINISH (owner F4) made it write the LIVE cladding figure into
+`items[].rates.cost_cladding` so the grid could show it greyed. The Fiberglass / Acoustic Nitrile / Thermal Nitrile
+area pipelines' `cladding` component reads that same cell as `base` ("the SKU's own foil rate") and ADDS the GI
+framework it computes live (`base + gi*gif + gia`), so a GI-framework row read 555 as its stored cladding and priced
+the framework TWICE: 2574 / 518 on the live page where the catalogue prices 1757 / 518. Measured on the live
+endpoint before the fix: served differed from stored in exactly **3 changed cells** (the GI rows, 0 -> 555) plus
+**204 injected `cost_cladding` cells** on the pipe rows (stored none; no pipeline reads them — their cladding
+component has no target and reads geometry); Electrical computed nothing.
+
+**Why no suite saw it:** every pure fixture carries the stored 0 — EXCEPT `parityMaster.json`, which had been
+snapshotted from the SERVED endpoint on 2026-10-06 and so carried the 555; the 12c-P parity proof therefore agreed
+with itself on both paths on the wrong number. (12d-2's "every test fixture carries 0" was wrong for that file.)
+
+### Where the display projection now lives (item 1)
+
+`api/boq/rate_master.get_rate_master_items`: `items[].rates` is the STORED catalogue byte-for-byte; the live
+figure rides in a sibling payload key `computed_rates: {item_uid: {rate_key: value}}`, and `computed_rate_keys`
+is DERIVED from it (one map). The ONLY reader is the grid: `RateMasterDataViewer.displayedRateValue(it, k,
+computed, computedRates)` returns the display-map figure for a cell the server names in `computed_rate_keys`
+and the stored rate for every other cell; `RateMasterPage` passes `computedRates` down; `GetItemsResponse`
+declares the key. The greyed cell looks exactly as before (tooltip, `bg-muted`, `computed-rate-cell`). No
+pricing path reads `computed_rates`.
+
+### The enumeration (item 2) and the permanent test (item 3)
+
+- `test_rate_master.TestServedRatesAreStored` (6, LIVE): sv_01 served == stored for every item of both
+  disciplines (HVAC 331: 229 insulation + 7 pricing inputs + ADP; Electrical 1402); sv_02 `computed_rates` carries
+  the GI rows' 555 while they are served (and priced) at 0, keys == `computed_rate_keys`, Electrical empty; sv_03
+  the retired write asserted ABSENT + the two readers named; sv_04 every active config of both disciplines through
+  `computed_cladding_cells` -> only `hvac_insulation` / `cost_cladding` (219 cells), every other category `{}` BY
+  NAME; sv_05 the pipelines that READ the cell are exactly the three AREA families' supply `cladding` component
+  (`base + gi*gif + gia`), no length family, no convert block, no ADP, no Electrical config names the cell; sv_06
+  the projection re-applied to a copy moves exactly the 3 GI rows (0 -> 555) + the 204 injected cells.
+- `servedVsStoredPricing.test.ts` (6): `parityMaster.json` re-snapshotted from the live served endpoint AFTER the
+  fix (configs untouched; items re-read; `computed_rates` / `computed_rate_keys` added): 331 / 219 / 1402 / {};
+  every served item's rates deep-equal the latest asset's stored rates (both disciplines, every uid named on
+  failure); every active Insulation SKU (229: FG 6, Acoustic 4, Cladding Only 5, Nitrile Rubber 168, Thermal 10,
+  Tubular PUF 36) priced through `priceItemList` from the served payload and from the stored catalogue, 0
+  differences; the 50 mm GI SKU 1757/518 and the 25 mm 1346/385; VACUITY in-suite: re-applying `computed_rates`
+  moves EXACTLY the three GI SKUs (1757 -> 2574) and none of the 204 pipe rows.
+- `RateMasterDataViewer.dom.test.tsx` (+3): the greyed cell shows 555 while `rates` holds 0; the pure helper;
+  NEGATIVE: without the map the cell falls back to the stored 0 and never re-derives 555.
+- Vacuity by hand: the server write re-added -> sv_01/02/03/06 ALL RED ("555.0 != 0.0"); `computedRates` cut
+  from the viewer's cell read -> DOM test (a) RED (`expected ['0'] to deeply equal ['555']`); both restored green.
+- `rateMasterDataViewer.test.ts` ACCEPTANCE 6 (a source pin on the old `r.it.rates[k]` render expression)
+  INVERTED under mechanical authority: same claim on the new expression + the old read asserted absent.
+
+### Item 7 — 0 outcome changes except the FG + GI framework rows
+
+A temporary instrument (deleted, never committed) dumped every figure on BOTH paths for the 12c-P corpus
+(4,695 classes) and the 12c-S / 12c-P SKU sweeps (2,073 cases) against the OLD (projected) and the NEW (stored)
+fixture: 5,815 distinct cases, **2 changed**, both `hvac_insulation` FG + GI framework sweep cases, panel =
+calculator on both sides: 12 mm supply **1941 -> 1126** (install 385 =); 18.5 mm (next-size-up to 25) supply
+**2162 -> 1346** (install 385 =). Every Electrical, ADP and non-GI Insulation case identical. ADP and Electrical
+configs + items byte-identical in the DB before/after the v30 load (content digests).
+
+### F2 / F3 / F4
+
+- **F2** row 290: `insulation12d2Sample.e2e.test.ts` — `AWAITING_SAMPLE_DIVERGENCES` -> `ACCEPTED_SAMPLE_DIVERGENCES`,
+  each entry carries `accepted: "ACCEPTED BY OWNER -- F2, 12d-2F, 2026-10-07: 'ok'"`; the parity assertion
+  unchanged (exactly these differ); +1 test pins the list is row 290 only and every entry accepted.
+- **F3** HVAC v30 = v29 + ONE sentence on the cladding def note (a perforated GSS sheet, 22G / 26G, on a GI frame
+  IS 'GI Framework with perforated Al sheet' — do not flag or withhold it for saying GSS) + the notes trail;
+  items, every other top-level key, every other config and the whole `list_spec.pricing` byte-identical
+  (`TestSlice12d2FAsset`, 6). Mint gate v29 -> v30 PASS ("No atoms disappeared"), `--latest` PASS (kinds
+  disjoint). Loaded on dev: batch `rmbulk-75a0c032d58d` (331 / 9 loaded, 331 / 9 deactivated; Electrical
+  untouched; live configs == the v30 asset through `_loaded_config`). `TestSlice12d2FModelCall` (4): every other
+  HVAC category's assembled call byte-identical NAMED; every eligible Electrical category's call identical with
+  either HVAC asset NAMED; the sentence reaches the BATCH call AND the second-opinion review (both read
+  ITEMS_SPEC), so the two cannot disagree about GSS; the Insulation call differs by the appended sentence and
+  nothing else. `CURRENT_HVAC_ASSET` -> v30; the v28 / v29 pins inverted, the v29 classes re-pointed BY NAME.
+- **F4** second-opinion cost — PREMISE CORRECTION: it was never unmetered. `_extract_batch` writes the whole
+  `drops` dict into every batch capture record, and `drops.second_opinion_usage = {calls, input, output}` is
+  accumulated per review call beside the main call's `usage` (already pinned by `test_il_10`). Nothing summed
+  the second map: `scripts/_instruments/run_cost.py` (an instrument, read-only) now totals both per run and
+  per day, pinned by `TestSlice12d2FSecondOpinionCost` (4: every review call counted incl. a garbage reply; a
+  raising call costs nothing and is recorded; the capture write carries BOTH maps, source-pinned; the reader's
+  arithmetic on synthetic records). The `BoQ Rate Suggestion Run` doctype carries NO usage field of any kind
+  (the main call's included), so the capture log IS the existing structure — no doctype change. The 2026-10-07
+  sample, measured: 00137 `CHW pipes , Valves` 1 batch 10,114 / 2,461 + 11 second opinions 27,023 / 264 =
+  12 calls 37,137 / 2,725; 00169 `HVAC` 8 batches 41,462 / 12,436 + 14 second opinions 30,777 / 541 = 22 calls
+  72,239 / 12,977 (input / output tokens).
+
+### Browser cert (de-stale in full, process-proven; PROOF 1 code-string grep + PROOF 2 runtime import + in-page fetch)
+
+r289 **1757 / 518** and r293 **1346 / 385** on the panel AND the calculator (cladding 555 ONCE in the working);
+the Insulation grid's 219 greyed cells unchanged (GI 555, 26G pipe rows 57.138188 ...); 00137 r39 **615 / 224**;
+00169 r297 **500 / 154**; 00117 r82 **1160 / 352 / 1512**; 00174 r94 **19630 / 3930**; HVAC item content digest
+live = v30 = v29 (`b75377dded3e7cba`), Electrical live = v66 (`e05b7d7cd384dc05`); only the Insulation config
+digest moved. Fast render OFF per sheet and back ON; nothing applied; no override needed.
+
+### Tests (measured in-session)
+
+Targeted: `test_rate_master` 708 OK (commit 1) -> 714 OK (commit 2); `test_extraction_coercion` 201 OK; vitest
+targeted sets green; tsc 3169 = 3169. Full suites ("before" = the 12d-2 final logs at the same start commit):
+Python **7349 (6F/5E, the known set)** -> **7369** (failures=6, errors=5 -- the IDENTICAL known set, diffed by name; +20 = this slice's Python tests); vitest **143 files / 5074 tests (1 known)** -> **144 files / 5084 tests, 1 failed** (the same known `writeOffControl` timeout; +1 file, +10 tests = this slice's);
+tsc 3169 -> **3169** (the error set diffed line by line: IDENTICAL). Logs: `2026-10-09_12d2F_python_full.log`, `2026-10-09_12d2F_frontend_full.log`.
+
+Pre-existing, disclosed: the residence F2 ratchet reads 223 vs baseline 219 at HEAD (this slice adds no
+`JSON.parse`); `RateMasterDataViewer.dom.test.tsx` is dropped by the jsdom-worker race when run beside the unit
+suites (documented in `vitest.config.ts`) and passes 7/7 alone; `test_rate_master` prints one deliberate
+`Retirement_pkey` query error (present in the 12d-2 log too).
+
+### Files
+
+`api/boq/rate_master.py`, `api/boq/test_rate_master.py`, `services/boq_rate_master/test_extraction_coercion.py`,
+`services/boq_rate_master/data/rate_master_hvac_all_v30.json`, `scripts/_instruments/run_cost.py`,
+`rateMasterTypes.ts`, `RateMasterPage.tsx`, `RateMasterDataViewer.tsx` (+ `.dom.test.tsx`, `rateMasterDataViewer.test.ts`),
+`servedVsStoredPricing.test.ts` (new), `__fixtures__/parityMaster.json`, `insulation12d2Sample.e2e.test.ts`,
+root `CLAUDE.md` (the durable rule replaces the "LIVE FINDING, NOT FIXED" paragraph), this file.
+
+---
+
+## Slice 12d-3 — THE PAID AUDIT: EVERY CURRENT INSULATION ROW, STAGE BY STAGE (2026-10-07/08) — DELIVERED (evidence only)
+
+RUN + ANALYSIS slice. One chore commit (the audit instrument in `scripts/_instruments/` + this record), NOT pushed. **NO product, test, config,
+asset or schema change.** Owner-approved spend: 558 calls (92 batch + 466 second-opinion), 1,823,173 input / 96,544 output tokens, 28 min.
+Full record on the Desktop: `2026-10-10_12d3_Audit_Report.md`, `_Ledger.md`, `_Audit_Rows.xlsx` (466 rows x 70 columns), `_Audit_Analysis_auto.md`,
+`2026-10-10_12d3_Screens/01..09`.
+
+### The route, proved (step 1, no spend)
+
+The audit route is `rate_master._suggest_worker(only_rows=<the sheet's Insulation rows>)` -- the same function the "Suggest rates" button enqueues.
+`run_extraction(only_rows)` vs the whole-sheet route, both on a fake client replaying the 12d-2 replies: batch AND second-opinion bodies byte-identical
+on both sampled sheets; with the v29 `list_spec` in memory the bodies equal the 12d-2 capture log's `prompt` byte for byte; under the live v30 config
+the one differing region is the GSS sentence (12d-2F F3). ⚠️ The capture log holds no second-opinion request body (only verdicts and usage).
+⚠️ **A selected-row pass on a never-extracted sheet is REFUSED by `start_suggest`** ("Nothing to carry forward"); through the worker it writes a
+PARTIAL run (active=0, `scope_rows` []) and the sheet's pricing page then shows the SR-1 "Resume run" strip, whose button would extract the OTHER
+categories. 83 of the 92 sheets ended that way (75 never-extracted + 8 whose prior complete run predates population growth); 9 completed and became
+the active run (the 4 all-Insulation sheets + 5 with a covering prior run). Disclosed before the spend; the owner decides what to do with them (D14).
+
+### The population (step 2, a premise correction)
+
+The recon's 679 is the CATEGORY-ROW count (684 current `hvac_insulation` rows). **The audit population -- what the button extracts
+(`assemble_population`: rate-editable + eligible config) -- is 466 rows on 92 sheets of 73 BoQs.** 19 sheets (125 rows) are not reachable by the
+button today (locked / formulas undeclared / category gate shut) and were audited anyway, flagged per row.
+
+### What the audit found (section 2 of the Report has the numbers; nothing fixed here -- the freeze rule)
+
+- **Coverage** 347 priced / 119 refused (74.5 %). Refusals: 41 pipes above 53.98 mm (R9), 31 named unstocked materials, **15 Acoustic Nitrile + GI
+  framework (UNSTOCKED -- the commonest AHU-room spec, D1)**, 6 odd units, 5 "- 2 Layers" spellings the layers reader does not accept (D4), 4 Thermal +
+  glass cloth, the rest singletons.
+- **The model's reading** (automatic over 466 + 60 hand-reviewed): hand error rates WRONG / WRONG+ARGUABLE -- item 10.0 % / 16.7 %, cladding 1.7 % / 15.0 %,
+  thickness 3.3 % / 10.0 %, pipe size 0 / 0. The 6 wrong materials: 4 INVENTED on 00140's cassette rows (the thickness preamble is a SIBLING LINE, not a
+  parent, so it never reached the payload and the model leaked a material from a batch neighbour -- 4 rows priced on the 13 mm default, D6), a plenum as
+  PUF, EPDM as nitrile (D7). S3: the row's own thickness was used on 346 of 347 rows that state one (the miss: a 3 mm barrier mat read as the thickness).
+  **The "None" vs left-out distinction is unstable** (D3): 10 priced rows carry a named cladding the model called "None"; the 12d-2 row 00169#292 flipped
+  absent -> "None" and went from refused to priced 1371/154 -- the only outcome change among the 25 repeated rows (24 identical).
+- **The rules: 0 violations over 466 rows** -- defaults only on "None"/absent and amber; every ladder hop on a stocked size; 41 compositions within +-2 mm,
+  <= 2 layers, closest then cheapest; R4 only on pipe families; T2 highest; the unit rule as ruled. ⚠️ The compositions are RIGHT per config and 30 % above
+  the hand corpus on acoustic rows (25 -> 9 + 15 = 2330 vs hand 1770; 20 -> 9 + 9) -- a ruling question (D2), not a code defect.
+- **The second opinion**: 61 disagree / 405 agree; judged one by one: **40 right (23 on priced rows = wrong prices caught), 6 noise, 15 arguable**; blind to
+  the 3 invented-material rows. The v30 GSS sentence removed the 289/290 flags; #293 is flagged on a new ground and the same text on 00075#251 now READS as
+  26G Aluminium (D13). Cost 64 % of the input tokens (D12).
+- **Calculator = panel**: 430 of 466 rows 0 divergence; 36 diverge -- 20 the owner-accepted row-290 class (unstocked combination, both refuse), 8 unit class
+  (the calculator was fed a unit the row lacks), 5 input-surface sentence-only pairs, 3 the T6-ruled typed layers. **No divergence has differing figures on
+  both sides.**
+- **Hand-priced (indicative)**: 119 comparable supply rates, median |diff| 107, panel higher on 105 -- the compositions, hand rates on another basis, and
+  the D9 wrong-cladding rows.
+
+### Decisions owed to the owner (D1-D14, in the Report § 2)
+
+D1 Acoustic + GI framework SKU; D2 compositions on sheet families vs stocking 25 mm acoustic; D3 "None" vs unmappable -> route to review when the row
+names a cladding; D4 `readLayers` "- 2 Layers" form; D5 "65 mm + 32 mm" = pipe + thickness?; D6 sibling preamble / batch leakage; D7 EPDM;
+D8 32 kg vs 48 kg fibre glass; D9 coating-over-glass-cloth claddings; D10 `QRO - Sqm.`; D11 refusal order on no-unit rows; D12 second opinion ON/OFF;
+D13 perforated sheet without a named frame; D14 the 83 partial runs.
+
+### Instruments (committed, `scripts/_instruments/`, hand-run, not CI)
+
+`audit12d3_build_rows.py` (container; joins capture log + run doc + nodes + hand rates + gate per row; ids are `BoQ|sheet#row` -- 7 `(BoQ, row)` pairs
+repeat across sheets), `audit12d3_pricing.ts` (esbuild-bundled in-container; every row through the 12c-P `runParity` on both real paths),
+`audit12d3_analyse.py` (host; the automatic checks, the stratified hand-review dump, the second-opinion merge, the Excel). The runner / proof / digest /
+cost drivers were session scratch (`/tmp/a12d3/`), described in the Ledger.
+
+### Cert
+
+De-stale by PID (31 PIDs on TERM, ports free, 203 pycache purged, caches, `.vite`), bench ping after 243 s THEN vite (18 s); PROOF 1 code strings on the
+served transforms; PROOF 2 runtime imports (incl. `readLayers('25 mm thick - 2 Layers') -> null`, D4 on the served code). Five audited rows SEEN exactly
+as the audit recorded (00137 r39 615/224; 00164 r136 2330/308 composed 9+15; 00169 r291 1371/154 with the amber R1 default; 00156 r43 408/224 with the
+amber T1 default; 00137 r32 refused R9); the calculator gave 615/224/839 and 2330/308/2638 for the same inputs; ADP r82 1160/352/1512 and Electrical
+r94 19630/3930 unchanged; every digest identical except runs 98 -> 190. ⚠️ `{{ boot }}` is in `frontend/index.html` itself and is served raw at :8080 in
+every dev session -- it is not the out-of-order failure the runbook warns about.
+
+### What 12d-4 inherits
+
+The 14 decisions above; the Set-3-style rule that every finding here is from PRODUCTION-shaped runs (whole corpus, production batch size, second
+opinion ON); the audit instrument, re-runnable against the next asset to measure any fix on the same 466 rows without re-reading the corpus by hand.
+
+---
+
+## Slice 12d-4a — THE AUDIT FIXES (NO AI CALLS); HVAC v31 (2026-10-08, filed as 2026-10-11) — SHIPPED
+
+The owner's rulings D1-D14 on the 12d-3 audit, built without a single model call. Commits (unpushed):
+`fc36a61d6` fix (the rules), `4291565ca` feat (HVAC v31: the four SKUs + the four keys + the four note
+clarifications, its tests, the e2e, the re-snapshot; AMENDED twice before anything was built on it -- the fixture re-minified, then the e2e's asset `import` turned into a runtime read after the full-suite tsc died at the default heap), the docs commit (this section + the root `CLAUDE.md` rule; its hash is in the Desktop Report).
+Deliverables on the Desktop: `2026-10-11_12d4a_Ledger.md`, `2026-10-11_12d4a_Report.md`, `2026-10-11_12d4a_Sweep.txt`,
+`2026-10-11_12d4a_Screens/`, the two full-suite logs. ⚠️ The declared four-commit shape (SKUs / rules / notes / docs)
+became three: `servedVsStoredPricing.test.ts` reads the LATEST asset on disk, so an asset file can only land in the
+commit that also loads it and re-snapshots the fixture (the 12d-2 "green at its own tip" rule).
+
+### D1-D14 and where each lives
+
+| D | ruling | where it lives | measured |
+|---|---|---|---|
+| D1 | Acoustic Nitrile x GI framework priced the Fiberglass way | CATALOGUE: 4 new SKUs in v31 (9/13/15/19 mm; `cost_insulation` declared in `derived_rates` from the No-cladding row, `cost_cladding` 0 -- the framework is live -- install 110/150, markups 0.4). The `area` pipeline already carried the GI branch; the rows refused only for want of a SKU. | 15 audit rows refused -> priced; figures stated in advance and met: 1776/364, 2074/364, 2187/364, 2368/364 (and 3146/518, 3558/518, 3920/518, 5110/672 through next-size-up). Panel = calculator on all 15. |
+| D2 | no change | -- | -- |
+| D3 | cladding named in the row's OWN text, model "None" -> refuse "cladding named in this row but not read - set the cladding" | `list_spec.pricing.named_in_row` (attr + words + refuse) read in `itemListPricing.priceOneItem` over `ownText` (description + own notes, never headings); `rateSuggestionModel.rowOwnNotes` -> `RateHelperRowContext.ownNotes`; `wordStartHit` shared with `family_when_none` | 9 rows (00017#94, 00020#515, 00108#420, 00117#189, 00137#128, 00140 Lowside#59, 00149#439, 00164#136, 00197#199); 00140 #45/#46/#47 are NOT D3 rows (heading note only, owner rule); 00165#14 answered "No". "GSS" is the duct material and is not in the list. |
+| D4 | "N mm thick - 2 Layers" = double layer | `readLayers` suffix form (`x 2`, `two layers`, `- 2 Layers` after the number) | 00234 #135 746/28, #136 676/28 (two 25 mm layers); #132-#134 refuse on the pipe range (R9); 00140#471 refuses on its range first |
+| D5 | "65 mm + 32 mm thick" under a pipe heading = pipe size + thickness | MODEL INSTRUCTION: the thickness + pipe-size def notes (v31) | pinned in `TestSlice12d4aModelCall`; every other category's call byte-identical NAMED |
+| D6 | no change; VERIFY | the 12d-3 Report corrected in place (dated): row 467's text WAS in the payload as the parent's attached note; the "3 missed" second-opinion finding withdrawn | item 10 |
+| D7 | EPDM refuses by name even when the model picks a stocked family | `list_spec.pricing.unstocked_materials` (words + `from_attr: material_as_written`) in `namedMaterialRefusal`, consulted BEFORE the family | 14 rows priced/refused-elsewhere -> "No SKU in the catalogue for <material> - price this row by hand": 10 EPDM (00029), 3 XLPE (00086 #64/#65/#67), 1 mineral wool (00087#32); 00086#74 (stonewool) already refused by name under T5 |
+| D8 | 32 kg/m3 fibre glass -> 48 kg board with a line | `list_spec.pricing.read_notes` (`BoQ says {match} -> priced as the 48 kg/m3 board`) | 00007#227, 00122#190: figures unchanged (1757/518), the line added |
+| D9a | paint over glass cloth = "Glass Cloth with paint" unless aluminium (-> "<gauge> Aluminium with Glass Cloth", no gauge -> 26G with the line) | MODEL INSTRUCTION: the cladding def note (v31) | pinned (`mc4a_03`) |
+| D9b | sheet row + glass cloth -> refuse "glass cloth is not offered on sheet insulation - price this row by hand" | `list_spec.pricing.refuse_on_unit_class` (unit_class area + cladding value fragment "Glass Cloth", or "None" + the glass-cloth words) | 9 rows: 00020#515, 00086#68, 00098#173, 00100#111, 00140 Lowside#59, 00140 VRF#95, 00158#67, 00233 VRF#41, 00233#65 (the four Cladding Only per-sq.m rows at 294/70 and the 957 row now refuse) |
+| D10 | "QRO - Sqm." = rate only per sq.m | `splitRateOnlyUnit` + `RATE_ONLY_KEYS` (+ `qro`, `quotedrateonly`) in `priceItemList`; note "BoQ says QRO - Sqm. (rate only) -> priced per sq.m, the catalogue's unit for this item" | 00060 #105 1258/154, #109 594/154 (both previously refused R12) |
+| D11 | on a no-unit row the named-material refusal shows FIRST | `priceItemList`'s `cls === null` branch consults `namedMaterialRefusal` first | 00029#263, 00137#128 (the latter now refuses on BOTH paths by name) |
+| D12 | second opinion stays ON | no change | -- |
+| D13 | bolted-on perforated GSS sheet with no frame = GI framework | MODEL INSTRUCTION: the cladding def note (v31) | pinned (`mc4a_03`) |
+| D14 | partial runs / Resume strips left as they are | no change | -- |
+
+### Item 9 — the NO OTHER CHANGE sweep (`2026-10-11_12d4a_Sweep.txt`)
+
+A temporary instrument (scratch, never committed) ran 7,234 cases through BOTH real paths (`runParity`) twice: BEFORE =
+the `2a6a9a262` source tree (git archive, bundled with esbuild against it) + v30 + the old served fixture; AFTER = HEAD +
+v31 + the re-snapshotted fixture. 4,695 12c-P corpus classes + 1,929 12c-S row-level SKU cases + 144 item-list cases:
+**IDENTICAL**, except the sweep's own three Acoustic cases whose FIRST cladding option is now `GI Framework ...`
+(alphabetical before `No`) -- those price 1776/364 (9 mm) and 2074/364 (11 -> 13 mm), the D1 figures. The 466 audit rows:
+**55 changed, every one `hvac_insulation`** -- D1 15 (+ the 2 QRO rows, D10), D3 6 (+ #515 / #59 under D9b, #128 under
+D11), D7 14, D9b 9, D4 5, D8 2 (digest-only: a working line, figures unchanged), D11 2. Zero ADP or Electrical case moved;
+ADP + Electrical configs and items byte-identical in the DB before/after the v31 load (digests `44271e230a54b67b` /
+`4f642c4bed5bed02` unchanged).
+
+### Pins inverted (never deleted) -- all under mechanical authority, before/after in the Ledger
+
+- `test_rate_master`: `CURRENT_HVAC_ASSET` -> v31; `test_v28_01` / `v29_01` / `v30_01` -> "moved past"; `TestSlice12d2FAsset`
+  re-pointed to v30 BY NAME; ten count pins the four SKUs move: `test_cc_01` 219 -> 223, `test_cc_04` 229 -> 233, `test_dr_02`
+  172 -> 176, `test_z06` 172 -> 176 (both halves), `test_z07` 219 -> 223 and (172+219, 184+219) -> (176+223, 188+223),
+  `test_p01` allowlist minus the four new keys (+ ADP declares none), `test_sv_01` 229 -> 233 / 331 -> 335, `test_sv_02` 3 -> 7
+  GI rows, `test_sv_04` 219 -> 223, `test_co_f1_07` normalised with `_without_12d4a_acoustic_gi` (the `_without_pricing_input_items`
+  idiom). Vacuity: with the constant at v30, `v31_01` / `v31_02` / `v31_06` / `v30_01` refuse; the ten count pins were each SEEN red
+  at their old value against v31 before inversion.
+- `test_extraction_coercion`: `TestSlice12d2FModelCall` loads v30 BY NAME; `TestSlice12d4aModelCall` (3) added.
+- `servedVsStoredPricing.test.ts`: 331 -> 335, 219 -> 223, 3 -> 7 GI (Acoustic four named), 229 -> 233 (Acoustic 4 -> 8), vacuity over 7.
+- `calculatorPanelParity.test.ts` (ADDED to scope under mechanical authority): 331 -> 335 HVAC items, 1733 -> 1737 total.
+- NOT touched: `insulation12d2Sample.e2e.test.ts` imports v29 BY NAME (frozen); row 290's new outcome rides the 12d-4a e2e.
+
+### Tests (measured in-session)
+
+- Commit 1 targeted: vitest 10 files / 931 tests; tsc 0 errors (3169 baseline figure is the error COUNT of an older gate --
+  the project gate is 0); Python validator 6 / asset 15 / model-call 5. Vacuity: 8 toggles (D3, D7 x2, D9b, D8, D4 x2, D10, D11,
+  validator) each red on exactly its pins, restored.
+- Commit 2 targeted: vitest 25 files / 1,679 tests (incl. `insulation12d4a.e2e.test.ts` 11/11); `test_rate_master` 728 (10 pins
+  inverted, then green); `test_extraction_coercion` 204 OK; residence check: every rule holding except F2 223 vs 219 --
+  PRE-EXISTING at `2a6a9a262` (12d-2 / 12d-2F recorded the same; this slice adds 0 `JSON.parse`).
+- FULL SUITES (once, after the last code commit): Python: `2026-10-11_12d4a_python_full.log` -- Ran 7386 (12d-2F: 7369; +17 = the 8 asset + 6 validator + 3 model-call tests), failures=7 errors=5 skipped=4 expected failures=2; the 12d-2F known set (6F / 5E) UNCHANGED plus ONE new failure, `tasks.test_vendor_category_sync.test_daily_window_picks_a_wo_touched_since` -- fails IDENTICALLY when run alone (`not found in set()`), the `tasks/` package is untouched by this slice (`git diff 2a6a9a262..HEAD -- nirmaan_stack/tasks` empty), and the test keys on `today()` while the container clock sat at 2026-10-07 21:xx UTC (IST already 2026-10-08) -- a time-of-day-sensitive test, not a regression of this slice; Frontend: `2026-10-11_12d4a_frontend_full.log` -- vitest 145 files / 5,109 tests (12d-2F: 144 / 5,084; +1 file +25 tests = the e2e 11 + the 12d-4a `itemListPricing` block 12 + `rateSuggestionModel` 2), 1 failure = the KNOWN `POAdjustment/writeOffControl.test.ts` (same as 12d-2F); tsc at the DEFAULT heap: exit 2, 3,169 `error TS` lines = the 12d-2F baseline exactly, 0 OOM. ⚠️ The FIRST full-suite run (same vitest result) had tsc die `JavaScript heap out of memory` at the default heap: the e2e `import`ed the 16,700-line v31 asset (the heap-cliff trap its own header names); with a 6 GB heap it reported 3,170 = baseline + ONE error in that e2e (`list_spec` typed `{}`). Both fixed (runtime read; typed cast), commit 2 amended, vitest + tsc re-run in full -- this log is the re-run. ⚠️ The in-session 'tsc 0 errors' readings before that were the SAME OOM masked by `grep -c` on an empty output; the project's tsc gate has a 3,169-error baseline and a run that prints 0 has not run..
+
+### Browser cert
+
+**De-stale (in full, process-proven):** `clear-cache` + `clear-website-cache` while Redis was up; 18 serving PIDs on TERM (the bench tree incl.
+`frappe serve` x2, socketio, schedule, worker, the forkserver workers, bench's own `esbuild --watch`, and the vite tree) -- 0 left after TERM, no
+`-9`; :8000 / :8080 / :9000 / :11000 / :13000 FREE by listener probe; 203 `__pycache__` dirs + every `.pyc` purged (0 left); `node_modules/.vite`
+removed; `bench start` -> `frappe serve` up at 22:15:25 UTC and `/api/method/ping` -> `{"message":"pong"}` (⚠️ the script's own ping loop
+curled `127.0.0.1` WITHOUT the site `Host` header and so saw Frappe's "127.0.0.1 does not exist" 404 for its full 6-minute budget -- a
+scripting slip, the server was up; the pong was confirmed by hand with `-H "Host: localhost"`); THEN vite -> :8080 200 after 41 s. Changed-file
+mtimes (20:23 UTC) < process start (22:15). Site data: service worker unregistered (1), caches 0, localStorage 2 keys + sessionStorage cleared,
+4 IndexedDB databases deleted, cookies KEPT (the owner's session `admins@nirmaan.app` survived `clear-cache`, as Frappe sessions also live in
+`tabSessions`); the first page load after the `.vite` purge rendered BLANK during the dep re-optimize and was reloaded once (the known
+behaviour). **PROOF 1** (served transforms, code strings): `itemListPricing.ts` carries `namedMaterialRefusal`, `splitRateOnlyUnit`,
+`wordStartHit`, `quotedrateonly`, `refuse_on_unit_class`, `named_in_row`, `unstocked_materials`, `read_notes`; `pricingSheetHelper.ts` carries
+`ownNotes` + `ownText`; `rateSuggestionModel.ts` carries `rowOwnNotes`. **PROOF 2** (runtime `await import` in the live page):
+`readLayers('25 mm thick - 2 Layers') -> [25, 25]`, `readLayers('19 mm x 2') -> [19, 19]`, `readLayers('25 +/- 2 mm') -> null`;
+`splitRateOnlyUnit('QRO - Sqm.') -> 'Sqm.'`; `wordStartHit(<the 00017#94 text>, ['frp','wrapping']) -> 'frp'`;
+`wordStartHit('For rectangular GSS and GSS spiral ducts', ['perforated','cladding']) -> null`.
+
+| step | expected | SEEN | screens |
+|---|---|---|---|
+| 1 Acoustic x GI row | 00169 `HVAC` r290 prices 5110 / 672 on the panel; the calculator offers GI Framework for Acoustic and gives the same | panel: `Pricing sheet 5110`, ITEM 1 Acoustic Nitrile Insulation, Cladding `GI Framework with perforated Al sheet`, Thickness Other 50; "BoQ says 50 mm -> priced as 15 + 15 + 19 mm (49 mm, -1)"; layers 1371/154, 1371/154, **2368/364** (the 19 mm GI SKU, the figure stated in advance); BOQ RATES **5110 / 672 / 5782**. Calculator (Insulation -> Add item -> Acoustic): cladding options `GI Framework with perforated Al sheet` / `No`; 9 mm + GI -> **1776 / 364** (stated in advance); Other 50 -> **5110 / 672 / 5782**, same three layers. `Use this value` NOT pressed (read-only cert) | 01, 02, 04 |
+| 2 D3 row | 00164 `BOQ` r136 refuses with the D3 sentence; r132 (no cladding word) still prices | r136: `Not priced — cladding named in this row but not read - set the cladding`, Cladding `— select —`, "1 of 1 item need a person before the row can price", `Use this value` disabled (the audit priced it 2330/308); r132: `Pricing sheet 464` | 03 |
+| 3 EPDM row | 00029 `HVAC WORK` #269 refuses by name | **NOT RENDERABLE LIVE**: the sheet's run is PARTIAL (D14 strip "Resume to finish the remaining rows"), "0 of 1 priceable lines priced", row 269 carries NO opener; 00086 `Low side` #64 (XLPE) and 00087 `HVAC` #32 (mineral wool) open a panel ("Row 64 · Combined rate" / "Row 32 · Supply rate") that carries NO `Pricing sheet` block -- only the two placeholder helpers -- because no active run covers those rows. Pre-existing behaviour, not this slice's; D7 is covered by the e2e over the stored answers (16 rows) and PROOF 2's served code | -- |
+| 4 D4 row | 00234 `(CHW BOQ) AHU & Low Side` #132 refuses R9 (pipe 100), #135 prices 746/28 | **NOT RENDERABLE LIVE**: run PARTIAL ("14 rows were saved. Resume ..."), rows 132 / 135 open "Row N · Combined rate" with no `Pricing sheet` block (same cause as step 3). Covered by PROOF 2 (`readLayers` on the served code) + the e2e (746/28, 676/28, R9 on #132-#134) | -- |
+| 5 D9b row | a sheet row with glass cloth refuses; a pipe row keeps it | Calculator: Cladding Only, row unit sqm, cladding `Glass Cloth with paint` -> `Not priced — glass cloth is not offered on sheet insulation - price this row by hand`; row unit mts + pipe 50 / thickness 19 -> **83 / 70 / 153** (the pipe row keeps glass cloth). The audit rows (00100#111, 00158#67) sit on partial runs (no `Pricing sheet` block live) | 05 |
+| 6 QRO row | 00060 `HVAC` #105 1258/154, #109 594/154 with the rate-only note | **NOT RENDERABLE LIVE**: run PARTIAL ("5 rows were saved ..."), rows 105 / 109 carry NO opener (not rate-editable on this sheet); covered by PROOF 2 (`splitRateOnlyUnit`) + the e2e. ⚠️ OBSERVED, NOT THIS SLICE'S: those two rows' `D — Total Quantity` cell renders the text `[object Object]` -- a grid rendering defect on a QRO row's quantity, left for the owner | -- |
+| 7 unchanged controls | 00137 r39 615/224; ADP 00117 r82 1160/352/1512; Electrical 00174 r94 19630/3930 | **615 / 224 / 839** ("BoQ says 50 mm -> priced as 53.98 mm (next size up)"); **1160 / 352 / 1512**; **19630 / 3930 (23560)** -- all three unchanged | 06, 07, 08 |
+| 8 counts / checksums | only the Insulation config + the 4 SKUs moved | `digest12d3.py` (read-only) vs the 12d-3 end-of-cert digest: CHANGED `HVAC/config_digests/hvac_insulation` 908a38bb8f861f43 -> 6333fa7221870d25, `HVAC/configs_digest`, `HVAC/items` 331 -> 335, `HVAC/items_digest`, `counts/items_active` 1733 -> 1737; IDENTICAL: every Electrical digest, `cell_pricing_digest`, runs 190, row categories, every per-sheet gate, `button_reachable_sheets` 73 | -- |
+
+**Cert technique notes:** screenshots via CDP timed out repeatedly in the CLASSIC (Fast render off) render of a 300+-row sheet with the panel open
+-- the row was located with Fast render OFF (`scrollIntoView`), the panel read through the DOM, then Fast render turned back ON and ONE real
+wheel tick at the grid re-windowed the virtualizer onto the row (synthetic `wheel` / `scrollTop` do not); native `<select>`s were driven with
+the prototype value setter + `change` (an "Other…" pick needs `selectedIndex`, a value of `"Other…"` is rewritten to the first option -- the
+controlled-select trap, seen live). Every read above is the DOM's text, not a visual estimate.
+
+### What 12d-4b inherits
+
+The paid re-check: re-run the audit instrument over the same 466 rows on v31 with fresh reads, to measure D5 / D9a / D13 (the
+three MODEL-INSTRUCTION changes, pinned as text here but unmeasured on the model) and to confirm the 55 code-side changes on
+live reads; the second opinion stays ON (D12). The e2e fixture (`insulation12d4aRows.json`) is the 67-row stored-answer set to
+diff a fresh run against.
+
+---
+
+## Slice 12d-4aF — D9b OVER-REACH FIX: GLASS CLOTH REFUSES ON THE SHEET FAMILIES ONLY; HVAC v32 (2026-10-08, filed as 2026-10-11) — SHIPPED
+
+Owner on the 12d-4a cert: *"agree. we need to fix"*. 12d-4a's `refuse_on_unit_class` applied to EVERY per-sq.m family, so
+Cladding Only per sq.m with glass cloth refused -- against the standing 12c ruling (F2, FINAL: Cladding Only per sq.m prices at
+the plain rate, `Glass Cloth with paint` 294 / 70). ONE commit: this commit (its hash is in the Desktop Report) ("fix: D9b refuses glass cloth on the sheet
+families only; Cladding Only per sq.m prices again"). Desktop: `2026-10-11_12d4aF_Sweep.txt`, `2026-10-11_12d4aF_python_full.log`,
+`2026-10-11_12d4aF_frontend_full.log`; the 12d-4a Ledger + Report carry the follow-up record.
+
+### The fix (config-declared, no family named in code)
+
+- `refuse_on_unit_class[].families` -- the FAMILIES a rule applies to. **REQUIRED** by `config_validation._validate_refuse_on_unit_class`
+  (a non-empty list of priceable families; a rule without one is refused BY NAME), so the over-reach cannot ship again by omission. The
+  reader (`itemListPricing.priceOneItem`) skips a rule whose list does not carry the block's family (fail-closed: no list, no family).
+- **HVAC v32 = v31 + that list only**: `["Thermal Nitrile Insulation", "Acoustic Nitrile Insulation", " Fiberglass Rigid Board
+  Insulation, Density 48Kg/m3"]` (the three SHEET families), the rule text extended, the notes trail. Items byte-identical (335); every
+  other config byte-identical NAMED; the frozen v31 file is now REFUSED on `families` (pinned; `test_v31_08` repairs it in memory).
+  Mint gate v31 -> v32 PASS ("No atoms disappeared"), `--latest` PASS (kinds disjoint). Loaded on dev `rmbulk-d957fb8ca84b (the first load, rmbulk-505aaba91808, carried a notes trail naming "v31" -- a version token the h07 pin forbids inside an asset; re-minted with a version-free trail and re-loaded)`
+  (335 / 9 loaded, 335 / 9 deactivated); live == asset on all 9 configs + 335 items; Electrical digests unchanged; HVAC items digest
+  unchanged (`933c03c56d1841d6`), configs digest `a1733b9b5d5066e1` -> `b5d01da7a0d12cab` (Insulation only).
+- Nothing the MODEL sees changed: `TestSlice12d4aFModelCall` pins every HVAC category's assembled call byte-identical v31 -> v32,
+  Insulation INCLUDED (the list lives in `list_spec.pricing`, which `build_items_spec` never reads).
+
+### Proof (item 2)
+
+- Unit (`itemListPricing.test.ts`, "D9b FAMILIES"): Cladding Only per sq.m + `Glass Cloth with paint` -> **294 / 70** WITH the key;
+  `24G Aluminium with Glass Cloth` prices; listing Cladding Only in the rule would refuse it (so the list is what decides); a rule with
+  NO list fires on no family; Thermal / Acoustic rows with glass cloth still refuse by value and by word; the POSITIVE now reads on
+  Thermal Nitrile and the Fiberglass board (the Cladding Only case moved to the FAMILIES test). Validator (`test_d4aF_07`): missing /
+  empty / foreign / non-list `families` refused by name; Cladding Only MAY be listed (names are checked, the ruling decides).
+- e2e (`insulation12d4a.e2e.test.ts`, now on v32 BY NAME): of the 10 D9b rows, the 3 Thermal rows (00020#515, 00100#111, 00140
+  Lowside#59) still refuse; the 6 Cladding Only rows PRICE at exactly their 12d-3 figures -- 00086#68, 00098#173, 00140 VRF#95,
+  00158#67, 00233 VRF#65 **294 / 70** and 00233 Critical VRF#41 **957 / 280** (24G Aluminium with Glass Cloth); #74 still refuses on
+  stonewool (D7). `insulation12d4aExpected.json` regenerated: exactly those 6 of 67 rows changed.
+- Sweep (`2026-10-11_12d4aF_Sweep.txt`): 7,234 cases both paths, 12d-4a "after" (v31) vs this (v32): **6 changed, all `hvac_insulation`
+  audit rows, exactly the six Cladding Only per-sq.m glass-cloth rows above** (refused -> priced, panel = calculator on each); 7,213
+  identical incl. every ADP / Electrical case; DB digests: ADP / Electrical byte-identical.
+- Vacuity: with the family test removed from the reader, the FAMILIES unit test, the e2e frozen-outcomes test and the e2e D9b item go
+  red (3), restored.
+
+### Owner rulings recorded (item 3)
+
+- **(a) The Acoustic x GI install figures STAND -- owner: "ok".** The four v31 SKUs keep `cost_install_insulation` 110 (the Acoustic
+  row's own) + `cost_install_cladding` 150 (as the Fiberglass GI rows carry it); the 12d-4a Report's "ASSUMPTION disclosed" is closed.
+- **(b) The parity class `F_row_text_not_an_input` (8 rows) is ACCEPTED BY OWNER -- "ok".** The e2e's `EXPECTED_DIVERGENCE_ROWS` entries
+  carry `-- ACCEPTED BY OWNER: ok` (00017#94, 00020#515, 00108#420, 00117#189, 00140 Lowside#59, 00149#439, 00164#136, 00197#199):
+  the panel refuses on the row's own text for a person, the calculator (which has no row text) prices.
+
+### Tests (measured in-session)
+
+- Targeted: vitest 27 files / 1,707 tests (+ the 3-red vacuity, restored); tsc default heap 3,169 = baseline, 0 OOM; Python targeted
+  16 (`TestSlice12d4aFAsset` 6, `test_v31_01` INVERTED "moved past v31", `test_v31_08` repaired-in-memory + refused-by-name, the
+  v28/v29/v30 inverted pins re-pointed to v32, `test_d4aF_07`, `test_d4a_01`, `test_sv_02`) + model-call 3 -- all OK; residence F2
+  223 vs 219 pre-existing (0 `JSON.parse` added).
+- FULL SUITES: Python `2026-10-11_12d4aF_python_full.log` -- Ran 7394 (+8 vs 12d-4a: the 6 `TestSlice12d4aFAsset` + `test_d4aF_07` + `TestSlice12d4aFModelCall`), failures=6 errors=5 = the 12d-2F known set EXACTLY (the 12d-4a time-of-day flake did not recur). ⚠️ A FIRST full run (before this log) showed seven extra failures: the five 'every asset on disk validates' sweeps + `test_c1_12` (the frozen v31 file is now REFUSED on `families` -- inverted: `REQUIRED_KEY_REFUSALS` beside `RETIRED_KEY_REFUSALS`) and `test_h07` ('v3' found in the asset: the v32 notes trail said "from v31" -- re-minted version-free, re-loaded as `rmbulk-d957fb8ca84b`); the suite was re-run in full afterwards and this log is the re-run; frontend `2026-10-11_12d4aF_frontend_full.log` -- vitest 145 files / 5,110 tests (+1: the FAMILIES unit test), 1 failure = the known `writeOffControl`; tsc default heap 3,169 = baseline, 0 OOM.
+
+### Cert
+
+**De-stale (in full):** `clear-cache` + `clear-website-cache`; 19 serving PIDs on TERM, 0 left; :8000 / :8080 / :9000 / :11000 / :13000 FREE; 203 `__pycache__` + every `.pyc` purged; `node_modules/.vite` removed; `bench start` -> `/api/method/ping` (with the site `Host` header this time) `pong` after 244 s; THEN vite -> :8080 200 after 36 s. Site data: service worker unregistered, caches 0, localStorage cleared, 4 IndexedDB deleted, cookies KEPT (`admins@nirmaan.app`). ⚠️ The first MCP tab sat HIDDEN in the Claude window (`visibilityState: hidden`, blank screenshots while the DOM held 146 KB) -- the tab group was closed and re-created in its own window, resized 1600x950, Chrome FOREGROUNDED by `SetForegroundWindow`, `visibilityState: visible`. **PROOF 1** (served transform): `itemListPricing.ts` carries `rule.families`, `namedMaterialRefusal`, `splitRateOnlyUnit`, `refuse_on_unit_class`. **PROOF 2** (runtime import): `readLayers('25 mm thick - 2 Layers') -> [25, 25]`, `splitRateOnlyUnit('QRO - Sqm.') -> 'Sqm.'`; the LIVE Insulation config (`get_rate_category_config`) carries `families` = the three sheet families and the version-free notes trail.
+
+| step | expected | SEEN | screens |
+|---|---|---|---|
+| calculator, Cladding Only, sqm, Glass Cloth with paint | 294 / 70 | Insulation -> Add item -> Cladding Only -> cladding `Glass Cloth with paint`: **Supply 294 / Install 70 / Combined 364 per sqm**, working "cladding per sq.m: the sheet rate as it stands -- no overlap factor (owner F2) = 200" | 09 |
+| calculator, Thermal Nitrile with glass cloth | the D9b refusal | **NOT EXPRESSIBLE IN THE CALCULATOR**: Thermal Nitrile's Cladding dropdown offers only `Aluminium Foil` / `No` (the options are built from stocked SKUs, and no sheet SKU stocks glass cloth -- owner R-B / V1), so a glass-cloth value can reach a sheet family ONLY from a MODEL answer. The three such audit rows (00020#515, 00100#111, 00140 Lowside#59) sit on partial runs (no panel block live). Proven on the stored answers (e2e "item 5", 3 rows refuse) and in the unit tests (Thermal / Acoustic / Fiberglass by value and by word); 12d-4a's cert had SEEN the same sentence on the calculator where the dropdown did offer glass cloth (Cladding Only, now correctly priced) | -- |
+| ADP 00117 r82 | 1160 / 352 / 1512 | **1160 / 352 / 1512** | 10 |
+| Electrical 00174 r94 | 19630 / 3930 | **19630 / 3930 (23560)** | 11 |
+
+`Use this value` never pressed. Nothing written.
+
+---
+
+## Slice 12d-4c — THE LAST FIXES, THE DERIVATION TAB, AND THE SECOND OPINION OFF; HVAC v33 (2026-10-08, filed as 2026-10-12) — SHIPPED
+
+Owner rulings on the 12d-4b Review Pack: C1 F2 *"agreed"* (a cladding-only row IS `Cladding Only`), C2 F3 *"it is ok. make it
+explicit"* (a bare glass cloth is `Glass Cloth with paint`), C3 F4 *"fix it"* ("Double layer of N mm" is two layers), C4 *"switch
+off now"* (the second opinion OFF for Insulation; ADP's as it is), C5 F6 (the Derivation tab lists EVERY Insulation rule, plain
+English, derived from the config), C6 no change (F1, F5, the 50 mm Acoustic Nitrile). Four commits: `da1dcc225` fix, `a2a18e089`
+feat (Derivation tab), `1a629c643` feat (HVAC v33), the docs commit. Desktop: `2026-10-12_12d4c_{Ledger,Report}.md`, the 12d-4c
+section of `2026-10-12_12d4b_Review_Pack.md`, `2026-10-12_12d4c_Screens/` (10), `2026-10-12_12d4c_{python,frontend}_full.log`.
+
+### C3 — the layers reader runs FIRST on the compose axis (`da1dcc225`)
+
+`readLayers("double layer of 19 mm")` already returned `[19, 19]` (12d-1b); the rows still priced ONE layer because
+`priceOneItem` consulted the layers reader only when the single-number read came back BLANK, and `readNumber` finds the 19 in
+"Double layer of 19mm thick". The fix is the ORDER: on the compose axis the layers reader runs before the single read, over MODEL
+cells only (T6: a pricer's typed entry is never parsed as layers). Pinned: five spellings -> `[19, 19]`; range / comma list /
+tolerance / slash list / bare "double layer" -> null; the 00137 CHW #32 shape (250 NB) still refuses R9; a 50 NB row prices two
+layers of 19 (`working[0]` "priced as two layers, 19 + 19 mm (38 mm)"); a typed cell prices single 19. ⚠️ VACUITY DISCLOSED:
+the first hand-vacuity (removing only `if (layersFrom) continue;`) stayed GREEN because the later `if (layersFrom)` return still
+composes; the second (removing the whole layers-first block) went RED. On the 466-row corpus every "Double layer" row (00017 #23-24,
+00137 #32-37, 00156 #34-39) sits on 80-250 NB pipes above the Nitrile Rubber ladder (53.98) and refuses R9 before and after, so the
+sweep shows 0 outcome changes; the priced shape exists only in the unit test.
+
+### C5 — the Derivation tab lists an item-list category's rules, from the config (`a2a18e089`)
+
+**5a (why 12c said the tab showed Insulation's rules while 12d-4b found "No rules configured"):** NEVER BUILT for concrete rules,
+not broken since. `itemListRuleOrder.ts` was 12c commit 7 (`db372c0c6`, the file's only commit) and listed the MECHANISMS the
+config shape implies (unit classes, kinds, needs, defaults by key name, ladders, composition, conversions) -- never the rulings
+(R1's value, R4 foil -> 26G, the refusal word lists, the 9 mm default ...). "No rules configured for this category" is the OTHER
+card (`config.rules`, the Electrical extraction-rule list), which Insulation has never carried and which still renders beneath the
+list (unchanged; recorded as F-C5a below).
+**5b/5c:** `itemListRuleOrder(config, items)` now writes a line iff the config key carrying the rule is present, in run order, in
+plain English -- 24 lines on Insulation (`family_when_none` with its unit classes and words; `no_sku_families` + `no_sku_named_by`;
+`unstocked_materials` quoted; the needs; the layers forms; `several = highest`; inches; `defaults` + `number_defaults` WITH THEIR
+VALUES; `value_map` to and refuse; `refuse_on_unit_class` with its families and words; `named_in_row`; `read_notes`; the ladders
+with size-match / composition / refuse-above-largest; the priced steps with the Pricing Inputs BY LABEL; the live cross-row read
+(Cladding Only); the computed cost; the derived cells; converts; x quantity). `plainSentence` strips `(R4)` / `(owner ...)` tags
+from config messages. Tests: every declared rule NAMED + ordered over the LATEST asset on disk (read at runtime); STRUCTURAL
+VACUITY (12 keys deleted one by one -> each line gone); NEGATIVE no code, no config key, NO snake_case token, with items and
+without; Electrical / alias / vendor-quote tabs `[]`; ADP's own lines. Hand vacuities: stop reading two keys -> 2 RED; make the
+label resolver return the id -> 2 RED.
+**5d (owner APPROVED, with the labels ruling):** ADP's tab gains its own lines by the same mechanism -- line 1's rate-only
+sentence, "none of these", "double-skin plenum is not offered per number", labels not ids in the needs, the defaults WITH VALUES
+(damper -> without, insulated -> with, UL listed -> no, variant by kind ...), "variant on fire damper becomes UL 555 when UL
+listed is yes", "above the largest stocked size refuses, naming the size" on all five ladders, "12 cells on 6 rows" derived; 14 ->
+17 lines. The owner added: Pricing Inputs by their LABELS (`GI framework sheet factor`, read off the Pricing Inputs ROW's `name`
+-- the label lives on the ITEM, so `RateMasterDerivation` passes `items`), no internal name anywhere -- so pipeline ids are written
+as plain words too ("install, item install, item supply, supply"), pinned negatively (`/\b\w+_\w+\b/` absent on both tabs, with
+and without items). Durable rule: root `CLAUDE.md` § "THE DERIVATION TAB IS DERIVED FROM THE CONFIG".
+
+### C1 / C2 / C4 — HVAC v33 (`1a629c643`)
+
+v33 = v32 + the `item` note's C1 sentence ("A row that describes only a cladding or coating applied over insulation, with no
+insulation material being supplied, is 'Cladding Only'.") + the `cladding` note's C2 sentence ("A bare 'glass cloth' with no paint
+or coating named is still 'Glass Cloth with paint'.") + `list_spec.second_opinion` true -> false (Insulation ONLY) + the notes trail
+(version-free). Items byte-identical (335); every other config byte-identical NAMED; `list_spec.pricing` byte-identical (no price
+can move); the two defs differ in `note` only, each `startswith` its predecessor. Mint gate v32 -> v33 "No atoms disappeared",
+`--latest` kinds disjoint, PASS; loaded on dev `rmbulk-e182af1c3217` (items digest unchanged `933c03c56d1841d6`; only Insulation's
+config digest moved `275a9c80…` -> `173b6be6…`; Electrical untouched). Pins: `CURRENT_HVAC_ASSET` -> v33; the five "current is
+v32" lines gain a "moved again" line; `TestSlice12d4aFAsset` / `TestSlice12d4aFModelCall` load v32 BY NAME; `test_v32_06`
+INVERTED (live has moved past v32 and STILL carries the family list). NEW `TestSlice12d4cAsset` (7) + `TestSlice12d4cModelCall`
+(3). ⚠️ MEASURED ON THE WIRE: the two sentences REACH Insulation's assembled call (a def's note is projected into ITEMS_SPEC) --
+and so does the switch: `build_items_spec` writes `"second_opinion": false` INTO the spec the call is assembled from, so the
+Insulation call differs v32 -> v33 by exactly the two sentences plus that key; every other HVAC category's call is byte-identical
+NAMED. `insulation12d4a.e2e.test.ts` re-pointed to v33 (outcomes unchanged, 11/11).
+
+### Item 7 — the tiny paid check (8 calls of the 20 cap; ZERO second-opinion calls)
+
+Set: 00233 Critical VRF System#41 + VRF System#65 (C1 / E2E-1); the three bare-glass-cloth rows the 12d-4b second opinion flagged
+"with paint is not stated" -- 00020 HVAC_-19TH FLOOR#515, 00098 Lowside#173, 00100 HVAC #111 (C2); controls 00004 HVAC Low side#80,
+00086 High side#85, 00051 HVAC#465. Through `rate_master._suggest_worker(only_rows=...)` on the LIVE v33 config, as
+`Administrator`, 13:18:57-13:19:46 IST, 0 errors / halts / retries, 8 PARTIAL run records (D14 shape). `run_cost.py`: sheets 8,
+batches 8, input 44,453, output 1,302, **so_calls 0**; capture kinds = {run_header 8, batch 8}; every row `so_failed = []`,
+`so_verdict = None` -- the second-opinion flag no longer appears on a new Insulation run. Outcomes: #41 and #65 both read item
+**Cladding Only** (NULL on the 12d-4b read -- F2) + Glass Cloth with paint -> **294 / 70, panel = calculator**; #515 / #173 / #111
+read `Glass Cloth with paint` again (the C2 sentence, no flag) -> the two sheet rows refuse D9b, #173 prices 294 / 70; the three
+controls identical to 12d-4b (464/154, 348/84, 1346/385). ⚠️ PREMISE CORRECTION: the brief stated #41 -> 957 / 280 -- the 12d-3
+STORED answer's `24G Aluminium with Glass Cloth` priced under 12d-4aF; the row names no aluminium ("Fiber glass cloth and two layers
+of shield coating ...") and the model reads `Glass Cloth with paint` on both fresh reads, as it does the identically worded #65; 294
+/ 70 is the ruled figure for that cladding (12c F2). No price moved (item 8).
+
+### Item 8 — no other change
+
+Sweep (the 12d-4a instrument on HEAD + v33 vs the 12d-4aF tree + v32): 7,234 cases both paths, 7,219 digests IDENTICAL, 0 bytes
+changed, 0 outcome changes; ADP / Electrical byte-identical. DB digest after the run and after the cert vs after the 12d-4b cert:
+ONLY `hvac_insulation`'s config digest, `configs_digest` and `counts/runs` 243 -> 251 moved; 403 keys identical (1,737 items,
+37,702 cell pricing / 30,213 filled, 55,108 row categories, every gate, 73 button-reachable sheets).
+
+### Tests (measured in-session)
+
+Targeted per commit: `itemListPricing` 300; rate-master dir 19 files / 920; `test_rate_master` Ran 742 OK + `test_extraction_coercion`
+208 OK (one first-run failure in the NEW model-call test -- the `second_opinion` key in the spec, stated above -- fixed in the test);
+frontend set 366 (e2e 11, servedVsStored 6, parity 33, ruleOrder 16, itemListPricing 300); tsc 3,169 before each commit. FULL:
+Python `2026-10-12_12d4c_python_full.log` Ran **7404** (+10 vs 12d-4aF's 7394), failures 6 / errors 5 = the known set IDENTICAL by
+name; frontend `2026-10-12_12d4c_frontend_full.log` 145 files / **5,116** tests (+6), 1 failure = the known `writeOffControl`; tsc
+3,169, 0 OOM.
+
+### Cert
+
+De-stale in full (19 PIDs on TERM, 0 left; :8000/:8080/:9000/:11000/:13000 free; 203 `__pycache__` purged; `.vite` removed;
+`bench start` -> ping `pong` after 238 s; vite :8080 200 after 32 s); site data cleared (1 SW, 4 IndexedDB); PROOF 1 the served
+transforms carry `inputLabel` / `plainSentence` / `_pricing_input$` and `layersFrom === null` (comments are stripped by the
+transform, so the "SLICE 12d-4c" comment is not a servable marker); PROOF 2 runtime import `readLayers` -> `[19, 19]` on all three
+spellings, `[25 to 50 mm]` -> null; the LIVE Insulation config (`get_rate_category_config`) `second_opinion: false`, C1 + C2
+present, version-free trail. ⚠️ The MCP tab opened HIDDEN again (two groups), `SetForegroundWindow` found no separate Chrome window
+(the tab sat inside the Claude window) -- STOPPED per the brief; the owner foregrounded it ("the tab is foregrounded. proceed with
+cert"); `visibilityState` still read `hidden` while screenshots and the DOM were live, so the walk proceeded on the observed screen,
+not the flag (the memory rule). Radix selects answered the keyboard, not the pointer (ArrowDown + Enter; `repeat` loses one press).
+
+| step | expected | SEEN | screen |
+|---|---|---|---|
+| 1 E2E-1 panel | #41 / #65 Cladding Only 294 / 70 | the 00233 sheets' ONLY runs are the paid check's PARTIAL records (D14), so the panel opens with NO Pricing-sheet block (the headline helpers only) -- the model's answer and both-path pricing are proven on the stored run record (item 7); the "Resume run" strip is shown and was NOT pressed | 01a |
+| 1 E2E-1 calculator | 294 / 70 | Insulation -> Add item -> Cladding Only, sqm, cladding `Glass Cloth with paint`: **Supply 294 / Install 70** (working: sheet rate 200, +wastage 210, x1.4 = 294; install 50 x 1.4 = 70) | 01b |
+| 2 Insulation Derivation | every rule, plain English | **24 lines** as the test prints them; `GI framework sheet factor` by label; no snake_case token, no code (`/\b[RDTS]-?\d/` null) on the live DOM; the "Rules -- No rules configured for this category" card still renders beneath (F-C5a) | 02a, 02b |
+| 3 ADP Derivation | the approved lines | **17 lines**, exactly the approved listing with "install, item install, item supply, supply" on line 14 | 03a |
+| 4 00137 CHW r39 | 615 / 224 | **615 / 224** (839) per RMT | 04a |
+| 4 00169 r291 | 1371 / 154 | **1371 / 154** (1525) per Sqm | 04b |
+| 4 00169 r290 | 5110 / 672 | **5110 / 672** (5782), 3 layers 15+15+19 | 04c |
+| 5 ADP 00117 r82 | 1160 / 352 / 1512 | **1160 / 352 / 1512** | 05a |
+| 5 Electrical 00174 r94 | 19630 / 3930 | **19630 / 3930 (23560)** -- on the sheet named `Electrical ` WITH its trailing space (#152) | 05b |
+| 6 digest | unchanged but v33 + runs | as item 8 | -- |
+
+`Use this value` never pressed; no override needed; Fast render OFF per sheet and back ON.
+
+### Findings for the owner (recorded, not fixed)
+
+- **F-C5a** The "Rules" card beneath the list still says "No rules configured for this category" on Insulation (it is the
+  Electrical extraction-rule card, `config.rules`); beside a 24-line rule list it reads as a contradiction. A one-line change (hide
+  the card for an item-list category, or retitle it "Extraction rules") -- a visible change, so not made here.
+- **F-C5b** The rate-helper PANEL still shows config messages RAW: "R1 cladding not mentioned -> without cladding (owner
+  2026-10-07)" (00169 r291) and "R1 / slice 11 damper not mentioned ..." (00117 r82); the calculator's working shows
+  "pricing input: alu_sheet_24g (rate)". `plainSentence` strips these on the Derivation tab only. Same mechanism, two more call
+  sites, owner's call.
+- **F-C5c** The owner's "item A1" of the ADP Retrofit could not be found by that label; the delivered-rule-listing note is recorded
+  under "ADP RETROFIT, OWED" as given.
+
+## Slice 12d-5 — PLAIN ENGLISH ON THE PANEL AND THE CALCULATOR; THE EMPTY "RULES" CARD HIDDEN (2026-10-08, filed as 2026-10-13) — SHIPPED
+
+Owner P1 *"c5a and c5b fix we need to do"* on the 12d-4c findings; P2 the standing plain-English rule; P3 scope = the ITEM-LIST
+categories only (Electrical's lines are the Electrical retrofit). Display wording ONLY: no price, config, item or AI call.
+Commits: `f56edf23d` fix (the one plain-English helper on the panel + calculator), `5a5c20e6b` fix (the empty extraction-rules
+card hidden), `d5232fb41` fix (EXTRA, disclosed: the pass keeps a working line's indentation and a family's leading space), the
+docs commit. Desktop: `2026-10-13_12d5_{Ledger,Report}.md`, `2026-10-13_12d5_Screens/` (9), `2026-10-13_12d5_frontend_full.log`.
+FRONTEND-ONLY: no Python file changed, the Python suite was not run (the brief's rule).
+
+### F-C5b — the ONE plain-English function (`f56edf23d`, `d5232fb41`)
+
+`frontend/src/pages/pricing/rate-master/plainEnglish.ts` holds `plainSentence` (the 12d-4c tag stripper, MOVED; `itemListRuleOrder`
+re-exports it and a test pins identity), `pricingInputLabel` (MOVED) and `plainPricerText`: a leading pipeline id written as
+words (`item_supply:` -> `item supply:`); every Pricing Input id the items declare replaced by its row LABEL (`gi_sheet_rate` ->
+`GI framework sheet`; an undeclared one by its words); the trailing `(R15)` / `(owner ...)` tags dropped; a code RUN at the start
+of a sentence / bracket / clause dropped (`R1 / slice 11 damper not mentioned ...` -> `damper not mentioned ...`, `(R14 / S6 UL
+...` -> `(UL ...`); a code after a comma inside a bracket dropped (`(next size up, R6)` -> `(next size up)`). Idempotent; a line
+already plain is byte-identical, INDENTATION INCLUDED. `pricingSheetHelper.plainItemListView` applies it ONCE where the item-list
+view is built, to every DISPLAY string -- a field's `rule` / `note` / `matchHelp`, a block's `reason` / `skuLine` / `working` /
+`familyDefaulted.rule`, the view's `reason` / `unitNote`, the row-level `workings.derivation` -- and to nothing the pricing or a
+control MATCHES on (`value`, `typedValue`, `optionLabels`, the edit state). The non-item-list path never reaches it.
+⚠️ The first draft TRIMMED each line: the item-4 sweep showed a 2,842-line "other" class (a layer's indented steps lost their
+indent) and, after that fix, 2 lines where `(\s+` normalisation ate the leading space of ` Fiberglass Rigid Board Insulation,
+Density 48Kg/m3`. `d5232fb41` keeps the leading whitespace and normalises nothing but the pass's own removals.
+**Tests** (`plainEnglish.test.ts`, 12): each class before -> after; idempotence incl. indented lines; look-alikes kept (`UL 555`,
+`26G`, `2 slot`, ` Fiberglass ...` in a bracket); reuse identity; the NEGATIVE PIN -- every Insulation and ADP case of the 12c-S
+sweep (24 + 120) through BOTH paths, every display string free of `/\b[RDTS]-?\d/`, `slice N`, `(owner`, snake_case; the 294 / 70
+E2E-1 row with labelled working; an Electrical case has no item-list view. Eight text-only pins INVERTED under mechanical
+authority (plain text asserted, the code asserted absent): `pricingSheetHelper.test.ts` x2, `insulation12d1a.e2e` x4,
+`insulation12d1b.e2e` x1, `insulation12d4a.e2e` x1. Vacuity: the pass switched off -> 5 RED.
+
+### F-C5a — the empty extraction-rules card (`5a5c20e6b`)
+
+`itemListRuleOrder.extractionRulesCardShown(config)` (pure): the "Rules" card (`config.rules`, the extraction rules the prompt
+receives) is hidden iff a `list_spec` is present AND `rules` is empty -- decided by the config, no category named. An item-list
+category lists its rules in "How a row is priced", so "No rules configured for this category" beneath 24 rules read as a
+contradiction. A category carrying rules keeps its card whatever its shape; every non-item-list category (Electrical, with rules or
+with the empty state) is byte-identical. Tests: Insulation + ADP on the latest asset -> hidden; every Electrical config and the HVAC
+vendor-quote / alias / pricing-inputs configs -> shown; an item-list config given rules -> shown. Vacuity: predicate forced true -> RED.
+
+### Item 4 — wording only (the 12d-4a sweep instrument, HEAD + v33 vs the 12d-4c sweep)
+
+7,234 cases both paths, 7,219 compared: **0 outcome changes, 0 figure changes, Electrical 0 bytes**. 721 Insulation / ADP cases
+differ in text only, every changed line in one of five classes: code tag dropped (3,501 lines), pipeline-id prefix as words (2,692),
+pricing input by label (2,650), owner tag dropped (310), `slice N` dropped (53); "other" 0. DB digest before / after the cert:
+406 keys identical (runs 251, items 1,737, cell pricing 37,702, both disciplines' item and config digests).
+
+### Item 5 — the ELECTRICAL RETROFIT register (recorded, NOTHING changed)
+
+⚠️ PREMISE CORRECTION: the harness's result objects carry NO snake-case line on any Electrical path (0 hits over 1,915 cases;
+the one "hit" is an LMS SKU description in the `basis` line), so the register could not be built from the sweep; it is built from
+the LIVE panel (00174 r94, `db_switchgear`) and the Derivation tab (wiring_cabling) and, per category, from the v66 pipelines'
+`rate_ref` shape that produces the line `<result>: <item> = <value>`. One example per category: cabletray_raceway
+`pi_tray_supply_supply_markup: tray_supply`; conduit_piping `pi_conduit_discount: conduit`; db_switchgear `pi_switchgear_discount:
+switchgear = 0.7` + `pi_switchgear_supply_markup: switchgear = 0.65` + `pi_db_share_share: db_share = 0.2` + `db_shell: VTPN DB
+12WAY WITH MCB INCOMER = 30090` + `mcb1: ...` (SEEN live); earthing `pi_earthing_supply_supply_markup: earthing_supply`;
+industrial_sockets `pi_indsock_discount: indsock`; junction_box_raceway `pi_jb_supply_supply_markup: jb_supply`;
+lighting_mgmt_system `pi_lms_supply_supply_markup: lms_supply`; miscellaneous `pi_misc_supply_ratio: misc_supply`; point_wiring
+`pi_cable_unarm_discount: cable_unarm`; popup_boxes / switches_sockets `pi_swsock_discount: swsock`; wiring_cabling
+`pi_conduit_discount: conduit` (+ the Derivation tab's pipeline grid: `rate_ref` / `m_from_ctx pi_conduit_supply_markup`, SEEN).
+Also on the ADP / Insulation DERIVATION tab's PIPELINE GRID (an admin view, not a pricer line): `item_supply`, `hvac_adp_item`,
+`m_from_ctx supply_markup`, `(R15)` in the step explain -- outside this slice's sites, recorded.
+
+### Cert
+
+De-stale in full (19 PIDs on TERM, 0 left; ports free; 203 pycache purged; `.vite` removed; `bench start` -> pong after 240 s;
+vite 200 after 17 s); site data cleared (1 SW, 4 IndexedDB). PROOF 1 from the shell AND the browser: the served `plainEnglish.ts`
+carries `pricingInputIds` / `CODE_RUN` / `lead + s.trimEnd`, the helper `plainItemListView(view, items)`, the Derivation
+component `extractionRulesCardShown(config) &&`. PROOF 2 (runtime import): `plainPricerText("R1 / slice 11 damper not mentioned
+(or not answered) = without")` -> `damper not mentioned (or not answered) = without`; the labelled pricing-input line; an indented
+line keeps its indent; `extractionRulesCardShown({list_spec:{}, rules:[]})` false, `({rules:[]})` true. ⚠️ The MCP tab opened
+HIDDEN again -- STOPPED, the owner foregrounded it ("the tab is foregrounded. continue"); `visibilityState` read `visible` this
+time. Radix selects by keyboard (Home / End / ArrowDown + Enter).
+
+| step | expected (stated in advance) | SEEN | screen |
+|---|---|---|---|
+| 1 00169 r291 | "cladding not mentioned -> without cladding", 1371 / 154 | **"cladding not mentioned -> without cladding"**; working "supply: pricing input: GI framework sheet (rate) = 450" ...; **1371 / 154 / 1525**; 72 lines, 0 internal tokens | 01a |
+| 1 00117 r82 | "damper not mentioned (or not answered) = without", 1160 / 352 / 1512 | **as stated**; working "item supply: supply: cost x (1 + the SKU's supply markup) = 1160"; **1160 / 352 / 1512**; 54 lines, 0 internal | 01b |
+| 2 calculator Insulation NR 26G 19 pipe 50 | labels; 615 / 224 | "You typed 50 mm -> priced as 53.98 mm (next size up)", "supply: pricing input: Aluminium sheet 24G (rate) = 450", "... Aluminium sheet 26G ...", "... Glass cloth (rate) = 200", "... Cladding overlap (factor) = 1.25"; **615 / 224 / 839** (a stray "50" typed into the quantity box by the first script was reset to 1 -- the figure read 30,750 until then, session-only) | 02 |
+| 3 calculator ADP slot diffuser 2 slot | no R codes; 1160 / 352 | "item supply: ... = 1160", "item install: ... = 352"; **1160 / 352 / 1512**; 0 internal | 03 |
+| 4 Insulation Derivation | 24 lines, no Rules card | **no card, no "No rules configured"**, list ends at 24 | 04a x2 |
+| 4 ADP Derivation | 17 lines, no card | **no card**, list ends at 17 (the pipeline grid follows) | 04b |
+| 4 Electrical Derivation | unchanged | Wiring, Cabling & Termination: the **Rules card with R10 / R11** as before | 04c |
+| 5 Electrical r94 | 19630 / 3930, wording unchanged | **19630 / 3930 (23560)**; the working still reads `pi_switchgear_discount: switchgear = 0.7` ... (7 internal-name lines, the retrofit register) | 05 |
+| 6 digest | unchanged | after_12d4c_cert -> after_12d5_cert: **0 of 406 keys differ** | -- |
+
+`Use this value` never pressed; no override needed; Fast render OFF per sheet, back ON; the tab closed.
+
+### Tests (measured in-session)
+
+Targeted per commit: commit 1 -- 13 files / 977 (every importer of the changed modules + parity + servedVsStored), tsc 3,169;
+commit 2 -- rate-master dir 20 files / 935, tsc 3,169; commit 3 -- the same 13 files / 980, tsc 3,169. FULL (frontend only):
+`2026-10-13_12d5_frontend_full.log` **146 files / 5,131 tests** (+15 vs 12d-4c's 5,116; +1 file), 1 failure = the known
+`writeOffControl`; tsc 3,169, 0 OOM. Residence F2 223 = pre-slice (baseline 219 stale).
+
+## Slice 12d-6 — INSULATION PANEL-PATH FIXES: THE DOUBLE LAYER, THE MIXED INCH, THE DOUBLED "mm", AND A TYPED THICKNESS IS ONE NUMBER (2026-10-08/09) — SHIPPED
+
+Ordered by the owner on 2026-10-08 ("we should build the double layer fix now. Abhishek will deploy tomorrow morning") after the
+12e-0b recon (Desktop `2026-10-08_12e0b_Report.md` §1, §2.4) found three defects on the PANEL compute path of the green-lit
+Insulation category. Frontend-only; no asset, config, item or Pricing Input changed (P3 hashes equal at start and end; capture
+log 244 lines at start and end — zero model calls). Report: Desktop `2026-10-08_12d6_Report.md`.
+
+### The three defects and their cause
+
+1. **A model-read "Double layer of 19mm thick" / "Double layer of 19 mm" priced ONE layer on the panel** (Nitrile 50 mm + 26G Al:
+   615 / 224) while the pure pricer composed two (991 / 238). Cause: `pricingSheetHelper.computeItemList` ran
+   `matchStatedToOption` (12c-F R-B) BEFORE `priceItemList`; `readNumber` read the first number (19), it matched the dropdown
+   option "19", the option REPLACED the stated text, and `itemListPricing.readLayers` (12d-4c) never saw the wording.
+   "25 mm thick - 2 Layers" and "13+13" escaped only because `readNumber` returns no single value for them.
+2. **A hyphenated mixed inch `1-1/4"` read as 1"** (25.4 -> 28.58) — `readNumber`'s mixed-number form accepted only a SPACE
+   between the whole and the fraction.
+3. **The "own spelling" field note doubled the unit** ("BoQ says 19 mm mm -> 19 mm"): `${matched.from}${u}` with a raw text that
+   already carried "mm".
+
+### The fix (commit 1, `4e63dd9f2`)
+
+- `pricingSheetHelper.ts`: in the option-matching loop, `if (readLayers(raw) !== null) continue;` — a layered value is left as
+  written and reaches the pricer intact; it displays the way "25 mm thick - 2 Layers" already does (the Other... box with the
+  stated text, the layer lines in the working). The note appends the unit to a BARE number only (`fromU`).
+- `itemListPricing.ts`: `mixedForm` / `mixed` accept `[\s-]+` between whole and fraction (`1-1/4"`, `1 1/4"`, `1-1/4 inch` ->
+  31.75). A unicode fraction (`1¼"`) has NO reader path and still reads 1" — reported, not built.
+- **U4 (owner, 2026-10-09: "when we select other we should only be applied to type numbers for thickness, not anything
+  else")**: the thickness "Other..." box — calculator AND a typed panel edit — accepts a SINGLE NUMBER only (whole or decimal,
+  optional trailing "mm", `TYPED_THICKNESS_RE`); anything else refuses with ONE message, `TYPED_THICKNESS_MESSAGE` = "Type the
+  thickness as a single number in mm", replacing "several values stated" for TYPED thickness only. Keyed in `priceOneItem` on the
+  compose axis whose config reader is named "thickness" (`numbers.<attr>.name`), so ADP's compose axis (a SIZE: a typed 749
+  composes 375 + 375) and the pipe-size box (`5/8"`, `1-1/4"`) are untouched. Model-read thickness is untouched (T6 kept: a
+  typed entry is never parsed as layers — it is now refused instead of read as its first number).
+- **Owner ruling (a) on AC0**: the calculator is NOT required to compose typed text; AC0 is proved on the panel (C5/C6); the
+  parity pin is written on the model-read answer.
+
+### Blast radius (AC5, measured in-session)
+
+Every stored row of every active run (60 runs, **5,439 rows**, 22 configs, 1,737 items) priced through
+`makePricingSheetHelper(...).compute` at `bd0be4548` and after the fix (harness `ac5_harness.ts`, A/B on the host):
+**Electrical 5,015 rows: 0 changes.** HVAC: **174 rows changed** = 160 note de-dups only (ADP 125, Insulation 35: "BoQ says 150MM
+DIA mm" -> "BoQ says 150MM DIA", "20 Nm nm" -> "20 Nm") + the 14 "Double layer of 19mm thick" rows (BOQ-26-00137 'CHW pipes ,
+Valves' 32–37, BOQ-26-00156 'CHW pipes , Valves' 34–39, BOQ-26-00017 'Piping ' 23–24): thickness field now in Other-mode with the
+stated text, the two-layer working lines present, the row reason prefixed "item 1 (Nitrile Rubber Insulation): " — all 14 still
+refuse on size (80–250 NB Nitrile). **0 value / total / rowPriced / item-figure changes anywhere.**
+
+### Tests
+
+- NEW `rate-helper/slice12d6.test.ts` — 37 tests, every figure measured on v33 through the PANEL path: AC1 (i)–(viii) positive
+  + negative (the guard's predicate, the pure-pricer agreement, the 12e-0 photographed shape at 250 NB), U4 positive ("19",
+  "19 mm", "19mm", "12.5" -> 556, "9.5" -> 556) + negative (nine non-number forms, the typed panel edit, the pipe-size box
+  untouched), AC3 (three mixed-inch spellings, the unchanged set, a non-inch reader, the unicode gap REPORTED), AC4.
+- `calculatorPanelParity.test.ts` + 3: a layered answer on both surfaces (panel 991/238; calculator typed -> U4; a plain "19 mm"
+  agrees 615/224 on both).
+- INVERTED (never deleted; negative halves kept, before/after lines in the report): `itemListPricing.test.ts` T1-NEG + T6-NEG +
+  the C3 typed tail (U4 message in place of "several values stated"); `pricingSheetHelper.test.ts` V3/U2 note (AC4);
+  `insulation12d1b.e2e.test.ts` (b) + (d) calculator halves (U4); `insulation12d2Sample.e2e.test.ts` ACCEPTED list +12 (rows
+  32–37, cause `U4_typed_layered_text_refuses`, APPROVED) and its "row 290 only" pin; `insulation12d4a.e2e.test.ts` named rows
+  +#471 (U4) and #59 (D9b + U4, the model's "38mm (19+19)" typed), with `insulation12d2Expected.json` / `insulation12d4aExpected.json`
+  regenerated in WRITE mode (reason prefix, "25 mm - 2 Layers/None", the two-layer working0).
+- Vacuity: guard 1 OFF -> 5 AC1 tests red; U4 OFF -> 10 U4 tests red; restored -> 37/37 green (both runs in the report).
+- Targeted per commit 1: the 13 importers of the two changed modules + `pricing/rate-master` dir = **31 files / 1,895 tests**;
+  tsc 3,169 app-wide (the same 3 known rate-master errors).
+- FULL (frontend only): see the report §"Full suites" — `2026-10-08_12d6_frontend_full.log` beside the tsc log on the Desktop.
+  Measured in-session after the last code commit: vitest **147 files / 5,171 tests** (before, at `bd0be4548`: 146 / 5,131; +1 file
+  +40 = the 37 new + 3 parity), 1 failure = the known `writeOffControl` 5 s timeout on both runs; tsc app-wide 3,169 = baseline.
+
+### Browser cert (C1-C9, after a full de-stale; screenshots `2026-10-09_12d6_screens/`)
+
+- C1 typed "Double layer of 19 mm thick" (calculator) -> "Not priced -- Type the thickness as a single number in mm"; C2 typed
+  "19" -> 615 / 224 / 839; C3 typed "25 mm thick - 2 Layers" -> the same refusal; C4 pipe `1-1/4"` + thickness 13 -> "You typed
+  31.75 mm -> priced as 34.93 mm (next size up)", 408 / 224; C5 BOQ-26-00137 'CHW pipes , Valves' row 32 (model "Double layer of
+  19mm thick", "250 NB") -> refuses on size (53.98 ceiling) exactly as 12e-0 photographed; **C6 the same row with the pipe size
+  changed to 50 on the panel only -> two layers (376/14 + 615/224) = 991 / 238 / 1229, the pure-pricer AC0 figure** ("Use this
+  value" never pressed); C7 BOQ-26-00169 'HVAC' row 84 -> 510 / 224 / 734 with "BoQ says 25 mm -> 25 mm (the sheet's own
+  spelling of this value)" -- no doubled unit; C8 BOQ-26-00183 'Electrical Works' row 19 -> 120 / 24 / 144 = the AC5 baseline;
+  C9 all 12 P3 hashes/counts equal to the start, capture log 244 lines, Fast render restored ON.
+- **Found in cert, REPORTED, not fixed (pre-existing 12c-S behaviour, outside this slice):** (a) typing a size into an "Other..."
+  box that the MODEL opened (its value matched no option) records `set_attr` without `set_other`, so the 12c-S stale-pick rule
+  treats the typed 50 as a PICK and clears it ("50 mm is not stocked with the other answers on this item -- choose again");
+  choosing "Other..." from the select first, then typing, prices normally (that is how C6 was taken). (b) The typed-refusal
+  branch's note still reads "You typed Double layer of 19 mm thick mm: ..." -- the unit is appended to the raw text there; the
+  12d-6 `fromU` fix covers the "own spelling" note only.

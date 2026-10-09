@@ -2,10 +2,12 @@ import { describe, it, expect } from "vitest";
 import type { ColumnDescriptor, PricedRow, SheetCategoryRow } from "../boqTypes";
 import {
   buildRowContext,
+  rowHeadings,
   buildSuggestions,
   markSuggestionUsed,
   rateKindOfDescriptor,
   rateKindsOf,
+  rowOwnNotes,
 } from "./rateSuggestionModel";
 import { rowSuggestionsEqual, type HelperResult, type RateHelper, type RowSuggestions } from "./rateHelperTypes";
 
@@ -175,5 +177,56 @@ describe("rowSuggestionsEqual", () => {
     expect(rowSuggestionsEqual(a, { byCol: { E: { count: 1, used: true } } })).toBe(false);
     expect(rowSuggestionsEqual(a, { byCol: { E: { count: 2, used: false } } })).toBe(false);
     expect(rowSuggestionsEqual(a, { byCol: {} })).toBe(false);
+  });
+});
+
+// SLICE 12d-1a (owner R2): the row context carries the row's HEADINGS, root-first, from the priced rows'
+// parent chain -- and only when the page hands the rows over.
+describe("SLICE 12d-1a / R2 -- rowHeadings and the optional headings on buildRowContext", () => {
+  const r = (row_index: number, description: string, effective_parent_index: number | null): PricedRow =>
+    ({ row_index, source_row_number: row_index + 100, description, node_type: "Line Item", effective_parent_index }) as unknown as PricedRow;
+  const rows = [r(0, "INSULATION", null), r(1, "ACOUSTIC INSULATION", 0), r(2, "15mm thick for Ducts", 1), r(3, "orphan", 99)];
+
+  it("POSITIVE: the chain is walked up and returned ROOT-FIRST", () => {
+    expect(rowHeadings(rows[2], rows)).toEqual(["INSULATION", "ACOUSTIC INSULATION"]);
+    expect(rowHeadings(rows[1], rows)).toEqual(["INSULATION"]);
+    expect(rowHeadings(rows[0], rows)).toEqual([]);
+  });
+
+  it("NEGATIVE: a parent that is not among the rows ends the walk; a CYCLE ends it too", () => {
+    expect(rowHeadings(rows[3], rows)).toEqual([]);
+    const a = r(10, "A", 11);
+    const b = r(11, "B", 10);
+    expect(rowHeadings(a, [a, b])).toEqual(["B"]);
+  });
+
+  it("buildRowContext: headings ride ONLY when rows are handed over; without them the context is byte-identical to before", () => {
+    const withRows = buildRowContext(rows[2], ["supply_rate"], { effective_category_id: "hvac_insulation" } as SheetCategoryRow, rows);
+    expect(withRows.headings).toEqual(["INSULATION", "ACOUSTIC INSULATION"]);
+    const without = buildRowContext(rows[2], ["supply_rate"], { effective_category_id: "hvac_insulation" } as SheetCategoryRow);
+    expect("headings" in without).toBe(false);
+    expect(Object.keys(without).sort()).toEqual(["category", "description", "discipline", "excelRow", "nodeType", "rateKinds"]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------
+// SLICE 12d-4a (owner D3): the row's OWN notes ride the context (`ownNotes`) for the word rules that must never
+// see a heading. `rowOwnNotes` reads `row_notes` and the STRING entries of `attached_notes`, nothing from a parent.
+// ---------------------------------------------------------------------------------------------------------
+describe("SLICE 12d-4a -- rowOwnNotes / ownNotes on the row context", () => {
+  const base = { row_index: 3, source_row_number: 30, description: "13 mm thick", node_type: "Line Item", effective_parent_index: 1 } as unknown as PricedRow;
+  it("row_notes and string attached_notes, in that order; blanks and non-strings skipped; nothing -> []", () => {
+    expect(rowOwnNotes({ ...base, row_notes: "with glass cloth", attached_notes: ["GI strip at 1 m", "", 42, { text: "obj" }] } as unknown as PricedRow))
+      .toEqual(["with glass cloth", "GI strip at 1 m"]);
+    expect(rowOwnNotes({ ...base, row_notes: null, attached_notes: null } as unknown as PricedRow)).toEqual([]);
+    expect(rowOwnNotes({ ...base, row_notes: "  ", attached_notes: [] } as unknown as PricedRow)).toEqual([]);
+  });
+  it("buildRowContext carries ownNotes ONLY when the rows are given (the headings precedent); the parent's notes are never the row's", () => {
+    const parent = { row_index: 1, source_row_number: 10, description: "ACOUSTIC INSULATION", node_type: "Preamble", effective_parent_index: -1, row_notes: "perforated aluminium sheets on a GI stud framework", attached_notes: null } as unknown as PricedRow;
+    const row = { ...base, row_notes: null, attached_notes: ["own note"] } as unknown as PricedRow;
+    const withRows = buildRowContext(row, ["supply_rate"], undefined, [parent, row]);
+    expect(withRows.ownNotes).toEqual(["own note"]);
+    expect(withRows.headings).toEqual(["ACOUSTIC INSULATION"]);
+    expect(buildRowContext(row, ["supply_rate"], undefined).ownNotes).toBeUndefined();
   });
 });

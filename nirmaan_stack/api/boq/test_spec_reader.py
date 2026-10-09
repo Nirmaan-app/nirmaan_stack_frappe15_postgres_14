@@ -34,6 +34,8 @@ Plain-English coverage (positive AND negative):
 """
 
 import copy
+import csv
+import io
 import json
 import os
 from unittest.mock import patch
@@ -42,6 +44,11 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.boq import rate_master
+# SLICE 12c-T: ONE purge for every rate-master suite, imported rather than copied. Two copies on
+# either side of a shared live database is exactly the disagreement-at-the-worst-moment the BCS
+# import-direction law forbids, and the thing they would disagree about is whether a discipline was
+# cleaned up.
+from nirmaan_stack.api.boq.test_rate_master import _purge_test_disciplines
 from nirmaan_stack.services.boq_rate_master import (
     config_validation,
     csv_exporter,
@@ -83,15 +90,8 @@ class TestSpecReader(FrappeTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        for disc in cls._disciplines:
-            frappe.db.delete("BoQ Rate Master Snapshot", {"discipline": disc})
-            for dt in (CONFIG, ITEM, "BoQ Rate Master Retirement"):
-                for r in frappe.get_all(dt, filters={"discipline": disc}, fields=["name"]):
-                    frappe.db.delete("Version", {"ref_doctype": dt, "docname": r.name})
-            frappe.db.delete(ITEM, {"discipline": disc})
-            frappe.db.delete(CONFIG, {"discipline": disc})
-            frappe.db.delete("BoQ Rate Master Retirement", {"discipline": disc})
-        frappe.db.commit()
+        # SLICE 12c-T: ONE purge, abort-proof -- see `_purge_test_disciplines`.
+        _purge_test_disciplines(cls._disciplines)
         super().tearDownClass()
 
     @classmethod
@@ -209,16 +209,33 @@ class TestSpecReader(FrappeTestCase):
         text, headers, n = csv_exporter.build_category_csv(disc, "hvac_adp")
         # SLICE 1e (owner X-b / X-d): no kind (ONE item kind), no source pair -- inverted, not deleted.
         # SLICE 1g (owner Z-c): discipline + category right after item_uid -- inverted again, not deleted.
+        # SLICE 12c-T: the two READ-ONLY formula columns are the LAST two, on every row of every
+        # discipline -- `csv_exporter.FORMULA_COLUMNS`, added by `2e8804298` (2026-09-27, slice 12a).
+        # This expectation simply never followed, so t05 has failed since that commit. Inverted by
+        # EXTENSION, not deleted: every pre-existing claim above and below is kept word for word.
         self.assertEqual(headers, ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",
-                                   "cost_install", "cost_supply", "install_markup", "supply_markup"])
+                                   "cost_install", "cost_supply", "install_markup", "supply_markup",
+                                   "supply_formula", "install_formula"])
+        self.assertEqual(headers[-2:], list(csv_exporter.FORMULA_COLUMNS))   # and they are LAST
         for gone in ("kind", "source_sheet", "source_row", "import_batch"):
             self.assertNotIn(gone, headers)                    # NEGATIVE (1e; 1g: no other system column)
+        # NEGATIVE (slice 12b(B), `09c289fd4`): HVAC is NOT in `RATE_LABEL_DISCIPLINES`, so no header
+        # of this file carries a derived ` [List price]` / ` [BCS price]` / ` [BoQ price]` suffix. This
+        # is the HVAC side of the gate that t06 pins from the Electrical side.
+        self.assertNotIn("HVAC", csv_exporter.RATE_LABEL_DISCIPLINES)
+        self.assertEqual([h for h in headers if "[" in h or "]" in h], [])
         self.assertEqual(n, 95)
         for derived in spec_reader.ADP_DERIVED_ATTRS + spec_reader.RESERVED_ATTRS:
             self.assertNotIn(derived, headers)
         rows = list(__import__("csv").reader(text.lstrip("﻿").splitlines()))
         hdr, body = rows[0], rows[1:]
         self.assertEqual(hdr, headers)
+        # SLICE 12c-T: row 2 of the file is the FORMULA / EXPLANATION row (slice 12a, owner I-6/I-7) --
+        # an explanation, never an item. PIN that it is there, then drop it, so `body` is the 95 SKUs
+        # exactly as it was before 12a.
+        self.assertEqual(body[0][0].strip(), csv_exporter.FORMULA_ROW_MARKER)
+        body = [r for r in body if not any((c or "").strip() == csv_exporter.FORMULA_ROW_MARKER for c in r)]
+        self.assertEqual(len(body), 95)
         # rows 89 / 91 carry cost_install 0 (S-d): keyed by item_uid now that the file has no source_row
         ci, ui = hdr.index("cost_install"), hdr.index("item_uid")
         uid_of = {r["source_row"]: r["item_uid"] for r in frappe.get_all(
@@ -230,7 +247,8 @@ class TestSpecReader(FrappeTestCase):
         # Mode B: same text-first rule, the category column in place; still no kind (no multi-kind category)
         text_b, headers_b, n_b = csv_exporter.build_all_categories_csv(disc)
         self.assertEqual(headers_b, ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",
-                                     "cost_install", "cost_supply", "install_markup", "supply_markup"])
+                                     "cost_install", "cost_supply", "install_markup", "supply_markup",
+                                     "supply_formula", "install_formula"])
         self.assertEqual(n_b, 95)
 
     # -- t06 ----------------------------------------------------------------------------------------
@@ -245,20 +263,40 @@ class TestSpecReader(FrappeTestCase):
         # for a multi-kind category, brand, unit + sorted attrs + sorted rates; NO source pair. Mode B:
         # item_uid, category, kind (Electrical holds multi-kind categories), brand, unit + the union.
         # (Pre-1e this pinned LEAD + attrs + rates + TAIL; inverted, not deleted.)
+        # SLICE 12c-T: every file ends with the two READ-ONLY formula columns (slice 12a,
+        # `2e8804298`), which this expectation never followed -- the sole reason t06 has failed since
+        # that commit. Inverted by EXTENSION, not deleted: the 1e/1g construction above is kept word
+        # for word.
+        #
+        # ⚠️ AND THE DERIVED RATE-COLUMN LABELS (slice 12b(B), `09c289fd4`) DO NOT REACH THIS FILE,
+        # WHICH IS THE GATE WORKING, NOT A GAP. `derive_rate_column_labels` returns {} unless the
+        # discipline is literally in `RATE_LABEL_DISCIPLINES` -- and this test loads the Electrical
+        # ASSET under a scratch `TEST_RM_*` discipline, which is not "Electrical". So a label can
+        # never appear here, and asserting one would be asserting a falsehood. The labels themselves
+        # are pinned by `TestRateColumnLabels12bB` / `TestRateColumnLabelHeader12bB` in
+        # `test_rate_master.py`, which call the deriver with the real discipline name.
+        self.assertEqual(csv_exporter.derive_rate_column_labels(csv_exporter._load_configs(disc), disc), {})
+        self.assertNotIn(disc, csv_exporter.RATE_LABEL_DISCIPLINES)
+        seen_labelled = []
         for cat in ("cabletray_raceway", "lighting_mgmt_system", "wiring_cabling"):
             rows_in = [it for it in items if it["kind"] in set(cat_kinds[cat])]
             attrs, rates = csv_exporter._keys_for(rows_in)
             # SLICE 1g: discipline + category after item_uid, in every file (owner Z-c) -- inverted, not deleted.
             lead = (["item_uid", "discipline", "category", "kind", "brand", "unit"] if cat == "wiring_cabling"
                     else ["item_uid", "discipline", "category", "brand", "unit"])
-            expected = lead + attrs + rates
+            expected = lead + attrs + rates + list(csv_exporter.FORMULA_COLUMNS)
             _t, headers, n = csv_exporter.build_category_csv(disc, cat)
             self.assertEqual(headers, expected, cat)
+            self.assertEqual(headers[-2:], list(csv_exporter.FORMULA_COLUMNS), cat)
             self.assertEqual(n, len(rows_in))
             self.assertNotIn("item_name", headers)
             self.assertNotIn("source_sheet", headers); self.assertNotIn("source_row", headers)
+            seen_labelled += [h for h in headers if "[" in h or "]" in h]
+        # NEGATIVE: a scratch discipline is label-free, so no header carries a bracket suffix.
+        self.assertEqual(seen_labelled, [])
         attrs, rates = csv_exporter._keys_for(items)
-        expected_b = ["item_uid", "discipline", "category", "kind", "brand", "unit"] + attrs + rates
+        expected_b = (["item_uid", "discipline", "category", "kind", "brand", "unit"] + attrs + rates
+                      + list(csv_exporter.FORMULA_COLUMNS))
         _tb, headers_b, n_b = csv_exporter.build_all_categories_csv(disc)
         self.assertEqual(headers_b, expected_b)
         self.assertEqual(n_b, len(items))
@@ -680,31 +718,31 @@ class TestSpecReader(FrappeTestCase):
         plan = csv_importer.build_plan(disc, text)
         self.assertEqual(plan["errors"], [])
         by_row = {c["row"]: c for c in plan["changes"]}
-        self.assertEqual(sorted(by_row), [1, 2, 3])
-        for r in (1, 2):
+        self.assertEqual(sorted(by_row), [2, 3, 4])   # SLICE 12c-U: PHYSICAL Excel rows
+        for r in (2, 3):
             self.assertEqual(by_row[r]["spec"]["status"], "not_understood")     # the preview plans as today
             self.assertIsNotNone(by_row[r]["spec"]["suggestion"])
             self.assertIsNone(by_row[r]["spec"]["decision"])
-        self.assertEqual(by_row[1]["spec"]["suggestion"]["attributes"], {"family": "linear grille", "damper": "without"})
-        self.assertEqual(by_row[2]["spec"]["suggestion"]["attributes"], {"family": "fire damper", "variant": "UL", "ul": "yes"})
-        self.assertIsNone(by_row[3]["spec"]["suggestion"])
-        self.assertIn("no close match to a known wording", by_row[3]["spec"]["no_suggestion_reason"])
+        self.assertEqual(by_row[2]["spec"]["suggestion"]["attributes"], {"family": "linear grille", "damper": "without"})
+        self.assertEqual(by_row[3]["spec"]["suggestion"]["attributes"], {"family": "fire damper", "variant": "UL", "ul": "yes"})
+        self.assertIsNone(by_row[4]["spec"]["suggestion"])
+        self.assertIn("no close match to a known wording", by_row[4]["spec"]["no_suggestion_reason"])
         self.assertIn("suggestion", csv_importer.public_plan(plan)["changes"][0]["spec"])
-        fp1 = by_row[1]["spec"]["suggestion"]["fingerprint"]
-        fp2 = by_row[2]["spec"]["suggestion"]["fingerprint"]
+        fp1 = by_row[2]["spec"]["suggestion"]["fingerprint"]
+        fp2 = by_row[3]["spec"]["suggestion"]["fingerprint"]
         # NEGATIVE 1: an accept with the WRONG fingerprint is refused, nothing written
         before = frappe.db.count(ITEM, {"discipline": disc, "active": 1})
         with self.assertRaises(frappe.ValidationError):
-            csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], decisions={"1": "accept"},
-                                    accepted_fingerprints={"1": "deadbeef"})
+            csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], decisions={"2": "accept"},
+                                    accepted_fingerprints={"2": "deadbeef"})
         # NEGATIVE 2: an accept for a row with NO suggestion is refused, nothing written
         with self.assertRaises(frappe.ValidationError):
-            csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], decisions={"3": "accept"},
-                                    accepted_fingerprints={"3": "x"})
+            csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], decisions={"4": "accept"},
+                                    accepted_fingerprints={"4": "x"})
         self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), before)
-        # accept row 1, reject row 2, say nothing about row 3
+        # accept row 2, reject row 3, say nothing about row 4 (PHYSICAL Excel rows, slice 12c-U)
         res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"],
-                                      decisions={"1": "accept", "2": "reject"}, accepted_fingerprints={"1": fp1})
+                                      decisions={"2": "accept", "3": "reject"}, accepted_fingerprints={"2": fp1})
         frappe.db.commit()
         self.assertEqual(res["items_added"], 3)
         rows = frappe.get_all(ITEM, filters={"discipline": disc, "active": 1, "import_batch": res["batch"]}, fields=["attributes"])
@@ -724,9 +762,9 @@ class TestSpecReader(FrappeTestCase):
         self.assertEqual(x["spec_status"], "not_understood")
         # the applied plan echoes the decisions and the confirmed status
         applied = {c["row"]: c["spec"] for c in res["plan"]["changes"]}
-        self.assertEqual(applied[1]["status"], "confirmed"); self.assertEqual(applied[1]["decision"], "accept")
-        self.assertEqual(applied[2]["decision"], "reject")
-        self.assertEqual(fp2, by_row[2]["spec"]["suggestion"]["fingerprint"])
+        self.assertEqual(applied[2]["status"], "confirmed"); self.assertEqual(applied[2]["decision"], "accept")
+        self.assertEqual(applied[3]["decision"], "reject")
+        self.assertEqual(fp2, by_row[3]["spec"]["suggestion"]["fingerprint"])
 
     # -- t18 ----------------------------------------------------------------------------------------
     def test_t18_reupload_keeps_a_confirmed_row_and_rereads_a_changed_one(self):
@@ -735,7 +773,7 @@ class TestSpecReader(FrappeTestCase):
         text = self._hvac_csv(disc, [("Grille", "Linear grille without damper", "Nos")])
         plan = csv_importer.build_plan(disc, text)
         fp = plan["changes"][0]["spec"]["suggestion"]["fingerprint"]
-        csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], decisions={"1": "accept"}, accepted_fingerprints={"1": fp})
+        csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], decisions={"2": "accept"}, accepted_fingerprints={"2": fp})
         frappe.db.commit()
         # the same wording again, via the catalog's own export: no change, not asked again, status kept
         export, _h, _n = csv_exporter.build_category_csv(disc, "hvac_adp")
@@ -898,12 +936,12 @@ class TestSpecReader(FrappeTestCase):
         text, _h, _n = csv_exporter.build_category_csv(disc, "cabletray_raceway")
         plan_a = csv_importer.build_plan(disc, text)
         plan_b = csv_importer.build_plan(disc, text, decisions={})
-        plan_c = csv_importer.build_plan(disc, text, decisions={"1": "accept"})   # no spec row -> inert
+        plan_c = csv_importer.build_plan(disc, text, decisions={"2": "accept"})   # no spec row -> inert
         for p in (plan_a, plan_b, plan_c):
             self.assertEqual(p["errors"], []); self.assertEqual(p["changes"], [])
         self.assertEqual(plan_a["digest"], plan_b["digest"]); self.assertEqual(plan_a["digest"], plan_c["digest"])
         self.assertEqual(csv_importer.apply_plan(disc, text)["applied"], 0)
-        self.assertEqual(csv_importer.apply_plan(disc, text, decisions={"1": "accept"}, accepted_fingerprints={"1": "x"})["applied"], 0)
+        self.assertEqual(csv_importer.apply_plan(disc, text, decisions={"2": "accept"}, accepted_fingerprints={"2": "x"})["applied"], 0)
         # the legacy create path never reaches the SPEC resolver: spec_decision is inert there. SLICE 1f (inverted
         # under owner Y-f): it DOES reach the duplicate resolver -- this cable means the same as the live
         # rmi-2c2f8e25a3e0 (Polycab / Mtr / 3 x 2.5 COPPER ARMOURED), so it asks first and inserts nothing.
@@ -936,8 +974,15 @@ class TestSpecReader(FrappeTestCase):
     # ══════════════════════════════════════════════════════════════════════════════════════════
 
     # SLICE 1g (owner Z-c): discipline + category after item_uid -- the 1e nine columns became eleven.
+    # SLICE 12c-T: + the two READ-ONLY formula columns, LAST (slice 12a, `2e8804298`). Inverted by
+    # extension, not deleted -- the eleven columns 1e/1g settled are kept in their order.
     HVAC_FILE_COLUMNS = ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",
-                         "cost_install", "cost_supply", "install_markup", "supply_markup"]
+                         "cost_install", "cost_supply", "install_markup", "supply_markup",
+                         "supply_formula", "install_formula"]
+    # SLICE 12c-T: the PHYSICAL layout of the .xlsx since 12a -- row 1 the header, row 2 the formula /
+    # explanation row, the SKUs from row 3. `read_xlsx` returns the formula row and the importer drops
+    # it by its marker, so a sheet-level read (openpyxl) must start at 3 where it used to start at 2.
+    FIRST_SKU_PHYSICAL_ROW = 3
 
     def test_t21_hvac_xlsx_columns_text_survives_and_round_trips_to_zero(self):
         from nirmaan_stack.services.boq_rate_master import xlsx_io
@@ -948,6 +993,14 @@ class TestSpecReader(FrappeTestCase):
         self.assertNotIn("kind", headers); self.assertNotIn("source_sheet", headers); self.assertNotIn("source_row", headers)
         hdr, rows = xlsx_io.read_xlsx(raw)
         self.assertEqual(hdr, headers)
+        # SLICE 12c-T: `read_xlsx` is a FAITHFUL sheet reader -- it returns the formula row as data
+        # row 1 and it is the IMPORTER that drops it by its marker (`csv_importer.build_plan`), so a
+        # raw read sees 96 rows where it used to see 95. PIN that, then drop it: the 95 SKUs below
+        # are exactly the set this test has always asserted on.
+        self.assertEqual(len(rows), 96)
+        self.assertEqual((rows[0][1][0] or "").strip(), csv_exporter.FORMULA_ROW_MARKER)
+        rows = [(i, c) for i, c in rows
+                if not any((x or "").strip() == csv_exporter.FORMULA_ROW_MARKER for x in c)]
         self.assertEqual(len(rows), 95)
         di, ni = hdr.index("item_detail"), hdr.index("item_name")
         details = [c[di] for _i, c in rows]
@@ -957,10 +1010,15 @@ class TestSpecReader(FrappeTestCase):
         import io as _io
         import openpyxl
         ws = openpyxl.load_workbook(_io.BytesIO(raw)).worksheets[0]
-        self.assertEqual({ws.cell(row=r, column=di + 1).number_format for r in range(2, 97)}, {"@"})
-        self.assertEqual({ws.cell(row=r, column=ni + 1).number_format for r in range(2, 97)}, {"@"})
+        # SLICE 12c-T: physical row 2 is the formula row, so the 95 SKUs are rows 3..97. PIN the
+        # layout first -- an off-by-one here would otherwise read an explanation cell as a SKU.
+        self.assertEqual(ws.cell(row=1, column=1).value, "item_uid")
+        self.assertEqual((ws.cell(row=2, column=1).value or "").strip(), csv_exporter.FORMULA_ROW_MARKER)
+        first, last = self.FIRST_SKU_PHYSICAL_ROW, self.FIRST_SKU_PHYSICAL_ROW + 95
+        self.assertEqual({ws.cell(row=r, column=di + 1).number_format for r in range(first, last)}, {"@"})
+        self.assertEqual({ws.cell(row=r, column=ni + 1).number_format for r in range(first, last)}, {"@"})
         ci = hdr.index("cost_supply")
-        vals = [ws.cell(row=r, column=ci + 1).value for r in range(2, 97)]
+        vals = [ws.cell(row=r, column=ci + 1).value for r in range(first, last)]
         self.assertTrue(all(v is None or isinstance(v, (int, float)) for v in vals))   # numbers or blank, never text
         self.assertGreater(sum(1 for v in vals if isinstance(v, (int, float))), 80)
         # unchanged re-upload: nothing to apply; csv of the same content: the same digest
@@ -975,8 +1033,10 @@ class TestSpecReader(FrappeTestCase):
         # Mode B for HVAC: category kept, kind absent (no multi-kind category in the discipline)
         _b, hb, nb = csv_exporter.build_all_categories_xlsx(disc)
         # SLICE 1g (owner Z-c): discipline joins right after item_uid -- inverted, not deleted.
+        # SLICE 12c-T: + the two formula columns, LAST.
         self.assertEqual(hb, ["item_uid", "discipline", "category", "brand", "unit", "item_name", "item_detail",
-                              "cost_install", "cost_supply", "install_markup", "supply_markup"])
+                              "cost_install", "cost_supply", "install_markup", "supply_markup",
+                              "supply_formula", "install_formula"])
         self.assertEqual(nb, 95)
 
     def test_t22_the_owners_new_sku_without_kind_and_the_old_format_source_is_ignored(self):
@@ -997,7 +1057,11 @@ class TestSpecReader(FrappeTestCase):
         ch = plan["changes"][0]
         self.assertEqual(ch["_payload"]["kind"], "hvac_adp_item")           # filled from the category
         self.assertEqual(ch["_payload"]["source_sheet"], csv_importer.DEFAULT_SOURCE_SHEET)
-        self.assertEqual(ch["_payload"]["source_row"], 96)
+        # SLICE 12c-U (owner U6): the row number is now the PHYSICAL row Excel shows. This fixture
+        # rebuilds the file from `read_xlsx`, which hands back the formula row AS A DATA ROW, so it
+        # carries 96 rows before the new SKU -- which therefore lands on physical row 98 (header 1 +
+        # 97 data rows). HELD for this slice and updated here; inverted, not deleted.
+        self.assertEqual(ch["_payload"]["source_row"], 98)
         self.assertEqual(ch["spec"]["status"], "ok")
         self.assertEqual(ch["spec"]["read"], {"family": "square diffuser", "damper": "with", "neck_mm": 375.0})
         self.assertEqual(ch["_payload"]["rates"], {"cost_install": 150.0, "cost_supply": 800.0,
@@ -1011,7 +1075,7 @@ class TestSpecReader(FrappeTestCase):
         added = frappe.get_all(ITEM, filters={"discipline": disc, "active": 1, "source_sheet": csv_importer.DEFAULT_SOURCE_SHEET},
                                fields=["kind", "source_row", "attributes", "rates"])
         self.assertEqual(len(added), 1)
-        self.assertEqual((added[0]["kind"], added[0]["source_row"]), ("hvac_adp_item", 96))
+        self.assertEqual((added[0]["kind"], added[0]["source_row"]), ("hvac_adp_item", 98))
         # OLD FORMAT (the owner's actual file): kind + source_sheet "ADP" + source_row present -> IGNORED
         old_hdr = ["item_uid", "kind", "brand", "unit", "item_name", "item_detail", "cost_install", "cost_supply",
                    "install_markup", "supply_markup", "source_sheet", "source_row"]
@@ -1022,7 +1086,8 @@ class TestSpecReader(FrappeTestCase):
         self.assertEqual(p_old["columns"]["ignored"], ["source_row", "source_sheet"])
         c2 = p_old["changes"][0]
         self.assertEqual(c2["_payload"]["source_sheet"], csv_importer.DEFAULT_SOURCE_SHEET)   # NEGATIVE: never "ADP"
-        self.assertEqual(c2["_payload"]["source_row"], 1)                                     # the file's data row, not 999
+        # SLICE 12c-U: the file's own data row, as EXCEL numbers it (header 1, so this row is 2) -- never 999
+        self.assertEqual(c2["_payload"]["source_row"], 2)
         self.assertEqual(c2["_payload"]["kind"], "hvac_adp_item")
         self.assertEqual(c2["spec"]["read"], {"family": "round diffuser", "damper": "without", "dia_mm": 225.0})
         self.assertFalse(any(f["column"] in ("source_sheet", "source_row") for f in c2["fields"]))
@@ -1150,8 +1215,8 @@ class TestSpecReader(FrappeTestCase):
         self.assertEqual(p_hand["errors"], [])
         self.assertEqual((p_hand["changes"][0]["twin"]["item_uid"], p_hand["changes"][0]["twin"]["name"]), (hand_uid, hand["item"]["name"]))
         n_now = frappe.db.count(ITEM, {"discipline": disc, "active": 1})
-        r_hand = csv_importer.apply_plan(disc, t_hand, expected_digest=p_hand["digest"], twin_decisions={"1": "confirm"},
-                                         twin_fingerprints={"1": p_hand["changes"][0]["twin"]["fingerprint"]})
+        r_hand = csv_importer.apply_plan(disc, t_hand, expected_digest=p_hand["digest"], twin_decisions={"2": "confirm"},
+                                         twin_fingerprints={"2": p_hand["changes"][0]["twin"]["fingerprint"]})
         frappe.db.commit()
         self.assertEqual((r_hand["items_added"], r_hand["items_replaced"]), (0, 1))
         self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_now)
@@ -1192,7 +1257,7 @@ class TestSpecReader(FrappeTestCase):
         plan = csv_importer.build_plan(disc, text)
         fp = plan["changes"][0]["twin"]["fingerprint"]
         res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"],
-                                      twin_decisions={"1": "confirm"}, twin_fingerprints={"1": fp})
+                                      twin_decisions={"2": "confirm"}, twin_fingerprints={"2": fp})
         frappe.db.commit()
         self.assertEqual((res["applied"], res["items_added"], res["items_replaced"]), (1, 0, 1))
         self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_before)     # NO new item
@@ -1224,8 +1289,8 @@ class TestSpecReader(FrappeTestCase):
         conf_attrs = ok["item"]["attributes"]
         t2 = self._hvac_rows([dict(name="Round Diffuser without damper", detail="325 mm dia", unit="Nos", cs=77)])
         p2 = csv_importer.build_plan(disc, t2)
-        r2 = csv_importer.apply_plan(disc, t2, expected_digest=p2["digest"], twin_decisions={"1": "confirm"},
-                                     twin_fingerprints={"1": p2["changes"][0]["twin"]["fingerprint"]})
+        r2 = csv_importer.apply_plan(disc, t2, expected_digest=p2["digest"], twin_decisions={"2": "confirm"},
+                                     twin_fingerprints={"2": p2["changes"][0]["twin"]["fingerprint"]})
         frappe.db.commit()
         self.assertEqual((r2["items_added"], r2["items_replaced"]), (0, 1))
         self.assertEqual(frappe.db.get_value(ITEM, ok["item"]["name"], "active"), 0)     # superseded ...
@@ -1251,27 +1316,27 @@ class TestSpecReader(FrappeTestCase):
         self.assertIn("twin", plan["changes"][0]); self.assertNotIn("twin", plan["changes"][1])
         fp = plan["changes"][0]["twin"]["fingerprint"]
         # NEGATIVE 1: UNANSWERED -> the whole apply is refused, nothing written (with and without decisions)
-        for kw in ({}, {"twin_decisions": {"2": "confirm"}, "twin_fingerprints": {}}):
+        for kw in ({}, {"twin_decisions": {"3": "confirm"}, "twin_fingerprints": {}}):   # 3 = the row that is NOT the twin
             with self.assertRaises(frappe.ValidationError) as cm:
                 csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], **kw)
             self.assertIn("not answered", str(cm.exception))
         # NEGATIVE 2: a confirm with the WRONG fingerprint (or none) is refused
-        for fps in ({"1": "deadbeef"}, {}):
+        for fps in ({"2": "deadbeef"}, {}):
             with self.assertRaises(frappe.ValidationError) as cm:
-                csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"1": "confirm"}, twin_fingerprints=fps)
+                csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"2": "confirm"}, twin_fingerprints=fps)
             self.assertIn("not the one that was previewed", str(cm.exception))
         # NEGATIVE 3: a bad decision value is a row error
         with self.assertRaises(frappe.ValidationError):
-            csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"1": "maybe"}, twin_fingerprints={"1": fp})
+            csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"2": "maybe"}, twin_fingerprints={"2": fp})
         self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_before)
         self.assertEqual(frappe.db.count("BoQ Rate Master Snapshot", {"discipline": disc}), snaps)
         self.assertEqual(self._doc_state(target_name), before_state)
         # DECLINE: that row is skipped, the 275 row is added, the target is untouched
-        res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"1": "decline"})
+        res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"2": "decline"})
         frappe.db.commit()
         self.assertEqual((res["applied"], res["items_added"], res["items_replaced"]), (1, 1, 0))
         self.assertEqual(res["plan"]["counts"]["twins_declined"], 1)
-        self.assertEqual([c["row"] for c in res["plan"]["changes"]], [2])
+        self.assertEqual([c["row"] for c in res["plan"]["changes"]], [3])   # SLICE 12c-U: PHYSICAL row
         self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_before + 1)
         self.assertEqual(self._doc_state(target_name), before_state)
         added = frappe.get_all(ITEM, filters={"discipline": disc, "active": 1, "import_batch": res["batch"]}, fields=["attributes"])
@@ -1284,10 +1349,10 @@ class TestSpecReader(FrappeTestCase):
         rate_master.update_rate_master_item(name=target_name, rates_patch=json.dumps({"cost_supply": 721.0}))   # the target moved
         moved = self._doc_state(target_name)
         with self.assertRaises(frappe.ValidationError) as cm:
-            csv_importer.apply_plan(disc, t3, expected_digest=p3["digest"], twin_decisions={"1": "confirm"}, twin_fingerprints={"1": fp3})
+            csv_importer.apply_plan(disc, t3, expected_digest=p3["digest"], twin_decisions={"2": "confirm"}, twin_fingerprints={"2": fp3})
         self.assertIn("changed since", str(cm.exception))
         with self.assertRaises(frappe.ValidationError) as cm:
-            csv_importer.apply_plan(disc, t3, twin_decisions={"1": "confirm"}, twin_fingerprints={"1": fp3})
+            csv_importer.apply_plan(disc, t3, twin_decisions={"2": "confirm"}, twin_fingerprints={"2": fp3})
         self.assertIn("not the one that was previewed", str(cm.exception))
         self.assertEqual(self._doc_state(target_name), moved)
         self.assertEqual(frappe.db.count(ITEM, {"discipline": disc, "active": 1}), n_before + 1)
@@ -1301,7 +1366,7 @@ class TestSpecReader(FrappeTestCase):
                                 dict(name="Round Diffuser without GI Damper", detail="275 MM DIA", unit="Nos", cs=2)])
         plan = csv_importer.build_plan(disc, text)
         self.assertEqual(len(plan["errors"]), 1)
-        self.assertIn("Rows 1 and 2 mean the same item", plan["errors"][0]["message"])
+        self.assertIn("Rows 2 and 3 mean the same item", plan["errors"][0]["message"])   # SLICE 12c-U: PHYSICAL rows
         self.assertIn("remove one", plan["errors"][0]["message"])
         self.assertIn("cannot know which rate", plan["errors"][0]["message"])
         with self.assertRaises(frappe.ValidationError):
@@ -1336,13 +1401,13 @@ class TestSpecReader(FrappeTestCase):
         self.assertEqual(tw["row_wording"], "Round Diffuser without damper / 325 mm dia")
         self.assertEqual(tw["existing_rates"]["cost_supply"], "200.0"); self.assertEqual(tw["row_rates"]["cost_supply"], "999.0")
         # DECLINE: nothing changes at all
-        res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"1": "decline"})
+        res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"2": "decline"})
         frappe.db.commit()
         self.assertEqual(res["applied"], 0)
         self.assertEqual(self._doc_state(a["name"]), a_before); self.assertEqual(self._doc_state(b["name"]), b_before)
         # CONFIRM: B takes the row's rates and markups; A is byte-for-byte unchanged (never superseded)
-        res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"1": "confirm"},
-                                      twin_fingerprints={"1": tw["fingerprint"]})
+        res = csv_importer.apply_plan(disc, text, expected_digest=plan["digest"], twin_decisions={"2": "confirm"},
+                                      twin_fingerprints={"2": tw["fingerprint"]})
         frappe.db.commit()
         self.assertEqual((res["applied"], res["items_added"], res["items_replaced"]), (1, 0, 1))
         self.assertEqual(self._doc_state(a["name"]), a_before)                        # A: untouched, still active
@@ -1514,13 +1579,22 @@ class TestSpecReader(FrappeTestCase):
         n_e = frappe.db.count(ITEM, {"discipline": e_disc, "active": 1})
         pe = csv_importer.build_plan(e_disc, raw, category_id="cabletray_raceway")
         self.assertEqual(len(pe["errors"]), 95)                     # one per row, naming the row
-        self.assertEqual([e["row"] for e in pe["errors"]], list(range(1, 96)))
+        # SLICE 12c-U (owner U6): PHYSICAL Excel rows. The downloaded file is header row 1, the
+        # formula/explanation row 2, and its 95 SKUs rows 3..97 -- so the 95 refusals name 3..97,
+        # which is exactly what a pricer sees when they open the file. HELD for this slice.
+        self.assertEqual([e["row"] for e in pe["errors"]], list(range(3, 98)))
         self.assertIn("the file says discipline '%s' but this page is '%s'" % (disc, e_disc), pe["errors"][0]["message"])
         self.assertFalse(any("Unknown column" in e["message"] for e in pe["errors"]))   # NEGATIVE: the real reason, not column noise
         # the same file with the DISCIPLINE cells matching the page but the category foreign: refused by category
         hdr_e, rows_e = xlsx_io.read_xlsx(raw)
+        # ⚠️ SKIP THE FORMULA ROW. `read_xlsx` is a faithful sheet reader, so its first row is the
+        # formula/explanation row; its cells under the rate columns are PROSE, and casting them to
+        # float raised. This was always true and was simply never reached: before slice 12c-U this
+        # test failed at the row-number assertion above, so execution stopped before here.
+        sku_rows_e = [(i, cs) for i, cs in rows_e
+                      if not any((x or "").strip() == csv_exporter.FORMULA_ROW_MARKER for x in cs)]
         fixed = [[(e_disc if c == "discipline" else (float(v) if (c in numeric and v not in ("", None)) else (v or None)))
-                  for c, v in zip(hdr_e, cells)] for _i, cells in rows_e[:2]]
+                  for c, v in zip(hdr_e, cells)] for _i, cells in sku_rows_e[:2]]
         pe2 = csv_importer.build_plan(e_disc, xlsx_io.write_xlsx(hdr_e, fixed, numeric), category_id="cabletray_raceway")
         self.assertTrue(pe2["errors"])
         self.assertTrue(any("Unknown column" in e["message"] for e in pe2["errors"]))   # an HVAC column set is not Electrical's
@@ -1529,7 +1603,10 @@ class TestSpecReader(FrappeTestCase):
         self.assertEqual(frappe.db.count(ITEM, {"discipline": e_disc, "active": 1}), n_e)
         # 4. an existing HVAC item's category cell edited (to a name that is no category): refused, nothing written
         hdr, rows = xlsx_io.read_xlsx(raw)
-        cells = list(rows[0][1]); cells[hdr.index("category")] = "hvac_ducting"
+        # the FIRST SKU, not `rows[0]` -- that is the formula/explanation row (see the note above)
+        sku_rows = [(i, cs) for i, cs in rows
+                    if not any((x or "").strip() == csv_exporter.FORMULA_ROW_MARKER for x in cs)]
+        cells = list(sku_rows[0][1]); cells[hdr.index("category")] = "hvac_ducting"
         bad = xlsx_io.write_xlsx(hdr, [[(float(v) if (c in numeric and v not in ("", None)) else (v or None)) for c, v in zip(hdr, cells)]], numeric)
         pb = csv_importer.build_plan(disc, bad, category_id="hvac_adp")
         self.assertEqual(len(pb["errors"]), 1); self.assertIn("not a category of", pb["errors"][0]["message"])
@@ -1538,6 +1615,72 @@ class TestSpecReader(FrappeTestCase):
             pr = csv_importer.build_plan(disc, payload, category_id="hvac_adp")
             self.assertEqual((pr["errors"], pr["changes"], pr["counts"]["twins"]), ([], [], 0))
             self.assertEqual(pr["target"]["from_page"], False)
+
+    # -- SLICE 12c-U (owner U6, "Report the real Excel row") ----------------------------------------
+    def test_u01_an_upload_message_names_the_physical_excel_row_in_both_formats(self):
+        """A row number a pricer is shown is the row they see when they open the file.
+
+        POSITIVE: on the SAME download, read as .xlsx and as .csv, the physical row of a chosen SKU
+        equals the row the preview's refusal names. NEGATIVE: the header and the formula row are
+        where we say they are (row 1 and row 2), so the first SKU is row 3 -- if that layout ever
+        changed, the numbering would be wrong in a way this test would catch rather than inherit.
+        And the two readers agree on where data starts, so one format can never number a file
+        differently from the other.
+        """
+        from nirmaan_stack.services.boq_rate_master import xlsx_io
+        self.assertEqual(csv_importer.PHYSICAL_FIRST_DATA_ROW, xlsx_io.PHYSICAL_FIRST_DATA_ROW)
+        self.assertEqual(csv_importer.PHYSICAL_FIRST_DATA_ROW, 2)   # the header is row 1
+
+        disc = self.ro_disc
+        raw, headers, _n = csv_exporter.build_category_xlsx(disc, "hvac_adp")
+        text, _h2, _n2 = csv_exporter.build_category_csv(disc, "hvac_adp")
+        uid_i = headers.index("item_uid")
+
+        for label, payload, rows in (
+            ("xlsx", raw, xlsx_io.read_xlsx(raw)[1]),
+            ("csv", text, csv_importer.parse_csv_text(text.lstrip("﻿"))[1]),
+        ):
+            # the file's own layout, asserted rather than assumed
+            marker_rows = [rn for rn, cs in rows
+                           if any((c or "").strip() == csv_exporter.FORMULA_ROW_MARKER for c in cs)]
+            self.assertEqual(marker_rows, [2], label)        # the formula row IS physical row 2
+            sku_rows = [rn for rn, cs in rows if rn not in marker_rows and (cs[uid_i] or "").strip()]
+            self.assertEqual(sku_rows[:3], [3, 4, 5], label)  # so the SKUs start at physical row 3
+
+            # corrupt ONE row's item_uid and ask the PREVIEW which row it is
+            target = sku_rows[2]
+            out = []
+            for rn, cs in rows:
+                cs = list(cs)
+                if rn == target:
+                    cs[uid_i] = "rmi-zzzznotareal"
+                out.append(cs)
+            if label == "xlsx":
+                numeric = {"cost_install", "cost_supply", "install_markup", "supply_markup"}
+                body = [[(float(v) if (c in numeric and v not in ("", None)) else (v or None))
+                         for c, v in zip(headers, cs)]
+                        for rn, cs in zip([r for r, _ in rows], out)
+                        if rn not in marker_rows]
+                edited = xlsx_io.write_xlsx(headers, body, numeric)
+            else:
+                buf = io.StringIO()
+                w = csv.writer(buf, lineterminator="\r\n")
+                w.writerow(headers)
+                for cs in out:
+                    w.writerow(cs)
+                edited = buf.getvalue()
+            plan = csv_importer.build_plan(disc, edited, category_id="hvac_adp")
+            named = [e["row"] for e in plan["errors"] if "rmi-zzzznotareal" in e["message"]]
+            self.assertEqual(len(named), 1, (label, plan["errors"][:2]))
+            if label == "csv":
+                # the csv keeps the formula row, so the SKU sits exactly where the download put it
+                self.assertEqual(named[0], target, label)
+            else:
+                # the .xlsx fixture above drops the formula row, so every SKU moves up by one -- the
+                # point is that the REPORTED row is the row of the file THAT WAS UPLOADED
+                self.assertEqual(named[0], target - 1, label)
+            # NEGATIVE: the preview wrote nothing
+            self.assertEqual(plan["counts"]["items_added"], 0, label)
 
     def test_t33_a_hand_added_hvac_item_gets_a_uid_and_round_trips(self):
         disc = self._new_disc()

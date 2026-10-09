@@ -177,6 +177,21 @@ _KNOWN_CONFIG_KEYS = {
     # structurally validated below; ABSENT from a config means byte-identical to before slice 12a,
     # which is every Electrical category and every HVAC category but ADP and Insulation.
     "derived_rates", "rate_composition",
+    # SLICE 12c FINISH (owner F5): `column_order` -- a category's own PRESENTATION order for the rate
+    # file and the Rate Master screen. It exists because the only order lever before it was
+    # `rate_composition`, which CARRIES PRICING MEANING (the formula renderer, `_composition_role` and, for
+    # a pipeline-less category, the generated `derived_rates` all read it), so reordering columns
+    # through it would reword the formula row -- the owner asked for the structure to vary per
+    # category, and this is the lever that does only that. Validated by `_validate_column_order`.
+    "column_order",
+    # SLICE 12d-2 (owner S1, 2026-10-07): `calculator_only` is RETIRED. It was the 12c FINISH / FA7
+    # temporary calculator admission (one category, one slice), with a declared removal condition --
+    # "the slice that makes the category fully eligible REMOVES this key in the same change, so there
+    # is never a second on/off switch". That slice is 12d-2: Insulation is eligible through the ONE
+    # generic predicate (`extraction.has_runnable_pricing_rules`), the key is NOT in this allowlist
+    # any more, so a config still carrying it is refused as an unknown top-level key. The frozen
+    # historical assets v18..v28 do carry it and are therefore refused by this validator -- that is
+    # the honest state of a retired key, and the tests pin it from both sides.
 }
 
 _LIST_MODE = "item_list"
@@ -267,7 +282,211 @@ def _validate_list_spec(cfg):
 _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_factors", "family_alias",
                  "no_sku_families", "defaults",
                  "derive_when_none", "override_when", "numbers", "ladders", "match_attrs", "choice_attrs",
-                 "reason_names", "families", "panel_controls", "second_key"}
+                 "reason_names", "families", "panel_controls", "second_key",
+                 # SLICE 12c: the two blocks `ladderResolution.ts` reads. Each arrives WITH its shape
+                 # check below -- a key this allowlist admits but nothing validates is the
+                 # "validates but never executes" failure, and it is the whole reason this file exists.
+                 "size_match", "compose", "label_attr", "number_defaults", "typed_cladding",
+                 # SLICE 12c FINISH (owner FA8): one plain-English line per TYPED field saying what
+                 # to enter. REQUIRED wherever `panel_controls` admits typing -- see
+                 # the `panel_notes` shape check in `_validate_list_pricing`.
+                 "panel_notes",
+                 # SLICE 12d-1a (owner R2): the family a row with NO material answer prices as, by
+                 # row kind -- unit class, then the declared words in the row or its headings.
+                 # Arrives WITH its shape check (`_validate_family_when_none`), as every key must.
+                 "family_when_none",
+                 # SLICE 12d-1a (owner R4): a STATED value that prices as another value of its
+                 # attribute for named families, or refuses -- foil on a pipe is 26G, foil on an
+                 # acoustic row refuses. Arrives WITH its shape check (`_validate_value_map`).
+                 "value_map",
+                 # SLICE 12d-1a (owner R7): item attributes the panel shows READ-ONLY (a brand) --
+                 # text definitions NO pricing rule reads. Arrives WITH its check (`_validate_panel_readonly`).
+                 "panel_readonly",
+                 # SLICE 12d-1b (owner T5): the text item attribute carrying the material AS WRITTEN, which a
+                 # no_sku_families refusal names. Arrives WITH its check below.
+                 "no_sku_named_by",
+                 # SLICE 12d-4a (owner D3): a value NAMED in the row's own text but answered "not mentioned"
+                 # refuses -- the words in config, no category in code. Arrives WITH `_validate_named_in_row`.
+                 "named_in_row",
+                 # SLICE 12d-4a (owner D7): unstocked materials refuse BY NAME whatever family the model picked.
+                 # Arrives WITH `_validate_unstocked_materials`.
+                 "unstocked_materials",
+                 # SLICE 12d-4a (owner D9b): a value not offered on rows of one UNIT CLASS (glass cloth on sheet
+                 # insulation) refuses with the ruled sentence. Arrives WITH `_validate_refuse_on_unit_class`.
+                 "refuse_on_unit_class",
+                 # SLICE 12d-4a (owner D8): a working LINE generated from a copied text ("BoQ says 32 kg/m3 ->
+                 # priced as the 48 kg/m3 board"). Display only. Arrives WITH `_validate_read_notes`.
+                 "read_notes"}
+_PRICING_NAMED_IN_ROW_KEYS = {"attr", "words", "refuse", "rule"}
+_PRICING_UNSTOCKED_KEYS = {"words", "from_attr", "rule"}
+_PRICING_REFUSE_UC_KEYS = {"unit_class", "families", "attr", "value_contains", "words", "refuse", "rule"}
+_PRICING_READ_NOTE_KEYS = {"families", "from_attr", "pattern", "unless", "line"}
+
+
+def _words_ok(words):
+    return isinstance(words, list) and words and all(isinstance(w, str) and w.strip() for w in words)
+
+
+def _validate_named_in_row(rules, by_id, choice_attrs):
+    """SLICE 12d-4a (owner D3) -- `list_spec.pricing.named_in_row`: a non-empty list of rules, each naming an
+    `allow_none` CHOICE attribute of this category (only such an attribute can be answered "not mentioned"),
+    a non-empty word list, the refusal sentence and the ruling. Refused by name otherwise."""
+    loc = "list_spec.pricing.named_in_row"
+    if not isinstance(rules, list) or not rules:
+        _vthrow(f"{loc} must be a non-empty list.")
+    for i, r in enumerate(rules):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _PRICING_NAMED_IN_ROW_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        if _PRICING_NAMED_IN_ROW_KEYS - set(r):
+            _vthrow(f"{rloc} must carry attr / words / refuse / rule.")
+        if r["attr"] not in choice_attrs or not by_id.get(r["attr"], {}).get("allow_none"):
+            _vthrow(f"{rloc}.attr must be an allow_none choice attribute of this category.")
+        if not _words_ok(r["words"]):
+            _vthrow(f"{rloc}.words must be a non-empty list of words.")
+        for key in ("refuse", "rule"):
+            if not isinstance(r[key], str) or not r[key].strip():
+                _vthrow(f"{rloc}.{key} must be a non-empty string.")
+
+
+def _validate_unstocked_materials(um, by_id, sku_attrs, numbers):
+    """SLICE 12d-4a (owner D7) -- `list_spec.pricing.unstocked_materials`: an object with a non-empty word
+    list, the ruling, and optionally `from_attr` -- a `text` item attribute the pricing does not read (the
+    material AS WRITTEN), whose text is searched beside the row's own."""
+    loc = "list_spec.pricing.unstocked_materials"
+    if not isinstance(um, dict):
+        _vthrow(f"{loc} must be an object.")
+    unk = set(um) - _PRICING_UNSTOCKED_KEYS
+    if unk:
+        _vthrow(f"{loc}: unknown key(s): {', '.join(sorted(unk))}.")
+    if not _words_ok(um.get("words")):
+        _vthrow(f"{loc}.words must be a non-empty list of words.")
+    if not isinstance(um.get("rule"), str) or not um["rule"].strip():
+        _vthrow(f"{loc}.rule must be a non-empty string.")
+    if "from_attr" in um:
+        fa = um["from_attr"]
+        read_by_pricing = set(sku_attrs) | {src for n in numbers.values() for src in (n.get("from") or [])}
+        if not isinstance(fa, str) or fa not in by_id:
+            _vthrow(f"{loc}.from_attr must name an item attribute of this category.")
+        if by_id[fa].get("type") != "text" or fa in read_by_pricing:
+            _vthrow(f"{loc}.from_attr must be a text definition the pricing does not read.")
+
+
+def _validate_refuse_on_unit_class(rules, by_id, choice_attrs, ucls, fams):
+    """SLICE 12d-4a (owner D9b) -- `list_spec.pricing.refuse_on_unit_class`: a non-empty list of rules, each
+    naming a `unit_classes` key, the FAMILIES it applies to (12d-4aF, REQUIRED: a non-empty list of priceable
+    families -- a rule without one is refused by name, because the 12d-4a form that applied to every family
+    refused Cladding Only per sq.m against the standing 12c F2 ruling), a CHOICE attribute, the value fragment it
+    refuses on, optionally the words that refuse a "not mentioned" answer, the refusal sentence and the ruling."""
+    loc = "list_spec.pricing.refuse_on_unit_class"
+    if not isinstance(rules, list) or not rules:
+        _vthrow(f"{loc} must be a non-empty list.")
+    for i, r in enumerate(rules):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _PRICING_REFUSE_UC_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        if {"unit_class", "families", "attr", "value_contains", "refuse", "rule"} - set(r):
+            _vthrow(f"{rloc} must carry unit_class / families / attr / value_contains / refuse / rule.")
+        if r["unit_class"] not in ucls:
+            _vthrow(f"{rloc}.unit_class must be a unit_classes key.")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must be a non-empty list of priceable families (12d-4aF: the rule applies to the listed families only).")
+        if r["attr"] not in choice_attrs:
+            _vthrow(f"{rloc}.attr must be a choice attribute of this category.")
+        vals = by_id[r["attr"]].get("values") or []
+        if not isinstance(r["value_contains"], str) or not r["value_contains"].strip() or not any(
+            r["value_contains"].lower() in str(v).lower() for v in vals
+        ):
+            _vthrow(f"{rloc}.value_contains must be a fragment of at least one of the attribute's values.")
+        if "words" in r and not _words_ok(r["words"]):
+            _vthrow(f"{rloc}.words must be a non-empty list of words.")
+        for key in ("refuse", "rule"):
+            if not isinstance(r[key], str) or not r[key].strip():
+                _vthrow(f"{rloc}.{key} must be a non-empty string.")
+
+
+def _validate_read_notes(rules, by_id, fams, sku_attrs, numbers):
+    """SLICE 12d-4a (owner D8) -- `list_spec.pricing.read_notes`: a non-empty list, each naming priceable
+    families, a `text` item attribute the pricing does not read, a regular expression that compiles, an
+    optional `unless` value and a line carrying `{match}`."""
+    loc = "list_spec.pricing.read_notes"
+    if not isinstance(rules, list) or not rules:
+        _vthrow(f"{loc} must be a non-empty list.")
+    read_by_pricing = set(sku_attrs) | {src for n in numbers.values() for src in (n.get("from") or [])}
+    for i, r in enumerate(rules):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _PRICING_READ_NOTE_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        if {"families", "from_attr", "pattern", "line"} - set(r):
+            _vthrow(f"{rloc} must carry families / from_attr / pattern / line.")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must list priceable families.")
+        fa = r["from_attr"]
+        if not isinstance(fa, str) or fa not in by_id or by_id[fa].get("type") != "text" or fa in read_by_pricing:
+            _vthrow(f"{rloc}.from_attr must be a text definition the pricing does not read.")
+        try:
+            re.compile(r["pattern"])
+        except (re.error, TypeError):
+            _vthrow(f"{rloc}.pattern must be a regular expression.")
+        if "unless" in r and (not isinstance(r["unless"], str) or not r["unless"].strip()):
+            _vthrow(f"{rloc}.unless must be a non-empty string.")
+        if not isinstance(r["line"], str) or "{match}" not in r["line"]:
+            _vthrow(f"{rloc}.line must be a string carrying {{match}}.")
+_PRICING_FWN_KEYS = {"by_unit_class", "when_words", "rule"}
+_PRICING_FWN_WORD_KEYS = {"unit_class", "words", "family"}
+_PRICING_VALUE_MAP_KEYS = {"attr", "families", "from", "to", "refuse", "rule", "display"}
+_PRICING_VALUE_MAP_REQUIRED = {"attr", "families", "from", "rule"}
+# SLICE 12c FINISH (owner F1: "missing thickness -> 9 mm default"). `defaults` cannot express this --
+# it requires a CHOICE attribute carrying `allow_none`, and a thickness is a NUMBER read through
+# `numbers`. A separate key rather than a widening of `defaults`, because the two differ in what they
+# are FOR: `defaults` turns the model's "not mentioned" into a ruled value, while this fills a number
+# the row never stated at all. ABSENT => nothing is defaulted and every category is unchanged.
+_PRICING_NUMBER_DEFAULT_KEYS = {"value", "families", "rule"}
+# SLICE 12c -- a stated value and a catalogue rung that are the SAME size written to different precision.
+# `dp` is the rounding depths to try, in order. ABSENT => nothing resolves and the ladder decides, exactly
+# as before. A depth that is not collision-free over a family's rungs is SKIPPED at run time, never
+# resolved arbitrarily, so the config cannot make the match order-dependent.
+_PRICING_SIZE_MATCH_KEYS = {"dp"}
+# SLICE 12c-S: the keys one `panel_notes` CLAUSE may carry (see the note-shape check below).
+_PRICING_NOTE_CLAUSE_KEYS = {"text", "when_reads", "when_stocked"}
+
+
+def _note_shape_ok(v):
+    """SLICE 12c-S. A panel note is a non-empty string, or a non-empty list of clause objects."""
+    if isinstance(v, str):
+        return bool(v.strip())
+    if not isinstance(v, list) or not v:
+        return False
+    for c in v:
+        if not isinstance(c, dict) or set(c) - _PRICING_NOTE_CLAUSE_KEYS:
+            return False
+        if not isinstance(c.get("text"), str) or not c["text"].strip():
+            return False
+        if "when_reads" in c and not isinstance(c["when_reads"], str):
+            return False
+        if "when_stocked" in c and not isinstance(c["when_stocked"], bool):
+            return False
+    return True
+# SLICE 12c (owner Q8) -- above the top rung, build the value out of TWO OR MORE rungs within `tolerance`.
+# ⚠️ `max_layers` BELOW 2 IS REFUSED BY NAME. One layer is what the ordinary ladder already is, so a
+# one-layer "composition" is that ladder wearing the tolerance as a disguise -- able to shave a stated
+# value DOWN, which is exactly the 26 -> 25 exception the owner refused.
+# SLICE 12c FINISH (owner C-R1, 2026-10-04): `cost_key` -- the rate key whose SUM breaks a tie
+# that closeness could not: "lowest insulation material cost (cost_insulation of the layers
+# summed)". Declared here so no rate name is written in frontend code; ABSENT leaves the
+# deterministic fallback deciding, exactly as every composition did before the key existed.
+_PRICING_COMPOSE_KEYS = {"attr", "tolerance", "max_layers", "outer_only", "cost_key"}
+_PRICING_COMPOSE_REQUIRED = {"attr", "tolerance", "max_layers"}
+_PRICING_OUTER_ONLY_KEYS = {"attr", "value"}
 # SLICE 11 (owner ruling, 2026-09-25): a unit may BELONG to a class and still be a DIFFERENT unit of that
 # class -- a square foot is an area, but the catalogue quotes per square metre. Such a unit is declared here,
 # NEVER in `unit_classes`: a `unit_classes` spelling is a SYNONYM (factor 1, nothing is scaled), and a
@@ -285,15 +504,36 @@ def _norm_unit_spelling(s):
 # SLICE 6b (owner V1, V4, V5): the panel's control per attribute -- "dropdown" (options from the active SKUs / the
 # definition) or "text" (a BoQ measurement). Declared in config, never in code; it sits inside `list_spec.pricing`,
 # which the model-side projection (`extraction.build_items_spec`) never reads, so it can never reach the model.
-_PANEL_CONTROLS = {"dropdown", "text"}
+# SLICE 12c FINISH (owner FA8, 2026-10-04): `dropdown_or_other` -- a live dropdown of the values the
+# CATALOGUE stocks PLUS an "other" entry for the value the BoQ actually states. A size needs both:
+# the options must come from the SKUs (so a new catalogue row is a new option with no code change),
+# and an unstocked size must still be typeable, because the ladder, the rounding and the composition
+# rules all exist to resolve exactly that. A plain `dropdown` on a size would silently remove the
+# only way to say what the document says.
+_PANEL_CONTROLS = {"dropdown", "text", "dropdown_or_other"}
+# the controls that let a person TYPE: each one must declare what to type (`panel_notes`)
+_TYPED_CONTROLS = {"text", "dropdown_or_other"}
 # SLICE 9 (owner A-1): `component` -- this SKU attribute is ONE AXIS (1 width, 2 height, 3 depth) of a size the
 # row writes as a SINGLE phrase, which CODE splits. ABSENT => the reader is byte-identical to before.
-_PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_tokens", "reject_below", "range", "component"}
+# SLICE 12c FINISH (owner FA8(d)): `inches` -- an inch value on this axis converts to mm instead of
+# being refused, and a bare fraction is read as inches. Only for an axis whose catalogue sizes are
+# themselves inch-derived; ABSENT keeps the refusal every other axis has always given.
+_PRICING_NUMBER_KEYS = {"from", "name", "unit", "square", "ratio", "reject_tokens", "reject_below",
+                       "range", "component", "inches",
+                       # SLICE 12d-1b (owner T2): `several: "highest"` -- a bare slash list of ANY length
+                       # reads as its highest. ABSENT => a list of three or more still refuses (ADP is
+                       # byte-identical). The value is closed to the one word the reader implements.
+                       "several"}
 # SLICE 9 (owner A-4): `second_key` -- a second match key beside a family's primary one (a diffuser's OUTER size
 # beside its neck). Closed, like every other block here: a misspelled key would ship a silently inert rule.
 _PRICING_SECOND_KEY_KEYS = {"families", "primary", "key", "alt_key", "name", "primary_pick"}
 _PRICING_PRIMARY_PICKS = {"largest"}
-_PRICING_FAMILY_KEYS = {"needs", "units", "convert"}
+# SLICE 12c-S (OWNER RULING S10, 2026-10-06): `units_not_offered` -- unit classes the PICKER must not
+# offer for this family, although the family can price them. It changes NO price: a BoQ row that arrives
+# in a hidden unit prices exactly as before. It exists because `double-skin plenum` and `VCD` are
+# identical on every axis a generic rule could key on (area SKUs, an area pipeline, a count conversion),
+# so the difference between them is knowledge about the product and has to be DECLARED.
+_PRICING_FAMILY_KEYS = {"needs", "units", "convert", "units_not_offered"}
 _PRICING_UNIT_KEYS = {"needs", "pipelines"}
 _PRICING_CONVERT_KEYS = {"to", "needs", "rule", "pipelines"}
 # SLICE 6 (owner S6): `absent_as_none` -- an ABSENT answer is read as NOT MENTIONED, so the default fires on it too
@@ -308,8 +548,115 @@ _PRICING_DERIVE_KEYS = {"attr", "families", "when", "then", "rule"}
 # own word for the thing the row now prices as). It never reaches the model and never reaches the matcher.
 _PRICING_OVERRIDE_KEYS = {"attr", "families", "when", "then", "rule", "display"}
 _PRICING_OVERRIDE_REQUIRED = {"attr", "families", "when", "then", "rule"}
-# the interpreter steps an item-list pipeline may use -- the EXISTING vocabulary only (no new step type this slice)
-_PRICING_STEP_TYPES = {"match_master_row", "component_ref", "sum_components", "scale", "roundup"}
+# The interpreter steps an item-list pipeline may use. EXISTING vocabulary only -- no member here is a
+# new step type; each is already implemented, tested and shipped on the config-level path.
+#
+# SLICE 12c widens it by TWO, and the widening is what makes an item-list category able to price from a
+# PRICING INPUT at all:
+#   * `rate_ref`  -- reads one stored input into ctx. Without it `list_spec.pricing` pipelines cannot see
+#                    a Pricing Input, so Insulation could not read the aluminium / glass-cloth / GI
+#                    numbers and every one of them would have had to stay a literal in the config -- the
+#                    exact thing 12b(A) removed for Electrical.
+#   * `component` -- a component whose `conditions` branch on the SELECTION. Insulation's cladding is one
+#                    formula with a per-cladding parameter set (aluminium x overlap, glass cloth, the GI
+#                    pair, a flat foil rate, zero); `component_ref` cannot express that because it reads
+#                    ANOTHER ROW rather than branching on this one's answer.
+#
+# ⚠️ WIDENING A CLOSED ALLOWLIST IS ONLY SAFE BECAUSE THE TWO ARRIVE WITH THEIR SHAPE CHECKS, IN THIS
+# SAME CHANGE (see `_validate_pricing_pipelines`). A member added here without its branch below would be
+# accepted and never checked -- the "config key that validates but never executes" failure one level
+# down, which is precisely what this file exists to prevent.
+#
+# ⚠️ MEASURED NO-OP FOR ADP, the only shipped item-list category: its `list_spec` pipelines use
+# match_master_row (62), scale (124), roundup (64), component_ref (2) and sum_components (2) -- not one
+# `rate_ref` and not one `component`. Widening the set cannot change what it already validates.
+_PRICING_STEP_TYPES = {"match_master_row", "component_ref", "sum_components", "scale", "roundup",
+                       "rate_ref", "component"}
+
+
+def _validate_family_when_none(fwn, ucls, fams):
+    """SLICE 12d-1a (owner R2) -- the shape of `list_spec.pricing.family_when_none`.
+
+    `by_unit_class` maps a declared unit class to the PRICEABLE family a silent row of that class
+    prices as; `when_words` (optional) lists, in order, {unit_class, words, family} rules that
+    replace it where one of the words appears in the row or its headings; `rule` says whose ruling
+    it is. The words are plain strings -- the frontend tests them as whole words, case-insensitive.
+    Refused by name: an empty map, a class the category does not declare, a family that is not
+    priceable (an alias, a no-SKU family, or unknown), an empty word list, a blank word."""
+    loc = "list_spec.pricing.family_when_none"
+    if not isinstance(fwn, dict):
+        _vthrow(f"{loc} must be an object.")
+    unk = set(fwn) - _PRICING_FWN_KEYS
+    if unk:
+        _vthrow(f"{loc}: unknown key(s): {', '.join(sorted(unk))}.")
+    buc = fwn.get("by_unit_class")
+    if not isinstance(buc, dict) or not buc:
+        _vthrow(f"{loc}.by_unit_class must be a non-empty object of unit class -> family.")
+    for cls_, fam in buc.items():
+        if cls_ not in ucls:
+            _vthrow(f"{loc}.by_unit_class names unit class '{cls_}', which unit_classes does not declare.")
+        if not isinstance(fam, str) or fam not in fams:
+            _vthrow(f"{loc}.by_unit_class['{cls_}'] must name a priceable family of this category.")
+    if "when_words" in fwn:
+        ww = fwn["when_words"]
+        if not isinstance(ww, list) or not ww:
+            _vthrow(f"{loc}.when_words, when present, must be a non-empty list.")
+        for i, w in enumerate(ww):
+            wloc = f"{loc}.when_words[{i}]"
+            if not isinstance(w, dict) or set(w) != _PRICING_FWN_WORD_KEYS:
+                _vthrow(f"{wloc} must carry exactly unit_class / words / family.")
+            if w["unit_class"] not in ucls:
+                _vthrow(f"{wloc}.unit_class '{w['unit_class']}' is not a declared unit class.")
+            if not isinstance(w["words"], list) or not w["words"] or not all(
+                    isinstance(x, str) and x.strip() for x in w["words"]):
+                _vthrow(f"{wloc}.words must be a non-empty list of non-empty strings.")
+            if not isinstance(w["family"], str) or w["family"] not in fams:
+                _vthrow(f"{wloc}.family must name a priceable family of this category.")
+    if not isinstance(fwn.get("rule"), str) or not fwn["rule"].strip():
+        _vthrow(f"{loc}.rule must be a non-empty string saying whose ruling it is.")
+
+
+def _validate_value_map(vm, by_id, choice_attrs, fams):
+    """SLICE 12d-1a (owner R4) -- the shape of `list_spec.pricing.value_map`: a list of rules, each
+    naming a CHOICE attribute of this category, the PRICEABLE families it applies to, the stated
+    value (`from`, one of the attribute's own values) and EXACTLY ONE of `to` (another of its values,
+    which then prices) or `refuse` (the sentence the item refuses with); `rule` says whose ruling it
+    is; `display` (optional) is the word the panel shows. Refused by name otherwise, and an EMPTY
+    list is a mistake, never an inert key."""
+    loc = "list_spec.pricing.value_map"
+    if not isinstance(vm, list):
+        _vthrow(f"{loc} must be a list.")
+    if not vm:
+        _vthrow(f"{loc} must be a non-empty list.")
+    for i, r in enumerate(vm):
+        rloc = f"{loc}[{i}]"
+        if not isinstance(r, dict):
+            _vthrow(f"{rloc} must be an object.")
+        unk = set(r) - _PRICING_VALUE_MAP_KEYS
+        if unk:
+            _vthrow(f"{rloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        if _PRICING_VALUE_MAP_REQUIRED - set(r):
+            _vthrow(f"{rloc} must carry attr / families / from / rule.")
+        if r["attr"] not in choice_attrs:
+            _vthrow(f"{rloc}.attr must be a choice attribute of this category.")
+        vals = by_id[r["attr"]].get("values") or []
+        if r["from"] not in vals:
+            _vthrow(f"{rloc}.from must be one of the attribute's values.")
+        if ("to" in r) == ("refuse" in r):
+            _vthrow(f"{rloc} must carry exactly one of to / refuse.")
+        if "to" in r:
+            if r["to"] not in vals:
+                _vthrow(f"{rloc}.to must be one of the attribute's values.")
+            if r["to"] == r["from"]:
+                _vthrow(f"{rloc}.to must differ from from.")
+        if "refuse" in r and (not isinstance(r["refuse"], str) or not r["refuse"].strip()):
+            _vthrow(f"{rloc}.refuse must be a non-empty string.")
+        if not isinstance(r["families"], list) or not r["families"] or not all(f in fams for f in r["families"]):
+            _vthrow(f"{rloc}.families must list priceable families.")
+        if not isinstance(r["rule"], str) or not r["rule"].strip():
+            _vthrow(f"{rloc}.rule must be a non-empty string.")
+        if "display" in r and (not isinstance(r["display"], str) or not r["display"].strip()):
+            _vthrow(f"{rloc}.display must be a non-empty string.")
 
 
 def _validate_list_pricing(spec, by_id, family_vals, cfg):
@@ -392,10 +739,14 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
                 _vthrow(f"list_spec.pricing.numbers['{nid}'].{bkey} must be true or false.")
         if "reject_tokens" in rd and (not isinstance(rd["reject_tokens"], list) or not all(isinstance(t, str) and t for t in rd["reject_tokens"])):
             _vthrow(f"list_spec.pricing.numbers['{nid}'].reject_tokens must be a list of strings.")
+        if "inches" in rd and rd["inches"] is not True:
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].inches must be exactly true, or be omitted.")
         if "reject_below" in rd and not _is_finite_number(rd["reject_below"]):
             _vthrow(f"list_spec.pricing.numbers['{nid}'].reject_below must be a finite number.")
         if "range" in rd and rd["range"] != "max":
             _vthrow(f"list_spec.pricing.numbers['{nid}'].range must be 'max'.")
+        if "several" in rd and rd["several"] != "highest":
+            _vthrow(f"list_spec.pricing.numbers['{nid}'].several must be 'highest', or be omitted.")
         # SLICE 9 (A-1): an axis index, 1..3. A `component` on a reader whose `from` names several attributes is
         # refused: the phrase must come from ONE field, or which field an axis came from would be ambiguous.
         if "component" in rd:
@@ -413,6 +764,110 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         lst = pr.get(key)
         if not isinstance(lst, list) or not all(isinstance(a, str) and a in sku_attrs for a in lst):
             _vthrow(f"list_spec.pricing.{key} must list SKU attributes (a numbers key or a choice_attrs entry).")
+    # ---- SLICE 12c: the two resolution blocks ---------------------------------------------------
+    # Placed AFTER the ladders, because both name a LADDER attribute and that is the namespace they
+    # read from -- the rule that every name a step reads is checked where it reads it.
+    sm = pr.get("size_match")
+    if sm is not None:
+        if not isinstance(sm, dict):
+            _vthrow("list_spec.pricing.size_match must be an object.")
+        unk = set(sm) - _PRICING_SIZE_MATCH_KEYS
+        if unk:
+            _vthrow(f"list_spec.pricing.size_match: unknown key(s): {', '.join(sorted(unk))}.")
+        dps = sm.get("dp")
+        if (not isinstance(dps, list) or not dps
+                or not all(isinstance(d, int) and not isinstance(d, bool) and d >= 0 for d in dps)):
+            _vthrow("list_spec.pricing.size_match.dp must be a non-empty list of rounding depths "
+                    "(non-negative integers).")
+        if len(set(dps)) != len(dps):
+            _vthrow("list_spec.pricing.size_match.dp repeats a depth; each is tried once, in order.")
+    cp = pr.get("compose")
+    if cp is not None:
+        if not isinstance(cp, dict):
+            _vthrow("list_spec.pricing.compose must be an object.")
+        unk = set(cp) - _PRICING_COMPOSE_KEYS
+        if unk:
+            _vthrow(f"list_spec.pricing.compose: unknown key(s): {', '.join(sorted(unk))}.")
+        missing = _PRICING_COMPOSE_REQUIRED - set(cp)
+        if missing:
+            _vthrow(f"list_spec.pricing.compose needs {', '.join(sorted(missing))}.")
+        # the axis that composes must be a LADDER: composition only has meaning above a top rung
+        if cp["attr"] not in (pr.get("ladders") or []):
+            _vthrow(f"list_spec.pricing.compose.attr '{cp['attr']}' is not one of the ladders; only a "
+                    "laddered axis has a largest rung to compose above.")
+        if not isinstance(cp["tolerance"], (int, float)) or isinstance(cp["tolerance"], bool) or cp["tolerance"] < 0:
+            _vthrow("list_spec.pricing.compose.tolerance must be a non-negative number.")
+        if (not isinstance(cp["max_layers"], int) or isinstance(cp["max_layers"], bool)
+                or cp["max_layers"] < 2):
+            # ⚠️ BY NAME, because one layer is what the ordinary ladder already is: a one-layer
+            # "composition" is that ladder wearing the tolerance as a disguise, and it can shave a
+            # stated value DOWN -- exactly the 26 -> 25 exception the owner refused.
+            _vthrow("list_spec.pricing.compose.max_layers must be an integer of at least 2. One layer "
+                    "is what the ladder already does; a composition is two or more.")
+        ck = cp.get("cost_key")
+        if ck is not None and (not isinstance(ck, str) or not ck.strip()):
+            _vthrow("list_spec.pricing.compose.cost_key must be a non-empty rate key.")
+        oo = cp.get("outer_only")
+        if oo is not None:
+            if not isinstance(oo, dict) or set(oo) != _PRICING_OUTER_ONLY_KEYS:
+                _vthrow("list_spec.pricing.compose.outer_only needs exactly attr and value.")
+            if oo["attr"] not in choice_attrs:
+                _vthrow(f"list_spec.pricing.compose.outer_only.attr '{oo['attr']}' is not a choice SKU "
+                        "attribute of this category.")
+            if oo["value"] not in (by_id[oo["attr"]].get("values") or []):
+                _vthrow(f"list_spec.pricing.compose.outer_only.value '{oo['value']}' is not one of "
+                        f"'{oo['attr']}'s values; the inner layers would take a value no SKU carries.")
+    # SLICE 12c: which SKU attribute labels a ladder rung. A row missing it is NOT A RUNG, so this is a
+    # correctness key -- it must name an attribute the SKUs actually carry, or the ladder is empty and
+    # every row refuses. Checked against the ITEM definitions, not `sku_attrs`: a label is not a
+    # matching axis (ADP's `item_detail` is neither a `numbers` key nor a `choice_attrs` entry).
+    la = pr.get("label_attr")
+    if la is not None:
+        if not isinstance(la, str) or not la.strip():
+            _vthrow("list_spec.pricing.label_attr must be a non-empty string.")
+        if la not in by_id and la != spec.get("family_attribute_id"):
+            _vthrow(f"list_spec.pricing.label_attr '{la}' is not an item attribute of this category; "
+                    "a ladder would skip every row and refuse everything.")
+    # SLICE 12c FINISH (owner F4): the cladding values whose cost stays TYPED and editable. Every
+    # other row shows the live computed figure, greyed. Must name values the category actually has.
+    tc = pr.get("typed_cladding")
+    if tc is not None:
+        if not isinstance(tc, list) or not tc:
+            _vthrow("list_spec.pricing.typed_cladding, when present, must be a non-empty list.")
+        vocab = set()
+        for a in choice_attrs:
+            vocab |= set(by_id[a].get("values") or [])
+        for v in tc:
+            if v not in vocab:
+                _vthrow(f"list_spec.pricing.typed_cladding names '{v}', which is not a value of any "
+                        "choice attribute of this category.")
+    nd = pr.get("number_defaults")
+    if nd is not None:
+        if not isinstance(nd, dict):
+            _vthrow("list_spec.pricing.number_defaults must be an object.")
+        for nid, spec_nd in nd.items():
+            loc = f"list_spec.pricing.number_defaults['{nid}']"
+            # the attribute must be a NUMBER this category reads -- a default for a number nothing
+            # reads is the "validates but never executes" failure
+            if nid not in numbers:
+                _vthrow(f"{loc}: '{nid}' is not one of this category's numbers.")
+            if not isinstance(spec_nd, dict):
+                _vthrow(f"{loc} must be an object.")
+            unk = set(spec_nd) - _PRICING_NUMBER_DEFAULT_KEYS
+            if unk:
+                _vthrow(f"{loc}: unknown key(s): {', '.join(sorted(unk))}.")
+            v = spec_nd.get("value")
+            if not isinstance(v, (int, float)) or isinstance(v, bool):
+                _vthrow(f"{loc}.value must be a number.")
+            fams = spec_nd.get("families")
+            if fams is not None:
+                if not isinstance(fams, list) or not fams:
+                    _vthrow(f"{loc}.families, when present, must be a non-empty list.")
+                for f in fams:
+                    if f not in (pr.get("families") or {}):
+                        _vthrow(f"{loc}.families names '{f}', which is not a family of this category.")
+            if not isinstance(spec_nd.get("rule"), str) or not spec_nd.get("rule").strip():
+                _vthrow(f"{loc} needs a 'rule' saying whose ruling it is.")
     rn = pr.get("reason_names")
     if rn is not None and (not isinstance(rn, dict) or set(rn) - sku_attrs or not all(isinstance(v, str) and v for v in rn.values())):
         _vthrow("list_spec.pricing.reason_names must name SKU attributes only, each with a phrase.")
@@ -441,6 +896,66 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         missing_pc = panel_ns - set(pc)
         if missing_pc:
             _vthrow(f"list_spec.pricing.panel_controls must declare every attribute the panel can show; missing: {', '.join(sorted(missing_pc))}.")
+        # OWNER FA8 (2026-10-04): "the attributes whic cannot be dropdowns and the user is expected to
+        # type in, must have brief explantion abnout whathe user is expected to eneter there." A typed
+        # field with no note is a box with no question, so the note is REQUIRED wherever typing is
+        # possible -- and `panel_notes` is closed to the same namespace, for the same reason the
+        # controls are: a note on an attribute the panel cannot show would never be read.
+        notes = pr.get("panel_notes")
+        # ⚠️ EVERY TYPED FIELD CARRIES A NOTE, owner ruling 2026-10-04 -- and the validator enforces it
+        # "for every category that complies", which is the owner's own wording and the only reading
+        # that works. A config DECLARING `panel_notes` must cover every typed field it has; one that
+        # declares none is not refused.
+        #
+        # ⚠️ THAT SCOPE IS MEASURED, NOT CAUTIOUS. Requiring the map outright refused EVERY HISTORICAL
+        # HVAC ASSET -- ADP has declared `text` controls with no notes since v9 -- and took 30 tests
+        # with it, including the sweeps that pin "every asset file on disk validates with exactly
+        # today's outcome". Those assets are frozen history; refusing them buys nothing and costs the
+        # sweeps their meaning. The standard is held where it belongs instead: `test_an_07` pins that
+        # EVERY typed field of EVERY category in the CURRENT asset has its note, so a new typed field
+        # shipped without one fails loudly, while v9 stays as valid as it was the day it was minted.
+        typed = {k for k, v in pc.items() if v in _TYPED_CONTROLS}
+        if isinstance(notes, dict):
+            unknown_n = set(notes) - panel_ns
+            if unknown_n:
+                _vthrow("list_spec.pricing.panel_notes names attribute(s) the panel cannot show: %s."
+                        % ", ".join(sorted(unknown_n)))
+            # SLICE 12c-S (owner S4 on F1, S5 on F16): a note may be a plain STRING, or a LIST OF
+            # CLAUSES each optionally conditioned on what the pricing actually does for the block being
+            # drawn. The ADP size note promised "plus depth where the BoQ gives one" on a family whose
+            # pricing discards the depth; the Insulation thickness note promised automatic layering to a
+            # family that stocks no sizes. The WORDING stays here in config; only the condition is code.
+            bad_n = sorted(k for k, v in notes.items() if not _note_shape_ok(v))
+            if bad_n:
+                _vthrow("list_spec.pricing.panel_notes: each note must be a non-empty string, or a "
+                        "non-empty list of {text, when_reads?, when_stocked?} clauses (bad: %s)."
+                        % ", ".join(bad_n))
+            # a clause condition naming an attribute must name a REAL SKU attribute, or it silently
+            # never fires -- the "validates but never executes" failure this file exists to prevent
+            for k, v in notes.items():
+                if not isinstance(v, list):
+                    continue
+                for ci, c in enumerate(v):
+                    ref = c.get("when_reads")
+                    if ref is not None and ref not in sku_attrs:
+                        _vthrow("list_spec.pricing.panel_notes['%s'][%d].when_reads: '%s' is not a SKU "
+                                "attribute." % (k, ci, ref))
+            # ⚠️ NO COVERAGE REQUIREMENT HERE, AND THAT IS A RULING, NOT A GAP (owner, final form
+            # 2026-10-04). A note is required only where the field is TYPED **and** RENDERS on the
+            # panel **and** is MANDATORY -- and two of those three are decided by the frontend's own
+            # code paths (`itemFieldDefs` for rendering, the pricer itself for mandatory). Python
+            # cannot read them, and re-deriving them here would be exactly the second list the owner
+            # forbade -- free to drift from the panel, which is how a field loses its note silently.
+            #
+            # So this side checks SHAPE (a note names a real typed control, and says something), and
+            # the three-condition rule is enforced where the code paths live:
+            # `panelFieldAudit.missingNotes`, pinned by `itemListPricing.test.ts`.
+            noted_not_typed = sorted(set(notes) - typed)
+            if noted_not_typed:
+                _vthrow("list_spec.pricing.panel_notes names field(s) that are not typed: %s. A note "
+                        "on a dropdown would never be read." % ", ".join(noted_not_typed))
+        elif notes is not None:
+            _vthrow("list_spec.pricing.panel_notes must be an object.")
     # families: the family attribute's values, through the alias
     alias = pr.get("family_alias") or {}
     if not isinstance(alias, dict) or not all(isinstance(k, str) and isinstance(v, str) and k in family_vals and v in family_vals and k != v for k, v in alias.items()):
@@ -504,10 +1019,73 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
                     if not isinstance(o.get("rule"), str) or not o["rule"]:
                         _vthrow(f"{oloc}.rule must be a non-empty string.")
                     _validate_pricing_pipelines(o.get("pipelines"), oloc, pr, sku_attrs)
+        # SLICE 12c-S (owner S10): every hidden class must be one the family could otherwise be offered
+        # in, and a family may not hide ALL of them -- a picker with nothing in it cannot be used.
+        uno = f.get("units_not_offered")
+        if uno is not None:
+            offerable = set(units) | set(conv or {})
+            if not isinstance(uno, list) or not uno or not all(isinstance(c, str) for c in uno):
+                _vthrow(f"{loc}.units_not_offered must be a non-empty list of unit classes.")
+            unknown_u = [c for c in uno if c not in offerable]
+            if unknown_u:
+                _vthrow(f"{loc}.units_not_offered names unit class(es) the family is not offered in anyway: "
+                        f"{', '.join(sorted(unknown_u))}.")
+            if not offerable - set(uno):
+                _vthrow(f"{loc}.units_not_offered hides every unit class the family can be priced in.")
     # SLICE 6 (T7): the config-level pipelines of a list-mode config ARE per-item pipelines (the shared default), so
     # they pass the item-list shape checks as well as the generic pipeline checks
     if cfg.get("pipelines"):
         _validate_pricing_pipelines(cfg.get("pipelines"), "list_spec.pricing (the config's own pipelines)", pr, sku_attrs)
+    # SLICE 12d-1a (owner R2): `family_when_none` -- the family a row with NO material answer prices
+    # as. Every name is checked in the namespace it reads from: a unit class is a `unit_classes`
+    # key, a family is a PRICEABLE family (neither an alias nor a no-SKU family), a word is a
+    # non-empty string. PRESENCE is tested before any `or` idiom: an empty object is a mistake,
+    # never an inert key (the `override_when: {}` lesson).
+    if "family_when_none" in pr:
+        _validate_family_when_none(pr["family_when_none"], ucls, fams)
+    # SLICE 12d-1a (owner R4): `value_map` -- presence before the `or []` idiom, as above.
+    if "value_map" in pr:
+        _validate_value_map(pr["value_map"], by_id, choice_attrs, fams)
+    # SLICE 12d-4a (owner D3 / D7 / D9b / D8): the four audit-fix keys, each PRESENCE-tested and shape-checked
+    # (an empty list / object is a mistake, never an inert key).
+    if "named_in_row" in pr:
+        _validate_named_in_row(pr["named_in_row"], by_id, choice_attrs)
+    if "unstocked_materials" in pr:
+        _validate_unstocked_materials(pr["unstocked_materials"], by_id, sku_attrs, numbers)
+    if "refuse_on_unit_class" in pr:
+        _validate_refuse_on_unit_class(pr["refuse_on_unit_class"], by_id, choice_attrs, ucls, fams)
+    if "read_notes" in pr:
+        _validate_read_notes(pr["read_notes"], by_id, fams, sku_attrs, numbers)
+    # SLICE 12d-1a (owner R7): `panel_readonly` -- each a `text` item definition that NO pricing rule
+    # reads (not a SKU attribute, not a `numbers` source): recorded and shown, never matched.
+    # SLICE 12d-1b (owner T5): `no_sku_named_by` -- ONE `text` item definition the pricing does not read.
+    if "no_sku_named_by" in pr:
+        nb = pr["no_sku_named_by"]
+        if not isinstance(nb, str) or not nb.strip():
+            _vthrow("list_spec.pricing.no_sku_named_by must be an item attribute id.")
+        read_by_pricing_nb = set(sku_attrs) | {src for n in numbers.values() for src in (n.get("from") or [])}
+        if spec.get("family_attribute_id"):
+            read_by_pricing_nb.add(spec["family_attribute_id"])
+        if nb not in by_id:
+            _vthrow(f"list_spec.pricing.no_sku_named_by names '{nb}', which is not an item attribute of this category.")
+        if nb in read_by_pricing_nb:
+            _vthrow(f"list_spec.pricing.no_sku_named_by: '{nb}' is read by the pricing and cannot name a material.")
+        if by_id[nb].get("type") != "text":
+            _vthrow(f"list_spec.pricing.no_sku_named_by: '{nb}' must be a text definition.")
+    if "panel_readonly" in pr:
+        ro = pr["panel_readonly"]
+        if not isinstance(ro, list) or not ro or not all(isinstance(x, str) and x.strip() for x in ro):
+            _vthrow("list_spec.pricing.panel_readonly must be a non-empty list of item attribute ids.")
+        read_by_pricing = set(sku_attrs) | {src for n in numbers.values() for src in (n.get("from") or [])}
+        if spec.get("family_attribute_id"):
+            read_by_pricing.add(spec["family_attribute_id"])
+        for x in ro:
+            if x not in by_id:
+                _vthrow(f"list_spec.pricing.panel_readonly names '{x}', which is not an item attribute of this category.")
+            if x in read_by_pricing:
+                _vthrow(f"list_spec.pricing.panel_readonly: '{x}' is read by the pricing and cannot be read-only.")
+            if by_id[x].get("type") != "text":
+                _vthrow(f"list_spec.pricing.panel_readonly: '{x}' must be a text definition.")
     # defaults: applied only over a "None" answer, so only an allow_none choice may carry one
     dfl = pr.get("defaults") or {}
     if not isinstance(dfl, dict):
@@ -651,6 +1229,52 @@ def _validate_pricing_pipelines(pipelines, loc, pr, sku_attrs):
             elif st == "sum_components":
                 if not isinstance(s.get("result"), str) or not s.get("result"):
                     _vthrow(f"{where}: sum_components needs a string 'result'.")
+            elif st == "rate_ref":
+                # SLICE 12c -- mirrors the config-level branch exactly, so a pipeline that validates on
+                # one path cannot be refused on the other. `result` is the ctx key a later step reads.
+                ref = s.get("ref")
+                if not isinstance(ref, dict) or not isinstance(ref.get("kind"), str) or not ref.get("kind"):
+                    _vthrow(f"{where}: rate_ref needs ref.kind (a string).")
+                for key in ("target", "result"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: rate_ref needs a string '{key}'.")
+                for bad in _RATE_REF_FORBIDDEN:
+                    if bad in s:
+                        _vthrow(
+                            f"{where}: rate_ref must not carry '{bad}'. A pricing input is a single "
+                            "number, not a component: read it with rate_ref and use it in a later step."
+                        )
+                # ⚠️ A ref value here may name a SKU attribute ("@thickness_mm") or be a literal. It is
+                # NOT checked against `sku_attrs`, because a pricing input is resolved in the INPUT
+                # kind's own namespace (`item`, `name`), which is not this category's attribute set.
+                # The interpreter refuses an unresolved bind loudly at price time, naming it.
+            elif st == "component":
+                # SLICE 12c -- `target` OPTIONAL (the interpreter has always treated it so: a component
+                # whose formula is param-only reads no price off the matched row -- which is exactly
+                # Insulation's cladding). Present-but-blank stays an error, so a typo is still caught.
+                for key in ("name", "formula"):
+                    if not isinstance(s.get(key), str) or not s.get(key):
+                        _vthrow(f"{where}: component needs a string '{key}'.")
+                if "target" in s and (not isinstance(s.get("target"), str) or not s.get("target")):
+                    _vthrow(f"{where}: component 'target', when present, must be a non-empty string.")
+                _validate_params(s.get("params"), where)
+                conds = s.get("conditions")
+                if conds is not None:
+                    if not isinstance(conds, list) or not conds:
+                        _vthrow(f"{where}: component 'conditions', when present, must be a non-empty list.")
+                    for ci, c in enumerate(conds):
+                        if not isinstance(c, dict) or not isinstance(c.get("when"), dict) or not c["when"]:
+                            _vthrow(f"{where} condition {ci}: needs a non-empty 'when' object.")
+                        # every key a condition branches on is a fact of THIS category
+                        for wk in c["when"]:
+                            if wk not in sku_attrs and wk != pr["unit_class_attr"] and wk != "family":
+                                _vthrow(f"{where} condition {ci}: 'when' names '{wk}', which is not a "
+                                        f"SKU attribute of this category.")
+                        _validate_params(c.get("params"), f"{where} condition {ci}")
+                        for pk, pv in (c.get("params") or {}).items():
+                            if pk.endswith(_FROM_ATTR_SUFFIX) and pv not in sku_attrs:
+                                _vthrow(f"{where} condition {ci}: '{pk}' names '{pv}', which is not a "
+                                        f"SKU attribute.")
             elif st == "component_ref":
                 for key in ("name", "target"):
                     if not isinstance(s.get(key), str) or not s.get(key):
@@ -783,6 +1407,8 @@ def _validate_config(cfg):
     _validate_list_spec(cfg)  # SLICE 4: the item-list mode's per-item schema; a no-op for every other config
     _validate_derived_rates(cfg)      # SLICE 12a: the derived-cost declaration; a no-op without the key
     _validate_rate_composition(cfg)   # SLICE 12a: the cost-parts composition; a no-op without the key
+    _validate_column_order(cfg)       # SLICE 12c FINISH: the presentation order; a no-op without the key
+    # SLICE 12d-2: `_validate_calculator_only` is GONE with its key -- the allowlist refuses the key by name.
 
     # attribute_definitions ------------------------------------------------------------------
     defs = cfg.get("attribute_definitions")
@@ -1684,6 +2310,8 @@ def _validate_config(cfg):
 # are enforced HERE, so both generators are held to exactly the same contract.
 DERIVED_RATES_KEY = "derived_rates"
 RATE_COMPOSITION_KEY = "rate_composition"
+COLUMN_ORDER_KEY = "column_order"
+COLUMN_ORDER_SIDES = ("attributes", "rates")
 _DERIVED_TERM_KEYS = {"from", "multiplier", "constant"}
 _DERIVED_FROM_KEYS = {"item_uid", "rate_key"}
 # The step types whose value flows target -> result (or in place, when there is no result).
@@ -1914,6 +2542,60 @@ def _validate_derived_rates(cfg):
                         "derived. A declaration must be FLATTENED to the ultimate base (owner I-4)."
                         % (uid, rate_key, src["item_uid"], src["rate_key"])
                     )
+
+
+
+def _validate_column_order(cfg):
+    """`column_order` -- the category's own PRESENTATION order for the rate file and the screen.
+
+    ⚠️ WHY A SECOND ORDER KEY EXISTS (owner F5, 2026-10-03: "the structure may vary for every
+    category ... we have planned to change the structure also for the electrical categories"). The
+    order already came from each category's OWN definition -- but the only lever was
+    `rate_composition`, which is a PRICING declaration: `csv_exporter._composition_role`, the formula
+    renderer and, for a category with no pipelines, the GENERATED `derived_rates` all read it. So
+    reordering a file through it reworded the formula row and could move a derivation. This key does
+    only the one thing, and nothing else reads it.
+
+    SHAPE: {"attributes": [ids...], "rates": [rate keys...]} -- either side may be omitted, and a
+    PARTIAL list is the point: the names it gives LEAD, in the order given, and everything else keeps
+    the order it had (a declared `rate_composition` sheet order, else the sorted default). ABSENT is
+    byte-identical to before this key existed.
+
+    An ATTRIBUTE id is reference-guarded against the category's own definitions -- a typo there would
+    silently order nothing, which is the "validates but never executes" failure. A RATE key cannot be:
+    rate keys are not declared anywhere in a config, they are OBSERVED on the items, so a name no item
+    carries simply orders nothing (which is the same tolerance `rate_composition.parts` already has,
+    and `test_co_01` pins).
+    """
+    if COLUMN_ORDER_KEY not in cfg:
+        return
+    spec = cfg.get(COLUMN_ORDER_KEY)
+    # ⚠️ PRESENCE, NOT TRUTHINESS: `"column_order": {}` must be REFUSED, not read as absent -- the
+    # `or []` lesson from `override_when`. An empty declaration is a mistake, not a no-op.
+    if not isinstance(spec, dict) or not spec:
+        _vthrow("column_order must be a non-empty object of 'attributes' / 'rates' -> list of names.")
+    unknown = sorted(set(spec) - set(COLUMN_ORDER_SIDES))
+    if unknown:
+        _vthrow("column_order: unknown key(s) %s. Known: %s."
+                % (", ".join(unknown), ", ".join(COLUMN_ORDER_SIDES)))
+    declared_attrs = {d.get("id") for d in (cfg.get("attribute_definitions") or [])
+                      if isinstance(d, dict)}
+    for side in COLUMN_ORDER_SIDES:
+        if side not in spec:
+            continue
+        names = spec[side]
+        if not isinstance(names, list) or not names:
+            _vthrow("column_order['%s'] must be a non-empty list of names." % side)
+        seen = set()
+        for n in names:
+            if not isinstance(n, str) or not n.strip():
+                _vthrow("column_order['%s'] must hold non-empty strings." % side)
+            if n in seen:
+                _vthrow("column_order['%s']: '%s' is listed twice." % (side, n))
+            seen.add(n)
+            if side == "attributes" and n not in declared_attrs:
+                _vthrow("column_order['attributes']: '%s' is not an attribute of this category." % n)
+
 
 
 def _validate_rate_composition(cfg):

@@ -11,6 +11,7 @@
  * The precedent is `RateHelperPanel.test.ts`, which does exactly this for the same reason.
  */
 import { describe, it, expect } from "vitest";
+import { gridColumnKeys, COL_PI_ITEMS } from "./rateMasterGridColumns";
 import * as fs from "fs";
 import * as path from "path";
 import { IMPACT_PANEL_WIDTH, IMPACT_COPY } from "./PricingInputImpactPanel";
@@ -54,9 +55,26 @@ describe("SLICE 12b(B) -- the impact panel's shape", () => {
   });
 
   it("ACCEPTANCE 10: the four columns, and the leg is NAMED in the header", () => {
-    for (const h of [">Item<", ">now<", ">becomes<", ">change<"]) expect(PANEL).toContain(h);
+    for (const h of [">Item<", ">becomes<", ">change<"]) expect(PANEL).toContain(h);
+    /**
+     * ⚠️ INVERTED (owner, 2026-10-05, mechanical authority) -- `84e2e5fde` invalidated the old literal.
+     *
+     * The `now` heading used to be a bare `>now<`. It reported TWO DIFFERENT QUANTITIES under that one
+     * unlabelled word: the SKU's stored rate when nothing was edited, and the pipeline's computed leg
+     * when something was -- measured 109 against 306 on the same row. `computeImpact` now returns the
+     * computed leg in BOTH branches, and the heading NAMES which leg it is, which is what this test's
+     * own title always asked for.
+     *
+     * The old literal is asserted ABSENT rather than deleted, so re-introducing a bare `now` heading --
+     * the state in which the column lied about its own quantity -- turns this red again.
+     */
+    expect(PANEL).not.toContain(">now<");
+    expect(PANEL).toContain("now <span");
+    expect(PANEL).toContain("({impact.legLabel})");
     // the leg label comes from the pure module, so the panel cannot invent a different one
     expect(PANEL).toContain("impact.legLabel");
+    // and the heading carries the plain-language note saying both figures are that leg
+    expect(PANEL).toContain("IMPACT_COPY.nowLegTitle(impact.legLabel)");
   });
 
   it("ACCEPTANCE 10: Save is DISABLED until something changes, and Cancel restores", () => {
@@ -152,10 +170,22 @@ describe("SLICE 12b(B) -- the ITEMS column", () => {
     expect(VIEWER).toContain("AN ADDER COUNTS LIKE EVERY OTHER INPUT");
   });
 
+  /**
+   * ⚠️ INVERTED 2026-10-05 under mechanical authority, NOT deleted. It counted the `showImpactCol ?`
+   * RENDER SITES -- header, colgroup and body -- because the column's order lived in three places.
+   * It lives in one now (`rateMasterGridColumns.gridColumnKeys`), which is what stops the header and
+   * the body drifting apart; counting sites would therefore pin the very duplication that was removed.
+   * The CLAIM is unchanged and is asserted against the list instead, which is stronger: the column is
+   * in the plan only when the page opts in.
+   */
   it("⚠️ NEGATIVE: the column is ABSENT unless the page opted in, so every other grid is unchanged", () => {
     expect(VIEWER).toContain("const showImpactCol = piMode && !!onOpenImpact && !!inputReach;");
-    // every render site is gated on it -- header, colgroup and body
-    expect((VIEWER.match(/showImpactCol \?/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    const base = { canEdit: false, showKindCol: false, piMode: true, specMode: false,
+                   textCols: [], attrCols: [], rateCols: ["r1"] };
+    expect(gridColumnKeys({ ...base, showImpactCol: false })).not.toContain(COL_PI_ITEMS);
+    expect(gridColumnKeys({ ...base, showImpactCol: true })).toContain(COL_PI_ITEMS);
+    // and a SKU grid never has it, opted in or not
+    expect(gridColumnKeys({ ...base, piMode: false, showImpactCol: true })).not.toContain(COL_PI_ITEMS);
   });
 });
 

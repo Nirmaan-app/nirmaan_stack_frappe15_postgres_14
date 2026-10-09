@@ -298,8 +298,16 @@ describe("SLICE 12b(A) -- Pricing Inputs on the screen", () => {
     ] as any;
     const u = pricingInputUsedBy(configs);
     expect(u["conduit"]).toEqual({ sites: 2, categories: ["conduit_piping", "point_wiring"] });
-    expect(pricingInputUsedByText(u["conduit"])).toBe("2 sites in conduit_piping, point_wiring");
-    expect(pricingInputUsedByText(u["conduit_share"])).toBe("1 site in conduit_piping");
+    // ⚠️ INVERTED, NOT DELETED (owner 2026-10-03: "the used by should mention all categories where
+    // it is used instead of the current format"). The categories now LEAD, under the display names
+    // the pricer sees on screen, and the site count follows as the secondary fact it is. The old
+    // shape -- count first, raw ids -- is asserted ABSENT so it cannot come back unnoticed.
+    const label = (c: string) => ({ conduit_piping: "Electrical Conduit", point_wiring: "Point Wiring" } as Record<string, string>)[c] ?? c;
+    expect(pricingInputUsedByText(u["conduit"], label)).toBe("Electrical Conduit, Point Wiring (2 uses)");
+    expect(pricingInputUsedByText(u["conduit_share"], label)).toBe("Electrical Conduit (1 use)");
+    expect(pricingInputUsedByText(u["conduit"], label)).not.toContain("2 sites in");
+    // with NO label resolver the ids stand in, so a caller holding no configs still renders something
+    expect(pricingInputUsedByText(u["conduit"])).toBe("conduit_piping, point_wiring (2 uses)");
   });
 
   it("NEGATIVE: an input no rule reads reads as 'not used' -- so a delete can be allowed", () => {
@@ -315,17 +323,37 @@ describe("SLICE 12b(A) -- Pricing Inputs on the screen", () => {
     expect(pricingInputUsedBy(configs)).toEqual({});
   });
 
-  it("ACCEPTANCE 4 / 9: the column set is fixed, and amount is the only non-percentage", () => {
-    expect(PRICING_INPUT_VALUE_COLUMNS).toEqual([
-      "discount", "supply_markup", "installation_markup", "bcs_markup", "wastage", "ratio", "share", "amount",
-    ]);
+  // ⚠️ INVERTED BY SLICE 12c (owner ruling, 2026-09-30), NOT deleted. It asserted "amount is the only
+  // non-percentage" and banned the word "factor" from EVERY label. Both claims were true of 12b(A)'s
+  // eight columns and the owner has since ruled two more into existence, so this now asserts the NEW
+  // truth and keeps the OLD claims exactly where they still hold.
+  //
+  // ⚠️ THE `factor` COLUMN AND 12b(A)'s "THERE ARE NO FACTORS" RULE. That rule was about FOLDS -- a
+  // pre-multiplied (1-discount)x(1+markup) called a "factor", which nobody who owned either half could
+  // edit. `factor` here is a KIND-OF-NUMBER column, exactly as `amount` and `rate` are: the MEANING
+  // lives in the item (cladding overlap; GI framework sheet factor), which is what the rule asked for.
+  // The ban therefore still applies in full to the seven percentage columns, where a "factor" label
+  // WOULD hide which business number it is.
+  const PRE_12C = ["discount", "supply_markup", "installation_markup", "bcs_markup",
+                   "wastage", "ratio", "share", "amount"];
+  it("ACCEPTANCE 4 / 9: the column set is fixed; amount, rate and factor are the non-percentages", () => {
+    expect(PRICING_INPUT_VALUE_COLUMNS).toEqual([...PRE_12C, "rate", "factor"]);
+    // the pre-12c eight still LEAD, in their original order -- nothing moved
+    expect(PRICING_INPUT_VALUE_COLUMNS.slice(0, 8)).toEqual(PRE_12C);
     expect(PRICING_INPUT_PERCENT_COLUMNS).not.toContain("amount");
+    expect(PRICING_INPUT_PERCENT_COLUMNS).not.toContain("rate");
+    expect(PRICING_INPUT_PERCENT_COLUMNS).not.toContain("factor");
     expect(PRICING_INPUT_PERCENT_COLUMNS).toHaveLength(7);
     // ACCEPTANCE 7/8: every column names a kind of number, and every markup names its leg
     for (const c of PRICING_INPUT_VALUE_COLUMNS) {
       expect(PRICING_INPUT_COLUMN_LABELS[c]).toBeTruthy();
+    }
+    // the 12b(A) ban, still in force on every column it was written for
+    for (const c of PRE_12C) {
       expect(PRICING_INPUT_COLUMN_LABELS[c]).not.toMatch(/factor/i);
     }
+    expect(PRICING_INPUT_COLUMN_LABELS.rate).toBe("Rate");
+    expect(PRICING_INPUT_COLUMN_LABELS.factor).toBe("Factor");
     expect(PRICING_INPUT_COLUMN_LABELS.supply_markup).toBe("Supply markup");
     expect(PRICING_INPUT_COLUMN_LABELS.installation_markup).toBe("Installation markup");
     expect(PRICING_INPUT_COLUMN_LABELS.bcs_markup).toBe("BCS markup");

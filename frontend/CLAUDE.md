@@ -12,9 +12,10 @@ code in a domain, read that domain's doc from [Domain docs](#domain-docs).
 Four standards fail silently when broken, so they are summarised here too (full text in
 `frontend/CODING_STANDARDS.md`):
 
-- **No DOM in tests.** vitest runs with `environment: "node"` and no jsdom, so a component's mount, unmount or
-  state across a render cannot be unit-tested. Keep rules in pure helpers, and verify a React-semantic change
-  with a live browser A/B.
+- **A DOM in tests is opt-in per file, and jsdom is not a browser.** vitest's global environment stays `node`; a
+  file that needs a DOM starts with `// @vitest-environment jsdom` (jsdom only, no `@testing-library`). jsdom does
+  no layout, so anything that turns on real measurement, paint or a pointer is still verified with a live
+  browser A/B.
 - **Keep a controlled `<select>`'s placeholder selectable.** With no matching option the browser shows the first
   selectable option, so a `disabled` placeholder makes the field display a value the row never held (on an
   `allow_none` def, the `"None"` sentinel).

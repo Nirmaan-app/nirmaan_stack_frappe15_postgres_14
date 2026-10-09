@@ -236,6 +236,25 @@ effects, `dd-MMM-yyyy` dates, realtime event naming, role checks, F1–F5, vites
 - **Running:** use the bench runner, in-container; the exact invocation and the `python -m unittest` import
   failure are in root `CLAUDE.md` § Commands.
 
+**A test removes every record it creates, and its clean-up must survive a poisoned transaction:** these suites
+run against the live site database, so a stranded row is permanent dev data. The trap is not a missing
+`tearDownClass` — it is that **a DB-level error aborts the PostgreSQL transaction** ("current transaction is
+aborted, commands ignored until end of transaction block") and **`FrappeTestCase` has no per-test rollback**: its
+only one is `addClassCleanup(_rollback_db)`, which runs *after* `tearDownClass`. So a purge written as one
+unguarded block raises on its first delete and strands every record after it — **silently, while the run still
+reports OK**. Correct shape: **roll back first**, then delete each scope inside its own `try`/`except`, commit per
+scope, and report any failure rather than swallow it; a test that provokes a unique/PK violation on purpose also
+wraps it in a `frappe.db.savepoint`. One purge helper per suite family, imported rather than copied — two copies
+either side of a shared database can disagree about whether a scope was cleaned. Reference implementation:
+`_purge_test_disciplines` in `api/boq/test_rate_master.py`, imported by `test_spec_reader.py`.
+
+**A sweep over live records must not depend on residue being absent:** a test that asserts a property of *every*
+live row — `test_27_live_configs_all_validate` validates every `active=1` config with no discipline filter, which
+is the right scope — also reads whatever another test left behind, and then fails for a reason that has nothing
+to do with the code and reproduces at every commit. **Do not narrow the sweep to dodge it** (that is the assertion
+the sweep exists to make). Fix it at the source: a test that deliberately writes an invalid record removes it the
+moment it ends (`addCleanup`), so it can never outlive its own test method.
+
 **Single-doctype state:** a test that mutates a field on a Single doctype must capture the site's original value
 and restore **that** — never a hardcoded restore constant. These suites run against the live localhost site, so a
 hardcoded restore rewrites the owner's real setting whenever it differs. The failure is silent because

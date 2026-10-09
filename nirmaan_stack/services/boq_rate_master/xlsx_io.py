@@ -220,10 +220,23 @@ def _cell_text(value):
     return str(value)
 
 
+#: SLICE 12c-U (owner U6): the physical row the FIRST data row occupies -- the header is row 1.
+#: ⚠️ DEFINED HERE RATHER THAN IMPORTED FROM `csv_importer`, WHICH IMPORTS THIS MODULE: taking it
+#: the other way round would be a cycle. `csv_importer.PHYSICAL_FIRST_DATA_ROW` must equal this, and
+#: `test_spec_reader.test_u01` pins the two together so they cannot drift.
+PHYSICAL_FIRST_DATA_ROW = 2
+
+
 def read_xlsx(raw):
     """(headers, data_rows) in exactly the shape `csv_importer.parse_csv_text` returns: headers
-    stripped, data_rows = [(1-based data row number, [cell text, ...]), ...]. The FIRST worksheet is
-    read; a workbook with no rows yields ([], [])."""
+    stripped, data_rows = [(PHYSICAL row number, [cell text, ...]), ...]. The FIRST worksheet is
+    read; a workbook with no rows yields ([], []).
+
+    ⚠️ SLICE 12c-U (owner U6, "Report the real Excel row"): the number paired with each row is the
+    row as EXCEL NUMBERS IT -- the header is row 1, so the first data row is 2 and, on a file that
+    carries the formula/explanation row, the first SKU is 3. It used to be a 1-based index over data
+    rows, which every refusal then reported one short. See `csv_importer.parse_csv_text` for why the
+    fix lives at the two readers and not at the message sites."""
     wb = openpyxl.load_workbook(io.BytesIO(bytes(raw)), read_only=True, data_only=True)
     try:
         ws = wb.worksheets[0]
@@ -241,7 +254,7 @@ def read_xlsx(raw):
         headers.pop()
     width = len(headers)
     data = []
-    for i, r in enumerate(rows[1:], start=1):
+    for i, r in enumerate(rows[1:], start=PHYSICAL_FIRST_DATA_ROW):
         cells = [_cell_text(c) for c in r[:width]]
         if len(r) > width and any(c not in (None, "") for c in r[width:]):
             # a value beyond the header's width is kept so the importer reports it as it does for CSV

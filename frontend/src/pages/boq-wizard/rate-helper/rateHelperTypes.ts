@@ -523,6 +523,19 @@ export interface RateHelperRowContext {
   discipline: string | null;
   /** The rate-kinds present on this row's rate cells (derived from the row's rate descriptors). */
   rateKinds: RateKind[];
+  /**
+   * SLICE 12d-1a (owner R2): the descriptions of the row's section headings, ROOT-FIRST, built by
+   * `buildRowContext` from the priced rows' parent chain. Read ONLY by an item-list category's
+   * `family_when_none` word rules ("acoustic" / "lining" in the row OR its headings). OPTIONAL: the
+   * calculator and every other caller omit it and nothing they do changes.
+   */
+  headings?: string[];
+  /**
+   * SLICE 12d-4a (owner D3 / D7 / D9b): the row's OWN notes (its row notes and the notes attached to it),
+   * built by `buildRowContext` from the priced row. Read ONLY by an item-list category's word rules that
+   * must see the row's own text and NEVER a heading. OPTIONAL: the calculator and every other caller omit it.
+   */
+  ownNotes?: string[];
 }
 
 /** A registered rate helper. `compute` is PURE + synchronous.

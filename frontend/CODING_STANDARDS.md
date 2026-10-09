@@ -15,7 +15,7 @@ section for the task in hand:
 - [Realtime events](#realtime-events)
 - [Role-based access](#role-based-access)
 - [Module residence (F1–F5)](#module-residence-f1f5)
-- [Writing a test](#writing-a-test) — vitest is node-only and a local gate; the no-DOM consequence
+- [Writing a test](#writing-a-test) — vitest is a local gate; a DOM is opt-in per file, and jsdom is not a browser
 - [Building](#building)
 
 Cross-stack rules bind the frontend too and live in root [`CODING_STANDARDS.md`](../CODING_STANDARDS.md): the
@@ -271,23 +271,41 @@ committing).
 
 - **`yarn test` runs vitest with `environment: "node"`** over `src/**/*.test.{ts,tsx}` — unit tests only. CI
   (`.github/workflows/ci.yml`) runs the Python bench suite only, so vitest is a local gate: run it yourself.
-- **There is no DOM test environment** — no jsdom, happy-dom or `@testing-library`, a deliberate choice recorded
-  in `vitest.config.ts`. Anything whose correctness is a React semantic — a component mounting, unmounting, or
-  preserving state across a render — is structurally untestable here; only pure in/out helpers can be covered,
-  and a pure helper extracted from such a component passes happily while the component itself misbehaves. So
-  keep rules in pure helpers (F4), and verify a change that turns on a React semantic with a live browser A/B —
-  revert, reproduce, restore, re-verify.
+- **The DOM environment is opt-in per file, and the global stays `node`.** `jsdom` is a devDependency;
+  `vitest.config.ts` still declares `environment: "node"`, so every suite that does not ask for a DOM runs exactly
+  as it always did. A file that needs one says so in its own first line: `// @vitest-environment jsdom`.
+- **`@testing-library` is deliberately not a dependency** — jsdom alone is the sanctioned scope. A DOM test renders
+  with `react-dom/client` + `act` and queries the container directly. The reference example is
+  `src/pages/pricing/rate-master/RateMasterDataViewer.dom.test.tsx`, which renders the Rate Master data viewer for
+  one HVAC and one Electrical category and asserts that every cell sits under its correct header — the class of
+  defect `rateMasterGridColumns.ts` records, where the header row and the body row carried separate orderings,
+  every figure stayed plausible and only its label was wrong.
+- **jsdom is the DOM, not the browser, so the live-browser rule still stands.** It does no layout:
+  `getBoundingClientRect()` returns zeros, and APIs the real browser has (e.g. `ResizeObserver`) are absent and
+  must be stubbed **in the test file, never in product code**. Anything whose correctness depends on real
+  measurement, real paint or a real pointer — sticky-column widths, the Radix pickers, the controlled-`<select>`
+  trap — is still a live browser question, and a found divergence there is still verified by a live A/B (revert,
+  reproduce, restore, re-verify).
+- **What the DOM environment buys** is the class that used to be structurally untestable: a component mounting,
+  unmounting, preserving state across a render, and rendering its cells where its headers say. A pure helper
+  extracted from such a component still passes happily while the component misbehaves — the same trap the Pricing
+  Module records at PW-2b-i, where the tests assert the emitted formula text and cannot see that the engine
+  mis-reads it at runtime — which is why that class now has somewhere to live. Keep rules in pure helpers (F4)
+  all the same.
 - **Browser verification:** the Playwright walkthrough, test user and key routes are in
   `.claude/context/testing.md`.
 - **Cypress** (`yarn test-local`, `cypress.config.ts`) is configured but largely unimplemented.
 
-> **Deferred — owner reminder:** add a DOM environment so the error-boundary invariant
-> ([Adding a page or route](#adding-a-page-or-route)) can be pinned by a test. Agreed scope: `jsdom` only (no
-> `@testing-library`), a per-file `// @vitest-environment jsdom` docblock so the global `environment: "node"`
-> and every existing suite stay untouched, and one test file whose primary case is *a same-route param change
-> must not remount the child*. Pin `jsdom@^26` — jsdom 27+ requires Node >= 22 and the dev container runs
-> Node 20. Install inside the container (host `node_modules` is linux-arm64). An interrupted `yarn add` prunes
-> `node_modules` and breaks the runner — recover with `yarn install --frozen-lockfile`.
+> **Still owed — owner reminder:** the DOM environment is installed (above), but the error-boundary invariant
+> ([Adding a page or route](#adding-a-page-or-route)) is still unpinned: a test whose primary case is *a
+> same-route param change must not remount the child*. The reference DOM test covers a different subject (grid
+> cell-vs-header alignment).
+>
+> `jsdom` is pinned at `^26` — jsdom 27+ requires Node >= 22. The container currently runs a newer Node than that
+> floor, so 27 would install; the pin is the owner's and is kept deliberately rather than widened on the strength
+> of the current container image. Install inside the container (host `node_modules` is linux-arm64), and expect
+> `yarn add` to take several minutes. An interrupted `yarn add` prunes `node_modules` and breaks the runner —
+> recover with `yarn install --frozen-lockfile`.
 
 ---
 

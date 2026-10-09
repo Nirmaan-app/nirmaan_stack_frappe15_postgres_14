@@ -11,6 +11,7 @@
 // opt-in key, splits the definitions into text vs derived for rendering, and reads the two reserved
 // flag keys the server stores on a not-understood item.
 
+import { pipelinesOf } from "./pricingInputReach";
 import { formatDate } from "@/utils/FormatDate";
 import type {
   AttributeDefinition, DerivedRateTerm, RateCategoryConfig, RateComposition, RateMasterItem,
@@ -871,10 +872,23 @@ export const PRICING_INPUT_KIND_SUFFIX = "_pricing_input";
 /** ACCEPTANCE 4 / 9: the ONLY columns a Pricing Input carries, in this order. */
 export const PRICING_INPUT_VALUE_COLUMNS = [
   "discount", "supply_markup", "installation_markup", "bcs_markup", "wastage", "ratio", "share", "amount",
+  // SLICE 12c: APPENDED, after `amount`, so no existing column moves and every Electrical figure keeps
+  // its place. A discipline carrying neither still shows the same eight.
+  "rate", "factor",
 ] as const;
 
-/** ACCEPTANCE 6: every value column is a percentage EXCEPT `amount`, which is rupees. */
-export const PRICING_INPUT_PERCENT_COLUMNS = PRICING_INPUT_VALUE_COLUMNS.filter((c) => c !== "amount");
+/**
+ * ACCEPTANCE 6: a value column is a percentage EXCEPT for these three. `amount` and `rate` are RUPEES;
+ * `factor` is a PLAIN MULTIPLIER (1.25, 0.9) -- owner ruling, slice 12c.
+ *
+ * ⚠️ IT IS A DENY-LIST BECAUSE THE DEFAULT IS "PERCENT", so a value column added without a thought
+ * renders 450 as 45000%. A new non-percentage column belongs here in the SAME edit that adds it.
+ * ⚠️ MIRRORS `csv_exporter.PRICING_INPUT_NON_PERCENT_COLUMNS`.
+ */
+export const PRICING_INPUT_NON_PERCENT_COLUMNS = ["amount", "rate", "factor"] as const;
+export const PRICING_INPUT_PERCENT_COLUMNS = PRICING_INPUT_VALUE_COLUMNS.filter(
+  (c) => !(PRICING_INPUT_NON_PERCENT_COLUMNS as readonly string[]).includes(c),
+);
 
 export const PRICING_INPUT_COLUMN_LABELS: Record<string, string> = {
   discount: "Discount",
@@ -885,6 +899,8 @@ export const PRICING_INPUT_COLUMN_LABELS: Record<string, string> = {
   ratio: "BCS ratio",
   share: "Installation share",
   amount: "Amount",
+  rate: "Rate",
+  factor: "Factor",
 };
 
 /**
@@ -905,6 +921,8 @@ export const PRICING_INPUT_COLUMN_SHORT_LABELS: Record<string, string> = {
   ratio: "BCS ratio",
   share: "Inst. share",
   amount: "Amount",
+  rate: "Rate",
+  factor: "Factor",
 };
 
 /** True when this config is the discipline's Pricing Inputs category. */
@@ -946,8 +964,14 @@ export function pricingInputUsedBy(
   const out: Record<string, { sites: number; categories: string[] }> = {};
   for (const cfg of configs ?? []) {
     const cid = String(cfg?.category_id ?? "");
-    for (const pid of Object.keys(cfg?.pipelines ?? {}).sort()) {
-      for (const st of (((cfg.pipelines as any)?.[pid] ?? {}).steps ?? []) as any[]) {
+    // ⚠️ `pipelinesOf`, NOT `cfg.pipelines`. An ITEM-LIST category keeps its pipelines inside
+    // `list_spec`, so this walk reported every HVAC input as read by NOTHING and the page's "used by"
+    // column read empty while those inputs priced 204 rows. THE THIRD SITE with this same blindness
+    // (the other two: `csv_exporter.pricing_input_used_by` and `computePricingInputReach`), and the only
+    // one a test did not catch -- it was found by looking at the live page.
+    for (const [pid, pl] of pipelinesOf(cfg)) {
+      void pid;
+      for (const st of ((pl ?? {}).steps ?? []) as any[]) {
         if (st?.step !== "rate_ref") continue;
         const iid = st?.ref?.item;
         if (typeof iid !== "string") continue;
@@ -961,10 +985,134 @@ export function pricingInputUsedBy(
   return out;
 }
 
-/** "10 sites in conduit_piping, point_wiring, wiring_cabling", or "not used". */
+/**
+ * What the read-only `used_by` cell says: EVERY category this input is read in, BY NAME --
+ * "Electrical Conduit, Point Wiring, Wiring, Cabling & Termination (10 uses)", or "not used".
+ *
+ * ⚠️ OWNER, 2026-10-03: "the used by should mention all categories where it is used instead of the
+ * current format". The old text led with the internal site COUNT and named the categories by their
+ * raw ids, which is not what any page is called. `labelOf` maps a category id to its display name
+ * (the config's own `category_display`); without it the ids are used, so a caller with no configs
+ * still renders something. Mirrors `csv_exporter.pricing_input_used_by_text` and is pinned to it.
+ */
 export function pricingInputUsedByText(
-  entry: { sites: number; categories: string[] } | undefined
+  entry: { sites: number; categories: string[] } | undefined,
+  labelOf?: (categoryId: string) => string,
 ): string {
   if (!entry || !entry.sites) return "not used";
-  return `${entry.sites} site${entry.sites === 1 ? "" : "s"} in ${entry.categories.join(", ")}`;
+  const names = [...new Set(entry.categories.map((c) => labelOf?.(c) ?? c))].sort();
+  return `${names.join(", ")} (${entry.sites} use${entry.sites === 1 ? "" : "s"})`;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 12c, ACCEPTANCE 4 -- THE SCREEN FOLLOWS THE FILE
+//
+// The Data Viewer used to derive its own column order (rate keys in FIRST-SEEN order across the items,
+// attributes in declaration order) while the rate file derives its own (observed keys SORTED, then
+// overridden by a declared `rate_composition` sheet order). The two agreed only by ACCIDENT -- because
+// the mint happened to store the dicts in an order that matched -- so a reader comparing the screen
+// with the file they just downloaded could find the columns in different places for no stated reason.
+//
+// ⚠️ THIS IS THE MIRROR OF `csv_exporter.column_order_for`, AND THE TWO ARE PINNED TO IDENTICAL OUTPUT
+// on one shared fixture, exactly as the formula renderer pair is. The screen cannot call an exporter
+// for one header, so the duplication is deliberate and the pin IS the mechanism: change one side
+// without the other and a suite goes red.
+// ═════════════════════════════════════════════════════════════════════════════════════════════════
+
+const RATE_COMPOSITION_KEY = "rate_composition";
+
+const COLUMN_ORDER_KEY = "column_order";
+
+/**
+ * The category's own PRESENTATION order (`column_order`), applied over an already-ordered pair.
+ *
+ * ⚠️ OWNER F5, 2026-10-03. The order was already per-category, but the only lever was
+ * `rate_composition` -- a PRICING declaration that the formula renderer and `rateRoleOf` read, so
+ * reordering a file through it reworded the formula row. This key does only the ordering.
+ *
+ * PARTIAL and applied LAST: declared names LEAD in the order declared, everything else keeps the
+ * order it had. ABSENT returns the pair untouched, so every category that declares nothing is
+ * byte-identical to before. Mirrors `csv_exporter._declared_order`; pinned to it. PURE.
+ */
+function declaredOrder(
+  config: unknown,
+  attrs: string[],
+  rates: string[],
+): { attrs: string[]; rates: string[] } {
+  const spec = (config as any)?.[COLUMN_ORDER_KEY] ?? null;
+  if (!spec || typeof spec !== "object" || !Object.keys(spec).length) return { attrs, rates };
+  const lead = (declared: unknown, have: string[]) => {
+    const first = (Array.isArray(declared) ? declared : []).filter(
+      (n): n is string => typeof n === "string" && have.includes(n),
+    );
+    return [...first, ...have.filter((n) => !first.includes(n))];
+  };
+  return { attrs: lead(spec.attributes, attrs), rates: lead(spec.rates, rates) };
+}
+
+/** `(attrs, rates)` ids in the order the rate FILE puts them. PURE. Mirrors `column_order_for`. */
+export function columnOrderForFile(
+  config: unknown,
+  items: ReadonlyArray<{ attributes?: Record<string, unknown>; rates?: Record<string, unknown> }>,
+): { attrs: string[]; rates: string[] } {
+  // step 1 -- the observed keys, SORTED, which is `_keys_for`
+  const a = new Set<string>();
+  const r = new Set<string>();
+  for (const it of items ?? []) {
+    for (const k of Object.keys(it.attributes ?? {})) a.add(k);
+    for (const k of Object.keys(it.rates ?? {})) r.add(k);
+  }
+  const attrs = Array.from(a).sort();
+  const rates = Array.from(r).sort();
+
+  // step 2 -- a category that DECLARES the sheet's order overrides it; one that does not keeps the sort
+  const comp = (config as any)?.[RATE_COMPOSITION_KEY] ?? null;
+  if (!comp || typeof comp !== "object" || !Object.keys(comp).length) {
+    return declaredOrder(config, attrs, rates);
+  }
+
+  const declared: string[] = ((config as any)?.attribute_definitions ?? [])
+    .map((d: any) => d?.id).filter((x: unknown): x is string => typeof x === "string" && !!x);
+  const orderedAttrs = [...declared.filter((x) => attrs.includes(x)),
+                        ...attrs.filter((x) => !declared.includes(x))];
+
+  const seq: string[] = [];
+  const push = (k: unknown) => {
+    if (typeof k === "string" && k && rates.includes(k) && !seq.includes(k)) seq.push(k);
+  };
+  for (const side of ["supply", "install"]) {
+    const spec = comp[side] ?? {};
+    for (const k of (spec.parts ?? [])) push(k);
+    push(spec.wastage_key);
+  }
+  // the markups LAST, after every cost part -- the sheet's own shape
+  for (const side of ["supply", "install"]) push((comp[side] ?? {}).markup_key);
+  return declaredOrder(config, orderedAttrs, [...seq, ...rates.filter((x) => !seq.includes(x))]);
+}
+
+/**
+ * The items in the SOURCE WORKBOOK'S OWN order -- sheet, then row, then uid. Mirrors
+ * `csv_exporter._source_order`.
+ *
+ * ⚠️ SHEET FIRST is load-bearing, for the same reason it is in the exporter: two categories draw from
+ * two sheets each, and ordering on the row number alone interleaves them. PRESENTATION ONLY.
+ */
+export function sourceOrder<T extends { source_sheet?: unknown; source_row?: unknown; item_uid?: unknown }>(
+  items: readonly T[],
+): T[] {
+  const key = (it: T): [string, number, number, string] => {
+    const raw = it.source_row;
+    const hasRow = raw !== null && raw !== undefined && String(raw).trim() !== "";
+    const n = Number(raw);
+    return [String(it.source_sheet ?? ""), hasRow ? 0 : 1,
+            hasRow && Number.isFinite(n) ? n : 0, String(it.item_uid ?? "")];
+  };
+  return [...items].sort((x, y) => {
+    const kx = key(x), ky = key(y);
+    for (let i = 0; i < kx.length; i++) {
+      if (kx[i] < ky[i]) return -1;
+      if (kx[i] > ky[i]) return 1;
+    }
+    return 0;
+  });
 }

@@ -64,7 +64,8 @@ import re
 
 import frappe
 
-from nirmaan_stack.services.boq_rate_master import config_validation, spec_reader, xlsx_io
+from nirmaan_stack.services.boq_rate_master import (cladding_cost, config_validation, spec_reader,
+                                                   xlsx_io)
 
 ITEM_DOCTYPE = "BoQ Rate Master Item"
 CONFIG_DOCTYPE = "BoQ Rate Category Config"
@@ -95,10 +96,25 @@ PRICING_INPUT_KIND_SUFFIX = "_pricing_input"
 # ACCEPTANCE 4 / 9: the file carries ONLY these, in this order, and nothing borrowed from a SKU file.
 # `item` is the row's name, then one column per KIND of number, then the unit, the remark and the
 # read-only used-by count.
+# SLICE 12c: `rate` and `factor` are APPENDED, after `amount`, so no existing column moves and every
+# Electrical figure keeps its place. A discipline that carries neither still exports the same eight.
 PRICING_INPUT_VALUE_COLUMNS = ("discount", "supply_markup", "installation_markup", "bcs_markup",
-                               "wastage", "ratio", "share", "amount")
-# ACCEPTANCE 6: a factor is shown as a PERCENTAGE. `amount` is rupees and is NOT a percentage.
-PRICING_INPUT_PERCENT_COLUMNS = tuple(c for c in PRICING_INPUT_VALUE_COLUMNS if c != "amount")
+                               "wastage", "ratio", "share", "amount", "rate", "factor")
+# ACCEPTANCE 6: a factor is shown as a PERCENTAGE -- but three columns are not percentages and must be
+# named, not inferred. `amount` and `rate` are RUPEES; `factor` is a PLAIN MULTIPLIER (1.25, 0.9) --
+# owner ruling, slice 12c, "Rate and Factor as plain numbers".
+# ⚠️ THE SET IS A DENY-LIST BECAUSE THE DEFAULT IS "PERCENT", so a value column added without a thought
+# renders 450 as 45000%. A new non-percentage column belongs here in the SAME edit that adds it.
+PRICING_INPUT_NON_PERCENT_COLUMNS = ("amount", "rate", "factor")
+PRICING_INPUT_PERCENT_COLUMNS = tuple(c for c in PRICING_INPUT_VALUE_COLUMNS
+                                      if c not in PRICING_INPUT_NON_PERCENT_COLUMNS)
+# What KIND of number each value column holds, for the formula row under the header.
+# ⚠️ `factor` IS NEITHER A PERCENTAGE NOR RUPEES. The pre-12c line was a two-way
+# "percentage if in the percent set else rupees", which was right while `amount` was the only
+# exception -- it labelled a 1.25 overlap factor as "rupees". Invisible until a discipline actually
+# carried the column, which is 12c; a plain map cannot acquire that gap again.
+PRICING_INPUT_COLUMN_SENSE = {c: "percentage" for c in PRICING_INPUT_PERCENT_COLUMNS}
+PRICING_INPUT_COLUMN_SENSE.update({"amount": "rupees", "rate": "rupees", "factor": "a multiplier"})
 PRICING_INPUT_USED_BY = "used_by"
 PRICING_INPUT_SHARED_BY = "shared_by"
 PRICING_INPUT_NAME = "item"
@@ -138,20 +154,44 @@ def pricing_input_used_by(configs):
     A stored count goes stale the moment a pipeline changes, so it is computed by walking every
     `rate_ref` of every pipeline of the discipline. This is the count acceptance item 13 refuses a
     delete or a rename with.
+
+    ⚠️ SLICE 12c: IT MUST WALK `list_spec` PIPELINES TOO. An ITEM-LIST category keeps its pipelines
+    inside `list_spec.pricing.families[*].units[*].pipelines`, not in the config's own `pipelines`, so
+    a walk over `cfg["pipelines"]` alone reported every HVAC input as read by NOTHING -- the file's
+    used-by column would have read "not used" on all seven while they priced 204 rows, and
+    `refuse_if_in_use` would have let a pricer DELETE one. The walk is now over every `steps` list
+    anywhere in the config, which is also why it cannot miss the next shape.
     """
     out = {}
+
+    def walk(node, found):
+        if isinstance(node, dict):
+            if isinstance(node.get("steps"), list):
+                for st in node["steps"]:
+                    if not isinstance(st, dict) or st.get("step") != "rate_ref":
+                        continue
+                    # ⚠️ ONLY a rate_ref that reads a PRICING INPUT makes one. The step is general --
+                    # slice 12c FINISH reads a CATALOGUE row's own wastage and markups with it -- and
+                    # without this the catalogue row is reported as an input nothing has heard of.
+                    if not is_pricing_input_kind((st.get("ref") or {}).get("kind")):
+                        continue
+                    iid = (st.get("ref") or {}).get("item")
+                    if isinstance(iid, str):
+                        found.append(iid)
+            for key in sorted(node):
+                walk(node[key], found)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, found)
+
     for cid, cfg in sorted((configs or {}).items()):
-        for pid in sorted((cfg.get("pipelines") or {})):
-            for st in ((cfg["pipelines"][pid] or {}).get("steps") or []):
-                if st.get("step") != "rate_ref":
-                    continue
-                iid = (st.get("ref") or {}).get("item")
-                if not isinstance(iid, str):
-                    continue
-                n, cats = out.get(iid, (0, []))
-                if cid not in cats:
-                    cats = cats + [cid]
-                out[iid] = (n + 1, cats)
+        found = []
+        walk(cfg, found)
+        for iid in found:
+            n, cats = out.get(iid, (0, []))
+            if cid not in cats:
+                cats = cats + [cid]
+            out[iid] = (n + 1, cats)
     return out
 
 
@@ -368,6 +408,35 @@ def _source_order(items):
     return sorted(items, key=key)
 
 
+def _declared_order(cfg, attrs, rates):
+    """Apply the category's own PRESENTATION order (`column_order`) over an already-ordered pair.
+
+    ⚠️ OWNER F5, 2026-10-03: "the structure may vary for every category ... we have planned to change
+    the structure also for the electrical categories after ADP retrofit". The order was already
+    per-category, but the only lever was `rate_composition`, which is a PRICING declaration -- the
+    formula renderer, `_composition_role` and a pipeline-less category's generated `derived_rates` all read
+    it, so reordering a file through it reworded the formula row. `column_order` does only this.
+
+    It is applied LAST and it is PARTIAL: the names it declares LEAD, in the order declared, and
+    everything else keeps the order it already had (the `rate_composition` sheet order, else sorted).
+    That is what lets a category move two columns to the front without restating its whole file. A
+    name nothing observed is skipped -- never invented as an empty column.
+
+    ABSENT => the pair is returned UNTOUCHED, so every category that declares nothing (today: all of
+    them) is byte-identical to before this key existed. `rateMasterSpec.columnOrderForFile` is the
+    TypeScript mirror and the two are pinned to identical output on one shared fixture.
+    """
+    spec = (cfg or {}).get(config_validation.COLUMN_ORDER_KEY) or {}
+    if not spec:
+        return attrs, rates
+
+    def lead(declared, have):
+        first = [n for n in (declared or []) if n in have]
+        return first + [n for n in have if n not in first]
+
+    return lead(spec.get("attributes"), attrs), lead(spec.get("rates"), rates)
+
+
 def _sheet_column_order(cfg, attrs, rates):
     """(attrs, rates) in the SOURCE SHEET'S own left-to-right order, for a category that DECLARES one.
 
@@ -382,7 +451,7 @@ def _sheet_column_order(cfg, attrs, rates):
     """
     comp = cfg.get(config_validation.RATE_COMPOSITION_KEY) or {}
     if not comp:
-        return attrs, rates
+        return _declared_order(cfg, attrs, rates)
     declared = [d["id"] for d in (cfg.get("attribute_definitions") or [])
                 if isinstance(d, dict) and d.get("id")]
     ordered_attrs = [a for a in declared if a in attrs] + [a for a in attrs if a not in declared]
@@ -396,7 +465,51 @@ def _sheet_column_order(cfg, attrs, rates):
         k = (comp.get(side) or {}).get("markup_key")
         if k and k in rates and k not in seq:
             seq.append(k)
-    return ordered_attrs, seq + [r for r in rates if r not in seq]
+    return _declared_order(cfg, ordered_attrs, seq + [r for r in rates if r not in seq])
+
+
+def _category_labels(configs):
+    """{category_id: its display label}, from each category's OWN config (`category_display`).
+
+    A category with no declared display name falls back to its id, so the cell always names something
+    a reader can match to a page.
+    """
+    return {cid: ((cfg or {}).get("category_display") or cid) for cid, cfg in (configs or {}).items()}
+
+
+def pricing_input_used_by_text(n, cats, labels=None):
+    """What the read-only `used_by` cell says: EVERY category this input is read in, BY NAME.
+
+    ⚠️ OWNER, 2026-10-03: "the used by should mention all categories where it is used instead of the
+    current format". The old text led with an internal site COUNT and named the categories by their
+    raw ids ("10 sites in conduit_piping, point_wiring, wiring_cabling") -- the ids are not what any
+    page is called, and the count read as the headline. The categories now lead, under the names the
+    pricer sees on screen, and the count follows in parentheses as the secondary fact it is.
+
+    `rateMasterSpec.pricingInputUsedByText` is the TypeScript mirror and the two are pinned to
+    identical output on one shared fixture, exactly as the formula renderer pair is. PURE.
+    """
+    if not n:
+        return "not used"
+    names = sorted({(labels or {}).get(c, c) for c in (cats or [])})
+    return "%s (%d use%s)" % (", ".join(names), n, "" if n == 1 else "s")
+
+
+def column_order_for(cfg, items):
+    """(attrs, rates) -- THE column order of a category's rate file, as one callable.
+
+    ⚠️ IT EXISTS SO THE SCREEN CAN FOLLOW THE FILE (slice 12c, acceptance 4). The Data Viewer used to
+    derive its own order -- rate columns in FIRST-SEEN order across the items, attributes in declaration
+    order -- and the two agreed only by accident, because the mint happened to store the dicts that way.
+    `rateMasterSpec.columnOrderForFile` is the TypeScript mirror of this function and the two are pinned
+    to identical output on one shared fixture, exactly as the formula renderer pair is.
+
+    It is the composition of what the exporter already did: observe the keys, sort them for stability,
+    then let a category that DECLARES a sheet order (`rate_composition`) override it. A category with no
+    declaration keeps the sorted order, byte-identical to before this helper existed.
+    """
+    attrs, rates = _keys_for(items)
+    return _sheet_column_order(cfg or {}, attrs, rates)
 
 
 def build_category_rows(discipline, category_id):
@@ -435,7 +548,7 @@ def build_category_rows(discipline, category_id):
                 cells.append(as_percent(v) if c in PRICING_INPUT_PERCENT_COLUMNS else v)
             cells += [it.get("unit"), a.get(PRICING_INPUT_SHARED_BY) or "",
                       a.get(PRICING_INPUT_REMARKS) or "",
-                      ("%d site%s in %s" % (n, "" if n == 1 else "s", ", ".join(cats))) if n else "not used"]
+                      pricing_input_used_by_text(n, cats, _category_labels(_load_configs(discipline)))]
             rows.append(cells)
         # Every value column is TEXT here (a percentage is a string), so nothing is numeric. The
         # used-by column is READ-ONLY and is locked on every row: it is derived from the pipelines, so
@@ -443,8 +556,7 @@ def build_category_rows(discipline, category_id):
         return {"headers": headers, "rows": rows, "n": len(rows), "numeric": [],
                 "formula_row": [
                     FORMULA_ROW_MARKER, "", "", "the number a pricer edits",
-                ] + ["percentage" if c in PRICING_INPUT_PERCENT_COLUMNS else "rupees"
-                     for c in value_cols] + [
+                ] + [PRICING_INPUT_COLUMN_SENSE.get(c, "rupees") for c in value_cols] + [
                     "", "which categories read it", "what it does, with an example",
                     "derived from the pricing rules - read only",
                 ],
@@ -483,12 +595,16 @@ def build_category_rows(discipline, category_id):
                + [rate_hdr[r] for r in rates] + list(FORMULA_COLUMNS))
     texts, derived_by_key = formula_cells_for(cfg, rows_in)
     derived = config_validation.derived_cells(cfg)
+    # SLICE 12c FINISH (owner F4): the cells whose figure the RULES compute. They carry the LIVE
+    # number, greyed and locked -- unlike a `derived_rates` cell, which carries the word. Both are
+    # read-only; what differs is that a pricer asked to SEE this one.
+    computed = computed_cladding_cells(cfg, items, category_id, cat_kinds)
     rows = []
     for it in rows_in:
         rows.append(
             _lead(it, with_kind, discipline, category_id)
             + [it["attributes"].get(a) for a in attrs]
-            + [_rate_cell(it, r, derived) for r in rates]
+            + [computed.get((it["item_uid"], r), _rate_cell(it, r, derived)) for r in rates]
             + texts.get(it["item_uid"], [FORMULA_TYPED, FORMULA_TYPED])
         )
     numeric = _numeric_columns(attrs, rates, attr_types)
@@ -502,7 +618,10 @@ def build_category_rows(discipline, category_id):
                                                               if rate_hdr[r] == r}),
             # one set per row: the cells a pricer must NOT type in (owner 2026-09-27 -- the .xlsx
             # fills them red, because an EMPTY cell says nothing about whether it is editable)
-            "locked": [{rate_hdr.get(r, r) for r in rates if (it["item_uid"], r) in derived}
+            # a COMPUTED cell is locked for the same reason a derived one is: its value comes from
+            # the rules, so a typed number there could only be ignored or wrong
+            "locked": [{rate_hdr.get(r, r) for r in rates
+                        if (it["item_uid"], r) in derived or (it["item_uid"], r) in computed}
                        for it in rows_in]}
 
 
@@ -513,6 +632,12 @@ def build_all_categories_rows(discipline):
     # SLICE 12b(A) / ACCEPTANCE 15: Pricing Inputs STAY OUT of the all-categories file. They are not
     # SKUs, and letting them in would put a `discount` / `share` / `amount` column onto every other
     # category's rows -- a union that is sparse by construction would become sparse and misleading.
+    # ⚠️ SLICE 12c FINISH: KEPT FOR THE COMPUTATION, DROPPED FROM THE FILE. The live cladding figure is
+    # computed FROM the pricing-input rows, so the catalogue handed to `computed_cladding_cells` must
+    # still contain them -- handing it the filtered list produced a figure for only the 52 rows whose
+    # branch reads no input and left the other 219 showing a stale stored number. The FILE is still
+    # built from the filtered list, so acceptance 15 is untouched.
+    all_items = items
     items = [it for it in items if not is_pricing_input_kind(it["kind"])]
     spec_kinds = _spec_kinds(discipline)
     if spec_kinds:
@@ -551,6 +676,14 @@ def build_all_categories_rows(discipline):
         derived_by_cat[cat] = dk
         # resolved ONCE per category, never per cell -- Mode B is 1,367 rows x ~45 columns
         derived_cells_by_cat[cat] = config_validation.derived_cells(configs.get(cat) or {})
+    # SLICE 12c FINISH (owner F4): the COMPUTED cells, resolved once per category exactly as the
+    # declared-derived ones are. ⚠️ THE ALL-CATEGORIES FILE IS A DOWNLOAD TOO -- the owner ruled the
+    # live figure shows "in the grid AND the download", and mode B was the half that had no computed
+    # cells until the derived-fill pin caught it. {} for a category whose rules compute nothing, so
+    # every other category's file stays byte-identical.
+    computed = {}
+    for cat, cat_items in items_by_cat.items():
+        computed.update(computed_cladding_cells(configs.get(cat) or {}, all_items, cat, cat_kinds))
     rows = []
     for it in items:
         if it["kind"] in spec_kinds:
@@ -560,7 +693,8 @@ def build_all_categories_rows(discipline):
         rows.append(
             _lead(it, with_kind, discipline, kind_cat.get(it["kind"], ""))
             + attr_cells
-            + [_rate_cell(it, r, derived_cells_by_cat.get(kind_cat.get(it["kind"], "")) or {})
+            + [computed.get((it["item_uid"], r),
+                            _rate_cell(it, r, derived_cells_by_cat.get(kind_cat.get(it["kind"], "")) or {}))
                for r in rates]
             + texts.get(it["item_uid"], [FORMULA_TYPED, FORMULA_TYPED])
         )
@@ -569,7 +703,8 @@ def build_all_categories_rows(discipline):
             "numeric": {rate_hdr.get(n, n) for n in _numeric_columns(attrs, rates, attr_types)},
             "locked": [{rate_hdr.get(r, r) for r in rates
                         if (it["item_uid"], r)
-                        in (derived_cells_by_cat.get(kind_cat.get(it["kind"], "")) or {})}
+                        in (derived_cells_by_cat.get(kind_cat.get(it["kind"], "")) or {})
+                        or (it["item_uid"], r) in computed}
                        for it in items],
             # `header_keys`, never `headers`: this row aligns by NAME (see `formula_row_cells`)
             "formula_row": formula_row_cells_all(configs, header_keys, set(rates), derived_by_cat,
@@ -1344,6 +1479,36 @@ def _rate_cell(item, rate_key, derived):
     if (item["item_uid"], rate_key) in derived:
         return DERIVED_CELL_TEXT
     return item["rates"].get(rate_key)
+
+
+# SLICE 12c FINISH -- the column whose figure the rules compute, and the one helper that produces it.
+# ⚠️ ONE DEFINITION, used by the FILE (above) and by the api read that feeds the GRID. A second copy
+# would let the screen and the download disagree about a number neither of them owns.
+COMPUTED_RATE_KEY = "cost_cladding"
+
+
+def computed_cladding_cells(cfg, items, category_id, cat_kinds):
+    """{(item_uid, rate_key): figure} for the rows whose cladding cost the rules compute. PURE-ish:
+    it reads the config and the items it is handed, nothing else."""
+    kinds = set((cat_kinds or {}).get(category_id) or [])
+    if not kinds:
+        return {}
+    out = {}
+    for kind in sorted(kinds):
+        for uid, val in cladding_cost.computed_cladding_by_uid(
+                cfg, items, _unit_class_of, kind).items():
+            out[(uid, COMPUTED_RATE_KEY)] = round(float(val), 6)
+    return out
+
+
+_AREA_UNITS = {"sqm", "sq.m", "sq m", "sqmt", "sq.mt", "m2", "m²", "smt", "sq.mtr", "sq mtr"}
+
+
+def _unit_class_of(item):
+    """The unit class of a catalogue row, from its own unit. Mirrors the read-time projection the
+    pricer applies; kept here so this module needs no frontend."""
+    u = str(item.get("unit") or "").strip().lower().rstrip(".")
+    return "area" if u in _AREA_UNITS else "length"
 
 
 def formula_cells_for(cfg, items):

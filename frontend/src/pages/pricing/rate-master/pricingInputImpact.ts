@@ -36,11 +36,20 @@
  */
 import type { RateMasterItem } from "./rateMasterTypes";
 import type { InputReach, AdderSpec } from "./pricingInputReach";
+import { pipelinesOf } from "./pricingInputReach";
 import { evalFormula } from "./ratePipelineInterpreter";
 import {
-  conditionsFor, itemsWithInput, legClassOf, neutralConditions, priceSkuExact,
-  type ExactLeg, type ExactPipelineRef,
+  conditionsFor, isItemListConfig, itemsWithInput, legClassOf, neutralConditions, priceSkuExact,
+  priceSkuExactItemList, priceSkuExactSamples, confirmedCandidateSkus,
+  type ExactLeg, type ExactPipelineRef, type SampleImpact,
 } from "./pricingInputExact";
+
+/**
+ * Shown on a confirmed cladding-only row when there is no edit yet, so there is nothing to sample
+ * against. It states the SHAPE of the row rather than a figure -- such a row has no price of its own
+ * until a geometry is named.
+ */
+const NO_GEOMETRY_NOTE = "priced per girth -- edit a value above to see sample sizes";
 
 export type PanelShape = "pair" | "installation_share" | "installation_markup" | "bcs_only" | "flat_adder";
 
@@ -89,10 +98,23 @@ export function movedLegOf(shape: PanelShape): MovedLeg {
   return "boq_supply";
 }
 
-/** The value fields a shape's panel offers, in the order it shows them. Only keys the input CARRIES. */
+/**
+ * The value fields a shape's panel offers, in the order it shows them. Only keys the input CARRIES.
+ *
+ * ⚠️ SLICE 12c: `rate` and `factor` are APPENDED, and the omission was not cosmetic -- it left an HVAC
+ * input (whose only value IS a rate or a factor) with an EMPTY field list, so the panel rendered NO
+ * edit box at all and could never be driven: every row sat at "—" under the hint "Change a value above
+ * to see what it would do", with nothing to change. The owner spotted it on the live page.
+ *
+ * ⚠️ APPENDED RATHER THAN DERIVED FROM `PRICING_INPUT_VALUE_COLUMNS`, deliberately. This order is NOT
+ * that constant's order -- `wastage` sits third here and fifth there -- so adopting it would reorder
+ * the fields on Electrical's panel for no reason anyone asked for. Appending keeps every existing panel
+ * byte-identical, exactly as appending the two COLUMNS did.
+ */
 export function editableFieldsOf(rates: Record<string, unknown> | null | undefined): string[] {
   const keys = Object.keys(rates ?? {});
-  const order = ["discount", "supply_markup", "wastage", "installation_markup", "bcs_markup", "ratio", "share", "amount"];
+  const order = ["discount", "supply_markup", "wastage", "installation_markup", "bcs_markup", "ratio",
+                 "share", "amount", "rate", "factor"];
   return order.filter((k) => keys.includes(k));
 }
 
@@ -142,6 +164,17 @@ export interface SkuImpactRow {
    * rate that had moved without being mentioned (owner ruling, gap (c)). Empty on the approximate path.
    */
   otherLegs?: ExactLeg[];
+  /**
+   * OWNER F3: "show 2-3 sample impact calculations based on sizes stored in SKU."
+   *
+   * A SKU that carries no geometry of its own -- a CLADDING-ONLY row, which prices a cladding and
+   * nothing else, so it stores neither pipe size nor thickness -- has no single figure to show,
+   * because a cladding cost is proportional to the girth and the girth is made of exactly those two.
+   * It is quoted at two or three stocked geometries instead. Absent on every other SKU.
+   */
+  samples?: SampleImpact[];
+  /** why the rules returned no figure, when they returned none. Shown instead of a fabricated one. */
+  note?: string;
   /** true when this row's figures came from the product's own pipeline rather than the multiplier */
   exact?: boolean;
 }
@@ -324,18 +357,42 @@ export function computeImpact(
    */
   const legWanted: "bcs" | "install" | "supply" =
     leg === "bcs" ? "bcs" : leg === "boq_install" ? "install" : "supply";
+  /**
+   * The PATCHED catalogue the exact figures were computed against -- set by the IIFE below and reused
+   * by the F3 samples, so a sample is quoted against exactly the same edit the rest of the panel is.
+   * Recomputing the patch beside it would be a second definition of "what the user changed".
+   */
+  let itemsNextForSamples: readonly RateMasterItem[] | null = null;
   const exactRows = (() => {
-    if (!exactCtx || !changed) return null;
+    /**
+     * ⚠️ THIS RUNS WHETHER OR NOT ANYTHING CHANGED, and that is what makes the `now` column mean ONE
+     * quantity (12c cert fix, owner ruling 2026-10-05). It used to bail on `!changed`, so every row
+     * fell through to the multiplier fallback below and `now` showed the SKU's STORED RATE COLUMN --
+     * while the same row with an edit pending showed the pipeline's COMPUTED leg. Measured on
+     * `Nitrile Rubber ... 12.7 x 13`: 109 before the edit, 306 after, under one heading, with nothing
+     * on screen saying the quantity had changed underneath the reader.
+     *
+     * With no edit the patch is empty, `itemsWithInput` hands back the same array, and every leg
+     * comes out `now === becomes` / `moved: false` -- so `becomes` renders as a dash exactly as
+     * before and only `now` is corrected.
+     */
+    if (!exactCtx) return null;
     const refs: ExactPipelineRef[] = [];
     for (const { category, pipelineId } of reach?.pipelines ?? []) {
-      const pl = (exactCtx.configs?.[category]?.pipelines ?? {})[pipelineId];
+      // ⚠️ THROUGH `pipelinesOf`, NOT `cfg.pipelines`. An ITEM-LIST category's pipelines live inside
+      // `list_spec`, and the reach walk now reports them under a `family/unit/id` key -- resolving
+      // against `cfg.pipelines` alone would find NOTHING for every one of them, so the panel would
+      // fall back to its approximate arithmetic on the whole category. ONE resolver, shared with the
+      // walk that produced the ids, so the two can never disagree about what a pipeline id means.
+      const pl = pipelinesOf(exactCtx.configs?.[category]).find(([pid]) => pid === pipelineId)?.[1];
       if (pl) refs.push({ category, pipelineId, pipeline: pl as never });
     }
     if (!refs.length) return null;
     const patch: Record<string, number> = {};
     for (const k of Object.keys(next)) if (next[k] !== stored[k]) patch[k] = next[k];
-    if (!Object.keys(patch).length) return null;
+    // an EMPTY patch is the no-edit case, not a reason to bail -- see the note above
     const itemsNext = itemsWithInput(exactCtx.items, exactCtx.inputItemKey, patch);
+    itemsNextForSamples = itemsNext;
     /**
      * ⚠️ THE OWN CONDITION WINS, and every OTHER conditional component is held at its neutral branch.
      * Order matters: neutral first, then the input's own enabling branch on top, so an adder whose
@@ -351,13 +408,30 @@ export function computeImpact(
       if (out.has(c.itemUid)) continue;
       const sku = itemsByUid?.get(c.itemUid);
       if (!sku) continue;
-      out.set(c.itemUid, priceSkuExact(sku, refs, exactCtx.items, itemsNext, conds));
+      /**
+       * ACCEPTANCE 23 -- ONE PRICING PATH. An ITEM-LIST category prices a row through
+       * `priceItemList`, so its SKUs are priced through `priceItemList` here too. Running one of its
+       * `list_spec` pipelines directly would re-implement the family / unit / ladder / default /
+       * per-row-condition resolution that function performs -- and would get Insulation's cladding
+       * wrong in a plausible way, pricing every row as though it carried the input's own cladding.
+       *
+       * ⚠️ `conds` IS DELIBERATELY NOT PASSED on this path. There is nothing to assume: the branch
+       * each SKU takes is decided by that SKU's own attributes, which is exactly what makes the moved
+       * COUNT fall out of the product rather than out of a guess.
+       */
+      const cfgOf = exactCtx.configs?.[(c.categories ?? [])[0] ?? ""];
+      out.set(c.itemUid, isItemListConfig(cfgOf)
+        ? priceSkuExactItemList(sku, cfgOf, exactCtx.items, itemsNext)
+        : priceSkuExact(sku, refs, exactCtx.items, itemsNext, conds));
     }
     return out;
   })();
 
   const rows: SkuImpactRow[] = [];
   const seen = new Set<string>();
+  // OWNER 2026-10-03: labels are resolved against EACH OTHER, so a name several rows share is
+  // followed by the facts that tell them apart. Built ONCE per computation, not per row.
+  const labelCtx = skuLabelContext(itemsByUid?.values() ?? []);
   for (const col of reach?.columns ?? []) {
     const key = `${col.itemUid}\u0000${col.rateKey}`;
     if (seen.has(key)) continue;
@@ -365,6 +439,37 @@ export function computeImpact(
     const it = itemsByUid?.get(col.itemUid);
     if (!it) continue;
     const rate = (it.rates ?? {})[col.rateKey];
+    const cfgForRow = exactCtx?.configs?.[(col.categories ?? [])[0] ?? ""];
+    const itemList = isItemListConfig(cfgForRow);
+    const exHere = exactRows?.get(col.itemUid);
+    if (exHere && !exHere.legs.length && itemList) {
+      /**
+       * ⚠️ THIS BRANCH SITS ABOVE THE STORED-RATE GUARD ON PURPOSE. A SKU with no stored cost column
+       * is EXACTLY the SKU the samples exist for -- a cladding-only row stores no cost at all,
+       * because its pipelines build the assembly total -- so the guard below was skipping it before
+       * the samples could be offered.
+       *
+       * ⚠️ AND IT MUST NEVER FALL THROUGH TO THE MULTIPLIER PATH. That path is the approximate
+       * arithmetic the owner ruled against (2026-09-29); on a geometry-less row it would quote a
+       * confident figure for a geometry nobody named. OWNER F3: quote two or three STOCKED
+       * geometries instead, priced through the SAME `priceSkuExactItemList`. With nothing to sample
+       * the row carries its own reason -- an honest absence, never a fabricated number.
+       */
+      const samples = itemsNextForSamples
+        ? priceSkuExactSamples(it, cfgForRow, exactCtx!.items, itemsNextForSamples)
+        : [];
+      const movedAny = samples.some((sm) => sm.result.legs.some((l) => l.moved));
+      rows.push({
+        itemUid: col.itemUid, kind: col.kind, rateKey: col.rateKey,
+        label: skuLabel(it, labelCtx), categories: col.categories,
+        storedRate: typeof rate === "number" && Number.isFinite(rate) ? rate : 0,
+        now: 0, becomes: 0, pctChange: null, moved: movedAny,
+        samples: samples.length ? samples : undefined,
+        note: samples.length ? undefined : exHere.note,
+        exact: true,
+      });
+      continue;
+    }
     if (typeof rate !== "number" || !Number.isFinite(rate)) continue;
     let now: number;
     let becomes: number;
@@ -381,7 +486,7 @@ export function computeImpact(
       const primary = ex.legs.find((l) => legClassOf(l.output) === legWanted) ?? ex.legs[0];
       rows.push({
         itemUid: col.itemUid, kind: col.kind, rateKey: col.rateKey,
-        label: skuLabel(it), categories: col.categories, storedRate: rate,
+        label: skuLabel(it, labelCtx), categories: col.categories, storedRate: rate,
         now: primary.now, becomes: primary.becomes,
         pctChange: primary.now === 0 ? null : ((primary.becomes - primary.now) / primary.now) * 100,
         moved: primary.moved,
@@ -403,13 +508,54 @@ export function computeImpact(
       itemUid: col.itemUid,
       kind: col.kind,
       rateKey: col.rateKey,
-      label: skuLabel(it),
+      label: skuLabel(it, labelCtx),
       categories: col.categories,
       storedRate: rate,
       now,
       becomes,
       pctChange: now === 0 ? null : ((becomes - now) / now) * 100,
       moved,
+    });
+  }
+  /**
+   * SLICE 12c CERT FIX (U9/F3, owner ruling 2026-10-05) -- THE CONFIRMED UNTESTABLE POPULATION.
+   *
+   * `reach.candidateSkus` holds the rows the structural walk could not test: an item-list category's
+   * rows that store none of the walked rate columns, because their whole cost is assembled from
+   * pricing INPUTS. Insulation's five cladding-only SKUs are that population, and before this they
+   * never reached the panel at all -- which made the F3 samples branch above unreachable for the one
+   * shape it was written for.
+   *
+   * ⚠️ THE LIST IS OVER-INCLUSIVE BY DESIGN, so each row is CONFIRMED by running the product: the
+   * 26G sheet input names all five cladding types and moves exactly the two 26G ones. The confirmer
+   * is shared with the Rate Master grid's `items` count, so the badge and the list it opens cannot
+   * disagree. A candidate already carried by a column is skipped -- it has a verdict.
+   */
+  for (const cand of confirmedCandidateSkus(reach?.candidateSkus, itemsByUid,
+                                            exactCtx?.configs, exactCtx?.items,
+                                            exactCtx?.inputItemKey ?? "")) {
+    if (seen.has(cand.itemUid)) continue;
+    seen.add(cand.itemUid);
+    const it = itemsByUid?.get(cand.itemUid);
+    if (!it) continue;
+    const cfgForRow = exactCtx?.configs?.[cand.categories[0] ?? ""];
+    const samples = itemsNextForSamples && cfgForRow
+      ? priceSkuExactSamples(it, cfgForRow, exactCtx!.items, itemsNextForSamples)
+      : [];
+    rows.push({
+      itemUid: cand.itemUid, kind: cand.kind, rateKey: "",
+      label: skuLabel(it, labelCtx), categories: cand.categories,
+      /**
+       * ⚠️ ZERO IS THE HONEST STORED RATE HERE -- such a row stores no cost column at all, which is
+       * what put it in this population. `now` / `becomes` stay 0 and `pctChange` null for the same
+       * reason: this row's figures live in its SAMPLES, each at a named geometry, because one figure
+       * for a geometry nobody named is exactly what the samples ruling refused.
+       */
+      storedRate: 0, now: 0, becomes: 0, pctChange: null,
+      moved: samples.some((sm) => sm.result.legs.some((l) => l.moved)),
+      samples: samples.length ? samples : undefined,
+      note: samples.length ? undefined : NO_GEOMETRY_NOTE,
+      exact: true,
     });
   }
   /**
@@ -548,12 +694,78 @@ export function skuKey(row: Pick<SkuImpactRow, "itemUid" | "kind" | "rateKey">):
   return `${row.itemUid}\u0000${row.kind}\u0000${row.rateKey}`;
 }
 
-export function skuLabel(it: RateMasterItem | null | undefined): string {
+const _LABEL_SKIP_ATTRS = new Set(["spec_status", "spec_note"]);
+
+/** PURE. The row's own name, or null -- the first of `item` / `item_name` / `name` that says anything. */
+export function skuName(it: RateMasterItem | null | undefined): string | null {
   const a = (it?.attributes ?? {}) as Record<string, unknown>;
-  const named = a.item ?? a.item_name ?? a.name;
-  if (typeof named === "string" && named.trim()) return named.trim();
+  for (const k of ["item", "item_name", "name"]) {
+    const v = a[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+/**
+ * ⚠️ WHY A NAME IS NOT ALWAYS A LABEL (owner, 2026-10-03: "the SKU shows only item and not
+ * description. it is not possible to find which SKU is which").
+ *
+ * `skuLabel` used to return the row's name and stop. That is right where a name identifies one row,
+ * and useless where it does not: on HVAC Insulation the name is the FAMILY, so 168 rows all read
+ * "Nitrile Rubber Insulation" and the impact list was 168 identical lines. Measured on the live
+ * catalogue the same defect sits on Electrical -- 142 rows share a name, eleven of them reading
+ * "Industrial Socket with MCB".
+ *
+ * So this returns, per shared name, the attribute keys whose values actually DIFFER between the rows
+ * sharing it -- the facts that tell them apart, and only those. A name no other row carries is absent
+ * from the map, so its label stays the name alone, byte-identical to before. PURE.
+ */
+export function skuLabelContext(
+  items: Iterable<RateMasterItem | null | undefined>,
+): Map<string, string[]> {
+  const byName = new Map<string, Array<Record<string, unknown>>>();
+  for (const it of items) {
+    const n = skuName(it);
+    if (!n) continue;
+    const list = byName.get(n) ?? [];
+    list.push((it?.attributes ?? {}) as Record<string, unknown>);
+    byName.set(n, list);
+  }
+  const out = new Map<string, string[]>();
+  byName.forEach((rowsWithName, name) => {
+    if (rowsWithName.length < 2) return;             // the name identifies the row on its own
+    const keys = new Set<string>();
+    for (const r of rowsWithName) for (const k of Object.keys(r)) keys.add(k);
+    const varying = [...keys].filter((k) => {
+      if (_LABEL_SKIP_ATTRS.has(k)) return false;
+      const first = JSON.stringify(rowsWithName[0]?.[k] ?? null);
+      return rowsWithName.some((r) => JSON.stringify(r[k] ?? null) !== first);
+    }).sort();
+    if (varying.length) out.set(name, varying);
+  });
+  return out;
+}
+
+/** How many distinguishing facts a label carries before it stops -- enough to tell the rows apart,
+ * short enough to read in a table cell (the full text is always in the row's `title`). */
+const _LABEL_MAX_PARTS = 5;
+
+export function skuLabel(
+  it: RateMasterItem | null | undefined,
+  ctx?: ReadonlyMap<string, string[]>,
+): string {
+  const a = (it?.attributes ?? {}) as Record<string, unknown>;
+  const named = skuName(it);
+  if (named) {
+    const parts = (ctx?.get(named) ?? [])
+      .map((k) => [k, a[k]] as const)
+      .filter(([, v]) => v !== null && v !== "" && v !== undefined)
+      .slice(0, _LABEL_MAX_PARTS)
+      .map(([k, v]) => `${k} ${String(v)}`);
+    return parts.length ? `${named} · ${parts.join(" · ")}` : named;
+  }
   const parts = Object.entries(a)
-    .filter(([k, v]) => k !== "spec_status" && k !== "spec_note" && v !== null && v !== "" && v !== undefined)
+    .filter(([k, v]) => !_LABEL_SKIP_ATTRS.has(k) && v !== null && v !== "" && v !== undefined)
     .slice(0, 4)
     .map(([, v]) => String(v));
   return parts.join(" · ") || String(it?.item_uid ?? "");
@@ -570,4 +782,21 @@ export function pctText(v: unknown): string {
 /** Is this value field a percentage, or a rupee amount? Mirrors the exporter's split. */
 export function isPercentField(key: string): boolean {
   return (PERCENT_KEYS as readonly string[]).includes(key);
+}
+
+/**
+ * How a sample geometry reads on screen: `pipe 100 x 25 mm` -- the axis VALUES in the order the
+ * rules ladder on them, which is the order `sampleGeometries` builds the tuple in.
+ *
+ * ⚠️ IT NAMES NO AXIS IN CODE. The keys come from the config's own `ladders`, so a category with a
+ * different geometry reads correctly with no change here (the HV-10 rule). A `_mm` suffix is dropped
+ * and reported once as the unit, because repeating it per axis reads as three different units. PURE.
+ */
+export function sampleGeometryText(geometry: Record<string, number>): string {
+  const keys = Object.keys(geometry);
+  if (!keys.length) return "";
+  const allMm = keys.every((k) => k.endsWith("_mm"));
+  const nice = (k: string) => k.replace(/_mm$/, "").replace(/_/g, " ");
+  if (allMm) return `${nice(keys[0])} ${keys.map((k) => geometry[k]).join(" x ")} mm`;
+  return keys.map((k) => `${nice(k)} ${geometry[k]}`).join(" x ");
 }

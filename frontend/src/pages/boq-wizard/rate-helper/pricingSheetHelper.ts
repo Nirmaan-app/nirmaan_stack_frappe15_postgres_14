@@ -32,6 +32,7 @@ import {
   NONE_SENTINEL,
   runPipeline,
 } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
+import { plainPricerText } from "@/pages/pricing/rate-master/plainEnglish";
 // CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
 // value becomes a match key); this file imports it and no longer defines it.
 import {
@@ -59,12 +60,18 @@ import { POLE_WORDS, attrDisplayValue, sortAttrNotes } from "./rateHelperTypes";
 // the helper only assembles the list (the model's items overlaid with the panel's session edits) and shapes the
 // result for the panel. Every default, ladder and conversion stays in the module + config.
 import {
+  familyAttr,
   familyChoices,
+  familyUnitClasses,
+  fieldOptionsFromSkus,
   itemFieldDefs,
   itemListPricingSpec,
+  matchStatedToOption,
+  readLayers,
   readNumber,
   listSpecDefs,
   priceItemList,
+  sizeFieldHelp,
   unitClassOf,
   type ExtractedListItem,
   type ItemFieldDef,
@@ -214,9 +221,47 @@ export function nonBcsPipelines(config: RateCategoryConfig): Array<[string, Pipe
 export function isEligibleConfig(config: RateCategoryConfig | null | undefined): boolean {
   return (
     !!config &&
-    Object.keys(config.pipelines ?? {}).length > 0 &&
+    hasRunnablePricingRules(config) &&
     (config.attribute_definitions ?? []).length > 0
   );
+}
+
+/**
+ * SLICE 12d-2 (owner S1, 2026-10-07) -- DOES THIS CONFIG CARRY PRICING RULES THAT RUN? Either
+ * non-empty top-level `pipelines` (every row-level category; ADP's shared per-item default, which
+ * really runs for 29 of its 30 unit blocks), OR an item-list pricing block (`list_spec.pricing`,
+ * read through `itemListPricingSpec`) whose unit blocks carry their own pipelines (Insulation: 7 of 7).
+ *
+ * ⚠️ WHY THE SECOND ARM EXISTS, measured rather than assumed (the Python `test_fa7_09`): every
+ * Insulation unit block has its own pipelines, so a top-level `pipelines` entry added merely to
+ * satisfy the old `pipelines`-only test would be a key that VALIDATES AND NEVER EXECUTES -- the
+ * defect class the owner locked out on 2026-09-10. The generic predicate therefore recognises the
+ * place an item-list category keeps its rules, and Insulation's `pipelines` stays honestly empty.
+ *
+ * ⚠️ "RUN" IS THE WORD THAT CARRIES THE WEIGHT. Without a top-level default, an item-list block
+ * runs only if EVERY unit block and every convert option carries pipelines of its own -- a block
+ * without them would fall back to a default that does not exist and price nothing. So a pricing
+ * block with un-piped blocks and no default (ADP as it stood at v7, before its default shipped)
+ * reads NOT runnable, exactly as the slice-5 / slice-6 pins say.
+ * This RETIRED the 12c FINISH / FA7 `calculator_only` admission (`isCalculatorOnlyConfig`,
+ * `isCalculatorPriceableConfig`, the `admitCalculatorOnly` dep): the ONE predicate now admits the
+ * category on every surface -- the BoQ panel, the calculator, the pre-run rules -- and the server's
+ * `extraction.has_runnable_pricing_rules` is its mirror. No discipline or category named. PURE.
+ */
+export function hasRunnablePricingRules(config: RateCategoryConfig | null | undefined): boolean {
+  if (!config) return false;
+  if (Object.keys(config.pipelines ?? {}).length > 0) return true;
+  const spec = itemListPricingSpec(config);
+  if (!spec) return false;
+  const fams = Object.values(spec.families ?? {});
+  if (fams.length === 0) return false;
+  const piped = (b: { pipelines?: Record<string, unknown> } | undefined) => Object.keys(b?.pipelines ?? {}).length > 0;
+  return fams.every((fam) => {
+    const units = Object.values(fam.units ?? {});
+    if (units.length === 0) return false;
+    if (!units.every((u) => piped(u))) return false;
+    return Object.values(fam.convert ?? {}).every((opts) => (opts ?? []).every((o) => piped(o as { pipelines?: Record<string, unknown> })));
+  });
 }
 
 /**
@@ -350,6 +395,8 @@ interface Deps {
   items: RateMasterItem[];
   /** excel_row -> the run's extraction for that row. */
   extractionByRow: Map<number, ExtractionRow>;
+  // SLICE 12d-2: the FA7 `admitCalculatorOnly` dep is RETIRED -- `isEligibleConfig` admits an
+  // item-list category on every surface, so the calculator and the BoQ panel build this helper identically.
 }
 
 /** Cable vs termination from the row text (a termination line prices the gland/lug set).
@@ -378,18 +425,45 @@ function selectableDefs(config: RateCategoryConfig): AttributeDefinition[] {
  * the SAME live read the backend injects into the extraction prompt AND the RateMaster Derivation
  * screen uses -- so an AI-extracted item that is NOT in `values` (there is none) still has a matching
  * option and DISPLAYS, and a partial row can be completed from the catalog. PURE. */
-export function attributeOptions(def: AttributeDefinition, items: RateMasterItem[]): string[] {
+export function attributeOptions(
+  def: AttributeDefinition,
+  items: RateMasterItem[],
+  /**
+   * SLICE 12c-S (owner S1: "this will also be the wider case for other categories across electrical
+   * and HVAC") -- THE ANSWERS ALREADY GIVEN ON THIS ROW, so a catalogue-backed dropdown offers only
+   * values that still match at least one SKU.
+   *
+   * This is the SAME rule `fieldOptionsFromSkus` applies on the item-list side, over the other half of
+   * the catalogue vocabulary: there a family's SKUs, here a `values_from` kind. Three properties keep
+   * it safe and they are the same three:
+   *   - a STATIC `values` list is untouched (it is not a catalogue read, so there is nothing to narrow);
+   *   - an answer no row of this kind CARRIES cannot narrow;
+   *   - an answer that would empty the list is SKIPPED, so one unmatchable value can never blank a
+   *     dropdown -- this can only ever remove options that no SKU supports, never the last one.
+   * ABSENT (every caller that passes nothing) is byte-identical to before.
+   */
+  answers: Record<string, string | number> = {},
+): string[] {
   const vf = def.values_from;
   const base: string[] = [];
   if (!vf) {
     base.push(...(def.values ?? []).map((v) => String(v)));
   } else {
-    const seen = new Set<string>();
-    for (const it of items) {
-      if (it.kind !== vf.kind) continue;
+    const kindRows = items.filter((it) => {
+      if (it.kind !== vf.kind) return false;
       const a = it.attributes ?? {};
-      if (!Object.entries(vf.where ?? {}).every(([k, v]) => a[k] === v)) continue;
-      const raw = a[vf.attr];
+      return Object.entries(vf.where ?? {}).every(([k, v]) => a[k] === v);
+    });
+    let rows = kindRows;
+    for (const [k, v] of Object.entries(answers)) {
+      if (k === def.id || k === vf.attr || v === "" || v === NONE_SENTINEL || v === null || v === undefined) continue;
+      if (!kindRows.some((it) => k in (it.attributes ?? {}))) continue;
+      const narrowed = rows.filter((it) => String((it.attributes ?? {})[k]) === String(v));
+      if (narrowed.length) rows = narrowed;
+    }
+    const seen = new Set<string>();
+    for (const it of rows) {
+      const raw = (it.attributes ?? {})[vf.attr];
       const val = typeof raw === "string" ? raw.trim() : raw;
       if (val !== undefined && val !== null && val !== "" && !seen.has(String(val))) {
         seen.add(String(val));
@@ -1010,6 +1084,8 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // as lighting_mgmt_system) shows a "coming soon" note rather than the wrong fields. An in-run row
     // always resolves to its own eligible category by construction.
     const cfg = resolveConfig(ctx.category);
+    // SLICE 12d-2: ONE predicate on every surface (the FA7 calculator admission is retired) -- the
+    // BoQ decline cards, the pre-run rules and the server's extraction population all read the same test.
     if (!isEligibleConfig(cfg)) {
       // SLICE 2 (J4): a config may carry its own message (`helper_message`); otherwise coming soon.
       return { kind: "none", reason: declineReasonFor(cfg) };
@@ -1195,7 +1271,9 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
         label: d.label,
         // CP2: a `number_choice` renders the SAME dropdown as a `choice` (one predicate, shared with
         // the Derivation screen) -- only the coercion above differs, and that is the whole point.
-        options: isDropdownAttributeType(d.type) ? attributeOptions(d, items) : undefined,
+        // SLICE 12c-S (owner S1): narrowed by the answers this row already carries, so the list cannot
+        // offer a value that no SKU supports beside them.
+        options: isDropdownAttributeType(d.type) ? attributeOptions(d, items, selected) : undefined,
         value: coerced === null ? "" : String(coerced),
         // A never-asked default has no model confidence to show -- omit it rather than render 0.
         confidence: disabled || (wasNeverAsked && overridden === undefined) ? undefined : cell?.confidence,
@@ -1546,6 +1624,18 @@ export interface ItemEdit {
    * `attrs`. Absent means "not typed", so the assumed 1 stands and the panel marks it as a default. Nothing
    * reads a quantity from the row or the model: the quantity is the pricer's, and 1 is the assumption. */
   qty?: string;
+  /**
+   * SLICE 12c-S (owner S5 on F15) -- the fields the pricer explicitly switched to "Other...".
+   *
+   * ⚠️ IT HAD TO BE STATE, NOT A DERIVATION. "Other..." clears the field, so a field a pricer has just
+   * opened and a field nobody has touched are both empty -- and `otherMode` keyed on emptiness, so
+   * EVERY fresh item opened with its size fields already reading "Other..." and a typed box showing,
+   * contradicting the page's own "every field starts blank" and hiding the live catalogue list behind
+   * a box by default.
+   *
+   * Absent (and an empty list) means no field is in Other mode, which is what a fresh item has.
+   */
+  other?: string[];
 }
 export interface ItemListEditState {
   items: ItemEdit[];
@@ -1570,6 +1660,9 @@ export function decodeItemEdits(raw: string | undefined, modelCount: number): It
         family: typeof e.family === "string" && e.family !== "" ? e.family : null,
         attrs: e.attrs && typeof e.attrs === "object" ? { ...e.attrs } : {},
         ...(typeof e.qty === "string" ? { qty: e.qty } : {}),
+        // SLICE 12c-S (F15): the fields explicitly switched to "Other...". A stored state written
+        // before this key existed simply has none, which is the fresh-item reading and is correct.
+        ...(Array.isArray(e.other) ? { other: e.other.filter((x) => typeof x === "string") } : {}),
       })),
     };
   } catch {
@@ -1579,16 +1672,33 @@ export function decodeItemEdits(raw: string | undefined, modelCount: number): It
 
 /** PURE. The list the module prices: each edit overlaid on the model item it started from. A changed or added
  * item (no base) starts from ITS FAMILY ALONE -- every other attribute blank until the pricer fills it (S1). */
-export function assembleItems(edits: ItemListEditState, modelItems: ExtractedListItem[]): ExtractedListItem[] {
+export function assembleItems(
+  edits: ItemListEditState,
+  modelItems: ExtractedListItem[],
+  /**
+   * ⚠️ THE ATTRIBUTE THE CATEGORY KEEPS ITS FAMILY IN -- `list_spec.pricing.family_attribute_id`.
+   *
+   * This was the literal "family" below, which is only right for a category whose attribute happens
+   * to be called that. The pricer reads `familyAttr(spec)`, so on a category that calls it anything
+   * else a CHANGED or ADDED item wrote a key nothing read, and the item refused with "no kind could
+   * be told" however many fields the pricer filled in. Found in the FA7 browser cert on HVAC
+   * Insulation, whose family attribute is `item` -- the ninth site of the eight this literal was
+   * generalised out of, and the one that lives in a different file.
+   *
+   * ABSENT => "family", so ADP and every existing caller are byte-identical.
+   */
+  familyAttrId = "family",
+): ExtractedListItem[] {
   return edits.items.map((e) => {
     const base = e.base !== null ? modelItems[e.base] : undefined;
     const attributes: ExtractedListItem["attributes"] = {};
     if (base && e.family === null) {
       for (const [k, cell] of Object.entries(base.attributes ?? {})) attributes[k] = { ...cell };
     } else if (e.family !== null) {
-      attributes.family = { value: e.family };
+      attributes[familyAttrId] = { value: e.family };
     }
-    for (const [k, v] of Object.entries(e.attrs)) attributes[k] = { value: v === "" ? null : v };
+    // SLICE 12d-1b (owner T6): a value the PRICER typed is marked, so the pricer never parses it as layers.
+    for (const [k, v] of Object.entries(e.attrs)) attributes[k] = { value: v === "" ? null : v, typed: true };
     // SLICE 6c: an untyped quantity is passed as ABSENT, which the module has always priced as 1 -- so the
     // marking changes no rate anywhere.
     return { attributes, ...(e.qty !== undefined ? { qtyPerRowUnit: e.qty } : {}) };
@@ -1596,18 +1706,77 @@ export function assembleItems(edits: ItemListEditState, modelItems: ExtractedLis
 }
 
 /** One field of one block, as the panel renders it. */
+/**
+ * SLICE 12c-F, FIX B (owner R-B) -- PURE. CAN THIS FIELD SHOW THE VALUE THE ROW PRICED FROM?
+ *
+ * Owner: "A row must never price from a value its field cannot show." A dropdown can only display one
+ * of its own options, so a priced row resting on anything else is a figure whose provenance the screen
+ * cannot state -- which is exactly what the 12c-P cert photographed: a blank Slots select above a row
+ * priced at 1160 / 352 / 1512.
+ *
+ * Three things answer the question before it is asked, and each is a mechanism that SUPPLIES the shown
+ * value, so the field is honest without needing the stated text:
+ *   `hopped`   a ladder resolved the size and the field shows the rung that was bought;
+ *   `supplied` a ruled default or a config override decided it, and the field shows what it decided;
+ *   no options the SKUs stock none to choose between, so the field is an input to a formula, not a pick.
+ *
+ * ⚠️ THE "None" SENTINEL IS NOT AN UNSHOWABLE VALUE, and the first draft of this refused four rows for
+ * exactly that. "None" is POSITIVE ABSENCE -- the answer the ruled defaults consume ("damper not
+ * mentioned = without") -- so the field shows `without` and nothing is hidden. It is handled by the
+ * caller, which skips the sentinel before asking.
+ */
+export function fieldCannotShowValue(
+  stated: string,
+  options: readonly string[],
+  mechanism: { hopped: boolean; supplied: boolean },
+): boolean {
+  if (stated.trim() === "") return false;
+  if (mechanism.hopped || mechanism.supplied) return false;
+  if (options.length === 0) return false;
+  return !options.includes(stated);
+}
+
+/** PURE. A size as the catalogue writes it: `12`, not `12.0`; `22.23` kept. */
+function fmtNum(n: number | string): string {
+  const v = typeof n === "number" ? n : Number(n);
+  if (!Number.isFinite(v)) return String(n);
+  return Number.isInteger(v) ? String(v) : String(Number(v.toFixed(4)));
+}
+
 export interface ItemFieldView extends ItemFieldDef {
   value: string;
+  /**
+   * OWNER FA8(b), CERT-FOUND 2026-10-04: WHAT THE PRICER ACTUALLY TYPED, before any resolution.
+   *
+   * ⚠️ `value` is the RESOLVED size -- the ladder result, or blank where nothing fits (rule X3: the
+   * field shows the size that will be PRICED). That is right for the SELECT and fatal for the
+   * "Other..." BOX, which was bound to the same field: every keystroke was rewritten to the rung it
+   * resolved to, or erased, so a size could not be typed at all. The two readings are different
+   * questions -- "what will be priced" and "what did you enter" -- and they need different fields.
+   */
+  typedValue: string;
   /** The value came from a ruled default over a "None" / an absent-as-none answer (amber + "default"). */
   defaulted: boolean;
   /** The rule behind the default, shown under the field. */
   rule?: string;
   /** The pricer edited this field this session (the undo arrow). */
   userEdited: boolean;
+  /**
+   * SLICE 12c-S (owner S5 on F15): the typed box is open on this field -- the pricer chose "Other...",
+   * or the BoQ supplied a value the catalogue does not stock.
+   *
+   * ⚠️ DECIDED HERE, WHERE THE EDIT STATE IS. The panel used to derive it, and could only derive it
+   * from the value being empty -- which is also true of a field nobody has touched, so every fresh
+   * item opened already claiming a choice the pricer had not made.
+   */
+  otherMode: boolean;
   /** Something the pricing did to this field's value (a ladder hop), shown under it. */
   note?: string;
   /** A genuinely missing input the row needs (red border). */
   blank: boolean;
+  /** OWNER FA8(c)/(d): the "How is this matched?" rules for a size field, each sentence carrying an
+   * example GENERATED LIVE from the catalogue. Absent on every field that is not a typeable size. */
+  matchHelp?: string[];
   /** SLICE 9 (owner A-6): what to DISPLAY for an option, where the catalogue's own word differs from the
    * value the pricing uses. The select keeps the real value (so it still matches an option and stays
    * editable -- see the controlled-select trap in frontend/CLAUDE.md); only the text changes. */
@@ -1621,7 +1790,15 @@ export interface ItemBlockView {
   family: string | null;
   /** The family the model returned when it differs from the family that prices (the R3 alias note). */
   familyRaw: string | null;
+  /** SLICE 12d-1a (owner R2): the family came from the config's `family_when_none` -- the row named
+   * no material and its kind (unit, or a heading word) decided. Present ONLY on such a block, so every
+   * other block is byte-identical; the panel shows it amber with the rule, like every other default. */
+  familyDefaulted?: { value: string; rule: string };
   fields: ItemFieldView[];
+  /** SLICE 12d-1a (owner R7): the attributes the config declares READ-ONLY (`panel_readonly`) that the
+   * model answered on this item -- shown under the def's label, never a field, never matched. Empty
+   * where the config declares none or the model answered none. */
+  readOnly: Array<{ id: string; label: string; value: string }>;
   qty: string;
   /** SLICE 6c: the quantity shown is the ASSUMED 1 -- the pricer typed nothing -- so the panel marks it amber
    * with the same "default" tag every other assumed value carries. It is the one field that never refuses, so
@@ -1643,18 +1820,151 @@ export interface ItemListView {
   unitChoices: string[];
   rowPriced: boolean;
   reason?: string;
+  /** SLICE 12c-U (owner U2 / U3): how a row that stated NO unit -- or "rate only" -- came to be
+   *  priced in the unit it was. Present ONLY on such a row; every other row carries nothing, so no
+   *  existing panel changes. */
+  unitNote?: string;
+  /** SLICE 12d-2 (owner S6): the unit the figures are a RATE IN (the catalogue's word), present ONLY
+   *  when the row's own unit was resolved -- the panel's "per ..." label reads it before `unit`. */
+  rateUnit?: string;
   items: ItemBlockView[];
   families: Array<{ family: string; units: string }>;
   editState: ItemListEditState;
   modelCount: number;
+  /**
+   * The ROW's own totals, as `priceItemList` returned them -- the same figures the headline shows.
+   *
+   * ⚠️ PRESENT ONLY ON A PRICED ROW, AND IT IS WHAT "Row total" MUST READ. Summing the item blocks
+   * is NOT the same number: a composition expands one user block into several priced layers, so the
+   * block sum reports the first layer alone (cert-found 2026-10-04 -- 219 shown where the row cost
+   * 474, beside a headline that already said 474).
+   */
+  totals?: Partial<Record<RateKind, number>>;
 }
 
 /** A suggestion that carries the item-list view (an extension read by the panel through this alias). */
 export type ItemListSuggestion = Suggestion & { itemList?: ItemListView };
 
-/** PURE. The unit choices offered where no row supplies one: the first spelling of each declared class. */
-export function unitChoicesOf(spec: ItemListPricingSpec): string[] {
-  return Object.values(spec.unit_classes).map((spellings) => spellings[0]).filter((u): u is string => typeof u === "string" && u !== "");
+/**
+ * PURE. The unit choices offered where no row supplies one: the first spelling of each declared class.
+ *
+ * SLICE 12c-S (owner S2 / S10) -- NARROWED TO THE UNITS THE ITEMS ON THE ROW CAN ACTUALLY BE PRICED IN.
+ * `families` is the families the row's blocks have chosen; the offer is the UNION of what each can be
+ * priced in (`familyUnitClasses`, which reads the family's own pipelines, its declared conversions and
+ * its `units_not_offered`). A row with no family chosen yet offers every declared class, exactly as
+ * before -- there is nothing yet to narrow by, and a picker that offered nothing could not be used.
+ *
+ * ⚠️ THE ORDER AND THE SPELLING ARE UNCHANGED: this filters the same list it always returned, so a
+ * class that survives is still named by its first declared spelling and still sits where it sat.
+ */
+export function unitChoicesOf(spec: ItemListPricingSpec, families: readonly (string | null)[] = []): string[] {
+  const chosen = families.filter((f): f is string => typeof f === "string" && f !== "");
+  const allowed = new Set<string>();
+  for (const f of chosen) for (const cls of familyUnitClasses(spec, f)) allowed.add(cls);
+  const offer = (cls: string) => allowed.size === 0 || allowed.has(cls);
+  const out = Object.entries(spec.unit_classes)
+    .filter(([cls]) => offer(cls))
+    .map(([, spellings]) => spellings[0])
+    .filter((u): u is string => typeof u === "string" && u !== "");
+  /**
+   * SLICE 12c-F, FIX C (owner R-C, 2026-10-06) -- THE PICKER ALSO OFFERS THE UNITS THE PRICING CAN
+   * CONVERT INTO ONE THE ITEM IS SOLD IN.
+   *
+   * A `unit_factors` unit belongs to a class AND scales the rate (sq.ft -> sq.m x 0.0929). Before
+   * this it was offered nowhere, so a BoQ row written in sq.ft could be priced on the panel and was
+   * simply unreachable in the calculator -- cause C of the 12c-P parity list. Offering it costs no
+   * new arithmetic: `unitFactorOf` already resolves the spelling and the conversion already runs.
+   *
+   * ⚠️ `units_not_offered` STILL WINS, because this is filtered through the SAME `allowed` set the
+   * native classes are: a family that hides its area class hides sq.ft with it. Double-skin plenum
+   * therefore stays sq.m only.
+   *
+   * ⚠️ ONE SPELLING PER UNIT, exactly as a class is named by its first declared spelling. ADP
+   * declares four spellings of the same square foot (`sqft`, `sq ft`, `sq.ft`, `sft`); offering all
+   * four would be four ways to say one thing. The first declaration wins, and a unit already named by
+   * a class is never added twice.
+   */
+  const seen = new Set(out.map((u) => u.trim().toLowerCase()));
+  for (const [spelling, d] of Object.entries(spec.unit_factors ?? {})) {
+    if (!d || typeof d.factor !== "number" || !(d.class in spec.unit_classes)) continue;
+    if (!offer(d.class)) continue;
+    const word = (d.word ?? spelling).trim().toLowerCase();
+    if (seen.has(spelling.trim().toLowerCase()) || seen.has(word)) continue;
+    seen.add(spelling.trim().toLowerCase());
+    seen.add(word);
+    out.push(spelling);
+  }
+  return out;
+}
+
+/**
+ * SLICE 12c-S (E2E-1). PURE. Per block, the picks whose value the block's OTHER answers no longer
+ * stock: `model attribute id -> the value that is going`.
+ *
+ * It asks the question the dropdown itself asks -- `itemFieldDefs` over the block's own answers -- so
+ * a value survives exactly when the list would still offer it. Only a pick the PRICER made from a
+ * catalogue list is eligible: a typed "Other..." value and a value the model supplied are both left
+ * alone, because neither is a choice between stocked options.
+ *
+ * ⚠️ IT MUST NOT CASCADE INTO SILENCE. Each field is tested against the options computed from the
+ * answers as they stand, and `fieldOptionsFromSkus` skips the field under test, so one stale pick can
+ * remove itself without dragging a second valid one out with it.
+ */
+function unstockedPicks(
+  spec: ItemListPricingSpec,
+  defs: ReturnType<typeof listSpecDefs>,
+  items: RateMasterItem[],
+  edits: ItemListEditState,
+  assembled: ExtractedListItem[],
+  unitClass: string | null,
+): Array<Map<string, string>> {
+  return assembled.map((a, i) => {
+    const out = new Map<string, string>();
+    const edit = edits.items[i];
+    if (!edit) return out;
+    const famRaw = a.attributes[familyAttr(spec)]?.value;
+    const family = typeof famRaw === "string" ? famRaw : null;
+    if (!family || !spec.families[family]) return out;
+    const fieldDefs = itemFieldDefs(spec, defs, family, unitClass, { items, answers: {} });
+    /**
+     * ⚠️ THE TEST MUST BE DIRECTIONAL, OR BOTH ANSWERS CLEAR EACH OTHER. Pipe 100 with thickness 25 is
+     * unstocked BOTH ways round -- no pipe 100 SKU carries 25, and no thickness-25 SKU carries pipe 100 --
+     * so a symmetric check wipes the pair and the pricer loses the answer they just gave.
+     *
+     * The direction is the config's OWN `ladders` order, which the pricer already declares as
+     * load-bearing ("the axis that selects the SKU set comes first"). Answers accumulate in that order
+     * and each field is judged against the ones BEFORE it: the coarse axis stands, the dependent one
+     * goes. Fields the ladder does not name (a plain choice such as cladding) are settled first, since
+     * they select the SKU set rather than a size on it.
+     */
+    const rank = (f: { skuAttr: string }) => {
+      const i = spec.ladders.indexOf(f.skuAttr);
+      return i < 0 ? -1 : i;
+    };
+    const ordered = [...fieldDefs].sort((x, y) => rank(x) - rank(y));
+    const answers: Record<string, string | number> = {};
+    for (const f of ordered) {
+      const v = a.attributes[f.id]?.value;
+      const stated = typeof v === "number" ? v : (typeof v === "string" && v !== "" && v !== "None" ? v : undefined);
+      const picked = edit.attrs[f.id];                            // ONLY the pricer's own pick is droppable
+      /**
+       * ⚠️ A FIELD WITH NO OPTIONS AT ALL CAN NEVER HAVE OFFERED THE VALUE, so the value cannot be a
+       * stale pick and must not be dropped. Cladding Only stocks no sizes -- its pipe size and
+       * thickness are inputs to a formula, typed by hand -- and without this guard a correctly priced
+       * cladding row had both its sizes cleared and stopped pricing altogether.
+       */
+      const droppable = !!f.options && f.options.length > 0
+        && !(edit.other ?? []).includes(f.id)                     // typed through "Other..." -- let the ladder work
+        && typeof picked === "string" && picked !== "" && picked !== "None";
+      if (droppable) {
+        const live = itemFieldDefs(spec, defs, family, unitClass, { items, answers }).find((x) => x.id === f.id);
+        const opts = live?.options;
+        if (opts && !opts.includes(picked)) { out.set(f.id, picked); continue; }  // dropped: it narrows nothing
+      }
+      if (stated !== undefined) answers[f.skuAttr] = stated;
+    }
+    return out;
+  });
 }
 
 function itemBlockView(
@@ -1665,12 +1975,27 @@ function itemBlockView(
   res: ItemPriceResult,
   unitClass: string | null,
   items: RateMasterItem[] = [],
+  /** Every priced layer of THIS block, in order. One for an ordinary item; several after a
+   *  composition. `res` stays the FIRST, so field display and refusal text are unchanged. */
+  layers: ItemPriceResult[] = [res],
+  /** SLICE 12c-S (E2E-1): model attribute id -> the pick that was cleared because the block's other
+   *  answers no longer stock it. Empty for every block where nothing was cleared. */
+  clearedByBlock: ReadonlyMap<string, string> = new Map(),
+  /** SLICE 12c-F (fix B): model attribute id -> the model's wording and the option it was matched to.
+   *  Empty for every block where the model's values were already the catalogue's own spellings. */
+  matchedByBlock: ReadonlyMap<string, { from: string; to: string }> = new Map(),
 ): ItemBlockView {
   const family = res.family ?? (typeof assembled.attributes.family?.value === "string" ? assembled.attributes.family.value : null);
   // SLICE 6b (V1, X2): the block's answers as they reached the matcher (defaults applied, ladders fitted) narrow
   // each dropdown's options exactly as they narrow the ladder's rungs
+  // SLICE 12c-S: the answers that narrow each dropdown are EVERY fact this block resolved, not only
+  // the ones the matcher reached -- a row refusing for a missing thickness has still ANSWERED its pipe
+  // size, and the thickness list must narrow to that pipe. `selection` wins where both carry a key,
+  // because it holds the ladder-resolved rung.
   const answers: Record<string, string | number> = {};
-  for (const [k, v] of Object.entries(res.selection)) if (typeof v === "string" || typeof v === "number") answers[k] = v;
+  for (const [k, v] of Object.entries({ ...(res.readValues ?? {}), ...res.selection })) {
+    if (typeof v === "string" || typeof v === "number") answers[k] = v;
+  }
   const fieldDefs = itemFieldDefs(spec, defs, family, unitClass, { items, answers });
   const defaultedBy = new Map(res.defaulted.map((d) => [d.attr, d]));
   const hopBy = new Map(res.ladderHops.map((h) => [h.attr, h]));
@@ -1688,9 +2013,48 @@ function itemBlockView(
     const defaulted = !!d && !userEdited && (stated === "None" || stated === "");
     let value = defaulted ? d!.value : stated;
     const hop = hopBy.get(f.skuAttr);
-    const isSizeDropdown = f.control === "dropdown" && f.skuAttr in spec.numbers;
+    // OWNER FA8: `dropdown_or_other` is a size dropdown too -- it shows the LADDER RESULT with the
+    // note naming the stated size, which is the whole reason an unstocked size may be typed.
+    const isSizeDropdown = (f.control === "dropdown" || f.control === "dropdown_or_other")
+      && f.skuAttr in spec.numbers;
+    /**
+     * OWNER C-R4 (standing, 2026-10-04): "always in pricing hlper the attrinbute should show the
+     * value which was actually used to calculate the vealue", and the note "should declare correctly
+     * how it landed there". So the field holds the value the pricing USED, and the note says how it
+     * got there, in the owner's own phrasing.
+     *
+     * ⚠️ WHO SAID IT CHANGES THE SENTENCE (FA8(h)). A value the pricer typed reads "You typed ...";
+     * one the model read off the BoQ reads "BoQ says ...". Same transformation, same arrow, honest
+     * about its source -- a pricer should never be told they typed something they did not.
+     */
+    const unitOf = spec.numbers[f.skuAttr]?.unit;
+    const u = unitOf ? ` ${unitOf}` : "";
+    const said = userEdited ? "You typed" : "BoQ says";
+    /**
+     * SLICE 12c-S (owner S5 on F6) -- DOES THE ROW'S REFUSAL SPEAK ABOUT *THIS* FIELD?
+     *
+     * The refusal belongs to the row; the line belongs to a field. Composing one from the other without
+     * asking put another field's complaint under the pipe size -- "You typed 22.2 mm: no number in 'abc'
+     * for thickness" -- a sentence whose subject and whose grievance are different fields. The test is
+     * the one `needed` already used to decide which field to outline in red; it is simply asked here too.
+     */
+    const fieldName = spec.numbers[f.skuAttr]?.name ?? "\u0000";
+    const altName = spec.reason_names?.[f.skuAttr] ?? "\u0000";
+    const reasonIsMine = !!res.reason && (res.reason.includes(fieldName) || res.reason.includes(altName));
     let note: string | undefined;
-    if (hop && !hop.exact) note = `${hop.name} ${hop.requested} is not on the sheet -> ${hop.fitted} (next size up)`;
+    /**
+     * SLICE 12c-S (owner S5 on F5) -- WHENEVER THE VALUE USED IS NOT THE VALUE ENTERED, SAY SO.
+     *
+     * ⚠️ THE OLD TEST WAS `!hop.exact`, AND IT MISSED THE PRECISION MATCH ENTIRELY. A stated 22.2 is
+     * resolved onto the catalogue's 22.23 BEFORE the ladder runs, so the ladder then fits exactly and
+     * reports `exact: true` -- with `requested` 22.2 and `fitted` 22.23. The screen showed 22.2 in the
+     * box, 22.23 in the select, and no line at all connecting them. Comparing the two numbers catches
+     * both roads to a substitution and still says nothing when nothing moved.
+     */
+    if (hop && hop.requested !== hop.fitted) {
+      note = `${said} ${fmtNum(hop.requested)}${u} -> priced as ${fmtNum(hop.fitted)}${u} `
+        + (hop.exact ? "(the sheet's own spelling of this size)" : "(next size up)");
+    }
     if (isSizeDropdown) {
       // SLICE 6b (V3, X3): the field shows the size that will be PRICED -- the ladder result -- with the note naming
       // the stated size; an exact fit shows the stocked spelling; a size above the largest keeps the refusal and
@@ -1698,10 +2062,50 @@ function itemBlockView(
       if (hop) value = String(hop.fitted);
       else if (value !== "" && !(f.options ?? []).includes(value)) {
         const parsed = readNumber(value, spec.numbers[f.skuAttr]);
-        note = parsed && "value" in parsed ? `stated ${value}: ${res.reason ?? "no stocked size fits"}` : note;
-        value = "";
+        if (parsed && "value" in parsed) {
+          if (res.state === "priced") {
+            /**
+             * SLICE 12c-S (owner S5 on F7) -- A PRICED ROW DOES NOT SAY NOTHING FITS.
+             *
+             * A cladding-only row carries no geometry on its SKUs, so its pipe size and thickness are
+             * INPUTS TO A FORMULA rather than rungs to match. The field was nonetheless told "no stocked
+             * size fits" -- beside a correct price, which reads as a failure that somehow still produced
+             * a figure. The size WAS used; the sheet simply stocks none to choose between.
+             */
+            note = `${said} ${value}${u}: used to work out this item's rate (the sheet stocks no sizes to choose from here)`;
+          } else if (reasonIsMine) {
+            note = `${said} ${value}${u}: ${res.reason}`;
+            value = "";
+          }
+          // F6: the row refused for ANOTHER field -- that field says so; this one stays quiet.
+        } else if (value.trim() !== "") {
+          // OWNER FA8(e): an entry that is not a number at all. SLICE 12c-S: where the row refused for
+          // THIS field, its own reason is more specific than the generic prompt ("several values stated
+          // for thickness ('13+13')" says what is wrong; "enter a number" does not), so it is preferred.
+          note = reasonIsMine && res.reason
+            ? `${said} ${value}${u}: ${res.reason}`
+            : `Enter a number in ${unitOf ?? "mm"}, or an inch size like 7/8".`;
+          value = "";
+        }
       }
     }
+    /**
+     * SLICE 12c-F (fix B): the model's wording was read into the catalogue's. The field shows the
+     * option -- so the select can display it and the pricer can see what was used -- and this line
+     * keeps the BoQ's own words, because a pricer checking the sheet must be able to tell that
+     * "3 Slot" and 3 are the same answer and not a substitution.
+     */
+    const matched = matchedByBlock.get(f.id);
+    /**
+     * SLICE 12d-6: the stated text is the model's RAW cell and may already carry its unit ("19 mm"); the
+     * unit is appended only to a BARE number, so the line reads "BoQ says 19 mm -> 19 mm", never "19 mm mm".
+     */
+    const fromU = matched && /^\s*\d+(?:\.\d+)?\s*$/.test(matched.from) ? u : "";
+    if (matched && !note) note = `${said} ${matched.from}${fromU} -> ${matched.to}${u} (the sheet's own spelling of this value)`;
+    // SLICE 12c-S (E2E-1): a pick the pricer's later answers no longer stock was CLEARED before pricing;
+    // the field says which value went and why, so nothing is substituted behind their back.
+    const dropped = clearedByBlock.get(f.id);
+    if (dropped !== undefined) note = `${dropped}${u} is not stocked with the other answers on this item -- choose again`;
     const ov = overrideBy.get(f.skuAttr);
     let optionLabels: Record<string, string> | undefined;
     if (ov && !userEdited) {
@@ -1709,43 +2113,116 @@ function itemBlockView(
       note = ov.rule;
       if (ov.display !== ov.value) optionLabels = { [ov.value]: ov.display };
     }
-    const name = spec.numbers[f.skuAttr]?.name ?? "\u0000";
-    const needed = res.state === "blank" && !!res.reason && (
-      res.reason.includes(name) ||
-      res.reason.includes(spec.reason_names?.[f.skuAttr] ?? "\u0000")
-    );
+    // OWNER FA8(c)/(d): a size field a pricer can type into explains HOW the value will be matched --
+    // every number in the explanation read from the LIVE options, never written here.
+    const matchHelp = f.allowOther ? sizeFieldHelp(spec, f.skuAttr, f.options ?? [])?.lines : undefined;
+    const needed = res.state === "blank" && reasonIsMine;
+    /**
+     * SLICE 12c-S (owner S5 on F15) -- IS THIS FIELD IN "Other..." MODE? DECIDED HERE, NOT GUESSED.
+     *
+     * Three cases, and only the first two open the typed box:
+     *   - the pricer CHOSE "Other..." (recorded in the edit state) -- they are typing;
+     *   - a value arrived that the catalogue does not stock AND the pricer did not pick it, i.e. the
+     *     model read it off the BoQ -- show it, and let the ladder resolve it as it always has;
+     *   - everything else, INCLUDING A FRESH FIELD. An untouched field now reads "- select -" instead
+     *     of opening on "Other..." with an empty box, which is what it did when this was derived from
+     *     emptiness alone.
+     *
+     * A pick the pricer made that the catalogue no longer stocks is NOT other mode -- it was cleared
+     * before pricing (E2E-1) and the select goes back to "- select -" with the line above saying why.
+     */
+    const explicitOther = (edit.other ?? []).includes(f.id);
+    const inOptions = (f.options ?? []).includes(stated);
+    const otherMode = !!f.allowOther
+      && (explicitOther || (stated !== "" && !inOptions && !userEdited));
     return {
       ...f,
       value,
+      typedValue: stated,
       defaulted,
       ...(defaulted ? { rule: d!.rule } : {}),
       userEdited,
+      otherMode,
       ...(note ? { note } : {}),
       ...(optionLabels ? { optionLabels } : {}),
+      ...(matchHelp && matchHelp.length ? { matchHelp } : {}),
       blank: value === "" && needed,
     };
   });
+  /**
+   * CERT-FOUND 2026-10-04 (owner: "the row total line does not match ... in the calculation block,
+   * which is confusing"). A COMPOSED row buys several LAYERS for one user block, so this block's
+   * figures are the SUM OF ITS OWN LAYERS -- not the first layer's. Before this the block read
+   * 219 / 14 / 233 while the row total read 474 / 28 / 502, two numbers on one screen that could not
+   * be reconciled, and the smaller one sat under the item the pricer had filled in.
+   *
+   * `layers` is this block's priced items, in order; for everything uncomposed it is exactly one, so
+   * every other category is byte-identical.
+   */
   const figures: Partial<Record<RateKind, number>> = {};
   if (res.state === "priced") {
-    if (typeof res.figures.supply === "number") figures.supply_rate = res.figures.supply;
-    if (typeof res.figures.install === "number") figures.install_rate = res.figures.install;
-    if (typeof figures.supply_rate === "number" && typeof figures.install_rate === "number") figures.combined_rate = figures.supply_rate + figures.install_rate;
+    let supply = 0, install = 0, anySupply = false, anyInstall = false;
+    for (const l of layers) {
+      if (typeof l.figures.supply === "number") { supply += l.figures.supply; anySupply = true; }
+      if (typeof l.figures.install === "number") { install += l.figures.install; anyInstall = true; }
+    }
+    if (anySupply) figures.supply_rate = supply;
+    if (anyInstall) figures.install_rate = install;
+    if (anySupply && anyInstall) figures.combined_rate = supply + install;
   }
   return {
     index: res.index,
     source: edit.base !== null && edit.family === null ? "model" : "user",
     family,
     familyRaw: res.familyRaw !== null && res.familyRaw !== family ? res.familyRaw : null,
+    // SLICE 12d-1a (owner R2): the family was RULED, not read -- shown amber with its rule. A family
+    // the pricer picked themselves is theirs, exactly as a typed field is never marked as a default.
+    ...(res.familyDefaulted && edit.family === null ? { familyDefaulted: res.familyDefaulted } : {}),
     fields,
+    // SLICE 12d-1a (owner R7): read-only attributes -- declared in config, read off the assembled item,
+    // shown under the definition's label. A value the model did not give is simply absent.
+    readOnly: (spec.panel_readonly ?? []).flatMap((id) => {
+      const raw = assembled.attributes[id]?.value;
+      if (raw === null || raw === undefined || raw === "None" || String(raw).trim() === "") return [];
+      const def = defs.find((d) => d.id === id);
+      return [{ id, label: def?.label ?? id, value: String(raw) }];
+    }),
     // SLICE 6d: what the field shows -- the pricer's typed value, else the count the MODEL read, else code's 1
     qty: edit.qty ?? String(res.qty),
     qtyDefaulted: edit.qty === undefined && res.qtyDefaulted,
     state: res.state,
     ...(res.reason ? { reason: res.reason } : {}),
     ...(res.sku ? { skuLine: `${res.sku.item_name ?? ""} / ${res.sku.item_detail ?? ""} (${res.sku.unit ?? ""})` } : {}),
-    working: res.working,
+    working: layersWorking(layers, res),
     figures,
   };
+}
+
+/**
+ * The working a block shows. One layer -> exactly what it always was. SEVERAL layers -> the
+ * composition line first (it belongs to the whole block), then each layer's own derivation under a
+ * heading naming the layer and its figures, so the block's total can be ADDED UP ON SCREEN.
+ *
+ * ⚠️ Without this the block showed the first layer's derivation under the first layer's figure, and a
+ * pricer had no way to see where the rest of the money went -- or which layer carried the cladding.
+ */
+function layersWorking(layers: ItemPriceResult[], res: ItemPriceResult): string[] {
+  if (layers.length <= 1) return res.working;
+  const out: string[] = [];
+  // the composition line was unshifted onto the FIRST layer and speaks for the block
+  const head = layers[0].working[0] ?? "";
+  const isComposeLine = /->/.test(head) && /priced as/.test(head);
+  if (isComposeLine) out.push(head);
+  layers.forEach((l, i) => {
+    const size = Object.entries(l.selection).map(([, v]) => v).length ? "" : "";
+    const sup = typeof l.figures.supply === "number" ? l.figures.supply : null;
+    const ins = typeof l.figures.install === "number" ? l.figures.install : null;
+    const money = sup !== null && ins !== null ? ` -- supply ${sup}, install ${ins}` : "";
+    out.push(`Layer ${i + 1} of ${layers.length}${size}${money}`);
+    const body = i === 0 && isComposeLine ? l.working.slice(1) : l.working;
+    for (const w of body) out.push(`   ${w}`);
+  });
+  return out;
 }
 
 /**
@@ -1764,72 +2241,303 @@ function computeItemList(
 ): HelperResult {
   const modelItems = ext?.items ?? [];
   const edits = decodeItemEdits(overrides?.[ITEM_LIST_OVERRIDE_KEY], modelItems.length);
-  const assembled = assembleItems(edits, modelItems);
-  const unitChoices = unitChoicesOf(spec);
+  const assembled = assembleItems(edits, modelItems, familyAttr(spec));
+  // SLICE 12c-S (owner S2 / S10): the picker offers only the units the chosen items can be priced in.
+  const chosenFamilies = assembled.map((a) => {
+    const v = a.attributes[familyAttr(spec)]?.value;
+    return typeof v === "string" ? v : null;
+  });
+  const unitChoices = unitChoicesOf(spec, chosenFamilies);
   const unitPickable = ctx.unit === undefined || ctx.unit === null;
-  const unit = unitPickable ? (overrides?.[ROW_UNIT_OVERRIDE_KEY] ?? unitChoices[0] ?? "") : ctx.unit!;
-  const priced = priceItemList(spec, items, unit, assembled);
+  // ⚠️ A STORED PICK THAT IS NO LONGER OFFERED IS NOT HONOURED. Picking a family whose SKUs are sold
+  // per metre while the row still carried a sq.m pick left the row refusing "no SKU per sq.m", with
+  // a unit on screen the picker no longer lists. The first surviving choice stands instead.
+  const picked = overrides?.[ROW_UNIT_OVERRIDE_KEY];
+  const unit = unitPickable
+    ? ((picked !== undefined && unitChoices.includes(picked) ? picked : undefined) ?? unitChoices[0] ?? "")
+    : ctx.unit!;
   const defs = listSpecDefs(category);
+  const rowClass = unitClassOf(spec, unit);
+  /**
+   * SLICE 12c-F, FIX B (owner R-B, 2026-10-06) -- READ THE MODEL'S VALUE INTO THE DROPDOWN'S VOCABULARY,
+   * BEFORE ANYTHING PRICES.
+   *
+   * `"3 Slot"` and the option `3` are the same answer written two ways. Matching them here -- on the
+   * ASSEMBLED attributes, before `priceItemList` sees them -- is what makes the field show the value the
+   * rate was computed from, and it is why the fix needs no change to any pricing function: the pricing
+   * already read 3 out of `"3 Slot"`; only the screen could not.
+   *
+   * ⚠️ A VALUE THE PRICER TYPED IS NEVER REWRITTEN. `edit.attrs` holds their own entry, and an entry
+   * typed through "Other..." is deliberately an unstocked value -- rewriting it would be the
+   * substitution rule 12c-S exists to forbid. Only a value the MODEL supplied is matched.
+   *
+   * ⚠️ NOTHING IS INVENTED. `matchStatedToOption` returns null unless an option means the same thing, so
+   * an unstocked size is left untouched and still ladders to the next rung.
+   */
+  const matchedByBlock: Array<Map<string, { from: string; to: string }>> = [];
+  const assembledMatched = assembled.map((a, i) => {
+    const matches = new Map<string, { from: string; to: string }>();
+    matchedByBlock.push(matches);
+    const famV = a.attributes[familyAttr(spec)]?.value;
+    const fam = typeof famV === "string" && famV !== "" ? famV : null;
+    if (!fam || !spec.families[fam]) return a;
+    const typed = edits.items[i]?.attrs ?? {};
+    const attributes = { ...a.attributes };
+    for (const f of itemFieldDefs(spec, defs, fam, rowClass, { items })) {
+      if (Object.prototype.hasOwnProperty.call(typed, f.id)) continue; // the pricer's own entry is theirs
+      const raw = attributes[f.id]?.value;
+      if (typeof raw !== "string" || raw.trim() === "") continue;
+      const opts = fieldOptionsFromSkus(spec, items, fam, rowClass, f.skuAttr, {});
+      if (opts.includes(raw)) continue;
+      /**
+       * SLICE 12d-6 (owner, 2026-10-08) -- OPTION MATCHING MUST NEVER DISCARD MEANING THE PRICER READS.
+       * A thickness the model writes as LAYERS ("Double layer of 19mm thick", "25 mm thick - 2 Layers",
+       * "13+13") is read by `readLayers` inside `priceItemList` and priced as a composition (12d-1b /
+       * 12d-4c). The R-B match below reads the FIRST number of such a text (19), finds the option "19"
+       * and would hand the pricer a single layer -- which is exactly what 12e-0b measured (615 / 224 where
+       * the pure pricer says 991 / 238). A layered value is therefore left as written: it reaches the
+       * pricer intact and the field shows it the way "25 mm thick - 2 Layers" already does (the Other...
+       * box with the stated text, the layer lines in the working). Option matching runs only on values
+       * the pricer would read the same way.
+       */
+      if (readLayers(raw) !== null) continue;
+      const hit = matchStatedToOption(raw, opts, spec.numbers[f.skuAttr]);
+      if (hit === null || hit === raw) continue;
+      attributes[f.id] = { ...attributes[f.id], value: hit };
+      matches.set(f.id, { from: raw, to: hit });
+    }
+    return matches.size === 0 ? a : { ...a, attributes };
+  });
+  /**
+   * SLICE 12c-S (E2E-1, owner S1) -- A PICK THE OTHER ANSWERS NO LONGER STOCK IS CLEARED, NOT SUBSTITUTED.
+   *
+   * Once a dropdown is narrowed by the answers already given, a value chosen EARLIER can stop being
+   * offered: pick thickness 25 at pipe 25, then move to pipe 100, which stocks only 65. Leaving the 25
+   * in place prices the row at 65 -- 2.6x the thickness on screen -- and that substitution is what the
+   * owner ruled out. So the stale pick is dropped BEFORE pricing: the row then refuses for a missing
+   * thickness and the field says which value went and why.
+   *
+   * ⚠️ IT TOUCHES ONLY A VALUE THE PRICER PICKED FROM A LIST. A value they TYPED through "Other..."
+   * is deliberately unstocked and must still ladder; a value the MODEL read off the BoQ is evidence
+   * about the row, not a choice, and must still resolve. Both are left exactly as they were.
+   */
+  const clearedPicks = unstockedPicks(spec, defs, items, edits, assembledMatched, rowClass);
+  const forPricing = assembledMatched.map((a, i) => {
+    const drop = clearedPicks[i];
+    if (!drop || drop.size === 0) return a;
+    const attributes = { ...a.attributes };
+    for (const id of drop.keys()) delete attributes[id];
+    return { ...a, attributes };
+  });
+  /**
+   * SLICE 12d-1a (owner R2): the row's own text and its HEADINGS reach the pricer, so a silent
+   * material can be decided by the words the owner named ("acoustic", "lining") wherever they sit
+   * -- the row or a section heading above it. The page builds `headings` from the priced rows'
+   * parent chain; the calculator has none and the words simply never match there.
+   */
+  const rowText = [ctx.description ?? "", ...(ctx.headings ?? [])].join(" | ");
+  /**
+   * SLICE 12d-4a (owner D3 / D7 / D9b): the row's OWN text -- its description and its own notes, NEVER a
+   * heading -- reaches the pricer separately, for the word rules that must not be triggered by a heading.
+   * The calculator has no row and passes nothing, so those rules read only the model's values there.
+   */
+  const ownText = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
+  const priced = priceItemList(spec, items, unit, forPricing, rowText, ownText);
   const unitClass = priced.unitClass ?? unitClassOf(spec, unit);
+  /**
+   * CERT-FOUND 2026-10-04. A composition turns ONE user block into SEVERAL priced layers, so
+   * `priced.items` and `edits.items` stop being one-to-one and `priced.items[i]` is no longer this
+   * block's item -- it is the first layer of whichever block the index happens to land in. Group by
+   * the `sourceIndex` the pricer stamps; `?? index` keeps the old positional reading for any result
+   * that predates the stamp, which is exactly the uncomposed one-to-one case.
+   */
+  const layersBySource = new Map<number, ItemPriceResult[]>();
+  priced.items.forEach((p, idx) => {
+    const src = typeof p.sourceIndex === "number" ? p.sourceIndex : idx;
+    const list = layersBySource.get(src);
+    if (list) list.push(p); else layersBySource.set(src, [p]);
+  });
+  /**
+   * SLICE 12c-F, FIX B, SECOND HALF (owner R-B) -- "A row must never price from a value its field
+   * cannot show."
+   *
+   * After the match pass, a value still outside its dropdown's options is one of two things: a size the
+   * LADDER resolved (the field then shows the rung that was bought -- honest, and the whole point of the
+   * ladder), or a value nothing can show, which is the state this forbids. So the test is: the row
+   * priced, the field offers options, the value is not one of them, and no ladder hop explains it.
+   *
+   * ⚠️ IT IS DECIDED HERE, NOT IN THE PRICING. `priceItemList` is untouched; this reads its result and
+   * withholds the row, exactly as the stale-pick rule withholds a cleared value. The reason names the
+   * field and the value, in the owner's words.
+   */
+  const unshowable: Array<{ block: number; field: string; label: string; value: string }> = [];
+  if (priced.priced) {
+    forPricing.forEach((a, i) => {
+      const famV = a.attributes[familyAttr(spec)]?.value;
+      const fam = typeof famV === "string" && famV !== "" ? famV : null;
+      if (!fam || !spec.families[fam]) return;
+      const mine = layersBySource.get(i) ?? [];
+      const res0 = mine[0];
+      const hops = new Set(mine.flatMap((l) => l.ladderHops.map((h) => h.attr)));
+      /**
+       * ⚠️ THE TEST IS WHAT THE FIELD WILL SHOW, NOT WHAT THE MODEL WROTE -- and the first draft of this
+       * got it wrong in a way worth recording. It refused four rows for `Damper: None`, where "None" is
+       * the POSITIVE-ABSENCE sentinel that the ruled defaults consume ("damper not mentioned = without").
+       * The field shows `without`, the row prices correctly, and nothing is hidden. A mechanism that
+       * SUPPLIES the shown value -- a ruled default, a config override, a ladder hop -- therefore answers
+       * the question before it is asked, exactly as `itemBlockView` answers it when it renders.
+       */
+      const supplied = new Set<string>([
+        ...(res0?.defaulted ?? []).map((d) => d.attr),
+        ...(res0?.overrides ?? []).map((o) => o.attr),
+      ]);
+      for (const f of itemFieldDefs(spec, defs, fam, unitClass, { items })) {
+        const raw = a.attributes[f.id]?.value;
+        if (typeof raw !== "string" || raw === NONE_SENTINEL) continue;
+        const opts = fieldOptionsFromSkus(spec, items, fam, unitClass, f.skuAttr, {});
+        if (!fieldCannotShowValue(raw, opts, { hopped: hops.has(f.skuAttr), supplied: supplied.has(f.skuAttr) })) continue;
+        unshowable.push({ block: i, field: f.id, label: f.label, value: raw });
+      }
+    });
+  }
+  const unshowableReason = unshowable.length
+    ? `${unshowable[0].label}: ${unshowable[0].value} is not one of the options - choose one`
+    : undefined;
+  const unshowableByBlock = new Map<number, { field: string; reason: string }>();
+  for (const u2 of unshowable) {
+    if (!unshowableByBlock.has(u2.block)) {
+      unshowableByBlock.set(u2.block, { field: u2.field, reason: `${u2.label}: ${u2.value} is not one of the options - choose one` });
+    }
+  }
   const blocks = edits.items.map((e, i) => {
-    const res: ItemPriceResult = priced.items[i] ?? {
+    const mine = layersBySource.get(i) ?? [];
+    const res: ItemPriceResult = mine[0] ?? {
       index: i, familyRaw: null, family: null, skuUnitClass: null, state: "blank", reason: priced.reason,
-      selection: {}, defaulted: [], ladderHops: [], overrides: [], conversion: null, sku: null, finals: {}, qty: 1, qtyDefaulted: true, figures: {}, working: [], pipelineResults: [],
+      selection: {}, readValues: {}, defaulted: [], ladderHops: [], overrides: [], conversion: null, sku: null, finals: {}, qty: 1, qtyDefaulted: true, figures: {}, working: [], pipelineResults: [],
     };
-    return itemBlockView(spec, defs, e, assembled[i], res, unitClass, items);
+    // the block is drawn from what was PRICED (the stale pick removed), with the cleared value carried
+    // separately so the field can name it
+    return itemBlockView(spec, defs, e, forPricing[i], res, unitClass, items, mine.length ? mine : [res],
+                         clearedPicks[i] ?? new Map(), matchedByBlock[i] ?? new Map());
   });
   const values: Record<string, number> = {};
-  if (priced.priced) {
+  if (priced.priced && !unshowableReason) {
     if (typeof priced.supply === "number") values.supply_rate = priced.supply;
     if (typeof priced.install === "number") values.install_rate = priced.install;
     if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") values.combined_rate = values.supply_rate + values.install_rate;
   }
   const n = blocks.length;
-  const basis = priced.priced
+  const rowPriced = priced.priced && !unshowableReason;
+  const basis = rowPriced
     ? `Rate master: ${categoryLabel(category)} \u00b7 ${n} item${n === 1 ? "" : "s"}`
     : n === 0
       ? "Add an item to price"
       : "Complete the missing attributes to price";
   const derivation: string[] = [];
-  if (priced.priced) derivation.push(`Row total per 1 ${unit}: supply ${priced.supply} + install ${priced.install}`);
+  if (rowPriced) derivation.push(`Row total per 1 ${unit}: supply ${priced.supply} + install ${priced.install}`);
+  else if (unshowableReason) derivation.push(unshowableReason);
   else if (priced.reason) derivation.push(priced.reason);
   const view: ItemListView = {
-    unit, unitClass, unitPickable, unitChoices, rowPriced: priced.priced, ...(priced.reason ? { reason: priced.reason } : {}),
+    unit, unitClass, unitPickable, unitChoices, rowPriced, ...((unshowableReason ?? priced.reason) ? { reason: unshowableReason ?? priced.reason } : {}),
+    ...(priced.unitNote ? { unitNote: priced.unitNote } : {}),
+    ...(priced.rateUnit ? { rateUnit: priced.rateUnit } : {}),
     items: blocks, families: familyChoices(spec), editState: edits, modelCount: modelItems.length,
+    // the ROW's own totals -- the same figures the headline shows, so "Row total" can never disagree
+    // with it (see the warning on `rowTotals`)
+    ...(rowPriced ? { totals: { ...values } as Partial<Record<RateKind, number>> } : {}),
   };
   const out: ItemListSuggestion = {
     kind: "suggestion",
     values,
     ...(inRun ? { producibleKinds: PRODUCIBLE_KINDS } : {}),
     basis,
-    workings: { attributes: [], matchedRows: [], derivation, finalValues: { ...values } },
-    itemList: view,
+    workings: { attributes: [], matchedRows: [], derivation: derivation.map((l) => plainPricerText(l, items)), finalValues: { ...values } },
+    itemList: plainItemListView(view, items),
   };
   return out;
+}
+
+/**
+ * SLICE 12d-5 (owner P1 / P2, F-C5b) -- EVERY pricer-facing string of the item-list view passes through the
+ * ONE plain-English function (`plainEnglish.plainPricerText`), here, at the one place the view is built, so
+ * the panel and the calculator (the same `compute`, two entries) can never show a code or an internal name
+ * that the Derivation tab hides. The sites, named: a field's `rule` (the ruled default beneath it), its
+ * `note` (a ladder hop / "BoQ says" / "You typed"), its `matchHelp` sentences; a block's `reason`
+ * (refusal), `skuLine`, `working` lines (the interpreter's step labels incl. `item_supply:` prefixes and
+ * Pricing-Input ids, the "not mentioned ->" default lines, the override lines) and its
+ * `familyDefaulted.rule`; the view's `reason` and `unitNote`; the row-level `workings.derivation` line.
+ *
+ * ⚠️ DISPLAY STRINGS ONLY. `value` / `typedValue` / `optionLabels` / `selection` / `readValues` / the edit
+ * state are what the pricing and the controls MATCH on and are not touched -- a cleaned value would stop
+ * matching its option (the controlled-select trap). `label` is a definition label, already plain.
+ * ⚠️ The non-item-list path (Electrical) never reaches this function; its lines are the Electrical retrofit.
+ */
+function plainItemListView(view: ItemListView, items: ReadonlyArray<RateMasterItem>): ItemListView {
+  const p = (s: string) => plainPricerText(s, items);
+  return {
+    ...view,
+    ...(view.reason !== undefined ? { reason: p(view.reason) } : {}),
+    ...(view.unitNote !== undefined ? { unitNote: p(view.unitNote) } : {}),
+    items: view.items.map((b) => ({
+      ...b,
+      ...(b.reason !== undefined ? { reason: p(b.reason) } : {}),
+      ...(b.skuLine !== undefined ? { skuLine: p(b.skuLine) } : {}),
+      ...(b.familyDefaulted ? { familyDefaulted: { ...b.familyDefaulted, rule: p(b.familyDefaulted.rule) } } : {}),
+      working: b.working.map(p),
+      fields: b.fields.map((f) => ({
+        ...f,
+        ...(f.rule !== undefined ? { rule: p(f.rule) } : {}),
+        ...(f.note !== undefined ? { note: p(f.note) } : {}),
+        ...(f.matchHelp ? { matchHelp: f.matchHelp.map(p) } : {}),
+      })),
+    })),
+  };
 }
 
 // ── SLICE 6: the item-edit OPERATIONS (S1 / S3) -- PURE, each returns a NEW state; the panel serialises it ──
 
 export type ItemEditOp =
-  | { op: "set_attr"; index: number; id: string; value: string }
+  /** SLICE 12c-S (F15): `other` is set by the SELECT, which knows whether the pick was a real option
+   *  (false -- the typed box closes) or nothing of the sort. The typed box itself omits it, so typing
+   *  never closes the box it is being typed into. */
+  | { op: "set_attr"; index: number; id: string; value: string; other?: boolean }
   | { op: "undo_attr"; index: number; id: string }
   | { op: "set_qty"; index: number; qty: string }
   | { op: "change_family"; index: number; family: string }
   | { op: "add"; family: string }
-  | { op: "remove"; index: number };
+  | { op: "remove"; index: number }
+  /** SLICE 12c-S (F15): the pricer opened, or closed, this field's "Other..." box. `on` false also
+   *  covers picking a real option, which is what takes the field back out of typing. */
+  | { op: "set_other"; index: number; id: string; on: boolean };
 
 /** PURE. Apply one panel operation. A changed or added item starts BLANK (S1): family only, no attrs, qty 1. */
 export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemListEditState {
-  const items = state.items.map((e) => ({ ...e, attrs: { ...e.attrs } }));
+  const items = state.items.map((e) => ({ ...e, attrs: { ...e.attrs }, ...(e.other ? { other: [...e.other] } : {}) }));
   const at = (i: number) => items[i];
+  /** SLICE 12c-S (F15): add or remove a field from the block's "Other..." set, dropping the key when
+   *  the set empties so a block that has never used one serialises exactly as it did before. */
+  const setOther = (i: number, id: string, on: boolean) => {
+    const cur = new Set(items[i].other ?? []);
+    if (on) cur.add(id); else cur.delete(id);
+    if (cur.size) items[i].other = [...cur];
+    else delete items[i].other;
+  };
   switch (op.op) {
     case "set_attr":
       if (!at(op.index)) return state;
       at(op.index).attrs[op.id] = op.value;
+      if (op.other === false) setOther(op.index, op.id, false);
+      return { items };
+    case "set_other":
+      if (!at(op.index)) return state;
+      setOther(op.index, op.id, op.on);
+      // opening the box CLEARS the field, which is what picking "Other..." has always done
+      if (op.on) at(op.index).attrs[op.id] = "";
       return { items };
     case "undo_attr":
       if (!at(op.index)) return state;
       delete at(op.index).attrs[op.id];
+      setOther(op.index, op.id, false);
       return { items };
     case "set_qty":
       if (!at(op.index)) return state;
@@ -1864,6 +2572,24 @@ export function itemsOnScreen(view: ItemListView): Array<{ family: string | null
  * shows per block, so the total can never be built from a fourth arithmetic. Only meaningful when the row
  * priced (S4); on a blank row the panel shows the reason instead. */
 export function rowTotals(view: ItemListView): Partial<Record<RateKind, number>> {
+  /**
+   * CERT-FOUND DEFECT (2026-10-04) -- THIS RETURNED A WRONG PRICE ON A COMPOSED ROW.
+   *
+   * It summed `view.items`, which are the USER's blocks. A composition expands ONE user block into
+   * several priced layers inside `priceItemList`, so after "32 mm -> 13 + 19" there is still one
+   * block, holding the FIRST layer only -- and the green "Row total" read 219 where the row costs
+   * 474. The headline, which reads the row's own `supply`/`install`, said 474 at the same time, so
+   * the screen contradicted itself and the smaller number was the one labelled "Row total".
+   *
+   * ⚠️ IT SURVIVED BECAUSE THE TWO AGREE ON EVERY UNCOMPOSED ROW -- blocks and priced items are then
+   * one-to-one, so the sum is right by coincidence of shape. Only a composition separates them, and
+   * only the screen showed it.
+   *
+   * The row's totals now come from the row (`view.totals`, set from the same `priced.supply` /
+   * `priced.install` the headline uses), so the two readings cannot diverge again. The block sum is
+   * kept ONLY for a view with no totals -- an unpriced row, which the panel does not render this for.
+   */
+  if (view.totals) return { ...view.totals };
   const out: Partial<Record<RateKind, number>> = {};
   for (const b of view.items) {
     for (const [k, v] of Object.entries(b.figures)) if (typeof v === "number") out[k] = (out[k] ?? 0) + v;
