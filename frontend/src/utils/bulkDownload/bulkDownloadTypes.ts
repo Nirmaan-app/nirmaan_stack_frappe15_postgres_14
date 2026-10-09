@@ -8,7 +8,7 @@
  */
 import { PMO_EXECUTIVE_PROFILE, PROJECT_MANAGER_PROFILE } from "@/constants/roles";
 
-export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "ClientInvoice" | "PaymentVoucher";
+export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "MTC" | "ClientInvoice" | "PaymentVoucher";
 export type InvoiceSubType = "PO Invoices" | "WO Invoices" | "All Invoices";
 export type BulkScopeKind = "project" | "vendor";
 
@@ -22,7 +22,7 @@ export interface BulkDownloadScope {
 }
 
 /** Card and menu order. */
-export const BULK_DOC_TYPES: readonly BulkDocType[] = ["PO", "WO", "Invoice", "DC", "MIR", "DN", "ClientInvoice", "PaymentVoucher"];
+export const BULK_DOC_TYPES: readonly BulkDocType[] = ["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "ClientInvoice", "PaymentVoucher"];
 
 /**
  * Every name a type goes by, in ONE place: the Step 1 card (`card`, `description`), the Quick
@@ -36,8 +36,29 @@ export const TYPE_INFO: Record<BulkDocType, { card: string; description: string;
     DC: { card: "Delivery Challans", description: "Download selected delivery challan attachments", menu: "Download All DCs", short: "DCs" },
     MIR: { card: "Material Inspection Reports", description: "Download selected MIR attachments", menu: "Download All MIRs", short: "MIRs" },
     DN: { card: "Delivery Notes", description: "Download delivery note PDFs for selected POs", menu: "Download All DNs", short: "DNs" },
+    MTC: { card: "Material Test Certificates", description: "Download selected material test certificates", menu: "Download All MTCs", short: "MTCs" },
     ClientInvoice: { card: "Client Invoices", description: "Download client invoice attachments raised on the project", menu: "Download All Client Invoices", short: "Client Invoices" },
     PaymentVoucher: { card: "Payment Vouchers", description: "Download uploaded vouchers of paid WO payments", menu: "Download All Payment Vouchers", short: "Payment Vouchers" },
+};
+
+/**
+ * The order of Material Test Certificates: oldest certificate date first, then oldest upload. A
+ * certificate WITHOUT a date (older rows, from before the date was required) goes LAST -- the same
+ * order the server merges them in (`bulk_download._mtc_files`: PostgreSQL's ascending order puts
+ * NULL last), so the wizard lists them in the order the PDF holds them.
+ */
+export const compareMtcs = (
+    a: { certificate_date?: string | null; creation: string },
+    b: { certificate_date?: string | null; creation: string },
+): number => {
+    const da = a.certificate_date || null;
+    const db = b.certificate_date || null;
+    if (da !== db) {
+        if (!da) return 1;
+        if (!db) return -1;
+        return da.localeCompare(db);
+    }
+    return a.creation.localeCompare(b.creation);
 };
 
 /** The invoice choices, in display order — read by both the Quick Download dialog and the wizard. */
@@ -48,7 +69,8 @@ export const INVOICE_SUB_TYPES: readonly { value: InvoiceSubType; label: string;
 ];
 
 // Gated by vendor type the same way the vendor page gates its own tabs.
-const MATERIAL_TYPES: readonly BulkDocType[] = ["PO", "DC", "MIR", "DN"];
+// MTCs belong to POs, so they follow the PO-side types.
+const MATERIAL_TYPES: readonly BulkDocType[] = ["PO", "DC", "MIR", "DN", "MTC"];
 const SERVICE_TYPES: readonly BulkDocType[] = ["WO", "PaymentVoucher"];
 
 /** The vendor-type rule the vendor page uses for its own tabs too (Material Orders, Work Orders, …). */

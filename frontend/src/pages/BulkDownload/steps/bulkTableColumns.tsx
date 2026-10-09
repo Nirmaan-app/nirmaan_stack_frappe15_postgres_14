@@ -12,7 +12,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 import type { BulkScopeKind } from "@/utils/bulkDownload/bulkDownloadTypes";
 import { hasVoucher } from "@/utils/paymentVoucher";
-import type { POItem, WOItem, VendorInvoice, PODeliveryDocuments, ProjectInvoice, PaymentVoucherRow } from "../useBulkDownloadWizard";
+import type { POItem, WOItem, VendorInvoice, PODeliveryDocuments, ProjectInvoice, PaymentVoucherRow, MTCRow } from "../useBulkDownloadWizard";
 
 type VendorRow = { name: string; vendor?: string; vendor_name?: string };
 type ProjectRow = { project?: string; project_name?: string };
@@ -168,4 +168,17 @@ export const voucherColumns: ColumnDef<PaymentVoucherRow, any>[] = [
             </Badge>
         ),
     },
+];
+
+/** What a certificate covers, e.g. "Copper Cable 4 sq mm (Polycab), Cable Tray". It tells certificates of one PO apart (MTC ids are never shown). */
+const mtcItemsText = (row: MTCRow) =>
+    (row.items ?? []).map((i) => (i.make ? `${i.item_name || i.item_id} (${i.make})` : i.item_name || i.item_id)).join(", ");
+
+/** Material Test Certificates: one row per certificate, like a DC. */
+export const mtcColumns: ColumnDef<MTCRow, any>[] = [
+    textColumn<MTCRow>("items", "Items", mtcItemsText, true),
+    textColumn<MTCRow>("po", "PO", (row) => row.procurement_order),
+    vendorColumn<MTCRow>(),
+    dateColumn<MTCRow>("certificate_date", "Certificate Date", (row) => row.certificate_date ?? undefined),
+    dateColumn<MTCRow>("creation", "Uploaded On", (row) => row.creation),
 ];

@@ -8,6 +8,7 @@ import requests
 from pypdf import PdfWriter, PdfReader
 from nirmaan_stack.api.pdf_helper.po_print import merge_pdfs
 from nirmaan_stack.api.frappe_s3_attachment import get_s3_temp_url
+from nirmaan_stack.api.material_test_certificates.mtc_api import mtc_allowed_projects
 from PIL import Image
 
 def _merge_content(merger, content, name):
@@ -129,6 +130,9 @@ def ensure_temp_dir():
 SCOPE_LABEL = {"project": ("Projects", "project_name"), "vendor": ("Vendors", "vendor_name")}
 
 PAYMENT_VOUCHERS = "Payment Vouchers"
+MTCS = "MTCs"
+# Types downloaded by RECORD name: the job reads each file back itself, so the file-URL endpoint refuses them.
+READ_BACK_TYPES = (PAYMENT_VOUCHERS, MTCS)
 
 # Which documents a "download all" takes. (The wizard's lists differ in places: it keeps PO
 # Amendment, and its DN list drops Partially Dispatched -- existing behaviour, kept as is.)
@@ -208,6 +212,25 @@ def _voucher_files(field, value, names=None):
         filters["name"] = ["in", names]
     rows = frappe.get_list("Project Payments", filters=filters, fields=["voucher_attachment"], order_by="payment_date asc, creation asc")
     return [r.voucher_attachment for r in rows]
+
+
+def _mtc_files(field, value, names=None):
+    """The file of each Material Test Certificate in scope, oldest certificate first -- only the
+    given ones when `names` is passed. Read with `get_list` (the user's permissions) AND the MTC
+    page's own project rule: a PM / PL sees only their assigned projects, none assigned = nothing."""
+    filters = {field: value, "attachment": ["is", "set"]}
+    allowed = mtc_allowed_projects(frappe.session.user)
+    if allowed is not None:
+        if not allowed or (field == "project" and value not in allowed):
+            return []
+        if field != "project":
+            filters["project"] = ["in", list(allowed)]
+    if names is not None:
+        if not names:
+            return []
+        filters["name"] = ["in", names]
+    rows = frappe.get_list("Material Test Certificate", filters=filters, fields=["attachment"], order_by="certificate_date asc, creation asc")
+    return [r.attachment for r in rows]
 
 
 def _check_doc_type(field, doc_type):
@@ -308,11 +331,20 @@ def download_selected_payment_vouchers(names, project=None, vendor=None, downloa
 
 
 @frappe.whitelist()
+def download_selected_mtcs(names, project=None, vendor=None, download_id=None):
+    # Takes MTC names (keys only, never shown to users), not file URLs: the job reads each
+    # certificate back itself (`_mtc_files`).
+    scope = _scope(project, vendor)
+    _require_selection(names, "certificate")
+    return _enqueue(scope, MTCS, "Selected_MTCs", download_id, names=names)
+
+
+@frappe.whitelist()
 def download_selected_attachments(attachment_names, doc_type, project=None, vendor=None, download_id=None):
     scope = _scope(project, vendor)
     _check_doc_type(scope[0], doc_type)
-    if doc_type == PAYMENT_VOUCHERS:
-        frappe.throw("Payment vouchers are downloaded by payment, through download_selected_payment_vouchers.")
+    if doc_type in READ_BACK_TYPES:
+        frappe.throw(f"{doc_type} are downloaded by record, not by file link.")
     _require_selection(attachment_names, "document")
     return _enqueue(scope, doc_type, f"Selected_{doc_type.replace(' ', '_')}", download_id, attachment_names=attachment_names)
 
@@ -384,6 +416,9 @@ def _build_and_announce(publish, doc_type, project, vendor, names, attachment_na
     if doc_type == PAYMENT_VOUCHERS:
         # The selected payments (or all of them) -> their voucher files.
         attachment_names, names = _voucher_files(field, value, names), None
+    elif doc_type == MTCS:
+        # The selected certificates (or all of them) -> their files, oldest certificate first.
+        attachment_names, names = _mtc_files(field, value, names), None
     elif names is None and attachment_names is None:
         if doc_type in ALL_DOC_FILTERS:
             names = _all_doc_names(doc_type, field, value)

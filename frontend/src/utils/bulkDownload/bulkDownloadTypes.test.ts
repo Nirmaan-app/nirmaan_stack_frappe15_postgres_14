@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { canBulkDownloadVendor } from "@/constants/roles";
-import { allowedBulkTypes, invoiceSubTypesFor, scopeFacet } from "./bulkDownloadTypes";
+import { allowedBulkTypes, compareMtcs, invoiceSubTypesFor, scopeFacet } from "./bulkDownloadTypes";
 
 const ADMIN = "Nirmaan Admin Profile";
 const PM = "Nirmaan Project Manager Profile";
@@ -12,15 +12,21 @@ const vendor = (vendorType?: string) => ({ kind: "vendor" as const, vendorType }
 
 describe("allowedBulkTypes — project scope (the project tab)", () => {
     it("offers every type to Admin, in card order", () => {
-        expect(allowedBulkTypes(project, ADMIN)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "ClientInvoice", "PaymentVoucher"]);
+        expect(allowedBulkTypes(project, ADMIN)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "ClientInvoice", "PaymentVoucher"]);
     });
 
     it("keeps the existing PM rule (no vendor or client invoices) and adds payment vouchers to it", () => {
-        expect(allowedBulkTypes(project, PM)).toEqual(["PO", "WO", "DC", "MIR", "DN"]);
+        expect(allowedBulkTypes(project, PM)).toEqual(["PO", "WO", "DC", "MIR", "DN", "MTC"]);
+    });
+
+    it("offers Material Test Certificates to every role, the PM included (no prices on a certificate)", () => {
+        for (const role of [ADMIN, PM, PMO, ACCOUNTANT]) {
+            expect(allowedBulkTypes(project, role), role).toContain("MTC");
+        }
     });
 
     it("keeps the existing PMO rule: client invoices go, vendor invoices and vouchers stay", () => {
-        expect(allowedBulkTypes(project, PMO)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "PaymentVoucher"]);
+        expect(allowedBulkTypes(project, PMO)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "PaymentVoucher"]);
     });
 
     it("ignores a vendor type in project scope", () => {
@@ -36,9 +42,9 @@ describe("allowedBulkTypes — vendor scope (the vendor tab)", () => {
     });
 
     it("gates by vendor type the way the vendor page gates its tabs", () => {
-        expect(allowedBulkTypes(vendor("Material"), ADMIN)).toEqual(["PO", "Invoice", "DC", "MIR", "DN"]);
+        expect(allowedBulkTypes(vendor("Material"), ADMIN)).toEqual(["PO", "Invoice", "DC", "MIR", "DN", "MTC"]);
         expect(allowedBulkTypes(vendor("Service"), ADMIN)).toEqual(["WO", "Invoice", "PaymentVoucher"]);
-        expect(allowedBulkTypes(vendor("Material & Service"), ADMIN)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "PaymentVoucher"]);
+        expect(allowedBulkTypes(vendor("Material & Service"), ADMIN)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "PaymentVoucher"]);
     });
 
     it("leaves only vendor invoices for a vendor with no type (the vendor page shows neither orders tab)", () => {
@@ -49,7 +55,7 @@ describe("allowedBulkTypes — vendor scope (the vendor tab)", () => {
     it("applies the role rules on top of the vendor type", () => {
         expect(allowedBulkTypes(vendor("Service"), PM)).toEqual(["WO"]);
         expect(allowedBulkTypes(vendor("Service"), PMO)).toEqual(["WO", "Invoice", "PaymentVoucher"]);
-        expect(allowedBulkTypes(vendor("Material & Service"), ACCOUNTANT)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "PaymentVoucher"]);
+        expect(allowedBulkTypes(vendor("Material & Service"), ACCOUNTANT)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "PaymentVoucher"]);
     });
 
     it("treats the role's Loading placeholder like any non-PM role (the vendor tab itself waits it out)", () => {
@@ -114,5 +120,45 @@ describe("canBulkDownloadVendor — who sees the vendor page's Bulk Download tab
 
     it("always lets in the Administrator account", () => {
         expect(canBulkDownloadVendor("", "Administrator")).toBe(true);
+    });
+});
+
+describe("Material Test Certificates follow the Delivery Challans rule (owner)", () => {
+    const ROLES = [
+        "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Manager Profile",
+        "Nirmaan Project Lead Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile",
+        "Nirmaan Procurement Executive Profile", "Nirmaan Procurement Lead Profile", "Nirmaan Estimates Executive Profile",
+        "Nirmaan Billing Executive Profile", "Loading",
+    ];
+    const SCOPES = [
+        { kind: "project" as const },
+        ...["Material", "Service", "Material & Service", "", undefined].map((vendorType) => ({ kind: "vendor" as const, vendorType })),
+    ];
+
+    it("shows the MTC card and Quick menu item exactly where the DC ones show, for every role and scope", () => {
+        for (const role of ROLES) {
+            for (const scope of SCOPES) {
+                const types = allowedBulkTypes(scope, role);
+                expect(types.includes("MTC"), `${role} / ${scope.kind} ${"vendorType" in scope ? scope.vendorType : ""}`).toBe(types.includes("DC"));
+            }
+        }
+    });
+
+    it("sits right after Delivery Notes in the card and menu order", () => {
+        const all = allowedBulkTypes({ kind: "project" }, "Nirmaan Admin Profile");
+        expect(all.indexOf("MTC")).toBe(all.indexOf("DN") + 1);
+    });
+});
+
+describe("compareMtcs — the wizard lists certificates in the order the PDF holds them", () => {
+    it("puts the oldest certificate date first, ties by upload time, and undated certificates last", () => {
+        const rows = [
+            { id: "undated-early", certificate_date: null, creation: "2026-10-07 10:00:00" },
+            { id: "oct-7-late", certificate_date: "2026-10-07", creation: "2026-10-07 18:03:00" },
+            { id: "oct-7-early", certificate_date: "2026-10-07", creation: "2026-10-07 17:02:00" },
+            { id: "sep-1", certificate_date: "2026-09-01", creation: "2026-10-08 09:00:00" },
+            { id: "undated-empty", certificate_date: "", creation: "2026-10-07 11:00:00" },
+        ];
+        expect([...rows].sort(compareMtcs).map((r) => r.id)).toEqual(["sep-1", "oct-7-early", "oct-7-late", "undated-early", "undated-empty"]);
     });
 });

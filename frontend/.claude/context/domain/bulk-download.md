@@ -49,7 +49,7 @@ allowedBulkTypes   useBulkDownloadWizard     Step tables                 Downloa
 ## 3. Example: download 2 POs from the vendor tab
 
 1. The vendor page passes `scope = { kind: "vendor", id: "VEN-Material-0241", vendorType: "Material & Service" }`.
-2. `allowedBulkTypes` sees a Material & Service vendor, so it shows all 7 cards.
+2. `allowedBulkTypes` sees a Material & Service vendor, so it shows all 8 cards.
 3. The user opens **Procurement Orders**. The wizard has fetched POs **where `vendor = VEN-Material-0241`**.
 4. The table shows a **Project** column (a vendor's POs span many projects), and there is no Critical POs tab.
 5. The user filters by project, ticks 2 POs and clicks **Download 2 POs**.
@@ -66,7 +66,7 @@ On the project tab the same 7 steps run, with `project` in place of `vendor`.
 | Facet column in the tables | Vendor | Project |
 | Critical POs tab (PO, DN steps) | shown | hidden (Critical PO Tasks live inside a project) |
 | Client Invoices | shown (not PM, not PMO) | never (Project Invoices have no vendor) |
-| Cards | by role | by role **and** vendor type: Material → PO, DC, MIR, DN · Service → WO, Payment Vouchers · both → all · Vendor Invoices always |
+| Cards | by role | by role **and** vendor type: Material → PO, DC, MIR, DN, MTC · Service → WO, Payment Vouchers · both → all · Vendor Invoices always |
 | Invoice choices | All / PO / WO | a single-type vendor loses the choice it cannot have |
 | Who sees the tab | the project page's tab rules | Admin, PMO, Accountant (+ Lead), procurement profiles only |
 | File name | `{project name}_…pdf` | `{vendor name}_…pdf` |
@@ -121,6 +121,15 @@ What to change:
 Size check: at most 335 paid PO payments per vendor and 451 per project, close to the 370 POs the largest
 project's "All POs" already handles on the `long` queue.
 
+## 6b. Material Test Certificates (both tabs)
+
+**One row per certificate, like a DC**, oldest **certificate date** first (the merged PDF keeps that order). A row
+is told apart by the items it covers, because MTC ids are never shown. The card follows the **Delivery Challans
+rule** exactly (owner): every role, Material and Material & Service vendors — pinned by a test over every role,
+tab and vendor type. The list comes from the MTC module's own read, `mtc_api.get_mtcs(project | vendor)`; the
+browser sends **MTC names**, and `bulk_download._mtc_files` reads the files back with `get_list` plus the MTC
+page's project rule (`mtc_allowed_projects`: a PM / PL sees only assigned projects, none assigned = nothing).
+
 ## 7. Where the code is
 
 | What | File |
@@ -133,8 +142,8 @@ project's "All POs" already handles on the `long` queue.
 | The "All … / Critical POs" tabs shared by the PO and DN steps | `src/pages/BulkDownload/steps/CriticalTasksTab.tsx` |
 | Every type's names; the invoice choices; the vendor-type rule (also used by the vendor page's tabs) | `TYPE_INFO`, `INVOICE_SUB_TYPES`, `vendorHandlesMaterial` / `vendorHandlesService` in `bulkDownloadTypes.ts` |
 | Quick Download menu | `src/components/common/BulkPdfDownloadButton.tsx`, `src/hooks/useBulkPdfDownload.ts` |
-| Backend endpoints and job | `nirmaan_stack/api/pdf_helper/bulk_download.py` (`_scope`, `_reader`, `_voucher_files`) |
-| Tests | `bulkDownloadTypes.test.ts`, `steps/bulkTableColumns.test.ts`, `api/pdf_helper/test_bulk_download_scope.py`, `test_bulk_download_job.py` |
+| Backend endpoints and job | `nirmaan_stack/api/pdf_helper/bulk_download.py` (`_scope`, `_reader`, `_voucher_files`, `_mtc_files`) |
+| Tests | `bulkDownloadTypes.test.ts`, `steps/bulkTableColumns.test.ts`, `api/pdf_helper/test_bulk_download_scope.py`, `test_bulk_download_job.py`, `test_bulk_download_mtc.py` |
 
 ## 8. Rules not to break
 

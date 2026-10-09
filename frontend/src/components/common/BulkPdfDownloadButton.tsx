@@ -56,6 +56,7 @@ export const BulkPdfDownloadButton = ({ scope, types }: BulkPdfDownloadButtonPro
     DC: () => handleBulkDownload("DC", TYPE_INFO.DC.card),
     MIR: () => handleBulkDownload("MIR", TYPE_INFO.MIR.card),
     DN: () => handleBulkDownload("DN", TYPE_INFO.DN.card),
+    MTC: () => handleBulkDownload("MTC", TYPE_INFO.MTC.card),
     ClientInvoice: () => handleBulkDownload("ClientInvoice", TYPE_INFO.ClientInvoice.card),
     PaymentVoucher: () => handleBulkDownload("PaymentVoucher", TYPE_INFO.PaymentVoucher.card),
   };

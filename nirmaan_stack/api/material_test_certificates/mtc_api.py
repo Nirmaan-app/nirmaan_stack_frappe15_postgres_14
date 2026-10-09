@@ -70,21 +70,30 @@ def get_mtc_projects():
 
 
 @frappe.whitelist()
-def get_mtcs(procurement_order=None, project=None):
-    """MTCs of one PO (the PO page card) or one project (the list page), newest first.
+def get_mtcs(procurement_order=None, project=None, vendor=None):
+    """MTCs of one PO (the PO page card), one project (the list page, Bulk Download) or one
+    vendor (the vendor page's Bulk Download), newest first.
 
-    Pass exactly one of `procurement_order` / `project`.
+    Pass exactly one of `procurement_order` / `project` / `vendor`. A PM / PL sees only their
+    assigned projects in every scope (none assigned -> nothing).
     """
-    if bool(procurement_order) == bool(project):
-        frappe.throw(_("Pass either a Purchase Order or a Project."))
+    if sum(1 for v in (procurement_order, project, vendor) if v) != 1:
+        frappe.throw(_("Pass exactly one of a Purchase Order, a Project or a Vendor."))
 
     if procurement_order:
         filters = {"procurement_order": procurement_order}
     else:
         allowed = mtc_allowed_projects(frappe.session.user)
-        if allowed is not None and project not in allowed:
-            return []
-        filters = {"project": project}
+        if project:
+            if allowed is not None and project not in allowed:
+                return []
+            filters = {"project": project}
+        else:
+            filters = {"vendor": vendor}
+            if allowed is not None:
+                if not allowed:
+                    return []
+                filters["project"] = ["in", list(allowed)]
 
     parents = frappe.get_list(
         MTC,
@@ -97,7 +106,7 @@ def get_mtcs(procurement_order=None, project=None):
         return []
 
     names = {p.name for p in parents}
-    column = "procurement_order" if procurement_order else "project"
+    column, value = next((c, v) for c, v in (("procurement_order", procurement_order), ("project", project), ("vendor", vendor)) if v)
     # One join on the same filter instead of an IN-list over the names (large IN-lists trip
     # sqlparse's token cap in production); rows are then narrowed to the permitted parents.
     item_rows = frappe.db.sql(
@@ -108,7 +117,7 @@ def get_mtcs(procurement_order=None, project=None):
         WHERE i.parenttype = %s AND m.{column} = %s
         ORDER BY i.parent, i.idx
         """,
-        (MTC, procurement_order or project),
+        (MTC, value),
         as_dict=True,
     )
     items_by_parent = {}
@@ -127,7 +136,7 @@ def get_mtcs(procurement_order=None, project=None):
             JOIN "tabMaterial Test Certificate" m ON m.procurement_order = po.name
             WHERE m.{column} = %s
             """,
-            (procurement_order or project,),
+            (value,),
         )
     )
 
@@ -145,10 +154,16 @@ def get_mtcs(procurement_order=None, project=None):
         else {}
     )
 
+    project_ids = {p.project for p in parents if p.project}
+    project_names = dict(
+        frappe.get_all("Projects", filters={"name": ["in", list(project_ids)]}, fields=["name", "project_name"], as_list=True)
+    ) if project_ids else {}
+
     return [
         {
             **p,
             "vendor_name": vendor_names.get(p.vendor),
+            "project_name": project_names.get(p.project),
             "procurement_request": po_prs.get(p.procurement_order),
             "items": items_by_parent.get(p.name, []),
         }

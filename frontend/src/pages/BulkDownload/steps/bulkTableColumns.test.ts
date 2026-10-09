@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ColumnDef } from "@tanstack/react-table";
-import { dcColumns, dnColumns, forScope, invoiceColumns, mirColumns, poColumns, voucherColumns, woColumns } from "./bulkTableColumns";
+import { dcColumns, dnColumns, forScope, invoiceColumns, mirColumns, mtcColumns, poColumns, voucherColumns, woColumns } from "./bulkTableColumns";
 
 const ids = (columns: ColumnDef<any, any>[]) => columns.map((c) => c.id);
 const accessor = (column: ColumnDef<any, any>) => (column as { accessorFn: (row: unknown, i: number) => unknown }).accessorFn;
 
-const ALL_SETS = { poColumns, woColumns, dnColumns, invoiceColumns, dcColumns, mirColumns, voucherColumns };
+const ALL_SETS = { poColumns, woColumns, dnColumns, invoiceColumns, dcColumns, mirColumns, voucherColumns, mtcColumns };
 
 describe("forScope", () => {
     it("hands project scope the very same column array (the project tab is unchanged)", () => {
@@ -44,5 +44,18 @@ describe("voucherColumns", () => {
     it("keeps amount, date and voucher status out of the search box", () => {
         const searchable = voucherColumns.filter((c) => c.enableGlobalFilter !== false).map((c) => c.id);
         expect(searchable).toEqual(["document_name", "vendor", "utr"]);
+    });
+});
+
+describe("mtcColumns", () => {
+    it("names a certificate by the items it covers (never by its MTC id)", () => {
+        const items = mtcColumns.find((c) => c.id === "items")!;
+        const row = { name: "MTC-26-00001", procurement_order: "PO/1", items: [
+            { item_id: "I1", item_name: "Copper Cable", make: "Polycab" },
+            { item_id: "I2", item_name: "Cable Tray" },
+        ] };
+        const text = accessor(items)(row, 0) as string;
+        expect(text).toBe("Copper Cable (Polycab), Cable Tray");
+        expect(text).not.toContain("MTC-26");
     });
 });

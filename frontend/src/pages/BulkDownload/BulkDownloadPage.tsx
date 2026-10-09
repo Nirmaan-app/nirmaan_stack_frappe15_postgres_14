@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { BulkPdfDownloadButton } from "@/components/common/BulkPdfDownloadButton";
 import { BulkDownloadStep1 } from "./BulkDownloadStep1";
-import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps, ClientInvoiceSteps, PaymentVoucherSteps } from "./steps";
+import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps, MTCSteps, ClientInvoiceSteps, PaymentVoucherSteps } from "./steps";
 import { useBulkDownloadWizard } from "./useBulkDownloadWizard";
 import { useUserData } from "@/hooks/useUserData";
 import { BulkDownloadScope, allowedBulkTypes, invoiceSubTypesFor } from "@/utils/bulkDownload/bulkDownloadTypes";
@@ -56,6 +56,8 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
         projectInvoicesLoading,
         voucherPayments,
         voucherPaymentsLoading,
+        mtcItems,
+        mtcsLoading,
         withRate,
         setWithRate,
 
@@ -198,6 +200,10 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
                             onSelectMultipleCriticalTaskPOs={selectMultipleCriticalTaskPOs}
                             scopeKind={scope.kind}
                         />
+                    )}
+
+                    {step === 2 && docType === "MTC" && (
+                        <MTCSteps {...sharedProps} items={mtcItems} isLoading={mtcsLoading} scopeKind={scope.kind} />
                     )}
 
                     {step === 2 && docType === "PaymentVoucher" && (

@@ -1,4 +1,4 @@
-import { FileDown, ClipboardList, Receipt, Truck, ClipboardCheck, FileText, ReceiptText, Wallet } from "lucide-react";
+import { FileDown, ClipboardList, Receipt, Truck, ClipboardCheck, FileText, ReceiptText, Wallet, BadgeCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { BulkDocType } from "./useBulkDownloadWizard";
 import { TYPE_INFO } from "@/utils/bulkDownload/bulkDownloadTypes";
@@ -19,6 +19,7 @@ const TYPE_STYLE: Record<BulkDocType, { icon: React.ElementType; iconBg: string;
     Invoice: { icon: Receipt, iconBg: "bg-purple-50 group-hover:bg-purple-100", iconColor: "text-purple-600" },
     DC: { icon: Truck, iconBg: "bg-orange-50 group-hover:bg-orange-100", iconColor: "text-orange-600" },
     MIR: { icon: ClipboardCheck, iconBg: "bg-teal-50 group-hover:bg-teal-100", iconColor: "text-teal-600" },
+    MTC: { icon: BadgeCheck, iconBg: "bg-cyan-50 group-hover:bg-cyan-100", iconColor: "text-cyan-600" },
     DN: { icon: FileText, iconBg: "bg-rose-50 group-hover:bg-rose-100", iconColor: "text-rose-600" },
     ClientInvoice: { icon: ReceiptText, iconBg: "bg-indigo-50 group-hover:bg-indigo-100", iconColor: "text-indigo-600" },
     PaymentVoucher: { icon: Wallet, iconBg: "bg-amber-50 group-hover:bg-amber-100", iconColor: "text-amber-600" },

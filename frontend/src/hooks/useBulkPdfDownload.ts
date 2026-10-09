@@ -166,6 +166,10 @@ export const useBulkPdfDownload = (scope: BulkDownloadScope) => {
                     endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments`;
                     formData.append("doc_type", "Payment Vouchers");
                     break;
+                case "MTC":
+                    endpoint = `/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_project_attachments`;
+                    formData.append("doc_type", "MTCs");
+                    break;
             }
 
             const response = await fetch(endpoint, {

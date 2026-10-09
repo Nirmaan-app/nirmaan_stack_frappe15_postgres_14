@@ -113,8 +113,10 @@ The full decision log (owner rulings Q1–Q39) and the build notes are in
 | Hook-up points | `DocumentAttachments.tsx` (card), `PODetails.tsx` (`UploadMTCButton` in the action row), `PurchaseOrder.tsx` ("MTCs: n"), `dashboard-pm.tsx`, `dashboard-pl.tsx`, `routesConfig.tsx` (`RoleRoute` for PM and PL) |
 
 **Reads:**
-- `get_mtcs(procurement_order | project)` takes exactly one argument. It returns each MTC with its items,
-  `vendor_name` and `procurement_request`. The PR is needed for the PM-side PO link,
+- `get_mtcs(procurement_order | project | vendor)` takes exactly one argument. It returns each MTC with its items,
+  `vendor_name`, `project_name` and `procurement_request`. The project rule applies in the vendor scope too.
+  **Bulk Download** (project and vendor tabs) reads MTCs through it, and merges the files through
+  `api/pdf_helper/bulk_download._mtc_files`, which applies the same `mtc_allowed_projects` rule. The PR is needed for the PM-side PO link,
   `/prs&milestones/procurement-requests/<pr>/<po>`.
 - The PO header count, the card and both Upload buttons share the SWR key `mtcPoKey(po)`, so they make one fetch.
 

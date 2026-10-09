@@ -1,10 +1,10 @@
 import { useState, useContext, useCallback, useMemo, useEffect, useRef } from "react";
 import { useToast } from "@/components/ui/use-toast";
-import { FrappeContext, FrappeConfig, useFrappeGetDocList } from "frappe-react-sdk";
+import { FrappeContext, FrappeConfig, useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { useUserData } from "@/hooks/useUserData";
 import { useProjectPOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
 import { attachLinkedPOs } from "@/pages/projects/CriticalPOTasks/utils";
-import { BulkDocType, BulkDownloadScope, InvoiceSubType, TYPE_INFO } from "@/utils/bulkDownload/bulkDownloadTypes";
+import { BulkDocType, BulkDownloadScope, InvoiceSubType, TYPE_INFO, compareMtcs } from "@/utils/bulkDownload/bulkDownloadTypes";
 import { cancelBulkDownload, listenForDownload, newDownloadId } from "@/utils/bulkDownload/bulkDownloadEvents";
 
 export type { BulkDocType, InvoiceSubType };
@@ -65,6 +65,10 @@ export interface PaymentVoucherRow extends ProjectFields {
     creation?: string;
 }
 
+import type { MaterialTestCertificate } from "@/types/NirmaanStack/MaterialTestCertificate";
+/** One Material Test Certificate (one row per certificate, like a DC); its id is a key only, never shown. */
+export type MTCRow = MaterialTestCertificate;
+
 export interface NirmaanAttachmentStub {
     name: string;
     attachment_type?: string;
@@ -81,7 +85,7 @@ export interface CriticalPOTask {
 
 /**
  * The wizard for one project or one vendor. `types` is `allowedBulkTypes(scope, role)`: the
- * payment-voucher list is only fetched where that card is offered.
+ * payment-voucher and MTC lists are only fetched where their card is offered.
  */
 export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocType[]) => {
     const { kind, id } = scope;
@@ -225,6 +229,20 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
         types.includes("PaymentVoucher") && role !== "Loading" && scopeKey ? `bulk-pay-${scopeKey}` : null
     );
 
+    // One row per certificate, through the MTC module's own read (`get_mtcs`), which applies the MTC
+    // page's project rule: a PM / PL sees only their assigned projects.
+    const { data: mtcData, isLoading: mtcsLoading } = useFrappeGetCall<{ message: MTCRow[] }>(
+        "nirmaan_stack.api.material_test_certificates.mtc_api.get_mtcs",
+        { [kind]: id },
+        types.includes("MTC") && scopeKey ? `bulk-mtc-${scopeKey}` : null,
+        { revalidateOnFocus: false }
+    );
+    // Oldest certificate first, undated ones last -- the order the merged PDF holds them in.
+    const mtcItems = useMemo(
+        () => [...(mtcData?.message ?? [])].filter((m) => !!m.attachment).sort(compareMtcs),
+        [mtcData]
+    );
+
     // Every step filters inside its own selection table (facet + date column filters), so the hook
     // hands each step its full ELIGIBLE list: DN = POs that have deliveries; the attachment types =
     // rows that actually carry a file to merge.
@@ -244,8 +262,8 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
     const itemCounts = useMemo(() => ({
         PO: poList.length, WO: woList.length, Invoice: invoiceItems.length,
         DC: dcItems.length, MIR: mirItems.length, DN: dnList.length,
-        ClientInvoice: projectInvoiceItems.length, PaymentVoucher: voucherCount,
-    }), [poList, woList, invoiceItems, dcItems, mirItems, dnList, projectInvoiceItems, voucherCount]);
+        MTC: mtcItems.length, ClientInvoice: projectInvoiceItems.length, PaymentVoucher: voucherCount,
+    }), [poList, woList, invoiceItems, dcItems, mirItems, dnList, mtcItems, projectInvoiceItems, voucherCount]);
 
     const goToStep2 = useCallback((t: BulkDocType) => { setDocType(t); setSelectedIds([]); setStep(2); }, []);
     const goBack = useCallback(() => { setStep(1); setDocType(null); setSelectedIds([]); }, []);
@@ -328,6 +346,11 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
                     formData.append("attachment_names", JSON.stringify(projectInvoiceItems.filter(p => selectedIds.includes(p.name)).map(p => p.attachment!)));
                     formData.append("doc_type", "Client Invoices");
                     break;
+                case "MTC":
+                    // MTC names, not file URLs: the server reads each certificate back itself.
+                    endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_mtcs";
+                    formData.append("names", JSON.stringify(selectedIds));
+                    break;
                 case "PaymentVoucher":
                     // Payment names, not file URLs: the server reads each voucher back itself.
                     endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_payment_vouchers";
@@ -379,5 +402,7 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocTy
         projectInvoicesLoading,
         voucherPayments,
         voucherPaymentsLoading,
+        mtcItems,
+        mtcsLoading,
     };
 };
