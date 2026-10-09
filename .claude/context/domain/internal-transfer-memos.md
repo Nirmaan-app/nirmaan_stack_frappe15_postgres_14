@@ -196,10 +196,11 @@ Controller hooks (`integrations/controllers/internal_transfer_memo.py`): `valida
 |---|:-:|:-:|:-:|:-:|:-:|
 | **Create ITM** | ✓ | ✓ | ✓ | — | — |
 | **Approve / Reject** | ✓ | — | — | — | — |
+| **Dispatch (Approved → Dispatched)** | ✓ | ✓ | ✓ | — | — |
 | **Delete pre-dispatch** | ✓ (any) | — | creator only | — | — |
 | **View** | ✓ | ✓ | ✓ | ✓ (read-only) | ✓ (read-only) |
 
-Approval is restricted to Admin — PMO does **not** inherit approval authority here (unlike most procurement flows). The `Administrator` user is treated as Admin per existing `useUserData` convention. Constants live in `frontend/src/constants/itm.ts` (`ITM_CREATE_ROLES`, `ITM_APPROVE_ROLES`, `ITM_VIEW_ROLES`).
+Approval is restricted to Admin — PMO does **not** inherit approval authority here (unlike most procurement flows). The `Administrator` user is treated as Admin per existing `useUserData` convention. Constants live in `frontend/src/constants/itm.ts` (`ITM_CREATE_ROLES`, `ITM_APPROVE_ROLES`, `ITM_DISPATCH_ROLES`, `ITM_DELETE_ROLES`, `ITM_VIEW_ROLES`). Dispatch is mirrored server-side by `DISPATCH_ROLES` in `integrations/controllers/internal_transfer_memo.py` (checked by both `lifecycle.dispatch_itm` and the `validate` hook); "Procurement" here means all of `MATERIAL_PROCUREMENT_PROFILES`.
 
 ---
 

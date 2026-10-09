@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
-import { Check, Pencil, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { Check, Pencil, Plus, PrinterCheck, Trash2, TriangleAlert } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -27,6 +27,11 @@ import { formatDate } from "@/utils/FormatDate";
 import { cn } from "@/lib/utils";
 import { useITMDeliveryEdit } from "@/pages/DeliveryNotes/hooks/useITMDeliveryEdit";
 import { useITMDeliveryDelete } from "@/pages/DeliveryNotes/hooks/useITMDeliveryDelete";
+import { useDownloadDN } from "@/pages/DeliveryNotes/hooks/useDownloadDN";
+import {
+  VendorDCDialog,
+  VendorDCOverrides,
+} from "@/pages/DeliveryNotes/components/VendorDCDialog";
 import type { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import type { InternalTransferMemoItem } from "@/types/NirmaanStack/InternalTransferMemo";
 
@@ -59,6 +64,7 @@ interface DNRecord {
   owner: string;
   updated_by_user?: string;
   is_return: number;
+  parent_docname?: string;
   items: DNItem[];
 }
 
@@ -85,6 +91,10 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
 
   const [isAdding, setIsAdding] = useState(false);
   const [newEntries, setNewEntries] = useState<Record<string, number>>({});
+  // Vendor Delivery Challan: the DN's name, kept through the close animation.
+  const [vendorDCDnName, setVendorDCDnName] = useState<string | null>(null);
+  const [vendorDCOpen, setVendorDCOpen] = useState(false);
+  const { downloadVendorDC } = useDownloadDN();
 
   const {
     data: dnData,
@@ -189,6 +199,21 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
     }
     return map;
   }, [visibleDNs]);
+
+  const vendorDCNote = useMemo(
+    () => visibleDNs.find((dn) => dn.name === vendorDCDnName) ?? null,
+    [visibleDNs, vendorDCDnName]
+  );
+
+  const handleGenerateVendorDC = useCallback(
+    (modifiedItems: any[], vendorOverrides: VendorDCOverrides) => {
+      if (vendorDCDnName) {
+        downloadVendorDC(vendorDCDnName, modifiedItems, vendorOverrides);
+      }
+      setVendorDCOpen(false);
+    },
+    [vendorDCDnName, downloadVendorDC]
+  );
 
   const handleStartAdding = useCallback(() => {
     setNewEntries({});
@@ -387,6 +412,18 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
                               <Pencil className="h-3 w-3" />
                             </Button>
                           )}
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                            title={`Vendor Delivery Challan DN-${noteNo}`}
+                            onClick={() => {
+                              setVendorDCDnName(dn.name);
+                              setVendorDCOpen(true);
+                            }}
+                          >
+                            <PrinterCheck className="h-3 w-3" />
+                          </Button>
                           {isAdmin && (
                             <Button
                               size="icon"
@@ -523,6 +560,14 @@ export const ITMDeliverySection: React.FC<ITMDeliverySectionProps> = ({
           </TableBody>
         </Table>
       </div>
+
+      <VendorDCDialog
+        dn={vendorDCNote}
+        open={vendorDCOpen}
+        onOpenChange={setVendorDCOpen}
+        onGenerate={handleGenerateVendorDC}
+        pickVendor
+      />
 
       {/* Delete confirmation dialog — Admin-only action (button gated above). */}
       <AlertDialog

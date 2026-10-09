@@ -1,17 +1,14 @@
 // frontend/src/pages/SnagList/download/snagDownloadParams.ts
 //
-// PURE: the table's live state -> the print format's query string. No React, no
+// PURE: the table's live state -> the print format's params. No React, no
 // fetch — so the mapping is readable and testable on its own.
 
 import { ColumnFiltersState } from "@tanstack/react-table";
 
 import {
   DEFAULT_PRINTED_STATUSES,
-  DOWNLOAD_ALL_ENDPOINT,
-  DOWNLOAD_PDF_ENDPOINT,
   NOT_APPLICABLE_STATUS,
-  SNAG_PRINT_DOCTYPE,
-  SNAG_PRINT_FORMAT_NAME,
+  SNAG_PDF_KIND,
   SNAG_PRINT_PARAM,
 } from "./snagDownloadConstants";
 
@@ -60,27 +57,21 @@ export const DEFAULT_DOWNLOAD_OPTIONS: SnagDownloadOptions = {
 };
 
 /**
- * Build the download URL for the current view.
+ * Build the single Download's request params for the current view (`SNAG_PDF_KIND.tab`).
  *
- * A facet the user has NOT touched is left out of the URL entirely, which is what
- * makes the default PDF (all four statuses) the short-URL case.
+ * A facet the user has NOT touched is left out entirely — absent means "all" on the
+ * Jinja side, which is what makes the default PDF (all four statuses) the short case.
  *
  * `statuses` goes through `resolveDownloadAllStatuses` -- the SAME rule Download All
  * uses -- so the dialog's "Include Not Applicable" box can only NARROW the list's
  * Status filter. With the box ON (the default) the result is exactly the old
  * verbatim copy: the list filter as-is, or nothing when the list is unfiltered.
  */
-export function buildSnagDownloadUrl(
+export function buildSnagDownloadParams(
   { projectId, columnFilters, searchTerm, selectedSearchField, batch }: SnagDownloadState,
   { mode, includeNotApplicable }: SnagDownloadOptions = DEFAULT_DOWNLOAD_OPTIONS
-): string {
-  const params = new URLSearchParams({
-    doctype: SNAG_PRINT_DOCTYPE,
-    name: projectId,
-    format: SNAG_PRINT_FORMAT_NAME,
-    no_letterhead: "1",
-    _lang: "en",
-  });
+): Record<string, string> {
+  const params = new URLSearchParams({ kind: SNAG_PDF_KIND.tab, project: projectId });
   // Summary only = the print format's master section. With the tab's `batches` below
   // it renders that ONE file's block ("Snag List — Summary"), nothing else.
   if (mode === "summary") params.append(SNAG_PRINT_PARAM.mode, "master");
@@ -111,7 +102,8 @@ export function buildSnagDownloadUrl(
 
   appendSearch(params, searchTerm, selectedSearchField);
 
-  return `${DOWNLOAD_PDF_ENDPOINT}?${params.toString()}`;
+  // Every param is appended once, so nothing is lost flattening to an object.
+  return Object.fromEntries(params);
 }
 
 /** Shared by both builders — the search box narrows the merged report identically. */
@@ -167,7 +159,7 @@ export const DEFAULT_DOWNLOAD_ALL_OPTIONS: SnagDownloadAllOptions = {
  *   [..]          the list filter as-is    the list filter minus N/A
  *
  * `null` means "send no `statuses` param" — the server's default, which is all four
- * (`DEFAULT_PRINTED_STATUSES`), so the URL stays short in the common case.
+ * (`DEFAULT_PRINTED_STATUSES`), so the request stays short in the common case.
  *
  * ⚠️ The checkbox can only ever NARROW. It never ADDS a status the list filter hid:
  * with the list filtered to Pending, ticking N/A does not smuggle N/A rows back in —
@@ -204,11 +196,11 @@ export function resolveDownloadAllStatuses(
  * checkbox narrows it. The one axis never sent is `batches`: doing every batch is the
  * whole point, so the server owns that param and the selected tab is overridden.
  */
-export function buildSnagDownloadAllUrl(
+export function buildSnagDownloadAllParams(
   { projectId, columnFilters, searchTerm, selectedSearchField }: SnagDownloadState,
   { mode, includeNotApplicable }: SnagDownloadAllOptions
-): string {
-  const params = new URLSearchParams({ project: projectId, mode });
+): Record<string, string> {
+  const params = new URLSearchParams({ kind: SNAG_PDF_KIND.all, project: projectId, mode });
 
   for (const filter of columnFilters) {
     const param = FILTER_PARAM_BY_COLUMN[filter.id];
@@ -230,7 +222,7 @@ export function buildSnagDownloadAllUrl(
 
   appendSearch(params, searchTerm, selectedSearchField);
 
-  return `${DOWNLOAD_ALL_ENDPOINT}?${params.toString()}`;
+  return Object.fromEntries(params);
 }
 
 /**
@@ -238,7 +230,7 @@ export function buildSnagDownloadAllUrl(
  * (`Status: Pending, WIP`, `Search (description): "leak"`) — the dialog's filter note.
  * `[]` when nothing narrows it.
  *
- * Mirrors exactly what `buildSnagDownloadAllUrl` SENDS: a search on a field the print
+ * Mirrors exactly what `buildSnagDownloadAllParams` SENDS: a search on a field the print
  * format cannot honour is not listed, because it does not reach the file.
  */
 export function describeDownloadAllFilters({

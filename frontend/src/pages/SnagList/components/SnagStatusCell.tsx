@@ -16,6 +16,7 @@ import {
   SNAG_NO_REMARK_STATUS,
   SNAG_STATUS_BADGE_STYLES,
 } from "../config/snagTable.config";
+import { SnagPhotoDraft } from "../photo/snagPhotoCapture";
 import { SnagStatusChangeDialog } from "./SnagStatusChangeDialog";
 
 export interface SnagStatusCellProps {
@@ -30,6 +31,9 @@ export interface SnagStatusCellProps {
   description?: string;
   area?: string;
   category?: string;
+  /** The stored photo and its location, shown in the change dialog (owner 2026-10-08). */
+  photoUrl?: string | null;
+  photoLocation?: string | null;
   /**
    * `"select"` (default) = the inline dropdown in the Status column.
    * `"icon"` = the compact trigger in the Actions column.
@@ -43,11 +47,13 @@ export interface SnagStatusCellProps {
    * Withheld when the actor may not edit — presence of the callback IS the gate.
    *
    * `remark === undefined` means "leave the stored text alone"; `""` CLEARS it.
-   * Never collapse the two (ADR-0018).
+   * Never collapse the two (ADR-0018). `photo` is a new photo picked in the dialog, or
+   * null/undefined for none.
    */
   onChange?: (
     next: SnagStatus,
-    remark: string | undefined
+    remark: string | undefined,
+    photo?: SnagPhotoDraft | null
   ) => Promise<boolean> | void;
   /** True while this row's save is in flight. */
   isSaving?: boolean;
@@ -77,6 +83,8 @@ export const SnagStatusCell: React.FC<SnagStatusCellProps> = ({
   description,
   area,
   category,
+  photoUrl = null,
+  photoLocation = null,
   variant = "select",
   onChange,
   isSaving = false,
@@ -151,10 +159,12 @@ export const SnagStatusCell: React.FC<SnagStatusCellProps> = ({
           description={description}
           area={area}
           category={category}
+          photoUrl={photoUrl}
+          photoLocation={photoLocation}
           isSaving={isSaving}
           onCancel={() => setPending(null)}
-          onConfirm={async (next, nextRemark) => {
-            const ok = await onChange(next, nextRemark);
+          onConfirm={async (next, nextRemark, photo) => {
+            const ok = await onChange(next, nextRemark, photo);
             if (ok !== false) setPending(null);
           }}
         />

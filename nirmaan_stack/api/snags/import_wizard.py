@@ -30,7 +30,7 @@ import frappe
 from frappe.utils import now
 from frappe.utils.file_manager import save_file
 
-from nirmaan_stack.api.snags import require_import_access
+from nirmaan_stack.api.snags import require_import_access, require_project_access
 from nirmaan_stack.api.snags import file_io
 
 _WHITESPACE = re.compile(r"\s+")
@@ -261,6 +261,7 @@ def inspect_workbook():
     project = frappe.form_dict.get("project")
     _assert_project(project)
     require_import_access("import a snag list")
+    require_project_access(project, "import a snag list")
 
     files = frappe.request.files if frappe.request else None
     if not files or "file" not in files:
@@ -547,6 +548,7 @@ def ingest_batch(project=None, file_url=None, file_name=None, batch_name=None, s
     """
     _assert_project(project)
     require_import_access("import a snag list")
+    require_project_access(project, "import a snag list")
 
     sheets = frappe.parse_json(sheets) if isinstance(sheets, str) else sheets
     if not isinstance(sheets, list) or not sheets:

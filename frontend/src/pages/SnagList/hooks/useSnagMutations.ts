@@ -1,11 +1,12 @@
 import { useCallback, useState } from "react";
-import { useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
 
 import { toast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 import { SnagStatus, UpdateSnagDetailsPayload } from "../types";
-import { SNAG_ENDPOINTS } from "../config/snagTable.config";
+import { SNAG_DOCTYPE, SNAG_ENDPOINTS } from "../config/snagTable.config";
+import { SnagPhotoDraft } from "../photo/snagPhotoCapture";
 
 /**
  * Frappe error -> human text. Delegates to the app-wide `getFrappeError`, which already
@@ -47,11 +48,16 @@ export interface UseSnagMutationsResult {
    *   - text        — an OVERWRITE; the imported text is destroyed.
    * Collapsing `undefined` into `""` would wipe the imported remark on every status
    * change made without touching the box.
+   *
+   * `photo` (owner 2026-10-08) is a NEW photo picked in the dialog. It is uploaded first,
+   * attached to the snag, and then rides the SAME status write — which is how a snag moves to
+   * Completed together with the photo that Completed requires.
    */
   updateStatus: (
     snag: string,
     status: SnagStatus,
-    remark?: string
+    remark?: string,
+    photo?: SnagPhotoDraft | null
   ) => Promise<boolean>;
   /** BULK status change deliberately takes NO remark — see below. */
   bulkUpdateStatus: (snags: string[], status: SnagStatus) => Promise<boolean>;
@@ -73,8 +79,14 @@ export interface UseSnagMutationsResult {
    *
    * A blank description is ALLOWED — ADR-0019 dropped the `reqd`, so a client-side
    * required check would refuse what the server accepts.
+   *
+   * `photo` replaces the stored photo, uploaded first like `updateStatus`'s; `remove_photo`
+   * on the payload clears it instead. Never both.
    */
-  updateSnagDetails: (payload: UpdateSnagDetailsPayload) => Promise<boolean>;
+  updateSnagDetails: (
+    payload: UpdateSnagDetailsPayload,
+    photo?: SnagPhotoDraft | null
+  ) => Promise<boolean>;
   /**
    * Rename ONE batch — the label its tab, Import History, the Edit dialog and the PDF all
    * show. Only the label moves: snags link to the batch by its document `name`, so nothing
@@ -101,6 +113,7 @@ export function useSnagMutations(
     SNAG_ENDPOINTS.updateSnagDetails
   );
   const { call: callRenameBatch } = useFrappePostCall(SNAG_ENDPOINTS.renameBatch);
+  const { upload } = useFrappeFileUpload();
 
   const [savingStatusFor, setSavingStatusFor] = useState<string | null>(null);
   const [isBulkSaving, setIsBulkSaving] = useState(false);
@@ -108,17 +121,50 @@ export function useSnagMutations(
   const [isSavingDetails, setIsSavingDetails] = useState(false);
   const [isRenamingBatch, setIsRenamingBatch] = useState(false);
 
+  /**
+   * Upload a dialog's photo, ATTACHED TO THE SNAG (the server refuses a photo that is not),
+   * and return the fields the write endpoints take. Null when the upload failed — the toast
+   * is already shown, and the caller sends nothing.
+   */
+  const uploadPhoto = useCallback(
+    async (snag: string, photo: SnagPhotoDraft) => {
+      try {
+        const file = await upload(photo.file, {
+          isPrivate: true,
+          doctype: SNAG_DOCTYPE,
+          docname: snag,
+          // Names the field, so Frappe's own attach bookkeeping recognises this File.
+          fieldname: "attachment",
+        });
+        const fields: Record<string, string> = { attachment: file.file_url };
+        if (photo.location) fields.location = photo.location;
+        return fields;
+      } catch (e: unknown) {
+        toast({
+          title: "Photo upload failed",
+          description: errText(e, "The photo was not uploaded, so nothing was saved."),
+          variant: "destructive",
+        });
+        return null;
+      }
+    },
+    [upload]
+  );
+
   const updateStatus = useCallback(
-    async (snag: string, status: SnagStatus, remark?: string) => {
+    async (snag: string, status: SnagStatus, remark?: string, photo?: SnagPhotoDraft | null) => {
       setSavingStatusFor(snag);
       try {
+        const photoFields = photo ? await uploadPhoto(snag, photo) : {};
+        if (!photoFields) return false;
         // The key is OMITTED when the caller passed nothing, so the server's
         // "leave it alone" branch is reached. `remark: undefined` would be dropped
         // by JSON.stringify anyway, but building the payload explicitly is what
         // makes the three-state contract visible at the call site.
-        await callUpdateStatus(
-          remark === undefined ? { snag, status } : { snag, status, remark }
-        );
+        await callUpdateStatus({
+          ...(remark === undefined ? { snag, status } : { snag, status, remark }),
+          ...photoFields,
+        });
         onChanged?.();
         return true;
       } catch (e: any) {
@@ -132,7 +178,7 @@ export function useSnagMutations(
         setSavingStatusFor(null);
       }
     },
-    [callUpdateStatus, onChanged]
+    [callUpdateStatus, onChanged, uploadPhoto]
   );
 
   // NO `remark` on the bulk path, deliberately (owner decision Q12a): one sentence
@@ -143,11 +189,26 @@ export function useSnagMutations(
       if (!snags.length) return false;
       setIsBulkSaving(true);
       try {
-        await callBulkUpdate({ snags: JSON.stringify(snags), status });
+        const res = await callBulkUpdate({ snags: JSON.stringify(snags), status });
+        // A snag with no photo is SKIPPED by a bulk Completed (owner 2026-10-08), not failed.
+        const updated: number = res?.message?.updated ?? snags.length;
+        const skipped: number = res?.message?.skipped?.length ?? 0;
+        const plural = (n: number) => `${n} snag${n === 1 ? "" : "s"}`;
+        if (!updated && skipped) {
+          // Nothing moved: say so, and keep the dialog and the selection for another try.
+          toast({
+            title: "No statuses changed",
+            description: `${plural(skipped)} skipped — a snag needs a photo to be ${status}.`,
+            variant: "destructive",
+          });
+          return false;
+        }
         toast({
-          title: "Status updated",
-          description: `${snags.length} snag${snags.length === 1 ? "" : "s"} set to ${status}.`,
-          variant: "success",
+          title: skipped ? "Status partly updated" : "Status updated",
+          description: skipped
+            ? `${plural(updated)} set to ${status}. ${plural(skipped)} skipped — a snag needs a photo to be ${status}.`
+            : `${plural(updated)} set to ${status}.`,
+          variant: skipped ? "default" : "success",
         });
         onChanged?.();
         return true;
@@ -209,16 +270,20 @@ export function useSnagMutations(
       description,
       remark,
       source_serial,
-    }: UpdateSnagDetailsPayload) => {
+      remove_photo,
+    }: UpdateSnagDetailsPayload, photo?: SnagPhotoDraft | null) => {
       setIsSavingDetails(true);
       try {
+        const photoFields = photo ? await uploadPhoto(snag, photo) : {};
+        if (!photoFields) return false;
         // `remark` and `source_serial` are OMITTED when the caller passed nothing, so the
         // server's "leave it alone" branch is reached for each — the same three-state
         // contract `updateStatus` builds explicitly above, for the same reason.
-        const base: Record<string, string> = { snag, area, category, description };
+        const base: Record<string, string | boolean> = { snag, area, category, description };
         if (remark !== undefined) base.remark = remark;
         if (source_serial !== undefined) base.source_serial = source_serial;
-        await callUpdateDetails(base);
+        if (remove_photo && !photo) base.remove_photo = true;
+        await callUpdateDetails({ ...base, ...photoFields });
         toast({
           title: "Snag updated",
           description: "The snag's details were saved.",
@@ -237,7 +302,7 @@ export function useSnagMutations(
         setIsSavingDetails(false);
       }
     },
-    [callUpdateDetails, onChanged]
+    [callUpdateDetails, onChanged, uploadPhoto]
   );
 
   const renameBatch = useCallback(

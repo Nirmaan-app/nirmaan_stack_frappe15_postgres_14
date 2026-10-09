@@ -7,8 +7,8 @@ export type {
 export {
   DEFAULT_DOWNLOAD_ALL_OPTIONS,
   DEFAULT_DOWNLOAD_OPTIONS,
-  buildSnagDownloadAllUrl,
-  buildSnagDownloadUrl,
+  buildSnagDownloadAllParams,
+  buildSnagDownloadParams,
   buildSnagPdfFilename,
   buildSnagSummaryPdfFilename,
   describeDownloadAllFilters,

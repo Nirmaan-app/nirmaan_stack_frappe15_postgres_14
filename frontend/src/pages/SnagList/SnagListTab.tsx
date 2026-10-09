@@ -89,6 +89,7 @@ import { useSnagBatches } from "./hooks/useSnagBatches";
 import { useSnagFieldValues } from "./hooks/useSnagFieldValues";
 import { useSnagMutations } from "./hooks/useSnagMutations";
 import { useSnagStats } from "./hooks/useSnagStats";
+import { SnagPhotoDraft } from "./photo/snagPhotoCapture";
 import { IngestBatchResponse, SnagStatus } from "./types";
 import { useUsersForLookup } from "@/pages/ProcurementRequests/VendorQuotesSelection/hooks/useUsersForLookup";
 
@@ -211,8 +212,12 @@ export function SnagListTab({
   // stored text alone" and must NOT be turned into `""` on the way past — that
   // would clear the imported remark on every ordinary status change.
   const handleStatusChange = React.useCallback(
-    (snag: SnagListRow, next: SnagStatus, remark: string | undefined) =>
-      updateStatus(snag.name, next, remark),
+    (
+      snag: SnagListRow,
+      next: SnagStatus,
+      remark: string | undefined,
+      photo?: SnagPhotoDraft | null
+    ) => updateStatus(snag.name, next, remark, photo),
     [updateStatus]
   );
 

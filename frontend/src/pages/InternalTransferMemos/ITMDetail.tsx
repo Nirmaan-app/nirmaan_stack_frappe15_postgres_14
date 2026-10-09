@@ -70,9 +70,9 @@ export const ITMDetail: React.FC = () => {
     [role, user_id]
   );
 
-  // Dispatch authority is broader than admin: Admin + Procurement Executive can
-  // dispatch (see ITM_DISPATCH_ROLES). Delete is broader still — anyone in
-  // ITM_DELETE_ROLES (Admin / PMO / Procurement) can delete a pre-dispatch ITM.
+  // Dispatch and delete are broader than admin: Admin / PMO / Procurement can
+  // dispatch an Approved ITM (ITM_DISPATCH_ROLES) and delete a pre-dispatch one
+  // (ITM_DELETE_ROLES).
   const canDispatch = useMemo(
     () => ITM_DISPATCH_ROLES.includes(role) || user_id === "Administrator",
     [role, user_id]

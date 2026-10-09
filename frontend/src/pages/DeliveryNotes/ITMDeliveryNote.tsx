@@ -5,7 +5,7 @@ import {
   useFrappeGetDocList,
   useFrappePostCall,
 } from "frappe-react-sdk";
-import { ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, PrinterCheck, Trash2 } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 
 import {
@@ -37,6 +37,8 @@ import { DELIVERY_DELETE_ROLES } from "./components/pivot-table";
 import { ITMDeliveryMetadataBar } from "./components/ITMDeliveryMetadataBar";
 import { useITMDeliveryEdit } from "./hooks/useITMDeliveryEdit";
 import { useITMDeliveryDelete } from "./hooks/useITMDeliveryDelete";
+import { useDownloadDN } from "./hooks/useDownloadDN";
+import { VendorDCDialog, VendorDCOverrides } from "./components/VendorDCDialog";
 import {
   SameDayDNWarningDialog,
   WarningDN,
@@ -184,6 +186,24 @@ const ITMDeliveryNote: React.FC = () => {
       return aTs - bTs;
     });
   }, [dnsData]);
+
+  // Vendor Delivery Challan: the DN's name, kept through the close animation.
+  const [vendorDCDnName, setVendorDCDnName] = useState<string | null>(null);
+  const [vendorDCOpen, setVendorDCOpen] = useState(false);
+  const { downloadVendorDC } = useDownloadDN();
+  const vendorDCNote = useMemo(
+    () => dns.find((dn) => dn.name === vendorDCDnName) ?? null,
+    [dns, vendorDCDnName]
+  );
+  const handleGenerateVendorDC = (
+    modifiedItems: any[],
+    vendorOverrides: VendorDCOverrides
+  ) => {
+    if (vendorDCDnName) {
+      downloadVendorDC(vendorDCDnName, modifiedItems, vendorOverrides);
+    }
+    setVendorDCOpen(false);
+  };
 
   // --- Derive item rows with received totals (keyed by item_id+make) ---
   const itemRows: ItemRow[] = useMemo(() => {
@@ -514,7 +534,7 @@ const ITMDeliveryNote: React.FC = () => {
                             by {displayName.split(" ")[0]}
                           </span>
                         )}
-                        {(showEditBtn || showDeleteBtn) && (
+                        {!editingDnName && (
                           <div className="flex items-center gap-1 mt-0.5">
                             {showEditBtn && (
                               <Button
@@ -536,6 +556,18 @@ const ITMDeliveryNote: React.FC = () => {
                                 <Pencil className="h-3 w-3" />
                               </Button>
                             )}
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                              title={`Vendor Delivery Challan DN-${noteNo}`}
+                              onClick={() => {
+                                setVendorDCDnName(dn.name);
+                                setVendorDCOpen(true);
+                              }}
+                            >
+                              <PrinterCheck className="h-3 w-3" />
+                            </Button>
                             {showDeleteBtn && (
                               <Button
                                 size="icon"
@@ -686,6 +718,14 @@ const ITMDeliveryNote: React.FC = () => {
           </Table>
         </div>
       </div>
+
+      <VendorDCDialog
+        dn={vendorDCNote}
+        open={vendorDCOpen}
+        onOpenChange={setVendorDCOpen}
+        onGenerate={handleGenerateVendorDC}
+        pickVendor
+      />
 
       {/* Duplicate / same-day warning — parity with PO DeliveryPivotTable. */}
       <SameDayDNWarningDialog
