@@ -991,7 +991,7 @@ const LeafRow = ({
  * TICK. It reads as "all of this branch is going in" at exactly the moment when some of it is not,
  * on a screen whose button writes money.
  *
- * That file is shadcn-generated and must not be hand-edited (root CLAUDE.md), and widening it would
+ * That file is shadcn-generated and must not be hand-edited (root CODING_STANDARDS.md), and widening it would
  * change every checkbox in the app for one screen's need. So the third state is drawn HERE: the
  * indicator's glyph is hidden while indeterminate and a dash is laid over the same box. Radix keeps
  * ownership of the state, the keyboard behaviour and `aria-checked="mixed"` -- only the mark is ours.

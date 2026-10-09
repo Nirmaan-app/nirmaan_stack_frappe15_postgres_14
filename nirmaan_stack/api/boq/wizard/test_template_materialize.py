@@ -16,7 +16,7 @@ surviving BoQ Review Rows):
   - get_master_template_admin returns the master + per-sheet row counts; {} when none
   - role gate rejects a non-Admin/Estimates user
 
-Run via the bench runner (NOT raw unittest -- see CLAUDE.md BoQ test-runner note):
+Run via the bench runner (NOT raw unittest -- see root CLAUDE.md § Commands):
   bench --site localhost run-tests --module nirmaan_stack.api.boq.wizard.test_template_materialize
 """
 import json

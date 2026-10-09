@@ -10,7 +10,7 @@
  *  - Errors render INLINE in the dialog, never as toasts (BoQ wizard convention).
  *  - `inspect_workbook` is the only raw `fetch` (multipart); the other calls go through
  *    `useFrappePostCall`.
- *  - No object/array is ever a `useEffect` dependency (frontend/CLAUDE.md § React Effects):
+ *  - No object/array is ever a `useEffect` dependency (frontend/CODING_STANDARDS.md § React effects):
  *    both refetch effects depend on a derived STRING signature.
  *
  * ⚠️ TWO fetches feed a tab, and WHICH ONE OWNS THE COLUMNS is load-bearing (R3.1):
@@ -313,7 +313,7 @@ export function SnagImportDialog({
 
   /**
    * One entry per ticked sheet holding ONLY its header row -- the columns read's whole input.
-   * A STRING, never the objects (frontend/CLAUDE.md § React Effects).
+   * A STRING, never the objects (frontend/CODING_STANDARDS.md § React effects).
    */
   const columnsPlanKey = useMemo(
     () =>

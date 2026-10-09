@@ -12,7 +12,7 @@ level rather than being re-derived per endpoint (ADR-0010: one owning module).
 
 Role resolution mirrors `api/design_tracker/bulk_update_task_status.py`:
 `role_profile_name` on `User`, with "Administrator" handled as a LITERAL username
-(it is not an email -- root CLAUDE.md, Domain Gotchas).
+(it is not an email -- root CODING_STANDARDS.md, Frappe framework gotchas).
 """
 
 import frappe

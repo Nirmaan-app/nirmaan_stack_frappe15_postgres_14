@@ -1,7 +1,7 @@
 # TDS Repository Restructure — Phase 1 Implementation Plan
 
 > 🗄️ **HISTORICAL BUILD PLAN — shipped, and largely overtaken by Phases 2 and 3.** Read the ADRs
-> (`docs/adr/0023`–`0026`) and the *Technical Data Sheets* section of root `CONTEXT.md` for today's
+> (`docs/adr/0023`–`0026`) and the *Technical Data Sheets* section of root `GLOSSARY.md` for today's
 > model. Drift found 2026-09-17: the doctypes are **`TDS Items`** / **`TDS Items Child Table`** (not
 > `TDS Item` / `TDS Item Member`); `members` is a read-only display mirror, not a writable M:N store, and
 > its duplicate-member validator is gone; group-name uniqueness is case/space-insensitive; the patch lives
@@ -13,7 +13,7 @@
 
 > Scope: master-side restructure only. Project consumption + approval are frozen
 > (new assembly only) until Phase 2. See `docs/adr/0023`, `docs/adr/0024`, and
-> `CONTEXT.md` for the model and decisions.
+> `GLOSSARY.md` for the model and decisions.
 
 ## Execution Strategy
 

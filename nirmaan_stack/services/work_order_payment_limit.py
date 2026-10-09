@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 
 """The Work Order payment limit: how much may still be requested, as base and as GST. ADR-0030;
-glossary: CONTEXT.md, *Work Order payment limit*.
+glossary: GLOSSARY.md, *Work Order payment limit*.
 
 PURE -- no database, no request context. `api/payments/payment_summary.py` loads the Work Order and
 its payments and hands them here; the payment-request endpoint and the payment summary both read

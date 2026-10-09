@@ -4,11 +4,12 @@ import { Label } from "@/components/ui/label";
 import ReactSelect from "react-select";
 import { FuzzySearchSelect } from "@/components/ui/fuzzy-search-select";
 import { Trash2, FileText, PlusCircle, ExternalLink } from 'lucide-react';
-import { useTdsExistingProjectItems } from '../../data/tds/useTdsQueries';
-import { useDeleteTdsItem } from '../../data/tds/useTdsMutations';
+import { useNirmaanUsers, useTdsExistingProjectItems, type ExistingProjectRow } from '../../data/tds/useTdsQueries';
+import { useSubmitTdsRequest, useUploadTdsFile, type TdsSubmitRow } from '../../data/tds/useTdsMutations';
 import { toast } from "@/components/ui/use-toast";
 import { RequestTdsItemDialog } from "./RequestTdsItemDialog";
-import { useFrappeCreateDoc, useFrappeFileUpload, useFrappeUpdateDoc, useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall } from "frappe-react-sdk";
+import { getFrappeError } from "@/utils/frappeErrors";
 import {
     Tooltip,
     TooltipContent,
@@ -35,12 +36,22 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useUserData } from "@/hooks/useUserData";
 import { TdsDraftResumeDialog } from "./TdsDraftResumeDialog";
+import { TdsClientRejectedMakeDialog } from "./TdsClientRejectedMakeDialog";
 // DraftIndicator is shared but consumed UNMODIFIED — its copy ("Saved 5 minutes
 // ago") carries no flow-specific wording, so PR is unaffected by rendering it here.
 import { DraftIndicator } from "@/components/ui/draft-indicator";
 import { useTdsRequestDraftManager } from "../hooks/useTdsRequestDraftManager";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+    STORED_STATUS,
+    cartRequestTypeOf,
+    clientRejectedRowFor,
+    customItemKey,
+    isProjectCustomId,
+    rejectedRowFor,
+    type RequestType,
+} from "@/utils/tdsRequestRules";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 2 (ADR-0025) — group-driven project TDS consumption.
@@ -52,9 +63,11 @@ import { Textarea } from "@/components/ui/textarea";
 // …" subtitle). On group pick, the Make dropdown is limited to makes that already
 // HAVE a Repository Entry (datasheet) for that group. Picking an existing entry →
 // a "Pending" row carrying the frozen `(tds_item_id, tds_make)` snapshot + the
-// entry's datasheet. New requests (missing make / new group) come from the
-// RequestTdsItemDialog and produce "New" rows. Dedup is on `(tds_item_id,
-// tds_make)` exact id+make, never name.
+// entry's datasheet. Requests come from the RequestTdsItemDialog: a New Make
+// (a make an existing TDS Item lacks) or a Project Custom Item (project-only,
+// its PCUS- id issued by the server on send). Dedup is on `(tds_item_id,
+// tds_make)` exact id+make; a Project Custom row has no id yet, so it dedups on
+// name (ignoring case) + make (`customItemKey`).
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface TdsCreateFormProps {
@@ -67,6 +80,8 @@ interface TdsCreateFormProps {
      * with it, or the restored cart lands on a screen nobody is looking at.
      */
     onDraftResumed?: () => void;
+    /** Leaves the form for TDS History's Rejected by Client tab (from the Rejected by Client popup). */
+    onOpenRejectedByClient?: () => void;
 }
 
 // One make-with-datasheet for a group (mirrors BE-PICKER `makes[]` shape).
@@ -88,21 +103,45 @@ interface GroupResult {
 
 // A staged cart row destined for `Project TDS Item List`.
 interface CartItem {
-    // Frozen TDS Item id (group). Empty string for a brand-new group request.
+    // Frozen TDS Item id (group). Empty for a Project Custom row: the server issues its PCUS- id.
     tds_item_id: string;
     tds_item_name: string;
     make: string;              // the chosen make (frozen as tds_make)
     work_package: string;
-    category?: string;         // optional snapshot; new picks leave blank
+    category?: string;         // Project Custom: the chosen Category; others leave blank
     description?: string;
     tds_attachment?: string;   // datasheet url for an existing entry
     tds_boq_line_item?: string;
-    is_new_request?: boolean;  // true ⇒ status "New" + needs upload
+    is_new_request?: boolean;  // true ⇒ a Request New row (New Make or Project Custom) + needs upload
+    is_project_custom?: boolean;
     attachmentFile?: File;     // for newly requested items (uploaded on submit)
+    uploadedUrl?: string;      // that file, once uploaded: a retried send reuses it instead of uploading again
     previousDocName?: string;  // a Rejected row being replaced
 }
 
-export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSuccess, onDraftResumed }) => {
+// A cart row waiting on the "Resubmit Rejected Item?" confirmation, and the Rejected row it replaces.
+interface PendingResubmit {
+    item: CartItem;
+    rejected: ExistingProjectRow;
+}
+
+// What a requested cart row asks for. A picked row (From Repository) shows none.
+const CART_BADGE_STYLES: Partial<Record<RequestType, string>> = {
+    "New Make": "bg-sky-100 text-sky-700",
+    "Project Custom": "bg-amber-100 text-amber-800",
+};
+
+const CartRequestBadge = ({ type }: { type: RequestType }) => {
+    const style = CART_BADGE_STYLES[type];
+    if (!style) return null;
+    return (
+        <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-tight ml-2 whitespace-nowrap ${style}`}>
+            {type}
+        </span>
+    );
+};
+
+export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSuccess, onDraftResumed, onOpenRejectedByClient }) => {
     const { role } = useUserData();
     const [cartItems, setCartItems] = useState<CartItem[]>([]);
 
@@ -137,18 +176,24 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         });
     };
 
-    const { createDoc: createFrappeDoc } = useFrappeCreateDoc();
-    const { upload: uploadFile } = useFrappeFileUpload();
-    const { updateDoc: updateFrappeDoc } = useFrappeUpdateDoc();
-    const { deleteDoc: deleteOldStyleDoc } = useDeleteTdsItem();
+    const { upload: uploadTdsFile } = useUploadTdsFile();
+    const { submit: submitTdsRequest } = useSubmitTdsRequest();
 
-    // Resubmit-rejected confirmation dialog state.
-    const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+    // Resubmit-rejected confirmation dialog state. Open while `pendingResubmit` is set.
+    const [pendingResubmit, setPendingResubmit] = useState<PendingResubmit | null>(null);
     const [confirmInput, setConfirmInput] = useState("");
-    const [pendingItemToAdd, setPendingItemToAdd] = useState<CartItem | null>(null);
 
     // Existing project rows (dedup against (tds_item_id, tds_make), allow re-entry of Rejected).
     const { data: existingProjectItems } = useTdsExistingProjectItems(projectId);
+
+    // The Rejected by Client row a picked or requested item + make clashes with; the popup that
+    // explains the block is open while this is set.
+    const [clientRejectedRow, setClientRejectedRow] = useState<ExistingProjectRow | null>(null);
+    const { data: nirmaanUsers } = useNirmaanUsers();
+    const markedByName = useMemo(
+        () => nirmaanUsers?.find((u: { name?: string }) => u.name === clientRejectedRow?.client_status_by)?.full_name,
+        [nirmaanUsers, clientRejectedRow]
+    );
 
     // ── Work Package options (OPTIONAL filter above the picker) ────────────────
     // Sourced from `TDS Items` itself, NOT a work-package doctype, so every
@@ -197,7 +242,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     // rows are allowed back (with a resubmit confirmation).
     const activePairs = useMemo(() => {
         const set = new Set<string>();
-        (existingProjectItems || []).forEach((i: any) => {
+        (existingProjectItems || []).forEach(i => {
             if (i.tds_status === "Rejected") return;
             set.add(`${i.tds_item_id}__${i.tds_make}`);
         });
@@ -209,13 +254,27 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
     const canRequestNew = isAdmin || isPMO;
 
     const cartPairs = useMemo(
-        () => new Set(cartItems.map(i => `${i.tds_item_id}__${i.make}`)),
+        () => new Set(cartItems.filter(i => !i.is_project_custom).map(i => `${i.tds_item_id}__${i.make}`)),
         [cartItems]
     );
 
+    // Project Custom identity, which has no id until sent: name (ignoring case) + make.
+    const cartCustomKeys = useMemo(
+        () => new Set(cartItems.filter(i => i.is_project_custom).map(i => customItemKey(i.tds_item_name, i.make))),
+        [cartItems]
+    );
+    const activeCustomKeys = useMemo(() => {
+        const set = new Set<string>();
+        (existingProjectItems || []).forEach(i => {
+            if (i.tds_status === STORED_STATUS.rejected || !isProjectCustomId(i.tds_item_id)) return;
+            set.add(customItemKey(i.tds_item_name, i.tds_make));
+        });
+        return set;
+    }, [existingProjectItems]);
+
     // Member count per group — ONE batched pass over `Items` (the same endpoint
     // the TDS master page uses). A group ABSENT from `counts` has ZERO members:
-    // a "custom item" in the domain's vocabulary (Work Package + label only).
+    // an Unlinked TDS Item in the domain's vocabulary (Work Package + label only).
     //
     // Why the picker has to say so: a TDS Item has no category of its own, so
     // `Project TDS Item List.tds_category` is DERIVED from its members'
@@ -260,8 +319,12 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                 value: m.make,
                 entry: m,
                 consumed: activePairs.has(`${selectedGroup.tds_item}__${m.make}`),
+                clientRejected: clientRejectedRowFor(existingProjectItems, {
+                    tds_item_id: selectedGroup.tds_item,
+                    make: m.make,
+                }),
             }));
-    }, [selectedGroup, cartPairs, activePairs]);
+    }, [selectedGroup, cartPairs, activePairs, existingProjectItems]);
 
     // The resolved make entry (datasheet) for the current (group, make) selection.
     const selectedEntry = useMemo<GroupMake | null>(() => {
@@ -339,29 +402,31 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
             is_new_request: false,
         };
 
-        // Replace a previously-rejected row? Require typed confirmation.
-        const rejectedEntry = existingProjectItems?.find((i: any) =>
-            i.tds_item_id === selectedGroup.tds_item &&
-            i.tds_make === selectedMake &&
-            i.tds_status === "Rejected"
-        );
-        if (rejectedEntry) {
-            setPendingItemToAdd({ ...newRow, previousDocName: rejectedEntry.name });
-            setConfirmInput("");
-            setShowConfirmDialog(true);
-            return;
-        }
+        if (deferToResubmitConfirm(newRow)) return;
 
         setCartItems(prev => [...prev, newRow]);
         resetSelection();
     };
 
+    // Replacing a Rejected row of this project? Open the typed confirmation and
+    // return true: the row reaches the cart only once confirmed. Every row type
+    // goes through here: a pick, a New Make or a Project Custom (#1380).
+    const deferToResubmitConfirm = (item: CartItem): boolean => {
+        const rejected = rejectedRowFor(existingProjectItems, item);
+        if (!rejected) return false;
+        setPendingResubmit({ item: { ...item, previousDocName: rejected.name }, rejected });
+        setConfirmInput("");
+        return true;
+    };
+
     const confirmResubmission = () => {
-        if (confirmInput === "1" && pendingItemToAdd) {
-            setCartItems(prev => [...prev, pendingItemToAdd]);
-            setPendingItemToAdd(null);
-            setShowConfirmDialog(false);
-            resetSelection();
+        if (confirmInput === "1" && pendingResubmit) {
+            const { item } = pendingResubmit;
+            setCartItems(prev => [...prev, item]);
+            setPendingResubmit(null);
+            // A pick came from the picker, so clear it. A request came from its own
+            // dialog, which has already reset; the picker may hold something else.
+            if (!item.is_new_request) resetSelection();
             toast({ title: "Item Added", description: "Previous rejected entry will be replaced upon submission." });
         } else {
             toast({ title: "Invalid Input", description: "Please enter '1' to continue.", variant: "destructive" });
@@ -395,108 +460,76 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
         resetSelection();
     };
 
-    // A "New" request from the RequestTdsItemDialog. Dedup on (tds_item_id, make);
-    // new-group requests (empty tds_item_id) are always allowed through.
+    // A request from the RequestTdsItemDialog. New Make dedups on (tds_item_id,
+    // make); Project Custom on name (ignoring case) + make. The server repeats
+    // both checks on send.
     const handleAddRequestedItem = (item: CartItem) => {
-        if (item.tds_item_id) {
-            const pairKey = `${item.tds_item_id}__${item.make}`;
-            if (cartPairs.has(pairKey)) {
-                toast({
-                    title: "Duplicate in Cart",
-                    description: "This item + make is already in your current selection.",
-                    variant: "destructive",
-                });
-                return;
-            }
-            if (activePairs.has(pairKey)) {
-                toast({
-                    title: "Already Submitted",
-                    description: "This item + make already exists for this project.",
-                    variant: "destructive",
-                });
-                return;
-            }
+        const [inCart, onProject] = item.is_project_custom
+            ? [cartCustomKeys, activeCustomKeys].map(keys => keys.has(customItemKey(item.tds_item_name, item.make)))
+            : [cartPairs, activePairs].map(keys => keys.has(`${item.tds_item_id}__${item.make}`));
+        if (inCart) {
+            toast({
+                title: "Duplicate in Cart",
+                description: "This item + make is already in your current selection.",
+                variant: "destructive",
+            });
+            return;
         }
+        const clientRejected = clientRejectedRowFor(existingProjectItems, item);
+        if (clientRejected) {
+            setClientRejectedRow(clientRejected);
+            return;
+        }
+        if (onProject) {
+            toast({
+                title: "Already Submitted",
+                description: "This item + make already exists for this project.",
+                variant: "destructive",
+            });
+            return;
+        }
+        if (deferToResubmitConfirm(item)) return;
         setCartItems(prev => [...prev, item]);
     };
 
-    const NewItemBadge = () => (
-        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 uppercase tracking-tight ml-2">
-            New
-        </span>
-    );
-
+    // The server saves every row or none (`api/tds/submit.py`): it issues the
+    // request id, re-checks duplicates, attaches the datasheets and deletes the
+    // Rejected rows being replaced, all in one transaction. Datasheets are
+    // uploaded first, unattached — an upload commits on its own, so it cannot
+    // sit inside that transaction. A failed send keeps the cart and the draft.
     const handleLogSubmit = async () => {
         if (cartItems.length === 0) return;
         setIsSubmitting(true);
-
-        // Allocate the next RQ request id for this project.
-        let nextSeq = 1;
-        const projectSuffix = projectId.slice(-3);
-        if (existingProjectItems) {
-            const prefix = `RQ-${projectSuffix}-`;
-            const reqIds = existingProjectItems
-                .map((i: any) => i.tds_request_id)
-                .filter((id: string) => id && id.startsWith(prefix));
-            if (reqIds.length > 0) {
-                const maxId = Math.max(...reqIds.map((id: string) => {
-                    const parts = id.split("-");
-                    return parseInt(parts[parts.length - 1]) || 0;
-                }));
-                if (!isNaN(maxId)) nextSeq = maxId + 1;
-            }
-        }
-        const uniqueReqId = `RQ-${projectSuffix}-${nextSeq.toString().padStart(2, '0')}`;
-
         try {
-            // 1. Delete previous rejected records being replaced.
-            const itemsToDelete = cartItems
-                .filter(item => item.previousDocName)
-                .map(item => item.previousDocName!);
-            if (itemsToDelete.length > 0) {
-                await Promise.all(itemsToDelete.map(name => deleteOldStyleDoc(name, projectId)));
-            }
-
-            // 2. Create each row (pure snapshot — ROW SHAPE per ADR-0025).
-            await Promise.all(cartItems.map(async (item) => {
-                const docData = {
-                    tdsi_project_id: projectId,
-                    tds_request_id: uniqueReqId,
-                    tds_item_id: item.tds_item_id || "",   // frozen TDS Item id ("" for new group)
-                    tds_item_name: item.tds_item_name,
-                    tds_make: item.make,
-                    tds_description: item.description || "",
-                    tds_work_package: item.work_package,
-                    tds_category: item.category || "",
-                    tds_status: item.is_new_request ? "New" : "Pending",
-                    tds_boq_line_item: item.tds_boq_line_item || "",
-                    tds_attachment: item.tds_attachment, // carried over for picked entries
-                };
-
-                const newDoc = await createFrappeDoc("Project TDS Item List", docData);
-
-                // 3. Upload the requested datasheet (New rows) if present.
-                if (newDoc && newDoc.name && item.attachmentFile) {
-                    try {
-                        const uploadResp = await uploadFile(item.attachmentFile, {
-                            doctype: "Project TDS Item List",
-                            docname: newDoc.name,
-                            fieldname: "tds_attachment",
-                            isPrivate: true,
-                        });
-                        const responseData = uploadResp as any;
-                        const fileUrl = responseData?.message?.file_url || responseData?.file_url;
-                        if (fileUrl) {
-                            await updateFrappeDoc("Project TDS Item List", newDoc.name, {
-                                tds_attachment: fileUrl,
-                            });
-                        }
-                    } catch (uploadError) {
-                        console.error(`Failed to upload file for ${item.tds_item_name}:`, uploadError);
-                        // Record is created; continue.
+            const rows: TdsSubmitRow[] = await Promise.all(cartItems.map(async (item) => {
+                let uploadedUrl = item.uploadedUrl;
+                if (item.is_new_request && !uploadedUrl && item.attachmentFile) {
+                    const uploaded = await uploadTdsFile(item.attachmentFile, { isPrivate: true });
+                    uploadedUrl = uploaded?.file_url;
+                    // Kept on the cart row: a refused or failed send leaves this upload unattached,
+                    // and the server accepts it again (`submit.py` `_claim_upload`), so a retry sends
+                    // it rather than uploading another copy.
+                    if (uploadedUrl) {
+                        const url = uploadedUrl;
+                        setCartItems(prev => prev.map(c => (c === item ? { ...c, uploadedUrl: url } : c)));
                     }
                 }
+                return {
+                    tds_item_id: item.tds_item_id || "",
+                    make: item.make,
+                    is_new_request: !!item.is_new_request,
+                    tds_boq_line_item: item.tds_boq_line_item || "",
+                    description: item.description || "",
+                    is_project_custom: !!item.is_project_custom,
+                    tds_item_name: item.tds_item_name,
+                    work_package: item.work_package,
+                    category: item.category || "",
+                    tds_attachment: uploadedUrl,
+                    previous_doc_name: item.previousDocName,
+                };
             }));
+
+            await submitTdsRequest(projectId, rows);
 
             toast({
                 title: "Request Submitted",
@@ -513,7 +546,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
             console.error("Submission failed", error);
             toast({
                 title: "Submission Failed",
-                description: "There was an error submitting your items. Please try again.",
+                description: `Nothing was saved. ${getFrappeError(error)}`,
                 variant: "destructive",
             });
         } finally {
@@ -589,7 +622,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                                         {/* No members ⇒ the frozen category will be blank. */}
                                         {option.memberCount === 0 && (
                                             <span className="ml-2 text-[10px] uppercase text-amber-600">
-                                                custom · no SKUs
+                                                No linked SKUs
                                             </span>
                                         )}
                                     </span>
@@ -616,7 +649,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             now, then adding to the cart, is the whole difference. */}
                         {selectedGroup && (memberCounts[selectedGroup.tds_item] ?? 0) === 0 && (
                             <p className="text-xs text-amber-600">
-                                Custom item — no linked SKUs, so <b>Category will be blank</b>.
+                                Unlinked TDS Item — no linked SKUs, so <b>Category will be blank</b>.
                                 Link SKUs first and Category fills in automatically:{" "}
                                 {/* A NEW TAB, not `navigate` — the fix is on another page and the
                                     user is mid-cart. Routing away would unmount the form; the
@@ -661,6 +694,10 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             options={makeOptions}
                             value={selectedMake ? { label: selectedMake, value: selectedMake } : null}
                             onChange={(opt: any) => {
+                                if (opt?.clientRejected) {
+                                    setClientRejectedRow(opt.clientRejected);
+                                    return;
+                                }
                                 if (opt?.consumed) {
                                     toast({
                                         title: "Already Submitted",
@@ -676,10 +713,22 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             className="react-select-container"
                             classNamePrefix="react-select"
                             formatOptionLabel={(option: any) => (
-                                <span className={option.consumed ? "text-gray-400" : ""}>
-                                    {option.label}
-                                    {option.consumed && <span className="text-[10px] ml-2 uppercase">(already submitted)</span>}
-                                </span>
+                                option.clientRejected ? (
+                                    <span className="flex items-center justify-between gap-2 text-gray-500">
+                                        {option.label}
+                                        <span
+                                            data-testid="tds-make-client-rejected-tag"
+                                            className="rounded-full border border-orange-200 bg-orange-100 px-2 py-px text-xs font-medium text-orange-800"
+                                        >
+                                            Rejected by Client
+                                        </span>
+                                    </span>
+                                ) : (
+                                    <span className={option.consumed ? "text-gray-400" : ""}>
+                                        {option.label}
+                                        {option.consumed && <span className="text-[10px] ml-2 uppercase">(already submitted)</span>}
+                                    </span>
+                                )
                             )}
                         />
                         {selectedGroup && makeOptions.length === 0 && (
@@ -761,7 +810,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                                         <TableCell className="font-medium">
                                             <div className="flex items-center">
                                                 {item.tds_item_name}
-                                                {item.is_new_request && <NewItemBadge />}
+                                                <CartRequestBadge type={cartRequestTypeOf(item)} />
                                             </div>
                                         </TableCell>
                                         <TableCell>
@@ -864,8 +913,18 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                 needsReattachCount={draft.pendingNeedsReattachCount}
             />
 
+            <TdsClientRejectedMakeDialog
+                row={clientRejectedRow}
+                markedByName={markedByName}
+                onPickAnother={() => setClientRejectedRow(null)}
+                onOpenRejectedTab={() => {
+                    setClientRejectedRow(null);
+                    onOpenRejectedByClient?.();
+                }}
+            />
+
             {/* Resubmit-rejected Confirmation Dialog */}
-            <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+            <AlertDialog open={!!pendingResubmit} onOpenChange={(open) => { if (!open) setPendingResubmit(null); }}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Resubmit Rejected Item?</AlertDialogTitle>
@@ -873,6 +932,21 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                             This item was previously rejected. To continue and replace the old entry, please enter <strong>"1"</strong> below.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
+                    {/* What is being replaced. No Request Type: it is not known once a row is rejected. */}
+                    {pendingResubmit && (
+                        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm">
+                            <dt className="text-gray-500">Item</dt>
+                            <dd className="font-medium text-gray-900 break-words">{pendingResubmit.rejected.tds_item_name}</dd>
+                            <dt className="text-gray-500">Make</dt>
+                            <dd className="text-gray-900">{pendingResubmit.rejected.tds_make}</dd>
+                            <dt className="text-gray-500">Request ID</dt>
+                            <dd className="text-gray-900">{pendingResubmit.rejected.tds_request_id || "--"}</dd>
+                            <dt className="text-gray-500">Rejection reason</dt>
+                            <dd className="text-gray-900 whitespace-pre-wrap break-words">
+                                {pendingResubmit.rejected.tds_rejection_reason || <span className="italic text-gray-400">No reason given</span>}
+                            </dd>
+                        </dl>
+                    )}
                     <div className="py-4">
                         <Input
                             value={confirmInput}
@@ -882,7 +956,7 @@ export const TdsCreateForm: React.FC<TdsCreateFormProps> = ({ projectId, onSucce
                         />
                     </div>
                     <AlertDialogFooter>
-                        <AlertDialogCancel onClick={() => setShowConfirmDialog(false)}>Cancel</AlertDialogCancel>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction
                             onClick={(e) => {
                                 e.preventDefault();

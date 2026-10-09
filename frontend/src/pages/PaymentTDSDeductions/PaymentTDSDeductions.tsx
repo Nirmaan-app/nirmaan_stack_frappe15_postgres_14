@@ -1,7 +1,7 @@
 /**
- * Reports > "Payment TDS Deduction" tab — the Tax Deducted at Source ledger, one row per deducted
+ * Reports > "Payment" tab > "TDS Deduction" — the Tax Deducted at Source ledger, one row per deducted
  * payment. It had a sidebar item and a `/payment-tds-deductions` route of its own until it moved
- * into the Reports hub; that path is now a redirect into the tab, so old links still work.
+ * into the Reports hub. That path was a redirect into the tab until 2026-10-07, when it was removed.
  *
  * ⚠️ "TDS" HERE IS **TAX DEDUCTED AT SOURCE**, NOT the Technical Data Sheet family that owns
  * `/tds-repository` and `/tds-approval` in the sidebar. The tab label and the old route name are

@@ -30,6 +30,7 @@ import {
   Landmark, PencilRuler, SquareStack,
   Warehouse, ClipboardList,
   FileChartLine,
+  PackageCheck,
   Tickets,
   Table2,
   TriangleAlert
@@ -587,9 +588,9 @@ export function NewSidebar() {
       ]
       : []),
     // Payment TDS Deduction (Tax Deducted at Source) has NO sidebar item of its own -- the ledger
-    // lives in the Reports hub as the "Payment TDS Deduction" tab (pages/reports), gated there by
-    // the same PAYMENT_TDS_ACCESS constant. `/payment-tds-deductions` still resolves; routesConfig
-    // redirects it into that tab.
+    // lives in the Reports hub under the "Payment" tab (pages/reports), gated there by
+    // the same PAYMENT_TDS_ACCESS constant. Its old `/payment-tds-deductions` route was removed
+    // (owner, 2026-10-07).
     // ── "Expense" HIDDEN from the sidebar (owner, 15 Sep 2026) ──────────────────
     //
     // Expenses are now raised and worked from "Project Payment & Expense": the unified
@@ -759,6 +760,18 @@ export function NewSidebar() {
         },
       ]
       : []),
+    // Handover Documents, across every project. The roles are the ones that WORK a handover --
+    // the same four `Project HOD Document` grants write to (System Manager / PMO / Project Lead /
+    // Project Manager). Read is far wider on the doctype; the sidebar is not the access boundary.
+    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
+      ? [
+        {
+          key: '/hod-tracker',
+          icon: PackageCheck,
+          label: 'HOD Tracker',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
@@ -852,6 +865,7 @@ export function NewSidebar() {
     'reports',
     'design-tracker',
     'snag-list',
+    'hod-tracker',
     'critical-po-tracker',
     'pr-tracker',
     'work-plan-tracker',
@@ -910,6 +924,7 @@ export function NewSidebar() {
     "/reports": ["reports"],
     '/design-tracker': ['design-tracker'],
     '/snag-list': ['snag-list'],
+    '/hod-tracker': ['hod-tracker'],
     '/critical-po-tracker': ['critical-po-tracker'],
     '/pr-tracker': ['pr-tracker'],
     '/work-plan-tracker': ['work-plan-tracker'],
@@ -1039,6 +1054,10 @@ export function NewSidebar() {
                     // renders a chevron and swallows the click (see the note further down).
                     "Snag List",
                     "Commission Report Tracker",
+                    // Flat nav button, NOT a group. Same trap as Snag List and Non-Project
+                    // Inflows above: leave this label out and the item falls into the
+                    // collapsible branch, rendering a chevron that swallows the click.
+                    "HOD Tracker",
                     // Flat nav button (no children), like the trackers around it.
                     "Billing Tracker",
                     "PR Tracker",

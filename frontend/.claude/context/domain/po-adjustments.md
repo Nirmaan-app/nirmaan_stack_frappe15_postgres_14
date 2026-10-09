@@ -1,5 +1,13 @@
 # PO Adjustments System — Complete Reference
 
+## Load-bearing invariants (owner-locked)
+
+_Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every frontend task needs (CLAUDE.md restructure, pass 2). `frontend/CLAUDE.md` now carries a one-line pointer here._
+
+- **PO Adjustments**: Decoupled payment reconciliation system (`src/pages/POAdjustment/`). Revision approval auto-creates `PO Adjustments` doc tracking financial impact; negative diffs with remaining balance show "Adjust Payments" button on PO detail. Three PUSH methods: Against-PO, Ad-hoc expense, Vendor Refund. Pending adjustments lock PO payments. **PULL flow:** a top-of-PO `VendorCreditSummaryCard` shows the vendor's overpaid-credit pool across all its POs ("₹X across N POs", vendor-scoped + cross-project) and "Apply to this PO" pulls it into the current PO (`apply_vendor_credit_to_po`); push & pull both take `FOR UPDATE` row locks (`_lock_and_assert_source_credit` / `_lock_and_assert_dest_capacity`) so the same credit can't be double-spent. See `.claude/context/domain/po-adjustments.md` for full docs + `docs/adr/0007-vendor-scoped-credit-application.md`.
+
+---
+
 ## Overview
 
 PO Adjustments is a **standalone payment reconciliation system** that tracks and resolves financial differences caused by PO Revisions. It decouples payment handling from the revision workflow, allowing revisions to be created/approved without upfront payment allocation.

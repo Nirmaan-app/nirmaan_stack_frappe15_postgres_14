@@ -135,14 +135,14 @@ class TestAllocatingInOneGo(AllocationFixture):
     def test_the_parent_total_is_RECOMPUTED_from_source_not_incremented(self):
         """⚠️ THE ASSERTION THAT ACTUALLY CATCHES A `+=` ON THE PARENT.
 
-        Root `CLAUDE.md`: "a derived field must be RECOMPUTED FROM SOURCE, never incremented by a
+        `CODING_STANDARDS.md`: "a derived field must be RECOMPUTED FROM SOURCE, never incremented by a
         delta, so that any later ordinary save repairs it exactly and a reconcile pass can always
         prove it." That REPAIR is the property -- not the arithmetic, which a delta reproduces from
         a clean start (see the case above). It is also the property ADR-0020 leans on: it is what
         lets a reversal take its share back out, and a re-allocation put it back, with no code
         anywhere in this feature doing parent bookkeeping.
 
-        The drift is seeded with a raw `set_value`, which fires no hooks -- root `CLAUDE.md`'s
+        The drift is seeded with a raw `set_value`, which fires no hooks -- `CODING_STANDARDS.md`'s
         standing trap, and the realistic origin of a wrong `amount_paid` in production (a patch, a
         backfill, a repair script). A SUM repairs it to 100 on the first leg's save. A delta cannot:
         it carries the wrong number forward forever, reaching 1,099.

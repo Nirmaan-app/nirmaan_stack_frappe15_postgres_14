@@ -1,5 +1,5 @@
 /**
- * What kind of payment a `Project Payments` row is (ADR-0030; glossary: CONTEXT.md, "GST payment").
+ * What kind of payment a `Project Payments` row is (ADR-0030; glossary: GLOSSARY.md, "GST payment").
  */
 
 /**

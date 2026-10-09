@@ -1,7 +1,7 @@
 # TDS Repository Restructure — Phase 2 Implementation Plan
 
 > 🗄️ **HISTORICAL BUILD PLAN — shipped, except FE-OPTIONS.** Today's model: `docs/adr/0023`–`0026`
-> + root `CONTEXT.md`. Drift found 2026-09-17: **FE-OPTIONS never shipped** (`useTDSItemOptions.ts` still
+> + root `GLOSSARY.md`. Drift found 2026-09-17: **FE-OPTIONS never shipped** (`useTDSItemOptions.ts` still
 > has the dead `CUS-` scan and per-category make filter; old `AddTDSItemDialog.tsx` is orphaned);
 > **`api/tds/allocate_pcus.py` still exists** with no caller; the picker searches **group name only**
 > (member matching behind `include_member_matches=False`, no 50 cap, new `get_tds_work_packages`);
@@ -14,7 +14,7 @@
 > Scope: re-enable **project consumption + approval** against the Phase 1 group
 > model. All design decisions are locked in `docs/adr/0025-tds-phase2-group-driven-
 > consumption.md` (grilled 2026-06-10). Read ADR-0025, ADR-0023, ADR-0024, and
-> `CONTEXT.md` first.
+> `GLOSSARY.md` first.
 
 **Key property: Phase 2 adds NO new doctypes and NO new columns.** It repurposes
 the existing `Project TDS Item List.tds_item_id` Data column to hold the frozen

@@ -43,8 +43,10 @@ export interface TdsDraftCartItem {
   /** Datasheet URL of an existing repository entry — a string, persists fine. */
   tds_attachment?: string;
   tds_boq_line_item?: string;
-  /** true ⇒ status "New"; the row carried a File that could not be persisted. */
+  /** true ⇒ a Request New row (New Make or Project Custom); it carried a File that could not be persisted. */
   is_new_request?: boolean;
+  /** true ⇒ a Project Custom request (`category` holds its chosen Category). */
+  is_project_custom?: boolean;
   /** A Rejected row this entry replaces on submit. */
   previousDocName?: string;
   /** Set on restore when the row's uploaded datasheet did not survive. */

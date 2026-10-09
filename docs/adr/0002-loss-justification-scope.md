@@ -10,7 +10,7 @@ Accepted.
 
 Approvers can see an item's Savings/Loss but had no way to capture *why* a high-loss
 item was chosen. The requirement: force a written **Loss Justification** for any item
-whose **Loss %** exceeds 10% (see `CONTEXT.md` for the terms), captured by the
+whose **Loss %** exceeds 10% (see `GLOSSARY.md` for the terms), captured by the
 Procurement Executive at Send-for-Approval and shown read-only to approvers, on both
 the Procurement Request and Sent Back paths.
 

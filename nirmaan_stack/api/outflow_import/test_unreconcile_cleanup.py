@@ -145,7 +145,7 @@ class TestVendorCreditOnTheSettleItself(TestVendorCredit):
         row, pay = self._one_settled_payment("60")
 
         vendor = frappe.get_doc("Vendors", self.vendor)
-        # RECOMPUTED FROM SOURCE, never nudged by a delta (root `CLAUDE.md`): the stored figure must
+        # RECOMPUTED FROM SOURCE, never nudged by a delta (`CODING_STANDARDS.md`): the stored figure must
         # equal what a fresh sum of the vendor's POs says, or nothing downstream can be trusted.
         self.assertEqual(float(vendor.credit_used), float(_compute_credit_used(vendor)))
         # 100 delivered less the 60 now paid.

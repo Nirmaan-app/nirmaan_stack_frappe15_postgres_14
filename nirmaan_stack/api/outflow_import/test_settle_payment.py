@@ -219,7 +219,7 @@ class PaymentSettlementFixture(unittest.TestCase):
         project's CEO-Hold state and leave the residue there after the test ends. This throwaway
         project, deleted in `tearDown`, is what keeps that residue inside the fixture instead.
 
-        Follows the documented Projects-row fixture pattern (root `CLAUDE.md`): `generate_pwm`'s
+        Follows the documented Projects-row fixture pattern (root `CODING_STANDARDS.md`): `generate_pwm`'s
         `after_insert` hook needs second-precision start/end dates and a `project_scopes` dict
         carrying a `scopes` key. It is still never appropriate to flip an EXISTING project's
         `tendering_status` to make one settle -- this fixture creates its own instead, for that

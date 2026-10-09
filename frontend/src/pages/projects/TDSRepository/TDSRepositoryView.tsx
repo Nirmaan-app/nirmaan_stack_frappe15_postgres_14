@@ -1,15 +1,21 @@
 import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Download, Loader2 } from 'lucide-react';
+import { ArrowLeft, Download, Loader2, Plus } from 'lucide-react';
 import { FrappeContext, FrappeConfig } from 'frappe-react-sdk';
-import { useTdsHistoryItems, useProjectDoc } from '../data/tds/useTdsQueries';
+import { useNirmaanUserNames, useTdsHistoryItems, useProjectDoc } from '../data/tds/useTdsQueries';
 import { format } from 'date-fns';
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
-import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog, TdsPdfReadyDialog } from './components';
+import { ADMIN_PROFILE } from "@/constants/roles";
+import { SetupTDSRepositoryDialog, TDSRepositoryData, ViewCard, TdsCreateForm, TdsHistoryTable, TdsExportDialog, TdsPdfReadyDialog, type TdsExportItem, type TdsExportOptions } from './components';
+import { HISTORY_TABS, clientStatusMarkedBy, formatTdsStamp, historyStatusLabel, projectHistoryTabFilters, type HistoryTab } from '@/utils/tdsRequestRules';
+import { PDF_DEFAULT_STATUSES } from '@/utils/tdsRequestRules';
+import { useCounts } from '@/hooks/useCounts';
+
+const ROW_DOCTYPE = "Project TDS Item List";
 
 interface TDSRepositoryViewProps {
     data: TDSRepositoryData;
@@ -20,13 +26,17 @@ interface TDSRepositoryViewProps {
 export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, projectId, onUpdate }) => {
     const { role } = useUserData();
     const canEditTDS = role === "Nirmaan Admin Profile" || role === "Administrator" || role === "Nirmaan PMO Executive Profile";
-    // Only Admins can save the generated Pending TDS PDF; everyone else previews only.
-    const isAdmin = role === "Nirmaan Admin Profile";
+    // Only Admins can save a PDF holding Pending sheets; everyone else previews it (`isPdfPreviewOnly`).
+    const isAdmin = role === ADMIN_PROFILE;
 
     const [isSetupDialogOpen, setIsSetupDialogOpen] = useState(false);
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+    // Bumped on each open: the PDF dialog remounts and starts from its defaults.
+    const [exportDialogKey, setExportDialogKey] = useState(0);
     const [isUpdating, setIsUpdating] = useState(false);
-    const [activeTab, setActiveTab] = useState("history");
+    const [activeTab, setActiveTab] = useState<HistoryTab>("history");
+    // The request form replaces the tab row and tables while open; both stay mounted.
+    const [isFormOpen, setIsFormOpen] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
     const [isExporting, setIsExporting] = useState(false);
     const [isExportingHistory, setIsExportingHistory] = useState(false);
@@ -44,8 +54,30 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
 
     // Fetch TDS history data directly for export
     const { data: historyData, mutate: mutateHistoryItems } = useTdsHistoryItems(projectId);
+    // Full names by user id, for the CSV's Marked By.
+    const userNames = useNirmaanUserNames();
 
     const { data: projectData } = useProjectDoc(projectId);
+
+    // One count per tab, with the same server filter its table uses, so a badge always matches its rows.
+    const tabCountSpecs = React.useMemo(
+        () => HISTORY_TABS.map(tab => ({
+            key: tab.value,
+            doctype: ROW_DOCTYPE,
+            filters: projectHistoryTabFilters(projectId, tab.value),
+        })),
+        [projectId]
+    );
+    const { data: tabCounts, mutate: mutateTabCounts } = useCounts(
+        tabCountSpecs,
+        `tds_tab_counts_${projectId}_${refreshKey}`
+    );
+
+    /* Rows were marked: refresh the badges, and the rows the CSV and PDF exports read. */
+    const handleClientStatusChange = () => {
+        mutateTabCounts();
+        mutateHistoryItems();
+    };
     const projectName = projectData?.project_name || projectId;
 
     /* `useTdsHistoryItems` is mounted by THIS PAGE, not by the dialog, so opening
@@ -60,6 +92,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
        fresh one lands, which beats blocking the open on a round trip. */
     const handleOpenExportDialog = () => {
         mutateHistoryItems();
+        setExportDialogKey(key => key + 1);
         setIsExportDialogOpen(true);
     };
 
@@ -91,12 +124,16 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                     "BOQ Ref",
                     "Status",
                     "Rejection Reason",
+                    "Client Status",
+                    "Marked By",
+                    "Marked On",
+                    "Client's Reason",
                     "Doc",
                     "Created On"
                 ];
 
                 // Map data to CSV rows
-                const rows = historyData.map((item: any) => [
+                const rows = historyData.map(item => [
                     item.tds_request_id || "",
                     item.tds_work_package || "",
                     item.tds_category || "",
@@ -105,10 +142,14 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                     (item.tds_description || "").replace(/,/g, ";"), // Escape commas
                     item.tds_make || "",
                     item.tds_boq_line_item || "",
-                    item.tds_status || "",
+                    historyStatusLabel(item.tds_status),
                     (item.tds_rejection_reason || "").replace(/,/g, ";"),
+                    item.client_status || "",
+                    clientStatusMarkedBy(item, userNames),
+                    formatTdsStamp(item.client_status_on),
+                    (item.client_rejection_reason || "").replace(/,/g, ";"),
                     item.tds_attachment || "",
-                    item.creation ? format(new Date(item.creation), "dd-MMM-yyyy HH:mm") : ""
+                    formatTdsStamp(item.creation)
                 ]);
 
                 // Create CSV content
@@ -189,7 +230,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
         handlePdfReadyClose();
     };
 
-    const handleExportWithItems = async (selectedItems: any[], selectedStatus: string) => {
+    const handleExportWithItems = async (selectedItems: TdsExportItem[], { previewOnly }: TdsExportOptions) => {
         if (!selectedItems || selectedItems.length === 0) {
             toast({
                 title: "No Items Selected",
@@ -248,7 +289,7 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 const objectUrl = window.URL.createObjectURL(blob);
                 setIsExportDialogOpen(false);
 
-                if (selectedStatus === "Pending") {
+                if (previewOnly) {
                     // Revoke any previous preview blob before replacing it, so
                     // back-to-back exports don't leak the earlier object URL.
                     setPdfReadyBlobUrl((prev) => {
@@ -408,47 +449,76 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
                 </CardContent>
             </Card>
 
-            {/* TDS Item Management Tabs */}
+            {/* TDS Item Management: the table tabs, or the request form in their place */}
             <div className="mt-12">
-                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                    <TabsList className="inline-flex p-0 bg-white border border-gray-200 rounded-md overflow-hidden mb-6">
-                        <TabsTrigger
-                            value="history"
-                            className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
-                        >
-                            TDS History
-                        </TabsTrigger>
-                        <TabsTrigger
-                            value="new"
-                            className="rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
-                        >
-                            New Request
-                        </TabsTrigger>
-                    </TabsList>
+                <div className={isFormOpen ? 'hidden' : 'block'}>
+                    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as HistoryTab)} className="w-full">
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
+                            <TabsList className="inline-flex p-0 bg-white border border-gray-200 rounded-md overflow-hidden">
+                                {HISTORY_TABS.map(tab => (
+                                    <TabsTrigger
+                                        key={tab.value}
+                                        value={tab.value}
+                                        className="group rounded-none px-6 py-2 text-sm font-medium data-[state=active]:bg-red-600 data-[state=active]:text-white bg-transparent text-gray-500 hover:bg-gray-50 hover:text-gray-900 shadow-none border-r border-gray-100 last:border-r-0 transition-colors"
+                                    >
+                                        {tab.label}
+                                        <span
+                                            data-testid={`tds-tab-count-${tab.value}`}
+                                            className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700 group-data-[state=active]:bg-white/20 group-data-[state=active]:text-white"
+                                        >
+                                            {(tabCounts?.message?.[tab.value] as number | undefined) ?? 0}
+                                        </span>
+                                    </TabsTrigger>
+                                ))}
+                            </TabsList>
+                            <Button
+                                onClick={() => setIsFormOpen(true)}
+                                className="bg-red-600 hover:bg-red-700 text-white font-medium px-4 shadow-sm"
+                            >
+                                <Plus className="w-4 h-4 mr-2" />
+                                Create New Request
+                            </Button>
+                        </div>
+                        {HISTORY_TABS.map(tab => (
+                            <TabsContent key={tab.value} value={tab.value} className="mt-0">
+                                <TdsHistoryTable
+                                    projectId={projectId}
+                                    tab={tab.value}
+                                    refreshTrigger={refreshKey}
+                                    onDataChange={() => setRefreshKey(prev => prev + 1)}
+                                    onClientStatusChange={handleClientStatusChange}
+                                />
+                            </TabsContent>
+                        ))}
+                    </Tabs>
+                </div>
 
-                    <div className="mt-6">
-                        <div className={activeTab === 'new' ? 'block' : 'hidden'}>
-                            <TdsCreateForm
-                                key={refreshKey}
-                                projectId={projectId}
-                                onSuccess={() => {
-                                    setActiveTab('history');
-                                    setRefreshKey(prev => prev + 1);
-                                }}
-                                // Both tabs stay mounted, so the draft prompt can be
-                                // answered from TDS History — resuming must switch here.
-                                onDraftResumed={() => setActiveTab('new')}
-                            />
-                        </div>
-                        <div className={activeTab === 'history' ? 'block' : 'hidden'}>
-                            <TdsHistoryTable 
-                                projectId={projectId} 
-                                refreshTrigger={refreshKey}
-                                onDataChange={() => setRefreshKey(prev => prev + 1)}
-                            />
-                        </div>
-                    </div>
-                </Tabs>
+                {/* The form stays mounted while hidden: its saved-draft prompt opens on mount, so it
+                    can be answered from TDS History, and resuming must bring the form into view. */}
+                <div className={isFormOpen ? 'block' : 'hidden'}>
+                    <Button
+                        variant="ghost"
+                        onClick={() => setIsFormOpen(false)}
+                        className="mb-4 px-2 text-gray-600 hover:text-gray-900"
+                    >
+                        <ArrowLeft className="w-4 h-4 mr-2" />
+                        Back to TDS History
+                    </Button>
+                    <TdsCreateForm
+                        key={refreshKey}
+                        projectId={projectId}
+                        onSuccess={() => {
+                            setIsFormOpen(false);
+                            setActiveTab('history');
+                            setRefreshKey(prev => prev + 1);
+                        }}
+                        onDraftResumed={() => setIsFormOpen(true)}
+                        onOpenRejectedByClient={() => {
+                            setIsFormOpen(false);
+                            setActiveTab('rejectedByClient');
+                        }}
+                    />
+                </div>
             </div>
 
             {/* Edit Dialog */}
@@ -462,15 +532,17 @@ export const TDSRepositoryView: React.FC<TDSRepositoryViewProps> = ({ data, proj
 
             {/* Export Dialog */}
             <TdsExportDialog
+                key={exportDialogKey}
                 isOpen={isExportDialogOpen}
                 onClose={() => setIsExportDialogOpen(false)}
                 onExport={handleExportWithItems}
                 settings={data}
-                historyData={historyData || []}
+                historyData={historyData ?? []}
                 isExporting={isExporting}
+                defaultStatuses={PDF_DEFAULT_STATUSES.tdsPage}
             />
 
-            {/* PDF Ready Dialog (Pending exports) */}
+            {/* PDF Ready Dialog (preview-only exports) */}
             <TdsPdfReadyDialog
                 isOpen={isPdfReadyOpen}
                 onClose={handlePdfReadyClose}

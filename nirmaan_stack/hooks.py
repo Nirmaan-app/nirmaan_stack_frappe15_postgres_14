@@ -61,10 +61,14 @@ app_license = "mit"
 # ----------
 
 # add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "nirmaan_stack.utils.jinja_methods",
-# 	"filters": "nirmaan_stack.utils.jinja_filters"
-# }
+# Handover Documents print formats ("HOD Document", "HOD Checklist") call these to get their data,
+# so the Jinja stays layout-only.
+jinja = {
+	"methods": [
+		"nirmaan_stack.api.hod.print_context.hod_print_context",
+		"nirmaan_stack.api.hod.print_context.hod_checklist_context",
+	],
+}
 
 # Installation
 # ------------
@@ -160,6 +164,11 @@ doc_events = {
         ],
         "on_trash": "nirmaan_stack.integrations.controllers.user_permission.on_trash"
     },
+    "Project HOD Document": {
+        # One row per project x system x document; a switched-off row can't be changed until it is
+        # switched back on. In a hook so Desk / bulk edit / Data Import follow the same rules.
+        "validate": "nirmaan_stack.integrations.controllers.project_hod_document.validate",
+    },
     "Project Snag": {
         # Attribution for a status move. In a hook, NOT in the API, so a Desk / bulk-edit /
         # Data Import write is stamped too -- see the controller's module docstring.
@@ -215,7 +224,10 @@ doc_events = {
         "after_delete": "nirmaan_stack.integrations.controllers.items.after_delete"
     },
     "Project TDS Item List": {
-        "before_save": "nirmaan_stack.integrations.controllers.project_tds_item_list.before_save"
+        "before_save": "nirmaan_stack.integrations.controllers.project_tds_item_list.before_save",
+        # A row the client has answered can't be deleted by anyone until an Admin clears its
+        # Client Status (ADR-0025 Amendment B). Doc-layer deletes only, which includes REST.
+        "on_trash": "nirmaan_stack.integrations.controllers.project_tds_item_list.on_trash",
     },
     # TAX DEDUCTED AT SOURCE (not the Technical Data Sheet family above). A challan's
     # `reconciled_amount` is the sum of the deductions pointing at it, so a deleted deduction has

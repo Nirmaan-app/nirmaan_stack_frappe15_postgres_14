@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 
 """A Work Order's own GST, and how much GST an invoice approval opens up. ADR-0030; glossary:
-CONTEXT.md, *GST Invoiced* and *Work Order payment limit (GST-on)*.
+GLOSSARY.md, *GST Invoiced* and *Work Order payment limit (GST-on)*.
 
 PURE -- no database, no request context. Callers read `total_amount`, `gst` and `gst_invoiced`
 off the Service Request and hand them here.

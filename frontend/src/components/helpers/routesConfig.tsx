@@ -94,6 +94,11 @@ import BillingProjectPage from '@/pages/ProjectBilling/BillingProjectPage';
 import ProjectCommissionReportDetail from '@/pages/CommissionReport/project-commission-report-details';
 import CommissionReportWizard from '@/pages/CommissionReport/report-wizard';
 
+// HOD Tracker — the cross-project handover list and its own detail page. The detail mounts the same
+// `HandoverDocumentsTab` the project page does, so there is one screen, not two.
+import HodTrackerList from "@/pages/HandoverDocuments/hod-tracker-list";
+import HodTrackerDetail from "@/pages/HandoverDocuments/hod-tracker-detail";
+
 
 //Design Tracker
 import DesignTrackerList from "@/pages/ProjectDesignTracker/design-tracker-list";
@@ -422,6 +427,25 @@ export const appRoutes: RouteObject[] = [
           // --- END: COMMISSION REPORT SECTION ---
           // ======================================================
           // ======================================================
+          // --- START: HOD TRACKER SECTION ---
+          // ======================================================
+          // Same shape as the Design Tracker below: a list, and a detail page of its own rather
+          // than a redirect into the Project page. The detail mounts the very same
+          // `HandoverDocumentsTab` the project page mounts, so the two cannot drift.
+          {
+            path: "hod-tracker",
+            children: [
+              // 1. List View (e.g. /hod-tracker)
+              { index: true, element: <HodTrackerList /> },
+
+              // 2. Detail View (e.g. /hod-tracker/KOLKATA-PROJ-00102)
+              { path: ":projectId", element: <HodTrackerDetail /> },
+            ],
+          },
+          // ======================================================
+          // --- END: HOD TRACKER SECTION ---
+          // ======================================================
+          // ======================================================
           // --- START: NEW DESIGN TRACKER SECTION ---
           // ======================================================
           {
@@ -612,17 +636,6 @@ export const appRoutes: RouteObject[] = [
               { index: true, element: <RenderProjectPaymentsComponent /> },
               { path: ":id", element: <OrderPaymentSummary /> } // Consider :paymentId or :orderId for clarity
             ]
-          },
-          // --- Payment TDS Deduction (Tax Deducted at Source) ---
-          // The ledger MOVED into the Reports hub (Reports > "Payment TDS Deduction" tab), so this
-          // legacy path is now a redirect -- old links and bookmarks still land on the ledger.
-          // No RoleRoute: the tab itself is gated by PAYMENT_TDS_ACCESS inside ReportsContainer,
-          // and a guard here would only decide who gets bounced vs who sees "Access Denied".
-          // ⚠️ NOT the `/tds-repository` / `/tds-approval` family above, which is the TECHNICAL
-          // DATA SHEET module. The path is spelled out in full so the two never collide.
-          {
-            path: "payment-tds-deductions",
-            element: <Navigate to="/reports?tab=payment_tds" replace />,
           },
           // --- Project Payments ---
           {

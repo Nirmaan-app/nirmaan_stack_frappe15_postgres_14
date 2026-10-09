@@ -92,6 +92,7 @@ const SnagListTab = React.lazy(() => import("@/pages/SnagList/SnagListTab").then
 const NoDesignTrackerView = React.lazy(() => import("@/pages/ProjectDesignTracker/components/NoDesignTrackerView").then(module => ({ default: module.NoDesignTrackerView })));
 const ProjectCommissionReportDetail = React.lazy(() => import("@/pages/CommissionReport/project-commission-report-details"));
 const NoCommissionReportView = React.lazy(() => import("@/pages/CommissionReport/components/NoCommissionReportView").then(module => ({ default: module.NoCommissionReportView })));
+const HandoverDocumentsTab = React.lazy(() => import("@/pages/HandoverDocuments/HandoverDocumentsTab").then(module => ({ default: module.HandoverDocumentsTab })));
 const CriticalPOTasksTab = React.lazy(() => import("./CriticalPOTasks/CriticalPOTasksTab").then(module => ({ default: module.CriticalPOTasksTab })));
 import { ProjectExpensesTab } from "./components/ProjectExpenseTab"; // NEW
 const ProjectDCMIRTab = React.lazy(() => import("./components/ProjectDCMIRTab").then(module => ({ default: module.ProjectDCMIRTab })));
@@ -339,6 +340,7 @@ export const PROJECT_PAGE_TABS = {
   DC_MIR: 'projectdcmir',
   BULK_DOWNLOAD: 'bulkdownload',
   COMMISSION_REPORT: 'commission-report',
+  HANDOVER_DOCUMENTS: 'handover-documents',
   BOQ: 'boq',
   BILLING: 'billing',
 } as const;
@@ -527,6 +529,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.DC_MIR,
     PROJECT_PAGE_TABS.BULK_DOWNLOAD,
     PROJECT_PAGE_TABS.COMMISSION_REPORT,
+    PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
     PROJECT_PAGE_TABS.BOQ,
     PROJECT_PAGE_TABS.TDS_REPOSITORY,
     ...(canSeeBilling ? [PROJECT_PAGE_TABS.BILLING] : []),
@@ -547,6 +550,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     PROJECT_PAGE_TABS.TDS_REPOSITORY,
     PROJECT_PAGE_TABS.BULK_DOWNLOAD,
     PROJECT_PAGE_TABS.COMMISSION_REPORT,
+    PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
     PROJECT_PAGE_TABS.BOQ,
   ]), []);
 
@@ -569,6 +573,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       PROJECT_PAGE_TABS.TDS_REPOSITORY,
       PROJECT_PAGE_TABS.BULK_DOWNLOAD,
       PROJECT_PAGE_TABS.COMMISSION_REPORT,
+      PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
       PROJECT_PAGE_TABS.BOQ,
       ...(canSeeBilling ? [PROJECT_PAGE_TABS.BILLING] : []),
     ]);
@@ -667,6 +672,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
           label: "Commission Report",
           key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
         },
+        {
+          label: "Handover Documents",
+          key: PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
+        },
         ...billingTab,
       ];
     }
@@ -725,6 +734,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Commission Report",
           key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
+        },
+        {
+          label: "Handover Documents",
+          key: PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
         },
       ];
     }
@@ -800,6 +813,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         {
           label: "Commission Report",
           key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
+        },
+        {
+          label: "Handover Documents",
+          key: PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
         },
       ];
     }
@@ -904,6 +921,10 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
       ...(!isAccountant ? [{
         label: "Commission Report",
         key: PROJECT_PAGE_TABS.COMMISSION_REPORT,
+      }] : []),
+      ...(!isAccountant ? [{
+        label: "Handover Documents",
+        key: PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS,
       }] : []),
     ];
   }, [role, isAccountant, isProcurementExecutive, isEstimatesExecutive, isPrivilegedUser, isProjectManager, isSales, canSeeBilling]);
@@ -1646,6 +1667,8 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
             }}
           />
         );
+      case PROJECT_PAGE_TABS.HANDOVER_DOCUMENTS:
+        return <Suspense fallback={<LoadingFallback />}><HandoverDocumentsTab projectId={projectId} projectName={data?.project_name} /></Suspense>;
       case PROJECT_PAGE_TABS.BILLING:
         return canSeeBilling ? <ProjectBillingTab projectId={projectId} projectName={data.project_name} /> : null;
       case PROJECT_PAGE_TABS.PR_SUMMARY:

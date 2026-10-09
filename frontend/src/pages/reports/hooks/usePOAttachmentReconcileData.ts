@@ -5,6 +5,7 @@ import { NirmaanAttachment } from '@/types/NirmaanStack/NirmaanAttachment';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
+import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
 import { parseNumber } from '@/utils/parseNumber';
 import { queryKeys, getPaymentReportListOptions } from '@/config/queryKeys';
 
@@ -36,6 +37,7 @@ export interface POAttachmentReconcileRowData {
     status: string;
     totalPOAmount: number;
     totalAmountPaid: number;
+    latestPaymentDate: string | null;          // Most recent Paid payment_date for this PO
     totalInvoiceAmount: number;
     poAmountDelivered: number;
     // Attachment counts
@@ -187,10 +189,22 @@ export const usePOAttachmentReconcileData = (): UsePOAttachmentReconcileDataResu
         }, {} as Record<string, number>) ?? {};
     }, [payments]);
 
-    // Group attachments by PO name
+    // Latest Paid payment_date per PO (ISO dates compare correctly as strings)
+    const latestPaymentDateMap = useMemo(() => {
+        return payments?.reduce((acc, payment) => {
+            if (payment.document_name && payment.payment_date) {
+                const current = acc[payment.document_name];
+                if (!current || payment.payment_date > current) {
+                    acc[payment.document_name] = payment.payment_date;
+                }
+            }
+            return acc;
+        }, {} as Record<string, string>) ?? {};
+    }, [payments]);
 
-    // Fetch Vendor Invoices
-    const poNames = useMemo(() => purchaseOrders?.map(po => po.name) || [], [purchaseOrders]);
+    // Fetch all Approved PO invoices and group client-side (same as attachments).
+    // Do NOT filter by `document_name in <every PO>`: with ~5k POs that IN list trips
+    // Frappe's sqlparse 10k-token cap (SQLParseError) and every row read 0 invoices.
     const {
         data: vendorInvoices,
         isLoading: invoicesLoading,
@@ -202,11 +216,10 @@ export const usePOAttachmentReconcileData = (): UsePOAttachmentReconcileDataResu
             filters: [
                 ['document_type', '=', 'Procurement Orders'],
                 ['status', '=', 'Approved'],
-                ['document_name', 'in', poNames]
             ],
             limit: 100000
         },
-        poNames.length > 0 ? ["Vendor Invoices", "poAttachmentReconcile", ...poNames] : null
+        ["Vendor Invoices", "poAttachmentReconcile"]
     );
 
     // Group invoices by PO
@@ -281,6 +294,7 @@ export const usePOAttachmentReconcileData = (): UsePOAttachmentReconcileDataResu
                 status: po.status,
                 totalPOAmount: parseNumber(po.total_amount),
                 totalAmountPaid: paymentsMap[po.name] || 0,
+                latestPaymentDate: latestPaymentDateMap[po.name] || null,
                 totalInvoiceAmount,
                 poAmountDelivered: parseNumber(po.po_amount_delivered),
                 invoiceCount: invoices.length,
@@ -292,9 +306,9 @@ export const usePOAttachmentReconcileData = (): UsePOAttachmentReconcileDataResu
             };
         });
     }, [
-        purchaseOrders, attachments, payments, projects, vendors,
-        poLoading, attachmentsLoading, paymentsLoading, projectsLoading, vendorsLoading,
-        projectMap, vendorMap, paymentsMap, attachmentsByPO
+        purchaseOrders,
+        poLoading, attachmentsLoading, paymentsLoading, projectsLoading, vendorsLoading, invoicesLoading,
+        projectMap, vendorMap, paymentsMap, latestPaymentDateMap, attachmentsByPO, invoicesByPO
     ]);
 
     // Calculate summary
@@ -311,8 +325,8 @@ export const usePOAttachmentReconcileData = (): UsePOAttachmentReconcileDataResu
         };
     }, [reportData]);
 
-    const isLoading = poLoading || attachmentsLoading || paymentsLoading || projectsLoading || vendorsLoading;
-    const error = poError || attachmentsError || paymentsError || projectsError || vendorsError;
+    const isLoading = poLoading || attachmentsLoading || paymentsLoading || projectsLoading || vendorsLoading || invoicesLoading;
+    const error = poError || attachmentsError || paymentsError || projectsError || vendorsError || invoicesError;
 
     return {
         reportData,

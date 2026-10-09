@@ -24,8 +24,12 @@ import { PaymentsDataDialog } from "@/pages/ProjectPayments/PaymentsDataDialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { TailSpin } from "react-loader-spinner";
-import { Info } from "lucide-react";
+import { FileDown, Info, Loader2 } from "lucide-react";
 import { INACTIVE_PO_ROW_CLASSES } from "@/utils/inactivePoRowStyles";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/use-toast";
+import { convertTanstackFiltersToFrappe } from "@/lib/frappeTypeUtils";
+import { downloadPrintFormatPdf } from "@/utils/downloadPrintFormatPdf";
 
 interface VendorMaterialOrdersTableProps {
   vendorId: string;
@@ -79,6 +83,7 @@ export const VendorMaterialOrdersTable: React.FC<
   // --- State for Dialogs ---
   const [selectedInvoicePO, setSelectedInvoicePO] = useState<ProcurementOrder | undefined>();
   const [selectedPaymentPO, setSelectedPaymentPO] = useState<ProcurementOrder | undefined>();
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
   // --- Static Filters ---
   // Inactive POs ARE included here (they are shown with a red row tint) — only
@@ -509,6 +514,34 @@ export const VendorMaterialOrdersTable: React.FC<
     aggregatesConfig: PO_AGGREGATES_CONFIG,
   });
 
+  // The "Vendor Material Orders" print format calls the same list endpoint as "Export all"
+  // with the table's current filters, search and sort, so the PDF lists what the table shows.
+  const handleDownloadPdf = async () => {
+    const { columnFilters, sorting } = table.getState();
+    const searchField = PO_SEARCHABLE_FIELDS.find((f) => f.value === selectedSearchField);
+    const search = searchTerm?.trim();
+    setIsDownloadingPdf(true);
+    try {
+      await downloadPrintFormatPdf({
+        doctype: "Vendors",
+        name: vendorId,
+        format: "Vendor Material Orders",
+        fileName: `${vendorName || vendorId}_Material_Orders_${new Date().toISOString().slice(0, 10)}.pdf`,
+        params: {
+          po_filters: columnFilters.length ? JSON.stringify(convertTanstackFiltersToFrappe(columnFilters)) : undefined,
+          order_by: sorting.length ? `${sorting[0].id} ${sorting[0].desc ? "desc" : "asc"}` : undefined,
+          search_term: search || undefined,
+          search_field: search ? selectedSearchField : undefined,
+          item_search: search && searchField?.is_json ? "1" : undefined,
+        },
+      });
+    } catch (err) {
+      toast({ variant: "destructive", title: "PDF download failed", description: (err as Error).message });
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
   if (tableError) return <AlertDestructive error={tableError} />;
 
   const amountDue = totalInvoiced - totalPaidForPOs;
@@ -545,6 +578,12 @@ export const VendorMaterialOrdersTable: React.FC<
         onExportAll={exportAllRows}
         isExporting={isExporting}
         exportFileName={`${vendorName}_Material_Orders`}
+        toolbarActions={
+          <Button onClick={handleDownloadPdf} variant="outline" size="sm" className="h-9" disabled={isDownloadingPdf}>
+            {isDownloadingPdf ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileDown className="mr-2 h-4 w-4" />}
+            Download PDF
+          </Button>
+        }
         summaryCard={
           <Card className="border shadow-sm">
             <CardContent className="p-4">

@@ -84,3 +84,7 @@ Model the automatic holds as a **recompute-from-truth projection**, exactly like
 - The `projects.py` manual gate gains one clause (reject release while reasons active); its nitesh-only set/revert
   logic is otherwise untouched, and the ~50 read-side CEO-Hold consumers (which key off `status == "CEO Hold"`)
   are **unchanged** because `status` is still maintained as the mirror.
+
+## Amendment: threshold
+
+The delivery-pending threshold of 4 recorded above was later raised. The live value is `DN_PENDING_HOLD_THRESHOLD` in `services/ceo_hold/core.py` (currently 10: hold at 11+, release at 10 or fewer).

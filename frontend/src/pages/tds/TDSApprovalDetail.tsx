@@ -26,7 +26,7 @@ import {
     TooltipProvider,
     TooltipTrigger
 } from "@/components/ui/tooltip";
-import { useFrappeGetDocList, useFrappeGetDoc, useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetDocList, useFrappeGetDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
 // useFrappeCreateDoc removed in Phase 2 — promotion is now a backend API call.
 import { useUserData } from "@/hooks/useUserData";
 import {
@@ -36,13 +36,40 @@ import {
     ColumnDef,
 } from "@tanstack/react-table";
 import { RejectTDSModal } from "./components/RejectTDSModal";
-import { ProjectEditTDSItemModal } from "./components/ProjectEditTDSItemModal";
-import { EditRequestItemModal } from "./components/EditRequestItemModal";
+import { ProjectEditTDSItemModal, type PickItemEdit } from "./components/ProjectEditTDSItemModal";
+import { EditRequestItemModal, type RequestItemEdit } from "./components/EditRequestItemModal";
+import { ChooseDatasheetDialog, type DatasheetConflictRow } from "./components/ChooseDatasheetDialog";
 import { toast } from "@/components/ui/use-toast";
+import { getFrappeError } from "@/utils/frappeErrors";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+    DATASHEET_CHOICE,
+    ITEM_STATUSES,
+    REQUEST_TYPES,
+    entryAddedSinceRequest,
+    historyStatusOf,
+    isEditableRequest,
+    isProjectCustomId,
+    itemStatusOf,
+    repositoryEntryKey,
+    requestTypeOf,
+    type DatasheetChoice,
+    type ItemStatus,
+    type RequestType,
+} from "@/utils/tdsRequestRules";
+
+/** One refused row in the approve reply (`api/tds/approve.py` `approve_tds_items`). */
+interface ApproveRowError {
+    name: string;
+    error: string;
+    /** A New Make whose entry exists, approved without a datasheet choice. */
+    needs_datasheet_choice?: boolean;
+    /** That entry's current sheet, as the server read it. */
+    repository_sheet?: string | null;
+}
 
 interface TDSItem {
     name: string;
@@ -103,47 +130,41 @@ const MakePill = ({ make }: { make: string }) => (
     </span>
 );
 
-// Unified Item Status used by the Pending Review table column. Each request
-// row maps to exactly one of these; derivation order is fixed.
-type ItemStatusKind = "Custom Item" | "New Item" | "Verified" | "Not Verified";
-
-const ITEM_STATUS_KINDS: ItemStatusKind[] = ["Custom Item", "New Item", "Verified", "Not Verified"];
-
-const ITEM_STATUS_STYLES: Record<ItemStatusKind, { badge: string; text: string }> = {
-    "Custom Item":  { badge: "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-600/20",   text: "text-amber-800" },
-    "New Item":     { badge: "bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/20",         text: "text-sky-800" },
-    "Verified":     { badge: "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20", text: "text-emerald-800" },
-    "Not Verified": { badge: "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/20",      text: "text-rose-800" },
+// Pending Review badges. The rules that pick the value live in `utils/tdsRequestRules`.
+const REQUEST_TYPE_STYLES: Record<RequestType, string> = {
+    "From Repository": "bg-slate-100 text-slate-700",
+    "New Make":        "bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-600/20",
+    "Project Custom":  "bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-600/20",
 };
 
-// Item-status badge derivation (Phase 2, group model). Keyed on
-// (tds_item_id, tds_make) where tds_item_id is the frozen TDS Item (group) id.
-//   - "Custom Item"  → a "New" request proposing a BRAND-NEW group (no group id yet).
-//   - "New Item"     → a "New" request against an EXISTING group (group id set) —
-//                      typically a make missing a Repository Entry / datasheet.
-//   - "Verified"     → picked row whose master (tds_item, make) entry is Verified.
-//   - "Not Verified" → picked row with no Verified master entry for (tds_item, make).
-const repoKey = (tdsItemId?: string, make?: string) =>
-    `${tdsItemId || ""}|${(make || "").trim().toLowerCase()}`;
-
-const getItemStatusKind = (
-    item: { tds_status?: string; tds_item_id?: string; tds_make?: string },
-    repoStatusByKey: Map<string, string>
-): ItemStatusKind => {
-    if (item.tds_status === "New" && !item.tds_item_id) return "Custom Item";
-    if (item.tds_status === "New") return "New Item";
-    return repoStatusByKey.get(repoKey(item.tds_item_id, item.tds_make)) === "Verified"
-        ? "Verified"
-        : "Not Verified";
+const ITEM_STATUS_STYLES: Record<Exclude<ItemStatus, "--">, string> = {
+    "Verified":     "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20",
+    "Not Verified": "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-600/20",
 };
 
-const ItemStatusBadge: React.FC<{ kind: ItemStatusKind }> = ({ kind }) => (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-tight ${ITEM_STATUS_STYLES[kind].badge}`}>
-        {kind}
+const RequestTypeBadge: React.FC<{ type: RequestType }> = ({ type }) => (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold whitespace-nowrap ${REQUEST_TYPE_STYLES[type]}`}>
+        {type}
     </span>
 );
 
+const ItemStatusCell: React.FC<{ status: ItemStatus; addedSinceRequest: boolean }> = ({ status, addedSinceRequest }) => (
+    <div>
+        {status === "--" ? (
+            <span className="text-slate-400">--</span>
+        ) : (
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-tight ${ITEM_STATUS_STYLES[status]}`}>
+                {status}
+            </span>
+        )}
+        {addedSinceRequest && (
+            <span className="block text-[10px] text-sky-700 mt-0.5">entry added since request</span>
+        )}
+    </div>
+);
 
+const toFacetOptions = <T extends string>(all: readonly T[], present: Set<T>) =>
+    all.filter(v => present.has(v)).map(v => ({ label: v, value: v }));
 
 // Section Table Component
 const ItemsTable = ({
@@ -481,6 +502,12 @@ export const TDSApprovalDetail: React.FC = () => {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<TDSItem | null>(null);
     const [processing, setProcessing] = useState(false);
+    // "Choose the correct datasheet": the selected New Make rows whose entry exists, by name.
+    const [chooserNames, setChooserNames] = useState<string[]>([]);
+    const [datasheetChoices, setDatasheetChoices] = useState<Record<string, DatasheetChoice>>({});
+    // The entry's current sheet for each chooser row, as the approve reply named it. It wins over this
+    // page's own copy of the repository, which can be older than what the server just checked.
+    const [replySheets, setReplySheets] = useState<Record<string, string | null | undefined>>({});
 
     // Use custom hook for user data and role
     const { user_id, role } = useUserData();
@@ -503,35 +530,39 @@ export const TDSApprovalDetail: React.FC = () => {
         limit: 0
     });
 
-    // TDS Repository (Phase 2 group shape: entries are (tds_item Link, make)).
-    // Used only to render the inline master "Verified" / "Not Verified" badge on
-    // picked rows. The OLD removed columns (tds_item_id/tds_item_name/category)
-    // are gone; we request only the current shape so get_list never throws. The
-    // approval/promotion writes are done server-side (api/tds/approve.py), so this
-    // fetch is read-only for badge derivation.
+    // TDS Repository entries of this request's TDS Items (Phase 2 group shape: (tds_item Link, make)),
+    // read only to derive each Pending Review row's Item Status and to offer the datasheet chooser up
+    // front. Reloaded after every approval. Whether a New Make really needs a choice is the server's
+    // answer (`needs_datasheet_choice` in the approve reply), so a stale copy here costs one round
+    // trip, never a stuck row. Approval writes happen server-side (api/tds/approve.py).
     type RepoEntry = {
         name: string;
         tds_item: string;
         make: string;
         status?: string;
+        tds_attachment?: string;
     };
-    const { data: repoEntries } = useFrappeGetDocList<RepoEntry>("TDS Repository", {
-        fields: ["name", "tds_item", "make", "status"],
-        limit: 0,
-    });
+    const requestItemIds = useMemo(
+        () => [...new Set((allItems ?? []).map(i => i.tds_item_id).filter(id => id && !isProjectCustomId(id)))],
+        [allItems]
+    );
+    const { data: repoEntries, mutate: mutateRepoEntries } = useFrappeGetDocList<RepoEntry>(
+        "TDS Repository",
+        {
+            fields: ["name", "tds_item", "make", "status", "tds_attachment"],
+            filters: [["tds_item", "in", requestItemIds]],
+            limit: 0,
+        },
+        requestItemIds.length ? undefined : null
+    );
 
-    // Lookup of TDS Repository status keyed on (tds_item|make) — the entry's
-    // uniqueness key. Used by the Pending Review row to render the master's
-    // "Verified" / "Not Verified" badge inline. Keyed identically to repoKey().
-    const repoStatusByKey = useMemo(() => {
-        const map = new Map<string, string>();
-        if (!repoEntries) return map;
-        repoEntries.forEach(r => {
-            const key = repoKey(r.tds_item, r.make);
-            if (r.status) map.set(key, r.status);
-        });
+    const repoEntryByKey = useMemo(() => {
+        const map = new Map<string, RepoEntry>();
+        repoEntries?.forEach(r => map.set(repositoryEntryKey(r.tds_item, r.make), r));
         return map;
     }, [repoEntries]);
+
+    const entryFor = (item: TDSItem) => repoEntryByKey.get(repositoryEntryKey(item.tds_item_id, item.tds_make));
 
     // CEO Hold guard - use project ID from first TDS item
     const projectId = allItems?.[0]?.tdsi_project_id;
@@ -543,6 +574,12 @@ export const TDSApprovalDetail: React.FC = () => {
     const { call: approveTdsItems } = useFrappePostCall(
         "nirmaan_stack.api.tds.approve.approve_tds_items"
     );
+    const { call: editTdsRequest } = useFrappePostCall(
+        "nirmaan_stack.api.tds.edit_request.edit_tds_request"
+    );
+    const { call: editTdsPick } = useFrappePostCall(
+        "nirmaan_stack.api.tds.edit_request.edit_tds_pick"
+    );
     const { call: rejectTdsItems } = useFrappePostCall(
         "nirmaan_stack.api.tds.approve.reject_tds_items"
     );
@@ -553,6 +590,7 @@ export const TDSApprovalDetail: React.FC = () => {
     const [selectedMakes, setSelectedMakes] = useState<string[]>([]);
     const [selectedItemNames, setSelectedItemNames] = useState<string[]>([]);
     const [selectedItemStatuses, setSelectedItemStatuses] = useState<string[]>([]);
+    const [selectedRequestTypes, setSelectedRequestTypes] = useState<string[]>([]);
     const [searchText, setSearchText] = useState("");
 
     // Facet options derived from the full item set (not the filtered set),
@@ -569,18 +607,19 @@ export const TDSApprovalDetail: React.FC = () => {
         const catPending = new Set<string>(), catApproved = new Set<string>(), catRejected = new Set<string>();
         const mkPending = new Set<string>(), mkApproved = new Set<string>(), mkRejected = new Set<string>();
         const itemNamePending = new Set<string>(), itemNameApproved = new Set<string>(), itemNameRejected = new Set<string>();
-        const presentItemStatus = new Set<ItemStatusKind>();
+        const presentItemStatus = new Set<ItemStatus>();
+        const presentRequestType = new Set<RequestType>();
         (allItems || []).forEach(i => {
             if (i.tds_work_package) wp.add(i.tds_work_package);
             if (i.tds_category) cat.add(i.tds_category);
             if (i.tds_make) mk.add(i.tds_make);
-            const isPending = !i.tds_status || i.tds_status === "Pending" || i.tds_status === "New";
-            if (isPending) {
+            if (historyStatusOf(i.tds_status) === "Pending") {
                 if (i.tds_work_package) wpPending.add(i.tds_work_package);
                 if (i.tds_category) catPending.add(i.tds_category);
                 if (i.tds_make) mkPending.add(i.tds_make);
                 if (i.tds_item_name) itemNamePending.add(i.tds_item_name);
-                presentItemStatus.add(getItemStatusKind(i as any, repoStatusByKey));
+                presentItemStatus.add(itemStatusOf(i, entryFor(i)));
+                presentRequestType.add(requestTypeOf(i));
             } else if (i.tds_status === "Approved") {
                 if (i.tds_work_package) wpApproved.add(i.tds_work_package);
                 if (i.tds_category) catApproved.add(i.tds_category);
@@ -611,9 +650,10 @@ export const TDSApprovalDetail: React.FC = () => {
             itemNamePending: toOpt(itemNamePending),
             itemNameApproved: toOpt(itemNameApproved),
             itemNameRejected: toOpt(itemNameRejected),
-            itemStatus: ITEM_STATUS_KINDS.filter(k => presentItemStatus.has(k)).map(k => ({ label: k, value: k })),
+            itemStatus: toFacetOptions(ITEM_STATUSES, presentItemStatus),
+            requestType: toFacetOptions(REQUEST_TYPES, presentRequestType),
         };
-    }, [allItems, repoStatusByKey]);
+    }, [allItems, repoEntryByKey]);
 
     // Filters shared across Pending / Approved / Rejected (WP / Category / Make / Item Name / search).
     const matchesFilters = (item: TDSItem) => {
@@ -629,10 +669,11 @@ export const TDSApprovalDetail: React.FC = () => {
         return true;
     };
 
-    // Pending-only facets — Item Status column lives only on the Pending Review
-    // table, so it must not be applied to Approved/Rejected in the All view.
+    // Pending-only facets — Request Type and Item Status live only on the Pending Review
+    // table, so they must not be applied to Approved/Rejected in the All view.
     const matchesPendingFacets = (item: TDSItem) => {
-        if (selectedItemStatuses.length && !selectedItemStatuses.includes(getItemStatusKind(item as any, repoStatusByKey))) return false;
+        if (selectedItemStatuses.length && !selectedItemStatuses.includes(itemStatusOf(item, entryFor(item)))) return false;
+        if (selectedRequestTypes.length && !selectedRequestTypes.includes(requestTypeOf(item))) return false;
         return true;
     };
 
@@ -642,6 +683,7 @@ export const TDSApprovalDetail: React.FC = () => {
         selectedMakes.length > 0 ||
         selectedItemNames.length > 0 ||
         selectedItemStatuses.length > 0 ||
+        selectedRequestTypes.length > 0 ||
         searchText.trim().length > 0;
 
     const clearAllFilters = () => {
@@ -650,14 +692,13 @@ export const TDSApprovalDetail: React.FC = () => {
         setSelectedMakes([]);
         setSelectedItemNames([]);
         setSelectedItemStatuses([]);
+        setSelectedRequestTypes([]);
         setSearchText("");
     };
 
     // Unfiltered status splits — used for totals and selection math
     const allPendingItems = useMemo(() =>
-        (allItems || []).filter(item =>
-            !item.tds_status || item.tds_status === "Pending" || item.tds_status === "New"
-        ),
+        (allItems || []).filter(item => historyStatusOf(item.tds_status) === "Pending"),
         [allItems]);
 
     const allApprovedItems = useMemo(() =>
@@ -671,7 +712,7 @@ export const TDSApprovalDetail: React.FC = () => {
     // Filtered splits — what the UI renders
     const pendingItems = useMemo(() =>
         allPendingItems.filter(i => matchesFilters(i) && matchesPendingFacets(i)),
-        [allPendingItems, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames, selectedItemStatuses, searchText, repoStatusByKey]);
+        [allPendingItems, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames, selectedItemStatuses, selectedRequestTypes, searchText, repoEntryByKey]);
 
     const approvedItems = useMemo(() =>
         allApprovedItems.filter(matchesFilters),
@@ -730,8 +771,6 @@ export const TDSApprovalDetail: React.FC = () => {
         ownerEmail ? undefined : null
     );
 
-    const { updateDoc } = useFrappeUpdateDoc();
-    const { deleteDoc } = useFrappeDeleteDoc();
     const { upload: uploadFile } = useFrappeFileUpload();
 
     // Derived Header Info
@@ -852,15 +891,25 @@ export const TDSApprovalDetail: React.FC = () => {
                         onChange={setSelectedItemNames}
                     />
                 ),
-                cell: ({ row }) => {
-                    const kind = getItemStatusKind(row.original as any, repoStatusByKey);
-                    return (
-                        <span className={`whitespace-normal break-words font-medium ${ITEM_STATUS_STYLES[kind].text}`}>
-                            {row.getValue("tds_item_name")}
-                        </span>
-                    );
-                },
+                cell: ({ row }) => (
+                    <span className="whitespace-normal break-words font-medium text-slate-900">
+                        {row.getValue("tds_item_name")}
+                    </span>
+                ),
                 size: 180,
+            },
+            {
+                id: "request_type",
+                header: () => (
+                    <FilterableHeader
+                        title="Request Type"
+                        options={facetOptions.requestType}
+                        selected={selectedRequestTypes}
+                        onChange={setSelectedRequestTypes}
+                    />
+                ),
+                cell: ({ row }) => <RequestTypeBadge type={requestTypeOf(row.original)} />,
+                size: 140,
             },
             {
                 id: "item_status",
@@ -872,7 +921,15 @@ export const TDSApprovalDetail: React.FC = () => {
                         onChange={setSelectedItemStatuses}
                     />
                 ),
-                cell: ({ row }) => <ItemStatusBadge kind={getItemStatusKind(row.original as any, repoStatusByKey)} />,
+                cell: ({ row }) => {
+                    const entry = entryFor(row.original);
+                    return (
+                        <ItemStatusCell
+                            status={itemStatusOf(row.original, entry)}
+                            addedSinceRequest={entryAddedSinceRequest(row.original, entry)}
+                        />
+                    );
+                },
                 size: 130,
             },
             {
@@ -963,7 +1020,7 @@ export const TDSApprovalDetail: React.FC = () => {
         }
 
         return cols;
-    }, [rowSelection, canApprove, facetOptions, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames, selectedItemStatuses, repoStatusByKey]);
+    }, [rowSelection, canApprove, facetOptions, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames, selectedItemStatuses, selectedRequestTypes, repoEntryByKey]);
 
     // Read-only columns for Approved/Rejected sections
     const readOnlyColumns = useMemo<ColumnDef<TDSItem>[]>(() => [
@@ -1205,47 +1262,96 @@ export const TDSApprovalDetail: React.FC = () => {
         },
     ], [facetOptions, selectedWorkPackages, selectedCategories, selectedMakes, selectedItemNames]);
 
-    const handleApprove = async () => {
-        // Phase 2 (ADR-0025): all promotion/verification happens server-side in
-        // api/tds/approve.py (Admin-only, re-checked there). We send the selected
-        // Project TDS Item List row names; the backend handles BOTH kinds:
-        //   - Pending (picked entry) → verifies the (tds_item, make) master entry,
-        //   - New (request)          → resolves/creates the member-less group +
-        //                              (tds_item, make) entry born Verified, snapshots
-        //                              the id/name back onto the row.
-        // No client-side createDoc/updateDoc, no PCUS allocation, no removed-field writes.
-        const selectedItems = allPendingItems.filter(item => rowSelection[item.name]);
+    const selectedPendingItems = useMemo(
+        () => allPendingItems.filter(item => rowSelection[item.name]),
+        [allPendingItems, rowSelection]
+    );
+
+    const handleApprove = () => {
+        const selectedItems = selectedPendingItems;
 
         if (selectedItems.length === 0) {
             toast({ title: "No items selected", variant: "destructive" });
             return;
         }
 
+        // A New Make whose entry was added since the request: the Admin chooses which datasheet is
+        // correct first, the repository's pre-selected (unless it has none). The rest of the batch
+        // waits for that dialog.
+        const conflicts = selectedItems.filter(i => entryAddedSinceRequest(i, entryFor(i)));
+        if (conflicts.length > 0) {
+            setReplySheets({});
+            setDatasheetChoices(Object.fromEntries(conflicts.map(i => [
+                i.name,
+                entryFor(i)?.tds_attachment ? DATASHEET_CHOICE.repository : DATASHEET_CHOICE.request,
+            ])));
+            setChooserNames(conflicts.map(i => i.name));
+            return;
+        }
+        submitApproval(selectedItems, {});
+    };
+
+    const chooserRows: DatasheetConflictRow[] = useMemo(
+        () =>
+            (allPendingItems || [])
+                .filter(i => chooserNames.includes(i.name))
+                .map(i => ({
+                    name: i.name,
+                    itemName: i.tds_item_name,
+                    make: i.tds_make,
+                    workPackage: i.tds_work_package,
+                    repositorySheet: i.name in replySheets ? replySheets[i.name] ?? undefined : entryFor(i)?.tds_attachment,
+                    requestSheet: i.tds_attachment,
+                })),
+        [allPendingItems, chooserNames, repoEntryByKey, replySheets]
+    );
+
+    const submitApproval = async (
+        selectedItems: TDSItem[],
+        choices: Record<string, DatasheetChoice>
+    ) => {
+        // Phase 2 (ADR-0025): all promotion/verification happens server-side in
+        // api/tds/approve.py (Admin-only, re-checked there). We send the selected
+        // Project TDS Item List row names; the backend handles every Request Type:
+        //   - From Repository → verifies the (tds_item, make) master entry,
+        //   - New Make        → the (tds_item, make) entry born Verified, or, when
+        //                       it already exists, the datasheet in `choices`,
+        //   - Project Custom  → marked Approved only; never enters the repository.
+        // No client-side createDoc/updateDoc, no removed-field writes.
         const willBeEmpty = selectedItems.length === allPendingItems.length;
         const selectedNames = selectedItems.map(i => i.name);
 
+        // Rows the server sent back for a datasheet choice: the chooser reopens on them.
+        let reopenChooserFor: string[] = [];
         setProcessing(true);
         try {
-            const resp = await approveTdsItems({ doc_names: selectedNames });
+            const resp = await approveTdsItems({ doc_names: selectedNames, datasheet_choices: choices });
             const result = resp?.message;
             const summary = result?.summary || {};
-            const errors: Array<{ name: string; error: string }> = result?.errors || [];
+            const errors: ApproveRowError[] = result?.errors || [];
+            const needsChoice = errors.filter(e => e.needs_datasheet_choice);
+            const failed = errors.filter(e => !e.needs_datasheet_choice);
 
             const approved = summary.approved ?? 0;
             const total = selectedItems.length;
 
             // Build a human summary from the backend's structured counts.
             const parts: string[] = [];
-            if (summary.created_groups > 0) parts.push(`${summary.created_groups} new TDS Item(s) created`);
             if (summary.created_entries > 0) parts.push(`${summary.created_entries} new datasheet entr(ies) added`);
             if (summary.verified_existing > 0) parts.push(`${summary.verified_existing} entr(ies) verified`);
+            if (summary.replaced_datasheets > 0) parts.push(`${summary.replaced_datasheets} repository datasheet(s) replaced`);
 
-            if (errors.length > 0) {
+            if (failed.length > 0) {
                 // Partial success — some rows failed (e.g. no master entry for a picked row).
                 toast({
-                    title: errors.length === total ? "Approval failed" : "Approved with errors",
-                    description: `${approved} of ${total} approved${parts.length ? ` — ${parts.join(", ")}` : ""}. ${errors.length} failed: ${errors.map(e => e.error).join("; ")}`,
-                    variant: errors.length === total ? "destructive" : "default",
+                    title: failed.length === total ? "Approval failed" : "Approved with errors",
+                    description: `${approved} of ${total} approved${parts.length ? ` — ${parts.join(", ")}` : ""}. ${failed.length} failed: ${failed.map(e => e.error).join("; ")}`,
+                    variant: failed.length === total ? "destructive" : "default",
+                });
+            } else if (needsChoice.length > 0) {
+                toast({
+                    title: "Choose a datasheet",
+                    description: `${approved} of ${total} approved. ${needsChoice.length} item(s) already have a TDS Repository datasheet: choose which one to keep.`,
                 });
             } else {
                 toast({
@@ -1261,9 +1367,18 @@ export const TDSApprovalDetail: React.FC = () => {
             if (willBeEmpty && errors.length === 0) {
                 navigate("/tds-approval");
             } else {
-                setRowSelection({});
+                if (needsChoice.length > 0) {
+                    reopenChooserFor = needsChoice.map(e => e.name);
+                    setReplySheets(Object.fromEntries(needsChoice.map(e => [e.name, e.repository_sheet])));
+                    setDatasheetChoices(Object.fromEntries(needsChoice.map(e => [
+                        e.name,
+                        e.repository_sheet ? DATASHEET_CHOICE.repository : DATASHEET_CHOICE.request,
+                    ])));
+                }
+                setRowSelection(Object.fromEntries(reopenChooserFor.map(name => [name, true])));
                 clearAllFilters();
                 mutate();
+                mutateRepoEntries();
             }
         } catch (e: any) {
             console.error(e);
@@ -1271,6 +1386,7 @@ export const TDSApprovalDetail: React.FC = () => {
             toast({ title: "Error", description: typeof msg === "string" ? msg : "Failed to approve items", variant: "destructive" });
         } finally {
             setProcessing(false);
+            setChooserNames(reopenChooserFor);
         }
     };
 
@@ -1323,34 +1439,42 @@ export const TDSApprovalDetail: React.FC = () => {
         setIsRejectModalOpen(true);
     };
 
-    const handleEditSave = async (itemName: string, updates: any, itemsToDelete?: string[]) => {
+    // A From Repository row: the Admin-only `edit_tds_pick` saves it with the send's duplicate and
+    // replacement checks, deleting a replaced Rejected row only if the edit saves.
+    const handleEditSave = async (itemName: string, edit: PickItemEdit) => {
         setProcessing(true);
         try {
-            // Check if there are items to delete (resubmission logic)
-            if (itemsToDelete && itemsToDelete.length > 0) {
-                await Promise.all(itemsToDelete.map(name => deleteDoc("Project TDS Item List", name)));
-            }
-
-            // Handle file upload if present
-            if (updates.attachmentFile) {
-                const uploadedFile = await uploadFile(updates.attachmentFile, {
-                    doctype: "Project TDS Item List",
-                    docname: itemName,
-                    fieldname: "tds_attachment",
-                    isPrivate: true
-                });
-                updates.tds_attachment = uploadedFile.file_url;
-                delete updates.attachmentFile;
-            }
-
-            await updateDoc("Project TDS Item List", itemName, updates);
+            await editTdsPick({ doc_name: itemName, row: JSON.stringify(edit) });
             toast({ title: "Updated", description: "Item updated successfully", variant: "success" });
             setIsEditModalOpen(false);
             setEditingItem(null);
             mutate();
         } catch (e) {
             console.error(e);
-            toast({ title: "Error", description: "Failed to update item", variant: "destructive" });
+            toast({ title: "Not saved", description: getFrappeError(e), variant: "destructive" });
+        } finally {
+            setProcessing(false);
+        }
+    };
+
+    // A New Make / Project Custom row: the Admin-only `edit_tds_request` saves it, re-running the
+    // send's checks. A new datasheet is uploaded unattached first; the server attaches it.
+    const handleRequestEditSave = async (itemName: string, edit: RequestItemEdit, attachmentFile: File | null) => {
+        setProcessing(true);
+        try {
+            let tdsAttachment = editingItem?.tds_attachment || "";
+            if (attachmentFile) {
+                const uploadedFile = await uploadFile(attachmentFile, { isPrivate: true });
+                tdsAttachment = uploadedFile.file_url;
+            }
+            await editTdsRequest({ doc_name: itemName, row: JSON.stringify({ ...edit, tds_attachment: tdsAttachment }) });
+            toast({ title: "Updated", description: "Request updated", variant: "success" });
+            setIsEditModalOpen(false);
+            setEditingItem(null);
+            mutate();
+        } catch (e) {
+            console.error(e);
+            toast({ title: "Not saved", description: getFrappeError(e), variant: "destructive" });
         } finally {
             setProcessing(false);
         }
@@ -1694,6 +1818,16 @@ export const TDSApprovalDetail: React.FC = () => {
                 </div>
             )}
 
+            <ChooseDatasheetDialog
+                rows={chooserRows}
+                choices={datasheetChoices}
+                onChoiceChange={(rowName, choice) => setDatasheetChoices(c => ({ ...c, [rowName]: choice }))}
+                otherCount={selectedCount - chooserRows.length}
+                onCancel={() => setChooserNames([])}
+                onConfirm={() => submitApproval(selectedPendingItems, datasheetChoices)}
+                loading={processing}
+            />
+
             <RejectTDSModal
                 open={isRejectModalOpen}
                 onOpenChange={setIsRejectModalOpen}
@@ -1701,12 +1835,13 @@ export const TDSApprovalDetail: React.FC = () => {
                 loading={processing}
             />
 
-            {editingItem?.tds_status === "New" ? (
+            {editingItem && isEditableRequest(editingItem) ? (
                 <EditRequestItemModal
                     open={isEditModalOpen}
                     onOpenChange={setIsEditModalOpen}
                     item={editingItem}
-                    onSave={handleEditSave}
+                    onSave={handleRequestEditSave}
+                    loading={processing}
                 />
             ) : (
                 <ProjectEditTDSItemModal
@@ -1714,6 +1849,7 @@ export const TDSApprovalDetail: React.FC = () => {
                     onOpenChange={setIsEditModalOpen}
                     item={editingItem}
                     onSave={handleEditSave}
+                    loading={processing}
                 />
             )}
         </div>

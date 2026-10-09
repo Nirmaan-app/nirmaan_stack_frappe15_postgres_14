@@ -17,7 +17,7 @@ and widening it to every DEPARTURE from `Paid` would fire on a delete, which alr
 branch. One narrow watcher plus two explicit call sites is the smaller blast radius, and each call
 site says at its own line why it is there.
 
-⚠️ RECOMPUTED FROM SOURCE, NEVER NUDGED BY A DELTA (root `CLAUDE.md`). `recalculate_vendor_credit`
+⚠️ RECOMPUTED FROM SOURCE, NEVER NUDGED BY A DELTA (`CODING_STANDARDS.md`). `recalculate_vendor_credit`
 sums every eligible PO of the vendor, so calling it twice for one vendor only appends a second ledger
 entry worth zero -- which is why the PO names are folded by vendor first.
 

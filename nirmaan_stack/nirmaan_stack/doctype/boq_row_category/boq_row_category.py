@@ -12,7 +12,7 @@ Excel address can coexist as its own current record.
 Freeze-and-supersede (category_version / is_current / classified_at) is enforced
 by the write path -- services/boq_category/persist.write_row_categories -- NOT in
 this controller (mirrors the pricing/annotation convention: the doctype .py stays
-minimal, per CLAUDE.md).
+minimal, per CODING_STANDARDS.md).
 
 Effective-category resolution (the documented contract; NOT computed here):
     effective = human_category_id if set else final_category_id

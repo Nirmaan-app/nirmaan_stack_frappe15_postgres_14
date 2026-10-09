@@ -252,7 +252,7 @@ def _serials_for(rows):
 def inspect_workbook():
     """multipart POST: file, project -> InspectWorkbookResponse.
 
-    S3 safety (root CLAUDE.md, "BoQ File Reading"): the bytes are captured HERE, written
+    S3 safety (CODING_STANDARDS.md, "Reading uploaded file bytes"): the bytes are captured HERE, written
     to a NamedTemporaryFile and parsed from that. The stored File's `file_url` is an API
     redirect the moment the attachment plugin has run, so a local path built from it does
     not exist. The upload is persisted only AFTER the workbook reads cleanly, so a

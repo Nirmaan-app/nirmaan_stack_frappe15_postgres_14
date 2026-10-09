@@ -1,9 +1,11 @@
+import { useMemo } from "react";
 import {
     useFrappeGetDocList,
     useFrappeGetDoc,
 } from "frappe-react-sdk";
 import { ProjectTDSSetting } from "@/types/NirmaanStack/ProjectTDSSetting";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
+import type { ClientStatusFields, TdsProjectRow } from "@/utils/tdsRequestRules";
 
 // ─── TDS Cache Keys (Standardized) ─────────────────────────────
 export const tdsKeys = {
@@ -39,11 +41,28 @@ export const useTdsSettings = (projectId?: string) => {
     return response;
 };
 
+/** A project's TDS row as `useTdsHistoryItems` reads it (the fields the exports use). */
+export interface TdsHistoryRow extends ClientStatusFields {
+    name: string;
+    tds_request_id: string;
+    tds_work_package: string;
+    tds_category: string;
+    tds_item_id: string;
+    tds_item_name: string;
+    tds_description: string;
+    tds_make: string;
+    tds_boq_line_item?: string;
+    tds_attachment?: string;
+    tds_status: string;
+    tds_rejection_reason?: string;
+    creation: string;
+}
+
 /**
  * Fetches all TDS history items for a project (used in TDSRepositoryView for export)
  */
 export const useTdsHistoryItems = (projectId: string) => {
-    const response = useFrappeGetDocList(
+    const response = useFrappeGetDocList<TdsHistoryRow>(
         "Project TDS Item List",
         {
             fields: ["*"],
@@ -114,11 +133,21 @@ export const useTdsRepositoryItems = () => {
 /**
  * Fetches existing project TDS items to prevent duplicates (used in TdsCreateForm)
  */
+/** A row already on the project, as `useTdsExistingProjectItems` reads it. */
+export interface ExistingProjectRow extends TdsProjectRow, ClientStatusFields {
+    name: string;
+    tds_request_id?: string | null;
+    tds_rejection_reason?: string | null;
+}
+
 export const useTdsExistingProjectItems = (projectId: string) => {
-    const response = useFrappeGetDocList(
+    const response = useFrappeGetDocList<ExistingProjectRow>(
         "Project TDS Item List",
         {
-            fields: ["name", "tds_item_id", "tds_make", "tds_request_id", "tds_status"],
+            fields: [
+                "name", "tds_item_id", "tds_item_name", "tds_make", "tds_request_id", "tds_status", "tds_rejection_reason",
+                "client_status", "client_status_by", "client_status_on", "client_rejection_reason",
+            ],
             filters: [
                 ["tdsi_project_id", "=", projectId],
                 ["docstatus", "!=", 2],
@@ -142,7 +171,7 @@ export const useTdsExistingProjectItems = (projectId: string) => {
  * Fetches Nirmaan Users for owner mapping (used in TdsHistoryTable)
  */
 export const useNirmaanUsers = () => {
-    const response = useFrappeGetDocList(
+    const response = useFrappeGetDocList<{ name: string; full_name?: string }>(
         "Nirmaan Users",
         {
             fields: ["name", "full_name"],
@@ -157,4 +186,13 @@ export const useNirmaanUsers = () => {
         doctype: "Nirmaan Users",
     });
     return response;
+};
+
+/** Nirmaan users' full names by user id, for naming who marked a row (`clientStatusMarkedBy`). */
+export const useNirmaanUserNames = (): ReadonlyMap<string, string> => {
+    const { data } = useNirmaanUsers();
+    return useMemo(
+        () => new Map((data ?? []).filter(u => u.full_name).map(u => [u.name, u.full_name as string])),
+        [data]
+    );
 };

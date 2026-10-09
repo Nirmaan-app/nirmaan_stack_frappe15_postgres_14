@@ -21,6 +21,9 @@ interface Props {
     title?: string;
     fileName?: string;
     canDownload?: boolean;
+    /** Close the dialog once the download has been handed to the browser. Off by default, so the
+     *  commission-report preview keeps standing open after a download. */
+    closeOnDownload?: boolean;
 }
 
 export const ReportPreviewDialog: React.FC<Props> = ({
@@ -31,6 +34,7 @@ export const ReportPreviewDialog: React.FC<Props> = ({
     title = 'Report Preview',
     fileName = 'report.pdf',
     canDownload = false,
+    closeOnDownload = false,
 }) => {
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -100,7 +104,19 @@ export const ReportPreviewDialog: React.FC<Props> = ({
 
                 <DialogFooter className="px-4 py-3 border-t gap-2 sm:gap-2">
                     {canDownload && downloadHref ? (
-                        <a href={downloadHref} download={fileName} target="_blank" rel="noopener noreferrer">
+                        <a
+                            href={downloadHref}
+                            download={fileName}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            /* Closed AFTER the browser has taken the click, never during it: closing
+                               runs this component's cleanup, which REVOKES the blob url the download
+                               is reading from, so tearing the dialog down inside the handler can
+                               cancel the download outright. */
+                            onClick={() => {
+                                if (closeOnDownload) setTimeout(() => onOpenChange(false), 500);
+                            }}
+                        >
                             <Button size="sm" className="gap-1">
                                 <Download className="h-3.5 w-3.5" /> Download
                             </Button>

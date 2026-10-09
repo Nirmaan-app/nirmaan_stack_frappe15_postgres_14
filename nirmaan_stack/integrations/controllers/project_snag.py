@@ -6,7 +6,7 @@ would leave every OTHER write path unstamped -- a Desk edit, a bulk edit, a Data
 REST API -- and the field would then read as an authoritative answer that is quietly wrong.
 Those paths all go through the document layer, so a `before_save` hook covers every one of them.
 
-The standing counterpart trap (root CLAUDE.md): raw SQL and `frappe.db.set_value` BYPASS this
+The standing counterpart trap (CODING_STANDARDS.md): raw SQL and `frappe.db.set_value` BYPASS this
 hook. Any future backfill or repair script that moves `status` must stamp these two fields
 itself, or say at the call site why skipping them is correct.
 """

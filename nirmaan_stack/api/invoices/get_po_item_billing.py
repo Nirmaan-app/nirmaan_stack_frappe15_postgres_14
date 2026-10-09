@@ -119,7 +119,7 @@ def get_po_item_billing(po: str) -> dict:
     ]
 
     # Invoiced totals from the verified mappings, across counted invoices only.
-    # Postgres: double-quoted identifiers, %(name)s params (see project CLAUDE.md).
+    # Postgres: double-quoted identifiers, %(name)s params (see CODING_STANDARDS.md).
     invoiced_rows = frappe.db.sql(
         """
         SELECT vil.po_item_id            AS po_item_id,

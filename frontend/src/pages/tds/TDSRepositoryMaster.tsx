@@ -78,7 +78,8 @@ type TabKey = "items" | "entries" | "skus";
 // A bonus of that same mechanism: several `name in` filters are INTERSECTED
 // server-side, so stacking the two below reads as AND for free.
 const LINK_FILTER_LINKED = "linked";
-const LINK_FILTER_CUSTOM = "custom";
+// Value kept as "custom" so URLs shared before the relabel still filter the same rows.
+const LINK_FILTER_UNLINKED = "custom";
 // Namespaced under the table's own urlSyncKey, like every other param it owns.
 const LINK_FILTER_PARAM = "tds_items_master_link";
 const MAKE_FILTER_PARAM = "tds_items_master_make";
@@ -102,7 +103,7 @@ const useTdsEntryRows = () =>
 // Member counts come from a CUSTOM endpoint, NOT get_list on the child doctype:
 // `TDS Items Child Table` is an istable doctype with no DocPerm rows, so the
 // permission-aware get_list raises PermissionError for every non-superuser (only
-// Administrator sees rows) — which made every item show "Custom". The endpoint
+// Administrator sees rows) — which made every item show "No linked SKUs". The endpoint
 // reads via frappe.get_all (perm-ignoring).
 const useTdsMemberIndex = () =>
     useFrappeGetCall<{
@@ -128,8 +129,8 @@ const MemberCountHeader: React.FC<{ column: any }> = ({ column }) => {
     const options = useMemo(
         () => [
             { label: "Linked SKU", value: LINK_FILTER_LINKED, count: linkedCount },
-            // "Custom" is the word the count pill itself shows at zero — keep identical.
-            { label: "Not Linked (Custom)", value: LINK_FILTER_CUSTOM, count: unlinkedCount },
+            // "No linked SKUs" is the text the count pill itself shows at zero — keep identical.
+            { label: "No linked SKUs", value: LINK_FILTER_UNLINKED, count: unlinkedCount },
         ],
         [linkedCount, unlinkedCount]
     );
@@ -236,7 +237,7 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
     const linkFilter = useMemo(
         () =>
             linkFilterValues.filter(
-                (v) => v === LINK_FILTER_LINKED || v === LINK_FILTER_CUSTOM
+                (v) => v === LINK_FILTER_LINKED || v === LINK_FILTER_UNLINKED
             ),
         [linkFilterValues]
     );
@@ -318,7 +319,7 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                         <CountPill
                             count={count}
                             icon={Package}
-                            zeroLabel="Custom"
+                            zeroLabel="No linked SKUs"
                             title="View linked items"
                             onClick={() => setPeek({ id: row.original.name, name, kind: "skus" })}
                         />
@@ -412,7 +413,7 @@ const TDSItemsTab: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
     });
 
     // A narrowing that shrinks the result set can strand the user on a page that
-    // no longer exists (page 4 of an unfiltered 352 → 39 custom groups). Reset on
+    // no longer exists (page 4 of an unfiltered 352 → 39 unlinked groups). Reset on
     // CHANGE only, so a deep link carrying both a filter and a page still lands
     // where it was shared from.
     const facetSignature = `${linkFilterParam}|${makeFilterParam}`;

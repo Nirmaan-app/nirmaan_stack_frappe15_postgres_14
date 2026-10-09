@@ -635,7 +635,7 @@ pre-existing `attached_to_index` 0-sentinel edge.
 # RECTIFICATION ROUND (R) — 2026-07-15 — owner review fixes + from-scratch priced export
 
 **Status:** ✅ **AS-BUILT + LIVE-E2E-VERIFIED (2026-07-15)** — grill-locked (`/grill-with-docs` +
-`/domain-modeling`, 9 decisions); design of record = **ADR-0013 Amendment A2** + **CONTEXT.md** terms.
+`/domain-modeling`, 9 decisions); design of record = **ADR-0013 Amendment A2** + **GLOSSARY.md** terms.
 Branch `feature/boq-create-from-template` (local/unpushed). **Slice 3 (templates-admin polish) — since done + E2E-verified
 2026-07-15; see the `## Slice 3` section above (was ON HOLD during this rectification round).**
 

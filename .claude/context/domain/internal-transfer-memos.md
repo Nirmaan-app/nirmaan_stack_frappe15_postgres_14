@@ -1,5 +1,16 @@
 # Internal Transfer Memos (ITM) — Complete Reference
 
+## Load-bearing invariants (owner-locked)
+
+### Frontend
+
+_Moved verbatim from `frontend/CLAUDE.md` (CLAUDE.md restructure, pass 2); paths are relative to `frontend/`._
+
+- **Internal Transfer Memos (ITM)**: Cost-neutral inter-project material transfer launched from the Inventory Item-Wise page. One target project per session → backend groups selections by `source_project` → N ITMs (one per unique source). Admin-only approval. `estimated_rate` is a snapshot at create time (no retroactive revaluation). See `.claude/context/domain/internal-transfer-memos.md` for the full reference.
+- **ITM DC & MIR**: ITMs in `Partially Delivered` or `Delivered` status can have Delivery Challans + Material Inspection Reports filed against them, parallel to the PO flow. The `PO Delivery Documents` doctype is polymorphic (`parent_doctype` Select + `parent_docname` Dynamic Link). Surfaces with PO/ITM toggle: hub `/prs&milestones/delivery-challans-and-mirs`, project `DC & MIR` tab (sub-tabs for DN > DC Report + DC + MIR), reports `DCs & MIRs` tab. ITM-only: `ITMAttachmentSection` on the ITM detail page. Hub toggle URL-persisted via `parent`; project sub-toggle via `dcmir_parent`; reports toggle via `dcmir_parent`. **PO-only by design** (do NOT mix in ITM rows): Material Usage tab, DN > DC PO report, Bulk Download wizard — all filter by `procurement_order ["is", "set"]`. Mobile cards: `ITMListCards.tsx` mirrors `POListCards.tsx`. Upload dialog `UploadDCMIRDialog` accepts optional `parentDoctype` prop ("Procurement Orders" default, "Internal Transfer Memo" for ITM). `ITMDNDCQuantityReport` is a parent-child grouped reconciliation report that mirrors `DNDCQuantityReport` exactly. Fetches ITM child items via `get_project_itms` (extended to include items array). PO/ITM toggle UI is a red-active segmented control (mirrors project tab styling). `ITMAttachmentSection` always renders the card when `canView`; only the upload buttons are gated by `canUpload` (status in delivered states) — historical DCs/MIRs never disappear if the ITM moves out of upload-eligible state.
+
+---
+
 ## Overview
 
 Internal Transfer Memo (ITM) is a **cost-neutral, inter-project material transfer workflow** that mirrors the PO + DN dispatch/delivery pattern but involves no vendor and no payment. A source project with surplus material (per its latest submitted Remaining Items Report) transfers items to a target project that needs them, subject to Admin approval.

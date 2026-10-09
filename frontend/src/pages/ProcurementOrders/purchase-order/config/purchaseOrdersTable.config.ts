@@ -3,7 +3,7 @@ import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 
 // Fields to fetch by default for most PO tables
 export const DEFAULT_PO_FIELDS_TO_FETCH: (keyof ProcurementOrder | 'name')[] = [
-    "name", "project", "vendor", "project_name", "total_amount", "amount_paid",
+    "name", "project", "vendor", "project_name", "total_amount", "amount_paid", "po_amount_delivered",
     "vendor_name", "status", "owner", "custom",
 ];
 

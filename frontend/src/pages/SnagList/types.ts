@@ -6,7 +6,7 @@
  * payloads MUST match these types exactly. Do not redeclare any of these shapes
  * inside a component — import them from here (ADR-0010 F2: one typed accessor).
  *
- * Glossary for every term used here: root `CONTEXT.md` § Snag tracking.
+ * Glossary for every term used here: root `GLOSSARY.md` § Snag tracking.
  * Design of record: `frontend/.claude/plans/snag-list-plan.md`.
  */
 

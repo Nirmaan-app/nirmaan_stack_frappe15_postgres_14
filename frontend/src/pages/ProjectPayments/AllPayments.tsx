@@ -28,6 +28,7 @@ import { useApprovalQueueExport } from "./hooks/useApprovalQueueExport";
 import UpdatePaymentRequestDialog, { ProjectPaymentUpdateFields } from "./update-payment/UpdatePaymentDialog";
 import { UpdatePaymentDetailsDialog as ProjectExpensePayDialog } from "../ProjectExpenses/components/UpdatePaymentDetailsDialog";
 import { UpdatePaymentDetailsDialog as NonProjectExpensePayDialog } from "../NonProjectExpenses/components/UpdatePaymentDetailsDialog";
+import { UpdateInvoiceDetailsDialog } from "../NonProjectExpenses/components/UpdateInvoiceDetailsDialog";
 import { useFrappeGetDoc } from "frappe-react-sdk";
 import { useApprovalFacets } from "./config/useApprovalFacets";
 import { formatDate } from "@/utils/FormatDate";
@@ -48,7 +49,7 @@ import { PP_ACCOUNTANT_ROLES, PP_TABS } from "./config/ppTabs.constants";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { QueueRowEditDialog } from "./components/QueueRowEditDialog";
 import { useUpdatePaymentRequest } from "./hooks/useUpdatePaymentRequests";
-import { canEditQueueRow, canRevertQueueRow, canWorkQueueRows } from "./config/queueRowActions";
+import { canEditQueueRow, canRevertQueueRow, canUploadInvoiceRow, canWorkQueueRows } from "./config/queueRowActions";
 import { useUserData } from "@/hooks/useUserData";
 import { useDialogStore } from "@/zustand/useDialogStore";
 
@@ -310,6 +311,16 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         isExpenseRow && payRow ? undefined : null
     );
 
+    // ── "Upload Invoice" on a Paid expense, either ledger (Payment Done / Reconciliation Done) ──
+    // The Non Project Expenses page's invoice dialog, which serves both ledgers. Like the pay dialogs it wants the stored
+    // document (the queue row carries only the file, not the invoice date / ref).
+    const [invoiceRow, setInvoiceRow] = useState<ApprovalQueueRow | null>(null);
+    const { data: invoiceExpenseDoc, mutate: mutateInvoiceExpenseDoc } = useFrappeGetDoc<any>(
+        invoiceRow?.doctype as string,
+        invoiceRow?.name as string,
+        invoiceRow ? undefined : null
+    );
+
     const openPayDialog = useCallback((row: ApprovalQueueRow) => {
         if (row.doctype === "Project Payments") {
             setPayPayment({
@@ -342,6 +353,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
         canRevert: (row) => canRevertQueueRow(row, role),
         onMarkReconciled: openPayDialog,
         onDelete: tab === PP_TABS.PAYMENT_BY_ME ? setDeleteRow : undefined,
+        onUploadInvoice: canWork && tab === PP_TABS.PAYMENTS_DONE ? setInvoiceRow : undefined,
+        canUploadInvoice: (row) => canUploadInvoiceRow(row, role),
         isUnseen: (row) => !!notifications.find(
             (n) => n.docname === row.name && n.seen === "false"
                 && n.event_id === (tab === "Payments Done" ? "payment:fulfilled" : null)
@@ -358,7 +371,8 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
     const columns = useMemo(() => {
         const ids = TAB_COLUMNS[tab as ApprovalTab];
         // On the settled and mixed-status tabs the Actions column holds ONLY the expense Edit
-        // pencil, so for anyone who cannot edit it would be an empty column with a header. Drop it
+        // pencil (plus, on the Paid tab, Upload Invoice -- the same three roles, `canUploadInvoiceRow`),
+        // so for anyone who cannot edit it would be an empty column with a header. Drop it
         // outright rather than render it blank — keyed on the SAME `canWork` that wires `onEdit`,
         // so the header and the pencil can never disagree.
         // Reconciliation Pending likewise: its Actions column is Mark Reconciled / Revert / Edit,
@@ -573,6 +587,17 @@ export const AllPayments: React.FC<AllPaymentsProps> = ({
                     expense={payExpenseDoc}
                     markAsPaid
                     onSuccess={() => { setPayRow(null); refetch(); refreshTabCounts(); }}
+                />
+            )}
+
+            {invoiceRow && invoiceExpenseDoc && (
+                <UpdateInvoiceDetailsDialog
+                    isOpen
+                    setIsOpen={(open) => { if (!open) setInvoiceRow(null); }}
+                    expense={invoiceExpenseDoc}
+                    doctype={invoiceRow.doctype as "Project Expenses" | "Non Project Expenses"}
+                    requireAttachment
+                    onSuccess={() => { mutateInvoiceExpenseDoc(); setInvoiceRow(null); refetch(); }}
                 />
             )}
 
