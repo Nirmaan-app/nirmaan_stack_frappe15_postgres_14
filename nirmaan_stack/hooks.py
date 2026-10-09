@@ -608,8 +608,6 @@ fixtures = [
     "Commission Report Category",
     "Commission Report Tasks",
     "Auto Approval Rule",
-    # Client billing package master list (owner, 2026-10-03): shipped as data, no patch.
-    "Project Billing Packages",
     # "Pincodes"
 ]
 

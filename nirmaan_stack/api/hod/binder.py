@@ -37,6 +37,9 @@ Pattern: `api/commission_report/bulk_download_reports.py` (per-user NX lock, enq
 carrying a job_id, temp-file token downloaded through `pdf_helper.bulk_download.fetch_temp_file`).
 Rendering goes through `frappe.get_print` with the Jinja cache dropped before every render
 (`api/snags/bulk_download._drop_jinja_cache`): the formats read `form_dict` (`hod_system`, `task_row`).
+The Snag List's jump links (thumbnail -> photo -> back to the row) survive: its renders go through the
+shared keep-links generator and are merged by `LinkedPdf` (`api/pdf_helper/keep_links.py`); every other
+part is added page by page, as before.
 READ-ONLY on every feature it reads.
 """
 
@@ -56,6 +59,7 @@ from nirmaan_stack.api.hod import om_fit, page_frame, print_context
 from nirmaan_stack.api.hod.from_app import included_library, sources_for, system_meta
 from nirmaan_stack.api.hod.project_info import as_dict
 from nirmaan_stack.api.pdf_helper.bulk_download import ensure_temp_dir, get_temp_path
+from nirmaan_stack.api.pdf_helper.keep_links import KEEP_LINKS, LinkedPdf
 from nirmaan_stack.api.pdf_helper.pdf_merger_api import fetch_attachment_content
 from nirmaan_stack.api.snags.bulk_download import _drop_jinja_cache
 from nirmaan_stack.services.hod import checklist, index, sources
@@ -122,10 +126,18 @@ def get_job_status(job_id: str) -> dict:
 # ------------------------------------------------------------------------------------------- the plan
 
 
-def _print_step(label, doctype, name, print_format, form=None, frame=False, fit=False):
+def _print_step(label, doctype, name, print_format, form=None, frame=False, fit=False, links=False):
 	"""`frame`: stamp the handover box on every page of the render (`page_frame`).
-	`fit`: lay the O&M Manual out roomy where its pages fit (`om_fit`)."""
-	return {"label": label, "kind": "print", "args": (doctype, name, print_format, form or {}), "frame": frame, "fit": fit}
+	`fit`: lay the O&M Manual out roomy where its pages fit (`om_fit`).
+	`links`: the render carries in-document jump links to keep (`keep_links`)."""
+	return {
+		"label": label,
+		"kind": "print",
+		"args": (doctype, name, print_format, form or {}),
+		"frame": frame,
+		"fit": fit,
+		"links": links,
+	}
 
 
 def _file_step(label, url):
@@ -192,6 +204,8 @@ def _content_steps(project: str, hod_system: str, row, system) -> tuple[list, st
 							# The WHOLE list, open items included (owner 2026-09-25) -- no `statuses`,
 							# exactly what the screen offered.
 							{"batches": json.dumps([b.name])},
+							# Photo thumbnail -> photo page -> back to the row.
+							links=True,
 						)
 					)
 	elif src_kind == index.SRC_DESIGN:
@@ -319,9 +333,12 @@ def enqueue_binder(project: str, hod_system: str, document: str | None = None) -
 # ----------------------------------------------------------------------------------------- rendering
 
 
-def _print(doctype: str, name: str, print_format: str, form: dict | None = None) -> bytes:
-	"""One `get_print` render with a fresh Jinja env and exactly `form` as the print link's params."""
+def _print(doctype: str, name: str, print_format: str, form: dict | None = None, keep_links: bool = False) -> bytes:
+	"""One `get_print` render with a fresh Jinja env and exactly `form` as the print link's params.
+	`keep_links`: render through the shared keep-links generator, so its jump links still work."""
 	frappe.local.form_dict = frappe._dict(form or {})
+	if keep_links:
+		frappe.local.form_dict["pdf_generator"] = KEEP_LINKS
 	_drop_jinja_cache()
 	return frappe.get_print(doctype, name, print_format=print_format, as_pdf=True, no_letterhead=1)
 
@@ -480,14 +497,22 @@ class _Job:
 		self.job_id = job_id
 		self.total = total
 		self.done = 0
-		self.writer = PdfWriter()
+		# A `LinkedPdf`, so a part with jump links (the Snag List) keeps them in the merged file;
+		# `writer` is its page list, for everything added page by page.
+		self.pdf = LinkedPdf()
+		self.writer = self.pdf.writer
 		self.failed = []
 
-	def step(self, label: str, fn):
-		"""Add what `fn()` returns; a part that fails is logged and named, never fatal. Reports progress."""
+	def step(self, label: str, fn, keep_links: bool = False):
+		"""Add what `fn()` returns; a part that fails is logged and named, never fatal. Reports progress.
+		`keep_links`: the part's jump targets are pointed at its pages in the merged file."""
 		try:
-			for page in PdfReader(io.BytesIO(fn())).pages:
-				self.writer.add_page(page)
+			pdf = fn()
+			if keep_links:
+				self.pdf.append(pdf)
+			else:
+				for page in PdfReader(io.BytesIO(pdf)).pages:
+					self.writer.add_page(page)
 		except Exception:
 			self.failed.append(label)
 			frappe.log_error(title=f"HOD download: {label} failed", message=frappe.get_traceback())
@@ -497,11 +522,12 @@ class _Job:
 
 def _render(step: dict, futures: dict) -> bytes:
 	if step["kind"] == "print":
+		keep_links = step.get("links", False)
 		if step.get("fit"):
 			doctype, name = step["args"][0], step["args"][1]
-			pdf = om_fit.render(frappe.get_doc(doctype, name), lambda: _print(*step["args"]))
+			pdf = om_fit.render(frappe.get_doc(doctype, name), lambda: _print(*step["args"], keep_links=keep_links))
 		else:
-			pdf = _print(*step["args"])
+			pdf = _print(*step["args"], keep_links=keep_links)
 		return page_frame.stamp(pdf) if step.get("frame") else pdf
 	if step["kind"] == "tds":
 		from nirmaan_stack.api.hod.tds_pack import build_pack
@@ -528,7 +554,7 @@ def _run_binder_job(project=None, hod_system=None, document=None, user=None, hod
 			sec = sections[0]
 			job = _Job(user, job_id, len(sec["steps"]))
 			for st in sec["steps"]:
-				job.step(st["label"], lambda st=st: _render(st, futures))
+				job.step(st["label"], lambda st=st: _render(st, futures), keep_links=st.get("links", False))
 			filename = f"{safe(project_name)}_{safe(hod_system)}_{sec['sno']:02d}_{safe(sec['title'])}_{today()}.pdf"
 		else:
 			job = _Job(user, job_id, 2 + sum(len(s["steps"]) for s in sections))
@@ -554,7 +580,7 @@ def _run_binder_job(project=None, hod_system=None, document=None, user=None, hod
 					# referenced twice in the page tree.
 					job.writer.add_page(PdfReader(io.BytesIO(logo_page)).pages[0])
 				for st in sec["steps"]:
-					job.step(st["label"], lambda st=st: _render(st, futures))
+					job.step(st["label"], lambda st=st: _render(st, futures), keep_links=st.get("links", False))
 			filename = f"{safe(project_name)}_{safe(hod_system)}_Handover_{today()}.pdf"
 
 		pool.shutdown(wait=False, cancel_futures=True)
@@ -564,8 +590,7 @@ def _run_binder_job(project=None, hod_system=None, document=None, user=None, hod
 		ensure_temp_dir()
 		token = frappe.generate_hash(length=32)
 		with open(get_temp_path(token), "wb") as f:
-			job.writer.write(f)
-		job.writer.close()
+			f.write(job.pdf.to_bytes())
 		_emit(EV_READY, {"job_id": job_id, "token": token, "filename": filename, "failed": job.failed}, user)
 	except Exception:
 		frappe.log_error(title="HOD download job crashed", message=frappe.get_traceback())
