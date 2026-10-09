@@ -9,6 +9,7 @@ import { ChevronDown, Download, FileDown, ExternalLink } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useBulkPdfDownload } from "@/hooks/useBulkPdfDownload";
+import { BulkDownloadProgressDialog } from "@/components/common/BulkDownloadProgressDialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { Label } from "@/components/ui/label";
 import { useUserData } from "@/hooks/useUserData";
@@ -25,11 +26,8 @@ export const BulkPdfDownloadButton = ({ scope, types }: BulkPdfDownloadButtonPro
   const isProjectManager = role === "Nirmaan Project Manager Profile";
 
   const {
-    loading,
-    showProgress,
-    setShowProgress,
-    progress,
-    progressMessage,
+    run,
+    closeProgress,
     showRateDialog,
     setShowRateDialog,
     rateDocType,
@@ -41,10 +39,6 @@ export const BulkPdfDownloadButton = ({ scope, types }: BulkPdfDownloadButtonPro
     setInvoiceType,
     initiateInvoiceDownload,
     handleBulkDownload,
-    completedBatches,
-    finalMergeToken,
-    triggerDownload,
-    stopProgress,
     cancelDownload
   } = useBulkPdfDownload(scope);
 
@@ -58,7 +52,8 @@ export const BulkPdfDownloadButton = ({ scope, types }: BulkPdfDownloadButtonPro
     DN: () => handleBulkDownload("DN", TYPE_INFO.DN.card),
     MTC: () => handleBulkDownload("MTC", TYPE_INFO.MTC.card),
     ClientInvoice: () => handleBulkDownload("ClientInvoice", TYPE_INFO.ClientInvoice.card),
-    PaymentVoucher: () => handleBulkDownload("PaymentVoucher", TYPE_INFO.PaymentVoucher.card),
+    POPaymentVoucher: () => handleBulkDownload("POPaymentVoucher", TYPE_INFO.POPaymentVoucher.card),
+    WOPaymentVoucher: () => handleBulkDownload("WOPaymentVoucher", TYPE_INFO.WOPaymentVoucher.card),
   };
   const invoiceChoices = INVOICE_SUB_TYPES.filter((c) => invoiceSubTypesFor(scope).includes(c.value));
 
@@ -150,48 +145,7 @@ export const BulkPdfDownloadButton = ({ scope, types }: BulkPdfDownloadButtonPro
         </DialogContent>
       </Dialog>
 
-      {/* Progress Dialog */}
-      <Dialog open={showProgress} onOpenChange={(open) => !loading && stopProgress()}>
-        <DialogContent
-          className="sm:max-w-md [&>button]:hidden"
-          onPointerDownOutside={(e) => e.preventDefault()}
-          onEscapeKeyDown={(e) => e.preventDefault()}
-        >
-          <DialogHeader>
-            <DialogTitle>{progress === 100 ? "Generation Complete" : "Generating Documents"}</DialogTitle>
-          </DialogHeader>
-          <div className="flex flex-col space-y-4 py-4">
-            <div className="space-y-2">
-              <div className="w-full bg-secondary h-2.5 rounded-full overflow-hidden">
-                <div
-                  className="bg-primary h-full transition-all duration-300 ease-in-out"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-              <div className="flex justify-between items-center text-xs text-muted-foreground">
-                <span>{progress}% - {progressMessage}</span>
-              </div>
-            </div>
-            {loading && (
-              <div className="flex items-center justify-between gap-3 border-t pt-3">
-                <p className="text-xs text-muted-foreground">Wait for the file, or cancel to stop the download.</p>
-                <Button variant="outline" size="sm" onClick={cancelDownload}>Cancel download</Button>
-              </div>
-            )}
-
-            {/* {(progress === 100 || !loading) && (
-                    <div className="pt-2 flex justify-end">
-                        <Button 
-                            className="w-full"
-                            onClick={stopProgress}
-                        >
-                            Close and Finish
-                        </Button>
-                    </div>
-                )} */}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <BulkDownloadProgressDialog run={run} scopeName={scope.name} onCancel={cancelDownload} onClose={closeProgress} />
     </>
   );
 };

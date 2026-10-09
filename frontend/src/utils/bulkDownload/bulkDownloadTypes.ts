@@ -4,11 +4,11 @@
  *
  * A bulk download covers one project (the project page's tab) or one vendor (the vendor page's
  * tab). Role rules are the same in both: a Project Manager gets no vendor invoices, client
- * invoices or payment vouchers; PMO loses client invoices only.
+ * invoices or payment vouchers (PO or WO); PMO loses client invoices only.
  */
 import { PMO_EXECUTIVE_PROFILE, PROJECT_MANAGER_PROFILE } from "@/constants/roles";
 
-export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "MTC" | "ClientInvoice" | "PaymentVoucher";
+export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "MTC" | "ClientInvoice" | "POPaymentVoucher" | "WOPaymentVoucher";
 export type InvoiceSubType = "PO Invoices" | "WO Invoices" | "All Invoices";
 export type BulkScopeKind = "project" | "vendor";
 
@@ -22,7 +22,7 @@ export interface BulkDownloadScope {
 }
 
 /** Card and menu order. */
-export const BULK_DOC_TYPES: readonly BulkDocType[] = ["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "ClientInvoice", "PaymentVoucher"];
+export const BULK_DOC_TYPES: readonly BulkDocType[] = ["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "ClientInvoice", "POPaymentVoucher", "WOPaymentVoucher"];
 
 /**
  * Every name a type goes by, in ONE place: the Step 1 card (`card`, `description`), the Quick
@@ -38,7 +38,9 @@ export const TYPE_INFO: Record<BulkDocType, { card: string; description: string;
     DN: { card: "Delivery Notes", description: "Download delivery note PDFs for selected POs", menu: "Download All DNs", short: "DNs" },
     MTC: { card: "Material Test Certificates", description: "Download selected material test certificates", menu: "Download All MTCs", short: "MTCs" },
     ClientInvoice: { card: "Client Invoices", description: "Download client invoice attachments raised on the project", menu: "Download All Client Invoices", short: "Client Invoices" },
-    PaymentVoucher: { card: "Payment Vouchers", description: "Download uploaded vouchers of paid WO payments", menu: "Download All Payment Vouchers", short: "Payment Vouchers" },
+    // PO payments have no uploaded voucher: the server generates each one, as the PO page does.
+    POPaymentVoucher: { card: "PO Payment Vouchers", description: "Download generated vouchers of paid PO payments", menu: "Download All PO Payment Vouchers", short: "PO Payment Vouchers" },
+    WOPaymentVoucher: { card: "WO Payment Vouchers", description: "Download uploaded vouchers of paid WO payments", menu: "Download All WO Payment Vouchers", short: "WO Payment Vouchers" },
 };
 
 /**
@@ -69,9 +71,10 @@ export const INVOICE_SUB_TYPES: readonly { value: InvoiceSubType; label: string;
 ];
 
 // Gated by vendor type the same way the vendor page gates its own tabs.
-// MTCs belong to POs, so they follow the PO-side types.
-const MATERIAL_TYPES: readonly BulkDocType[] = ["PO", "DC", "MIR", "DN", "MTC"];
-const SERVICE_TYPES: readonly BulkDocType[] = ["WO", "PaymentVoucher"];
+// MTCs and PO payment vouchers belong to POs, so they follow the PO-side types.
+const MATERIAL_TYPES: readonly BulkDocType[] = ["PO", "DC", "MIR", "DN", "MTC", "POPaymentVoucher"];
+const SERVICE_TYPES: readonly BulkDocType[] = ["WO", "WOPaymentVoucher"];
+const VOUCHER_TYPES: readonly BulkDocType[] = ["POPaymentVoucher", "WOPaymentVoucher"];
 
 /** The vendor-type rule the vendor page uses for its own tabs too (Material Orders, Work Orders, …). */
 export const vendorHandlesMaterial = (vendorType?: string) => vendorType === "Material" || vendorType === "Material & Service";
@@ -79,7 +82,7 @@ export const vendorHandlesService = (vendorType?: string) => vendorType === "Ser
 
 export const allowedBulkTypes = (scope: Pick<BulkDownloadScope, "kind" | "vendorType">, role: string): BulkDocType[] =>
     BULK_DOC_TYPES.filter((type) => {
-        if (role === PROJECT_MANAGER_PROFILE && (type === "Invoice" || type === "ClientInvoice" || type === "PaymentVoucher")) return false;
+        if (role === PROJECT_MANAGER_PROFILE && (type === "Invoice" || type === "ClientInvoice" || VOUCHER_TYPES.includes(type))) return false;
         if (role === PMO_EXECUTIVE_PROFILE && type === "ClientInvoice") return false;
         if (scope.kind === "vendor") {
             // Project Invoices carry no vendor.

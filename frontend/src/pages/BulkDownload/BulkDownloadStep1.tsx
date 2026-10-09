@@ -1,7 +1,7 @@
-import { FileDown, ClipboardList, Receipt, Truck, ClipboardCheck, FileText, ReceiptText, Wallet, BadgeCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { BulkDocType } from "./useBulkDownloadWizard";
 import { TYPE_INFO } from "@/utils/bulkDownload/bulkDownloadTypes";
+import { TYPE_STYLE } from "@/utils/bulkDownload/bulkDownloadStyle";
 
 interface Step1Props {
     onSelect: (type: BulkDocType) => void;
@@ -10,20 +10,6 @@ interface Step1Props {
     /** Item counts for each doc type – shown as badges on the cards */
     counts?: Partial<Record<BulkDocType, number>>;
 }
-
-// Names and descriptions live in TYPE_INFO (one place for cards, menu and progress text); this is
-// only how each card looks. A `Record`, so a new type without a style fails the build.
-const TYPE_STYLE: Record<BulkDocType, { icon: React.ElementType; iconBg: string; iconColor: string }> = {
-    PO: { icon: FileDown, iconBg: "bg-blue-50 group-hover:bg-blue-100", iconColor: "text-blue-600" },
-    WO: { icon: ClipboardList, iconBg: "bg-green-50 group-hover:bg-green-100", iconColor: "text-green-600" },
-    Invoice: { icon: Receipt, iconBg: "bg-purple-50 group-hover:bg-purple-100", iconColor: "text-purple-600" },
-    DC: { icon: Truck, iconBg: "bg-orange-50 group-hover:bg-orange-100", iconColor: "text-orange-600" },
-    MIR: { icon: ClipboardCheck, iconBg: "bg-teal-50 group-hover:bg-teal-100", iconColor: "text-teal-600" },
-    MTC: { icon: BadgeCheck, iconBg: "bg-cyan-50 group-hover:bg-cyan-100", iconColor: "text-cyan-600" },
-    DN: { icon: FileText, iconBg: "bg-rose-50 group-hover:bg-rose-100", iconColor: "text-rose-600" },
-    ClientInvoice: { icon: ReceiptText, iconBg: "bg-indigo-50 group-hover:bg-indigo-100", iconColor: "text-indigo-600" },
-    PaymentVoucher: { icon: Wallet, iconBg: "bg-amber-50 group-hover:bg-amber-100", iconColor: "text-amber-600" },
-};
 
 export const BulkDownloadStep1 = ({ onSelect, types, counts = {} }: Step1Props) => {
 

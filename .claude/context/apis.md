@@ -43,14 +43,16 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - Shared `_enrich_delivery_docs()` helper batch-fetches child items and attachment URLs (avoids N+1 queries)
 
 ### Bulk PDF Download (`api/pdf_helper/`)
-- `bulk_download.py` - Unified bulk download for POs, WOs, Invoices, DCs, MIRs, DNs, Material Test Certificates, Client Invoices, Payment Vouchers
+- `bulk_download.py` - Unified bulk download for POs, WOs, Invoices, DCs, MIRs, DNs, Material Test Certificates, Client Invoices, PO and WO Payment Vouchers
   - Every endpoint takes `project=` OR `vendor=` (exactly one; `_scope`). Project scope reads with `get_all`;
     vendor scope reads with `get_list` as the user, so User Permission-scoped users get only their projects
   - Each download carries a browser-made `download_id` (never `job_id`: `frappe.enqueue` keeps that keyword) on
     every event. An empty selection is refused, any job failure publishes `bulk_download_failed`, and
     `cancel_bulk_download` stops a running job between documents
-  - Payment Vouchers (`voucher_attachment` of Paid WO payments) travel as PAYMENT names
-    (`download_selected_payment_vouchers`); the job reads each voucher back. MTCs likewise travel as MTC names
+  - Payment vouchers travel as PAYMENT names. WO (`download_selected_wo_payment_vouchers`): the uploaded
+    `voucher_attachment` of Paid WO payments, read back by the job. PO (`download_selected_po_payment_vouchers`):
+    PO payments have no upload, so the job GENERATES each Paid one's voucher from print format "SR Payment" (as the PO
+    page does), with a 1-hour job limit. MTCs likewise travel as MTC names
     (`download_selected_mtcs`, MTC project rule applied). Client Invoices are project-only
   - Supports vendor/date filtering, progress tracking, rate selection
   - Filters POs by Delivered/Partially Delivered status

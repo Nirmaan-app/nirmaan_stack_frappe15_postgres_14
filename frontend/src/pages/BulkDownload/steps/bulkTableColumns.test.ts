@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ColumnDef } from "@tanstack/react-table";
-import { dcColumns, dnColumns, forScope, invoiceColumns, mirColumns, mtcColumns, poColumns, voucherColumns, woColumns } from "./bulkTableColumns";
+import { dcColumns, dnColumns, forScope, invoiceColumns, mirColumns, mtcColumns, poColumns, poVoucherColumns, woColumns, woVoucherColumns } from "./bulkTableColumns";
 
 const ids = (columns: ColumnDef<any, any>[]) => columns.map((c) => c.id);
 const accessor = (column: ColumnDef<any, any>) => (column as { accessorFn: (row: unknown, i: number) => unknown }).accessorFn;
 
-const ALL_SETS = { poColumns, woColumns, dnColumns, invoiceColumns, dcColumns, mirColumns, voucherColumns, mtcColumns };
+const ALL_SETS = { poColumns, woColumns, dnColumns, invoiceColumns, dcColumns, mirColumns, woVoucherColumns, poVoucherColumns, mtcColumns };
 
 describe("forScope", () => {
     it("hands project scope the very same column array (the project tab is unchanged)", () => {
@@ -33,17 +33,22 @@ describe("forScope", () => {
     });
 });
 
-describe("voucherColumns", () => {
-    it("labels each payment Uploaded or Missing; an emptied voucher field counts as Missing", () => {
-        const voucher = voucherColumns.find((c) => c.id === "voucher")!;
-        expect(accessor(voucher)({ name: "PAY-1", voucher_attachment: "/files/v.pdf" }, 0)).toBe("Uploaded");
-        expect(accessor(voucher)({ name: "PAY-2", voucher_attachment: "" }, 0)).toBe("Missing");
-        expect(accessor(voucher)({ name: "PAY-3" }, 0)).toBe("Missing");
+describe("payment voucher columns", () => {
+    it("WO: no Voucher column -- every listed payment has an uploaded one", () => {
+        expect(ids(woVoucherColumns)).toEqual(["document_name", "vendor", "amount", "utr", "payment_date"]);
+        expect(woVoucherColumns.find((c) => c.header === "WO ID")?.id).toBe("document_name");
     });
 
-    it("keeps amount, date and voucher status out of the search box", () => {
-        const searchable = voucherColumns.filter((c) => c.enableGlobalFilter !== false).map((c) => c.id);
-        expect(searchable).toEqual(["document_name", "vendor", "utr"]);
+    it("PO: the same columns as WO -- only the order's header differs; no Status (every row is Paid)", () => {
+        expect(ids(poVoucherColumns)).toEqual(ids(woVoucherColumns));
+        expect(poVoucherColumns[0].header).toBe("PO ID");
+        expect(woVoucherColumns[0].header).toBe("WO ID");
+    });
+
+    it("both search by order ID, vendor and UTR only (not amount or date)", () => {
+        for (const columns of [woVoucherColumns, poVoucherColumns]) {
+            expect(columns.filter((c) => c.enableGlobalFilter !== false).map((c) => c.id)).toEqual(["document_name", "vendor", "utr"]);
+        }
     });
 });
 

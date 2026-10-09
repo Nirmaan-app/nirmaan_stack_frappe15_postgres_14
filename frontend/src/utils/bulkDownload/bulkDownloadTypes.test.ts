@@ -12,10 +12,10 @@ const vendor = (vendorType?: string) => ({ kind: "vendor" as const, vendorType }
 
 describe("allowedBulkTypes — project scope (the project tab)", () => {
     it("offers every type to Admin, in card order", () => {
-        expect(allowedBulkTypes(project, ADMIN)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "ClientInvoice", "PaymentVoucher"]);
+        expect(allowedBulkTypes(project, ADMIN)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "ClientInvoice", "POPaymentVoucher", "WOPaymentVoucher"]);
     });
 
-    it("keeps the existing PM rule (no vendor or client invoices) and adds payment vouchers to it", () => {
+    it("keeps the existing PM rule (no vendor or client invoices) and adds both kinds of payment voucher to it", () => {
         expect(allowedBulkTypes(project, PM)).toEqual(["PO", "WO", "DC", "MIR", "DN", "MTC"]);
     });
 
@@ -26,7 +26,7 @@ describe("allowedBulkTypes — project scope (the project tab)", () => {
     });
 
     it("keeps the existing PMO rule: client invoices go, vendor invoices and vouchers stay", () => {
-        expect(allowedBulkTypes(project, PMO)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "PaymentVoucher"]);
+        expect(allowedBulkTypes(project, PMO)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "POPaymentVoucher", "WOPaymentVoucher"]);
     });
 
     it("ignores a vendor type in project scope", () => {
@@ -42,9 +42,9 @@ describe("allowedBulkTypes — vendor scope (the vendor tab)", () => {
     });
 
     it("gates by vendor type the way the vendor page gates its tabs", () => {
-        expect(allowedBulkTypes(vendor("Material"), ADMIN)).toEqual(["PO", "Invoice", "DC", "MIR", "DN", "MTC"]);
-        expect(allowedBulkTypes(vendor("Service"), ADMIN)).toEqual(["WO", "Invoice", "PaymentVoucher"]);
-        expect(allowedBulkTypes(vendor("Material & Service"), ADMIN)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "PaymentVoucher"]);
+        expect(allowedBulkTypes(vendor("Material"), ADMIN)).toEqual(["PO", "Invoice", "DC", "MIR", "DN", "MTC", "POPaymentVoucher"]);
+        expect(allowedBulkTypes(vendor("Service"), ADMIN)).toEqual(["WO", "Invoice", "WOPaymentVoucher"]);
+        expect(allowedBulkTypes(vendor("Material & Service"), ADMIN)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "POPaymentVoucher", "WOPaymentVoucher"]);
     });
 
     it("leaves only vendor invoices for a vendor with no type (the vendor page shows neither orders tab)", () => {
@@ -54,12 +54,31 @@ describe("allowedBulkTypes — vendor scope (the vendor tab)", () => {
 
     it("applies the role rules on top of the vendor type", () => {
         expect(allowedBulkTypes(vendor("Service"), PM)).toEqual(["WO"]);
-        expect(allowedBulkTypes(vendor("Service"), PMO)).toEqual(["WO", "Invoice", "PaymentVoucher"]);
-        expect(allowedBulkTypes(vendor("Material & Service"), ACCOUNTANT)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "PaymentVoucher"]);
+        expect(allowedBulkTypes(vendor("Service"), PMO)).toEqual(["WO", "Invoice", "WOPaymentVoucher"]);
+        expect(allowedBulkTypes(vendor("Material & Service"), ACCOUNTANT)).toEqual(["PO", "WO", "Invoice", "DC", "MIR", "DN", "MTC", "POPaymentVoucher", "WOPaymentVoucher"]);
     });
 
     it("treats the role's Loading placeholder like any non-PM role (the vendor tab itself waits it out)", () => {
-        expect(allowedBulkTypes(vendor("Service"), "Loading")).toEqual(["WO", "Invoice", "PaymentVoucher"]);
+        expect(allowedBulkTypes(vendor("Service"), "Loading")).toEqual(["WO", "Invoice", "WOPaymentVoucher"]);
+    });
+});
+
+describe("payment vouchers: PO payments on the PO side, WO payments on the WO side", () => {
+    it("offers PO payment vouchers where POs are (Material vendors) and WO ones where WOs are (Service vendors)", () => {
+        for (const [vendorType, po, wo] of [["Material", true, false], ["Service", false, true], ["Material & Service", true, true], ["", false, false]] as const) {
+            const types = allowedBulkTypes(vendor(vendorType), ADMIN);
+            expect(types.includes("POPaymentVoucher"), `${vendorType || "no type"}: PO`).toBe(po);
+            expect(types.includes("WOPaymentVoucher"), `${vendorType || "no type"}: WO`).toBe(wo);
+            expect(types.includes("POPaymentVoucher"), `${vendorType}: PO card follows the PO card`).toBe(types.includes("PO"));
+        }
+    });
+
+    it("gives a Project Manager neither kind, on either tab", () => {
+        for (const scope of [project, vendor("Material & Service")]) {
+            const types = allowedBulkTypes(scope, PM);
+            expect(types).not.toContain("POPaymentVoucher");
+            expect(types).not.toContain("WOPaymentVoucher");
+        }
     });
 });
 

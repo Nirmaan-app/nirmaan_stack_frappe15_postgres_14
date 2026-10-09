@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { WizardSteps, WizardStep } from "@/components/ui/wizard-steps";
 import { FileDown, Wand2, LayoutList, CheckCircle2, RotateCcw, Download, ExternalLink } from "lucide-react";
@@ -7,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { BulkPdfDownloadButton } from "@/components/common/BulkPdfDownloadButton";
+import { BulkDownloadProgressDialog } from "@/components/common/BulkDownloadProgressDialog";
 import { BulkDownloadStep1 } from "./BulkDownloadStep1";
 import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps, MTCSteps, ClientInvoiceSteps, PaymentVoucherSteps } from "./steps";
 import { useBulkDownloadWizard } from "./useBulkDownloadWizard";
@@ -55,8 +55,10 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
         dnCriticalTasks,
         projectInvoiceItems,
         projectInvoicesLoading,
-        voucherPayments,
-        voucherPaymentsLoading,
+        poVoucherPayments,
+        poVouchersLoading,
+        woVoucherPayments,
+        woVouchersLoading,
         mtcItems,
         mtcsLoading,
         withRate,
@@ -70,11 +72,9 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
 
         // Download/progress
         loading,
-        progress,
-        progressMessage,
-        showProgress,
+        run,
+        closeProgress,
         handleDownload,
-        stopProgress,
         cancelDownload,
     } = useBulkDownloadWizard(scope, types);
 
@@ -207,11 +207,22 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
                         <MTCSteps {...sharedProps} items={mtcItems} isLoading={mtcsLoading} scopeKind={scope.kind} />
                     )}
 
-                    {step === 2 && docType === "PaymentVoucher" && (
+                    {step === 2 && docType === "POPaymentVoucher" && (
                         <PaymentVoucherSteps
                             {...sharedProps}
-                            items={voucherPayments}
-                            isLoading={voucherPaymentsLoading}
+                            kind="PO"
+                            items={poVoucherPayments}
+                            isLoading={poVouchersLoading}
+                            scopeKind={scope.kind}
+                        />
+                    )}
+
+                    {step === 2 && docType === "WOPaymentVoucher" && (
+                        <PaymentVoucherSteps
+                            {...sharedProps}
+                            kind="WO"
+                            items={woVoucherPayments}
+                            isLoading={woVouchersLoading}
                             scopeKind={scope.kind}
                         />
                     )}
@@ -245,38 +256,7 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
                 </div>
             </div>
 
-            {/* Progress Dialog */}
-            <Dialog open={showProgress} onOpenChange={(open) => !loading && stopProgress()}>
-                <DialogContent
-                    className="sm:max-w-md [&>button]:hidden"
-                    onPointerDownOutside={(e) => e.preventDefault()}
-                    onEscapeKeyDown={(e) => e.preventDefault()}
-                >
-                    <DialogHeader>
-                        <DialogTitle>{progress === 100 ? "Generation Complete" : "Generating Documents"}</DialogTitle>
-                    </DialogHeader>
-
-                    <div className="flex flex-col space-y-4 py-4">
-                        <div className="space-y-2">
-                            <div className="w-full bg-secondary h-2.5 rounded-full overflow-hidden">
-                                <div
-                                    className="bg-primary h-full transition-all duration-300 ease-in-out"
-                                    style={{ width: `${progress}%` }}
-                                />
-                            </div>
-                            <div className="flex justify-between items-center text-xs text-muted-foreground">
-                                <span>{progress}% — {progressMessage}</span>
-                            </div>
-                        </div>
-                        {loading && (
-                            <div className="flex items-center justify-between gap-3 border-t pt-3">
-                                <p className="text-xs text-muted-foreground">Wait for the file, or cancel to stop the download.</p>
-                                <Button variant="outline" size="sm" onClick={cancelDownload}>Cancel download</Button>
-                            </div>
-                        )}
-                    </div>
-                </DialogContent>
-            </Dialog>
+            <BulkDownloadProgressDialog run={run} scopeName={scope.name} onCancel={cancelDownload} onClose={closeProgress} />
         </div>
     );
 };

@@ -143,9 +143,31 @@ class TestBulkDownloadJob(FrappeTestCase):
     def test_every_event_of_a_download_carries_its_id_through_to_the_file(self):
         with patch.object(bd, "_fetch_attachment_content_by_name", return_value=_tiny_pdf()):
             events = self._dc_job("mine-0001")
-        self.assertEqual(events, ["bulk_download_progress", "bulk_download_progress", "bulk_download_all_ready"])
+        # One event per document, one for the merge, then the file.
+        self.assertEqual(events, ["bulk_download_progress"] * 3 + ["bulk_download_all_ready"])
         self.assertTrue(all(d["download_id"] == "mine-0001" for _, d in self.events))
         self.assertTrue(os.path.exists(bd.get_temp_path(self.events[-1][1]["token"])))
+
+    def test_progress_counts_finished_documents_and_the_file_says_how_many_made_it(self):
+        # The second challan cannot be read: the file still comes, and says one of two is missing.
+        with patch.object(bd, "_fetch_attachment_content_by_name", side_effect=[_tiny_pdf(), None]):
+            self._dc_job("counts-0001")
+        progress = [{k: d.get(k) for k in ("done", "total", "progress", "current", "stage")} for e, d in self.events if e == "bulk_download_progress"]
+        self.assertEqual(progress, [
+            {"done": 0, "total": 2, "progress": 0, "current": None, "stage": None},  # a challan has no number worth showing
+            {"done": 1, "total": 2, "progress": 50, "current": None, "stage": None},
+            {"done": 2, "total": 2, "progress": 100, "current": None, "stage": "merging"},
+        ])
+        ready = self.events[-1]
+        self.assertEqual(ready[0], "bulk_download_all_ready")
+        self.assertEqual((ready[1]["included"], ready[1]["total"]), (1, 2))
+
+    def test_a_po_download_names_the_po_being_prepared(self):
+        # Names no PO has, so no attachment is fetched; only the print is replaced.
+        with patch.object(frappe, "get_print", return_value=_tiny_pdf()):
+            self._job(doc_type="PO", vendor=self.vendor, names='["TEST-PO-A", "TEST-PO-B"]')
+        current = [d["current"] for e, d in self.events if e == "bulk_download_progress" and not d.get("stage")]
+        self.assertEqual(current, ["TEST-PO-A", "TEST-PO-B"])
 
     # --- 3. never silent, and stoppable -------------------------------------------------------------
 

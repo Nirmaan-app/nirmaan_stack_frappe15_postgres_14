@@ -22,9 +22,29 @@ export interface BulkDownloadSocket {
     off(event: string, listener: (data: any) => void): unknown;
 }
 
+/** Sent before each document (`done` = finished ones, `current` = the PO / WO starting now), then
+ *  once with `stage: "merging"` while the file is written. The counts are optional: a job started by
+ *  an older worker sends only `progress` and `message`. */
+export interface BulkDownloadProgressEvent {
+    progress?: number;
+    message?: string;
+    done?: number;
+    total?: number;
+    current?: string | null;
+    stage?: "merging";
+}
+
+/** The finished file. `included` < `total` when some documents could not be added. */
+export interface BulkDownloadReadyEvent {
+    token: string;
+    filename: string;
+    included?: number;
+    total?: number;
+}
+
 export interface BulkDownloadHandlers {
-    onProgress: (data: { progress?: number; message?: string }) => void;
-    onReady: (data: { token: string; filename: string }) => void;
+    onProgress: (data: BulkDownloadProgressEvent) => void;
+    onReady: (data: BulkDownloadReadyEvent) => void;
     onFailed: (data: { message?: string }) => void;
 }
 

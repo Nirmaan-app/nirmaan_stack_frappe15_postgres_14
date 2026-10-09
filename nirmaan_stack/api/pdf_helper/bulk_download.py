@@ -129,10 +129,19 @@ def ensure_temp_dir():
 # tab). Every endpoint takes both keywords and needs exactly one of them.
 SCOPE_LABEL = {"project": ("Projects", "project_name"), "vendor": ("Vendors", "vendor_name")}
 
-PAYMENT_VOUCHERS = "Payment Vouchers"
+# WO payments carry an UPLOADED voucher; PO payments have none, so theirs is GENERATED from the print
+# format the PO page's own voucher button uses (for Paid payments only, as there).
+WO_PAYMENT_VOUCHERS = "WO Payment Vouchers"
+PO_PAYMENT_VOUCHERS = "PO Payment Vouchers"
+VOUCHER_PRINT_FORMAT = "SR Payment"
 MTCS = "MTCs"
 # Types downloaded by RECORD name: the job reads each file back itself, so the file-URL endpoint refuses them.
-READ_BACK_TYPES = (PAYMENT_VOUCHERS, MTCS)
+READ_BACK_TYPES = (WO_PAYMENT_VOUCHERS, PO_PAYMENT_VOUCHERS, MTCS)
+
+# A generated voucher takes ~1.6 s, so the biggest project's 451 paid PO payments take ~12 min: too
+# close to the `long` queue's 25-minute limit on a busy server. A job killed at the limit publishes
+# nothing, and the progress window would spin. Other types keep the queue's default.
+JOB_TIMEOUT_SECONDS = {PO_PAYMENT_VOUCHERS: 60 * 60}
 
 # Which documents a "download all" takes. (The wizard's lists differ in places: it keeps PO
 # Amendment, and its DN list drops Partially Dispatched -- existing behaviour, kept as is.)
@@ -201,7 +210,7 @@ def _all_attachments(doc_type, field, value):
     return []
 
 
-def _voucher_files(field, value, names=None):
+def _wo_voucher_files(field, value, names=None):
     """The uploaded voucher of each paid WO payment in scope -- only the given payments when
     `names` is passed. Read with `get_list` in both scopes, so a user only gets payments they may
     read, and a payment whose voucher was removed after the list loaded is simply skipped."""
@@ -212,6 +221,19 @@ def _voucher_files(field, value, names=None):
         filters["name"] = ["in", names]
     rows = frappe.get_list("Project Payments", filters=filters, fields=["voucher_attachment"], order_by="payment_date asc, creation asc")
     return [r.voucher_attachment for r in rows]
+
+
+def _po_voucher_payments(field, value, names=None):
+    """The Paid PO payments in scope whose voucher the job GENERATES -- only the given ones when
+    `names` is passed, oldest payment first. Only Paid: a voucher is the proof of a payment made,
+    and the PO page offers it for Paid payments only. Read with `get_list` in both scopes, so a
+    selected payment of another scope, or one no longer Paid, is simply dropped."""
+    filters = {field: value, "document_type": "Procurement Orders", "status": "Paid"}
+    if names is not None:
+        if not names:
+            return []
+        filters["name"] = ["in", names]
+    return frappe.get_list("Project Payments", filters=filters, pluck="name", order_by="payment_date asc, creation asc")
 
 
 def _mtc_files(field, value, names=None):
@@ -284,6 +306,7 @@ def _enqueue(scope, doc_type, file_part, download_id=None, **job_kwargs):
         custom_filename=f"{label}_{file_part}.pdf",
         download_id=download_id,
         queue="long",
+        timeout=JOB_TIMEOUT_SECONDS.get(doc_type),
         **{field: value},
         **job_kwargs,
     )
@@ -323,11 +346,20 @@ def download_selected_dns(names, project=None, vendor=None, download_id=None):
 
 
 @frappe.whitelist()
-def download_selected_payment_vouchers(names, project=None, vendor=None, download_id=None):
-    # Takes PAYMENT names, not file URLs: the job reads each voucher back itself (`_voucher_files`).
+def download_selected_wo_payment_vouchers(names, project=None, vendor=None, download_id=None):
+    # Takes PAYMENT names, not file URLs: the job reads each voucher back itself (`_wo_voucher_files`).
     scope = _scope(project, vendor)
     _require_selection(names, "payment")
-    return _enqueue(scope, PAYMENT_VOUCHERS, "Selected_Payment_Vouchers", download_id, names=names)
+    return _enqueue(scope, WO_PAYMENT_VOUCHERS, "Selected_WO_Payment_Vouchers", download_id, names=names)
+
+
+@frappe.whitelist()
+def download_selected_po_payment_vouchers(names, project=None, vendor=None, download_id=None):
+    # Takes PAYMENT names: the job keeps the Paid PO payments in scope (`_po_voucher_payments`)
+    # and generates each one's voucher.
+    scope = _scope(project, vendor)
+    _require_selection(names, "payment")
+    return _enqueue(scope, PO_PAYMENT_VOUCHERS, "Selected_PO_Payment_Vouchers", download_id, names=names)
 
 
 @frappe.whitelist()
@@ -413,9 +445,12 @@ def _build_and_announce(publish, doc_type, project, vendor, names, attachment_na
 
     # Resolve the document list. Only a "download all" leaves both lists out; an explicit empty
     # list means nothing, never everything.
-    if doc_type == PAYMENT_VOUCHERS:
-        # The selected payments (or all of them) -> their voucher files.
-        attachment_names, names = _voucher_files(field, value, names), None
+    if doc_type == WO_PAYMENT_VOUCHERS:
+        # The selected payments (or all of them) -> their uploaded voucher files.
+        attachment_names, names = _wo_voucher_files(field, value, names), None
+    elif doc_type == PO_PAYMENT_VOUCHERS:
+        # The selected payments (or all of them) -> the Paid ones, each voucher rendered below.
+        names, attachment_names = _po_voucher_payments(field, value, names), None
     elif doc_type == MTCS:
         # The selected certificates (or all of them) -> their files, oldest certificate first.
         attachment_names, names = _mtc_files(field, value, names), None
@@ -431,6 +466,8 @@ def _build_and_announce(publish, doc_type, project, vendor, names, attachment_na
         return
 
     total_items = len(items_to_process)
+    # A PO / WO number means something in the progress window; a file link or a payment id does not.
+    shows_current = doc_type in ("PO", "WO", "DN")
 
     final_merger = PdfWriter()
     count = 0
@@ -440,12 +477,19 @@ def _build_and_announce(publish, doc_type, project, vendor, names, attachment_na
         if _is_cancelled(user, download_id):
             return
         try:
-            # Progress Reporting
+            # Sent BEFORE each document: `done` counts the FINISHED ones, so the bar never runs ahead
+            # of the work, and `current` names the one starting now.
             abs_index = i + 1
-            progress = int((abs_index / total_items) * 100)
             publish(
                 "bulk_download_progress",
-                {"progress": progress, "message": f"Processing {doc_type} {abs_index} of {total_items}...", "label": doc_type},
+                {
+                    "progress": int((i / total_items) * 100),
+                    "done": i,
+                    "total": total_items,
+                    "current": item if shows_current else None,
+                    "message": f"Processing {doc_type} {abs_index} of {total_items}...",
+                    "label": doc_type,
+                },
             )
 
             if attachment_names:
@@ -466,13 +510,14 @@ def _build_and_announce(publish, doc_type, project, vendor, names, attachment_na
                     if success:
                         count += 1
             else:
-                # Generic Doc Logic (PO, WO, DN)
-                dt_map = {"PO": "Procurement Orders", "WO": "Service Requests", "DN": "Procurement Orders"}
+                # Generic Doc Logic (PO, WO, DN, and the generated PO payment voucher)
+                dt_map = {"PO": "Procurement Orders", "WO": "Service Requests", "DN": "Procurement Orders", PO_PAYMENT_VOUCHERS: "Project Payments"}
                 dt = dt_map.get(doc_type)
-                pf_map = {"PO": "PO Orders" if with_rate else "PO Orders Without Rate", "WO": "Work Orders" if with_rate else "Work Orders Without Rate", "DN": "PO Delivery Histroy"}
+                pf_map = {"PO": "PO Orders" if with_rate else "PO Orders Without Rate", "WO": "Work Orders" if with_rate else "Work Orders Without Rate", "DN": "PO Delivery Histroy", PO_PAYMENT_VOUCHERS: VOUCHER_PRINT_FORMAT}
                 pf = pf_map.get(doc_type)
-                
-                pdf_content = frappe.get_print(dt, item, print_format=pf, as_pdf=True)
+
+                # A voucher renders without letterhead, exactly as the PO page's voucher download does.
+                pdf_content = frappe.get_print(dt, item, print_format=pf, as_pdf=True, no_letterhead=int(doc_type == PO_PAYMENT_VOUCHERS))
                 
                 if doc_type == "PO":
                     doc_attachment = frappe.db.get_value(dt, item, "attachment")
@@ -490,6 +535,11 @@ def _build_and_announce(publish, doc_type, project, vendor, names, attachment_na
 
     # Final Save and Notify
     if count > 0:
+        # Writing one large PDF takes a while: the window says so instead of sitting at 100%.
+        publish(
+            "bulk_download_progress",
+            {"stage": "merging", "progress": 100, "done": total_items, "total": total_items, "label": doc_type},
+        )
         final_token = str(uuid.uuid4())
         final_path = get_temp_path(final_token)
         with open(final_path, "wb") as f:
@@ -498,7 +548,8 @@ def _build_and_announce(publish, doc_type, project, vendor, names, attachment_na
 
         filename = custom_filename or f"{label}_All_{doc_type}.pdf"
 
-        publish("bulk_download_all_ready", {"token": final_token, "filename": filename})
+        # A document that failed is left out of the file: `included` < `total` lets the window say so.
+        publish("bulk_download_all_ready", {"token": final_token, "filename": filename, "included": count, "total": total_items})
     else:
         publish("bulk_download_failed", {"message": "Failed to generate any documents."})
 

@@ -49,7 +49,7 @@ allowedBulkTypes   useBulkDownloadWizard     Step tables                 Downloa
 ## 3. Example: download 2 POs from the vendor tab
 
 1. The vendor page passes `scope = { kind: "vendor", id: "VEN-Material-0241", vendorType: "Material & Service" }`.
-2. `allowedBulkTypes` sees a Material & Service vendor, so it shows all 8 cards.
+2. `allowedBulkTypes` sees a Material & Service vendor, so it shows all 9 cards.
 3. The user opens **Procurement Orders**. The wizard has fetched POs **where `vendor = VEN-Material-0241`**.
 4. The table shows a **Project** column (a vendor's POs span many projects), and there is no Critical POs tab.
 5. The user filters by project, ticks 2 POs and clicks **Download 2 POs**.
@@ -66,7 +66,7 @@ On the project tab the same 7 steps run, with `project` in place of `vendor`.
 | Facet column in the tables | Vendor | Project |
 | Critical POs tab (PO, DN steps) | shown | hidden (Critical PO Tasks live inside a project) |
 | Client Invoices | shown (not PM, not PMO) | never (Project Invoices have no vendor) |
-| Cards | by role | by role **and** vendor type: Material → PO, DC, MIR, DN, MTC · Service → WO, Payment Vouchers · both → all · Vendor Invoices always |
+| Cards | by role | by role **and** vendor type: Material → PO, DC, MIR, DN, MTC, PO Payment Vouchers · Service → WO, WO Payment Vouchers · both → all · Vendor Invoices always |
 | Invoice choices | All / PO / WO | a single-type vendor loses the choice it cannot have |
 | Who sees the tab | the project page's tab rules | Admin, PMO, Accountant (+ Lead), procurement profiles only |
 | File name | `{project name}_…pdf` | `{vendor name}_…pdf` |
@@ -83,43 +83,28 @@ The backend reads data **differently per scope**:
   an attachment checks nothing, so this read is what stops a user limited to some projects from downloading the
   other projects' files.
 
-## 6. Payment Vouchers (both tabs)
+## 6. Payment Vouchers: one card for PO payments, one for WO payments (both tabs)
 
-These are the **uploaded** vouchers of **Paid WO payments** (PO payments have no upload). Every paid WO payment is
-listed; a payment without a voucher is greyed out and cannot be ticked. The browser sends **payment names**, and
-the server looks up each voucher itself.
-
-The card is **hidden** when:
-
-| Where | Why |
-|---|---|
-| A **Material** vendor | Only WO payments have vouchers, and a Material vendor has no WOs |
-| A **Project Manager**, on the project tab | PMs get no money documents (no vendor invoices, no vouchers) |
-| A role outside Admin / PMO / Accountant / procurement, on the vendor tab | The whole vendor tab is hidden |
-| `localhost:8000` | That port serves the last `yarn build`, which predates this feature; use `:8080` |
-
-It shows **with 0** when it is allowed but nothing has a voucher yet, e.g. a Service vendor with no paid WO
-payments.
-
-### Later: PO payment vouchers (planned, not built — owner 2026-10-09: "for now WO only")
-
-PO payments have no uploaded voucher; the PO page's download button **generates** one from the print format
-`SR Payment`, which already renders correctly for a PO payment (PAYMENT VOUCHER with the PO No., amount, UTR).
-The plan: a PO payment uses that generated voucher (always selectable); a WO payment keeps its uploaded voucher.
-What to change:
-
-| Where | Today (WO only) | With PO payments |
+| | **PO Payment Vouchers** | **WO Payment Vouchers** |
 |---|---|---|
-| `allowedBulkTypes` | `PaymentVoucher` is in `SERVICE_TYPES` (Service vendors only) | show it for every vendor type, so Material vendors get the card |
-| Wizard voucher query | `document_type = "Service Requests"` | both `Procurement Orders` and `Service Requests` |
-| Selectable rule (`hasVoucher`) | needs `voucher_attachment` | a PO payment is always selectable; a WO payment still needs the upload |
-| `voucherColumns` | WO ID column | PO / WO column + a **Type** facet (PO / WO payment) |
-| Card subtitle | "uploaded vouchers of paid WO payments" | "vouchers of paid PO and WO payments" |
-| Backend `_voucher_files` + the job | WO filter; merges uploaded files | a PO payment is rendered with `frappe.get_print("Project Payments", name, print_format="SR Payment", as_pdf=True)`, a WO payment fetches its file — one list, two kinds of item |
-| Tests | vendor vouchers vs SQL (WO) | add PO rows: generated, selectable, counted |
+| The voucher | **generated** by the server: PO payments have no uploaded voucher | the **uploaded** `voucher_attachment` |
+| Listed | only **Paid** PO payments (owner 2026-10-09) — a voucher is the proof of a payment made | only paid WO payments that **have** an uploaded voucher (no "Missing" rows) |
+| Can be ticked | every listed row | every listed row |
+| Download | each payment rendered with print format **"SR Payment"**, no letterhead — exactly the PO page's voucher button, which is also Paid-only | each payment's uploaded file |
+| Card count | Paid PO payments | payments with a voucher |
+| Vendor tab | Material, Material & Service vendors (the PO side) | Service, Material & Service vendors (the WO side) |
 
-Size check: at most 335 paid PO payments per vendor and 451 per project, close to the 370 POs the largest
-project's "All POs" already handles on the `long` queue.
+Both: the browser sends **payment names**, never files; the server re-reads them in scope (`_po_voucher_payments`,
+`_wo_voucher_files`, `get_list` in both scopes) and drops anything out of scope or no longer eligible. Neither card
+for a **Project Manager** (no money documents). Same columns for both: PO / WO ID, Vendor (Project on the vendor
+tab), Amount, UTR, Paid On. Every row can be ticked, so neither card greys rows out.
+
+**Size and time limit (PO):** one generated voucher takes ~1.6 s; the biggest vendor has 335 paid PO payments
+(~9 min), the biggest project 451 (~12 min). PO voucher jobs therefore get a **1-hour** limit
+(`JOB_TIMEOUT_SECONDS`) instead of the `long` queue's 25 minutes: a job killed at the limit publishes nothing, and
+the progress window would spin. Every other type keeps the queue's default.
+
+`localhost:8000` serves the last `yarn build`, which may predate these cards; use `:8080`.
 
 ## 6b. Material Test Certificates (both tabs)
 
@@ -143,8 +128,10 @@ page's project rule (`mtc_allowed_projects`: a PM / PL sees only assigned projec
 | The "All … / Critical POs" tabs shared by the PO and DN steps | `src/pages/BulkDownload/steps/CriticalTasksTab.tsx` |
 | Every type's names; the invoice choices; the vendor-type rule (also used by the vendor page's tabs) | `TYPE_INFO`, `INVOICE_SUB_TYPES`, `vendorHandlesMaterial` / `vendorHandlesService` in `bulkDownloadTypes.ts` |
 | Quick Download menu | `src/components/common/BulkPdfDownloadButton.tsx`, `src/hooks/useBulkPdfDownload.ts` |
-| Backend endpoints and job | `nirmaan_stack/api/pdf_helper/bulk_download.py` (`_scope`, `_reader`, `_voucher_files`, `_mtc_files`) |
-| Tests | `bulkDownloadTypes.test.ts`, `steps/bulkTableColumns.test.ts`, `useBulkDownloadWizard.dom.test.tsx`, `steps/MTCSteps.dom.test.tsx`, `src/utils/frappeErrors.test.ts`, `api/pdf_helper/test_bulk_download_scope.py`, `test_bulk_download_job.py`, `test_bulk_download_mtc.py` |
+| The progress window (one, for Quick Download and the wizard), and what it shows per event | `src/components/common/BulkDownloadProgressDialog.tsx`, `src/utils/bulkDownload/bulkDownloadRun.ts` |
+| Each type's icon and colour (cards and the window's icon tile) | `TYPE_STYLE` in `src/utils/bulkDownload/bulkDownloadStyle.ts` |
+| Backend endpoints and job | `nirmaan_stack/api/pdf_helper/bulk_download.py` (`_scope`, `_reader`, `_po_voucher_payments`, `_wo_voucher_files`, `_mtc_files`) |
+| Tests | `bulkDownloadTypes.test.ts`, `bulkDownloadRun.test.ts`, `BulkDownloadProgressDialog.dom.test.tsx`, `steps/bulkTableColumns.test.ts`, `useBulkDownloadWizard.dom.test.tsx`, `steps/MTCSteps.dom.test.tsx`, `steps/PaymentVoucherSteps.dom.test.tsx`, `src/utils/frappeErrors.test.ts`, `api/pdf_helper/test_bulk_download_scope.py`, `test_bulk_download_job.py`, `test_bulk_download_mtc.py`, `test_bulk_download_po_vouchers.py` |
 
 ## 8. Rules not to break
 
@@ -163,9 +150,16 @@ page's project rule (`mtc_allowed_projects`: a PM / PL sees only assigned projec
 - **The job never ends silently:** any failure publishes `bulk_download_failed` (and writes an Error Log). The
   progress window's **Cancel download** calls `cancel_bulk_download`; the job checks a per-user Redis flag
   (`frappe.cache.exists`, never `get_value`, which caches per process) before each document.
-- **Only a delivered file reaches the wizard's Done step** (the `bulk_download_all_ready` token). A failure or a
-  cancel closes the progress window and keeps the selection. Never decide "done" from `progress`: the previous
-  download leaves it at 100, and the failure listener holds the values of the render in which Download was clicked.
+- **Only a delivered file reaches the wizard's Done step** (the `bulk_download_all_ready` token). A failure keeps
+  the selection and leaves the window open on the server's reason (no toast); a cancel closes the window and keeps
+  the selection. Never decide "done" from `progress`: the previous download leaves it at 100, and the failure
+  listener holds the values of the render in which Download was clicked.
+- **The window counts FINISHED documents.** The job publishes `bulk_download_progress` before each document with
+  `done` (finished so far), `total` and `current` (the PO / WO number, for PO, WO and DN only), then once with
+  `stage: "merging"` while it writes the file; `bulk_download_all_ready` carries `included` / `total`, so a
+  document that failed shows as missing instead of vanishing. The window reads these only through
+  `bulkDownloadRun.ts`, which also accepts an older worker's events (no counts). It cannot be dismissed while the
+  job runs (leaving the page cancels the job); there is deliberately no "run in background".
 - **A refused start shows Frappe's own reason.** Read it with `readFrappeError(response, fallback)`
   (`src/utils/frappeErrors.ts`, which wraps `getFrappeError`), never `res.json().message`: Frappe puts the reason in
   `_server_messages` / `exception`, and an HTML error page is not JSON.
@@ -176,7 +170,7 @@ page's project rule (`mtc_allowed_projects`: a PM / PL sees only assigned projec
 
 1. Add it to `BulkDocType` / `BULK_DOC_TYPES`, give it a rule in `allowedBulkTypes`, and add a test.
 2. Give it its names in `TYPE_INFO` (card, description, menu, progress text) — the build fails until you do —
-   then a look in `TYPE_STYLE` (`BulkDownloadStep1.tsx`), a click handler in `onMenuClick`
+   then a look in `TYPE_STYLE` (`utils/bulkDownload/bulkDownloadStyle.ts`), a click handler in `onMenuClick`
    (`BulkPdfDownloadButton.tsx`), and a step in `steps/`. An invoice choice goes in `INVOICE_SUB_TYPES` only.
 3. Add its query to the wizard, filtered by the scope, with columns through `forScope`.
 4. Backend: build its "download all" list with `_reader(field)`, so the vendor scope stays permission-checked.

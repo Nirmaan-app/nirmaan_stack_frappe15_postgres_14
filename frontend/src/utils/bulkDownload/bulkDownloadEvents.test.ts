@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { BULK_DOWNLOAD_EVENTS, BulkDownloadSocket, listenForDownload, newDownloadId } from "./bulkDownloadEvents";
+import { BULK_DOWNLOAD_EVENTS, BulkDownloadSocket, cancelBulkDownload, listenForDownload, newDownloadId } from "./bulkDownloadEvents";
 
 /** A Socket.IO stand-in: listeners per event, removable one by one, and `emit` to fire them. */
 const fakeSocket = () => {
@@ -65,5 +65,33 @@ describe("listenForDownload — two downloads of one user at once (project tab +
         socket.emit(BULK_DOWNLOAD_EVENTS.ready, { download_id: "first-download", token: "t1", filename: "p.pdf" });
         expect(second.onReady).toHaveBeenCalledOnce();
         expect(first.onReady).not.toHaveBeenCalled();
+    });
+});
+
+describe("cancelBulkDownload — what the progress window's Cancel sends", () => {
+    it("POSTs this download's id to cancel_bulk_download with the CSRF token (the server takes POST only)", async () => {
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+        vi.stubGlobal("fetch", fetchMock);
+        vi.stubGlobal("window", { csrf_token: "csrf-123" });
+        try {
+            await cancelBulkDownload("abc12345-def6");
+            const [url, init] = fetchMock.mock.calls[0];
+            expect(url).toBe("/api/method/nirmaan_stack.api.pdf_helper.bulk_download.cancel_bulk_download");
+            expect(init.method).toBe("POST");
+            expect(init.headers).toEqual({ "X-Frappe-CSRF-Token": "csrf-123" });
+            expect((init.body as FormData).get("download_id")).toBe("abc12345-def6");
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it("never throws when the request fails: the window has already closed", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+        vi.stubGlobal("window", {});
+        try {
+            await expect(cancelBulkDownload("abc12345-def6")).resolves.toBeUndefined();
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });

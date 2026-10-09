@@ -11,7 +11,6 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 import type { BulkScopeKind } from "@/utils/bulkDownload/bulkDownloadTypes";
-import { hasVoucher } from "@/utils/paymentVoucher";
 import type { POItem, WOItem, VendorInvoice, PODeliveryDocuments, ProjectInvoice, PaymentVoucherRow, MTCRow } from "../useBulkDownloadWizard";
 
 type VendorRow = { name: string; vendor?: string; vendor_name?: string };
@@ -146,29 +145,19 @@ export const clientInvoiceColumns: ColumnDef<ProjectInvoice, any>[] = [
     amountColumn<ProjectInvoice>("amount", "Amount (incl. GST)", (row) => row.amount),
 ];
 
-/** Paid WO payments. Only a row with an uploaded voucher can be selected (`hasVoucher`). */
-export const voucherColumns: ColumnDef<PaymentVoucherRow, any>[] = [
-    textColumn<PaymentVoucherRow>("document_name", "WO ID", (row) => row.document_name, true),
+/** A paid payment: the same columns for PO and WO payments, only the order's header differs. */
+const voucherColumns = (orderHeader: "PO ID" | "WO ID"): ColumnDef<PaymentVoucherRow, any>[] => [
+    textColumn<PaymentVoucherRow>("document_name", orderHeader, (row) => row.document_name, true),
     vendorColumn<PaymentVoucherRow>(),
     amountColumn<PaymentVoucherRow>("amount", "Amount", (row) => row.amount),
     textColumn<PaymentVoucherRow>("utr", "UTR", (row) => row.utr),
     dateColumn<PaymentVoucherRow>("payment_date", "Paid On", (row) => row.payment_date),
-    {
-        id: "voucher",
-        accessorFn: (row) => (hasVoucher(row) ? "Uploaded" : "Missing"),
-        header: "Voucher",
-        filterFn: facetedFilterFn,
-        enableGlobalFilter: false,
-        cell: ({ getValue }) => (
-            <Badge
-                variant="outline"
-                className={`text-[11px] py-0.5 px-2 h-auto font-medium whitespace-nowrap ${getValue() === "Uploaded" ? "border-green-300 text-green-700" : "border-gray-300 text-muted-foreground"}`}
-            >
-                {getValue()}
-            </Badge>
-        ),
-    },
 ];
+
+/** Paid PO payments (their vouchers are generated). */
+export const poVoucherColumns = voucherColumns("PO ID");
+/** Paid WO payments that have an uploaded voucher (the wizard lists no other). */
+export const woVoucherColumns = voucherColumns("WO ID");
 
 /** What a certificate covers, e.g. "Copper Cable 4 sq mm (Polycab), Cable Tray". It tells certificates of one PO apart (MTC ids are never shown). */
 export const mtcItemsText = (row: MTCRow) =>
