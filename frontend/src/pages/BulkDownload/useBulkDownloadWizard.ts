@@ -52,6 +52,19 @@ export interface WOItem extends ProjectFields {
     total_amount?: number;
     creation?: string;
 }
+/** A paid Work Order payment; only one with `voucher_attachment` can be downloaded. */
+export interface PaymentVoucherRow extends ProjectFields {
+    name: string;
+    document_name?: string;
+    vendor?: string;
+    vendor_name?: string;
+    amount?: number;
+    utr?: string;
+    payment_date?: string;
+    voucher_attachment?: string;
+    creation?: string;
+}
+
 export interface NirmaanAttachmentStub {
     name: string;
     attachment_type?: string;
@@ -66,8 +79,11 @@ export interface CriticalPOTask {
     linked_pos?: string[];
 }
 
-/** The wizard for one project or one vendor. */
-export const useBulkDownloadWizard = (scope: BulkDownloadScope) => {
+/**
+ * The wizard for one project or one vendor. `types` is `allowedBulkTypes(scope, role)`: the
+ * payment-voucher list is only fetched where that card is offered.
+ */
+export const useBulkDownloadWizard = (scope: BulkDownloadScope, types: BulkDocType[]) => {
     const { kind, id } = scope;
     const isProject = kind === "project";
     const scopeFilter: [string, "=", string] = [kind, "=", id];
@@ -197,6 +213,18 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope) => {
     );
     const criticalTasksLoading = criticalTasksListLoading || criticalLinksLoading;
 
+    const { data: voucherPayments = [], isLoading: voucherPaymentsLoading } = useFrappeGetDocList<PaymentVoucherRow>(
+        "Project Payments",
+        {
+            fields: ["name", "document_name", "project", "project.project_name" as any, "vendor", "vendor.vendor_name" as any, "amount", "utr", "payment_date", "voucher_attachment", "creation"],
+            filters: [scopeFilter, ["document_type", "=", "Service Requests"], ["status", "=", "Paid"]],
+            limit: 0,
+            orderBy: { field: "`tabProject Payments`.payment_date", order: "asc" },
+        },
+        // Waits out the role's "Loading" placeholder, which would otherwise fetch it for a PM too.
+        types.includes("PaymentVoucher") && role !== "Loading" && scopeKey ? `bulk-pay-${scopeKey}` : null
+    );
+
     // Every step filters inside its own selection table (facet + date column filters), so the hook
     // hands each step its full ELIGIBLE list: DN = POs that have deliveries; the attachment types =
     // rows that actually carry a file to merge.
@@ -205,6 +233,7 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope) => {
     const dcItems = useMemo(() => poDeliveryDocs.filter(d => d.type === "Delivery Challan" && !!d.nirmaan_attachment), [poDeliveryDocs]);
     const mirItems = useMemo(() => poDeliveryDocs.filter(d => d.type === "Material Inspection Report" && !!d.nirmaan_attachment), [poDeliveryDocs]);
     const projectInvoiceItems = useMemo(() => projectInvoices.filter(p => !!p.attachment), [projectInvoices]);
+    const voucherCount = useMemo(() => voucherPayments.filter(p => !!p.voucher_attachment).length, [voucherPayments]);
 
     const filteredInvoiceItems = useCallback((sub: InvoiceSubType) => {
         if (sub === "PO Invoices") return invoiceItems.filter(i => i.document_type === "Procurement Orders");
@@ -215,8 +244,8 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope) => {
     const itemCounts = useMemo(() => ({
         PO: poList.length, WO: woList.length, Invoice: invoiceItems.length,
         DC: dcItems.length, MIR: mirItems.length, DN: dnList.length,
-        ClientInvoice: projectInvoiceItems.length,
-    }), [poList, woList, invoiceItems, dcItems, mirItems, dnList, projectInvoiceItems]);
+        ClientInvoice: projectInvoiceItems.length, PaymentVoucher: voucherCount,
+    }), [poList, woList, invoiceItems, dcItems, mirItems, dnList, projectInvoiceItems, voucherCount]);
 
     const goToStep2 = useCallback((t: BulkDocType) => { setDocType(t); setSelectedIds([]); setStep(2); }, []);
     const goBack = useCallback(() => { setStep(1); setDocType(null); setSelectedIds([]); }, []);
@@ -299,6 +328,11 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope) => {
                     formData.append("attachment_names", JSON.stringify(projectInvoiceItems.filter(p => selectedIds.includes(p.name)).map(p => p.attachment!)));
                     formData.append("doc_type", "Client Invoices");
                     break;
+                case "PaymentVoucher":
+                    // Payment names, not file URLs: the server reads each voucher back itself.
+                    endpoint = "/api/method/nirmaan_stack.api.pdf_helper.bulk_download.download_selected_payment_vouchers";
+                    formData.append("names", JSON.stringify(selectedIds));
+                    break;
             }
 
             const res = await fetch(endpoint, { method: "POST", headers: { "X-Frappe-CSRF-Token": (window as any).csrf_token || "" }, body: formData });
@@ -310,7 +344,7 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope) => {
     const stopProgress = useCallback(() => {
         setLoading(false); setShowProgress(false);
         detach();
-        if (progress === 100) { setDownloadedCount(selectedIds.length || 1); setDownloadedLabel(docType || "batch"); setStep(3); }
+        if (progress === 100) { setDownloadedCount(selectedIds.length || 1); setDownloadedLabel(docType === "PaymentVoucher" ? "Payment Voucher" : docType || "batch"); setStep(3); }
     }, [detach, progress, selectedIds, docType]);
 
     /** The progress window's Cancel: close it, stop the job, and stay on the selection (it is kept). */
@@ -343,5 +377,7 @@ export const useBulkDownloadWizard = (scope: BulkDownloadScope) => {
         cancelDownload,
         projectInvoiceItems,
         projectInvoicesLoading,
+        voucherPayments,
+        voucherPaymentsLoading,
     };
 };

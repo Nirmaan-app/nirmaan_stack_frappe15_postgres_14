@@ -1,4 +1,4 @@
-import { FileDown, ClipboardList, Receipt, Truck, ClipboardCheck, FileText, ReceiptText } from "lucide-react";
+import { FileDown, ClipboardList, Receipt, Truck, ClipboardCheck, FileText, ReceiptText, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { BulkDocType } from "./useBulkDownloadWizard";
 import { TYPE_INFO } from "@/utils/bulkDownload/bulkDownloadTypes";
@@ -21,6 +21,7 @@ const TYPE_STYLE: Record<BulkDocType, { icon: React.ElementType; iconBg: string;
     MIR: { icon: ClipboardCheck, iconBg: "bg-teal-50 group-hover:bg-teal-100", iconColor: "text-teal-600" },
     DN: { icon: FileText, iconBg: "bg-rose-50 group-hover:bg-rose-100", iconColor: "text-rose-600" },
     ClientInvoice: { icon: ReceiptText, iconBg: "bg-indigo-50 group-hover:bg-indigo-100", iconColor: "text-indigo-600" },
+    PaymentVoucher: { icon: Wallet, iconBg: "bg-amber-50 group-hover:bg-amber-100", iconColor: "text-amber-600" },
 };
 
 export const BulkDownloadStep1 = ({ onSelect, types, counts = {} }: Step1Props) => {

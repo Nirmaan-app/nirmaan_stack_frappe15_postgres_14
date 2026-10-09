@@ -11,7 +11,8 @@ import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
 import type { BulkScopeKind } from "@/utils/bulkDownload/bulkDownloadTypes";
-import type { POItem, WOItem, VendorInvoice, PODeliveryDocuments, ProjectInvoice } from "../useBulkDownloadWizard";
+import { hasVoucher } from "@/utils/paymentVoucher";
+import type { POItem, WOItem, VendorInvoice, PODeliveryDocuments, ProjectInvoice, PaymentVoucherRow } from "../useBulkDownloadWizard";
 
 type VendorRow = { name: string; vendor?: string; vendor_name?: string };
 type ProjectRow = { project?: string; project_name?: string };
@@ -143,4 +144,28 @@ export const clientInvoiceColumns: ColumnDef<ProjectInvoice, any>[] = [
     facetColumn<ProjectInvoice>("customer", "Customer", (row) => row.company_name || row.customer),
     dateColumn<ProjectInvoice>("invoice_date", "Invoice Date", (row) => row.invoice_date),
     amountColumn<ProjectInvoice>("amount", "Amount (incl. GST)", (row) => row.amount),
+];
+
+/** Paid WO payments. Only a row with an uploaded voucher can be selected (`hasVoucher`). */
+export const voucherColumns: ColumnDef<PaymentVoucherRow, any>[] = [
+    textColumn<PaymentVoucherRow>("document_name", "WO ID", (row) => row.document_name, true),
+    vendorColumn<PaymentVoucherRow>(),
+    amountColumn<PaymentVoucherRow>("amount", "Amount", (row) => row.amount),
+    textColumn<PaymentVoucherRow>("utr", "UTR", (row) => row.utr),
+    dateColumn<PaymentVoucherRow>("payment_date", "Paid On", (row) => row.payment_date),
+    {
+        id: "voucher",
+        accessorFn: (row) => (hasVoucher(row) ? "Uploaded" : "Missing"),
+        header: "Voucher",
+        filterFn: facetedFilterFn,
+        enableGlobalFilter: false,
+        cell: ({ getValue }) => (
+            <Badge
+                variant="outline"
+                className={`text-[11px] py-0.5 px-2 h-auto font-medium whitespace-nowrap ${getValue() === "Uploaded" ? "border-green-300 text-green-700" : "border-gray-300 text-muted-foreground"}`}
+            >
+                {getValue()}
+            </Badge>
+        ),
+    },
 ];

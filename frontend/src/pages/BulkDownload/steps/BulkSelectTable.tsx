@@ -6,8 +6,11 @@
  *
  * Selection is deliberately NOT TanStack row selection: it stays the wizard's `selectedIds`, which
  * is exactly what the download posts. The header checkbox acts on the FILTERED rows only.
+ *
+ * `isRowSelectable` (optional) greys a row out and keeps it out of every selection -- the header
+ * checkbox and the "x/y Selected" count both skip it. Without it every row is selectable.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     ColumnDef,
     ColumnFiltersState,
@@ -43,6 +46,10 @@ interface BulkSelectTableProps<T extends { name: string }> {
     dateFilterColumns?: string[];
     searchPlaceholder?: string;
     emptyMessage?: string;
+    /** Rows it returns false for are shown but cannot be selected. Pass a stable function. */
+    isRowSelectable?: (row: T) => boolean;
+    /** Shown after the count when some visible rows cannot be selected, e.g. "without voucher". */
+    unselectableLabel?: string;
 }
 
 export function BulkSelectTable<T extends { name: string }>({
@@ -55,6 +62,8 @@ export function BulkSelectTable<T extends { name: string }>({
     dateFilterColumns = [],
     searchPlaceholder = "Search...",
     emptyMessage = "No items found.",
+    isRowSelectable,
+    unselectableLabel,
 }: BulkSelectTableProps<T>) {
     const [sorting, setSorting] = useState<SortingState>([]);
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -77,7 +86,14 @@ export function BulkSelectTable<T extends { name: string }>({
     });
 
     const rows = table.getRowModel().rows;
-    const visibleIds = useMemo(() => rows.map((r) => r.id), [rows]);
+    // One rule for "can this row be ticked": each row's checkbox, the header checkbox and the count.
+    const canSelect = useCallback((row: T) => !isRowSelectable || isRowSelectable(row), [isRowSelectable]);
+    // The visible rows that CAN be selected: what the header checkbox and the count act on.
+    const visibleIds = useMemo(
+        () => rows.filter((r) => canSelect(r.original)).map((r) => r.id),
+        [rows, canSelect]
+    );
+    const unselectableCount = rows.length - visibleIds.length;
     const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
     const selectedVisibleCount = visibleIds.filter((id) => selected.has(id)).length;
     const allVisibleSelected = visibleIds.length > 0 && selectedVisibleCount === visibleIds.length;
@@ -147,7 +163,10 @@ export function BulkSelectTable<T extends { name: string }>({
                         </Button>
                     )}
                     <p className="text-sm text-slate-500 font-medium whitespace-nowrap">
-                        {selectedVisibleCount}/{rows.length} Selected
+                        {selectedVisibleCount}/{visibleIds.length} Selected
+                        {unselectableCount > 0 && unselectableLabel && (
+                            <span className="font-normal"> · {unselectableCount} {unselectableLabel}</span>
+                        )}
                     </p>
                 </div>
             </div>
@@ -166,7 +185,7 @@ export function BulkSelectTable<T extends { name: string }>({
                                     <TableHead className="w-10 px-3">
                                         <Checkbox
                                             aria-label="Select all filtered rows"
-                                            disabled={rows.length === 0}
+                                            disabled={visibleIds.length === 0}
                                             checked={allVisibleSelected ? true : selectedVisibleCount > 0 ? "indeterminate" : false}
                                             onCheckedChange={toggleAllVisible}
                                         />
@@ -225,16 +244,21 @@ export function BulkSelectTable<T extends { name: string }>({
                             ) : (
                                 rows.map((row) => {
                                     const isSelected = selected.has(row.id);
+                                    const selectable = canSelect(row.original);
                                     return (
                                         <TableRow
                                             key={row.id}
                                             data-state={isSelected ? "selected" : undefined}
-                                            onClick={() => toggleRow(row.id)}
-                                            className={cn("cursor-pointer", isSelected && "bg-red-50/60 hover:bg-red-50")}
+                                            onClick={selectable ? () => toggleRow(row.id) : undefined}
+                                            className={cn(
+                                                selectable ? "cursor-pointer" : "cursor-not-allowed opacity-50",
+                                                isSelected && "bg-red-50/60 hover:bg-red-50"
+                                            )}
                                         >
                                             <TableCell className="w-10 px-3 py-2" onClick={(e) => e.stopPropagation()}>
                                                 <Checkbox
                                                     aria-label={`Select ${row.id}`}
+                                                    disabled={!selectable}
                                                     checked={isSelected}
                                                     onCheckedChange={() => toggleRow(row.id)}
                                                     className="data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500"

@@ -12,8 +12,10 @@ hold:
      against independent SQL, not against the code under test.
   3. A VENDOR SPANS PROJECTS, SO THE VENDOR LISTS RESPECT USER PERMISSIONS. Fetching an attachment
      checks nothing, so a user held to one project by a User Permission row must get only that
-     project's documents. The project scope keeps its `get_all` (unchanged).
-  4. CLIENT INVOICES ARE PROJECT-ONLY (Project Invoices carry no vendor).
+     project's documents and vouchers. The project scope keeps its `get_all` (unchanged).
+  4. PAYMENT VOUCHERS TRAVEL AS PAYMENT NAMES. The server reads each voucher back itself, so a
+     payment without one is skipped, and the file-URL endpoint refuses the type.
+  5. CLIENT INVOICES ARE PROJECT-ONLY (Project Invoices carry no vendor).
 
 The project scope's equivalence with the code before this change was proved separately, path by
 path, against the old module (DIFF: 0); these tests pin the vendor side.
@@ -63,6 +65,19 @@ class TestBulkDownloadScope(FrappeTestCase):
             """select vendor from "tabService Requests" where status = 'Approved'
             group by vendor order by count(*) desc limit 1"""
         )
+        cls.voucher_vendor = _first(
+            """select vendor from "tabProject Payments"
+            where document_type = 'Service Requests' and status = 'Paid' and coalesce(voucher_attachment, '') <> ''
+            group by vendor having count(distinct project) >= 2
+            order by count(distinct project) desc, count(*) desc limit 1"""
+        )
+        cls.mixed_voucher_vendor = _first(
+            """select vendor from "tabProject Payments" where document_type = 'Service Requests' and status = 'Paid'
+            group by vendor
+            having sum(case when coalesce(voucher_attachment, '') <> '' then 1 else 0 end) >= 2
+               and sum(case when coalesce(voucher_attachment, '') = '' then 1 else 0 end) >= 1
+            order by count(*) desc limit 1"""
+        )
 
     def _need(self, vendor, what):
         if not vendor:
@@ -76,6 +91,10 @@ class TestBulkDownloadScope(FrappeTestCase):
     @property
     def service(self):
         return self._need(self.service_vendor, "with approved Work Orders")
+
+    @property
+    def vouchers(self):
+        return self._need(self.voucher_vendor, "with payment vouchers in 2+ projects")
 
     def setUp(self):
         self.enqueued = []
@@ -180,6 +199,14 @@ class TestBulkDownloadScope(FrappeTestCase):
             )
         self.assertTrue(bd._all_attachments("DC", "vendor", v), "the chosen vendor should have DCs to compare")
 
+    def test_vendor_vouchers_match_sql(self):
+        v = self.vouchers
+        expected = _sql_list("""select voucher_attachment from "tabProject Payments" where vendor = %s
+            and document_type = 'Service Requests' and status = 'Paid' and coalesce(voucher_attachment, '') <> ''
+            order by payment_date asc, creation asc""", v)
+        self.assertTrue(expected)
+        self.assertEqual(bd._voucher_files("vendor", v), expected)
+
     # --- 3. user permissions -----------------------------------------------------------------------
 
     def test_a_project_scoped_user_gets_only_their_projects_documents_from_a_vendor(self):
@@ -198,6 +225,20 @@ class TestBulkDownloadScope(FrappeTestCase):
         self.assertEqual(bd._all_attachments("DC", "vendor", v), own_dcs)
         self.assertLess(len(own), len(everything), "the vendor should span more than this one project")
 
+    def test_a_project_scoped_user_gets_only_their_projects_vouchers(self):
+        v = self.vouchers
+        project = frappe.db.sql("""select project from "tabProject Payments" where vendor = %s
+            and document_type = 'Service Requests' and status = 'Paid' and coalesce(voucher_attachment, '') <> ''
+            group by project order by count(*) desc limit 1""", (v,))[0][0]
+        everything = bd._voucher_files("vendor", v)
+        own = _sql_list("""select voucher_attachment from "tabProject Payments" where vendor = %s and project = %s
+            and document_type = 'Service Requests' and status = 'Paid' and coalesce(voucher_attachment, '') <> ''
+            order by payment_date asc, creation asc""", v, project)
+
+        frappe.set_user(self._restricted_user(["Nirmaan Project Lead"], [project]))
+        self.assertEqual(bd._voucher_files("vendor", v), own)
+        self.assertLess(len(own), len(everything))
+
     def test_a_user_who_cannot_read_the_doctype_gets_a_failure_event_not_a_silent_hang(self):
         user = self._restricted_user([], [])
         published = []
@@ -206,7 +247,43 @@ class TestBulkDownloadScope(FrappeTestCase):
         self.assertEqual([e for e, _ in published], ["bulk_download_failed"])
         self.assertIn("do not have access", published[0][1]["message"])
 
-    # --- 4. client invoices are project-only ---------------------------------------------------------
+    # --- 4. payment vouchers by payment name ----------------------------------------------------------
+
+    def test_selected_vouchers_are_read_back_by_payment_and_a_payment_without_one_is_skipped(self):
+        v = self._need(self.mixed_voucher_vendor, "with paid WO payments both with and without a voucher")
+        rows = frappe.db.sql("""select name, coalesce(voucher_attachment, '') from "tabProject Payments"
+            where vendor = %s and document_type = 'Service Requests' and status = 'Paid'
+            order by payment_date asc, creation asc""", (v,))
+        with_voucher = [r for r in rows if r[1]][:2]
+        without = [r for r in rows if not r[1]][:1]
+
+        names = [r[0] for r in without + with_voucher]
+        self.assertEqual(bd._voucher_files("vendor", v, names), [r[1] for r in with_voucher])
+        self.assertEqual(bd._voucher_files("vendor", v, []), [])
+        # A payment of another vendor is not reachable through this vendor's scope.
+        other = frappe.db.get_value("Project Payments", {"vendor": ["!=", v], "voucher_attachment": ["is", "set"],
+                                                         "status": "Paid", "document_type": "Service Requests"}, "name")
+        if other:
+            self.assertEqual(bd._voucher_files("vendor", v, [other]), [])
+
+        # Through the job: exactly the two voucher files are fetched, in payment order.
+        fetched = []
+        with patch.object(bd, "_fetch_attachment_content", side_effect=lambda url: fetched.append(url)), \
+                patch.object(frappe, "publish_realtime"):
+            bd.download_selected_payment_vouchers(names=frappe.as_json(names), vendor=v)
+            job = {k: val for k, val in self.enqueued[-1].items() if k != "queue"}
+            bd.run_bulk_download_job(**job)
+        self.assertEqual(fetched, [r[1] for r in with_voucher])
+        self.assertTrue(job["custom_filename"].endswith("_Selected_Payment_Vouchers.pdf"))
+
+    def test_the_file_url_endpoint_refuses_payment_vouchers_and_an_empty_selection_is_refused(self):
+        with self.assertRaises(frappe.ValidationError):
+            bd.download_selected_attachments(attachment_names='["/files/x.pdf"]', doc_type=bd.PAYMENT_VOUCHERS, vendor=self.vouchers)
+        with self.assertRaises(frappe.ValidationError):
+            bd.download_selected_payment_vouchers(names="[]", vendor=self.vouchers)
+        self.assertEqual(self.enqueued, [])
+
+    # --- 5. client invoices are project-only ---------------------------------------------------------
 
     def test_client_invoices_are_refused_for_a_vendor(self):
         with self.assertRaises(frappe.ValidationError):

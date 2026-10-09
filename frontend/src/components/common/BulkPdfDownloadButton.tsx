@@ -57,6 +57,7 @@ export const BulkPdfDownloadButton = ({ scope, types }: BulkPdfDownloadButtonPro
     MIR: () => handleBulkDownload("MIR", TYPE_INFO.MIR.card),
     DN: () => handleBulkDownload("DN", TYPE_INFO.DN.card),
     ClientInvoice: () => handleBulkDownload("ClientInvoice", TYPE_INFO.ClientInvoice.card),
+    PaymentVoucher: () => handleBulkDownload("PaymentVoucher", TYPE_INFO.PaymentVoucher.card),
   };
   const invoiceChoices = INVOICE_SUB_TYPES.filter((c) => invoiceSubTypesFor(scope).includes(c.value));
 

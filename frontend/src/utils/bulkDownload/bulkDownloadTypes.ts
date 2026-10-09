@@ -3,12 +3,12 @@
  * Download menu and the wizard's queries, so they cannot drift apart.
  *
  * A bulk download covers one project (the project page's tab) or one vendor (the vendor page's
- * tab). Role rules are the same in both: a Project Manager gets no vendor or client invoices;
- * PMO loses client invoices only.
+ * tab). Role rules are the same in both: a Project Manager gets no vendor invoices, client
+ * invoices or payment vouchers; PMO loses client invoices only.
  */
 import { PMO_EXECUTIVE_PROFILE, PROJECT_MANAGER_PROFILE } from "@/constants/roles";
 
-export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "ClientInvoice";
+export type BulkDocType = "PO" | "WO" | "Invoice" | "DC" | "MIR" | "DN" | "ClientInvoice" | "PaymentVoucher";
 export type InvoiceSubType = "PO Invoices" | "WO Invoices" | "All Invoices";
 export type BulkScopeKind = "project" | "vendor";
 
@@ -22,7 +22,7 @@ export interface BulkDownloadScope {
 }
 
 /** Card and menu order. */
-export const BULK_DOC_TYPES: readonly BulkDocType[] = ["PO", "WO", "Invoice", "DC", "MIR", "DN", "ClientInvoice"];
+export const BULK_DOC_TYPES: readonly BulkDocType[] = ["PO", "WO", "Invoice", "DC", "MIR", "DN", "ClientInvoice", "PaymentVoucher"];
 
 /**
  * Every name a type goes by, in ONE place: the Step 1 card (`card`, `description`), the Quick
@@ -37,6 +37,7 @@ export const TYPE_INFO: Record<BulkDocType, { card: string; description: string;
     MIR: { card: "Material Inspection Reports", description: "Download selected MIR attachments", menu: "Download All MIRs", short: "MIRs" },
     DN: { card: "Delivery Notes", description: "Download delivery note PDFs for selected POs", menu: "Download All DNs", short: "DNs" },
     ClientInvoice: { card: "Client Invoices", description: "Download client invoice attachments raised on the project", menu: "Download All Client Invoices", short: "Client Invoices" },
+    PaymentVoucher: { card: "Payment Vouchers", description: "Download uploaded vouchers of paid WO payments", menu: "Download All Payment Vouchers", short: "Payment Vouchers" },
 };
 
 /** The invoice choices, in display order — read by both the Quick Download dialog and the wizard. */
@@ -48,7 +49,7 @@ export const INVOICE_SUB_TYPES: readonly { value: InvoiceSubType; label: string;
 
 // Gated by vendor type the same way the vendor page gates its own tabs.
 const MATERIAL_TYPES: readonly BulkDocType[] = ["PO", "DC", "MIR", "DN"];
-const SERVICE_TYPES: readonly BulkDocType[] = ["WO"];
+const SERVICE_TYPES: readonly BulkDocType[] = ["WO", "PaymentVoucher"];
 
 /** The vendor-type rule the vendor page uses for its own tabs too (Material Orders, Work Orders, …). */
 export const vendorHandlesMaterial = (vendorType?: string) => vendorType === "Material" || vendorType === "Material & Service";
@@ -56,7 +57,7 @@ export const vendorHandlesService = (vendorType?: string) => vendorType === "Ser
 
 export const allowedBulkTypes = (scope: Pick<BulkDownloadScope, "kind" | "vendorType">, role: string): BulkDocType[] =>
     BULK_DOC_TYPES.filter((type) => {
-        if (role === PROJECT_MANAGER_PROFILE && (type === "Invoice" || type === "ClientInvoice")) return false;
+        if (role === PROJECT_MANAGER_PROFILE && (type === "Invoice" || type === "ClientInvoice" || type === "PaymentVoucher")) return false;
         if (role === PMO_EXECUTIVE_PROFILE && type === "ClientInvoice") return false;
         if (scope.kind === "vendor") {
             // Project Invoices carry no vendor.

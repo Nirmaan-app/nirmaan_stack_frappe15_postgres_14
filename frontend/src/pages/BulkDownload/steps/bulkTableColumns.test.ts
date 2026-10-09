@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ColumnDef } from "@tanstack/react-table";
-import { dcColumns, dnColumns, forScope, invoiceColumns, mirColumns, poColumns, woColumns } from "./bulkTableColumns";
+import { dcColumns, dnColumns, forScope, invoiceColumns, mirColumns, poColumns, voucherColumns, woColumns } from "./bulkTableColumns";
 
 const ids = (columns: ColumnDef<any, any>[]) => columns.map((c) => c.id);
 const accessor = (column: ColumnDef<any, any>) => (column as { accessorFn: (row: unknown, i: number) => unknown }).accessorFn;
 
-const ALL_SETS = { poColumns, woColumns, dnColumns, invoiceColumns, dcColumns, mirColumns };
+const ALL_SETS = { poColumns, woColumns, dnColumns, invoiceColumns, dcColumns, mirColumns, voucherColumns };
 
 describe("forScope", () => {
     it("hands project scope the very same column array (the project tab is unchanged)", () => {
@@ -30,5 +30,19 @@ describe("forScope", () => {
         expect(accessor(project)({ name: "PO-1", project: "P-1", project_name: "Tower A" }, 0)).toBe("Tower A");
         expect(accessor(project)({ name: "PO-1", project: "P-1" }, 0)).toBe("P-1");
         expect(project.header).toBe("Project");
+    });
+});
+
+describe("voucherColumns", () => {
+    it("labels each payment Uploaded or Missing; an emptied voucher field counts as Missing", () => {
+        const voucher = voucherColumns.find((c) => c.id === "voucher")!;
+        expect(accessor(voucher)({ name: "PAY-1", voucher_attachment: "/files/v.pdf" }, 0)).toBe("Uploaded");
+        expect(accessor(voucher)({ name: "PAY-2", voucher_attachment: "" }, 0)).toBe("Missing");
+        expect(accessor(voucher)({ name: "PAY-3" }, 0)).toBe("Missing");
+    });
+
+    it("keeps amount, date and voucher status out of the search box", () => {
+        const searchable = voucherColumns.filter((c) => c.enableGlobalFilter !== false).map((c) => c.id);
+        expect(searchable).toEqual(["document_name", "vendor", "utr"]);
     });
 });

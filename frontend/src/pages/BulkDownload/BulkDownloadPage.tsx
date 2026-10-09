@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { BulkPdfDownloadButton } from "@/components/common/BulkPdfDownloadButton";
 import { BulkDownloadStep1 } from "./BulkDownloadStep1";
-import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps, ClientInvoiceSteps } from "./steps";
+import { POSteps, WOSteps, InvoiceSteps, DCSteps, MIRSteps, DNSteps, ClientInvoiceSteps, PaymentVoucherSteps } from "./steps";
 import { useBulkDownloadWizard } from "./useBulkDownloadWizard";
 import { useUserData } from "@/hooks/useUserData";
 import { BulkDownloadScope, allowedBulkTypes, invoiceSubTypesFor } from "@/utils/bulkDownload/bulkDownloadTypes";
@@ -54,6 +54,8 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
         criticalTasks,
         projectInvoiceItems,
         projectInvoicesLoading,
+        voucherPayments,
+        voucherPaymentsLoading,
         withRate,
         setWithRate,
 
@@ -71,7 +73,7 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
         handleDownload,
         stopProgress,
         cancelDownload,
-    } = useBulkDownloadWizard(scope);
+    } = useBulkDownloadWizard(scope, types);
 
     const currentWizardStep = step === 1 ? 0 : step === 2 ? 1 : 2;
 
@@ -194,6 +196,15 @@ export const BulkDownloadPage = ({ scope }: BulkDownloadPageProps) => {
                             isLoading={posLoading}
                             criticalTasks={criticalTasks}
                             onSelectMultipleCriticalTaskPOs={selectMultipleCriticalTaskPOs}
+                            scopeKind={scope.kind}
+                        />
+                    )}
+
+                    {step === 2 && docType === "PaymentVoucher" && (
+                        <PaymentVoucherSteps
+                            {...sharedProps}
+                            items={voucherPayments}
+                            isLoading={voucherPaymentsLoading}
                             scopeKind={scope.kind}
                         />
                     )}
