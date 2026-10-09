@@ -2,6 +2,7 @@ import frappe
 import json
 from frappe.utils import flt,getdate, nowdate
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
+from nirmaan_stack.integrations.controllers.material_test_certificate import delete_mtcs_for_po
 
 @frappe.whitelist()
 def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_terms: list):
@@ -145,7 +146,9 @@ def handle_merge_pos(po_id: str, merged_items: list, order_data: list, payment_t
         for po_name in pos_to_update:
             frappe.db.set_value("Procurement Orders", po_name, "status", "Merged")
             frappe.db.set_value("Procurement Orders", po_name, "merged", new_po_doc.name)
-        
+            # A merged PO takes its Material Test Certificates with it (owner ruling Q28).
+            delete_mtcs_for_po(po_name)
+
         # Vendor credit recalculation after PO merge
         if po_doc.vendor:
             recalculate_vendor_credit(po_doc.vendor, "PO Merged", po_id=new_po_doc.name, project=po_doc.project)

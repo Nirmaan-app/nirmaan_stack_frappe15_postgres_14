@@ -3,8 +3,9 @@
 
 """Handover documents that already exist elsewhere in Nirmaan. READ-ONLY: nothing here writes.
 
-  2 Demo & Training, 3 Commissioning, 14 Factory Test -> Commission Report tasks
+  2 Demo & Training, 3 Commissioning                  -> Commission Report tasks
   4 Material TDS                                        -> Project TDS Item List
+  14 Factory Test Reports                               -> Material Test Certificates (by item package)
   15 Snag List                                         -> Project Snag (whole project: snag categories
                                                           are free text, so they cannot be split by system)
   16 As Built                                          -> Design Tracker tasks in the Handover phase
@@ -21,6 +22,7 @@ The matching rules themselves live in `services/hod/sources.py`.
 import re
 
 import frappe
+from frappe.utils import formatdate
 
 from nirmaan_stack.api.hod.project_info import as_dict
 from nirmaan_stack.services.hod import checklist, index, sources
@@ -150,6 +152,55 @@ def tds_items(project: str, system) -> list:
 	return [i for i in items if sources.tds_belongs(i.tds_category, i.tds_item_name, system.keywords, shared)]
 
 
+def mtc_for_system(project: str, system) -> list:
+	"""The project's Material Test Certificates that cover this system's package, newest certificate first.
+
+	An MTC line carries its PO line's `procurement_package`, and HOD System.work_package uses the same
+	package names, so a certificate belongs to every system whose package one of its items is in -- and
+	each system lists only ITS items (an HVAC + Electrical certificate shows under both, split). On a package
+	SHARED by several systems (Critical Room ELV) the items are narrowed by the system's keywords, exactly as
+	TDS items are (`sources.mtc_item_belongs`). Read-only: HOD never writes an MTC.
+	"""
+	if not system.work_package:
+		return []
+	rows = frappe.db.sql(
+		"""
+		select m.name, m.procurement_order, m.vendor, v.vendor_name, m.attachment, m.certificate_date,
+		       i.item_id, i.item_name, i.make, i.category
+		from "tabMaterial Test Certificate" m
+		join "tabMaterial Test Certificate Item" i
+		  on i.parent = m.name and i.parenttype = 'Material Test Certificate'
+		left join "tabVendors" v on v.name = m.vendor
+		where m.project = %(project)s and i.procurement_package = %(package)s
+		order by m.certificate_date desc, m.creation desc, m.name, i.idx
+		""",
+		{"project": project, "package": system.work_package},
+		as_dict=True,
+	)
+	shared = package_is_shared(system.work_package)
+	out = {}
+	for r in rows:
+		if not sources.mtc_item_belongs(r.category, r.item_name, system.keywords, shared):
+			continue
+		mtc = out.get(r.name)
+		if mtc is None:
+			po = r.procurement_order or ""
+			mtc = out[r.name] = frappe._dict(
+				name=r.name,
+				procurement_order=po,
+				po_label=f"PO-{po.split('/')[1]}" if po.count("/") >= 1 else po,
+				vendor=r.vendor,
+				vendor_name=r.vendor_name or r.vendor,
+				attachment=r.attachment,
+				certificate_date=r.certificate_date,
+				# For the "HOD Document" print, which formats no dates of its own.
+				certificate_date_label=formatdate(r.certificate_date, "dd-MMM-yyyy") if r.certificate_date else "",
+				items=[],
+			)
+		mtc["items"].append(frappe._dict(item_name=r.item_name or r.item_id, make=r.make, category=r.category))
+	return list(out.values())
+
+
 def snag_batches(project: str) -> list:
 	"""The project's snag batches with ALL their snags, newest first.
 
@@ -243,6 +294,8 @@ def sources_for(project: str, hod_system: str, document: str) -> dict:
 		return {"source": "Project TDS Item List", "items": tds_items(project, system)}
 	if src == index.SRC_SNAG:
 		return {"source": "Project Snag", "summary": snag_summary(project), "items": snag_batches(project)}
+	if src == index.SRC_MTC:
+		return {"source": "Material Test Certificate", "items": mtc_for_system(project, system)}
 	return {"source": "Design Tracker", "items": design_handover_tasks(project, system)}
 
 

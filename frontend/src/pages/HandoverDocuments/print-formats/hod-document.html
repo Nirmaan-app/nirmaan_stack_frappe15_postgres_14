@@ -233,7 +233,14 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
    seal above three names in open space, with no rule between them -- NOT the divided TESTED BY /
    CONSULTANT / CLIENT boxes the other documents use. The names are the stakeholders whose logos head
    the page, so the strip and the signatures can never name different people. */
-.hd-seal-mark { text-align: left; padding-left: 66px; margin: 14px 0 10px 0; }
+/* The seal goes over Nirmaan's name: `.hd-seal-slot` is ONE column wide and offset by whole columns
+   (inline `width` / `margin-left` percentages), and the names below are equal columns of that same
+   width. A fixed 66px padding lined up with NIRMAAN only at three names and drifted off it at one, two,
+   four, five or six. It stays a plain BLOCK above the names table: made a table (or a first row of
+   theirs), the space wkhtmltopdf sometimes opens inside this pinned band landed between the seal and
+   the names -- measured. */
+.hd-seal-mark { margin: 14px 0 10px 0; }
+.hd-seal-slot { text-align: center; }
 .hd-seal-mark img { height: 88px; }
 /* The Recommended Tools List: title, intro and table are ONE unbroken box, and the box ENDS with the
    last tool -- it does not run to the foot of the page and carries no signature band (owner 2026-09-25).
@@ -518,10 +525,17 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
 
 {#- The checklist's signature band (owner 2026-09-25): the company seal over the three parties named
     in open space. The names come from the LOGO STRIP that heads the page, so the two can never
-    disagree; the old fixed labels remain the fallback for a project with no logos at all. -#}
+    disagree; the old fixed labels remain the fallback for a project with no logos at all. The seal goes
+    over Nirmaan's name (`mep_contractor`); with Nirmaan unpicked, or no logos, over the first name. -#}
 {%- macro signature_band(ctx) -%}
+{%- set signers = (ctx.top.logos if ctx.top and ctx.top.logos else []) -%}
+{%- set roles = signers | map(attribute="role") | list -%}
+{%- set seal_at = roles.index("mep_contractor") if "mep_contractor" in roles else 0 -%}
+{%- set cols = signers | length if signers else 3 -%}
 <div class="hd-seal-mark">
-    <img src="{{ frappe.utils.get_url('/assets/nirmaan_stack/frontend/nirmaan-seal-sign.png') }}" alt="">
+    <div class="hd-seal-slot" style="width: {{ "%.4f"|format(100.0 / cols) }}%; margin-left: {{ "%.4f"|format(100.0 * seal_at / cols) }}%;">
+        <img src="{{ frappe.utils.get_url('/assets/nirmaan_stack/frontend/nirmaan-seal-sign.png') }}" alt="">
+    </div>
 </div>
 <table class="hd-signnames"><tr>
 {%- if ctx.top and ctx.top.logos -%}
@@ -559,8 +573,8 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
     <p class="hd-esc-note">If any queries/ complaints with regards to the work, services, drawings and material, please follow the above escalation provided.</p>
     </div>
 
-{# ------------------------------------------- 2, 3, 14. From the Commission Report #}
-{% elif ctx.key in ("demo_training", "commissioning_report", "factory_test_reports") %}
+{# ----------------------------------------------- 2, 3. From the Commission Report #}
+{% elif ctx.key in ("demo_training", "commissioning_report") %}
     <div class="hd-title">{{ v(ctx.title) }}</div>
     {% set items = ctx.sources["items"] %}
     {% if items %}
@@ -579,6 +593,28 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
     <p class="hd-note">The reports listed above are kept in Nirmaan&rsquo;s Commission Report. In the handover binder each filled report follows this page.</p>
     {% else %}
     <div class="hd-off">No {{ v(ctx.title) }} is recorded for {{ v(ctx.display_name) }} in this project&rsquo;s Commission Report yet.</div>
+    {% endif %}
+
+{# --------------------------------- 14. From the Material Test Certificates (by package) #}
+{% elif ctx.key == "factory_test_reports" %}
+    <div class="hd-title">{{ v(ctx.title) }}</div>
+    {% set items = ctx.sources["items"] %}
+    {% if items %}
+    <table class="hd-table">
+        <tr><th style="width: 7%;">S.No</th><th style="width: 12%;">PO</th><th style="width: 22%;">Vendor</th><th>Items</th><th style="width: 16%;">Certificate Date</th></tr>
+        {% for m in items %}
+        <tr>
+            <td class="hd-c">{{ loop.index }}</td>
+            <td class="hd-c">{{ v(m.po_label) }}</td>
+            <td>{{ v(m.vendor_name) }}</td>
+            <td>{% for it in m["items"] %}{{ v(it.item_name) }}{% if it.make %} &middot; {{ v(it.make) }}{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+            <td class="hd-c">{{ v(m.certificate_date_label) or "-" }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <p class="hd-note">The certificates listed above are kept in Nirmaan&rsquo;s Material Test Certificates, uploaded on each PO. In the handover binder each certificate follows this page.</p>
+    {% else %}
+    <div class="hd-off">No Material Test Certificate is recorded for {{ v(ctx.display_name) }} in this project yet.</div>
     {% endif %}
 
 {# ------------------------------------------------------------ 4. Material TDS #}

@@ -160,6 +160,31 @@ export const canDeleteDeliveryDocument = (
   userId === "Administrator" || (!!role && PDD_DELETE_PROFILES.includes(role));
 
 /**
+ * May upload, edit and delete a Material Test Certificate. Mirrored server-side by
+ * `role_profiles.MTC_MANAGE_PROFILES`, which is the ENFORCEMENT boundary; this only
+ * decides which buttons render.
+ */
+export const MTC_MANAGE_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  ...PROCUREMENT_PROFILES,
+];
+
+/** True when `role` (a role PROFILE) may upload / edit / delete an MTC. */
+export const canManageMTC = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && MTC_MANAGE_PROFILES.includes(role));
+
+/**
+ * The MTC list page and its dashboard card: Project Manager and Project Lead, each seeing
+ * only the projects assigned to them. Mirrored server-side by
+ * `role_profiles.MTC_PROJECT_SCOPED_PROFILES`.
+ */
+export const MTC_PAGE_PROFILES: readonly string[] = [
+  PROJECT_MANAGER_PROFILE,
+  PROJECT_LEAD_PROFILE,
+];
+
+/**
  * May remove a user from a project — the ✕ on the Project Overview "Assignees" card.
  * ADMIN ONLY, and deliberately narrower than assigning, which Admin / PMO / Project Lead
  * may do. Mirrors `role_profiles.is_nirmaan_admin`, which
@@ -427,6 +452,30 @@ export const NON_PROJECT_INFLOWS_EDIT: readonly string[] = [
   ACCOUNTANT_LEAD_PROFILE,
 ];
 export const NON_PROJECT_INFLOWS_DELETE: readonly string[] = [ADMIN_PROFILE];
+
+/**
+ * Handover Documents -- the profiles that WORK a handover, and the ONLY ones that see it:
+ * the `/hod-tracker` sidebar entry + route guard, and the project page's "Handover
+ * Documents" tab (owner, 2026-10-07: "sidebar access", then "make those four profile only").
+ *
+ * UI gate only. `Project HOD Document` gives read to almost every role and full write to
+ * `System Manager`, which also rides on Estimates, HR Executive and Design Lead -- the
+ * server does not yet refuse them.
+ */
+export const HOD_ACCESS: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  PROJECT_LEAD_PROFILE,
+  PROJECT_MANAGER_PROFILE,
+];
+
+/** True when `role` (a role PROFILE) sees Handover Documents. */
+export const canAccessHod = (
+  role?: string | null,
+  userId?: string | null
+): boolean =>
+  userId === "Administrator" ||
+  (!!role && HOD_ACCESS.includes(role));
 
 /**
  * Reports > WO > Payment Voucher Uploads -- who may Upload / Delete a voucher (plus the

@@ -398,6 +398,10 @@ doc_events = {
         "before_rename": "nirmaan_stack.integrations.controllers.project_billing.package_before_rename",
         "on_trash": "nirmaan_stack.integrations.controllers.project_billing.package_on_trash",
     },
+    "Material Test Certificate": {
+        "validate": "nirmaan_stack.integrations.controllers.material_test_certificate.validate",
+        "on_trash": "nirmaan_stack.integrations.controllers.material_test_certificate.on_trash",
+    },
     "PO Delivery Documents": {
         "validate": "nirmaan_stack.integrations.controllers.po_delivery_documents.validate",
         "after_insert": "nirmaan_stack.services.action_items.doc_hooks.on_pdd_insert",

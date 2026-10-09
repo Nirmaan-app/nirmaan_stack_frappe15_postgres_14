@@ -138,6 +138,7 @@ const SOURCE_LABEL: Record<string, string> = {
   tds: "Material TDS",
   snag: "Snag List",
   design: "Design Tracker",
+  mtc: "Material Test Certificates",
 };
 
 /** Which editor one of the 16 documents needs at library level. */

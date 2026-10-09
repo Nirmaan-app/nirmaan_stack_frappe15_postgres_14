@@ -37,7 +37,7 @@ formats in Desk, give a browser test login and commit; **owner** makes the rulin
 | D5 | Corporate address | "No.234, 1st Floor, 9th Main, 16th Cross, 6th Sector, HSR Layout" (same as Commission Report) |
 | D6 | Completion Certificate signature | wet signature (empty "AUTHORIZED SIGNATURE" box) |
 | D7 | Footer label | "<SYSTEM> CONSULTANT" |
-| D8 | Who may edit | doctype permissions: System Manager, PMO Executive, Project Lead, Project Manager write/create/delete; the other Nirmaan roles read |
+| D8 | Who may edit | doctype permissions: System Manager, PMO Executive, Project Lead, Project Manager write/create/delete; the other Nirmaan roles read. Screens (owner 2026-10-07): tracker + project tab shown to Admin / PMO / Project Lead / Project Manager only (`HOD_ACCESS`); server not narrowed yet (gaps G16) |
 | D9 | Systems that share a package (Critical Room ELV = GSS, VESDA, WLD & RRS) | `HOD System.source_keywords` added |
 
 Owner rulings made during the build (2026-09-22), all built:
@@ -156,11 +156,12 @@ closes up, while NA stays on the sheet with its answer.
 - `api/hod/binder.py`:
   - `check_binder`, `enqueue_binder(project, hod_system, document=None)`, `get_job_status(job_id)`;
   - the job runs on the `long` queue with a per-user lock and a 15-minute timeout.
-- Fixtures: the two print formats ride the existing unfiltered `Print Format` fixture. The library is
-  exported to `fixtures/hod_system.json` + `fixtures/hod_library_content.json` with
+- Fixtures: the two print formats ride the existing unfiltered `Print Format` fixture. The library is NOT a
+  fixture: `fixtures/hod_system.json` + `fixtures/hod_library_content.json` were DELETED 2026-10-07 (owner).
+  Frappe's migrate imports every `.json` in `fixtures/` with force, hooks list or not, so they reverted
+  on-screen library edits on every migrate. To move the library to another site, export it with
   `bench --site localhost export-json "<doctype>" <path>` (NEVER `bench export-fixtures`: it rewrites every
-  fixture file, Expense Type included), but it is deliberately NOT in the hooks `fixtures` list
-  (owner 2026-09-23) — a migrate neither imports nor overwrites it, and another site loads it with
+  fixture file, Expense Type included) to a path OUTSIDE `fixtures/`, and load it there once with
   `bench --site <site> import-doc`, systems first.
 
 ### Screen (`frontend/src/pages/HandoverDocuments/`)
@@ -246,8 +247,9 @@ briefly when the menu was stripped to bare badges, and got it back when the word
 
 | # | Document | Reads | What the user ticks | What goes into the PDF |
 |---|---|---|---|---|
-| 2 / 3 / 14 | Demo & Training / Commissioning / Factory Test | **Submitted / Client Accepted** tasks of the system's Work Package, narrowed by `source_keywords`. "training" → 2, "factory test" → 14, every other task (incl. Earthing, Megger, pressure tests) → 3 | each task | its client-signed copy, else the filled report (Commission print format, landscape where the category says so), else its uploaded file |
+| 2 / 3 | Demo & Training / Commissioning | **Submitted / Client Accepted** tasks of the system's Work Package, narrowed by `source_keywords`. "training" → 2, every other task (incl. Earthing, Megger, pressure tests, and since 2026-10-07 the "factory test" tasks) → 3 | each task | its client-signed copy, else the filled report (Commission print format, landscape where the category says so), else its uploaded file |
 | 4 | Material TDS | `Project TDS Item List` by `tds_work_package` | each item | its attached data sheet |
+| 14 | Factory Test Reports | **Material Test Certificates** whose items are in the system's package (`procurement_package` = `work_package`; keywords on the shared Critical Room ELV), only that system's items listed (owner 2026-10-07) | each certificate | its uploaded file (a PDF as it is, a photo on A4) |
 | 15 | Snag List | the project's snag batches (whole project), counting **every** snag; only a batch with no snags at all is not listed | each batch | the Snag List print of that batch, unfiltered — open snags included (owner 2026-09-25) |
 | 16 | As Built | Design Tracker **Handover-phase** tasks that are **Submitted / Approved**. A category belongs to the system named in it; unclaimed categories (ELV, BMS, Overall Project) go by keywords | each drawing | the drawing, downloaded from its Google Drive link or its stored file |
 
@@ -302,8 +304,9 @@ the person picks the records they want; the header checkbox takes them all in on
 
 ### Library
 
-- Created and edited under Packages Settings → Handover Documents (Desk still works). It travels as the two
-  exported fixture files, loaded on another site with `import-doc` — never by migrate (see Fixtures above).
+- Created and edited under Packages Settings → Handover Documents (Desk still works). It lives in each site's
+  database; to copy it to another site, export it and load it there once with `import-doc` — never through
+  `fixtures/` (see Fixtures above).
 - On localhost, 11 HOD Systems and 44 HOD Library Content blocks were inserted directly from the owner's Excel
   formats by a one-off script that is not in the repo. `hod_seed/`, `scripts/hod_build_seed.py` and
   `api/hod/import_formats.py` are deleted.

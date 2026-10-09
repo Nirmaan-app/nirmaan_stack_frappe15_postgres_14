@@ -68,7 +68,9 @@ def _fmt(value) -> str:
 
 
 def top_of_page(project: str, document: str = "") -> dict:
-	"""`{"letterhead": bool, "logos": [{label, name, src}]}` -- what heads a page of the handover.
+	"""`{"letterhead": bool, "logos": [{role, label, name, src}]}` -- what heads a page of the handover.
+
+	`role` is how the signature band finds Nirmaan's column (`mep_contractor`) to put the seal over.
 
 	`document` picks the letterhead for the two that carry it; pass "" for a page that belongs to no
 	single document (the cover, the checklist, the binder's divider pages), which always takes the strip.
@@ -85,7 +87,7 @@ def top_of_page(project: str, document: str = "") -> dict:
 		# report does with the same one. A STORED file has to be embedded (`_embedded`).
 		src = _embedded(item["logo"])
 		if src:
-			logos.append({"label": item["label"], "name": item["name"], "src": src})
+			logos.append({"role": item["role"], "label": item["label"], "name": item["name"], "src": src})
 	return {"letterhead": False, "logos": logos}
 
 
