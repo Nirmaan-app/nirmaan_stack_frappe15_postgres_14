@@ -90,6 +90,21 @@ export function noSkuSentence(family: string, facts: readonly PlainFact[]): stri
   return `No SKU for ${String(family).trim()}${body ? `: ${body}` : ""} - price this row by hand`;
 }
 
+/**
+ * SLICE 12e-3a (owner Q6, 2026-10-11): A MIRRORED VALUE WAS NOT TYPED. A delegated section's mirrored field
+ * holds a value the pricer never entered there, so the delegated category's own line -- "You typed 15.875 mm
+ * -> priced as 15.88 mm ..." -- opens with the section's own tag instead: "From pipe: 15.875 mm -> priced as
+ * 15.88 mm ...". ONLY the lead changes; everything after it is the delegated category's line, byte for byte.
+ * `tag` is the config's (`mirror.tag`, "from pipe"). A line that does not open "You typed " comes back as is.
+ */
+export const TYPED_LEAD = "You typed ";
+export function mirroredLead(line: string, tag: string): string {
+  if (!line.startsWith(TYPED_LEAD)) return line;
+  const t = String(tag ?? "").trim();
+  if (t === "") return line;
+  return `${t.charAt(0).toUpperCase()}${t.slice(1)}: ${line.slice(TYPED_LEAD.length)}`;
+}
+
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** A code token: `R14`, `D9b`, `T1`, `S6`, `Q8`, or `slice 11`. */

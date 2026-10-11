@@ -426,6 +426,42 @@ export interface ItemListPricingSpec {
    * conditioned on what the pricing ACTUALLY DOES for the block it is being drawn for. A plain string
    * is still a note and behaves exactly as it always did. See `NoteClause` and `typedFieldNote`. */
   panel_notes?: Record<string, string | NoteClause[]>;
+  /** SLICE 12e-3a (owner D1): `list_spec.sections`, carried in by `itemListPricingSpec` (it sits beside
+   * `pricing` in the config, as `family_attribute_id` does). ABSENT on every config that declares none. */
+  sections?: ListSection[];
+}
+
+/**
+ * SLICE 12e-3a (owner D1 / D1a / D3 / 13:40 / 13:42, 2026-10-11) -- ONE DECLARED SECTION OF A ROW.
+ *
+ * A row of a config declaring `list_spec.sections` is made of sections. The ONE entry without a
+ * `category_id` is the config's own items (a Piping row's pipes); every other entry DELEGATES: the panel
+ * helper prices it through the delegated category's OWN config, catalogue and Pricing Inputs -- the same
+ * function and the same config object that category's calculator uses, no copy of any rule -- and it
+ * behaves as that category does except for the two things declared here:
+ *   `include_when`  a per-item Yes / No attribute of THIS config that opens the section under its item
+ *                   (the key name Electrical's `popup_boxes.has_modules` gate uses); `absent` is the value
+ *                   and the line shown when nothing was read;
+ *   `mirror`        one number of the item (`from`, a `numbers` key here) pre-fills a number reader of the
+ *                   delegated category (`to`) until the pricer edits it there.
+ * The shape is validated by `config_validation._validate_list_sections`, the cross-category half by
+ * `validate_delegated_sections` (import and editor save).
+ */
+export interface ListSection {
+  id: string;
+  label: string;
+  add_label: string;
+  category_id?: string;
+  unit_class?: string;
+  families?: string[];
+  include_when?: { attr: string; equals: string };
+  absent?: { value: string; line: string };
+  mirror?: { from: string; to: string; tag: string; line: string };
+}
+
+/** SLICE 12e-3a: the delegated sections a spec declares (those naming a category), in order. PURE. */
+export function delegatedSections(spec: ItemListPricingSpec): Array<ListSection & { category_id: string }> {
+  return (spec.sections ?? []).filter((s): s is ListSection & { category_id: string } => typeof s.category_id === "string" && s.category_id !== "");
 }
 
 /**
@@ -512,6 +548,7 @@ export function itemListPricingSpec(config: RateCategoryConfig | null | undefine
   const defs = (config as { list_spec?: { attribute_definitions?: Array<{ id?: unknown; label?: unknown }> } } | null | undefined)?.list_spec?.attribute_definitions;
   const famDef = Array.isArray(defs) ? defs.find((d) => d && d.id === (typeof famAttr === "string" && famAttr ? famAttr : "family")) : undefined;
   const famLabel = typeof famDef?.label === "string" && famDef.label.trim() ? famDef.label.trim() : undefined;
+  const sections = (config as { list_spec?: { sections?: unknown } } | null | undefined)?.list_spec?.sections;
   // SLICE 12e-2b (owner D1 (a) / D3): the choice definitions' labels and lists ride in the same way
   const choiceDefs: NonNullable<ItemListPricingSpec["choice_defs"]> = {};
   for (const d of (Array.isArray(defs) ? defs : []) as Array<{ id?: unknown; label?: unknown; type?: unknown; values?: unknown; values_by_family?: unknown }>) {
@@ -529,6 +566,8 @@ export function itemListPricingSpec(config: RateCategoryConfig | null | undefine
     ...(typeof famAttr === "string" && famAttr ? { family_attribute_id: famAttr } : {}),
     ...(famLabel ? { family_label: famLabel } : {}),
     ...(Object.keys(choiceDefs).length ? { choice_defs: choiceDefs } : {}),
+    // SLICE 12e-3a (owner D1): the declared sections ride in from `list_spec` the same way
+    ...(Array.isArray(sections) && sections.length ? { sections: sections as ListSection[] } : {}),
   };
 }
 
@@ -2379,6 +2418,9 @@ export interface ItemFieldDef {
   /** SLICE 12e-2 (owner Q10): a `panel_optional` text box -- shown, typeable, never mandatory, never matched;
    * a `read_notes` line may quote it. Absent on every field the pricing reads. */
   optional?: true;
+  /** SLICE 12e-3a (owner 13:40): this field is a section's `include_when` toggle -- a Yes / No the pricing
+   * never reads; `equals` is the value that opens section `section` under the item. Absent on every other field. */
+  gate?: { section: string; equals: string };
 }
 
 /**
@@ -2606,6 +2648,22 @@ export function itemFieldDefs(
     if (!d || d.type !== "text") continue;
     seenIds.add(id);
     out.push({ id, label: d.label, allowNone: false, skuAttr: id, control: "text", optional: true });
+  }
+  /**
+   * SLICE 12e-3a (owner 13:40: "an attribute per pipe which says insulation yes / no"): a delegated section's
+   * `include_when` toggle, LAST on the block. Its two values come from its own definition, both always offered
+   * (the 12e-2b two-way rule, reached through `twoWayValues` by every site that asks); it is in no `needs`
+   * list and no `match_attrs`, so the pricing never reads it and it can never refuse the item. A config that
+   * declares no section appends nothing, which keeps every other category's field list byte-identical.
+   */
+  for (const s of delegatedSections(spec)) {
+    const inc = s.include_when;
+    if (!inc || seenIds.has(inc.attr)) continue;
+    const d = defById.get(inc.attr);
+    if (!d || d.type !== "choice") continue;
+    seenIds.add(inc.attr);
+    out.push({ id: inc.attr, label: d.label, options: [...(d.values ?? [])], allowNone: false, skuAttr: inc.attr,
+               control: "dropdown", optionSource: "definition", gate: { section: s.id, equals: inc.equals } });
   }
   return out;
 }

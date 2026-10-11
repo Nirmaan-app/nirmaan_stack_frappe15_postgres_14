@@ -32,7 +32,7 @@ import {
   NONE_SENTINEL,
   runPipeline,
 } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
-import { plainFact, plainPricerText } from "@/pages/pricing/rate-master/plainEnglish";
+import { mirroredLead, plainFact, plainPricerText, TYPED_LEAD } from "@/pages/pricing/rate-master/plainEnglish";
 // CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
 // value becomes a match key); this file imports it and no longer defines it.
 import {
@@ -60,6 +60,7 @@ import { POLE_WORDS, attrDisplayValue, sortAttrNotes } from "./rateHelperTypes";
 // the helper only assembles the list (the model's items overlaid with the panel's session edits) and shapes the
 // result for the panel. Every default, ladder and conversion stays in the module + config.
 import {
+  delegatedSections,
   familyAttr,
   familyChoices,
   familyUnitClasses,
@@ -1099,7 +1100,11 @@ export function makePricingSheetHelper(deps: Deps): RateHelper {
     // attribute is read (the list mode has no row-level attributes: `defs` is `[]` for it).
     const listSpec = itemListPricingSpec(category);
     if (listSpec) {
-      return computeItemList(category, listSpec, items, ctx as RowContextWithUnit, ext as ExtractionRowWithItems | undefined, inRun, overrides);
+      // SLICE 12e-3a: a delegated section resolves its category through the SAME config map this helper serves
+      // every row from -- the object that category's own rows and its calculator tab are priced with
+      const configOf = (id: string): RateCategoryConfig | null =>
+        configsByCategory ? (configsByCategory.get(id) ?? null) : (config && config.category_id === id ? config : null);
+      return computeItemList(category, listSpec, items, ctx as RowContextWithUnit, ext as ExtractionRowWithItems | undefined, inRun, overrides, configOf);
     }
     const defs = selectableDefs(category);
     // The attributes THIS config computes rather than accepts -- a blank one is not missing input.
@@ -1640,9 +1645,17 @@ export interface ItemEdit {
    * Absent (and an empty list) means no field is in Other mode, which is what a fresh item has.
    */
   other?: string[];
+  /**
+   * SLICE 12e-3a (owner 13:40): the edits of the sections ATTACHED to this item, by section id -- a pipe's own
+   * insulation. Kept ON the item so removing or changing the item takes its section with it. Absent on every
+   * item of a config that declares no section. `base` inside is an index into that SECTION's model items.
+   */
+  sections?: Record<string, ItemEdit>;
 }
 export interface ItemListEditState {
   items: ItemEdit[];
+  /** SLICE 12e-3a (owner 13:42): the INDEPENDENT sections, by section id -- insulation that belongs to no pipe. */
+  sections?: Record<string, ItemEdit[]>;
 }
 
 /** PURE. The edit state that means "exactly what the model returned": one untouched entry per model item. */
@@ -1652,22 +1665,41 @@ export function initialItemEdits(modelCount: number): ItemListEditState {
   return { items };
 }
 
-/** PURE. Decode the panel's override into an edit state; anything unreadable => the initial state. */
-export function decodeItemEdits(raw: string | undefined, modelCount: number): ItemListEditState {
+/** PURE. Decode the panel's override into an edit state; anything unreadable => the initial state.
+ * SLICE 12e-3a: `sectionCounts` = how many MODEL items each declared section has (a section edit's `base`
+ * indexes those); a state written before sections existed simply carries none. */
+export function decodeItemEdits(raw: string | undefined, modelCount: number, sectionCounts: Record<string, number> = {}): ItemListEditState {
   if (raw === undefined || raw === "") return initialItemEdits(modelCount);
+  const one = (e: ItemEdit, count: number, nested: boolean): ItemEdit => {
+    const secs: Record<string, ItemEdit> = {};
+    if (nested && e.sections && typeof e.sections === "object") {
+      for (const [sid, se] of Object.entries(e.sections)) {
+        if (se && typeof se === "object") secs[sid] = one(se as ItemEdit, sectionCounts[sid] ?? 0, false);
+      }
+    }
+    return {
+      base: typeof e.base === "number" && e.base >= 0 && e.base < count ? e.base : null,
+      family: typeof e.family === "string" && e.family !== "" ? e.family : null,
+      attrs: e.attrs && typeof e.attrs === "object" ? { ...e.attrs } : {},
+      ...(typeof e.qty === "string" ? { qty: e.qty } : {}),
+      // SLICE 12c-S (F15): the fields explicitly switched to "Other...". A stored state written
+      // before this key existed simply has none, which is the fresh-item reading and is correct.
+      ...(Array.isArray(e.other) ? { other: e.other.filter((x) => typeof x === "string") } : {}),
+      ...(Object.keys(secs).length ? { sections: secs } : {}),
+    };
+  };
   try {
     const parsed = JSON.parse(raw) as ItemListEditState;
     if (!parsed || !Array.isArray(parsed.items)) return initialItemEdits(modelCount);
+    const independent: Record<string, ItemEdit[]> = {};
+    if (parsed.sections && typeof parsed.sections === "object") {
+      for (const [sid, list] of Object.entries(parsed.sections)) {
+        if (Array.isArray(list)) independent[sid] = list.filter((e) => e && typeof e === "object").map((e) => one(e, sectionCounts[sid] ?? 0, false));
+      }
+    }
     return {
-      items: parsed.items.map((e) => ({
-        base: typeof e.base === "number" && e.base >= 0 && e.base < modelCount ? e.base : null,
-        family: typeof e.family === "string" && e.family !== "" ? e.family : null,
-        attrs: e.attrs && typeof e.attrs === "object" ? { ...e.attrs } : {},
-        ...(typeof e.qty === "string" ? { qty: e.qty } : {}),
-        // SLICE 12c-S (F15): the fields explicitly switched to "Other...". A stored state written
-        // before this key existed simply has none, which is the fresh-item reading and is correct.
-        ...(Array.isArray(e.other) ? { other: e.other.filter((x) => typeof x === "string") } : {}),
-      })),
+      items: parsed.items.map((e) => one(e, modelCount, true)),
+      ...(Object.keys(independent).length ? { sections: independent } : {}),
     };
   } catch {
     return initialItemEdits(modelCount);
@@ -1793,6 +1825,27 @@ export interface ItemFieldView extends ItemFieldDef {
   /** SLICE 12e-2 (owner Q10, "read-only text when present"): a `panel_optional` box whose value the MODEL
    * supplied and the pricer has not edited is shown as read-only text, not a box. Never set elsewhere. */
   readOnly?: true;
+  /** SLICE 12e-3a (owner D3 / D3a): this field's value was MIRRORED from the item the section sits under
+   * (the config's `mirror.tag`, "from pipe"). Set by the section pass only; gone once the pricer edits it. */
+  mirrorTag?: string;
+  /** SLICE 12e-3a (owner D3a): the pricer chose a value here that differs from the mirrored one --
+   * "you chose 19.05 (pipe is 15.875)" (the config's `mirror.line`). */
+  mirrorLine?: string;
+}
+
+/**
+ * SLICE 12e-3a (owner D1 / D1a) -- ONE DELEGATED SECTION AS THE PANEL DRAWS IT. `view` is the DELEGATED
+ * CATEGORY'S OWN item-list view of this one item -- what that category's calculator is handed for the same
+ * answers -- so the section is drawn by the same component and behaves as that category does. `pipe` is the
+ * index of the item it is attached to, or null for an independent section.
+ */
+export interface SectionBlockView {
+  sectionId: string;
+  heading: string;
+  pipe: number | null;
+  /** position in the section's independent list (0 for an attached section) */
+  index: number;
+  view: ItemListView;
 }
 
 /**
@@ -1849,6 +1902,9 @@ export interface ItemBlockView {
   skuLine?: string;
   working: string[];
   figures: Partial<Record<RateKind, number>>;
+  /** SLICE 12e-3a (owner 13:40): the sections ATTACHED to this item, drawn directly under it. Absent on every
+   * block of a config that declares no section, and on a block whose toggle is closed. */
+  sections?: SectionBlockView[];
 }
 
 /** The whole item-list view a suggestion carries for the panel. */
@@ -1880,6 +1936,20 @@ export interface ItemListView {
    * 474, beside a headline that already said 474).
    */
   totals?: Partial<Record<RateKind, number>>;
+  /**
+   * SLICE 12e-3a (owner D5a / 13:42): present ONLY on a config that declares sections. `addLabel` names the
+   * config's own items on the add button ("Add pipe"); `adds` is one button per delegated section ("Add
+   * insulation") with the families it offers; `independent` the sections that belong to no item, drawn after
+   * the items; `lines` / `bad` count every line of the row -- each item and each section -- for "n of m
+   * items need a person".
+   */
+  sections?: {
+    addLabel: string;
+    adds: Array<{ id: string; addLabel: string; families: Array<{ family: string; units: string }> }>;
+    independent: SectionBlockView[];
+    lines: number;
+    bad: number;
+  };
 }
 
 /** A suggestion that carries the item-list view (an extension read by the panel through this alias). */
@@ -2450,7 +2520,17 @@ function layersWorking(layers: ItemPriceResult[], res: ItemPriceResult): string[
  * the pure module, shaped for the panel. A row outside the run (and the calculator) starts with NO items --
  * "Add an item to price this row". All or nothing: `values` is filled ONLY when every item priced (S4).
  */
-function computeItemList(
+/** SLICE 12e-3a: what the section pass needs back from the own-items pass -- nothing it reads is recomputed. */
+interface OwnPassProbe {
+  /** in: the model-item count of each declared section (a section edit's `base` indexes those) */
+  sectionCounts?: Record<string, number>;
+  /** out: the decoded edit state */
+  edits?: ItemListEditState;
+  /** out: block index -> its priced layers (the first is the item's own result) */
+  layers?: Map<number, ItemPriceResult[]>;
+}
+
+function computeItemListOwn(
   category: RateCategoryConfig,
   spec: ItemListPricingSpec,
   items: RateMasterItem[],
@@ -2458,9 +2538,11 @@ function computeItemList(
   ext: ExtractionRowWithItems | undefined,
   inRun: boolean,
   overrides?: Record<string, string>,
+  probe?: OwnPassProbe,
 ): HelperResult {
   const modelItems = ext?.items ?? [];
-  const edits = decodeItemEdits(overrides?.[ITEM_LIST_OVERRIDE_KEY], modelItems.length);
+  const edits = decodeItemEdits(overrides?.[ITEM_LIST_OVERRIDE_KEY], modelItems.length, probe?.sectionCounts);
+  if (probe) probe.edits = edits;
   const assembled = assembleItems(edits, modelItems, familyAttr(spec));
   // SLICE 12c-S (owner S2 / S10): the picker offers only the units the chosen items can be priced in.
   const chosenFamilies = assembled.map((a) => {
@@ -2601,6 +2683,7 @@ function computeItemList(
     const list = layersBySource.get(src);
     if (list) list.push(p); else layersBySource.set(src, [p]);
   });
+  if (probe) probe.layers = layersBySource;
   /**
    * SLICE 12c-F, FIX B, SECOND HALF (owner R-B) -- "A row must never price from a value its field
    * cannot show."
@@ -2705,6 +2788,241 @@ function computeItemList(
   return out;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 12e-3a (owner D1 / D1a / D3 / D3a / D3b / D4 / Q2a / 13:40 / 13:42, 2026-10-11) -- THE SECTIONS OF A ROW.
+//
+// A config declaring `list_spec.sections` prices a row as LINES: its own items (a Piping row's pipes), a
+// delegated section attached under an item whose toggle is open, and delegated sections that belong to no
+// item. Owner D1: the section "prices through the Insulation category's own spec, catalogue and inputs - no
+// second copy of any Insulation rule". So a section is priced by `computeItemListOwn` -- the function the
+// delegated category's own rows and its calculator tab go through -- called with THAT category's config
+// object (resolved from the helper's own config map), its spec and the same items, for ONE item. Owner D1a:
+// it "will behave same as the insulation category except the pipe size mirror/overwrite rule i mentioned and
+// the yes/no toggle" -- so nothing below reads, defaults, ladders or words anything of the section's own; the
+// only things this pass adds are the toggle, the mirror and the row's totals.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** PURE. The size an item's number was READ as, for a section to mirror (owner D3b: "for pricing we consider
+ * 1 NB = 1 mm and should be matched with the catalog as per that only"): the read that landed -- the stated
+ * number (5/8" -> 15.875, MS 100 -> 100), or the second inch conversion where that is the one the item priced
+ * on (4 inch -> 100). The delegated category then resolves it against ITS OWN catalogue. Undefined when the
+ * item stated no readable number. */
+export function mirroredNumber(res: ItemPriceResult | undefined, attr: string): string | undefined {
+  if (!res) return undefined;
+  const hop = res.ladderHops.find((h) => h.attr === attr);
+  if (hop) return fmtNum(hop.how === "alt" && typeof hop.alt === "number" ? hop.alt : hop.requested);
+  const v = res.readValues?.[attr];
+  return typeof v === "number" ? fmtNum(v) : undefined;
+}
+
+type ConfigOf = (categoryId: string) => RateCategoryConfig | null;
+
+function computeItemList(
+  category: RateCategoryConfig,
+  spec: ItemListPricingSpec,
+  items: RateMasterItem[],
+  ctx: RowContextWithUnit,
+  ext: ExtractionRowWithItems | undefined,
+  inRun: boolean,
+  overrides: Record<string, string> | undefined,
+  configOf: ConfigOf,
+): HelperResult {
+  const declared = delegatedSections(spec);
+  // a config that declares no section is priced exactly as it always was -- the one call, nothing around it
+  if (declared.length === 0) return computeItemListOwn(category, spec, items, ctx, ext, inRun, overrides);
+
+  const hasOwn = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+  const ownFam = familyAttr(spec);
+  const ownDefIds = new Set(listSpecDefs(category).map((d) => d.id));
+  const resolved = declared.map((s) => {
+    const cfg = configOf(s.category_id);
+    const dspec = cfg ? itemListPricingSpec(cfg) : null;
+    return { s, cfg: dspec ? cfg : null, dspec, defIds: new Set(cfg ? listSpecDefs(cfg).map((d) => d.id) : []) };
+  });
+
+  /**
+   * THE MODEL'S ITEMS, TOLD APART (owner Q3: insulation "arrives as a second item in the row's list"). An item
+   * carrying this config's own family attribute is one of its own; any other item carrying an attribute only
+   * the delegated category defines belongs to that section. The validator refuses a section whose category
+   * keeps its family in the owner's family attribute, so the test cannot be ambiguous.
+   */
+  const ownModel: ExtractedListItem[] = [];
+  const secModel: Record<string, ExtractedListItem[]> = {};
+  for (const it of ext?.items ?? []) {
+    const keys = Object.keys(it.attributes ?? {});
+    const sec = keys.includes(ownFam) ? undefined : resolved.find((r) => keys.some((k) => r.defIds.has(k) && !ownDefIds.has(k)));
+    if (sec) (secModel[sec.s.id] ??= []).push(it); else ownModel.push(it);
+  }
+  const probe: OwnPassProbe = { sectionCounts: Object.fromEntries(resolved.map((r) => [r.s.id, (secModel[r.s.id] ?? []).length])) };
+  const ownRes = computeItemListOwn(category, spec, items, ctx, ext ? { ...ext, items: ownModel } : undefined, inRun, overrides, probe) as ItemListSuggestion;
+  const ownView = ownRes.itemList!;
+  const edits = probe.edits!;
+  const layers = probe.layers ?? new Map<number, ItemPriceResult[]>();
+  const rowUnit = ownView.unit;
+
+  /** ONE section, priced by the delegated category's own path, for one item; then the mirror's tag and lines. */
+  const priceSection = (
+    r: (typeof resolved)[number], secEdit: ItemEdit, pipe: number | null, index: number, mirrorText: string | undefined,
+  ): SectionBlockView => {
+    const heading = `${r.s.label} - priced by ${r.cfg ? categoryLabel(r.cfg) : r.s.label}'s rules`;
+    if (!r.cfg || !r.dspec) {
+      // the delegated category is not in this helper's config map: never price it with any other rules
+      const reason = `${r.s.label} cannot be priced here - its rules are not loaded; price it by hand`;
+      return { sectionId: r.s.id, heading, pipe, index,
+               view: { unit: rowUnit, unitClass: null, unitPickable: false, unitChoices: [], rowPriced: false, reason, items: [], families: [], editState: { items: [] }, modelCount: 0 } };
+    }
+    const modelItem = secEdit.base !== null && secEdit.family === null ? secModel[r.s.id]?.[secEdit.base] : undefined;
+    const mir = r.s.mirror;
+    const toId = mir ? r.dspec.numbers[mir.to]?.from[0] : undefined;
+    const handEdited = toId !== undefined && hasOwn(secEdit.attrs, toId);
+    const mirrored = !!mir && toId !== undefined && !handEdited && mirrorText !== undefined;
+    // the mirrored size enters the delegated category exactly as a size typed into its own "Other..." box
+    // would (the same cell, the same reader, the same ladder) -- it is never resolved here
+    const callEdit: ItemEdit = {
+      base: modelItem ? 0 : null,
+      family: secEdit.family,
+      attrs: mirrored ? { ...secEdit.attrs, [toId!]: mirrorText! } : { ...secEdit.attrs },
+      ...(secEdit.qty !== undefined ? { qty: secEdit.qty } : {}),
+      ...(mirrored ? { other: [...new Set([...(secEdit.other ?? []), toId!])] } : (secEdit.other ? { other: [...secEdit.other] } : {})),
+    };
+    const dext = modelItem ? ({ excelRow: ctx.excelRow, description: ctx.description, attributes: {}, items: [modelItem] } as ExtractionRowWithItems) : undefined;
+    const res = computeItemListOwn(r.cfg, r.dspec, items, { ...ctx, unit: rowUnit }, dext, inRun,
+                                   { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [callEdit] }) }) as ItemListSuggestion;
+    const dview = res.itemList!;
+    const offered = new Set(r.s.families ?? []);
+    const stocked = (fam: string) => items.some((it) => it.kind === r.dspec!.kind && it.attributes?.[familyAttr(r.dspec!)] === fam);
+    const view: ItemListView = {
+      ...dview,
+      // the families the section offers: the declared ones that have an active SKU today
+      families: dview.families.filter((f) => offered.has(f.family) && stocked(f.family)),
+      items: dview.items.map((b) => ({
+        ...b,
+        ...(mirrored ? { working: b.working.map((w) => (w.startsWith(`${TYPED_LEAD}${mirrorText}`) ? mirroredLead(w, mir!.tag) : w)) } : {}),
+        fields: b.fields.map((f) => {
+          if (f.id !== toId || !mir) return f;
+          if (mirrored) {
+            // owner Q6: a mirrored value was not typed -- the line leads "From pipe:", and there is no edit to undo
+            return { ...f, userEdited: false, mirrorTag: mir.tag, ...(f.note !== undefined ? { note: mirroredLead(f.note, mir.tag) } : {}) };
+          }
+          const chosen = f.typedValue.trim();
+          if (handEdited && mirrorText !== undefined && chosen !== "" && chosen !== mirrorText) {
+            return { ...f, mirrorLine: mir.line.replace("{chosen}", chosen).replace("{pipe}", mirrorText) };
+          }
+          return f;
+        }),
+      })),
+    };
+    return { sectionId: r.s.id, heading, pipe, index, view };
+  };
+
+  // the first item with a readable number, per mirror source -- what an INDEPENDENT section mirrors (owner 13:42)
+  const firstReadable = (attr: string): string | undefined => {
+    for (let i = 0; i < edits.items.length; i++) {
+      const v = mirroredNumber(layers.get(i)?.[0], attr);
+      if (v !== undefined) return v;
+    }
+    return undefined;
+  };
+
+  const editsOut: ItemListEditState = { items: edits.items.map((e) => ({ ...e })), sections: {} };
+  const blocks = ownView.items.map((b, i): ItemBlockView => {
+    const edit = edits.items[i];
+    const isModelItem = edit.base !== null && edit.family === null;
+    const attached: SectionBlockView[] = [];
+    let fields = b.fields;
+    for (const r of resolved) {
+      const inc = r.s.include_when;
+      if (!inc || !r.s.absent) continue;
+      const values = twoWayValues(spec, inc.attr, null) ?? [];
+      const typed = hasOwn(edit.attrs, inc.attr) && values.includes(edit.attrs[inc.attr]) ? edit.attrs[inc.attr] : undefined;
+      // owner Q3: the k-th insulation item of the answer belongs to the k-th pipe of the answer
+      const modelSection = isModelItem ? secModel[r.s.id]?.[edit.base!] : undefined;
+      const modelCell = isModelItem ? ownModel[edit.base!]?.attributes?.[inc.attr]?.value : undefined;
+      const modelSaid = typeof modelCell === "string" && values.includes(modelCell) ? modelCell : undefined;
+      // the pricer's pick; else the section's facts are present (owner Q4: Yes even if the model said No);
+      // else what the model read; else the declared value for "nothing was read"
+      const value = typed ?? (modelSection ? inc.equals : (modelSaid ?? r.s.absent.value));
+      // owner: "No" is amber with its line on a BoQ row the model read with no insulation facts; a pipe the
+      // pricer added starts "No" plainly
+      const assumed = typed === undefined && !modelSection && modelSaid === undefined && isModelItem;
+      fields = fields.map((f) => {
+        if (f.id !== inc.attr) return f;
+        const { rule: _rule, ...rest } = f;
+        return { ...rest, value, typedValue: value, defaulted: assumed, ...(assumed ? { rule: plainPricerText(r.s.absent!.line, items) } : {}), blank: false };
+      });
+      if (value !== inc.equals) continue;
+      const secEdit: ItemEdit = edit.sections?.[r.s.id] ?? { base: modelSection ? edit.base : null, family: null, attrs: {} };
+      editsOut.items[i] = { ...editsOut.items[i], sections: { ...(editsOut.items[i].sections ?? {}), [r.s.id]: secEdit } };
+      attached.push(priceSection(r, secEdit, i, 0, r.s.mirror ? mirroredNumber(layers.get(i)?.[0], r.s.mirror.from) : undefined));
+    }
+    return { ...b, fields, ...(attached.length ? { sections: attached } : {}) };
+  });
+
+  const independent: SectionBlockView[] = [];
+  for (const r of resolved) {
+    // the pricer's list once they have touched it; before that, the model's section items that no pipe of the
+    // answer claimed (all of them when the answer carries no pipe)
+    const list: ItemEdit[] = edits.sections?.[r.s.id]
+      ?? (secModel[r.s.id] ?? []).map((_m, j) => j).filter((j) => j >= ownModel.length).map((j) => ({ base: j, family: null, attrs: {} }));
+    editsOut.sections![r.s.id] = list;
+    const mirrorText = r.s.mirror ? firstReadable(r.s.mirror.from) : undefined;
+    list.forEach((e, k) => independent.push(priceSection(r, e, null, k, mirrorText)));
+  }
+
+  // ── the row: every item and every section is a LINE; each rounded by its own rules (owner D4); all or nothing ──
+  const sectionViews = [...blocks.flatMap((b) => b.sections ?? []), ...independent];
+  const ownCount = blocks.length;
+  const lines = ownCount + sectionViews.length;
+  const ownOk = ownCount === 0 || ownView.rowPriced;
+  const rowPriced = lines > 0 && ownOk && sectionViews.every((sv) => sv.view.rowPriced);
+  const bad = blocks.filter((b) => b.state !== "priced").length + sectionViews.filter((sv) => !sv.view.rowPriced).length;
+  const values: Record<string, number> = {};
+  if (rowPriced) {
+    const parts = [...(ownCount ? [ownView.totals ?? {}] : []), ...sectionViews.map((sv) => sv.view.totals ?? {})];
+    const sum = (k: RateKind) => parts.reduce((acc, p) => acc + (typeof p[k] === "number" ? p[k]! : 0), 0);
+    if (parts.every((p) => typeof p.supply_rate === "number")) values.supply_rate = sum("supply_rate");
+    if (parts.every((p) => typeof p.install_rate === "number")) values.install_rate = sum("install_rate");
+    if (typeof values.supply_rate === "number" && typeof values.install_rate === "number") values.combined_rate = values.supply_rate + values.install_rate;
+  }
+  const reason = rowPriced ? undefined
+    : (ownCount > 0 && !ownView.rowPriced ? ownView.reason : undefined) ?? sectionViews.find((sv) => !sv.view.rowPriced)?.view.reason ?? ownView.reason;
+  const basis = rowPriced
+    ? `Rate master: ${categoryLabel(category)} · ${lines} item${lines === 1 ? "" : "s"}`
+    : lines === 0 ? "Add an item to price" : "Complete the missing attributes to price";
+  const derivation = rowPriced
+    ? [`Row total per 1 ${rowUnit}: supply ${values.supply_rate} + install ${values.install_rate}`]
+    : (reason ? [reason] : []);
+  const ownSection = (spec.sections ?? []).find((s) => !s.category_id);
+  const { reason: _ownReason, totals: _ownTotals, ...ownRest } = ownView;
+  const view: ItemListView = {
+    ...ownRest,
+    rowPriced,
+    ...(reason ? { reason } : {}),
+    items: blocks,
+    editState: editsOut,
+    ...(rowPriced ? { totals: { ...values } as Partial<Record<RateKind, number>> } : {}),
+    sections: {
+      addLabel: ownSection?.add_label ?? "Add item",
+      adds: resolved.filter((r) => r.cfg && r.dspec).map((r) => ({
+        id: r.s.id,
+        addLabel: r.s.add_label,
+        families: familyChoices(r.dspec!).filter((f) => (r.s.families ?? []).includes(f.family)
+          && items.some((it) => it.kind === r.dspec!.kind && it.attributes?.[familyAttr(r.dspec!)] === f.family)),
+      })),
+      independent,
+      lines,
+      bad,
+    },
+  };
+  return {
+    ...ownRes,
+    values,
+    basis,
+    workings: { ...ownRes.workings, derivation: derivation.map((l) => plainPricerText(l, items)), finalValues: { ...values } },
+    itemList: view,
+  } as ItemListSuggestion;
+}
+
 /**
  * SLICE 12d-5 (owner P1 / P2, F-C5b) -- EVERY pricer-facing string of the item-list view passes through the
  * ONE plain-English function (`plainEnglish.plainPricerText`), here, at the one place the view is built, so
@@ -2752,7 +3070,10 @@ export type ItemEditOp =
   /** SLICE 12c-S (F15): `other` is set by the SELECT, which knows whether the pick was a real option
    *  (false -- the typed box closes) or nothing of the sort. The typed box itself omits it, so typing
    *  never closes the box it is being typed into. */
-  | { op: "set_attr"; index: number; id: string; value: string; other?: boolean }
+  | { op: "set_attr"; index: number; id: string; value: string; other?: boolean;
+      /** SLICE 12e-3a (owner 13:40, "No removes only that section"): set by a section's toggle when the value
+       *  picked CLOSES it -- the item's stored edits for that section go with the pick. */
+      dropSection?: string }
   | { op: "undo_attr"; index: number; id: string }
   | { op: "set_qty"; index: number; qty: string }
   | { op: "change_family"; index: number; family: string }
@@ -2766,12 +3087,23 @@ export type ItemEditOp =
   | { op: "set_family_other"; index: number; id: string }
   /** SLICE 12e-2 (owner P1): the pricer typed a family spelling into that box. The block starts BLANK for the
    *  typed family (S1, as "Change item" does), the box stays open, and the ONE reader resolves it at compute. */
-  | { op: "set_family_text"; index: number; id: string; text: string };
+  | { op: "set_family_text"; index: number; id: string; text: string }
+  /** SLICE 12e-3a (owner D1a): an edit INSIDE a delegated section -- `inner` is the delegated category's own
+   *  operation on its one item (index 0). `pipe` = the item the section is attached to, or null with `index`
+   *  = its place in the independent list. */
+  | { op: "section"; section: string; pipe: number | null; index: number; inner: ItemEditOp }
+  /** SLICE 12e-3a (owner 13:42): "+ Add insulation" -- an INDEPENDENT section of this family, blank (S1). */
+  | { op: "add_section"; section: string; family: string }
+  /** SLICE 12e-3a: the x of an independent section. An attached one has none: its item's toggle removes it. */
+  | { op: "remove_section"; section: string; index: number };
 
 /** PURE. Apply one panel operation. A changed or added item starts BLANK (S1): family only, no attrs, qty 1. */
 export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemListEditState {
   const items = state.items.map((e) => ({ ...e, attrs: { ...e.attrs }, ...(e.other ? { other: [...e.other] } : {}) }));
   const at = (i: number) => items[i];
+  // SLICE 12e-3a: the independent sections ride along untouched by every item operation
+  const done = (list: ItemEdit[], sections: ItemListEditState["sections"] = state.sections): ItemListEditState =>
+    ({ items: list, ...(sections ? { sections } : {}) });
   /** SLICE 12c-S (F15): add or remove a field from the block's "Other..." set, dropping the key when
    *  the set empties so a block that has never used one serialises exactly as it did before. */
   const setOther = (i: number, id: string, on: boolean) => {
@@ -2785,53 +3117,86 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
       if (!at(op.index)) return state;
       at(op.index).attrs[op.id] = op.value;
       if (op.other === false) setOther(op.index, op.id, false);
-      return { items };
+      if (op.dropSection !== undefined && at(op.index).sections) {
+        const rest = { ...at(op.index).sections };
+        delete rest[op.dropSection];
+        if (Object.keys(rest).length) at(op.index).sections = rest; else delete at(op.index).sections;
+      }
+      return done(items);
     case "set_other":
       if (!at(op.index)) return state;
       setOther(op.index, op.id, op.on);
       // opening the box CLEARS the field, which is what picking "Other..." has always done
       if (op.on) at(op.index).attrs[op.id] = "";
-      return { items };
+      return done(items);
     case "undo_attr":
       if (!at(op.index)) return state;
       delete at(op.index).attrs[op.id];
       setOther(op.index, op.id, false);
-      return { items };
+      return done(items);
     case "set_qty":
       if (!at(op.index)) return state;
       at(op.index).qty = op.qty;
-      return { items };
+      return done(items);
     case "change_family":
       if (!at(op.index)) return state;
       items[op.index] = { base: null, family: op.family, attrs: {} };
-      return { items };
+      return done(items);
     case "set_family_other":
       if (!at(op.index)) return state;
       items[op.index] = { base: null, family: "", attrs: {}, other: [op.id] };
-      return { items };
+      return done(items);
     case "set_family_text":
       if (!at(op.index)) return state;
       items[op.index] = { base: null, family: op.text, attrs: {}, other: [op.id] };
-      return { items };
+      return done(items);
     case "add":
       items.push({ base: null, family: op.family, attrs: {} });
-      return { items };
+      return done(items);
     case "remove":
       if (!at(op.index)) return state;
       items.splice(op.index, 1);
-      return { items };
+      return done(items);
+    case "section": {
+      // the delegated category's OWN operation, applied to the one stored edit of that section
+      const target = op.pipe !== null ? at(op.pipe)?.sections?.[op.section] : state.sections?.[op.section]?.[op.index];
+      if (!target) return state;
+      const next = applyItemEdit({ items: [target] }, { ...op.inner, index: 0 } as ItemEditOp).items[0];
+      if (!next) return state;
+      if (op.pipe !== null) {
+        at(op.pipe).sections = { ...at(op.pipe).sections, [op.section]: next };
+        return done(items);
+      }
+      const list = [...(state.sections?.[op.section] ?? [])];
+      list[op.index] = next;
+      return done(items, { ...state.sections, [op.section]: list });
+    }
+    case "add_section":
+      return done(items, { ...state.sections, [op.section]: [...(state.sections?.[op.section] ?? []), { base: null, family: op.family, attrs: {} }] });
+    case "remove_section": {
+      const list = [...(state.sections?.[op.section] ?? [])];
+      if (op.index < 0 || op.index >= list.length) return state;
+      list.splice(op.index, 1);
+      return done(items, { ...state.sections, [op.section]: list });
+    }
   }
 }
 
 /** PURE. What the correction record carries for the items ON SCREEN at Use: one entry per block, its family,
  * whether the model identified it or the pricer added it, every field's value as shown, and the quantity. */
 export function itemsOnScreen(view: ItemListView): Array<{ family: string | null; source: "model" | "user"; attributes: Record<string, string>; qty: string }> {
-  return view.items.map((b) => ({
+  const entry = (b: ItemBlockView) => ({
     family: b.family,
     source: b.source,
     attributes: Object.fromEntries(b.fields.map((f) => [f.id, f.value])),
     qty: b.qty,
-  }));
+  });
+  // SLICE 12e-3a: every LINE on screen is recorded -- an item, then the sections under it, then the independent ones
+  const sectionBlocks = (list: SectionBlockView[] | undefined) => (list ?? []).flatMap((sv) => sv.view.items.map(entry));
+  return [
+    ...view.items.flatMap((b) => [entry(b), ...sectionBlocks(b.sections)]),
+    ...sectionBlocks(view.sections?.independent),
+  ];
 }
 
 /** PURE. The row total per row unit: every priced block's figures summed per kind -- the same three the panel
