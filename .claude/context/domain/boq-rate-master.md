@@ -870,6 +870,68 @@ prices differently from the same value typed. ⚠️ **A FAMILY CHANGE STILL STA
 2026-10-10: "Keep S1, in-family only")** -- so a pick is never carried across a change of material or pipe type, and
 Piping, whose block holds one ladder field and no other answer, has no in-block case.
 
+**A DELEGATED SECTION PRICES THROUGH THE DELEGATED CATEGORY'S OWN CONFIG, CATALOGUE AND PRICING INPUTS — NO COPY
+(owner D1, 2026-10-08; D1a, 2026-10-11; slice 12e-3a, HVAC v37).** Owner D1: the insulation section on a Piping row
+*"prices through the Insulation category's own spec, catalogue and inputs - no second copy of any Insulation rule."*
+D1a: *"the insulation section for piping will behave same as the insulation category except the pipe size
+mirror/overwrite rule i mentioned and the yes/no toggle."* The mechanism is `list_spec.sections` (a sibling of
+`pricing`): exactly one entry without a `category_id` is the config's own items (a Piping row's pipes); every other
+entry names another item-list category of the same discipline. `pricingSheetHelper.computeItemList` prices such a
+section by calling `computeItemListOwn` -- the function the delegated category's own rows and its calculator tab go
+through -- with THAT category's config object (resolved from the helper's own config map), its spec and the same
+items, for ONE item. Nothing of the section's own is read, defaulted, laddered or worded anywhere else: its material
+default, cladding, thickness, quantity box, refusals, lines and "Change item" list are the delegated category's.
+Exactly two things are added, both declared in config and neither named in code:
+
+* **`include_when {attr, equals}`** (the key name Electrical's `popup_boxes.has_modules` gate uses; the SHAPE of
+  `point_wiring.circuit_wire_included`. Those are row-level attribute / pipeline-step features an item-list config does
+  not have, so the gate itself is item-list code): a per-item two-value choice of THIS config ("Insulated" Yes / No)
+  that opens the section directly under its item. It is in no `needs` list, no `match_attrs` and no `choice_attrs`
+  (the validator refuses a toggle the pricing reads), so it can never move or refuse the item. `absent {value, line}`
+  is what it shows when nothing was read: amber with the line on a row the model read, plain on an item the pricer
+  added. Picking the closing value drops that section's edits in the same operation.
+* **`mirror {from, to, tag, line}`**: one number of the item pre-fills a number reader of the delegated category until
+  the pricer edits it there. What is mirrored is the size the item was READ as (owner D3b: *"for pricing we consider
+  1 NB = 1 mm and should be matched with the catalog as per that only"*): the stated number (5/8" -> 15.875, MS 100
+  -> 100), or the second inch conversion where that is the one the item priced on (4 inch -> 100). It enters the
+  delegated category as a value typed into its own "Other..." box would -- the same cell, reader and ladder -- and is
+  never resolved by the owner. The field carries the tag ("from pipe") and the delegated category's own line with
+  ONLY its lead changed ("From pipe: 15.875 mm -> priced as 15.88 mm ...", never "You typed" --
+  `plainEnglish.mirroredLead`). A hand edit is kept when the item's size later changes, the tag goes, and the line
+  reads "you chose 19.05 (pipe is 15.875)". The section never writes to its item.
+
+A section may also be added on its own ("+ Add insulation", owner 13:42): it belongs to no item, mirrors the first
+item with a readable number, keeps its own remove control, and no toggle adds or removes it. **Totals (owner D4 /
+Q2a):** every item and every section is a LINE, each rounded by its own rules; the row total is the sum of the lines;
+any refused line means no total and "n of m items need a person", priced lines keeping their figures. An attached
+section prices on its own even where its item refuses; a row with no item and a priced independent section totals
+that section. **The model's answer (owner Q3 / Q4):** a section item is told apart by carrying an attribute only the
+delegated category defines and not the owner's family attribute; the k-th one attaches to the k-th item of the answer,
+extras are independent; facts present mean the toggle reads open even where the model said otherwise. **Session
+state:** an attached section's edits live ON its item's edit entry (`ItemEdit.sections`), so removing or changing the
+item (owner S1: a changed item starts blank) takes them with it; independent ones sit beside the items
+(`ItemListEditState.sections`). ⚠️ **The proof that nothing is copied is a parity sweep, not a reading:**
+`slice12e3a.test.ts` prices every Nitrile Rubber / Tubular Puf SKU x three pipe sizes (exact, laddered, refused) as a
+Piping section and through Calculator -> Insulation and compares figures, state, reason, working lines and every
+field, the mirrored field's lead excepted by name. ⚠️ **A helper that cannot resolve the delegated category refuses
+the section** ("Insulation cannot be priced here - its rules are not loaded; price it by hand") -- it never prices it
+by any other rules.
+
+**THE SECTION DECLARATION IS CHECKED IN TWO HALVES, AND THE CROSS-CATEGORY HALF RUNS AT EVERY WRITE (12e-3a, owner
+2026-10-11: "Add loader.py to scope"; the config editor's save also runs it).** `_validate_list_sections` (inside
+`_validate_config`, so import AND editor) checks the shape: closed key lists, exactly one own section, a two-value
+toggle the pricing does not read, `absent.value` the value that does NOT open the section, `mirror.from` one of the
+config's number readers. `validate_delegated_sections(configs, items)` checks what one config cannot know: the
+category exists in the discipline, is an item-list config with pricing rules, is not the owner and does not keep its
+family in the owner's family attribute; every family offered is priceable in the section's unit class THERE and has
+an active SKU there; `mirror.to` is one of ITS number readers. It is called ONCE by `loader._load_multi` over the
+payload's configs and items BEFORE the first write, and by `update_rate_config` before `doc.save`; both read whatever
+stays active outside the write from the database, so a write is checked against the catalogue AS IT WILL STAND and an
+edit to the DELEGATED category that would break another config's section is refused on its own save. The pure half is
+`delegated_section_problems`. ⚠️ The check does not decide WHICH families a section should offer: "Cladding Only" is
+priced and stocked per metre and would pass; it is absent from Piping's section because the owner ruled the two
+families.
+
 **A TYPED FIELD'S NOTE IS GENERATED FROM WHAT THE PRICING READS, NOT WRITTEN PER FAMILY (owner S3/S4/S5,
 2026-10-06).** A `panel_notes` entry may be a LIST OF CLAUSES, each conditioned on a fact about the block
 being drawn — `when_reads` (that SKU attribute is among the family's needs for this unit class) and

@@ -46127,3 +46127,168 @@ never pressed; no BoQ row opened; nothing written.
    reached the defaults yet); per sq.m it shows the amber defaults. Seen in the cert; not examined further.
 
 **What 12e-3 / 12e-4 inherit.** Findings 2 and 3; a Piping BoQ row still shows no panel before a run (12e-2 finding 1); M1 parked.
+
+
+---
+
+## Slice 12e-3a — the Insulation section on Piping, priced by Insulation's rules (HVAC v37) — as built 2026-10-11
+
+Commits (unpushed, on `feature/boq-pricing-helper`, start tip `0306df2b7`): `e843a06d6` (feat, rate master: v37 + the two
+checks), `5c4d56d96` (feat, rate helper: sections, mirror, toggle, totals, buttons), then this docs commit. It followed an
+aborted 12e-3 attempt that the owner turned into a recon (`Desktop\2026-10-11_12e3_Recon.md`). Two sizes on one row, the
+"(R-M-b)" tag, the "Nm" unit and the Derivation-tab lines are 12e-3b, not here.
+
+### The design (owner D1 / D1a / D3b / 13:40 / 13:42 / Q2-Q9)
+
+- **No copy.** The Piping config declares `list_spec.sections`: its own `pipe` section and an `insulation` section with
+  `category_id: hvac_insulation`, `unit_class: length`, `families: [Nitrile Rubber Insulation, Tubular Puf Insulation]`,
+  `include_when: {attr: insulated, equals: Yes}`, `absent: {value: No, line: "insulation not mentioned -> No"}` and
+  `mirror: {from: size_mm, to: pipe_size_mm, tag: "from pipe", line: "you chose {chosen} (pipe is {pipe})"}`.
+- **The section is priced by Insulation's own function with Insulation's own config object** (`computeItemListOwn`, the
+  renamed pre-existing item-list pass, called once per section item with the config taken from the helper's
+  `configsByCategory`). Its fields, defaults, notes, working lines, quantity box and "Change item" list are therefore
+  Insulation's. Only two things differ: the mirror and the toggle.
+- **The toggle** is a per-pipe "Insulated" Yes / No definition, appended last on every pipe block, in no needs list and no
+  match list (the pure pricer never reads it). Yes opens that pipe's section directly under the pipe (no x); No removes it
+  and its edits in one operation. A pipe the pricer adds starts "No" plainly; a BoQ row the model read with no insulation
+  facts shows "No" amber with the config's line.
+- **The mirror** pre-fills the section's Pipe size with the size the pipe PRICED AS (5/8" -> 15.875 as read; MS 100 -> 100;
+  MS "4 inch", priced on the x 25 read -> 100), tagged "from pipe", and the reader's own line is shown with only its lead
+  changed to "From pipe:". A hand edit is kept, the tag goes, and the line reads "you chose X (pipe is Y)" while X differs
+  from Y.
+- **"+ Add insulation"** adds an independent section after the pipes; it keeps its x, mirrors the first pipe with a
+  readable size, and no toggle touches it.
+- **Totals.** Each line rounds on its own and the row total is their sum. One refused line -> no total and "n of m items
+  need a person". An attached section prices on its own even where its pipe refuses. No pipe + a priced independent
+  section -> the total is the insulation.
+- **Model path.** The k-th insulation item of the row attaches to the k-th pipe; extras are independent; with no pipe item
+  the insulation is independent. Facts present -> Yes even where the model answered No. Yes with no facts -> an empty
+  section that refuses until filled. The mirror wins over a size the model put on the insulation while the pipe's size is
+  readable.
+- **Edit state.** Attached section edits ride on their pipe (`ItemEdit.sections`), independent ones on
+  `ItemListEditState.sections`; a state written before sections existed decodes unchanged.
+
+### AC0 — measured first with a throwaway v37 (what moved)
+
+Frontend: the 95 existing test files under `src/pages/boq-wizard` and `src/pages/pricing` (4,207 tests): none moved.
+Python: five tests moved, all mechanical (newest-asset name, the Piping question list), inverted by name with the before
+kept in each test:
+
+| File | Test | Before -> after |
+|---|---|---|
+| `api/boq/test_piping_v34.py` | test_06, test_13 | newest asset v36 -> v37 |
+| `api/boq/test_rate_master.py` | test_h07 through `CURRENT_HVAC_ASSET` and its 6 pins | v36 -> v37 |
+| `services/boq_rate_master/test_extraction_coercion.py` | the newest-asset pin | v36 -> v37 |
+| `services/boq_rate_master/test_extraction_coercion.py` | test_il_02 | Piping questions `pipe_type, size_mm, pipe_class` -> `+ insulated` |
+
+No price pin moved. No doctype JSON changed.
+
+### AC evidence
+
+- **AC1** Copper 5/8", Insulated = Yes, 26G Aluminium, 13: pipe 1298 / 220, section **324 / 224**, row **1622 / 444 / 2066**.
+  The section's working lines equal Calculator -> Insulation's (Nitrile, 26G, 13, Other 15.875). "Aluminium sheet 26G"
+  moves the section and the Insulation calculator by the same amount; the cladding-No section (216 / 14) and the pipe do
+  not move.
+- **AC2** v37 = v36 + 42 added lines, 0 removed: the `insulated` definition and `list_spec.sections` on Piping; every item
+  and every other config byte-equal. File sha256 `9dcc91cb...10ef85`. Mint gate v36 -> v37 PASS, `--latest` PASS. Loaded on
+  dev: snapshot `BRMS-26-00300`, batch `rmbulk-28e5a8d53518`, 379 items / 10 configs, retirements_without_reason 0. Live
+  HVAC == v37 and Electrical == v66 by content (0 / 0 differing).
+- **AC3** `config_validation`: `_validate_list_sections` (shape: closed key lists, exactly one own section, a two-value
+  toggle the pricing does not read, `absent.value` the non-opening value, `mirror.from` a number reader, the line names
+  `{chosen}` and `{pipe}`) and `validate_delegated_sections` (cross-category: the delegated category exists and is an item
+  list, each family exists, is priced per the section's unit class and is stocked). Called once by `loader._load_multi`
+  before its first write and once by `update_rate_config`. Negative tests through `load_rate_master` and through the editor
+  save, state compared before / after, nothing written. **"Cladding Only" is NOT refused by the cross check**: it is priced
+  and stocked per metre (5 SKUs); it is simply not in the ruled family list. Pinned.
+- **AC4** Piping's question list gains exactly `insulated`; Insulation's and ADP's assembled model calls are byte-identical
+  v36 vs v37.
+- **AC5 / AC6 / AC7** in `slice12e3a.test.ts` (257 tests) through the helper entry point; the config-object identity is
+  proved with a Proxy on the Insulation config.
+- **AC8** parity: every Nitrile Rubber (168) and Tubular Puf (36) SKU x three pipe sizes (exact, laddered, refused) = 204
+  SKUs, **612 comparisons**, count asserted, none skipped. Vacuity: Python 4 of 4 and frontend 14 of 14 mechanisms turn the
+  suite red when disabled; every file restored byte-identical (sha256). ruleReachability's named == generated pin is
+  untouched (no Derivation lines in this slice).
+- **AC9** blast radius, the recorded method: 13,365 stored rows of 101 active runs, panel path. Output sha256
+  `00508eac...7997`, row-method hash `1458f285...a0e8` - **byte-identical to 12e-2b's after-file, 0 rows differ**. Capture
+  log 732 lines before and after the harness.
+
+### Mirror table (tests, AC6)
+
+| Pipe | Section's Pipe size | Outcome |
+|---|---|---|
+| Copper 5/8" | 15.875, "from pipe" | "From pipe: 15.875 mm -> priced as 15.88 mm", 324 / 224 with 26G / 13 |
+| Copper 1-1/4" | 31.75, "from pipe" | Insulation's own resolution of 31.75, same rung and line as its calculator |
+| MS 100 | 100, "from pipe" | refuses with Insulation's sentence (above 53.98); pipe keeps 2256 / 560; no row total |
+| MS "4 inch" | 100 (the size it priced as, not 101.6) | as MS 100 |
+| MS 100, section hand-set 53.98 | 53.98, no tag | prices; "you chose 53.98 (pipe is 100)" |
+| hand edit, pipe size then changes | the hand value | kept; undoing the edit brings the mirror back |
+| independent section | first pipe with a readable size | blank when there is no pipe |
+
+### Tests (measured in-session)
+
+Targeted before commit 1: test_extraction_coercion 208 OK, test_spec_reader 34 OK, test_rate_master 742 OK,
+test_piping_v34 24 OK. Before commit 2: 96 files / 4,464 tests green; `tsc` 3,170 errors, the figure 12e-2b recorded (the
+new test file adds none). FULL suites once after the last code commit: Python **8,051** tests (8,044 + 7 new), the same 12
+known failures by name as 12e-2's log; frontend **167 files / 6,344** tests (6,087 + 257), the one known
+`writeOffControl` timeout. Logs: `Desktop\2026-10-11_12e3a_python_full.log`, `_frontend_full.log`. `residence_check`: F5
+120 vs 117 and F2 221 vs 217, the figures 12e-2 recorded; this slice adds none.
+
+### Browser cert (2026-10-11; `Desktop\2026-10-11_12e3a_screens\`, 22 files)
+
+De-stale in full: 22 PIDs on TERM, 0 left, ports 8000 / 8080 / 9000 free, pycache 211 -> 0, `.vite` removed, ping after
+202 s, vite 200 after 29 s. PROOF 1 from the served TRANSFORMED modules (`function delegatedSections`,
+`function computeItemListOwn`, `function mirroredNumber`, `function mirroredLead`, `item-add-section-`, `dropSection`).
+PROOF 2 by a runtime `import()` in the page (`mirroredLead("You typed 15.875 mm", "from pipe")` -> "From pipe: 15.875 mm").
+The Chrome window reported hidden twice and the tab group was lost twice before a third group came up visible; the owner
+was asked both times. Service worker unregistered, storage cleared, hard refresh, session `admins@nirmaan.app`, no
+credentials entered. All steps on the Calculator.
+
+- **C1** Insulation: Nitrile, 26G, 13, Other 15.875 -> **324 / 224 / 548**.
+- **C2** Piping: "+ Add pipe" and "+ Add insulation"; Copper 5/8" -> 1298 / 220, Insulated "No" plain; Yes -> the section
+  directly under the pipe, heading "Insulation - priced by Insulation's rules", no x, Nitrile by default; 26G / 13 ->
+  **324 / 224**, the "from pipe" tag, "From pipe: 15.875 mm -> priced as 15.88 mm (...)", row total **1622 / 444 / 2066**.
+  The working lines are C1's plus one line ("item not mentioned -> Nitrile Rubber Insulation ..."), because C1 picked the
+  material by hand and the section took it by default.
+- **C3** Rate Master -> HVAC -> Pricing Inputs, "Aluminium sheet 26G" 450 -> 500 (saved; DB `{'rate': 500.0}`):
+  Insulation 324 -> **336**, the Piping section 324 -> **336** (row 1634 / 444); cladding No **216 / 14** on both, unmoved.
+  Restored to 450; DB `{'rate': 450.0}`.
+- **C4** the section's Pipe size picked 19.05: "you chose 19.05 (pipe is 15.875)", the tag gone, the pipe still 1298 / 220,
+  the section 335 / 224. Pipe changed to 3/4" (1590 / 220): the section keeps 19.05 (and, the two now being equal, the
+  "you chose" line is not drawn).
+- **C5** Insulated = No: the section gone, the total 1590 / 220.
+- **C6** MS, 100, Insulated = Yes, 26G, thickness Other 32: pipe **2256 / 560**; the section mirrors 100 and refuses ("pipe
+  size 100 is above the largest size on the sheet (53.98)"); red box "1 of 2 items need a person before the row can
+  price."; no total. Section size picked 53.98: **963 / 238**, "you chose 53.98 (pipe is 100)", total **3219 / 798**.
+- **C7** two copper pipes 3/8" and 5/8", both Yes, 26G / 13: sections mirror 9.525 and 15.875 (287 / 224 and 324 / 224);
+  total **2338 / 888** = the four lines.
+- **C8** one pipe at No, "+ Add insulation": the picker offers only Nitrile Rubber and Tubular Puf; the independent section
+  sits after the pipe, mirrors 9.525, has its x; total 716 / 444. Pipe toggled Yes: an attached (empty, refusing) section
+  appears above and the independent one stays.
+- **C9** the pipe removed: the independent section stays alone. Its size had only ever been mirrored, so it reads blank
+  and refuses ("no pipe size stated") until a size is picked; 9.52 picked -> **287 / 224**, the row total = the insulation.
+- **C10** Insulation: "+ Add item" unchanged (one button, no wrapper, no Insulated field), Nitrile, 26G, Other 50,
+  thickness unanswered -> **556 / 224 / 780**. ADP: "+ Add item" unchanged; fire damper, UL yes, variant UL, 600 x 600,
+  nos -> **7830 / 692 / 8522**.
+- **C11** live HVAC 379 / 10 == v37 (0 differing; content sha items `93bbac8f3c13d86c`, configs `07d9a9278eef654a`),
+  Electrical 1,402 / 13 == v66 (0 differing; `784d1dbe8024d5f8` / `aa8d0a49ef645120`); "Aluminium sheet 26G" 450; 101
+  active suggestion runs; capture log 821 lines, last written when the Python suite ended (no model call).
+
+"Use this value" was never pressed: the Calculator has no such button, so its enabled / disabled state (steps 2 and 6) was
+not seen on screen; it follows the row-priced flag the tests pin. No BoQ row was opened.
+
+### Findings (reported, not repaired)
+
+1. **Cert step 9 as worded holds only when the independent section has its own size.** Where its size was only mirrored,
+   removing the pipe blanks it and the section refuses until a size is picked (above).
+2. **The default-material section carries one working line more than Calculator -> Insulation with the material picked**
+   (figures identical; lines identical once the material is picked in the section too).
+3. **"Cladding Only" passes the cross-category check** (per metre, stocked); only the ruled family list keeps it out.
+4. **The single-config legacy load path does not call the cross check** (only `_load_multi` and the editor save do).
+5. **The Python suite writes to the capture log** (666 -> 821 across this slice's runs); these are test fixtures, not model calls.
+6. The refusal count reads "1 of 1 item need a person" (grammar; wording predates this slice).
+7. Premise corrections to the prompt: the per-metre Insulation families are three (Cladding Only too); the sheet spells
+   it "Tubular Puf"; no Pricing Input drives a cladding-No section; a second import batch id appears on live HVAC after
+   test_live_01 runs (content identical).
+
+**What 12e-3b inherits.** Two sizes on one row, "(R-M-b)", "Nm", AC8c and the Derivation lines for the section; findings 1,
+2 and 4; a Piping BoQ row still shows no panel before a run (12e-2 finding 1); M1 parked.

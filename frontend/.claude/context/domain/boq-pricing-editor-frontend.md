@@ -439,6 +439,19 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
   (a second Escape exits full-screen -- never trapped). Persisted to **`nirmaan-fullscreen-top-collapsed`**.
   EMBEDDED is untouched (`topCollapsed` only bites while `expanded`). **Memo shield + virtualizer math
   untouched** across all three.
+- **A delegated section is drawn by the SAME component and priced by the delegated category's own path (12e-3a,
+  owner D1 / D1a / 13:40 / 13:42; full text in root `.claude/context/domain/boq-rate-master.md` § Load-bearing
+  invariants).** On a config declaring `list_spec.sections` (Piping) `ItemListView.sections` is present and
+  `ItemListBlocks` reads it: the add buttons are the config's ("+ Add pipe", "+ Add insulation" on every state),
+  each pipe block carries the "Insulated" Yes / No field, and a section is a NESTED `ItemListBlocks` over the
+  delegated category's own one-item view (`SectionBlockView.view`) -- so its fields, defaults, notes, working,
+  quantity box and "Change item" list are Insulation's, unchanged. Only the frame differs in section mode: the
+  heading ("Insulation - priced by Insulation's rules"), no row-unit picker, no add button, no row total, and the x
+  only on an independent section. Edits inside a section travel as ONE operation, `{op: "section", section, pipe,
+  index, inner}`, applied to the stored edit of that section; the toggle's select sends ONE `set_attr` carrying
+  `dropSection` when it closes. `view.editState` is what every operation must be applied to: it holds the open
+  sections' edits materialised. A config that declares no section has no `sections` key anywhere in its view and
+  renders exactly as before -- the "+ Add item" button's markup included.
 - **A two-way field always offers both values; a ladder pick ladders; an unstocked pair refuses by name (12e-2b,
   owner 2026-10-10; full text in root `.claude/context/domain/boq-rate-master.md` § Load-bearing invariants, beside
   S1).** Owner: *"for attributes whose options are yes/no, with/without type both values must be shown in the
