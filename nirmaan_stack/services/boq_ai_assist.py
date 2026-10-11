@@ -66,6 +66,13 @@ _CONFIDENCE_VALUES = frozenset({"High", "Medium", "Low"})
 # The sentinel the model uses to say "parent is correct, don't change it".
 _NO_CHANGE = "NO_CHANGE"
 
+# The prompt version the result cache is keyed on (api/boq/wizard/ai_assist._ai_cache_key):
+# a result produced by an earlier prompt is never served for this one. BUMP IT whenever the
+# template, the wire row shape or the GUIDANCE block changes.
+#   v1 = BoQ_Phase4_AI_Pass_Prompt_v1_1 (+ the carried-context section, ADR-0005)
+#   v2 = the GUIDED prompt (S1b): the six meanings, has_qty on the wire, a GUIDANCE block
+PROMPT_VERSION = "v2"
+
 logger = frappe.logger("boq_ai")
 
 
@@ -75,22 +82,29 @@ class _NonRetryable(Exception):
 
 
 # ---------------------------------------------------------------------------
-# The validated AI-pass prompt (BoQ_Phase4_AI_Pass_Prompt_v1_1). EMBEDDED VERBATIM
-# -- validated against 5 real sheets; do NOT paraphrase or "improve". Two slots
-# {SHEET_NAME} and {ROWS_JSON} are filled via str.replace (NOT str.format -- the
-# body contains literal JSON braces that would break format()).
+# The AI-pass prompt, GUIDED version (PROMPT_VERSION "v2", slice S1b). EMBEDDED VERBATIM
+# -- do NOT paraphrase or "improve". It is BoQ_Phase4_AI_Pass_Prompt_v1_1 (validated
+# against 5 real sheets) + the carried-context section (ADR-0005), with exactly two
+# changes ruled by the owner (ADR-0005 Amendment A) and measured on 119 sheets:
+#   1. the six row-type definitions are the "meanings_v4" texts;
+#   2. one paragraph before "Rows (JSON):" explains has_qty and the GUIDANCE block that
+#      _render_chunk_prompt appends AFTER the rows.
+# Both passages are TEST-PINNED (TestGuidedPromptPins); the rendered prompt is pinned
+# byte-for-byte by a fixture (TestGuidedPromptFixture). Pin first, reword second.
+# The slots {SHEET_NAME}, {CONTEXT} and {ROWS_JSON} are filled via str.replace (NOT
+# str.format -- the body contains literal JSON braces that would break format()).
 # ---------------------------------------------------------------------------
 _AI_PASS_PROMPT_TEMPLATE = """You are reviewing the parsed structure of a single sheet from a construction Bill of Quantities (BoQ) workbook. A deterministic parser has already classified each row and assigned a parent and hierarchy level. Your job is to find rows where the parser's STRUCTURE is wrong and suggest corrections.
 
 ## What a BoQ sheet is
 
 A BoQ lists construction work items grouped into sections. Each row has been classified as one of:
-- "line_item" — a priceable work item (has or will have a quantity, rate, amount). e.g. "3.5C x 240 sqmm Al cable", "300 mm Round Diffuser"
-- "preamble" — a section or sub-section HEADER that groups line items beneath it. e.g. "LT CABLES", "HVAC - High Side Works", "Ducting". Preambles are never priced themselves; they organise the items under them.
-- "note" — descriptive text, a remark, or a specification note that is not itself a work item and not a section header. e.g. "Note:", "Consider Carrier Make", "All materials shall be as per standards"
-- "spacer" — an empty or blank row
-- "subtotal_marker" — a row showing a section total (e.g. "TOTAL")
-- "header_repeat" — a repeated column-header row
+- "line_item" — A work entry the client prices: it names a deliverable (supply, fixing, SITC of a fixture, a damper, insulation, a cable, a panel, a pipe size) and usually carries a serial number, a unit and a quantity. A row with a serial number AND a unit is an item even when it reads like a long sentence. Reviewers also call these line_items: a size or capacity sub-line under an item ('80 NB', 'c) 80mm dia', 'Fire extinguisher capacity - 4.5 Kg', 'a 150 mm dia pipe Metre') even with a lettered or missing serial, and an equipment schedule line with a unit; a sub-line that carries a unit is never a subtotal.
+- "preamble" — A section or sub-section heading that groups the rows beneath it: a short title such as 'Electrical Works', 'FAS Works', 'HVAC Works', 'Floor Box', 'UNITS IN PVC / MS ENCLOSURE', with no unit and no quantity, sometimes with a letter or number serial. A heading can also be an un-numbered lead-in sentence ('Supply, installation, testing & commissioning of MS pipes ... for pipes') that the sized rows below complete. A row with a serial number AND a unit or quantity is an item, not a heading.
+- "note" — Explanatory or condition text attached to a section or item: full sentences about scope, material quality, test certificates, pricing conditions, 'shall be' clauses, specification paragraphs (numbered 1, i, vi, vii or un-numbered). It has no unit and no quantity. Tax lines ('GST @18% on supply value'), 'TOTAL VALUE FOR ...' lines that are not an actual subtotal row, and a 'Notes' label row are notes. A breakdown line with a unit under a panel or item ('Outgoing - 32/63A, 3P, MCB - 5 No's') is a note when it only describes the item above and is not priced on its own.
+- "spacer" — A blank layout row: no serial number, no description, no unit and no quantity.
+- "subtotal_marker" — A total, subtotal or carried-forward line such as 'TOTAL', 'Sub total' or 'Total carried to summary', with no unit and no quantity. A lettered size sub-item with a unit ('a 150 mm dia Metre', 'b 1200 MM long No.') is a line_item, never a subtotal; a 'TOTAL VALUE FOR <section>' heading-like line with roman serial is a note unless it is the actual total row of that section.
+- "header_repeat" — A repeated column-header row (e.g. ITEM | DESCRIPTION | UNIT | QTY) appearing again in the middle of the sheet.
 
 ## Hierarchy: parent and level
 
@@ -164,6 +178,8 @@ CARRIED CONTEXT:
 ## The sheet to review
 
 Sheet name: {SHEET_NAME}
+Each row also carries has_qty (true when the original quantity cell holds a non-zero number).
+After the rows, GUIDANCE (JSON, keyed by excel_row) gives for each row: similar_reviewed_rows - up to 5 rows from OTHER BoQs that reviewers have already classified (fields sl_no, description, unit, has_qty, correct_row_type), to be used as worked examples; and candidate_parents - earlier rows of THIS sheet that are the most likely parents ("row <excel_row> | sl <sl_no> | <description>"), plus "none (top level)". Prefer a parent from candidate_parents; the parser's current parent is listed first.
 Rows (JSON):
 {ROWS_JSON}"""
 
@@ -220,6 +236,35 @@ def _effective_level_for_payload(row: Any) -> Any:
     return _get(row, "level")
 
 
+def _nonzero(value: Any) -> bool:
+    """True for a value that reads as a non-zero number."""
+    try:
+        return value is not None and str(value).strip() != "" and float(value) != 0.0
+    except (TypeError, ValueError):
+        return False
+
+
+def _row_has_qty(row: Any) -> bool:
+    """has_qty for the wire: True when the review row's qty_total, or any quantity in its
+    qty_by_area, is a non-zero number. A YES / NO only -- the quantity itself is never
+    sent. Absent fields (the service called standalone) read as False."""
+    if _nonzero(_get(row, "qty_total")):
+        return True
+    by_area = _get(row, "qty_by_area")
+    if isinstance(by_area, str):
+        try:
+            by_area = json.loads(by_area)
+        except ValueError:
+            return False
+    if isinstance(by_area, dict):
+        values = list(by_area.values())
+    elif isinstance(by_area, (list, tuple)):
+        values = list(by_area)
+    else:
+        return False
+    return any(_nonzero(v.get("qty") if isinstance(v, dict) else v) for v in values)
+
+
 # ---------------------------------------------------------------------------
 # Input serialisation
 # ---------------------------------------------------------------------------
@@ -256,6 +301,9 @@ def _build_row_payload(row: Any, rowidx_to_excel: dict) -> dict:
     NOT the frozen parser value. `_wire_element` STRIPS it before the element reaches the
     model, so the model no longer receives a per-row level (recomputed at commit; only
     preambles carry a level, shown in OPEN SECTIONS).
+
+    `has_qty` (prompt v2) is a true / false only, declared LAST: the wire row is exactly
+    7 keys and never carries a quantity, rate or amount value (pinned by TestClaudeWirePin).
     """
     eff_parent = _effective_parent_internal(row)
     if eff_parent is None:
@@ -271,6 +319,7 @@ def _build_row_payload(row: Any, rowidx_to_excel: dict) -> dict:
         "sl_no": _get(row, "sl_no_value"),
         "description": _get(row, "description"),
         "unit": _get(row, "unit"),
+        "has_qty": _row_has_qty(row),
     }
 
 
@@ -289,7 +338,8 @@ def build_rows_payload(review_rows: list) -> tuple[str, dict]:
 
     Returns (json_str, idx_map) where:
       - json_str is the JSON array AS THE MODEL SEES IT: each element has excel_row
-        (= source_row_number), classification, parent_excel_row, sl_no, description, unit.
+        (= source_row_number), classification, parent_excel_row, sl_no, description, unit,
+        has_qty (true / false).
         There is NO per-row `level` (an internal spine signal, stripped by _wire_element).
         parent_excel_row is the PARENT row's source_row_number (excel row), or None
         for a root row (translated from the effective internal parent_index).
@@ -685,9 +735,49 @@ def _log_pass_usage(settings: dict, sheet_name: str, n_chunks: int,
 # The API call
 # ---------------------------------------------------------------------------
 
+def _chunk_guidance(chunk: list[dict], guidance: dict | None) -> dict:
+    """The GUIDANCE object for ONE chunk: keyed by excel_row (as text, in row order), each
+    with exactly similar_reviewed_rows + candidate_parents. A row the caller gave no
+    guidance for gets two empty lists, so the block the template promises is always there."""
+    guidance = guidance or {}
+    out: dict = {}
+    for p in chunk:
+        g = guidance.get(p.get("excel_row")) or {}
+        out[str(p.get("excel_row"))] = {
+            "similar_reviewed_rows": g.get("similar_reviewed_rows", []),
+            "candidate_parents": g.get("candidate_parents", []),
+        }
+    return out
+
+
+def _render_chunk_prompt(
+    sheet_name: str, chunk: list[dict], context: str, guidance: dict | None = None,
+) -> str:
+    """The exact text sent to the model for ONE chunk -- the single definition of the
+    rendered prompt (pinned byte-for-byte by TestGuidedPromptFixture).
+
+    Template slots filled, then the GUIDANCE block appended AFTER the rows array. The rows
+    array keeps json.dumps' default escaping; GUIDANCE is written with real characters
+    (ensure_ascii=False) -- both exactly as the measured prompt was built."""
+    # Strip the internal spine-only `level` from every row: the model receives NO per-row
+    # level. update_spine still reads `level` off the original `chunk` dicts in run_ai_pass
+    # (the OPEN SECTIONS {CONTEXT} carries the effective preamble level). See _wire_element.
+    rows_json = json.dumps([_wire_element(p) for p in chunk])
+    prompt = (
+        _AI_PASS_PROMPT_TEMPLATE
+        .replace("{SHEET_NAME}", sheet_name or "")
+        .replace("{CONTEXT}", context)
+        .replace("{ROWS_JSON}", rows_json)
+    )
+    return prompt + "\n\nGUIDANCE (JSON):\n" + json.dumps(
+        _chunk_guidance(chunk, guidance), ensure_ascii=False
+    )
+
+
 def _classify_chunk(
     client, sheet_name: str, chunk: list[dict], context: str, idx_map: dict,
     allowed_parent_excels: set, settings: dict, chunk_idx: int, n_chunks: int,
+    guidance: dict | None = None,
 ) -> tuple[list, int, int]:
     """Classify ONE chunk: build the per-chunk prompt (chunk rows + carried {CONTEXT}),
     run the retry loop, parse the response against the SHEET-WIDE idx_map, and return
@@ -700,16 +790,7 @@ def _classify_chunk(
     forward-reference parent (an excel_row in a not-yet-seen later chunk) is dropped +
     logged by parse_ai_response -- the model can only name a parent it was shown (this
     chunk) or one carried in OPEN SECTIONS (an earlier chunk)."""
-    # Strip the internal spine-only `level` from every row: the model receives NO per-row
-    # level. update_spine still reads `level` off the original `chunk` dicts in run_ai_pass
-    # (the OPEN SECTIONS {CONTEXT} carries the effective preamble level). See _wire_element.
-    rows_json = json.dumps([_wire_element(p) for p in chunk])
-    prompt = (
-        _AI_PASS_PROMPT_TEMPLATE
-        .replace("{SHEET_NAME}", sheet_name or "")
-        .replace("{CONTEXT}", context)
-        .replace("{ROWS_JSON}", rows_json)
-    )
+    prompt = _render_chunk_prompt(sheet_name, chunk, context, guidance)
 
     for attempt in range(1, _MAX_RETRIES + 2):
         try:
@@ -733,9 +814,16 @@ def _classify_chunk(
             raise _NonRetryable(str(exc)) from exc
 
 
-def run_ai_pass(sheet_name: str, review_rows: list, settings: dict, api_key: str) -> list:
+def run_ai_pass(
+    sheet_name: str, review_rows: list, settings: dict, api_key: str,
+    guidance: dict | None = None,
+) -> list:
     """Run the AI structure-suggestion pass for one sheet and return normalized
     suggestions keyed by internal row_index.
+
+    `guidance` (prompt v2) is {excel_row: {"similar_reviewed_rows": [...],
+    "candidate_parents": [...]}}, built by services/boq_ai_guidance.build_guidance and
+    INJECTED by the worker like settings + api_key. None -> every row gets empty guidance.
 
     settings + api_key are INJECTED by the caller (AI-2c worker) -- this service
     never reads get_boq_ai_settings / get_boq_ai_api_key itself (keeps it unit-
@@ -780,7 +868,7 @@ def run_ai_pass(sheet_name: str, review_rows: list, settings: dict, api_key: str
             )
         suggestions, tin, tout = _classify_chunk(
             client, sheet_name, chunk, context, idx_map, allowed_parent_excels,
-            settings, i + 1, n_chunks,
+            settings, i + 1, n_chunks, guidance,
         )
         all_suggestions.extend(suggestions)
         total_in += tin

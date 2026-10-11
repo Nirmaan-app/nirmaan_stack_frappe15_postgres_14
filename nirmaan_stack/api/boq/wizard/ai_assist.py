@@ -57,7 +57,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     resolve_effective,
 )
 from nirmaan_stack.api.boq.wizard.update_sheet_draft import _guard_sheet_not_parsing
-from nirmaan_stack.services import boq_ai_assist
+from nirmaan_stack.services import boq_ai_assist, boq_ai_guidance
 from nirmaan_stack.services.boq_ai_assist import _NonRetryable
 
 logger = frappe.logger("boq_ai")
@@ -93,6 +93,9 @@ _AI_FETCH_FIELDS = [
     "human_classification", "human_parent", "human_is_root",
     "ai_suggestion_status", "ai_suggested_classification", "ai_suggested_parent",
     "ai_suggested_is_root",
+    # Prompt v2 (S1b): has_qty on the wire + the guidance look-up read these two. Only a
+    # true / false leaves the server -- the quantity itself is never sent.
+    "qty_total", "qty_by_area",
 ]
 
 
@@ -101,8 +104,13 @@ _AI_FETCH_FIELDS = [
 # ---------------------------------------------------------------------------
 
 def _ai_cache_key(boq_name: str, sheet_name: str, last_parsed_at: Any) -> str:
-    """Result-cache key. A re-parse bumps last_parsed_at -> a fresh (missed) key."""
-    return f"{_AI_CACHE_PREFIX}::{boq_name}::{sheet_name}::{last_parsed_at}"
+    """Result-cache key. A re-parse bumps last_parsed_at -> a fresh (missed) key. The
+    prompt version is part of the key, so a result produced by an earlier prompt is never
+    served for the current one."""
+    return (
+        f"{_AI_CACHE_PREFIX}::{boq_ai_assist.PROMPT_VERSION}::{boq_name}::{sheet_name}"
+        f"::{last_parsed_at}"
+    )
 
 
 def _ai_status_key(boq_name: str, sheet_name: str) -> str:
@@ -337,7 +345,7 @@ def run_ai_pass(boq_name: str = None, sheet_name: str = None) -> dict:
     job = frappe.enqueue(
         "nirmaan_stack.api.boq.wizard.ai_assist._run_ai_pass_worker",
         queue="long",
-        timeout=600,
+        timeout=1200,
         job_id=raw_job_id,
         user=frappe.session.user,
         boq_name=boq_name,
@@ -854,7 +862,13 @@ def _run_ai_pass_worker(boq_name: str, sheet_name: str, user: str = None) -> Non
         settings = get_boq_ai_settings()
         api_key = get_boq_ai_api_key()
 
-        suggestions = boq_ai_assist.run_ai_pass(sheet_name, rows, settings, api_key)
+        # Prompt v2 (S1b): the per-row examples + candidate parents. Never raises for a
+        # library problem -- the pass then runs without examples (boq_ai_guidance).
+        guidance = boq_ai_guidance.build_guidance(boq_name, rows)
+
+        suggestions = boq_ai_assist.run_ai_pass(
+            sheet_name, rows, settings, api_key, guidance=guidance
+        )
 
         _apply_ai_suggestions(boq_name, sheet_name, rows, suggestions)
 

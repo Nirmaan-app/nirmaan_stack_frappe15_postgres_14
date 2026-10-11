@@ -7,16 +7,21 @@ Pure-Python: the Anthropic client is MOCKED -- NO test makes a live API call.
 Covers input serialisation, output parsing (parent translation + defensive drops),
 and the run_ai_pass retry / empty-response behaviour.
 """
+import hashlib
 import json
+import os
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
 from nirmaan_stack.services.boq_ai_assist import (
     _AI_PASS_PROMPT_TEMPLATE,
+    PROMPT_VERSION,
     _NonRetryable,
     _build_row_payload,
     _effective_level_for_payload,
+    _render_chunk_prompt,
+    _row_has_qty,
     build_rows_payload,
     parse_ai_response,
     run_ai_pass,
@@ -463,3 +468,251 @@ class TestPromptParentingPins(unittest.TestCase):
         for phrase in ("note under a note", "note-under-note", "parent of another note",
                        "notes may not parent", "note as a parent"):
             self.assertNotIn(phrase, lowered, f"prompt must stay SILENT on {phrase!r}")
+
+
+class TestGuidedPromptPins(unittest.TestCase):
+    """PINS for the GUIDED prompt (prompt v2, slice S1b; owner ruling R4: "go with your
+    suggestions" on rewording the six definitions).
+
+    Written BEFORE the template changed (pin first, reword second): at that commit point
+    every test here was RED against the old template. The literals are byte-equal to F1's
+    record of the measured prompt (sepoct_f1/v2_replaced_passage.json, run_claude_f1.py
+    lines 51-63) -- the wording the accuracy figures were measured with. A reword must
+    change these literals deliberately.
+    """
+
+    # The six row-type meanings (meanings_v4), one line each, in template order.
+    _MEANINGS = (
+        "- \"line_item\" — A work entry the client prices: it names a deliverable (supply, fixing, SITC of a fixture, a damper, insulation, a cable, a panel, a pipe size) and usually carries a serial number, a unit and a quantity. A row with a serial number AND a unit is an item even when it reads like a long sentence. Reviewers also call these line_items: a size or capacity sub-line under an item ('80 NB', 'c) 80mm dia', 'Fire extinguisher capacity - 4.5 Kg', 'a 150 mm dia pipe Metre') even with a lettered or missing serial, and an equipment schedule line with a unit; a sub-line that carries a unit is never a subtotal.\n",
+        "- \"preamble\" — A section or sub-section heading that groups the rows beneath it: a short title such as 'Electrical Works', 'FAS Works', 'HVAC Works', 'Floor Box', 'UNITS IN PVC / MS ENCLOSURE', with no unit and no quantity, sometimes with a letter or number serial. A heading can also be an un-numbered lead-in sentence ('Supply, installation, testing & commissioning of MS pipes ... for pipes') that the sized rows below complete. A row with a serial number AND a unit or quantity is an item, not a heading.\n",
+        "- \"note\" — Explanatory or condition text attached to a section or item: full sentences about scope, material quality, test certificates, pricing conditions, 'shall be' clauses, specification paragraphs (numbered 1, i, vi, vii or un-numbered). It has no unit and no quantity. Tax lines ('GST @18% on supply value'), 'TOTAL VALUE FOR ...' lines that are not an actual subtotal row, and a 'Notes' label row are notes. A breakdown line with a unit under a panel or item ('Outgoing - 32/63A, 3P, MCB - 5 No's') is a note when it only describes the item above and is not priced on its own.\n",
+        "- \"spacer\" — A blank layout row: no serial number, no description, no unit and no quantity.\n",
+        "- \"subtotal_marker\" — A total, subtotal or carried-forward line such as 'TOTAL', 'Sub total' or 'Total carried to summary', with no unit and no quantity. A lettered size sub-item with a unit ('a 150 mm dia Metre', 'b 1200 MM long No.') is a line_item, never a subtotal; a 'TOTAL VALUE FOR <section>' heading-like line with roman serial is a note unless it is the actual total row of that section.\n",
+        "- \"header_repeat\" — A repeated column-header row (e.g. ITEM | DESCRIPTION | UNIT | QTY) appearing again in the middle of the sheet.\n",
+    )
+
+    # The six definitions v2 RETIRED. None may survive.
+    _RETIRED = (
+        "- \"line_item\" — a priceable work item (has or will have a quantity, rate, amount). e.g. \"3.5C x 240 sqmm Al cable\", \"300 mm Round Diffuser\"\n",
+        "- \"preamble\" — a section or sub-section HEADER that groups line items beneath it. e.g. \"LT CABLES\", \"HVAC - High Side Works\", \"Ducting\". Preambles are never priced themselves; they organise the items under them.\n",
+        "- \"note\" — descriptive text, a remark, or a specification note that is not itself a work item and not a section header. e.g. \"Note:\", \"Consider Carrier Make\", \"All materials shall be as per standards\"\n",
+        "- \"spacer\" — an empty or blank row\n",
+        "- \"subtotal_marker\" — a row showing a section total (e.g. \"TOTAL\")\n",
+        "- \"header_repeat\" — a repeated column-header row\n",
+    )
+
+    # The has_qty / GUIDANCE paragraph, directly before the rows -- and the template's end.
+    _PARAGRAPH = (
+        "Each row also carries has_qty (true when the original quantity cell holds a "
+        "non-zero number).\n"
+        "After the rows, GUIDANCE (JSON, keyed by excel_row) gives for each row: "
+        "similar_reviewed_rows - up to 5 rows from OTHER BoQs that reviewers have already "
+        "classified (fields sl_no, description, unit, has_qty, correct_row_type), to be used "
+        "as worked examples; and candidate_parents - earlier rows of THIS sheet that are the "
+        "most likely parents (\"row <excel_row> | sl <sl_no> | <description>\"), plus "
+        "\"none (top level)\". Prefer a parent from candidate_parents; the parser's current "
+        "parent is listed first.\n"
+        "Rows (JSON):\n{ROWS_JSON}"
+    )
+
+    def _definitions_block(self):
+        start = _AI_PASS_PROMPT_TEMPLATE.index('- "line_item" — ')
+        return _AI_PASS_PROMPT_TEMPLATE[start:_AI_PASS_PROMPT_TEMPLATE.index("\n\n## Hierarchy")]
+
+    def test_six_meanings_passages_are_pinned(self):
+        """Each of the six meanings, verbatim, and the six as ONE contiguous block in order
+        (line_item, preamble, note, spacer, subtotal_marker, header_repeat)."""
+        for line in self._MEANINGS:
+            self.assertIn(line, _AI_PASS_PROMPT_TEMPLATE, f"meaning not pinned: {line[:40]!r}")
+        self.assertIn("".join(self._MEANINGS), _AI_PASS_PROMPT_TEMPLATE,
+                      "the six meanings must sit together, in order")
+
+    def test_retired_definitions_are_gone(self):
+        """NEGATIVE: none of the six pre-v2 definitions survives beside its replacement."""
+        for line in self._RETIRED:
+            self.assertNotIn(line, _AI_PASS_PROMPT_TEMPLATE,
+                             f"retired definition still present: {line[:40]!r}")
+
+    def test_has_qty_guidance_paragraph_is_pinned_before_the_rows(self):
+        """The paragraph that explains has_qty and GUIDANCE sits directly before
+        "Rows (JSON):" and is the END of the template (the GUIDANCE block itself is
+        appended per chunk, after the rows)."""
+        self.assertIn(self._PARAGRAPH, _AI_PASS_PROMPT_TEMPLATE)
+        self.assertTrue(_AI_PASS_PROMPT_TEMPLATE.endswith(self._PARAGRAPH))
+        self.assertEqual(_AI_PASS_PROMPT_TEMPLATE.count("Rows (JSON):"), 1)
+
+    def test_definitions_block_names_no_rate_or_amount(self):
+        """NEGATIVE: the definitions the model reads never say rate or amount (the old
+        line_item definition did: "has or will have a quantity, rate, amount")."""
+        import re
+        block = self._definitions_block().lower()
+        for word in ("rate", "amount"):
+            self.assertIsNone(re.search(rf"\b{word}s?\b", block),
+                              f"the definitions block must not mention {word!r}")
+
+
+_WIRE_KEYS = ["excel_row", "classification", "parent_excel_row", "sl_no", "description",
+              "unit", "has_qty"]
+
+
+class TestClaudeWirePin(unittest.TestCase):
+    """PIN for the Claude WIRE ROW (prompt v2): exactly 7 keys, in this order -- the 6 of
+    prompt v1 + has_qty -- and has_qty is a true / false. Nothing else about a row reaches
+    the model: never a quantity, a rate or an amount, whatever the review row carries.
+    (Gemini's wire is pinned separately by test_boq_gemini_assist.TestWirePayloadPin.)"""
+
+    def _wire(self, rows):
+        json_str, _ = build_rows_payload(rows)
+        return json.loads(json_str)
+
+    def test_wire_row_is_exactly_the_seven_keys_in_order(self):
+        for el in self._wire(_rows()):
+            self.assertEqual(list(el), _WIRE_KEYS)
+
+    def test_chunked_path_sends_the_same_seven_keys(self):
+        """The prompt the client receives (not only build_rows_payload) carries 7-key rows."""
+        with mock.patch("anthropic.Anthropic") as MockAnthropic:
+            MockAnthropic.return_value.messages.create.return_value = _fake_response([])
+            run_ai_pass("Electrical", _rows(), _SETTINGS, "fake-key")
+            prompt = MockAnthropic.return_value.messages.create.call_args.kwargs["messages"][0]["content"]
+        rows_json = prompt.split("Rows (JSON):\n", 1)[1].split("\n\nGUIDANCE (JSON):\n", 1)[0]
+        for el in json.loads(rows_json):
+            self.assertEqual(list(el), _WIRE_KEYS)
+
+    def test_has_qty_true_and_false(self):
+        base = _rows()[1]
+        cases = [
+            ({"qty_total": 12.5}, True),
+            ({"qty_total": "3"}, True),
+            ({"qty_total": 0}, False),
+            ({"qty_total": 0.0, "qty_by_area": None}, False),
+            ({"qty_total": None, "qty_by_area": {"Tower A": 4, "Tower B": 0}}, True),
+            ({"qty_total": None, "qty_by_area": '{"Tower A": 0, "Tower B": 0}'}, False),
+            ({"qty_total": None, "qty_by_area": '[{"area": "T1", "qty": 2}]'}, True),
+            ({"qty_total": None, "qty_by_area": [{"area": "T1", "qty": 0}]}, False),
+            ({"qty_total": "n/a", "qty_by_area": "not json"}, False),
+            ({}, False),    # the fields absent (service called standalone)
+        ]
+        for extra, expected in cases:
+            with self.subTest(extra=extra):
+                self.assertIs(_row_has_qty({**base, **extra}), expected)
+                self.assertIs(self._wire([{**base, **extra}])[0]["has_qty"], expected)
+
+    def test_no_quantity_rate_or_amount_value_leaks(self):
+        """NEGATIVE: a review row loaded with quantity, rate and amount fields puts NONE of
+        those keys and NONE of those values on the wire or anywhere in the prompt."""
+        loaded = {
+            **_rows()[1],
+            "qty_total": 98765.4321, "qty_by_area": {"Tower A": 43210.9876},
+            "rate": 11111.25, "rate_supply": 22222.25, "rate_install": 33333.25,
+            "amount": 44444.25, "amount_total": 55555.25, "qty": 66666.25, "price": 77777.25,
+        }
+        el = self._wire([loaded])[0]
+        self.assertEqual(list(el), _WIRE_KEYS)
+        self.assertIs(el["has_qty"], True)
+        with mock.patch("anthropic.Anthropic") as MockAnthropic:
+            MockAnthropic.return_value.messages.create.return_value = _fake_response([])
+            run_ai_pass("Electrical", [_rows()[0], loaded], _SETTINGS, "fake-key")
+            prompt = MockAnthropic.return_value.messages.create.call_args.kwargs["messages"][0]["content"]
+        dynamic = prompt.split("Rows (JSON):\n", 1)[1]
+        for leak in ("98765", "43210", "11111", "22222", "33333", "44444", "55555", "66666",
+                     "77777", "qty_total", "qty_by_area", "rate", "amount", "price"):
+            self.assertNotIn(leak, dynamic, f"{leak!r} leaked onto the wire")
+
+
+class TestGuidedPromptFixture(unittest.TestCase):
+    """The RENDERER pinned byte-for-byte on a real sheet: BOQ-26-00244 / CCTV (25 rows),
+    with the wire rows and the frozen aids exactly as F1 sent them, must render the prompt
+    F1 measured -- sha256 799d00a1...fe3423, 43,699 characters. Any change to the template,
+    the slot filling, the row / GUIDANCE serialisation or their order turns this red.
+
+    The fixture holds those 25 wire rows and their aids ONLY (no rate, no amount)."""
+
+    _SHA = "799d00a146294326bf4cd5fc447a3861d493c9ffdd654f68e2f04b08fdfe3423"
+    _CHARS = 43699
+
+    @classmethod
+    def setUpClass(cls):
+        path = os.path.join(os.path.dirname(__file__), "boq_ai_fixtures", "guided_prompt_cctv.json")
+        with open(path, encoding="utf-8") as f:
+            cls.fx = json.load(f)
+
+    def _render(self, **overrides):
+        fx = {**self.fx, **overrides}
+        guidance = {int(k): v for k, v in fx["guidance"].items()}
+        return _render_chunk_prompt(fx["sheet_name"], fx["wire_rows"], fx["context"], guidance)
+
+    def test_fixture_is_the_named_sheet_and_nothing_else(self):
+        self.assertEqual(self.fx["sheet_name"], "CCTV")
+        self.assertEqual(len(self.fx["wire_rows"]), 25)
+        self.assertEqual(sorted(self.fx["guidance"]),
+                         sorted(str(r["excel_row"]) for r in self.fx["wire_rows"]))
+        for r in self.fx["wire_rows"]:
+            self.assertEqual(list(r), _WIRE_KEYS)
+        for g in self.fx["guidance"].values():
+            self.assertEqual(list(g), ["similar_reviewed_rows", "candidate_parents"])
+            for e in g["similar_reviewed_rows"]:
+                self.assertEqual(
+                    list(e), ["sl_no", "description", "unit", "has_qty", "correct_row_type"])
+
+    def test_renders_the_measured_prompt_byte_for_byte(self):
+        prompt = self._render()
+        sha = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        self.assertEqual((sha, len(prompt)), (self._SHA, self._CHARS))
+        self.assertEqual((self.fx["prompt_sha256"], self.fx["prompt_chars"]), (self._SHA, self._CHARS))
+
+    def test_any_change_to_the_inputs_changes_the_hash(self):
+        """NEGATIVE: the hash really depends on the rows, the aids and the context."""
+        rows = [dict(r) for r in self.fx["wire_rows"]]
+        rows[0]["has_qty"] = not rows[0]["has_qty"]
+        first = sorted(self.fx["guidance"])[0]
+        guidance = {**self.fx["guidance"], first: {"similar_reviewed_rows": [], "candidate_parents": []}}
+        for label, changed in (
+            ("wire row", self._render(wire_rows=rows)),
+            ("guidance", self._render(guidance=guidance)),
+            ("context", self._render(context="OPEN SECTIONS: (none)")),
+            ("sheet name", self._render(sheet_name="CCTV ")),
+        ):
+            self.assertNotEqual(hashlib.sha256(changed.encode("utf-8")).hexdigest(), self._SHA, label)
+
+
+class TestGuidanceBlock(unittest.TestCase):
+    """The GUIDANCE block: appended after the rows on every call, keyed by excel_row in
+    row order, with empty lists for a row the caller gave no guidance for."""
+
+    def _prompt(self, guidance):
+        with mock.patch("anthropic.Anthropic") as MockAnthropic:
+            MockAnthropic.return_value.messages.create.return_value = _fake_response([])
+            if guidance is None:
+                run_ai_pass("Electrical", _rows(), _SETTINGS, "fake-key")
+            else:
+                run_ai_pass("Electrical", _rows(), _SETTINGS, "fake-key", guidance=guidance)
+            return MockAnthropic.return_value.messages.create.call_args.kwargs["messages"][0]["content"]
+
+    def test_block_carries_the_injected_guidance(self):
+        example = {"sl_no": "2.1", "description": "4 core cable", "unit": "m", "has_qty": True,
+                   "correct_row_type": "line_item"}
+        guidance = {6: {"similar_reviewed_rows": [example],
+                        "candidate_parents": ["row 5 | sl 1 | LT CABLES", "none (top level)"]}}
+        tail = self._prompt(guidance).split("\n\nGUIDANCE (JSON):\n", 1)
+        self.assertEqual(len(tail), 2, "the GUIDANCE block must follow the rows")
+        block = json.loads(tail[1])
+        self.assertEqual(list(block), ["5", "6"], "keyed by excel_row, in row order")
+        self.assertEqual(block["6"], guidance[6])
+        self.assertEqual(block["5"], {"similar_reviewed_rows": [], "candidate_parents": []})
+
+    def test_block_is_present_and_empty_without_guidance(self):
+        block = json.loads(self._prompt(None).split("\n\nGUIDANCE (JSON):\n", 1)[1])
+        empty = {"similar_reviewed_rows": [], "candidate_parents": []}
+        self.assertEqual(block, {"5": empty, "6": empty})
+
+    def test_extra_keys_in_the_guidance_never_reach_the_model(self):
+        """NEGATIVE: only the two named lists are copied -- a stray source field is dropped."""
+        guidance = {5: {"similar_reviewed_rows": [], "candidate_parents": [],
+                        "similar_reviewed_rows_src": [{"_boq": "BOQ-26-99999"}]}}
+        prompt = self._prompt(guidance)
+        self.assertNotIn("BOQ-26-99999", prompt)
+        self.assertNotIn("similar_reviewed_rows_src", prompt)
+
+    def test_prompt_version_is_v2(self):
+        self.assertEqual(PROMPT_VERSION, "v2")
