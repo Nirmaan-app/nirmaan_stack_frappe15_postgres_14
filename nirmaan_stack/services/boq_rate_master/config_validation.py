@@ -210,7 +210,8 @@ def _validate_list_spec(cfg):
     spec = cfg.get("list_spec")
     if not isinstance(spec, dict):
         _vthrow("matching_mode 'item_list' needs a list_spec object.")
-    unknown = set(spec.keys()) - {"attribute_definitions", "family_attribute_id", "qty_attribute_id", "second_opinion", "pricing"}
+    unknown = set(spec.keys()) - {"attribute_definitions", "family_attribute_id", "qty_attribute_id", "second_opinion", "pricing",
+                                  SECTIONS_KEY}
     if unknown:
         _vthrow(f"list_spec: unknown key(s): {', '.join(sorted(unknown))}.")
     if "second_opinion" in spec and not isinstance(spec["second_opinion"], bool):
@@ -274,6 +275,231 @@ def _validate_list_spec(cfg):
     # SLICE 5 (2026-09-24, owner R1-R21): the item-list PRICING block, validated in its own namespace below
     if "pricing" in spec:
         _validate_list_pricing(spec, by_id, family_vals, cfg)
+    # SLICE 12e-3a (owner D1, 2026-10-08): the declared sections of a row -- the config's own items and the
+    # sections that DELEGATE to another category. Shape only here; the cross-category half needs the other
+    # configs and the items (`validate_delegated_sections`, run by the import and by the editor's save).
+    if SECTIONS_KEY in spec:
+        _validate_list_sections(spec, by_id, cfg)
+
+
+# ---------------------------------------------------------------------------------------------------------
+# SLICE 12e-3a (owner D1 / D1a / D3 / 13:40 / 13:42, 2026-10-11) -- `list_spec.sections`.
+#
+# A row of this category is made of SECTIONS. Exactly one entry is the config's OWN items (no `category_id`:
+# the pipes of a Piping row); every other entry DELEGATES to another item-list category -- the panel prices
+# that section through the delegated category's OWN config, catalogue and Pricing Inputs, with no copy of any
+# rule. A delegated section behaves as its category does, except for the two things declared here:
+#   `include_when {attr, equals}`  a per-item Yes / No attribute of THIS config that opens the section under
+#                                  its item (the key name `popup_boxes.has_modules` already uses); `absent`
+#                                  is the value and the line shown when nothing was read;
+#   `mirror {from, to, tag, line}` one number of the item (`from`, a `pricing.numbers` key here) pre-fills a
+#                                  number reader of the delegated category (`to`) until the pricer edits it.
+# `families` is the closed list of the delegated category's families the section offers; `unit_class` is the
+# unit class of THIS config the section prices in.
+# ---------------------------------------------------------------------------------------------------------
+SECTIONS_KEY = "sections"
+_SECTION_OWN_KEYS = {"id", "label", "add_label"}
+_SECTION_DELEGATED_KEYS = _SECTION_OWN_KEYS | {"category_id", "unit_class", "families", "include_when", "absent", "mirror"}
+_SECTION_INCLUDE_KEYS = {"attr", "equals"}
+_SECTION_ABSENT_KEYS = {"value", "line"}
+_SECTION_MIRROR_KEYS = {"from", "to", "tag", "line"}
+
+
+def _nonblank(v):
+    return isinstance(v, str) and bool(v.strip())
+
+
+def _validate_list_sections(spec, by_id, cfg):
+    """The SHAPE of `list_spec.sections` -- everything that can be decided from this one config."""
+    loc = "list_spec.sections"
+    secs = spec.get(SECTIONS_KEY)
+    if not isinstance(secs, list) or not secs:
+        _vthrow(f"{loc} must be a non-empty list.")
+    pr = spec.get("pricing")
+    if not isinstance(pr, dict):
+        _vthrow(f"{loc} needs list_spec.pricing (a section is priced).")
+    own_cat = (cfg.get("category_id") or "").strip()
+    priced = set(pr.get("match_attrs") or []) | set(pr.get("choice_attrs") or []) | set(pr.get("numbers") or {})
+    seen, own = set(), 0
+    for i, s in enumerate(secs):
+        sloc = f"{loc}[{i}]"
+        if not isinstance(s, dict):
+            _vthrow(f"{sloc} must be an object.")
+        delegated = "category_id" in s
+        unk = set(s.keys()) - (_SECTION_DELEGATED_KEYS if delegated else _SECTION_OWN_KEYS)
+        if unk:
+            _vthrow(f"{sloc}: unknown key(s): {', '.join(sorted(unk))}.")
+        for k in ("id", "label", "add_label"):
+            if not _nonblank(s.get(k)):
+                _vthrow(f"{sloc} needs a non-empty string '{k}'.")
+        if s["id"] in seen:
+            _vthrow(f"{loc}: duplicate section id '{s['id']}'.")
+        seen.add(s["id"])
+        if not delegated:
+            own += 1
+            continue
+        if not _nonblank(s.get("category_id")):
+            _vthrow(f"{sloc}.category_id must be a non-empty string.")
+        if s["category_id"].strip() == own_cat:
+            _vthrow(f"{sloc}.category_id may not name the config itself.")
+        if s.get("unit_class") not in (pr.get("unit_classes") or {}):
+            _vthrow(f"{sloc}.unit_class must name one of this config's unit_classes.")
+        fams = s.get("families")
+        if not isinstance(fams, list) or not fams or not all(_nonblank(f) for f in fams) or len(set(fams)) != len(fams):
+            _vthrow(f"{sloc}.families must be a non-empty list of distinct family names.")
+        inc = s.get("include_when")
+        if inc is None and "absent" in s:
+            _vthrow(f"{sloc}.absent is only meaningful with include_when.")
+        if inc is not None:
+            if not isinstance(inc, dict) or set(inc.keys()) != _SECTION_INCLUDE_KEYS:
+                _vthrow(f"{sloc}.include_when needs exactly attr and equals.")
+            d = by_id.get(inc["attr"])
+            if d is None or d.get("type") != "choice" or len(d.get("values") or []) != 2:
+                _vthrow(f"{sloc}.include_when.attr must name a two-value choice item attribute of this config.")
+            if inc["attr"] == spec.get("family_attribute_id") or inc["attr"] in priced:
+                _vthrow(f"{sloc}.include_when.attr '{inc['attr']}' is read by the pricing; the toggle must be its own attribute.")
+            if inc["equals"] not in d["values"]:
+                _vthrow(f"{sloc}.include_when.equals '{inc['equals']}' is not a value of '{inc['attr']}'.")
+            ab = s.get("absent")
+            if not isinstance(ab, dict) or set(ab.keys()) != _SECTION_ABSENT_KEYS:
+                _vthrow(f"{sloc}.absent needs exactly value and line (what the toggle shows when nothing was read).")
+            if ab["value"] not in d["values"] or ab["value"] == inc["equals"]:
+                _vthrow(f"{sloc}.absent.value must be the value of '{inc['attr']}' that does NOT open the section.")
+            if not _nonblank(ab.get("line")):
+                _vthrow(f"{sloc}.absent.line must be a non-empty sentence.")
+        mir = s.get("mirror")
+        if mir is not None:
+            if not isinstance(mir, dict) or set(mir.keys()) != _SECTION_MIRROR_KEYS:
+                _vthrow(f"{sloc}.mirror needs exactly from, to, tag and line.")
+            if mir["from"] not in (pr.get("numbers") or {}):
+                _vthrow(f"{sloc}.mirror.from '{mir['from']}' is not one of this config's number readers.")
+            if not _nonblank(mir.get("to")) or not _nonblank(mir.get("tag")):
+                _vthrow(f"{sloc}.mirror needs a non-empty 'to' and 'tag'.")
+            if not _nonblank(mir.get("line")) or "{chosen}" not in mir["line"] or "{pipe}" not in mir["line"]:
+                _vthrow(f"{sloc}.mirror.line must be a sentence naming {{chosen}} and {{pipe}}.")
+    if own != 1:
+        _vthrow(f"{loc} needs exactly one section without category_id (the config's own items); found {own}.")
+
+
+def _section_unit_spellings(pricing, unit_class):
+    return {_norm_unit_spelling(u) for u in ((pricing.get("unit_classes") or {}).get(unit_class) or [])}
+
+
+def delegated_section_problems(configs, items):
+    """SLICE 12e-3a -- the CROSS-CATEGORY half of `list_spec.sections`, PURE: `configs` is every config the
+    check may resolve a section against, `items` every item it may count (each {kind, unit, attributes}).
+    Returns the list of plain-English problems (empty = fine). A delegated section must name a category that
+    exists, is an item-list config with pricing rules, is not the owner and does not keep its family in the
+    owner's family attribute (an answer's items are told apart by that attribute); every family it offers must
+    be priceable in the section's unit class THERE and stocked there; `mirror.to` must be one of its number
+    readers."""
+    by_cat = {}
+    for c in configs or []:
+        if isinstance(c, dict) and _nonblank(c.get("category_id")):
+            by_cat[(str(c.get("discipline") or "").strip(), c["category_id"].strip())] = c
+    out = []
+    for c in configs or []:
+        spec = c.get("list_spec") if isinstance(c, dict) else None
+        if not isinstance(spec, dict) or not isinstance(spec.get(SECTIONS_KEY), list):
+            continue
+        disc, own_cat = str(c.get("discipline") or "").strip(), str(c.get("category_id") or "").strip()
+        own_pr = spec.get("pricing") or {}
+        for s in spec[SECTIONS_KEY]:
+            if not isinstance(s, dict) or "category_id" not in s:
+                continue
+            where = f"{own_cat}: section '{s.get('id')}'"
+            target = str(s.get("category_id") or "").strip()
+            t = by_cat.get((disc, target))
+            if t is None:
+                out.append(f"{where} names category '{target}', which does not exist in {disc or 'this discipline'}.")
+                continue
+            tspec = t.get("list_spec")
+            tpr = tspec.get("pricing") if isinstance(tspec, dict) else None
+            if t.get("matching_mode") != _LIST_MODE or not isinstance(tpr, dict):
+                out.append(f"{where} names category '{target}', which is not an item-list category with pricing rules.")
+                continue
+            if tspec.get("family_attribute_id") == spec.get("family_attribute_id"):
+                out.append(f"{where}: '{target}' keeps its family in '{tspec.get('family_attribute_id')}', the same attribute "
+                           f"as {own_cat}; the two kinds of item could not be told apart.")
+            # the unit class is read through the OWNER's spellings: the section prices in the owner row's unit
+            want = _section_unit_spellings(own_pr, s.get("unit_class"))
+            t_classes = [k for k in (tpr.get("unit_classes") or {}) if _section_unit_spellings(tpr, k) & want]
+            fam_attr = tspec.get("family_attribute_id")
+            for fam in s.get("families") or []:
+                fd = (tpr.get("families") or {}).get(fam)
+                if not isinstance(fd, dict):
+                    out.append(f"{where} offers '{fam}', which is not a priceable family of '{target}'.")
+                    continue
+                cls = [k for k in t_classes if k in (fd.get("units") or {})]
+                if not cls:
+                    out.append(f"{where} offers '{fam}', which '{target}' does not price per {s.get('unit_class')}.")
+                    continue
+                spell = set().union(*[_section_unit_spellings(tpr, k) for k in cls])
+                stocked = any(
+                    isinstance(it, dict) and it.get("kind") == tpr.get("kind")
+                    and (it.get("attributes") or {}).get(fam_attr) == fam
+                    and _norm_unit_spelling(it.get("unit")) in spell
+                    for it in items or [])
+                if not stocked:
+                    out.append(f"{where} offers '{fam}', which has no active SKU per {s.get('unit_class')} in '{target}'.")
+            mir = s.get("mirror")
+            if isinstance(mir, dict) and mir.get("to") not in (tpr.get("numbers") or {}):
+                out.append(f"{where}: mirror.to '{mir.get('to')}' is not one of the number readers of '{target}'.")
+    return out
+
+
+def _active_section_configs(discipline, exclude_categories=()):
+    """The ACTIVE configs of a discipline, minus the categories the caller is about to replace."""
+    out = []
+    for row in frappe.get_all("BoQ Rate Category Config", filters={"discipline": discipline, "active": 1},
+                              fields=["category_id", "config"]):
+        if (row.category_id or "").strip() in exclude_categories:
+            continue
+        cfg = frappe.parse_json(row.config) if isinstance(row.config, str) else row.config
+        if isinstance(cfg, dict):
+            out.append(cfg)
+    return out
+
+
+def _active_section_items(discipline, kinds):
+    """The ACTIVE items of the given kinds, as {kind, unit, attributes}."""
+    out = []
+    if not kinds:
+        return out
+    for row in frappe.get_all("BoQ Rate Master Item",
+                              filters={"discipline": discipline, "active": 1, "kind": ["in", sorted(kinds)]},
+                              fields=["kind", "unit", "attributes"]):
+        attrs = frappe.parse_json(row.attributes) if isinstance(row.attributes, str) else row.attributes
+        out.append({"kind": row.kind, "unit": row.unit, "attributes": attrs or {}})
+    return out
+
+
+def validate_delegated_sections(configs, items=None, label="config"):
+    """SLICE 12e-3a (owner 2026-10-11: 'Add loader.py to scope'; the config editor's save also runs it) -- THE
+    ONE CALL. `configs` is what is about to be written (a whole asset payload's configs, or the one config the
+    editor saves) and `items` the items written with it (None = none: the editor writes no item). Everything
+    else the check needs -- the discipline's other active configs and their items -- is read from the database,
+    so a section is checked against the catalogue AS IT WILL STAND after the write, and a write that would
+    break ANOTHER config's section (the delegated category losing a family) is refused too. Raises on the
+    first problem, BEFORE the caller writes anything. A discipline in which no config declares a section reads
+    its active configs once and stops there."""
+    configs = [c for c in (configs or []) if isinstance(c, dict)]
+    declares = lambda c: isinstance(c.get("list_spec"), dict) and SECTIONS_KEY in c["list_spec"]
+    kinds_of = lambda cs: {k for c in cs for k in (c.get("item_kinds") or []) if isinstance(k, str)}
+    for disc in sorted({str(c.get("discipline") or "").strip() for c in configs}):
+        mine = [c for c in configs if str(c.get("discipline") or "").strip() == disc]
+        others = _active_section_configs(disc, exclude_categories={str(c.get("category_id") or "").strip() for c in mine})
+        if not any(declares(c) for c in mine + others):
+            continue
+        if items is None:
+            # a config-only write (the editor): the catalogue's items stand, this config's kinds included
+            pool = _active_section_items(disc, kinds_of(mine + others))
+        else:
+            # an import: the kinds it carries are REPLACED by its own items; every other kind stands
+            pool = [it for it in items if isinstance(it, dict)] + _active_section_items(disc, kinds_of(others) - kinds_of(mine))
+        problems = delegated_section_problems(mine + others, pool)
+        if problems:
+            frappe.throw(f"{label}: {problems[0]} Nothing was written.", title="Invalid config")
 
 
 # SLICE 5 -- the keys `list_spec.pricing` may carry. The block is DATA the frontend `itemListPricing` module

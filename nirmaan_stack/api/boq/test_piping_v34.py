@@ -270,7 +270,10 @@ class TestSlice12e1AssetV34(FrappeTestCase):
         self.assertNotEqual(max(ns), 34, "12e-1b: v34 is no longer the newest")
         # 12e-2: INVERTED again under mechanical authority -- v36 (the Piping prices) is the newest; v35 stays on disk
         self.assertNotEqual(max(ns), 35, "12e-2: v35 is no longer the newest")
-        self.assertEqual(max(ns), 36)
+        # 12e-3a: INVERTED again under mechanical authority -- v37 (the Insulation section on Piping) is the newest;
+        # BEFORE: self.assertEqual(max(ns), 36)
+        self.assertNotEqual(max(ns), 36, "12e-3a: v36 is no longer the newest")
+        self.assertEqual(max(ns), 37)
         self.assertTrue(os.path.exists(_asset_path(V35)), "v35 stays on disk as the 12e-1b record")
         self.assertTrue(os.path.exists(_asset_path(V34)), "v34 stays on disk as the 12e-1 record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -683,7 +686,11 @@ class TestSlice12e2AssetV36(FrappeTestCase):
     def test_13_v36_is_the_newest_hvac_asset_on_disk(self):
         d = os.path.dirname(_asset_path(V36))
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
-        self.assertEqual(max(ns), 36)
+        # 12e-3a: INVERTED under mechanical authority -- v37 is the newest; v36 stays on disk as the 12e-2 record.
+        # BEFORE: self.assertEqual(max(ns), 36)
+        self.assertNotEqual(max(ns), 36, "12e-3a: v36 is no longer the newest")
+        self.assertEqual(max(ns), 37)
+        self.assertTrue(os.path.exists(_asset_path(V36)))
         self.assertTrue(os.path.exists(_asset_path(V35)))
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
 
@@ -715,3 +722,320 @@ class TestSlice12e2Live(FrappeTestCase):
         by = {(it["attributes"]["pipe_type"], float(it["attributes"]["size_mm"])): it for it in pip["items"]}
         for fam, size, g, _k, _l in SHEET_G_K_L:
             self.assertEqual(by[(fam, size)]["rates"]["cost_supply"], g)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+# SLICE 12e-3a (owner D1 / D1a / D3 / 13:40 / 13:42, 2026-10-11) -- HVAC v37 = v36 + THE INSULATION SECTION ON PIPING.
+#
+# What these tests protect, in plain English:
+#
+#   TestSlice12e3aSectionsV37 (file-only + the pure checks, no DB write)
+#     14  v37 is v36 plus exactly two additions to the Piping config -- the `insulated` definition (last) and
+#         `list_spec.sections`: every item unchanged and in order, every other config unchanged, every other
+#         top-level key unchanged, the Piping config with the two additions taken out equal to v36's.
+#     15  v37 is the newest HVAC asset on disk.
+#     16  the shipped sections pass the shape check; NEGATIVE: each key in a wrong shape is refused BY NAME.
+#     17  the cross-category check passes on the asset; NEGATIVE: a missing category, a category that is not an
+#         item-list one, a family the delegated category does not have, a family it does not price per metre,
+#         a family with no active SKU, a shared family attribute id and a bad mirror reader are each refused
+#         with a plain sentence. FINDING pinned: "Cladding Only" is NOT refused by this check -- Insulation
+#         stocks it per metre (5 SKUs); it is simply not offered (owner option 1).
+#     18  the model's questions: the Piping ITEMS_SPEC grows by exactly `insulated`; Insulation's ITEMS_SPEC, its
+#         group context and its assembled model call are BYTE-IDENTICAL between v36 and v37 (the il_14 shape);
+#         NEGATIVE: nothing of `sections` reaches any model call.
+#
+#   TestSlice12e3aGates (the LIVE site; every refusal is verified to have written nothing)
+#     19  `load_rate_master` refuses a payload whose section is broken, BEFORE the first write.
+#     20  the config editor's save (`update_rate_config`) refuses the same, and refuses an edit to the
+#         DELEGATED category that would break Piping's section (the reverse direction); the stored config is
+#         unchanged after each.
+# ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+V37 = "rate_master_hvac_all_v37.json"   # 12e-3a: v36 + Piping's `insulated` definition + `list_spec.sections`
+INSULATION = "hvac_insulation"
+SECTION_FAMILIES = ["Nitrile Rubber Insulation", "Tubular Puf Insulation"]
+PIPING_SECTIONS = [
+    {"id": "pipe", "label": "Pipe", "add_label": "Add pipe"},
+    {"id": "insulation", "label": "Insulation", "add_label": "Add insulation",
+     "category_id": INSULATION, "unit_class": "length", "families": SECTION_FAMILIES,
+     "include_when": {"attr": "insulated", "equals": "Yes"},
+     "absent": {"value": "No", "line": "insulation not mentioned -> No"},
+     "mirror": {"from": "size_mm", "to": "pipe_size_mm", "tag": "from pipe", "line": "you chose {chosen} (pipe is {pipe})"}},
+]
+
+
+def _stored(asset):
+    """Every config of an asset AS THE LOADER STORES IT (discipline stamped, goldens merged)."""
+    return [loader._loaded_config(copy.deepcopy(c), asset["discipline"], asset.get("goldens") or {}) for c in asset["category_configs"]]
+
+
+class TestSlice12e3aSectionsV37(FrappeTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.v36, cls.v37 = _read(V36), _read(V37)
+        cls.cfg = next(c for c in cls.v37["category_configs"] if c["category_id"] == CATEGORY)
+        cls.cfg36 = next(c for c in cls.v36["category_configs"] if c["category_id"] == CATEGORY)
+
+    def _section(self, cfg):
+        return cfg["list_spec"]["sections"][1]
+
+    def test_14_v37_is_v36_plus_the_insulated_definition_and_the_sections_and_nothing_else(self):
+        self.assertEqual(self.v37["items"], self.v36["items"], "every item unchanged, in the same order")
+        self.assertEqual([c["category_id"] for c in self.v37["category_configs"]], [c["category_id"] for c in self.v36["category_configs"]])
+        for a, b in zip(self.v37["category_configs"], self.v36["category_configs"]):
+            if a["category_id"] != CATEGORY:
+                self.assertEqual(a, b, "%s is unchanged" % a["category_id"])
+        for k in set(self.v36) | set(self.v37):
+            if k not in ("items", "category_configs"):
+                self.assertEqual(self.v37.get(k), self.v36.get(k), "top-level key %s is unchanged" % k)
+        ls = self.cfg["list_spec"]
+        self.assertEqual([d["id"] for d in ls["attribute_definitions"]], ["pipe_type", "size_mm", "pipe_class", "insulated"])
+        d = ls["attribute_definitions"][-1]
+        self.assertEqual((d["label"], d["type"], d["values"]), ("Insulated", "choice", ["Yes", "No"]))
+        self.assertNotIn("allow_none", d)
+        self.assertEqual(ls["sections"], PIPING_SECTIONS)
+        back = copy.deepcopy(self.cfg)
+        back["list_spec"]["attribute_definitions"] = back["list_spec"]["attribute_definitions"][:-1]
+        del back["list_spec"]["sections"]
+        self.assertEqual(back, self.cfg36, "with the two additions taken out the Piping config IS v36's")
+        # the toggle is its own attribute: nothing the pricing reads names it
+        pr = ls["pricing"]
+        self.assertNotIn("insulated", json.dumps(pr), "the pricing block never names the toggle")
+        # NEGATIVE: Insulation and ADP gained nothing
+        for cid in (INSULATION, "hvac_adp"):
+            c = next(c for c in self.v37["category_configs"] if c["category_id"] == cid)
+            self.assertNotIn("sections", c["list_spec"])
+
+    def test_15_v37_is_the_newest_hvac_asset_on_disk(self):
+        d = os.path.dirname(_asset_path(V37))
+        ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
+        self.assertEqual(max(ns), 37)
+        self.assertTrue(os.path.exists(_asset_path(V36)), "v36 stays on disk as the 12e-2 record")
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
+
+    def test_16_the_shape_check_passes_the_shipped_sections_and_refuses_each_wrong_shape_by_name(self):
+        def refused(mutate, needle):
+            cfg = copy.deepcopy(self.cfg)
+            mutate(cfg["list_spec"])
+            with self.assertRaises(frappe.ValidationError) as cm:
+                config_validation._validate_config(loader._loaded_config(cfg, "HVAC", {}))
+            self.assertIn(needle, str(cm.exception))
+        for c in _stored(self.v37):
+            config_validation._validate_config(c)                      # every shipped config passes
+        sec = lambda ls: ls["sections"][1]
+        refused(lambda ls: ls.update(sections=[]), "must be a non-empty list")
+        refused(lambda ls: ls.update(sections={"pipe": {}}), "must be a non-empty list")
+        refused(lambda ls: ls["sections"].__setitem__(0, "pipe"), "must be an object")
+        refused(lambda ls: ls["sections"].pop(0), "exactly one section without category_id")
+        refused(lambda ls: ls["sections"].append({"id": "more", "label": "More", "add_label": "Add more"}), "exactly one section without category_id")
+        refused(lambda ls: ls["sections"][0].update(families=["Copper"]), "unknown key(s): families")
+        refused(lambda ls: sec(ls).update(extra=1), "unknown key(s): extra")
+        refused(lambda ls: sec(ls).update(id="pipe"), "duplicate section id 'pipe'")
+        refused(lambda ls: sec(ls).update(label=""), "needs a non-empty string 'label'")
+        refused(lambda ls: sec(ls).pop("add_label"), "needs a non-empty string 'add_label'")
+        refused(lambda ls: sec(ls).update(category_id=" "), "category_id must be a non-empty string")
+        refused(lambda ls: sec(ls).update(category_id=CATEGORY), "may not name the config itself")
+        refused(lambda ls: sec(ls).update(unit_class="area"), "unit_class must name one of this config's unit_classes")
+        refused(lambda ls: sec(ls).update(families=[]), "families must be a non-empty list of distinct family names")
+        refused(lambda ls: sec(ls).update(families=["Nitrile Rubber Insulation", "Nitrile Rubber Insulation"]), "distinct family names")
+        refused(lambda ls: sec(ls).update(include_when={"attr": "insulated"}), "include_when needs exactly attr and equals")
+        refused(lambda ls: sec(ls).update(include_when={"attr": "pipe_class", "equals": "Yes"}), "must name a two-value choice item attribute")
+        refused(lambda ls: sec(ls).update(include_when={"attr": "nothing", "equals": "Yes"}), "must name a two-value choice item attribute")
+        refused(lambda ls: sec(ls).update(include_when={"attr": "pipe_type", "equals": "MS"}), "must name a two-value choice item attribute")
+        refused(lambda ls: sec(ls).update(include_when={"attr": "insulated", "equals": "Maybe"}), "is not a value of 'insulated'")
+        refused(lambda ls: sec(ls).pop("absent"), "absent needs exactly value and line")
+        refused(lambda ls: sec(ls).update(absent={"value": "Yes", "line": "x"}), "that does NOT open the section")
+        refused(lambda ls: sec(ls).update(absent={"value": "No", "line": " "}), "absent.line must be a non-empty sentence")
+        refused(lambda ls: sec(ls).pop("include_when"), "absent is only meaningful with include_when")
+        refused(lambda ls: sec(ls).update(mirror={"from": "size_mm", "to": "pipe_size_mm"}), "mirror needs exactly from, to, tag and line")
+        refused(lambda ls: sec(ls)["mirror"].update(**{"from": "pipe_class"}), "is not one of this config's number readers")
+        refused(lambda ls: sec(ls)["mirror"].update(tag=""), "needs a non-empty 'to' and 'tag'")
+        refused(lambda ls: sec(ls)["mirror"].update(line="you chose {chosen}"), "naming {chosen} and {pipe}")
+        refused(lambda ls: ls.pop("pricing"), "needs list_spec.pricing")
+        # the toggle may not be an attribute the pricing reads
+        def priced_toggle(ls):
+            ls["pricing"]["choice_attrs"] = ["insulated"]
+            ls["pricing"]["panel_controls"]["insulated"] = "dropdown"     # (a priced choice must declare its control)
+        refused(priced_toggle, "is read by the pricing; the toggle must be its own attribute")
+        # an own-items-only declaration and a section with neither toggle nor mirror are both legal shapes
+        ok = copy.deepcopy(self.cfg)
+        for k in ("include_when", "absent", "mirror"):
+            ok["list_spec"]["sections"][1].pop(k)
+        config_validation._validate_config(loader._loaded_config(ok, "HVAC", {}))
+        # NEGATIVE: `sections` is known ONLY inside list_spec -- at the top level it is still an unknown key
+        top = copy.deepcopy(self.cfg)
+        top["sections"] = PIPING_SECTIONS
+        with self.assertRaises(frappe.ValidationError) as cm:
+            config_validation._validate_config(loader._loaded_config(top, "HVAC", {}))
+        self.assertIn("Unknown top-level config key(s): sections", str(cm.exception))
+
+    def test_17_the_cross_category_check_passes_the_asset_and_refuses_each_broken_section_in_plain_words(self):
+        problems = config_validation.delegated_section_problems
+        self.assertEqual(problems(_stored(self.v37), self.v37["items"]), [])
+        self.assertEqual(problems(_stored(self.v36), self.v36["items"]), [], "an asset declaring no section has nothing to refuse")
+
+        def broken(mutate, needle, items=None):
+            configs = _stored(self.v37)
+            mutate({c["category_id"]: c for c in configs})
+            out = problems(configs, self.v37["items"] if items is None else items)
+            self.assertEqual(len(out), 1, out)
+            self.assertIn(needle, out[0])
+            self.assertTrue(out[0].startswith("hvac_piping: section 'insulation'"), out[0])
+        sec = lambda by: by[CATEGORY]["list_spec"]["sections"][1]
+        broken(lambda by: sec(by).update(category_id="hvac_lagging"), "names category 'hvac_lagging', which does not exist in HVAC")
+        broken(lambda by: sec(by).update(category_id="hvac_pumps"), "names category 'hvac_pumps', which is not an item-list category with pricing rules")
+        broken(lambda by: sec(by).update(families=["Rockwool"]), "offers 'Rockwool', which is not a priceable family of 'hvac_insulation'")
+        broken(lambda by: sec(by).update(families=["Thermal Nitrile Insulation"]), "offers 'Thermal Nitrile Insulation', which 'hvac_insulation' does not price per length")
+        broken(lambda by: sec(by)["mirror"].update(to="thickness"), "mirror.to 'thickness' is not one of the number readers of 'hvac_insulation'")
+        def same_family_attr(by):
+            by[CATEGORY]["list_spec"]["family_attribute_id"] = "item"
+        broken(same_family_attr, "keeps its family in 'item', the same attribute as hvac_piping")
+        no_puf = [it for it in self.v37["items"] if (it.get("attributes") or {}).get("item") != "Tubular Puf Insulation"]
+        broken(lambda by: None, "offers 'Tubular Puf Insulation', which has no active SKU per length in 'hvac_insulation'", items=no_puf)
+        # the reverse direction: an edit to the DELEGATED category that takes a family away breaks Piping's section
+        def drop_family(by):
+            del by[INSULATION]["list_spec"]["pricing"]["families"]["Tubular Puf Insulation"]
+        broken(drop_family, "offers 'Tubular Puf Insulation', which is not a priceable family of 'hvac_insulation'")
+        # another discipline's category of the same id does not satisfy a section
+        configs = _stored(self.v37)
+        for c in configs:
+            if c["category_id"] == INSULATION:
+                c["discipline"] = "Electrical"
+        self.assertIn("does not exist in HVAC", problems(configs, self.v37["items"])[0])
+        # FINDING (premise check): "Cladding Only" is NOT refused -- Insulation prices it per metre and stocks it
+        # per metre (5 SKUs). It is absent from the section because the owner ruled the two families, not because
+        # any check forbids it.
+        configs = _stored(self.v37)
+        next(c for c in configs if c["category_id"] == CATEGORY)["list_spec"]["sections"][1]["families"] = SECTION_FAMILIES + ["Cladding Only"]
+        self.assertEqual(problems(configs, self.v37["items"]), [])
+        self.assertEqual(len([it for it in self.v37["items"] if it["kind"] == "hvac_insulation_item"
+                              and it["attributes"].get("item") == "Cladding Only" and it["unit"] == "Mts"]), 5)
+
+    def test_18_the_piping_questions_grow_by_insulated_and_insulations_model_call_is_byte_identical(self):
+        before = extraction.build_items_spec(self.cfg36)
+        after = extraction.build_items_spec(self.cfg)
+        self.assertEqual([d["id"] for d in before["attribute_definitions"]], ["pipe_type", "size_mm", "pipe_class"])
+        self.assertEqual([d["id"] for d in after["attribute_definitions"]], ["pipe_type", "size_mm", "pipe_class", "insulated"])
+        self.assertEqual(after["attribute_definitions"][:3], before["attribute_definitions"], "the three existing questions are unchanged")
+        q = after["attribute_definitions"][3]
+        self.assertEqual({k: q[k] for k in ("id", "label", "type", "values")}, {"id": "insulated", "label": "Insulated", "type": "choice", "values": ["Yes", "No"]})
+        self.assertEqual({k: v for k, v in after.items() if k != "attribute_definitions"}, {k: v for k, v in before.items() if k != "attribute_definitions"})
+        cfgs = lambda a: {("HVAC", c["category_id"]): dict(c, discipline="HVAC") for c in a["category_configs"]}
+        c36, c37 = cfgs(self.v36), cfgs(self.v37)
+        row = {"excel_row": 21, "description": "19 mm thick nitrile rubber insulation for 28 mm dia refrigerant pipe",
+               "sheet_name": "S", "ancestors": [{"node_type": "Preamble", "description": "INSULATION"}],
+               "own_notes_raw": [], "attached_notes": "", "append_notes_raw": []}
+        payload = [extraction._ai_item(row)]
+        def content(g):
+            return extraction.batch_prompt_content(g["prompt"], g["defs"], payload, synonyms=g["synonyms"], defaults=g["defaults"],
+                                                   none_guidance=g["none_guidance"], slot_spec=g["slot_spec"],
+                                                   resolution_rules=g["resolution_rules"], rules=g["rules"],
+                                                   items_spec=g.get("items_spec"))
+        for cid in (INSULATION, "hvac_adp"):
+            self.assertEqual(extraction.build_items_spec(c37[("HVAC", cid)]), extraction.build_items_spec(c36[("HVAC", cid)]))
+            g36, g37 = extraction._group_context(c36, "HVAC", cid), extraction._group_context(c37, "HVAC", cid)
+            self.assertEqual(g37, g36, "%s: the group context is identical" % cid)
+            self.assertTrue(g37.get("items_spec"), "a context with no ITEMS_SPEC would be a vacuous match")
+            self.assertEqual(content(g37), content(g36), "%s: the assembled model call is byte-identical" % cid)
+        # Piping's own call differs by the one definition and by nothing of the section
+        p36, p37 = content(extraction._group_context(c36, "HVAC", CATEGORY)), content(extraction._group_context(c37, "HVAC", CATEGORY))
+        self.assertNotEqual(p37, p36)
+        self.assertIn('"insulated"', p37)
+        self.assertNotIn('"insulated"', p36)
+        for word in ("sections", "include_when", "add_label", "from pipe", "hvac_insulation", "Nitrile Rubber Insulation"):
+            self.assertNotIn(word, p37, "nothing of the section declaration reaches the model: %s" % word)
+
+
+class TestSlice12e3aGates(FrappeTestCase):
+    """The LIVE site. Every case is a REFUSAL; each is verified to have written nothing (the active HVAC batch, the
+    item and config counts and the stored Piping / Insulation configs are read before and after)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.v37 = _read(V37)
+
+    def _state(self):
+        items = frappe.get_all("BoQ Rate Master Item", filters={"discipline": "HVAC", "active": 1}, fields=["import_batch"])
+        cfgs = frappe.get_all("BoQ Rate Category Config", filters={"discipline": "HVAC", "active": 1},
+                              fields=["name", "category_id", "config", "modified"], order_by="category_id asc")
+        return (len(items), sorted({i.import_batch for i in items}), [(c.name, c.category_id, c.modified, c.config) for c in cfgs],
+                frappe.db.count("BoQ Rate Master Item", {"discipline": "HVAC"}), frappe.db.count("BoQ Rate Category Config", {"discipline": "HVAC"}))
+
+    def _payload(self, mutate):
+        p = copy.deepcopy(self.v37)
+        mutate(next(c for c in p["category_configs"] if c["category_id"] == CATEGORY)["list_spec"]["sections"][1], p)
+        return p
+
+    def test_19_the_import_refuses_a_broken_section_before_the_first_write(self):
+        cases = [
+            (lambda s, p: s.update(category_id="hvac_lagging"), "names category 'hvac_lagging', which does not exist in HVAC"),
+            (lambda s, p: s.update(category_id="hvac_pumps"), "which is not an item-list category with pricing rules"),
+            (lambda s, p: s.update(families=["Thermal Nitrile Insulation"]), "does not price per length"),
+            (lambda s, p: s["mirror"].update(to="thickness"), "is not one of the number readers of 'hvac_insulation'"),
+            (lambda s, p: p.update(items=[it for it in p["items"] if (it.get("attributes") or {}).get("item") != "Tubular Puf Insulation"]),
+             "has no active SKU per length"),
+            (lambda s, p: s.update(include_when={"attr": "insulated", "equals": "Maybe"}), "is not a value of 'insulated'"),   # the shape half
+        ]
+        from unittest import mock
+        before = self._state()
+        # SAFETY: a load COMMITS on success. Should a refusal ever fail to fire, the commit itself raises here and
+        # the rollback below undoes the load -- a failing negative test must never leave a broken catalogue live.
+        with mock.patch.object(frappe.db, "commit", side_effect=AssertionError("a refused import must never reach a commit")):
+            try:
+                for mutate, needle in cases:
+                    with self.assertRaises(frappe.ValidationError) as cm:
+                        loader.load_rate_master(payload=self._payload(mutate), replace=True)
+                    self.assertIn(needle, str(cm.exception))
+                    self.assertEqual(self._state(), before, "refused BEFORE the first write: %s" % needle)
+                msg = None
+                try:
+                    loader.load_rate_master(payload=self._payload(cases[0][0]), replace=True)
+                except frappe.ValidationError as e:
+                    msg = str(e)
+                self.assertIn("Rate master import refused", msg)
+                self.assertIn("Nothing was written", msg)
+            finally:
+                frappe.db.rollback()
+        self.assertEqual(self._state(), before)
+
+    def test_20_the_editor_save_refuses_a_broken_section_in_both_directions_and_stores_nothing(self):
+        frappe.set_user("Administrator")
+        name = lambda cid: frappe.db.get_value("BoQ Rate Category Config", {"discipline": "HVAC", "category_id": cid, "active": 1}, "name")
+        live = lambda cid: frappe.parse_json(frappe.db.get_value("BoQ Rate Category Config", name(cid), "config"))
+        piping, insulation = live(CATEGORY), live(INSULATION)
+        self.assertIn("sections", piping["list_spec"], "load v37 first")
+        from unittest import mock
+        before = self._state()
+        commit_guard = mock.patch.object(frappe.db, "commit", side_effect=AssertionError("a refused save must never reach a commit"))
+        commit_guard.start()
+        self.addCleanup(commit_guard.stop)
+        try:
+            # the shipped configs pass the same call the save makes -- nothing is saved here
+            config_validation.validate_delegated_sections([copy.deepcopy(piping)], label="Config not saved")
+            config_validation.validate_delegated_sections([copy.deepcopy(insulation)], label="Config not saved")
+            def refused(cid, cfg, needle):
+                with self.assertRaises(frappe.ValidationError) as cm:
+                    rate_master.update_rate_config(name=name(cid), config=json.dumps(cfg))
+                self.assertIn(needle, str(cm.exception))
+                self.assertIn("Config not saved", str(cm.exception))
+                self.assertEqual(self._state(), before, "nothing stored: %s" % needle)
+            bad = copy.deepcopy(piping); bad["list_spec"]["sections"][1]["category_id"] = "hvac_lagging"
+            refused(CATEGORY, bad, "names category 'hvac_lagging', which does not exist in HVAC")
+            bad = copy.deepcopy(piping); bad["list_spec"]["sections"][1]["category_id"] = "hvac_pumps"
+            refused(CATEGORY, bad, "which is not an item-list category with pricing rules")
+            bad = copy.deepcopy(piping); bad["list_spec"]["sections"][1]["families"] = ["Thermal Nitrile Insulation"]
+            refused(CATEGORY, bad, "does not price per length")
+            bad = copy.deepcopy(piping); bad["list_spec"]["sections"][1]["mirror"]["to"] = "thickness"
+            refused(CATEGORY, bad, "is not one of the number readers of 'hvac_insulation'")
+            # the reverse direction, through the pure half of the same call: an Insulation config that no longer
+            # prices a family Piping's section offers is refused on ITS save
+            gone = copy.deepcopy(insulation)
+            del gone["list_spec"]["pricing"]["families"]["Tubular Puf Insulation"]
+            with self.assertRaises(frappe.ValidationError) as cm:
+                config_validation.validate_delegated_sections([gone], label="Config not saved")
+            self.assertIn("hvac_piping: section 'insulation' offers 'Tubular Puf Insulation', which is not a priceable family", str(cm.exception))
+            self.assertEqual(self._state(), before)
+        finally:
+            frappe.db.rollback()
+        self.assertEqual(self._state(), before)

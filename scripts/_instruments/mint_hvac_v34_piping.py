@@ -433,6 +433,83 @@ def price_items(workbook, base, out):
     frappe.destroy()
 
 
+# ---------------------------------------------------------------------------------------------------------
+# SLICE 12e-3a (owner D1 / D1a / D3 / 13:40 / 13:42, 2026-10-11) -- PHASE `sections`: HVAC v37 = v36 + THE
+# INSULATION SECTION ON PIPING. Two additions to the Piping config's `list_spec`, nothing else:
+#   (a) one per-item definition, `insulated` (Yes / No) -- "an attribute per pipe which says insulation yes /
+#       no. model can select the correct option as per its reading which the user can change also";
+#   (b) `list_spec.sections`: the config's own items ("Pipe") and one section that DELEGATES to the Insulation
+#       category -- priced through Insulation's own config, catalogue and Pricing Inputs, no copy of any rule;
+#       the two families the owner ruled ("Nitrile Rubber + Tubular PUF only"), the `include_when` toggle, the
+#       value shown when nothing was read, and the pipe-size mirror.
+# NO item is minted or touched and no other config changes, so the candidate is the base file with that one
+# config edited IN PLACE -- item order, config order and every other byte carried (asserted: re-dumping the
+# unedited base reproduces its bytes). Offline validation: the config validator AND the cross-category check
+# over the candidate's own configs and items. NO database write; `load` then runs as before.
+# ---------------------------------------------------------------------------------------------------------
+INSULATION_CATEGORY_ID = "hvac_insulation"
+SECTION_FAMILIES = ["Nitrile Rubber Insulation", "Tubular Puf Insulation"]     # owner option 1; Cladding Only not offered
+INSULATED_DEFINITION = {
+    "id": "insulated", "label": "Insulated", "type": "choice", "values": ["Yes", "No"],
+    "note": "Whether THIS pipe is insulated: Yes where the row or its headings state insulation for the pipe, No where "
+            "they state none. (The model instruction is written in 12e-4.)",
+}
+PIPING_SECTIONS = [
+    {"id": "pipe", "label": "Pipe", "add_label": "Add pipe"},
+    {"id": "insulation", "label": "Insulation", "add_label": "Add insulation",
+     "category_id": INSULATION_CATEGORY_ID, "unit_class": "length", "families": SECTION_FAMILIES,
+     "include_when": {"attr": "insulated", "equals": "Yes"},
+     "absent": {"value": "No", "line": "insulation not mentioned -> No"},
+     "mirror": {"from": "size_mm", "to": "pipe_size_mm", "tag": "from pipe", "line": "you chose {chosen} (pipe is {pipe})"}},
+]
+
+
+def piping_sections_config(base_config):
+    """The v37 Piping config: v36's + the `insulated` definition (last) + `list_spec.sections`. Everything else verbatim."""
+    cfg = copy.deepcopy(base_config)
+    spec = cfg["list_spec"]
+    assert [d["id"] for d in spec["attribute_definitions"]] == ["pipe_type", "size_mm", "pipe_class"], spec["attribute_definitions"]
+    assert "sections" not in spec
+    spec["attribute_definitions"] = spec["attribute_definitions"] + [copy.deepcopy(INSULATED_DEFINITION)]
+    # `sections` sits between the definitions and `second_opinion` / `pricing`, where a reader meets it first
+    cfg["list_spec"] = {k: v for k, v in list(spec.items())[:2]}
+    cfg["list_spec"]["sections"] = copy.deepcopy(PIPING_SECTIONS)
+    for k, v in list(spec.items())[2:]:
+        cfg["list_spec"][k] = v
+    # `notes` is NOT extended: v37 is v36 plus exactly those two additions (AC2); the record is this docstring
+    return cfg
+
+
+def add_sections(base, out):
+    """12e-3a `sections`: v37 = base (v36) + the two additions to the Piping config. NO database write."""
+    import frappe
+    os.chdir("/workspace/development/frappe-bench/sites")
+    frappe.init(site="localhost"); frappe.connect()
+    from nirmaan_stack.services.boq_rate_master import config_validation, extraction
+    raw = open(base, encoding="utf-8", newline="").read()
+    payload = json.loads(raw)
+    dump = lambda p: json.dumps(p, indent=1, ensure_ascii=False)
+    if dump(payload) != raw.rstrip("\n"):
+        raise SystemExit("re-dumping the unedited base does not reproduce its bytes -- the file convention moved; stop")
+    idx = next(i for i, c in enumerate(payload["category_configs"]) if c["category_id"] == CATEGORY_ID)
+    before = payload["category_configs"][idx]
+    config = piping_sections_config(before)
+    payload["category_configs"][idx] = config
+    stored = [dict(c, discipline=payload["discipline"]) for c in payload["category_configs"]]
+    for c in stored:
+        config_validation._validate_config(c)
+    problems = config_validation.delegated_section_problems(stored, payload["items"])
+    if problems:
+        raise SystemExit("12e-3a: the cross-category check refuses the candidate: %r" % problems)
+    q_before = [d["id"] for d in extraction.build_items_spec(before)["attribute_definitions"]]
+    q_after = [d["id"] for d in extraction.build_items_spec(config)["attribute_definitions"]]
+    assert q_after == q_before + ["insulated"], (q_before, q_after)
+    open(out, "w", encoding="utf-8", newline="").write(dump(payload) + raw[len(raw.rstrip("\n")):])
+    print("candidate written:", out, "| items", len(payload["items"]), "| configs", len(payload["category_configs"]),
+          "| Piping questions", q_before, "->", q_after, "| sections", [s["id"] for s in config["list_spec"]["sections"]])
+    frappe.destroy()
+
+
 def load(candidate, canonical):
     import frappe
     os.chdir("/workspace/development/frappe-bench/sites")
@@ -455,7 +532,7 @@ def load(candidate, canonical):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("phase", choices=["build", "name", "price", "load"])
+    ap.add_argument("phase", choices=["build", "name", "price", "sections", "load"])
     ap.add_argument("--workbook"); ap.add_argument("--base"); ap.add_argument("--out")
     ap.add_argument("--candidate"); ap.add_argument("--canonical")
     a = ap.parse_args()
@@ -465,5 +542,7 @@ if __name__ == "__main__":
         name_items(a.workbook, a.base, a.out)
     elif a.phase == "price":
         price_items(a.workbook, a.base, a.out)   # 12e-2
+    elif a.phase == "sections":
+        add_sections(a.base, a.out)              # 12e-3a
     else:
         load(a.candidate, a.canonical)

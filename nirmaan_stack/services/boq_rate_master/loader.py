@@ -436,6 +436,12 @@ def _load_multi(payload, replace):
         # below uses). Every config is validated BEFORE the first write; a refusal names the
         # category and the key and leaves the catalog untouched.
         _validate_loaded_config(_loaded_config(c, discipline, goldens_by_cat), label)
+    # SLICE 12e-3a (owner 2026-10-11): a section that DELEGATES to another category is checked against the
+    # catalogue as it will stand after this load -- the payload's configs and items, plus whatever stays
+    # active outside its scope -- BEFORE the first write.
+    config_validation.validate_delegated_sections(
+        [_loaded_config(c, discipline, goldens_by_cat) for c in configs], payload.get("items"),
+        label="Rate master import refused")
 
     # EA-1b: retired scope -- kinds / category_ids dropped from THIS payload that must be superseded on
     # a replace (else they stay orphan-active from a prior batch, e.g. ups after the Floor BOX fix).

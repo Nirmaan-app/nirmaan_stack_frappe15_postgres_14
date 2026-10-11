@@ -1750,6 +1750,7 @@ from nirmaan_stack.services.boq_rate_master.config_validation import (  # noqa: 
     _validate_config,
     _validate_params,
     _vthrow,
+    validate_delegated_sections,
 )
 
 
@@ -1784,6 +1785,8 @@ def update_rate_config(name=None, config=None):
         )
 
     _validate_config(cfg)  # raises a named ValidationError on any problem -- NO write on raise
+    # SLICE 12e-3a: the cross-category half of `list_spec.sections`, against the catalogue as it will stand
+    validate_delegated_sections([cfg], label="Config not saved")
 
     doc.config = json.dumps(cfg)
     doc.save(ignore_permissions=True, ignore_version=False)  # AUDITED (track_changes -> Version diff)

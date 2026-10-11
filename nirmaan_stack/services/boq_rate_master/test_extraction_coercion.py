@@ -2326,7 +2326,12 @@ class TestItemListSlice4(FrappeTestCase):
         self.assertEqual(eligible, ["hvac_adp", "hvac_insulation", "hvac_piping"])
         pip = self.cfgs[("HVAC", "hvac_piping")]
         self.assertEqual(pip.get("pipelines"), {})                        # the Insulation shape: no dead top-level entry
-        self.assertEqual([d["id"] for d in extraction.build_items_spec(pip)["attribute_definitions"]], ["pipe_type", "size_mm", "pipe_class"])
+        # INVERTED by SLICE 12e-3a under mechanical authority (owner Q2, 2026-10-11: the model is asked "Insulated"
+        # from v37): the Piping question list grows by exactly that one definition, last.
+        # BEFORE: ... == ["pipe_type", "size_mm", "pipe_class"]
+        pip_questions = [d["id"] for d in extraction.build_items_spec(pip)["attribute_definitions"]]
+        self.assertNotEqual(pip_questions, ["pipe_type", "size_mm", "pipe_class"])
+        self.assertEqual(pip_questions, ["pipe_type", "size_mm", "pipe_class", "insulated"])
         # NEGATIVE HALF KEPT: every category that is none of those three still yields None
         for key in self.cfgs:
             if key not in (("HVAC", "hvac_adp"), ("HVAC", "hvac_insulation"), ("HVAC", "hvac_piping")):
@@ -3503,7 +3508,8 @@ class TestSlice12d4cModelCall(FrappeTestCase):
             cls.v32 = json.load(fh)
         with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
             cls.v33 = json.load(fh)
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v36.json"   # 12e-1; 12e-1b: v35 (+ item_name); 12e-2: v36 (the Piping prices)
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v36.json"   # 12e-3a: moved again (BEFORE: == v36)
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v37.json"   # 12e-3a: v37 (+ the Insulation section on Piping)
 
     _cfgs = staticmethod(TestSlice12d1bModelCall._cfgs)
     _row = staticmethod(TestSlice12d1bModelCall._row)
