@@ -45933,3 +45933,68 @@ its own changes; this slice adds no `JSON.parse` / `updateDoc`.
 **What 12e-3 / 12e-4 inherit.** The seven findings above; the Suggest-rates run now extracts Piping rows through the generic
 item-list prompt (12e-4 writes the model instructions before any run); the three cert images not saved by the tool (C2, C4 GI,
 C4 uPVC) have on-screen text reads only.
+
+
+## Slice S1b — THE GUIDED CLAUDE PROMPT (v2) AND THE EXAMPLES LIBRARY, IN THE APP (2026-10-12, dev2) — SHIPPED
+
+Branch `feature/boq-jev-integration`, built and certified in the dev2 environment only. Decision record: ADR-0005 Amendment A.
+Invariants: `boq-backend.md` § Parser, review tree and commit (the "guided prompt" bullet) and its Residence table.
+
+**What it is.** The Claude review pass ("Run AI pass") now sends the prompt that F1 and S1a-2 measured on 119 committed
+sheets: the six row-type definitions reworded (`meanings_v4`), a `has_qty` yes / no on every row, and a GUIDANCE block after
+the rows with, per row, up to 5 already-committed rows from other BoQs as examples and the candidate parents of shortlist
+rule v4. Nothing about how a suggestion is applied, rejected, reverted or saved changed.
+
+**Built.** Commit `feb8d7335` (feat, boq-ai), 7 files:
+- `services/boq_ai_assist.py` — the v2 template (9,276 characters; byte-equal to F1's construction applied to the previous
+  7,054-character template), `PROMPT_VERSION = "v2"`, `_row_has_qty`, `has_qty` as the 7th wire key, `_render_chunk_prompt`
+  (the one definition of the rendered prompt), the GUIDANCE block, `run_ai_pass(..., guidance=None)`.
+- `services/boq_ai_guidance.py` (new) — the examples library (build from committed data, save, load, look-up with
+  exclusions), shortlist rule v4, `build_guidance` (the worker's one entry point).
+- `api/boq/wizard/ai_assist.py` — four places: `qty_total` + `qty_by_area` in `_AI_FETCH_FIELDS`; the prompt version in
+  `_ai_cache_key`; the Claude job limit 600 -> 1200 s; the worker building the guidance and passing it on.
+- Tests: `services/test_boq_ai_assist.py` (32 -> 47), `services/test_boq_ai_guidance.py` (new, 43),
+  `api/boq/wizard/test_ai_assist.py` (50 -> 60), and the fixture `services/boq_ai_fixtures/guided_prompt_cctv.json`.
+
+**Owner rulings that shaped it.** No scheduled job — the library is rebuilt on demand only, under one lock, with a 3-minute
+wait for a rebuild already in progress (R7). The fixture pins the RENDERER on the wire rows exactly as F1 sent them. The
+capture of the real call was taken with a cert-only launcher around the dev2 worker; no product code records a prompt.
+
+**Order of work (pin first, reword second).** The four `TestGuidedPromptPins` were written and run against the old template
+first: 36 tests, the 4 new ones red, the 32 existing ones green. Then the template changed. The 7 `TestPromptParentingPins`,
+the note-under-note negative pin and the Gemini cross-engine pin were never edited and stayed green.
+
+**Proofs.** The fixture renders BOQ-26-00244 / CCTV (25 wire rows + frozen aids) to sha256
+`799d00a146294326bf4cd5fc447a3861d493c9ffdd654f68e2f04b08fdfe3423`, 43,699 characters. Fifteen mechanisms were each disabled
+in turn and each turned its tests red (has_qty on the wire; the GUIDANCE block; only-two-lists; the cache-key version; the
+1200 s limit; the worker hand-over; the quantity fetch fields; exclusion at look-up; the rebuild lock; the 24 h rule; the
+fallback; the savepoint; parser values for the shortlist; only-four-roles in the build; the fallback line's log level).
+
+**Library, measured in dev2.** 133,477 rows from 298 BoQs (899 sheets with rows): line_item 56,787, spacer 34,273, note
+23,319, preamble 16,371, subtotal_marker 2,604, header_repeat 123. Build 70.2 s; file 182.6 MB; load 2.4 s; peak memory
+587 MiB. 16 TestProject BoQs (5,918 rows) are in the file and excluded at look-up. No test-suite-created BoQ is in it.
+
+**End-to-end (the one paid call).** A real click on BOQ-26-00059 / FPS (39 rows): one call, 28,363 input tokens, 1,494
+output, 15.6 s; the job took 42.1 s; 15 Pending suggestions. The captured request starts with the product's v2 template,
+has 39 seven-key rows and a GUIDANCE block of 195 examples (5 per row); recomputing the guidance from the same library
+reproduces the captured block exactly. A p90 sheet (BOQ-26-00171 / Electrical, 408 rows) takes 35.5 s for library load plus
+look-up and would make 4 calls of about 230,000 input tokens in total (not sent).
+
+**Findings carried forward.**
+1. The `boq_ai` logger writes ERROR and above only (Frappe's default outside the dev server), so its info lines — the
+   existing "pass tokens" line and S1b's guidance timing line — are never written. S1b's "pass continues WITHOUT examples"
+   line was moved to ERROR for that reason; the info lines were left as they are.
+2. The first Claude run after the library goes stale pays about 70 s for the rebuild, and each job holds about 590 MiB.
+3. `services/boq_ai_guidance.py` is 568 lines, over the ~500-line guideline; it was kept as the one module the slice scoped.
+4. Carried to S3, not built here: "Check parent" still shows on auto-changed rows; the banner percentage excludes blank rows.
+
+### Tests (measured in-session, dev2)
+
+Before = a fresh full run at the start commit `482c1e375`: **8,044 tests**, FAILED failures 7 + errors 6 = 13 knowns (the 12
+of 12e-0c plus the daily-window flake, which fires between 00:00 and 05:30 IST). Targeted before the commit:
+`services.test_boq_ai_assist` 47, `services.test_boq_ai_guidance` 43, `services.test_boq_gemini_assist` 16,
+`api.boq.wizard.test_ai_assist` 60, `api.boq.wizard.test_gemini_assist` 36, `api.boq.wizard.test_review_screen` 275 — all
+green. Full suite after the last code commit (Desktop `2026-10-11_S1b_python_full.log`): **8,112 tests** (8,044 + 68 new),
+FAILED failures 7 + errors 6 = the same 13 tests by name. No frontend file changed, so no vitest / tsc run.
+`residence_check`: backend rules holding; F5 120 vs 117 and F2 221 vs 217, the figures 12e-1 measured — this slice adds no
+`JSON.parse` / `updateDoc`.

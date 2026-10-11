@@ -53,6 +53,30 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
   fetching it) is gone: **the invariant is enforced by `services/test_boq_gemini_assist.TestWirePayloadPin`,
   which freezes the 11-key payload contract -- a wording change must never make it red.** `chunk_rows`
   with ABSENT `section_flags` degrades to ceiling-only cuts, never back to the score rule.
+- **The Claude review pass sends the GUIDED prompt, version `v2` (S1b, ADR-0005 Amendment A, owner-locked):**
+  - **Wire row = exactly 7 keys, in this order:** `excel_row`, `classification`, `parent_excel_row`, `sl_no`,
+    `description`, `unit`, `has_qty`. **`has_qty` is a yes / no only** (from `qty_total` / `qty_by_area` non-zero);
+    no quantity, rate or amount value ever reaches the model. Pinned by `services/test_boq_ai_assist.TestClaudeWirePin`
+    (positive and negative) and, on real review rows through the worker's own fetch, by
+    `test_ai_assist.test_worker_fetch_builds_the_seven_wire_keys_from_review_rows`.
+  - **The template is still EMBEDDED VERBATIM.** Its six row-type definitions and the has_qty / GUIDANCE paragraph are
+    pinned by `TestGuidedPromptPins`; the whole rendered prompt is pinned byte-for-byte on BOQ-26-00244 / CCTV by
+    `TestGuidedPromptFixture`. **Pin first, reword second, and bump `boq_ai_assist.PROMPT_VERSION`** — the result
+    cache is keyed on it (`boq_ai_pass::<version>::<boq>::<sheet>::<last_parsed_at>`), so a result from an older
+    prompt is never served.
+  - **A GUIDANCE block follows the rows on EVERY call** (`_render_chunk_prompt` is the one definition of the rendered
+    prompt): per row, `similar_reviewed_rows` (at most 5) and `candidate_parents`, and nothing else — a stray key in
+    the guidance is dropped. The shortlist reads the **PARSER's** row type and parent, never the human / AI layer.
+  - **The examples library (`services/boq_ai_guidance.py`) is REBUILT ON DEMAND ONLY — there is NO scheduled job**
+    (owner: *"i dsont want any unnecssary jobs in production"*). A Claude run that finds the file missing or older than
+    24 h rebuilds it first, under ONE lock; a run that meets a rebuild in progress waits up to 3 minutes. It is one
+    file under the site's private folder, **never a Frappe File record** (so it never reaches the cloud bucket). It
+    reads the committed grid's sl_no / description / unit / qty columns only.
+  - **Exclusions are applied at LOOK-UP, not at build:** the checked BoQ and its revision family (`BOQs.source_boq`,
+    read live) and TestProject BoQs. Near-copy tenders under another BoQ number stay in (owner ruling).
+  - **A library failure never fails the pass:** it runs with candidate parents and no examples, and says so at
+    **ERROR** level — the `boq_ai` logger writes ERROR and above only, so a warning there is silently dropped.
+  - **Only Claude's job limit is 1200 s.** Gemini's and the parse job's stay 600 (pinned).
 - **Committed `attached_notes` is DERIVED, not carried (EA-6a slice 2, owner-locked):** at commit,
   `commit_pipeline._derive_attached_notes` rebuilds every node's `attached_notes` from the EFFECTIVE
   tree (effective parent + effective classification, row_index order -- order is load-bearing,
@@ -110,6 +134,8 @@ This manifest names the **one owning module** for each BoQ backend concept (per 
 | **"Is this the same row?" across committed versions/BoQs** | `api/boq/wizard/committed_carry.py` (`committed_excel_row_match` / `version_addressed_excel_row_match`) | write a per-layer row matcher — that is a second answer to one question |
 | **Single-editor pricing lock** | `api/boq/wizard/pricing_lock.py` (`acquire_or_refresh`) | invent a second lock. A lock reject must mutate NOTHING |
 | **The joined `description` + `description_parts_raw` shape** | `services/boq_parser/classifier.py` (`_description_columns` / `_description_parts`) — owner-locked | re-join description columns anywhere else, or assume a single description column |
+| **The rendered Claude review prompt** (template + rows + GUIDANCE) and its version | `services/boq_ai_assist.py` (`_render_chunk_prompt`, `PROMPT_VERSION`) | build the prompt text anywhere else, or change it without bumping the version the result cache is keyed on |
+| **The examples library and the candidate-parent shortlist** (build, file, on-demand rebuild, look-up exclusions) | `services/boq_ai_guidance.py` (`build_guidance` is the worker's one entry point) — reads `frappe.db` by design, so it is **not** a `PURE_MODULES` entry | read the library file directly, rebuild it from a scheduler, or apply the family / TestProject exclusions anywhere but the look-up |
 | **Committed-tier amount / parent-rate recomputation** | **NONE, deliberately** — the committed controllers are CAPTURE-ONLY; the future tendering module owns calculations | re-add `amount = qty x rate` or a parent-rate overwrite to a committed controller |
 
 ---
