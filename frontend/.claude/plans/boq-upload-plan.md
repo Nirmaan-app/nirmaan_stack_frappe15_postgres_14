@@ -46419,3 +46419,132 @@ in the page returned "You typed 6 Nm -> priced as 8 Nm (next size up)" and "1 of
 6. The grammar line is in `RateHelperPanel.tsx`, which the prompt scoped "D1b only"; changed there because AC8 names it.
 7. 12e-3a findings 1 (an independent section's mirrored-only size blanks when its pipe is removed) and 3 ("Cladding Only"
    passes the cross-category check) stand.
+
+---
+
+## Slice 12e-3c — Piping cleanup: one quantity per pipe + insulation, defaults show their value, plain wording, the single-config load check (no asset, no config) — as built 2026-10-12
+
+**Commits (unpushed at the time of writing):** `f73125d93` feat(rate-helper) — the five frontend findings and their tests;
+`8e009656f` fix(rate-master) — the single-config load check and its Python tests; the docs commit that carries this entry.
+Start tip `cdb613aab` (= origin). **HVAC stays v37, Electrical v66: no asset, config, item or Pricing Input was written.**
+
+**Owner rulings (2026-10-12).** F4 "ok", F7 "fix", F9 "fix", F10 "its should be one only" / "for insulation under pipe
+keep the box and link it to pipe but the user can change it if they want", F11 "fix", F12 "fix" (all quoted in the
+prompt). Three more, asked in the run: **"Show 9"** (where the ladder cannot run, the thickness box shows the ruled
+default before the ladder); **"The pipe's"** (a count the model read on an insulation item under a pipe does not break
+the quantity link); **"Leave for the retrofit"** (HVAC Raceway rows, priced by Electrical's tray engine, keep
+Electrical's lines).
+
+### Each finding: cause, fix
+
+| Finding | Cause | Fix | Where |
+|---|---|---|---|
+| F10 two unlinked "How many" boxes | the section pass handed the delegated category only the section's own stored quantity | an ATTACHED section whose edit holds no `qty` is handed the quantity its item's box shows; its block carries `qtyMirrorTag` (the section's `mirror.tag`) and is not amber; a typed section quantity stays; a section belonging to no item is untouched | `pricingSheetHelper.ts` `priceSection`; `RateHelperPanel.tsx` (the tag) |
+| F4 "could not tell cladding" in the calculator | the pure pricer has one sentence for a choice it has no answer to | at the view boundary, in the calculator only, "could not tell <field>" is reworded "pick a <field>", built from the config's choice fields and labels. Sentence as shipped: **"pick a cladding"** (lower case, no full stop, after "Not priced —", like its neighbour "no pipe size stated") | `pricingSheetHelper.ts` `computeItemListOwn` (`say`, `pickSentences`); `RowContextWithUnit.noRow` tells a delegated call it is the calculator |
+| F7 "thickness_mm not mentioned -> 9" | the pricer writes a default's line with the attribute id | the category's field labels go to the plain-English step, which writes an id spelled with an underscore as its label ("thickness not mentioned -> 9 (...)") | `plainEnglish.ts` (`labelAsWord`, the `fieldLabels` argument) |
+| F11 amber tag beside "- select -" | a ruled default the dropdown does not stock had nothing to display when no ladder hop resolved it | the field shows the ruled value in its "Other..." box (`otherMode` + `typedValue`), or, on a plain dropdown, lists it in `options`; `value` unchanged | `pricingSheetHelper.ts` (the field's return) |
+| F12 "Insulated: No" plain in the calculator | 12e-3a ruled a pricer-added pipe starts plain | the default is amber where nobody picked: a model-read pipe (as before) or the calculator; a pipe added on a BoQ row stays plain | `pricingSheetHelper.ts` (`assumed`) |
+| F9 single-config load skips the cross-category check | only `_load_multi` and `update_rate_config` called it | the single-config path makes the same call with the same arguments before its first write | `loader.py` (one call) |
+
+**Paths the prompt named that differ:** `plainEnglish.ts` is in `frontend/src/pages/pricing/rate-master/`, not
+`rate-helper/`. `config_validation.py` and `PricingCalculator.tsx` were not changed.
+
+### AC evidence
+
+- **AC0.** `slice12e3c.test.ts` AC0 (9 tests): the owner's walk (pipe 2 -> section 2 "from pipe"; pipe 3 -> 3; type 1 ->
+  tag gone; pipe 4 -> section stays 1; total = MS 32 at 4, 2,400 / 700, + the insulation at 1), every figure equal to
+  the pure pricer's; the same on the BoQ-row path; an independent section keeps its own amber 1.
+- **AC1.** "pick a cladding" in a Piping section and on Calculator -> Insulation; a model-read row and an item the pricer
+  adds on a BoQ row keep "could not tell cladding". Sweep over every kind of Insulation, ADP and Piping in every
+  unit its picker offers: the only "pick" sentence is cladding's and no "could not tell" is left. **Other "could not
+  tell" sentences a calculator user can reach: none** — every other HVAC choice field has a default that fires on a
+  blank ("absent as none"); cladding's default does not.
+- **AC2.** Sweep results: (1) every stored row, 13,365, every on-screen string (303,265 Electrical, 2,756 HVAC):
+  item-list HVAC categories (ADP, Insulation, Piping) **0 hits**; HVAC Raceway 12 rows / 168 hits and Electrical
+  5,833 rows / 54,672 hits, all in the matched-row lines of the row-level engine ("pi_tray_supply_supply_markup:
+  tray_supply = 0.45") — left for the Electrical retrofit by ruling, nothing changed; (2) every case of
+  `ruleReachability.test.ts` (Insulation, ADP, Piping): 0 hits, as a permanent test; (3) every kind x unit, calculator
+  and BoQ row, nothing filled and every default firing: 0 hits. An id with no underscore ("item not mentioned -> ...")
+  cannot be told from a word and is left.
+- **AC3.** Who takes the single-config path today: no shipping asset (HVAC v37 and Electrical v66 are multi-config);
+  the retired `rate_master_wiring_cabling_v3.json`; tests. Its own shape gate refuses a config with no top-level
+  pipeline, so of the 23 shipping configs only ADP and twelve Electrical categories could pass it, and none declares a
+  section. Corpus check (test_23): the check accepts all 23, one at a time and as whole assets. test_22 proves the
+  call through `load_rate_master(payload={"category_config": ...})`: broken section refused with the check's message,
+  nothing written; a good config loads; a good delegated section is accepted.
+- **AC4.** MS 100 + Nitrile + 26G, thickness blank: the box shows 9 in "Other..." beside "thickness not mentioned -> 9
+  mm, then the ladder"; the row still refuses on the pipe size. Pipe 50: the box shows the laddered 13, 556 / 224 /
+  780. Found by the sweep and fixed the same way: "Cladding Only" per sq.m on a BoQ row, cladding not mentioned -> No,
+  a plain dropdown that does not stock "No" — the value is now listed. Sweep: no amber tag beside an empty control.
+- **AC5.** Calculator: "No", amber, "insulation not mentioned -> No"; the pricer's own No / Yes carries no tag; BoQ rows
+  unchanged.
+- **AC6.** Piping 18 -> **19** lines (line 18: "The insulation section's quantity is its pipe's until the pricer types
+  their own"); Insulation 24; ADP 18. `ruleReachability` names it with S5a (positive), S5b / S5c (negative).
+- **AC7.** 13,365 stored rows replayed at `cdb613aab` and after: **0 rows differ; the output is byte-identical**
+  (sha256 `52b3407a...f027a`). No figure, status, note, tag or option list moved. No stored row holds a defaulted
+  field the dropdown cannot show, and none shows "thickness_mm". Capture log 821 before and after.
+- **AC8.** `calculatorPanelParity.test.ts` "12e-3c parity": four cases, named and counted (Q1 quantity link, W1 the
+  "pick" sentence — the one named wording difference, D1 the shown default, T1 the Insulated default). The Insulation
+  sweep now names 8 wording-only differences; `insulation12d2Sample.e2e.test.ts` lists row 292's two.
+- **AC9.** End state in the report: content checksums and capture log equal to the start.
+
+### Pins inverted (each keeps its before in the file)
+
+`slice12d8.test.ts` (the default line's id); `slice12e3a.test.ts` (the calculator's plain "No"; the section's own
+amber quantity); `slice12e3b.test.ts` (Piping's 18 lines); `ruleReachability.test.ts` (I11b, I11b-calc, the count);
+`calculatorPanelParity.test.ts` (the Insulation sweep's "not one divergence"); `insulation12d2Sample.e2e.test.ts`
+(the accepted list, 14 -> 16). No price assertion changed.
+
+### Tests
+
+- New `slice12e3c.test.ts` 34 tests; parity +9; `ruleReachability` +4 (222); Python `test_piping_v34` +2 (27).
+- Vacuity: 16 frontend mechanisms, each red when disabled; the loader call disabled -> test_22 red; all restored
+  byte-identical.
+- Full suites after the last code commit: frontend 169 files / 6,483, 1 failed, the known `writeOffControl` timeout (before: 168 files / 6,436, 1 known); Python
+  8,054 tests, failures=8 errors=6: the 12 knowns by name plus two Snag PDF tests that fail only while bench is down (both pass by name with bench up) (before: 8,051 + 1); `tsc` 3,170, identical by file and message (before 3,170).
+
+### Browser cert
+
+De-stale in full: 20 processes stopped by PID (none left after TERM), ports 8000 / 8080 / 9000 free, pycache 211 -> 0,
+`.vite` removed, bench ping after 208 s, vite after 41 s. PROOF 1: the served transformed modules carry `qtyMirrorTag`,
+`pickSentences`, `defaultInBox`, `function labelAsWord`, `item-qty-mirror-tag`, "until the pricer types their own", and
+the freshly imported loader's single-config path carries the check. PROOF 2: a runtime import in the page returned
+"thickness not mentioned -> 9" from `plainPricerText`. Every figure seen equals the pure pricer's for the same inputs.
+
+- **C1** MS 32, quantity 2, Insulated Yes, Nitrile, 26G, 13: section box **2 "from pipe"** (816 / 448); pipe 3 -> section 3
+  (1,224 / 672); 1 typed in the section -> tag gone (408 / 224); pipe 4 -> section stays 1; pipe 2,400 / 700; row total
+  **2,808 / 924 / 3,732**.
+- **C2** "+ Add insulation" (Tubular Puf): its own box, 1, amber "default", no tag; the pipe's quantity changed and it
+  stayed 1.
+- **C3** MS Other 100, Yes, Nitrile, 26G, thickness blank: the box shows **"Other..." 9** with the "default" tag beside
+  "thickness not mentioned -> 9 mm, then the ladder"; the section refuses "pipe size 100 is above the largest size on the
+  sheet (53.98)"; pipe 2,256 / 560.
+- **C4** Insulation, Nitrile, 26G, Other 50, thickness blank: the box shows 13 with the "default" tag; **556 / 224 / 780**.
+- **C5** cladding left blank: **"Not priced — pick a cladding"** in the Piping section and on Calculator -> Insulation.
+- **C6** MS 32: Insulated "No" with the amber "default" tag and "insulation not mentioned -> No"; picking No by hand
+  removes the tag; 600 / 175 both times.
+- **C7** the working line reads "thickness not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)".
+- **C8** Rate Master -> HVAC -> Derivation: Piping 19 (line 18 the quantity rule), Insulation 24, ADP 18.
+- **C9** no screen: `test_22_the_single_config_load_runs_the_cross_category_check`, OK before and after the vacuity
+  break (red in between).
+- **C10** ADP fire damper, UL yes, 600 x 600 per number: **7,830 / 692** (the prompt's "800 x 600" gives 10,440 / 922;
+  7,830 / 692 is 12e-3b's 600 x 600 case). Stored Electrical row BOQ-26-00174, sheet "Electrical", row 309 (600 x 50 mm
+  tray), opened on its BoQ: **1,504 / 380 / 1,884**, equal to its before. "Use this value" not pressed.
+- **C11** HVAC 379 / 10 == v37, Electrical 1,402 / 13 == v66, 0 differing, content checksums equal to the start.
+
+### Findings (reported, not repaired)
+
+1. On the single-config path with `replace=True` the load itself deactivates every item of the discipline; the check
+   is called with the same arguments as the multi path and does not model that.
+2. The Insulation default thickness's note reads "BoQ says 9 mm -> priced as 13 mm" in the calculator, where no BoQ
+   said anything.
+3. The cladding field is not outlined red when the section refuses for it (the refusal names no field word the
+   outline test recognises).
+4. HVAC Raceway and HVAC Cables rows show Electrical's matched-row lines with internal names; left for the retrofit.
+5. The stored-row replay records figures, status and refusal for every row but the working text only for item-list
+   rows; Electrical's text was checked by the separate AC2 sweep and by no row-level code changing.
+6. "item not mentioned -> Nitrile Rubber Insulation ..." still names the attribute `item` (no underscore).
+7. The capture log grew 821 -> 932 lines: every new line was written by the Python tests' own fixtures (stub models;
+   `test_rate_suggest` rows with no usage); none during the cert. The prompt's "equal at the end" cannot hold in a
+   slice that runs Python tests.
+8. The two Snag PDF tests need the bench web server (wkhtmltopdf fetches from it); the full suite ran with bench down.

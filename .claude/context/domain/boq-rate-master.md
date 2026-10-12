@@ -942,6 +942,36 @@ fields show them amber exactly as the same kind shows them on a row priced in it
 fire damper (Variant, UL listed), slot diffuser (Damper), mixing box (Insulated). No figure and no refusal sentence
 changes.
 
+**AN ATTACHED SECTION'S QUANTITY IS ITS ITEM'S UNTIL THE PRICER TYPES THEIR OWN (owner F10, 2026-10-12; slice
+12e-3c).** Owner: *"its should be one only"*; *"for insulation under pipe keep the box and link it to pipe but the user
+can change it if they want"*. A section that sits under an item (opened by that item's toggle) is handed the quantity
+the item's own box shows -- typed, model-read or the assumed 1 -- as its own, and its block carries `qtyMirrorTag` (the
+section's `mirror.tag`, "from pipe") with `qtyDefaulted` false. It follows the item until the section's stored edit
+holds a `qty`; from then on that value stays, whatever the item does. A count the MODEL read on the section's own item
+does not break the link (owner: "The pipe's"). A section that belongs to no item keeps its own box (1, amber). The
+quantity enters the delegated category exactly as a quantity typed in its own box, so each line is still rounded by
+its own rules. No config key: the rule rides on the section being ATTACHED (`include_when`), and the Derivation tab
+says it from that.
+
+**A FIELD MARKED "default" ALWAYS SHOWS ITS VALUE (owner F11, 2026-10-12: "Something marked as defaulted should also
+show its value"; slice 12e-3c).** A ruled default that the ladder turns into a stocked size is shown as that size.
+Where the ladder cannot run (the row refused earlier, e.g. on its pipe size) the value is still the ruled one, and
+the field shows it: in its "Other..." box where the field allows one (thickness 9 -- owner: "Show 9"), or listed in a
+plain dropdown's options where the catalogue does not stock it ("Cladding Only" per sq.m, cladding not mentioned ->
+No). `value` is unchanged in both cases -- only what the control can display moves -- so nothing that prices or
+matches reads a different thing. Never an amber tag beside "- select -".
+
+**IN THE CALCULATOR AN UNFILLED CHOICE READS "pick a <field>", AND A FIELD ID NEVER REACHES A LINE (owner F4 / F7,
+2026-10-12; slice 12e-3c).** The pure pricer says "could not tell <field>" for a choice it has no answer to; on a BoQ
+row the model read, that is the right sentence and stays. In the calculator -- no row supplies the unit, or the
+section pass sets `noRow` on the context it hands a delegated category -- the same refusal is reworded at the view
+boundary to "pick a cladding", built from the config's choice fields and their labels (no field is named in code).
+The same boundary function (`say`, in `computeItemListOwn`) hands the category's own field labels to
+`plainPricerText`, which writes a field id spelled with an underscore as its label ("thickness not mentioned -> 9",
+never "thickness_mm ..."). An id with no underscore cannot be told from a word and is left ("item not mentioned ->
+..."). ⚠️ Item-list categories only: HVAC Raceway and HVAC Cables are priced by Electrical's row-level engine and keep
+its lines until the Electrical retrofit (owner 2026-10-12: "Leave for the retrofit").
+
 **THE SECTION DECLARATION IS CHECKED IN TWO HALVES, AND THE CROSS-CATEGORY HALF RUNS AT EVERY WRITE (12e-3a, owner
 2026-10-11: "Add loader.py to scope"; the config editor's save also runs it).** `_validate_list_sections` (inside
 `_validate_config`, so import AND editor) checks the shape: closed key lists, exactly one own section, a two-value
@@ -950,7 +980,9 @@ config's number readers. `validate_delegated_sections(configs, items)` checks wh
 category exists in the discipline, is an item-list config with pricing rules, is not the owner and does not keep its
 family in the owner's family attribute; every family offered is priceable in the section's unit class THERE and has
 an active SKU there; `mirror.to` is one of ITS number readers. It is called ONCE by `loader._load_multi` over the
-payload's configs and items BEFORE the first write, and by `update_rate_config` before `doc.save`; both read whatever
+payload's configs and items BEFORE the first write, by the single-config load path (`load_rate_master` with a
+singular `category_config`; owner F9 "fix", 12e-3c) with the same arguments, and by `update_rate_config` before
+`doc.save` -- EVERY config load path runs it; both read whatever
 stays active outside the write from the database, so a write is checked against the catalogue AS IT WILL STAND and an
 edit to the DELEGATED category that would break another config's section is refused on its own save. The pure half is
 `delegated_section_problems`. ⚠️ The check does not decide WHICH families a section should offer: "Cladding Only" is

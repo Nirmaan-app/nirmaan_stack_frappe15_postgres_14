@@ -462,6 +462,13 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
   `pricingSheetHelper.needPersonSentence(bad, lines)` ("1 of 1 item needs", "1 of 2 items need"); the panel calls it and
   builds no sentence of its own. Every line the panel shows has passed `plainPricerText`, so it carries no rule tag
   and reads "Nm".
+- **A section's quantity box, a default's value and the calculator's "pick" sentence all come from the view (12e-3c,
+  owner F10 / F11 / F4; full text in root `.claude/context/domain/boq-rate-master.md` § Load-bearing invariants).** A
+  block whose `qtyMirrorTag` is set draws that tag beside "How many in one ..." (`data-testid="item-qty-mirror-tag"`):
+  the quantity is the item's the section sits under, and typing in the box makes it the section's own. A defaulted
+  field the dropdown does not stock arrives with `otherMode` true and the ruled value in `typedValue`, or with the
+  value appended to `options`; the panel draws what it is given and decides nothing. "pick a cladding" is the
+  helper's rewording of the pricer's "could not tell cladding" in the calculator only.
 - **A two-way field always offers both values; a ladder pick ladders; an unstocked pair refuses by name (12e-2b,
   owner 2026-10-10; full text in root `.claude/context/domain/boq-rate-master.md` § Load-bearing invariants, beside
   S1).** Owner: *"for attributes whose options are yes/no, with/without type both values must be shown in the
