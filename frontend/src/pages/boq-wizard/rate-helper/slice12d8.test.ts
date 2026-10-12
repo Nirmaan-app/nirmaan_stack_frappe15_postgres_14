@@ -167,7 +167,10 @@ describe("SLICE 12d-8 / R1 -- a value the system clears stays blank and the row 
   it("NEGATIVE: a thickness NEVER given still takes the 9 mm default on the calculator (the default is for what nobody gave)", () => {
     const { r, block } = calculator("hvac_insulation", NR, { cladding: "26G Aluminium", pipe_size_mm: "50" }, "mts", ["pipe_size_mm"]);
     expect(block.state).toBe("priced");
-    expect(block.working).toContain("thickness_mm not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)");
+    // INVERTED at 12e-3c (owner F7 "fix": no field id on a pricer's line). BEFORE:
+    //   expect(block.working).toContain("thickness_mm not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)");
+    expect(block.working).toContain("thickness not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)");
+    expect(block.working.join("\n")).not.toContain("thickness_mm");
     expect(r.values).toEqual({ supply_rate: 556, install_rate: 224, combined_rate: 780 });
   });
 

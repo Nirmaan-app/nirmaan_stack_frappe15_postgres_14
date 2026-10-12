@@ -1509,6 +1509,15 @@ function ItemListBlocks({
                 tag every other assumed value carries. Nothing reads a quantity from the row. */}
             <span className="flex items-center gap-1 text-muted-foreground">
               How many in one {view.unit} of this row
+              {/* SLICE 12e-3c (owner F10): the quantity is the item's this section sits under, until typed here */}
+              {b.qtyMirrorTag && (
+                <span
+                  className="rounded bg-sky-100 px-1 text-[9px] font-medium leading-none text-sky-800 dark:bg-sky-900 dark:text-sky-200"
+                  data-testid="item-qty-mirror-tag"
+                >
+                  {b.qtyMirrorTag}
+                </span>
+              )}
               {b.qtyDefaulted && (
                 <span
                   className="rounded bg-amber-100 px-1 text-[9px] font-medium leading-none text-amber-800 dark:bg-amber-900 dark:text-amber-200"

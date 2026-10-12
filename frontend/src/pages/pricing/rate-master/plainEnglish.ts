@@ -130,6 +130,19 @@ export function mirroredLead(line: string, tag: string): string {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/**
+ * SLICE 12e-3c (owner F7 "fix"; block 38) -- A FIELD'S LABEL AS A WORD IN A SENTENCE. "Thickness (mm)" reads
+ * "thickness": the trailing unit bracket is dropped and a Title-cased first letter is lowered; an acronym keeps
+ * its case ("UL listed"). The same reading the Derivation tab gives a label.
+ */
+export function labelAsWord(label: string): string {
+  const bare = String(label ?? "").replace(/\s*\(.*\)\s*$/, "").trim();
+  return /^[A-Z][a-z]/.test(bare) ? bare.charAt(0).toLowerCase() + bare.slice(1) : bare;
+}
+
+/** A field id written with an underscore (`thickness_mm`) -- the only kind that can be told from a word. */
+const isSnakeId = (id: string) => /^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+$/.test(id);
+
 /** A code token: `R14`, `D9b`, `T1`, `S6`, `Q8`, or `slice 11`. */
 const CODE_TOKEN = String.raw`(?:(?:R|D|T|S|Q)-?\d+[a-z]?|slice \d+)`;
 /** A run of code tokens joined by " / ": `R5 / R14 / slice 11`. */
@@ -142,9 +155,13 @@ const CODE_RUN = String.raw`${CODE_TOKEN}(?:\s*\/\s*${CODE_TOKEN})*`;
  *   - the trailing `(R15)` / `(owner ...)` tags are dropped (`plainSentence`);
  *   - a code run at the START of a sentence or clause (`R14 / slice 11 VCD = ...`, `(R14 / S6 UL not
  *     mentioned ...`) is dropped, and a code after a comma inside a bracket (`(next size up, R6)`) too.
+ * SLICE 12e-3c (owner F7): `fieldLabels` is the category's own field ids and labels (its config's attribute
+ * definitions). A field id written with an underscore that appears as a word in the line -- "thickness_mm not
+ * mentioned -> 9" -- is written as its field's label ("thickness not mentioned -> 9"). The label comes from
+ * the config, never from a word list here; an id with no underscore cannot be told from a word and is left.
  * Idempotent: a line already in plain English comes back byte-identical, its indentation included.
  */
-export function plainPricerText(text: unknown, items: ReadonlyArray<PlainEnglishItem> = []): string {
+export function plainPricerText(text: unknown, items: ReadonlyArray<PlainEnglishItem> = [], fieldLabels: Readonly<Record<string, string>> = {}): string {
   const raw = String(text ?? "");
   if (!raw) return raw;
   // a working line's INDENTATION is layout (a layer's steps sit under their layer line): kept byte-for-byte
@@ -153,6 +170,12 @@ export function plainPricerText(text: unknown, items: ReadonlyArray<PlainEnglish
   s = s.replace(/^([A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+):/, (_m, id: string) => `${id.replace(/_/g, " ")}:`);
   for (const id of pricingInputIds(items)) {
     s = s.replace(new RegExp(String.raw`\b${escapeRe(id)}\b`, "g"), pricingInputLabel(id, items));
+  }
+  // SLICE 12e-3c (F7): a field id reads as its field's label -- longest id first, so `insulation_thickness_mm`
+  // is replaced before `thickness_mm`
+  for (const id of Object.keys(fieldLabels).filter(isSnakeId).sort((a, b) => b.length - a.length)) {
+    const word = labelAsWord(fieldLabels[id]);
+    if (word !== "") s = s.replace(new RegExp(String.raw`(?<![A-Za-z0-9_])${escapeRe(id)}(?![A-Za-z0-9_])`, "g"), word);
   }
   // a Pricing Input the items do not carry (no items loaded yet): its id written as plain words, never bare
   s = s.replace(/pricing input: ([A-Za-z0-9]+(?:_[A-Za-z0-9]+)+)/g, (_m, id: string) => `pricing input: ${id.replace(/_/g, " ")}`);

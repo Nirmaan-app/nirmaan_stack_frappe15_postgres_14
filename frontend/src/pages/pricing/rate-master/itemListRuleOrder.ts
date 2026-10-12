@@ -357,6 +357,13 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
            sec.mirror.line ? `a size chosen in the section is kept and says so: '${String(sec.mirror.line).replace("{chosen}", "<chosen>").replace("{pipe}", `<${ownWord}>`)}'` : "",
            `a section that belongs to no ${ownWord} takes the first ${ownWord}'s`].filter(Boolean).join("; "));
     }
+    // SLICE 12e-3c (owner F10, U6): a section that sits under an item takes that item's quantity
+    if (inc?.attr) {
+      add(`The ${low} section's quantity is its ${ownWord}'s until the pricer types their own`,
+          [`shown '${String(sec.mirror?.tag ?? `from ${ownWord}`)}' and following the ${ownWord}'s box`,
+           `a quantity typed in the section is kept`,
+           `a section that belongs to no ${ownWord} keeps its own, 1 unless typed`].join("; "));
+    }
   }
   if (delegated.length) {
     add(`The row total adds every ${ownWord} and every section`,

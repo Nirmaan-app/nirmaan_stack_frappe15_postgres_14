@@ -36,7 +36,7 @@ import type { RateCategoryConfig, RateMasterItem } from "./rate-master/rateMaste
 import { mergeItemsByName } from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
 import { itemListPricingSpec } from "@/pages/boq-wizard/rate-helper/itemListPricing";
 import { isSuggestion } from "@/pages/boq-wizard/rate-helper/rateHelperTypes";
-import { ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, type ItemListSuggestion } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
+import { ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, applyItemEdit, type ItemBlockView, type ItemListEditState, type ItemListSuggestion, type ItemListView } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
 import {
   AWAITING_CORPUS_DIVERGENCES,
   AWAITING_SWEEP_DIVERGENCES,
@@ -482,17 +482,31 @@ describe("HVAC Insulation -- every family x unit class x ladder path", () => {
   const cfg = configs.get("hvac_insulation")!;
   const cases = itemListCasesForCategory(cfg, items);
 
-  it("24 cases over all 6 families, and not one divergence", () => {
+  // INVERTED at 12e-3c (owner F4: "In the calculator it should say 'pick a cladding'" - "ok"; a model-read BoQ row keeps
+  // "could not tell cladding"). BEFORE: "24 cases over all 6 families, and not one divergence" -- `bad` empty with no
+  // exception. The two surfaces now WORD one refusal differently by ruling; it is the ONE named difference, counted,
+  // and it is wording only: a divergence is forgiven only if it becomes EQUAL once the panel's sentence is read as the
+  // calculator's. Any figure, status or other sentence that differs still fails here.
+  it("24 cases over all 6 families: not one divergence except the calculator's own sentence for an unfilled cladding (8 cases, wording only) -- 12e-3c F4", () => {
     expect(cases).toHaveLength(24);
     expect(new Set(cases.map((c) => c.items?.[0]?.item as string)).size).toBe(6);
     const bad: string[] = [];
+    const worded: string[] = [];
     for (const c of cases) {
       const r = runParity(configs, items, c, "full");
-      if (r.divergences.length) {
-        bad.push(`${c.unit} ${JSON.stringify(c.items)}: ` + r.divergences.map((d) => `${d.what} P[${d.panel}] C[${d.calculator}]`).join(" | "));
-      }
+      if (!r.divergences.length) continue;
+      const onlyWording = r.divergences.every((d) => ["item row reason", "item blocks"].includes(d.what)
+        && d.panel.includes("could not tell cladding") && d.panel.split("could not tell cladding").join("pick a cladding") === d.calculator);
+      if (onlyWording) { worded.push(`${c.unit} ${JSON.stringify(c.items)}`); continue; }
+      bad.push(`${c.unit} ${JSON.stringify(c.items)}: ` + r.divergences.map((d) => `${d.what} P[${d.panel}] C[${d.calculator}]`).join(" | "));
     }
     expect(bad).toEqual([]);
+    expect(worded).toHaveLength(8);
+    // every one of the eight is a row with NO cladding answered -- never a row that priced
+    for (const c of cases) {
+      const r = runParity(configs, items, c, "full");
+      if (r.divergences.length) { expect(hasPrice(r.panel)).toBe(false); expect(hasPrice(r.calculator)).toBe(false); }
+    }
     expect(AWAITING_SWEEP_DIVERGENCES.filter((d) => d.cat === "hvac_insulation")).toEqual([]);
   }, 60000);
 
@@ -879,5 +893,111 @@ describe("SLICE 12d-8 / T2 -- one parity case per Derivation-tab rule, on the li
 
   it("the exclusions are exactly the seven named ones", () => {
     expect(CASES.filter((r) => r.expect !== "agree").map((r) => r.id)).toEqual(["I6", "I8", "I13", "I14", "I15", "A4", "A5"]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 12e-3c (AC8; standing block 39: each rule keeps one permanent parity case) -- ONE CASE PER NEW BEHAVIOUR,
+// each through BOTH surfaces on the v37 asset: the BoQ row (a stored model answer, the row's own unit) and the
+// calculator (the same answers entered by hand). A Piping row's sections are not part of the generated feed (it
+// carries a block's fields, not the sections under it), so each case states both entries explicitly.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("12e-3c parity -- the quantity link, the calculator's 'pick' sentence, the shown default, the Insulated default (v37)", () => {
+  const v37 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v37.json", import.meta.url),
+  );
+  const cfg37 = new Map<string, RateCategoryConfig>(v37.category_configs.map((c) => [c.category_id, c]));
+  const items37: RateMasterItem[] = v37.items.map((it) => ({ ...it, discipline: v37.discipline } as RateMasterItem));
+  const PIP = "hvac_piping", NITRILE = "Nitrile Rubber Insulation", SEC = "insulation";
+
+  /** One case: the model's answer + what the pricer then does on the row, and the same thing entered on the calculator. */
+  interface Case12e3c {
+    id: string;
+    rule: "AC0 quantity link" | "AC1 pick a cladding" | "AC4 a default shows its value" | "AC5 Insulated default";
+    row: Array<Record<string, string>>;
+    rowEdit?: (state: ItemListEditState) => ItemListEditState;
+    calculator: ItemListEditState;
+  }
+  const CASES_12E3C: Case12e3c[] = [
+    { id: "Q1", rule: "AC0 quantity link",
+      row: [{ pipe_type: "MS", size_mm: "32" }, { item: NITRILE, cladding: "26G Aluminium", thickness_mm: "13" }],
+      rowEdit: (st) => applyItemEdit(st, { op: "set_qty", index: 0, qty: "2" }),
+      calculator: { items: [{ base: null, family: "MS", attrs: { size_mm: "32", insulated: "Yes" }, other: ["size_mm"], qty: "2",
+                              sections: { [SEC]: { base: null, family: NITRILE, attrs: { cladding: "26G Aluminium", thickness_mm: "13" } } } }] } },
+    { id: "W1", rule: "AC1 pick a cladding",
+      row: [{ pipe_type: "MS", size_mm: "32" }, { item: NITRILE, thickness_mm: "13" }],
+      calculator: { items: [{ base: null, family: "MS", attrs: { size_mm: "32", insulated: "Yes" }, other: ["size_mm"],
+                              sections: { [SEC]: { base: null, family: NITRILE, attrs: { thickness_mm: "13" } } } }] } },
+    { id: "D1", rule: "AC4 a default shows its value",
+      row: [{ pipe_type: "MS", size_mm: "100" }, { item: NITRILE, cladding: "26G Aluminium" }],
+      calculator: { items: [{ base: null, family: "MS", attrs: { size_mm: "100", insulated: "Yes" }, other: ["size_mm"],
+                              sections: { [SEC]: { base: null, family: NITRILE, attrs: { cladding: "26G Aluminium" } } } }] } },
+    { id: "T1", rule: "AC5 Insulated default",
+      row: [{ pipe_type: "MS", size_mm: "32" }],
+      calculator: { items: [{ base: null, family: "MS", attrs: { size_mm: "32" }, other: ["size_mm"] }] } },
+  ];
+  const list = (r: unknown): { s: ItemListSuggestion; v: ItemListView } => {
+    if (!isSuggestion(r as never)) throw new Error("expected a suggestion");
+    return { s: r as ItemListSuggestion, v: (r as ItemListSuggestion).itemList! };
+  };
+  function both(c: Case12e3c) {
+    const pc: ParityCase = { cat: PIP, unit: "mts", desc: "", attrs: {}, items: c.row };
+    const ph = panelHelper(cfg37, items37, pc);
+    let row = list(ph.compute(panelCtx(pc)));
+    if (c.rowEdit) row = list(ph.compute(panelCtx(pc), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(c.rowEdit(row.v.editState)) }));
+    const calc = list(calculatorHelper(cfg37, items37).compute(calculatorCtx("HVAC", PIP),
+      { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(c.calculator), [ROW_UNIT_OVERRIDE_KEY]: "mts" }));
+    return { row, calc };
+  }
+  const sec = (v: ItemListView): ItemBlockView | undefined => v.items[0].sections?.[0]?.view.items[0];
+  const fieldOf = (b: ItemBlockView | undefined, id: string) => b?.fields.find((f) => f.id === id);
+  /** What both surfaces must agree on, read off the view each one drew. */
+  const facts = (x: { s: ItemListSuggestion; v: ItemListView }) => {
+    const b = sec(x.v);
+    const t = fieldOf(b, "thickness_mm"), ins = fieldOf(x.v.items[0], "insulated");
+    return {
+      values: x.s.values, rowPriced: x.v.rowPriced, pipe: [x.v.items[0].figures, x.v.items[0].qty],
+      section: b ? { state: b.state, figures: b.figures, qty: b.qty, qtyTag: b.qtyMirrorTag ?? null, qtyAmber: b.qtyDefaulted } : null,
+      thickness: t ? { defaulted: t.defaulted, rule: t.rule ?? null, box: t.otherMode ? t.typedValue : t.value } : null,
+      insulated: ins ? { value: ins.value } : null,
+    };
+  };
+
+  it("exactly one case per new behaviour -- four, named", () => {
+    expect(CASES_12E3C.map((c) => `${c.id} ${c.rule}`)).toEqual(["Q1 AC0 quantity link", "W1 AC1 pick a cladding", "D1 AC4 a default shows its value", "T1 AC5 Insulated default"]);
+  });
+  it.each(CASES_12E3C.map((c) => [c.id, c] as const))("%s: the BoQ row and the calculator agree on every figure, quantity, tag and shown value", (_, c) => {
+    const { row, calc } = both(c);
+    expect(facts(row)).toEqual(facts(calc));
+  });
+  it("Q1 (AC0): both show the section's quantity 2 tagged 'from pipe', and price pipe and insulation at 2", () => {
+    const { row, calc } = both(CASES_12E3C[0]);
+    for (const x of [row, calc]) {
+      expect({ qty: sec(x.v)!.qty, tag: sec(x.v)!.qtyMirrorTag, amber: sec(x.v)!.qtyDefaulted }).toEqual({ qty: "2", tag: "from pipe", amber: false });
+      expect(x.v.rowPriced).toBe(true);
+      expect(x.v.items[0].figures).toMatchObject({ supply_rate: 1200, install_rate: 350 });     // MS 32 at 2: 2 x 600 / 175
+    }
+  });
+  it("W1 (AC1): the ONE named wording difference -- the row says 'could not tell cladding', the calculator 'pick a cladding'; nothing else differs", () => {
+    const { row, calc } = both(CASES_12E3C[1]);
+    expect(sec(row.v)!.reason).toBe("could not tell cladding");
+    expect(sec(calc.v)!.reason).toBe("pick a cladding");
+    expect(row.v.reason!.split("could not tell cladding").join("pick a cladding")).toBe(calc.v.reason);
+  });
+  it("D1 (AC4): both show the ruled 9 in the thickness box beside its amber line, and both refuse on pipe size 100", () => {
+    const { row, calc } = both(CASES_12E3C[2]);
+    for (const x of [row, calc]) {
+      const t = fieldOf(sec(x.v), "thickness_mm")!;
+      expect({ defaulted: t.defaulted, box: t.typedValue, other: t.otherMode, rule: t.rule }).toEqual({ defaulted: true, box: "9", other: true, rule: "thickness not mentioned -> 9 mm, then the ladder" });
+      expect(sec(x.v)!.reason).toBe("pipe size 100 is above the largest size on the sheet (53.98)");
+    }
+  });
+  it("T1 (AC5): both show Insulated 'No' amber with its line -- the row because the model read no insulation, the calculator because nobody picked", () => {
+    const { row, calc } = both(CASES_12E3C[3]);
+    for (const x of [row, calc]) {
+      const f = fieldOf(x.v.items[0], "insulated")!;
+      expect({ value: f.value, defaulted: f.defaulted, rule: f.rule }).toEqual({ value: "No", defaulted: true, rule: "insulation not mentioned -> No" });
+      expect(x.s.values).toEqual({ supply_rate: 600, install_rate: 175, combined_rate: 775 });
+    }
   });
 });

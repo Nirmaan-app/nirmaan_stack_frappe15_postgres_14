@@ -496,10 +496,13 @@ describe("12e-3b AC5 -- a per-number row still waiting for its size shows the ki
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 describe("12e-3b AC6 -- the Derivation tab lists the insulation section's lines on Piping, generated from the v37 config", () => {
   const lines = (cfg: RateCategoryConfig) => itemListRuleOrder(cfg, ITEMS);
-  it("the four lines, word for word, after the 14 Piping had", () => {
+  // INVERTED at 12e-3c (owner F10 / U6: the quantity rule has its own line, 18). BEFORE: `toHaveLength(18)` and
+  // `all.slice(14)` equal to the four lines below with the row total numbered 18. The four lines' words are unchanged.
+  it("the four lines, word for word, after the 14 Piping had (12e-3c: a fifth, the quantity line, sits before the total, which is now line 19)", () => {
     const all = lines(CFG[PIP]);
-    expect(all).toHaveLength(18);
-    expect(all.slice(14)).toEqual([
+    expect(all).toHaveLength(19);
+    expect(all[17].title).toBe("The insulation section's quantity is its pipe's until the pricer types their own");
+    expect([...all.slice(14, 17), { ...all[18], n: 18 }]).toEqual([
       { n: 15, title: "Each pipe says whether it has insulation: Insulated Yes opens the insulation section under that pipe",
         detail: "insulation not mentioned -> No, shown as assumed on a BoQ row; any other answer removes only that section; 'Add insulation' adds a section that belongs to no pipe; in the calculator a section opens with nothing picked" },
       { n: 16, title: "The insulation section is priced by Insulation's rules",

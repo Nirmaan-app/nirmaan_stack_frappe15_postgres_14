@@ -126,6 +126,8 @@ const T = {
   secRules: "The insulation section is priced by Insulation's rules",
   secMirror: "The insulation section takes the pipe size its pipe priced as",
   secTotal: "The row total adds every pipe and every section",
+  // ── SLICE 12e-3c (owner F10, U6): the section's quantity follows its pipe ──
+  secQty: "The insulation section's quantity is its pipe's until the pricer types their own",
   pipeRefuse: "A pipe type the catalogue does not stock refuses by name",
   pipeRow: "A row naming one pipe type prices as it; two different ones with none chosen refuse",
   typedSize: "A typed pipe size is one size, in mm or inches",
@@ -179,10 +181,10 @@ const CASES: Case[] = [
   { id: "I10b-calc", rule: T.inches, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: '1-1/4"' }, ["pipe_size_mm"]), rowUnit: "mts", re: ["31.75", "34.93"], priced: true },
   { id: "I10c-neg", rule: T.inches, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { thickness_mm: '3/4"' })], re: ["thickness stated in inches"], priced: false },
   { id: "I11a", rule: T.defaults, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { cladding: "None" })], re: ["cladding not mentioned -> No ("], priced: true },
-  { id: "I11b", rule: T.defaults, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { thickness_mm: undefined })], re: ["thickness_mm not mentioned -> 9 (", "thickness 9 is not on the sheet -> 13"], priced: true },
+  { id: "I11b", rule: T.defaults, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { thickness_mm: undefined })], re: ["thickness not mentioned -> 9 (" /* 12e-3c (F7): BEFORE "thickness_mm not mentioned -> 9 (" */, "thickness 9 is not on the sheet -> 13"], not: ["thickness_mm not mentioned"], priced: true },
   { id: "I11c-neg", rule: T.defaults, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { thickness_mm: "as per specification" })], re: ["no number in 'as per specification' for thickness"], not: ["not mentioned -> 9"], priced: false },
   { id: "I11a-calc", rule: T.defaults, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "None", thickness_mm: "19", pipe_size_mm: "50" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["cladding not mentioned -> No ("], priced: true },
-  { id: "I11b-calc", rule: T.defaults, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", pipe_size_mm: "50" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["thickness_mm not mentioned -> 9 ("], priced: true },
+  { id: "I11b-calc", rule: T.defaults, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", pipe_size_mm: "50" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["thickness not mentioned -> 9 (" /* 12e-3c (F7): BEFORE "thickness_mm not mentioned -> 9 (" */], not: ["thickness_mm not mentioned"], priced: true },
   { id: "I12a", rule: T.foilPipe, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { cladding: "Aluminium Foil" })], re: ["foil on a pipe is priced as 26G cladding"], priced: true },
   { id: "I12a-calc", rule: T.foilPipe, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "Aluminium Foil", thickness_mm: "19", pipe_size_mm: "50" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["foil on a pipe is priced as 26G cladding"], not: ["not stocked with the other answers"], priced: true },
   { id: "I12b-neg", rule: T.foilPipe, cat: INS, path: "panel", kind: "neg", unit: "sqm", model: [m(THMI, { cladding: "Aluminium Foil" })], re: [], not: ["foil on a pipe"], priced: true },
@@ -347,6 +349,10 @@ const CASES: Case[] = [
   { id: "S3a", rule: T.secMirror, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "MS", size_mm: "25/32" }, { item: NR, cladding: "No", thickness_mm: "13" }], re: ["BoQ says 25/32: states two sizes (25 / 32) - the higher, 32, is taken", "sec.pipe_size_mm:tag=from pipe", "sec.pipe_size_mm:From pipe: 32 mm"], priced: true, pure: false },
   { id: "S3b-neg", rule: T.secMirror, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "Copper", insulated: "Yes" }, { item: NR, cladding: "No", thickness_mm: "13", pipe_size_mm: "41.28" }], re: ["no pipe size stated"], not: ["tag=from pipe", "From pipe:"], priced: false, pure: false },
   { id: "S4a", rule: T.secTotal, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "Copper", size_mm: `5/8${INCH}` }, { item: NR, cladding: "26G Aluminium", thickness_mm: "13" }], re: ["total:1622/444", "lines:2 bad:0"], priced: true, pure: false },
+  // SLICE 12e-3c (F10): the pricer's pipe quantity (2) reaches the model's insulation, tagged; a section with no pipe keeps its own amber 1
+  { id: "S5a", rule: T.secQty, cat: PIP, path: "ptyped", kind: "pos", unit: "mts", model: [{ pipe_type: "MS", size_mm: "32" }, { item: NR, cladding: "26G Aluminium", thickness_mm: "13" }], edits: ptyped({}, [], "2"), re: ["sec.qty:2 tag:from pipe", "x 2 per row unit"], not: ["sec.qty:1"], priced: true, pure: false },
+  { id: "S5b-neg", rule: T.secQty, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "MS", size_mm: "32" }, { item: NR, cladding: "No", thickness_mm: "13" }, { item: NR, cladding: "No", thickness_mm: "13", pipe_size_mm: "41.28" }], edits: undefined, re: ["sec.qty:1 tag:from pipe amber:false", "sec.qty:1 tag:none amber:true"], priced: true, pure: false },
+  { id: "S5c-neg", rule: T.secQty, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "MS", size_mm: "32" }], re: [], not: ["sec.qty:", "tag:from pipe"], priced: true },
   { id: "S4b-neg", rule: T.secTotal, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "MS", size_mm: "100" }, { item: NR, cladding: "26G Aluminium", thickness_mm: "32" }], re: ["lines:2 bad:1"], not: ["total:"], priced: false, pure: false },
 ];
 
@@ -403,6 +409,7 @@ function run(c: Case) {
       if (b.reason) lines.push(`sec.${b.reason}`);
       if (b.familyDefaulted) lines.push(`sec.default:${b.familyDefaulted.rule}`);
       if (b.state === "priced") lines.push(`sec.figures:${b.figures.supply_rate}/${b.figures.install_rate}`);
+      lines.push(`sec.qty:${b.qty} tag:${b.qtyMirrorTag ?? "none"} amber:${b.qtyDefaulted}`);   // 12e-3c (F10)
       lines.push(...b.working.map((w) => `sec.${w}`));
       for (const f of b.fields) {
         if (f.note) lines.push(`sec.${f.id}:${f.note}`);
@@ -424,7 +431,19 @@ function run(c: Case) {
   const ownText = c.path === "calc" ? "" : [c.description ?? "", ...(c.ownNotes ?? [])].join(" | ");
   const pure = priceItemList(spec, ITEMS, unitForPure, assembled, rowText, ownText);
   const working = v.items.flatMap((b) => b.working);
-  return { s, v, lines, text: lines.join("\n"), working, pure };
+  // 12e-3c (AC2): the strings exactly as a pricer reads them -- no test-side lead -- for the field-id sweep
+  const raw: string[] = [...(v.reason ? [v.reason] : []), ...(v.unitNote ? [v.unitNote] : []), ...(s.workings.derivation ?? [])];
+  const rawBlock = (b: (typeof v.items)[number]) => {
+    if (b.reason) raw.push(b.reason);
+    if (b.skuLine) raw.push(b.skuLine);
+    if (b.familyDefaulted) raw.push(b.familyDefaulted.rule);
+    if (b.familyLine) raw.push(b.familyLine);
+    raw.push(...b.working);
+    for (const f of b.fields) { if (f.note) raw.push(f.note); if (f.rule) raw.push(f.rule); if (f.mirrorLine) raw.push(f.mirrorLine); raw.push(...(f.matchHelp ?? [])); }
+  };
+  for (const b of v.items) { rawBlock(b); for (const sv of b.sections ?? []) { if (sv.view.reason) raw.push(sv.view.reason); sv.view.items.forEach(rawBlock); } }
+  for (const sv of v.sections?.independent ?? []) { if (sv.view.reason) raw.push(sv.view.reason); sv.view.items.forEach(rawBlock); }
+  return { s, v, lines, text: lines.join("\n"), working, pure, raw };
 }
 const matches = (text: string, p: string | RegExp) => (typeof p === "string" ? text.includes(p) : p.test(text));
 
@@ -432,7 +451,7 @@ const matches = (text: string, p: string | RegExp) => (typeof p === "string" ? t
 describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the panel's entry point (live v33)", () => {
   const titles = (cat: string) => itemListRuleOrder(CFG[cat], ITEMS).map((l) => l.title);
 
-  it("THE GUARD: the rules this file names EQUAL the rules the config generates (Insulation 24, ADP 18, Piping 18 -- 14 before 12e-3b, plus the four section lines); a new rule without a case, or a case naming a dead rule, fails here", () => {
+  it("THE GUARD: the rules this file names EQUAL the rules the config generates (Insulation 24, ADP 18, Piping 19 -- 14 before 12e-3b, four section lines then, the quantity line at 12e-3c); a new rule without a case, or a case naming a dead rule, fails here", () => {
     for (const cat of [INS, ADP, PIP]) {
       const generated = new Set(titles(cat));
       const named = new Set([...CASES.filter((c) => c.cat === cat).map((c) => c.rule), ...PICKER_CASES.filter(() => cat === ADP).map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES).filter((t) => generated.has(t))]);
@@ -444,8 +463,9 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
     expect(titles(ADP)).toHaveLength(18);
     // INVERTED at 12e-3b (AC6): BEFORE `toHaveLength(14)` on v36. v37 declares the insulation section, which adds the four
     // lines named here; the 14 before them are unchanged, in the same order.
-    expect(titles(PIP)).toHaveLength(18);
-    expect(titles(PIP).slice(14)).toEqual([T.secToggle, T.secRules, T.secMirror, T.secTotal]);
+    // INVERTED at 12e-3c (owner F10 / U6): BEFORE `toHaveLength(18)` and `slice(14)` equal to the four section lines.
+    expect(titles(PIP)).toHaveLength(19);
+    expect(titles(PIP).slice(14)).toEqual([T.secToggle, T.secRules, T.secMirror, T.secQty, T.secTotal]);
     expect(titles(PIP).slice(0, 14)).toEqual(itemListRuleOrder(V36_PIPING, ITEMS).map((l) => l.title));
     // every NOT-panel rule is a REAL tab line (never a stale excuse)
     for (const t of Object.keys(NOT_PANEL_RULES)) expect(titles(INS).includes(t) || titles(ADP).includes(t)).toBe(true);
@@ -476,6 +496,21 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
         expect({ id: c.id, pureRefuses: !pure.priced }).toEqual({ id: c.id, pureRefuses: true });
       }
     }
+  });
+
+  it("12e-3c AC2 (F7): across EVERY case of this file -- Insulation, ADP and Piping, panel, typed and calculator paths -- no line a pricer reads holds a field id written with an underscore", () => {
+    const SNAKE = /(?<![A-Za-z0-9_])[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+(?![A-Za-z0-9_])/;
+    const hits: string[] = [];
+    const perCat: Record<string, number> = {};
+    let lines = 0;
+    for (const c of CASES) {
+      perCat[c.cat] = (perCat[c.cat] ?? 0) + 1;
+      for (const line of run(c).raw) { lines++; if (SNAKE.test(line)) hits.push(`${c.id}: ${line}`); }
+    }
+    expect(hits).toEqual([]);
+    expect(Object.keys(perCat).sort()).toEqual([ADP, INS, PIP].sort());
+    expect(CASES.length).toBe(perCat[INS] + perCat[ADP] + perCat[PIP]);
+    expect(lines).toBeGreaterThan(2000);
   });
 
   it("every EXCLUDED case cites its ruling", () => {

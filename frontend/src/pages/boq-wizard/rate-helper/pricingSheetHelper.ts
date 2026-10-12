@@ -32,7 +32,7 @@ import {
   NONE_SENTINEL,
   runPipeline,
 } from "@/pages/pricing/rate-master/ratePipelineInterpreter";
-import { mirroredLead, plainFact, plainPricerText, TYPED_LEAD } from "@/pages/pricing/rate-master/plainEnglish";
+import { labelAsWord, mirroredLead, plainFact, plainPricerText, TYPED_LEAD } from "@/pages/pricing/rate-master/plainEnglish";
 // CP2: `coerceForMatch` moved to the shared rate-master module (the single point where an attribute
 // value becomes a match key); this file imports it and no longer defines it.
 import {
@@ -144,7 +144,13 @@ export type ExtractionRowWithItems = ExtractionRow & { items?: ExtractedListItem
 
 /** SLICE 6: a row context that may carry the BoQ row's UNIT (the page attaches it; the calculator has no row,
  * so the unit is a pick held in the panel's session state instead). */
-export type RowContextWithUnit = RateHelperRowContext & { unit?: string | null };
+export type RowContextWithUnit = RateHelperRowContext & {
+  unit?: string | null;
+  /** SLICE 12e-3c: set by the section pass on the context it hands a DELEGATED category when the row is the
+   * calculator's. A section is always handed the row's unit, so "no unit supplied" cannot tell it that there
+   * is no row; this does. Absent everywhere else. */
+  noRow?: boolean;
+};
 
 /** A pipeline id is surfaced in the helper iff it is NOT a BCS pipeline (owner deferral). PURE. */
 export function isBcsPipelineId(id: string): boolean {
@@ -1898,6 +1904,10 @@ export interface ItemBlockView {
    * with the same "default" tag every other assumed value carries. It is the one field that never refuses, so
    * an unmarked 1 reads as a fact the row stated. */
   qtyDefaulted: boolean;
+  /** SLICE 12e-3c (owner F10): the quantity shown is the quantity of the item this SECTION sits under -- it
+   * follows that item until the pricer types their own here. The tag is the section's own ("from pipe").
+   * Present ONLY on an attached section whose quantity the pricer has not typed. */
+  qtyMirrorTag?: string;
   state: "priced" | "blank";
   reason?: string;
   skuLine?: string;
@@ -2431,15 +2441,29 @@ function itemBlockView(
     // read-only text ("read-only text when present"); the calculator, which has no model value, shows the box.
     const modelGave = !!f.optional && !userEdited && typeof modelItem?.attributes?.[f.id]?.value === "string"
       && String(modelItem?.attributes?.[f.id]?.value).trim() !== "";
+    /**
+     * SLICE 12e-3c (owner F11 "fix": "Something marked as defaulted should also show its value") -- A RULED
+     * DEFAULT THE DROPDOWN DOES NOT STOCK IS SHOWN IN THE FIELD'S OWN "Other..." BOX. A thickness default of
+     * 9 mm is laddered to a stocked size when the row can price, and the field then shows that size. Where
+     * the ladder cannot run (the row refused earlier, e.g. on its pipe size) the value is still the ruled 9,
+     * but 9 is no option, so the select fell back to "- select -" beside its amber "default" tag. The box now
+     * shows the ruled value (owner 2026-10-12: "Show 9"). Only a field that allows "Other..." can show it;
+     * `value` is unchanged, so nothing that prices or matches reads a different thing.
+     */
+    const defaultInBox = defaulted && !!f.allowOther && value !== "" && !!f.options && !f.options.includes(value);
+    // ... and on a plain dropdown (no "Other...") the ruled value is listed, so the select can show the value
+    // the row is using: "Cladding Only" per sq.m with cladding not mentioned -> No, where "No" is not stocked
+    const defaultAsOption = defaulted && !f.allowOther && value !== "" && !!f.options && !f.options.includes(value);
     return {
       ...f,
+      ...(defaultAsOption ? { options: [...f.options!, value] } : {}),
       value,
-      typedValue: stated,
+      typedValue: defaultInBox ? value : stated,
       defaulted,
       ...(defaulted ? { rule: d!.rule } : {}),
       ...(modelGave ? { readOnly: true as const } : {}),
       userEdited,
-      otherMode,
+      otherMode: otherMode || defaultInBox,
       ...(note ? { note } : {}),
       ...(optionLabels ? { optionLabels } : {}),
       ...(matchHelp && matchHelp.length ? { matchHelp } : {}),
@@ -2565,6 +2589,8 @@ function computeItemListOwn(
   });
   const unitChoices = unitChoicesOf(spec, chosenFamilies);
   const unitPickable = ctx.unit === undefined || ctx.unit === null;
+  // SLICE 12e-3c: the calculator -- no row supplies the unit, or a section pass says so for a delegated call
+  const calculator = unitPickable || ctx.noRow === true;
   // ⚠️ A STORED PICK THAT IS NO LONGER OFFERED IS NOT HONOURED. Picking a family whose SKUs are sold
   // per metre while the row still carried a sq.m pick left the row refusing "no SKU per sq.m", with
   // a unit on screen the picker no longer lists. The first surviving choice stands instead.
@@ -2791,13 +2817,35 @@ function computeItemListOwn(
     // with it (see the warning on `rowTotals`)
     ...(rowPriced ? { totals: { ...values } as Partial<Record<RateKind, number>> } : {}),
   };
+  /**
+   * SLICE 12e-3c -- THE ONE FUNCTION EVERY DISPLAY STRING OF THIS VIEW PASSES THROUGH.
+   *   F7 (owner "fix"): the category's own field labels go to the plain-English step, so a field id written
+   *     with an underscore reads as its label ("thickness not mentioned -> 9", never "thickness_mm ...").
+   *   F4 (owner: "In the calculator it should say 'pick a cladding'" - "ok"): in the calculator a choice the
+   *     pricer has not made yet reads "pick a <field>" where a BoQ row the model read says "could not tell
+   *     <field>". The pricer's sentence is rewritten here, at the view boundary; the pure pricer is untouched
+   *     and a model-read row keeps its wording. No field is named: the sentences are built from the config's
+   *     own choice fields and their labels.
+   */
+  const fieldLabels: Record<string, string> = Object.fromEntries(defs.map((d) => [d.id, String(d.label ?? d.id)]));
+  const pickSentences: Array<[string, string]> = calculator
+    ? spec.choice_attrs.map((id) => {
+        const word = labelAsWord(fieldLabels[id] ?? id);
+        return [`could not tell ${spec.reason_names?.[id] ?? spec.numbers[id]?.name ?? id}`, `pick ${/^[aeiou]/i.test(word) ? "an" : "a"} ${word}`] as [string, string];
+      })
+    : [];
+  const say = (line: string): string => {
+    let s = line;
+    for (const [from, to] of pickSentences) if (s.includes(from)) s = s.split(from).join(to);
+    return plainPricerText(s, items, fieldLabels);
+  };
   const out: ItemListSuggestion = {
     kind: "suggestion",
     values,
     ...(inRun ? { producibleKinds: PRODUCIBLE_KINDS } : {}),
     basis,
-    workings: { attributes: [], matchedRows: [], derivation: derivation.map((l) => plainPricerText(l, items)), finalValues: { ...values } },
-    itemList: plainItemListView(view, items),
+    workings: { attributes: [], matchedRows: [], derivation: derivation.map(say), finalValues: { ...values } },
+    itemList: plainItemListView(view, say),
   };
   return out;
 }
@@ -2875,10 +2923,12 @@ function computeItemList(
   const rowUnit = ownView.unit;
   // the calculator has no row, so nothing supplies the unit (the helper's one existing test for it)
   const calculator = ownView.unitPickable;
+  const ownSectionLabel = (spec.sections ?? []).find((s) => !s.category_id)?.label ?? "item";
 
   /** ONE section, priced by the delegated category's own path, for one item; then the mirror's tag and lines. */
   const priceSection = (
     r: (typeof resolved)[number], secEdit: ItemEdit, pipe: number | null, index: number, mirrorText: string | undefined,
+    ownerQty?: string,
   ): SectionBlockView => {
     const heading = `${r.s.label} - priced by ${r.cfg ? categoryLabel(r.cfg) : r.s.label}'s rules`;
     if (!r.cfg || !r.dspec) {
@@ -2913,15 +2963,25 @@ function computeItemList(
     const mirrored = !!mir && toId !== undefined && !handEdited && mirrorText !== undefined;
     // the mirrored size enters the delegated category exactly as a size typed into its own "Other..." box
     // would (the same cell, the same reader, the same ladder) -- it is never resolved here
+    /**
+     * SLICE 12e-3c (owner F10: "its should be one only"; "for insulation under pipe keep the box and link it to
+     * pipe but the user can change it if they want") -- AN ATTACHED SECTION'S QUANTITY IS ITS ITEM'S. The box
+     * starts as the quantity the item above it shows, tagged with the section's own tag, and follows it; once
+     * the pricer types in the section's box their value stays. A count the MODEL read on the section's own
+     * item does not break the link (owner 2026-10-12: "The pipe's"). A section that belongs to no item keeps
+     * its own box. The quantity enters the delegated category exactly as a quantity typed in its own box.
+     */
+    const qtyLinked = pipe !== null && secEdit.qty === undefined && ownerQty !== undefined;
+    const qtyTag = r.s.mirror?.tag ?? `from ${String(ownSectionLabel).toLowerCase()}`;
     const callEdit: ItemEdit = {
       base: modelItem ? 0 : null,
       family: secEdit.family,
       attrs: mirrored ? { ...secEdit.attrs, [toId!]: mirrorText! } : { ...secEdit.attrs },
-      ...(secEdit.qty !== undefined ? { qty: secEdit.qty } : {}),
+      ...(qtyLinked ? { qty: ownerQty } : (secEdit.qty !== undefined ? { qty: secEdit.qty } : {})),
       ...(mirrored ? { other: [...new Set([...(secEdit.other ?? []), toId!])] } : (secEdit.other ? { other: [...secEdit.other] } : {})),
     };
     const dext = modelItem ? ({ excelRow: ctx.excelRow, description: ctx.description, attributes: {}, items: [modelItem] } as ExtractionRowWithItems) : undefined;
-    const res = computeItemListOwn(r.cfg, r.dspec, items, { ...ctx, unit: rowUnit }, dext, inRun,
+    const res = computeItemListOwn(r.cfg, r.dspec, items, { ...ctx, unit: rowUnit, ...(calculator ? { noRow: true } : {}) }, dext, inRun,
                                    { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [callEdit] }) }) as ItemListSuggestion;
     const dview = res.itemList!;
     const view: ItemListView = {
@@ -2930,6 +2990,7 @@ function computeItemList(
       families: dview.families.filter((f) => offered.has(f.family) && stocked(f.family)),
       items: dview.items.map((b) => ({
         ...b,
+        ...(qtyLinked ? { qtyDefaulted: false, qtyMirrorTag: qtyTag } : {}),
         ...(mirrored ? { working: b.working.map((w) => (w.startsWith(`${TYPED_LEAD}${mirrorText}`) ? mirroredLead(w, mir!.tag) : w)) } : {}),
         fields: b.fields.map((f) => {
           if (f.id !== toId || !mir) return f;
@@ -2977,7 +3038,9 @@ function computeItemList(
       const value = typed ?? (modelSection ? inc.equals : (modelSaid ?? r.s.absent.value));
       // owner: "No" is amber with its line on a BoQ row the model read with no insulation facts; a pipe the
       // pricer added starts "No" plainly
-      const assumed = typed === undefined && !modelSection && modelSaid === undefined && isModelItem;
+      // SLICE 12e-3c (owner F12 "fix"): in the calculator the "No" nobody picked is a default like every other
+      // and carries the amber tag and its line; a pipe the pricer adds on a BoQ row keeps its plain "No"
+      const assumed = typed === undefined && !modelSection && modelSaid === undefined && (isModelItem || calculator);
       fields = fields.map((f) => {
         if (f.id !== inc.attr) return f;
         const { rule: _rule, ...rest } = f;
@@ -2986,7 +3049,7 @@ function computeItemList(
       if (value !== inc.equals) continue;
       const secEdit: ItemEdit = edit.sections?.[r.s.id] ?? { base: modelSection ? edit.base : null, family: null, attrs: {} };
       editsOut.items[i] = { ...editsOut.items[i], sections: { ...(editsOut.items[i].sections ?? {}), [r.s.id]: secEdit } };
-      attached.push(priceSection(r, secEdit, i, 0, r.s.mirror ? mirroredNumber(layers.get(i)?.[0], r.s.mirror.from) : undefined));
+      attached.push(priceSection(r, secEdit, i, 0, r.s.mirror ? mirroredNumber(layers.get(i)?.[0], r.s.mirror.from) : undefined, b.qty));
     }
     return { ...b, fields, ...(attached.length ? { sections: attached } : {}) };
   });
@@ -3071,8 +3134,7 @@ function computeItemList(
  * matching its option (the controlled-select trap). `label` is a definition label, already plain.
  * ⚠️ The non-item-list path (Electrical) never reaches this function; its lines are the Electrical retrofit.
  */
-function plainItemListView(view: ItemListView, items: ReadonlyArray<RateMasterItem>): ItemListView {
-  const p = (s: string) => plainPricerText(s, items);
+function plainItemListView(view: ItemListView, p: (s: string) => string): ItemListView {
   return {
     ...view,
     ...(view.reason !== undefined ? { reason: p(view.reason) } : {}),

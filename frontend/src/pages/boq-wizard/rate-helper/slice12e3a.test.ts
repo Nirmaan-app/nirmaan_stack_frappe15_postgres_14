@@ -225,11 +225,21 @@ describe("12e-3a AC5 -- the 'Insulated' toggle: a per-pipe Yes / No the pricing 
       expect(f.gate).toEqual({ section: "insulation", equals: "Yes" });
     }
   });
-  it("a pipe the PRICER adds starts 'No' plainly: not amber, no line", () => {
+  // INVERTED at 12e-3c (owner F12 "fix": "'Insulated: No' ... shows 'No' without the amber default tag") for the
+  // CALCULATOR. BEFORE: "a pipe the PRICER adds starts 'No' plainly: not amber, no line" -- `f.defaulted` false and
+  // `f.rule` undefined on the calculator path. The plain "No" is kept where it was ruled for: a pipe the pricer adds
+  // ON A BoQ ROW (the negative half, below).
+  it("12e-3c F12: in the calculator a pipe's 'No' nobody picked is amber with its line (BEFORE: plain, no line); a pipe the pricer adds ON A BoQ ROW still starts 'No' plainly", () => {
     const f = field(compute(PIP, { items: [pipe("Copper", '5/8"')] }).v.items[0], "insulated");
     expect(f.value).toBe("No");
-    expect(f.defaulted).toBe(false);
-    expect(f.rule).toBeUndefined();
+    expect(f.defaulted).toBe(true);
+    expect(f.rule).toBe("insulation not mentioned -> No");
+    const first = panel([{ pipe_type: "Copper", size_mm: '5/8"' }]);
+    const added = panel([{ pipe_type: "Copper", size_mm: '5/8"' }], applyItemEdit(first.v.editState, { op: "add", family: "MS" }));
+    const g = field(added.v.items[1], "insulated");
+    expect(g.value).toBe("No");
+    expect(g.defaulted).toBe(false);
+    expect(g.rule).toBeUndefined();
   });
   it("a BoQ row the MODEL read with no insulation facts shows 'No' amber with 'insulation not mentioned -> No'", () => {
     const { v, values } = panel([{ pipe_type: "Copper", size_mm: '5/8"' }]);
@@ -331,7 +341,10 @@ describe("12e-3a AC5 -- the section is priced by the delegated category's OWN co
     const sv = attached(v);
     expect(sv.view.families.map((f) => f.family)).toEqual([NITRILE, PUF]);
     expect(secBlock(sv).qty).toBe("1");
-    expect(secBlock(sv).qtyDefaulted).toBe(true);
+    // INVERTED at 12e-3c (owner F10: the section under a pipe takes the pipe's quantity). BEFORE:
+    //   expect(secBlock(sv).qtyDefaulted).toBe(true);   -- the section's own amber 1, not linked to the pipe
+    expect(secBlock(sv).qtyDefaulted).toBe(false);
+    expect(secBlock(sv).qtyMirrorTag).toBe("from pipe");
     const own = insCalc(NITRILE, { thickness_mm: "13", pipe_size_mm: "15.875" });
     expect(field(secBlock(sv), "cladding")).toEqual(field(own.v.items[0], "cladding"));
     expect(secBlock(sv).state).toBe(own.v.items[0].state);
