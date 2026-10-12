@@ -108,6 +108,7 @@ class TestAIAssist(FrappeTestCase):
         frappe.db.commit()
         for b in frappe.get_all("BOQs", filters={"project": cls.test_project.name}, fields=["name"]):
             frappe.db.delete("BoQ Review Row", {"boq": b.name})
+            frappe.db.delete("BoQ AI Run Log", {"boq": b.name})  # S2: a manual run writes one
             frappe.delete_doc("BOQs", b.name, force=True, ignore_permissions=True)
         frappe.delete_doc("Projects", cls.test_project.name, force=True, ignore_permissions=True)
         frappe.db.commit()
@@ -116,6 +117,7 @@ class TestAIAssist(FrappeTestCase):
     def setUp(self):
         # Fresh row set for the parsed sheet each test (3 rows: root preamble + 2 line items).
         frappe.db.delete("BoQ Review Row", {"boq": self.boq_name, "sheet_name": _AI_SHEET})
+        frappe.db.delete("BoQ AI Run Log", {"boq": self.boq_name})  # S2: no run carried between tests
         self.names = {}
         for ridx, cls_, parent in [(0, "preamble", -1), (1, "line_item", -1), (2, "line_item", -1)]:
             doc = frappe.new_doc("BoQ Review Row")
@@ -1043,7 +1045,9 @@ class _FakeMessages:
 class _FakeAnthropic:
     last_instance = None
 
-    def __init__(self, api_key=None):
+    def __init__(self, api_key=None, max_retries=None):
+        # S2 (owner ruling Q3): the service now creates the client with max_retries=0.
+        self.max_retries = max_retries
         self.messages = _FakeMessages(_FakeAnthropic.scripted)
         _FakeAnthropic.last_instance = self
 
@@ -1169,6 +1173,12 @@ class TestRunAiPassChunking(FrappeTestCase):
         with patch("anthropic.Anthropic", _FakeAnthropic):
             out = _svc.run_ai_pass("Sheet1", rows, _settings(), "sk-test")
         return out, _FakeAnthropic.last_instance.messages
+
+    def test_the_client_is_created_with_its_own_retries_off(self):
+        # S2 (owner ruling Q3): max_retries=0, so request_timeout_seconds is the real limit of one
+        # request and the app's own 3 attempts are the only retries.
+        self._run(self._rows(3), ["[]"])
+        self.assertEqual(_FakeAnthropic.last_instance.max_retries, 0)
 
     def test_small_sheet_single_call_path_unchanged(self):
         # <= threshold -> exactly ONE create() call, and its prompt carries the

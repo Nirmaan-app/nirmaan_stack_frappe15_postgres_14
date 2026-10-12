@@ -82,6 +82,72 @@ class _NonRetryable(Exception):
 
 
 # ---------------------------------------------------------------------------
+# Failure classification + key scrubbing (S2: what the run log records for a failed pass)
+# ---------------------------------------------------------------------------
+
+CATEGORY_JOB_TIMEOUT = "job timeout"
+CATEGORY_REQUEST_TIMEOUT = "request timeout"
+CATEGORY_API_ERROR = "API error"
+CATEGORY_RATE_LIMIT = "rate limit"
+CATEGORY_OVERLOADED = "service overloaded"
+CATEGORY_UNAVAILABLE = "no key / disabled"
+CATEGORY_UNREADABLE = "unreadable answer"
+CATEGORY_INTERNAL = "internal error"
+
+_KEY_SHAPED = re.compile(r"sk-ant-[A-Za-z0-9_\-]{8,}")
+_KEY_REMOVED = "[key removed]"
+
+
+def scrub_keys(text: Any, secrets=()) -> str:
+    """`text` with every given secret and anything shaped like an Anthropic key removed."""
+    out = "" if text is None else str(text)
+    for secret in secrets:
+        if secret:
+            out = out.replace(str(secret), _KEY_REMOVED)
+    return _KEY_SHAPED.sub(_KEY_REMOVED, out)
+
+
+def _is_job_timeout(exc: BaseException) -> bool:
+    # The queue raises this INSIDE the job when the job's own time limit is reached.
+    return type(exc).__name__ == "JobTimeoutException"
+
+
+def classify_failure(exc: BaseException) -> tuple[str, str]:
+    """(category, message) for a failed pass. Reads the exception and its causes -- a terminal
+    chunk failure arrives as _NonRetryable raised FROM the provider's own exception."""
+    chain: list = []
+    seen: set = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        chain.append(cur)
+        seen.add(id(cur))
+        cur = cur.__cause__ or cur.__context__
+    for e in chain:
+        if _is_job_timeout(e):
+            return CATEGORY_JOB_TIMEOUT, f"the job reached its time limit: {e}"
+    for e in chain:
+        status = getattr(e, "status_code", None)
+        if isinstance(e, anthropic.APITimeoutError):
+            return CATEGORY_REQUEST_TIMEOUT, f"{type(e).__name__}: {e}"
+        if isinstance(e, anthropic.RateLimitError) or status == 429:
+            return CATEGORY_RATE_LIMIT, f"status 429: {e}"
+        if status in (503, 529):
+            return CATEGORY_OVERLOADED, f"status {status}: {e}"
+        if isinstance(e, anthropic.APIStatusError):
+            return CATEGORY_API_ERROR, f"status {status}: {e}"
+        if isinstance(e, anthropic.APIError):
+            return CATEGORY_API_ERROR, f"{type(e).__name__}: {e}"
+    if isinstance(exc, _NonRetryable):
+        cause = exc.__cause__
+        if cause is None:
+            # Raised by the response checks themselves: the answer came back but could not be used.
+            return CATEGORY_UNREADABLE, str(exc)
+        # _classify_chunk wrapped a non-provider exception: a fault in this code, not in the answer.
+        return CATEGORY_INTERNAL, f"{type(cause).__name__}: {cause}"
+    return CATEGORY_INTERNAL, f"{type(exc).__name__}: {exc}"
+
+
+# ---------------------------------------------------------------------------
 # The AI-pass prompt, GUIDED version (PROMPT_VERSION "v2", slice S1b). EMBEDDED VERBATIM
 # -- do NOT paraphrase or "improve". It is BoQ_Phase4_AI_Pass_Prompt_v1_1 (validated
 # against 5 real sheets) + the carried-context section (ADR-0005), with exactly two
@@ -774,10 +840,21 @@ def _render_chunk_prompt(
     )
 
 
+def _report(progress, event: str, **data: Any) -> None:
+    """Tell the caller's progress callback (the worker's run-log heartbeat) where the pass is.
+    A callback failure never breaks the pass."""
+    if progress is None:
+        return
+    try:
+        progress(event, **data)
+    except Exception:
+        pass
+
+
 def _classify_chunk(
     client, sheet_name: str, chunk: list[dict], context: str, idx_map: dict,
     allowed_parent_excels: set, settings: dict, chunk_idx: int, n_chunks: int,
-    guidance: dict | None = None,
+    guidance: dict | None = None, progress=None,
 ) -> tuple[list, int, int]:
     """Classify ONE chunk: build the per-chunk prompt (chunk rows + carried {CONTEXT}),
     run the retry loop, parse the response against the SHEET-WIDE idx_map, and return
@@ -793,6 +870,7 @@ def _classify_chunk(
     prompt = _render_chunk_prompt(sheet_name, chunk, context, guidance)
 
     for attempt in range(1, _MAX_RETRIES + 2):
+        _report(progress, "attempt", chunk=chunk_idx, attempt=attempt)
         try:
             resp = client.messages.create(
                 model=settings["model"],
@@ -805,10 +883,14 @@ def _classify_chunk(
             suggestions = parse_ai_response(text, idx_map, allowed_parent_excels)
             return suggestions, tin, tout
         except Exception as exc:
+            if _is_job_timeout(exc):
+                raise       # the job's own limit: never retried, never re-wrapped
             if attempt <= _MAX_RETRIES and _is_transient(exc):
                 time.sleep(_BACKOFF_SECONDS * attempt)
                 continue
-            frappe.log_error(title="BoQ AI pass failed", message=frappe.get_traceback())
+            frappe.log_error(
+                title="BoQ AI pass failed", message=scrub_keys(frappe.get_traceback())
+            )
             if isinstance(exc, _NonRetryable):
                 raise
             raise _NonRetryable(str(exc)) from exc
@@ -816,7 +898,7 @@ def _classify_chunk(
 
 def run_ai_pass(
     sheet_name: str, review_rows: list, settings: dict, api_key: str,
-    guidance: dict | None = None,
+    guidance: dict | None = None, progress=None,
 ) -> list:
     """Run the AI structure-suggestion pass for one sheet and return normalized
     suggestions keyed by internal row_index.
@@ -824,6 +906,10 @@ def run_ai_pass(
     `guidance` (prompt v2) is {excel_row: {"similar_reviewed_rows": [...],
     "candidate_parents": [...]}}, built by services/boq_ai_guidance.build_guidance and
     INJECTED by the worker like settings + api_key. None -> every row gets empty guidance.
+
+    `progress` (S2) is an optional callback(event, **data) the worker uses as its run-log
+    heartbeat: "start" (chunks_total), "attempt" before EVERY request, "chunk" after every
+    chunk (chunks_done + the running token totals).
 
     settings + api_key are INJECTED by the caller (AI-2c worker) -- this service
     never reads get_boq_ai_settings / get_boq_ai_api_key itself (keeps it unit-
@@ -847,7 +933,9 @@ def run_ai_pass(
     payloads = [_build_row_payload(row, rowidx_to_excel) for row in review_rows]
     chunks = chunk_rows(payloads)
 
-    client = anthropic.Anthropic(api_key=api_key)
+    # max_retries=0: the client's OWN hidden retries are off, so request_timeout_seconds is the
+    # real limit of one request and the retry loop in _classify_chunk is the only one (S2).
+    client = anthropic.Anthropic(api_key=api_key, max_retries=0)
 
     all_suggestions: list = []
     spine: dict = {"open_sections": [], "last_sl_no": None}
@@ -855,6 +943,7 @@ def run_ai_pass(
     total_out = 0
     n_chunks = len(chunks)
     single_call = n_chunks <= 1  # one chunk -> NO forward-ref guard (every parent is in-scope)
+    _report(progress, "start", chunks_total=n_chunks)
     for i, chunk in enumerate(chunks):
         context = render_context(spine, is_first_chunk=(i == 0))
         # Allowed parents = this chunk's rows + the carried open sections. None for the
@@ -868,11 +957,13 @@ def run_ai_pass(
             )
         suggestions, tin, tout = _classify_chunk(
             client, sheet_name, chunk, context, idx_map, allowed_parent_excels,
-            settings, i + 1, n_chunks, guidance,
+            settings, i + 1, n_chunks, guidance, progress,
         )
         all_suggestions.extend(suggestions)
         total_in += tin
         total_out += tout
+        _report(progress, "chunk", chunks_done=i + 1, input_tokens=total_in,
+                output_tokens=total_out)
         # Advance the spine over this chunk for the NEXT chunk's {CONTEXT}.
         spine = update_spine(spine, chunk)
 

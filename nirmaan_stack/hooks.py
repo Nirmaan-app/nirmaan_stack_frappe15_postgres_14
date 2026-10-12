@@ -507,6 +507,11 @@ scheduler_events = {
 		"0 */6 * * *": [
 			"nirmaan_stack.tasks.cleanup_temp_downloads.cleanup_temp_downloads"
         ],
+		# Every 5 min -- BoQ Claude review health check: a run with no heartbeat (or whose job is
+		# gone) is marked Failed and its "AI pass running" flag cleared. Light: no AI, no library.
+		"*/5 * * * *": [
+			"nirmaan_stack.api.boq.wizard.ai_run_log.heal_stale_runs_task"
+		],
 		"0 2 * * *": [
 			"nirmaan_stack.tasks.action_item_reconcile.run_nightly_reconcile"
 		]

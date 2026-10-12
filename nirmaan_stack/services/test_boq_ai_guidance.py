@@ -534,3 +534,247 @@ class TestBuildLibraryRule(unittest.TestCase):
         out = lib.top5({"description": "2 core cable", "sl_no": "1.1", "has_qty": True},
                        exclude=lib.testproject)
         self.assertEqual({e["boq"] for e in out}, {"BOQ-1"})
+
+
+# ===========================================================================
+# S2: the compact in-memory library (file format 2) and its release
+# ===========================================================================
+
+class _Format1Library:
+    """The S1b library, kept here word for word as the REFERENCE: format 2 must return exactly
+    what this returns (same examples, same order, same scores) for any input."""
+
+    def __init__(self, rows):
+        import collections
+        import math
+        from array import array
+        self.rows = rows
+        self.N = len(rows)
+        self.logN = math.log(self.N) if self.N else 0.0
+        df = collections.Counter()
+        for b in rows:
+            df.update(G._toks(b['description']).keys())
+        self.idf = {k: math.log(self.N / v) for k, v in df.items()}
+        self.ids, self.wts = {}, {}
+        for j, b in enumerate(rows):
+            for k, x in self._vec(G._toks(b['description'])).items():
+                if k not in self.ids:
+                    self.ids[k] = array('l')
+                    self.wts[k] = array('d')
+                self.ids[k].append(j)
+                self.wts[k].append(x)
+        self.blank = [j for j, b in enumerate(rows) if not (b['description'] or '').strip()]
+        self.shape = [sl_shape(b['sl_no']) for b in rows]
+
+    def _vec(self, tf):
+        import math
+        v = {k: c * self.idf.get(k, self.logN) for k, c in tf.items()}
+        n = math.sqrt(sum(x * x for x in v.values())) or 1.0
+        return {k: x / n for k, x in v.items()}
+
+    def top5(self, query, exclude=frozenset()):
+        import collections
+        tv = self._vec(G._toks(query['description']))
+        acc = collections.defaultdict(float)
+        for k, x in tv.items():
+            ids = self.ids.get(k)
+            if ids is None:
+                continue
+            for j, y in zip(ids, self.wts[k]):
+                acc[j] += x * y
+        cand = list(acc.items()) if acc else [(j, 0.0) for j in self.blank]
+        rows = self.rows
+        qs = sl_shape(query['sl_no'])
+        qh = query['has_qty']
+        scored = sorted(
+            (
+                (cos + (0.15 if rows[j]['has_qty'] == qh else 0.0)
+                 + (0.10 if self.shape[j] == qs else 0.0), j)
+                for j, cos in cand if rows[j]['boq'] not in exclude
+            ),
+            key=lambda x: -x[0],
+        )[:G.EXAMPLES_PER_ROW]
+        return [
+            {
+                'boq': rows[j]['boq'], 'sheet': rows[j]['sheet'], 'sl_no': rows[j]['sl_no'],
+                'description': (rows[j]['description'] or '')[:120],
+                'unit': rows[j]['unit'], 'has_qty': rows[j]['has_qty'],
+                'correct_row_type': rows[j]['truth_type'], 'score': round(sc, 4),
+            }
+            for sc, j in scored
+        ]
+
+
+def _varied_rows(n=400, seed=7):
+    """A deterministic library with repeats, near-duplicates, blanks, long and non-ASCII text."""
+    import random
+    rnd = random.Random(seed)
+    words = ["supply", "fixing", "cable", "copper", "2 core", "4 core", "panel", "pipe", "80 NB",
+             "150 mm dia", "SITC", "of", "and", "valve", "duct", "GI", "MS", "insulation", "25\u00b0C",
+             "\u20b9 rate only", "testing", "commissioning", "as per IS", "complete"]
+    sls = ["", "1", "1.1", "2.3.4", "A", "a)", "iv", "B-2", "12.0", "x1"]
+    types = ["line_item", "preamble", "note", "spacer", "subtotal"]
+    rows = []
+    for i in range(n):
+        if i % 23 == 0:
+            desc = ""
+        elif i % 17 == 0:
+            desc = "Supply of 2 core copper cable"                      # exact repeats
+        else:
+            desc = " ".join(rnd.choice(words) for _ in range(rnd.randint(1, 40)))
+        rows.append({
+            "boq": f"BOQ-{i % 9}", "sheet": f"S{i % 4}", "excel_row": i + 2,
+            "sl_no": rnd.choice(sls), "description": desc, "unit": rnd.choice(["", "m", "nos", "kg"]),
+            "has_qty": bool(i % 3), "truth_type": rnd.choice(types),
+        })
+    return rows
+
+
+class TestCompactLibrary(_TempDirCase):
+
+    def test_file_format_is_two_and_the_file_name_carries_it(self):
+        self.assertEqual(G._LIBRARY_FORMAT, 2)
+        with mock.patch.object(frappe, "get_site_path", side_effect=lambda *p: "/".join(p)):
+            self.assertEqual(G.library_path(), "private/boq_ai/examples_library_v2.pkl")
+
+    def test_identical_to_the_format_1_library_for_every_query(self):
+        rows = _varied_rows()
+        old, new = _Format1Library(rows), ExamplesLibrary(rows)
+        queries = [{"description": r["description"], "sl_no": r["sl_no"], "has_qty": r["has_qty"]}
+                   for r in rows]
+        queries += [
+            {"description": "", "sl_no": "", "has_qty": False},
+            {"description": "   ", "sl_no": "3", "has_qty": True},
+            {"description": "zzzz never seen qqqq", "sl_no": "9.9", "has_qty": False},
+            {"description": "Supply of 2 core copper cable 25\u00b0C", "sl_no": "c)", "has_qty": True},
+            {"description": None, "sl_no": None, "has_qty": None},
+            # words the library has never seen, mixed with words it has (they still weigh in)
+            {"description": "Supply of 2 core copper cable qqqqzz wwwwxx", "sl_no": "1.1", "has_qty": True},
+            {"description": "valve zzzzzzzzzzzzzzzzzzzz", "sl_no": "", "has_qty": False},
+        ]
+        differences = 0
+        for q in queries:
+            for exclude in (frozenset(), frozenset({"BOQ-1", "BOQ-4"})):
+                if old.top5(q, exclude) != new.top5(q, exclude):
+                    differences += 1
+        self.assertEqual(differences, 0)
+        self.assertGreater(len(queries), 400)
+
+    def test_identical_after_a_save_and_load(self):
+        rows = _varied_rows(150, seed=3)
+        save_library(ExamplesLibrary(rows, testproject=["BOQ-2"]), self.path)
+        old, new = _Format1Library(rows), load_library(self.path)
+        self.assertEqual(new.testproject, frozenset({"BOQ-2"}))
+        for r in rows:
+            q = {"description": r["description"], "sl_no": r["sl_no"], "has_qty": r["has_qty"]}
+            self.assertEqual(old.top5(q), new.top5(q))
+
+    def test_no_per_row_dict_and_no_per_token_object_is_kept(self):
+        from array import array
+        lib = ExamplesLibrary(_varied_rows(50))
+        state = lib.state()
+        self.assertNotIn("rows", state)
+        for name in ("post_ids", "post_cnt", "post_start", "norm", "idf", "tok_off", "desc_off"):
+            self.assertIsInstance(state[name], array, name)
+        for name in ("tok_blob", "desc_blob", "sl_blob", "unit_blob"):
+            self.assertIsInstance(state[name], bytes, name)
+        self.assertFalse([v for v in vars(lib).values() if isinstance(v, dict) and len(v) > 20],
+                         "no large dict (the old per-token index) on the library")
+
+    def test_rows_are_still_readable_for_inspection(self):
+        rows = [_lib_row("BOQ-A", "cable " * 60, "line_item", "1.1", "m", True),
+                _lib_row("BOQ-B", "", "spacer")]
+        lib = ExamplesLibrary(rows)
+        self.assertEqual(lib.N, 2)
+        got = lib.rows
+        self.assertEqual([(r["boq"], r["sheet"], r["excel_row"], r["sl_no"], r["unit"], r["has_qty"],
+                           r["truth_type"]) for r in got],
+                         [("BOQ-A", "S", 1, "1.1", "m", True, "line_item"),
+                          ("BOQ-B", "S", 1, "", "", False, "spacer")])
+        self.assertEqual(got[0]["description"], ("cable " * 60)[:120],
+                         "only the 120 characters an example can show are kept")
+
+    def test_an_s1b_format_1_file_is_refused_and_rebuilt(self):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with open(self.path, "wb") as f:
+            pickle.dump({"format": 1, "built_at": time.time(), "rows": [], "testproject": [],
+                         "idf": {}, "ids": {}, "wts": {}, "blank": [], "shape": []}, f, protocol=5)
+        with self.assertRaises(ValueError):
+            load_library(self.path)
+        with mock.patch.object(G, "build_library", return_value=_small_library()) as build:
+            lib, rebuilt = get_library(self.path)
+        self.assertTrue(rebuilt)
+        self.assertEqual(build.call_count, 1)
+        self.assertEqual(lib.N, 7)
+
+    def test_empty_library(self):
+        lib = ExamplesLibrary([])
+        self.assertEqual(lib.top5({"description": "cable", "sl_no": "1", "has_qty": True}), [])
+        again = ExamplesLibrary.from_state(pickle.loads(pickle.dumps(lib.state(), protocol=5)))
+        self.assertEqual(again.N, 0)
+
+
+class TestLibraryReleaseAndInfo(unittest.TestCase):
+
+    def _rows(self):
+        return [
+            _review_row(0, 2, "preamble", sl="A", desc="ELECTRICAL WORKS"),
+            _review_row(1, 3, "line_item", parent=0, sl="1.1",
+                        desc="Supply of 2 core copper cable", unit="m", qty=3),
+        ]
+
+    def test_the_library_is_released_before_build_guidance_returns(self):
+        import gc
+        import weakref
+        alive = []
+
+        def get_library():
+            # Built here so that build_guidance holds the ONLY reference (a mock's return_value
+            # would keep one of its own).
+            lib = _small_library()
+            alive.append(weakref.ref(lib))
+            return lib, False
+
+        with mock.patch.object(G, "get_library", side_effect=get_library), \
+             mock.patch.object(G, "revision_family", return_value=frozenset()):
+            g = build_guidance("BOQ-X", self._rows())
+        gc.collect()
+        self.assertIsNone(alive[0](), "nothing may still hold the library when the Claude call starts")
+        self.assertTrue(g[3]["similar_reviewed_rows"], "the examples were copied out before the release")
+
+    def test_info_reports_the_library_step(self):
+        cases = [((_small_library(), False), "ok"), ((_small_library(), True), "rebuilt")]
+        for returned, status in cases:
+            info = {}
+            with mock.patch.object(G, "get_library", return_value=returned), \
+                 mock.patch.object(G, "revision_family", return_value=frozenset()):
+                build_guidance("BOQ-X", self._rows(), info=info)
+            self.assertEqual(info["library_status"], status)
+            self.assertEqual(info["library_rows"], 7)
+            for key in ("library_seconds", "lookup_seconds"):
+                self.assertIsInstance(info[key], float, key)
+            if os.path.exists("/proc/self/status"):
+                for key in ("library_memory_peak_mib", "memory_before_mib",
+                            "memory_after_lookup_mib", "memory_after_release_mib"):
+                    self.assertGreater(info[key], 0, key)
+                self.assertGreaterEqual(info["library_memory_peak_mib"], info["memory_after_lookup_mib"])
+
+    def test_info_says_no_examples_fallback_when_the_library_cannot_be_had(self):
+        info = {}
+        with mock.patch.object(G, "get_library", side_effect=RuntimeError("rebuild failed")), \
+             mock.patch.object(G.logger, "error"):
+            g = build_guidance("BOQ-X", self._rows(), info=info)
+        self.assertEqual(info["library_status"], "no-examples fallback")
+        self.assertEqual(info["library_rows"], 0)
+        self.assertEqual(g[3]["similar_reviewed_rows"], [])
+
+    def test_info_is_optional(self):
+        with mock.patch.object(G, "get_library", return_value=(_small_library(), False)), \
+             mock.patch.object(G, "revision_family", return_value=frozenset()):
+            self.assertEqual(sorted(build_guidance("BOQ-X", self._rows())), [2, 3])
+
+    def test_no_scheduled_rebuild_exists(self):
+        """Owner ruling R4: the library is rebuilt ON DEMAND only."""
+        hooks_text = repr(frappe.get_hooks("scheduler_events"))
+        self.assertNotIn("boq_ai_guidance", hooks_text)
+        self.assertNotIn("build_library", hooks_text)

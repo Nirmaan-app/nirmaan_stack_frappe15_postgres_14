@@ -716,3 +716,156 @@ class TestGuidanceBlock(unittest.TestCase):
 
     def test_prompt_version_is_v2(self):
         self.assertEqual(PROMPT_VERSION, "v2")
+
+
+# ===========================================================================
+# S2: failure classification, key scrubbing, the progress callback, retries
+# ===========================================================================
+
+class TestFailureClassification(unittest.TestCase):
+
+    def _status(self, cls, code, text="provider said no"):
+        import httpx
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        return cls(text, response=httpx.Response(code, request=request), body=None)
+
+    def _wrapped(self, provider_error):
+        """As _classify_chunk raises it: _NonRetryable FROM the provider's own exception."""
+        try:
+            try:
+                raise provider_error
+            except Exception as exc:
+                raise _NonRetryable(str(exc)) from exc
+        except _NonRetryable as wrapped:
+            return wrapped
+
+    def test_each_provider_failure_gets_its_category(self):
+        import anthropic
+        import httpx
+        from nirmaan_stack.services.boq_ai_assist import classify_failure
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        cases = [
+            (anthropic.APITimeoutError(request=request), "request timeout"),
+            (self._status(anthropic.RateLimitError, 429), "rate limit"),
+            (self._status(anthropic.InternalServerError, 529), "service overloaded"),
+            (self._status(anthropic.InternalServerError, 503), "service overloaded"),
+            (self._status(anthropic.InternalServerError, 500), "API error"),
+            (self._status(anthropic.BadRequestError, 400), "API error"),
+            (self._status(anthropic.AuthenticationError, 401), "API error"),
+            (anthropic.APIConnectionError(request=request), "API error"),
+        ]
+        for error, expected in cases:
+            for exc in (error, self._wrapped(error)):
+                self.assertEqual(classify_failure(exc)[0], expected, repr(exc))
+
+    def test_an_api_error_message_carries_the_status_code(self):
+        import anthropic
+        from nirmaan_stack.services.boq_ai_assist import classify_failure
+        category, message = classify_failure(self._wrapped(self._status(anthropic.BadRequestError, 400)))
+        self.assertEqual(category, "API error")
+        self.assertIn("status 400", message)
+
+    def test_job_timeout_wins_over_everything_else(self):
+        from rq.timeouts import JobTimeoutException
+        from nirmaan_stack.services.boq_ai_assist import classify_failure
+        category, message = classify_failure(JobTimeoutException("Task exceeded maximum timeout value"))
+        self.assertEqual(category, "job timeout")
+        self.assertIn("time limit", message)
+
+    def test_unreadable_answer_versus_internal_error(self):
+        from nirmaan_stack.services.boq_ai_assist import classify_failure
+        with self.assertRaises(_NonRetryable) as bad_json:
+            parse_ai_response("not json", {}, None)
+        self.assertEqual(classify_failure(bad_json.exception)[0], "unreadable answer")
+        self.assertEqual(classify_failure(_NonRetryable("empty response"))[0], "unreadable answer")
+        category, message = classify_failure(self._wrapped(KeyError("row_index")))
+        self.assertEqual(category, "internal error")
+        self.assertIn("KeyError", message)
+        category, message = classify_failure(ValueError("bad settings"))
+        self.assertEqual((category, message), ("internal error", "ValueError: bad settings"))
+
+    def test_scrub_keys_removes_given_secrets_and_anything_key_shaped(self):
+        from nirmaan_stack.services.boq_ai_assist import scrub_keys
+        shaped = "sk-ant-" + "a1B2" * 8
+        text = scrub_keys(f"auth failed for {shaped} and for hunter2; again {shaped}", ["hunter2", None, ""])
+        self.assertNotIn(shaped, text)
+        self.assertNotIn("hunter2", text)
+        self.assertEqual(text.count("[key removed]"), 3)
+        self.assertEqual(scrub_keys(None), "")
+        self.assertEqual(scrub_keys("nothing secret here"), "nothing secret here")
+
+
+class TestProgressAndRetries(unittest.TestCase):
+
+    def _events(self):
+        events = []
+        return events, (lambda event, **data: events.append((event, data)))
+
+    def test_progress_reports_the_start_every_attempt_and_every_chunk(self):
+        events, progress = self._events()
+        with mock.patch("anthropic.Anthropic") as MockAnthropic:
+            MockAnthropic.return_value.messages.create.return_value = _fake_response([])
+            run_ai_pass("Electrical", _rows(), _SETTINGS, "fake-key", progress=progress)
+        self.assertEqual(events, [
+            ("start", {"chunks_total": 1}),
+            ("attempt", {"chunk": 1, "attempt": 1}),
+            ("chunk", {"chunks_done": 1, "input_tokens": 12, "output_tokens": 8}),
+        ])
+
+    def test_an_attempt_is_reported_before_every_retry(self):
+        events, progress = self._events()
+        with mock.patch("anthropic.Anthropic") as MockAnthropic, \
+             mock.patch("nirmaan_stack.services.boq_ai_assist.time.sleep"):
+            MockAnthropic.return_value.messages.create.side_effect = [
+                Exception("Error code: 529 - overloaded"), _fake_response([]),
+            ]
+            run_ai_pass("Electrical", _rows(), _SETTINGS, "fake-key", progress=progress)
+        self.assertEqual([e for e in events if e[0] == "attempt"],
+                         [("attempt", {"chunk": 1, "attempt": 1}), ("attempt", {"chunk": 1, "attempt": 2})])
+
+    def test_a_failing_progress_callback_never_breaks_the_pass(self):
+        def progress(event, **data):
+            raise RuntimeError("run log is down")
+
+        with mock.patch("anthropic.Anthropic") as MockAnthropic:
+            MockAnthropic.return_value.messages.create.return_value = _fake_response([])
+            self.assertEqual(run_ai_pass("Electrical", _rows(), _SETTINGS, "fake-key", progress=progress), [])
+
+    def test_the_client_is_created_with_its_own_retries_off(self):
+        with mock.patch("anthropic.Anthropic") as MockAnthropic:
+            MockAnthropic.return_value.messages.create.return_value = _fake_response([])
+            run_ai_pass("Electrical", _rows(), _SETTINGS, "fake-key")
+        MockAnthropic.assert_called_once_with(api_key="fake-key", max_retries=0)
+
+    def test_the_job_time_limit_is_never_retried_or_re_wrapped(self):
+        from rq.timeouts import JobTimeoutException
+        with mock.patch("anthropic.Anthropic") as MockAnthropic, \
+             mock.patch("nirmaan_stack.services.boq_ai_assist.time.sleep") as sleep, \
+             mock.patch("frappe.log_error"):
+            create = MockAnthropic.return_value.messages.create
+            create.side_effect = JobTimeoutException("Task exceeded maximum timeout value (1200 seconds)")
+            with self.assertRaises(JobTimeoutException):
+                run_ai_pass("Electrical", _rows(), _SETTINGS, "fake-key")
+        self.assertEqual(create.call_count, 1)
+        self.assertFalse(sleep.called)
+
+    def test_an_ordinary_timeout_is_still_retried_three_times(self):
+        """NEGATIVE of the test above: only the JOB's limit skips the retry loop."""
+        with mock.patch("anthropic.Anthropic") as MockAnthropic, \
+             mock.patch("nirmaan_stack.services.boq_ai_assist.time.sleep"), \
+             mock.patch("frappe.log_error"):
+            create = MockAnthropic.return_value.messages.create
+            create.side_effect = TimeoutError("Request timed out.")
+            with self.assertRaises(_NonRetryable):
+                run_ai_pass("Electrical", _rows(), _SETTINGS, "fake-key")
+        self.assertEqual(create.call_count, 3)
+
+    def test_the_service_error_log_text_carries_no_key(self):
+        shaped = "sk-ant-" + "Z9" * 12
+        with mock.patch("anthropic.Anthropic") as MockAnthropic, \
+             mock.patch("frappe.log_error") as log:
+            MockAnthropic.return_value.messages.create.side_effect = ValueError(f"bad header {shaped}")
+            with self.assertRaises(_NonRetryable):
+                run_ai_pass("Electrical", _rows(), _SETTINGS, "fake-key")
+        self.assertNotIn(shaped, log.call_args.kwargs["message"])
+        self.assertIn("[key removed]", log.call_args.kwargs["message"])
