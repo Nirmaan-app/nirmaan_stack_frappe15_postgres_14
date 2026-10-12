@@ -46292,3 +46292,130 @@ not seen on screen; it follows the row-priced flag the tests pin. No BoQ row was
 
 **What 12e-3b inherits.** Two sizes on one row, "(R-M-b)", "Nm", AC8c and the Derivation lines for the section; findings 1,
 2 and 4; a Piping BoQ row still shows no panel before a run (12e-2 finding 1); M1 parked.
+
+---
+
+## Slice 12e-3b — Piping cleanup: two sizes, no rule tag on screen, "Nm", the calculator's blank material list, the section's Derivation lines, the load path (no asset, no config) — as built 2026-10-12
+
+**Commits (unpushed at the time of writing):** `48ab8207a` feat(rate-helper) code + tests; the docs commit that carries
+this entry. Start tip `b1fe543e5` (= origin). **HVAC stays v37, Electrical v66: no asset and no config was written.**
+
+**Owner rulings applied (quoted in the prompt; two more given in the run, 2026-10-12):**
+- *"Strip them too"* — "(A-4)" / "(A-5)", which the pricer's own code writes on 17 stored ADP rows, are stripped at the
+  plain-English step like "(R-M-b)"; the 17 rows join AC9's allowed list, text only.
+- *"Accept the 7 rows"* — the AC5 fix is general (any kind priced per number through a conversion), so 6 slot diffuser
+  rows and 1 mixing box row show their ruled default too; accepted as field-display diffs, zero figures.
+
+### What was built
+
+| Area | Change | Where |
+|---|---|---|
+| Two sizes (AC2) | On the Piping size axis (`typed_entry: "one_size"`) a slash list prices the higher / highest, typed and model-read, with the line "pipe size states two sizes (25 / 32) - the higher, 32, is taken" / "states several sizes (25 / 32 / 40) - the highest, 40, is taken". An inch fraction = top number 16 or less AND bottom 2, 4, 8, 16, 32 or 64 (`isInchFraction`); a top number carrying its own inch mark is a size, so `1"/2"` is a pair. A unit written once at the end is the unit of the bare parts before it. REPLACES 12e-2b's "40/50 refuses". | `itemListPricing.ts`: `isInchFraction`, `slashSizes`, `severalSizesPick`, `severalSizesTaken`, the reader loop, `LadderHop.several`; `pricingSheetHelper.ts`: the size field's line |
+| Mirror (D3b) | No new code: `mirroredNumber` already mirrors the read that landed, which is now the taken size (25/32 -> 32). | — |
+| Rule tags (AC3) | `HYPHEN_TAG` in `plainSentence`: one capital of R / A / D / T / S / Q, then one or two hyphenated parts of at most two characters, in brackets. | `plainEnglish.ts` |
+| "Nm" (AC4) | `UNIT_SPELLINGS = { nm: "Nm", mm: "mm", kg: "kg" }`, applied by `unitSpellings` inside `plainPricerText` to a number followed by an all-lower-case unit. | `plainEnglish.ts` |
+| D1b (AC1) | In the calculator (the helper's one test for it: no row supplies the unit) a section with no model item and no material is returned as `pickFamily: true` — the heading, the offered kinds, the reason "Choose the insulation material", `items: []`. The panel draws the list; a pick is the section's own `change_family`. On a BoQ row the delegated category's own default stays. | `pricingSheetHelper.ts` `priceSection`; `RateHelperPanel.tsx` |
+| Defaults on a waiting row (AC5) | A per-number refusal for a missing conversion fact now carries the kind's OWN needs' ruled defaults, so the fields show them amber. | `itemListPricing.ts` (one return) |
+| Derivation (AC6) | Four lines generated from `list_spec.sections` (the toggle, whose rules price it and the kinds offered, the mirror, the row total); line 9 reworded for two sizes. | `itemListRuleOrder.ts` |
+| Grammar (AC8) | `needPersonSentence(bad, lines)`; the row-total box calls it. | `pricingSheetHelper.ts`, `RateHelperPanel.tsx` |
+| Load path (AC7) | No code: an HVAC asset file carries `category_configs` (a list), so `load_rate_master(path=..., replace=True)` takes `_load_multi`, which already runs the cross-category check. Proved by a test through that exact call. `loader.py` unchanged. | `test_piping_v34.py` test_21 |
+
+### AC evidence
+
+- **AC1.** `slice12e3b.test.ts` AC1 (10 tests): the calculator section opens on the two materials with nothing picked and
+  no "not mentioned" line; the list equals the one "+ Add insulation" opens; Nitrile / 26G / 13 -> 324 / 224, total
+  1622 / 444, figures and working equal Calculator -> Insulation; a BoQ row (model: insulated Yes, no material) and a BoQ
+  row the pricer opens by hand both keep Nitrile, amber, with Insulation's own rule text.
+  **Premise corrected:** in the calculator Cladding has no default after the pick — it reads "- select -" and the section
+  says "could not tell cladding", exactly as Calculator -> Insulation does after "+ Add item"; Thickness takes its
+  9 mm default once the item can otherwise price. D1b's "cladding No" default is BoQ-row behaviour.
+- **AC2.** The size table (below), each row on the typed and the model path, at the taken size's own price. Pins inverted
+  by name (before / after in the test files): `slice12e2.test.ts` two; `slice12e2b.test.ts` the rule test ("63/64" only),
+  the "40/50" / "50/65" pair, the Derivation line 9 test; `calculatorPanelParity.test.ts` one; `ruleReachability`
+  P2e-ptyped, P2f-neg. Insulation's reader: its 24 reachability rules and the 12d-8 cases pass unmodified, and it still
+  reads "25/32" as 25/32 of an inch (pinned).
+- **AC3.** Tag spellings found across the ten HVAC v37 configs by a wide search, and what each becomes: "(R-M-b)" x1
+  (ADP `override_when.rule`) -> removed; "(R-M-c)" x3 (flexible duct `convert.count.rule` and two `explain`) -> removed;
+  "(R-c)", "(R-f)", "(S-d)" (ADP `notes`, never shown) -> removed if shown; every numbered tag ("(R15)", "(R11)", "(R16)",
+  "(R4)", "(S7)", "(R20)" ...) -> removed, as before this slice. Written by code, not config: "(A-4)", "(A-5)" -> removed.
+  Kept: "(UL-555)", "(M-10)", "(W x H / 10^6 sq.m)", "(H / 1000)", "Torque (NM)", "(next size up)". The config keeps its
+  tags and the pure pricer's working keeps them (`itemListPricing.ts`, `priceItemList`); the strip is at the view
+  boundary. Electrical: no Electrical file in the diff; neither new rule changes one string of any v66 config (test).
+  Granted pins inverted: `pricingSheetHelper.test.ts` (the UL note), `slice12d8.test.ts` (two). Also inverted, by the
+  12 Oct ruling: `pricingSheetHelper.test.ts` "A-4: the outer-size notes" and the `UL_LINE` constant of `slice12e2b.test.ts`.
+- **AC4.** Lines whose spelling changes on the stored rows: the ten "T3" rows of the blast-radius list ("... -> 10 nm" ->
+  "10 Nm", "9 nm -> priced as 20 nm" -> "9 Nm -> priced as 20 Nm", ...). mm, sq.m, kg and the BoQ's own "NM" / "N.m" are
+  untouched (test).
+- **AC5.** A defect: per sq.m the fire damper's Variant and UL listed show "without sleeve" / "no" amber; per number
+  with no size they showed "- select -" only because the refusal returned before the defaults were attached. Fixed in
+  the pricer's refusal; the refusal sentence and every figure are unchanged.
+- **AC6.** Piping 14 -> 18 lines; the first 14 titles equal v36's; Insulation 24, ADP 18. `ruleReachability.test.ts`
+  now reads v37 and names the four new rules with positive and negative panel-path cases (S1a .. S4b).
+- **AC7.** `test_21_the_production_call_with_a_file_path_reaches_the_cross_category_check`: a v37 file with a broken
+  section through `loader.load_rate_master(path=<file>, replace=True)` is refused, the check ran once, nothing was
+  written. The production runbook is not in the repository; the call tested is the one the prompt quotes from it.
+- **AC8.** One site: `needPersonSentence` in `pricingSheetHelper.ts`, called by the row-total box in `RateHelperPanel.tsx`.
+- **AC9.** 13,365 stored rows replayed; output sha256 `52b3407a...f027a` against `00508eac...7997`. **41 rows differ,
+  all `hvac_adp` (41 of 250); 0 of the 20 other HVAC rows; 0 of the 13,095 Electrical rows; no figure, no status.**
+  (R-M-b) removed 7; (A-4) / (A-5) removed 17; nm -> Nm 10; a ruled default shown on a refused per-number row 7. No
+  "(X-n)" tag is left anywhere in the output (before: "(R-M-b)" 14, "(A-4)" 14, "(A-5)" 5). Capture log 821 lines before
+  and after; last written 2026-10-11 17:46 UTC. The row list is in the Desktop report.
+
+### The size table (AC2)
+
+| Typed or read | What it is | Priced as |
+|---|---|---|
+| 25/32, 32/25, 25/32 mm | two sizes | 32 |
+| 40/50 · 50/65 | two sizes | 50 · 65 |
+| 20/25 NB · 15/20 · 17/32 · 8/7 | two sizes | 25 · 20 · 32 · 8 |
+| 1"/2" · 1 inch / 2 inch | two inch sizes (Q11) | 2" |
+| 4/3" | two inch sizes (the unit is written once) | 4" |
+| 25/32/40 · 19/ 25 / 32 mm · 40 / 50 / 65 · 1"/2"/4" | several sizes | 40 · 32 · 65 · 4" |
+| 63/64 | two sizes (top above 16) | 64 — above copper's largest, refuses by name |
+| 7/8 · 15/16 · 1-1/4 · 1 1/4 · 3/4 · 5/8" · 1/2 · 3/4 inch · 1¼ | inch fraction | inches x 25.4 |
+| 3/2 · 16/32 | inch fraction by the rule as ruled (top 16 or less, bottom in the list) | 1.5" · 0.5" |
+| 3/4" / 1" · 25 x 3 / 32 x 3 | not ruled | still refuses "- pick one" |
+
+### Tests
+
+- New `slice12e3b.test.ts`: 82 tests. `ruleReachability.test.ts` +10 cases. `test_piping_v34.py` +1 (25).
+- Vacuity: 18 frontend mechanisms, each red when disabled (1 to 20 failures), 82 / 82 before and after, files restored
+  byte-identical; Python: the loader's call disabled -> test_21 red, restored byte-identical.
+- Targeted set before the code commit: `src/pages/boq-wizard` + `src/pages/pricing`, 97 files / 4,556 (the first run had
+  one 5 s timeout under load in `plainEnglish.test.ts`; the file alone and the re-run passed).
+- Full frontend suite after the code commit: 168 files / 6,436, 1 failed = the known `writeOffControl` timeout
+  (before, 12e-3a's log: 167 / 6,344 / 1). Python full suite not run: `loader.py` did not change.
+- `tsc`: 3,170 errors, the same as 12e-3a's log by file and message; the three known `familyControl` errors present.
+
+### Browser cert (2026-10-12, Calculator and Rate Master, no write)
+
+De-stale in full (nothing was serving after the container restart; ports free; pycache 27 -> 0; bench ping after 192 s;
+vite after 29 s). PROOF 1: the served transformed modules carry `function severalSizesPick`, `function isInchFraction`,
+`function needPersonSentence`, `HYPHEN_TAG`, `UNIT_SPELLINGS`, `item-section-family-picker`. PROOF 2: a runtime import
+in the page returned "You typed 6 Nm -> priced as 8 Nm (next size up)" and "1 of 1 item needs a person ...".
+
+- **C1** Copper 5/8", Insulated Yes: the heading and the two materials, nothing picked, no "not mentioned" line, "1 of 2
+  items need a person"; Nitrile / 26G / 13 -> **324 / 224**, total **1622 / 444**.
+- **C2** "+ Add insulation" opens the same two materials; Calculator -> Insulation: "+ Add item", six kinds, unchanged.
+- **C3** MS "25/32": "You typed 25/32: states two sizes (25 / 32) - the higher, 32, is taken", **600 / 175** = MS 32;
+  the section's pipe size 32, "from pipe".
+- **C4** "25/32/40" -> the "several sizes ... highest, 40" line, 720 / 210 = MS 40; `1"/2"` -> 2", 984 / 280; Copper
+  15/16" -> 23.8125 mm -> 25.4 (next size up), 2243 / 220.
+- **C5** fire damper, UL yes, 600 x 600: "UL stated, so the UL 555 SKU is used", **7830 / 692**; actuator, torque 6,
+  UL yes: "6 Nm is not stocked with UL listed yes -> priced as 8 Nm (next size up)", 23,925 / 800.
+- **C6** fire damper per number, no size: Variant "without sleeve" and UL listed "no", amber, with their rules.
+- **C7** MS 100 + Insulated Yes: "1 of 2 items need a person ..."; MS 350 alone: "1 of 1 item needs a person ...".
+- **C8** Rate Master -> HVAC -> Piping -> Derivation: 18 lines, 15 to 18 the section's.
+- **C9** Insulation 556 / 224 / 780; ADP 7830 / 692.
+- **C10** HVAC 379 / 10 == v37, Electrical 1,402 / 13 == v66, 0 differing, content checksums unchanged from 12e-3a.
+
+### Findings (reported, not repaired)
+
+1. In a calculator section, as in Calculator -> Insulation, Cladding has no default after the material is picked.
+2. A list that holds an inch fraction (`3/4" / 1"`) is not ruled and still refuses "- pick one".
+3. By the rule as ruled, "3/2" and "16/32" read as inch fractions (1.5", 0.5").
+4. An Insulation working line shows an attribute id: "thickness_mm not mentioned -> 9 (...)" (predates this slice).
+5. The single-config load path still does not call the cross-category check; no HVAC asset file takes that path.
+6. The grammar line is in `RateHelperPanel.tsx`, which the prompt scoped "D1b only"; changed there because AC8 names it.
+7. 12e-3a findings 1 (an independent section's mirrored-only size blanks when its pipe is removed) and 3 ("Cladding Only"
+   passes the cross-category check) stand.

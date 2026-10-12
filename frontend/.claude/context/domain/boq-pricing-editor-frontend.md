@@ -452,6 +452,16 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
   `dropSection` when it closes. `view.editState` is what every operation must be applied to: it holds the open
   sections' edits materialised. A config that declares no section has no `sections` key anywhere in its view and
   renders exactly as before -- the "+ Add item" button's markup included.
+- **A section open with nothing picked is drawn from the view, and the row-total sentence is built in one place
+  (12e-3b, owner D1b; full text in root `.claude/context/domain/boq-rate-master.md` § Load-bearing invariants).** A
+  `SectionBlockView` whose `view.pickFamily` is true has no items: `ItemListBlocks` draws its heading and
+  `view.families` as buttons (`data-testid="item-section-family-picker"`, no Cancel -- the toggle closes the section),
+  and a pick sends the section's own `{op: "change_family", index: 0, family}`. The other empty-section frame (a
+  category whose rules are not loaded) is the same test with `!view.pickFamily`. The helper decides which, never the
+  panel: `pickFamily` is set only in the calculator. The "n of m items need a person" sentence is
+  `pricingSheetHelper.needPersonSentence(bad, lines)` ("1 of 1 item needs", "1 of 2 items need"); the panel calls it and
+  builds no sentence of its own. Every line the panel shows has passed `plainPricerText`, so it carries no rule tag
+  and reads "Nm".
 - **A two-way field always offers both values; a ladder pick ladders; an unstocked pair refuses by name (12e-2b,
   owner 2026-10-10; full text in root `.claude/context/domain/boq-rate-master.md` § Load-bearing invariants, beside
   S1).** Owner: *"for attributes whose options are yes/no, with/without type both values must be shown in the

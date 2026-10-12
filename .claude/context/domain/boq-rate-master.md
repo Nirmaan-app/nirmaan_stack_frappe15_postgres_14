@@ -917,6 +917,31 @@ field, the mirrored field's lead excepted by name. ⚠️ **A helper that cannot
 the section** ("Insulation cannot be priced here - its rules are not loaded; price it by hand") -- it never prices it
 by any other rules.
 
+**IN THE CALCULATOR A SECTION OPENS WITH NO MATERIAL PICKED; ON A BoQ ROW THE DELEGATED CATEGORY'S DEFAULT STAYS
+(owner D1b, 2026-10-12 "option a"; slice 12e-3b).** A section the toggle opens used to be handed to the delegated
+category with no family, so its "not mentioned" rule priced it as its default material with a "not mentioned" line --
+on a screen that has no BoQ. In the calculator (the helper's one test for it: no row supplies the unit) such a
+section is returned as `pickFamily: true`: the heading, the kinds the section offers, "Choose the insulation
+material", no items, not priced -- the same list "+ Add insulation" opens. A pick is the section's own
+`change_family`, after which every field behaves as the delegated category's own calculator does. On a BoQ row --
+model-read or opened by the pricer -- the delegated category's default is unchanged (Nitrile, amber, its own line).
+
+**NO RULE TAG REACHES A PRICER'S SCREEN, AND A UNIT KEY READS AS THE UNIT (block 38; owner Q13; "Strip them too",
+2026-10-12; slice 12e-3b).** `plainEnglish.plainSentence` drops a tag written with hyphens -- "(R-M-b)", "(R-M-c)" in
+config, "(A-4)", "(A-5)" written by the pricer's own code -- beside the numbered ones it always dropped
+(`HYPHEN_TAG`: one capital of R / A / D / T / S / Q, then one or two hyphenated parts of at most two characters, so
+"(UL-555)" and "(M-10)" are kept). `plainPricerText` then gives a number followed by an all-lower-case unit its
+standard spelling from `UNIT_SPELLINGS` ("6 nm" -> "6 Nm"); the table names units, never a category, and a unit the
+BoQ wrote in its own capitals is kept. ⚠️ Both live at the VIEW boundary only: the config keeps its tags and its
+`unit: "nm"`, and the pure pricer's working keeps them, so a test of `priceItemList` still reads "(R-M-b)".
+
+**A PER-NUMBER ROW WAITING FOR ITS SIZE SHOWS THE KIND'S RULED DEFAULTS (owner Q12 "option a"; "Accept the 7 rows",
+2026-10-12; slice 12e-3b).** Where a kind is priced per number through a conversion and the fact that picks the
+conversion is missing, the refusal carries the ruled defaults of the kind's OWN needs (never a conversion's), so the
+fields show them amber exactly as the same kind shows them on a row priced in its own unit. General by construction:
+fire damper (Variant, UL listed), slot diffuser (Damper), mixing box (Insulated). No figure and no refusal sentence
+changes.
+
 **THE SECTION DECLARATION IS CHECKED IN TWO HALVES, AND THE CROSS-CATEGORY HALF RUNS AT EVERY WRITE (12e-3a, owner
 2026-10-11: "Add loader.py to scope"; the config editor's save also runs it).** `_validate_list_sections` (inside
 `_validate_config`, so import AND editor) checks the shape: closed key lists, exactly one own section, a two-value
@@ -1195,12 +1220,21 @@ DECLARATION of what the ladder has always done, which is what lets the line say 
 Insulation and ADP declare none of the four, and `resolveSize` itself never reads `near`, so their every hop and
 line is byte-identical. A value the PRICER types on a `typed_entry: "one_size"` axis must be ONE size (a number
 in mm, or an inch form whose fraction has a power-of-two denominator); "40/50" and "two inch" refuse with one
-message. ⚠️ **A SLASH ON THIS AXIS IS AN INCH FRACTION ONLY WHEN IT CAN BE ONE (12e-2b, the 12e-2 cert's finding
-7):** denominator 2, 4, 8, 16, 32 or 64 with a smaller numerator, with or without a whole number (7/8, 1-1/4, 1 1/4);
-anything else with a slash ("40/50", "50/65") states several sizes and refuses "pipe size states two sizes (40 / 50) -
-pick one" on the MODEL path and the typed path alike (`itemListPricing.slashSizes`) -- a model-read "40/50" used to
-read as 0.8 of an inch and price a 25 mm pipe. The test is confined by the same `typed_entry` key, so Insulation's
-pipe-size reader, which shares `readNumber`, is byte-identical. A family answer written as the BoQ writes it is
+message. ⚠️ **TWO OR MORE SIZES ON THIS AXIS PRICE THE HIGHER, AND A SLASH IS AN INCH FRACTION ONLY BY THE RULED TEST
+(owner 2026-10-11, slice 12e-3b; REPLACES 12e-2b's "40/50 refuses").** Owner: *"its two sizes in such case if the
+model can determine the specific size for the row use it else use the higher size. like what we did for insulation"*;
+*"Highest of any list"*. An inch fraction is a top number of 16 or less over 2, 4, 8, 16, 32 or 64, with or without a
+whole number (7/8, 15/16, 1-1/4, 1 1/4) -- `itemListPricing.isInchFraction`; a top number carrying its own inch mark
+is a size, so `1"/2"` is a pair. Any other slash list states sizes: a pair prices the higher ("25/32" -> 32, where it
+used to read as 25/32 of an inch), three or more the highest, on the MODEL path and the typed path alike, with the
+line "pipe size states two sizes (25 / 32) - the higher, 32, is taken" in the working and "You typed / BoQ says 25/32:
+states two sizes ..." under the field (`slashSizes`, `severalSizesPick`, `severalSizesTaken`, `LadderHop.several`). The
+parts are compared as the reader reads them, so an inch size and an mm size compare in mm; a unit written once at the
+end is the unit of the bare parts before it. ⚠️ NOT RULED, SO NOT GUESSED: a list holding an inch fraction
+(`3/4" / 1"`) and a part that is not one size keep the "- pick one" refusal. The model's own choice of a row's size is
+whatever it returns as ONE size (12e-4 writes that instruction). The delegated section mirrors the read that LANDED, so
+it takes the taken size (owner D3b). The test is confined by the same `typed_entry` key, so Insulation's pipe-size
+reader, which shares `readNumber`, is byte-identical -- it still reads "25/32" as an inch fraction. A family answer written as the BoQ writes it is
 read by ONE reader (`family_text`: GI -> MS, uPVC / HDPE -> PVC with the line, SS refuses with its sentence, any
 other spelling refuses by name), shared by the calculator's typed "Other..." pipe type and the 12e-4 model path.
 
