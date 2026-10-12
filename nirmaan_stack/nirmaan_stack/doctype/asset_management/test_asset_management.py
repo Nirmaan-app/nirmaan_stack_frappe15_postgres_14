@@ -21,6 +21,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.assets.assign import assign_asset
 from nirmaan_stack.api.users import create_user
+from nirmaan_stack.patches.v3_0.remove_leftover_asset_assignments import find_leftovers, remove_leftover
 
 CATEGORY_PREFIX = "ZZD"
 HR = "Nirmaan HR Executive Profile"
@@ -279,6 +280,33 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
         self.assertIsNotNone(moved, "the declaration file was deleted with the assignment")
         self.assertEqual((moved.attached_to_doctype, moved.attached_to_name), ("Asset Master", self.asset))
 
+    def test_the_person_on_an_assignment_cannot_be_changed(self):
+        """Desk / API: handing the asset over by editing the row would skip every rule and the history."""
+        assignment = self._assign(self.pm)
+        history_before = len(self._history())
+        assignment.asset_assigned_to = self.accountant
+        with self.assertRaisesRegex(frappe.ValidationError, "unassign it first"):
+            assignment.save(ignore_permissions=True)
+        self.assertEqual(self._asset("current_assignee"), self.pm)
+        self.assertEqual(len(self._history()), history_before)
+
+    def test_the_asset_on_an_assignment_cannot_be_changed(self):
+        assignment = self._assign(self.pm)
+        assignment.asset = self._new_asset("Projects")
+        with self.assertRaisesRegex(frappe.ValidationError, "can't be changed"):
+            assignment.save(ignore_permissions=True)
+
+    def test_unassign_clears_the_holder_project_city_and_state(self):
+        """What the Unassign buttons rely on: deleting the holder's row is the whole unassign."""
+        assignment = self._assign(self.pm)
+        frappe.db.set_value(
+            "Asset Master", self.asset, {"project": "ZZD fake project", "asset_city": "Pune", "asset_state": "MH"}
+        )
+        frappe.delete_doc("Asset Management", assignment.name, ignore_permissions=True, delete_permanently=True)
+        self.assertEqual(
+            [self._asset(f) for f in ("current_assignee", "project", "asset_city", "asset_state")], [None] * 4
+        )
+
     def test_removing_an_old_duplicate_keeps_the_real_holder(self):
         stale = self._assign(self.pm)
         # An older duplicate, as ASSET-LAP-029 has today: inserted raw, past the one-holder rule.
@@ -293,6 +321,83 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
         frappe.delete_doc("Asset Management", stale.name, ignore_permissions=True, delete_permanently=True)
         self.assertEqual(self._asset("current_assignee"), self.no_dept)
 
+    def test_assign_and_unassign_tell_open_asset_pages(self):
+        def asset_updates(publish):
+            return [
+                c for c in publish.call_args_list
+                if c.args[0] == "doc_update" and c.kwargs.get("doctype") == "Asset Master"
+                and c.kwargs.get("docname") == self.asset
+            ]
+
+        with patch("frappe.publish_realtime") as publish:
+            assignment = self._assign(self.pm)
+            self.assertTrue(asset_updates(publish), "Assign sent no update for the asset")
+            publish.reset_mock()
+            frappe.delete_doc("Asset Management", assignment.name, ignore_permissions=True, delete_permanently=True)
+            self.assertTrue(asset_updates(publish), "Unassign sent no update for the asset")
+
+    # -- leftover assignment rows (ASSET-LAP-029) -----------------------------------------------
+
+    def _leftover(self, person, asset=None):
+        """An old row nobody removed, inserted raw past the rules, as ASSET-LAP-029 has today."""
+        row = frappe.new_doc("Asset Management")
+        row.update({
+            "name": f"zzd-left-{frappe.generate_hash(length=8)}", "asset": asset or self.asset,
+            "asset_assigned_to": person, "asset_assigned_on": "2025-01-01",
+        })
+        row.db_insert()
+        return row.name
+
+    def test_leftover_row_does_not_block_a_free_asset(self):
+        self._leftover(self.no_dept)
+        self._assign(self.pm)
+        self.assertEqual(self._asset("current_assignee"), self.pm)
+
+    def test_the_current_holder_still_blocks_with_a_leftover_present(self):
+        self._assign(self.pm)
+        self._leftover(self.no_dept)
+        with self.assertRaisesRegex(frappe.ValidationError, "already assigned to ZZD pm"):
+            self._assign(self.accountant)
+
+    def test_cleanup_removes_only_the_leftover_and_keeps_its_file(self):
+        holder_row = self._assign(self.pm).name
+        leftover = self._leftover(self.no_dept)
+        url = FAKE_FILE_URL.format("leftover", "leftover")
+        file_doc = frappe.new_doc("File")
+        file_doc.update({
+            "name": f"zzd-file-{frappe.generate_hash(length=8)}", "file_name": "leftover.pdf", "file_url": url,
+            "is_private": 1, "attached_to_doctype": "Asset Management", "attached_to_name": leftover,
+        })
+        file_doc.db_insert()
+        history_before = len(self._history())
+
+        leftovers, _, _ = find_leftovers()
+        mine = [row for row in leftovers if row.asset == self.asset]
+        self.assertEqual([row.name for row in mine], [leftover])
+        remove_leftover(mine[0])
+
+        self.assertFalse(frappe.db.exists("Asset Management", leftover))
+        self.assertTrue(frappe.db.exists("Asset Management", holder_row))
+        self.assertEqual(self._asset("current_assignee"), self.pm)
+        self.assertEqual(len(self._history()), history_before)  # setup, not an event: no history row
+        moved = frappe.db.get_value("File", file_doc.name, ["attached_to_doctype", "attached_to_name"], as_dict=True)
+        self.assertEqual((moved.attached_to_doctype, moved.attached_to_name), ("Asset Master", self.asset))
+
+    def test_cleanup_removes_a_row_on_a_free_asset(self):
+        # localhost today: Bhavani unassigned, Sharook's leftover still on the free asset
+        row = self._leftover(self.no_dept)
+        leftovers, unclear_rows, _ = find_leftovers()
+        self.assertIn(row, [r.name for r in leftovers])
+        self.assertNotIn(row, [r.name for r in unclear_rows])
+
+    def test_cleanup_only_reports_a_row_when_the_holder_has_none(self):
+        frappe.db.set_value("Asset Master", self.asset, "current_assignee", self.pm)  # a holder with no row
+        row = self._leftover(self.no_dept)
+        leftovers, unclear_rows, holders_without_row = find_leftovers()
+        self.assertNotIn(row, [r.name for r in leftovers])
+        self.assertIn(row, [r.name for r in unclear_rows])
+        self.assertIn(self.asset, [h.asset for h in holders_without_row])
+
     # -- editing the asset's department ---------------------------------------------------------
 
     def test_never_assigned_asset_department_can_be_fixed_in_edit(self):
@@ -301,6 +406,14 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
         doc.save(ignore_permissions=True)
         row = self._history()[-1]
         self.assertEqual((row.event, row.from_department, row.to_department), ("Department Set", "Projects", "Design"))
+
+    def test_edit_cannot_clear_the_department(self):
+        """Even on a never-assigned asset: every asset belongs to a department, as Add Asset requires."""
+        doc = frappe.get_doc("Asset Master", self.asset)
+        doc.department = None
+        with self.assertRaisesRegex(frappe.ValidationError, "must belong to a department"):
+            doc.save(ignore_permissions=True)
+        self.assertEqual(self._asset("department"), "Projects")
 
     def test_assigned_asset_department_cannot_be_moved_in_edit(self):
         self._assign(self.pm)
@@ -356,6 +469,16 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
         doc.department = "Accounts"
         doc.save(ignore_permissions=True)
         self.assertEqual(frappe.db.get_value("Nirmaan Users", person, "department"), "Accounts")
+
+    def test_a_persons_department_can_be_changed_but_not_removed(self):
+        person = _make_person("keep", PM, "Projects")
+        self.people.append(person)
+        frappe.set_user(self.hr)
+        doc = frappe.get_doc("Nirmaan Users", person)
+        doc.department = None
+        with self.assertRaisesRegex(frappe.ValidationError, "can't be removed"):
+            doc.save(ignore_permissions=True)
+        self.assertEqual(frappe.db.get_value("Nirmaan Users", person, "department"), "Projects")
 
     def test_first_department_fills_held_assets_and_a_later_change_moves_nothing(self):
         person = _make_person("holder", PM)
@@ -418,6 +541,14 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
                 "doctype": "Asset Master", "asset_name": "Unknown dept", "asset_category": self.category,
                 "department": "No Such Department",
             }).insert(ignore_permissions=True)
+
+    def test_a_typed_department_name_is_tidied_before_it_names_the_record(self):
+        tag = frappe.generate_hash(length=6)
+        doc = frappe.get_doc(
+            {"doctype": "Nirmaan Department", "department_name": f"  ZZD  Spaced   {tag} "}
+        ).insert(ignore_permissions=True)
+        self.departments.append(doc.name)
+        self.assertEqual((doc.name, doc.department_name), (f"ZZD Spaced {tag}", f"ZZD Spaced {tag}"))
 
     def test_only_admin_and_hr_manage_the_department_list(self):
         name = f"ZZD New {frappe.generate_hash(length=6)}"

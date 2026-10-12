@@ -1,9 +1,12 @@
 """Asset departments -- the rules, pure, no database.
 
 Every asset belongs to one department (`Asset Master.department`) and every person has one
-(`Nirmaan Users.department`). There is no fixed list in code (owner, 2026-10-12): the departments are
-whatever people's records hold, and HR adds a new one by giving it to a person. Assigning an asset to
-someone in another department moves the asset there, and the assigner must say why.
+(`Nirmaan Users.department`). Both are Links to `Nirmaan Department`, the list Admin and HR keep in
+Assets -> Departments (add, rename, switch off). Assigning an asset to someone in another department
+moves the asset there, and the assigner must say why.
+
+Because the values are record names, they are compared exactly: "Projects" and "projects" would be two
+different records (the Departments tab refuses such near-duplicates when they are typed).
 
 The assignment validate and hooks load the records and ask this module what to do; keeping the rules
 here gives them one home and makes them testable without a site. The frontend mirrors
@@ -14,15 +17,12 @@ MIN_REASON_LENGTH = 10
 
 
 def normalize_department(value: str | None) -> str | None:
-    """Trim a typed department and collapse repeated spaces; an empty one becomes None."""
+    """Tidy a typed department name (a new Nirmaan Department): trim it and collapse repeated spaces.
+
+    An empty one becomes None.
+    """
     cleaned = " ".join((value or "").split())
     return cleaned or None
-
-
-def same_department(a: str | None, b: str | None) -> bool:
-    """Departments match regardless of capitals and stray spaces ("projects " is "Projects")."""
-    a, b = normalize_department(a), normalize_department(b)
-    return (a or "").casefold() == (b or "").casefold()
 
 
 def department_move(asset_department: str | None, person_department: str | None) -> tuple[str | None, str] | None:
@@ -32,10 +32,9 @@ def department_move(asset_department: str | None, person_department: str | None)
     otherwise (from_department, to_department). `from_department` is None when the asset had no
     department -- the first assignment simply gives it one.
     """
-    person_department = normalize_department(person_department)
-    if not person_department or same_department(asset_department, person_department):
+    if not person_department or person_department == asset_department:
         return None
-    return (normalize_department(asset_department), person_department)
+    return (asset_department or None, person_department)
 
 
 def needs_reason(move: tuple[str | None, str] | None) -> bool:
@@ -62,4 +61,4 @@ def can_edit_asset_department(old_department: str | None, has_been_assigned: boo
     Once an asset has been assigned, its department moves only through an assignment with a reason,
     so every real move is in its history.
     """
-    return not normalize_department(old_department) or not has_been_assigned
+    return not (old_department or "").strip() or not has_been_assigned

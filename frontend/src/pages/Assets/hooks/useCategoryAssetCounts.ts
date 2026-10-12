@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useFrappeGetDocList } from 'frappe-react-sdk';
 
-import { ASSET_MASTER_DOCTYPE } from '../assets.constants';
+import { ASSET_CACHE_KEYS, ASSET_MASTER_DOCTYPE } from '../assets.constants';
 
 interface CategoryCountRow {
     asset_category: string;
@@ -36,7 +36,7 @@ export function useCategoryAssetCounts(enabled = true) {
             groupBy: 'asset_category',
             limit: 0,
         },
-        enabled ? 'asset_counts_by_category' : null
+        enabled ? ASSET_CACHE_KEYS.CATEGORY_ASSET_COUNTS : null
     );
     const { data: assigned, isLoading: assignedLoading } = useFrappeGetDocList<CategoryCountRow>(
         ASSET_MASTER_DOCTYPE,
@@ -48,7 +48,7 @@ export function useCategoryAssetCounts(enabled = true) {
             groupBy: 'asset_category',
             limit: 0,
         },
-        enabled ? 'assigned_asset_counts_by_category' : null
+        enabled ? ASSET_CACHE_KEYS.CATEGORY_ASSIGNED_COUNTS : null
     );
 
     return useMemo(() => {

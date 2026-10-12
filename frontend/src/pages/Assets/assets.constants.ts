@@ -122,6 +122,10 @@ export const ASSET_CACHE_KEYS = {
     IT_UNASSIGNED_ASSETS_COUNT: `${ASSET_MASTER_DOCTYPE}_unassigned_summary_it`,
     IT_PENDING_DECLARATION_COUNT: `${ASSET_MANAGEMENT_DOCTYPE}_pending_summary_it`,
 
+    // Per-category counts: all assets, and the ones someone holds (useCategoryAssetCounts)
+    CATEGORY_ASSET_COUNTS: 'asset_counts_by_category',
+    CATEGORY_ASSIGNED_COUNTS: 'assigned_asset_counts_by_category',
+
     // Category dropdowns (shared across all dialogs)
     CATEGORIES_DROPDOWN: `${ASSET_CATEGORY_DOCTYPE}_dropdown`,
 

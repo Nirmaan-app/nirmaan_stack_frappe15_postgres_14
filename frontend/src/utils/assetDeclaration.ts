@@ -28,3 +28,24 @@ export function canSignDeclaration({
   if (!viewerId || !assignedTo) return false;
   return viewerId === assignedTo && currentAssignee === assignedTo && !declaration;
 }
+
+/**
+ * How many of a person's assignments they can sign now -- the sidebar badge. Same rule as the Sign
+ * button, so a leftover row for an asset someone else now holds is never counted.
+ *
+ * @param heldAssets the assets whose `current_assignee` is `viewerId`.
+ */
+export function countDeclarationsToSign(
+  viewerId: string | null | undefined,
+  assignments: ReadonlyArray<{ asset: string; asset_assigned_to: string; asset_declaration_attachment: string | null }>,
+  heldAssets: ReadonlySet<string>
+): number {
+  return assignments.filter((assignment) =>
+    canSignDeclaration({
+      viewerId,
+      assignedTo: assignment.asset_assigned_to,
+      currentAssignee: heldAssets.has(assignment.asset) ? viewerId : undefined,
+      declaration: assignment.asset_declaration_attachment,
+    })
+  ).length;
+}

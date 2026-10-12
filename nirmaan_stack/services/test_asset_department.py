@@ -1,6 +1,6 @@
 """Pure tests for the asset department rules (`services/asset_department.py`).
 
-There is no fixed department list (owner, 2026-10-12): departments are whatever people's records hold.
+Departments are Nirmaan Department records (Links), so moves compare the names exactly.
 
 Run: bench --site localhost run-tests --module nirmaan_stack.services.test_asset_department
 """
@@ -14,7 +14,6 @@ from nirmaan_stack.services.asset_department import (
     needs_reason,
     normalize_department,
     reason_refusal,
-    same_department,
 )
 
 
@@ -26,16 +25,14 @@ class TestNormalize(FrappeTestCase):
         self.assertIsNone(normalize_department("   "))
         self.assertIsNone(normalize_department(None))
 
-    def test_capitals_and_spaces_do_not_make_a_new_department(self):
-        self.assertTrue(same_department("projects ", "Projects"))
-        self.assertFalse(same_department("Projects", "Accounts"))
-        self.assertTrue(same_department(None, ""))
-
 
 class TestDepartmentMove(FrappeTestCase):
     def test_same_department_does_not_move(self):
         self.assertIsNone(department_move("Projects", "Projects"))
-        self.assertIsNone(department_move("Projects", " projects "))
+
+    def test_names_are_compared_exactly(self):
+        # Link values are record names; a different spelling would be a different record
+        self.assertEqual(department_move("Projects", "projects"), ("Projects", "projects"))
 
     def test_person_without_department_does_not_move_the_asset(self):
         self.assertIsNone(department_move("Projects", None))

@@ -7,7 +7,6 @@ import {
     useFrappeFileUpload,
     useFrappeDocumentEventListener,
 } from 'frappe-react-sdk';
-import { useSWRConfig } from 'swr';
 import ReactSelect from 'react-select';
 import { TailSpin } from 'react-loader-spinner';
 
@@ -161,7 +160,6 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const { toast } = useToast();
     const userData = useUserData();
     const refreshUserAssignments = useRefreshUserAssignments();
-    const { mutate: globalMutate } = useSWRConfig();
 
     // Dialog states
     const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -254,19 +252,22 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         `${ASSET_MASTER_DOCTYPE}_${assetId}`
     );
 
-    // Fetch current assignment - uses shared cache key for cross-component invalidation
+    // Fetch the asset's assignment rows - uses shared cache key for cross-component invalidation.
+    // Normally one; an old leftover row can sit beside it (ASSET-LAP-029 had one).
     const { data: assignments, mutate: mutateAssignments } = useFrappeGetDocList<AssetAssignment>(
         ASSET_MANAGEMENT_DOCTYPE,
         {
             fields: ['name', 'asset', 'asset_assigned_to', 'asset_assigned_on', 'asset_declaration_attachment'],
             filters: [['asset', '=', assetId]],
             orderBy: { field: 'asset_assigned_on', order: 'desc' },
-            limit: 1,
+            limit: 0,
         },
         asset?.current_assignee ? ASSET_CACHE_KEYS.assetManagement(assetId) : null
     );
 
-    const currentAssignment = assignments?.[0];
+    // The holder's row, never the newest-dated one: with a leftover row, "newest" can be someone else's,
+    // and the declaration status, Sign, Upload and Unassign would then act on that person's row.
+    const currentAssignment = assignments?.find((row) => row.asset_assigned_to === asset?.current_assignee);
 
     // Fetch assignee user details
     const { data: assigneeUser } = useFrappeGetDoc<NirmaanUser>(
@@ -402,6 +403,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     // Real-time updates
     useFrappeDocumentEventListener(ASSET_MASTER_DOCTYPE, assetId, () => {
         mutate();
+        mutateAssignments();
     });
 
     // Initialize edit form when asset data loads
@@ -562,10 +564,8 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
             mutate();
             // Refresh assignment data using hook's mutate function
             mutateAssignments();
-            // Also refresh via global mutate for cross-component updates
-            globalMutate(ASSET_CACHE_KEYS.assetManagement(assetId), undefined, { revalidate: true });
             // Refresh summary counts (pending declaration count)
-            globalMutate(ASSET_CACHE_KEYS.PENDING_DECLARATION_COUNT, undefined, { revalidate: true });
+            refreshSummaryCards();
         } catch (err: any) {
             console.error('Failed to upload declaration:', err);
             toast({

@@ -6,13 +6,16 @@ assignment's `asset_declaration_attachment`, the same field HR's scanned upload 
 
 The employee has only read access to Asset Management, so the checks here are the authorisation: the
 signer must be the assignee, the row must not already have a declaration, and the asset's holder must match
-the assignment. They run again under a row lock after the PDF is rendered, because rendering ends the
-transaction and a second tab could have signed meanwhile.
+the assignment. They run again after the PDF is rendered, because rendering ends the transaction and a
+second tab could have signed meanwhile -- under a Redis lock held until the row is saved. A row lock
+(FOR UPDATE) can't cover that: the storage hook commits inside `save_file`, which releases it, so a
+second tab could pass the "not signed yet" check while the first one is still saving.
 """
 
 import frappe
 from frappe.utils import format_datetime, now_datetime
 from frappe.utils.file_manager import save_file
+from redis.exceptions import LockError
 
 from nirmaan_stack.services.asset_declaration import (
     NOT_ASSIGNEE,
@@ -27,6 +30,8 @@ ASSET_MASTER_DOCTYPE = "Asset Master"
 ASSET_MANAGEMENT_DOCTYPE = "Asset Management"
 DECLARATION_FORMAT = "Asset Master Form"
 DECLARATION_FIELD = "asset_declaration_attachment"
+SIGNING_LOCK_SECONDS = 120  # far longer than an upload + save; frees the lock if a worker dies mid-way
+SIGNING_IN_PROGRESS = "This declaration is being signed in another window. Reload the page in a moment."
 
 
 @frappe.whitelist(methods=["POST"])
@@ -67,14 +72,30 @@ def sign_declaration(assignment: str, signature: str) -> dict:
     # Rendering ends the open transaction, so it runs before anything is written.
     pdf = _render_declaration_pdf(asset)
 
-    row = frappe.get_doc(ASSET_MANAGEMENT_DOCTYPE, assignment, for_update=True)
-    _assert_can_sign(row)
+    lock = signing_lock(assignment)
+    if not lock.acquire(blocking=False):
+        frappe.throw(SIGNING_IN_PROGRESS)
+    try:
+        row = frappe.get_doc(ASSET_MANAGEMENT_DOCTYPE, assignment, for_update=True)
+        _assert_can_sign(row)
 
-    row.set(DECLARATION_FIELD, _save_declaration_file(row, pdf))
-    row.flags.e_signed = True  # the history row reads "Declaration Signed", not "Uploaded"
-    row.save(ignore_permissions=True)
-    frappe.db.commit()
+        row.set(DECLARATION_FIELD, _save_declaration_file(row, pdf))
+        row.flags.e_signed = True  # the history row reads "Declaration Signed", not "Uploaded"
+        row.save(ignore_permissions=True)
+        frappe.db.commit()
+    finally:
+        try:
+            lock.release()
+        except LockError:
+            pass  # it expired first; the next signer re-checks the saved row anyway
     return {"file_url": row.get(DECLARATION_FIELD)}
+
+
+def signing_lock(assignment: str):
+    """The Redis lock that lets one signing of `assignment` run at a time, on this site."""
+    return frappe.cache.lock(
+        f"{frappe.local.site}:asset_declaration_signing:{assignment}", timeout=SIGNING_LOCK_SECONDS
+    )
 
 
 def _assert_can_sign(row) -> None:

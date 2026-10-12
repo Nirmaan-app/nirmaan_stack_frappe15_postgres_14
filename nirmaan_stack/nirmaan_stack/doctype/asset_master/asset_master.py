@@ -21,7 +21,8 @@ class AssetMaster(Document):
 		self.keep_history_unchanged()
 
 	def check_department(self):
-		"""A new asset needs a department; afterwards Edit may only fill or fix it (owner, 2026-10-12).
+		"""A new asset needs a department; afterwards Edit may only fill or fix it, never clear it
+		(owner, 2026-10-12).
 
 		Once the asset has been assigned, its department moves only through an assignment with a
 		reason (the Asset Management hook, which bypasses this validate), so every real move is in the
@@ -36,6 +37,8 @@ class AssetMaster(Document):
 		before = self.get_doc_before_save()
 		if not before or (before.department or None) == (self.department or None):
 			return
+		if not self.department:
+			frappe.throw("An asset must belong to a department. Choose another one instead of clearing it.")
 		assert_active_department(self.department)
 		has_been_assigned = bool(before.current_assignee) or any(
 			row.event == "Assigned" for row in before.get("asset_history")

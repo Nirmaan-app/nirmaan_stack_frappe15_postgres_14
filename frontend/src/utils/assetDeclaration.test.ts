@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { canSignDeclaration } from "./assetDeclaration";
+import { canSignDeclaration, countDeclarationsToSign } from "./assetDeclaration";
 
 const base = {
   viewerId: "kiran@nirmaan.app",
@@ -30,5 +30,31 @@ describe("canSignDeclaration", () => {
   it("hides Sign while the user or the assignment is still loading", () => {
     expect(canSignDeclaration({ ...base, viewerId: undefined })).toBe(false);
     expect(canSignDeclaration({ ...base, assignedTo: undefined, currentAssignee: undefined })).toBe(false);
+  });
+});
+
+describe("countDeclarationsToSign (the sidebar badge)", () => {
+  const me = "sharook@nirmaan.app";
+  const row = (asset: string, declaration: string | null = null) => ({
+    asset,
+    asset_assigned_to: me,
+    asset_declaration_attachment: declaration,
+  });
+
+  it("counts an unsigned asset I hold", () => {
+    expect(countDeclarationsToSign(me, [row("ASSET-1")], new Set(["ASSET-1"]))).toBe(1);
+  });
+
+  it("skips a leftover row for an asset someone else holds now (ASSET-LAP-029)", () => {
+    expect(countDeclarationsToSign(me, [row("ASSET-LAP-029")], new Set())).toBe(0);
+  });
+
+  it("skips one already signed or uploaded", () => {
+    expect(countDeclarationsToSign(me, [row("ASSET-1", "/files/signed.pdf")], new Set(["ASSET-1"]))).toBe(0);
+  });
+
+  it("counts only the signable ones among several", () => {
+    const rows = [row("ASSET-1"), row("ASSET-2"), row("ASSET-LAP-029"), row("ASSET-3", "/files/x.pdf")];
+    expect(countDeclarationsToSign(me, rows, new Set(["ASSET-1", "ASSET-2", "ASSET-3"]))).toBe(2);
   });
 });

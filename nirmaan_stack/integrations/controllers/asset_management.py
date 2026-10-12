@@ -55,6 +55,7 @@ def on_update(doc, method):
     if not doc.asset:
         return
     frappe.db.set_value(ASSET_MASTER_DOCTYPE, doc.asset, "current_assignee", doc.asset_assigned_to)
+    notify_asset_changed(doc.asset)  # runs on insert too, so it covers Assign as well
 
     if doc.flags.in_insert:
         return  # after_insert already recorded a declaration that came with the assignment
@@ -71,9 +72,7 @@ def on_trash(doc, method):
     """Unassign: record it, keep the declaration, and free the asset.
 
     Frappe deletes a record's attached files right after on_trash, which used to delete the signed
-    declaration with the assignment. Moving the files onto the asset first keeps them, and their URL
-    (the storage key) does not change, so the history's links keep working. `set_value` on File skips
-    File's hooks on purpose: only the attachment link changes, not the stored object.
+    declaration with the assignment; `move_files_to_asset` keeps them.
 
     The asset is freed only when it still names this person -- an older duplicate assignment being
     removed must not clear the real holder.
@@ -82,17 +81,8 @@ def on_trash(doc, method):
         return
 
     add_history(doc.asset, UNASSIGNED, assigned_to=doc.asset_assigned_to)
-
-    for file_name in frappe.get_all(
-        "File",
-        filters={"attached_to_doctype": ASSET_MANAGEMENT_DOCTYPE, "attached_to_name": doc.name},
-        pluck="name",
-    ):
-        frappe.db.set_value(
-            "File",
-            file_name,
-            {"attached_to_doctype": ASSET_MASTER_DOCTYPE, "attached_to_name": doc.asset, "attached_to_field": None},
-        )
+    move_files_to_asset(doc.name, doc.asset)
+    notify_asset_changed(doc.asset)
 
     if frappe.db.get_value(ASSET_MASTER_DOCTYPE, doc.asset, "current_assignee") == doc.asset_assigned_to:
         # asset_city / asset_state are fetched from `project`; set_value skips Asset Master's validate,
@@ -102,3 +92,41 @@ def on_trash(doc, method):
             doc.asset,
             {"current_assignee": None, "project": None, "asset_city": None, "asset_state": None},
         )
+
+
+def move_files_to_asset(assignment: str, asset: str) -> None:
+    """Re-attach the files of an assignment that is being removed (its declaration) to the asset.
+
+    Their URL (the storage key) does not change, so the history's links keep working. `set_value` on
+    File skips File's hooks on purpose: only the attachment link changes, not the stored object.
+    """
+    for file_name in frappe.get_all(
+        "File",
+        filters={"attached_to_doctype": ASSET_MANAGEMENT_DOCTYPE, "attached_to_name": assignment},
+        pluck="name",
+    ):
+        frappe.db.set_value(
+            "File",
+            file_name,
+            {"attached_to_doctype": ASSET_MASTER_DOCTYPE, "attached_to_name": asset, "attached_to_field": None},
+        )
+
+
+def notify_asset_changed(asset: str) -> None:
+    """Tell pages that have the asset open to reload it.
+
+    These hooks write Asset Master with `set_value` and add history rows directly, so none of the
+    realtime events a document save sends go out, and an asset page open in another tab would stay
+    stale. This is the event a save publishes (Document.notify_update), sent once the transaction commits.
+    """
+    frappe.publish_realtime(
+        "doc_update",
+        {
+            "doctype": ASSET_MASTER_DOCTYPE,
+            "name": asset,
+            "modified": frappe.db.get_value(ASSET_MASTER_DOCTYPE, asset, "modified"),
+        },
+        doctype=ASSET_MASTER_DOCTYPE,
+        docname=asset,
+        after_commit=True,
+    )

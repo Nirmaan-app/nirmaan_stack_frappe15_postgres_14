@@ -156,20 +156,22 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
         return map;
     }, [assignees]);
 
-    // Map asset to its latest assignment record and track declaration status
+    // Map each asset to its HOLDER's assignment record (not the newest one: an old leftover row can sit
+    // beside it) and track declaration status. Unassign deletes this row, and the server frees the
+    // asset and clears its project only when the row is the holder's.
     const { assignmentMap, declarationPendingMap } = useMemo(() => {
+        const holderOf = new Map(assetsWithAssignee.map((a) => [a.name, a.current_assignee]));
         const assignMap: Record<string, string> = {};
         const pendingMap: Record<string, boolean> = {};
-        // Group by asset and take the first (most recent due to ordering)
         assignments?.forEach((assignment) => {
-            if (!assignMap[assignment.asset]) {
+            if (assignment.asset_assigned_to === holderOf.get(assignment.asset)) {
                 assignMap[assignment.asset] = assignment.name;
                 // Declaration is pending if asset is assigned but has no declaration attachment
                 pendingMap[assignment.asset] = !assignment.asset_declaration_attachment;
             }
         });
         return { assignmentMap: assignMap, declarationPendingMap: pendingMap };
-    }, [assignments]);
+    }, [assignments, assetsWithAssignee]);
 
     // Apply search filter first so both section badges and rendered cards stay in
     // sync from one source of truth. Matches asset name, serial number, or the

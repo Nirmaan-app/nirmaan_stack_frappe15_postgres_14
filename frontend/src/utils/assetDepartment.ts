@@ -1,8 +1,9 @@
 // src/utils/assetDepartment.ts
 //
-// Department rules for the screens. Mirrors `normalize_department`, `same_department` and
-// `department_move` in `nirmaan_stack/services/asset_department.py`; the server re-checks before
-// saving, this copy only decides what the screens show (the reason box, the dropdown list).
+// Department rules for the screens. Mirrors `normalize_department` and `department_move` in
+// `nirmaan_stack/services/asset_department.py`; the server re-checks before saving, this copy only
+// decides what the screens show (the reason box, the dropdown list). Departments are Nirmaan
+// Department records, so a move compares the stored names exactly.
 
 export const MIN_DEPARTMENT_REASON_LENGTH = 10;
 
@@ -13,13 +14,16 @@ export interface DepartmentMove {
   to: string;
 }
 
-/** Trim a typed department and collapse repeated spaces; an empty one becomes null. */
+/** Tidy a typed department name: trim it and collapse repeated spaces; an empty one becomes null. */
 export function normalizeDepartment(value: string | null | undefined): string | null {
   const cleaned = (value ?? "").split(/\s+/).filter(Boolean).join(" ");
   return cleaned || null;
 }
 
-/** Departments match regardless of capitals and stray spaces ("projects " is "Projects"). */
+/**
+ * Two typed names that differ only in capitals or stray spaces ("projects " vs "Projects"). Used only
+ * to stop HR adding a near-duplicate department; stored departments are compared exactly.
+ */
 export function sameDepartment(a: string | null | undefined, b: string | null | undefined): boolean {
   return (normalizeDepartment(a) ?? "").toLowerCase() === (normalizeDepartment(b) ?? "").toLowerCase();
 }
@@ -32,9 +36,8 @@ export function departmentMove(
   assetDepartment: string | null | undefined,
   personDepartment: string | null | undefined
 ): DepartmentMove | null {
-  const to = normalizeDepartment(personDepartment);
-  if (!to || sameDepartment(assetDepartment, to)) return null;
-  return { from: normalizeDepartment(assetDepartment), to };
+  if (!personDepartment || personDepartment === assetDepartment) return null;
+  return { from: assetDepartment || null, to: personDepartment };
 }
 
 /** A reason is needed only to move an asset OUT of a department it already belongs to. */

@@ -41,10 +41,7 @@ import { canSignDeclaration } from "@/utils/assetDeclaration";
 import { AssignAssetToUserDialog } from "./AssignAssetToUserDialog";
 import { SignDeclarationDialog } from "@/pages/Assets/components/SignDeclarationDialog";
 import { getAssetPermissions } from "@/pages/Assets/utils/permissions";
-import {
-  ASSET_MASTER_DOCTYPE,
-  ASSET_MANAGEMENT_DOCTYPE,
-} from "@/pages/Assets/assets.constants";
+import { ASSET_MANAGEMENT_DOCTYPE } from "@/pages/Assets/assets.constants";
 
 // Types for asset data
 interface AssetManagementRecord {
@@ -318,12 +315,10 @@ export function UserAssetsTab({
 
     setIsUnassigning(true);
     try {
-      // Clear current_assignee in Asset Master
-      await updateDoc(ASSET_MASTER_DOCTYPE, selectedAssignment.asset, {
-        current_assignee: "",
-      });
-
-      // Delete the Asset Management record
+      // Deleting the assignment is the whole unassign: its on_trash hook writes the history row,
+      // keeps the declaration file, and frees the asset (holder, project, city, state) in one
+      // transaction. A leftover row for someone who no longer holds the asset is removed without
+      // touching the real holder.
       await deleteDoc(ASSET_MANAGEMENT_DOCTYPE, selectedAssignment.name);
 
       toast({

@@ -196,12 +196,16 @@ class TestSignDeclarationEndpoint(FrappeTestCase):
         self.assets.append(asset.name)
         self.asset = asset.name
         # The Asset Management after_insert hook makes the assignee the asset's holder.
-        self.row = frappe.get_doc({
+        row = frappe.get_doc({
             "doctype": "Asset Management",
             "asset": asset.name,
             "asset_assigned_to": self.assignee,
             "asset_assigned_on": frappe.utils.today(),
-        }).insert(ignore_permissions=True)
+        })
+        # The assignee is a live person in whatever department the site gives them; with a reason the
+        # asset may follow them there (it is dropped when nothing moves), so setUp works on any site.
+        row.flags.department_change_reason = "E-sign test: the asset follows its assignee"
+        self.row = row.insert(ignore_permissions=True)
         frappe.db.commit()
         self.url = _fake_cloud_url(self.row.name)
 
@@ -305,3 +309,17 @@ class TestSignDeclarationEndpoint(FrappeTestCase):
                 declaration.sign_declaration(self.row.name, _png_uri())
         frappe.set_user("Administrator")
         save.assert_not_called()
+
+    def test_signing_already_in_progress_is_refused(self):
+        """Another tab holds the signing lock (it is uploading): this one stops before saving anything."""
+        other_tab = declaration.signing_lock(self.row.name)
+        self.assertTrue(other_tab.acquire(blocking=False))
+        try:
+            with self.assertRaisesRegex(frappe.ValidationError, "being signed in another window"):
+                self._sign()
+        finally:
+            other_tab.release()
+        self.assertFalse(self._stored_declaration())
+
+        result, _, _ = self._sign()  # once the other tab is done, signing works again
+        self.assertEqual(result, {"file_url": self.url})

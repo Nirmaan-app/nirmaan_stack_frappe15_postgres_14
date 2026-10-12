@@ -1,8 +1,8 @@
 // src/constants/departments.ts
 //
-// Departments for people (`Nirmaan Users.department`) and assets (`Asset Master.department`).
-// There is no fixed list (owner, 2026-10-12): the departments are whatever people's and assets'
-// records hold (`useDepartmentOptions`), and HR adds a new one by giving it to someone.
+// Departments for people (`Nirmaan Users.department`) and assets (`Asset Master.department`): Links
+// to Nirmaan Department, the list Admin and HR keep in Assets -> Departments (add, rename, switch
+// off). The pickers offer the active ones (`useDepartmentOptions`).
 
 import { ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE } from "./roles";
 

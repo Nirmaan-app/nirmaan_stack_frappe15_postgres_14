@@ -21,7 +21,7 @@ describe("normalizeDepartment / sameDepartment", () => {
     expect(normalizeDepartment(undefined)).toBeNull();
   });
 
-  it("treats capitals and stray spaces as the same department", () => {
+  it("spots a near-duplicate typed name (capitals, stray spaces)", () => {
     expect(sameDepartment("projects ", "Projects")).toBe(true);
     expect(sameDepartment("Projects", "Accounts")).toBe(false);
   });
@@ -30,7 +30,10 @@ describe("normalizeDepartment / sameDepartment", () => {
 describe("departmentMove", () => {
   it("does not move within the same department", () => {
     expect(departmentMove("Projects", "Projects")).toBeNull();
-    expect(departmentMove("Projects", " projects ")).toBeNull();
+  });
+
+  it("compares the stored names exactly (a different spelling is a different record)", () => {
+    expect(departmentMove("Projects", "projects")).toEqual({ from: "Projects", to: "projects" });
   });
 
   it("leaves the asset where it is when the person has no department", () => {

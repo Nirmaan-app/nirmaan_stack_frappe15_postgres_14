@@ -23,6 +23,9 @@ class NirmaanUsers(Document):
 			return
 		if self.is_new() and not self.department:
 			return
+		if not self.department:
+			# A department is changed, never removed (owner, 2026-10-12) -- as for an asset.
+			frappe.throw("A person's department can't be removed. Choose another one instead.")
 		if not is_department_editor():
 			frappe.throw("Only Admin and HR can change a person's department.", frappe.PermissionError)
 		assert_active_department(self.department)

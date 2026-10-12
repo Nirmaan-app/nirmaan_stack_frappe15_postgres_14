@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useFrappeGetCall, useFrappeGetDocList } from 'frappe-react-sdk';
+import { useFrappeGetCall } from 'frappe-react-sdk';
 import ReactSelect from 'react-select';
 import { ChevronLeft, ChevronRight, ExternalLink, FilterX, Search } from 'lucide-react';
 
@@ -13,6 +13,7 @@ import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import { useDepartmentOptions } from '@/hooks/useDepartmentOptions';
 import { formatHistoryTime } from '@/utils/assetHistory';
 import { getFrappeError } from '@/utils/frappeErrors';
+import { useAssetHistoryPeople } from '../hooks/useAssetHistoryPeople';
 
 const PAGE_LENGTH = 50;
 
@@ -106,11 +107,7 @@ export const AssetHistoryList: React.FC = () => {
     const { departments } = useDepartmentOptions(true, { includeInactive: true });
     const departmentOptions = useMemo(() => departments.map((d) => ({ label: d, value: d })), [departments]);
 
-    const { data: users } = useFrappeGetDocList<{ name: string; full_name: string }>(
-        'Nirmaan Users',
-        { fields: ['name', 'full_name'], orderBy: { field: 'full_name', order: 'asc' }, limit: 0 },
-        'asset_history_user_names'
-    );
+    const { data: users } = useAssetHistoryPeople();
     const names = useMemo(() => new Map((users ?? []).map((u) => [u.name, u.full_name || u.name])), [users]);
     const nameOf = (id?: string | null) => (id ? names.get(id) ?? id : '—');
     const personOptions = useMemo(

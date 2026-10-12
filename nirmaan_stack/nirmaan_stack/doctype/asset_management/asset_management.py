@@ -12,17 +12,34 @@ class AssetManagement(Document):
 		if self.is_new():
 			self.check_not_already_assigned()
 			self.decide_department_move()
+		else:
+			self.keep_asset_and_person()
+
+	def keep_asset_and_person(self):
+		"""An assignment is for one asset and one person for its whole life.
+
+		The rules (one holder, the department move and its reason) and the "Assigned" history row run
+		only when an assignment is created, so changing the person or the asset on an existing one in
+		Desk or the API would hand the asset over with none of them -- and the new person would inherit
+		the old one's signed declaration. Giving the asset to someone else is Unassign, then Assign.
+		"""
+		before = self.get_doc_before_save()
+		if not before:
+			return
+		if before.asset != self.asset or before.asset_assigned_to != self.asset_assigned_to:
+			frappe.throw(
+				f"An assignment's asset and person can't be changed. To give {before.asset} to someone "
+				"else, unassign it first, then assign it."
+			)
 
 	def check_not_already_assigned(self):
-		"""One current assignment per asset.
+		"""One holder per asset: the asset's current holder decides, not any assignment row.
 
-		Locking the asset row first makes two people assigning the same asset at once take turns, so
-		the second one sees the first assignment and is refused.
+		Reading the holder with a row lock makes two people assigning the same asset at once take
+		turns, so the second one sees the holder the first one set and is refused. An old leftover row
+		for someone else (ASSET-LAP-029 had one) must not block a free asset, so the rows aren't asked.
 		"""
-		frappe.db.get_value("Asset Master", self.asset, "name", for_update=True)
-		holder = frappe.db.get_value(
-			"Asset Management", {"asset": self.asset, "name": ["!=", self.name]}, "asset_assigned_to"
-		)
+		holder = frappe.db.get_value("Asset Master", self.asset, "current_assignee", for_update=True)
 		if holder:
 			holder_name = frappe.db.get_value("Nirmaan Users", holder, "full_name") or holder
 			frappe.throw(f"{self.asset} is already assigned to {holder_name}. Unassign it first.")

@@ -50,18 +50,18 @@ export const UnassignAssetDialog: React.FC<UnassignAssetDialogProps> = ({
         setIsSubmitting(true);
 
         try {
-            // Clear the assignee AND the project this asset was assigned for.
-            // asset_city / asset_state are read-only fetch fields on `project`, and
-            // Frappe does not re-fetch when a link is cleared — the Asset Master
-            // validate hook blanks them whenever the project is empty.
-            await updateDoc(ASSET_MASTER_DOCTYPE, assetId, {
-                current_assignee: '',
-                project: '',
-            });
-
-            // Delete the Asset Management record if it exists
             if (assetManagementId) {
+                // Deleting the assignment is the whole unassign: its on_trash hook writes the history
+                // row, keeps the declaration file, and frees the asset (holder, project, city, state)
+                // in the same transaction.
                 await deleteDoc(ASSET_MANAGEMENT_DOCTYPE, assetManagementId);
+            } else {
+                // A holder with no assignment row: clear the holder and the project directly.
+                // asset_city / asset_state are blanked by Asset Master's validate when the project is empty.
+                await updateDoc(ASSET_MASTER_DOCTYPE, assetId, {
+                    current_assignee: '',
+                    project: '',
+                });
             }
 
             toast({

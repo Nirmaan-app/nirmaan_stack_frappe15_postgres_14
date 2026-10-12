@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { useFrappeGetDocList } from 'frappe-react-sdk';
 import { ArrowRightLeft, ExternalLink, FileCheck, History, PackagePlus, UserMinus, UserPlus } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { AssetHistoryRow, HistoryTone, describeHistory } from '@/utils/assetHistory';
+import { useAssetHistoryPeople } from '../hooks/useAssetHistoryPeople';
 
 const TONE_STYLE: Record<HistoryTone, { icon: React.ReactNode; dot: string }> = {
     added: { icon: <PackagePlus className="h-3.5 w-3.5" />, dot: 'bg-gray-100 text-gray-600' },
@@ -29,11 +29,7 @@ interface AssetHistoryCardProps {
 
 /** The asset's history -- every assignment, declaration and department change, newest first. */
 export const AssetHistoryCard: React.FC<AssetHistoryCardProps> = ({ rows }) => {
-    const { data: users } = useFrappeGetDocList<{ name: string; full_name: string }>(
-        'Nirmaan Users',
-        { fields: ['name', 'full_name'], limit: 0 },
-        'asset_history_user_names'
-    );
+    const { data: users } = useAssetHistoryPeople();
 
     const [filter, setFilter] = useState<HistoryTone | 'all'>('all');
 

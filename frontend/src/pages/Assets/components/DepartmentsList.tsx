@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { useFrappeCreateDoc, useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc, useSWRConfig } from 'frappe-react-sdk';
+import { useFrappeCreateDoc, useFrappeGetDocList, useFrappePostCall, useSWRConfig } from 'frappe-react-sdk';
 import { Building2, Pencil, Plus } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -14,7 +14,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/components/ui/use-toast';
 import { DEPARTMENT_LIST_KEYS } from '@/hooks/useDepartmentOptions';
 import { normalizeDepartment, sameDepartment } from '@/utils/assetDepartment';
@@ -36,9 +35,9 @@ interface CountRow {
 type DialogState = { mode: 'add' } | { mode: 'rename'; name: string } | null;
 
 /**
- * The department list (Nirmaan Department) -- Admin and HR add, rename and switch off departments
- * here. Renaming moves every person and asset to the new name; a switched-off department stays on
- * the records that have it but can't be given to anyone new. The server enforces who may do this.
+ * The department list (Nirmaan Department) -- Admin and HR add and rename departments here. A new
+ * department is active; there is no switch-off here (owner, 2026-10-12: the Active column is hidden).
+ * Renaming moves every person and asset to the new name. The server enforces who may do this.
  */
 export const DepartmentsList: React.FC = () => {
     const { toast } = useToast();
@@ -69,7 +68,6 @@ export const DepartmentsList: React.FC = () => {
     const assets = useMemo(() => new Map((assetCounts ?? []).map((r) => [r.department, r.count])), [assetCounts]);
 
     const { createDoc } = useFrappeCreateDoc();
-    const { updateDoc } = useFrappeUpdateDoc();
     const { call: renameDoc } = useFrappePostCall('frappe.client.rename_doc');
 
     // Every picker reads the department list from these keys.
@@ -117,23 +115,11 @@ export const DepartmentsList: React.FC = () => {
         }
     };
 
-    const handleToggle = async (row: DepartmentRow) => {
-        setSavingName(row.name);
-        try {
-            await updateDoc(DEPARTMENT_DOCTYPE, row.name, { is_active: row.is_active ? 0 : 1 });
-            refreshAll();
-        } catch (error) {
-            toast({ title: 'Could not update the department', description: getFrappeError(error), variant: 'destructive' });
-        } finally {
-            setSavingName(null);
-        }
-    };
-
     return (
         <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
                 <p className="text-sm text-gray-500">
-                    People and assets pick from this list. Switch a department off to stop new use; records that already have it keep it.
+                    People and assets pick from this list.
                 </p>
                 <Button size="sm" onClick={() => openDialog({ mode: 'add' })} className="gap-2 shrink-0">
                     <Plus className="h-4 w-4" />
@@ -148,7 +134,6 @@ export const DepartmentsList: React.FC = () => {
                             <th className="px-3 py-2">Department</th>
                             <th className="px-3 py-2 text-right">People</th>
                             <th className="px-3 py-2 text-right">Assets</th>
-                            <th className="px-3 py-2">Active</th>
                             <th className="px-3 py-2"><span className="sr-only">Actions</span></th>
                         </tr>
                     </thead>
@@ -156,12 +141,12 @@ export const DepartmentsList: React.FC = () => {
                         {isLoading ? (
                             [...Array(4)].map((_, i) => (
                                 <tr key={i}>
-                                    <td colSpan={5} className="px-3 py-2"><Skeleton className="h-6 w-full bg-gray-100" /></td>
+                                    <td colSpan={4} className="px-3 py-2"><Skeleton className="h-6 w-full bg-gray-100" /></td>
                                 </tr>
                             ))
                         ) : (departments ?? []).length === 0 ? (
                             <tr>
-                                <td colSpan={5} className="px-3 py-10 text-center text-gray-500">
+                                <td colSpan={4} className="px-3 py-10 text-center text-gray-500">
                                     No departments yet. Add the first one, or run the department setup patch.
                                 </td>
                             </tr>
@@ -176,14 +161,6 @@ export const DepartmentsList: React.FC = () => {
                                     </td>
                                     <td className="px-3 py-2 text-right tabular-nums">{people.get(row.name) ?? 0}</td>
                                     <td className="px-3 py-2 text-right tabular-nums">{assets.get(row.name) ?? 0}</td>
-                                    <td className="px-3 py-2">
-                                        <Switch
-                                            checked={!!row.is_active}
-                                            onCheckedChange={() => handleToggle(row)}
-                                            disabled={savingName === row.name}
-                                            aria-label={`${row.name} active`}
-                                        />
-                                    </td>
                                     <td className="px-3 py-2 text-right">
                                         <Button
                                             variant="ghost"

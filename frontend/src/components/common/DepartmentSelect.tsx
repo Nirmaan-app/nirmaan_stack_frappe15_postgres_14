@@ -18,7 +18,8 @@ interface Option {
 
 /**
  * Pick a department from the list (Nirmaan Department). New departments are added by Admin and HR in
- * Assets -> Departments, not typed here, so every name is spelled one way.
+ * Assets -> Departments, not typed here, so every name is spelled one way. There is no clear (✕):
+ * a department can be changed but never removed (owner, 2026-10-12); the server refuses it too.
  */
 export function DepartmentSelect({
   value,
@@ -43,7 +44,6 @@ export function DepartmentSelect({
       noOptionsMessage={() => "No departments yet. Admin or HR can add them in Assets → Departments."}
       isLoading={isLoading}
       isDisabled={isDisabled}
-      isClearable
       classNames={{ control: () => "border-gray-200 hover:border-gray-300" }}
     />
   );

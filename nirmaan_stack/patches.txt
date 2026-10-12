@@ -171,3 +171,5 @@ nirmaan_stack.patches.v3_0.backfill_vendor_invoice_base_gst
 nirmaan_stack.patches.v3_0.delete_stored_exact_repeats
 nirmaan_stack.patches.v3_0.delete_stored_exact_repeats_of_any_kind
 nirmaan_stack.patches.v3_0.setup_nirmaan_departments #v1
+nirmaan_stack.patches.v3_0.remove_leftover_asset_assignments
+nirmaan_stack.patches.v3_0.add_asset_history_parent_index
