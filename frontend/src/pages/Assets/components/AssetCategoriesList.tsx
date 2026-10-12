@@ -26,10 +26,10 @@ import { Pencil, Boxes, Briefcase, Laptop } from 'lucide-react';
 import {
     ASSET_CATEGORY_DOCTYPE,
     ASSET_CATEGORY_FIELDS,
-    ASSET_MASTER_DOCTYPE,
     ASSET_CATEGORY_TYPE_OPTIONS,
     AssetCategoryType,
 } from '../assets.constants';
+import { useCategoryAssetCounts } from '../hooks/useCategoryAssetCounts';
 import { getAssetPermissions } from '../utils/permissions';
 import { useAssetDataRefresh } from '../hooks/useAssetDataRefresh';
 
@@ -66,16 +66,8 @@ export const AssetCategoriesList: React.FC = () => {
 
     const { updateDoc } = useFrappeUpdateDoc();
 
-    // Fetch asset counts per category
-    const { data: assetCounts } = useFrappeGetDocList(
-        ASSET_MASTER_DOCTYPE,
-        {
-            fields: ['asset_category', 'count(name) as count'],
-            groupBy: 'asset_category',
-            limit: 0,
-        },
-        'asset_counts_by_category'
-    );
+    // Asset counts per category; Unassigned = Assets - Assigned (shared with the summary card).
+    const { totalByCategory: assetCountMap, assignedByCategory: assignedCountMap } = useCategoryAssetCounts();
 
     // Fetch category counts per type for facet filter labels (e.g., "Project (21)")
     const { data: categoryCountByType } = useFrappeGetDocList(
@@ -95,14 +87,6 @@ export const AssetCategoriesList: React.FC = () => {
         });
         return map;
     }, [categoryCountByType]);
-
-    const assetCountMap = useMemo(() => {
-        const map: Record<string, number> = {};
-        assetCounts?.forEach((item: any) => {
-            map[item.asset_category] = item.count;
-        });
-        return map;
-    }, [assetCounts]);
 
     // Only users with canManageCategories can edit
     const { canManageCategories } = getAssetPermissions(userData?.user_id, userData?.role);
@@ -193,6 +177,50 @@ export const AssetCategoriesList: React.FC = () => {
             size: 100,
         },
         {
+            id: 'assigned_count',
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Assigned" />,
+            cell: ({ row }) => {
+                const count = assignedCountMap[row.original.name] || 0;
+                return (
+                    <Badge
+                        variant="outline"
+                        className={`tabular-nums ${count > 0 ? 'bg-blue-50 text-blue-700 border-blue-200' : 'text-gray-400'}`}
+                    >
+                        {count}
+                    </Badge>
+                );
+            },
+            size: 100,
+            meta: {
+                exportHeaderName: 'Assigned',
+                exportValue: (row: AssetCategory) => assignedCountMap[row.name] || 0,
+            },
+        },
+        {
+            id: 'unassigned_count',
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Unassigned" />,
+            cell: ({ row }) => {
+                const count = Math.max(
+                    (assetCountMap[row.original.name] || 0) - (assignedCountMap[row.original.name] || 0),
+                    0
+                );
+                return (
+                    <Badge
+                        variant="outline"
+                        className={`tabular-nums ${count > 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'text-gray-400'}`}
+                    >
+                        {count}
+                    </Badge>
+                );
+            },
+            size: 110,
+            meta: {
+                exportHeaderName: 'Unassigned',
+                exportValue: (row: AssetCategory) =>
+                    Math.max((assetCountMap[row.name] || 0) - (assignedCountMap[row.name] || 0), 0),
+            },
+        },
+        {
             accessorKey: 'creation',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Created On" />,
             cell: ({ row }) => (
@@ -222,7 +250,7 @@ export const AssetCategoriesList: React.FC = () => {
             },
             size: 80,
         }] : []),
-    ], [assetCountMap, canManageCategories, handleEditClick]);
+    ], [assetCountMap, assignedCountMap, canManageCategories, handleEditClick]);
 
     const searchableFields = [
         { value: 'asset_category', label: 'Category Name', placeholder: 'Search categories...', default: true },

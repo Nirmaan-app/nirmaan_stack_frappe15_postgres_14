@@ -1,0 +1,61 @@
+import { describe, expect, it } from "vitest";
+
+import { AssetHistoryRow, describeHistory, formatHistoryTime } from "./assetHistory";
+
+const names: Record<string, string> = { "hr@x": "HR Desk", "bhavani@x": "Bhavani", "sharookh@x": "Sharookh" };
+const nameOf = (id?: string | null) => (id ? names[id] ?? id : "—");
+
+const rows: AssetHistoryRow[] = [
+  { name: "r1", idx: 1, event: "Asset Added", done_by: "hr@x", done_on: "2026-08-18 12:02:00.000000", to_department: "Procurement" },
+  { name: "r2", idx: 2, event: "Assigned", assigned_to: "sharookh@x", done_by: "hr@x", done_on: "2026-08-21 19:08:43.491291" },
+  { name: "r3", idx: 3, event: "Unassigned", assigned_to: "sharookh@x", done_by: "hr@x", done_on: "2026-10-10 09:12:00" },
+  {
+    name: "r4", idx: 4, event: "Assigned", assigned_to: "bhavani@x", done_by: "hr@x", done_on: "2026-10-11 16:20:00",
+    from_department: "Procurement", to_department: "Projects", reason: "Moved to site team",
+  },
+  { name: "r5", idx: 5, event: "Declaration Signed", assigned_to: "bhavani@x", done_by: "bhavani@x", done_on: "2026-10-12 11:05:00", declaration: "/api/method/x?key=a.pdf" },
+];
+
+describe("describeHistory", () => {
+  const entries = describeHistory(rows, nameOf);
+
+  it("lists newest first", () => {
+    expect(entries.map((e) => e.key)).toEqual(["r5", "r4", "r3", "r2", "r1"]);
+  });
+
+  it("names people and says what happened", () => {
+    expect(entries[0].title).toBe("Declaration signed by Bhavani");
+    expect(entries[1].title).toBe("Assigned to Bhavani");
+    expect(entries[2].title).toBe("Unassigned from Sharookh");
+    expect(entries[4].title).toBe("Asset added");
+    expect(entries[1].by).toBe("HR Desk");
+  });
+
+  it("shows a department move with its reason", () => {
+    expect(entries[1].department).toBe("Procurement → Projects");
+    expect(entries[1].reason).toBe("Moved to site team");
+    expect(entries[4].department).toBe("Department: Procurement");
+  });
+
+  it("links a declaration, and flags one whose file is gone", () => {
+    expect(entries[0].declarationUrl).toBe("/api/method/x?key=a.pdf");
+    const [gone] = describeHistory([{ name: "g", idx: 1, event: "Declaration Uploaded", done_by: "hr@x" }], nameOf);
+    expect(gone.declarationMissing).toBe(true);
+  });
+
+  it("falls back to the user id for unknown people", () => {
+    const [row] = describeHistory([{ name: "a", idx: 1, event: "Asset Added", done_by: "Administrator" }], nameOf);
+    expect(row.by).toBe("Administrator");
+  });
+});
+
+describe("formatHistoryTime", () => {
+  it("formats Frappe datetimes, microseconds included", () => {
+    expect(formatHistoryTime("2026-10-12 16:05:15.510342")).toBe("12-Oct-2026 04:05 PM");
+  });
+
+  it("returns null for nothing or junk", () => {
+    expect(formatHistoryTime(null)).toBeNull();
+    expect(formatHistoryTime("not a date")).toBeNull();
+  });
+});

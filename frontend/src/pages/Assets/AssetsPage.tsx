@@ -3,7 +3,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { useUserData } from '@/hooks/useUserData';
 import { urlStateManager } from '@/utils/urlStateManager';
-import { Plus, Boxes, Briefcase, Laptop, Users, UserX, AlertTriangle, List } from 'lucide-react';
+import { Plus, Boxes, Briefcase, Laptop, Users, UserX, AlertTriangle, List, History, Building2 } from 'lucide-react';
+import { canEditDepartments } from '@/constants/departments';
 
 import { AssetsSummaryCards } from './components/AssetsSummaryCard';
 import { AssetCategoriesList } from './components/AssetCategoriesList';
@@ -13,14 +14,16 @@ import { UnassignedAssetsList } from './components/UnassignedAssetsList';
 import { PendingActionsList } from './components/PendingActionsList';
 import { AddAssetCategoryDialog } from './components/AddAssetCategoryDialog';
 import { AddAssetDialog } from './components/AddAssetDialog';
+import { AssetHistoryList } from './components/AssetHistoryList';
+import { DepartmentsList } from './components/DepartmentsList';
 import { useAssetDataRefresh } from './hooks/useAssetDataRefresh';
 import { getAssetPermissions } from './utils/permissions';
 import { AssetCategoryType } from './assets.constants';
 
-type AssetTopTab = 'project' | 'it' | 'categories';
+type AssetTopTab = 'project' | 'it' | 'categories' | 'departments' | 'history';
 type AssetSubTab = 'all' | 'assigned' | 'unassigned' | 'pending';
 
-const TOP_TABS: readonly AssetTopTab[] = ['project', 'it', 'categories'];
+const TOP_TABS: readonly AssetTopTab[] = ['project', 'it', 'categories', 'departments', 'history'];
 const SUB_TABS: readonly AssetSubTab[] = ['all', 'assigned', 'unassigned', 'pending'];
 
 // Keeps a tab in the URL (?tab= / ?view=) so Back from an asset's page lands on the
@@ -122,7 +125,8 @@ const AssetsPage: React.FC = () => {
     const [assetRefreshKey, setAssetRefreshKey] = useState(0);
 
     const { refreshSummaryCards, refreshCategoryDropdowns } = useAssetDataRefresh();
-    const { canAddAsset, canAddCategory } = getAssetPermissions(userData?.user_id, userData?.role);
+    const { canAddAsset, canAddCategory, canViewHistory } = getAssetPermissions(userData?.user_id, userData?.role);
+    const canManageDepartments = canEditDepartments(userData?.role, userData?.user_id);
 
     const handleAssetChange = () => {
         setAssetRefreshKey(k => k + 1);
@@ -169,7 +173,8 @@ const AssetsPage: React.FC = () => {
                 </p>
             </div>
 
-            <AssetsSummaryCards activeTab={activeTab} />
+            {/* The History tab shows the overall totals, like Categories. */}
+            <AssetsSummaryCards activeTab={activeTab === 'history' || activeTab === 'departments' ? 'categories' : activeTab} />
 
             <Tabs
                 value={activeTab}
@@ -205,6 +210,25 @@ const AssetsPage: React.FC = () => {
                             <Boxes className="h-4 w-4" />
                             Categories
                         </TabsTrigger>
+                        {/* Admin and HR only (the server refuses everyone else too) */}
+                        {canManageDepartments && (
+                            <TabsTrigger
+                                value="departments"
+                                className="gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-indigo-700"
+                            >
+                                <Building2 className="h-4 w-4" />
+                                Departments
+                            </TabsTrigger>
+                        )}
+                        {canViewHistory && (
+                            <TabsTrigger
+                                value="history"
+                                className="gap-2 data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-indigo-700"
+                            >
+                                <History className="h-4 w-4" />
+                                History
+                            </TabsTrigger>
+                        )}
                     </TabsList>
 
                     <div>
@@ -261,6 +285,24 @@ const AssetsPage: React.FC = () => {
                 >
                     <AssetCategoriesList key={`categories-${categoryRefreshKey}`} />
                 </TabsContent>
+
+                {canManageDepartments && (
+                    <TabsContent
+                        value="departments"
+                        className="mt-3 sm:mt-4 data-[state=inactive]:hidden"
+                    >
+                        {activeTab === 'departments' && <DepartmentsList />}
+                    </TabsContent>
+                )}
+
+                {canViewHistory && (
+                    <TabsContent
+                        value="history"
+                        className="mt-3 sm:mt-4 data-[state=inactive]:hidden"
+                    >
+                        {activeTab === 'history' && <AssetHistoryList />}
+                    </TabsContent>
+                )}
             </Tabs>
 
             <AddAssetCategoryDialog

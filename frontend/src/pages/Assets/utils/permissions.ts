@@ -5,7 +5,7 @@
  * Granular permissions allow different roles to have specific capabilities.
  */
 
-import { PROCUREMENT_PROFILES, isProcurementProfile } from "@/constants/roles";
+import { ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PROCUREMENT_PROFILES, isProcurementProfile } from "@/constants/roles";
 
 // Roles that can manage ALL aspects of assets (add, edit, delete, assign, categories)
 export const ASSET_ADMIN_ROLES = [
@@ -18,6 +18,13 @@ export const ASSET_HR_ROLE = 'Nirmaan HR Executive Profile' as const;
 
 // Roles that have limited asset management capabilities (add assets, assign/unassign)
 export const ASSET_PROCUREMENT_ROLES = PROCUREMENT_PROFILES;
+
+/**
+ * Roles that can see the asset history (the History tab and the history card on an asset).
+ * Owner, 2026-10-12: "only admin and HR". Mirrors `ASSET_HISTORY_PROFILES` in
+ * `nirmaan_stack/services/role_profiles.py`, which the server enforces.
+ */
+export const ASSET_HISTORY_ROLES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
 
 // Combined list of all roles that can access assets module
 export const ASSET_ACCESS_ROLES = [
@@ -41,6 +48,10 @@ export interface AssetPermissions {
     canDeleteAsset: boolean;
     /** Can edit/delete categories */
     canManageCategories: boolean;
+    /** Can see the asset history (Admin and HR only) */
+    canViewHistory: boolean;
+    /** Can upload a signed declaration scan, anywhere it is offered (Admin only) */
+    canUploadDeclaration: boolean;
 }
 
 /**
@@ -99,6 +110,13 @@ export function getAssetPermissions(
 
         // Manage Categories (edit/delete): Only admin roles and HR
         canManageCategories: canManageAll,
+
+        // Asset history: Admin and HR (Executive + Lead) only -- not PMO, not Procurement
+        canViewHistory: isAdmin || ASSET_HISTORY_ROLES.includes(role ?? ''),
+
+        // Every declaration upload -- Pending Declaration list, asset page, user page card and Assign
+        // dialog: Admin only (owner, 2026-10-12); employees sign in the app.
+        canUploadDeclaration: isAdmin || role === ADMIN_PROFILE,
     };
 }
 

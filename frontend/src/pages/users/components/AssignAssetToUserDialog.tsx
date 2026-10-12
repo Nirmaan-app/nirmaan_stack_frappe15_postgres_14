@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { useFrappeCreateDoc, useFrappeUpdateDoc, useFrappeFileUpload } from "frappe-react-sdk";
+import { useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
 import ReactSelect from "react-select";
 import { format } from "date-fns";
 import {
@@ -15,15 +15,16 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { Package, Calendar, FileText, Briefcase, Laptop } from "lucide-react";
-import {
-  ASSET_MASTER_DOCTYPE,
-  ASSET_MANAGEMENT_DOCTYPE,
-} from "@/pages/Assets/assets.constants";
+import { ASSET_MANAGEMENT_DOCTYPE } from "@/pages/Assets/assets.constants";
+import { DepartmentMoveNotice } from "@/pages/Assets/components/DepartmentMoveNotice";
+import { departmentMove, isDepartmentReasonValid, needsDepartmentReason } from "@/utils/assetDepartment";
+import { getFrappeError } from "@/utils/frappeErrors";
 
 interface AssetMasterRecord {
   name: string;
   asset_name: string;
   asset_category: string;
+  department?: string | null;
   asset_condition: string;
   asset_serial_number: string;
   asset_value: number;
@@ -53,10 +54,14 @@ interface AssignAssetToUserDialogProps {
   onOpenChange: (open: boolean) => void;
   userId: string;
   userName: string;
+  /** The person's department (Nirmaan Users.department), to warn about a department move. */
+  userDepartment?: string | null;
   unassignedAssets: AssetMasterRecord[];
   categoryList: AssetCategoryRecord[] | undefined;
   /** Pre-selects the Type dropdown when the dialog opens (e.g. the active sub-tab). */
   initialAssetType?: AssetTypeOption;
+  /** Attaching a scanned declaration while assigning is Admin only; the employee signs in the app. */
+  canUploadDeclaration: boolean;
   onAssigned?: () => void;
 }
 
@@ -65,14 +70,15 @@ export function AssignAssetToUserDialog({
   onOpenChange,
   userId,
   userName,
+  userDepartment,
   unassignedAssets,
   categoryList,
   initialAssetType,
+  canUploadDeclaration,
   onAssigned,
 }: AssignAssetToUserDialogProps) {
   const { toast } = useToast();
-  const { createDoc } = useFrappeCreateDoc();
-  const { updateDoc } = useFrappeUpdateDoc();
+  const { call: assignAsset } = useFrappePostCall("nirmaan_stack.api.assets.assign.assign_asset");
   const { upload } = useFrappeFileUpload();
 
   const [assetType, setAssetType] = useState<AssetTypeOption | "">("");
@@ -80,6 +86,7 @@ export function AssignAssetToUserDialog({
   const [selectedAsset, setSelectedAsset] = useState<string>("");
   const [assignedDate, setAssignedDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
   const [declarationFile, setDeclarationFile] = useState<File | null>(null);
+  const [departmentReason, setDepartmentReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Reset form when dialog opens — pre-select the type if the caller passes one.
@@ -90,6 +97,7 @@ export function AssignAssetToUserDialog({
       setSelectedAsset("");
       setAssignedDate(format(new Date(), "yyyy-MM-dd"));
       setDeclarationFile(null);
+      setDepartmentReason("");
     }
   }, [isOpen, initialAssetType]);
 
@@ -148,11 +156,26 @@ export function AssignAssetToUserDialog({
     }));
   }, [unassignedAssets, selectedCategory, assetType, categoryTypeMap]);
 
+  // What this assignment does to the asset's department (the server re-checks).
+  const selectedAssetRecord = unassignedAssets.find((asset) => asset.name === selectedAsset);
+  const move = selectedAsset ? departmentMove(selectedAssetRecord?.department, userDepartment) : null;
+  const reasonNeeded = needsDepartmentReason(move);
+  const reasonMissing = reasonNeeded && !isDepartmentReasonValid(departmentReason);
+
   const handleSubmit = async () => {
     if (!selectedAsset) {
       toast({
         title: "Asset Required",
         description: "Please select an asset to assign.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (reasonMissing) {
+      toast({
+        title: "Reason Required",
+        description: `Say why this asset is moving to ${move?.to}.`,
         variant: "destructive",
       });
       return;
@@ -175,17 +198,14 @@ export function AssignAssetToUserDialog({
         fileUrl = uploadedFile.file_url;
       }
 
-      // Create Asset Management entry
-      await createDoc(ASSET_MANAGEMENT_DOCTYPE, {
+      // One request: the assignment, the holder, a department move and its history row
+      // (api/assets/assign.py).
+      await assignAsset({
         asset: selectedAsset,
-        asset_assigned_to: userId,
-        asset_assigned_on: assignedDate,
-        asset_declaration_attachment: fileUrl || undefined,
-      });
-
-      // Update Asset Master with current assignee
-      await updateDoc(ASSET_MASTER_DOCTYPE, selectedAsset, {
-        current_assignee: userId,
+        assigned_to: userId,
+        assigned_on: assignedDate,
+        declaration: fileUrl || undefined,
+        department_change_reason: reasonNeeded ? departmentReason.trim() : undefined,
       });
 
       const assetName = assetOptions.find((a) => a.value === selectedAsset)?.label || selectedAsset;
@@ -201,7 +221,7 @@ export function AssignAssetToUserDialog({
       console.error("Failed to assign asset:", error);
       toast({
         title: "Assignment Failed",
-        description: error?.message || "An error occurred while assigning the asset.",
+        description: getFrappeError(error),
         variant: "destructive",
       });
     } finally {
@@ -305,7 +325,10 @@ export function AssignAssetToUserDialog({
             <ReactSelect
               options={assetOptions}
               value={assetOptions.find((opt) => opt.value === selectedAsset) || null}
-              onChange={(val) => setSelectedAsset(val?.value || "")}
+              onChange={(val) => {
+                setSelectedAsset(val?.value || "");
+                setDepartmentReason("");
+              }}
               placeholder={
                 assetType ? "Select an asset..." : "Select Asset Type first"
               }
@@ -327,6 +350,15 @@ export function AssignAssetToUserDialog({
             )}
           </div>
 
+          <DepartmentMoveNotice
+            move={move}
+            personName={userName}
+            personDepartment={userDepartment}
+            assetDepartment={selectedAssetRecord?.department}
+            reason={departmentReason}
+            onReasonChange={setDepartmentReason}
+          />
+
           {/* Assignment Date */}
           <div className="space-y-1.5">
             <Label htmlFor="assignedDate" className="text-sm font-medium text-gray-700">
@@ -345,32 +377,34 @@ export function AssignAssetToUserDialog({
           </div>
 
           {/* Declaration Attachment */}
-          <div className="space-y-1.5">
-            <Label className="text-sm font-medium text-gray-700">
-              Declaration Document
-              <span className="ml-1 text-xs text-gray-400">(optional)</span>
-            </Label>
-            <CustomAttachment
-              selectedFile={declarationFile}
-              onFileSelect={setDeclarationFile}
-              acceptedTypes={["image/*", "application/pdf"]}
-              label="Upload Declaration"
-              maxFileSize={10 * 1024 * 1024}
-              onError={(err) =>
-                toast({
-                  title: "File Error",
-                  description: err.message,
-                  variant: "destructive",
-                })
-              }
-            />
-            {!declarationFile && (
-              <p className="text-xs text-amber-600 flex items-center gap-1">
-                <FileText className="h-3 w-3" />
-                Declaration can be uploaded later
-              </p>
-            )}
-          </div>
+          {canUploadDeclaration && (
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-gray-700">
+                Declaration Document
+                <span className="ml-1 text-xs text-gray-400">(optional)</span>
+              </Label>
+              <CustomAttachment
+                selectedFile={declarationFile}
+                onFileSelect={setDeclarationFile}
+                acceptedTypes={["image/*", "application/pdf"]}
+                label="Upload Declaration"
+                maxFileSize={10 * 1024 * 1024}
+                onError={(err) =>
+                  toast({
+                    title: "File Error",
+                    description: err.message,
+                    variant: "destructive",
+                  })
+                }
+              />
+              {!declarationFile && (
+                <p className="text-xs text-amber-600 flex items-center gap-1">
+                  <FileText className="h-3 w-3" />
+                  Declaration can be uploaded later
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
@@ -383,10 +417,10 @@ export function AssignAssetToUserDialog({
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={isSubmitting || !assetType || !selectedAsset}
+            disabled={isSubmitting || !assetType || !selectedAsset || reasonMissing}
             className="gap-2 bg-emerald-600 hover:bg-emerald-700"
           >
-            {isSubmitting ? "Assigning..." : "Assign Asset"}
+            {isSubmitting ? "Assigning..." : reasonNeeded ? "Confirm & Assign" : "Assign Asset"}
             <Package className="h-4 w-4" />
           </Button>
         </DialogFooter>

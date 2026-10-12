@@ -11,6 +11,10 @@ import {
 } from '../assets.constants';
 import { useAssetCategoryNamesByType } from '../hooks/useAssetCategoryNamesByType';
 import { useAssetMasterNamesByType } from '../hooks/useAssetMasterNamesByType';
+import { CategoryUnassigned, useCategoryAssetCounts } from '../hooks/useCategoryAssetCounts';
+
+/** How many categories the "most unassigned" list shows. */
+const TOP_UNASSIGNED_LIMIT = 5;
 
 type AssetSummaryMode = 'project' | 'it' | 'categories';
 
@@ -30,6 +34,8 @@ interface SummaryViewModel {
     totalLabel: string;
     categoriesLabel: string;
     categoriesHint: string;
+    /** Categories with the most unassigned assets, in this tab's scope. */
+    topUnassigned: CategoryUnassigned[];
 }
 
 export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTab }) => {
@@ -57,7 +63,7 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
         );
     }
 
-    const { total, assigned, unassigned, pendingDecl, categories, hasError, title, totalLabel, categoriesLabel, categoriesHint } = view;
+    const { total, assigned, unassigned, pendingDecl, categories, hasError, title, totalLabel, categoriesLabel, categoriesHint, topUnassigned } = view;
 
     return (
         <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
@@ -177,6 +183,28 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
                                 <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 block">
                                     Asset types defined
                                 </span>
+                                <div className="mt-3 border-t border-slate-200 dark:border-slate-700 pt-2">
+                                    <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5 flex items-center gap-1">
+                                        <UserX className="h-3 w-3" />
+                                        Most unassigned
+                                    </div>
+                                    {topUnassigned.length === 0 ? (
+                                        <p className="text-[11px] text-slate-400 dark:text-slate-500">Every asset is assigned.</p>
+                                    ) : (
+                                        <ul className="space-y-1">
+                                            {topUnassigned.map(({ category, count }) => (
+                                                <li key={category} className="flex items-center justify-between gap-2 text-xs">
+                                                    <span className="truncate text-slate-600 dark:text-slate-300" title={category}>
+                                                        {category}
+                                                    </span>
+                                                    <span className="shrink-0 rounded bg-slate-100 dark:bg-slate-700 px-1.5 font-semibold tabular-nums text-slate-700 dark:text-slate-200">
+                                                        {count}
+                                                    </span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
@@ -214,6 +242,7 @@ function useGlobalSummary(enabled: boolean): SummaryViewModel {
     // `enabled` (tab switch) refetches instead of serving a stale cache.
     const { data, isLoading, error } = useCounts(specs);
     const msg = data?.message;
+    const categoryCounts = useCategoryAssetCounts(enabled);
 
     const categoriesCount = msg?.categories as number | undefined;
 
@@ -223,12 +252,13 @@ function useGlobalSummary(enabled: boolean): SummaryViewModel {
         unassigned: (msg?.unassigned as number) ?? 0,
         pendingDecl: (msg?.pendingDecl as number) ?? 0,
         categories: categoriesCount ?? 0,
-        isLoading: enabled && isLoading,
+        isLoading: enabled && (isLoading || categoryCounts.isLoading),
         hasError: !!error,
         title: 'Assets Summary',
         totalLabel: 'Total Assets',
         categoriesLabel: 'Asset Categories',
         categoriesHint: categoriesCount === 1 ? 'Category' : 'Categories',
+        topUnassigned: categoryCounts.topUnassigned(TOP_UNASSIGNED_LIMIT),
     };
 }
 
@@ -273,6 +303,7 @@ function useScopedSummary(type: AssetCategoryType | undefined): SummaryViewModel
 
     const { data, isLoading: countsLoading, error: countsError } = useCounts(specs);
     const msg = data?.message;
+    const categoryCounts = useCategoryAssetCounts(enabled);
 
     const typeLabel = isProject ? 'Project' : 'IT';
 
@@ -293,6 +324,7 @@ function useScopedSummary(type: AssetCategoryType | undefined): SummaryViewModel
         isLoading: enabled && (
             categoryNamesLoading
             || masterNamesLoading
+            || categoryCounts.isLoading
             || ((hasCategories || hasMasters) && countsLoading)
         ),
         hasError: !!countsError,
@@ -300,5 +332,6 @@ function useScopedSummary(type: AssetCategoryType | undefined): SummaryViewModel
         totalLabel: `Total ${typeLabel} Assets`,
         categoriesLabel: `${typeLabel} Asset Categories`,
         categoriesHint: categories === 1 ? `${typeLabel} Category` : `${typeLabel} Categories`,
+        topUnassigned: categoryCounts.topUnassigned(TOP_UNASSIGNED_LIMIT, categoryNames),
     };
 }

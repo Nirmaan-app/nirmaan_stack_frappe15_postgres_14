@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappeFileUpload } from "frappe-react-sdk";
 import {
@@ -22,8 +22,8 @@ import { formatDate } from "@/utils/FormatDate";
 import {
   CirclePlus,
   PackageSearch,
-  Trash2,
   Undo2,
+  UserMinus,
   ExternalLink,
   Calendar,
   Hash,
@@ -33,9 +33,14 @@ import {
   FileText,
   Briefcase,
   Laptop,
+  PenLine,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useUserData } from "@/hooks/useUserData";
+import { canSignDeclaration } from "@/utils/assetDeclaration";
 import { AssignAssetToUserDialog } from "./AssignAssetToUserDialog";
+import { SignDeclarationDialog } from "@/pages/Assets/components/SignDeclarationDialog";
+import { getAssetPermissions } from "@/pages/Assets/utils/permissions";
 import {
   ASSET_MASTER_DOCTYPE,
   ASSET_MANAGEMENT_DOCTYPE,
@@ -84,19 +89,24 @@ function AssetCard({
   assignment,
   asset,
   isAdmin,
-  isOwnProfile,
+  canUploadDeclaration,
+  canSign,
   onUnassign,
   onUploadDeclaration,
+  onSign,
 }: {
   assignment: AssetManagementRecord;
   asset: AssetMasterRecord | undefined;
   isAdmin: boolean;
-  isOwnProfile: boolean;
+  /** Uploading a scanned declaration is Admin only; the employee signs in the app instead. */
+  canUploadDeclaration: boolean;
+  /** The viewer is the assignee and the declaration is still pending. */
+  canSign: boolean;
   onUnassign: () => void;
   onUploadDeclaration: () => void;
+  onSign: () => void;
 }) {
   const isPendingDeclaration = !assignment.asset_declaration_attachment;
-  const canUploadDeclaration = isAdmin || isOwnProfile;
 
   return (
     <Card className="group relative overflow-hidden transition-all duration-300 hover:shadow-md hover:border-primary/20">
@@ -169,6 +179,16 @@ function AssetCard({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-1">
+            {canSign && (
+              <Button
+                size="sm"
+                onClick={onSign}
+                className="h-7 px-2.5 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700"
+              >
+                <PenLine className="h-3.5 w-3.5" />
+                Sign
+              </Button>
+            )}
             {isPendingDeclaration && canUploadDeclaration && (
               <Button
                 variant="ghost"
@@ -182,12 +202,13 @@ function AssetCard({
             )}
             {isAdmin && (
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 onClick={onUnassign}
-                className="h-7 px-2 text-xs gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+                className="h-7 px-2 text-xs gap-1 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <UserMinus className="h-3.5 w-3.5" />
+                Unassign
               </Button>
             )}
           </div>
@@ -207,6 +228,8 @@ export function UserAssetsTab({
   onMutate,
 }: UserAssetsTabProps) {
   const { toast } = useToast();
+  const userData = useUserData();
+  const { canUploadDeclaration } = getAssetPermissions(userData?.user_id, userData?.role);
   const { updateDoc } = useFrappeUpdateDoc();
   const { deleteDoc } = useFrappeDeleteDoc();
   const { upload } = useFrappeFileUpload();
@@ -219,6 +242,8 @@ export function UserAssetsTab({
   const [isUploading, setIsUploading] = useState(false);
   const [declarationFile, setDeclarationFile] = useState<File | null>(null);
   const [subTab, setSubTab] = useState<AssetSubTab>("Project");
+  // The dialog holds the row's name; the live row is read from the refetched list.
+  const [signingAssignmentName, setSigningAssignmentName] = useState<string | null>(null);
 
   // Get asset details by ID
   const getAssetDetails = useCallback(
@@ -263,7 +288,23 @@ export function UserAssetsTab({
     (a) => !a.asset_declaration_attachment
   ).length;
 
+  // Open on the sub-tab that needs attention (the sidebar's pending-declaration badge lands here):
+  // decided once, when the assignments first load, and never after the user picks a sub-tab.
+  const subTabDecided = useRef(false);
+  useEffect(() => {
+    if (subTabDecided.current || projectAssignments.length + itAssignments.length === 0) return;
+    subTabDecided.current = true;
+    const hasPending = (list: AssetManagementRecord[]) => list.some((a) => !a.asset_declaration_attachment);
+    const projectNeedsNothing = !hasPending(projectAssignments);
+    if (projectNeedsNothing && (hasPending(itAssignments) || projectAssignments.length === 0)) setSubTab("IT");
+  }, [projectAssignments, itAssignments]);
+
   const visibleAssignments = subTab === "Project" ? projectAssignments : itAssignments;
+
+  const signingAssignment = useMemo(
+    () => (assetManagementList ?? []).find((a) => a.name === signingAssignmentName),
+    [assetManagementList, signingAssignmentName]
+  );
 
   // All unassigned assets — the dialog filters internally by its Asset Type
   // dropdown (defaults to the currently active sub-tab).
@@ -374,7 +415,13 @@ export function UserAssetsTab({
 
       {/* Project / IT Sub-tabs + Assign button on the same row */}
       <div className="flex items-center justify-between gap-4">
-        <Tabs value={subTab} onValueChange={(v) => setSubTab(v as AssetSubTab)}>
+        <Tabs
+          value={subTab}
+          onValueChange={(v) => {
+            subTabDecided.current = true;
+            setSubTab(v as AssetSubTab);
+          }}
+        >
           <TabsList className="w-fit bg-gray-100/80 p-1">
             <TabsTrigger
               value="Project"
@@ -427,23 +474,36 @@ export function UserAssetsTab({
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {visibleAssignments.map((assignment) => (
-            <AssetCard
-              key={assignment.name}
-              assignment={assignment}
-              asset={getAssetDetails(assignment.asset)}
-              isAdmin={isAdmin}
-              isOwnProfile={isOwnProfile}
-              onUnassign={() => {
-                setSelectedAssignment(assignment);
-                setUnassignDialogOpen(true);
-              }}
-              onUploadDeclaration={() => {
-                setSelectedAssignment(assignment);
-                setUploadDialogOpen(true);
-              }}
-            />
-          ))}
+          {visibleAssignments.map((assignment) => {
+            const asset = getAssetDetails(assignment.asset);
+            return (
+              <AssetCard
+                key={assignment.name}
+                assignment={assignment}
+                asset={asset}
+                isAdmin={isAdmin}
+                canUploadDeclaration={canUploadDeclaration}
+                canSign={
+                  isOwnProfile &&
+                  canSignDeclaration({
+                    viewerId: userData?.user_id,
+                    assignedTo: assignment.asset_assigned_to,
+                    currentAssignee: asset?.current_assignee,
+                    declaration: assignment.asset_declaration_attachment,
+                  })
+                }
+                onUnassign={() => {
+                  setSelectedAssignment(assignment);
+                  setUnassignDialogOpen(true);
+                }}
+                onUploadDeclaration={() => {
+                  setSelectedAssignment(assignment);
+                  setUploadDialogOpen(true);
+                }}
+                onSign={() => setSigningAssignmentName(assignment.name)}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -453,11 +513,30 @@ export function UserAssetsTab({
         onOpenChange={setAssignDialogOpen}
         userId={user.name}
         userName={user.full_name}
+        userDepartment={user.department}
         unassignedAssets={unassignedAssets}
         categoryList={categoryList}
         initialAssetType={subTab}
+        canUploadDeclaration={canUploadDeclaration}
         onAssigned={onMutate}
       />
+
+      {/* Sign Declaration Dialog (the assignee, on their own profile) */}
+      {signingAssignment && (
+        <SignDeclarationDialog
+          isOpen={!!signingAssignment}
+          onOpenChange={(open) => {
+            if (!open) setSigningAssignmentName(null);
+          }}
+          assignmentId={signingAssignment.name}
+          assetId={signingAssignment.asset}
+          assetName={getAssetDetails(signingAssignment.asset)?.asset_name || ""}
+          serialNumber={getAssetDetails(signingAssignment.asset)?.asset_serial_number}
+          condition={getAssetDetails(signingAssignment.asset)?.asset_condition}
+          assignedOn={signingAssignment.asset_assigned_on}
+          onSigned={onMutate}
+        />
+      )}
 
       {/* Unassign Asset Dialog */}
       <Dialog open={unassignDialogOpen} onOpenChange={setUnassignDialogOpen}>
@@ -488,7 +567,7 @@ export function UserAssetsTab({
                   onClick={handleUnassign}
                   className="gap-1"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <UserMinus className="h-4 w-4" />
                   Unassign
                 </Button>
               </>

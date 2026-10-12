@@ -20,8 +20,10 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "../ui/sidebar";
-import { BadgeCheck, Bell, ChevronsUpDown, HelpCircle, LogOut } from "lucide-react";
+import { BadgeCheck, Bell, ChevronsUpDown, HelpCircle, Info, LogOut } from "lucide-react";
 import { Notifications } from "./notifications";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
+import { useMyPendingDeclarationCount } from "@/hooks/useUserAssignments";
 
 export function UserNav({ isMobileMain = false }) {
   const userData = useUserData();
@@ -30,6 +32,20 @@ export function UserNav({ isMobileMain = false }) {
   const location = useLocation();
 
   const { isMobile, state, toggleSidebar } = useSidebar();
+  const pendingDeclarations = useMyPendingDeclarationCount();
+  const pendingDeclarationLabel =
+    pendingDeclarations === 1
+      ? "Asset declaration pending. Click to sign it."
+      : `${pendingDeclarations} asset declarations pending. Click to sign them.`;
+
+  // The badge sits inside the menu's trigger button: stop the event so it opens the profile's
+  // Assets tab instead of the menu.
+  const openMyAssets = (event: React.SyntheticEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (isMobile && !isMobileMain) toggleSidebar();
+    navigate(`/users/${userData.user_id}?tab=assets`);
+  };
 
   const generateFallback = (full_name: string) => {
     let names = full_name.split(" ");
@@ -77,25 +93,51 @@ export function UserNav({ isMobileMain = false }) {
               size="lg"
               className={`data-[state=open]:bg-[#FFD3CC] data-[state=open]:text-sidebar-accent-foreground`}
             >
-              <Avatar className="h-8 w-8 rounded-lg">
-                <AvatarImage
-                  src={userData.user_image}
-                  alt={userData.full_name}
-                />
-                <AvatarFallback
-                  className={`rounded-lg ${
-                    state === "collapsed" && "bg-transparent"
-                  }`}
-                >
-                  {generateFallback(userData.full_name)}
-                </AvatarFallback>
-              </Avatar>
+              <div className="relative shrink-0">
+                <Avatar className="h-8 w-8 rounded-lg">
+                  <AvatarImage
+                    src={userData.user_image}
+                    alt={userData.full_name}
+                  />
+                  <AvatarFallback
+                    className={`rounded-lg ${
+                      state === "collapsed" && "bg-transparent"
+                    }`}
+                  >
+                    {generateFallback(userData.full_name)}
+                  </AvatarFallback>
+                </Avatar>
+                {/* Collapsed sidebar hides the badge below; a dot keeps the reminder visible. */}
+                {pendingDeclarations > 0 && state === "collapsed" && (
+                  <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-amber-500 ring-2 ring-white" />
+                )}
+              </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">
                   {userData.full_name}
                 </span>
                 <span className="truncate text-xs">{userData.user_id}</span>
               </div>
+              {pendingDeclarations > 0 && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label={pendingDeclarationLabel}
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={openMyAssets}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") openMyAssets(event);
+                      }}
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600 ring-1 ring-amber-300 hover:bg-amber-200"
+                    >
+                      <Info className="h-4 w-4" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">{pendingDeclarationLabel}</TooltipContent>
+                </Tooltip>
+              )}
               <ChevronsUpDown className="ml-auto mr-2 size-4" />
             </SidebarMenuButton>
             {/* ) : (

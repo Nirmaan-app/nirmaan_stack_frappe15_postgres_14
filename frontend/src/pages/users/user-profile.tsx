@@ -11,6 +11,9 @@ import { UserProfileSkeleton } from "@/components/ui/skeleton";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
+import { useUrlParam } from "@/hooks/useUrlParam";
+import { useUserAssignments } from "@/hooks/useUserAssignments";
+import { urlStateManager } from "@/utils/urlStateManager";
 import { useUserSubmitHandlers } from "@/hooks/useUserSubmitHandlers";
 import { NirmaanUserPermissions } from "@/types/NirmaanStack/NirmaanUserPermissions";
 import { NirmaanUsers as NirmaanUsersType } from "@/types/NirmaanStack/NirmaanUsers";
@@ -26,10 +29,8 @@ import {
 } from "./components";
 import {
   ASSET_MASTER_DOCTYPE,
-  ASSET_MANAGEMENT_DOCTYPE,
   ASSET_CATEGORY_DOCTYPE,
   ASSET_MASTER_FIELDS,
-  ASSET_MANAGEMENT_FIELDS,
   ASSET_CATEGORY_FIELDS,
 } from "@/pages/Assets/assets.constants";
 
@@ -53,6 +54,7 @@ export default function Profile() {
   const userData = useUserData();
   const isAdmin = userData.role === "Nirmaan Admin Profile" || userData.role === "Nirmaan PMO Executive Profile" || userData.role === "Nirmaan HR Executive Profile";
   const isOwnProfile = userData.user_id === id;
+  const tabParam = useUrlParam("tab");
 
   const [editSheetOpen, setEditSheetOpen] = useState(false);
   const toggleEditSheet = useCallback(() => {
@@ -172,21 +174,13 @@ export default function Profile() {
       "Address"
     );
 
-  // Fetch asset management records for this user (for admin OR own profile)
+  // Fetch asset management records for this user (for admin OR own profile). Same query and key as
+  // the sidebar's pending-declaration badge, so a signature here clears the badge too.
   const {
     data: assetManagementList,
     isLoading: assetManagementLoading,
     mutate: assetManagementMutate,
-  } = useFrappeGetDocList(
-    ASSET_MANAGEMENT_DOCTYPE,
-    {
-      fields: ASSET_MANAGEMENT_FIELDS as unknown as string[],
-      filters: [["asset_assigned_to", "=", id]],
-      limit: 1000,
-      orderBy: { field: "creation", order: "desc" },
-    },
-    (isAdmin || isOwnProfile) ? `asset_management_${id}` : null
-  );
+  } = useUserAssignments(id, isAdmin || isOwnProfile);
 
   // Fetch all asset masters (for assignment dialog - admins only)
   const { data: assetMasterList, isLoading: assetMasterLoading } =
@@ -253,6 +247,9 @@ export default function Profile() {
 
   // Check if viewed user's role is exempt from project assignment
   const isProjectExemptRole = PROJECT_EXEMPT_ROLES.includes(data.role_profile || "");
+  // ?tab=assets opens the Assets tab (the sidebar's pending-declaration badge links here).
+  const profileTabs = isProjectExemptRole ? ["overview", "assets"] : ["overview", "projects", "assets"];
+  const activeTab = tabParam && profileTabs.includes(tabParam) ? tabParam : "overview";
 
   return (
     <div className="flex-1 space-y-4">
@@ -283,7 +280,7 @@ export default function Profile() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="overview" className="w-full">
+      <Tabs value={activeTab} onValueChange={(tab) => urlStateManager.updateParam("tab", tab)} className="w-full">
         <TabsList className={`grid w-full ${isProjectExemptRole ? "grid-cols-2" : "grid-cols-3"} max-w-md`}>
           <TabsTrigger value="overview" className="gap-2">
             <User className="h-4 w-4" />

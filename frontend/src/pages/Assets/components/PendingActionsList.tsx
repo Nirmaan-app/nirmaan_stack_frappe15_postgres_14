@@ -31,7 +31,10 @@ import {
     ASSET_MASTER_DOCTYPE,
     AssetCategoryType,
 } from '../assets.constants';
+import { assignmentDepartmentColumn } from '../utils/departmentColumn';
 import { useAssetDataRefresh } from '../hooks/useAssetDataRefresh';
+import { getAssetPermissions } from '../utils/permissions';
+import { useUserData } from '@/hooks/useUserData';
 import { useAssetMasterNamesByType } from '../hooks/useAssetMasterNamesByType';
 
 interface AssetManagement {
@@ -47,6 +50,7 @@ interface AssetMaster {
     name: string;
     asset_name: string;
     asset_category: string;
+    department: string | null;
 }
 
 interface NirmaanUser {
@@ -99,6 +103,8 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
     const { updateDoc } = useFrappeUpdateDoc();
     const { upload } = useFrappeFileUpload();
     const { refreshSummaryCards } = useAssetDataRefresh();
+    const userData = useUserData();
+    const { canUploadDeclaration } = getAssetPermissions(userData?.user_id, userData?.role);
 
     // Handle download declaration form PDF
     const handleDownloadDeclaration = async (assetId: string, assetName: string) => {
@@ -146,7 +152,7 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
     const { data: assetsList } = useFrappeGetDocList<AssetMaster>(
         'Asset Master',
         {
-            fields: ['name', 'asset_name', 'asset_category'],
+            fields: ['name', 'asset_name', 'asset_category', 'department'],
             filters: assetType ? [['name', 'in', masterNames.length ? masterNames : ['__none__']]] : [],
             limit: 0,
         },
@@ -333,6 +339,7 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
             },
             size: 140,
         },
+        assignmentDepartmentColumn<AssetManagement>((assetId) => assetsMap[assetId]?.department),
         {
             accessorKey: 'asset_assigned_to',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Assigned To" />,
@@ -393,21 +400,23 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
                             )}
                             <span className="hidden lg:inline">Download</span>
                         </Button>
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 gap-1.5"
-                            onClick={() => handleUploadClick(row.original)}
-                        >
-                            <Upload className="h-3.5 w-3.5" />
-                            <span className="hidden lg:inline">Upload</span>
-                        </Button>
+                        {canUploadDeclaration && (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 gap-1.5"
+                                onClick={() => handleUploadClick(row.original)}
+                            >
+                                <Upload className="h-3.5 w-3.5" />
+                                <span className="hidden lg:inline">Upload</span>
+                            </Button>
+                        )}
                     </div>
                 );
             },
             size: 180,
         },
-    ], [assetsMap, usersMap, downloadingAssetId, handleDownloadDeclaration]);
+    ], [assetsMap, usersMap, downloadingAssetId, handleDownloadDeclaration, canUploadDeclaration]);
 
     const additionalFilters = useMemo(() => {
         const filters: any[] = [['asset_declaration_attachment', 'is', 'not set']];

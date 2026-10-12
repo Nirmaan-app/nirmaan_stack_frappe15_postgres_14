@@ -36,6 +36,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import { useToast } from '@/components/ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
+import { useRefreshUserAssignments } from '@/hooks/useUserAssignments';
 import { CustomAttachment } from '@/components/helpers/CustomAttachment';
 import { formatDate } from '@/utils/FormatDate';
 import { formatToRoundedIndianRupee } from '@/utils/FormatPrice';
@@ -63,10 +64,20 @@ import {
     Briefcase,
     Laptop,
     MapPin,
+    PenLine,
 } from 'lucide-react';
 
+import { canSignDeclaration } from '@/utils/assetDeclaration';
+import { canEditAssetDepartment, normalizeDepartment } from '@/utils/assetDepartment';
+import { AssetHistoryRow } from '@/utils/assetHistory';
+import { DepartmentSelect } from '@/components/common/DepartmentSelect';
+import { useDepartmentOptions } from '@/hooks/useDepartmentOptions';
+import { AssetHistoryCard } from './components/AssetHistoryCard';
+import { DepartmentBadge } from './utils/departmentColumn';
 import { AssignAssetDialog } from './components/AssignAssetDialog';
 import { UnassignAssetDialog } from './components/UnassignAssetDialog';
+import { SignDeclarationDialog } from './components/SignDeclarationDialog';
+import { useAssetDataRefresh } from './hooks/useAssetDataRefresh';
 
 import {
     ASSET_MASTER_DOCTYPE,
@@ -84,12 +95,14 @@ interface AssetMaster {
     asset_name: string;
     asset_description: string;
     asset_category: string;
+    department?: string | null;
     asset_condition: string;
     asset_serial_number: string;
     asset_value: number;
     project: string;
     asset_city: string;
     asset_state: string;
+    asset_history?: AssetHistoryRow[];
     asset_email: string;
     asset_email_password: string;
     asset_pin: string;
@@ -147,6 +160,7 @@ const AssetOverview: React.FC = () => {
 const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const { toast } = useToast();
     const userData = useUserData();
+    const refreshUserAssignments = useRefreshUserAssignments();
     const { mutate: globalMutate } = useSWRConfig();
 
     // Dialog states
@@ -154,6 +168,8 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const [assignDialogOpen, setAssignDialogOpen] = useState(false);
     const [unassignDialogOpen, setUnassignDialogOpen] = useState(false);
     const [uploadDeclarationDialogOpen, setUploadDeclarationDialogOpen] = useState(false);
+    const [signDeclarationDialogOpen, setSignDeclarationDialogOpen] = useState(false);
+    const { refreshSummaryCards } = useAssetDataRefresh();
 
     // Upload declaration state
     const [declarationFile, setDeclarationFile] = useState<File | null>(null);
@@ -215,6 +231,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         asset_name: '',
         asset_description: '',
         asset_category: '',
+        department: '',
         asset_condition: '',
         asset_serial_number: '',
         asset_value: '',
@@ -346,7 +363,10 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const { upload } = useFrappeFileUpload();
 
     // Get granular permissions for current user
-    const { canEditAsset, canAssignAsset } = getAssetPermissions(userData?.user_id, userData?.role);
+    const { canEditAsset, canAssignAsset, canViewHistory, canUploadDeclaration } = getAssetPermissions(
+        userData?.user_id,
+        userData?.role
+    );
     // For backward compatibility with existing canManageAssets usage in this file
     const canManageAssets = canEditAsset || canAssignAsset;
 
@@ -364,6 +384,21 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         return asset?.current_assignee && currentAssignment && !currentAssignment.asset_declaration_attachment;
     }, [asset?.current_assignee, currentAssignment]);
 
+    // The assignee signs their own declaration here; the server re-checks.
+    const canSign = canSignDeclaration({
+        viewerId: userData?.user_id,
+        assignedTo: currentAssignment?.asset_assigned_to,
+        currentAssignee: asset?.current_assignee,
+        declaration: currentAssignment?.asset_declaration_attachment,
+    });
+
+    const handleDeclarationSigned = () => {
+        mutate();
+        mutateAssignments();
+        refreshSummaryCards();
+        refreshUserAssignments(userData.user_id); // the sidebar's pending-declaration badge
+    };
+
     // Real-time updates
     useFrappeDocumentEventListener(ASSET_MASTER_DOCTYPE, assetId, () => {
         mutate();
@@ -376,6 +411,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 asset_name: asset.asset_name || '',
                 asset_description: asset.asset_description || '',
                 asset_category: asset.asset_category || '',
+                department: asset.department || '',
                 asset_condition: asset.asset_condition || '',
                 asset_serial_number: asset.asset_serial_number || '',
                 asset_value: asset.asset_value ? String(asset.asset_value) : '',
@@ -386,6 +422,13 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
             });
         }
     }, [asset]);
+
+    // Edit may fill an empty department or fix one on a never-assigned asset; after that it
+    // moves only through an assignment with a reason (the server enforces the same rule).
+    const hasBeenAssigned =
+        !!asset?.current_assignee || (asset?.asset_history ?? []).some((row) => row.event === 'Assigned');
+    const departmentEditable = canEditAssetDepartment(asset?.department, hasBeenAssigned);
+    const { departments, isLoading: departmentsLoading } = useDepartmentOptions(editDialogOpen && departmentEditable);
 
     const handleEditSubmit = async () => {
         try {
@@ -415,6 +458,11 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 if (editForm.asset_pin) {
                     updateData.asset_pin = editForm.asset_pin;
                 }
+            }
+
+            const newDepartment = normalizeDepartment(editForm.department);
+            if (departmentEditable && newDepartment !== normalizeDepartment(asset?.department)) {
+                updateData.department = newDepartment;
             }
 
             await updateDoc(ASSET_MASTER_DOCTYPE, assetId, updateData);
@@ -541,9 +589,22 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                     <div className="flex-1">
                         <p className="font-medium text-amber-800">Declaration Pending</p>
                         <p className="text-sm text-amber-600">
-                            Asset declaration document has not been uploaded for this assignment.
+                            {canSign
+                                ? 'Sign the declaration to confirm you received this asset.'
+                                : 'Asset declaration document has not been uploaded for this assignment.'}
                         </p>
                     </div>
+                    {canSign && (
+                        <Button
+                            size="sm"
+                            onClick={() => setSignDeclarationDialogOpen(true)}
+                            className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                        >
+                            <PenLine className="h-4 w-4" />
+                            <span className="hidden sm:inline">Sign Declaration</span>
+                            <span className="sm:hidden">Sign</span>
+                        </Button>
+                    )}
                 </div>
             )}
 
@@ -657,6 +718,11 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                         )}
                                     </div>
                                 }
+                            />
+                            <DetailRow
+                                icon={<Briefcase className="h-4 w-4" />}
+                                label="Department"
+                                value={<DepartmentBadge department={asset?.department} />}
                             />
                             <DetailRow
                                 icon={<Hash className="h-4 w-4" />}
@@ -914,7 +980,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                             Declaration
                                             <ExternalLink className="h-3 w-3" />
                                         </a>
-                                    ) : canManageAssets && (
+                                    ) : canUploadDeclaration && (
                                         <Button
                                             size="sm"
                                             variant="outline"
@@ -944,6 +1010,9 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                             )}
                         </CardContent>
                     </Card>
+
+                    {/* Asset History - Full Width, Admin and HR only */}
+                    {canViewHistory && <AssetHistoryCard rows={asset?.asset_history} />}
                 </div>
             )}
 
@@ -980,6 +1049,30 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                 onChange={(val) => setEditForm({ ...editForm, asset_category: val?.value || '' })}
                                 placeholder="Select category"
                             />
+                        </div>
+
+                        {/* Department */}
+                        <div className="space-y-1.5">
+                            <Label htmlFor="editAssetDepartment" className="text-sm font-medium">
+                                Department
+                            </Label>
+                            {departmentEditable ? (
+                                <DepartmentSelect
+                                    inputId="editAssetDepartment"
+                                    value={editForm.department}
+                                    onChange={(value) => setEditForm({ ...editForm, department: value || '' })}
+                                    departments={departments}
+                                    isLoading={departmentsLoading}
+                                />
+                            ) : (
+                                <>
+                                    <Input id="editAssetDepartment" value={asset?.department || ''} readOnly disabled className="bg-gray-50" />
+                                    <p className="text-xs text-gray-500">
+                                        This asset has been assigned before, so its department changes only when you
+                                        assign it to someone in another department (with a reason).
+                                    </p>
+                                </>
+                            )}
                         </div>
 
                         {/* Condition */}
@@ -1175,6 +1268,21 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 assetName={asset?.asset_name || ''}
                 onAssigned={handleAssignmentChange}
             />
+
+            {/* Sign Declaration Dialog (the assignee only) */}
+            {canSign && currentAssignment && (
+                <SignDeclarationDialog
+                    isOpen={signDeclarationDialogOpen}
+                    onOpenChange={setSignDeclarationDialogOpen}
+                    assignmentId={currentAssignment.name}
+                    assetId={assetId}
+                    assetName={asset?.asset_name || ''}
+                    serialNumber={asset?.asset_serial_number}
+                    condition={asset?.asset_condition}
+                    assignedOn={currentAssignment.asset_assigned_on}
+                    onSigned={handleDeclarationSigned}
+                />
+            )}
 
             {/* Unassign Asset Dialog */}
             <UnassignAssetDialog
