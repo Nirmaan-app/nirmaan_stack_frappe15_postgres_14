@@ -31,11 +31,14 @@ import {
   Trash2,
   Undo2,
   ShieldAlert,
+  Pencil,
 } from "lucide-react";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 
 interface UserProfileActionsProps {
   user: NirmaanUsers;
+  /** Opens the Edit User sheet owned by the profile page. */
+  onEditUser: () => void;
   onResetPassword: (toggleDialog: () => void) => void;
   onDeleteUser: (toggleDialog: () => void) => void;
   onRenameEmail: (newEmail: string, toggleDialog: () => void) => void;
@@ -45,6 +48,7 @@ interface UserProfileActionsProps {
 
 export function UserProfileActions({
   user,
+  onEditUser,
   onResetPassword,
   onDeleteUser,
   onRenameEmail,
@@ -80,6 +84,11 @@ export function UserProfileActions({
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel>Admin Actions</DropdownMenuLabel>
           <DropdownMenuSeparator />
+
+          <DropdownMenuItem onClick={onEditUser} className="cursor-pointer">
+            <Pencil className="mr-2 h-4 w-4" />
+            Edit User
+          </DropdownMenuItem>
 
           <DropdownMenuItem
             onClick={toggleResetPasswordDialog}

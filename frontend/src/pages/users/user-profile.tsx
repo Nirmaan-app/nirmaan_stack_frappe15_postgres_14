@@ -270,6 +270,7 @@ export default function Profile() {
         {isAdmin && !isOwnProfile && data && (
           <UserProfileActions
             user={data}
+            onEditUser={() => setEditSheetOpen(true)}
             onResetPassword={handlePasswordReset}
             onDeleteUser={handleDeleteUser}
             onRenameEmail={handleRenameEmail}
