@@ -306,18 +306,26 @@ def on_approval_revision(revision_name, _internal=False):
     _guard_decrease_is_absorbable(revision_doc.revised_po, revision_doc.total_amount_difference)
 
     try:
+        diff = flt(revision_doc.total_amount_difference)
+
+        # Read the credit BEFORE Step 1. The D2 cap compares amount_paid with the PO total, and
+        # Step 1 saves the raised total: read after it, real overpayment is 0 and the credit is
+        # never spent (PO/138/00187/26-27 billed a ₹19,255.83 term over ₹2,986.35 of credit).
+        available_credit = _get_available_po_credit(revision_doc.revised_po) if diff > 0 else 0.0
+
         # Step 1: Sync Items
         sync_original_po_items(revision_doc)
 
         # Step 2: Handle Financial Changes via auto-adjustment
-        diff = flt(revision_doc.total_amount_difference)
         auto_entries = []
 
         if diff != 0:
             original_po = frappe.get_doc("Procurement Orders", revision_doc.revised_po)
 
             if diff > 0:
-                auto_entries = _auto_add_payment_term(original_po, diff, revision_name)
+                auto_entries = _auto_add_payment_term(
+                    original_po, diff, revision_name, available_credit
+                )
             elif diff < 0:
                 auto_entries = _auto_absorb_created_terms(original_po, abs(diff), revision_name)
 
@@ -383,23 +391,24 @@ def _get_available_po_credit(po_id):
     return usable_po_credit(po_id)
 
 
-def _auto_add_payment_term(original_po, diff, revision_id):
+def _auto_add_payment_term(original_po, diff, revision_id, available_credit):
     """
     For positive diff: first consume any existing overpaid credit on this PO's
     adjustment, then create a single 'Created' payment term labeled
     'Revision Adjustment - {revision_id}' for the *uncovered* balance only.
     Rebalances percentages. Returns auto-entry dicts for the PO Adjustment child table.
 
-    Credit-aware AND status-agnostic: credit is looked up by remaining_impact
-    (see `_get_available_po_credit`), so a 'Done' adjustment holding leftover credit
-    is still reused on the next increase. See PO/068/00103/26-27 regression.
+    `available_credit` is the caller's `_get_available_po_credit` reading, taken BEFORE the
+    revision raised the PO total (see `on_approval_revision`). It is credit-aware AND
+    status-agnostic: a 'Done' adjustment holding leftover credit is still reused on the next
+    increase. See PO/068/00103/26-27 regression.
 
     Backward compatible: with no existing credit, available_credit == 0, so the full
     diff becomes a new term and the entries net to zero exactly as before.
     """
     diff = flt(diff)
+    available_credit = flt(available_credit)
 
-    available_credit = _get_available_po_credit(original_po.name)
     covered = min(diff, available_credit)
     uncovered = flt(diff - covered, 2)
 
