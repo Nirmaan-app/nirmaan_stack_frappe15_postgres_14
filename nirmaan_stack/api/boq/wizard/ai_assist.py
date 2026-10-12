@@ -44,7 +44,7 @@ from typing import Any
 import frappe
 from frappe.utils import now_datetime
 
-from nirmaan_stack.api.boq.wizard import ai_run_log, draft_lock
+from nirmaan_stack.api.boq.wizard import ai_run_log, draft_lock, review_flags
 from nirmaan_stack.api.boq.wizard.ai_settings import (
     get_boq_ai_api_key,
     get_boq_ai_settings,
@@ -353,6 +353,8 @@ def run_ai_pass(boq_name: str = None, sheet_name: str = None) -> dict:
         if cached is not None:
             rows = _fetch_review_rows_for_ai(boq_name, sheet_name)
             count = _apply_ai_suggestions(boq_name, sheet_name, rows, cached)
+            # S3: Claude's sure "preamble -> line_item" answers go into the parsed result.
+            review_flags.apply_sure_changes(boq_name, sheet_name)
             now = now_datetime()
             ai_run_log.create_run(
                 boq_name, sheet_name, ai_run_log.TRIGGER_MANUAL, status="Done", cached=1,
@@ -939,6 +941,9 @@ def _run_ai_pass_worker(
             boq_name, sheet_name, rows, suggestions,
             expected_last_parsed_at=ai_run_log.expected_parse_time(run_name),
         )
+        # S3: Claude's sure "preamble -> line_item" answers go into the parsed result. After the
+        # write-back above, so a superseded run -- which it refuses -- changes no type either.
+        review_flags.apply_sure_changes(boq_name, sheet_name)
 
         # Cache the RAW suggestions keyed on the current last_parsed_at.
         last_parsed_at = _get_last_parsed_at(boq_name, sheet_name)

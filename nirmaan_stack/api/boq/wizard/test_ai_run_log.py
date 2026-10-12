@@ -984,3 +984,141 @@ class TestFailureCategories(_RunLogCase):
             ai_run_log.CATEGORY_STALE,
         ]
         self.assertEqual(sorted(produced), sorted(o for o in options if o))
+
+
+# ===========================================================================
+# S3: the state of the check for a sheet's current parse, and retention
+# ===========================================================================
+
+class TestCheckState(_RunLogCase):
+
+    def _state(self, sheet=_SHEET):
+        frappe.db.rollback()
+        return ai_run_log.check_state(self.boq_name, sheet)
+
+    def test_no_record_means_not_run(self):
+        self.assertEqual(self._state(), {"status": "not_run", "running": False})
+
+    def test_a_finished_run_means_done(self):
+        self._make_run(status="Done")
+        self.assertEqual(self._state(), {"status": "done", "running": False})
+
+    def test_a_queued_or_running_run_means_running(self):
+        for status in ("Queued", "Running"):
+            frappe.db.delete(_RUN_LOG, {"boq": self.boq_name})
+            self._make_run(status=status)
+            self.assertEqual(self._state(), {"status": "running", "running": True}, status)
+
+    def test_only_failed_runs_mean_incomplete(self):
+        self._make_run(status="Failed")
+        self.assertEqual(self._state(), {"status": "incomplete", "running": False})
+
+    def test_a_finished_run_outranks_a_failed_one_and_a_live_one_is_still_reported(self):
+        self._make_run(status="Failed")
+        self._make_run(status="Done")
+        self.assertEqual(self._state(), {"status": "done", "running": False})
+        self._make_run(status="Queued")
+        self.assertEqual(self._state(), {"status": "done", "running": True})
+
+    def test_a_record_for_an_older_parse_does_not_count(self):
+        self._make_run(status="Done", last_parsed_at=datetime.datetime(2025, 12, 1, 8, 0, 0))
+        self.assertEqual(self._state(), {"status": "not_run", "running": False})
+
+    def test_a_superseded_run_checked_nothing(self):
+        self._make_run(status="Superseded")
+        self.assertEqual(self._state(), {"status": "not_run", "running": False})
+
+    def test_a_sheet_never_parsed_is_not_run(self):
+        self._set_draft(_SHEET, {"last_parsed_at": None})
+        frappe.db.commit()
+        self._make_run(status="Done", last_parsed_at=None)
+        self.assertEqual(self._state(), {"status": "not_run", "running": False})
+
+    def test_each_sheet_has_its_own_state(self):
+        self._make_run(status="Done")
+        self._make_run(status="Failed", sheet=_OTHER)
+        frappe.db.rollback()
+        states = ai_run_log.check_states(self.boq_name)
+        self.assertEqual(states[_SHEET]["status"], "done")
+        self.assertEqual(states[_OTHER]["status"], "incomplete")
+        self.assertEqual(states["HiddenSheet"]["status"], "not_run")
+        self.assertEqual(self._state("NoSuchSheet"), {"status": "not_run", "running": False})
+
+
+class TestRetention(_RunLogCase):
+    """Run records are kept 6 months and pruned at most once a day by the EXISTING timed task.
+    Every prune here is narrowed to the test BoQ, so it can never delete a real record."""
+
+    def _aged(self, months, status="Done"):
+        name = self._make_run(status=status)
+        frappe.db.set_value(_RUN_LOG, name, "creation",
+                            frappe.utils.add_months(now_datetime(), -months), update_modified=False)
+        frappe.db.commit()
+        return name
+
+    def _exists(self, name):
+        frappe.db.rollback()
+        return bool(frappe.db.exists(_RUN_LOG, name))
+
+    def test_records_older_than_six_months_are_deleted_and_newer_ones_kept(self):
+        old, older, recent, new = self._aged(7), self._aged(13, "Failed"), self._aged(5), self._make_run("Done")
+        self.assertEqual(ai_run_log.prune_old_runs(force=True, boq_name=self.boq_name), 2)
+        self.assertEqual([self._exists(n) for n in (old, older, recent, new)], [False, False, True, True])
+        self.assertEqual(ai_run_log.RUN_LOG_KEEP_MONTHS, 6)
+
+    def test_a_run_that_is_still_live_is_never_pruned(self):
+        queued, running = self._aged(7, "Queued"), self._aged(7, "Running")
+        self.assertEqual(ai_run_log.prune_old_runs(force=True, boq_name=self.boq_name), 0)
+        self.assertTrue(self._exists(queued) and self._exists(running))
+
+    def test_it_prunes_at_most_once_a_day(self):
+        cache = frappe.cache()
+        saved = cache.get_value(ai_run_log._PRUNE_CACHE_KEY, expires=True)
+        try:
+            cache.delete_value(ai_run_log._PRUNE_CACHE_KEY)
+            with patch.dict(frappe.flags, {"in_test": False}), \
+                 patch.object(frappe.db, "count", return_value=0) as count, \
+                 patch.object(frappe.db, "delete") as delete:
+                self.assertEqual(ai_run_log.prune_old_runs(), 0)             # first call of the day
+                self.assertTrue(cache.get_value(ai_run_log._PRUNE_CACHE_KEY, expires=True),
+                                "it remembers the prune")
+                self.assertIsNone(ai_run_log.prune_old_runs())              # the next: skipped
+                self.assertIsNone(ai_run_log.prune_old_runs())
+            self.assertEqual(count.call_count, 1)
+            delete.assert_not_called()
+            self.assertEqual(ai_run_log.PRUNE_EVERY_SEC, 24 * 3600)
+        finally:
+            if saved:
+                cache.set_value(ai_run_log._PRUNE_CACHE_KEY, saved, expires_in_sec=ai_run_log.PRUNE_EVERY_SEC)
+            else:
+                cache.delete_value(ai_run_log._PRUNE_CACHE_KEY)
+
+    def test_under_a_test_run_a_prune_with_no_boq_deletes_nothing(self):
+        old = self._aged(7)
+        self.assertIsNone(ai_run_log.prune_old_runs(force=True))
+        self.assertTrue(self._exists(old))
+
+    def test_the_existing_timed_task_does_the_pruning(self):
+        with patch.object(ai_run_log, "heal_stale_runs") as heal, \
+             patch.object(ai_run_log, "prune_old_runs") as prune:
+            ai_run_log.heal_stale_runs_task()
+        heal.assert_called_once_with()
+        prune.assert_called_once_with()
+
+    def test_a_prune_failure_never_fails_the_timed_check(self):
+        with patch.object(ai_run_log, "heal_stale_runs"), \
+             patch.object(ai_run_log, "prune_old_runs", side_effect=RuntimeError("boom")), \
+             patch("frappe.log_error") as log_error:
+            ai_run_log.heal_stale_runs_task()
+        log_error.assert_called_once()
+
+    def test_no_scheduler_entry_was_added_for_it(self):
+        events = frappe.get_hooks("scheduler_events")
+        every_entry = [
+            method
+            for group in events.values()
+            for methods in (group.values() if isinstance(group, dict) else [group])
+            for method in methods
+        ]
+        self.assertEqual([m for m in every_entry if "ai_run_log" in m],
+                         ["nirmaan_stack.api.boq.wizard.ai_run_log.heal_stale_runs_task"])

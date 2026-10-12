@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import Any
 
 import frappe
-from frappe.utils import get_datetime, now_datetime, time_diff_in_seconds
+from frappe.utils import add_months, get_datetime, now_datetime, time_diff_in_seconds
 
 from nirmaan_stack.api.boq.wizard.ai_settings import (
     get_boq_ai_api_key,
@@ -51,6 +51,16 @@ TRIGGER_MANUAL = "manual"
 CATEGORY_STALE = "worker stopped or timed out"
 CATEGORY_UNAVAILABLE = boq_ai_assist.CATEGORY_UNAVAILABLE
 CATEGORY_INTERNAL = boq_ai_assist.CATEGORY_INTERNAL
+
+# The state of the check for a sheet's CURRENT parse (S3), read from its run records.
+CHECK_DONE = "done"                 # a run for this parse finished
+CHECK_RUNNING = "running"           # none finished yet; one is queued or running
+CHECK_INCOMPLETE = "incomplete"     # every run for this parse failed or timed out
+CHECK_NOT_RUN = "not_run"           # no record: parsed before the automatic check existed
+
+RUN_LOG_KEEP_MONTHS = 6             # owner ruling R14: records are kept 6 months
+PRUNE_EVERY_SEC = 24 * 3600         # ... and pruned at most once a day
+_PRUNE_CACHE_KEY = "boq_ai_run_log::last_prune"
 
 
 class RunSuperseded(Exception):
@@ -371,8 +381,96 @@ def heal_on_read(boq_name: str | None = None, sheet_name: str | None = None) -> 
 
 
 def heal_stale_runs_task() -> None:
-    """The timed check (hooks.py, every 5 minutes)."""
+    """The timed check (hooks.py, every 5 minutes). It also prunes old records, at most once a
+    day -- so retention needs no scheduler entry of its own."""
     heal_stale_runs()
+    try:
+        prune_old_runs()
+    except Exception:
+        frappe.db.rollback()
+        frappe.log_error(title="BoQ AI run log: prune failed", message=frappe.get_traceback())
+
+
+# ---------------------------------------------------------------------------
+# Retention (S3)
+# ---------------------------------------------------------------------------
+
+def prune_old_runs(force: bool = False, boq_name: str | None = None) -> int | None:
+    """Delete finished run records older than RUN_LOG_KEEP_MONTHS. Returns the number deleted, or
+    None when it was skipped because a prune already ran in the last PRUNE_EVERY_SEC.
+
+    The time of the last prune is remembered in the site cache, with a life of PRUNE_EVERY_SEC:
+    if the cache is ever emptied the prune simply runs once more. `boq_name` narrows it to one BoQ
+    (the tests use that, so they can never delete a real record)."""
+    # A test run shares the site's records: without a BoQ to narrow it to, prune nothing.
+    if frappe.flags.in_test and not boq_name:
+        return None
+    cache = frappe.cache()
+    # expires=True: an expiring key must be read from the cache itself, never from this
+    # process's own copy of an earlier read.
+    if not force and cache.get_value(_PRUNE_CACHE_KEY, expires=True):
+        return None
+    filters: dict = {
+        "creation": ["<", add_months(now_datetime(), -RUN_LOG_KEEP_MONTHS)],
+        "status": ["not in", _LIVE_STATUSES],
+    }
+    if boq_name:
+        filters["boq"] = boq_name
+    deleted = frappe.db.count(_RUN_LOG, filters)
+    if deleted:
+        # Raw delete on purpose: the run log has no doc_events, no child rows and nothing links to
+        # it. The Error Log entries it points at have their own retention.
+        frappe.db.delete(_RUN_LOG, filters)
+    frappe.db.commit()
+    if not boq_name:
+        cache.set_value(_PRUNE_CACHE_KEY, str(now_datetime()), expires_in_sec=PRUNE_EVERY_SEC)
+    return deleted
+
+
+# ---------------------------------------------------------------------------
+# The state of the check for a sheet's current parse (S3)
+# ---------------------------------------------------------------------------
+
+def _state_of(statuses) -> dict:
+    statuses = set(statuses)
+    running = bool(statuses & set(_LIVE_STATUSES))
+    if "Done" in statuses:
+        status = CHECK_DONE
+    elif running:
+        status = CHECK_RUNNING
+    elif "Failed" in statuses:
+        status = CHECK_INCOMPLETE
+    else:
+        # No record, or only a superseded one: nothing has checked this parse.
+        status = CHECK_NOT_RUN
+    return {"status": status, "running": running}
+
+
+def check_states(boq_name: str, sheet_name: str | None = None) -> dict:
+    """{sheet_name: {"status": CHECK_*, "running": bool}} for the sheets of a BoQ, from the run
+    records of each sheet's CURRENT parse (a record for an older parse does not count)."""
+    draft_filters: dict = {"parent": boq_name, "parenttype": "BOQs"}
+    run_filters: dict = {"boq": boq_name}
+    if sheet_name is not None:
+        draft_filters["sheet_name"] = sheet_name
+        run_filters["sheet_name"] = sheet_name
+    parsed_at = {
+        d.sheet_name: d.last_parsed_at
+        for d in frappe.get_all(_SHEET_DRAFT, filters=draft_filters, fields=["sheet_name", "last_parsed_at"])
+    }
+    found: dict = {sheet: [] for sheet in parsed_at}
+    for run in frappe.get_all(
+        _RUN_LOG, filters=run_filters, fields=["sheet_name", "status", "sheet_last_parsed_at"]
+    ):
+        current = parsed_at.get(run.sheet_name)
+        if current and run.sheet_last_parsed_at and same_parse(run.sheet_last_parsed_at, current):
+            found[run.sheet_name].append(run.status)
+    return {sheet: _state_of(statuses) for sheet, statuses in found.items()}
+
+
+def check_state(boq_name: str, sheet_name: str) -> dict:
+    """check_states for one sheet. A sheet with no draft row reads as not run."""
+    return check_states(boq_name, sheet_name).get(sheet_name) or _state_of(())
 
 
 # ---------------------------------------------------------------------------

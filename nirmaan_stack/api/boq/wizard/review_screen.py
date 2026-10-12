@@ -1487,6 +1487,10 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         # Fetched ONLY to derive gemini_revert_available below; the raw blob is DROPPED
         # from the payload -- never shipped to the client (mirrors ai_accept_snapshot).
         "gemini_accept_snapshot",
+        # S3 (ADR-0033) review flags: the "Looks OK" mark, and the parser's own type of a row
+        # Claude surely re-typed. The latter is read for the flags and DROPPED from the payload:
+        # to the user the parsed result IS parser + Claude (owner ruling R6).
+        "ai_flags_ok", "ai_flags_ok_at", "parser_classification",
     ]
 
     raw_rows = frappe.db.get_all(
@@ -1560,6 +1564,17 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
 
     breaks = check_structural_integrity(rows)
     flags = _compute_advisory_flags(rows)
+
+    # S3 (ADR-0033): the review flags ("Check type" / "Check parent") per row, and the sheet's
+    # counts. Worked out here from the rows already in hand by THE function the finalize block
+    # uses, so the screen and the refusal cannot disagree. Lazy import: review_flags imports this
+    # module at load.
+    from nirmaan_stack.api.boq.wizard import review_flags
+    check_state = review_flags.sheet_flag_state(boq_name, sheet_name, rows=rows)
+    for d in rows:
+        d["check_flags"] = check_state["flags"].get(d.get("row_index"))
+        d.pop("parser_classification", None)
+
     # DUAL-AI (ADR-0003): surface the Gemini enable flag (Document AI Settings.boq_ai_enabled,
     # read perm-bypassing). Independent of Claude's enable (a separate settings home). The
     # frontend gates the Gemini column/accept block on this. Fails closed to False on a DB error.
@@ -1616,6 +1631,7 @@ def get_review_rows(boq_name: str = None, sheet_name: str = None) -> dict:
         "flags": flags,
         "gemini_enabled": gemini_enabled,
         "revision": revision_meta,
+        "check_summary": check_state["summary"],
     }
 
 
@@ -2756,6 +2772,15 @@ def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=Non
             title="Nothing to revert",
         )
 
+    # R20 (S3, ADR-0033): the children a change of THIS row moved come back with it. Checked
+    # BEFORE any write, so a revert that would put a child back into a loop changes nothing.
+    # Off for a template BoQ: rows are inserted and deleted there, which renumbers them, so the
+    # "row N" in a child's history cannot be trusted. Lazy import: review_flags imports this module.
+    from nirmaan_stack.api.boq.wizard import review_flags
+    cascade_children = frappe.db.get_value("BOQs", boq_name, "origin") != "template"
+    if cascade_children:
+        review_flags.guard_child_reverts(boq_name, sheet_name, row_index)
+
     # Lazy imports: ai_assist / gemini_assist import FROM review_screen at module load, so
     # importing them here (call-time) avoids a circular import.
     from nirmaan_stack.api.boq.wizard.ai_assist import revert_ai_acceptance
@@ -2798,6 +2823,15 @@ def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=Non
             doc, boq_name, sheet_name, "human_parent", None,
             reason="reverted to parser",
         )
+
+    # R20: put back every child whose latest parent change was made by a restructure of this
+    # row (a child the user moved again afterwards is left where it is). Same transaction as the
+    # row's own revert, so it is all or nothing. Children an old AI accept moved were restored
+    # from its snapshot above and are no longer in this plan.
+    if cascade_children:
+        for child_index in review_flags.revert_moved_children(boq_name, sheet_name, row_index):
+            if child_index not in reverted_children:
+                reverted_children.append(child_index)
 
     # Normalize: re-offer any live suggestion (status -> Pending when a suggestion exists),
     # clear both accept snapshots, and pin chosen_source -> "parser". One commit covers these
@@ -3322,6 +3356,12 @@ def mark_sheet_parsed_check_done(
         ]
         if qty_gap:
             return {"ok": False, "breaks": [], "qty_gap": len(qty_gap)}
+
+    # S3 (ADR-0033) REVIEW-FLAG GATE, the last check: refused while the automatic check is still
+    # running on this sheet, and while any "Check type" / "Check parent" flag is open. It raises
+    # (the screen shows a server error as it is); a sheet with nothing open falls through.
+    from nirmaan_stack.api.boq.wizard import review_flags
+    review_flags.guard_finalize(boq_name, sheet_name)
 
     # No breaks -> finalize. Write "Finalized" directly -- bypasses set_sheet_status which rejects it
     frappe.db.set_value("BoQ Sheet Draft", child_name, "wizard_status", _SHEET_FINALIZED)
