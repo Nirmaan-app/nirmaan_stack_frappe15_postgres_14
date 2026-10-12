@@ -491,6 +491,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     // Handle assignment refresh
     const handleAssignmentChange = () => {
         mutate();
+        mutateAssignments();
     };
 
     const projectAttachmentLabel: Record<ProjectAttachmentField, string> = {

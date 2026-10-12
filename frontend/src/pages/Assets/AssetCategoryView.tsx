@@ -135,7 +135,7 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
         return assets?.filter((a) => a.current_assignee) || [];
     }, [assets]);
 
-    const { data: assignments } = useFrappeGetDocList<AssetAssignment>(
+    const { data: assignments, mutate: mutateAssignments } = useFrappeGetDocList<AssetAssignment>(
         ASSET_MANAGEMENT_DOCTYPE,
         {
             fields: ['name', 'asset', 'asset_assigned_to', 'asset_declaration_attachment'],
@@ -230,8 +230,12 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
         setUnassignDialogOpen(true);
     };
 
+    // After an assign or unassign here: the cards AND the assignment lookup. Without the second, an
+    // Unassign right after an Assign on this page wouldn't know the new assignment row, would only
+    // clear the holder, and would leave that row behind as a leftover.
     const handleAssetChange = () => {
         mutateAssets();
+        mutateAssignments();
     };
 
     const isLoading = categoryLoading || assetsLoading;

@@ -1,6 +1,13 @@
 import { useSWRConfig } from 'frappe-react-sdk';
 import { useCallback } from 'react';
-import { ASSET_CACHE_KEYS } from '../assets.constants';
+import {
+    ASSET_CACHE_KEYS,
+    ASSET_CATEGORY_DOCTYPE,
+    ASSET_MANAGEMENT_DOCTYPE,
+    ASSET_MASTER_DOCTYPE,
+} from '../assets.constants';
+
+const ASSET_COUNT_DOCTYPES = [ASSET_CATEGORY_DOCTYPE, ASSET_MASTER_DOCTYPE, ASSET_MANAGEMENT_DOCTYPE];
 
 /**
  * Hook for programmatic cache invalidation across Asset module components.
@@ -19,24 +26,14 @@ export const useAssetDataRefresh = () => {
      * "refetch on every tab switch" behavior of AssetsSummaryCards.
      */
     const refreshSummaryCards = useCallback(() => {
-        // Global summary (Categories tab)
-        mutate(ASSET_CACHE_KEYS.CATEGORIES_COUNT);
-        mutate(ASSET_CACHE_KEYS.TOTAL_ASSETS_COUNT);
-        mutate(ASSET_CACHE_KEYS.ASSIGNED_ASSETS_COUNT);
-        mutate(ASSET_CACHE_KEYS.UNASSIGNED_ASSETS_COUNT);
-        mutate(ASSET_CACHE_KEYS.PENDING_DECLARATION_COUNT);
-
-        // Project Assets tab
-        mutate(ASSET_CACHE_KEYS.PROJECT_TOTAL_ASSETS_COUNT);
-        mutate(ASSET_CACHE_KEYS.PROJECT_ASSIGNED_ASSETS_COUNT);
-        mutate(ASSET_CACHE_KEYS.PROJECT_UNASSIGNED_ASSETS_COUNT);
-        mutate(ASSET_CACHE_KEYS.PROJECT_PENDING_DECLARATION_COUNT);
-
-        // IT Assets tab
-        mutate(ASSET_CACHE_KEYS.IT_TOTAL_ASSETS_COUNT);
-        mutate(ASSET_CACHE_KEYS.IT_ASSIGNED_ASSETS_COUNT);
-        mutate(ASSET_CACHE_KEYS.IT_UNASSIGNED_ASSETS_COUNT);
-        mutate(ASSET_CACHE_KEYS.IT_PENDING_DECLARATION_COUNT);
+        // The summary cards fetch through `useCounts`, whose SWR key is `counts:<the specs as JSON>`
+        // (not a fixed key), so refresh every one of those that counts an asset doctype.
+        mutate(
+            (key) =>
+                typeof key === 'string' &&
+                key.startsWith('counts:') &&
+                ASSET_COUNT_DOCTYPES.some((doctype) => key.includes(`"${doctype}"`))
+        );
 
         // Per-category counts (Categories table + the summary card's "most unassigned" list)
         mutate(ASSET_CACHE_KEYS.CATEGORY_ASSET_COUNTS);

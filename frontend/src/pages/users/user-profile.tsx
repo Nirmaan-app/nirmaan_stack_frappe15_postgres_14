@@ -12,7 +12,8 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { useUrlParam } from "@/hooks/useUrlParam";
-import { useUserAssignments } from "@/hooks/useUserAssignments";
+import { useRefreshUserAssignments, useUserAssignments } from "@/hooks/useUserAssignments";
+import { useAssetDataRefresh } from "@/pages/Assets/hooks/useAssetDataRefresh";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useUserSubmitHandlers } from "@/hooks/useUserSubmitHandlers";
 import { NirmaanUserPermissions } from "@/types/NirmaanStack/NirmaanUserPermissions";
@@ -183,7 +184,7 @@ export default function Profile() {
   } = useUserAssignments(id, isAdmin || isOwnProfile);
 
   // Fetch all asset masters (for assignment dialog - admins only)
-  const { data: assetMasterList, isLoading: assetMasterLoading } =
+  const { data: assetMasterList, isLoading: assetMasterLoading, mutate: assetMasterMutate } =
     useFrappeGetDocList(
       ASSET_MASTER_DOCTYPE,
       {
@@ -208,6 +209,18 @@ export default function Profile() {
       },
       (isAdmin || isOwnProfile) ? "asset_categories_for_user_profile" : null
     );
+
+  // After an assign, unassign, upload or sign on this tab: the person's assignments, the asset list
+  // the Assign dialog picks free assets from (a freed asset must show up, an assigned one must not),
+  // the sidebar badge's "held" list, and the Assets page summary counts.
+  const refreshUserAssignments = useRefreshUserAssignments();
+  const { refreshSummaryCards } = useAssetDataRefresh();
+  const handleAssetsChanged = useCallback(() => {
+    assetManagementMutate();
+    assetMasterMutate();
+    refreshUserAssignments(id);
+    refreshSummaryCards();
+  }, [assetManagementMutate, assetMasterMutate, refreshUserAssignments, id, refreshSummaryCards]);
 
   // Asset count for stats
   const assetCount = useMemo(() => {
@@ -355,9 +368,7 @@ export default function Profile() {
             categoryList={categoryList as any}
             isAdmin={isAdmin}
             isOwnProfile={isOwnProfile}
-            onMutate={() => {
-              assetManagementMutate();
-            }}
+            onMutate={handleAssetsChanged}
           />
         </TabsContent>
       </Tabs>
