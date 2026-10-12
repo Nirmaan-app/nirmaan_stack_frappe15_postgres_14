@@ -1,9 +1,446 @@
-# Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and Contributors
-# See license.txt
+# Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
+# For license information, please see license.txt
+"""Asset departments + Asset History, end to end against real rows.
 
-# import frappe
+Covers the assignment rules (one holder, a reason to move departments), the history rows each event
+writes, the declaration file surviving an unassign, the Edit rules on an asset's department, the
+append-only history, and who may set a person's department.
+
+Nothing here commits, so every row rolls back with the class. `_purge` still runs afterwards as the
+safety net CODING_STANDARDS.md § Writing tests asks for. Test people are bare User + Nirmaan Users
+rows inserted with db_insert, so the User/Nirmaan Users hooks never run for them.
+
+Run: bench --site localhost run-tests --module nirmaan_stack.nirmaan_stack.doctype.asset_management.test_asset_management
+"""
+
+from unittest.mock import patch
+
+import frappe
+from frappe.model.rename_doc import rename_doc
 from frappe.tests.utils import FrappeTestCase
 
+from nirmaan_stack.api.assets.assign import assign_asset
+from nirmaan_stack.api.users import create_user
 
-class TestAssetManagement(FrappeTestCase):
-	pass
+CATEGORY_PREFIX = "ZZD"
+HR = "Nirmaan HR Executive Profile"
+PM = "Nirmaan Project Manager Profile"
+ACCOUNTANT = "Nirmaan Accountant Profile"
+FAKE_FILE_URL = "/api/method/frappe_gcp_attachment.controller.generate_file?key=test-dept/{}.pdf&file_name={}.pdf"
+
+
+def _make_person(tag, profile, department=None):
+    """A bare User + Nirmaan Users pair, inserted without hooks."""
+    email = f"zzd-{tag}-{frappe.generate_hash(length=6)}@example.com"
+    user = frappe.new_doc("User")
+    user.update({"name": email, "email": email, "first_name": f"ZZD {tag}", "enabled": 1, "user_type": "System User"})
+    user.db_insert()
+    person = frappe.new_doc("Nirmaan Users")
+    person.update({
+        "name": email, "email": email, "first_name": f"ZZD {tag}", "full_name": f"ZZD {tag}",
+        "role_profile": profile, "department": department,
+    })
+    person.db_insert()
+    return email
+
+
+def ensure_departments(*names):
+    """Create the departments a suite needs if the site doesn't have them yet; return those created."""
+    created = []
+    for name in names:
+        if not frappe.db.exists("Nirmaan Department", name):
+            frappe.get_doc({"doctype": "Nirmaan Department", "department_name": name, "is_active": 1}).insert(
+                ignore_permissions=True
+            )
+            created.append(name)
+    return created
+
+
+def _purge(category, assets, people, departments=()):
+    """Remove anything that outlived the rollback (see module docstring)."""
+    frappe.db.rollback()
+    problems = []
+    scopes = [
+        ("Asset Management", {"asset": ["in", assets]}),
+        ("Asset History", {"parent": ["in", assets], "parenttype": "Asset Master"}),
+        ("File", {"file_url": ["like", "%test-dept/%"]}),
+        ("Version", {"docname": ["in", assets + people]}),
+        ("Asset Master", {"name": ["in", assets]}),
+        ("Asset Category", {"name": category}),
+        ("Series", {"name": f"ASSET-{CATEGORY_PREFIX}-"}),
+        ("Nirmaan Users", {"name": ["in", people]}),
+        ("User", {"name": ["in", people]}),
+        ("Nirmaan Department", {"name": ["in", list(departments) or ["__none__"]]}),
+    ]
+    for doctype, filters in scopes:
+        try:
+            frappe.db.delete(doctype, filters)
+            frappe.db.commit()
+        except Exception as exc:  # noqa: BLE001 -- reported, never swallowed
+            frappe.db.rollback()
+            problems.append(f"{doctype}: {exc}")
+    if problems:
+        print("WARNING -- test_asset_management purge INCOMPLETE, rows left in the live DB: %s" % "; ".join(problems))
+    return problems
+
+
+class TestAssetDepartmentsAndHistory(FrappeTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        frappe.set_user("Administrator")
+        cls.category = f"{CATEGORY_PREFIX} Dept Test {frappe.generate_hash(length=6)}"
+        cls.assets = []
+        cls.departments = ensure_departments("HR", "Projects", "Accounts", "Design", "Sales")
+        frappe.get_doc({"doctype": "Asset Category", "asset_category": cls.category, "category_type": "IT"}).insert(
+            ignore_permissions=True
+        )
+        cls.hr = _make_person("hr", HR, "HR")
+        cls.pm = _make_person("pm", PM, "Projects")
+        cls.accountant = _make_person("acc", ACCOUNTANT, "Accounts")
+        cls.no_dept = _make_person("nodept", PM)
+        cls.people = [cls.hr, cls.pm, cls.accountant, cls.no_dept]
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.set_user("Administrator")
+        _purge(cls.category, cls.assets or ["__none__"], cls.people, cls.departments)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.set_user("Administrator")
+        self.asset = self._new_asset("Projects")
+
+    def tearDown(self):
+        frappe.set_user("Administrator")
+
+    # -- helpers --------------------------------------------------------------------------------
+
+    def _new_asset(self, department):
+        asset = frappe.get_doc({
+            "doctype": "Asset Master", "asset_name": "Dept test laptop",
+            "asset_category": self.category, "department": department,
+        }).insert(ignore_permissions=True)
+        self.assets.append(asset.name)
+        return asset.name
+
+    def _assign(self, person, reason=None, asset=None, declaration=None):
+        """Insert an assignment the way `assign_asset` does: the reason rides on the flags."""
+        assignment = frappe.get_doc({
+            "doctype": "Asset Management", "asset": asset or self.asset, "asset_assigned_to": person,
+            "asset_assigned_on": frappe.utils.today(), "asset_declaration_attachment": declaration,
+        })
+        assignment.flags.department_change_reason = reason
+        return assignment.insert(ignore_permissions=True)
+
+    def _history(self, asset=None):
+        return frappe.get_all(
+            "Asset History", filters={"parent": asset or self.asset}, order_by="idx",
+            fields=["event", "assigned_to", "done_by", "declaration", "from_department", "to_department", "reason"],
+        )
+
+    def _asset(self, field, asset=None):
+        return frappe.db.get_value("Asset Master", asset or self.asset, field)
+
+    # -- adding an asset ------------------------------------------------------------------------
+
+    def test_new_asset_writes_asset_added(self):
+        first = self._history()[0]
+        self.assertEqual((first.event, first.to_department, first.done_by), ("Asset Added", "Projects", "Administrator"))
+
+    def test_new_asset_needs_a_department(self):
+        with self.assertRaises(frappe.ValidationError):
+            frappe.get_doc({
+                "doctype": "Asset Master", "asset_name": "No dept", "asset_category": self.category,
+            }).insert(ignore_permissions=True)
+
+    # -- assigning ------------------------------------------------------------------------------
+
+    def test_same_department_assigns_without_reason(self):
+        self._assign(self.pm)
+        self.assertEqual(self._asset("current_assignee"), self.pm)
+        self.assertEqual(self._asset("department"), "Projects")
+        row = self._history()[-1]
+        self.assertEqual((row.event, row.assigned_to), ("Assigned", self.pm))
+        self.assertFalse(row.from_department or row.to_department or row.reason)
+
+    def test_other_department_needs_a_reason(self):
+        with self.assertRaises(frappe.ValidationError):
+            self._assign(self.accountant)
+        with self.assertRaises(frappe.ValidationError):
+            self._assign(self.accountant, reason="too short")
+        self.assertFalse(self._asset("current_assignee"))
+        self.assertEqual(self._asset("department"), "Projects")
+
+    def test_other_department_with_reason_moves_the_asset(self):
+        self._assign(self.accountant, reason="  Moved to the accounts team  ")
+        self.assertEqual(self._asset("department"), "Accounts")
+        row = self._history()[-1]
+        self.assertEqual(
+            (row.event, row.from_department, row.to_department, row.reason),
+            ("Assigned", "Projects", "Accounts", "Moved to the accounts team"),
+        )
+
+    def test_reason_is_dropped_when_nothing_moves(self):
+        self._assign(self.pm, reason="no move happens here")
+        self.assertFalse(self._history()[-1].reason)
+
+    def test_assignment_record_has_no_reason_field(self):
+        # Owner, 2026-10-12: the reason lives only in the asset's history, not on Asset Management.
+        self.assertFalse(frappe.get_meta("Asset Management").has_field("department_change_reason"))
+
+    # -- the assign endpoint --------------------------------------------------------------------
+
+    def test_assign_endpoint_moves_department_sets_project_and_logs_reason(self):
+        project = frappe.db.get_value("Projects", {"project_city": ["is", "set"]}, ["name", "project_city", "project_state"], as_dict=True)
+        with patch("frappe.db.commit"):  # keep everything inside this test's rollback
+            result = assign_asset(
+                self.asset, self.accountant, frappe.utils.today(),
+                project=project.name if project else None,
+                department_change_reason="Moved to the accounts team",
+            )
+        self.assertEqual(result["department"], "Accounts")
+        self.assertEqual(self._asset("current_assignee"), self.accountant)
+        if project:
+            self.assertEqual(self._asset("project"), project.name)
+            self.assertEqual(self._asset("asset_city"), project.project_city)
+        row = self._history()[-1]
+        self.assertEqual((row.event, row.from_department, row.to_department, row.reason),
+                         ("Assigned", "Projects", "Accounts", "Moved to the accounts team"))
+
+    def test_assign_endpoint_refuses_a_move_without_reason(self):
+        with patch("frappe.db.commit"):
+            with self.assertRaises(frappe.ValidationError):
+                assign_asset(self.asset, self.accountant, frappe.utils.today())
+        self.assertFalse(frappe.db.exists("Asset Management", {"asset": self.asset}))
+        self.assertEqual(self._asset("department"), "Projects")
+
+    def test_assign_endpoint_needs_create_permission(self):
+        frappe.set_user(self.no_dept)  # a bare user with no roles
+        with patch("frappe.db.commit"):
+            with self.assertRaises(frappe.PermissionError):
+                assign_asset(self.asset, self.pm, frappe.utils.today())
+
+    def test_person_without_department_leaves_the_asset_where_it_is(self):
+        self._assign(self.no_dept)
+        self.assertEqual(self._asset("department"), "Projects")
+
+    def test_asset_without_department_takes_the_persons_without_a_reason(self):
+        frappe.db.set_value("Asset Master", self.asset, "department", None)
+        self._assign(self.accountant)
+        self.assertEqual(self._asset("department"), "Accounts")
+        row = self._history()[-1]
+        self.assertEqual((row.from_department, row.to_department), (None, "Accounts"))
+
+    def test_second_assignment_is_refused(self):
+        self._assign(self.pm)
+        with self.assertRaises(frappe.ValidationError):
+            self._assign(self.no_dept)
+        self.assertEqual(self._asset("current_assignee"), self.pm)
+
+    # -- declarations ---------------------------------------------------------------------------
+
+    def test_declaration_with_the_assignment_is_logged(self):
+        url = FAKE_FILE_URL.format("with-assign", "with-assign")
+        self._assign(self.pm, declaration=url)
+        events = [(r.event, r.declaration) for r in self._history()]
+        self.assertIn(("Declaration Uploaded", url), events)
+        self.assertEqual([e for e, _ in events].count("Declaration Uploaded"), 1)
+
+    def test_declaration_uploaded_later_is_logged(self):
+        assignment = self._assign(self.pm)
+        url = FAKE_FILE_URL.format("later", "later")
+        assignment.asset_declaration_attachment = url
+        assignment.save(ignore_permissions=True)
+        row = self._history()[-1]
+        self.assertEqual((row.event, row.declaration, row.assigned_to), ("Declaration Uploaded", url, self.pm))
+
+    # -- unassigning ----------------------------------------------------------------------------
+
+    def test_unassign_logs_frees_the_asset_and_keeps_the_declaration_file(self):
+        frappe.db.set_value("Asset Master", self.asset, {"project": None})
+        assignment = self._assign(self.pm)
+        url = FAKE_FILE_URL.format("keep", "keep")
+        file_doc = frappe.new_doc("File")
+        file_doc.update({
+            "name": f"zzd-file-{frappe.generate_hash(length=8)}", "file_name": "keep.pdf", "file_url": url,
+            "is_private": 1, "attached_to_doctype": "Asset Management", "attached_to_name": assignment.name,
+            "attached_to_field": "asset_declaration_attachment",
+        })
+        file_doc.db_insert()
+
+        frappe.delete_doc("Asset Management", assignment.name, ignore_permissions=True, delete_permanently=True)
+
+        self.assertFalse(self._asset("current_assignee"))
+        self.assertEqual(self._asset("department"), "Projects")
+        row = self._history()[-1]
+        self.assertEqual((row.event, row.assigned_to, row.done_by), ("Unassigned", self.pm, "Administrator"))
+        moved = frappe.db.get_value("File", file_doc.name, ["attached_to_doctype", "attached_to_name"], as_dict=True)
+        self.assertIsNotNone(moved, "the declaration file was deleted with the assignment")
+        self.assertEqual((moved.attached_to_doctype, moved.attached_to_name), ("Asset Master", self.asset))
+
+    def test_removing_an_old_duplicate_keeps_the_real_holder(self):
+        stale = self._assign(self.pm)
+        # An older duplicate, as ASSET-LAP-029 has today: inserted raw, past the one-holder rule.
+        current = frappe.new_doc("Asset Management")
+        current.update({
+            "name": f"zzd-dup-{frappe.generate_hash(length=8)}", "asset": self.asset,
+            "asset_assigned_to": self.no_dept, "asset_assigned_on": frappe.utils.today(),
+        })
+        current.db_insert()
+        frappe.db.set_value("Asset Master", self.asset, "current_assignee", self.no_dept)
+
+        frappe.delete_doc("Asset Management", stale.name, ignore_permissions=True, delete_permanently=True)
+        self.assertEqual(self._asset("current_assignee"), self.no_dept)
+
+    # -- editing the asset's department ---------------------------------------------------------
+
+    def test_never_assigned_asset_department_can_be_fixed_in_edit(self):
+        doc = frappe.get_doc("Asset Master", self.asset)
+        doc.department = "Design"
+        doc.save(ignore_permissions=True)
+        row = self._history()[-1]
+        self.assertEqual((row.event, row.from_department, row.to_department), ("Department Set", "Projects", "Design"))
+
+    def test_assigned_asset_department_cannot_be_moved_in_edit(self):
+        self._assign(self.pm)
+        doc = frappe.get_doc("Asset Master", self.asset)
+        doc.department = "Design"
+        with self.assertRaises(frappe.ValidationError):
+            doc.save(ignore_permissions=True)
+
+    def test_empty_department_can_be_filled_even_after_assignment(self):
+        self._assign(self.no_dept)
+        frappe.db.set_value("Asset Master", self.asset, "department", None)
+        doc = frappe.get_doc("Asset Master", self.asset)
+        doc.department = "Sales"
+        doc.save(ignore_permissions=True)
+        self.assertEqual(self._asset("department"), "Sales")
+
+    # -- the history is append-only -------------------------------------------------------------
+
+    def test_ordinary_save_passes_with_history_present(self):
+        self._assign(self.pm)
+        doc = frappe.get_doc("Asset Master", self.asset)
+        # Desk posts the rows back with dates as strings; that must not read as an edit.
+        for row in doc.asset_history:
+            row.done_on = str(row.done_on)
+        doc.asset_condition = "Good"
+        doc.save(ignore_permissions=True)
+
+    def test_history_rows_cannot_be_edited_or_removed(self):
+        self._assign(self.pm)
+        doc = frappe.get_doc("Asset Master", self.asset)
+        doc.asset_history[0].reason = "rewritten"
+        with self.assertRaises(frappe.ValidationError):
+            doc.save(ignore_permissions=True)
+
+        doc = frappe.get_doc("Asset Master", self.asset)
+        doc.set("asset_history", [])
+        with self.assertRaises(frappe.ValidationError):
+            doc.save(ignore_permissions=True)
+
+    # -- a person's department ------------------------------------------------------------------
+
+    def test_only_admin_or_hr_can_change_a_department(self):
+        person = _make_person("self", PM, "Projects")
+        self.people.append(person)
+        frappe.set_user(person)
+        doc = frappe.get_doc("Nirmaan Users", person)
+        doc.department = "Accounts"
+        with self.assertRaises(frappe.PermissionError):
+            doc.save(ignore_permissions=True)
+
+        frappe.set_user(self.hr)
+        doc = frappe.get_doc("Nirmaan Users", person)
+        doc.department = "Accounts"
+        doc.save(ignore_permissions=True)
+        self.assertEqual(frappe.db.get_value("Nirmaan Users", person, "department"), "Accounts")
+
+    def test_first_department_fills_held_assets_and_a_later_change_moves_nothing(self):
+        person = _make_person("holder", PM)
+        self.people.append(person)
+        frappe.db.set_value("Asset Master", self.asset, "department", None)
+        self._assign(person)
+        self.assertFalse(self._asset("department"))
+
+        frappe.set_user(self.hr)
+        doc = frappe.get_doc("Nirmaan Users", person)
+        doc.department = "Design"
+        doc.save(ignore_permissions=True)
+        self.assertEqual(self._asset("department"), "Design")
+        row = self._history()[-1]
+        self.assertEqual(
+            (row.event, row.assigned_to, row.to_department, row.done_by), ("Department Set", person, "Design", self.hr)
+        )
+
+        doc = frappe.get_doc("Nirmaan Users", person)
+        doc.department = "Sales"
+        doc.save(ignore_permissions=True)
+        self.assertEqual(self._asset("department"), "Design")
+
+    def test_create_user_refuses_a_department_from_non_hr_before_creating(self):
+        frappe.set_user(self.pm)
+        email = f"zzd-new-{frappe.generate_hash(length=6)}@example.com"
+        with self.assertRaises(frappe.PermissionError):
+            create_user(first_name="ZZD New", email=email, department="Projects")
+        self.assertFalse(frappe.db.exists("User", email))
+
+    # -- the department list (Nirmaan Department) -----------------------------------------------
+
+    def _switched_off_department(self):
+        name = f"ZZD Off {frappe.generate_hash(length=6)}"
+        frappe.get_doc({"doctype": "Nirmaan Department", "department_name": name, "is_active": 0}).insert(
+            ignore_permissions=True
+        )
+        self.departments.append(name)
+        return name
+
+    def test_switched_off_department_cannot_be_given(self):
+        off = self._switched_off_department()
+        person = _make_person("off", PM)
+        self.people.append(person)
+        frappe.set_user(self.hr)
+        doc = frappe.get_doc("Nirmaan Users", person)
+        doc.department = off
+        with self.assertRaises(frappe.ValidationError):
+            doc.save(ignore_permissions=True)
+
+        frappe.set_user("Administrator")
+        with self.assertRaises(frappe.ValidationError):
+            frappe.get_doc({
+                "doctype": "Asset Master", "asset_name": "Off dept", "asset_category": self.category, "department": off,
+            }).insert(ignore_permissions=True)
+
+    def test_unknown_department_is_refused(self):
+        with self.assertRaises(frappe.ValidationError):
+            frappe.get_doc({
+                "doctype": "Asset Master", "asset_name": "Unknown dept", "asset_category": self.category,
+                "department": "No Such Department",
+            }).insert(ignore_permissions=True)
+
+    def test_only_admin_and_hr_manage_the_department_list(self):
+        name = f"ZZD New {frappe.generate_hash(length=6)}"
+        frappe.set_user(self.pm)
+        with self.assertRaises(frappe.PermissionError):
+            frappe.get_doc({"doctype": "Nirmaan Department", "department_name": name}).insert(ignore_permissions=True)
+
+        frappe.set_user(self.hr)
+        frappe.get_doc({"doctype": "Nirmaan Department", "department_name": name}).insert(ignore_permissions=True)
+        self.departments.append(name)
+
+        frappe.set_user(self.pm)
+        with self.assertRaises(frappe.PermissionError):
+            rename_doc(doctype="Nirmaan Department", old=name, new=f"{name} 2", ignore_permissions=True)
+        with self.assertRaises(frappe.PermissionError):
+            frappe.delete_doc("Nirmaan Department", name, ignore_permissions=True)
+
+    def test_renaming_a_department_moves_its_people_and_assets(self):
+        name = f"ZZD Ren {frappe.generate_hash(length=6)}"
+        frappe.get_doc({"doctype": "Nirmaan Department", "department_name": name}).insert(ignore_permissions=True)
+        asset = self._new_asset(name)
+        frappe.set_user(self.hr)
+        new_name = rename_doc(doctype="Nirmaan Department", old=name, new=f"{name} Site", ignore_permissions=True)
+        self.departments.extend([name, new_name])
+        self.assertEqual(self._asset("department", asset), new_name)
+        self.assertEqual(frappe.db.get_value("Nirmaan Department", new_name, "department_name"), new_name)

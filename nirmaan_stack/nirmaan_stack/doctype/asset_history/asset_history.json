@@ -1,0 +1,95 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-10-12 16:00:52.518393",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "event",
+  "assigned_to",
+  "done_by",
+  "done_on",
+  "declaration",
+  "from_department",
+  "to_department",
+  "reason"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "event",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Event",
+   "options": "Asset Added\nAssigned\nDeclaration Signed\nDeclaration Uploaded\nUnassigned\nDepartment Set",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "assigned_to",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Person",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "done_by",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Done By",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "done_on",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Done On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "declaration",
+   "fieldtype": "Attach",
+   "label": "Declaration",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "from_department",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "From Department",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "to_department",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "To Department",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-12 21:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Asset History",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

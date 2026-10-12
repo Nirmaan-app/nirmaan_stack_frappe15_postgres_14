@@ -9,6 +9,7 @@
   "asset_name",
   "asset_description",
   "asset_category",
+  "department",
   "asset_condition",
   "asset_serial_number",
   "asset_value",
@@ -23,7 +24,9 @@
   "asset_email_password",
   "asset_pin",
   "assignment_section",
-  "current_assignee"
+  "current_assignee",
+  "history_section",
+  "asset_history"
  ],
  "fields": [
   {
@@ -133,12 +136,31 @@
    "label": "Current Assignee",
    "options": "Nirmaan Users",
    "read_only": 1
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Department",
+   "options": "Nirmaan Department"
+  },
+  {
+   "fieldname": "history_section",
+   "fieldtype": "Section Break",
+   "label": "Asset History"
+  },
+  {
+   "fieldname": "asset_history",
+   "fieldtype": "Table",
+   "label": "Asset History",
+   "options": "Asset History",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-20 10:00:00.000000",
+ "modified": "2026-10-12 17:10:42.789102",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Asset Master",

@@ -159,6 +159,8 @@ doc_events = {
 		# "on_trash": "nirmaan_stack.nirmaan_stack.doctype.nirmaan_users.nirmaan_users.delete_user_profile"
 	},
     "Nirmaan Users": {
+        # A department set for the first time fills the department of the assets the person holds.
+        "on_update": "nirmaan_stack.integrations.controllers.nirmaan_users.on_update",
         "on_trash": [
             "nirmaan_stack.integrations.controllers.nirmaan_users.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
@@ -192,6 +194,16 @@ doc_events = {
         "after_insert": "nirmaan_stack.integrations.controllers.asset_management.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.asset_management.on_update",
         "on_trash": "nirmaan_stack.integrations.controllers.asset_management.on_trash"
+    },
+    "Nirmaan Department": {
+        # Only Admin and HR rename or delete a department (validate covers add/edit).
+        "before_rename": "nirmaan_stack.integrations.controllers.nirmaan_department.before_rename",
+        "on_trash": "nirmaan_stack.integrations.controllers.nirmaan_department.on_trash",
+    },
+    "Asset Master": {
+        # Asset History rows: the asset added, and its department set/fixed in Edit.
+        "after_insert": "nirmaan_stack.integrations.controllers.asset_master.after_insert",
+        "on_update": "nirmaan_stack.integrations.controllers.asset_master.on_update",
     },
     "Projects": {
         "after_insert": [

@@ -117,6 +117,20 @@ NON_PROJECT_INFLOWS_READ_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTA
 NON_PROJECT_INFLOWS_WRITE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 NON_PROJECT_INFLOWS_DELETE_PROFILES = (ADMIN_PROFILE,)
 
+HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile"
+HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
+
+# Set or change a person's `Nirmaan Users.department` (owner, 2026-10-12). Many roles have
+# write on Nirmaan Users (their own profile), so the doctype's role rows cannot say this;
+# `NirmaanUsers.validate` enforces it. Mirrored client-side by `DEPARTMENT_EDIT_PROFILES` in
+# `frontend/src/constants/departments.ts` -- keep the two lists in sync.
+DEPARTMENT_EDIT_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+
+# See the asset history -- the cross-asset log (`api/assets/history.get_asset_history`) and the
+# History card on an asset (owner, 2026-10-12: "only admin and HR"). Mirrored client-side by
+# `canViewHistory` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep the two in sync.
+ASSET_HISTORY_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Resolvers — the ONE way a whitelisted endpoint answers "is this user X?".

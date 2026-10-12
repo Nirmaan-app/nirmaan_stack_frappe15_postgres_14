@@ -4,11 +4,60 @@
 import frappe
 from frappe.model.document import Document
 from frappe.model.naming import make_autoname
+from frappe.utils import get_datetime
+
+from nirmaan_stack.services.asset_department import can_edit_asset_department
+from nirmaan_stack.services.departments import assert_active_department
+
+HISTORY_COMPARED_FIELDS = (
+	"event", "assigned_to", "done_by", "declaration", "from_department", "to_department", "reason",
+)
 
 
 class AssetMaster(Document):
 	def validate(self):
 		self.clear_location_when_project_removed()
+		self.check_department()
+		self.keep_history_unchanged()
+
+	def check_department(self):
+		"""A new asset needs a department; afterwards Edit may only fill or fix it (owner, 2026-10-12).
+
+		Once the asset has been assigned, its department moves only through an assignment with a
+		reason (the Asset Management hook, which bypasses this validate), so every real move is in the
+		asset's history.
+		"""
+		if self.is_new():
+			if not self.department:
+				frappe.throw("Choose the department this asset belongs to.")
+			assert_active_department(self.department)
+			return
+
+		before = self.get_doc_before_save()
+		if not before or (before.department or None) == (self.department or None):
+			return
+		assert_active_department(self.department)
+		has_been_assigned = bool(before.current_assignee) or any(
+			row.event == "Assigned" for row in before.get("asset_history")
+		)
+		if not can_edit_asset_department(before.department, has_been_assigned):
+			frappe.throw(
+				"This asset has been assigned before, so its department changes only when you assign it "
+				"to someone in another department and give a reason."
+			)
+
+	def keep_history_unchanged(self):
+		"""The history is append-only: no save (Desk or API) may drop or alter an existing row.
+
+		New rows are written by `services/asset_history.add_history` directly, not through this save.
+		"""
+		if self.is_new():
+			return
+		before = self.get_doc_before_save()
+		if not before:
+			return
+		if _history_snapshot(before) != _history_snapshot(self):
+			frappe.throw("Asset history can't be edited or deleted.")
 
 	def clear_location_when_project_removed(self):
 		"""
@@ -36,3 +85,16 @@ class AssetMaster(Document):
 
 		# Generate name with pattern: ASSET-XXX-.###
 		self.name = make_autoname(f"ASSET-{category_prefix}-.###")
+
+
+def _history_snapshot(doc) -> list[tuple]:
+	"""The history rows as comparable values. A saved row's datetime and a posted row's string are
+	normalised, so a Desk save that sends the rows back unchanged is not mistaken for an edit."""
+	return [
+		(
+			row.name,
+			get_datetime(row.done_on) if row.done_on else None,
+			*((row.get(field) or None) for field in HISTORY_COMPARED_FIELDS),
+		)
+		for row in doc.get("asset_history")
+	]
