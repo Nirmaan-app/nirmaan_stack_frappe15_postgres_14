@@ -109,6 +109,59 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
     must return exactly what format 1 returned -- same examples, same order, same scores (proved on all 16,851 F1 rows;
     guarded by `test_boq_ai_guidance.TestCompactLibrary`, which keeps the format-1 code as its reference). Never drop
     duplicate or blank rows from it (owner: option 3 not chosen).
+- **Review flags are WORKED OUT, never stored; Claude's sure changes ARE the parsed result (S3, ADR-0033,
+  owner-locked):**
+  - **The sure-change set is exactly one case:** Claude says `line_item` at **High** confidence and the parsed
+    type is `preamble`. `review_flags.apply_sure_changes` then writes `classification = line_item` and keeps the
+    parser's own type in the hidden `parser_classification`, which `get_review_rows` DROPS from its reply. No other
+    type change and **no parent** is ever applied. Skipped (and so flagged "Check type" instead): a row with a
+    standing human / accepted-AI change, a row with a child that is itself a preamble, every row of a Finalized
+    sheet. It runs right AFTER `_apply_ai_suggestions` in the same transaction, at both call sites (the worker and
+    the cached-result path), so a superseded run re-types nothing.
+  - **A flag is never a column.** `review_flags.sheet_flag_state` is THE reader behind the review data
+    (`check_flags` per row, `check_summary` per sheet), `get_check_summary` and the finalize block. Do not add a
+    stored flag: every write path would then have to keep it up to date, and the owner ruled that no edit path may
+    change.
+  - **No run-log record for the sheet's CURRENT parse = no flags at all** (`ai_run_log.check_state` ->
+    `not_run`): a sheet parsed before S2 behaves exactly as before until it is re-parsed. A failed or unfinished
+    check leaves only the unit / quantity rule. Claude's answers count only when a run for this parse is Done --
+    which is also what keeps old suggestions from ever becoming flags.
+  - **The rules:** "Check type" = Claude's type differs from the parsed type, OR the row has a unit or a non-zero
+    quantity and its parsed type is not `line_item`. "Check parent" = Claude's parent differs from the row's
+    PARSED parent (also on a surely re-typed row), and the row does not already sit on the parent Claude named.
+    Both doubts are measured against the parsed values, so a row that is moved or re-typed stays a flagged row and
+    becomes a checked one -- the percentage does not fall as the user works. Reason codes `type_doubt`, `unit_qty_not_item`, `parent_doubt`.
+    Never flagged: rows copied unchanged into a revision, de-selected template rows, anything from Gemini.
+  - **Read `ai_suggestion_status` before `ai_suggested_parent`.** A row Claude never answered has
+    `ai_suggested_parent` = 0 by column default, and row 0 is a real row.
+  - **Clearing reads the human layer and the edit history; nothing is written to clear a flag.** A human type
+    counts as a type change only when it DIFFERS from the parsed type (the screen's "Change parent" stores the
+    row's own type as a human type). A human parent counts as the user's own only when the latest standing parent
+    entry in `edit_log` is not a `parent moved:` entry -- a child the re-mapping moved KEEPS its "Check parent".
+  - **"Looks OK" is one row per call, and there is no bulk form** (`review_flags.mark_row_looks_ok`; fields
+    `ai_flags_ok` / `_by` / `_at`). It is a third mark, separate from `flags_dismissed` and `revision_reviewed`.
+    It stops counting when the row's history has a later entry whose reason contains `reverted` -- no revert path
+    knows about the mark.
+  - **Two history wordings are load-bearing and test-pinned:** `parent moved:` (written by
+    `save_review_restructure`) and `reverted` (written by every revert path).
+    `test_review_flags.TestHistoryWordingPins` makes the real endpoints write them; change a wording and that
+    class must fail first.
+  - **Finalize order:** must-fix -> revision rows -> quantities (template BoQs) -> `review_flags.guard_finalize`,
+    LAST. It refuses while the check is still running and while any flag is open, and it RAISES (the screen has no
+    branch for a new kind of `{ok: false}` reply and would show the must-fix sentence). A sheet with nothing open
+    finalizes exactly as before.
+  - **The percentage** is rows with any doubt, open or already checked, over NON-BLANK rows (blank = spacer);
+    heavy means MORE than 40%.
+  - **`revert_to_parser` also returns the children a restructure of that row moved (R20)** -- found from each
+    child's own history (`review_flags.plan_child_reverts`), back to the parent it had before the move, in the
+    same transaction, stamped `reverted with row N (parent restore)`. A child the user moved again himself is left
+    alone. A revert that would put a child back into a loop is refused BEFORE anything is written. Children an
+    old AI accept moved keep their snapshot revert. **Off for a template BoQ**: rows are renumbered there, so the
+    `row N` in a history entry cannot be trusted.
+  - **Run-log records are kept 6 months**, pruned at most once a day by the EXISTING 5-minute task
+    (`ai_run_log.prune_old_runs`). No scheduler entry was added. Under a test run a prune with no BoQ deletes
+    nothing. An expiring cache key is read with `expires=True`: a plain read is answered from the process's own
+    copy of an earlier read.
 - **A doctype's index on PostgreSQL: flag every indexed column, and name the index yourself (found in S2).** Frappe names a
   field-level index after the field alone and index names are unique per schema, so `search_index` on `boq` / `status`
   usually creates nothing; and when a table is ALTERED, a column that is indexed but un-flagged makes Frappe run
@@ -174,6 +227,7 @@ This manifest names the **one owning module** for each BoQ backend concept (per 
 | **The joined `description` + `description_parts_raw` shape** | `services/boq_parser/classifier.py` (`_description_columns` / `_description_parts`) — owner-locked | re-join description columns anywhere else, or assume a single description column |
 | **The rendered Claude review prompt** (template + rows + GUIDANCE) and its version | `services/boq_ai_assist.py` (`_render_chunk_prompt`, `PROMPT_VERSION`) | build the prompt text anywhere else, or change it without bumping the version the result cache is keyed on |
 | **The Claude run log, its health check and the automatic run after a parse** (run records, heartbeat, the 6 / 22-minute rule, stuck-flag clean-up, the after-parse enqueue) | `api/boq/wizard/ai_run_log.py` (the worker and the endpoint in `ai_assist.py` only CALL it; `parse_run.py` calls `on_parse_start` + `enqueue_after_parse`) | write a `BoQ AI Run Log` field from anywhere else, clear `ai_in_progress` / `gemini_in_progress` outside `_publish_*_event` and the health check, or enqueue the Claude worker from a third place |
+| **Review flags** ("Check type" / "Check parent", their reason codes and counts, Claude's sure changes, "Looks OK", the finalize block, which children a revert returns) | `api/boq/wizard/review_flags.py` (`sheet_flag_state` is the single reader; `review_screen.get_review_rows`, `mark_sheet_parsed_check_done` and `revert_to_parser` only CALL it; `ai_run_log.check_state` owns the check status) | store a flag on a row, re-derive a flag or a count at a call site, write `parser_classification` or `ai_flags_ok` from anywhere else, or add a bulk "Looks OK" |
 | **The examples library and the candidate-parent shortlist** (build, file, on-demand rebuild, look-up exclusions) | `services/boq_ai_guidance.py` (`build_guidance` is the worker's one entry point) — reads `frappe.db` by design, so it is **not** a `PURE_MODULES` entry | read the library file directly, rebuild it from a scheduler, or apply the family / TestProject exclusions anywhere but the look-up |
 | **Committed-tier amount / parent-rate recomputation** | **NONE, deliberately** — the committed controllers are CAPTURE-ONLY; the future tendering module owns calculations | re-add `amount = qty x rate` or a parent-rate overwrite to a committed controller |
 

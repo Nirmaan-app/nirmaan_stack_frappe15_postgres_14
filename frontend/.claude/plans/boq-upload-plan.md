@@ -46083,3 +46083,80 @@ bench DOWN) 8,221 tests, 14 failing — the 12 daytime knowns plus two Snag PDF 
 the 00:00 - 05:30 IST flake, absent at that hour. Nothing new. The dev2 runbook now says to start the bench before a full
 suite. No frontend file changed, so no vitest / tsc run. `residence_check`: backend rules holding; F5 120 vs 117 and F2 221
 vs 217 as before — this slice adds no `JSON.parse` / `updateDoc`.
+
+
+## Slice S3 — REVIEW FLAGS, LOOKS OK, FINALIZE BLOCK, REVERT RETURNS MOVED CHILDREN (2026-10-13, dev2) — SHIPPED (backend)
+
+Branch `feature/boq-jev-integration`, built and certified in the dev2 environment only. Decision record: ADR-0033.
+Invariants: `boq-backend.md` § Parser, review tree and commit (the "Review flags are WORKED OUT, never stored" bullet)
+and its Residence table. **No frontend file changed**: the tick, pills, counter, filter, banner and the removal of the AI
+buttons and columns are S4, and S3 must not reach production without S4 (owner, Q-g).
+
+**What it is.** Claude's automatic check (S2) now decides what the reviewer must look at. Its sure "preamble -> line_item"
+answers are written into the parsed result. Everything else it doubts, and any row with a unit or quantity that is not an
+item, becomes a flag — "Check type" or "Check parent" — worked out from the row's own facts each time. Mark Finalized is
+refused while a flag is open. A revert also returns the children its row moved (owner ruling R20).
+
+**Built.** Commit `ffffe0b83` (feat, boq-ai), 8 files:
+- `api/boq/wizard/review_flags.py` (new, 637 lines) — the rules (`row_flags`, `sheet_flag_state`, `summarize`), the sure
+  changes (`apply_sure_changes`), the "Looks OK" endpoint (`mark_row_looks_ok`), the counts endpoint
+  (`get_check_summary`), the finalize block (`guard_finalize`), the revert cascade (`plan_child_reverts`,
+  `guard_child_reverts`, `revert_moved_children`).
+- `api/boq/wizard/ai_assist.py` — two added calls to `apply_sure_changes`, right after `_apply_ai_suggestions`: in the
+  worker and in the cached-result path. `accept_ai_suggestion`, `reject_ai_suggestion`, `revert_ai_acceptance`,
+  `_publish_ai_event` and `_apply_ai_suggestions` are byte-identical.
+- `api/boq/wizard/review_screen.py` — `get_review_rows` (three fetched fields; `check_flags` per row and `check_summary`;
+  the hidden parser type is dropped from the reply), `mark_sheet_parsed_check_done` (the last check),
+  `revert_to_parser` (the cascade — the one approved change to a protected function). `_apply_and_save_row_edit`,
+  `save_review_edit` and `save_review_restructure` are byte-identical.
+- `api/boq/wizard/ai_run_log.py` — `check_state` / `check_states` (done / running / incomplete / not_run, from the run
+  records of the sheet's CURRENT parse) and `prune_old_runs` (6 months, at most once a day, called by the existing
+  5-minute task). `hooks.py` unchanged.
+- Doctype `BoQ Review Row` (through Frappe's DocType tool): `parser_classification` (hidden), `ai_flags_ok`,
+  `ai_flags_ok_by`, `ai_flags_ok_at`. No index.
+- Tests: `test_review_flags.py` (new, 102), `test_ai_run_log.py` 69 -> 85, `test_review_screen.py` +17
+  (`TestRevertReturnsMovedChildren`). 135 new tests; no existing test changed.
+
+**Proofs.** 33 mechanisms were each broken in turn and each turned its test red, then restored byte-identical: the
+sure-change conditions (5), both call sites (2), the flag rules (6), clearing (4), Looks OK (2), the finalize block (3),
+the hidden type (1), the check status (1), retention (3), the revert cascade (6).
+
+**Migration (dev2).** Exit 0. All 666 indexes of the database identical before and after; the only column change is the
+four new columns on `tabBoQ Review Row`. Frappe's tool also generated an untracked `boq_review_row.js` stub, which was
+deleted and never staged.
+
+**End-to-end (BOQ-26-00059 / FPS, 39 rows; two paid runs, 56,726 input tokens).** Re-parse from the hub; Claude ran by
+itself; 7 rows re-typed to Item (Excel rows 20, 28, 34, 37, 38, 39, 41 — shown Item / Original), 6 rows flagged = 15.8% of
+38 non-blank rows (row 31 "Check type"; rows 21, 22, 23, 24, 29 "Check parent"). Pressing Mark Finalized while the check
+ran: *"The automatic check is still running on this sheet. Try again when it finishes."* After it: *"Check the 6 flagged
+rows before finalizing: rows 21, 22, 23, 24, 29, 31."* Change type, Change parent and "Looks OK" (API) each cleared their
+flag; Revert brought it back; a type other than Claude's was accepted. Row 20 re-typed with its four children moved: the
+re-mapped children kept "Check parent". Revert of row 20 returned the children; a child moved by hand in between stayed
+where it was put. Finalized on screen, committed v1: 38 committed rows against 38 non-blank review rows, type and parent,
+0 differences. The flagged count stayed 6 throughout.
+
+The check was run twice: the first run showed that a row moved onto the parent Claude named dropped out of the flagged
+count (15.8% -> 13.2%). A parent doubt is now measured against the PARSED parent, and the flag is closed when the row
+sits on the parent Claude named; commit 1 was amended and the whole check repeated.
+
+**Findings carried forward (S4 unless said).**
+1. The old AI Rec pill still shows on a re-typed row, and rejecting a pill does not clear a flag.
+2. The parser's own "needs-review: priced_preamble_with_children" warning still shows on rows Claude re-typed.
+3. After a revert, a "Gemini suggestion" block appears on a row Gemini never answered: `gemini_suggested_parent` is 0 by
+   column default and `revert_to_parser`'s clean-up reads `>= 0` as "a suggestion exists". Older than S3; not changed.
+4. A row with only "Looks OK" cannot be reverted, so the mark cannot be taken back until S4 offers an un-tick.
+5. The finalize refusals are raised as errors because the screen has no branch for a new kind of `{ok: false}` reply; S4
+   can grey the button out from `check_summary`.
+6. A revision row can need two ticks (the revision "Looks OK" and the new one).
+7. "Edit values / Edit text / Edit per-area values": 61 edits on the 9 Oct 2026 production copy, all on 22-24 June 2026;
+   the owner ruled the three blocks are removed from the screen in S4, the endpoint and the old history stay.
+8. Two messages the owner has not worded: the API refusal "Row N has no open flag to confirm." and the guard "Row N
+   can't be reverted: the row its child was moved from no longer exists." (unreachable on an uploaded BoQ).
+9. The old 191 MB examples library file on dev2 was deleted (owner ruling R14).
+
+### Tests (measured in-session, dev2)
+
+Before = S2's saved full run: **8,221 tests**, failures 6 + errors 6. Targeted before the commit (36 modules, 2,129
+tests): all green except the three known errors of `test_update_sheet_draft.TestMigrateWorkPackageToMulti`.
+Full suite after the last code commit (03:26 - 04:01 IST, dev2's bench up): **8,356 tests (8,221 + 135 new), failures 7 + errors 6 = 13**: S2's 12 by name plus `test_daily_window_picks_a_wo_touched_since`, the 00:00 - 05:30 IST flake, present at that hour. Nothing new. No frontend file changed, so no vitest / tsc run. `residence_check`: backend rules holding; F5 120 vs 117
+and F2 221 vs 217 as before.
