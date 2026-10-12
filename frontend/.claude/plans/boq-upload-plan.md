@@ -46548,3 +46548,57 @@ the freshly imported loader's single-config path carries the check. PROOF 2: a r
    `test_rate_suggest` rows with no usage); none during the cert. The prompt's "equal at the end" cannot hold in a
    slice that runs Python tests.
 8. The two Snag PDF tests need the bench web server (wkhtmltopdf fetches from it); the full suite ran with bench down.
+
+---
+
+## Slice 12e-WT — the four stale BoQ wizard tests run on the multi work-package schema (tests only) — as built 2026-10-13
+
+**Commits (unpushed at the time of writing):** `b00b79a9a` test(boq-wizard) — the two test files; the docs commit that
+carries this entry. Start tip `b92bc6b24` (= origin). **No product file, doctype JSON, patch or schema changed.**
+
+**Owner ruling (2026-10-12):** "we fix it" (update the tests to the multi work-package schema, no product change).
+
+**Cause, one line.** The single `work_package` Link was replaced by the `work_packages` child table in `b14e90158`
+(2026-05-31); Frappe never drops a removed field's column, so the old dev database still carried it and the tests kept
+passing. The database restored from production in 12e-0c (2026-10-09) never had the column
+(`frappe.db.has_column("BoQ Sheet Draft", "work_package")` is False), and the four have failed in every full run since.
+The migration is `nirmaan_stack/patches/v3_0/migrate_boq_sheet_draft_work_package_to_multi.py` (`execute`), which
+already returns early when the column is absent (`6b6d1577b`).
+
+### Each test: purpose, failure, fix
+
+| Test | Protects | Failed at | Fix |
+|---|---|---|---|
+| `test_update_sheet_draft.TestMigrateWorkPackageToMulti.test_migration_creates_child_row_from_legacy_work_package` | the patch turns a draft's legacy work-package value into one `BoQ Sheet Work Package` child row | `setUp`: `UPDATE "tabBoQ Sheet Draft" SET work_package = ...` — column does not exist | the legacy state is simulated at the patch's two reads of the old column (its `has_column` guard and its one `SELECT name, work_package`); the Work Headers lookup, the already-migrated lookup and the child-row insert run against the real database. The test also asserts the patch made that read once, and that the row sits in the draft's `work_packages` table |
+| `...test_migration_is_idempotent` | a second run of the patch adds no duplicate row | `setUp` of the next test: "current transaction is aborted" (left by the first test's failed statement) | same simulation, run twice; one row after both |
+| `tearDownClass (...TestMigrateWorkPackageToMulti)` | the class removes its work header and project | "current transaction is aborted" at its first query | the failing statement is gone, and `tearDown` now starts with `frappe.db.rollback()` so a failed statement in one test cannot reach the next test or the class cleanup |
+| `nirmaan_stack/nirmaan_stack/doctype/boq_sheet_draft/test_boq_sheet_draft.py` `test_sheet_draft_child_persists` | a sheet-draft child row survives a BoQ save and reload with its four fields | `child.work_package`: attribute does not exist (the loaded row has no such column) | the fourth field is the multi work-package table: no `BoQ Sheet Work Package` row exists for a new draft, read from the table itself (a parent load does not fill a child row's own child table, so `child.work_packages` would pass whatever the table held) |
+
+What the migration tests no longer cover: the text of the patch's SELECT against a real legacy column. Nothing on
+today's schema can run it; only a database that still holds the column could.
+
+### Evidence
+
+- **Vacuity (test-file scratch edits, each restored byte-identical):** no legacy value -> both migration tests red;
+  no legacy column (today's schema, the patch returns early) -> both red; the already-migrated lookup blinded -> the
+  idempotency test red (2 rows); the insert stubbed out -> both red; a work package set on the new draft, and a
+  different status at append -> `test_sheet_draft_child_persists` red; a failing statement put in one test -> that
+  test alone errors with the rollback, and all three (plus `tearDownClass`) error again without it.
+- **Targeted set before the commit:** the whole `nirmaan_stack.api.boq.wizard` package (36 modules) plus the doctype
+  test: 37 modules, 1,832 tests, all OK.
+- **Full Python suite, bench up:** 8,054 tests (before: 8,054). Known failures 12 -> 8: gone are the four above;
+  left are `test_expense_requests` (three tests and `tearDownClass`), `test_fixture_completeness`,
+  `outflow_import.test_review` (the CREDIT settlement), `payments.test_bulk_tds` (lead bulk approve) and
+  `ceo_hold_reason` (`test_dedup_key_is_unique`). The run also shows
+  `test_vendor_category_sync.test_daily_window_picks_a_wo_touched_since`, which fails only 00:00-05:30 IST and ran at
+  about 01:00. Both Snag PDF tests pass with bench up.
+- **Schema:** `tabBoQ Sheet Draft` 27 columns and `tabBoQ Sheet Work Package` 11 columns, hashes equal at the start
+  and the end.
+
+### Findings (reported, not repaired)
+
+1. Each failed run since 2026-10-09 left one BoQ ("Sheet Draft Test BoQ"), its two sheet drafts and one
+   `TEST_SHEET_DRAFT_*` project behind: six of each. The fixed tests leave none.
+2. Other wizard tests leave rows on every run, as before this slice: deleting a BoQ does not delete its drafts' work
+   package rows, and some sheet drafts outlive their BoQ. The table holds 152 sheet drafts with no BoQ and 1,702 work
+   package rows with no draft.
