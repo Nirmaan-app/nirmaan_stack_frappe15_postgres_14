@@ -18,6 +18,7 @@ import {
     ASSET_MANAGEMENT_DATE_COLUMNS,
     AssetCategoryType,
 } from '../assets.constants';
+import { assignmentDepartmentColumn } from '../utils/departmentColumn';
 import { useAssetMasterNamesByType } from '../hooks/useAssetMasterNamesByType';
 import { useAssetProjectOptions } from '../hooks/useAssetProjectOptions';
 import { AssetLookupFacetFilter } from './AssetLookupFacetFilter';
@@ -35,6 +36,7 @@ interface AssetMaster {
     name: string;
     asset_name: string;
     asset_category: string;
+    department: string | null;
     project: string;
     asset_city: string;
     asset_state: string;
@@ -76,7 +78,7 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
     const { data: assetsList } = useFrappeGetDocList<AssetMaster>(
         'Asset Master',
         {
-            fields: ['name', 'asset_name', 'asset_category', 'project', 'asset_city', 'asset_state'],
+            fields: ['name', 'asset_name', 'asset_category', 'department', 'project', 'asset_city', 'asset_state'],
             filters: assetType ? [['name', 'in', masterNames.length ? masterNames : ['__none__']]] : [],
             limit: 0,
         },
@@ -269,6 +271,7 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
             },
             size: 140,
         },
+        assignmentDepartmentColumn<AssetManagement>((assetId) => assetsMap[assetId]?.department),
         {
             accessorKey: 'asset_assigned_to',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Assigned To" />,

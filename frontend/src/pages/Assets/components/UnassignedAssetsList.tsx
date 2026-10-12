@@ -26,12 +26,14 @@ import {
     AssetCategoryType,
 } from '../assets.constants';
 import { getAssetPermissions } from '../utils/permissions';
+import { assetDepartmentColumn, departmentFacetOptions } from '../utils/departmentColumn';
 
 interface AssetMaster {
     name: string;
     asset_name: string;
     asset_description: string;
     asset_category: string;
+    department: string | null;
     asset_condition: string;
     asset_serial_number: string;
     asset_value: number;
@@ -115,15 +117,21 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
         name: string;
         asset_name: string;
         asset_category: string;
+        department: string | null;
         asset_condition: string;
     }>(
         ASSET_MASTER_DOCTYPE,
         {
-            fields: ['name', 'asset_name', 'asset_category', 'asset_condition'],
+            fields: ['name', 'asset_name', 'asset_category', 'department', 'asset_condition'],
             filters: facetSourceFilters,
             limit: 0,
         },
         assetType ? `unassigned_facet_source_${assetType}` : 'unassigned_facet_source'
+    );
+
+    const departmentOptions = useMemo(
+        () => departmentFacetOptions((facetSource ?? []).map((row) => row.department)),
+        [facetSource]
     );
 
     const facetCounts = useMemo(() => {
@@ -218,6 +226,7 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
             ),
             size: 140,
         },
+        assetDepartmentColumn<AssetMaster>(),
         {
             accessorKey: 'asset_condition',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Condition" />,
@@ -328,11 +337,15 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
             title: 'Category',
             options: categoryOptions,
         },
+        department: {
+            title: 'Department',
+            options: departmentOptions,
+        },
         asset_condition: {
             title: 'Condition',
             options: conditionOptions,
         },
-    }), [assetNameOptions, categoryOptions, conditionOptions]);
+    }), [assetNameOptions, categoryOptions, departmentOptions, conditionOptions]);
 
     return (
         <>

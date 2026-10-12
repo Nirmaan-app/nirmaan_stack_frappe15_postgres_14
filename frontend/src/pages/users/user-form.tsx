@@ -11,6 +11,10 @@ import { useNavigate } from "react-router-dom"
 import { UserPlus } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import ReactSelect from "react-select"
+import { DepartmentSelect } from "@/components/common/DepartmentSelect"
+import { canEditDepartments } from "@/constants/departments"
+import { useDepartmentOptions } from "@/hooks/useDepartmentOptions"
+import { useUserData } from "@/hooks/useUserData"
 
 const UserFormSchema = z.object({
     first_name: z
@@ -40,6 +44,8 @@ const UserFormSchema = z.object({
         .string({
             required_error: "Please select associated Role Profile."
         }),
+    // Admin/HR only; the server refuses it from anyone else (create_user).
+    department: z.string().nullable().optional(),
 })
 
 type UserFormValues = z.infer<typeof UserFormSchema>
@@ -51,6 +57,9 @@ interface SelectOption {
 
 export const UserForm = () => {
     const navigate = useNavigate();
+    const userData = useUserData();
+    const showDepartment = canEditDepartments(userData?.role, userData?.user_id);
+    const { departments, isLoading: departmentsLoading } = useDepartmentOptions(showDepartment);
 
     // limit: 0 = every Role Profile. Without it Frappe applies its default page
     // length of 20 and silently truncates, which hid the 21st profile from this
@@ -107,6 +116,7 @@ export const UserForm = () => {
                     mobile_no: "",
                     email: "",
                     role_profile_name: "",
+                    department: null,
                 });
                 navigate("/users");
             } else {
@@ -279,6 +289,27 @@ export const UserForm = () => {
                                         </FormItem>
                                     )}
                                 />
+                                {showDepartment && (
+                                    <FormField
+                                        control={form.control}
+                                        name="department"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel className="text-xs font-medium text-gray-700">Department</FormLabel>
+                                                <FormControl>
+                                                    <DepartmentSelect
+                                                        inputId="newUserDepartment"
+                                                        value={field.value}
+                                                        onChange={field.onChange}
+                                                        departments={departments}
+                                                        isLoading={departmentsLoading}
+                                                    />
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                )}
                             </div>
                         </CardContent>
 

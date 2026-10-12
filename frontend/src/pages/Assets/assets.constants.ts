@@ -28,6 +28,7 @@ export const ASSET_MASTER_FIELDS = [
     'asset_name',
     'asset_description',
     'asset_category',
+    'department',
     'asset_condition',
     'asset_serial_number',
     'asset_value',
@@ -56,6 +57,7 @@ export const ASSET_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "name", label: "Asset ID", placeholder: "Search by asset ID..." },
     { value: "asset_serial_number", label: "Serial Number", placeholder: "Search by serial number..." },
     { value: "asset_category", label: "Category", placeholder: "Search by category..." },
+    { value: "department", label: "Department", placeholder: "Search by department..." },
 ];
 
 // Extra searchable fields shown only on the Project Assets tab

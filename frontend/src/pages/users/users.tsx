@@ -17,6 +17,7 @@ import { TailSpin } from "react-loader-spinner";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { formatDate } from "@/utils/FormatDate";
 import { FacetDeclaration } from "@/components/data-table/facetConfig";
+import { NO_DEPARTMENT_LABEL } from "@/constants/departments";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { getRoleColors, getRoleLabel, ROLE_OPTIONS } from "@/utils/roleColors";
 import { RoleBadge, UserRowActions } from "./components";
@@ -34,6 +35,7 @@ export const USER_LIST_FIELDS_TO_FETCH: (
   "full_name",
   "creation",
   "role_profile",
+  "department",
   "email", // Explicitly if different from name
   "mobile_no",
 ];
@@ -51,6 +53,7 @@ export const USER_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     placeholder: "Search by Full Name...",
   },
   { value: "role_profile", label: "Role", placeholder: "Search by Role..." },
+  { value: "department", label: "Department", placeholder: "Search by Department..." },
   {
     value: "mobile_no",
     label: "Mobile No.",
@@ -440,6 +443,31 @@ export default function UsersPage() {
               roleValue?.replace("Nirmaan ", "").replace(" Profile", "");
             return roleLabel;
           },
+        },
+      },
+      {
+        accessorKey: "department",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Department" />
+        ),
+        cell: ({ row }) => {
+          const department = row.getValue<string | null>("department");
+          return department ? (
+            <span className="text-sm text-gray-800">{department}</span>
+          ) : (
+            <span className="text-xs text-gray-400">{NO_DEPARTMENT_LABEL}</span>
+          );
+        },
+        size: 160,
+        meta: {
+          facet: {
+            field: "department",
+            title: "Department",
+            includeBlankBucket: true,
+            blankLabel: NO_DEPARTMENT_LABEL,
+          } satisfies FacetDeclaration,
+          exportHeaderName: "Department",
+          exportValue: (row: NirmaanUsers) => row.department || "",
         },
       },
       // {

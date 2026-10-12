@@ -19,6 +19,10 @@ import { useEffect } from "react";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import ReactSelect from "react-select";
+import { DepartmentSelect } from "@/components/common/DepartmentSelect";
+import { canEditDepartments } from "@/constants/departments";
+import { useDepartmentOptions } from "@/hooks/useDepartmentOptions";
+import { normalizeDepartment } from "@/utils/assetDepartment";
 
 const UserFormSchema = z.object({
   first_name: z
@@ -47,6 +51,8 @@ const UserFormSchema = z.object({
     .string({
       required_error: "Please select associated Role Profile."
     }),
+  // Saved on Nirmaan Users (not User); Admin/HR only, enforced by the server.
+  department: z.string().nullable().optional(),
 });
 
 type UserFormValues = z.infer<typeof UserFormSchema>;
@@ -87,6 +93,8 @@ const EditUserForm = ({ toggleEditSheet }: any) => {
   })) || [];
 
   const { updateDoc, loading } = useFrappeUpdateDoc();
+  const canEditDepartment = canEditDepartments(role, actual_user_id);
+  const { departments, isLoading: departmentsLoading } = useDepartmentOptions(canEditDepartment);
 
   const hasChanges = () => {
     const values = form.getValues();
@@ -95,7 +103,8 @@ const EditUserForm = ({ toggleEditSheet }: any) => {
       last_name: data?.last_name || "",
       email: data?.email || "",
       mobile_no: data?.mobile_no || "",
-      role_profile_name: data?.role_profile || ""
+      role_profile_name: data?.role_profile || "",
+      department: data?.department || null,
     };
     return JSON.stringify(values) !== JSON.stringify(originalValues);
   };
@@ -107,7 +116,8 @@ const EditUserForm = ({ toggleEditSheet }: any) => {
       last_name: data?.last_name || "",
       email: data?.email || "",
       mobile_no: data?.mobile_no || "",
-      role_profile_name: data?.role_profile || ""
+      role_profile_name: data?.role_profile || "",
+      department: data?.department || null,
     },
     mode: "onBlur",
   });
@@ -119,14 +129,23 @@ const EditUserForm = ({ toggleEditSheet }: any) => {
         last_name: data.last_name,
         email: data.email,
         mobile_no: data.mobile_no,
-        role_profile_name: data.role_profile
+        role_profile_name: data.role_profile,
+        department: data.department || null,
       });
     }
   }, [data]);
 
   const onSubmit = async (values: UserFormValues) => {
+    if (!id) return;
     try {
-      await updateDoc("User", id, values);
+      // Name, mobile and role live on User (a hook copies them to Nirmaan Users); the department
+      // lives only on Nirmaan Users, so it is saved there, and only when it changed.
+      const { department, ...userValues } = values;
+      await updateDoc("User", id, userValues);
+      const newDepartment = normalizeDepartment(department);
+      if (canEditDepartment && newDepartment !== normalizeDepartment(data?.department)) {
+        await updateDoc("Nirmaan Users", id, { department: newDepartment });
+      }
       toast({
         title: "Success",
         description: `User: ${id} updated successfully!`,
@@ -292,6 +311,35 @@ const EditUserForm = ({ toggleEditSheet }: any) => {
                         }}
                       />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          )}
+
+          {/* Department (Admin / HR) */}
+          {canEditDepartment && (
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-gray-700">Department</h3>
+              <FormField
+                control={form.control}
+                name="department"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Department</FormLabel>
+                    <FormControl>
+                      <DepartmentSelect
+                        inputId="editUserDepartment"
+                        value={field.value}
+                        onChange={field.onChange}
+                        departments={departments}
+                        isLoading={departmentsLoading}
+                      />
+                    </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Assets this person already holds with no department take it the first time it is set.
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}
