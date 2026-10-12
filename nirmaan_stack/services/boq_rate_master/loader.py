@@ -329,6 +329,13 @@ def load_rate_master(payload=None, path=None, replace=False):
     discipline = cfg["discipline"].strip()
     category_id = cfg["category_id"].strip()
 
+    # SLICE 12e-3c (owner F9, 2026-10-12: "Loading a single config doesn't run the cross-category check" - "fix").
+    # The SAME call `_load_multi` and the config editor's save make, before the first write: a section that
+    # delegates to another category is checked against the catalogue this load leaves standing. Every config
+    # load path now runs it. (A config with no `list_spec.sections`, in a discipline where none declares one,
+    # reads the discipline's active configs once and stops there.)
+    config_validation.validate_delegated_sections([cfg], payload["items"], label="Rate master import refused")
+
     existing_active = _active_item_count(discipline)
     if existing_active and not replace:
         frappe.throw(

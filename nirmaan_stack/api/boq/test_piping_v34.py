@@ -1075,3 +1075,165 @@ class TestSlice12e3aGates(FrappeTestCase):
             frappe.db.rollback()
             os.unlink(path)
         self.assertEqual(self._state(), before)
+
+
+class TestSlice12e3cSingleConfigLoad(FrappeTestCase):
+    """SLICE 12e-3c AC3 (owner F9, 2026-10-12: "Loading a single config doesn't run the cross-category check" - "fix").
+
+    What these protect, in plain English:
+      test_22  the single-config load -- `loader.load_rate_master(payload={"category_config": ..., "items": ...})`,
+               the real call -- runs the cross-category check: a config with a broken delegated section is REFUSED with
+               the check's own message before anything is written; a good config LOADS; a good delegated section is
+               ACCEPTED by the check (the call then stops at the loader's own "already loaded" refusal, which sits
+               after it). Everything happens in a scratch discipline inside one transaction that is rolled back; the
+               live HVAC catalogue is read before and after.
+      test_23  the corpus check: the check ACCEPTS every config shipping today -- HVAC v37 all 10 and Electrical v66
+               all 13 -- one at a time (as a single write) and as whole assets; and names which of them the
+               single-config path's own shape gate would let through at all.
+    """
+
+    SCRATCH = "ZZ 12e3c scratch"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.v37 = _read(V37)
+        cls.e66 = _read("rate_master_electrical_all_v66.json")
+
+    def _live(self):
+        return (frappe.db.count("BoQ Rate Master Item", {"discipline": "HVAC", "active": 1}),
+                frappe.db.count("BoQ Rate Category Config", {"discipline": "HVAC", "active": 1}),
+                frappe.db.count("BoQ Rate Master Item", {"discipline": "HVAC"}),
+                frappe.db.count("BoQ Rate Category Config", {"discipline": "HVAC"}),
+                frappe.db.count("BoQ Rate Master Item", {"discipline": "Electrical"}),
+                frappe.db.count("BoQ Rate Category Config", {"discipline": "Electrical"}))
+
+    def _scratch_rows(self):
+        return (frappe.db.count("BoQ Rate Master Item", {"discipline": self.SCRATCH}),
+                frappe.db.count("BoQ Rate Category Config", {"discipline": self.SCRATCH}))
+
+    def _cfg(self, category_id):
+        c = copy.deepcopy(next(x for x in self.v37["category_configs"] if x["category_id"] == category_id))
+        c["discipline"] = self.SCRATCH
+        return c
+
+    def _items(self, kind):
+        return [copy.deepcopy(it) for it in self.v37["items"] if it["kind"] == kind]
+
+    def _section(self, **over):
+        """A delegated section an ADP-shaped config can carry: independent (no toggle, no mirror), per metre."""
+        s = {"id": "insulation", "label": "Insulation", "add_label": "Add insulation", "category_id": INSULATION,
+             "unit_class": "length", "families": ["Nitrile Rubber Insulation", "Tubular Puf Insulation"]}
+        s.update(over)
+        return s
+
+    def _adp(self, section=None):
+        """The shipped ADP config (the one HVAC config with top-level pipelines, so the single-config path's own
+        shape gate lets it through), optionally declaring a delegated section."""
+        c = self._cfg("hvac_adp")
+        if section is not None:
+            c["list_spec"]["sections"] = [{"id": "item", "label": "Item", "add_label": "Add item"}, section]
+        return {"category_config": c, "items": self._items("hvac_adp_item"), "source_workbook": "12e-3c test"}
+
+    def test_22_the_single_config_load_runs_the_cross_category_check(self):
+        from unittest import mock
+        live_before = self._live()
+        self.assertEqual(self._scratch_rows(), (0, 0), "the scratch discipline starts empty")
+        try:
+            # every commit inside the loader is held back: the whole test is one transaction, rolled back below
+            with mock.patch.object(frappe.db, "commit"), \
+                 mock.patch.object(config_validation, "validate_delegated_sections", wraps=config_validation.validate_delegated_sections) as check:
+                # (a) the delegated category, loaded first through the multi path (it has no top-level pipeline, so
+                #     the single-config path's shape gate refuses it -- pinned in test_23)
+                ins = self._cfg(INSULATION)
+                del ins["discipline"]
+                # the scratch copy drops the derived-cell links: they name item uids, which belong to the LIVE
+                # discipline's rows, and the section check reads families and units, not derived cells
+                ins.pop("derived_rates", None)
+                loader.load_rate_master(payload={"discipline": self.SCRATCH, "category_configs": [ins],
+                                                 "items": self._items("hvac_insulation_item"), "goldens": {}}, replace=False)
+                n_after_a = self._scratch_rows()
+                self.assertGreater(n_after_a[0], 100)
+                check.reset_mock()
+
+                # (b) BROKEN, through the single-config call: refused with the check's own message, nothing written
+                for over, needle in [({"category_id": "hvac_lagging"}, "names category 'hvac_lagging', which does not exist in"),
+                                     ({"families": ["Thermal Nitrile Insulation"]}, "does not price per length")]:
+                    with self.assertRaises(frappe.ValidationError) as cm:
+                        loader.load_rate_master(payload=self._adp(self._section(**over)), replace=False)
+                    self.assertIn(needle, str(cm.exception))
+                    self.assertIn("Rate master import refused", str(cm.exception))
+                    self.assertIn("Nothing was written", str(cm.exception))
+                    self.assertEqual(self._scratch_rows(), n_after_a, "refused BEFORE the first write: %s" % needle)
+                self.assertEqual(check.call_count, 2, "the single-config call reached the check each time")
+                check.reset_mock()
+
+                # (c) a GOOD delegated section is ACCEPTED by the check: the call goes on to the loader's own
+                #     "already loaded" refusal (replace=False with active items), which sits AFTER the check
+                with self.assertRaises(frappe.ValidationError) as cm:
+                    loader.load_rate_master(payload=self._adp(self._section()), replace=False)
+                self.assertIn("Rate master already loaded for discipline", str(cm.exception))
+                self.assertNotIn("Rate master import refused", str(cm.exception))
+                self.assertEqual(check.call_count, 1)
+                self.assertEqual(self._scratch_rows(), n_after_a)
+                check.reset_mock()
+
+                # (d) a GOOD config LOADS through the single-config call (replace=True supersedes the scratch rows)
+                out = loader.load_rate_master(payload=self._adp(), replace=True)
+                self.assertEqual(out["status"], "loaded")
+                self.assertEqual(out["config_loaded"], 1)
+                self.assertEqual(out["items_total"], len(self._items("hvac_adp_item")))
+                self.assertEqual(check.call_count, 1, "a good load runs the check too")
+                self.assertEqual(frappe.db.count("BoQ Rate Category Config", {"discipline": self.SCRATCH, "category_id": "hvac_adp", "active": 1}), 1)
+
+            # NEGATIVE (vacuity inside the test): with the check disabled the broken load of (b) is NOT refused for
+            # its section -- it reaches the loader's later refusal instead -- so the refusal in (b) IS the check's
+            with mock.patch.object(frappe.db, "commit"), \
+                 mock.patch.object(config_validation, "validate_delegated_sections", return_value=None):
+                with self.assertRaises(frappe.ValidationError) as cm:
+                    loader.load_rate_master(payload=self._adp(self._section(category_id="hvac_lagging")), replace=False)
+                self.assertNotIn("hvac_lagging", str(cm.exception))
+                self.assertIn("Rate master already loaded for discipline", str(cm.exception))
+        finally:
+            frappe.db.rollback()
+        self.assertEqual(self._scratch_rows(), (0, 0), "nothing of the scratch discipline is left")
+        self.assertEqual(self._live(), live_before, "the live catalogue was not touched")
+
+    def test_23_the_check_accepts_every_config_shipping_today(self):
+        """The corpus check (v1.8 lesson 3: a new gate must be run over everything it will meet before it ships).
+        READ-ONLY: the check reads the live catalogue and writes nothing."""
+        live_before = self._live()
+        shipped = [("HVAC", self.v37), ("Electrical", self.e66)]
+        self.assertEqual([len(a["category_configs"]) for _d, a in shipped], [10, 13])
+        accepted, through_single_gate = [], []
+        for disc, asset in shipped:
+            loaded = [loader._loaded_config(c, disc, asset.get("goldens") or {}) for c in asset["category_configs"]]
+            # the whole asset, as `_load_multi` checks it
+            config_validation.validate_delegated_sections(loaded, asset["items"], label="corpus")
+            for cfg in loaded:
+                # one config at a time, as a single write: with its own items (an import) and with none (the editor)
+                kinds = set(cfg.get("item_kinds") or [])
+                own_items = [it for it in asset["items"] if it["kind"] in kinds]
+                config_validation.validate_delegated_sections([cfg], own_items, label="corpus")
+                config_validation.validate_delegated_sections([cfg], label="corpus")
+                accepted.append("%s/%s" % (disc, cfg["category_id"]))
+                pl = cfg.get("pipelines")
+                if isinstance(pl, dict) and pl:
+                    through_single_gate.append("%s/%s" % (disc, cfg["category_id"]))
+        self.assertEqual(len(accepted), 23)
+        # which shipping configs the single-config path's OWN shape gate (non-empty top-level pipelines) lets
+        # through at all: ADP and twelve Electrical categories -- and none of them declares a delegated section
+        self.assertEqual(sorted(through_single_gate), sorted(
+            ["HVAC/hvac_adp"] + ["Electrical/" + c for c in (
+                "cabletray_raceway", "conduit_piping", "db_switchgear", "earthing", "industrial_sockets", "junction_box_raceway",
+                "lighting_mgmt_system", "miscellaneous", "point_wiring", "popup_boxes", "switches_sockets", "wiring_cabling")]))
+        declaring = [c["category_id"] for _d, a in shipped for c in a["category_configs"]
+                     if isinstance(c.get("list_spec"), dict) and config_validation.SECTIONS_KEY in c["list_spec"]]
+        self.assertEqual(declaring, [CATEGORY])
+        # the one config that declares a section cannot take the single-config path: its shape gate refuses it first
+        piping = next(c for c in self.v37["category_configs"] if c["category_id"] == CATEGORY)
+        with self.assertRaises(frappe.ValidationError) as cm:
+            loader._validate_payload({"category_config": dict(copy.deepcopy(piping), discipline="HVAC"),
+                                      "items": [it for it in self.v37["items"] if it["kind"] == "hvac_piping_item"]})
+        self.assertIn("category_config is missing 'pipelines'", str(cm.exception))
+        self.assertEqual(self._live(), live_before)
