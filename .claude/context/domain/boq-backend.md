@@ -77,6 +77,44 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
   - **A library failure never fails the pass:** it runs with candidate parents and no examples, and says so at
     **ERROR** level — the `boq_ai` logger writes ERROR and above only, so a warning there is silently dropped.
   - **Only Claude's job limit is 1200 s.** Gemini's and the parse job's stay 600 (pinned).
+- **The Claude review runs AUTOMATICALLY after a parse, every run is logged, and dead runs are healed (S2, ADR-0032,
+  owner-locked):**
+  - **`parse_run._run_parse_worker` has exactly ONE seam into the AI side: two calls into
+    `api/boq/wizard/ai_run_log.py`** -- `on_parse_start` at the start, `enqueue_after_parse` AFTER the parse commit and
+    before the parse event. Pinned by `test_parse_run.TestAutoClaudeCheckSeam`. Neither call can fail a parse.
+  - **One Claude job per sheet the parse left at "Parsed"** (upload and revision BoQs). Never for "Parse failed",
+    "Hidden", "Skip", a general-specs sheet or a template BoQ. **Gemini is never run automatically.**
+  - **Under a test run the automatic run is OFF** (`ai_run_log._auto_run_allowed`): `frappe.enqueue` is real under
+    tests and the site's AI settings are live, so a parse inside a test would otherwise queue a real, paid job. A test of
+    the automatic run patches `_auto_run_allowed` AND `frappe.enqueue`.
+  - **A run for an older parse writes NOTHING.** The run records the sheet's `last_parsed_at` when queued;
+    `_apply_ai_suggestions(..., expected_last_parsed_at=)` raises `RunSuperseded` when it no longer matches, and the run
+    is logged "Superseded". That refusal is the only change to the write-back; accept / reject / revert are untouched.
+  - **Every run has a `BoQ AI Run Log` record** (auto-after-parse, re-parse, manual, and a manual cache hit as Done with
+    `cached` = 1), written only by `ai_run_log.py`. **It never holds the API key:** every failure message goes through
+    `boq_ai_assist.scrub_keys` and is capped at 1,000 characters; so does the Error Log text.
+  - **The worker rolls back FIRST and writes the Error Log SECOND.** The other order rolls the Error Log entry back with
+    everything else, and the failure leaves no trace to link.
+  - **Health rule:** a Running run with no heartbeat for 6 minutes, or started more than 22 minutes ago, and a Queued run
+    whose job has left the queue, becomes Failed "worker stopped or timed out" and its flag is cleared. Time waiting in
+    the queue never fails a run. A stuck Claude or Gemini flag with no live run record and no live queue job is cleared;
+    **a flag whose job may be alive is never cleared, and nothing is cleared when the queue cannot be read.**
+  - **The health check runs on the status read, a run start, a parse start, and ONE scheduler entry every 5 minutes**
+    (`ai_run_log.heal_stale_runs_task`). That entry is the only timed job S2 adds; it makes no AI call and never loads
+    the library. **It needs the production scheduler enabled.** In a test, never call `heal_stale_runs()` with no
+    arguments -- it heals the site's real runs and clears its real flags.
+  - **The Anthropic client is created with `max_retries=0`;** the app's 3 attempts are the only retries, with a heartbeat
+    before each. The queue's `JobTimeoutException` is re-raised untouched, never retried.
+  - **The examples library file is format 2 and is RELEASED inside `build_guidance`, before the first Claude call.** It
+    must return exactly what format 1 returned -- same examples, same order, same scores (proved on all 16,851 F1 rows;
+    guarded by `test_boq_ai_guidance.TestCompactLibrary`, which keeps the format-1 code as its reference). Never drop
+    duplicate or blank rows from it (owner: option 3 not chosen).
+- **A doctype's index on PostgreSQL: flag every indexed column, and name the index yourself (found in S2).** Frappe names a
+  field-level index after the field alone and index names are unique per schema, so `search_index` on `boq` / `status`
+  usually creates nothing; and when a table is ALTERED, a column that is indexed but un-flagged makes Frappe run
+  `DROP INDEX IF EXISTS "<fieldname>"` with no table name -- which drops ANOTHER table's index. `BoQ AI Run Log` keeps
+  the flag on both indexed columns and creates `boq_ai_run_log_boq` / `boq_ai_run_log_status` in `on_doctype_update`;
+  its doctype test fails if a column is ever indexed without the flag.
 - **Committed `attached_notes` is DERIVED, not carried (EA-6a slice 2, owner-locked):** at commit,
   `commit_pipeline._derive_attached_notes` rebuilds every node's `attached_notes` from the EFFECTIVE
   tree (effective parent + effective classification, row_index order -- order is load-bearing,
@@ -135,6 +173,7 @@ This manifest names the **one owning module** for each BoQ backend concept (per 
 | **Single-editor pricing lock** | `api/boq/wizard/pricing_lock.py` (`acquire_or_refresh`) | invent a second lock. A lock reject must mutate NOTHING |
 | **The joined `description` + `description_parts_raw` shape** | `services/boq_parser/classifier.py` (`_description_columns` / `_description_parts`) — owner-locked | re-join description columns anywhere else, or assume a single description column |
 | **The rendered Claude review prompt** (template + rows + GUIDANCE) and its version | `services/boq_ai_assist.py` (`_render_chunk_prompt`, `PROMPT_VERSION`) | build the prompt text anywhere else, or change it without bumping the version the result cache is keyed on |
+| **The Claude run log, its health check and the automatic run after a parse** (run records, heartbeat, the 6 / 22-minute rule, stuck-flag clean-up, the after-parse enqueue) | `api/boq/wizard/ai_run_log.py` (the worker and the endpoint in `ai_assist.py` only CALL it; `parse_run.py` calls `on_parse_start` + `enqueue_after_parse`) | write a `BoQ AI Run Log` field from anywhere else, clear `ai_in_progress` / `gemini_in_progress` outside `_publish_*_event` and the health check, or enqueue the Claude worker from a third place |
 | **The examples library and the candidate-parent shortlist** (build, file, on-demand rebuild, look-up exclusions) | `services/boq_ai_guidance.py` (`build_guidance` is the worker's one entry point) — reads `frappe.db` by design, so it is **not** a `PURE_MODULES` entry | read the library file directly, rebuild it from a scheduler, or apply the family / TestProject exclusions anywhere but the look-up |
 | **Committed-tier amount / parent-rate recomputation** | **NONE, deliberately** — the committed controllers are CAPTURE-ONLY; the future tendering module owns calculations | re-add `amount = qty x rate` or a parent-rate overwrite to a committed controller |
 

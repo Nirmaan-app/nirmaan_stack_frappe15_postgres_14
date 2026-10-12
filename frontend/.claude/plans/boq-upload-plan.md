@@ -45998,3 +45998,88 @@ green. Full suite after the last code commit (Desktop `2026-10-11_S1b_python_ful
 FAILED failures 7 + errors 6 = the same 13 tests by name. No frontend file changed, so no vitest / tsc run.
 `residence_check`: backend rules holding; F5 120 vs 117 and F2 221 vs 217, the figures 12e-1 measured — this slice adds no
 `JSON.parse` / `updateDoc`.
+
+
+## Slice S2 — AUTOMATIC CLAUDE CHECK AFTER PARSE, RUN LOG, HEALTH CHECK, COMPACT EXAMPLES LIBRARY (2026-10-12, dev2) — SHIPPED
+
+Branch `feature/boq-jev-integration`, built and certified in the dev2 environment only. Decision record: ADR-0032.
+Invariants: `boq-backend.md` § Parser, review tree and commit (the "runs AUTOMATICALLY after a parse" bullet and the
+PostgreSQL index rule) and its Residence table. No frontend file changed; the two run buttons stay until S4.
+
+**What it is.** After a parse commits, one Claude review job is queued for every sheet that ended "Parsed" — no click.
+Every run (automatic, re-parse, manual, manual cache hit) has a `BoQ AI Run Log` record with its heartbeat, tokens, timings
+and failure reason. A health check fails a dead run and clears stuck "AI pass running" flags. The examples library is held
+in a compact form and released before Claude is called.
+
+**Built.** Commit `3a229cccd` (feat, boq-ai), 16 files:
+- `api/boq/wizard/ai_run_log.py` (new, 502 lines) — run-log writes, the health check and its timed task, the after-parse
+  enqueue.
+- `api/boq/wizard/ai_assist.py` — `_apply_ai_suggestions` gains the superseded refusal (1 line changed, 13 added, nothing
+  else); the endpoint writes a run record (manual, and Done / cached on a cache hit) and heals on start; the status read
+  heals; the worker stamps heartbeats, records the library step, rolls back BEFORE it logs, classifies the failure.
+  `accept_ai_suggestion`, `reject_ai_suggestion`, `revert_ai_acceptance` and `_publish_ai_event` are byte-identical.
+- `api/boq/wizard/parse_run.py` — 8 added lines: one import, `on_parse_start`, `enqueue_after_parse`.
+- `services/boq_ai_assist.py` — failure categories, `scrub_keys`, the `progress` callback, `max_retries=0`, the job-timeout
+  re-raise. Prompt, wire rows and GUIDANCE block unchanged (fixture sha `799d00a1…fe3423`, 43,699 characters, still
+  reproduces).
+- `services/boq_ai_guidance.py` — library file format 2, release inside `build_guidance`, the `info` report.
+- `hooks.py` — ONE added scheduler entry (`*/5 * * * *`, `ai_run_log.heal_stale_runs_task`).
+- Doctype `BoQ AI Run Log` (created through Frappe in developer mode) with its controller and test.
+- Tests: `test_ai_run_log.py` (new, 69), `test_ai_assist.py` 60 -> 61, `test_parse_run.py` 110 -> 119,
+  `services/test_boq_ai_assist.py` 47 -> 59, `services/test_boq_ai_guidance.py` 43 -> 55, the doctype test (6).
+
+**Proofs.** Twelve mechanisms were each broken in turn and each turned its test red, then restored: the superseded
+refusal; the 6-minute rule; the 22-minute rule; "never clear a flag whose job is alive"; the general-specs exclusion;
+rollback-before-log; `max_retries=0`; the job-timeout re-raise; the key scrub; the compact library's unseen-word weight;
+the library release; the seam after the parse commit. Two of those tests were sharpened first because their original
+break stayed green. The auto-run test guard was deliberately not broken (it would let a test queue a real job).
+
+**Library, measured in dev2** (133,477 rows, 48,436 tokens, 10,479,594 postings): file 191.5 MB -> 65.9 MB; worker process
+542 MiB loaded / 620 MiB peak -> 224 MiB after look-up / 250 MiB peak / **147 MiB during the Claude call**; load 2.1 s ->
+0.4 s; look-up of 16,851 rows 2,065 s -> 1,904 s; build 47 s at a 322 MiB peak. The process is 129 MiB before any library,
+so the library's own share went from about 430 MiB to about 95 MiB (121 at peak). **Same examples:** 0 of 16,851 F1 rows
+differ (examples, order, scores) and the FPS GUIDANCE block is byte-identical. The 150 MiB target is met for the library's
+share and during the call, not for the whole process at its peak.
+
+**Migration (dev2).** New table `tabBoQ AI Run Log`, indexes `boq_ai_run_log_boq` and `boq_ai_run_log_status`, System
+Manager read / report / export only. **Incident, disclosed:** the doctype's first index design made the second migration run
+Frappe's nameless `DROP INDEX`, which removed `boq` on `tabBOQ Nodes` and `status` on `tabVendor Invoices` (dev2 only). Both
+were recreated exactly (checked against the ENV-1 dump's index list), the design was corrected, and a third migration ran
+clean with all 666 indexes of the database identical before and after. The same latent hazard exists in 28 doctypes
+(68 un-flagged indexed columns, 16 with a live victim today); they were not changed. See ADR-0032.
+
+**End-to-end (the one paid call).** "Re-parse Sheet" on BOQ-26-00059 / FPS (39 rows): parse done at 13:00:32 UTC, the
+Claude job started by itself in the same second, the Review page showed "AI pass running…", and the `boq:ai_pass_done`
+socket event (port 9100) arrived at 13:01:23.675 — the page re-fetched its rows 16 ms later, with no status poll completing
+between 13:00:52 and the event and no reload. Run record: trigger re-parse, Done, 28,363 input / 1,604 output tokens, 16
+suggestions, library ok, look-up 7.9 s, AI 18.1 s, memory peak 239.9 MiB. Zero-spend proofs: a fake rate-limit failure
+(Failed, "rate limit", Error Log linked, 3 fake requests); a stalled run healed by the timed task called directly, its chip
+cleared on the open page 3 s later. That same call cleared the 31 Claude and 34 Gemini flags stuck since June (queues
+empty, so no job alive): 31 / 34 -> 0 / 0.
+
+**Findings carried forward.**
+1. With the scheduler off, a dead run is healed only when someone opens the sheet, starts a run or re-parses. Production
+   needs `enable_scheduler` on for the 5-minute check.
+2. The health event for a stalled run is published to the run's owner; another user with the page open learns it from the
+   3-second poll instead (seen in the cert: Administrator's run, admins@ watching).
+3. The Review page reads `ai_in_progress` from the BOQs document it already holds: a flag set while the page is open shows
+   only after that document is fetched again. S4 owns the page.
+4. An unknown `error_code` ("stale") shows the page's generic failure text. S4.
+5. Between a Gemini job leaving the queue and entering RQ's started registry (milliseconds) the clean-up could clear its
+   flag; only the chip is affected, never the result.
+6. `BoQ AI Run Log` is never pruned. The old library file (190 MB) is left on disk, unused.
+7. The worker spends about 20 s before its first line of work (process start-up), as in S1b; the run record shows it as
+   the gap between queued and started.
+8. Carried to S3 / S4 unchanged from S1b: "Check parent" on auto-changed rows; the banner percentage; the info-level log
+   lines (now superseded by the run record for timings and tokens).
+
+### Tests (measured in-session, dev2)
+
+Before = S1b's saved full run: **8,112 tests**, 13 known failures. Targeted before the commit (15 modules, 1,125 tests): all
+green except the two knowns that live in those modules. Full suite after the commit, run twice: run 1 (16:00 IST, dev2's
+bench DOWN) 8,221 tests, 14 failing — the 12 daytime knowns plus two Snag PDF tests that need dev2's own web server
+(`wkhtmltopdf ... ConnectionRefusedError`); run 2 (17:08 - 17:37 IST, bench UP, the owner's chosen "after") **8,221 tests
+(8,112 + 109 new), failures 6 + errors 6 = 12**: the baseline 13 by name minus `test_daily_window_picks_a_wo_touched_since`,
+the 00:00 - 05:30 IST flake, absent at that hour. Nothing new. The dev2 runbook now says to start the bench before a full
+suite. No frontend file changed, so no vitest / tsc run. `residence_check`: backend rules holding; F5 120 vs 117 and F2 221
+vs 217 as before — this slice adds no `JSON.parse` / `updateDoc`.
