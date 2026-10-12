@@ -579,21 +579,32 @@ describe("HVAC Piping -- every family x unit class x ladder path, every SKU, eve
    * "Type one pipe size, in mm or inches"). A slash that cannot be an inch fraction now states two sizes on BOTH
    * paths, so the exclusion is gone and parity is asserted instead; the inch forms still agree and still price.
    */
-  it("12e-2b AC6: '40/50' and '50/65' refuse on BOTH surfaces with one sentence -- no exclusion; a real inch fraction still agrees and prices", () => {
-    for (const [typed, sizes] of [["40/50", "40 / 50"], ["50/65", "50 / 65"]] as const) {
+  // INVERTED AGAIN at 12e-3b (owner 2026-10-11, "use the higher size"; REPLACES "40/50 refuses"). BEFORE, for "40/50" and
+  // "50/65": hasPrice false on both surfaces and both reasons `pipe size states two sizes (<sizes>) - pick one`; and
+  // "63/64" sat in the inch list below and priced (its top number is above 16, so it is now the two sizes 63 and 64).
+  it("12e-3b AC2: '40/50' and '50/65' price the HIGHER on BOTH surfaces with one line -- no exclusion; a real inch fraction still agrees and prices (BEFORE: both refused '- pick one')", () => {
+    for (const [typed, sizes, higher] of [["40/50", "40 / 50", "50"], ["50/65", "50 / 65", "65"]] as const) {
       const r = runParity(cfg36, items36, pc("MS", typed), "full");
       expect({ typed, divergences: r.divergences }).toEqual({ typed, divergences: [] });
-      expect(hasPrice(r.panel)).toBe(false);
-      expect(hasPrice(r.calculator)).toBe(false);
-      const want = `pipe size states two sizes (${sizes}) - pick one`;
-      expect((r.panel as ItemListSuggestion).itemList!.items[0].reason).toBe(want);
-      expect((r.calculator as ItemListSuggestion).itemList!.items[0].reason).toBe(want);
+      expect(hasPrice(r.panel)).toBe(true);
+      expect(hasPrice(r.calculator)).toBe(true);
+      const line = `pipe size states two sizes (${sizes}) - the higher, ${higher}, is taken`;
+      expect((r.panel as ItemListSuggestion).itemList!.items[0].working).toContain(line);
+      expect((r.calculator as ItemListSuggestion).itemList!.items[0].working).toContain(line);
+      // the figure is the higher size's own
+      const alone = runParity(cfg36, items36, pc("MS", higher), "full");
+      expect((r.panel as ItemListSuggestion).values).toEqual((alone.panel as ItemListSuggestion).values);
+      expect((r.panel as ItemListSuggestion).itemList!.items[0].reason ?? "").not.toContain("pick one");
     }
-    for (const typed of ["7/8", "1-1/4", "1 1/4", "63/64"]) {
+    for (const typed of ["7/8", "1-1/4", "1 1/4", "15/16"]) {
       const r = runParity(cfg36, items36, pc("Copper", typed), "full");
       expect({ typed, divergences: r.divergences }).toEqual({ typed, divergences: [] });
       expect(hasPrice(r.panel)).toBe(true);
     }
+    // "63/64" is two sizes now: the higher, 64, is above copper's largest size, and both surfaces refuse alike
+    const r = runParity(cfg36, items36, pc("Copper", "63/64"), "full");
+    expect(r.divergences).toEqual([]);
+    expect(hasPrice(r.panel)).toBe(false);
   });
 
   it("the ONE unit exclusion, by name: a row unit the picker does not offer ('nos') diverges by cause C and never produces a figure on either side (owner R12 / 12c-F)", () => {

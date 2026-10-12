@@ -18,13 +18,36 @@
 /** An item as the label resolver needs it: the kind and the attributes (a `RateMasterItem` fits). */
 export type PlainEnglishItem = { kind?: string; attributes?: Record<string, unknown> };
 
-/** A config sentence as the pricer should read it: the trailing "(R4)" / "(owner ...)" tags dropped. */
+/**
+ * SLICE 12e-3b (block 38; owner 2026-10-12 "Strip them too") -- A RULE TAG WRITTEN WITH HYPHENS. The numbered
+ * tags ("(R15)", "(D9b)") were always dropped; a tag spelled with a hyphen -- "(R-M-b)", "(R-M-c)" in the
+ * config, "(A-4)", "(A-5)" written by the pricer's own code -- matched nothing and reached the screen. One
+ * capital from the tag letters, then one or two hyphenated parts of at most two characters, in brackets. A
+ * bracket that is not a tag ("(UL-555)", "(M-10)", "(W x H)") is left alone.
+ */
+export const HYPHEN_TAG = /\s*\((?:R|A|D|T|S|Q)(?:-[A-Za-z0-9]{1,2}){1,2}\)/g;
+
+/** A config sentence as the pricer should read it: the trailing "(R4)" / "(R-M-b)" / "(owner ...)" tags dropped. */
 export const plainSentence = (s: unknown): string =>
   String(s ?? "")
     .replace(/\s*\((?:R|D|T|S|Q)-?\d+[a-z]?(?:\s*\/\s*(?:R|D|T|S|Q)-?\d+[a-z]?)*\)/g, "")
+    .replace(HYPHEN_TAG, "")
     .replace(/\s*\(owner[^)]*\)/gi, "")
     .replace(/\s{2,}/g, " ")
     .trim();
+
+/**
+ * SLICE 12e-3b (owner Q13) -- THE STANDARD SPELLING OF A UNIT. A config writes a unit as a key ("nm"); a
+ * pricer reads the unit ("Nm"). The table names units, never a category: a number followed by a unit written
+ * all in lower case is given its standard spelling. A unit the BoQ wrote in its own capitals ("10 NM",
+ * "N.m") is the BoQ's wording and is kept; a spelling that is already standard is untouched.
+ */
+export const UNIT_SPELLINGS: Readonly<Record<string, string>> = { nm: "Nm", mm: "mm", kg: "kg" };
+export const unitSpellings = (s: string): string =>
+  s.replace(/(\d\s?)([a-z]+)\b/g, (m, lead: string, unit: string) => {
+    const std = Object.prototype.hasOwnProperty.call(UNIT_SPELLINGS, unit) ? UNIT_SPELLINGS[unit] : undefined;
+    return std !== undefined && std !== unit ? `${lead}${std}` : m;
+  });
 
 /**
  * A Pricing Input named by its LABEL -- the `name` its Pricing Inputs row carries (`GI framework sheet
@@ -134,6 +157,8 @@ export function plainPricerText(text: unknown, items: ReadonlyArray<PlainEnglish
   // a Pricing Input the items do not carry (no items loaded yet): its id written as plain words, never bare
   s = s.replace(/pricing input: ([A-Za-z0-9]+(?:_[A-Za-z0-9]+)+)/g, (_m, id: string) => `pricing input: ${id.replace(/_/g, " ")}`);
   s = plainSentence(s);
+  // SLICE 12e-3b (owner Q13): a unit key reads as the unit ("6 nm" -> "6 Nm")
+  s = unitSpellings(s);
   s = s.replace(new RegExp(String.raw`,\s*${CODE_RUN}(?=\))`, "g"), "");
   s = s.replace(new RegExp(String.raw`(^|\(|;\s*)${CODE_RUN}\s+(?=\S)`, "g"), "$1");
   // nothing else is normalised: a family name may carry a leading space (' Fiberglass Rigid Board ...') and keeps it

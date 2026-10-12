@@ -5674,7 +5674,10 @@ describe("SLICE 9 / the item-list view under v12 -- one size box, the outer-size
     expect(variant.value).toBe("UL");
     expect(variant.options).toContain("UL");
     expect(variant.options).not.toContain("UL 555");
-    expect(variant.note).toBe("UL stated, so the UL 555 SKU is used (R-M-b)");
+    // INVERTED at 12e-3b (block 38; the owner's "Yes, those three pins"). BEFORE:
+    //   expect(variant.note).toBe("UL stated, so the UL 555 SKU is used (R-M-b)");
+    expect(variant.note).toBe("UL stated, so the UL 555 SKU is used");
+    expect(variant.note).not.toContain("(R-M-b)");
     expect(v.items[0].figures).toMatchObject({ supply_rate: 21750, install_rate: 1920 });
   });
 
@@ -5698,8 +5701,12 @@ describe("SLICE 9 / the item-list view under v12 -- one size box, the outer-size
 
   it("A-4: the outer-size notes are on the panel -- the alternative name, the largest neck behind it, and the set-aside", () => {
     const { v } = list(runWith([{ excel_row: 43, items: [li({ family: "square diffuser", damper: "without", size_mm: "600 x 600" })] }]).compute(adpCtx(43, "Nos")));
-    expect(v.items[0].working.join(" | ")).toContain("the outer size 600x600 is the sheet's 595x595 (A-5)");
-    expect(v.items[0].working.join(" | ")).toContain("largest neck size behind it is 450 (A-4)");
+    // INVERTED at 12e-3b (owner 2026-10-12, "Strip them too": "(A-4)" / "(A-5)" go at the plain-English step). BEFORE:
+    //   toContain("the outer size 600x600 is the sheet's 595x595 (A-5)");
+    //   toContain("largest neck size behind it is 450 (A-4)");
+    expect(v.items[0].working).toContain("the outer size 600x600 is the sheet's 595x595");
+    expect(v.items[0].working).toContain("matched on the outer size 595x595; largest neck size behind it is 450");
+    expect(v.items[0].working.join(" | ")).not.toMatch(/\(A-[45]\)/);
     expect(v.items[0].figures).toMatchObject({ supply_rate: 1813, install_rate: 400 });
     // a stated outer the catalogue does not stock is SET ASIDE and the neck prices the row, visibly
     const { v: v2 } = list(runWith([{ excel_row: 44, items: [li({ family: "square diffuser", damper: "without", neck_mm: "300 x 300", size_mm: "450 x 450" })] }]).compute(adpCtx(44, "Nos")));

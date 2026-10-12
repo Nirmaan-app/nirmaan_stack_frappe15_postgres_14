@@ -43,7 +43,10 @@ const ADP = "hvac_adp", INS = "hvac_insulation", PIP = "hvac_piping";
 const ITEM_LIST = [INS, ADP, PIP] as const;
 const SPEC: Record<string, ItemListPricingSpec> = Object.fromEntries(ITEM_LIST.map((c) => [c, itemListPricingSpec(CFG[c])!]));
 const KINDS = ["supply_rate", "install_rate", "combined_rate"] as const;
-const UL_LINE = "UL stated, so the UL 555 SKU is used (R-M-b)";   // the config's own rule text, as the panel prints it today
+// INVERTED at 12e-3b (block 38, AC3). BEFORE: "UL stated, so the UL 555 SKU is used (R-M-b)" -- the config's rule text
+// with its tag, as the panel printed it. The tag is stripped at the plain-English step; the config keeps it.
+const UL_LINE = "UL stated, so the UL 555 SKU is used";
+const UL_LINE_BEFORE = "UL stated, so the UL 555 SKU is used (R-M-b)";
 
 type Edit = { base: number | null; family: string | null; attrs: Record<string, string>; other?: string[] };
 const cells = (a: Record<string, string>): ExtractionRow["attributes"] =>
@@ -88,6 +91,8 @@ describe("12e-2b AC1 -- the end-to-end proof: fire damper, UL listed shows both;
     expect(b.skuLine).toBe("Fire damper / UL 555 Rated (SQM)");
     expect(field(b, "variant").value).toBe("UL");
     expect(field(b, "variant").note).toBe(UL_LINE);
+    expect(b.working).not.toContain(UL_LINE_BEFORE);                 // 12e-3b: the tag never reaches the screen
+    expect(JSON.stringify(CFG[ADP])).toContain(UL_LINE_BEFORE);      // ... and the config still carries it
   });
   it("the SAME row through the BoQ-panel path (the model supplying ul = yes) gives the same figure and the same line", () => {
     const viaModel = panel(ADP, { family: "fire damper", ul: "yes", variant: "None" }, "sqm");
@@ -334,9 +339,13 @@ describe("12e-2b AC5 -- D4 (a): slot diffuser per sq.m / per number keeps 'dampe
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 describe("12e-2b AC6 -- on the Piping size axis a slash is an inch fraction only when it can be one", () => {
-  it("the rule: denominators 2, 4, 8, 16, 32, 64 with a smaller numerator, with or without a whole number", () => {
+  // INVERTED at 12e-3b (owner 2026-10-11 "yes for both": an inch fraction = top number <= 16 AND bottom in the list) for
+  // "63/64" ONLY. BEFORE: "63/64" sat in the `ok` list below (sizes null) and `isOneSizeEntry("63/64")` was true -- the
+  // 12e-2b test was "a smaller numerator". Its top number is above 16, so it is now two sizes.
+  it("the rule: denominators 2, 4, 8, 16, 32, 64 with a top number of 16 or less (12e-3b; BEFORE: a smaller numerator), with or without a whole number", () => {
     expect(INCH_DENOMINATORS).toEqual([2, 4, 8, 16, 32, 64]);
-    for (const ok of ["7/8", "1-1/4", "1 1/4", "5/8\"", "3/4 inch", "63/64", "1/2"]) expect({ ok, sizes: slashSizes(ok) }).toEqual({ ok, sizes: null });
+    for (const ok of ["7/8", "1-1/4", "1 1/4", "5/8\"", "3/4 inch", "15/16", "1/2"]) expect({ ok, sizes: slashSizes(ok) }).toEqual({ ok, sizes: null });
+    expect(slashSizes("63/64")).toEqual(["63", "64"]);
     expect(slashSizes("40/50")).toEqual(["40", "50"]);
     expect(slashSizes("50/65")).toEqual(["50", "65"]);
     expect(slashSizes("40 / 50 / 65")).toEqual(["40", "50", "65"]);
@@ -346,20 +355,27 @@ describe("12e-2b AC6 -- on the Piping size axis a slash is an inch fraction only
     expect(slashSizes("as per spec")).toBeNull();
     expect(severalSizesMessage("pipe size", ["40", "50"])).toBe("pipe size states two sizes (40 / 50) - pick one");
     expect(severalSizesMessage("pipe size", ["40", "50", "65"])).toBe("pipe size states several sizes (40 / 50 / 65) - pick one");
-    expect(isOneSizeEntry("63/64")).toBe(true);                     // BEFORE this slice the typed test stopped at 32
+    expect(isOneSizeEntry("63/64")).toBe(false);                    // 12e-3b: BEFORE true (see the note above the test)
+    expect(isOneSizeEntry("15/16")).toBe(true);
     expect(isOneSizeEntry("40/50")).toBe(false);
   });
-  it.each([["40/50", "40 / 50"], ["50/65", "50 / 65"]])("'%s' refuses on BOTH paths with 'states two sizes (%s) - pick one'", (text, sizes) => {
-    const want = `pipe size states two sizes (${sizes}) - pick one`;
+  // INVERTED at 12e-3b (owner 2026-10-11; REPLACES "40/50 refuses"). BEFORE, on both paths: values {}; reason
+  // `pipe size states two sizes (<sizes>) - pick one`; notes `You typed <text>: <reason>` / `BoQ says <text>: <reason>`.
+  it.each([["40/50", "40 / 50", "50"], ["50/65", "50 / 65", "65"]])("'%s' prices the higher on BOTH paths with 'states two sizes (%s) - the higher, %s, is taken' (BEFORE: refused '- pick one')", (text, sizes, higher) => {
+    const taken = `states two sizes (${sizes}) - the higher, ${higher}, is taken`;
     const typed = calc(PIP, "MS", { size_mm: text }, "mts", ["size_mm"]);
     const model = panel(PIP, { pipe_type: "MS", size_mm: text }, "Rmt");
+    const alone = calc(PIP, "MS", { size_mm: higher }, "mts", ["size_mm"]);
+    expect(alone.v.rowPriced).toBe(true);
     for (const x of [typed, model]) {
-      expect(x.values).toEqual({});
-      expect(x.v.reason).toBe(want);
-      expect(want).toContain(`states two sizes (${sizes}) - pick one`);
+      expect(x.v.rowPriced).toBe(true);
+      expect(x.values).toEqual(alone.values);                       // the higher size's own price, nothing else
+      expect(x.b.working).toContain(`pipe size ${taken}`);
+      expect(x.v.reason).toBeUndefined();
     }
-    expect(field(typed.b, "size_mm").note).toBe(`You typed ${text}: ${want}`);
-    expect(field(model.b, "size_mm").note).toBe(`BoQ says ${text}: ${want}`);
+    expect(field(typed.b, "size_mm").note).toBe(`You typed ${text}: ${taken}`);
+    expect(field(model.b, "size_mm").note).toBe(`BoQ says ${text}: ${taken}`);
+    expect(field(typed.b, "size_mm").note).not.toContain("pick one");
   });
   it.each([["7/8\"", "Copper", 1814, 220, "22.2"], ["7/8", "Copper", 1814, 220, "22.2"], ["1-1/4", "Copper", 2925, 220, "31.7"], ["1 1/4", "Copper", 2925, 220, "31.7"]] as const)(
     "NEGATIVE: a real inch form still converts on both paths: %s on %s -> %s / %s", (text, fam, supply, install, rung) => {
@@ -397,13 +413,18 @@ describe("12e-2b AC7 -- the Derivation tab: the family is named, and Piping neve
     expect(lines(PIP)[5]).toEqual({ n: 6, title: "That kind's rule for that unit", detail: "a kind is priced per metre and has one rule for it" });
     expect(text(PIP).join("\n")).not.toMatch(/square metre|sq\.m/i);
   });
-  it("Piping line 9 says what the size box does now: the one-size message for 'two inch', and a slash that is not an inch fraction refusing by name (found in the cert: the line still claimed '40/50' got the one-size message)", () => {
+  // INVERTED at 12e-3b (owner 2026-10-11). BEFORE: line 9's detail ended "...; a slash that is not an inch fraction
+  // ('40/50') refuses naming the two sizes, typed or read from the BoQ", and a typed "40/50" gave the reason
+  // "pipe size states two sizes (40 / 50) - pick one". The line now says two or more sizes take the higher, and the row prices.
+  it("Piping line 9 says what the size box does now: the one-size message for 'two inch', and two or more sizes taking the higher (12e-3b; BEFORE: a slash 'refuses naming the two sizes')", () => {
     const l9 = lines(PIP)[8];
     expect(l9.title).toBe("A typed pipe size is one size, in mm or inches");
-    expect(l9.detail).toBe("a number (an NB number is mm) or an inch size (5/8\", 1-1/4\", 2 inch); 'two inch' and '40-50' refuse: Type one pipe size, in mm or inches; a slash that is not an inch fraction ('40/50') refuses naming the two sizes, typed or read from the BoQ");
-    // the line and the product agree: both sentences are the ones the entry point gives
+    expect(l9.detail).toBe("a number (an NB number is mm) or an inch size (5/8\", 1-1/4\", 2 inch); 'two inch' and '40-50' refuse: Type one pipe size, in mm or inches; two or more sizes written with a slash take the higher ('25/32' prices 32, '25/32/40' prices 40, 1\"/2\" prices 2\"), typed or read from the BoQ, with a line saying so; a slash is an inch fraction only when its top number is 16 or less and its bottom is 2, 4, 8, 16, 32 or 64");
+    expect(l9.detail).not.toContain("refuses naming the two sizes");
+    // the line and the product agree: both are what the entry point gives
     expect(calc(PIP, "MS", { size_mm: "40-50" }, "mts", ["size_mm"]).v.reason).toBe(ONE_SIZE_MESSAGE);
-    expect(calc(PIP, "MS", { size_mm: "40/50" }, "mts", ["size_mm"]).v.reason).toBe("pipe size states two sizes (40 / 50) - pick one");
+    expect(calc(PIP, "MS", { size_mm: "40/50" }, "mts", ["size_mm"]).v.reason).toBeUndefined();
+    expect(calc(PIP, "MS", { size_mm: "40/50" }, "mts", ["size_mm"]).v.rowPriced).toBe(true);
   });
   it("NEGATIVE: Insulation's and ADP's unit line is byte-identical, and the three counts are unchanged (24 / 18 / 14)", () => {
     for (const cat of [INS, ADP]) {
@@ -445,20 +466,22 @@ describe("12e-2b AC13 -- a PICK on a LADDER field that another answer unstocks f
     expect(fig(values)).toEqual([23925, 800]);
     expect(field(b, "torque").value).toBe("8");
     expect(field(b, "torque").options).toEqual(["3.5", "8", "20"]);                      // torque still narrows under UL
-    expect(field(b, "torque").note).toBe("6 nm is not stocked with UL listed yes -> priced as 8 nm (next size up)");
+    // INVERTED at 12e-3b (owner Q13, the unit-spelling table). BEFORE: "6 nm is not stocked with UL listed yes -> priced as 8 nm (next size up)"
+    expect(field(b, "torque").note).toBe("6 Nm is not stocked with UL listed yes -> priced as 8 Nm (next size up)");
+    expect(field(b, "torque").note).not.toMatch(/\d nm\b/);
     expect(field(b, "torque").otherMode).toBe(false);
     expect(b.skuLine).toBe("Fire Damper Actuator - UL 555 Rated / 8 NM (Nos)");
     // the same value TYPED through "Other..." -- same price, the typed wording
     const typed = calc(ADP, "actuator", { torque: "6", ul: "yes" }, "nos", ["torque"]);
     expect(typed.values).toEqual(values);
-    expect(field(typed.b, "torque").note).toBe("You typed 6 nm -> priced as 8 nm (next size up)");
+    expect(field(typed.b, "torque").note).toBe("You typed 6 Nm -> priced as 8 Nm (next size up)");   // 12e-3b; BEFORE "... 6 nm -> priced as 8 nm ..."
     // and the model path
     expect(panel(ADP, { family: "actuator", torque: "6", ul: "yes" }, "nos").values).toEqual(values);
   });
   it("ADP actuator: torque 10 PICKED, then UL yes -> 20 NM UL, 26,100 / 800", () => {
     const { b, values } = calc(ADP, "actuator", { torque: "10", ul: "yes" }, "nos");
     expect(fig(values)).toEqual([26100, 800]);
-    expect(field(b, "torque").note).toBe("10 nm is not stocked with UL listed yes -> priced as 20 nm (next size up)");
+    expect(field(b, "torque").note).toBe("10 Nm is not stocked with UL listed yes -> priced as 20 Nm (next size up)");   // 12e-3b; BEFORE "10 nm ... 20 nm"
   });
   it("owner: 'let it remain as it is' -- torque 3.5 with UL untouched still prices the non-UL 6 NM by the ladder (8,410 / 800), no change", () => {
     const { b, values } = calc(ADP, "actuator", { torque: "3.5" }, "nos");

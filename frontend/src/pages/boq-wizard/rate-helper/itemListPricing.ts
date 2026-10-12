@@ -643,6 +643,8 @@ export interface LadderHop {
   raw?: string;
   /** the second conversion's value, when one was carried (101.6 mm / 100 mm) */
   alt?: number;
+  /** SLICE 12e-3b: the stated text was two or more sizes -- the sizes as the line names them and the one taken */
+  several?: { sizes: string[]; chosen: string };
 }
 
 export interface ItemPriceResult {
@@ -890,8 +892,7 @@ export function isOneSizeEntry(text: string | number | null | undefined): boolea
   if (ONE_SIZE_FORMS[0].test(s) || ONE_SIZE_FORMS[2].test(s)) return true;
   const m = s.match(ONE_SIZE_FORMS[1]);
   if (!m) return false;
-  const num = Number(m[2]), den = Number(m[3]);
-  return INCH_DENOMINATORS.includes(den) && num > 0 && num < den;
+  return isInchFraction(Number(m[2]), Number(m[3]));
 }
 
 /**
@@ -904,21 +905,85 @@ export function isOneSizeEntry(text: string | number | null | undefined): boolea
  * every other axis (Insulation's pipe size, which shares `readNumber`) is byte-identical.
  */
 export const INCH_DENOMINATORS: readonly number[] = [2, 4, 8, 16, 32, 64];
+/**
+ * SLICE 12e-3b (owner 2026-10-11, "yes for both"): WHAT A SLASH PAIR MUST BE TO READ AS AN INCH FRACTION --
+ * the top number is 16 or less AND the bottom is 2, 4, 8, 16, 32 or 64. Any other slash pair is two sizes
+ * ("25/32": the top is above 16; "15/20": 20 is no inch denominator). REPLACES the 12e-2b test (top smaller
+ * than bottom), under which "25/32" read as 25/32 of an inch.
+ */
+export const INCH_NUMERATOR_MAX = 16;
+export function isInchFraction(num: number, den: number): boolean {
+  return INCH_DENOMINATORS.includes(den) && num > 0 && num <= INCH_NUMERATOR_MAX;
+}
+const INCH_MARK_END = /(?:"|”|''|\b(?:in|inch|inches))\s*$/i;
 export function slashSizes(text: string | number | null | undefined): string[] | null {
   if (text === null || text === undefined) return null;
   const s = unicodeFractions(String(text)).trim();
   if (!s.includes("/")) return null;
-  const parts = s.split("/").map((p) => (p.match(/\d+(?:\.\d+)?/g) ?? []));
+  const texts = s.split("/");
+  const parts = texts.map((p) => (p.match(/\d+(?:\.\d+)?/g) ?? []));
   if (parts.length === 2 && parts[1].length >= 1 && parts[0].length >= 1) {
     const num = Number(parts[0][parts[0].length - 1]), den = Number(parts[1][0]);
     const wholeOk = parts[0].length <= 2 && parts[1].length === 1;
-    if (wholeOk && INCH_DENOMINATORS.includes(den) && num > 0 && num < den) return null;
+    // owner Q11: `1"/2"` is two inch sizes -- a top number carrying its own inch mark is a size, not a numerator
+    if (wholeOk && !INCH_MARK_END.test(texts[0]) && isInchFraction(num, den)) return null;
   }
   const sizes = parts.flat();
   return sizes.length >= 2 ? sizes : null;
 }
 export function severalSizesMessage(name: string, sizes: readonly string[]): string {
   return `${name} states ${sizes.length === 2 ? "two" : "several"} sizes (${sizes.join(" / ")}) - pick one`;
+}
+
+/**
+ * SLICE 12e-3b (owner 2026-10-11: "its two sizes in such case if the model can determine the specific size for
+ * the row use it else use the higher size. like what we did for insulation"; "Highest of any list") -- A SIZE
+ * WRITTEN AS TWO OR MORE SIZES PRICES THE HIGHER / HIGHEST. REPLACES 12e-2b's "40/50 refuses".
+ *
+ * Each part of the slash list must be ONE size on its own -- a number in mm (a trailing mm / NB / dia / OD
+ * accepted) or a whole or decimal number of inches. A unit written once at the end ("25/32 mm", `1/2/3"`
+ * never reaches here) is the unit of every bare part before it. The parts are compared as the reader reads
+ * them, so an inch size and an mm size compare in mm. `sizes` and `chosen` are the sizes as the line names
+ * them; `token` is the chosen size as the reader is handed it.
+ *
+ * NOT RULED, SO NOT GUESSED (returns null and the caller keeps the "- pick one" refusal): a part that is not
+ * one size ("25 x 3 / 32 x 3"), and a list of three or more parts in which two neighbours could be an inch
+ * fraction (`3/4" / 1"` -- three quarters and one inch, or 3, 4 and 1 inch).
+ */
+const SIZE_PART = new RegExp(String.raw`^\s*(\d+(?:\.\d+)?)(?:\s*(mm\s*dia|mm\s*od|mm|nb|dia|od)|(${INCH_UNIT}))?\s*$`, "i");
+export interface SeveralSizesPick { sizes: string[]; chosen: string; token: string }
+export function severalSizesPick(text: string | number | null | undefined, reader: NumberReader): SeveralSizesPick | null {
+  if (slashSizes(text) === null) return null;
+  const texts = unicodeFractions(String(text)).trim().split("/");
+  const parts: Array<{ n: string; unit: "mm" | "inch" | null }> = [];
+  for (const t of texts) {
+    const m = t.match(SIZE_PART);
+    if (!m) return null;
+    parts.push({ n: m[1], unit: m[3] !== undefined ? "inch" : (m[2] !== undefined ? "mm" : null) });
+  }
+  if (parts.length >= 3) {
+    for (let i = 0; i < parts.length - 1; i++) {
+      const a = parts[i], b = parts[i + 1];
+      if (a.unit === null && b.unit === "inch" && /^\d+$/.test(a.n) && /^\d+$/.test(b.n) && isInchFraction(Number(a.n), Number(b.n))) return null;
+    }
+  }
+  const last = parts[parts.length - 1];
+  if (last.unit !== null && parts.slice(0, -1).every((p) => p.unit === null)) for (const p of parts) p.unit = last.unit;
+  const shown = (p: { n: string; unit: "mm" | "inch" | null }) => (p.unit === "inch" ? `${p.n}"` : p.n);
+  let best: { i: number; value: number } | null = null;
+  for (let i = 0; i < parts.length; i++) {
+    const r = readNumber(shown(parts[i]), reader);
+    if (!r || !("value" in r)) return null;
+    if (best === null || r.value > best.value) best = { i, value: r.value };
+  }
+  if (best === null) return null;
+  return { sizes: parts.map(shown), chosen: shown(parts[best.i]), token: shown(parts[best.i]) };
+}
+/** The line a taken size carries: "pipe size states two sizes (25 / 32) - the higher, 32, is taken". */
+export function severalSizesTaken(sizes: readonly string[], chosen: string): string {
+  return sizes.length === 2
+    ? `states two sizes (${sizes.join(" / ")}) - the higher, ${chosen}, is taken`
+    : `states several sizes (${sizes.join(" / ")}) - the highest, ${chosen}, is taken`;
 }
 
 const NUM_RE = /\d+(?:\.\d+)?/g;
@@ -1608,6 +1673,8 @@ function priceOneItem(
   const noneSaid = new Set<string>();
   // SLICE 12e-2 (owner Q14): the SECOND inch conversion carried beside a read, per axis, for the ladder
   const altReads: Record<string, { alt: number; raw: string }> = {};
+  // SLICE 12e-3b: an axis whose stated text was two or more sizes -- the sizes as named and the one taken
+  const severalReads: Record<string, { sizes: string[]; chosen: string }> = {};
   let layersFrom: { attr: string; raw: string; layers: number[] } | null = null;
   const notes: string[] = [];
   for (const attr of spec.match_attrs) {
@@ -1666,10 +1733,23 @@ function priceOneItem(
       // a model cell is read exactly as before; a reader without the key never reaches this.
       // SLICE 12e-2b (AC6): on the same axis a slash that cannot be an inch fraction states several sizes and
       // refuses -- a MODEL cell and a TYPED one alike, before either reader sees it.
+      // SLICE 12e-3b (owner 2026-10-11): ... and now PRICES THE HIGHER / HIGHEST of them, with its line, on both
+      // paths. Only a form the ruling does not cover keeps the "- pick one" refusal (`severalSizesPick`).
       if (got === null && reader.typed_entry === "one_size") {
         for (const src of reader.from) {
-          const sizes = slashSizes(rawValue(item, src));
-          if (sizes) { got = { blank: severalSizesMessage(reader.name, sizes) }; break; }
+          const stated = rawValue(item, src);
+          const sizes = slashSizes(stated);
+          if (!sizes) continue;
+          const pick = severalSizesPick(stated, reader);
+          const taken = pick ? readNumber(pick.token, reader) : null;
+          if (pick && taken && "value" in taken) {
+            got = taken;
+            severalReads[attr] = { sizes: pick.sizes, chosen: pick.chosen };
+            notes.push(`${reader.name} ${severalSizesTaken(pick.sizes, pick.chosen)}`);
+          } else {
+            got = { blank: severalSizesMessage(reader.name, sizes) };
+          }
+          break;
         }
       }
       if (got === null && reader.typed_entry === "one_size") {
@@ -1817,7 +1897,12 @@ function priceOneItem(
     } else if (options.length) {
       const wanted = options.map((o) => o.needs.map((n) => reasonName(spec, n)).join(" and ")).join(", or ");
       const bad = options.flatMap((o) => o.needs).map((n) => unreadable[n]).find(Boolean);
-      return blank(bad ?? `per-${unitWord(spec, rowUnitClass)} row: no ${wanted} stated to convert the per-${unitWord(spec, options[0].to)} rate`);
+      // SLICE 12e-3b (AC5, owner Q12 "option a"): the row waits for the fact that picks its conversion (a size),
+      // but the kind's OWN facts do not depend on which conversion that will be -- their ruled defaults are
+      // carried on the refusal, so the fields show them (amber, with their rule) exactly as the same kind shows
+      // them on a row priced in its own unit, instead of "- select -" until a size is typed.
+      return { ...blank(bad ?? `per-${unitWord(spec, rowUnitClass)} row: no ${wanted} stated to convert the per-${unitWord(spec, options[0].to)} rate`),
+               defaulted: readDefaulted.filter((d) => fam.needs.includes(d.attr)) };
     } else {
       return blank(`no SKU per ${unitWord(spec, rowUnitClass)} for ${family}`);
     }
@@ -2075,7 +2160,7 @@ function priceOneItem(
       || spec.size_match?.near !== undefined || spec.size_match?.below_smallest !== undefined);
     if (declares && how === undefined) how = fit.exact ? "exact" : (want < rungs[0].size ? "smallest" : "up");
     out.ladderHops.push({ attr, name, requested: want, fitted: fit.modules, exact: fit.exact,
-      ...(declares ? { how, ...(altRead ? { raw: altRead.raw, alt: altRead.alt } : {}) } : {}) });
+      ...(declares ? { how, ...(altRead ? { raw: altRead.raw, alt: altRead.alt } : {}), ...(severalReads[attr] ? { several: severalReads[attr] } : {}) } : {}) });
     if (!fit.exact) {
       out.working.push(`${name} ${fmt(want)} is not on the sheet -> ${fmt(fit.modules)} (next size up, R6)`);
       sel[attr] = fit.modules;

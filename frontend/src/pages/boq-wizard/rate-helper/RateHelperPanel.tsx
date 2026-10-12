@@ -18,6 +18,7 @@ import {
   applyItemEdit,
   ITEM_LIST_OVERRIDE_KEY,
   itemsOnScreen,
+  needPersonSentence,
   ROW_UNIT_OVERRIDE_KEY,
   rowTotals,
   type ItemEditOp,
@@ -1175,7 +1176,27 @@ function ItemListBlocks({
   );
   return (
     <div className="space-y-2" data-testid="item-list-blocks">
-      {section && view.items.length === 0 && (
+      {section && view.items.length === 0 && view.pickFamily && (
+        // SLICE 12e-3b (owner D1b): a section open with nothing picked -- its heading and the family list, the
+        // same list "+ Add insulation" opens; a pick starts the section blank for that family (S1)
+        <div className="rounded-md border bg-muted/30 px-2 py-1.5" data-testid="item-block">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground" data-testid="item-section-heading">{section.heading}</div>
+          <div className="mt-1 flex flex-col rounded-md border bg-background p-1" data-testid="item-section-family-picker">
+            <div className="px-1.5 py-1 text-[11px] text-muted-foreground">{view.reason}</div>
+            {view.families.map((f) => (
+              <button
+                key={f.family}
+                type="button"
+                onClick={() => onEdit({ op: "change_family", index: 0, family: f.family })}
+                className="rounded px-1.5 py-1 text-left text-xs hover:bg-muted"
+              >
+                {f.family} <span className="text-[11px] text-muted-foreground">&middot; {f.units}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {section && view.items.length === 0 && !view.pickFamily && (
         // a section whose category could not be resolved: its heading and why, never another category's rules
         <div className="rounded-md border bg-muted/30 px-2 py-1.5" data-testid="item-block">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{section.heading}</div>
@@ -1580,7 +1601,7 @@ function ItemListBlocks({
           <FiguresRow figures={rowTotals(view)} copy={false} muted unit={view.rateUnit ?? view.unit} />
         ) : (
           <div className="mt-0.5 text-xs">
-            {n === 0 ? "No items yet." : `${bad} of ${n} item${n === 1 ? "" : "s"} need a person before the row can price.`}
+            {n === 0 ? "No items yet." : needPersonSentence(bad, n)}
           </div>
         )}
       </div>}

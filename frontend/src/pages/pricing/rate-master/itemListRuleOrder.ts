@@ -204,7 +204,8 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     // SLICE 12e-2 (owner P2): a typed entry on this axis is ONE size
     if (rd?.typed_entry === "one_size") {
       add(`A typed ${name(attr)} is one size, in ${rd.unit ?? "mm"} or inches`,
-          "a number (an NB number is mm) or an inch size (5/8\", 1-1/4\", 2 inch); 'two inch' and '40-50' refuse: Type one pipe size, in mm or inches; a slash that is not an inch fraction ('40/50') refuses naming the two sizes, typed or read from the BoQ");
+          // SLICE 12e-3b (owner 2026-10-11): two or more sizes price the higher / highest (REPLACES "refuses naming the two sizes")
+          "a number (an NB number is mm) or an inch size (5/8\", 1-1/4\", 2 inch); 'two inch' and '40-50' refuse: Type one pipe size, in mm or inches; two or more sizes written with a slash take the higher ('25/32' prices 32, '25/32/40' prices 40, 1\"/2\" prices 2\"), typed or read from the BoQ, with a line saying so; a slash is an inch fraction only when its top number is 16 or less and its bottom is 2, 4, 8, 16, 32 or 64");
     }
   }
 
@@ -327,5 +328,39 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
   // ── 9. back to the row ────────────────────────────────────────────────────────────────────────────
   if (factors.length) add("The rate converts to the unit the row is written in");
   add("Multiplied by how many of the item one unit of the row pays for");
+
+  // ── 10. SLICE 12e-3b (AC6): the sections another category prices (owner D1 / D1a / D3b / 13:40 / 13:42) ──
+  // Each line is the section's own declaration in words: the toggle, whose rules price it, the kinds offered,
+  // the mirror, the total. A config that declares no delegated section adds nothing.
+  const sections = ((ls?.sections ?? []) as any[]).filter((sec) => sec && typeof sec === "object");
+  const ownSec = sections.find((sec) => !sec.category_id);
+  const ownWord = String(ownSec?.label ?? "item").toLowerCase();
+  const delegated = sections.filter((sec) => sec.category_id);
+  for (const sec of delegated) {
+    const label = String(sec.label ?? sec.id);
+    const low = label.toLowerCase();
+    const inc = sec.include_when;
+    if (inc?.attr) {
+      add(`Each ${ownWord} says whether it has ${low}: ${labels[String(inc.attr)] ?? String(inc.attr)} ${String(inc.equals)} opens the ${low} section under that ${ownWord}`,
+          [sec.absent?.line ? `${plainSentence(sec.absent.line)}, shown as assumed on a BoQ row` : "",
+           `any other answer removes only that section`,
+           sec.add_label ? `'${String(sec.add_label)}' adds a section that belongs to no ${ownWord}` : "",
+           `in the calculator a section opens with nothing picked`].filter(Boolean).join("; "));
+    }
+    add(`The ${low} section is priced by ${label}'s rules`,
+        [`its own catalogue, pricing inputs, defaults, ladders and refusals -- no rule of it is copied here`,
+         Array.isArray(sec.families) && sec.families.length ? `the kinds offered: ${list(sec.families.map(famWord), 6)}` : ""].filter(Boolean).join("; "));
+    if (sec.mirror?.from) {
+      add(`The ${low} section takes the ${name(String(sec.mirror.from))} its ${ownWord} priced as`,
+          [`shown '${String(sec.mirror.tag ?? "")}'`,
+           `a ${ownWord} written as two sizes gives the one it priced`,
+           sec.mirror.line ? `a size chosen in the section is kept and says so: '${String(sec.mirror.line).replace("{chosen}", "<chosen>").replace("{pipe}", `<${ownWord}>`)}'` : "",
+           `a section that belongs to no ${ownWord} takes the first ${ownWord}'s`].filter(Boolean).join("; "));
+    }
+  }
+  if (delegated.length) {
+    add(`The row total adds every ${ownWord} and every section`,
+        "each line rounded by its own rules; one line that cannot price stops the row, and the count of lines that need a person is shown");
+  }
   return out;
 }

@@ -96,6 +96,9 @@ describe("12e-3a AC1 -- the end-to-end proof: Copper 5/8\", Insulated = Yes, 26G
     { op: "set_other", index: 0, id: "size_mm", on: true },
     { op: "set_attr", index: 0, id: "size_mm", value: '5/8"' },
     { op: "set_attr", index: 0, id: "insulated", value: "Yes" },
+    // 12e-3b (owner D1b): in the calculator the section opens on the material list with nothing picked -- the
+    // pricer picks it. BEFORE this step did not exist: the section opened on Insulation's default material.
+    inSection({ op: "change_family", index: 0, family: NITRILE }),
     inSection({ op: "set_attr", index: 0, id: "cladding", value: "26G Aluminium" }),
     inSection({ op: "set_attr", index: 0, id: "thickness_mm", value: "13" }),
   ]);
@@ -107,8 +110,10 @@ describe("12e-3a AC1 -- the end-to-end proof: Copper 5/8\", Insulated = Yes, 26G
     expect(sv.heading).toBe(HEADING);
     expect(sv.pipe).toBe(0);
     expect(fig(sv.view.totals)).toEqual([324, 224]);
-    expect(secBlock(sv).family).toBe(NITRILE);          // Insulation's own "material not mentioned" default (owner D1a)
-    expect(secBlock(sv).familyDefaulted).toBeDefined();
+    expect(secBlock(sv).family).toBe(NITRILE);
+    // INVERTED at 12e-3b (owner D1b): the material is the pricer's PICK in the calculator, never a default.
+    // BEFORE: `expect(secBlock(sv).familyDefaulted).toBeDefined()` -- Insulation's "material not mentioned" default.
+    expect(secBlock(sv).familyDefaulted).toBeUndefined();
   });
   it("the section's figures AND working lines are Calculator -> Insulation's for Nitrile, 26G, 13, pipe size Other 15.875", () => {
     const sv = attached(e2e().v);
@@ -117,17 +122,20 @@ describe("12e-3a AC1 -- the end-to-end proof: Copper 5/8\", Insulated = Yes, 26G
     expect(sv.view.totals).toEqual(own.v.totals);
     expect(secBlock(sv).figures).toEqual(own.v.items[0].figures);
     expect(secBlock(sv).skuLine).toBe(own.v.items[0].skuLine);
-    // the material was NOT picked in the section (owner D1a: Insulation's own default decides), so the section
-    // carries Insulation's own "not mentioned" line -- and every other line is the calculator's, in order
+    // INVERTED at 12e-3b (owner D1b): the material IS picked in the section, so the section carries NO "not
+    // mentioned" line and its working is the calculator's, line for line. BEFORE: the section was unpicked,
+    // `working` contained DEFAULT_LINE and equalled the calculator's only with that line filtered out.
     const DEFAULT_LINE = "item not mentioned -> Nitrile Rubber Insulation (material not mentioned -> Nitrile by row kind: per metre = pipe, per sq.m = sheet, acoustic / lining in the row or its headings = acoustic)";
-    expect(secBlock(sv).working).toContain(DEFAULT_LINE);
-    expect(secBlock(sv).working.filter((w) => w !== DEFAULT_LINE)).toEqual(own.v.items[0].working);
+    expect(secBlock(sv).working).not.toContain(DEFAULT_LINE);
+    expect(secBlock(sv).working).toEqual(own.v.items[0].working);
     // with the material picked in the section too, the working lines are identical, line for line
     const picked = attached(compute(PIP, insulated("Copper", '5/8"', ins(NITRILE, { cladding: "26G Aluminium", thickness_mm: "13" }))).v);
     expect(secBlock(picked).working).toEqual(own.v.items[0].working);
-    // and an Insulation item whose material is not picked either reads exactly as the section does
+    // Insulation's OWN behaviour is unchanged: an Insulation item whose material is not picked still carries its
+    // default line (BEFORE 12e-3b the calculator section read exactly as this item; it now reads as the picked one)
     const unpicked = compute(INS, { items: [{ base: null, family: null, attrs: { cladding: "26G Aluminium", thickness_mm: "13", pipe_size_mm: "15.875" }, other: ["pipe_size_mm"] }] });
-    expect(secBlock(sv).working).toEqual(unpicked.v.items[0].working);
+    expect(unpicked.v.items[0].working).toContain(DEFAULT_LINE);
+    expect(unpicked.v.items[0].working.filter((w) => w !== DEFAULT_LINE)).toEqual(secBlock(sv).working);
   });
   it("the row total is the sum of the two lines: 1622 / 444 / 2066, and the row is usable", () => {
     const { v, values, s } = e2e();
@@ -149,7 +157,7 @@ describe("12e-3a AC1 -- the end-to-end proof: Copper 5/8\", Insulated = Yes, 26G
   const bumped: RateMasterItem[] = ITEMS.map((it) =>
     it.kind === "hvac_pricing_input" && it.attributes?.item === "alu_sheet_26g" ? ({ ...it, rates: { ...it.rates, rate: 600 } } as RateMasterItem) : it);
   it("a Pricing Input ('Aluminium sheet 26G' 450 -> 600) moves the Piping section and Calculator -> Insulation by the SAME amount", () => {
-    const clad = ins(null, { cladding: "26G Aluminium", thickness_mm: "13" });
+    const clad = ins(NITRILE, { cladding: "26G Aluminium", thickness_mm: "13" });
     const before = attached(compute(PIP, insulated("Copper", '5/8"', clad)).v).view.totals!;
     const after = attached(compute(PIP, insulated("Copper", '5/8"', clad), { items: bumped }).v).view.totals!;
     const ownBefore = insCalc(NITRILE, { cladding: "26G Aluminium", thickness_mm: "13", pipe_size_mm: "15.875" }).values;
@@ -160,7 +168,7 @@ describe("12e-3a AC1 -- the end-to-end proof: Copper 5/8\", Insulated = Yes, 26G
     expect(after).toEqual({ supply_rate: ownAfter.supply_rate, install_rate: ownAfter.install_rate, combined_rate: ownAfter.combined_rate });
   });
   it("NEGATIVE: the cladding-No section (216 / 14) does not move with that input, and neither does the pipe", () => {
-    const bare = ins(null, { cladding: "No", thickness_mm: "13" });
+    const bare = ins(NITRILE, { cladding: "No", thickness_mm: "13" });
     const a = compute(PIP, insulated("Copper", '5/8"', bare));
     const b = compute(PIP, insulated("Copper", '5/8"', bare), { items: bumped });
     expect(fig(attached(a.v).view.totals)).toEqual([216, 14]);
@@ -253,6 +261,7 @@ describe("12e-3a AC5 -- the 'Insulated' toggle: a per-pipe Yes / No the pricing 
   });
   it("Yes opens THAT pipe's section; 'No' removes it and the section's edits with it (one operation)", () => {
     const open = drive([{ op: "set_attr", index: 0, id: "insulated", value: "Yes" },
+                        inSection({ op: "change_family", index: 0, family: NITRILE }),     // 12e-3b (D1b): the pricer picks the material
                         inSection({ op: "set_attr", index: 0, id: "cladding", value: "No" })], { items: [pipe("Copper", '5/8"')] });
     expect(open.v.items[0].sections).toHaveLength(1);
     expect(open.v.editState.items[0].sections![SEC].attrs).toEqual({ cladding: "No" });
@@ -261,10 +270,14 @@ describe("12e-3a AC5 -- the 'Insulated' toggle: a per-pipe Yes / No the pricing 
     expect(closed.v.editState.items[0].sections).toBeUndefined();
     // re-opening starts a fresh section, not the old picks
     const again = compute(PIP, applyItemEdit(closed.v.editState, { op: "set_attr", index: 0, id: "insulated", value: "Yes" }));
-    expect(field(secBlock(attached(again.v)), "cladding").value).toBe("");
+    // INVERTED at 12e-3b (owner D1b). BEFORE: `expect(field(secBlock(attached(again.v)), "cladding").value).toBe("")` -- a
+    // fresh section on the default material. It is now a fresh section with NOTHING picked: the material list.
+    expect(attached(again.v).view.pickFamily).toBe(true);
+    expect(attached(again.v).view.items).toEqual([]);
+    expect(again.v.editState.items[0].sections![SEC]).toEqual({ base: null, family: null, attrs: {} });
   });
   it("a changed pipe type starts BLANK (owner S1): the toggle and its section go with it", () => {
-    const open = compute(PIP, insulated("Copper", '5/8"', ins(null, { cladding: "No", thickness_mm: "13" })));
+    const open = compute(PIP, insulated("Copper", '5/8"', ins(NITRILE, { cladding: "No", thickness_mm: "13" })));
     const changed = compute(PIP, applyItemEdit(open.v.editState, { op: "change_family", index: 0, family: "MS" }));
     expect(field(changed.v.items[0], "insulated").value).toBe("No");
     expect(changed.v.items[0].sections).toBeUndefined();
@@ -277,7 +290,7 @@ describe("12e-3a AC5 -- the section is priced by the delegated category's OWN co
     const reads: string[] = [];
     const proxied = new Proxy(CFG[INS], { get: (t, k, r) => { reads.push(String(k)); return Reflect.get(t, k, r); } });
     const configs = new Map(CONFIGS); configs.set(INS, proxied);
-    const state = insulated("Copper", '5/8"', ins(null, { cladding: "26G Aluminium", thickness_mm: "13" }));
+    const state = insulated("Copper", '5/8"', ins(NITRILE, { cladding: "26G Aluminium", thickness_mm: "13" }));
     reads.length = 0;
     const { v } = compute(PIP, state, { configs });
     expect(fig(attached(v).view.totals)).toEqual([324, 224]);
@@ -291,7 +304,7 @@ describe("12e-3a AC5 -- the section is priced by the delegated category's OWN co
     const edited = structuredClone(CFG[INS]) as unknown as { list_spec: { pricing: { number_defaults: { thickness_mm: { value: number } } } } };
     edited.list_spec.pricing.number_defaults.thickness_mm.value = 19;        // T1 default 9 -> 19
     const configs = new Map(CONFIGS); configs.set(INS, edited as unknown as RateCategoryConfig);
-    const state = insulated("Copper", '5/8"', ins(null, { cladding: "No" }));   // thickness not stated
+    const state = insulated("Copper", '5/8"', ins(NITRILE, { cladding: "No" }));   // thickness not stated
     const sv = attached(compute(PIP, state, { configs }).v);
     const own = compute(INS, { items: [{ base: null, family: null, attrs: { cladding: "No", pipe_size_mm: "15.875" }, other: ["pipe_size_mm"] }] }, { configs });
     expect(sv.view.rowPriced).toBe(true);
@@ -304,7 +317,7 @@ describe("12e-3a AC5 -- the section is priced by the delegated category's OWN co
   });
   it("NEGATIVE: a helper that cannot resolve the Insulation category refuses the section and never prices it by other rules", () => {
     const configs = new Map(CONFIGS); configs.delete(INS);
-    const { v, values } = compute(PIP, insulated("Copper", '5/8"', ins(null, { cladding: "No", thickness_mm: "13" })), { configs });
+    const { v, values } = compute(PIP, insulated("Copper", '5/8"', ins(NITRILE, { cladding: "No", thickness_mm: "13" })), { configs });
     const sv = attached(v);
     expect(sv.view.rowPriced).toBe(false);
     expect(sv.view.reason).toBe("Insulation cannot be priced here - its rules are not loaded; price it by hand");
@@ -402,7 +415,7 @@ describe("12e-3a AC5 -- the model path (owner Q3 / Q4): insulation arrives as a 
 describe("12e-3a AC6 -- the mirror (owner D3 / D3a / D3b / Q6)", () => {
   const PICKS = { cladding: "26G Aluminium", thickness_mm: "13" };
   it("5/8\" -> the section's Pipe size is pre-filled 15.875, tagged 'from pipe', and Insulation's own ladder lands it on 15.88", () => {
-    const f = field(secBlock(attached(compute(PIP, insulated("Copper", '5/8"', ins(null, PICKS))).v)), "pipe_size_mm");
+    const f = field(secBlock(attached(compute(PIP, insulated("Copper", '5/8"', ins(NITRILE, PICKS))).v)), "pipe_size_mm");
     expect(f.typedValue).toBe("15.875");
     expect(f.value).toBe("15.88");
     expect(f.mirrorTag).toBe("from pipe");
@@ -411,14 +424,14 @@ describe("12e-3a AC6 -- the mirror (owner D3 / D3a / D3b / Q6)", () => {
     expect(f.mirrorLine).toBeUndefined();
   });
   it("the line is Insulation's own with ONLY the lead changed (never 'You typed')", () => {
-    const f = field(secBlock(attached(compute(PIP, insulated("Copper", '5/8"', ins(null, PICKS))).v)), "pipe_size_mm");
+    const f = field(secBlock(attached(compute(PIP, insulated("Copper", '5/8"', ins(NITRILE, PICKS))).v)), "pipe_size_mm");
     const own = field(insCalc(NITRILE, { ...PICKS, pipe_size_mm: "15.875" }).v.items[0], "pipe_size_mm");
     expect(own.note).toBe("You typed 15.875 mm -> priced as 15.88 mm (the sheet's own spelling of this size)");
     expect(f.note).toBe(mirroredLead(own.note!, "from pipe"));
     expect(mirroredLead("BoQ says 15.875 mm -> priced as 15.88 mm", "from pipe")).toBe("BoQ says 15.875 mm -> priced as 15.88 mm");
   });
   it("1-1/4\" (31.75 mm) -> Insulation's own resolution of 31.75, the same rung and line as its calculator gives", () => {
-    const f = field(secBlock(attached(compute(PIP, insulated("Copper", '1-1/4"', ins(null, PICKS))).v)), "pipe_size_mm");
+    const f = field(secBlock(attached(compute(PIP, insulated("Copper", '1-1/4"', ins(NITRILE, PICKS))).v)), "pipe_size_mm");
     const own = field(insCalc(NITRILE, { ...PICKS, pipe_size_mm: "31.75" }).v.items[0], "pipe_size_mm");
     expect(f.typedValue).toBe("31.75");
     expect(f.value).toBe(own.value);
@@ -466,7 +479,7 @@ describe("12e-3a AC6 -- the mirror (owner D3 / D3a / D3b / Q6)", () => {
     expect(fig(v.items[0].figures)).toEqual([2256, 560]);           // changing the section never changes the pipe
   });
   it("a hand edit is KEPT when the pipe size later changes; undoing it brings the mirror back", () => {
-    const edited = compute(PIP, insulated("Copper", '5/8"', ins(null, { ...PICKS, pipe_size_mm: "19.05" })));
+    const edited = compute(PIP, insulated("Copper", '5/8"', ins(NITRILE, { ...PICKS, pipe_size_mm: "19.05" })));
     expect(field(secBlock(attached(edited.v)), "pipe_size_mm")).toMatchObject({ value: "19.05", mirrorLine: "you chose 19.05 (pipe is 15.875)" });
     expect(field(edited.v.items[0], "size_mm").value).toBe("15.9");
     const moved = compute(PIP, applyItemEdit(edited.v.editState, { op: "set_attr", index: 0, id: "size_mm", value: '7/8"' }));
@@ -479,10 +492,10 @@ describe("12e-3a AC6 -- the mirror (owner D3 / D3a / D3b / Q6)", () => {
     expect(field(secBlock(attached(undone.v)), "pipe_size_mm")).toMatchObject({ typedValue: "22.225", value: "22.23", mirrorTag: "from pipe" });
   });
   it("NEGATIVE: while NOT hand-edited the section follows the pipe; a chosen size equal to the pipe's draws no line", () => {
-    const a = compute(PIP, insulated("Copper", '5/8"', ins(null, PICKS)));
+    const a = compute(PIP, insulated("Copper", '5/8"', ins(NITRILE, PICKS)));
     const b = compute(PIP, applyItemEdit(a.v.editState, { op: "set_attr", index: 0, id: "size_mm", value: '7/8"' }));
     expect(field(secBlock(attached(b.v)), "pipe_size_mm")).toMatchObject({ typedValue: "22.225", value: "22.23", mirrorTag: "from pipe" });
-    const same = compute(PIP, insulated("Copper", "12.7", ins(null, { ...PICKS, pipe_size_mm: "12.7" })));
+    const same = compute(PIP, insulated("Copper", "12.7", ins(NITRILE, { ...PICKS, pipe_size_mm: "12.7" })));
     expect(field(secBlock(attached(same.v)), "pipe_size_mm").mirrorLine).toBeUndefined();
   });
   it("an INDEPENDENT section mirrors the FIRST pipe with a readable size; with no pipe it is blank", () => {
@@ -513,8 +526,8 @@ describe("12e-3a AC6 -- the mirror (owner D3 / D3a / D3b / Q6)", () => {
 describe("12e-3a AC7 -- totals (owner D4 / Q2a / M5) and the add buttons (D5a / 13:42)", () => {
   const BARE = { cladding: "No", thickness_mm: "13" };
   it("two pipes, copper 3/8\" and 5/8\", both Insulated = Yes: each section mirrors ITS OWN pipe; the total is the four lines", () => {
-    const state: ItemListEditState = { items: [pipe("Copper", '3/8"', { insulated: "Yes" }, { [SEC]: ins(null, BARE) }),
-                                               pipe("Copper", '5/8"', { insulated: "Yes" }, { [SEC]: ins(null, BARE) })] };
+    const state: ItemListEditState = { items: [pipe("Copper", '3/8"', { insulated: "Yes" }, { [SEC]: ins(NITRILE, BARE) }),
+                                               pipe("Copper", '5/8"', { insulated: "Yes" }, { [SEC]: ins(NITRILE, BARE) })] };
     const { v, values } = compute(PIP, state);
     expect(field(secBlock(attached(v, 0)), "pipe_size_mm").typedValue).toBe("9.525");
     expect(field(secBlock(attached(v, 1)), "pipe_size_mm").typedValue).toBe("15.875");
@@ -528,8 +541,8 @@ describe("12e-3a AC7 -- totals (owner D4 / Q2a / M5) and the add buttons (D5a / 
     expect(lines.every((l) => Number.isInteger(l.supply_rate) && Number.isInteger(l.install_rate))).toBe(true);
   });
   it("any refused line -> no row total, the count of lines that need a person, priced lines keep their figures", () => {
-    const state: ItemListEditState = { items: [pipe("Copper", '3/8"', { insulated: "Yes" }, { [SEC]: ins(null, BARE) }),
-                                               pipe("Copper", '5/8"', { insulated: "Yes" }, { [SEC]: ins(null, { cladding: "No", thickness_mm: "abc" }, ["thickness_mm"]) })] };
+    const state: ItemListEditState = { items: [pipe("Copper", '3/8"', { insulated: "Yes" }, { [SEC]: ins(NITRILE, BARE) }),
+                                               pipe("Copper", '5/8"', { insulated: "Yes" }, { [SEC]: ins(NITRILE, { cladding: "No", thickness_mm: "abc" }, ["thickness_mm"]) })] };
     const { v, values, s } = compute(PIP, state);
     expect(values).toEqual({});
     expect(v.rowPriced).toBe(false);
@@ -587,7 +600,7 @@ describe("12e-3a AC7 -- totals (owner D4 / Q2a / M5) and the add buttons (D5a / 
     const states: ItemListEditState[] = [
       { items: [] },
       { items: [pipe("Copper", '5/8"')] },
-      insulated("Copper", '5/8"', ins(null, BARE)),
+      insulated("Copper", '5/8"', ins(NITRILE, BARE)),
       insulated("MS", "100", ins(NITRILE, { cladding: "26G Aluminium", thickness_mm: "32" })),
     ];
     for (const st of states) {
@@ -640,7 +653,7 @@ describe("12e-3a -- the edit state: section edits ride with their pipe, old stat
     expect(applyItemEdit(st, { op: "remove_section", section: SEC, index: 5 })).toBe(st);
   });
   it("what is on screen at Use records every line: the pipe, its section, then the independent ones", () => {
-    const state: ItemListEditState = { ...insulated("Copper", '5/8"', ins(null, { cladding: "No", thickness_mm: "13" })),
+    const state: ItemListEditState = { ...insulated("Copper", '5/8"', ins(NITRILE, { cladding: "No", thickness_mm: "13" })),
                                        sections: { [SEC]: [ins(PUF, { cladding: "No", thickness_mm: "25", pipe_size_mm: "25" })] } };
     const rec = itemsOnScreen(compute(PIP, state).v);
     expect(rec.map((r) => r.family)).toEqual(["Copper", NITRILE, PUF]);

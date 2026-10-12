@@ -184,12 +184,20 @@ describe("12e-2 P2 -- the pipe-size ladder, every typed form (the cert's table)"
   });
   // INVERTED at 12e-2b (AC6) for "40/50" ONLY: BEFORE it sat in the list below and refused with ONE_SIZE_MESSAGE. A slash
   // that cannot be an inch fraction now states two sizes, on the typed path and the model path alike.
-  it("12e-2b AC6: a typed '40/50' refuses 'pipe size states two sizes (40 / 50) - pick one' (BEFORE: ONE_SIZE_MESSAGE)", () => {
-    const { b, v } = calc(picked("MS", { size_mm: "40/50" }, ["size_mm"]));
-    expect(v.rowPriced).toBe(false);
-    expect(b!.reason).toBe("pipe size states two sizes (40 / 50) - pick one");
-    expect(size(b)!.note).toBe("You typed 40/50: pipe size states two sizes (40 / 50) - pick one");
+  // INVERTED AGAIN at 12e-3b (owner 2026-10-11, "use the higher size"; REPLACES 12e-2b's "40/50 refuses"). BEFORE:
+  //   rowPriced false; reason "pipe size states two sizes (40 / 50) - pick one";
+  //   note "You typed 40/50: pipe size states two sizes (40 / 50) - pick one".
+  it("12e-3b AC2: a typed '40/50' prices the higher, MS 50 at 984 / 280, with 'states two sizes (40 / 50) - the higher, 50, is taken' (BEFORE: refused '- pick one')", () => {
+    const { s, b, v } = calc(picked("MS", { size_mm: "40/50" }, ["size_mm"]));
+    expect(v.rowPriced).toBe(true);
+    expect([s.values.supply_rate, s.values.install_rate]).toEqual([984, 280]);
+    expect(size(b)!.value).toBe("50");
+    expect(size(b)!.note).toBe("You typed 40/50: states two sizes (40 / 50) - the higher, 50, is taken");
+    expect(b!.working).toContain("pipe size states two sizes (40 / 50) - the higher, 50, is taken");
+    // the negative half kept: it is still never the one-size message, and never "- pick one"
     expect(b!.reason).not.toBe(ONE_SIZE_MESSAGE);
+    expect(size(b)!.note).not.toContain(ONE_SIZE_MESSAGE);
+    expect(size(b)!.note).not.toContain("pick one");
   });
   it.each([["two inch"], ["40-50"], ["as per spec"], ["13+13"]])("a typed entry that is not one size refuses: %s", (typed) => {
     const { b, v } = calc(picked("MS", { size_mm: typed }, ["size_mm"]));
@@ -204,11 +212,15 @@ describe("12e-2 P2 -- the pipe-size ladder, every typed form (the cert's table)"
    * pipe from a BoQ that said 40 or 50. It now refuses naming the two sizes; the ONE_SIZE_MESSAGE half stays typed-only.
    */
   it("12e-2b AC6: a MODEL answer '40/50' REFUSES naming the two sizes (never 0.8 of an inch); the typed-only message is still never said of a model cell", () => {
+    // INVERTED AGAIN at 12e-3b (owner 2026-10-11: "if the model can determine the specific size for the row use it else
+    // use the higher size"). BEFORE: rowPriced false; values {}; reason "pipe size states two sizes (40 / 50) - pick one";
+    // note "BoQ says 40/50: pipe size states two sizes (40 / 50) - pick one". AFTER: the higher, MS 50, 984 / 280.
     const { b, v, values } = panel({ pipe_type: "MS", size_mm: "40/50" }, "Rmt");
-    expect(v.rowPriced).toBe(false);
-    expect(values).toEqual({});
-    expect(b.reason).toBe("pipe size states two sizes (40 / 50) - pick one");
-    expect(size(b)!.note).toBe("BoQ says 40/50: pipe size states two sizes (40 / 50) - pick one");
+    expect(v.rowPriced).toBe(true);
+    expect([values.supply_rate, values.install_rate]).toEqual([984, 280]);
+    expect(size(b)!.note).toBe("BoQ says 40/50: states two sizes (40 / 50) - the higher, 50, is taken");
+    expect(b.working).toContain("pipe size states two sizes (40 / 50) - the higher, 50, is taken");
+    expect(size(b)!.note).not.toContain("pick one");
     expect(b.working.join("\n")).not.toContain("20.32");
     expect(b.reason).not.toBe(ONE_SIZE_MESSAGE);
     expect(isOneSizeEntry("40/50")).toBe(false);

@@ -136,11 +136,15 @@ describe("SLICE 12d-8 / R1 -- a value the system clears stays blank and the row 
     expect(field(block, "ul").value).toBe("yes");
     expect(field(block, "ul").options).toEqual(["yes", "no"]);
     expect(field(block, "ul").note).toBeUndefined();
-    expect(block.working).toContain("UL stated, so the UL 555 SKU is used (R-M-b)");
+    // INVERTED at 12e-3b (block 38; the owner's "Yes, those three pins"). BEFORE:
+    //   expect(block.working).toContain("UL stated, so the UL 555 SKU is used (R-M-b)");
+    expect(block.working).toContain("UL stated, so the UL 555 SKU is used");
+    expect(block.working.join("\n")).not.toContain("(R-M-b)");
     // the variant field shows what PRICED, under the catalogue's word, with the rule
     expect(field(block, "variant").value).toBe("UL");
     expect(field(block, "variant").optionLabels).toEqual({ UL: "UL 555" });
-    expect(field(block, "variant").note).toBe("UL stated, so the UL 555 SKU is used (R-M-b)");
+    // INVERTED at 12e-3b. BEFORE: expect(field(block, "variant").note).toBe("UL stated, so the UL 555 SKU is used (R-M-b)");
+    expect(field(block, "variant").note).toBe("UL stated, so the UL 555 SKU is used");
     // NEGATIVE: not the non-UL motorised price (4490 / 692), no default, no "choose again"
     expect(r.values.supply_rate).not.toBe(4490);
     expect(block.working.join("\n")).not.toMatch(/ul not mentioned -> no|choose again/);

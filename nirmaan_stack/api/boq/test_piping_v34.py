@@ -1039,3 +1039,39 @@ class TestSlice12e3aGates(FrappeTestCase):
         finally:
             frappe.db.rollback()
         self.assertEqual(self._state(), before)
+
+    def test_21_the_production_call_with_a_file_path_reaches_the_cross_category_check(self):
+        """SLICE 12e-3b AC7 (owner: "Add loader.py to scope" -- the check "must run on the path production uses").
+        The production runbook's load is `loader.load_rate_master(path=<asset file>, replace=True)`. An HVAC asset
+        carries `category_configs` (a LIST), so that call takes the multi-config path, which runs the cross-category
+        check before the first write. Proved through EXACTLY that call: a v37 file with a broken section is
+        refused, the check ran once, nothing was written. The single-config path (a payload with the singular
+        `category_config`) is not what an HVAC asset file takes -- pinned by the file's own shape."""
+        import os
+        import tempfile
+        from unittest import mock
+        self.assertIsInstance(self.v37.get("category_configs"), list)
+        self.assertNotIn("category_config", self.v37)
+        bad = self._payload(lambda s, p: s.update(category_id="hvac_lagging"))
+        fd, path = tempfile.mkstemp(prefix="rm_12e3b_ac7_", suffix=".json")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(bad, fh)
+        before = self._state()
+        try:
+            with mock.patch.object(frappe.db, "commit", side_effect=AssertionError("a refused import must never reach a commit")),                  mock.patch.object(config_validation, "validate_delegated_sections", wraps=config_validation.validate_delegated_sections) as check:
+                with self.assertRaises(frappe.ValidationError) as cm:
+                    loader.load_rate_master(path=path, replace=True)
+            self.assertEqual(check.call_count, 1, "the production call reaches the cross-category check exactly once")
+            self.assertIn("names category 'hvac_lagging', which does not exist in HVAC", str(cm.exception))
+            self.assertIn("Rate master import refused", str(cm.exception))
+            self.assertIn("Nothing was written", str(cm.exception))
+            self.assertEqual(self._state(), before, "refused BEFORE the first write")
+            # NEGATIVE: with the check disabled the same call would go on to write -- so the refusal above IS the check's
+            with mock.patch.object(frappe.db, "commit", side_effect=AssertionError("stopped at the commit: the load got past the gate")),                  mock.patch.object(config_validation, "validate_delegated_sections", return_value=None):
+                with self.assertRaises(AssertionError) as past:
+                    loader.load_rate_master(path=path, replace=True)
+            self.assertIn("the load got past the gate", str(past.exception))
+        finally:
+            frappe.db.rollback()
+            os.unlink(path)
+        self.assertEqual(self._state(), before)

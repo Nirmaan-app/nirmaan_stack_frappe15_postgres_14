@@ -72,6 +72,7 @@ import {
   plainFactOf,
   readLayers,
   readNumber,
+  severalSizesTaken,
   listSpecDefs,
   priceItemList,
   sizeFieldHelp,
@@ -1928,6 +1929,13 @@ export interface ItemListView {
   editState: ItemListEditState;
   modelCount: number;
   /**
+   * SLICE 12e-3b (owner D1b, 2026-10-12 "option a"): a delegated section that is OPEN WITH NOTHING PICKED --
+   * in the calculator the item / material choice always starts blank, however the section opened. The panel
+   * draws the section's heading and its family list (`families`); `items` is empty and the section does not
+   * price until one is picked. Present ONLY on such a section.
+   */
+  pickFamily?: true;
+  /**
    * The ROW's own totals, as `priceItemList` returned them -- the same figures the headline shows.
    *
    * ⚠️ PRESENT ONLY ON A PRICED ROW, AND IT IS WHAT "Row total" MUST READ. Summing the item blocks
@@ -2273,7 +2281,10 @@ function itemBlockView(
        *   "You typed 110 -> priced as 150 mm (next size up)" / "... -> priced as 19 mm (the smallest size)"
        * `hop.how` is written only where a declaring key is present, so every other axis keeps the line below.
        */
-      const entered = stated.trim() !== "" ? stated.trim() : fmtNum(hop.requested);
+      // SLICE 12e-3b (owner 2026-10-11): a text that stated two or more sizes leads with which one was taken;
+      // the read that follows is the TAKEN size's, so the line never converts the whole text as one number
+      const sev = hop.several;
+      const entered = sev ? sev.chosen : (stated.trim() !== "" ? stated.trim() : fmtNum(hop.requested));
       const bare = /^\s*\d+(?:\.\d+)?\s*$/.test(entered) && Number(entered) === hop.requested;
       const read = bare ? "" : (hop.how === "alt" && typeof hop.alt === "number"
         ? ` -> ${fmtNum(hop.requested)}${u} / ${fmtNum(hop.alt)}${u}`
@@ -2284,8 +2295,11 @@ function itemBlockView(
         : hop.how === "up" ? " (next size up)"
         : hop.how === "alt" ? ""
         : " (the sheet's own spelling of this size)";
+      const sevLead = sev ? `${said} ${stated.trim()}: ${severalSizesTaken(sev.sizes, sev.chosen)}` : undefined;
       if (!(hop.how === "exact" && hop.requested === hop.fitted && bare)) {
-        note = `${ladLead ?? `${said} ${entered}`}${read} -> priced as ${fmtNum(hop.fitted)}${u}${landed}`;
+        note = `${sevLead ?? ladLead ?? `${said} ${entered}`}${read} -> priced as ${fmtNum(hop.fitted)}${u}${landed}`;
+      } else if (sevLead) {
+        note = sevLead;
       }
     } else if (hop && hop.requested !== hop.fitted) {
       note = `${ladLead ?? `${said} ${fmtNum(hop.requested)}${u}`} -> priced as ${fmtNum(hop.fitted)}${u} `
@@ -2859,6 +2873,8 @@ function computeItemList(
   const edits = probe.edits!;
   const layers = probe.layers ?? new Map<number, ItemPriceResult[]>();
   const rowUnit = ownView.unit;
+  // the calculator has no row, so nothing supplies the unit (the helper's one existing test for it)
+  const calculator = ownView.unitPickable;
 
   /** ONE section, priced by the delegated category's own path, for one item; then the mirror's tag and lines. */
   const priceSection = (
@@ -2872,6 +2888,25 @@ function computeItemList(
                view: { unit: rowUnit, unitClass: null, unitPickable: false, unitChoices: [], rowPriced: false, reason, items: [], families: [], editState: { items: [] }, modelCount: 0 } };
     }
     const modelItem = secEdit.base !== null && secEdit.family === null ? secModel[r.s.id]?.[secEdit.base] : undefined;
+    const offered = new Set(r.s.families ?? []);
+    const stocked = (fam: string) => items.some((it) => it.kind === r.dspec!.kind && it.attributes?.[familyAttr(r.dspec!)] === fam);
+    /**
+     * SLICE 12e-3b (owner D1b, 2026-10-12 "option a") -- IN THE CALCULATOR THE MATERIAL STARTS BLANK. A section
+     * the toggle opened used to be handed to the delegated category with no family, so its "not mentioned"
+     * rule priced it as its default material with the line "Not mentioned on the BoQ" -- on a screen that has
+     * no BoQ. There the section now opens on the family list with nothing picked, exactly as "+ Add insulation"
+     * does, and prices once one is picked. On a BoQ row the delegated category's own default stays (the model
+     * path: material not mentioned -> its ruled default, amber, its own line). "The calculator" is the one
+     * test the helper already has for it: no row supplies the unit.
+     */
+    if (calculator && secEdit.base === null && secEdit.family === null) {
+      const famLabel = String(listSpecDefs(r.cfg).find((d) => d.id === familyAttr(r.dspec!))?.label ?? r.s.label).trim();
+      const reason = `Choose the ${famLabel.charAt(0).toLowerCase()}${famLabel.slice(1)}`;
+      return { sectionId: r.s.id, heading, pipe, index,
+               view: { unit: rowUnit, unitClass: null, unitPickable: false, unitChoices: [], rowPriced: false, reason, items: [],
+                       families: familyChoices(r.dspec).filter((f) => offered.has(f.family) && stocked(f.family)),
+                       editState: { items: [secEdit] }, modelCount: 0, pickFamily: true } };
+    }
     const mir = r.s.mirror;
     const toId = mir ? r.dspec.numbers[mir.to]?.from[0] : undefined;
     const handEdited = toId !== undefined && hasOwn(secEdit.attrs, toId);
@@ -2889,8 +2924,6 @@ function computeItemList(
     const res = computeItemListOwn(r.cfg, r.dspec, items, { ...ctx, unit: rowUnit }, dext, inRun,
                                    { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [callEdit] }) }) as ItemListSuggestion;
     const dview = res.itemList!;
-    const offered = new Set(r.s.families ?? []);
-    const stocked = (fam: string) => items.some((it) => it.kind === r.dspec!.kind && it.attributes?.[familyAttr(r.dspec!)] === fam);
     const view: ItemListView = {
       ...dview,
       // the families the section offers: the declared ones that have an active SKU today
@@ -3180,6 +3213,15 @@ export function applyItemEdit(state: ItemListEditState, op: ItemEditOp): ItemLis
       return done(items, { ...state.sections, [op.section]: list });
     }
   }
+}
+
+/**
+ * SLICE 12e-3b (12e-3a review, U22): THE ROW-TOTAL BOX'S SENTENCE FOR A ROW THAT CANNOT PRICE YET. The verb
+ * follows the COUNT of items that need a person ("1 of 1 item needs", "1 of 2 items need", "2 of 2 items
+ * need"); the noun follows the number of lines. PURE; the one place the sentence is built.
+ */
+export function needPersonSentence(bad: number, lines: number): string {
+  return `${bad} of ${lines} item${lines === 1 ? "" : "s"} ${bad === 1 && lines === 1 ? "needs" : "need"} a person before the row can price.`;
 }
 
 /** PURE. What the correction record carries for the items ON SCREEN at Use: one entry per block, its family,

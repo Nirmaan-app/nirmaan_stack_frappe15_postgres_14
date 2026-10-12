@@ -32,7 +32,7 @@ import {
 import { familyAttr, itemListPricingSpec, priceItemList } from "./itemListPricing";
 
 const ASSET = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
-  new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v36.json", import.meta.url),   // 12e-2: v33 -> v36 (Insulation and ADP carried byte-equal; Piping gains its rules)
+  new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v37.json", import.meta.url),   // 12e-2: v33 -> v36 (Insulation and ADP carried byte-equal; Piping gains its rules); 12e-3b: v36 -> v37 (Piping gains its insulation section; Insulation and ADP byte-equal)
 );
 const CFG: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET.category_configs.map((c) => [c.category_id, c]));
 const CONFIGS = new Map<string, RateCategoryConfig>(Object.entries(CFG));
@@ -40,6 +40,10 @@ const ITEMS: RateMasterItem[] = ASSET.items.map((it) => ({ ...it, discipline: AS
 const INS = "hvac_insulation";
 const ADP = "hvac_adp";
 const PIP = "hvac_piping";   // 12e-2
+// 12e-3b: the v36 Piping config, for the "the 14 lines before the section's are unchanged" pin only
+const V36_PIPING = readJsonFixture<{ category_configs: RateCategoryConfig[] }>(
+  new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v36.json", import.meta.url),
+).category_configs.find((c) => c.category_id === "hvac_piping")!;
 
 // ── the cases ───────────────────────────────────────────────────────────────────────────────────────
 type Edit = { base: number | null; family: string | null; attrs: Record<string, string>; other?: string[]; qty?: string };
@@ -117,6 +121,11 @@ const T = {
   qty: "Multiplied by how many of the item one unit of the row pays for",
   // ── SLICE 12e-2: the Piping rules P1-P5 (the shared titles above cover P4 unit / P5 steps / the needs / qty) ──
   pipeMap: "A pipe type written as GI, uPVC, HDPE is priced as the kind it means",
+  // ── SLICE 12e-3b (AC6): the delegated section's lines on Piping, generated from the v37 config ──
+  secToggle: "Each pipe says whether it has insulation: Insulated Yes opens the insulation section under that pipe",
+  secRules: "The insulation section is priced by Insulation's rules",
+  secMirror: "The insulation section takes the pipe size its pipe priced as",
+  secTotal: "The row total adds every pipe and every section",
   pipeRefuse: "A pipe type the catalogue does not stock refuses by name",
   pipeRow: "A row naming one pipe type prices as it; two different ones with none chosen refuse",
   typedSize: "A typed pipe size is one size, in mm or inches",
@@ -302,12 +311,15 @@ const CASES: Case[] = [
   { id: "P2c-calc", rule: T.inches, cat: PIP, path: "calc", kind: "pos", edits: calc("Copper", { size_mm: `1-1/4${INCH}` }, ["size_mm"]), rowUnit: "mts", re: [`You typed 1-1/4${INCH} -> 31.75 mm -> priced as 31.7 mm (the sheet's own spelling of this size)`], priced: true },
   { id: "P2d-neg", rule: T.inches, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [MS50], re: [], not: ["-> 50.8", "/ 50 mm"], priced: true },
   // INVERTED at 12e-2b (AC6): a slash that cannot be an inch fraction states two sizes. BEFORE: re ["Type one pipe size, in mm or inches"].
-  { id: "P2e-ptyped", rule: T.typedSize, cat: PIP, path: "ptyped", kind: "pos", unit: "mts", model: [MS50], edits: ptyped({ size_mm: "40/50" }, ["size_mm"]), re: ["You typed 40/50: pipe size states two sizes (40 / 50) - pick one"], not: ["Type one pipe size"], priced: false },
+  // INVERTED AGAIN at 12e-3b (owner 2026-10-11): two sizes price the higher. BEFORE: re ["You typed 40/50: pipe size states two sizes (40 / 50) - pick one"], priced false.
+  { id: "P2e-ptyped", rule: T.typedSize, cat: PIP, path: "ptyped", kind: "pos", unit: "mts", model: [MS50], edits: ptyped({ size_mm: "40/50" }, ["size_mm"]), re: ["You typed 40/50: states two sizes (40 / 50) - the higher, 50, is taken", "pipe size states two sizes (40 / 50) - the higher, 50, is taken"], not: ["Type one pipe size", "pick one"], priced: true },
   { id: "P2e-calc", rule: T.typedSize, cat: PIP, path: "calc", kind: "pos", edits: calc("MS", { size_mm: "two inch" }, ["size_mm"]), rowUnit: "mts", re: ["Type one pipe size, in mm or inches"], priced: false },
   // INVERTED at 12e-2b (AC6; 12e-2 cert finding 7). BEFORE: re ["pipe size 20.32 is not on the sheet -> 25 (next size up", "BoQ says 40/50
   // -> 20.32 mm -> priced as 25 mm (next size up)"], priced TRUE -- a model "40/50" read as 0.8 of an inch and priced a 25 mm pipe.
   // It now refuses on the model path too; the near-miss kept: the TYPED-only message is still never said of a model cell.
-  { id: "P2f-neg", rule: T.typedSize, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "MS", size_mm: "40/50" }], re: ["BoQ says 40/50: pipe size states two sizes (40 / 50) - pick one"], not: ["Type one pipe size", "priced as 25"], priced: false },
+  // INVERTED AGAIN at 12e-3b: BEFORE re ["BoQ says 40/50: pipe size states two sizes (40 / 50) - pick one"], priced false. The model's
+  // two sizes price the higher; the near-miss kept: the TYPED-only message is never said of a model cell, and never the 25 mm pipe.
+  { id: "P2f-neg", rule: T.typedSize, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "MS", size_mm: "40/50" }], re: ["BoQ says 40/50: states two sizes (40 / 50) - the higher, 50, is taken"], not: ["Type one pipe size", "priced as 25", "pick one"], priced: true },
   { id: "P2g-neg", rule: T.typedSize, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "MS", size_mm: "1 1/4 inch" }], re: ["BoQ says 1 1/4 inch -> 31.75 mm -> priced as 32 mm (next size up)"], not: ["states two sizes", "Type one pipe size"], priced: true },
   { id: "P2g", rule: T.fitPipe, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "PVC", size_mm: "110" }], re: ["pipe size 110 is not on the sheet -> 150 (next size up", "BoQ says 110 -> priced as 150 mm (next size up)"], priced: true },
   { id: "P2h", rule: T.fitPipe, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "MS", size_mm: "15" }], re: ["BoQ says 15 -> priced as 19 mm (the smallest size)"], priced: true },
@@ -324,6 +336,18 @@ const CASES: Case[] = [
   { id: "P5b-neg", rule: T.steps, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "MS", size_mm: "350" }], re: [], not: ["supply: pricing input"], priced: false },
   { id: "P5c-ptyped", rule: T.qty, cat: PIP, path: "ptyped", kind: "pos", unit: "mts", model: [MS50], edits: ptyped({}, [], "2"), re: ["x 2 per row unit"], priced: true },
   { id: "P5d-ptyped-neg", rule: T.qty, cat: PIP, path: "ptyped", kind: "neg", unit: "mts", model: [MS50], edits: ptyped({}, [], "0"), re: ["quantity per row unit '0' is not a positive number"], priced: false },
+  // ── SLICE 12e-3b (AC6): the insulation section on Piping (v37). The section's lines are read with a "sec." lead; the
+  //    pure pricer prices a pipe only, so the figure comparison is the section tests' (slice12e3a / slice12e3b). ──
+  { id: "S1a", rule: T.secToggle, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "Copper", size_mm: `5/8${INCH}`, insulated: "Yes" }], re: ["section:Insulation - priced by Insulation's rules", "sec.family:Nitrile Rubber Insulation", "sec.default:material not mentioned -> Nitrile by row kind"], not: ["sec.pick:"], priced: false, pure: false },
+  { id: "S1b-neg", rule: T.secToggle, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "Copper", size_mm: `5/8${INCH}` }], re: ["insulated:insulation not mentioned -> No"], not: ["section:"], priced: true },
+  { id: "S1c-neg", rule: T.secToggle, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "Copper", size_mm: `5/8${INCH}`, insulated: "No" }], re: [], not: ["section:", "insulation not mentioned"], priced: true },
+  { id: "S1a-calc", rule: T.secToggle, cat: PIP, path: "calc", kind: "pos", edits: calc("Copper", { size_mm: `5/8${INCH}`, insulated: "Yes" }, ["size_mm"]), rowUnit: "mts", re: ["section:Insulation - priced by Insulation's rules", "sec.pick:Choose the insulation material"], not: ["not mentioned -> Nitrile"], priced: false, pure: false },
+  { id: "S2a", rule: T.secRules, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "Copper", size_mm: `5/8${INCH}` }, { item: NR, cladding: "26G Aluminium", thickness_mm: "13" }], re: ["section:Insulation - priced by Insulation's rules", "sec.family:Nitrile Rubber Insulation", "sec.figures:324/224"], priced: true, pure: false },
+  { id: "S2b-neg", rule: T.secRules, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "Copper", size_mm: `5/8${INCH}` }, { item: NR, cladding: "26G Aluminium", thickness_mm: "abc" }], re: ["sec.thickness_mm:"], not: ["sec.figures:"], priced: false, pure: false },
+  { id: "S3a", rule: T.secMirror, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "MS", size_mm: "25/32" }, { item: NR, cladding: "No", thickness_mm: "13" }], re: ["BoQ says 25/32: states two sizes (25 / 32) - the higher, 32, is taken", "sec.pipe_size_mm:tag=from pipe", "sec.pipe_size_mm:From pipe: 32 mm"], priced: true, pure: false },
+  { id: "S3b-neg", rule: T.secMirror, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "Copper", insulated: "Yes" }, { item: NR, cladding: "No", thickness_mm: "13", pipe_size_mm: "41.28" }], re: ["no pipe size stated"], not: ["tag=from pipe", "From pipe:"], priced: false, pure: false },
+  { id: "S4a", rule: T.secTotal, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "Copper", size_mm: `5/8${INCH}` }, { item: NR, cladding: "26G Aluminium", thickness_mm: "13" }], re: ["total:1622/444", "lines:2 bad:0"], priced: true, pure: false },
+  { id: "S4b-neg", rule: T.secTotal, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "MS", size_mm: "100" }, { item: NR, cladding: "26G Aluminium", thickness_mm: "32" }], re: ["lines:2 bad:1"], not: ["total:"], priced: false, pure: false },
 ];
 
 /** ADP line 5 (`units_not_offered`) acts on the CALCULATOR'S UNIT PICKER, not on a row's price: it is covered
@@ -370,6 +394,27 @@ function run(c: Case) {
       if (f.otherMode) lines.push(`${f.id}:otherMode=true typed=${f.typedValue}`);
     }
   }
+  // 12e-3b: a delegated section's lines, each with a "sec." lead -- the heading, the picker, the block as above, the mirror
+  for (const sv of [...v.items.flatMap((b) => b.sections ?? []), ...(v.sections?.independent ?? [])]) {
+    lines.push(`section:${sv.heading}`);
+    if (sv.view.pickFamily) lines.push(`sec.pick:${sv.view.reason}`);
+    for (const b of sv.view.items) {
+      if (b.family) lines.push(`sec.family:${b.family}`);
+      if (b.reason) lines.push(`sec.${b.reason}`);
+      if (b.familyDefaulted) lines.push(`sec.default:${b.familyDefaulted.rule}`);
+      if (b.state === "priced") lines.push(`sec.figures:${b.figures.supply_rate}/${b.figures.install_rate}`);
+      lines.push(...b.working.map((w) => `sec.${w}`));
+      for (const f of b.fields) {
+        if (f.note) lines.push(`sec.${f.id}:${f.note}`);
+        if (f.mirrorTag) lines.push(`sec.${f.id}:tag=${f.mirrorTag}`);
+        if (f.mirrorLine) lines.push(`sec.${f.id}:${f.mirrorLine}`);
+      }
+    }
+  }
+  if (v.sections) {
+    lines.push(`lines:${v.sections.lines} bad:${v.sections.bad}`);
+    if (v.rowPriced) lines.push(`total:${s.values.supply_rate}/${s.values.install_rate}`);
+  }
   // the pure pricer over the SAME assembled inputs
   const spec = itemListPricingSpec(CFG[c.cat])!;
   const edits = decodeItemEdits(overrides[ITEM_LIST_OVERRIDE_KEY], modelItems.length);
@@ -387,7 +432,7 @@ const matches = (text: string, p: string | RegExp) => (typeof p === "string" ? t
 describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the panel's entry point (live v33)", () => {
   const titles = (cat: string) => itemListRuleOrder(CFG[cat], ITEMS).map((l) => l.title);
 
-  it("THE GUARD: the rules this file names EQUAL the rules the config generates (Insulation 24, ADP 18, Piping 14); a new rule without a case, or a case naming a dead rule, fails here", () => {
+  it("THE GUARD: the rules this file names EQUAL the rules the config generates (Insulation 24, ADP 18, Piping 18 -- 14 before 12e-3b, plus the four section lines); a new rule without a case, or a case naming a dead rule, fails here", () => {
     for (const cat of [INS, ADP, PIP]) {
       const generated = new Set(titles(cat));
       const named = new Set([...CASES.filter((c) => c.cat === cat).map((c) => c.rule), ...PICKER_CASES.filter(() => cat === ADP).map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES).filter((t) => generated.has(t))]);
@@ -397,7 +442,11 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
     }
     expect(titles(INS)).toHaveLength(24);
     expect(titles(ADP)).toHaveLength(18);
-    expect(titles(PIP)).toHaveLength(14);   // 12e-2: the Piping rules P1-P5 over the shared lines
+    // INVERTED at 12e-3b (AC6): BEFORE `toHaveLength(14)` on v36. v37 declares the insulation section, which adds the four
+    // lines named here; the 14 before them are unchanged, in the same order.
+    expect(titles(PIP)).toHaveLength(18);
+    expect(titles(PIP).slice(14)).toEqual([T.secToggle, T.secRules, T.secMirror, T.secTotal]);
+    expect(titles(PIP).slice(0, 14)).toEqual(itemListRuleOrder(V36_PIPING, ITEMS).map((l) => l.title));
     // every NOT-panel rule is a REAL tab line (never a stale excuse)
     for (const t of Object.keys(NOT_PANEL_RULES)) expect(titles(INS).includes(t) || titles(ADP).includes(t)).toBe(true);
   });
@@ -471,7 +520,7 @@ describe("T3 -- rewriter x rule: no step between a stored value / a typed entry 
     // INVERTED at 12e-2b (D1 (a) + D2). BEFORE: re ["choose again: whether it is UL listed"], priced false. The F-1 half is kept: no UL default fires.
     { id: "R5xAbsentAsNone (F-1)", rule: "unstockedPicks x absent_as_none + override_when", cat: ADP, path: "calc", kind: "pos", edits: calc("fire damper", { variant: "motorised", ul: "yes", size_mm: "600x600" }), rowUnit: "nos", re: ["UL stated, so the UL 555 SKU is used"], not: ["ul not mentioned -> no", "choose again"], priced: true },
     // 12e-2b (AC13): one named case per LADDER field kind a block's other answer can unstock -- and the choice-field negative
-    { id: "R5xLadderTorque (AC13)", rule: "unstockedPicks x a ladder pick (torque under UL): laddered, never cleared", cat: ADP, path: "calc", kind: "pos", edits: calc("actuator", { torque: "6", ul: "yes" }), rowUnit: "nos", re: ["torque:6 nm is not stocked with UL listed yes -> priced as 8 nm (next size up)", "torque 6 is not on the sheet -> 8 (next size up"], not: ["choose again"], priced: true },
+    { id: "R5xLadderTorque (AC13)", rule: "unstockedPicks x a ladder pick (torque under UL): laddered, never cleared", cat: ADP, path: "calc", kind: "pos", edits: calc("actuator", { torque: "6", ul: "yes" }), rowUnit: "nos", re: ["torque:6 Nm is not stocked with UL listed yes -> priced as 8 Nm (next size up)" /* 12e-3b (Q13): BEFORE "torque:6 nm ... priced as 8 nm (next size up)" */, "torque 6 is not on the sheet -> 8 (next size up"], not: ["choose again"], priced: true },
     { id: "R5xChoiceStillClears (AC13 neg)", rule: "unstockedPicks x a CHOICE pick (no ladder): still cleared, never refilled", cat: INS, path: "calc", kind: "neg", edits: calc(ACO, { cladding: "Aluminium Foil", thickness_mm: "19" }), rowUnit: "sqm", re: ["Aluminium Foil is not stocked with the other answers on this item -- choose again", "choose again: cladding"], not: ["priced as", "cladding not mentioned"], priced: false, pure: false },
     { id: "R5xOther", rule: "unstockedPicks x a value typed through Other... (never cleared)", cat: INS, path: "calc", kind: "pos", edits: calc(PUF, { cladding: "No", pipe_size_mm: "100", thickness_mm: "25" }, ["thickness_mm"]), rowUnit: "mts", re: ["thickness 25 is not on the sheet -> 65 (next size up"], priced: true },
     { id: "R5xModel", rule: "unstockedPicks x a model value (never cleared)", cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(PUFI, { thickness_mm: "25" })], re: ["thickness 25 is not on the sheet -> 65 (next size up"], priced: true },
