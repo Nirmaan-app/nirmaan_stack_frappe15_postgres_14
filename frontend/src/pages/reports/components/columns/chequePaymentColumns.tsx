@@ -6,6 +6,7 @@ import { ChequePhotoLink } from "@/components/cheques/ChequePhotoLink";
 import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { Button } from "@/components/ui/button";
 import SITEURL from "@/constants/siteURL";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -17,15 +18,32 @@ const WRAP_HEADER = "[&_button]:whitespace-normal text-left";
 
 const dateText = (v?: string | null) => (v ? formatDate(v) : "");
 
+interface ChequeColumnActions {
+    /** Opens the Cheque detail view. */
+    onOpen: (cheque: string) => void;
+    /** Opens Change status for one Cheque; absent for a user who may not change status. */
+    onChangeStatus?: (row: ChequeRow) => void;
+}
+
 /**
- * The Cheque Payments report's columns (spec #1407): one row per Cheque. Actions (status change,
- * edit, detail) arrive with #1412 / #1418; the expandable lines with #1417.
+ * The Cheque Payments report's columns (spec #1407): one row per Cheque. The cheque number and
+ * "Details" open the detail view; "Status" opens Change status (#1412). Edit arrives with #1418;
+ * the expandable lines with #1417.
  */
-export const getChequePaymentColumns = (): ColumnDef<ChequeRow>[] => [
+export const getChequePaymentColumns = ({ onOpen, onChangeStatus }: ChequeColumnActions): ColumnDef<ChequeRow>[] => [
     {
         accessorKey: "cheque_no",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Cheque No" className={WRAP_HEADER} />,
-        cell: ({ row }) => <div className="font-medium whitespace-nowrap">{row.original.cheque_no}</div>,
+        cell: ({ row }) => (
+            <button
+                type="button"
+                onClick={() => onOpen(row.original.name)}
+                className="font-medium whitespace-nowrap text-blue-600 hover:underline"
+                title="Open the cheque"
+            >
+                {row.original.cheque_no}
+            </button>
+        ),
         size: 100,
         meta: { exportHeaderName: "Cheque No", exportValue: (r: ChequeRow) => r.cheque_no },
     },
@@ -124,5 +142,25 @@ export const getChequePaymentColumns = (): ColumnDef<ChequeRow>[] => [
             exportHeaderName: "Photo",
             exportValue: (r: ChequeRow) => (r.attachment ? `${SITEURL}${r.attachment}` : ""),
         },
+    },
+    {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => (
+            <div className="flex items-center gap-1">
+                <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => onOpen(row.original.name)}>
+                    Details
+                </Button>
+                {onChangeStatus && (
+                    <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => onChangeStatus(row.original)}>
+                        Status
+                    </Button>
+                )}
+            </div>
+        ),
+        size: 140,
+        enableSorting: false,
+        enableHiding: false,
+        meta: { excludeFromExport: true },
     },
 ];
