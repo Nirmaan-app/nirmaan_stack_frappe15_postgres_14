@@ -404,21 +404,20 @@ export const PROJECT_INVOICES_ACCESS: readonly string[] = [
 ];
 
 /**
- * Reports > "Payment" tab — the Tax Deducted at Source ledger (report "TDS Deduction")
- * and the "Cheque Payment" report, which also reads `Payment TDS Deduction`.
+ * Reports > "Payment" tab — who may open the Tax Deducted at Source ledger (report "TDS Deduction").
  * (It had its own sidebar item and `/payment-tds-deductions` route until it moved
- * into the Reports hub; that path was removed on 2026-10-07.)
+ * into the Reports hub; that path was removed on 2026-10-07.) The tab's other report,
+ * "Cheque Payment", is gated by `CHEQUE_ACCESS_PROFILES` instead (spec #1407).
  *
- * Read in THREE places, all of which must agree: the tab itself
- * (`ReportsContainer.tabs`), the tab's report-type list + default
- * (`currentReportOptions` / `useReportStore`), and nothing else — a second inline
+ * Read through ONE helper, `paymentTabReports` (`pages/reports/config/paymentTab.config.ts`),
+ * which the tab itself, its report-type list and its default all call — a second inline
  * copy of this list drifts the day one of them is edited.
  *
  * ⚠️ NARROWER THAN `/project-payments` ON PURPOSE, AND NOT A UX CHOICE. The
  * `Payment TDS Deduction` doctype grants read to `System Manager`,
  * `Nirmaan Accountant` and `Nirmaan Accountant Lead` only. PMO, Project Lead and
  * the procurement profiles can see Project Payments but hold none of those roles,
- * so a tab for them would land on a PermissionError. Admin Profile is in
+ * so the TDS Deduction report would land on a PermissionError for them. Admin Profile is in
  * because its role profile carries BOTH `System Manager` and `Nirmaan Accountant`.
  *
  * Widening this list without also widening the doctype's permissions produces a
@@ -552,3 +551,14 @@ export const REFUND_PAPERWORK_PROFILES: readonly string[] = [
 
 /** `REFUND_DELETE_PROFILES`: may delete a Cancelled Vendor Refund (an Admin or material Procurement). */
 export const REFUND_DELETE_PROFILES: readonly string[] = [ADMIN_PROFILE, ...MATERIAL_PROCUREMENT_PROFILES];
+
+/**
+ * Cheques (spec #1407). Mirrors `services/role_profiles.CHEQUE_ACCOUNTS_PROFILES` /
+ * `CHEQUE_ACCESS_PROFILES`; the server is the enforcement boundary (every `api/cheques/` endpoint).
+ *
+ * `CHEQUE_ACCESS_PROFILES`: view the Cheque Payments report, add a Cheque, Convert to Cheque.
+ * Project Managers are not in it. Not tied to the Payment TDS Deduction read permission.
+ * `CHEQUE_ACCOUNTS_PROFILES`: also edit any Cheque and change its status.
+ */
+export const CHEQUE_ACCOUNTS_PROFILES: readonly string[] = [ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE];
+export const CHEQUE_ACCESS_PROFILES: readonly string[] = [...CHEQUE_ACCOUNTS_PROFILES, ...PROCUREMENT_PROFILES];

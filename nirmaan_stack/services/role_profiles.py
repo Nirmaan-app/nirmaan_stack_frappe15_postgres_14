@@ -266,3 +266,18 @@ REFUND_PAPERWORK_PROFILES = ADJUST_PAYMENTS_PROFILES + REFUND_ACCOUNTANT_PROFILE
 # `api/vendor_refunds/waiting_refunds.delete_cancelled_refund`. Mirrored client-side by
 # `frontend/src/constants/roles.ts::REFUND_DELETE_PROFILES`.
 REFUND_DELETE_PROFILES = (ADMIN_PROFILE,) + MATERIAL_PROCUREMENT_PROFILES
+
+# Cheques (spec #1407). Admin, Accountant and Accountant Lead run cheques end to end; Procurement may
+# view the Cheque Payments report, add a Cheque and Convert to Cheque, but never change its status.
+# Project Managers have no access. ENFORCEMENT boundary for every endpoint in `api/cheques/`, which
+# write through `services/cheques/writer.py` with `ignore_permissions`: the Cheques DocPerms cannot
+# say this (`Nirmaan Procurement Executive` also rides on the Project Lead profile). Not tied to the
+# Payment TDS Deduction read permission. Mirrored client-side by
+# `frontend/src/constants/roles.ts::CHEQUE_ACCESS_PROFILES` / `CHEQUE_ACCOUNTS_PROFILES`.
+CHEQUE_ACCOUNTS_PROFILES = PAYMENT_SETTLE_PROFILES
+CHEQUE_ACCESS_PROFILES = CHEQUE_ACCOUNTS_PROFILES + PROCUREMENT_PROFILES
+
+
+def can_use_cheques(user: str) -> bool:
+    """True when `user` may open the Cheque Payments report and add a Cheque. Administrator passes."""
+    return has_role_profile(user, CHEQUE_ACCESS_PROFILES)
