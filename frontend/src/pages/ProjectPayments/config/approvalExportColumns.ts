@@ -29,6 +29,7 @@
  */
 
 import { ColumnDef } from "@tanstack/react-table";
+import { chequeChipText } from "@/utils/cheques/chequeChip";
 import { formatDate } from "@/utils/FormatDate";
 
 import {
@@ -107,6 +108,8 @@ export const buildApprovalExportColumns = (
   col("reconciled_on", "Reconciled On", (r) => day(r.reconciled_on)),
 
   col("utr_ref", "UTR / Ref", (r) => r.utr_ref || ""),
+  // The cheque chip's text ("Cheque 004521 · Issued"); blank on an Online payment and every expense.
+  col("cheque", "Cheque", (r) => (r.cheque_no ? chequeChipText(r.cheque_no, r.cheque_status) : "")),
   // `proof` is a file URL; `has_proof` is the server's own verdict on it. Export the
   // verdict — a reader wants to know WHETHER there is proof, and the URL is useless
   // without a session anyway.

@@ -2,15 +2,26 @@ import { describe, expect, it } from "vitest";
 
 import {
 	chequeAmountFor,
+	chequeAmountHint,
 	EMPTY_PAYMENT_MODE,
 	isChequePayment,
 	isPaymentModeComplete,
 	paymentModeArgs,
 	paymentModeSummary,
+	type PaymentModeValue,
 } from "./paymentMode";
 import { forecastTds } from "./tdsForecast";
 
-const cheque = { mode: "Cheque" as const, chequeNo: " 004512 ", chequeDate: "2026-09-19" };
+/** A cheque as the dialog holds it once its photo is uploaded and read. */
+const cheque: PaymentModeValue = {
+	...EMPTY_PAYMENT_MODE,
+	mode: "Cheque",
+	bank: "ICICI Bank",
+	cheque_no: " 004512 ",
+	cheque_date: "2026-09-19",
+	amount: "49000",
+	attachment: "/private/files/cheque.jpg",
+};
 
 describe("paymentMode", () => {
 	it("an online request needs nothing more and sends only its mode", () => {
@@ -18,17 +29,34 @@ describe("paymentMode", () => {
 		expect(paymentModeArgs(EMPTY_PAYMENT_MODE)).toEqual({ mode_of_payment: "Online" });
 	});
 
-	it("a cheque needs both its number and its date", () => {
+	it("a cheque needs its photo, bank, number, date and amount", () => {
 		expect(isPaymentModeComplete(cheque)).toBe(true);
-		expect(isPaymentModeComplete({ ...cheque, chequeNo: "  " })).toBe(false);
-		expect(isPaymentModeComplete({ ...cheque, chequeDate: "" })).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, attachment: "" })).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, cheque_no: "  " })).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, cheque_date: "" })).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, amount: "" })).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, amount: 0 })).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, bank: "Others", bank_name: " " })).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, bank: "Others", bank_name: "HDFC Bank" })).toBe(true);
 	});
 
-	it("sends the cheque number trimmed, leading zeros kept", () => {
-		expect(paymentModeArgs(cheque)).toEqual({
+	it("a cheque cannot be requested while its photo is read, or once its number is already recorded", () => {
+		expect(isPaymentModeComplete({ ...cheque, photoBusy: true })).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, duplicateOf: "CHQ-26-00007" })).toBe(false);
+	});
+
+	it("sends the cheque trimmed, leading zeros kept, and a bank name only for Others", () => {
+		expect(paymentModeArgs({ ...cheque, bank_name: "stale" })).toEqual({
 			mode_of_payment: "Cheque",
+			bank: "ICICI Bank",
 			cheque_no: "004512",
 			cheque_date: "2026-09-19",
+			cheque_amount: 49000,
+			cheque_attachment: "/private/files/cheque.jpg",
+		});
+		expect(paymentModeArgs({ ...cheque, bank: "Others", bank_name: " HDFC Bank " })).toMatchObject({
+			bank: "Others",
+			bank_name: "HDFC Bank",
 		});
 	});
 
@@ -54,6 +82,33 @@ describe("paymentMode", () => {
 
 		it("a Procurement Order has no TDS and is written for the amount", () => {
 			expect(chequeAmountFor(50000, forecastTds("Procurement Orders", 50000, 2))).toBe(50000);
+		});
+	});
+
+	describe("chequeAmountHint: a soft warning on the cheque's amount, never a block", () => {
+		const wo = forecastTds("Service Requests", 50000, 2);
+
+		it("says nothing when the cheque matches what it should be written for, within ₹2", () => {
+			expect(chequeAmountHint(49000, 50000, wo)).toBeNull();
+			expect(chequeAmountHint("49001.5", 50000, wo)).toBeNull();
+			expect(chequeAmountHint(50000, 50000, null)).toBeNull();
+		});
+
+		it("says nothing before there is an amount", () => {
+			expect(chequeAmountHint("", 50000, wo)).toBeNull();
+		});
+
+		it("on a Work Order, names a cheque written for the gross amount", () => {
+			expect(chequeAmountHint(50000, 50000, wo)).toEqual({ kind: "gross", expected: 49000, gross: 50000, tds: 1000 });
+		});
+
+		it("names any other difference", () => {
+			expect(chequeAmountHint(45000, 50000, wo)).toEqual({ kind: "differs", expected: 49000, gross: 50000, tds: 1000 });
+			expect(chequeAmountHint(45000, 50000, null)).toEqual({ kind: "differs", expected: 50000, gross: 50000, tds: 0 });
+		});
+
+		it("a company-borne Work Order's cheque is the full amount, so the gross is right", () => {
+			expect(chequeAmountHint(50000, 50000, forecastTds("Service Requests", 50000, 2, true))).toBeNull();
 		});
 	});
 });

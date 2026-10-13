@@ -2,8 +2,15 @@ import { useRef, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 
 import { toast } from "@/components/ui/use-toast";
-import type { ChequeFormInput } from "@/utils/cheques/chequeForm";
-import { parseChequePhotoReply, payeeMismatch, photoFill, type ChequePhoto } from "@/utils/cheques/chequePhoto";
+import {
+    CHEQUE_PHOTO_FIELDS,
+    parseChequePhotoReply,
+    payeeMismatch,
+    photoFill,
+    type ChequePhoto,
+    type ChequePhotoField,
+    type ChequePhotoValues,
+} from "@/utils/cheques/chequePhoto";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 const READ_PHOTO_API = "nirmaan_stack.api.payment_autofill.extract_payment_fields";
@@ -13,12 +20,14 @@ const MATCH_PAYEE_API = "nirmaan_stack.api.payment_autofill.match_payee_to_vendo
  * Reads a cheque photo into the cheque form (spec #1407, #1409). The rules live in
  * `utils/cheques/chequePhoto.ts`; this hook only calls the reader and hands the values to the form.
  *
- * `getValues` and `setValues` are the form's. Read results that arrive after a newer photo was
+ * `getValues` and `setValues` are the form's: Add Cheque's, or the Request Payment dialog's Cheque
+ * mode (#1414), which passes the `fields` it has. Read results that arrive after a newer photo was
  * picked (or the form was closed) are dropped.
  */
-export const useChequePhotoReader = (
-    getValues: () => ChequeFormInput,
-    setValues: (fill: Partial<ChequeFormInput>) => void,
+export const useChequePhotoReader = <V extends ChequePhotoValues>(
+    getValues: () => V,
+    setValues: (fill: Partial<V>) => void,
+    fields: readonly ChequePhotoField[] = CHEQUE_PHOTO_FIELDS,
 ) => {
     const { call } = useFrappePostCall<{ message: unknown }>(READ_PHOTO_API);
     /** What the last photo read said; null before one is read. Drives the "From photo" tags. */
@@ -40,26 +49,30 @@ export const useChequePhotoReader = (
         setPhoto(null);
     };
 
-    /** Read the uploaded photo at `fileUrl` and fill the form with what it says. */
-    const read = async (fileUrl: string) => {
+    /**
+     * Read the uploaded photo at `fileUrl` and fill the form with what it says. Resolves true when
+     * this read was still the current one at the end (not superseded or cancelled), read or not.
+     */
+    const read = async (fileUrl: string): Promise<boolean> => {
         const mine = ++session.current;
         setReading(true);
         try {
             const res = await call({ file_url: fileUrl, mode: "cheque" });
-            if (mine !== session.current) return;
+            if (mine !== session.current) return false;
             const next = parseChequePhotoReply(res.message);
-            setValues(photoFill(getValues(), photoRef.current, next));
+            setValues(photoFill(getValues(), photoRef.current, next, fields));
             photoRef.current = next;
             setPhoto(next);
             if (Object.keys(next).length === 0) {
                 toast({ title: "Could not read the cheque photo", description: "Fill in the cheque's details by hand." });
             }
         } catch (e) {
-            if (mine !== session.current) return;
+            if (mine !== session.current) return false;
             toast({ title: "Could not read the cheque photo", description: getFrappeError(e), variant: "destructive" });
         } finally {
             if (mine === session.current) setReading(false);
         }
+        return mine === session.current;
     };
 
     return { photo, reading, read, cancel, reset };

@@ -285,3 +285,15 @@ def duplicate_problem(header: ChequeHeader, existing: str) -> str:
         f"Cheque {header.cheque_no} on {bank_label(header.bank or '', header.bank_name)} is already "
         f"recorded as {existing}."
     )
+
+
+def request_duplicate_problem(header: ChequeHeader) -> str:
+    """The refusal when a PO / Work Order Request Payment names a bank + cheque number already
+    recorded (#1414). A payment requested there always gets its own new Cheque; joining an existing
+    one is done from the report."""
+    label = bank_label(header.bank or "", header.bank_name)
+    return (
+        f"Cheque {header.cheque_no} ({label}) already exists. A payment made here gets its own new "
+        f"cheque. To put this payment on {header.cheque_no}, request it as Online, then add it to the "
+        f"cheque in Reports, Cheque Payments."
+    )

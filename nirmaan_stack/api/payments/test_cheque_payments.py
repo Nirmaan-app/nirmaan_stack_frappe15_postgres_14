@@ -22,6 +22,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt, nowdate
 
+from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.payments import bulk_actions
 from nirmaan_stack.api.payments.project_payments import (
 	ceo_approve_payment,
@@ -129,10 +130,13 @@ class TestChequePayments(FrappeTestCase):
 
 	# -- every approval route: taxed once at Approved, then Reconciliation Pending -------------
 	def test_auto_approved_cheque_is_taxed_then_moved(self):
+		ChequeFixture.attach(self)  # the request makes the payment's one-line Cheque (#1414)
 		with patch(f"{CONTROLLER}.get_allowed_accountants") as accountants:
 			out = json.loads(create_payment_request_for_service(json.dumps({
 				"doctype": SR, "docname": self.sr, "amount": 10000,
 				"mode_of_payment": "Cheque", "cheque_no": self._cheque_no(), "cheque_date": nowdate(),
+				"bank": "ICICI Bank", "cheque_amount": 9800,
+				"cheque_attachment": "https://storage.example.invalid/private/files/cheque-test.jpg",
 			})))
 		self.assertEqual(self._state(out["name"]), (RECON, 9800.0, [200.0]))
 		# "Payment Ready to Fulfil" points at a tab a cheque never stays in.

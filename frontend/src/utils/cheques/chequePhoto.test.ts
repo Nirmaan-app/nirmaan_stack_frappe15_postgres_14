@@ -66,6 +66,13 @@ describe("photoFill", () => {
         expect(fill).not.toHaveProperty("cheque_date"); // typed by the user: kept
         expect(fill.amount).toBe(90000);
     });
+
+    it("fills only the fields a form asks for, on any form with those fields (the Request Payment cheque)", () => {
+        const request = { mode: "Cheque", bank: "ICICI Bank", bank_name: "", cheque_no: "", cheque_date: "", amount: "", attachment: "/f.jpg" };
+        const fill = photoFill(request, null, parseChequePhotoReply(ICICI_REPLY), ["bank", "cheque_no", "cheque_date", "amount"]);
+        expect(fill).toEqual({ bank: "ICICI Bank", bank_name: "", cheque_no: "004521", cheque_date: "2026-10-12", amount: 100000 });
+        expect(isFromPhoto("amount", { ...request, ...fill }, parseChequePhotoReply(ICICI_REPLY))).toBe(true);
+    });
 });
 
 describe("payeeMismatch", () => {

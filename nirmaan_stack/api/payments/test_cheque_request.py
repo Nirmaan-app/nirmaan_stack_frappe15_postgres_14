@@ -1,0 +1,289 @@
+# Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
+# For license information, please see license.txt
+
+"""Request Payment in Cheque mode makes a one-line Cheque (#1414, spec #1407).
+
+Drives the two live request endpoints the way the dialogs do -- the PO page's payment-term request
+(`create_project_payment`) and the Work Order page's request (`create_payment_request_for_service`)
+-- and reads back what a user sees: the payment (its Cheque link, number, date, status, TDS) and the
+Cheque (made from the PO/WO page, Issued, one line for that payment), or the refusal and that
+nothing was created.
+
+⚠️ RUNS AGAINST THE ENV DATABASE (the endpoints commit). Projects, vendors, Work Orders and payments
+come from `TaxedWorkOrderFixture`; POs are planted and purged here; every Cheque carries a TESTCHQ
+number and is purged by `ChequeFixture`.
+"""
+
+import json
+from unittest.mock import patch
+
+import frappe
+from frappe.tests.utils import FrappeTestCase
+from frappe.utils import flt, nowdate
+
+from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
+from nirmaan_stack.api.cheques.find_cheque import find_cheque
+from nirmaan_stack.api.cheques.save_cheque import save_cheque
+from nirmaan_stack.api.payments.project_payments import (
+    ceo_approve_payment,
+    create_payment_request_for_service,
+    create_project_payment,
+)
+from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
+from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
+from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services.cheques.writer import DuplicateChequeError
+
+U = "Administrator"
+PAYMENT = "Project Payments"
+SR = "Service Requests"
+PO = "Procurement Orders"
+TERMS = "PO Payment Terms"
+RECON = "Reconciliation Pending"
+PHOTO = "https://storage.example.invalid/private/files/cheque-request-test.jpg"
+CONTROLLER = "nirmaan_stack.integrations.controllers.project_payments"
+
+
+class TestChequeRequest(FrappeTestCase):
+    def setUp(self):
+        frappe.set_user(U)
+        self.fx = TaxedWorkOrderFixture.attach(self)
+        self.cheques = ChequeFixture.attach(self)
+        self.project = self.fx.project()
+        self.vendor = self.fx.vendor(2.0)
+        self.sr = self.fx.service_request(self.project, self.vendor)
+        self.po = self._po()
+        frappe.db.commit()  # a refusal below rolls back; the planted rows must outlive it
+        # The admin note reaches every real admin, and a push reaches real phones: keep both off.
+        # The in-app notifications (and their commits, which the withdraw test relies on) still run.
+        for target in ("_notify_admins_auto_approved", "PrNotification"):
+            quiet = patch(f"{CONTROLLER}.{target}")
+            quiet.start()
+            self.addCleanup(quiet.stop)
+
+    def tearDown(self):
+        frappe.set_user(U)
+
+    # -- planting -------------------------------------------------------------------------------
+    def _po(self):
+        """A bare PO worth 1 crore. `Delivered`, so `procurement_orders.on_update` takes none of its
+        status branches."""
+        name = self.fx._name("PO")
+        frappe.db.sql(
+            """INSERT INTO "tabProcurement Orders" (name, creation, modified, modified_by, owner,
+                   docstatus, idx, project, vendor, total_amount, amount, tax_amount, amount_paid, status)
+               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 10000000, 10000000, 0, 0, 'Delivered')""",
+            (name, U, U, self.project, self.vendor),
+        )
+
+        def purge():
+            frappe.db.delete(TERMS, {"parent": name})
+            frappe.db.delete("Version", {"ref_doctype": PO, "docname": name})
+            frappe.db.delete(PO, {"name": name})
+            frappe.db.commit()
+
+        self.addCleanup(purge)  # runs before the fixture's own purge (cleanups are LIFO)
+        return name
+
+    def _term(self, amount):
+        """A payment term of the PO, at Created, that nothing has requested yet."""
+        name = frappe.generate_hash(length=10)
+        frappe.db.sql(
+            """INSERT INTO "tabPO Payment Terms" (name, creation, modified, modified_by, owner, docstatus,
+                   idx, vendor, project, payment_type, label, percentage, amount, term_status,
+                   parent, parentfield, parenttype)
+               VALUES (%s, NOW(), NOW(), %s, %s, 0, 1, %s, %s, 'Delivery against Payment', 'Test term',
+                       10, %s, 'Created', %s, 'payment_terms', %s)""",
+            (name, U, U, self.vendor, self.project, flt(amount), self.po, PO),
+        )
+        frappe.db.commit()
+        return name
+
+    def _cheque_fields(self, amount, **overrides):
+        """What the dialog sends in Cheque mode: the cheque as read off its photo."""
+        fields = {
+            "mode_of_payment": "Cheque",
+            "bank": "ICICI Bank",
+            "cheque_no": self.cheques.number(),
+            "cheque_date": nowdate(),
+            "cheque_amount": amount,
+            "cheque_attachment": PHOTO,
+        }
+        fields.update(overrides)
+        return fields
+
+    # -- driving --------------------------------------------------------------------------------
+    def _request_wo(self, amount, **fields):
+        out = json.loads(create_payment_request_for_service(json.dumps({
+            "doctype": SR, "docname": self.sr, "amount": amount, **fields,
+        })))
+        if out.get("cheque"):
+            self.cheques.track(out["cheque"])
+        return out
+
+    def _request_po(self, term, amount, **fields):
+        out = create_project_payment(
+            doctype=PO, docname=self.po, vendor=self.vendor, amount=amount, project=self.project,
+            ptname=term, **fields,
+        )
+        if out.get("cheque"):
+            self.cheques.track(out["cheque"])
+        return out
+
+    # -- reading --------------------------------------------------------------------------------
+    def _payment(self, name):
+        return frappe.db.get_value(
+            PAYMENT, name, ["status", "amount", "mode_of_payment", "cheque", "cheque_no", "cheque_date"], as_dict=True
+        )
+
+    def _tds(self, name):
+        return [flt(d) for d in frappe.get_all(payment_tds.TDS_DOCTYPE, filters={"project_payment": name}, pluck="tds_amount")]
+
+    def _cheque(self, name):
+        return frappe.get_doc("Cheques", name)
+
+    def _payments_of(self, doctype, docname):
+        return frappe.get_all(PAYMENT, filters={"document_type": doctype, "document_name": docname}, pluck="name")
+
+    def _assert_one_line_cheque(self, cheque, payment, *, record, amount):
+        doc = self._cheque(cheque)
+        self.assertEqual(doc.status, "Issued")
+        self.assertEqual(doc.made_from, "PO/WO Page")
+        self.assertEqual(doc.vendor, self.vendor)
+        self.assertFalse(doc.payee_name)
+        self.assertEqual(doc.attachment, PHOTO)
+        self.assertEqual(flt(doc.amount), amount)
+        self.assertEqual(
+            [(l.line_type, l.project, l.record_doctype, l.record_name, l.payment_doctype, l.payment_name, flt(l.amount))
+             for l in doc.lines],
+            [("PO/WO Payment", self.project, record[0], record[1], PAYMENT, payment, amount)],
+        )
+        pay = self._payment(payment)
+        self.assertEqual((pay.mode_of_payment, pay.cheque, pay.cheque_no, str(pay.cheque_date)),
+                         ("Cheque", cheque, doc.cheque_no, str(doc.cheque_date)))
+
+    # -- the Work Order page --------------------------------------------------------------------
+    def test_a_wo_cheque_request_makes_the_payment_and_a_one_line_cheque(self):
+        out = self._request_wo(10000, **self._cheque_fields(9800))
+        # Unchanged: born Approved (auto band), taxed once, then on to Reconciliation Pending.
+        pay = self._payment(out["name"])
+        self.assertEqual((pay.status, flt(pay.amount)), (RECON, 9800.0))
+        self.assertEqual(self._tds(out["name"]), [200.0])
+        self._assert_one_line_cheque(out["cheque"], out["name"], record=(SR, self.sr), amount=9800.0)
+
+    def test_a_wo_cheque_waiting_for_the_ceo_moves_once_approved(self):
+        out = self._request_wo(60000, **self._cheque_fields(58800))
+        self.assertEqual(self._payment(out["name"]).status, "CEO Pending")
+        self._assert_one_line_cheque(out["cheque"], out["name"], record=(SR, self.sr), amount=58800.0)
+
+        frappe.set_user(CEO_AUTHORIZED_USER)
+        try:
+            ceo_approve_payment(out["name"])
+            frappe.db.commit()
+        finally:
+            frappe.set_user(U)
+        pay = self._payment(out["name"])
+        self.assertEqual((pay.status, flt(pay.amount), pay.cheque), (RECON, 58800.0, out["cheque"]))
+        self.assertEqual(self._tds(out["name"]), [1200.0])
+
+    def test_an_online_wo_request_makes_no_cheque(self):
+        out = self._request_wo(10000)
+        self.assertIsNone(out["cheque"])
+        pay = self._payment(out["name"])
+        self.assertEqual((pay.status, pay.mode_of_payment, pay.cheque), ("Approved", "Online", None))
+
+    # -- the PO page (a payment term) -----------------------------------------------------------
+    def test_a_po_cheque_request_makes_the_payment_and_a_one_line_cheque(self):
+        term = self._term(20000)
+        out = self._request_po(term, 20000, **self._cheque_fields(20000, bank="Others", bank_name="HDFC Bank"))
+        [payment] = self._payments_of(PO, self.po)
+        # A PO withholds no tax: raised by an L1 holder, born Approved, then straight on.
+        pay = self._payment(payment)
+        self.assertEqual((pay.status, flt(pay.amount)), (RECON, 20000.0))
+        self.assertEqual(
+            tuple(frappe.db.get_value(TERMS, term, ["term_status", "project_payment"])), (RECON, payment)
+        )
+        self._assert_one_line_cheque(out["cheque"], payment, record=(PO, self.po), amount=20000.0)
+        self.assertEqual(self._cheque(out["cheque"]).bank_name, "HDFC Bank")
+
+    # -- refusals: nothing is created -----------------------------------------------------------
+    def test_cheque_mode_without_a_photo_is_refused(self):
+        with self.assertRaisesRegex(frappe.ValidationError, "Upload the photo of the cheque"):
+            self._request_wo(10000, **self._cheque_fields(9800, cheque_attachment=None))
+        frappe.db.rollback()
+        self.assertEqual(self._payments_of(SR, self.sr), [])
+
+        term = self._term(20000)
+        with self.assertRaisesRegex(frappe.ValidationError, "Upload the photo of the cheque"):
+            self._request_po(term, 20000, **self._cheque_fields(20000, cheque_attachment=""))
+        frappe.db.rollback()
+        self.assertEqual(self._payments_of(PO, self.po), [])
+        self.assertEqual(frappe.db.get_value(TERMS, term, "term_status"), "Created")
+
+    def _record_cheque(self, number, *, bank="ICICI Bank", bank_name=None):
+        """An Ad-hoc cheque already recorded from the report."""
+        out = save_cheque(
+            bank=bank, bank_name=bank_name, cheque_no=number, cheque_date=nowdate(), amount=5000,
+            vendor=self.vendor, description="Advance", attachment=PHOTO,
+        )
+        return self.cheques.track(out["cheque"])
+
+    def test_a_recorded_bank_and_number_refuses_the_wo_request(self):
+        number = self.cheques.number()
+        recorded = self._record_cheque(number)
+        with self.assertRaises(DuplicateChequeError) as refused:
+            self._request_wo(10000, **self._cheque_fields(9800, cheque_no=number))
+        frappe.db.rollback()
+        self.assertIn(
+            f"Cheque {number} (ICICI Bank) already exists. A payment made here gets its own new cheque. "
+            f"To put this payment on {number}, request it as Online, then add it to the cheque in "
+            "Reports, Cheque Payments.",
+            str(refused.exception),
+        )
+        self.assertEqual(self._payments_of(SR, self.sr), [])
+        self.assertEqual(frappe.get_all("Cheques", filters={"cheque_no": number}, pluck="name"), [recorded])
+
+    def test_a_recorded_others_bank_matches_ignoring_case_and_spaces_on_the_po_request(self):
+        number = self.cheques.number()
+        self._record_cheque(number, bank="Others", bank_name="HDFC Bank")
+        term = self._term(20000)
+        with self.assertRaises(DuplicateChequeError):
+            self._request_po(
+                term, 20000, **self._cheque_fields(20000, cheque_no=number, bank="Others", bank_name=" hdfc  BANK")
+            )
+        frappe.db.rollback()
+        self.assertEqual(self._payments_of(PO, self.po), [])
+        self.assertEqual(
+            tuple(frappe.db.get_value(TERMS, term, ["term_status", "project_payment"])), ("Created", None)
+        )
+
+    def test_the_same_number_on_another_bank_is_not_a_duplicate(self):
+        number = self.cheques.number()
+        self._record_cheque(number, bank="Others", bank_name="HDFC Bank")
+        out = self._request_wo(10000, **self._cheque_fields(9800, cheque_no=number))
+        self.assertTrue(out["cheque"])
+
+    def test_a_cheque_recorded_in_between_takes_the_payment_back(self):
+        # Another user records the number after the pre-check passed: the Cheque's own validate
+        # refuses it, and the payment -- already committed by its after_insert (the CEO's
+        # notification) -- is withdrawn.
+        number = self.cheques.number()
+        self._record_cheque(number)
+        # Only the pre-check's lookup is blinded; the Cheques `validate` controller still sees it.
+        with patch("nirmaan_stack.services.cheques.writer.existing_cheque", return_value=None):
+            with self.assertRaises(frappe.ValidationError):
+                self._request_wo(60000, **self._cheque_fields(58800, cheque_no=number))
+        frappe.db.rollback()
+        self.assertEqual(self._payments_of(SR, self.sr), [])
+
+    # -- the dialog's lookup --------------------------------------------------------------------
+    def test_the_dialog_finds_a_recorded_cheque_with_the_submit_refusal(self):
+        number = self.cheques.number()
+        cheque = self._record_cheque(number)
+        found = find_cheque(bank="ICICI Bank", cheque_no=f" {number} ")
+        self.assertEqual(
+            {k: found[k] for k in ("cheque", "cheque_no", "bank_label", "status")},
+            {"cheque": cheque, "cheque_no": number, "bank_label": "ICICI Bank", "status": "Issued"},
+        )
+        self.assertTrue(found["message"].startswith(f"Cheque {number} (ICICI Bank) already exists."))
+        self.assertIsNone(find_cheque(bank="ICICI Bank", cheque_no=self.cheques.number()))
