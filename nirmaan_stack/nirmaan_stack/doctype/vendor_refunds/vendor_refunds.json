@@ -19,7 +19,11 @@
   "amount",
   "payment_date",
   "description",
-  "waiting_created_by"
+  "waiting_created_by",
+  "no_bank_line",
+  "no_bank_line_by",
+  "no_bank_line_at",
+  "no_bank_line_reason"
  ],
  "fields": [
   {
@@ -116,6 +120,36 @@
    "fieldtype": "Link",
    "label": "Recorded as Waiting By",
    "options": "User",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Received with no bank line: an Admin made this waiting refund count without its bank credit line (the \"No bank proof\" badge). Cleared when a Bulk Import credit line is matched to it; set again if that match is unreconciled.",
+   "fieldname": "no_bank_line",
+   "fieldtype": "Check",
+   "label": "Received With No Bank Line",
+   "read_only": 1
+  },
+  {
+   "description": "The Admin who marked it Received with no bank line. Kept after a bank line is matched to it.",
+   "fieldname": "no_bank_line_by",
+   "fieldtype": "Link",
+   "label": "No Bank Line Marked By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "When it was marked Received with no bank line.",
+   "fieldname": "no_bank_line_at",
+   "fieldtype": "Datetime",
+   "label": "No Bank Line Marked At",
+   "read_only": 1
+  },
+  {
+   "description": "Why it was marked Received with no bank line (required).",
+   "fieldname": "no_bank_line_reason",
+   "fieldtype": "Small Text",
+   "label": "No Bank Line Reason",
    "read_only": 1
   }
  ],

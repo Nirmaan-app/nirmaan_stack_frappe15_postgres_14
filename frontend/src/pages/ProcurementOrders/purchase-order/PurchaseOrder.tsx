@@ -98,6 +98,7 @@ import { usePOLockCheck, useAllLockedPOs } from "@/pages/PORevision/data/usePORe
 import { POAdjustmentDialog } from "@/pages/POAdjustment/POAdjustmentDialog";
 import { VendorCreditSummaryCard } from "@/pages/POAdjustment/VendorCreditSummaryCard";
 import { RefundOverBalanceWarning } from "@/pages/POAdjustment/RefundOverBalanceWarning";
+import { WaitingRefundOverdueWarning } from "@/pages/POAdjustment/WaitingRefundOverdueWarning";
 import { PORevisionsAndAdjustments } from "./components/PORevisionsAndAdjustments";
 import {
   MergePOTable,
@@ -761,6 +762,7 @@ export const PurchaseOrder = () => {
     <div className="flex-1 space-y-4">
       <PORevisionWarning poId={poId} />
       <RefundOverBalanceWarning poId={poId} />
+      <WaitingRefundOverdueWarning poId={poId} />
 
       {poId && PO?.vendor && (
         <VendorCreditSummaryCard
@@ -1199,6 +1201,7 @@ export const PurchaseOrder = () => {
                     poPayments={poPayments}
                     poPaymentsMutate={poPaymentsMutate}
                     AllPoPaymentsListMutate={AllPoPaymentsListMutate}
+                    onRefundChanged={() => poMutate()}
                   />
 
                   <POPaymentTermsCard

@@ -396,6 +396,10 @@ class ContainsLedger:
     money, under that line's own narration -- instead of one candidate for the whole run. False
     everywhere else: a payment is settled by one line, and an inflow has no slips to read.
     """
+    still_waiting: str | None = None
+    """A SQL predicate on the ledger's own columns for a record that has the counting `status` yet is
+    NOT recorded money: it is still waiting for its bank line. Only Vendor Refunds has one (#1403): a
+    Received refund marked `no_bank_line`, which a late credit line is matched to, not skipped for."""
 
 
 CONTAINS_LEDGERS: tuple[ContainsLedger, ...] = (
@@ -417,9 +421,13 @@ CONTAINS_LEDGERS: tuple[ContainsLedger, ...] = (
     # ⚠️ ONLY A RECEIVED ONE (#1401, ADR-0032). A waiting refund (Reconciliation Pending) is money the
     # vendor SAYS it sent, with a UTR typed by hand: it is what the line should be MATCHED to, and
     # counting it here would skip the very line that proves it. A Cancelled one never arrived.
-    # ⚠️ #1403: a Received refund marked "no bank line" with no live bank leg is also still waiting
-    # for its line; this filter must exclude it too when that mark lands.
-    ContainsLedger(VENDOR_REFUND_DOCTYPE, "tabVendor Refunds", "utr", status=VENDOR_REFUND_RECEIVED),
+    # ⚠️ #1403: neither is a Received refund an Admin marked "no bank line" (`no_bank_line = 1`): it
+    # counts on the PO, but its bank line has not been matched, so that line is what it waits for. The
+    # match clears the mark, and from then on its reference counts here like any Received refund's.
+    ContainsLedger(
+        VENDOR_REFUND_DOCTYPE, "tabVendor Refunds", "utr", status=VENDOR_REFUND_RECEIVED,
+        still_waiting="COALESCE(no_bank_line, 0) = 1",
+    ),
 )
 
 
@@ -441,7 +449,8 @@ def load_recorded_by_contains(
         see less than Python's, so the WHOLE-STRING token can be missed; the ASCII pieces still hit;
       * LEDGER BY DIRECTION -- `contains_guard.ledgers_for_direction`, so the direction map has one
         home. A line with no direction contributes nothing;
-      * STATUS -- `Paid` on the three settle ledgers; `Received` Vendor Refunds (#1401: a waiting one is
+      * STATUS -- `Paid` on the three settle ledgers; `Received` Vendor Refunds not marked `no_bank_line`
+        (#1403, `ContainsLedger.still_waiting`) (#1401: a waiting one is
         matched, not a duplicate); every Project Inflow and Non Project Inflow;
         and (ADR-0027 R3) `Reconciliation Pending` expenses that already carry live `Settled` slips,
         which enter ONCE PER SLIP -- see the comment on that branch below.
@@ -490,6 +499,8 @@ def load_recorded_by_contains(
             ref = f'"{ledger.reference}"'
             description = f'"{ledger.description}"' if ledger.description else "NULL"
             status = ' AND status = %s' if ledger.status else ""
+            if ledger.still_waiting:
+                status += f" AND NOT ({ledger.still_waiting})"
             selects.append(
                 f"""
                 SELECT %s AS doctype, %s AS direction, name, amount::text AS amount,

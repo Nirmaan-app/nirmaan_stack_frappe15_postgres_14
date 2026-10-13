@@ -15,6 +15,12 @@ Received.
 * `update_waiting_refund` -- its creator or an Accountant. Amount and PO only while it waits (the rule
   is `services/vendor_refunds.money_edit_problem`, also enforced on every save by
   `integrations/controllers/vendor_refunds.guard_money_edit`); proof, UTR and description at any status.
+* `cancel_waiting_refund` (#1403) -- its creator or an Accountant. Cancelled: it counts for nothing and
+  holds nothing, so the PO's overpaid credit is free again. Nothing else moves; the PO stays locked
+  until its balance is cleared another way.
+* `mark_received_without_bank_line` (#1403) -- an Admin, with a reason. Received at once (the refund
+  hook runs the PO sync: paid amount, adjustment balance and lock, vendor credit) and marked
+  `no_bank_line` ("No bank proof") until a Bulk Import credit line is matched to it.
 
 The Vendor Refunds DocPerms give these users read only, so both write with `ignore_permissions` behind
 the profile checks here: these checks are the enforcement boundary.
@@ -29,14 +35,19 @@ from nirmaan_stack.services.role_profiles import (
     ADJUST_PAYMENTS_PROFILES,
     REFUND_ACCOUNTANT_PROFILES,
     has_role_profile,
+    is_nirmaan_admin,
 )
 from nirmaan_stack.services.vendor_refunds import (
+    CANCELLED,
     PROCUREMENT_ORDERS,
     RECONCILIATION_PENDING,
     VENDOR_REFUNDS,
+    cancel_problem,
     document_project,
     held_on,
     money_edit_problem,
+    no_bank_line_problem,
+    no_bank_line_values,
 )
 
 #: The realtime event "Adjust Payments" already listens to; the PO page refetches on it.
@@ -68,9 +79,27 @@ def _po(po_id: str) -> dict:
     return po
 
 
-def _publish(po_ids, refund: str) -> None:
+def _publish(po_ids, refund: str, status: str = "waiting_refund") -> None:
     for po_id in sorted({p for p in po_ids if p}):
-        frappe.publish_realtime(event=_EVENT, message={"po_id": po_id, "status": "waiting_refund", "refund": refund})
+        frappe.publish_realtime(event=_EVENT, message={"po_id": po_id, "status": status, "refund": refund})
+
+
+def _is_creator_or_accountant(doc, user: str) -> bool:
+    """Its creator or an Accountant: who may cancel a waiting refund."""
+    is_creator = bool(doc.waiting_created_by) and doc.waiting_created_by == user
+    return is_creator or has_role_profile(user, REFUND_ACCOUNTANT_PROFILES)
+
+
+def _credit_after(doc) -> dict:
+    """What a cancel or mark answers with: the refund, its status, and its PO's held and spendable
+    credit (0 for a refund not against a PO: credit is PO-only)."""
+    po_id = doc.document_name if doc.document_type == PROCUREMENT_ORDERS else None
+    return {
+        "refund": doc.name,
+        "status": doc.status,
+        "held_credit": held_on(po_id) if po_id else 0.0,
+        "usable_credit": usable_po_credit(po_id) if po_id else 0.0,
+    }
 
 
 @frappe.whitelist(methods=["POST"])
@@ -172,3 +201,50 @@ def update_waiting_refund(
     frappe.db.commit()
     _publish([old_po, doc.document_name], doc.name)
     return {"refund": doc.name, "status": doc.status, "amount": flt(doc.amount), "po_id": doc.document_name}
+
+
+@frappe.whitelist(methods=["POST"])
+def cancel_waiting_refund(refund: str):
+    """Cancel a waiting Vendor Refund whose bank line will never come (#1403).
+
+    Its creator or an Accountant. The record stays, Cancelled: it lowers nothing and holds nothing, so
+    its PO's overpaid credit is free again. The refund hook moves no money for it (it never lowered the
+    paid amount), so the PO stays locked until its balance is cleared another way.
+    Returns `{refund, status, held_credit, usable_credit}`.
+    """
+    doc = frappe.get_doc(VENDOR_REFUNDS, refund, for_update=True)
+    if not _is_creator_or_accountant(doc, frappe.session.user):
+        raise frappe.PermissionError(
+            _("Only the person who recorded this refund as waiting, or an Accountant, can cancel it.")
+        )
+    problem = cancel_problem(doc.status)
+    if problem:
+        frappe.throw(problem)
+    doc.status = CANCELLED
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    _publish([doc.document_name], doc.name, "refund_cancelled")
+    return _credit_after(doc)
+
+
+@frappe.whitelist(methods=["POST"])
+def mark_received_without_bank_line(refund: str, reason: str | None = None):
+    """Make a waiting Vendor Refund count without its bank line (#1403). Admin only, reason required.
+
+    It becomes Received, so its save fires the refund hook and the PO sync: the paid amount drops, the
+    adjustment balance clears (the lock lifts at Done) and the vendor's credit is recounted. It keeps
+    the "No bank proof" mark (`no_bank_line`, with who, when and why) until a Bulk Import credit line
+    is matched to it. Returns `{refund, status, held_credit, usable_credit}`.
+    """
+    user = frappe.session.user
+    if not is_nirmaan_admin(user):
+        raise frappe.PermissionError(_("Only an Admin can mark a refund Received with no bank line."))
+    doc = frappe.get_doc(VENDOR_REFUNDS, refund, for_update=True)
+    problem = no_bank_line_problem(doc.status, reason)
+    if problem:
+        frappe.throw(problem)
+    doc.update(no_bank_line_values(user, reason, frappe.utils.now_datetime()))
+    doc.save(ignore_permissions=True)
+    frappe.db.commit()
+    _publish([doc.document_name], doc.name, "refund_received_without_bank_line")
+    return _credit_after(doc)

@@ -25,6 +25,11 @@ _FIELDS = [
     "status",
     # Who recorded it as waiting from Adjust Payments (#1400); blank for a refund made from a bank line.
     "waiting_created_by",
+    # Received with no bank line (#1403): the "No bank proof" badge, with who marked it, when and why.
+    "no_bank_line",
+    "no_bank_line_by",
+    "no_bank_line_at",
+    "no_bank_line_reason",
     "utr",
     "payment_date",
     "description",

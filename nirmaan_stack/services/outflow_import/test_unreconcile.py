@@ -1021,6 +1021,17 @@ class TestAMatchedWaitingRefund(unittest.TestCase):
             "UTR and date it had before the match.",
         )
 
+    def test_a_refund_marked_received_with_no_bank_line_goes_back_to_that_and_keeps_counting(self):
+        """#1403: it was Received before the line was matched to it, so undoing the match leaves it
+        Received, with its "No bank proof" mark back."""
+        verdict = leg_verdict(matched_refund(refund_no_bank_line_before=True))
+        self.assertEqual(verdict.verdict, VERDICT_UNMATCH_REFUND)
+        self.assertEqual(
+            verdict.what_happens,
+            "Goes back to Received with no bank line (No bank proof). It still counts on its PO, and "
+            "keeps the UTR and date it had before the match.",
+        )
+
     def test_a_refund_the_import_created_is_still_deleted(self):
         verdict = leg_verdict(matched_refund(created_by_import=True))
         self.assertEqual(verdict.verdict, VERDICT_DELETE_CREATED)

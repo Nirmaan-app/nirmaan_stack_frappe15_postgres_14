@@ -19,6 +19,10 @@ WAITING REFUNDS (#1400): "Adjust Payments" records one at Reconciliation Pending
 (`api/vendor_refunds/waiting_refunds`); it holds its amount of the PO's overpaid credit. Only while it
 waits may its amount or PO change, and only by its creator (`waiting_created_by`) or an Accountant
 (`integrations/controllers/vendor_refunds.guard_money_edit`). A Cancelled refund skips the cap below.
+
+WAYS OUT (#1403): its creator or an Accountant may Cancel a waiting refund; an Admin may mark it Received
+with no bank line (`no_bank_line` + by / at / reason, the "No bank proof" badge) until a Bulk Import credit
+line is matched to it (`api/vendor_refunds/waiting_refunds`).
 """
 
 import frappe

@@ -50,7 +50,9 @@ def _user_with_profile(profiles, exclude=()):
     return None
 
 
-class TestRecordAWaitingRefund(unittest.TestCase):
+class WaitingRefundFixture(unittest.TestCase):
+    """Raw-SQL overpaid POs on a real vendor and project, purged by name; the vendor's credit put back."""
+
     def setUp(self):
         frappe.set_user("Administrator")
         self.project = frappe.db.get_value("Projects", {}, "name")
@@ -148,6 +150,9 @@ class TestRecordAWaitingRefund(unittest.TestCase):
         frappe.set_user(user)
         return user
 
+
+
+class TestRecordAWaitingRefund(WaitingRefundFixture):
     # ── recording ───────────────────────────────────────────────────────────────
 
     def test_a_waiting_refund_counts_for_nothing_and_holds_its_credit(self):

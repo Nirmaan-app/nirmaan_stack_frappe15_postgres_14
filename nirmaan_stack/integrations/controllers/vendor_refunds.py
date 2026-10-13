@@ -26,6 +26,7 @@ from nirmaan_stack.api.invoices._item_billing_sync import recompute_document_amo
 from nirmaan_stack.api.po_adjustments.refund_links import sync_po_refund_links, unlink_refund
 from nirmaan_stack.services.role_profiles import REFUND_ACCOUNTANT_PROFILES, has_role_profile
 from nirmaan_stack.services.vendor_refunds import (
+    LOWERS_PAID_STATUSES,
     PROCUREMENT_ORDERS,
     REFUND_DOCUMENT_FIELDS,
     amount_paid_of,
@@ -112,6 +113,7 @@ def _identity(doc) -> tuple:
 
 
 def _money_fields(doc) -> tuple:
-    """What a refund's money depends on. The STATUS is one (#1398): only a Received refund lowers the
-    paid amount, so a refund turning Received, or leaving it, moves money with nothing else changed."""
-    return (doc.document_type, doc.document_name, flt(doc.amount), doc.status)
+    """What a refund's money depends on. The STATUS counts only through "does it lower the paid
+    amount" (#1398): a refund turning Received, or leaving it, moves money with nothing else changed,
+    while a waiting refund being Cancelled (#1403) moves none -- it lowered nothing before either."""
+    return (doc.document_type, doc.document_name, flt(doc.amount), doc.status in LOWERS_PAID_STATUSES)

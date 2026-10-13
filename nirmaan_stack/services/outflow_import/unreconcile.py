@@ -148,6 +148,11 @@ WHAT_HAPPENS_UNMATCH_REFUND = (
     "Goes back to waiting for its bank line (Reconciliation Pending). It is kept, with the UTR and "
     "date it had before the match."
 )
+# #1403: a refund an Admin marked Received with no bank line before the line was matched to it.
+WHAT_HAPPENS_UNMATCH_NO_BANK_LINE_REFUND = (
+    "Goes back to Received with no bank line (No bank proof). It still counts on its PO, and keeps the "
+    "UTR and date it had before the match."
+)
 
 #: The fields a created record's settle writes after it exists -- the statement attachment
 #: (`settle._STATEMENT_ATTACHMENT_FIELDS`, spelled here because this module may not import settle).
@@ -181,6 +186,7 @@ __all__ = [
     "VERDICT_UNLINK_EXPENSE_LINE",
     "VERDICT_UNMATCH_REFUND",
     "VERDICT_UNSPLIT_PAYMENT",
+    "WHAT_HAPPENS_UNMATCH_NO_BANK_LINE_REFUND",
     "WHAT_HAPPENS_UNMATCH_REFUND",
     "WHOLE_LINE_ONLY_REFUSAL",
     "WHOLE_LINE_ONLY_TITLE",
@@ -251,6 +257,9 @@ class LegFacts:
     versions: tuple = ()
     # EXPENSES ONLY (#1300): every OTHER slip on the expense (`ExpenseSlip`), live or Reversed.
     other_slips: tuple = ()
+    # MATCHED VENDOR REFUNDS ONLY (#1403): an Admin had marked it Received with no bank line before
+    # this line was matched to it, so undoing the match leaves it Received with that mark back.
+    refund_no_bank_line_before: bool = False
 
 
 @dataclass(frozen=True)
@@ -510,7 +519,13 @@ def _unmatch_refund_verdict(facts: LegFacts) -> LegVerdict:
             f"it, so this match cannot be safely undone.",
         )
     return LegVerdict(
-        leg=facts.leg, verdict=VERDICT_UNMATCH_REFUND, what_happens=WHAT_HAPPENS_UNMATCH_REFUND
+        leg=facts.leg,
+        verdict=VERDICT_UNMATCH_REFUND,
+        what_happens=(
+            WHAT_HAPPENS_UNMATCH_NO_BANK_LINE_REFUND
+            if facts.refund_no_bank_line_before
+            else WHAT_HAPPENS_UNMATCH_REFUND
+        ),
     )
 
 

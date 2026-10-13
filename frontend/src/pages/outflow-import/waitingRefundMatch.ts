@@ -22,6 +22,8 @@ export interface WaitingRefund {
     payment_date: string | null;
     utr: string | null;
     waiting_created_by: string | null;
+    /** 1 on a refund an Admin marked Received with no bank line (#1403): it already counts. */
+    no_bank_line?: number | null;
     creation: string;
 }
 

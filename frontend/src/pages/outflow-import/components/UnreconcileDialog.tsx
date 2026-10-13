@@ -227,7 +227,8 @@ export const UnreconcilePanel = ({
                 <p className="text-xs text-muted-foreground">
                     Vendor refunds on a transfer are undone together: Reverse all undoes every vendor
                     refund on it, and the transfer goes back to needing a record. A refund made from
-                    this transfer is deleted; a waiting refund it was matched to goes back to waiting.
+                    this transfer is deleted; a waiting refund it was matched to goes back to waiting,
+                    and one an Admin had marked received goes back to "No bank proof".
                 </p>
             )}
 
