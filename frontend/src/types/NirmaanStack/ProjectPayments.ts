@@ -40,6 +40,8 @@ export interface ProjectPayments{
 	cheque_date?: string
 	/**	Cheque : Link - Cheques (read-only) — the Cheque the payment is on, set by the cheques service */
 	cheque?: string | null
+	/**	On Hold : Check — an Approved payment held back from being paid */
+	on_hold?: 0 | 1
 	/**
 	 * Payment TDS : Link - Payment TDS Deduction (read-only)
 	 *

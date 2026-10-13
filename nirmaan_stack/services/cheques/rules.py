@@ -294,3 +294,58 @@ def request_duplicate_problem(header: ChequeHeader) -> str:
         f"cheque. To put this payment on {header.cheque_no}, request it as Online, then add it to the "
         f"cheque in Reports, Cheque Payments."
     )
+
+
+def convert_duplicate_problem(header: ChequeHeader) -> str:
+    """The refusal when Convert to Cheque or Link a new cheque (#1416) names a bank + cheque number
+    already recorded. Both make a new Cheque; joining an existing one is done from the report."""
+    label = bank_label(header.bank or "", header.bank_name)
+    return (
+        f"Cheque {header.cheque_no} ({label}) already exists. This makes a new cheque for the payment. "
+        f"To put this payment on {header.cheque_no}, add it to the cheque in Reports, Cheque Payments."
+    )
+
+
+def _cheque_text(cheque_no: str | None, cheque_status: str | None) -> str:
+    if not cheque_status:
+        return f"cheque {cheque_no}, which no Cheque record holds" if cheque_no else "a cheque"
+    return f"cheque {cheque_no} ({cheque_status})"
+
+
+def new_payment_cheque_problem(
+    payment: str,
+    *,
+    is_cheque: bool,
+    status: str | None,
+    cheque_no: str | None = None,
+    cheque_status: str | None = None,
+) -> str | None:
+    """Why `payment` cannot be put on a new one-line Cheque from the PO / Work Order page, or None (#1416).
+
+    An Online payment converts (Convert to Cheque). A Cheque payment gets a new Cheque only once its
+    Cheque is Cancelled (Link a new cheque); the old one stays, Cancelled, as history. A Rejected
+    payment is never put on a cheque. `cheque_status` is the status of the Cheque the payment names.
+    """
+    if (status or "").strip() == PAYMENT_REJECTED:
+        return f"Payment {payment} is Rejected and cannot be put on a cheque."
+    if is_cheque and cheque_status != CANCELLED:
+        return (
+            f"Payment {payment} is on {_cheque_text(cheque_no, cheque_status)}. A new cheque can be "
+            "linked only once that cheque is Cancelled."
+        )
+    return None
+
+
+def switch_to_online_problem(
+    payment: str, *, is_cheque: bool, cheque_no: str | None = None, cheque_status: str | None = None
+) -> str | None:
+    """Why a payment cannot be switched back to Online, or None (#1416). Only a Cheque payment whose
+    Cheque is Cancelled goes back: a Cheque payment always has a live or Cancelled Cheque behind it."""
+    if not is_cheque:
+        return f"Payment {payment} is already Online."
+    if cheque_status != CANCELLED:
+        return (
+            f"Payment {payment} goes back to Online only once its cheque is Cancelled; it is on "
+            f"{_cheque_text(cheque_no, cheque_status)}."
+        )
+    return None

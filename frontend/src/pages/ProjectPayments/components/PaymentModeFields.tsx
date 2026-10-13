@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import { CHEQUE_BANK, type ChequeBank } from "@/types/NirmaanStack/Cheques";
 import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
 import { chequeReportPath } from "@/utils/cheques/chequeReportLink";
+import { newChequeDuplicateText } from "@/utils/cheques/paymentChequeActions";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { getFrappeError } from "@/utils/frappeErrors";
 
@@ -45,20 +46,38 @@ interface Props {
 	/** The PO / Work Order's Vendor, whom the cheque is made out to: the photo's payee is checked against it. */
 	vendor?: string;
 	disabled?: boolean;
+	/**
+	 * `request` (default): a Request Payment dialog, Online or Cheque. `new_cheque`: Convert to Cheque /
+	 * Link a new cheque on an existing payment (#1416): always Cheque, no mode choice, the refusal worded for it.
+	 */
+	purpose?: "request" | "new_cheque";
 }
 
 const Required = () => <span className="ml-0.5 text-red-500">*</span>;
 
 /**
  * Online / Cheque. Shared by every Project Payment request dialog (the PO page's payment terms, the
- * Work Order page, Credits).
+ * Work Order page, Credits), and by Convert to Cheque / Link a new cheque in Transaction Details
+ * (`purpose="new_cheque"`, #1416).
  *
  * Cheque mode (#1414, spec #1407) starts from the cheque's photo: it is uploaded, read, and what it
  * says fills the bank, number, date and amount, tagged "From photo". On Submit the server makes the
  * payment and a new Cheque with one line for it. A bank + number already recorded is shown here,
  * with a link to that Cheque, and the request stays disabled (`isPaymentModeComplete`).
  */
-export const PaymentModeFields = ({ value, onChange, amount, tds = null, companyBorne = false, vendor, disabled }: Props) => {
+export const PaymentModeFields = ({
+	value,
+	onChange,
+	amount,
+	tds = null,
+	companyBorne = false,
+	vendor,
+	disabled,
+	purpose = "request",
+}: Props) => {
+	const isRequest = purpose === "request";
+	/** The soft warnings never block: what the user can still do. */
+	const goAhead = isRequest ? "request" : "save";
 	const isCheque = value.mode === PAYMENT_MODE_CHEQUE;
 	const chequeAmount = amount !== undefined ? chequeAmountFor(amount, tds) : undefined;
 
@@ -111,24 +130,26 @@ export const PaymentModeFields = ({ value, onChange, amount, tds = null, company
 
 	return (
 		<div className="space-y-2 rounded-md border px-3 py-2">
-			<div className="flex items-center gap-4">
-				<span className="text-sm font-medium">Mode of Payment</span>
-				<RadioGroup
-					value={value.mode}
-					onValueChange={(mode) => set({ mode: mode as PaymentMode })}
-					className="flex gap-4"
-					disabled={disabled}
-				>
-					<div className="flex items-center gap-1.5">
-						<RadioGroupItem value={PAYMENT_MODE_ONLINE} id="pay-mode-online" />
-						<Label htmlFor="pay-mode-online">Online</Label>
-					</div>
-					<div className="flex items-center gap-1.5">
-						<RadioGroupItem value={PAYMENT_MODE_CHEQUE} id="pay-mode-cheque" />
-						<Label htmlFor="pay-mode-cheque">Cheque</Label>
-					</div>
-				</RadioGroup>
-			</div>
+			{isRequest && (
+				<div className="flex items-center gap-4">
+					<span className="text-sm font-medium">Mode of Payment</span>
+					<RadioGroup
+						value={value.mode}
+						onValueChange={(mode) => set({ mode: mode as PaymentMode })}
+						className="flex gap-4"
+						disabled={disabled}
+					>
+						<div className="flex items-center gap-1.5">
+							<RadioGroupItem value={PAYMENT_MODE_ONLINE} id="pay-mode-online" />
+							<Label htmlFor="pay-mode-online">Online</Label>
+						</div>
+						<div className="flex items-center gap-1.5">
+							<RadioGroupItem value={PAYMENT_MODE_CHEQUE} id="pay-mode-cheque" />
+							<Label htmlFor="pay-mode-cheque">Cheque</Label>
+						</div>
+					</RadioGroup>
+				</div>
+			)}
 
 			{isCheque && (
 				<>
@@ -247,9 +268,9 @@ export const PaymentModeFields = ({ value, onChange, amount, tds = null, company
 							<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 							{amountHint.kind === "gross"
 								? `The cheque is for the gross amount, ${formatToIndianRupee(amountHint.gross)}. ` +
-									`Write it for ${formatToIndianRupee(amountHint.expected)}, after ${formatToIndianRupee(amountHint.tds)} TDS. You can still request it.`
+									`Write it for ${formatToIndianRupee(amountHint.expected)}, after ${formatToIndianRupee(amountHint.tds)} TDS. You can still ${goAhead} it.`
 								: `The cheque is for ${formatToIndianRupee(Number(value.amount))}, but this payment's cheque should be ` +
-									`${formatToIndianRupee(amountHint.expected)}. Check the amount; you can still request it.`}
+									`${formatToIndianRupee(amountHint.expected)}. Check the amount; you can still ${goAhead} it.`}
 						</p>
 					)}
 					{photoPayee && (
@@ -262,24 +283,26 @@ export const PaymentModeFields = ({ value, onChange, amount, tds = null, company
 						<p className="flex items-start gap-1.5 text-xs text-amber-700">
 							<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 							The payee on the photo ({payeeMismatch.payee}) does not look like {payeeMismatch.vendorName}, this
-							order's Vendor. Check the photo; you can still request it.
+							order's Vendor. Check the photo; you can still {goAhead} it.
 						</p>
 					)}
 					{existing && (
 						<div className="flex items-start gap-1.5 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-xs text-red-700">
 							<Ban className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 							<span>
-								{existing.message}{" "}
+								{isRequest ? existing.message : newChequeDuplicateText(existing)}{" "}
 								<Link to={chequeReportPath(existing.cheque_no)} target="_blank" className="font-medium underline">
 									Open cheque {existing.cheque_no}
 								</Link>
 							</span>
 						</div>
 					)}
-					<p className="text-[11px] text-muted-foreground">
-						This payment gets its own new cheque. Once approved, a cheque payment goes straight to
-						Reconciliation Pending.
-					</p>
+					{isRequest && (
+						<p className="text-[11px] text-muted-foreground">
+							This payment gets its own new cheque. Once approved, a cheque payment goes straight to
+							Reconciliation Pending.
+						</p>
+					)}
 				</>
 			)}
 		</div>
