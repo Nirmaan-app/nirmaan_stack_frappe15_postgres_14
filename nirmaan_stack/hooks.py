@@ -411,6 +411,11 @@ doc_events = {
         "before_rename": "nirmaan_stack.integrations.controllers.project_billing.package_before_rename",
         "on_trash": "nirmaan_stack.integrations.controllers.project_billing.package_on_trash",
     },
+    # Header rules + bank / cheque number uniqueness on every write path (spec #1407). The
+    # cheques service (`services/cheques/writer.py`) is the only code that writes a Cheque.
+    "Cheques": {
+        "validate": "nirmaan_stack.integrations.controllers.cheques.validate",
+    },
     "Material Test Certificate": {
         "validate": "nirmaan_stack.integrations.controllers.material_test_certificate.validate",
         "on_trash": "nirmaan_stack.integrations.controllers.material_test_certificate.on_trash",

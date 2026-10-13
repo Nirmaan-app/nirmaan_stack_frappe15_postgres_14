@@ -2,11 +2,11 @@ import { create } from 'zustand';
 import { PMO_PROJECT_REPORTS, REPORTS_TABS } from '../constants'; // Adjust path
 import {
     MATERIAL_PROCUREMENT_PROFILES,
-    PAYMENT_TDS_ACCESS,
     PROCUREMENT_PROFILES,
     SERVICE_PROCUREMENT_PROFILES,
     isProcurementProfile,
 } from "@/constants/roles";
+import { paymentTabReports } from '../config/paymentTab.config';
 
 export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report(Project)' | 'Outflow Report(Non-Project)' | 'Project Invoices' | 'Project Progress Report' | 'Inventory Report' | 'Project GST' | 'Monthly WIP';
 
@@ -21,7 +21,7 @@ export type SROption = 'Pending Invoices' | 'PO with Excess Payments' | '2B Reco
 
 export type DCMIRReportType = 'DC Report' | 'MIR Report';
 
-// The "Payment" tab: the Tax Deducted at Source ledger, and every payment made by cheque.
+// The "Payment" tab: the Tax Deducted at Source ledger, and every Cheque (spec #1407).
 export type PaymentTDSReportType = 'TDS Deduction' | 'Cheque Payment';
 
 // Combined type for any selectable report
@@ -93,12 +93,9 @@ const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): Repo
         }
         return null;
     } else if (tab === REPORTS_TABS.PAYMENT_TDS) {
-        // Reads the SAME constant as the tab itself and the legacy-route redirect, so the
-        // default can never name a report the user's own dropdown does not offer.
-        if (PAYMENT_TDS_ACCESS.includes(userRole || "")) {
-            return 'TDS Deduction';
-        }
-        return null;
+        // Reads the SAME helper as the tab itself and its dropdown, so the default can never
+        // name a report the user's own dropdown does not offer (Procurement: Cheque Payment).
+        return paymentTabReports(userRole)[0] ?? null;
     }
     return null; // Default fallback
 };

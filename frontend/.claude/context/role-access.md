@@ -327,8 +327,14 @@ queue — edit & revert" below).
 | Vendors | Y | Y | Y | - | - | Y |
 | PO | Y | Y | Y | Limited* | Y | Y |
 | WO (SR) | Y | Y | Y | - | Y | Y |
+| Payment › TDS Deduction | Y | - | - | - | - | Y |
+| Payment › Cheque Payment | Y | - | - | - | Y | Y |
 
 *Project Manager only sees "Dispatched for 1+ days" report
+
+The Payment tab's two reports are gated by `pages/reports/config/paymentTab.config.ts` (`PAYMENT_TDS_ACCESS`
+for TDS Deduction; `CHEQUE_ACCESS_PROFILES` for Cheque Payment, spec #1407). The Cheque Payment gate is enforced
+on the server by `services/role_profiles.CHEQUE_ACCESS_PROFILES` in every `api/cheques/` endpoint.
 
 **Key files:** `ReportsContainer.tsx:49,130,136,144,150,183,185`
 

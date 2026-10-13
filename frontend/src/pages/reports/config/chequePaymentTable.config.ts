@@ -1,120 +1,65 @@
 import { SearchFieldOption } from "@/components/data-table/new-data-table";
-import { AggregationConfig, GroupByConfig, GroupByResultItem } from "@/hooks/useServerDataTable";
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
+import type { ChequeBank, ChequeMadeFrom, ChequeStatus } from "@/types/NirmaanStack/Cheques";
+import { formatDate } from "@/utils/FormatDate";
 
 /**
- * Reports > Payment > Cheque Payment: every Project Payment (PO and WO) requested as a cheque,
- * at every status. The PO / WO figures come from a second, batched read (see
- * `utils/chequePaymentExtras.ts`) because `document_name` is a Dynamic Link the list query cannot join.
+ * Reports > Payment > Cheque Payment: one row per Cheque (spec #1407), served by
+ * `api/cheques/list_cheques.get_cheques` (the `useServerDataTable` custom-endpoint contract).
  */
-export const CHEQUE_PAYMENT_DOCTYPE = "Project Payments";
+export const CHEQUES_DOCTYPE = "Cheques";
+export const CHEQUES_LIST_API = "nirmaan_stack.api.cheques.list_cheques.get_cheques";
+/** Published by the backend after every Cheque write. */
+export const CHEQUES_CHANGED_EVENT = "cheques:changed";
 
-export const CHEQUE_PAYMENT_BASE_FILTERS: [string, string, string][] = [["mode_of_payment", "=", "Cheque"]];
-
-/** `project` / `vendor` also bring back `project_name` / `vendor_name` (data_table LINK_FIELD_MAP). */
-export const CHEQUE_PAYMENT_FIELDS: string[] = [
-    "name",
-    "creation",
-    "owner",
-    "document_type",
-    "document_name",
-    "project",
-    "vendor",
-    "amount",
-    "status",
-    "cheque_no",
-    "cheque_date",
-    "approval_date",
-    "ceo_approval_date",
-    "payment_date",
-    "utr",
-    "on_hold",
-    "payment_attachment",
-];
-
-export const CHEQUE_PAYMENT_SEARCHABLE_FIELDS: SearchFieldOption[] = [
-    { value: "cheque_no", label: "Cheque No", default: true },
-    { value: "document_name", label: "PO / WO No" },
-    { value: "name", label: "Payment ID" },
-    { value: "utr", label: "UTR / Ref" },
-];
-
-export const CHEQUE_PAYMENT_DATE_COLUMNS = ["cheque_date", "creation", "payment_date"];
-
-/** Off by default; each one is a tick away in the column toggle (and always in the CSV). */
-export const CHEQUE_PAYMENT_HIDDEN_COLUMNS: Record<string, boolean> = {
-    cheque_payment_count: false,
-    days_outstanding: false,
-    gross: false,
-    approved_on: false,
-    utr: false,
-    on_hold: false,
-    payment_attachment: false,
-    order_status: false,
-    order_amount_paid: false,
-    order_amount_invoiced: false,
-    order_balance: false,
-};
-
-/** Both describe the WHOLE filtered set (search + column filters), not the visible page. */
-export const CHEQUE_PAYMENT_AGGREGATES: AggregationConfig[] = [{ field: "amount", function: "sum" }];
-
-export const CHEQUE_PAYMENT_STATUS_SUMS: GroupByConfig = {
-    groupByField: "status",
-    aggregateField: "amount",
-    aggregateFunction: "sum",
-    // Six statuses exist; the backend default of 5 would silently drop one.
-    limit: 20,
-};
-
-/** The summary strip's buckets, in the order a cheque moves through them. */
-export const CHEQUE_BUCKETS = [
-    { key: "awaiting", label: "Awaiting approval", statuses: ["Requested", "CEO Pending"] },
-    { key: "issued", label: "Issued, not cleared", statuses: ["Approved", "Reconciliation Pending"] },
-    { key: "cleared", label: "Cleared", statuses: ["Paid"] },
-    { key: "rejected", label: "Rejected", statuses: ["Rejected"] },
-] as const;
-
-export type ChequeBucketKey = (typeof CHEQUE_BUCKETS)[number]["key"];
-
-export interface ChequeSummary {
-    total: { count: number; amount: number };
-    buckets: Record<ChequeBucketKey, number>;
+/** One row of the report, exactly as `get_cheques` returns it. */
+export interface ChequeRow {
+    name: string;
+    creation: string;
+    owner: string;
+    owner_name?: string | null;
+    cheque_no: string;
+    bank: ChequeBank;
+    bank_name?: string | null;
+    /** The typed name for an Others bank, else the bank. */
+    bank_label: string;
+    cheque_date: string;
+    status: ChequeStatus;
+    amount: number;
+    description?: string | null;
+    vendor?: string | null;
+    vendor_name?: string | null;
+    payee_name?: string | null;
+    attachment?: string | null;
+    made_from: ChequeMadeFrom;
+    /** The newest status-history row: who made the last change, and when. */
+    status_changed_by?: string | null;
+    status_changed_by_name?: string | null;
+    status_changed_at?: string | null;
 }
 
-const num = (v: unknown) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-};
+/** Nominal: the endpoint fixes the row shape. */
+export const CHEQUE_FETCH_FIELDS: string[] = ["name"];
 
-/** Fold the per-status sums into the strip's buckets. A status outside every bucket is ignored. */
-export const summariseChequeStatuses = (
-    statusSums: GroupByResultItem[] | null | undefined,
-    aggregates: Record<string, unknown> | null | undefined,
-    totalCount: number,
-): ChequeSummary => {
-    const buckets = { awaiting: 0, issued: 0, cleared: 0, rejected: 0 } as Record<ChequeBucketKey, number>;
-    for (const row of statusSums || []) {
-        const bucket = CHEQUE_BUCKETS.find((b) => (b.statuses as readonly string[]).includes(row.group_key));
-        if (bucket) buckets[bucket.key] += num(row.aggregate_value);
-    }
-    return { total: { count: totalCount, amount: num(aggregates?.sum_of_amount) }, buckets };
-};
+export const CHEQUE_SEARCHABLE_FIELDS: SearchFieldOption[] = [
+    { value: "cheque_no", label: "Cheque No", default: true },
+    { value: "vendor_name", label: "Vendor" },
+    { value: "payee_name", label: "Payee" },
+    { value: "description", label: "Description" },
+];
 
-/** A cheque is only good for 3 months from its date. */
-export const CHEQUE_VALIDITY_DAYS = 90;
+export const CHEQUE_DATE_COLUMNS = ["cheque_date", "creation"];
 
-const UNCLEARED_STATUSES = new Set(["Requested", "CEO Pending", "Approved", "Reconciliation Pending"]);
+/** Who the cheque is made out to, as the table shows it: the Vendor (linked) or the typed payee. */
+export const payeeOf = (row: Pick<ChequeRow, "vendor" | "vendor_name" | "payee_name">): { label: string; vendor?: string } =>
+    row.vendor
+        ? { label: row.vendor_name || row.vendor, vendor: row.vendor }
+        : { label: row.payee_name || "" };
 
-/** Days since the cheque date while the cheque has not cleared; null once Paid / Rejected, or undated. */
-export const daysOutstanding = (
-    row: Pick<ProjectPayments, "status" | "cheque_date">,
-    today: Date = new Date(),
-): number | null => {
-    if (!row.cheque_date || !UNCLEARED_STATUSES.has(row.status)) return null;
-    const [y, m, d] = row.cheque_date.split("-").map(Number);
-    if (!y || !m || !d) return null;
-    const start = Date.UTC(y, m - 1, d);
-    const end = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
-    return Math.round((end - start) / 86_400_000);
+/** "by Ravi Kumar · 12-Oct-2026": the last status change, shown under the status. Empty when unknown. */
+export const statusChangeText = (
+    row: Pick<ChequeRow, "status_changed_by" | "status_changed_by_name" | "status_changed_at">,
+): string => {
+    const who = row.status_changed_by_name || row.status_changed_by;
+    if (!who || !row.status_changed_at) return "";
+    return `by ${who} · ${formatDate(row.status_changed_at)}`;
 };
