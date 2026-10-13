@@ -565,7 +565,7 @@ export function UserAssetsTab({
 
       {/* Unassign Asset Dialog */}
       <Dialog open={unassignDialogOpen} onOpenChange={setUnassignDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Unassign Asset</DialogTitle>
             <DialogDescription>

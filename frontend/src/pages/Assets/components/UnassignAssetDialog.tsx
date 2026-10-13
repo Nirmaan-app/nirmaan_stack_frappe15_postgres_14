@@ -92,7 +92,7 @@ export const UnassignAssetDialog: React.FC<UnassignAssetDialogProps> = ({
 
     return (
         <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
-            <AlertDialogContent>
+            <AlertDialogContent className="max-h-[90vh] overflow-y-auto">
                 <AlertDialogHeader>
                     <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-50">
                         <UserMinus className="h-6 w-6 text-red-600" />

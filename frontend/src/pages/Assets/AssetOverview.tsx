@@ -369,8 +369,10 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         userData?.user_id,
         userData?.role
     );
-    // For backward compatibility with existing canManageAssets usage in this file
-    const canManageAssets = canEditAsset || canAssignAsset;
+    // The action row (Download declaration, Assign/Unassign, Edit) and the attachment uploads.
+    // Procurement manages Project assets only, as with Assign (owner, 2026-10-13): on an IT asset --
+    // or before the kind is known -- they see none of it.
+    const canManageAssets = canEditAsset || (canAssignAsset && canAssignAssetType(currentCategoryType));
 
     // Check if current user can view credentials (admin roles OR assigned to the asset)
     const canViewCredentials = useMemo(() => {

@@ -32,13 +32,14 @@ export const DepartmentMoveNotice: React.FC<DepartmentMoveNoticeProps> = ({
 }) => {
     if (move?.from) {
         const tooShort = reason.trim().length > 0 && reason.trim().length < MIN_DEPARTMENT_REASON_LENGTH;
+        // Compact: one line of text and a two-line box, so the Assign dialog stays short.
         return (
-            <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3">
-                <div className="flex items-start gap-2 text-sm text-amber-900">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600" />
-                    <p className="leading-7">
-                        This asset belongs to <DepartmentBadge department={move.from} />. {personName} is in{' '}
-                        <DepartmentBadge department={move.to} />. Why are you moving it to {move.to}?
+            <div className="space-y-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2">
+                <div className="flex items-start gap-1.5 text-sm text-amber-900">
+                    <AlertTriangle className="mt-1 h-3.5 w-3.5 flex-shrink-0 text-amber-600" />
+                    <p className="leading-6">
+                        Moving from <DepartmentBadge department={move.from} /> to{' '}
+                        <DepartmentBadge department={move.to} />, {personName}'s department. Why?
                     </p>
                 </div>
                 <Label htmlFor="departmentChangeReason" className="sr-only">
@@ -50,12 +51,12 @@ export const DepartmentMoveNotice: React.FC<DepartmentMoveNoticeProps> = ({
                     onChange={(e) => onReasonChange(e.target.value)}
                     placeholder={`Reason (at least ${MIN_DEPARTMENT_REASON_LENGTH} characters)`}
                     rows={2}
-                    className="bg-white"
+                    className="min-h-[52px] resize-none bg-white"
                 />
                 <p className={`text-xs ${tooShort ? 'text-red-600' : 'text-amber-700'}`}>
                     {tooShort
-                        ? `Add a little more: at least ${MIN_DEPARTMENT_REASON_LENGTH} characters.`
-                        : `On Confirm, the asset moves to ${move.to} and the reason is kept in its history.`}
+                        ? `At least ${MIN_DEPARTMENT_REASON_LENGTH} characters.`
+                        : "The reason is kept in the asset's history."}
                 </p>
             </div>
         );
@@ -63,9 +64,9 @@ export const DepartmentMoveNotice: React.FC<DepartmentMoveNoticeProps> = ({
 
     if (move) {
         return (
-            <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-                <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
-                <p className="leading-7">
+            <div className="flex items-start gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                <Info className="mt-1 h-3.5 w-3.5 flex-shrink-0 text-blue-600" />
+                <p className="leading-6">
                     This asset has no department yet. It will be set to <DepartmentBadge department={move.to} />,{' '}
                     {personName}'s department.
                 </p>
@@ -75,9 +76,9 @@ export const DepartmentMoveNotice: React.FC<DepartmentMoveNoticeProps> = ({
 
     if (assetDepartment && !personDepartment && personName) {
         return (
-            <div className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
-                <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-gray-500" />
-                <p className="leading-7">
+            <div className="flex items-start gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                <Info className="mt-1 h-3.5 w-3.5 flex-shrink-0 text-gray-500" />
+                <p className="leading-6">
                     {personName} has no department yet, so the asset stays in{' '}
                     <DepartmentBadge department={assetDepartment} />. HR can set the department in Edit User.
                 </p>
