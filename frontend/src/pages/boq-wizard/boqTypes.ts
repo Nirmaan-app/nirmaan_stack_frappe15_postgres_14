@@ -154,24 +154,12 @@ export interface BoQSheetDraft {
    */
   parse_in_progress?: 0 | 1;
   /**
-   * AI-2c: 1 while this sheet is under an active AI pass (set at enqueue, cleared in the
-   * _publish_ai_event choke-point on completion). Mirror of parse_in_progress. The review
-   * screen reads this to disable "Run AI pass" + show the "AI pass running…" chip, and to
-   * recover an in-flight pass on mount. Flows automatically on useFrappeGetDoc("BOQs").
-   * NOTE: unlike parse_in_progress this does NOT make the screen read-only -- an AI pass
-   * only writes the ai_* suggestion fields, never human/parser data.
+   * 1 while the automatic check of this sheet is queued or running (set when the job is queued,
+   * cleared in the _publish_ai_event choke-point when it ends). Mirror of parse_in_progress. The
+   * review screen reads it for the "Checking rows…" chip. Flows automatically on
+   * useFrappeGetDoc("BOQs"). Unlike parse_in_progress it does NOT make the screen read-only.
    */
   ai_in_progress?: 0 | 1;
-  /**
-   * DUAL-AI (ADR-0003): 1 while this sheet is under an active GEMINI pass. Exact mirror of
-   * ai_in_progress for the gemini_* provider (set at enqueue in run_gemini_pass, cleared in the
-   * _publish_gemini_event choke-point on completion). The review screen reads this to disable
-   * "Run Gemini pass" + show the "Gemini pass running…" chip, and to recover an in-flight pass on
-   * mount. Flows automatically on useFrappeGetDoc("BOQs"). Like ai_in_progress (and UNLIKE
-   * parse_in_progress) this does NOT make the screen read-only -- a Gemini pass only writes the
-   * gemini_* suggestion fields, never human/parser data.
-   */
-  gemini_in_progress?: 0 | 1;
   /**
    * Per-sheet PARSE-failure stamp (Slice 1a, reactive #166). Ride the BOQs payload
    * (child-table fields on BoQ Sheet Draft) -- no separate fetch. category is one of the
@@ -258,10 +246,10 @@ export interface ParseRunDonePayload {
 }
 
 /**
- * Payload of the `boq:ai_pass_done` realtime event (AI-2c, ai_assist._publish_ai_event).
- * User-targeted; room-targeted + not replayed -- a client that misses it recovers via
- * get_ai_pass_status polling. Shape: {status, boq_name, sheet_name, **kwargs} where the
- * success kwarg is `count` and the error kwarg is `error_code` ("ai_failed" | "internal").
+ * Payload of the `boq:ai_pass_done` realtime event (ai_assist._publish_ai_event): the automatic
+ * check of a sheet ended. User-targeted and not replayed -- a client that misses it recovers via
+ * get_ai_pass_status polling. The review screen reads only WHICH sheet it is for and then reloads;
+ * it shows no text for either outcome (S4a).
  */
 export interface AiPassDonePayload {
   status: "success" | "error";
@@ -270,52 +258,6 @@ export interface AiPassDonePayload {
   count?: number;
   error_code?: string;
 }
-
-/**
- * Payload of the `boq:gemini_pass_done` realtime event (DUAL-AI, ADR-0003;
- * gemini_assist._publish_gemini_event). User-targeted; room-targeted + not replayed -- a
- * client that misses it recovers via get_gemini_pass_status polling. Shape:
- * {status, boq_name, sheet_name, **kwargs}. NOTE: unlike AiPassDonePayload (whose success
- * kwarg is `count`) the Gemini SUCCESS kwargs are `rows_done` + `token_total`; the ERROR
- * kwarg is `error_code` ("gemini_failed" | "internal"). Field names confirmed against
- * _publish_gemini_event / _run_gemini_pass_worker in gemini_assist.py.
- */
-export interface GeminiPassDonePayload {
-  status: "success" | "error";
-  boq_name: string;
-  sheet_name: string;
-  rows_done?: number;
-  token_total?: number;
-  error_code?: string;
-}
-
-/**
- * Response shape of run_gemini_pass (DUAL-AI, ADR-0003). Mirror of run_ai_pass's inline
- * return type, with TWO deliberate differences (confirmed vs gemini_assist.py):
- *   - NO `cached` field -- the Gemini module has NO result cache (only the missed-socket
- *     status fallback); a re-run is always a fresh enqueue.
- *   - adds `job_id` (the enqueued job id, or null) -- run_ai_pass does not return one.
- * Pre-flight {ok:false} rejections set `error` to one of:
- *   "not_parsed" | "gemini_disabled" | "frozen" | "parsing" | "in_progress".
- * The unwrapped frappe-react-sdk `message` is this object.
- * URL: nirmaan_stack.api.boq.wizard.gemini_assist.run_gemini_pass
- */
-export interface RunGeminiPassResponse {
-  ok: boolean;
-  error?: string;
-  enqueued?: boolean;
-  job_id?: string | null;
-}
-
-/**
- * Response shape of get_gemini_pass_status (DUAL-AI, ADR-0003). Mirror of the Claude-side
- * AiStatusResponse: EITHER the cached terminal GeminiPassDonePayload, OR the idle shape
- * carrying the live gemini_in_progress flag (note: gemini_in_progress, NOT ai_in_progress).
- * URL: nirmaan_stack.api.boq.wizard.gemini_assist.get_gemini_pass_status
- */
-export type GeminiStatusResponse =
-  | GeminiPassDonePayload
-  | { status: "idle_or_unknown"; gemini_in_progress: 0 | 1 };
 
 export interface BOQsDoc {
   name: string;
@@ -532,62 +474,15 @@ export interface ReviewRow {
   // Whole-sheet-derived on every get_review_rows read, so re-parenting cascades to descendants.
   // ParentChain reads it to render an L{n} chip on preamble crumbs only.
   effective_level: number | null;
-  // AI suggestion layer (AI-1 / AI-2d). Written by the AI pass (run_ai_pass worker)
-  // + the accept/reject endpoint; never by the parser or human edit layer. Applied by
-  // resolve_effective ONLY when ai_suggestion_status === "Accepted" and no human override
-  // (the four-layer chain: human_is_root > human_parent > ai_suggested_is_root >
-  // ai_suggested_parent > parser). -1 sentinel on ai_suggested_parent = "no parent-index
-  // suggestion" (root is carried by ai_suggested_is_root, AI-2d). AI-3a surfaces these
-  // read-only (badges + status + tint); the accept/reject flow is AI-3b.
-  ai_suggested_classification?: string | null;
-  ai_classification_confidence?: "High" | "Medium" | "Low" | null;
-  ai_suggested_parent?: number | null;
-  ai_parent_confidence?: "High" | "Medium" | "Low" | null;
-  ai_suggested_is_root?: 0 | 1;
-  ai_explanation?: string | null;
-  ai_suggestion_status?: "Pending" | "Accepted" | "Rejected" | null;
-  // AI-3c-2b: true when an AI acceptance on this row can still be reverted (the backend
-  // captured a pre-accept snapshot on accept; cleared by a later classification/parent edit
-  // or by finalize). Computed by get_review_rows from ai_accept_snapshot; the raw blob is
-  // never shipped. Drives the Revert AI change button (enabled iff revert_available && !readOnly).
-  revert_available?: boolean;
-  // R3a (ADR-0006): true when the row is NOT at the parser baseline -- it carries a standing
-  // change, i.e. an accepted AI suggestion (either provider's *_suggestion_status === "Accepted")
-  // OR a manual human_* override. Computed by get_review_rows. AI Apply (Claude or Gemini) is
-  // DISABLED while this is true (apply must never silently overwrite a standing decision); the
-  // unified "Revert to parser" affordance is shown whenever it is true and restores the row (and
-  // any children a restructure moved) to the parser baseline, after which AI Apply re-enables.
+  // True when the row is NOT at its parsed baseline -- it carries a standing change (a manual
+  // human_* override, or a suggestion accepted before S4a). Computed by get_review_rows. The
+  // "Revert to parser" affordance is shown whenever it is true.
   has_override?: boolean;
-
-  // ── DUAL-AI (ADR-0003) -- GEMINI suggestion layer. ADDITIVE-ONLY. ───────────────
-  // EXACT mirror of the ai_* block above for the second provider (Gemini), same optionality
-  // and union types. Written by the Gemini pass (run_gemini_pass worker) + the
-  // accept/reject/revert gemini endpoints; never by the parser or the human edit layer.
-  // resolve_effective is CLAUDE-ONLY -- it does NOT read or echo any gemini_* field, so these
-  // are surfaced purely from get_review_rows's explicit fetch list (read-only display +
-  // the symmetric accept/reject/revert flow). -1 sentinel on gemini_suggested_parent =
-  // "no parent-index suggestion" (root is carried by gemini_suggested_is_root). The status
-  // badge is SOURCE-TAGGED ("Accepted · Gemini") when gemini_suggestion_status === "Accepted";
-  // only one of ai_suggestion_status / gemini_suggestion_status can be "Accepted" at a time.
-  gemini_suggested_classification?: string | null;
-  gemini_classification_confidence?: "High" | "Medium" | "Low" | null;
-  gemini_suggested_parent?: number | null;
-  gemini_parent_confidence?: "High" | "Medium" | "Low" | null;
-  gemini_suggested_is_root?: 0 | 1;
-  gemini_explanation?: string | null;
-  gemini_suggestion_status?: "Pending" | "Accepted" | "Rejected" | null;
-  // DUAL-AI mirror of revert_available: true when a Gemini acceptance on this row can still be
-  // reverted (the backend captured gemini_accept_snapshot on accept; cleared by a later
-  // classification/parent edit, a Claude accept routed through the chokepoint, or finalize).
-  // Computed by get_review_rows from gemini_accept_snapshot; the raw blob is never shipped.
-  // Drives the Revert Gemini change button (enabled iff gemini_revert_available && !readOnly).
-  gemini_revert_available?: boolean;
-  // The audit-only "winning" Source for this row (parser/claude/gemini/manual), set ENTIRELY by
-  // the shared write chokepoint (_apply_and_save_row_edit) from the edit reason string. MINIMUM
-  // UI FOOTPRINT (LOCKED, ADR-0003 sec 8A): NO dedicated column/badge/widget/filter -- the
-  // winning Source is conveyed SOLELY by the source-tagged status badge (Accepted·Claude /
-  // Accepted·Gemini; manual reads "Edited"; untouched reads "Original"/parser).
-  chosen_source?: "parser" | "claude" | "gemini" | "manual";
+  // S4a (ADR-0034): the row's review flags, worked out by the server on every read
+  // (review_flags.row_flags). The ONLY thing the screen reads to draw a pill, a tint, a filter
+  // result or a reason line -- it holds no flag rule of its own. The AI answers behind a flag
+  // still travel in this payload; nothing on the screen reads them.
+  check_flags?: RowCheckFlags | null;
 
   // ── Revised-BoQ review carry (S5a/S5b, #1102/#1103, ADR-0014 D7). ADDITIVE-ONLY. ───────────
   // Stamped by the post-parse merge (review_carry.py) ONLY on a revision sheet's matched-content
@@ -643,18 +538,54 @@ export interface AdvisoryFlag {
   reason: string;
 }
 
+/**
+ * The review flags of one row (review_flags.row_flags). `check_type` / `check_parent` = that flag
+ * is OPEN; `reasons` = the codes of the open flags; `doubts` = every code that applies, open or
+ * dealt with; `looks_ok` = the "Looks OK" tick stands; `checked` = flagged and nothing open.
+ */
+export interface RowCheckFlags {
+  check_type: boolean;
+  check_parent: boolean;
+  reasons: string[];
+  doubts: string[];
+  looks_ok: boolean;
+  checked: boolean;
+}
+
+/** Rows by kind of flag: type only, parent only, both. */
+export interface CheckKindCounts {
+  type: number;
+  parent: number;
+  both: number;
+}
+
+/**
+ * The sheet-level counts (review_flags.summarize). `by_kind` counts OPEN flags and empties as the
+ * user works; `flagged_by_kind` counts every flagged row and does not. `open_rows` are Excel rows.
+ */
+export interface CheckSummary {
+  check_status: "done" | "running" | "incomplete" | "not_run";
+  check_running: boolean;
+  to_check: number;
+  by_kind: CheckKindCounts;
+  flagged_by_kind?: CheckKindCounts;
+  checked: number;
+  flagged: number;
+  non_blank_rows: number;
+  flagged_pct: number;
+  heavy: boolean;
+  open_rows: number[];
+}
+
 /** Response shape of get_review_rows. */
 export interface GetReviewRowsResponse {
   rows: ReviewRow[];
   work_packages: string[];
   column_descriptors: ColumnDescriptor[];
   flags: AdvisoryFlag[];
-  // DUAL-AI (ADR-0003): the Gemini enable flag, surfaced top-level by get_review_rows from
-  // Document AI Settings.boq_ai_enabled (read perm-bypassing, fails closed to false). The
-  // frontend gates the Gemini column + accept block on this. NOTE: there is NO `ai_enabled`
-  // sibling in this response -- Claude's enable lives in a separate settings home and is read
-  // elsewhere; only gemini_enabled rides this payload.
-  gemini_enabled?: boolean;
+  // S4a (ADR-0034): the sheet's review-flag counts, from the function the finalize block uses.
+  // Absent on a payload from before S3.
+  check_summary?: CheckSummary | null;
   // S5b (#1103, ADR-0014 D7 + Amendment B): the revised-BoQ meta block -- present
   // (is_revision:true) only for a revision sheet, null/absent for upload/template. Carries the
   // copied / needs-review / total counts (server-derived from the persisted stamp) and the

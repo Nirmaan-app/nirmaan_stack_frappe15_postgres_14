@@ -5666,7 +5666,7 @@ class TestRevertReturnsMovedChildren(FrappeTestCase):
         self._restructure(1, "note", child_moves={2: 0, 3: 0})
         self.assertEqual((self._parent(2), self._parent(3)), (0, 0))
         res = self._revert(1)
-        self.assertEqual(res, {"ok": True, "reverted_children": [2, 3]})
+        self.assertEqual(res, {"ok": True, "reverted_children": [2, 3], "children_not_returned": []})
         self.assertIsNone(self._doc(1).human_classification)
         self._assert_at_baseline(2, 1)
         self._assert_at_baseline(3, 1)
@@ -5689,13 +5689,13 @@ class TestRevertReturnsMovedChildren(FrappeTestCase):
     def test_keeping_the_children_leaves_nothing_to_return(self):
         # dialog option 2: "Keep all children under this row" writes nothing on the children
         self._restructure(1, "line_item")
-        self.assertEqual(self._revert(1), {"ok": True, "reverted_children": []})
+        self.assertEqual(self._revert(1), {"ok": True, "reverted_children": [], "children_not_returned": []})
         self.assertEqual(self._reasons(2), [])
         self.assertEqual(self._parent(2), 1)
 
     def test_a_row_with_no_moved_children_reverts_exactly_as_before(self):
         self._restructure(5, "note", row_new_parent=0)
-        self.assertEqual(self._revert(5), {"ok": True, "reverted_children": []})
+        self.assertEqual(self._revert(5), {"ok": True, "reverted_children": [], "children_not_returned": []})
         self._assert_at_baseline(5, 4)
 
     # -- the children that do NOT return -----------------------------------
@@ -5831,5 +5831,5 @@ class TestRevertReturnsMovedChildren(FrappeTestCase):
         self._restructure(1, "note", child_moves={2: 0, 3: 0})
         frappe.db.set_value("BOQs", self.boq_name, "origin", "template")
         frappe.db.commit()
-        self.assertEqual(self._revert(1), {"ok": True, "reverted_children": []})
+        self.assertEqual(self._revert(1), {"ok": True, "reverted_children": [], "children_not_returned": []})
         self.assertEqual((self._doc(2).human_parent, self._doc(3).human_parent), (0, 0))

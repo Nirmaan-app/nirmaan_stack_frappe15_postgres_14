@@ -22,7 +22,7 @@ import {
   useFrappeGetDoc,
   useFrappePostCall,
 } from "frappe-react-sdk";
-import { AlertTriangle, ArrowLeft, Check, Download, Loader2, Lock, Maximize2, Minimize2, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Download, Loader2, Lock, Maximize2, Minimize2, RefreshCw, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -42,55 +42,17 @@ import { DownstreamBanner } from "./DownstreamBanner";
 import type {
   AiPassDonePayload,
   BOQsDoc,
-  GeminiPassDonePayload,
-  GeminiStatusResponse,
   GetReviewRowsResponse,
   GetStructuralBreaksResponse,
   LockInfo,
   MarkParsedCheckDoneResponse,
-  RunGeminiPassResponse,
   UnmarkParsedCheckDoneResponse,
 } from "./boqTypes";
 import { ReviewTree } from "./ReviewTree";
 import { countSelectedLineItemsNoQty } from "./templateSelection";
 import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
 import { shouldExitFullscreenOnEsc } from "./PricingGrid";
-
-// AI-3a: readable messages for run_ai_pass's {ok:false, error} pre-flight rejections.
-const AI_REJECT_MSGS: Record<string, string> = {
-  not_parsed: "This sheet has no parsed rows yet. Parse it before running the AI pass.",
-  ai_disabled: "The AI pass is disabled. Enable it in BOQ Upload Review AI Settings.",
-  no_api_key: "No Anthropic API key is configured. Set one in BOQ Upload Review AI Settings.",
-  // AI-3c-2d: defense in depth -- the button is disabled on a finalized sheet, but a stale
-  // client could still call run_ai_pass and get one of these pre-flight rejects.
-  frozen: "This sheet is finalized and is read-only. Un-mark it to run the AI pass.",
-  parsing: "A parse is still running on this sheet. Wait for it to finish before running the AI pass.",
-};
-// AI-3a: readable messages for a terminal AI-pass FAILURE (boq:ai_pass_done error_code).
-const AI_FAIL_MSGS: Record<string, string> = {
-  ai_failed: "The AI pass failed — the model could not be reached or returned an unusable response. Try again.",
-  internal: "The AI pass hit an unexpected error. Try again.",
-};
-
-// DUAL-AI (ADR-0003): readable messages for run_gemini_pass's {ok:false, error} pre-flight
-// rejections. Mirrors AI_REJECT_MSGS; codes verified against gemini_assist.run_gemini_pass:
-//   not_parsed | gemini_disabled | frozen | parsing | in_progress.
-const GEMINI_REJECT_MSGS: Record<string, string> = {
-  not_parsed: "This sheet has no parsed rows yet. Parse it before running Gemini.",
-  gemini_disabled: "Gemini is disabled. Enable it in Document AI Settings.",
-  // Mirrors the Claude freeze gate: the button is disabled on a finalized sheet, but a stale
-  // client could still call run_gemini_pass and get this pre-flight reject.
-  frozen: "This sheet is finalized and is read-only. Un-mark it to run Gemini.",
-  parsing: "A parse is still running on this sheet. Wait for it to finish before running Gemini.",
-  // mode="resume" hit a pass already in flight (start_over bypasses this guard).
-  in_progress: "A Gemini pass is already running on this sheet.",
-};
-// DUAL-AI: readable messages for a terminal Gemini-pass FAILURE (boq:gemini_pass_done
-// error_code). Codes verified against _run_gemini_pass_worker: gemini_failed | internal.
-const GEMINI_FAIL_MSGS: Record<string, string> = {
-  gemini_failed: "The Gemini pass failed — the model could not be reached or returned an unusable response. Try again.",
-  internal: "The Gemini pass hit an unexpected error. Try again.",
-};
+import { CHECKING_ROWS_LABEL, finalizeBlockMessage, isCheckRunning } from "./reviewCheckFlags";
 
 // B1 (ADR-0011): the DRAFT single-editor lock sentinel version + reject marker. Real committed
 // versions start at 1, so version 0 is the disjoint draft-tier identity (mirrors the backend
@@ -99,7 +61,7 @@ const GEMINI_FAIL_MSGS: Record<string, string> = {
 const DRAFT_LOCK_VERSION = 0;
 const DRAFT_MARKER = "BOQ_DRAFT_LOCKED";
 
-// AI-3a: get_ai_pass_status response -- the cached terminal payload OR the idle shape.
+// get_ai_pass_status response -- the cached terminal payload OR the idle shape.
 type AiStatusResponse =
   | AiPassDonePayload
   | { status: "idle_or_unknown"; ai_in_progress: 0 | 1 };
@@ -189,10 +151,11 @@ const SheetReviewPage = () => {
   // read-only (the worker is rebuilding these rows). Same draft lookup, new flag.
   const isParsing = sheetDraft?.parse_in_progress === 1;
 
-  // ── AI-3a: AI-pass trigger + poll-safe completion ───────────────────────────
-  // aiInProgress rides the BOQs doc (sheet_drafts child) -- mirror of isParsing. An AI
-  // pass does NOT make the screen read-only (it only writes ai_* suggestion fields,
-  // never human/parser data), so it does NOT feed ReviewTree's readOnly.
+  // ── The automatic check of this sheet (S2 runs it after every parse) ─────────
+  // aiInProgress rides the BOQs doc (sheet_drafts child) -- mirror of isParsing. The check does
+  // NOT make the screen read-only (it writes only its own answer fields, never human or parsed
+  // data), so it does NOT feed ReviewTree's readOnly. S4a: the reviewer never starts it and is
+  // shown no result text -- only the "Checking rows…" chip while it runs, then the flags.
   const aiInProgress = sheetDraft?.ai_in_progress === 1;
   const { socket } = useContext(FrappeContext) as FrappeConfig;
 
@@ -338,19 +301,10 @@ const SheetReviewPage = () => {
     };
   }, []);
 
-  // Trigger + status-poll endpoints.
-  const { call: runAiCall, loading: aiRunLoading } = useFrappePostCall<{
-    message: { ok: boolean; error?: string; cached?: boolean; enqueued?: boolean; count?: number };
-  }>("nirmaan_stack.api.boq.wizard.ai_assist.run_ai_pass");
+  // Status-poll endpoint (the missed-socket recovery; it also heals a dead run on every read).
   const { call: aiStatusCall } = useFrappePostCall<{ message: AiStatusResponse }>(
     "nirmaan_stack.api.boq.wizard.ai_assist.get_ai_pass_status",
   );
-
-  // Pre-flight message (the {ok:false} rejections + thrown errors). Result/error banner
-  // for a completed pass. count=null => "complete" with no number (cached-miss edge).
-  const [aiMessage, setAiMessage] = useState<string | null>(null);
-  const [aiResult, setAiResult] = useState<{ count: number | null; cached: boolean } | null>(null);
-  const [aiError, setAiError] = useState<string | null>(null);
 
   // Poll interval id held in a ref so cleanup is reliable (a leaked interval hammering
   // the endpoint is its own bug). stopAiPoll is idempotent.
@@ -362,24 +316,20 @@ const SheetReviewPage = () => {
     }
   }, []);
 
-  // Resolve a terminal AI outcome (from EITHER the socket fast-path or the poll). Stops
-  // the poll, sets the result/error banner, and refreshes both the rows (get_review_rows,
-  // so badges appear) and the BOQs doc (so ai_in_progress clears). Idempotent: a
-  // socket+poll double-resolve just repeats harmless setState + mutate.
+  // The check ended (from EITHER the socket fast-path or the poll), whatever its outcome.
+  // Refresh the rows (so the flags, the counter and check_running resettle), the must-fix panel
+  // and the BOQs doc (so ai_in_progress clears and the chip goes). The poll is NOT stopped here:
+  // it stops itself once the refreshed data says the check is no longer running, so a refresh
+  // that lands a moment early cannot strand the chip. Idempotent: a socket+poll double-resolve
+  // just repeats harmless mutates. S4a: no text for success, failure or an unknown error code --
+  // "the check didn't finish" is S4b's banner.
   const resolveAiOutcome = useCallback(
-    (payload: AiPassDonePayload) => {
-      stopAiPoll();
-      if (payload.status === "success") {
-        setAiResult({ count: payload.count ?? null, cached: false });
-        setAiError(null);
-      } else {
-        setAiError(AI_FAIL_MSGS[payload.error_code ?? ""] ?? AI_FAIL_MSGS.internal);
-        setAiResult(null);
-      }
+    () => {
       void mutate();
+      void breaksMutate();
       void boqMutate();
     },
-    // mutate / boqMutate / stopAiPoll are stable refs.
+    // mutate / breaksMutate / boqMutate are stable refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -390,41 +340,47 @@ const SheetReviewPage = () => {
     if (!socket) return;
     const handler = (payload: AiPassDonePayload) => {
       if (payload.boq_name !== boqId || payload.sheet_name !== (sheetName ?? "")) return;
-      resolveAiOutcome(payload);
+      resolveAiOutcome();
+    };
+    // S4a (owner ruling Q-l): a parse of this BoQ finished while the page is open. The rows were
+    // rebuilt and the automatic check was queued in the same breath, so re-read everything: the
+    // "being parsed" banner goes, the chip appears, and the flags follow when the check ends.
+    // Without this the page learned none of it until the window was refocused.
+    const onParseDone = (payload: { boq_name?: string }) => {
+      if (!payload || payload.boq_name !== boqId) return;
+      void boqMutate();
+      void mutate();
+      void breaksMutate();
     };
     const onReconnect = () => { void boqMutate(); };
     socket.on("boq:ai_pass_done", handler);
+    socket.on("boq:parse_run_done", onParseDone);
     socket.on("connect", onReconnect);
     return () => {
       socket.off("boq:ai_pass_done", handler);
+      socket.off("boq:parse_run_done", onParseDone);
       socket.off("connect", onReconnect);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, boqId, sheetName, resolveAiOutcome]);
 
-  // LAYER 2 + 3 -- poll-until-terminal (the GUARANTEE) + on-mount recovery. Whenever
-  // aiInProgress is true (we just enqueued, OR the sheet loaded mid-pass after navigating
-  // away), poll get_ai_pass_status every 3s. This resolves the screen within ~3s even if
-  // the socket event is missed entirely (the historical parse/upload missed-socket hang).
-  // When the pass ends, ai_in_progress clears -> aiInProgress flips false -> cleanup stops
-  // the interval. Terminal cached payload (success/error) resolves immediately via
-  // resolveAiOutcome; an idle+flag-0 edge (finished, no cached payload) refreshes + stops.
+  // LAYER 2 + 3 -- poll-until-terminal (the GUARANTEE) + on-mount recovery. Whenever the check
+  // is running (the sheet loaded mid-check, or a re-parse just queued one), poll
+  // get_ai_pass_status every 3s. This resolves the screen within ~3s even if the socket event is
+  // missed entirely. `checkRunning` reads BOTH the sheet's flag and the run log behind
+  // check_summary, so the poll runs for as long as the finalize block would refuse.
+  const checkRunning = isCheckRunning(aiInProgress, reviewData?.message?.check_summary);
   useEffect(() => {
-    if (!aiInProgress) { stopAiPoll(); return; }
+    if (!checkRunning) { stopAiPoll(); return; }
     if (aiPollRef.current !== null) return; // already polling -- no double-registration
     const id = window.setInterval(() => {
       void (async () => {
         try {
           const res = await aiStatusCall({ boq_name: boqId ?? "", sheet_name: sheetName ?? "" });
           const m = res.message;
-          if (m.status === "success" || m.status === "error") {
-            resolveAiOutcome(m);
-          } else if (m.status === "idle_or_unknown" && m.ai_in_progress === 0) {
-            // Finished with no cached terminal payload -- refresh + stop; show generic done.
-            stopAiPoll();
-            void mutate();
-            void boqMutate();
-            setAiResult((prev) => prev ?? { count: null, cached: false });
+          if (m.status === "success" || m.status === "error"
+              || (m.status === "idle_or_unknown" && m.ai_in_progress === 0)) {
+            resolveAiOutcome();
           }
         } catch {
           // transient (network/CSRF blip) -- keep polling; the next tick retries.
@@ -434,164 +390,7 @@ const SheetReviewPage = () => {
     aiPollRef.current = id;
     return () => stopAiPoll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aiInProgress, boqId, sheetName, resolveAiOutcome]);
-
-  // Trigger handler. Three documented run_ai_pass shapes (verified vs ai_assist.py):
-  // {ok:false,error}; {ok:true,cached:true,count}; {ok:true,enqueued:true,job_id}.
-  const handleRunAiPass = async () => {
-    setAiMessage(null);
-    setAiResult(null);
-    setAiError(null);
-    try {
-      const res = await runAiCall({ boq_name: boqId ?? "", sheet_name: sheetName ?? "" });
-      const m = res.message;
-      if (!m.ok) {
-        setAiMessage(AI_REJECT_MSGS[m.error ?? ""] ?? "Could not start the AI pass.");
-        return;
-      }
-      if (m.cached) {
-        // Applied synchronously -- NO socket will fire. Refresh rows so badges appear.
-        void mutate();
-        setAiResult({ count: m.count ?? 0, cached: true });
-        return;
-      }
-      // Enqueued -> the server set ai_in_progress=1 + committed. Re-fetch the BOQs doc so
-      // aiInProgress flips true and the poll (Layer 2) arms; the socket (Layer 1) may also
-      // fire. Either resolves; the poll is the guarantee.
-      void boqMutate();
-    } catch (e: unknown) {
-      setAiMessage(getFrappeError(e) || "Could not start the AI pass.");
-    }
-  };
-
-  // ── DUAL-AI (ADR-0003): Gemini-pass trigger + poll-safe completion ──────────
-  // EXACT mirror of the Claude AI block above, swapping ai_->gemini_. Like the AI pass, a
-  // Gemini pass does NOT make the screen read-only (it only writes gemini_* suggestion
-  // fields, never human/parser data), so geminiInProgress does NOT feed ReviewTree's readOnly.
-  // It runs BESIDE the Claude cluster: a reviewer triggers Gemini independently of Nitesh's
-  // Claude trigger; both opt-in, each gated on its own enable flag + its own in-progress flag.
-  const geminiInProgress = sheetDraft?.gemini_in_progress === 1;
-
-  // Trigger + status-poll endpoints (gemini_assist; distinct from the ai_assist endpoints).
-  const { call: runGeminiCall, loading: geminiRunLoading } =
-    useFrappePostCall<{ message: RunGeminiPassResponse }>(
-      "nirmaan_stack.api.boq.wizard.gemini_assist.run_gemini_pass",
-    );
-  const { call: geminiStatusCall } = useFrappePostCall<{ message: GeminiStatusResponse }>(
-    "nirmaan_stack.api.boq.wizard.gemini_assist.get_gemini_pass_status",
-  );
-
-  // Pre-flight message (the {ok:false} rejections + thrown errors). Result/error banner for a
-  // completed pass. The Gemini SUCCESS payload carries rows_done (NOT count -- the AI pass's
-  // kwarg); the result banner reads rows_done. There is no cached-apply path (the Gemini
-  // module has no result cache), so a successful run is ALWAYS the enqueue->poll/socket path.
-  const [geminiMessage, setGeminiMessage] = useState<string | null>(null);
-  const [geminiResult, setGeminiResult] = useState<{ rowsDone: number | null } | null>(null);
-  const [geminiError, setGeminiError] = useState<string | null>(null);
-
-  // Poll interval id held in a SEPARATE ref from aiPollRef (the two passes can run
-  // concurrently). stopGeminiPoll is idempotent.
-  const geminiPollRef = useRef<number | null>(null);
-  const stopGeminiPoll = useCallback(() => {
-    if (geminiPollRef.current !== null) {
-      clearInterval(geminiPollRef.current);
-      geminiPollRef.current = null;
-    }
-  }, []);
-
-  // Resolve a terminal Gemini outcome (from EITHER the socket fast-path or the poll). Stops
-  // the gemini poll, sets the result/error banner, and refreshes both the rows (so gemini_*
-  // badges appear) and the BOQs doc (so gemini_in_progress clears). Idempotent. Mirror of
-  // resolveAiOutcome -- reads rows_done (the Gemini success kwarg), maps the gemini error codes.
-  const resolveGeminiOutcome = useCallback(
-    (payload: GeminiPassDonePayload) => {
-      stopGeminiPoll();
-      if (payload.status === "success") {
-        setGeminiResult({ rowsDone: payload.rows_done ?? null });
-        setGeminiError(null);
-      } else {
-        setGeminiError(GEMINI_FAIL_MSGS[payload.error_code ?? ""] ?? GEMINI_FAIL_MSGS.internal);
-        setGeminiResult(null);
-      }
-      void mutate();
-      void boqMutate();
-    },
-    // mutate / boqMutate / stopGeminiPoll are stable refs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
-
-  // LAYER 1 -- socket fast path. Mirror the boq:ai_pass_done listener, on "boq:gemini_pass_done":
-  // guard this (boq, sheet), resolve, plus a reconnect re-fetch self-heal.
-  useEffect(() => {
-    if (!socket) return;
-    const handler = (payload: GeminiPassDonePayload) => {
-      if (payload.boq_name !== boqId || payload.sheet_name !== (sheetName ?? "")) return;
-      resolveGeminiOutcome(payload);
-    };
-    const onReconnect = () => { void boqMutate(); };
-    socket.on("boq:gemini_pass_done", handler);
-    socket.on("connect", onReconnect);
-    return () => {
-      socket.off("boq:gemini_pass_done", handler);
-      socket.off("connect", onReconnect);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, boqId, sheetName, resolveGeminiOutcome]);
-
-  // LAYER 2 + 3 -- poll-until-terminal (the GUARANTEE) + on-mount recovery. Whenever
-  // geminiInProgress is true (we just enqueued, OR the sheet loaded mid-pass), poll
-  // get_gemini_pass_status every 3s. Resolves within ~3s even if the socket is missed.
-  // The idle shape carries gemini_in_progress (NOT ai_in_progress).
-  useEffect(() => {
-    if (!geminiInProgress) { stopGeminiPoll(); return; }
-    if (geminiPollRef.current !== null) return; // already polling -- no double-registration
-    const id = window.setInterval(() => {
-      void (async () => {
-        try {
-          const res = await geminiStatusCall({ boq_name: boqId ?? "", sheet_name: sheetName ?? "" });
-          const m = res.message;
-          if (m.status === "success" || m.status === "error") {
-            resolveGeminiOutcome(m);
-          } else if (m.status === "idle_or_unknown" && m.gemini_in_progress === 0) {
-            // Finished with no cached terminal payload -- refresh + stop; show generic done.
-            stopGeminiPoll();
-            void mutate();
-            void boqMutate();
-            setGeminiResult((prev) => prev ?? { rowsDone: null });
-          }
-        } catch {
-          // transient (network/CSRF blip) -- keep polling; the next tick retries.
-        }
-      })();
-    }, 3000);
-    geminiPollRef.current = id;
-    return () => stopGeminiPoll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [geminiInProgress, boqId, sheetName, resolveGeminiOutcome]);
-
-  // Trigger handler. run_gemini_pass shapes (verified vs gemini_assist.py):
-  // {ok:false,error}; {ok:true,enqueued:true,job_id}. NO cached-apply branch (no result cache).
-  // mode "resume" (default); "start_over" recovers a wedged flag (bypasses the in_progress guard).
-  const handleRunGeminiPass = async (mode: "resume" | "start_over" = "resume") => {
-    setGeminiMessage(null);
-    setGeminiResult(null);
-    setGeminiError(null);
-    try {
-      const res = await runGeminiCall({ boq_name: boqId ?? "", sheet_name: sheetName ?? "", mode });
-      const m = res.message;
-      if (!m.ok) {
-        setGeminiMessage(GEMINI_REJECT_MSGS[m.error ?? ""] ?? "Could not start the Gemini pass.");
-        return;
-      }
-      // Enqueued -> the server set gemini_in_progress=1 + committed. Re-fetch the BOQs doc so
-      // geminiInProgress flips true and the poll (Layer 2) arms; the socket (Layer 1) may also
-      // fire. Either resolves; the poll is the guarantee.
-      void boqMutate();
-    } catch (e: unknown) {
-      setGeminiMessage(getFrappeError(e) || "Could not start the Gemini pass.");
-    }
-  };
+  }, [checkRunning, boqId, sheetName, resolveAiOutcome]);
 
   // ── S5: revision "Looks OK" confirmations ────────────────────────────────
   // Rows that carried nothing from the original block finalize until a human confirms them. Both
@@ -759,10 +558,8 @@ const SheetReviewPage = () => {
   // R4: structural breaks for the warnings panel (must-fix group). Defaults to [] until the
   // get_structural_breaks fetch resolves; the panel renders breaks above the advisory flags.
   const breaks = breaksData?.message?.breaks ?? [];
-  // DUAL-AI (ADR-0003): the Gemini enable flag, surfaced top-level by get_review_rows from
-  // Document AI Settings.boq_ai_enabled (fails closed to false). Gates ReviewTree's Gemini
-  // column + accept block. Defaults false when absent (older payload / disabled settings).
-  const geminiEnabled = reviewData?.message?.gemini_enabled ?? false;
+  // S4a (ADR-0034): the sheet's review-flag counts, from the function the finalize block uses.
+  const checkSummary = reviewData?.message?.check_summary ?? null;
   const reviewLoading = reviewData === undefined;
   const reviewError = reviewData === null;
 
@@ -793,8 +590,8 @@ const SheetReviewPage = () => {
   const unaffirmedCount = reviewData?.message?.revision?.unaffirmed_count ?? 0;
 
   // Acquire the draft lock on FIRST edit-intent (ReviewTree threads this as onEditIntent, called
-  // at the top of every real-edit funnel -- value/text edits, reclassify/restructure opens, AI
-  // accept, revert; NOT the annotation-only remark/dismiss paths). Idempotent (heldVersionRef).
+  // at the top of every real-edit funnel -- value/text edits, reclassify/restructure opens,
+  // revert; NOT the annotation-only remark/dismiss paths). Idempotent (heldVersionRef).
   // A rejected acquire (someone else holds it fresh) flips us read-only via the takeover banner.
   // The write endpoints still enforce server-side.
   const ensureLockAcquired = () => {
@@ -827,6 +624,17 @@ const SheetReviewPage = () => {
   const remarkCount = rows.filter(
     r => typeof r.remarks === "string" && r.remarks.trim() !== "",
   ).length;
+
+  // S4a (U12): why Mark Finalized is greyed out, or null. One pure function, in the SERVER's
+  // order of checks; the count of flagged rows is the server's own (check_summary.to_check), so
+  // the button and the refusal cannot disagree. The server still refuses as the last guard.
+  const finalizeBlock = finalizeBlockMessage({
+    breakCount: breaks.length,
+    unaffirmedCount,
+    qtyGap,
+    checkRunning,
+    summary: checkSummary,
+  });
 
   return (
     <div
@@ -893,8 +701,8 @@ const SheetReviewPage = () => {
           </div>
         </div>
 
-        {/* Row 2: action buttons. Full screen FIRST, then Export, Finalize, and the AI/Gemini
-            triggers with their transient "running…" chips beside their own triggers. */}
+        {/* Row 2: action buttons. Full screen FIRST, then Export, Finalize, and the transient
+            "Checking rows…" chip while the automatic check runs. */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Full-screen toggle -- FIRST. Ported from SheetPricingPage Slice 4c. Orthogonal to
               editability (works on a read-only / finalized sheet too). */}
@@ -927,66 +735,28 @@ const SheetReviewPage = () => {
             <Download className="h-4 w-4" />
             Export CSV
           </Button>
-          {/* S2 hard gate: Finalize DISABLED whenever any structural break exists. */}
+          {/* S2 hard gate: Finalize DISABLED whenever any structural break exists. S4a: also
+              while the automatic check runs and while any flagged row is unchecked; the hover
+              says which (finalizeBlock). */}
           {sheetStatus === "Parsed" && (
             <Button
               size="sm"
               variant="outline"
               className="gap-1.5"
               onClick={openMarkDialog}
-              disabled={reviewLoading || breaks.length > 0 || qtyGap > 0 || unaffirmedCount > 0}
-              title={breaks.length > 0
-                ? "Fix the must-fix structural issues listed above before finalizing."
-                : qtyGap > 0
-                  ? `Enter a valid quantity (present and not negative) for all ${qtyGap} selected line item${qtyGap === 1 ? "" : "s"} before finalizing.`
-                  : unaffirmedCount > 0
-                    ? `Confirm the ${unaffirmedCount} row${unaffirmedCount === 1 ? "" : "s"} that didn't carry from the original before finalizing.`
-                    : undefined}
+              disabled={reviewLoading || finalizeBlock !== null}
+              title={finalizeBlock ?? undefined}
             >
               <ShieldCheck className="h-4 w-4" />
               Mark Finalized
             </Button>
           )}
-          {/* AI-3a: Run AI pass. A2: hidden for template origin (a clone has no AI layer, and the
-              AI Rec column that surfaces suggestions is hidden). */}
-          {!isTemplateOrigin && (<>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            onClick={() => { void handleRunAiPass(); }}
-            disabled={reviewLoading || rows.length === 0 || aiInProgress || aiRunLoading || isParsing || isChecked}
-            title={isChecked ? "Sheet is finalized — un-mark to run the AI pass" : undefined}
-          >
-            <Sparkles className="h-4 w-4" />
-            Run AI pass
-          </Button>
-          {aiInProgress && (
+          {/* S4a (U16): the automatic check of this sheet is running. No button starts it and
+              no AI is named; the chip clears by itself when the check ends. */}
+          {checkRunning && (
             <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <span>AI pass running&hellip;</span>
-            </div>
-          )}
-          </>)}
-          {/* DUAL-AI (ADR-0003): Run Gemini -- gated on its OWN geminiEnabled flag.
-              A2: also hidden for template origin (no Gemini column on a clone). */}
-          {geminiEnabled && !isTemplateOrigin && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5"
-              onClick={() => { void handleRunGeminiPass("resume"); }}
-              disabled={reviewLoading || rows.length === 0 || geminiInProgress || geminiRunLoading || isParsing || isChecked}
-              title={isChecked ? "Sheet is finalized — un-mark to run Gemini" : undefined}
-            >
-              <Sparkles className="h-4 w-4" />
-              Run Gemini
-            </Button>
-          )}
-          {geminiInProgress && (
-            <div className="flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-300">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <span>Gemini pass running&hellip;</span>
+              <span>{CHECKING_ROWS_LABEL}</span>
             </div>
           )}
         </div>
@@ -1035,70 +805,12 @@ const SheetReviewPage = () => {
         </div>
       )}
 
-      {/* ── AI-3a: AI-pass feedback strips (pre-flight message / result / failure) ──
-          aiMessage = a {ok:false} rejection or a thrown trigger error (muted).
-          aiResult = a completed pass (indigo, accents the AI provenance).
-          aiError = a terminal failure (destructive). All dismiss on the next run. */}
-      {aiMessage && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/40 border border-border text-xs text-muted-foreground flex-wrap">
-          <Sparkles className="h-3.5 w-3.5 shrink-0" />
-          <span>{aiMessage}</span>
-        </div>
-      )}
-      {aiResult && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-indigo-300 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 text-xs text-indigo-900 dark:text-indigo-100 flex-wrap">
-          <Sparkles className="h-3.5 w-3.5 shrink-0 text-indigo-600 dark:text-indigo-300" />
-          <span>
-            {aiResult.count === null
-              ? "AI pass complete."
-              : `AI pass complete — ${aiResult.count} suggestion${aiResult.count === 1 ? "" : "s"}${aiResult.cached ? " (cached)" : ""}.`}
-            {aiResult.count !== null && aiResult.count > 0 && " Review the AI Rec column."}
-          </span>
-        </div>
-      )}
-      {aiError && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
-          <Sparkles className="h-3.5 w-3.5 shrink-0" />
-          <span>{aiError}</span>
-        </div>
-      )}
-
-      {/* ── DUAL-AI (ADR-0003): Gemini-pass feedback strips (pre-flight / result / failure) ──
-          Mirror of the AI strips above, swap ai_->gemini_. geminiResult reads rows_done (the
-          Gemini success kwarg, NOT count). geminiMessage = a {ok:false} rejection or a thrown
-          trigger error (muted). geminiError = a terminal failure (destructive). The result strip
-          reuses the indigo AI provenance accent (single shared "AI suggestion" visual family).
-          All dismiss on the next Gemini run. */}
-      {geminiMessage && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/40 border border-border text-xs text-muted-foreground flex-wrap">
-          <Sparkles className="h-3.5 w-3.5 shrink-0" />
-          <span>{geminiMessage}</span>
-        </div>
-      )}
       {/* S5: a failed confirmation. Inline, not a toast -- the wizard convention. */}
       {affirmError && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
           <span>{affirmError}</span>
         </div>
       )}
-      {geminiResult && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-indigo-300 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 text-xs text-indigo-900 dark:text-indigo-100 flex-wrap">
-          <Sparkles className="h-3.5 w-3.5 shrink-0 text-indigo-600 dark:text-indigo-300" />
-          <span>
-            {geminiResult.rowsDone === null
-              ? "Gemini pass complete."
-              : `Gemini pass complete — ${geminiResult.rowsDone} suggestion${geminiResult.rowsDone === 1 ? "" : "s"}.`}
-            {geminiResult.rowsDone !== null && geminiResult.rowsDone > 0 && " Review the Gemini Rec column."}
-          </span>
-        </div>
-      )}
-      {geminiError && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
-          <Sparkles className="h-3.5 w-3.5 shrink-0" />
-          <span>{geminiError}</span>
-        </div>
-      )}
-
       {/* ── Staleness banner (always-on, no status gate) ──────────────────────
           Per-area edits + restructure do NOT recompute the row scalar totals; those
           are finalized post-commit by the tendering module. This static note sets that
@@ -1176,8 +888,8 @@ const SheetReviewPage = () => {
           sheetName={sheetName}
           breaks={breaks}
           onSaved={handleSaved}
-          // R4: a remark / dismissal / AI accept-reject routes through here and can change
-          // structural integrity (e.g. an accepted reparent) -> re-fetch breaks too.
+          // R4: a remark / dismissal / Looks OK tick / revert routes through here; a revert can
+          // change structural integrity -> re-fetch breaks too.
           onRemarkSaved={() => { void mutate(); void breaksMutate(); }}
           // Slice 1b-beta: a restructure IS a real edit -- reuse handleSaved (advances the
           // save anchor + mutates) via the SAME SWR revalidate path as value/text edits.
@@ -1189,10 +901,10 @@ const SheetReviewPage = () => {
           readOnly={readOnly}
           // B1: acquire the draft lock on FIRST real edit-intent (funneled inside ReviewTree).
           onEditIntent={ensureLockAcquired}
-          // DUAL-AI (ADR-0003): mount the Gemini provider column + accept block when enabled.
-          // A2: suppress the entire Gemini column for template origin via this single prop.
-          geminiEnabled={geminiEnabled && !isTemplateOrigin}
-          // A2: template-origin review customizations (hide Status/AI Rec/Rate*/Amount*, inline qty).
+          // S4a (ADR-0034): the review-flag counts for the counter strip. The per-row flags ride
+          // each row (check_flags).
+          checkSummary={checkSummary}
+          // A2: template-origin review customizations (hide Status/Check/Rate*/Amount*, inline qty).
           // NOT gated on !readOnly (unlike selectable/canCreateRows) -- provenance columns stay
           // hidden even on a finalized/locked template sheet.
           templateOrigin={isTemplateOrigin}

@@ -10,10 +10,11 @@ review rules:
   it is worked out from facts already on the row (Claude's answer, the parsed type and parent, the
   user's own change, the "Looks OK" mark, the edit history), so no edit path has to keep it up to
   date. The review data, the counts and the finalize block all read sheet_flag_state.
-* LOOKS OK (mark_row_looks_ok) -- one row per call; there is deliberately no bulk form.
+* LOOKS OK (mark_row_looks_ok / unmark_row_looks_ok) -- one row per call, tick and undo; there is
+  deliberately no bulk form.
 * FINALIZE BLOCK (guard_finalize) -- the last check of mark_sheet_parsed_check_done.
-* REVERT CASCADE (plan_child_reverts) -- the children a change of one row moved, for
-  revert_to_parser (owner ruling R20).
+* REVERT CASCADE (plan_child_reverts / children_left_behind) -- the children a change of one row
+  moved, for revert_to_parser (owner ruling R20), and the ones it does not bring back (R27).
 
 Gemini is never read here.
 """
@@ -207,6 +208,25 @@ def plan_child_reverts(rows: list, row_index: int) -> list:
     return plan
 
 
+def children_left_behind(rows: list, row_index: int) -> list:
+    """The children a restructure of row `row_index` moved that do NOT return when it is reverted,
+    because a later move of the child still stands (the user's own, or another row's). The mirror
+    of plan_child_reverts, for the revert's reply (R27). Returns the child row indexes, in row order.
+    """
+    returning = {item["row_index"] for item in plan_child_reverts(rows, row_index)}
+    left: list = []
+    for row in rows:
+        child_index = _get(row, "row_index")
+        if child_index is None or int(child_index) == row_index or int(child_index) in returning:
+            continue
+        if not _has_parent_override(row):
+            continue
+        standing = standing_parent_moves(_get(row, "edit_log"))
+        if any(move["moved_by"] == row_index for move in standing):
+            left.append(int(child_index))
+    return left
+
+
 # ---------------------------------------------------------------------------
 # The flags (pure)
 # ---------------------------------------------------------------------------
@@ -284,6 +304,9 @@ def summarize(rows: list, flags_by_index: dict, check_status: str, running: bool
     open or already checked -- it describes the sheet and does not fall as the user works."""
     non_blank = flagged = flagged_non_blank = 0
     kinds = {"type": 0, "parent": 0, "both": 0}
+    # The same three kinds over EVERY flagged row, open or already checked: `by_kind` empties as
+    # the user works, and the screen's "all checked" line still has to say what was flagged.
+    flagged_kinds = {"type": 0, "parent": 0, "both": 0}
     open_rows: list = []
     for row in rows:
         if _get(row, "is_excluded"):
@@ -297,6 +320,9 @@ def summarize(rows: list, flags_by_index: dict, check_status: str, running: bool
         flagged += 1
         if not blank:
             flagged_non_blank += 1
+        parent_doubted = REASON_PARENT_DOUBT in flags["doubts"]
+        type_doubted = any(reason != REASON_PARENT_DOUBT for reason in flags["doubts"])
+        flagged_kinds["both" if type_doubted and parent_doubted else "type" if type_doubted else "parent"] += 1
         if flags["check_type"] and flags["check_parent"]:
             kinds["both"] += 1
         elif flags["check_type"]:
@@ -312,6 +338,7 @@ def summarize(rows: list, flags_by_index: dict, check_status: str, running: bool
         "check_running": bool(running),
         "to_check": len(open_rows),
         "by_kind": kinds,
+        "flagged_by_kind": flagged_kinds,
         "checked": flagged - len(open_rows),
         "flagged": flagged,
         "non_blank_rows": non_blank,
@@ -512,6 +539,11 @@ def guard_child_reverts(boq_name: str, sheet_name: str, row_index: int) -> None:
             current = parents.get(current)
 
 
+def children_not_returned(boq_name: str, sheet_name: str, row_index: int) -> list:
+    """children_left_behind for a sheet's stored rows. Read by revert_to_parser BEFORE it writes."""
+    return children_left_behind(_cascade_rows(boq_name, sheet_name), row_index)
+
+
 def revert_moved_children(boq_name: str, sheet_name: str, row_index: int) -> list:
     """Put back the children the restructure(s) of `row_index` moved. No commit: the caller's
     single commit carries the row's own revert and these together.
@@ -605,6 +637,65 @@ def mark_row_looks_ok(boq_name: str = None, sheet_name: str = None, row_index=No
     })
     frappe.db.commit()
     return {"ok": True, "row_index": row_index, "ai_flags_ok": 1}
+
+
+def no_looks_ok_message(row_excel: Any) -> str:
+    return f"Row {row_excel} has no Looks OK to undo."
+
+
+@frappe.whitelist(methods=["POST"])
+def unmark_row_looks_ok(boq_name: str = None, sheet_name: str = None, row_index=None) -> dict:
+    """Undo the "Looks OK" of ONE row (S4a): the mark is cleared and the row's flags follow the
+    ordinary rules again -- still closed where the user has since changed the type or parent.
+
+    The mirror of mark_row_looks_ok: a direct column write, no edit history, one row per call and
+    no bulk form (R13). Refused on a Finalized sheet, while a parse is running, and on a row whose
+    mark is not standing (never ticked, or already ended by a revert).
+
+    Returns {ok, row_index, ai_flags_ok: 0}.
+    URL: /api/method/nirmaan_stack.api.boq.wizard.review_flags.unmark_row_looks_ok
+    """
+    if not boq_name:
+        frappe.throw("boq_name is required.", title="Missing field: boq_name")
+    if not sheet_name:
+        frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+    if row_index is None:
+        frappe.throw("row_index is required.", title="Missing field: row_index")
+    if not frappe.db.exists("BOQs", boq_name):
+        frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
+
+    _guard_sheet_not_frozen(boq_name, sheet_name)
+    _guard_sheet_not_parsing(boq_name, sheet_name)
+    draft_lock.acquire_or_refresh(boq_name, sheet_name, frappe.session.user, now_datetime())
+
+    try:
+        row_index = int(row_index)
+    except (ValueError, TypeError):
+        frappe.throw("row_index must be an integer.", title="Invalid row_index")
+
+    rows = frappe.db.get_all(
+        _REVIEW_ROW,
+        filters={"boq": boq_name, "sheet_name": sheet_name, "row_index": row_index},  # VERBATIM (#152)
+        fields=FLAG_FIELDS,
+    )
+    if not rows:
+        frappe.throw(
+            f"Row with row_index={row_index} not found in sheet '{sheet_name}'.",
+            title="Row not found",
+        )
+    row = rows[0]
+    if not looks_ok_holds(row):
+        frappe.throw(no_looks_ok_message(row.source_row_number), title="Nothing to undo")
+
+    # Raw write on purpose, as in mark_row_looks_ok: no doc_events on BoQ Review Row, and undoing
+    # an acknowledgement is no more an edit than making it.
+    frappe.db.set_value(_REVIEW_ROW, row.name, {
+        "ai_flags_ok": 0,
+        "ai_flags_ok_by": None,
+        "ai_flags_ok_at": None,
+    })
+    frappe.db.commit()
+    return {"ok": True, "row_index": row_index, "ai_flags_ok": 0}
 
 
 # ---------------------------------------------------------------------------

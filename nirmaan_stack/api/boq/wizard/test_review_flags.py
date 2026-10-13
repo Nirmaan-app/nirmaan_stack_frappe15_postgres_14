@@ -343,6 +343,42 @@ class TestHistoryReaders(unittest.TestCase):
         rows = [self._child(2, [_entry("human_parent", "parent moved: row 2 reclassified to note", frm=1, to=4)])]
         self.assertEqual(review_flags.plan_child_reverts(rows, 2), [])
 
+    # -- S4a (R27): the children a revert does NOT bring back --------------------------------
+
+    def test_a_child_the_user_moved_again_is_named_as_left_behind(self):
+        rows = [self._child(5, [
+            _entry("human_parent", "parent moved: row 2 reclassified to note", frm=2, to=4),
+            _entry("human_parent", "row moved: row 5 reclassified to line_item", frm=4, to=6),
+        ], human_parent=6)]
+        self.assertEqual(review_flags.children_left_behind(rows, 2), [5])
+        self.assertEqual(review_flags.plan_child_reverts(rows, 2), [], "and it is not also returned")
+
+    def test_a_child_that_returns_is_not_left_behind(self):
+        rows = [self._child(5, [_entry("human_parent", "parent moved: row 2 reclassified to note", frm=2, to=4)])]
+        self.assertEqual(review_flags.children_left_behind(rows, 2), [])
+
+    def test_a_child_the_row_never_moved_is_not_left_behind(self):
+        rows = [
+            self._child(5, [_entry("human_parent", "parent moved: row 9 reclassified to note", frm=9, to=4)]),
+            self._child(6, [_entry("human_parent", "row moved: row 6 reclassified to line_item", frm=2, to=4)]),
+            _row(7, "line_item", parent=2),
+        ]
+        self.assertEqual(review_flags.children_left_behind(rows, 2), [])
+
+    def test_a_child_already_returned_by_an_earlier_revert_is_not_left_behind(self):
+        rows = [self._child(5, [
+            _entry("human_parent", "parent moved: row 2 reclassified to note", frm=2, to=4),
+            _entry("human_parent", review_flags.cascade_revert_reason(2), frm=4, to=None),
+        ], human_parent=-1)]
+        self.assertEqual(review_flags.children_left_behind(rows, 2), [])
+
+    def test_returned_and_left_behind_children_are_told_apart_in_row_order(self):
+        moved = _entry("human_parent", "parent moved: row 2 reclassified to note", frm=2, to=4)
+        own = _entry("human_parent", "row moved: row 8 reclassified to line_item", frm=4, to=6)
+        rows = [self._child(9, [moved]), self._child(8, [moved, own], human_parent=6), self._child(7, [moved])]
+        self.assertEqual([c["row_index"] for c in review_flags.plan_child_reverts(rows, 2)], [9, 7])
+        self.assertEqual(review_flags.children_left_behind(rows, 2), [8])
+
 
 # ===========================================================================
 # The refusal sentence and the counts
@@ -385,12 +421,37 @@ class TestRefusalAndSummary(unittest.TestCase):
         ]
         summary = self._summary(rows)
         self.assertEqual(summary["by_kind"], {"type": 1, "parent": 1, "both": 1})
+        # S4a: the same kinds over every flagged row, checked ones included (row 4 is a type row).
+        self.assertEqual(summary["flagged_by_kind"], {"type": 2, "parent": 1, "both": 1})
         self.assertEqual((summary["to_check"], summary["checked"], summary["flagged"]), (3, 1, 4))
         self.assertEqual(summary["open_rows"], [11, 12, 13])       # Excel row numbers, in row order
         self.assertEqual(summary["non_blank_rows"], 5)
         self.assertEqual(summary["flagged_pct"], 80.0)
         self.assertTrue(summary["heavy"])
         self.assertEqual(summary["check_status"], "done")
+
+    def test_the_kinds_of_all_flagged_rows_do_not_empty_as_rows_are_checked(self):
+        rows = [
+            _row(0, "preamble"),
+            _row(1, "preamble", unit="Nos", ai_flags_ok=1),                                # type, ticked
+            _row(2, "line_item", parent=0, human_parent=1, **_answer(parent=1)),            # parent, fixed
+            _row(3, "preamble", parent=0, ai_flags_ok=1, **_answer("note", "Low", parent=1)),  # both, ticked
+            _row(4, "line_item", parent=0),                                                # never flagged
+        ]
+        summary = self._summary(rows)
+        self.assertEqual(summary["to_check"], 0)
+        self.assertEqual(summary["by_kind"], {"type": 0, "parent": 0, "both": 0}, "open flags: none left")
+        self.assertEqual(summary["flagged_by_kind"], {"type": 1, "parent": 1, "both": 1})
+        self.assertEqual(sum(summary["flagged_by_kind"].values()), summary["flagged"])
+
+    def test_a_row_with_two_type_reasons_is_one_type_row(self):
+        rows = [_row(0, "preamble", unit="Nos", **_answer("note", "Low"))]
+        self.assertEqual(self._summary(rows)["flagged_by_kind"], {"type": 1, "parent": 0, "both": 0})
+
+    def test_a_sheet_with_no_flag_reports_zero_kinds(self):
+        rows = [_row(0, "preamble"), _row(1, "line_item", parent=0)]
+        self.assertEqual(self._summary(rows)["flagged_by_kind"], {"type": 0, "parent": 0, "both": 0})
+        self.assertEqual(self._summary(rows, NOT_RUN)["flagged_by_kind"], {"type": 0, "parent": 0, "both": 0})
 
     def test_blank_rows_are_left_out_of_the_percentage(self):
         rows = [_row(0, "preamble", unit="Nos"), _row(1, "line_item")] + [_row(i, "spacer") for i in range(2, 10)]
@@ -876,7 +937,10 @@ class TestLooksOk(_FlagCase):
         self.assertEqual(list(signature.parameters), ["boq_name", "sheet_name", "row_index"])
         whitelisted = [name for name, obj in vars(review_flags).items()
                        if callable(obj) and obj in frappe.whitelisted]
-        self.assertEqual(sorted(whitelisted), ["get_check_summary", "mark_row_looks_ok"])
+        self.assertEqual(sorted(whitelisted),
+                         ["get_check_summary", "mark_row_looks_ok", "unmark_row_looks_ok"])
+        self.assertEqual(list(inspect.signature(review_flags.unmark_row_looks_ok).parameters),
+                         ["boq_name", "sheet_name", "row_index"], "the undo is one row per call too")
 
 
 # ---------------------------------------------------------------------------
@@ -1071,3 +1135,324 @@ class TestFlagsOnReturningChildren(_FlagCase):
         self.assertEqual(self._revert(1)["reverted_children"], [3])
         self.assertFalse(self._flags(2)["check_parent"])
         self.assertEqual(self._field(2, "human_parent"), 3)
+
+
+# ===========================================================================
+# S4a (ADR-0034): Undo of "Looks OK", the revert's reply, the revert fix (R23), parser warnings (R24)
+# ===========================================================================
+
+class TestParserWarningOnReTypedRow(unittest.TestCase):
+    """R24: the parser's "needs-review" warning is about the type the PARSER gave; it is not shown
+    on a row Claude re-typed. Every other warning rule is as it was."""
+
+    def _warning_row(self, **fields):
+        row = _row(1, "preamble", parent=0, needs_classification_review=1,
+                   review_reason="priced_preamble_with_children", classifier_warnings=[])
+        row.update(fields)
+        return row
+
+    def _types(self, row):
+        return [f["type"] for f in review_screen._compute_advisory_flags([row])]
+
+    def test_the_warning_shows_on_a_row_the_parser_typed(self):
+        self.assertEqual(self._types(self._warning_row()), ["parser"])
+
+    def test_it_is_not_shown_on_a_row_claude_re_typed(self):
+        row = self._warning_row(classification="line_item", parser_classification="preamble")
+        self.assertEqual(self._types(row), [])
+
+    def test_a_parser_type_equal_to_the_rows_type_hides_nothing(self):
+        row = self._warning_row(parser_classification="preamble")
+        self.assertEqual(self._types(row), ["parser"])
+
+    def test_a_quantity_warning_on_a_re_typed_row_still_shows(self):
+        row = self._warning_row(classification="line_item", parser_classification="preamble",
+                                classifier_warnings=["Row 11: qty cell value 'RO' is not numeric"])
+        self.assertEqual(self._types(row), ["classifier_warning"])
+
+    def test_the_users_own_type_change_hides_it_as_before(self):
+        self.assertEqual(self._types(self._warning_row(human_classification="note")), [])
+
+    def test_a_re_typed_item_with_no_parent_still_gets_the_orphan_warning(self):
+        row = self._warning_row(classification="line_item", parser_classification="preamble", parent_index=-1)
+        self.assertEqual(self._types(row), ["orphan"])
+
+    def test_the_breaks_endpoint_fetches_the_field_the_rule_reads(self):
+        self.assertIn("parser_classification", review_screen._ADVISORY_EXTRA_FIELDS)
+
+
+class TestParserWarningOnTheSheet(_FlagCase):
+
+    def _sheet(self):
+        self._seed([
+            _row(0, "preamble"),
+            _row(1, "preamble", parent=0, needs_classification_review=1,
+                 review_reason="priced_preamble_with_children", **_answer("line_item", "High")),
+            _row(2, "line_item", parent=1),
+            _row(3, "preamble", parent=0, needs_classification_review=1,
+                 review_reason="priced_preamble_with_children"),
+            _row(4, "line_item", parent=3),
+        ])
+
+    def _warned(self, endpoint):
+        frappe.db.rollback()
+        reply = endpoint(boq_name=self.boq_name, sheet_name=_SHEET)
+        return sorted(f["row_index"] for f in reply["flags"] if f["type"] == "parser")
+
+    def test_both_readers_drop_the_warning_once_claude_re_types_the_row(self):
+        self._sheet()
+        self.assertEqual(self._warned(review_screen.get_review_rows), [1, 3])
+        self.assertEqual(self._warned(review_screen.get_structural_breaks), [1, 3])
+        self.assertEqual(review_flags.apply_sure_changes(self.boq_name, _SHEET), 1)
+        frappe.db.commit()
+        self.assertEqual(self._warned(review_screen.get_review_rows), [3], "row 1 is an Item now")
+        self.assertEqual(self._warned(review_screen.get_structural_breaks), [3])
+
+    def test_the_users_change_hides_it_and_a_revert_brings_it_back(self):
+        self._sheet()
+        self._restructure(3, "note", child_moves={4: 0})
+        self.assertEqual(self._warned(review_screen.get_review_rows), [1])
+        self._revert(3)
+        self.assertEqual(self._warned(review_screen.get_review_rows), [1, 3])
+
+    def test_a_revert_of_a_re_typed_row_keeps_the_warning_hidden(self):
+        self._sheet()
+        review_flags.apply_sure_changes(self.boq_name, _SHEET)
+        frappe.db.commit()
+        self._restructure(1, "note", child_moves={2: 0})
+        self._revert(1)
+        self.assertEqual(self._field(1, "classification"), "line_item", "back to parser + Claude")
+        self.assertEqual(self._warned(review_screen.get_review_rows), [3])
+
+
+class TestUndoLooksOk(_FlagCase):
+
+    def _sheet(self):
+        self._seed([
+            _row(0, "preamble", unit="Nos"),
+            _row(1, "preamble", unit="Kg"),
+            _row(2, "line_item", parent=0),
+            _row(3, "preamble", parent=0, unit="Nos", **_answer(parent=1)),
+        ])
+
+    def _undo(self, index):
+        return review_flags.unmark_row_looks_ok(boq_name=self.boq_name, sheet_name=_SHEET, row_index=index)
+
+    def test_it_brings_that_rows_flags_back_and_no_other_rows(self):
+        self._sheet()
+        self._looks_ok(0)
+        self._looks_ok(1)
+        self.assertEqual(self._undo(0), {"ok": True, "row_index": 0, "ai_flags_ok": 0})
+        self.assertEqual(_open(self._flags(0)), (True, False, ["unit_qty_not_item"]))
+        self.assertFalse(self._flags(0)["looks_ok"])
+        self.assertTrue(self._flags(1)["looks_ok"], "one row per call")
+        self.assertEqual(self._field(0, "ai_flags_ok"), 0)
+        self.assertIsNone(self._field(0, "ai_flags_ok_by"))
+        self.assertIsNone(self._field(0, "ai_flags_ok_at"))
+
+    def test_the_counts_move_back(self):
+        self._sheet()
+        before = self._summary()
+        self._looks_ok(0)
+        self.assertEqual(self._summary()["to_check"], before["to_check"] - 1)
+        self._undo(0)
+        after = self._summary()
+        self.assertEqual((after["to_check"], after["checked"], after["by_kind"]),
+                         (before["to_check"], before["checked"], before["by_kind"]))
+        self.assertEqual(after["flagged"], before["flagged"], "the flagged count never moved")
+
+    def test_the_row_can_be_ticked_again(self):
+        self._sheet()
+        self._looks_ok(0)
+        self._undo(0)
+        self._looks_ok(0)
+        self.assertEqual(_open(self._flags(0)), (False, False, []))
+
+    def test_it_is_not_an_edit(self):
+        self._sheet()
+        self._looks_ok(0)
+        self._undo(0)
+        self.assertIsNone(self._field(0, "edited_at"))
+        self.assertFalse(self._field(0, "edit_log"))
+
+    def test_it_is_refused_on_a_row_that_was_never_ticked(self):
+        self._sheet()
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._undo(0)
+        self.assertEqual(str(ctx.exception), "Row 10 has no Looks OK to undo.")      # the Excel row
+        with self.assertRaises(frappe.ValidationError):
+            self._undo(2)                                                            # never flagged
+
+    def test_it_is_refused_twice_in_a_row(self):
+        self._sheet()
+        self._looks_ok(0)
+        self._undo(0)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._undo(0)
+        self.assertEqual(str(ctx.exception), "Row 10 has no Looks OK to undo.")
+
+    def test_it_is_refused_once_a_revert_has_ended_the_mark(self):
+        self._sheet()
+        self._restructure(3, "line_item")       # clears Check type; Check parent still open
+        self._looks_ok(3)
+        self._revert(3)
+        self.assertFalse(self._flags(3)["looks_ok"])
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._undo(3)
+        self.assertEqual(str(ctx.exception), "Row 13 has no Looks OK to undo.")
+
+    def test_undo_on_a_row_the_user_has_since_fixed_leaves_the_fix_standing(self):
+        self._sheet()
+        self._looks_ok(1)
+        self._restructure(1, "line_item")
+        self._undo(1)
+        flags = self._flags(1)
+        self.assertEqual(_open(flags), (False, False, []), "the type change still answers the flag")
+        self.assertFalse(flags["looks_ok"])
+        self.assertTrue(flags["checked"])
+
+    def test_it_is_refused_on_a_finalized_sheet(self):
+        self._sheet()
+        self._looks_ok(0)
+        self._set_draft({"wizard_status": "Finalized"})
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._undo(0)
+        self.assertIn("read-only", str(ctx.exception))
+        self.assertEqual(self._field(0, "ai_flags_ok"), 1)
+
+    def test_it_is_refused_while_a_parse_is_running(self):
+        self._sheet()
+        self._looks_ok(0)
+        self._set_draft({"parse_in_progress": 1})
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError):
+            self._undo(0)
+        self.assertEqual(self._field(0, "ai_flags_ok"), 1)
+
+    def test_it_is_refused_for_a_row_that_does_not_exist(self):
+        self._sheet()
+        with self.assertRaises(frappe.ValidationError):
+            self._undo(99)
+
+    def test_finalize_is_blocked_again_after_an_undo(self):
+        self._seed([_row(0, "preamble", unit="Nos"), _row(1, "line_item", parent=0)])
+        self._looks_ok(0)
+        self._undo(0)
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._finalize()
+        self.assertEqual(str(ctx.exception), "Check the 1 flagged row before finalizing: row 10.")
+        self._looks_ok(0)
+        self._finalize()
+        self.assertEqual(self._status(), "Finalized")
+
+
+class TestRevertReply(_FlagCase):
+    """U15 / R27: the revert says which children came back and which did not."""
+
+    def _sheet(self):
+        # 0 top / 1 a heading under 0 with three children / 5 another heading.
+        self._seed([
+            _row(0, "preamble"),
+            _row(1, "preamble", parent=0),
+            _row(2, "line_item", parent=1),
+            _row(3, "line_item", parent=1),
+            _row(4, "line_item", parent=1),
+            _row(5, "preamble", parent=0),
+        ])
+
+    def test_a_revert_that_moved_nothing_names_no_child(self):
+        self._sheet()
+        self._restructure(2, "note")
+        self.assertEqual(self._revert(2), {"ok": True, "reverted_children": [], "children_not_returned": []})
+
+    def test_every_child_the_row_moved_comes_back(self):
+        self._sheet()
+        self._restructure(1, "note", child_moves={2: 0, 3: 0, 4: 0})
+        self.assertEqual(self._revert(1),
+                         {"ok": True, "reverted_children": [2, 3, 4], "children_not_returned": []})
+
+    def test_a_child_the_user_moved_himself_is_named_as_not_returned(self):
+        self._sheet()
+        self._restructure(1, "note", child_moves={2: 0, 3: 0, 4: 0})
+        self._restructure(3, "line_item", row_new_parent=5)
+        self.assertEqual(self._revert(1),
+                         {"ok": True, "reverted_children": [2, 4], "children_not_returned": [3]})
+        self.assertEqual(self._field(3, "human_parent"), 5, "and it really did stay")
+        self.assertEqual(self._field(2, "human_parent"), -1)
+
+    def test_no_child_is_in_both_lists(self):
+        self._sheet()
+        self._restructure(1, "note", child_moves={2: 0, 3: 0, 4: 0})
+        self._restructure(3, "line_item", row_new_parent=5)
+        reply = self._revert(1)
+        self.assertEqual(set(reply["reverted_children"]) & set(reply["children_not_returned"]), set())
+
+    def test_a_template_boq_returns_and_names_nothing(self):
+        self._sheet()
+        self._restructure(1, "note", child_moves={2: 0, 3: 0, 4: 0})
+        frappe.db.set_value("BOQs", self.boq_name, "origin", "template")
+        frappe.db.commit()
+        self.assertEqual(self._revert(1), {"ok": True, "reverted_children": [], "children_not_returned": []})
+
+
+class TestRevertDoesNotInventAnAnswer(_FlagCase):
+    """R23: reverting a row the model never answered must not mark it as answered. The parent
+    column is 0 by default and row 0 is a real row, so "parent >= 0" alone read as an answer."""
+
+    def _sheet(self):
+        self._seed([
+            _row(0, "preamble"),
+            _row(1, "preamble", parent=0),
+            _row(2, "line_item", parent=1),                                     # never answered
+            _row(3, "line_item", parent=1, **_answer("note", "Low")),           # answered
+            _row(4, "line_item", parent=1, **_answer(parent=0)),                # answered: parent row 0
+        ])
+
+    def test_a_never_answered_row_stays_unanswered_after_a_revert(self):
+        self._sheet()
+        self.assertEqual(self._field(2, "ai_suggested_parent"), 0, "the column default this test is about")
+        self._restructure(2, "note")
+        self._revert(2)
+        self.assertFalse(self._field(2, "ai_suggestion_status"))
+        self.assertFalse(self._field(2, "gemini_suggestion_status"))
+
+    def test_so_it_gets_no_false_check_parent_and_the_counts_do_not_move(self):
+        self._sheet()
+        before = self._summary()
+        self._restructure(2, "note")
+        self._revert(2)
+        self.assertEqual(self._flags(2)["doubts"], [])
+        self.assertEqual(_open(self._flags(2)), (False, False, []))
+        after = self._summary()
+        self.assertEqual((after["flagged"], after["to_check"]), (before["flagged"], before["to_check"]))
+
+    def test_a_row_claude_answered_is_still_re_offered_and_flagged(self):
+        self._sheet()
+        frappe.db.set_value(_ROW, {"boq": self.boq_name, "sheet_name": _SHEET, "row_index": 3},
+                            "ai_suggestion_status", "Rejected")
+        frappe.db.commit()
+        self._restructure(3, "spacer")
+        self._revert(3)
+        self.assertEqual(self._field(3, "ai_suggestion_status"), "Pending", "today's re-offer is unchanged")
+        self.assertTrue(self._flags(3)["check_type"])
+
+    def test_a_real_answer_naming_row_zero_keeps_its_check_parent_after_a_revert(self):
+        self._sheet()
+        self.assertTrue(self._flags(4)["check_parent"])
+        self._restructure(4, "note")
+        self._revert(4)
+        self.assertEqual(self._field(4, "ai_suggestion_status"), "Pending")
+        self.assertTrue(self._flags(4)["check_parent"])
+
+    def test_a_gemini_answer_is_re_offered_only_where_gemini_answered(self):
+        self._sheet()
+        frappe.db.set_value(_ROW, {"boq": self.boq_name, "sheet_name": _SHEET, "row_index": 3},
+                            {"gemini_suggestion_status": "Rejected", "gemini_suggested_classification": "note"})
+        frappe.db.commit()
+        self._restructure(3, "spacer")
+        self._revert(3)
+        self.assertEqual(self._field(3, "gemini_suggestion_status"), "Pending")
+        self._restructure(2, "note")
+        self._revert(2)
+        self.assertFalse(self._field(2, "gemini_suggestion_status"))

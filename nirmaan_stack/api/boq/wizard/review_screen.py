@@ -204,11 +204,12 @@ _FLAG_REASONS: dict[str, str] = {
 # Fields required by get_structural_breaks beyond the minimal integrity set.
 # These are fetched in the extended endpoint for advisory flag computation.
 # Exactly the fields the surviving flags read: parser reads
-# needs_classification_review + review_reason; classifier_warning reads
+# needs_classification_review + review_reason (+ parser_classification, to stay silent on a row
+# Claude re-typed); classifier_warning reads
 # classifier_warnings. Orphan now resolves effective values from the minimal
 # integrity fields (already in the base field list), so it needs no extra fields.
 _ADVISORY_EXTRA_FIELDS: tuple[str, ...] = (
-    "needs_classification_review", "review_reason", "classifier_warnings",
+    "needs_classification_review", "review_reason", "classifier_warnings", "parser_classification",
 )
 
 # ---------------------------------------------------------------------------
@@ -563,9 +564,18 @@ def _compute_advisory_flags(rows: list[dict]) -> list[dict]:
         # covers both. NOTE: only a CLASSIFICATION override suppresses; a parenting-only
         # override (human_parent / human_is_root) does NOT set human_classification, so
         # it correctly leaves this flag live.
+        # S4a (owner ruling R24): also silent on a row Claude surely re-typed. The reason is
+        # about the type the PARSER gave (the only one is "priced_preamble_with_children"), and
+        # that type is no longer the row's: review_flags.apply_sure_changes wrote Claude's into
+        # `classification` and kept the parser's in `parser_classification`. No human type is
+        # stored on such a row, so the test above cannot see it. A revert returns the row to
+        # parser + Claude, so the warning stays hidden after one.
         needs_review = _get(row, "needs_classification_review")
         review_reason = _get(row, "review_reason")
-        if needs_review and review_reason and not _get(row, "human_classification"):
+        parser_type = _get(row, "parser_classification")
+        re_typed = bool(parser_type) and parser_type != _get(row, "classification")
+        if (needs_review and review_reason and not _get(row, "human_classification")
+                and not re_typed):
             flags.append({
                 "type": "parser",
                 "row_index": row_index,
@@ -2725,7 +2735,9 @@ def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=Non
     row resolves to the parser. Finally it normalizes: any live suggestion's status -> Pending
     (re-offered), both accept snapshots cleared, chosen_source -> "parser".
 
-    Returns {"ok": True, "reverted_children": [int, ...]}.
+    Returns {"ok": True, "reverted_children": [int, ...], "children_not_returned": [int, ...]}
+    (row indexes). `children_not_returned` (S4a, R27) are the children a restructure of this row
+    moved that stay where they are, because a later move of the child still stands.
 
     Guards _not_frozen + _not_parsing (it writes the human layer). sheet_name VERBATIM (#152).
     URL: /api/method/nirmaan_stack.api.boq.wizard.review_screen.revert_to_parser
@@ -2778,8 +2790,10 @@ def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=Non
     # "row N" in a child's history cannot be trusted. Lazy import: review_flags imports this module.
     from nirmaan_stack.api.boq.wizard import review_flags
     cascade_children = frappe.db.get_value("BOQs", boq_name, "origin") != "template"
+    children_not_returned: list = []
     if cascade_children:
         review_flags.guard_child_reverts(boq_name, sheet_name, row_index)
+        children_not_returned = review_flags.children_not_returned(boq_name, sheet_name, row_index)
 
     # Lazy imports: ai_assist / gemini_assist import FROM review_screen at module load, so
     # importing them here (call-time) avoids a circular import.
@@ -2846,11 +2860,18 @@ def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=Non
     # A live suggestion is re-offered as Pending; a row that never had a suggestion stays
     # untouched (don't fabricate a Pending on a no-suggestion row). ai_suggested_classification
     # / a non-(-1) ai_suggested_parent / ai_suggested_is_root => there IS a Claude suggestion.
-    if (doc.ai_suggested_classification
+    #
+    # S4a (R23): the row must also already carry a STATUS. `*_suggested_parent` is 0 by column
+    # default on a row the model never answered, and row 0 is a real row, so the parent test
+    # alone marked such a row Pending -- which showed a suggestion block nobody made and, on the
+    # Claude side, made review_flags read "Claude named row 0" and open a false "Check parent".
+    if doc.ai_suggestion_status and (
+            doc.ai_suggested_classification
             or (doc.ai_suggested_parent is not None and doc.ai_suggested_parent >= 0)
             or doc.ai_suggested_is_root):
         normalize["ai_suggestion_status"] = "Pending"
-    if (doc.gemini_suggested_classification
+    if doc.gemini_suggestion_status and (
+            doc.gemini_suggested_classification
             or (doc.gemini_suggested_parent is not None and doc.gemini_suggested_parent >= 0)
             or doc.gemini_suggested_is_root):
         normalize["gemini_suggestion_status"] = "Pending"
@@ -2864,7 +2885,11 @@ def revert_to_parser(boq_name: str = None, sheet_name: str = None, row_index=Non
 
     frappe.db.commit()
 
-    return {"ok": True, "reverted_children": sorted(set(reverted_children))}
+    return {
+        "ok": True,
+        "reverted_children": sorted(set(reverted_children)),
+        "children_not_returned": sorted(set(children_not_returned) - set(reverted_children)),
+    }
 
 
 @frappe.whitelist(methods=["POST"])
