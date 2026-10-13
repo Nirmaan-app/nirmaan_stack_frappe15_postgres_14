@@ -73,6 +73,8 @@ PURE_MODULES = [
     "nirmaan_stack/services/boq_bcs/sources.py",
     # The Non Project Inflows type rule (#1266): read by the doctype validate and the import service.
     "nirmaan_stack/services/non_project_inflows.py",
+    # The refund link rule (#1399): how much of each Received refund settles a PO Adjustment.
+    "nirmaan_stack/services/refund_links.py",
 ]
 
 

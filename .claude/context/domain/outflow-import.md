@@ -5819,6 +5819,19 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   for the PO(s) touched (`vendor_credit_refresh.recompute_vendor_credit`; ledger entries
   `Vendor Refund Recorded / Changed / Deleted`) -- the ONE place a refund save recounts credit. Refund
   tests restore the vendor's credit with `api/vendor_refunds/credit_fixture`.
+- ⚠️ **A RECEIVED REFUND SETTLES ITS PO'S ADJUSTMENT BALANCE BY ITSELF (#1399, ADR-0032).** On a PO the
+  hook's recompute IS the refund sync step `api/po_adjustments/refund_links.sync_po_refund_links(po_names,
+  credit_entry_type=None)`: paid amount + amount due, then the PO Adjustment's `Vendor Refund` entries with
+  `PO Adjustment Items.vendor_refund` set (rule: `services/refund_links.plan_refund_links`: oldest Received
+  refund first, each up to the still-unsettled NEGATIVE balance of the ledger's other entries), then the
+  vendor's credit when an entry type is passed. Recomputed from source; it saves the adjustment only when
+  an entry changes, so a second run writes nothing. Such an entry creates no Project Payment and no term.
+  Revision approval calls it after `_create_or_update_adjustment` (no credit entry: linking moves no paid
+  amount). `on_trash` drops the refund's entries first (`unlink_refund`), or Frappe's link check refuses a
+  Desk delete; Unreconcile's `delete_doc(force=True)` and a status flip both reach the same sync through
+  the hooks. A writer using raw SQL on refunds, or LOWERING a ledger's base balance, calls the step itself.
+  The rest beyond the balance is `get_po_refund_links(po_id).over_balance`, the PO page's warning. ⚠️ Tests
+  that refund REAL POs pick POs with no `PO Adjustments`, since their raw purge cannot undo a link.
 - ⚠️ **The rules have ONE home: `services/vendor_refunds.py`.** `refund_document_problem` (one record:
   a PO / WO is that vendor's, on the chosen project WHEN one is chosen, not a **Merged** PO, **paid > 0**
   (`paid_of` = stored `amount_paid` **+ every refund stored against it**, since the stored figure is net)

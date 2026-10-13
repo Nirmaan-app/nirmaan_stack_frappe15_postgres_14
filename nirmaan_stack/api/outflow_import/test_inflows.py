@@ -144,6 +144,9 @@ class InflowFixture(unittest.TestCase):
             FROM "tabProcurement Orders"
             WHERE status = 'Delivered' AND amount_paid >= 1000
               AND vendor IS NOT NULL AND project IS NOT NULL
+              -- #1399: a refund on a PO with an adjustment links into it; the raw purge cannot undo that.
+              AND NOT EXISTS (
+                  SELECT 1 FROM "tabPO Adjustments" a WHERE a.po_id = "tabProcurement Orders".name)
             GROUP BY vendor, project HAVING COUNT(*) >= 2
             ORDER BY vendor, project LIMIT 1
             """,
@@ -1262,6 +1265,7 @@ class TestAVendorRefundFromABankLine(InflowFixture):
             WHERE po.status NOT IN ('Cancelled', 'Merged', 'Inactive') AND po.creation >= '2025-04-01'
               AND po.amount_paid >= 1000 AND COALESCE(po.po_amount_delivered, 0) >= po.amount_paid + 1000
               AND po.vendor IS NOT NULL AND po.project IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM "tabPO Adjustments" a WHERE a.po_id = po.name)
               -- The stored figure is already what the refund hook recomputes, so only the refund moves it.
               AND ABS(po.amount_paid - (
                   COALESCE((

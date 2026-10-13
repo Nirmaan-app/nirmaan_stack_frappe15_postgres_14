@@ -97,6 +97,7 @@ import { PORevisionWarning } from "@/pages/PORevision/PORevisionWarning";
 import { usePOLockCheck, useAllLockedPOs } from "@/pages/PORevision/data/usePORevisionQueries";
 import { POAdjustmentDialog } from "@/pages/POAdjustment/POAdjustmentDialog";
 import { VendorCreditSummaryCard } from "@/pages/POAdjustment/VendorCreditSummaryCard";
+import { RefundOverBalanceWarning } from "@/pages/POAdjustment/RefundOverBalanceWarning";
 import { PORevisionsAndAdjustments } from "./components/PORevisionsAndAdjustments";
 import {
   MergePOTable,
@@ -759,6 +760,7 @@ export const PurchaseOrder = () => {
   return (
     <div className="flex-1 space-y-4">
       <PORevisionWarning poId={poId} />
+      <RefundOverBalanceWarning poId={poId} />
 
       {poId && PO?.vendor && (
         <VendorCreditSummaryCard

@@ -14,6 +14,8 @@ interface AdjustmentItem {
   expense_type?: string;
   refund_date?: string;
   refund_attachment?: string;
+  /** The Received Vendor Refund this entry stands for (#1399); set only by the refund sync step. */
+  vendor_refund?: string;
   owner?: string;
   created_by?: string;
 }
