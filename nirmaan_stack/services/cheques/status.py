@@ -9,8 +9,9 @@ A Cheque moves between Issued, Cleared and Cancelled in any direction. Each move
 * a Cheque already at the status asked for does not move;
 * Cancel needs a note;
 * Cancel is refused while any line's Project Payment is Paid (the bank has settled that cheque);
-* leaving Cancelled is refused while a line's payment sits on another live Cheque, or has left this
-  one (switched back to Online, or put on another Cheque).
+* leaving Cancelled is refused while a line's payment is Rejected (a backfilled Cheque whose payments
+  were all Rejected keeps them as lines, #1419), sits on another live Cheque, or has left this one
+  (switched back to Online, or put on another Cheque).
 
 Cancel touches no payment: a payment at Reconciliation Pending stays there, and the user reverts it
 or puts it on a new Cheque by hand. A Cheque moves no money figure, so nothing is recomputed.
@@ -28,7 +29,7 @@ from frappe import _
 
 from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.cheques.lines import live_cheques_of
-from nirmaan_stack.services.cheques.rules import CANCELLED, CHEQUE_STATUSES, PAYMENT_DOCTYPE
+from nirmaan_stack.services.cheques.rules import CANCELLED, CHEQUE_STATUSES, PAYMENT_DOCTYPE, PAYMENT_REJECTED
 from nirmaan_stack.services.cheques.writer import CHEQUES, history_row
 from nirmaan_stack.services.settlement import STATUS_PAID, STATUS_RECONCILIATION_PENDING
 
@@ -77,6 +78,9 @@ def move_problem(facts: MoveFacts, to_status: str) -> str | None:
         if paid:
             return f"payment {', '.join(paid)} is Paid"
     if facts.status == CANCELLED:
+        for p in facts.payments:
+            if p.doctype == PAYMENT_DOCTYPE and p.status == PAYMENT_REJECTED:
+                return f"payment {p.name} is Rejected"
         for p in facts.payments:
             if p.elsewhere:
                 return f"payment {p.name} is already on cheque {p.elsewhere['cheque_no']} ({p.elsewhere['status']})"
