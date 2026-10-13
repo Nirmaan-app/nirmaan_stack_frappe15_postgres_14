@@ -4,6 +4,7 @@ import { TableCell, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { RefundStatusBadge } from "./RefundStatusBadge";
 import type { VendorRefundRow } from "./useVendorRefunds";
 
 /** One row of a PO's / WO's Transaction Details: a payment, or a vendor refund against the order. */
@@ -30,7 +31,7 @@ export const mergePaymentsAndRefunds = <P extends { name: string; payment_date?:
 /**
  * A vendor refund in a Transaction Details table, beside the order's payments: a teal-tinted row (teal is
  * no payment status's colour), a "Refund" tag under the amount, UTR (plain text, like the payment rows),
- * date and status "Received".
+ * date and its status (Received, Reconciliation Pending or Cancelled; only Received lowers the paid amount).
  * No voucher, no delete.
  * `tdsColumn` adds the empty TDS cell the WO table has.
  */
@@ -56,7 +57,7 @@ export const VendorRefundTableRow = ({
         </TableCell>
         <TableCell>{refund.payment_date ? formatDate(refund.payment_date) : "--"}</TableCell>
         <TableCell className="whitespace-nowrap">
-            <Badge variant="teal">Received</Badge>
+            <RefundStatusBadge status={refund.status} />
         </TableCell>
         <TableCell className="text-center w-[10%]">--</TableCell>
         <TableCell className="w-[5%]" />

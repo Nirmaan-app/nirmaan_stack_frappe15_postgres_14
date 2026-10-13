@@ -5,13 +5,15 @@
 
 ⚠️ RUNS AGAINST THE LIVE SITE DB. The two refunds it inserts are deleted, with their Version rows, in
 `tearDownClass`. The PO one lowers a real PAID PO's `amount_paid`, and the raw delete runs no hook, so
-that PO's stored paid figures are captured first and written back exactly as found.
+that PO's stored paid figures are captured first and written back exactly as found -- and so is its
+vendor's credit, which each refund save recounts (#1398).
 """
 
 import unittest
 
 import frappe
 
+from nirmaan_stack.api.vendor_refunds import credit_fixture
 from nirmaan_stack.api.vendor_refunds.list_refunds import get_vendor_refunds
 
 VENDOR_REFUNDS = "Vendor Refunds"
@@ -37,9 +39,10 @@ class TestGetVendorRefunds(unittest.TestCase):
         cls.po_figures = frappe.db.get_value(
             "Procurement Orders", po.name, ["amount_paid", "amount_due", "modified", "modified_by"], as_dict=True
         )
-        for document_type, document_name, amount, description in (
-            ("Procurement Orders", po.name, 10, None),
-            ("Misc. Expense", None, 5, "test: list_refunds misc"),
+        cls.credit = credit_fixture.snapshot([po.vendor])
+        for document_type, document_name, amount, description, status in (
+            ("Procurement Orders", po.name, 10, None, "Reconciliation Pending"),
+            ("Misc. Expense", None, 5, "test: list_refunds misc", "Received"),
         ):
             doc = frappe.get_doc(
                 {
@@ -51,6 +54,7 @@ class TestGetVendorRefunds(unittest.TestCase):
                     "amount": amount,
                     "description": description,
                     "payment_date": frappe.utils.today(),
+                    "status": status,
                 }
             ).insert(ignore_permissions=True)
             cls.refunds.append(doc.name)
@@ -63,6 +67,7 @@ class TestGetVendorRefunds(unittest.TestCase):
             frappe.db.delete(VENDOR_REFUNDS, {"name": ["in", cls.refunds]})
             frappe.db.delete("Version", {"ref_doctype": VENDOR_REFUNDS, "docname": ["in", cls.refunds]})
             frappe.db.set_value("Procurement Orders", cls.po.name, cls.po_figures, update_modified=False)
+            credit_fixture.restore(cls.credit)
             frappe.db.commit()
 
     def test_a_po_lists_only_the_refunds_against_it(self):
@@ -73,6 +78,11 @@ class TestGetVendorRefunds(unittest.TestCase):
         for row in rows:
             self.assertEqual((row["document_type"], row["document_name"]), ("Procurement Orders", self.po.name))
             self.assertEqual(row["project"], self.po.project)
+
+    def test_each_row_says_its_status(self):
+        rows = get_vendor_refunds(document_type="Procurement Orders", document_name=self.po.name)
+        status = {r["name"]: r["status"] for r in rows}
+        self.assertEqual(status[self.refunds[0]], "Reconciliation Pending")
 
     def test_it_needs_a_po_or_wo(self):
         with self.assertRaises(frappe.ValidationError):

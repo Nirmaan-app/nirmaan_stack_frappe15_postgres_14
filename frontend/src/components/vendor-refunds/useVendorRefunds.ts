@@ -1,4 +1,5 @@
 import { useFrappeGetCall } from "frappe-react-sdk";
+import type { VendorRefundStatus } from "./RefundStatusBadge";
 
 /** One `Vendor Refunds` record, as `api/vendor_refunds/list_refunds.get_vendor_refunds` sends it. */
 export interface VendorRefundRow {
@@ -10,6 +11,7 @@ export interface VendorRefundRow {
     /** Blank on a Misc. Expense refund. */
     document_name?: string | null;
     amount: number;
+    status: VendorRefundStatus;
     utr?: string | null;
     payment_date?: string | null;
     description?: string | null;

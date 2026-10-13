@@ -8,6 +8,7 @@ import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { RefundAttachmentLink } from "@/components/vendor-refunds/RefundAttachmentLink";
+import { RefundStatusBadge } from "@/components/vendor-refunds/RefundStatusBadge";
 import type { VendorRefundRow } from "@/components/vendor-refunds/useVendorRefunds";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -62,6 +63,7 @@ export const VendorRefundsTab: React.FC<VendorRefundsTabProps> = ({ vendorId, ve
             "document_type",
             "document_name",
             "amount",
+            "status",
             "utr",
             "payment_date",
             "description",
@@ -187,6 +189,17 @@ export const VendorRefundsTab: React.FC<VendorRefundsTabProps> = ({ vendorId, ve
                 size: 150,
             },
             {
+                accessorKey: "status",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+                cell: ({ row }) => <RefundStatusBadge status={row.original.status} />,
+                meta: {
+                    facet: { field: "status", title: "Status" } satisfies FacetDeclaration,
+                    exportHeaderName: "Status",
+                    exportValue: (row: VendorRefundRow) => row.status || "",
+                },
+                size: 160,
+            },
+            {
                 accessorKey: "amount",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
                 cell: ({ row }) => (
@@ -245,6 +258,7 @@ export const VendorRefundsTab: React.FC<VendorRefundsTabProps> = ({ vendorId, ve
                 document_type: { additionalFilters: staticFilters },
                 document_name: { additionalFilters: staticFilters },
                 project: { additionalFilters: staticFilters },
+                status: { additionalFilters: staticFilters },
             }}
             showExportButton={true}
             onExport={"default"}

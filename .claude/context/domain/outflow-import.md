@@ -5785,7 +5785,7 @@ description box sits on its line). On Confirm each ticked document -- and the Mi
 **one `Vendor Refunds` record** (three POs + misc -> four records), all in ONE savepoint, one match leg
 each (`created_by_import = 1`, `target_amount` = the part).
 
-Doctype **`Vendor Refunds`** (`VRF-.YY.-.#####`, `track_changes`, no status, Non Project Inflows'
+Doctype **`Vendor Refunds`** (`VRF-.YY.-.#####`, `track_changes`, a `status` since #1398 (below), Non Project Inflows'
 DocPerms): `vendor` (required), `project` (optional), `document_type` (required Select: Procurement
 Orders / Service Requests / **Misc. Expense**), `document_name` (Dynamic Link, mandatory only when the
 type is not Misc. Expense -- a misc record stores NULL, so the link is never resolved), `amount` (the
@@ -5808,6 +5808,17 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   refund tests capture + restore their POs' figures for this). ⚠️ Recording the same money through the PO
   Adjustment "Vendor has refund" flow too lowers it twice. ⚠️ Refunds saved BEFORE this change are not
   netted until something recomputes their document.
+- ⚠️ **STATUS (#1398, ADR-0032): `Reconciliation Pending` / `Received` / `Cancelled`**, a required Select
+  with no JSON default (Frappe gives a creator that sets nothing the FIRST option, Reconciliation Pending).
+  A bank-line refund is set `Received` explicitly in `settle.create_vendor_refund_from_row`; rows from
+  before were set Received by the patch `v3_0.set_vendor_refunds_received`. **Only Received lowers
+  `amount_paid`** (`LOWERS_PAID_STATUSES`, so `paid_of` adds back only Received); **the cap counts
+  Received + Reconciliation Pending** (`TAKES_REFUNDABLE_STATUSES`); Cancelled counts for nothing.
+  `refunded_on(..., statuses)` takes the status set with no default, so each caller says which meaning it
+  wants. The hook also watches `status`, and after the paid recompute it **recounts the vendor's credit**
+  for the PO(s) touched (`vendor_credit_refresh.recompute_vendor_credit`; ledger entries
+  `Vendor Refund Recorded / Changed / Deleted`) -- the ONE place a refund save recounts credit. Refund
+  tests restore the vendor's credit with `api/vendor_refunds/credit_fixture`.
 - ⚠️ **The rules have ONE home: `services/vendor_refunds.py`.** `refund_document_problem` (one record:
   a PO / WO is that vendor's, on the chosen project WHEN one is chosen, not a **Merged** PO, **paid > 0**
   (`paid_of` = stored `amount_paid` **+ every refund stored against it**, since the stored figure is net)

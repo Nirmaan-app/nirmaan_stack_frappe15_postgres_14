@@ -13,6 +13,7 @@
   "document_type",
   "document_name",
   "refund_details_section",
+  "status",
   "utr",
   "refund_attachment",
   "amount",
@@ -68,6 +69,16 @@
    "fieldname": "refund_details_section",
    "fieldtype": "Section Break",
    "label": "Refund Details"
+  },
+  {
+   "description": "Received: a bank credit line is matched to it, or it was recorded from one; only a Received refund lowers its document's paid amount. Reconciliation Pending: recorded before its bank line; it lowers nothing but holds its amount against the document's refundable amount. Cancelled: counts for nothing.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Reconciliation Pending\nReceived\nCancelled",
+   "reqd": 1
   },
   {
    "fieldname": "utr",
