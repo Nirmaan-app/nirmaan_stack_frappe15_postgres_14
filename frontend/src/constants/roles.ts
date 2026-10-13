@@ -15,6 +15,14 @@ export const PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Procurement Executive Prof
 export const PROCUREMENT_LEAD_PROFILE = "Nirmaan Procurement Lead Profile";
 export const MATERIAL_PROCUREMENT_EXECUTIVE_PROFILE =
   "Nirmaan Material Procurement Executive Profile";
+/**
+ * A company-wide WO desk, like Estimates: NEVER assigned projects, sees all of them.
+ * That rests on every piece agreeing -- no Assign button (`UserProjectsTab`), absent from
+ * the project assignee picker (`ProjectOverviewTab`), exempt from the dashboard's
+ * `has_project` alert (`pages/dashboard.tsx`), plus the backend full-access lists
+ * (`services/role_profiles.py` names them). One project assigned by mistake shrinks the
+ * user's Frappe lists to that project while their counts still cover all projects.
+ */
 export const SERVICE_PROCUREMENT_EXECUTIVE_PROFILE =
   "Nirmaan Service Procurement Executive Profile";
 
