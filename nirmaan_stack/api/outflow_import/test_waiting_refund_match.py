@@ -40,8 +40,11 @@ VENDOR_REFUNDS = "Vendor Refunds"
 TOTAL, PAID = 10000.0, 11180.0
 
 
-class TestMatchingAWaitingRefund(InflowFixture):
-    """⚠️ AT MOST SIX CONSUMING TESTS PER CLASS: the fixture holds six open credits."""
+class WaitingRefundFixture(InflowFixture):
+    """Overpaid POs and waiting refunds on the fixture's vendor, purged by name after each test. Also
+    read by `test_waiting_refund_suggestion` (#1402).
+
+    ⚠️ AT MOST SIX CONSUMING TESTS PER CLASS: the fixture holds six open credits."""
 
     def setUp(self):
         frappe.set_user("Administrator")
@@ -138,6 +141,10 @@ class TestMatchingAWaitingRefund(InflowFixture):
 
     def _match(self, row, refunds, **kwargs):
         return match_waiting_refunds(row=row["name"], refunds=frappe.as_json(refunds), **kwargs)
+
+
+class TestMatchingAWaitingRefund(WaitingRefundFixture):
+    """⚠️ AT MOST SIX CONSUMING TESTS PER CLASS: the fixture holds six open credits."""
 
     # ── the match ───────────────────────────────────────────────────────────────
 

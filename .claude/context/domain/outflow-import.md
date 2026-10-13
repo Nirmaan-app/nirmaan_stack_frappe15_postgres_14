@@ -5846,6 +5846,21 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   refund whose typed UTR is the line's reference must not get its own line skipped. The dialog's "Match a
   waiting Vendor Refund" card sits above "Create a vendor refund", which warns when the vendor has waiting
   refunds (`waitingRefundMatch.ts`).
+- ⚠️ **THE BANK-STATEMENT RUN SUGGESTS A WAITING REFUND FOR A CREDIT LINE (#1402, ADR-0032).** The pure
+  rule `services/outflow_import/refund_suggestion.suggest_waiting_refunds`: (a) the line's bank reference
+  equals the UTR typed on one or more waiting refunds, all one vendor's (the only rule that may suggest a
+  group; two vendors suggest nothing and stop the ladder), else (b) the line's account AND IFSC are a
+  vendor's (`matcher.account_ifsc_vendors`) and EXACTLY ONE of that vendor's waiting refunds agrees within
+  `TIER1_TOLERANCE`. Never a group from amounts, never a name-only vendor. ICICI has no account/IFSC
+  columns, so only (a) is live today. `review._guard_duplicates_only` asks it for each open credit line
+  the contains-guard left `Mismatched` with no recorded group (`api/outflow_import/refund_suggestions.
+  suggester`, pool `vendor_refunds.every_matchable_refund`, the same membership as `matchable_refunds`).
+  It lands in **`Outflow Import Row.suggested_refunds`** (JSON `{vendor, basis, refunds: [names]}`,
+  written every run, blank when none) and the outcome note; **never in `suggested_doctype` /
+  `suggested_name`**, which bulk confirm reads. The line stays `Mismatched`. `get_outflow_rows` ships
+  `waiting_refund_suggestion` (`shown_suggestions`: current amounts and POs, `None` once any refund stopped
+  waiting or the line is not open), and `seedDecisions` opens the dialog on the match with those refunds
+  ticked. The accountant still clicks Match (`match_waiting_refunds`).
 - ⚠️ **The rules have ONE home: `services/vendor_refunds.py`.** `refund_document_problem` (one record:
   a PO / WO is that vendor's, on the chosen project WHEN one is chosen, not a **Merged** PO, **paid > 0**
   (`paid_of` = stored `amount_paid` **+ every refund stored against it**, since the stored figure is net)
