@@ -12,7 +12,8 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { useUrlParam } from "@/hooks/useUrlParam";
-import { useRefreshUserAssignments, useUserAssignments } from "@/hooks/useUserAssignments";
+import { useMyAssets, useRefreshUserAssignments, useUserAssignments } from "@/hooks/useUserAssignments";
+import { withOwnAssets } from "@/utils/ownAssets";
 import { useAssetDataRefresh } from "@/pages/Assets/hooks/useAssetDataRefresh";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useUserSubmitHandlers } from "@/hooks/useUserSubmitHandlers";
@@ -210,6 +211,15 @@ export default function Profile() {
       (isAdmin || isOwnProfile) ? "asset_categories_for_user_profile" : null
     );
 
+  // On their own profile a person also gets their own assets from the server: the list above follows
+  // their project permissions and misses an asset assigned to them for a project they are not on, so
+  // its card, its Project / IT tab and its Sign button never showed (owner, 2026-10-13).
+  const { data: myAssets } = useMyAssets(isOwnProfile);
+  const { assets: profileAssets, withoutPage: assetsWithoutPage } = useMemo(
+    () => withOwnAssets(assetMasterList, isOwnProfile ? myAssets : undefined),
+    [assetMasterList, myAssets, isOwnProfile]
+  );
+
   // After an assign, unassign, upload or sign on this tab: the person's assignments, the asset list
   // the Assign dialog picks free assets from (a freed asset must show up, an assigned one must not),
   // the sidebar badge's "held" list, and the Assets page summary counts.
@@ -364,7 +374,8 @@ export default function Profile() {
           <UserAssetsTab
             user={data}
             assetManagementList={assetManagementList as any}
-            assetMasterList={assetMasterList as any}
+            assetMasterList={profileAssets as any}
+            assetsWithoutPage={assetsWithoutPage}
             categoryList={categoryList as any}
             isAdmin={isAdmin}
             isOwnProfile={isOwnProfile}

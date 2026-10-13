@@ -1,6 +1,6 @@
-import { useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
 
-import { ASSET_MANAGEMENT_DOCTYPE, ASSET_MANAGEMENT_FIELDS, ASSET_MASTER_DOCTYPE } from "@/pages/Assets/assets.constants";
+import { ASSET_MANAGEMENT_DOCTYPE, ASSET_MANAGEMENT_FIELDS } from "@/pages/Assets/assets.constants";
 import { useUserData } from "@/hooks/useUserData";
 import { countDeclarationsToSign } from "@/utils/assetDeclaration";
 
@@ -20,8 +20,37 @@ export interface UserAssignment {
  */
 export const userAssignmentsKey = (userId: string) => `asset_management_${userId}`;
 
-/** The assets a person holds now (Asset Master.current_assignee), for the badge. */
+/** The signed-in person's own assets (`useMyAssets`), for the badge and their profile. */
 export const heldAssetsKey = (userId: string) => `assets_held_by_${userId}`;
+
+/** What `api/assets/mine.get_my_assets` returns for each asset. */
+export interface MyAsset {
+  name: string;
+  asset_name: string;
+  asset_category: string;
+  asset_condition: string | null;
+  asset_serial_number: string | null;
+  department: string | null;
+  current_assignee: string | null;
+}
+
+/**
+ * The signed-in person's own assets -- the ones they hold and the ones an assignment row names them
+ * on -- whatever project they are booked against. A plain Asset Master read follows the person's
+ * project User Permissions and hides an asset assigned to them for a project they are not on; this
+ * server call does not (owner, 2026-10-13). One SWR key for the badge and the profile, so a sign or an
+ * unassign refreshes both (`useRefreshUserAssignments`).
+ */
+export function useMyAssets(enabled = true) {
+  const { user_id } = useUserData();
+  const on = enabled && !!user_id && user_id !== "Administrator";
+  const { data, isLoading } = useFrappeGetCall<{ message: MyAsset[] }>(
+    "nirmaan_stack.api.assets.mine.get_my_assets",
+    undefined,
+    on ? heldAssetsKey(user_id) : null
+  );
+  return { data: data?.message, isLoading: on && isLoading };
+}
 
 export function useUserAssignments(userId: string | undefined, enabled = true) {
   return useFrappeGetDocList<UserAssignment>(
@@ -45,12 +74,10 @@ export function useMyPendingDeclarationCount(): number {
   const { user_id } = useUserData();
   const enabled = !!user_id && user_id !== "Administrator";
   const { data: assignments } = useUserAssignments(user_id, enabled);
-  const { data: held } = useFrappeGetDocList<{ name: string }>(
-    ASSET_MASTER_DOCTYPE,
-    { fields: ["name"], filters: [["current_assignee", "=", user_id ?? ""]], limit: 0 },
-    enabled && user_id ? heldAssetsKey(user_id) : null
-  );
-  return countDeclarationsToSign(user_id, assignments ?? [], new Set((held ?? []).map((asset) => asset.name)));
+  // Held = their own assets whose holder is them (an asset on a project they are not on included).
+  const { data: mine } = useMyAssets(enabled);
+  const held = new Set((mine ?? []).filter((asset) => asset.current_assignee === user_id).map((asset) => asset.name));
+  return countDeclarationsToSign(user_id, assignments ?? [], held);
 }
 
 /** Refetch a person's assignments wherever they are shown (the profile tab and the sidebar badge). */

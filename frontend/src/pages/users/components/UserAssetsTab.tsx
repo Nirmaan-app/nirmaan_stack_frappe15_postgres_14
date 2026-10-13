@@ -85,6 +85,8 @@ interface UserAssetsTabProps {
   user: NirmaanUsers;
   assetManagementList: AssetManagementRecord[] | undefined;
   assetMasterList: AssetMasterRecord[] | undefined;
+  /** Assets the viewer can't open (their own, on a project they are not on): the card shows no link. */
+  assetsWithoutPage?: ReadonlySet<string>;
   categoryList: AssetCategoryRecord[] | undefined;
   isAdmin: boolean;
   isOwnProfile: boolean;
@@ -98,6 +100,7 @@ function AssetCard({
   isAdmin,
   canUploadDeclaration,
   canSign,
+  hasPage = true,
   onUnassign,
   onUploadDeclaration,
   onSign,
@@ -105,6 +108,8 @@ function AssetCard({
   assignment: AssetManagementRecord;
   asset: AssetMasterRecord | undefined;
   isAdmin: boolean;
+  /** False when the viewer can't open the asset's page: the name is shown without a link. */
+  hasPage?: boolean;
   /** Uploading a scanned declaration is Admin only; the employee signs in the app instead. */
   canUploadDeclaration: boolean;
   /** The viewer is the assignee and the declaration is still pending. */
@@ -121,13 +126,17 @@ function AssetCard({
         {/* Header with Asset Name */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <Link
-              to={`/asset-management/${assignment.asset}`}
-              className="font-semibold text-base hover:text-primary transition-colors flex items-center gap-1 group/link"
-            >
-              <span className="truncate">{asset?.asset_name || assignment.asset}</span>
-              <ExternalLink className="h-3 w-3 opacity-0 group-hover/link:opacity-100 transition-opacity flex-shrink-0" />
-            </Link>
+            {hasPage ? (
+              <Link
+                to={`/asset-management/${assignment.asset}`}
+                className="font-semibold text-base hover:text-primary transition-colors flex items-center gap-1 group/link"
+              >
+                <span className="truncate">{asset?.asset_name || assignment.asset}</span>
+                <ExternalLink className="h-3 w-3 opacity-0 group-hover/link:opacity-100 transition-opacity flex-shrink-0" />
+              </Link>
+            ) : (
+              <p className="font-semibold text-base truncate">{asset?.asset_name || assignment.asset}</p>
+            )}
             <p className="text-xs text-muted-foreground mt-0.5">
               {asset?.asset_category || "Uncategorized"}
             </p>
@@ -229,6 +238,7 @@ export function UserAssetsTab({
   user,
   assetManagementList,
   assetMasterList,
+  assetsWithoutPage,
   categoryList,
   isAdmin,
   isOwnProfile,
@@ -504,6 +514,7 @@ export function UserAssetsTab({
                 key={assignment.name}
                 assignment={assignment}
                 asset={asset}
+                hasPage={!assetsWithoutPage?.has(assignment.asset)}
                 isAdmin={isAdmin}
                 canUploadDeclaration={canUploadDeclaration}
                 canSign={
