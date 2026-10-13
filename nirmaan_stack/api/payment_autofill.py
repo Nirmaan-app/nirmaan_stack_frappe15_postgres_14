@@ -2,7 +2,9 @@ import re
 
 import frappe
 
+from nirmaan_stack.services.cheques.photo import cheque_photo_fields
 from nirmaan_stack.services.extraction import extract
+from nirmaan_stack.services.extraction.base import CHEQUE
 from nirmaan_stack.services.extraction.files import (
     SUPPORTED_EXTS,
     fetch_file_content,
@@ -17,6 +19,10 @@ from nirmaan_stack.services.extraction.helpers import (
 )
 
 MIN_CONFIDENCE = 0.70
+
+#: `extract_payment_fields(mode=...)`: a bank-transfer receipt (the default) or a cheque photo.
+RECEIPT_MODE = "receipt"
+CHEQUE_MODE = "cheque"
 
 # Rounding tolerance when comparing Transfer_Amount from the receipt against
 # the requested payment amount. Banks round paise differently and some receipts
@@ -39,35 +45,24 @@ _NAME_STOPWORDS = {
 
 
 @frappe.whitelist()
-def extract_payment_fields(file_url):
-    """Extract UTR, payment date, and transfer amount from a payment receipt.
+def extract_payment_fields(file_url, mode=RECEIPT_MODE):
+    """Extract a payment's details from an uploaded file. Persists nothing.
 
-    Called from the New Payments → Pay dialog when the user selects an
-    attachment. Only fields the model could read are returned populated;
-    everything else comes back empty for manual entry. The response is never
-    persisted server-side.
+    `mode="receipt"` (the default) reads a bank-transfer receipt: UTR, payment date and transfer
+    amount. Called from the New Payments → Pay dialog when the user selects an attachment.
+
+    `mode="cheque"` reads a photo of one of our paper cheques (spec #1407): bank, bank name,
+    cheque number, cheque date, amount and payee, for the Add Cheque form and the PO/WO Request
+    Payment dialog. The photo may be attached to nothing yet.
+
+    Only fields the model could read are returned populated; everything else comes back empty
+    for manual entry.
     """
-    if not file_url:
-        frappe.throw("file_url is required")
-
-    file_doc = get_file_doc_by_url(file_url)
-    if not file_doc:
-        frappe.throw(f"No File record found for url: {file_url}")
-
-    if not file_doc.file_name:
-        frappe.throw("File has no file_name; cannot determine type.")
-
-    file_ext = file_doc.file_name.rsplit(".", 1)[-1].lower()
-    if file_ext not in SUPPORTED_EXTS:
-        frappe.throw(f"Unsupported file type: .{file_ext}. Allowed: {sorted(SUPPORTED_EXTS)}")
-
-    settings = get_extraction_settings()
-    if not settings.get("enabled"):
-        frappe.throw("Document extraction is disabled. Please enable it in Document AI Settings.")
-
-    content = fetch_file_content(file_doc, file_doc.name)
-    if not content:
-        frappe.throw("Could not read file content.")
+    if mode not in (RECEIPT_MODE, CHEQUE_MODE):
+        frappe.throw(f"Unknown mode {mode!r}: use {RECEIPT_MODE!r} or {CHEQUE_MODE!r}.")
+    file_doc, file_ext, settings, content = _read_file(file_url)
+    if mode == CHEQUE_MODE:
+        return _cheque_fields(content, file_ext, settings)
 
     # Payment receipts have no line-item table — the third return value is always [].
     _, entities, _ = extract(content, file_ext, settings, doc_kind="payment")
@@ -110,6 +105,52 @@ def extract_payment_fields(file_url):
         "min_confidence": MIN_CONFIDENCE,
         "processor_id": settings.get("gemini_model"),
         "validation": validation,
+    }
+
+
+def _read_file(file_url):
+    """The uploaded file's File record, extension, the extraction settings and its bytes."""
+    if not file_url:
+        frappe.throw("file_url is required")
+
+    file_doc = get_file_doc_by_url(file_url)
+    if not file_doc:
+        frappe.throw(f"No File record found for url: {file_url}")
+
+    if not file_doc.file_name:
+        frappe.throw("File has no file_name; cannot determine type.")
+
+    file_ext = file_doc.file_name.rsplit(".", 1)[-1].lower()
+    if file_ext not in SUPPORTED_EXTS:
+        frappe.throw(f"Unsupported file type: .{file_ext}. Allowed: {sorted(SUPPORTED_EXTS)}")
+
+    settings = get_extraction_settings()
+    if not settings.get("enabled"):
+        frappe.throw("Document extraction is disabled. Please enable it in Document AI Settings.")
+
+    content = fetch_file_content(file_doc, file_doc.name)
+    if not content:
+        frappe.throw("Could not read file content.")
+    return file_doc, file_ext, settings, content
+
+
+def _cheque_fields(content, file_ext, settings):
+    """The Add Cheque form's values read off a cheque photo; empty where the photo is unsure."""
+    _, entities, _ = extract(content, file_ext, settings, doc_kind=CHEQUE)
+
+    def read(key):
+        value, confidence = pick_entity(entities, (key,))
+        return value if confidence >= MIN_CONFIDENCE else ""
+
+    return {
+        **cheque_photo_fields(
+            bank_name=read("bank_name"),
+            micr_line=read("micr_line"),
+            cheque_date=read("cheque_date"),
+            amount_in_figures=read("amount_in_figures"),
+            payee=read("payee"),
+        ),
+        "processor_id": settings.get("gemini_model"),
     }
 
 
@@ -174,25 +215,41 @@ def _build_vendor_match(file_doc, extracted_beneficiary):
     True/False/None ("can't verify") — a missing vendor or an unreadable
     beneficiary reads as None, never a mismatch. Never persisted server-side.
     """
+    parent_doctype = (file_doc.attached_to_doctype or "").strip()
+    parent_name = (file_doc.attached_to_name or "").strip()
+    vendor = None
+    if parent_doctype == "Project Payments" and parent_name:
+        try:
+            vendor = frappe.db.get_value("Project Payments", parent_name, "vendor")
+        except Exception:
+            vendor = None
+    return _vendor_match(vendor, extracted_beneficiary)
+
+
+@frappe.whitelist()
+def match_payee_to_vendor(payee, vendor):
+    """Soft check that the payee read off a cheque photo looks like the Vendor picked for the cheque.
+
+    Called by the cheque forms whenever the photo's payee or the picked Vendor changes, so it does
+    not matter which the user fills first. A mismatch is a warning only and never blocks a save.
+    Returns the same shape as a receipt's `validation.vendor_match`:
+    {expected_name, expected_account_name, extracted, match, by}, with match True/False/None.
+    """
+    return _vendor_match(vendor, payee)
+
+
+def _vendor_match(vendor, extracted):
+    """`extracted` (a name read off a document) fuzzy-compared with the Vendor's display name and its
+    bank account holder name; a hit on EITHER is a match. No vendor or no name is None, never False."""
     result = {
         "expected_name": "",
         "expected_account_name": "",
-        "extracted": (extracted_beneficiary or "").strip(),
+        "extracted": (extracted or "").strip(),
         "match": None,
         "by": None,
     }
-
-    parent_doctype = (file_doc.attached_to_doctype or "").strip()
-    parent_name = (file_doc.attached_to_name or "").strip()
-    if parent_doctype != "Project Payments" or not parent_name:
-        return result
-
-    try:
-        vendor = frappe.db.get_value("Project Payments", parent_name, "vendor")
-    except Exception:
-        return result
     if not vendor:
-        return result  # payment has no vendor set → nothing to compare
+        return result  # no vendor → nothing to compare
 
     try:
         vendor_name, account_name = frappe.db.get_value(

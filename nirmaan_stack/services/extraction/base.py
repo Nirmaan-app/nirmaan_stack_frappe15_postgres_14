@@ -22,6 +22,8 @@ CUSTOMER_PO = "customer_po"
 # An Income Tax Department challan receipt (ITNS 281) — TAX DEDUCTED AT SOURCE, not the Technical
 # Data Sheet family that shares the letters "TDS" elsewhere in this repo.
 TDS_CHALLAN = "tds_challan"
+# A photo of one of our own paper cheques (spec #1407): bank, MICR line, date, amount, payee.
+CHEQUE = "cheque"
 
 
 class Entity(TypedDict):
