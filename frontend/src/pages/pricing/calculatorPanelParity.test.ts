@@ -1006,3 +1006,211 @@ describe("12e-3c parity -- the quantity link, the calculator's 'pick' sentence, 
     }
   });
 });
+
+// =====================================================================================================
+// SLICE 12e-4c AC8 -- THE 29 REAL PIPING ROWS THE CAPPED RUN READ, calculator = panel
+// =====================================================================================================
+/**
+ * The run of 2026-10-13 (whole-sheet Suggest on four sheets; run documents BRSR-26-00393 .. BRSR-26-00396) read 29
+ * Piping rows through the real route with `claude-opus-4-8` on HVAC v38. Each row below is the model's answer AS THE
+ * RUN STORED IT (every definition present, a value or null; the `section` marker on the item), with the row's own
+ * text, unit and headings -- nothing here was written by hand except the `want` figures, which are what the panel
+ * showed and were checked row by row against the row's own words (the report's AC6).
+ *
+ * The CALCULATOR is fed the panel's own final answers, block by block and section by section, the way a pricer
+ * would enter them: a select or a box is bound to the value shown, an "Other..." box to the text typed; a field
+ * the panel MIRRORS from its pipe ("from pipe") is not entered -- it mirrors in the calculator too.
+ */
+describe("12e-4c AC8 -- the 29 real Piping rows the capped run read (BRSR-26-00393 .. 00396): calculator = panel", () => {
+  const v38 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v38.json", import.meta.url),
+  );
+  const cfg38 = new Map<string, RateCategoryConfig>(v38.category_configs.map((c) => [c.category_id, c]));
+  const items38: RateMasterItem[] = v38.items.map((it) => ({ ...it, discipline: v38.discipline } as RateMasterItem));
+  const PIP = "hvac_piping";
+
+  interface RealRow {
+    id: string;
+    unit: string;
+    desc: string;
+    h: string;
+    items: Array<{ a: Record<string, string | null>; s?: string }>;
+    /** What the panel showed: [supply, install], or the sentence it refused with. */
+    want: [number, number] | string;
+  }
+  const HEADINGS: Record<string, string[]> = {
+    "H1": ["VRF SYSTEM", "Supplying, Installing, testing and commissioning of interconnecting Liquid / Gas refrigerant copper piping duly insulated with Close cell elastomeric Nitrile rubber Class \u2018O\u2019 tubular insulation of thickness 13 or 19 mm as mentioned below with minimum 45 Kg/ m2 density, thermal conductivity 0.037 W/MK or better at 20 deg mean temperature. The exposed to sun refrigerant pipe insulation shall be cover with UL certified UV protective coating with 7 mill fiber glass cloth applied by suitable adhesive. All the copper piping shall be eddy current test certified. All piping inside & outside the building shall run inside and propoerly supported using cable trays. Notes: 1. This items shall include cost of refrigerant filling for required lenghth of pipe. 2. The piping upto 15.1 mm will be soft drawn and higher sizes will be hard drawn. 3. Insulation thickness to be 13mm for liquid line and 19mm for suction line 4. The cost of cable trays has been has been considered elsewhere in the tender. 5. The cost of UL certified UV protective coating has been has been considered elsewhere in the tender."],
+    "H2": ["VRF SYSTEM", "Supply, installation, testing and commissioning Rigid heavy class (10KG) uPVC Condensate Drain piping of following sizes with minimum 6/9 mm nitrile rubber insulation over the pipes, complete with fittings, supports, U trap arrangement, clean plug and accessories for units as per specifications and technical specification."],
+    "H3": ["LOW SIDE WORKS", "COPPER REFRIGERANT PIPING: Supply and Laying of copper refrigerant pipe with specified thickness of 13mm thick nitrile rubber insulation tubes and joints sealed with black cotton tape."],
+    "H4": ["LOW SIDE WORKS", "DRAIN PIPE: Supply & installation of CPVC drain pipe with 6mm nitrile rubber insulation for condensate drain."],
+    "H5": [],
+    "H6": ["Approved Makes - Air conditioners - Blue Star , Voltas , Carrier Voltage Stabiliser- V Guard", "AIRCONDITIONING FOR SOUTH INDIAN BANK RO TRIVANDRUM"],
+    "H7": ["Approved Makes - Air conditioners - Blue Star , Voltas , Carrier Voltage Stabiliser- V Guard"],
+    "H8": ["FOR HUB ROOM", "COPPER REFRIGERANT PIPING"],
+    "H9": ["FOR HUB ROOM", "CPVC and SDR 11 grade drain piping with 9 mm thk closed cell elastomeric nitrile rubber insulation with clams and proper supports. U Trap has to be provided near all the units."],
+  };
+  const ROWS: RealRow[] = [
+    {"id": "BOQ-26-00073/HVAC/53", "unit": "Metre", "desc": "22.3 mm O.D (wall Thickness-1.0 mm) (insulation : 13/19 mm)", "h": "H1", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "22.3 mm O.D", "pipe_class": "wall Thickness-1.0 mm", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "13/19 mm", "pipe_size_mm": "22.3 mm O.D", "brand": null, "material_as_written": "Close cell elastomeric Nitrile rubber Class 'O' tubular insulation"}, "s": "insulation"}], "want": [2079, 234]},
+    {"id": "BOQ-26-00073/HVAC/54", "unit": "Metre", "desc": "19.1 mm O.D (wall Thickness-1.0 mm) (insulation : 13/19 mm)", "h": "H1", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "19.1 mm O.D", "pipe_class": "wall Thickness-1.0 mm", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "13/19 mm", "pipe_size_mm": "19.1 mm O.D", "brand": null, "material_as_written": "Close cell elastomeric Nitrile rubber Class 'O' tubular insulation"}, "s": "insulation"}], "want": [1845, 234]},
+    {"id": "BOQ-26-00073/HVAC/55", "unit": "Metre", "desc": "15.9 mm O.D (wall Thickness-1.0 mm) (insulation : 13/19 mm)", "h": "H1", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "15.9 mm O.D", "pipe_class": "wall Thickness-1.0 mm", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "13/19 mm", "pipe_size_mm": "15.9 mm O.D", "brand": null, "material_as_written": "Close cell elastomeric Nitrile rubber Class 'O' tubular insulation"}, "s": "insulation"}], "want": [1546, 234]},
+    {"id": "BOQ-26-00073/HVAC/56", "unit": "Metre", "desc": "12.7 mm O.D (wall Thickness-1.0 mm) (insulation : 13/19 mm)", "h": "H1", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "12.7 mm O.D", "pipe_class": "wall Thickness-1.0 mm", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "13/19 mm", "pipe_size_mm": "12.7 mm O.D", "brand": null, "material_as_written": "Close cell elastomeric Nitrile rubber Class 'O' tubular insulation"}, "s": "insulation"}], "want": [1174, 234]},
+    {"id": "BOQ-26-00073/HVAC/57", "unit": "Metre", "desc": "9.5 mm O.D (wall Thickness-0.8 mm) (insulation : 13/19 mm)", "h": "H1", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "9.5 mm O.D", "pipe_class": "wall Thickness-0.8 mm", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "13/19 mm", "pipe_size_mm": "9.5 mm O.D", "brand": null, "material_as_written": "Close cell elastomeric Nitrile rubber Class 'O' tubular insulation"}, "s": "insulation"}], "want": [651, 234]},
+    {"id": "BOQ-26-00073/HVAC/58", "unit": "Metre", "desc": "6.4 mm O.D (wall Thickness-0.8 mm) (insulation : 13/19 mm)", "h": "H1", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "6.4 mm O.D", "pipe_class": "wall Thickness-0.8 mm", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "13/19 mm", "pipe_size_mm": "6.4 mm O.D", "brand": null, "material_as_written": "Close cell elastomeric Nitrile rubber Class 'O' tubular insulation"}, "s": "insulation"}], "want": [602, 234]},
+    {"id": "BOQ-26-00073/HVAC/60", "unit": "Metre", "desc": "25 mm dia", "h": "H2", "items": [{"a": {"pipe_type": "PVC", "pipe_type_as_written": "uPVC", "size_mm": "25 mm dia", "pipe_class": "Rigid heavy class (10KG)", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "6/9 mm", "pipe_size_mm": "25 mm dia", "brand": null, "material_as_written": "nitrile rubber"}, "s": "insulation"}], "want": [358, 42]},
+    {"id": "BOQ-26-00186/HVAC WORKS/100", "unit": "RMT", "desc": "Copper Refrigerant pipe for 10 TR DX UNITS", "h": "H3", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": null, "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "13mm", "pipe_size_mm": null, "brand": null, "material_as_written": "nitrile rubber"}, "s": "insulation"}], "want": "no pipe size stated"},
+    {"id": "BOQ-26-00186/HVAC WORKS/101", "unit": "RMT", "desc": "Copper Refrigerant pipe for VRF UNITS", "h": "H3", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": null, "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "13mm", "pipe_size_mm": null, "brand": null, "material_as_written": "nitrile rubber"}, "s": "insulation"}], "want": "no pipe size stated"},
+    {"id": "BOQ-26-00186/HVAC WORKS/102", "unit": "RMT", "desc": "Copper Refrigerant pipe for Server Room Split AC", "h": "H3", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": null, "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "13mm", "pipe_size_mm": null, "brand": null, "material_as_written": "nitrile rubber"}, "s": "insulation"}], "want": "no pipe size stated"},
+    {"id": "BOQ-26-00186/HVAC WORKS/106", "unit": "RMT", "desc": "3/4 PVC With 9 MM Insulation foam", "h": "H4", "items": [{"a": {"pipe_type": "PVC", "pipe_type_as_written": "PVC", "size_mm": "3/4", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "9 MM", "pipe_size_mm": null, "brand": null, "material_as_written": "foam"}, "s": "insulation"}], "want": [339, 42]},
+    {"id": "BOQ-26-00186/HVAC WORKS/107", "unit": "RMT", "desc": "3/4 CPVC", "h": "H4", "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "3/4", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "6mm", "pipe_size_mm": null, "brand": null, "material_as_written": "nitrile rubber"}, "s": "insulation"}], "want": [459, 42]},
+    {"id": "BOQ-26-00186/HVAC WORKS/108", "unit": "RMT", "desc": "1 CPVC", "h": "H4", "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "1", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "6mm", "pipe_size_mm": null, "brand": null, "material_as_written": "nitrile rubber"}, "s": "insulation"}], "want": "size 1 has no unit - price this row by hand"},
+    {"id": "BOQ-26-00292/HVAC/10", "unit": "mtr", "desc": "Supply and installation of Extra copper pipings covering with nitryl rubber and tape.", "h": "H5", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": null, "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": null, "pipe_size_mm": null, "brand": null, "material_as_written": "nitryl rubber"}, "s": "insulation"}], "want": "no pipe size stated"},
+    {"id": "BOQ-26-00292/HVAC/11", "unit": "Mtr", "desc": "S.I.T.C. of 19/25 mm. PVC conduit pipe to be used as a drain water pipe. Through holes as made above.", "h": "H5", "items": [{"a": {"pipe_type": "PVC", "pipe_type_as_written": "PVC", "size_mm": "19/25 mm", "pipe_class": null, "insulated": null}}], "want": [120, 28]},
+    {"id": "BOQ-26-00292/HVAC/12", "unit": "Mtr", "desc": "S.I.T.C. of 32/40mm. PVC conduit pipe to be used as a drain water pipe. Through holes as made above.", "h": "H5", "items": [{"a": {"pipe_type": "PVC", "pipe_type_as_written": "PVC", "size_mm": "32/40mm", "pipe_class": null, "insulated": null}}], "want": [216, 42]},
+    {"id": "BOQ-26-00292/HVAC/31", "unit": "mtr", "desc": "Supply and installation of Extra copper pipings covering with nitryl rubber and tape.", "h": "H5", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": null, "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": null, "pipe_size_mm": null, "brand": null, "material_as_written": "nitryl rubber"}, "s": "insulation"}], "want": "no pipe size stated"},
+    {"id": "BOQ-26-00292/HVAC/32", "unit": "Mtr", "desc": "S.I.T.C. of 19/25 mm. PVC conduit pipe to be used as a drain water pipe. Through holes as made above.", "h": "H5", "items": [{"a": {"pipe_type": "PVC", "pipe_type_as_written": "PVC", "size_mm": "19/25 mm", "pipe_class": null, "insulated": null}}], "want": [120, 28]},
+    {"id": "BOQ-26-00292/HVAC/33", "unit": "Mtr", "desc": "S.I.T.C. of 32/40mm. PVC conduit pipe to be used as a drain water pipe. Through holes as made above.", "h": "H5", "items": [{"a": {"pipe_type": "PVC", "pipe_type_as_written": "PVC", "size_mm": "32/40mm", "pipe_class": null, "insulated": null}}], "want": [216, 42]},
+    {"id": "BOQ-26-00292/HVAC/58", "unit": "mtr", "desc": "Supply and installation of Extra copper pipings covering with nitryl rubber and tape.", "h": "H6", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": null, "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": null, "pipe_size_mm": null, "brand": null, "material_as_written": "nitryl rubber"}, "s": "insulation"}], "want": "no pipe size stated"},
+    {"id": "BOQ-26-00292/HVAC/69", "unit": "Kg", "desc": "Supply & Labour charges for Fabricated MS frame for maintenance of Acs by using 32x6mm Angles &25x6mmMS strips with proper base frame supported in wall . Provide hand rail arrangements by using 40MM B class MS pipe incuding painted by using 2 coat Zinc chromate primer & Black enamel paint", "h": "H7", "items": [], "want": "unit 'Kg' is not a length unit"},
+    {"id": "BOQ-26-00315/PAC WORKS/17", "unit": "RM", "desc": "5/8 \" dia hard drawn", "h": "H8", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "5/8 \" dia", "pipe_class": "16 gauge", "insulated": null}}], "want": [1298, 220]},
+    {"id": "BOQ-26-00315/PAC WORKS/19", "unit": "RM", "desc": "7/8\" dia hard drawn", "h": "H8", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "7/8\" dia", "pipe_class": "16 gauge", "insulated": null}}], "want": [1814, 220]},
+    {"id": "BOQ-26-00315/PAC WORKS/21", "unit": "RM", "desc": "1 1/8\" dia hard drawn", "h": "H8", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "1 1/8\" dia", "pipe_class": "16 gauge", "insulated": null}}], "want": [2438, 220]},
+    {"id": "BOQ-26-00315/PAC WORKS/23", "unit": "RM", "desc": "3/4 \" dia hard drawn", "h": "H8", "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "3/4 \" dia", "pipe_class": "16 gauge", "insulated": null}}], "want": [1590, 220]},
+    {"id": "BOQ-26-00315/PAC WORKS/26", "unit": "RM", "desc": "50mm dia", "h": "H9", "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "50mm dia", "pipe_class": "SDR 11", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "9 mm", "pipe_size_mm": "50mm", "brand": null, "material_as_written": "closed cell elastomeric nitrile rubber"}, "s": "insulation"}], "want": [924, 70]},
+    {"id": "BOQ-26-00315/PAC WORKS/28", "unit": "RM", "desc": "40mm dia", "h": "H9", "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "40mm dia", "pipe_class": "SDR 11", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "9 mm", "pipe_size_mm": "40mm", "brand": null, "material_as_written": "closed cell elastomeric nitrile rubber"}, "s": "insulation"}], "want": [772, 56]},
+    {"id": "BOQ-26-00315/PAC WORKS/30", "unit": "RM", "desc": "32 mm dia", "h": "H9", "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "32 mm dia", "pipe_class": "SDR 11", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "9 mm", "pipe_size_mm": "32 mm", "brand": null, "material_as_written": "closed cell elastomeric nitrile rubber"}, "s": "insulation"}], "want": [658, 42]},
+    {"id": "BOQ-26-00315/PAC WORKS/32", "unit": "RM", "desc": "GI B class pipe of 25 mm dia for humidifier connection", "h": "H9", "items": [{"a": {"pipe_type": null, "pipe_type_as_written": "GI", "size_mm": "25 mm dia", "pipe_class": "B class", "insulated": null}}], "want": [480, 140]},
+  ];
+
+  type Shown = { s: ItemListSuggestion; v: ItemListView };
+  const list = (r: unknown): Shown => {
+    if (!isSuggestion(r as never)) throw new Error("expected a suggestion");
+    return { s: r as ItemListSuggestion, v: (r as ItemListSuggestion).itemList! };
+  };
+  function panelOf(r: RealRow): Shown {
+    const pc: ParityCase = { cat: PIP, unit: r.unit, desc: r.desc, attrs: {}, items: r.items.map((i) => i.a), headings: HEADINGS[r.h] };
+    const stored = extractionRowFor(pc) as ExtractionRow & { items: Array<{ attributes: unknown; section?: string }> };
+    r.items.forEach((i, n) => { if (i.s) stored.items[n].section = i.s; });
+    const ph = makePricingSheetHelper({ configsByCategory: cfg38, items: items38, extractionByRow: new Map([[stored.excelRow, stored]]) });
+    return list(ph.compute(panelCtx(pc)));
+  }
+  /** One block as a pricer would enter it. `rewrite` replaces a text the typed box does not accept, by field id
+   * (a section's field as "<section id>.<field id>"). */
+  type Edit = ItemListEditState["items"][number];
+  function editOf(b: ItemBlockView, rewrite: Record<string, string>, prefix = ""): Edit {
+    const attrs: Record<string, string> = {};
+    const other: string[] = [];
+    for (const f of b.fields) {
+      if (f.readOnly || f.mirrorTag) continue;
+      const v = rewrite[prefix + f.id] ?? (f.otherMode ? f.typedValue : f.value);
+      if (v !== "") attrs[f.id] = v;
+      if (f.otherMode) other.push(f.id);
+    }
+    const sections: Record<string, Edit> = {};
+    for (const sv of b.sections ?? []) {
+      const sb = sv.view.items[0];
+      if (!sb) continue;
+      const e = editOf(sb, rewrite, `${sv.sectionId}.`);
+      if (sb.qtyMirrorTag) delete e.qty;
+      sections[sv.sectionId] = e;
+    }
+    return { base: null, family: b.family, attrs, qty: b.qty, ...(other.length ? { other } : {}), ...(Object.keys(sections).length ? { sections } : {}) } as Edit;
+  }
+  function calcOf(panel: Shown, rewrite: Record<string, string> = {}, unit = "mts"): Shown {
+    const state = { items: panel.v.items.map((b) => editOf(b, rewrite)) };
+    return list(calculatorHelper(cfg38, items38).compute(calculatorCtx("HVAC", PIP), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(state), [ROW_UNIT_OVERRIDE_KEY]: unit }));
+  }
+  /** What both surfaces must agree on: every figure, every refusal, every block and its section. */
+  const blockFacts = (b: ItemBlockView): unknown => ({
+    family: b.family, state: b.state, reason: b.reason ?? null, figures: b.figures, qty: b.qty,
+    sections: (b.sections ?? []).map((sv) => ({ id: sv.sectionId, priced: sv.view.rowPriced, reason: sv.view.reason ?? null, totals: sv.view.totals ?? null, items: sv.view.items.map(blockFacts) })),
+  });
+  const facts = (x: Shown) => ({ values: x.s.values, rowPriced: x.v.rowPriced, reason: x.v.reason ?? null, unitClass: x.v.unitClass, items: x.v.items.map(blockFacts) });
+  const fig = (x: Shown): [number, number] | string => (x.v.rowPriced ? [x.s.values.supply_rate as number, x.s.values.install_rate as number] : (x.v.reason ?? "?"));
+
+  /**
+   * THE TYPED BOX IS STRICTER THAN THE MODEL PATH, BY RULING, and six real rows show it: the model copies the size
+   * "as the row writes it" ('22.3 mm O.D', '5/8 " dia') and the panel reads it; the calculator's box takes ONE size
+   * in mm or inches (owner P2) and a thickness as a single number (owner U4), so the same words typed there refuse.
+   * A pricer types the size itself -- and then the two surfaces agree on every figure. Named, with what is typed.
+   */
+  const TYPED_BOX: Record<string, { rewrite: Record<string, string>; refusal: string }> = {
+    "BOQ-26-00073/HVAC/53": { rewrite: { size_mm: "22.3" }, refusal: "Type one pipe size, in mm or inches" },
+    "BOQ-26-00073/HVAC/60": { rewrite: { "insulation.thickness_mm": "9" }, refusal: "Type the thickness as a single number in mm" },
+    "BOQ-26-00315/PAC WORKS/17": { rewrite: { size_mm: '5/8"' }, refusal: "Type one pipe size, in mm or inches" },
+    "BOQ-26-00315/PAC WORKS/19": { rewrite: { size_mm: '7/8"' }, refusal: "Type one pipe size, in mm or inches" },
+    "BOQ-26-00315/PAC WORKS/21": { rewrite: { size_mm: '1 1/8"' }, refusal: "Type one pipe size, in mm or inches" },
+    "BOQ-26-00315/PAC WORKS/23": { rewrite: { size_mm: '3/4"' }, refusal: "Type one pipe size, in mm or inches" },
+  };
+  /** The one row whose unit the calculator's picker does not offer (cause C, owner R12): a fabricated frame in Kg. */
+  const UNIT_NOT_OFFERED = "BOQ-26-00292/HVAC/69";
+  const OUTRIGHT = ROWS.filter((r) => !(r.id in TYPED_BOX) && r.id !== UNIT_NOT_OFFERED);
+
+  it("the fixture names exactly what it covers: 29 rows on four sheets -- 19 a pipe with its insulation, 9 a pipe alone, 1 with no item read", () => {
+    expect(ROWS).toHaveLength(29);
+    const bySheet: Record<string, number[]> = {};
+    for (const r of ROWS) { const [boq, sheet, row] = r.id.split("/"); (bySheet[`${boq}/${sheet}`] ??= []).push(Number(row)); }
+    expect(bySheet).toEqual({
+      "BOQ-26-00073/HVAC": [53, 54, 55, 56, 57, 58, 60],
+      "BOQ-26-00186/HVAC WORKS": [100, 101, 102, 106, 107, 108],
+      "BOQ-26-00292/HVAC": [10, 11, 12, 31, 32, 33, 58, 69],
+      "BOQ-26-00315/PAC WORKS": [17, 19, 21, 23, 26, 28, 30, 32],
+    });
+    const shape = (r: RealRow) => `${r.items.filter((i) => !i.s).length} pipe + ${r.items.filter((i) => i.s === "insulation").length} insulation`;
+    const shapes: Record<string, number> = {};
+    for (const r of ROWS) shapes[shape(r)] = (shapes[shape(r)] ?? 0) + 1;
+    expect(shapes).toEqual({ "1 pipe + 1 insulation": 19, "1 pipe + 0 insulation": 9, "0 pipe + 0 insulation": 1 });
+    // every stored item's marker is a section the Piping config declares, or none
+    const declared = (itemListPricingSpec(cfg38.get(PIP))!.sections ?? []).map((s) => s.id);
+    for (const r of ROWS) for (const i of r.items) if (i.s) expect(declared).toContain(i.s);
+  });
+  it("THE PANEL, row by row: 21 rows price at the figure recorded in the run, 8 refuse with the sentence recorded -- every one pinned", () => {
+    const got = Object.fromEntries(ROWS.map((r) => [r.id, fig(panelOf(r))]));
+    expect(got).toEqual(Object.fromEntries(ROWS.map((r) => [r.id, r.want])));
+    const refusals: Record<string, number> = {};
+    for (const r of ROWS) if (typeof r.want === "string") refusals[r.want] = (refusals[r.want] ?? 0) + 1;
+    expect(refusals).toEqual({ "no pipe size stated": 6, "size 1 has no unit - price this row by hand": 1, "unit 'Kg' is not a length unit": 1 });
+    expect(ROWS.filter((r) => typeof r.want !== "string")).toHaveLength(21);
+  });
+  it("22 rows agree OUTRIGHT -- the calculator, fed the panel's own answers, shows the same blocks, sections, figures and refusals (named)", () => {
+    expect(OUTRIGHT).toHaveLength(22);
+    for (const r of OUTRIGHT) {
+      const p = panelOf(r);
+      expect({ id: r.id, facts: facts(calcOf(p)) }).toEqual({ id: r.id, facts: facts(p) });
+    }
+    // and the rows are not all one shape: priced with a section, priced alone, refused for no size, refused for no unit
+    const kinds = new Set(OUTRIGHT.map((r) => `${typeof r.want === "string" ? r.want : "priced"} | ${r.items.some((i) => i.s) ? "section" : "alone"}`));
+    expect([...kinds].sort()).toEqual([
+      "no pipe size stated | section", "priced | alone", "priced | section", "size 1 has no unit - price this row by hand | section",
+    ]);
+  });
+  it.each(Object.entries(TYPED_BOX))("%s: the BoQ's own wording typed in the calculator refuses (the typed box takes one size / one number); the size typed plainly agrees on everything", (id, t) => {
+    const r = ROWS.find((x) => x.id === id)!;
+    const p = panelOf(r);
+    expect(p.v.rowPriced).toBe(true);
+    const asWritten = calcOf(p);
+    expect(asWritten.v.rowPriced).toBe(false);
+    expect(asWritten.v.reason).toBe(t.refusal);
+    expect(facts(calcOf(p, t.rewrite))).toEqual(facts(p));
+  });
+  it("the one unit the picker does not offer: the Kg row refuses on the panel by its unit, reads no item, and no surface shows a figure", () => {
+    const r = ROWS.find((x) => x.id === UNIT_NOT_OFFERED)!;
+    const p = panelOf(r);
+    expect(r.items).toEqual([]);
+    expect({ priced: p.v.rowPriced, reason: p.v.reason, values: p.s.values }).toEqual({ priced: false, reason: "unit 'Kg' is not a length unit", values: {} });
+    expect(p.v.unitChoices).not.toContain("Kg");
+    const c = calcOf(p);
+    expect({ priced: c.v.rowPriced, values: c.s.values }).toEqual({ priced: false, values: {} });
+  });
+  it("the three groups are the whole fixture: 22 outright + 6 typed-box + 1 unit = 29, no row in two groups", () => {
+    const ids = [...OUTRIGHT.map((r) => r.id), ...Object.keys(TYPED_BOX), UNIT_NOT_OFFERED];
+    expect(new Set(ids).size).toBe(29);
+    expect([...ids].sort()).toEqual(ROWS.map((r) => r.id).sort());
+  });
+  it("VACUITY: handing the calculator a different size, or dropping the section, diverges -- the comparison can see a real-row difference", () => {
+    const r = ROWS.find((x) => x.id === "BOQ-26-00315/PAC WORKS/26")!;
+    const p = panelOf(r);
+    expect(facts(calcOf(p, { size_mm: "40" }))).not.toEqual(facts(p));
+    expect(facts(calcOf(p, { "insulation.thickness_mm": "19" }))).not.toEqual(facts(p));
+    expect(facts(calcOf(p, { insulated: "No" }))).not.toEqual(facts(p));
+  });
+});
