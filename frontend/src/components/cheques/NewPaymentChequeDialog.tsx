@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { Info, Loader2 } from "lucide-react";
 
+import { useDuplicateChequeOf } from "@/components/cheques/useExistingCheque";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/use-toast";
@@ -37,13 +38,14 @@ interface NewPaymentChequeDialogProps {
 }
 
 /**
- * Convert to Cheque (an Online payment) and Link a new cheque (a payment whose Cheque is Cancelled), from
+ * Convert to Cheque (an Online payment) and Link a new cheque (a payment whose Cheque is Cancelled, or on no Cheque), from
  * the Transaction Details card (#1416, spec #1407). The same photo-first cheque form as Request Payment; the
  * server makes a new one-line Cheque for the payment. Says what will happen to the payment's status; a
  * replaced Cheque stays, Cancelled, as history. Mount it only while open.
  */
 export const NewPaymentChequeDialog = ({ payment, kind, onClose, onDone }: NewPaymentChequeDialogProps) => {
     const [cheque, setCheque] = useState<PaymentModeValue>({ ...EMPTY_PAYMENT_MODE, mode: PAYMENT_MODE_CHEQUE });
+    const duplicateOf = useDuplicateChequeOf(cheque);
     const { call, loading } = useFrappePostCall<{ message: { cheque: string; status: string } }>(PUT_ON_NEW_CHEQUE_API);
     const copy = COPY[kind];
 
@@ -84,7 +86,7 @@ export const NewPaymentChequeDialog = ({ payment, kind, onClose, onDone }: NewPa
                     <DialogTitle>{copy.title}</DialogTitle>
                     <DialogDescription>
                         Payment {payment.name}, {formatToRoundedIndianRupee(payment.amount)}, {payment.status}.
-                        {kind === "link_new" && " Its cancelled cheque stays as history."}
+                        {kind === "link_new" && payment.cheque && " Its cancelled cheque stays as history."}
                     </DialogDescription>
                 </DialogHeader>
                 <PaymentModeFields
@@ -105,7 +107,7 @@ export const NewPaymentChequeDialog = ({ payment, kind, onClose, onDone }: NewPa
                     <Button variant="outline" onClick={onClose} disabled={loading}>
                         Back
                     </Button>
-                    <Button onClick={submit} disabled={loading || !isPaymentModeComplete(cheque)}>
+                    <Button onClick={submit} disabled={loading || !isPaymentModeComplete(cheque, duplicateOf)}>
                         {loading && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
                         {copy.button}
                     </Button>

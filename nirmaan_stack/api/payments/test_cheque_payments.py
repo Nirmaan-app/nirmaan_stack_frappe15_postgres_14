@@ -280,13 +280,25 @@ class TestChequePayments(FrappeTestCase):
 
 	def test_the_mode_changes_only_through_a_cheque(self):
 		"""Spec #1407: Online -> Cheque only by putting the payment on a Cheque; Cheque -> Online only
-		once its Cheque is Cancelled (`test_cheque_lines` covers both allowed moves)."""
-		cheque = self._plant(20000, "Requested")
+		once its Cheque is Cancelled, or when it is on no Cheque (`test_cheque_lines` covers both
+		allowed moves through a Cheque)."""
+		ChequeFixture.attach(self)
+		number = self._cheque_no()
+		cheque = self._plant(20000, "Requested", cheque_no=number)
+		self._on_one_cheque(number, cheque)
 		doc = frappe.get_doc(PAYMENT, cheque)
 		doc.mode_of_payment = "Online"
 		with self.assertRaisesRegex(frappe.ValidationError, "back to Online only once its Cheque is Cancelled"):
 			doc.save()
 		frappe.db.rollback()
+
+		# The backfill refused its number, so no Cheque holds it: nothing keeps it a Cheque payment.
+		orphan = self._plant(20000, "Requested")
+		doc = frappe.get_doc(PAYMENT, orphan)
+		doc.mode_of_payment = "Online"
+		doc.save()
+		frappe.db.commit()
+		self.assertEqual(tuple(frappe.db.get_value(PAYMENT, orphan, ["mode_of_payment", "cheque_no"])), ("Online", None))
 
 		online = self._plant(20000, "Requested", cheque=False)
 		doc = frappe.get_doc(PAYMENT, online)

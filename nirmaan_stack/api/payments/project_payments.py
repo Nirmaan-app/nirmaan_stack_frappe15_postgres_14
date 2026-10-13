@@ -176,7 +176,7 @@ def create_payment_request_for_service(data: str) -> str:
     # on to Reconciliation Pending, in its own transaction now that the approval (and its TDS)
     # is on disk.
     if status == "Approved" and cheque_payments.is_cheque(pay):
-        _move_cheque_to_reconciliation(pay.name)
+        cheque_payments.commit_move_to_reconciliation(pay.name)
 
     return frappe.as_json({"name": pay.name, "cheque": cheque_name})
 
@@ -333,7 +333,7 @@ def create_project_payment(
         # Reconciliation Pending too (the line above would otherwise put it back to Approved).
         if status == "Approved" and cheque_payments.is_cheque(pay):
             frappe.db.commit()
-            _move_cheque_to_reconciliation(pay.name)
+            cheque_payments.commit_move_to_reconciliation(pay.name)
 
         # --- Step 6: Return success ---
         return {
@@ -425,7 +425,7 @@ def ceo_approve_payment(payment_id: str, approved_amount=None) -> dict:
 
     if cheque_payments.is_cheque(pay):
         frappe.db.commit()
-        if _move_cheque_to_reconciliation(pay.name):
+        if cheque_payments.commit_move_to_reconciliation(pay.name):
             return {"status": "success", "message": _("Cheque payment approved and moved to Reconciliation Pending.")}
 
     return {"status": "success", "message": _("Payment forwarded for fulfilment.")}
@@ -490,27 +490,6 @@ def _mode_fields(source: dict) -> dict:
     }
 
 
-def _move_cheque_to_reconciliation(payment_name: str) -> bool:
-    """Move an Approved cheque payment on to Reconciliation Pending, in its OWN transaction.
-
-    ⚠️ CALL IT ONLY AFTER THE APPROVAL HAS BEEN COMMITTED. It commits or rolls back by itself, so
-    a failure here can never take the approval with it, and it NEVER raises: a payment it could
-    not move stays at `Approved`, in "Payment need to paid", where the accountant's "Mark as Paid"
-    makes the same move. The rule itself is `services/cheque_payments.move_to_reconciliation`.
-    """
-    try:
-        moved = cheque_payments.move_to_reconciliation(payment_name)
-        frappe.db.commit()
-        return moved
-    except Exception:
-        frappe.db.rollback()
-        frappe.log_error(
-            title=f"Cheque payment not moved to Reconciliation Pending ({payment_name})",
-            message=frappe.get_traceback(),
-        )
-        return False
-
-
 @frappe.whitelist()
 def move_cheque_payment_to_reconciliation(payment_id: str) -> dict:
     """The single L1 approve writes `Approved` from the browser (`updateDoc`), so it has no server
@@ -518,7 +497,7 @@ def move_cheque_payment_to_reconciliation(payment_id: str) -> dict:
     for an online payment or one not at `Approved`, so a repeated or stray call is harmless.
     """
     frappe.has_permission("Project Payments", "write", doc=payment_id, throw=True)
-    return {"moved": _move_cheque_to_reconciliation(payment_id)}
+    return {"moved": cheque_payments.commit_move_to_reconciliation(payment_id)}
 
 
 @frappe.whitelist()

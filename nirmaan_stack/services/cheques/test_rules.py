@@ -65,13 +65,40 @@ class TestPaymentChequeButtons(unittest.TestCase):
             "P1", is_cheque=True, status="Rejected", cheque_no="1", cheque_status="Cancelled"
         ))
 
-    def test_a_cheque_payment_no_cheque_records_is_refused_both(self):
-        self.assertIn("which no Cheque record holds", rules.new_payment_cheque_problem(
-            "P1", is_cheque=True, status="Approved", cheque_no="004521"
+    def test_a_cheque_payment_no_cheque_records_may_get_a_cheque_or_go_back_online(self):
+        # The backfill skips a refused cheque number, leaving its payments with no Cheque: both ways out
+        # stay open, so the payment is not stuck.
+        self.assertIsNone(rules.new_payment_cheque_problem("P1", is_cheque=True, status="Approved", cheque_no="004521"))
+        self.assertIsNone(rules.switch_to_online_problem("P1", is_cheque=True, status="Approved", cheque_no="004521"))
+
+    def test_a_rejected_cheque_payment_no_cheque_records_is_refused_both(self):
+        self.assertIn("is Rejected", rules.new_payment_cheque_problem(
+            "P1", is_cheque=True, status="Rejected", cheque_no="004521"
         ))
-        self.assertIn("which no Cheque record holds", rules.switch_to_online_problem(
-            "P1", is_cheque=True, cheque_no="004521"
-        ))
+        self.assertEqual(
+            rules.switch_to_online_problem("P1", is_cheque=True, status="Rejected", cheque_no="004521"),
+            "Payment P1 is Rejected.",
+        )
+
+    def test_the_mode_changes_only_through_a_cheque(self):
+        def problem(was, now, *, cheque=None, old_cheque_status=None):
+            return rules.mode_change_problem(
+                was_cheque=was, now_cheque=now, cheque=cheque, old_cheque_status=old_cheque_status
+            )
+
+        self.assertIsNone(problem(False, False))
+        self.assertIsNone(problem(True, True))
+        self.assertIsNone(problem(False, True, cheque="CHQ-1"))
+        self.assertEqual(
+            problem(False, True), "An Online payment becomes a Cheque payment by putting it on a Cheque."
+        )
+        self.assertIsNone(problem(True, False, old_cheque_status="Cancelled"))
+        self.assertIsNone(problem(True, False))  # on no Cheque: nothing holds it
+        for status in ("Issued", "Cleared"):
+            self.assertEqual(
+                problem(True, False, old_cheque_status=status),
+                "A Cheque payment goes back to Online only once its Cheque is Cancelled.",
+            )
 
     def test_switch_to_online_needs_a_cancelled_cheque(self):
         self.assertIsNone(rules.switch_to_online_problem("P1", is_cheque=True, cheque_no="1", cheque_status="Cancelled"))

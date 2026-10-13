@@ -20,6 +20,7 @@ import { PaymentScreenshotDialog } from "./PaymentScreenshotDialog";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { ChequeChip } from "@/components/cheques/ChequeChip";
 import { useChequeChips } from "@/components/cheques/useChequeChips";
+import { showsChequeChip } from "@/utils/cheques/chequeChip";
 
 interface VendorPaymentsTableProps {
   vendorId: string;
@@ -87,7 +88,7 @@ export const VendorPaymentsTable: React.FC<VendorPaymentsTableProps> = ({
         header: "UTR / Ref No.",
         cell: ({ row, table }) => {
           const payment = row.original;
-          if (payment.cheque_no) {
+          if (showsChequeChip(payment)) {
             return (
               <div className="min-w-[150px] space-y-0.5">
                 <PaymentChequeChip payment={payment} table={table} />

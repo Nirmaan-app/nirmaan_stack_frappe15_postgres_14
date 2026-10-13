@@ -71,34 +71,19 @@ class TestChequeLines(FrappeTestCase):
                VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 10000000, 0, %s)""",
             (name, U, U, project, vendor, status),
         )
-
-        def purge():
-            frappe.db.delete("Version", {"ref_doctype": PO, "docname": name})
-            frappe.db.delete(PO, {"name": name})
-            frappe.db.commit()
-
-        self.addCleanup(purge)
+        self.addCleanup(
+            ChequeFixture.purge_rows, [("Version", {"ref_doctype": PO, "docname": name}), (PO, {"name": name})]
+        )
         return name
 
     def _plant(self, status, *, amount=20000, parent=None, mode="Online", on_hold=False):
         """A payment already sitting at `status` (raw insert: no approval hook runs)."""
         parent_dt, parent_name = parent or (SR, self.sr)
-        project = frappe.db.get_value(parent_dt, parent_name, "project")
-        name = self.fx._name("PAY")
-        cheque = mode == "Cheque"
-        frappe.db.sql(
-            """INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner,
-                   docstatus, idx, project, vendor, amount, status, document_type, document_name,
-                   mode_of_payment, cheque_no, cheque_date, on_hold)
-               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-            (
-                name, U, U, project, self.vendor, flt(amount), status, parent_dt, parent_name, mode,
-                self.cheques.number() if cheque else None, nowdate() if cheque else None, 1 if on_hold else 0,
-            ),
+        return self.cheques.plant_payment(
+            self.fx, status, project=frappe.db.get_value(parent_dt, parent_name, "project"), vendor=self.vendor,
+            document=(parent_dt, parent_name), amount=amount,
+            cheque_no=self.cheques.number() if mode == "Cheque" else None, on_hold=on_hold,
         )
-        self.fx.payments.append(name)
-        frappe.db.commit()
-        return name
 
     # -- driving --------------------------------------------------------------------------------
     @staticmethod
@@ -146,6 +131,9 @@ class TestChequeLines(FrappeTestCase):
 
     def _cancel(self, cheque):
         """Plant a Cancelled Cheque. The status change itself is #1412's; this is only its outcome."""
+        # Raw on purpose: it skips the Cheque's `validate` and writes no history row, because this suite
+        # tests what a Cancelled Cheque's lines may do, not the status change (`test_cheque_status` does).
+        # No derived figure reads a Cheque's status, so nothing needs recomputing.
         frappe.db.set_value("Cheques", cheque, "status", "Cancelled")
         frappe.db.commit()
 

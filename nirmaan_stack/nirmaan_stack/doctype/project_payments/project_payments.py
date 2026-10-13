@@ -9,7 +9,7 @@ from frappe.model.naming import getseries
 
 from nirmaan_stack.services import settlement
 from nirmaan_stack.services.cheque_payments import is_cheque
-from nirmaan_stack.services.cheques.rules import CANCELLED as CHEQUE_CANCELLED
+from nirmaan_stack.services.cheques.payment_actions import validate_mode_change
 
 # A cheque's amount is fixed on paper, so it may not move while the payment is still being
 # approved -- no L1 amount edit, no CEO part-approval. Past approval it is left alone: the TDS
@@ -25,33 +25,13 @@ class ProjectPayments(Document):
 		self.name = f"{prefix}{getseries(prefix, 3)}"
 
 	def validate(self):
-		self._validate_mode_change()
+		validate_mode_change(self)
 		self._validate_cheque()
-
-	def _validate_mode_change(self):
-		"""The Mode of Payment changes only through a Cheque (spec #1407).
-
-		Online -> Cheque happens when the cheques service puts the payment on a Cheque, which sets
-		the `cheque` link in the same save. Cheque -> Online only once that Cheque is Cancelled: a
-		Cheque payment always has a live or Cancelled Cheque behind it.
-		"""
-		before = self.get_doc_before_save()
-		if not before or is_cheque(before) == is_cheque(self):
-			return
-		if is_cheque(self):
-			if not self.get("cheque"):
-				frappe.throw(_("An Online payment becomes a Cheque payment by putting it on a Cheque."))
-			return
-		cheque = before.get("cheque")
-		if not cheque or frappe.db.get_value("Cheques", cheque, "status") != CHEQUE_CANCELLED:
-			frappe.throw(_(
-				"A Cheque payment goes back to Online only once its Cheque is Cancelled."
-			))
 
 	def _validate_cheque(self):
 		"""A cheque carries its number and date, and keeps its amount.
 
-		The mode itself changes only through a Cheque (`_validate_mode_change`).
+		The mode itself changes only through a Cheque (`services/cheques/payment_actions.validate_mode_change`).
 
 		⚠️ ONE CHEQUE MAY COVER SEVERAL PAYMENTS (owner, 2026-09-19, reversing the same day's
 		"one number, one live payment" ruling), so the number is deliberately NOT unique. The

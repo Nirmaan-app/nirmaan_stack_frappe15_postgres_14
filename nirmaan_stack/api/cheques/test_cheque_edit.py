@@ -70,17 +70,9 @@ class TestChequeEdit(FrappeTestCase):
     # -- planting -------------------------------------------------------------------------------
     def _plant(self, status, *, amount=20000):
         """An Online payment already sitting at `status` (raw insert: no approval hook runs)."""
-        name = self.fx._name("PAY")
-        frappe.db.sql(
-            """INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner,
-                   docstatus, idx, project, vendor, amount, status, document_type, document_name,
-                   mode_of_payment, on_hold)
-               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, 'Online', 0)""",
-            (name, U, U, self.project, self.vendor, flt(amount), status, SR, self.sr),
+        return self.cheques.plant_payment(
+            self.fx, status, project=self.project, vendor=self.vendor, document=(SR, self.sr), amount=amount
         )
-        self.fx.payments.append(name)
-        frappe.db.commit()
-        return name
 
     def _npe(self, amount=4000):
         """A bare Non Project Expense (raw insert: no expense hook runs)."""
@@ -91,14 +83,9 @@ class TestChequeEdit(FrappeTestCase):
                VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, 'Approved', 'cheque edit test')""",
             (name, U, U, flt(amount)),
         )
-
-        def purge():
-            frappe.db.rollback()
-            frappe.db.delete("Version", {"ref_doctype": NPE, "docname": name})
-            frappe.db.delete(NPE, {"name": name})
-            frappe.db.commit()
-
-        self.addCleanup(purge)
+        self.addCleanup(
+            ChequeFixture.purge_rows, [("Version", {"ref_doctype": NPE, "docname": name}), (NPE, {"name": name})]
+        )
         frappe.db.commit()
         return name
 

@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import flt, nowdate
+from frappe.utils import nowdate
 
 from nirmaan_stack.api.approvals.get_approval_queue import get_approval_queue
 from nirmaan_stack.api.cheques.cheque_chips import get_cheque_chips
@@ -46,17 +46,9 @@ class TestTheQueueCarriesTheCheque(FrappeTestCase):
 
 	def _plant(self, *, utr=""):
 		"""An Online payment waiting for approval (raw insert: no approval hook runs)."""
-		name = self.fx._name("PAY")
-		frappe.db.sql(
-			"""INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner,
-				   docstatus, idx, project, vendor, amount, status, document_type, document_name,
-				   mode_of_payment, on_hold, utr)
-			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, 'Requested', %s, %s, 'Online', 0, %s)""",
-			(name, U, U, self.project, self.vendor, flt(20000), SR, self.sr, utr),
+		return self.cheques.plant_payment(
+			self.fx, "Requested", project=self.project, vendor=self.vendor, document=(SR, self.sr), utr=utr
 		)
-		self.fx.payments.append(name)
-		frappe.db.commit()
-		return name
 
 	def _cheque(self, payment, cheque_no):
 		result = save_cheque(

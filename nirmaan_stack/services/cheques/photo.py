@@ -13,14 +13,10 @@ from datetime import date
 
 from frappe.utils import flt
 
-from nirmaan_stack.services.cheques.rules import ICICI_BANK, OTHER_BANK
+from nirmaan_stack.services.cheques.rules import ICICI_BANK, OTHER_BANK, squash_spaces
 
 #: The cheque number is the first group of the MICR line, and it is always six digits.
 _CHEQUE_NO_DIGITS = 6
-
-
-def _text(value) -> str:
-    return " ".join(str(value or "").split())
 
 
 def cheque_no_from_micr(micr_line: str | None) -> str:
@@ -53,7 +49,7 @@ def cheque_date_from_boxes(boxes: str | None) -> str:
 def bank_from_printed_name(printed: str | None) -> tuple[str, str]:
     """`(bank, bank_name)` for the form: ICICI Bank when the printed name is ICICI's, else Others with
     the printed name. `("", "")` when no name was read."""
-    name = _text(printed)
+    name = squash_spaces(printed)
     if not name:
         return "", ""
     if "icici" in name.casefold():
@@ -80,5 +76,5 @@ def cheque_photo_fields(*, bank_name, micr_line, cheque_date, amount_in_figures,
         "cheque_no": cheque_no_from_micr(micr_line),
         "cheque_date": cheque_date_from_boxes(cheque_date),
         "amount": amount_from_figures(amount_in_figures),
-        "payee_name": _text(payee),
+        "payee_name": squash_spaces(payee),
     }

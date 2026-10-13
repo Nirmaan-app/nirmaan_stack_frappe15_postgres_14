@@ -25,24 +25,24 @@ const cheque: PaymentModeValue = {
 
 describe("paymentMode", () => {
 	it("an online request needs nothing more and sends only its mode", () => {
-		expect(isPaymentModeComplete(EMPTY_PAYMENT_MODE)).toBe(true);
+		expect(isPaymentModeComplete(EMPTY_PAYMENT_MODE, "")).toBe(true);
 		expect(paymentModeArgs(EMPTY_PAYMENT_MODE)).toEqual({ mode_of_payment: "Online" });
 	});
 
 	it("a cheque needs its photo, bank, number, date and amount", () => {
-		expect(isPaymentModeComplete(cheque)).toBe(true);
-		expect(isPaymentModeComplete({ ...cheque, attachment: "" })).toBe(false);
-		expect(isPaymentModeComplete({ ...cheque, cheque_no: "  " })).toBe(false);
-		expect(isPaymentModeComplete({ ...cheque, cheque_date: "" })).toBe(false);
-		expect(isPaymentModeComplete({ ...cheque, amount: "" })).toBe(false);
-		expect(isPaymentModeComplete({ ...cheque, amount: 0 })).toBe(false);
-		expect(isPaymentModeComplete({ ...cheque, bank: "Others", bank_name: " " })).toBe(false);
-		expect(isPaymentModeComplete({ ...cheque, bank: "Others", bank_name: "HDFC Bank" })).toBe(true);
+		expect(isPaymentModeComplete(cheque, "")).toBe(true);
+		expect(isPaymentModeComplete({ ...cheque, attachment: "" }, "")).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, cheque_no: "  " }, "")).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, cheque_date: "" }, "")).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, amount: "" }, "")).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, amount: 0 }, "")).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, bank: "Others", bank_name: " " }, "")).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, bank: "Others", bank_name: "HDFC Bank" }, "")).toBe(true);
 	});
 
 	it("a cheque cannot be requested while its photo is read, or once its number is already recorded", () => {
-		expect(isPaymentModeComplete({ ...cheque, photoBusy: true })).toBe(false);
-		expect(isPaymentModeComplete({ ...cheque, duplicateOf: "CHQ-26-00007" })).toBe(false);
+		expect(isPaymentModeComplete({ ...cheque, photoBusy: true }, "")).toBe(false);
+		expect(isPaymentModeComplete(cheque, "CHQ-26-00007")).toBe(false);
 	});
 
 	it("sends the cheque trimmed, leading zeros kept, and a bank name only for Others", () => {

@@ -21,18 +21,11 @@ may change depends on the status and where the Cheque was made (`services/cheque
 """
 
 import frappe
-from frappe import _
 
-from nirmaan_stack.api.payments.project_payments import _move_cheque_to_reconciliation
-from nirmaan_stack.services.cheques.rules import MADE_FROM_REPORT, parse_header, parse_line
+from nirmaan_stack.services.cheque_payments import commit_move_to_reconciliation
+from nirmaan_stack.services.cheques.rules import MADE_FROM_REPORT, PAYMENT_DOCTYPE, parse_header, parse_line
 from nirmaan_stack.services.cheques.writer import CHEQUES_CHANGED_EVENT, create_cheque, edit_cheque, line_payments
-from nirmaan_stack.services.role_profiles import CHEQUE_ACCOUNTS_PROFILES, can_use_cheques, has_role_profile
-
-
-def assert_cheque_access(user: str) -> None:
-    """Refuse a user outside `CHEQUE_ACCESS_PROFILES` (Project Managers included)."""
-    if not can_use_cheques(user):
-        raise frappe.PermissionError(_("You are not allowed to view or add cheques."))
+from nirmaan_stack.services.role_profiles import CHEQUE_ACCOUNTS_PROFILES, assert_cheque_access, has_role_profile
 
 
 @frappe.whitelist(methods=["POST"])
@@ -85,12 +78,12 @@ def save_cheque(
     frappe.db.commit()
     payments = line_payments(doc)
     for payment in payments:
-        _move_cheque_to_reconciliation(payment)  # no-op unless Approved and not on hold
+        commit_move_to_reconciliation(payment)  # no-op unless Approved and not on hold
     frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheque": doc.name})
     return {
         "cheque": doc.name,
         "status": doc.status,
         "payments": [
-            {"name": p, "status": frappe.db.get_value("Project Payments", p, "status")} for p in payments
+            {"name": p, "status": frappe.db.get_value(PAYMENT_DOCTYPE, p, "status")} for p in payments
         ],
     }

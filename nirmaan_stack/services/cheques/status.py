@@ -116,7 +116,7 @@ def move_facts(doc, *, lock: bool) -> MoveFacts:
             rows = {
                 r.name: r
                 for r in frappe.db.sql(
-                    f"""SELECT name, status, mode_of_payment, cheque FROM "tabProject Payments"
+                    f"""SELECT name, status, mode_of_payment, cheque FROM "tab{PAYMENT_DOCTYPE}"
                         WHERE name IN %(names)s ORDER BY name {"FOR UPDATE" if lock else ""}""",
                     {"names": tuple(sorted(set(names)))},
                     as_dict=True,

@@ -1,10 +1,13 @@
 import { useFrappeEventListener, useFrappeGetCall } from "frappe-react-sdk";
 
-import type { ChequeBank, ChequeLineType, ChequeMadeFrom, ChequeStatus } from "@/types/NirmaanStack/Cheques";
+import {
+    CHEQUES_CHANGED_EVENT,
+    type ChequeBank,
+    type ChequeLineType,
+    type ChequeMadeFrom,
+    type ChequeStatus,
+} from "@/types/NirmaanStack/Cheques";
 import { CHEQUE_DETAIL_API } from "@/utils/cheques/chequeStatus";
-
-/** Published by the backend after every Cheque write. */
-const CHEQUES_CHANGED_EVENT = "cheques:changed";
 
 export interface ChequeDetailLine {
     idx: number;

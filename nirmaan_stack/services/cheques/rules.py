@@ -42,7 +42,8 @@ LINE_NON_PROJECT_EXPENSE = "Non-project Expense"
 LINE_TYPES = (LINE_PO_WO_PAYMENT, LINE_PROJECT_EXPENSE, LINE_NON_PROJECT_EXPENSE)
 
 
-def _text(value) -> str:
+def squash_spaces(value) -> str:
+    """`value` as text, trimmed, with each run of spaces made one. None is ""."""
     return " ".join(str(value or "").split())
 
 
@@ -50,12 +51,12 @@ def bank_key(bank: str, bank_name: str | None = None) -> str:
     """The bank's identity for the uniqueness rule: an Others bank's typed name, else the fixed bank,
     lower-cased with repeated spaces collapsed. "HDFC Bank" and "hdfc  bank" are the same bank."""
     name = bank_name if bank == OTHER_BANK else bank
-    return _text(name).casefold()
+    return squash_spaces(name).casefold()
 
 
 def bank_label(bank: str, bank_name: str | None = None) -> str:
     """The bank as a user reads it: the typed name for Others."""
-    return _text(bank_name) if bank == OTHER_BANK and _text(bank_name) else _text(bank)
+    return squash_spaces(bank_name) if bank == OTHER_BANK and squash_spaces(bank_name) else squash_spaces(bank)
 
 
 def normalise_cheque_no(cheque_no) -> str:
@@ -88,7 +89,7 @@ def parse_header(values: dict) -> ChequeHeader:
     The bank name is kept only for an Others bank; the description is kept as written, trimmed.
     """
     def text(key):
-        return _text(values.get(key)) or None
+        return squash_spaces(values.get(key)) or None
 
     bank = text("bank")
     description = str(values.get("description") or "").strip() or None
@@ -196,7 +197,7 @@ def parse_line(values: dict) -> ChequeLineInput:
     expense line has a PO / Work Order. A line of an unknown kind keeps what was sent, to be refused.
     """
     def text(key):
-        return _text(values.get(key)) or None
+        return squash_spaces(values.get(key)) or None
 
     line_type = text("line_type")
     payment_name = text("payment_name")
@@ -287,25 +288,26 @@ def duplicate_problem(header: ChequeHeader, existing: str) -> str:
     )
 
 
-def request_duplicate_problem(header: ChequeHeader) -> str:
-    """The refusal when a PO / Work Order Request Payment names a bank + cheque number already
-    recorded (#1414). A payment requested there always gets its own new Cheque; joining an existing
-    one is done from the report."""
-    label = bank_label(header.bank or "", header.bank_name)
-    return (
-        f"Cheque {header.cheque_no} ({label}) already exists. A payment made here gets its own new "
-        f"cheque. To put this payment on {header.cheque_no}, request it as Online, then add it to the "
-        f"cheque in Reports, Cheque Payments."
-    )
+#: Where a payment's own new Cheque is made, for the refusal when its bank + number is taken: Request
+#: Payment on a PO / Work Order (#1414), or Convert to Cheque / Link a new cheque (#1416).
+NEW_CHEQUE_FROM_REQUEST = "request"
+NEW_CHEQUE_FROM_PAYMENT = "payment"
+#: Per place: what it does, and how the user puts the payment on the recorded cheque instead.
+_TAKEN_NUMBER_WORDING = {
+    NEW_CHEQUE_FROM_REQUEST: ("A payment made here gets its own new cheque.", "request it as Online, then add it"),
+    NEW_CHEQUE_FROM_PAYMENT: ("This makes a new cheque for the payment.", "add it"),
+}
 
 
-def convert_duplicate_problem(header: ChequeHeader) -> str:
-    """The refusal when Convert to Cheque or Link a new cheque (#1416) names a bank + cheque number
-    already recorded. Both make a new Cheque; joining an existing one is done from the report."""
+def payment_duplicate_problem(header: ChequeHeader, *, made_from: str) -> str:
+    """The refusal when a payment's new Cheque names a bank + cheque number already recorded.
+    `made_from` is NEW_CHEQUE_FROM_REQUEST or NEW_CHEQUE_FROM_PAYMENT. Either way a new Cheque is
+    made; joining an existing one is done from the report."""
     label = bank_label(header.bank or "", header.bank_name)
+    what, how = _TAKEN_NUMBER_WORDING[made_from]
     return (
-        f"Cheque {header.cheque_no} ({label}) already exists. This makes a new cheque for the payment. "
-        f"To put this payment on {header.cheque_no}, add it to the cheque in Reports, Cheque Payments."
+        f"Cheque {header.cheque_no} ({label}) already exists. {what} To put this payment on "
+        f"{header.cheque_no}, {how} to the cheque in Reports, Cheque Payments."
     )
 
 
@@ -378,10 +380,17 @@ def edit_problem(
     return None
 
 
+#: A Cheque payment's Cheque that no longer holds it to the cheque: Cancelled, or none at all (a
+#: payment the backfill could not give a Cheque, its number refused). `None` is "no Cheque".
+_RELEASED_CHEQUE_STATUSES = (CANCELLED, None)
+
+
 def _cheque_text(cheque_no: str | None, cheque_status: str | None) -> str:
-    if not cheque_status:
-        return f"cheque {cheque_no}, which no Cheque record holds" if cheque_no else "a cheque"
     return f"cheque {cheque_no} ({cheque_status})"
+
+
+def _is_rejected(status: str | None) -> bool:
+    return (status or "").strip() == PAYMENT_REJECTED
 
 
 def new_payment_cheque_problem(
@@ -394,13 +403,14 @@ def new_payment_cheque_problem(
 ) -> str | None:
     """Why `payment` cannot be put on a new one-line Cheque from the PO / Work Order page, or None (#1416).
 
-    An Online payment converts (Convert to Cheque). A Cheque payment gets a new Cheque only once its
-    Cheque is Cancelled (Link a new cheque); the old one stays, Cancelled, as history. A Rejected
-    payment is never put on a cheque. `cheque_status` is the status of the Cheque the payment names.
+    An Online payment converts (Convert to Cheque). A Cheque payment gets a new Cheque (Link a new
+    cheque) once its Cheque is Cancelled, the old one staying as history, or when it is on no Cheque
+    at all. A Rejected payment is never put on a cheque. `cheque_status` is the status of the Cheque
+    the payment names, None when it names none.
     """
-    if (status or "").strip() == PAYMENT_REJECTED:
+    if _is_rejected(status):
         return f"Payment {payment} is Rejected and cannot be put on a cheque."
-    if is_cheque and cheque_status != CANCELLED:
+    if is_cheque and cheque_status not in _RELEASED_CHEQUE_STATUSES:
         return (
             f"Payment {payment} is on {_cheque_text(cheque_no, cheque_status)}. A new cheque can be "
             "linked only once that cheque is Cancelled."
@@ -409,15 +419,41 @@ def new_payment_cheque_problem(
 
 
 def switch_to_online_problem(
-    payment: str, *, is_cheque: bool, cheque_no: str | None = None, cheque_status: str | None = None
+    payment: str,
+    *,
+    is_cheque: bool,
+    status: str | None = None,
+    cheque_no: str | None = None,
+    cheque_status: str | None = None,
 ) -> str | None:
-    """Why a payment cannot be switched back to Online, or None (#1416). Only a Cheque payment whose
-    Cheque is Cancelled goes back: a Cheque payment always has a live or Cancelled Cheque behind it."""
+    """Why a payment cannot be switched back to Online, or None (#1416). A Cheque payment goes back once
+    its Cheque is Cancelled, or, not Rejected, when it is on no Cheque at all."""
     if not is_cheque:
         return f"Payment {payment} is already Online."
-    if cheque_status != CANCELLED:
+    if cheque_status is None and _is_rejected(status):
+        return f"Payment {payment} is Rejected."
+    if cheque_status not in _RELEASED_CHEQUE_STATUSES:
         return (
             f"Payment {payment} goes back to Online only once its cheque is Cancelled; it is on "
             f"{_cheque_text(cheque_no, cheque_status)}."
         )
+    return None
+
+
+def mode_change_problem(
+    *, was_cheque: bool, now_cheque: bool, cheque: str | None, old_cheque_status: str | None
+) -> str | None:
+    """Why a payment's Mode of Payment may not change this way, or None (spec #1407). The Project
+    Payments `validate` asks it on every save.
+
+    Online -> Cheque happens when the cheques service puts the payment on a Cheque, which sets the
+    `cheque` link in the same save. Cheque -> Online only once the payment's Cheque
+    (`old_cheque_status`) is Cancelled, or when it was on none: nothing then holds it to the cheque.
+    """
+    if was_cheque == now_cheque:
+        return None
+    if now_cheque:
+        return None if cheque else "An Online payment becomes a Cheque payment by putting it on a Cheque."
+    if old_cheque_status not in _RELEASED_CHEQUE_STATUSES:
+        return "A Cheque payment goes back to Online only once its Cheque is Cancelled."
     return None

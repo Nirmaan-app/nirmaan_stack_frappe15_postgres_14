@@ -28,7 +28,7 @@ import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Button } from "@/components/ui/button";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useUserData } from "@/hooks/useUserData";
-import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
+import { CHEQUES_CHANGED_EVENT, type ChequeStatus } from "@/types/NirmaanStack/Cheques";
 import { canEditCheque } from "@/utils/cheques/chequeEdit";
 import { canChangeChequeStatus } from "@/utils/cheques/chequeStatus";
 
@@ -38,7 +38,6 @@ import {
     CHEQUE_DATE_COLUMNS,
     CHEQUE_FETCH_FIELDS,
     CHEQUE_SEARCHABLE_FIELDS,
-    CHEQUES_CHANGED_EVENT,
     CHEQUES_DOCTYPE,
     CHEQUES_LIST_API,
     ChequeRow,
@@ -179,15 +178,18 @@ export default function ChequePaymentReport() {
                     canChangeStatus ? (cheque, status) => setStatusTarget({ cheques: [cheque], status }) : undefined
                 }
             />
-            <ChangeChequeStatusDialog
-                cheques={statusTarget.cheques}
-                currentStatus={statusTarget.status}
-                onClose={() => setStatusTarget({ cheques: [] })}
-                onDone={() => {
-                    table.resetRowSelection();
-                    refetch();
-                }}
-            />
+            {statusTarget.cheques.length > 0 && (
+                <ChangeChequeStatusDialog
+                    key={statusTarget.cheques.join("|")}
+                    cheques={statusTarget.cheques}
+                    currentStatus={statusTarget.status}
+                    onClose={() => setStatusTarget({ cheques: [] })}
+                    onDone={() => {
+                        table.resetRowSelection();
+                        refetch();
+                    }}
+                />
+            )}
         </>
     );
 }

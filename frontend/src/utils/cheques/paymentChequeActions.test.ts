@@ -25,21 +25,40 @@ describe("paymentChequeButtons", () => {
     });
 
     it("offers Link a new cheque and Switch to Online only once the payment's Cheque is Cancelled", () => {
+        // Blank while the chip is still loading: nothing shows until the Cheque's status is known.
         for (const chequeStatus of ["Issued", "Cleared", "", null]) {
-            expect(paymentChequeButtons({ status: "Approved", mode_of_payment: "Cheque", chequeStatus }, ACCOUNTANT)).toEqual({
+            expect(
+                paymentChequeButtons({ status: "Approved", mode_of_payment: "Cheque", cheque: "CHQ-26-00001", chequeStatus }, ACCOUNTANT),
+            ).toEqual({
                 convert: false,
                 linkNew: false,
                 switchOnline: false,
             });
         }
         expect(
-            paymentChequeButtons({ status: "Reconciliation Pending", mode_of_payment: "Cheque", chequeStatus: "Cancelled" }, PROCUREMENT),
+            paymentChequeButtons(
+                { status: "Reconciliation Pending", mode_of_payment: "Cheque", cheque: "CHQ-26-00001", chequeStatus: "Cancelled" },
+                PROCUREMENT,
+            ),
         ).toEqual({ convert: false, linkNew: true, switchOnline: true });
+    });
+
+    it("offers both on a Cheque payment no Cheque holds (a number the backfill refused), unless Rejected", () => {
+        expect(paymentChequeButtons({ status: "Approved", mode_of_payment: "Cheque", cheque: null }, ACCOUNTANT)).toEqual({
+            convert: false,
+            linkNew: true,
+            switchOnline: true,
+        });
+        expect(paymentChequeButtons({ status: "Rejected", mode_of_payment: "Cheque", cheque: "" }, ACCOUNTANT)).toEqual({
+            convert: false,
+            linkNew: false,
+            switchOnline: false,
+        });
     });
 
     it("never links a Rejected payment to a new cheque, but lets it go back to Online", () => {
         expect(
-            paymentChequeButtons({ status: "Rejected", mode_of_payment: "Cheque", chequeStatus: "Cancelled" }, ACCOUNTANT),
+            paymentChequeButtons({ status: "Rejected", mode_of_payment: "Cheque", cheque: "CHQ-26-00001", chequeStatus: "Cancelled" }, ACCOUNTANT),
         ).toEqual({ convert: false, linkNew: false, switchOnline: true });
     });
 

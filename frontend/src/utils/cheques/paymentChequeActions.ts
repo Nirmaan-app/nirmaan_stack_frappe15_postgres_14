@@ -21,7 +21,9 @@ export const SWITCH_TO_ONLINE_API = `${API}.switch_payment_to_online`;
 export interface PaymentChequeFacts {
     status?: string | null;
     mode_of_payment?: string | null;
-    /** The status of the Cheque the payment is on (`useChequeChips`); blank when it is on none. */
+    /** The Cheque the payment is on (its `cheque` link); blank on a Cheque payment no Cheque holds. */
+    cheque?: string | null;
+    /** That Cheque's status (`useChequeChips`); blank until it loads. */
     chequeStatus?: string | null;
 }
 
@@ -29,9 +31,12 @@ export interface PaymentChequeFacts {
 export interface PaymentChequeButtons {
     /** An Online payment that is not Rejected. */
     convert: boolean;
-    /** A Cheque payment whose Cheque is Cancelled, not Rejected: a new Cheque, the old one kept as history. */
+    /**
+     * A Cheque payment, not Rejected, whose Cheque is Cancelled (a new Cheque, the old one kept as history)
+     * or that is on no Cheque (a number the backfill refused).
+     */
     linkNew: boolean;
-    /** A Cheque payment whose Cheque is Cancelled: back to Online, its status unchanged. */
+    /** A Cheque payment whose Cheque is Cancelled, or that is on no Cheque and not Rejected: back to Online, its status unchanged. */
     switchOnline: boolean;
 }
 
@@ -42,6 +47,7 @@ export const paymentChequeButtons = (p: PaymentChequeFacts, role: string): Payme
     if (!CHEQUE_ACCESS_PROFILES.includes(role)) return NONE;
     const rejected = p.status === PAYMENT_STATUS.REJECTED;
     if (!isChequePayment(p)) return { ...NONE, convert: !rejected };
+    if (!p.cheque) return { convert: false, linkNew: !rejected, switchOnline: !rejected };
     const cancelled = p.chequeStatus === CHEQUE_STATUS.CANCELLED;
     return { convert: false, linkNew: cancelled && !rejected, switchOnline: cancelled };
 };
@@ -61,7 +67,7 @@ export const newChequeStatusHint = (p: { status: string; mode_of_payment?: strin
 export const tdsStillToWithhold = (status?: string | null): boolean =>
     status === PAYMENT_STATUS.REQUESTED || status === PAYMENT_STATUS.CEO_PENDING;
 
-/** Mirrors `rules.convert_duplicate_problem`: the refusal when the bank + number is already recorded. */
+/** Mirrors `rules.payment_duplicate_problem(made_from=NEW_CHEQUE_FROM_PAYMENT)`: the refusal when the bank + number is already recorded. */
 export const newChequeDuplicateText = (existing: Pick<ExistingCheque, "cheque_no" | "bank_label">): string =>
     `Cheque ${existing.cheque_no} (${existing.bank_label}) already exists. This makes a new cheque for the payment. ` +
     `To put this payment on ${existing.cheque_no}, add it to the cheque in Reports, Cheque Payments.`;

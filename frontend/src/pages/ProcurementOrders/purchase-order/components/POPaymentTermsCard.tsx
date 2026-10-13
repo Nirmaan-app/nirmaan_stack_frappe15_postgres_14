@@ -58,6 +58,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { useDuplicateChequeOf } from "@/components/cheques/useExistingCheque";
 import { PaymentModeFields } from "@/pages/ProjectPayments/components/PaymentModeFields";
 import {
   EMPTY_PAYMENT_MODE,
@@ -723,6 +724,7 @@ const RequestPaymentDialog = ({
   poVendor,
 }) => {
   const [payMode, setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
+  const duplicateOf = useDuplicateChequeOf(payMode);
   // Where this PO's money already stands, before the term is requested (owner, 2026-09-21).
   // The server still enforces the balance on submit; this block only shows it.
   const { summary, isLoading: summaryLoading } = usePaymentSummary(
@@ -779,7 +781,7 @@ const RequestPaymentDialog = ({
           <Button
             className="bg-red-600 hover:bg-red-700 w-32"
             onClick={() => onConfirm(paymentModeArgs(payMode))}
-            disabled={isLoading || isLocked || !isPaymentModeComplete(payMode)}
+            disabled={isLoading || isLocked || !isPaymentModeComplete(payMode, duplicateOf)}
           >
             {isLoading ? (
               <TailSpin color="white" height={20} width={20} />

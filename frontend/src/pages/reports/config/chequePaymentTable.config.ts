@@ -18,8 +18,6 @@ import { formatDate } from "@/utils/FormatDate";
 export const CHEQUES_DOCTYPE = "Cheques";
 export const CHEQUES_LIST_API = "nirmaan_stack.api.cheques.list_cheques.get_cheques";
 export const CHEQUE_FACETS_API = "nirmaan_stack.api.cheques.list_cheques.get_cheque_facets";
-/** Published by the backend after every Cheque write. */
-export const CHEQUES_CHANGED_EVENT = "cheques:changed";
 
 /** One line of a row, as `get_cheques` returns it (oldest first). */
 export interface ChequeRowLine {

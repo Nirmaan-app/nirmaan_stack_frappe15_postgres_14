@@ -55,22 +55,12 @@ class TestBackfillCheques(FrappeTestCase):
     def _plant(self, status, cheque_no, *, amount=20000, owner=U, days_ago=0, cheque_date=None, sr=None, mode="Cheque"):
         """An old cheque payment, as the ledger holds one today: mode Cheque, a number and date typed
         on it, no Cheque link. `days_ago` sets when it was requested."""
-        name = self.fx._name("PAY")
-        frappe.db.sql(
-            """INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner,
-                   docstatus, idx, project, vendor, amount, status, document_type, document_name,
-                   mode_of_payment, cheque_no, cheque_date, on_hold)
-               VALUES (%s, NOW() - %s * INTERVAL '1 day', NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s,
-                       %s, %s, %s, 0)""",
-            (
-                name, days_ago, U, owner, self.project, self.vendor, flt(amount), status, SR, sr or self.sr,
-                mode, cheque_no if mode == "Cheque" else None,
-                (cheque_date or add_days(nowdate(), -days_ago)) if mode == "Cheque" else None,
-            ),
+        name = self.cheques.plant_payment(
+            self.fx, status, project=self.project, vendor=self.vendor, document=(SR, sr or self.sr), amount=amount,
+            cheque_no=cheque_no if mode == "Cheque" else None, cheque_date=cheque_date, owner=owner,
+            days_ago=days_ago,
         )
-        self.fx.payments.append(name)
         self.planted.append(name)
-        frappe.db.commit()
         return name
 
     def _backfill(self):

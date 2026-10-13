@@ -60,7 +60,8 @@ from nirmaan_stack.services.cheques.rules import (
     normalise_cheque_no,
     parse_header,
     parse_line,
-    request_duplicate_problem,
+    NEW_CHEQUE_FROM_REQUEST,
+    payment_duplicate_problem,
 )
 
 CHEQUES = "Cheques"
@@ -227,21 +228,21 @@ def _new_cheque(header: ChequeHeader, *, made_from: str, lines, status: str, his
 
 
 def payment_cheque_problem(
-    header: ChequeHeader, *, duplicate=request_duplicate_problem
+    header: ChequeHeader, *, made_from: str = NEW_CHEQUE_FROM_REQUEST
 ) -> tuple[str | None, str | None]:
     """Why a one-line Cheque for a payment cannot be made from `header`: `(refusal, existing)`.
 
     `existing` is the Cheque already recorded with this bank + cheque number (then the refusal is
-    `duplicate(header)`: the Request Payment wording by default, `convert_duplicate_problem` for
-    Convert to Cheque), else None. `(None, None)` when it can be made. The line itself
-    cannot fail: its PO / Work Order, project and Vendor are the payment's own.
+    `payment_duplicate_problem` in the wording of `made_from`, Request Payment by default), else None.
+    `(None, None)` when it can be made. The line itself cannot fail: its PO / Work Order, project and
+    Vendor are the payment's own.
     """
     problem = header_problem(header, line_count=1, photo_required=True)
     if problem:
         return problem, None
     existing = existing_cheque(header.bank, header.bank_name, header.cheque_no)
     if existing:
-        return duplicate(header), existing
+        return payment_duplicate_problem(header, made_from=made_from), existing
     return None, None
 
 

@@ -8,9 +8,9 @@ Read-only. Who: `CHEQUE_ACCESS_PROFILES` (Project Managers are refused).
 
 import frappe
 
-from nirmaan_stack.api.cheques.save_cheque import assert_cheque_access
 from nirmaan_stack.services.cheques.rules import bank_label
 from nirmaan_stack.services.cheques.writer import CHEQUES
+from nirmaan_stack.services.role_profiles import assert_cheque_access
 
 _HEADER = ("name", "creation", "owner", "cheque_no", "bank", "bank_name", "cheque_date", "amount", "status",
            "vendor", "payee_name", "description", "attachment", "made_from")

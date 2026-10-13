@@ -29,7 +29,6 @@ import frappe
 from nirmaan_stack.services.cheques.rules import CANCELLED, PAYMENT_DOCTYPE
 from nirmaan_stack.services.cheques.writer import CHEQUES, history_row
 
-REJECTED = "Rejected"
 DELETED = "deleted"
 EMPTIED_NOTE = "No lines and no description are left, so the cheque is Cancelled."
 
@@ -54,7 +53,7 @@ def drop_off_cheques(payment_doctype: str, payment_name: str, *, why: str, user:
     """Take the lines naming `payment_name` (a `payment_doctype` record) off every Cheque that lists
     them, Cancelled ones included, each with a history note. Returns the Cheques changed.
 
-    `why` is REJECTED or DELETED. Each Cheque is re-read under its row lock and saved through the
+    `why` is `rules.PAYMENT_REJECTED` or DELETED. Each Cheque is re-read under its row lock and saved through the
     document, so its `validate` rules and `track_changes` run.
     """
     names = sorted(set(frappe.get_all(

@@ -75,14 +75,12 @@ class TestChequeRequest(FrappeTestCase):
                VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 10000000, 10000000, 0, 0, 'Delivered')""",
             (name, U, U, self.project, self.vendor),
         )
-
-        def purge():
-            frappe.db.delete(TERMS, {"parent": name})
-            frappe.db.delete("Version", {"ref_doctype": PO, "docname": name})
-            frappe.db.delete(PO, {"name": name})
-            frappe.db.commit()
-
-        self.addCleanup(purge)  # runs before the fixture's own purge (cleanups are LIFO)
+        # Runs before the fixture's own purge (cleanups are LIFO).
+        self.addCleanup(ChequeFixture.purge_rows, [
+            (TERMS, {"parent": name}),
+            ("Version", {"ref_doctype": PO, "docname": name}),
+            (PO, {"name": name}),
+        ])
         return name
 
     def _term(self, amount):

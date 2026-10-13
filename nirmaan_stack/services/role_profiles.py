@@ -28,6 +28,7 @@ argument and none of them touch ``frappe.session``, so they stay callable from
 """
 
 import frappe
+from frappe import _
 
 PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Procurement Executive Profile"
 PROCUREMENT_LEAD_PROFILE = "Nirmaan Procurement Lead Profile"
@@ -281,3 +282,17 @@ CHEQUE_ACCESS_PROFILES = CHEQUE_ACCOUNTS_PROFILES + PROCUREMENT_PROFILES
 def can_use_cheques(user: str) -> bool:
     """True when `user` may open the Cheque Payments report and add a Cheque. Administrator passes."""
     return has_role_profile(user, CHEQUE_ACCESS_PROFILES)
+
+
+def assert_cheque_access(user: str) -> None:
+    """Refuse a user outside `CHEQUE_ACCESS_PROFILES` (Project Managers included). Every cheques
+    endpoint starts with it."""
+    if not can_use_cheques(user):
+        raise frappe.PermissionError(_("You are not allowed to view or add cheques."))
+
+
+def assert_cheque_form_access(user: str) -> None:
+    """Refuse a user who may neither use cheques nor request a payment (create on Project Payments).
+    For the read-only helpers a cheque form calls, Request Payment's Cheque mode included."""
+    if not (can_use_cheques(user) or frappe.has_permission("Project Payments", "create", user=user)):
+        raise frappe.PermissionError(_("You are not allowed to look up cheques."))

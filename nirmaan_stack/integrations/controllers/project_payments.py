@@ -11,7 +11,8 @@ from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_hold import validate_hold
 from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of
-from nirmaan_stack.services.cheques.detach import DELETED, REJECTED
+from nirmaan_stack.services.cheques.detach import DELETED
+from nirmaan_stack.services.cheques.rules import PAYMENT_REJECTED
 from nirmaan_stack.services.cheques.rules import PAYMENT_REJECTED
 
 # Imports for notification system
@@ -371,7 +372,7 @@ def on_update(doc, method):
     # A Rejected payment drops off its Cheque (#1413). Commit-free: bulk reject saves inside a
     # savepoint. Above the notification branches, several of which return.
     if doc.status == PAYMENT_REJECTED:
-        drop_off_cheques_of(doc, REJECTED)
+        drop_off_cheques_of(doc, PAYMENT_REJECTED)
 
     # Call the search-based helper function to sync the status.
     _find_and_update_po_term(doc, doc.status)

@@ -36,8 +36,6 @@ export interface PaymentModeValue {
 	attachment: string;
 	/** True while the photo uploads or is read: the fields may still change under the user. */
 	photoBusy: boolean;
-	/** The Cheque already recorded with this bank + number, if any: Submit would be refused. */
-	duplicateOf: string;
 }
 
 export const EMPTY_PAYMENT_MODE: PaymentModeValue = {
@@ -49,7 +47,6 @@ export const EMPTY_PAYMENT_MODE: PaymentModeValue = {
 	amount: "",
 	attachment: "",
 	photoBusy: false,
-	duplicateOf: "",
 };
 
 /** What the create endpoints take (`create_payment_request_for_service`, `create_project_payment`). */
@@ -65,13 +62,14 @@ export interface PaymentModeArgs {
 
 /**
  * Online needs nothing more. A cheque needs its photo (uploaded and read), the bank (and its name
- * for Others), number, date and an amount, and a bank + number not already recorded. The server
- * refuses the same (`payment_cheque.refuse_unless_cheque_can_be_made`).
+ * for Others), number, date and an amount, and a bank + number not already recorded: `duplicateOf` is
+ * the Cheque that has them (`useDuplicateChequeOf`), "" when none. The server refuses the same
+ * (`payment_cheque.refuse_unless_cheque_can_be_made`).
  */
-export const isPaymentModeComplete = (v: PaymentModeValue): boolean =>
+export const isPaymentModeComplete = (v: PaymentModeValue, duplicateOf: string): boolean =>
 	v.mode !== PAYMENT_MODE_CHEQUE ||
 	(!v.photoBusy &&
-		!v.duplicateOf &&
+		!duplicateOf &&
 		v.attachment !== "" &&
 		(v.bank !== CHEQUE_BANK.OTHERS || v.bank_name.trim() !== "") &&
 		v.cheque_no.trim() !== "" &&

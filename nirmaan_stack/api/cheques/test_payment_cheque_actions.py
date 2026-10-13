@@ -60,19 +60,13 @@ class TestPaymentChequeActions(FrappeTestCase):
         frappe.set_user(U)
 
     # -- planting -------------------------------------------------------------------------------
-    def _plant(self, status, *, amount=20000, on_hold=0):
-        """An Online payment already sitting at `status` (raw insert: no approval hook runs)."""
-        name = self.fx._name("PAY")
-        frappe.db.sql(
-            """INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner,
-                   docstatus, idx, project, vendor, amount, status, document_type, document_name,
-                   mode_of_payment, on_hold)
-               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, 'Online', %s)""",
-            (name, U, U, self.project, self.vendor, flt(amount), status, SR, self.sr, on_hold),
+    def _plant(self, status, *, amount=20000, on_hold=0, cheque_no=None):
+        """An Online payment already sitting at `status` (raw insert: no approval hook runs). With
+        `cheque_no`, a Cheque payment on no Cheque, as the backfill leaves one whose number it refused."""
+        return self.cheques.plant_payment(
+            self.fx, status, project=self.project, vendor=self.vendor, document=(SR, self.sr), amount=amount,
+            cheque_no=cheque_no, on_hold=on_hold,
         )
-        self.fx.payments.append(name)
-        frappe.db.commit()
-        return name
 
     # -- driving --------------------------------------------------------------------------------
     def _new_cheque(self, payment, *, amount=20000, **overrides):
@@ -246,6 +240,25 @@ class TestPaymentChequeActions(FrappeTestCase):
 
         out = self._new_cheque(payment)
         self.assertEqual(out["status"], RECON)
+
+    # -- a Cheque payment on no Cheque (the backfill refused its number) -------------------------
+    def test_a_cheque_payment_on_no_cheque_gets_a_new_cheque(self):
+        payment = self._plant("Requested", cheque_no=self.cheques.number())
+        out = self._new_cheque(payment)
+        self._assert_on_cheque(payment, out["cheque"])
+
+    def test_a_cheque_payment_on_no_cheque_switches_to_online(self):
+        payment = self._plant(RECON, cheque_no=self.cheques.number())
+        out = switch_payment_to_online(payment)
+        self.assertEqual(out, {"payment": payment, "mode_of_payment": "Online", "status": RECON})
+        pay = self._payment(payment)
+        self.assertEqual((pay.mode_of_payment, pay.cheque, pay.cheque_no), ("Online", None, None))
+
+    def test_a_rejected_cheque_payment_on_no_cheque_is_refused_both(self):
+        payment = self._plant("Rejected", cheque_no=self.cheques.number())
+        self._refused(f"Payment {payment} is Rejected and cannot be put on a cheque", self._new_cheque, payment)
+        self._refused(f"Payment {payment} is Rejected", switch_payment_to_online, payment)
+        self.assertEqual(self._payment(payment).mode_of_payment, "Cheque")
 
     # -- Switch to Online -----------------------------------------------------------------------
     def test_switch_to_online_is_refused_while_the_cheque_is_not_cancelled(self):

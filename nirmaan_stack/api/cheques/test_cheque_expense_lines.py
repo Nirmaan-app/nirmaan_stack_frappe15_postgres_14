@@ -63,14 +63,9 @@ class TestChequeExpenseLines(FrappeTestCase):
             values.append(project or self.project)
         placeholders = ", ".join(["%s", "NOW()", "NOW()", "%s", "%s", "0", "0"] + ["%s"] * (len(values) - 3))
         frappe.db.sql(f'INSERT INTO "tab{doctype}" ({columns}) VALUES ({placeholders})', tuple(values))
-
-        def purge():
-            frappe.db.rollback()
-            frappe.db.delete("Version", {"ref_doctype": doctype, "docname": name})
-            frappe.db.delete(doctype, {"name": name})
-            frappe.db.commit()
-
-        self.addCleanup(purge)
+        self.addCleanup(
+            ChequeFixture.purge_rows, [("Version", {"ref_doctype": doctype, "docname": name}), (doctype, {"name": name})]
+        )
         frappe.db.commit()
         return name
 
@@ -124,6 +119,9 @@ class TestChequeExpenseLines(FrappeTestCase):
 
     def _cancel(self, cheque):
         """Plant a Cancelled Cheque. The status change itself is #1412's; this is only its outcome."""
+        # Raw on purpose: it skips the Cheque's `validate` and writes no history row, because this suite
+        # tests what a Cancelled Cheque's lines may do, not the status change (`test_cheque_status` does).
+        # No derived figure reads a Cheque's status, so nothing needs recomputing.
         frappe.db.set_value("Cheques", cheque, "status", "Cancelled")
         frappe.db.commit()
 

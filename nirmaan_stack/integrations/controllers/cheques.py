@@ -22,11 +22,10 @@ calls it from `on_update` and `on_trash`; `on_expense_trash` is registered on bo
 import frappe
 from frappe import _
 
-from nirmaan_stack.api.cheques.save_cheque import CHEQUES_CHANGED_EVENT
 from nirmaan_stack.services.cheques.detach import DELETED, drop_off_cheques
 from nirmaan_stack.services.cheques.lines import lines_problem, normalise_lines
 from nirmaan_stack.services.cheques.rules import CANCELLED, duplicate_problem, header_problem, parse_header
-from nirmaan_stack.services.cheques.writer import existing_cheque
+from nirmaan_stack.services.cheques.writer import CHEQUES_CHANGED_EVENT, existing_cheque
 
 
 def validate(doc, method=None):

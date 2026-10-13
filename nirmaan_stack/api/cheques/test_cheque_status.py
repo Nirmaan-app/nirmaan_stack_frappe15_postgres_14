@@ -59,17 +59,9 @@ class TestChequeStatus(FrappeTestCase):
     # -- planting -------------------------------------------------------------------------------
     def _plant(self, status, *, amount=20000):
         """A payment already sitting at `status` (raw insert: no approval hook runs)."""
-        name = self.fx._name("PAY")
-        frappe.db.sql(
-            """INSERT INTO "tabProject Payments" (name, creation, modified, modified_by, owner,
-                   docstatus, idx, project, vendor, amount, status, document_type, document_name,
-                   mode_of_payment, on_hold)
-               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s, 'Online', 0)""",
-            (name, U, U, self.project, self.vendor, flt(amount), status, SR, self.sr),
+        return self.cheques.plant_payment(
+            self.fx, status, project=self.project, vendor=self.vendor, document=(SR, self.sr), amount=amount
         )
-        self.fx.payments.append(name)
-        frappe.db.commit()
-        return name
 
     def _cheque(self, *payments, cheque_no=None):
         """A Cheque from the report with one line per payment (an Ad-hoc cheque when none)."""

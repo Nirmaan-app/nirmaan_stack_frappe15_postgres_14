@@ -17,6 +17,7 @@ from nirmaan_stack.services.extraction.helpers import (
     normalize_utr,
     pick_entity,
 )
+from nirmaan_stack.services.role_profiles import assert_cheque_form_access
 
 MIN_CONFIDENCE = 0.70
 
@@ -234,7 +235,11 @@ def match_payee_to_vendor(payee, vendor):
     not matter which the user fills first. A mismatch is a warning only and never blocks a save.
     Returns the same shape as a receipt's `validation.vendor_match`:
     {expected_name, expected_account_name, extracted, match, by}, with match True/False/None.
+
+    Only for people who fill a cheque form (`assert_cheque_form_access`): the answer names the Vendor's
+    bank account holder.
     """
+    assert_cheque_form_access(frappe.session.user)
     return _vendor_match(vendor, payee)
 
 

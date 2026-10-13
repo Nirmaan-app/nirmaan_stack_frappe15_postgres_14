@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
 import { AlertTriangle, Loader2 } from "lucide-react";
+import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -21,7 +22,7 @@ import {
 import { getFrappeError } from "@/utils/frappeErrors";
 
 interface ChangeChequeStatusDialogProps {
-    /** The Cheques to move (one from a row, several from the bulk bar); closed while empty. */
+    /** The Cheques to move (one from a row, several from the bulk bar). */
     cheques: string[];
     /** Their status when they all share one; undefined for a mixed selection. */
     currentStatus?: ChequeStatus;
@@ -35,39 +36,27 @@ interface ChangeChequeStatusDialogProps {
  * server (`dry_run`), so the user sees which cheques will be skipped and why (a Paid payment blocks
  * Cancel), and, for Cancel, which payments stay at Reconciliation Pending. The note is optional
  * except for Cancel, and one note covers every cheque.
+ *
+ * Mount it only while open, keyed on the selection: each opening starts at the first target with no note.
+ * The preview is keyed on the selection and the target, so picking a target fetches its own.
  */
 export const ChangeChequeStatusDialog = ({ cheques, currentStatus, onClose, onDone }: ChangeChequeStatusDialogProps) => {
     const targets = statusTargets(currentStatus);
     const [target, setTarget] = useState<ChequeStatus>(targets[0]);
     const [note, setNote] = useState("");
-    const [preview, setPreview] = useState<ChequeStatusesResult | null>(null);
-    const { call: callPreview, loading: previewing } = useFrappePostCall<{ message: ChequeStatusesResult }>(CHEQUE_STATUSES_API);
+    const { call: callPreview } = useFrappePostCall<{ message: ChequeStatusesResult }>(CHEQUE_STATUSES_API);
     const { call: changeMany, loading: changingMany } = useFrappePostCall<{ message: ChequeStatusesResult }>(CHEQUE_STATUSES_API);
     const { call: changeOne, loading: changingOne } = useFrappePostCall<{ message: { status: ChequeStatus } }>(CHEQUE_STATUS_API);
 
-    const open = cheques.length > 0;
     const single = cheques.length === 1;
-    const key = cheques.join("|");
-
-    // A fresh dialog starts at the first target with no note.
-    useEffect(() => {
-        if (!open) return;
-        setTarget(statusTargets(currentStatus)[0]);
-        setNote("");
-    }, [open, key, currentStatus]);
-
-    useEffect(() => {
-        if (!open) return;
-        let stale = false;
-        setPreview(null);
-        callPreview({ cheques: JSON.stringify(key.split("|")), status: target, dry_run: true })
-            .then((r) => !stale && setPreview(r.message))
-            .catch((e) => !stale && toast({ title: "Could not check the cheques", description: getFrappeError(e), variant: "destructive" }));
-        return () => {
-            stale = true;
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- callPreview is a fresh function each render
-    }, [open, key, target]);
+    const { data: preview, isValidating: previewing } = useSWR(
+        ["cheque-status-preview", cheques.join("|"), target],
+        async () => (await callPreview({ cheques: JSON.stringify(cheques), status: target, dry_run: true })).message,
+        {
+            revalidateOnFocus: false,
+            onError: (e) => toast({ title: "Could not check the cheques", description: getFrappeError(e), variant: "destructive" }),
+        },
+    );
 
     const problem = noteProblem(target, note);
     const movable = preview?.changed.length ?? 0;
@@ -95,7 +84,7 @@ export const ChangeChequeStatusDialog = ({ cheques, currentStatus, onClose, onDo
     };
 
     return (
-        <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+        <Dialog open onOpenChange={(o) => !o && onClose()}>
             <DialogContent className="max-w-lg">
                 <DialogHeader>
                     <DialogTitle>{single ? "Change status" : `Change status of ${cheques.length} cheques`}</DialogTitle>

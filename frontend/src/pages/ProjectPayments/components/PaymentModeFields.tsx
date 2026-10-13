@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from "react";
+import { type Dispatch, type SetStateAction, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useFrappeFileUpload } from "frappe-react-sdk";
 import { AlertTriangle, Ban, Loader2 } from "lucide-react";
@@ -63,7 +63,8 @@ const Required = () => <span className="ml-0.5 text-red-500">*</span>;
  * Cheque mode (#1414, spec #1407) starts from the cheque's photo: it is uploaded, read, and what it
  * says fills the bank, number, date and amount, tagged "From photo". On Submit the server makes the
  * payment and a new Cheque with one line for it. A bank + number already recorded is shown here,
- * with a link to that Cheque, and the request stays disabled (`isPaymentModeComplete`).
+ * with a link to that Cheque, and the request stays disabled: the dialog asks `useDuplicateChequeOf` for
+ * `isPaymentModeComplete`.
  */
 export const PaymentModeFields = ({
 	value,
@@ -99,10 +100,6 @@ export const PaymentModeFields = ({
 	const amountHint = isCheque && amount !== undefined ? chequeAmountHint(value.amount, amount, tds) : null;
 
 	const existing = useExistingCheque(value.bank, value.bank_name, isCheque ? value.cheque_no : "");
-	const duplicateOf = existing?.cheque ?? "";
-	useEffect(() => {
-		onChange((prev) => (prev.duplicateOf === duplicateOf ? prev : { ...prev, duplicateOf }));
-	}, [duplicateOf, onChange]);
 
 	const set = (patch: Partial<PaymentModeValue>) => onChange((prev) => ({ ...prev, ...patch }));
 

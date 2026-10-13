@@ -33,7 +33,7 @@ const BUTTON = "h-6 px-2 text-[11px] text-foreground";
 /**
  * The cheque buttons on a payment in the PO / Work Order page's Transaction Details (#1416, spec #1407),
  * inline like the rest of the app: Convert to Cheque on an Online payment that is not Rejected; Link a new
- * cheque and Switch to Online once the payment's Cheque is Cancelled. Admin, Accountants and Procurement
+ * cheque and Switch to Online once the payment's Cheque is Cancelled, or on a Cheque payment no Cheque holds. Admin, Accountants and Procurement
  * only (`paymentChequeButtons`); the server re-checks every one.
  */
 export const PaymentChequeActions = ({ payment, chip, onChanged }: PaymentChequeActionsProps) => {
@@ -87,8 +87,9 @@ export const PaymentChequeActions = ({ payment, chip, onChanged }: PaymentCheque
                     <AlertDialogHeader>
                         <AlertDialogTitle>Switch {payment.name} to Online?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            The payment leaves cancelled cheque {chip?.cheque_no ?? payment.cheque_no} and becomes an Online
-                            payment. Its status stays {payment.status}. The cancelled cheque is kept as history.
+                            {payment.cheque
+                                ? `The payment leaves cancelled cheque ${chip?.cheque_no ?? payment.cheque_no} and becomes an Online payment. Its status stays ${payment.status}. The cancelled cheque is kept as history.`
+                                : `No cheque record holds cheque ${payment.cheque_no}. The payment becomes an Online payment and its status stays ${payment.status}.`}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

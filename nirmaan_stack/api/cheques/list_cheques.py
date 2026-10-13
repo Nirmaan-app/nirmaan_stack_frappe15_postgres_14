@@ -28,8 +28,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
-from nirmaan_stack.api.cheques.save_cheque import assert_cheque_access
 from nirmaan_stack.services.cheques.rules import CANCELLED, CLEARED, ISSUED
+from nirmaan_stack.services.role_profiles import assert_cheque_access
 
 MAX_PAGE_LENGTH = 500
 #: The hook asks for every row with `for_export=true` plus `limit_page_length=0`.

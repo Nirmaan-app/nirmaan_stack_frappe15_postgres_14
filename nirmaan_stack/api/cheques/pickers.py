@@ -10,9 +10,9 @@ Who: `CHEQUE_ACCESS_PROFILES`, the same as adding a Cheque. The lists themselves
 import frappe
 from frappe import _
 
-from nirmaan_stack.api.cheques.save_cheque import assert_cheque_access
 from nirmaan_stack.services.cheques import pickers
 from nirmaan_stack.services.cheques.rules import EXPENSE_LINE_TYPES, RECORD_DOCTYPES
+from nirmaan_stack.services.role_profiles import assert_cheque_access
 
 
 @frappe.whitelist()

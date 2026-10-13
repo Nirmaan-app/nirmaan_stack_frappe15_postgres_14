@@ -8,7 +8,7 @@ import { TruncatedText } from "@/components/common/TruncatedText";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
 import SITEURL from "@/constants/siteURL";
-import { formatDate } from "@/utils/FormatDate";
+import { chequeDateText } from "@/utils/cheques/chequeChip";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
@@ -24,8 +24,6 @@ import {
 
 /** Lets a sortable header's title break onto a second line, so columns stay narrow. */
 const WRAP_HEADER = "[&_button]:whitespace-normal text-left";
-
-const dateText = (v?: string | null) => (v ? formatDate(v) : "");
 
 const projectsOf = (r: ChequeRow) => r.lines.map((l) => l.project_name || l.project);
 const recordsOf = (r: ChequeRow) => r.lines.map((l) => l.record_name);
@@ -120,9 +118,9 @@ export const getChequePaymentColumns = ({ onOpen, onChangeStatus, onEdit, canEdi
     {
         accessorKey: "cheque_date",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Cheque Date" className={WRAP_HEADER} />,
-        cell: ({ row }) => <div className="whitespace-nowrap">{dateText(row.original.cheque_date) || "--"}</div>,
+        cell: ({ row }) => <div className="whitespace-nowrap">{chequeDateText(row.original.cheque_date) || "--"}</div>,
         size: 115,
-        meta: { exportHeaderName: "Cheque Date", exportValue: (r: ChequeRow) => dateText(r.cheque_date) },
+        meta: { exportHeaderName: "Cheque Date", exportValue: (r: ChequeRow) => chequeDateText(r.cheque_date) },
     },
     {
         accessorKey: "status",
@@ -241,14 +239,14 @@ export const getChequePaymentColumns = ({ onOpen, onChangeStatus, onEdit, canEdi
         cell: ({ row }) => (
             <div className="flex flex-col">
                 <TruncatedText text={row.original.owner_name || row.original.owner} className="max-w-full" />
-                <span className="text-[11px] text-muted-foreground">{dateText(row.original.creation)}</span>
+                <span className="text-[11px] text-muted-foreground">{chequeDateText(row.original.creation)}</span>
             </div>
         ),
         size: 135,
         enableSorting: false,
         meta: {
             exportHeaderName: "Created By",
-            exportValue: (r: ChequeRow) => `${r.owner_name || r.owner} ${dateText(r.creation)}`.trim(),
+            exportValue: (r: ChequeRow) => `${r.owner_name || r.owner} ${chequeDateText(r.creation)}`.trim(),
         },
     },
     {

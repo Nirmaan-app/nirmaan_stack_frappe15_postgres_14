@@ -22,7 +22,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import SITEURL from "@/constants/siteURL";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { ChequeChip } from "@/components/cheques/ChequeChip";
-import { utrOrChequeText } from "@/utils/cheques/chequeChip";
+import { showsChequeChip, utrOrChequeText } from "@/utils/cheques/chequeChip";
 import {
   DocumentDetailPopover,
   ProjectDetailPopover,
@@ -436,7 +436,7 @@ const REGISTRY: Record<
         // The cheque chip on the two approval tabs (spec #1407), so an approver knows a payment is a
         // cheque before approving it. ⚠️ ITS OWN LINE, OUTSIDE THE DOCUMENT CARD'S TRIGGER: the chip
         // is a button, and a button inside the trigger's button is invalid markup.
-        const chip = CHEQUE_CHIP_UNDER_AGAINST.has(ctx.tab) && r.cheque_no ? (
+        const chip = CHEQUE_CHIP_UNDER_AGAINST.has(ctx.tab) && showsChequeChip(r) ? (
           <span className="mt-0.5 block">
             <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} />
           </span>
@@ -723,7 +723,7 @@ const REGISTRY: Record<
     // its UTR sits under the chip. An Online payment shows its UTR as before.
     cell: ({ row }) => {
       const r = row.original;
-      if (!r.cheque_no) {
+      if (!showsChequeChip(r)) {
         return r.utr_ref
           ? <TruncatedText text={r.utr_ref} className="max-w-[9rem] font-mono text-[11px]" />
           : <Blank />;

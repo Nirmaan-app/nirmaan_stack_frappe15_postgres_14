@@ -14,6 +14,7 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import { useRequestPayment } from "../hooks/useRequestPayment";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { useDuplicateChequeOf } from "@/components/cheques/useExistingCheque";
 import { PaymentModeFields } from "../components/PaymentModeFields";
 import { PaymentSummaryBlock, usePaymentSummary } from "../components/PaymentSummaryBlock";
 import { PayFor, payForCap } from "../components/paymentSummaryView";
@@ -55,6 +56,7 @@ export default function RequestPaymentDialog(p:Props){
   const [perc,setPerc]     = useState("");
   const [warn,setWarn]     = useState("");
   const [payMode,setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
+  const duplicateOf = useDuplicateChequeOf(payMode);
   const [payFor,setPayFor] = useState<PayFor>("base");
 
   /* Where this WO's money already stands (owner, 2026-09-21). WO only: the PO page requests
@@ -224,7 +226,7 @@ export default function RequestPaymentDialog(p:Props){
           : <>
               <AlertDialogCancel className="flex-1">Cancel</AlertDialogCancel>
               <Button className="flex-1"
-                      disabled={amount===0 || !!warn || !isPaymentModeComplete(payMode) || (gstWO && !cap)}
+                      disabled={amount===0 || !!warn || !isPaymentModeComplete(payMode, duplicateOf) || (gstWO && !cap)}
                       onClick={submit}>Confirm</Button>
             </>}
       </div>

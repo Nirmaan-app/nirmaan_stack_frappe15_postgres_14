@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
 
+import { PAYMENT_MODE_CHEQUE, type PaymentModeValue } from "@/pages/ProjectPayments/paymentMode";
 import { CHEQUE_BANK } from "@/types/NirmaanStack/Cheques";
 import { parseExistingCheque, type ExistingCheque } from "@/utils/cheques/existingCheque";
 
@@ -27,3 +28,11 @@ export const useExistingCheque = (bank: string, bankName: string, chequeNo: stri
     );
     return ready ? parseExistingCheque(data?.message) : null;
 };
+
+/**
+ * The Cheque already recorded with the bank + number a payment's cheque fields name, or "" (none, or an
+ * Online request). A request dialog passes it to `isPaymentModeComplete`; `PaymentModeFields` shows the same
+ * Cheque, through the same cached call.
+ */
+export const useDuplicateChequeOf = (v: PaymentModeValue): string =>
+    useExistingCheque(v.bank, v.bank_name, v.mode === PAYMENT_MODE_CHEQUE ? v.cheque_no : "")?.cheque ?? "";

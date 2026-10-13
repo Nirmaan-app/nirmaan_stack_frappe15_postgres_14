@@ -20,6 +20,7 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api import payment_autofill
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.services.extraction.gemini import GeminiExtractor
+from nirmaan_stack.services.role_profiles import can_use_cheques
 
 _SETTINGS = {
     "enabled": True,
@@ -131,6 +132,28 @@ class TestPayeeMatchesVendor(FrappeTestCase):
 
     def test_no_payee_cannot_be_checked(self):
         self.assertIsNone(self._match(""))
+
+    def _as_user_who(self, *, may_request: bool):
+        """A real user who may (or may not) request a payment, outside the cheque roles."""
+        for user in frappe.get_all("Nirmaan Users", pluck="name", limit=500):
+            if not frappe.db.exists("User", user) or user == "Administrator" or can_use_cheques(user):
+                continue
+            if bool(frappe.has_permission("Project Payments", "create", user=user)) == may_request:
+                frappe.set_user(user)
+                self.addCleanup(frappe.set_user, "Administrator")
+                return
+        self.skipTest(f"no user outside the cheque roles with may_request={may_request} on this site")
+
+    def test_a_user_who_may_neither_request_payments_nor_use_cheques_is_refused(self):
+        # The answer names the Vendor's bank account holder: only the people filling a cheque form ask.
+        self._as_user_who(may_request=False)
+        with self.assertRaises(frappe.PermissionError):
+            self._match("Krishna Metals")
+
+    def test_a_user_who_may_request_a_payment_is_answered(self):
+        # Request Payment's Cheque mode reads the photo too, for any requester.
+        self._as_user_who(may_request=True)
+        self.assertIs(self._match("Krishna Metals"), True)
 
 
 class TestReceiptModeStillReads(FrappeTestCase):

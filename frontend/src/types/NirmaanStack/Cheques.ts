@@ -5,6 +5,9 @@
  * Written only by the cheques service (`services/cheques/writer.py`) through `api/cheques/*`.
  * Hand-maintained: frappe_types does not generate types in dev env benches.
  */
+/** Published by the backend after every Cheque write commits (`services/cheques/writer.CHEQUES_CHANGED_EVENT`). */
+export const CHEQUES_CHANGED_EVENT = "cheques:changed";
+
 export const CHEQUE_STATUS = {
     ISSUED: "Issued",
     CLEARED: "Cleared",

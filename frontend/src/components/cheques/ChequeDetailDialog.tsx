@@ -7,8 +7,8 @@ import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
-import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { chequeDateText } from "@/utils/cheques/chequeChip";
 import { getFrappeError } from "@/utils/frappeErrors";
 
 import { useChequeDetail } from "./useChequeDetail";
@@ -20,8 +20,6 @@ interface ChequeDetailDialogProps {
     /** Shown as a "Change status" button when given (accounts only). */
     onChangeStatus?: (cheque: string, status: ChequeStatus) => void;
 }
-
-const dateText = (v?: string | null) => (v ? formatDate(v) : "--");
 
 const Field = ({ label, children }: { label: string; children: ReactNode }) => (
     <div className="min-w-0">
@@ -77,14 +75,14 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, onChangeStatus }: Ch
                             </div>
                             <div className="grid grid-cols-2 gap-3 content-start">
                                 <Field label="Bank">{cheque.bank_label}</Field>
-                                <Field label="Cheque date">{dateText(cheque.cheque_date)}</Field>
+                                <Field label="Cheque date">{chequeDateText(cheque.cheque_date)}</Field>
                                 <Field label="Amount">{formatToRoundedIndianRupee(cheque.amount)}</Field>
                                 <Field label={cheque.vendor ? "Vendor" : "Payee"}>
                                     {cheque.vendor ? cheque.vendor_name || cheque.vendor : cheque.payee_name}
                                 </Field>
                                 <Field label="Made from">{cheque.made_from}</Field>
                                 <Field label="Created by">
-                                    {cheque.owner_name || cheque.owner} · {dateText(cheque.creation)}
+                                    {cheque.owner_name || cheque.owner} · {chequeDateText(cheque.creation)}
                                 </Field>
                                 <div className="col-span-2">
                                     <Field label="Description">{cheque.description}</Field>
@@ -117,7 +115,7 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, onChangeStatus }: Ch
                                             )}
                                             <ChequeStatusBadge status={h.to_status} />
                                             <span className="ml-auto text-xs text-muted-foreground">
-                                                by {h.changed_by_name || h.changed_by} · {dateText(h.changed_at)}
+                                                by {h.changed_by_name || h.changed_by} · {chequeDateText(h.changed_at)}
                                             </span>
                                         </div>
                                         {h.note && <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{h.note}</p>}

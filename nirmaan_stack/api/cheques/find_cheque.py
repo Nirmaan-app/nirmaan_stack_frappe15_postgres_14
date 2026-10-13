@@ -12,11 +12,15 @@ Who: anyone who may request a payment (create on Project Payments) or use Cheque
 """
 
 import frappe
-from frappe import _
 
-from nirmaan_stack.services.cheques.rules import bank_label, parse_header, request_duplicate_problem
+from nirmaan_stack.services.cheques.rules import (
+    NEW_CHEQUE_FROM_REQUEST,
+    bank_label,
+    parse_header,
+    payment_duplicate_problem,
+)
 from nirmaan_stack.services.cheques.writer import CHEQUES, existing_cheque
-from nirmaan_stack.services.role_profiles import can_use_cheques
+from nirmaan_stack.services.role_profiles import assert_cheque_form_access
 
 
 @frappe.whitelist(methods=["GET"])
@@ -26,9 +30,7 @@ def find_cheque(bank: str, cheque_no: str, bank_name: str | None = None) -> dict
     Returns `{cheque, cheque_no, bank_label, status, message}`; `message` is the Request Payment
     refusal, word for word as Submit would give it.
     """
-    user = frappe.session.user
-    if not (can_use_cheques(user) or frappe.has_permission("Project Payments", "create", user=user)):
-        raise frappe.PermissionError(_("You are not allowed to look up cheques."))
+    assert_cheque_form_access(frappe.session.user)
     header = parse_header({"bank": bank, "bank_name": bank_name, "cheque_no": cheque_no})
     if not header.bank or not header.cheque_no:
         return None
@@ -41,5 +43,5 @@ def find_cheque(bank: str, cheque_no: str, bank_name: str | None = None) -> dict
         "cheque_no": found.cheque_no,
         "bank_label": bank_label(found.bank, found.bank_name),
         "status": found.status,
-        "message": request_duplicate_problem(header),
+        "message": payment_duplicate_problem(header, made_from=NEW_CHEQUE_FROM_REQUEST),
     }
