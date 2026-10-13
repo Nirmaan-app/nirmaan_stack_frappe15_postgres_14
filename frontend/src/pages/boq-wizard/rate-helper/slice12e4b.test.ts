@@ -33,7 +33,7 @@ import {
 } from "./pricingSheetHelper";
 import {
   BARE_NUMBER_RE, TYPED_THICKNESS_MESSAGE, familyAttr, isOneSizeEntry, itemListPricingSpec, listSpecDefs, noUnitMessage, priceItemList,
-  readFamilyWord, readNumber, severalSizesPick, withoutTrailingPunctuation,
+  readFamilyWord, readNumber, severalSizesPick, typedFamilyLine, withoutTrailingPunctuation,
 } from "./itemListPricing";
 
 type Asset = { discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] };
@@ -296,7 +296,16 @@ describe("12e-4b AC4 (D-3) -- 'Pipe type as written' is read by the ONE reader a
       priced: x.v.rowPriced, values: x.values, family: x.v.rowPriced ? x.v.items[0].family : null, familyLine: x.v.items[0].familyLine ?? null,
       reason: x.v.items[0].reason ?? null, working: x.v.items[0].working, size: field(x.v.items[0], "size_mm")?.value ?? null,
     });
-    expect(facts(a)).toEqual(facts(t));
+    // INVERTED 12e-4c (owner 2026-10-13: a TYPED pipe type reads "You typed uPVC -> priced as PVC", never "BoQ
+    // says"). BEFORE: `expect(facts(a)).toEqual(facts(t))` -- the two paths carried the very same line. AFTER: they
+    // differ in WHO SAID IT and in nothing else: the as-written side's lines, re-opened as typed, are the typed ones.
+    const fa = facts(a), ft = facts(t);
+    expect({ ...fa, familyLine: fa.familyLine === null ? null : typedFamilyLine(fa.familyLine), working: fa.working.map(typedFamilyLine) }).toEqual(ft);
+    if (fa.familyLine !== null) {
+      expect(fa.familyLine).toMatch(/^BoQ (says|names) /);
+      expect(ft.familyLine).toMatch(/^You typed /);
+      expect(JSON.stringify(ft)).not.toContain("BoQ says");
+    }
     if (!a.v.rowPriced) {
       expect({ typedHeads: t.v.items[0].family, asWrittenHeads: a.v.items[0].family, shown: a.v.items[0].readOnly.map((r) => r.value) })
         .toEqual({ typedHeads: word, asWrittenHeads: null, shown: [word] });

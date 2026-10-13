@@ -1237,7 +1237,10 @@ export function readNumber(text: string | number | null | undefined, reader: Num
   // without such a character is byte-identical; the messages keep the BoQ's own `raw`.
   const s = unicodeFractions(raw).toLowerCase().replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
   if (s === "") return { blank: `no number in '${raw}' for ${reader.name}` };
-  const tokens = s.split(/[^a-z0-9.]+/).filter(Boolean);
+  // SLICE 12e-4c (owner, 2026-10-13: "fix"; ruled in the run: "26G." refuses, like "26G"): a full stop kept
+  // inside a token for the sake of a decimal ("0.8") is not part of a WORD -- "26g." is the gauge "26g" and
+  // "g." is "g". Without this the mark alone hid the gauge and "26G." read as a 26 mm thickness.
+  const tokens = s.split(/[^a-z0-9.]+/).map((tk) => tk.replace(/\.+$/, "")).filter(Boolean);
   for (const t of reader.reject_tokens ?? []) {
     // a bare token ("g", "gi") or one glued to a number ("26g", "20gi")
     if (tokens.includes(t) || tokens.some((tk) => /^\d/.test(tk) && tk.replace(/^[\d.]+/, "") === t)) {
@@ -1587,6 +1590,12 @@ export function familyFromRowText(
  *   4. anything else -> null: the caller refuses BY NAME (the R18 sentence).
  * A config without `family_text` never reaches it. PURE.
  */
+/** SLICE 12e-4c (owner, 2026-10-13): the family line of a word the PRICER typed -- the config's line ("BoQ says
+ * uPVC -> priced as PVC ...") and the several-names line ("BoQ names MS / GI -> ...") open "You typed". PURE. */
+export function typedFamilyLine(line: string): string {
+  return line.replace(/^BoQ (?:says|names) /, "You typed ");
+}
+
 export function readFamilyWord(
   spec: ItemListPricingSpec,
   text: string | number | null | undefined,
@@ -1701,6 +1710,8 @@ function priceOneItem(
   // becomes the family answer and is read below by the ONE reader a typed word goes through, so "uPVC" prices
   // as PVC with its line and "SS" refuses with its sentence exactly as the same word typed would. An ANSWERED
   // family is never touched: the dropdown answer wins over a disagreeing word (the word is still shown).
+  // SLICE 12e-4c: the family answer is the pricer's own TYPED word (read before the as-written word can stand in)
+  const familyTyped = item.attributes?.[familyAttr(spec)]?.typed === true && out.familyRaw !== null && out.familyRaw !== "None";
   const asWrittenAttr = spec.family_text?.from_attr;
   if ((out.familyRaw === null || out.familyRaw === "None") && asWrittenAttr) {
     const w = rawValue(item, asWrittenAttr);
@@ -1723,8 +1734,12 @@ function priceOneItem(
     if (read) {
       family = read.family;
       if (read.line) {
-        out.familyLine = read.line;
-        out.working.push(read.line);
+        // SLICE 12e-4c (owner, 2026-10-13; the G1 principle: "BoQ says" only where a BoQ said it): a word the
+        // PRICER typed in the family's "Other..." box reads "You typed uPVC -> priced as PVC". A word the model
+        // read -- the family answer or the as-written attribute -- keeps the config's own "BoQ says ..." line.
+        const line = familyTyped ? typedFamilyLine(read.line) : read.line;
+        out.familyLine = line;
+        out.working.push(line);
       }
     }
   }
@@ -1828,7 +1843,12 @@ function priceOneItem(
       // refuses -- a MODEL cell and a TYPED one alike, before either reader sees it.
       // SLICE 12e-3b (owner 2026-10-11): ... and now PRICES THE HIGHER / HIGHEST of them, with its line, on both
       // paths. Only a form the ruling does not cover keeps the "- pick one" refusal (`severalSizesPick`).
-      if (got === null && reader.typed_entry === "one_size") {
+      // SLICE 12e-4c (owner, 2026-10-13: "fix" -- "its two sizes in such case if the model can determine the
+      // specific size for the row use it else use the higher size"): the SAME rule on every axis that reads a
+      // bare fraction as INCHES (`inches: true`) -- Insulation's pipe size -- because that is exactly where a
+      // slash is ambiguous: "19/25" read as 19/25 of an inch (19.3 mm) and priced a size the row never named.
+      // A real inch fraction ("3/4", "1-1/4") is not two sizes (`slashSizes`) and reads as inches as before.
+      if (got === null && (reader.typed_entry === "one_size" || reader.inches === true)) {
         for (const src of reader.from) {
           const stated = rawValue(item, src);
           const sizes = slashSizes(stated);
@@ -2285,7 +2305,8 @@ function priceOneItem(
       || spec.size_match?.near !== undefined || spec.size_match?.below_smallest !== undefined);
     if (declares && how === undefined) how = fit.exact ? "exact" : (want < rungs[0].size ? "smallest" : "up");
     out.ladderHops.push({ attr, name, requested: want, fitted: fit.modules, exact: fit.exact,
-      ...(declares ? { how, ...(altRead ? { raw: altRead.raw, alt: altRead.alt } : {}), ...(severalReads[attr] ? { several: severalReads[attr] } : {}) } : {}) });
+      ...(declares ? { how, ...(altRead ? { raw: altRead.raw, alt: altRead.alt } : {}) } : {}),
+      ...(severalReads[attr] ? { several: severalReads[attr] } : {}) });
     if (!fit.exact) {
       out.working.push(`${name} ${fmt(want)} is not on the sheet -> ${fmt(fit.modules)} (next size up, R6)`);
       sel[attr] = fit.modules;

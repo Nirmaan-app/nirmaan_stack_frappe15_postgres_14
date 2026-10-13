@@ -259,19 +259,23 @@ describe("12e-2 P1 -- the pipe type: stocked, mapped, refused, read off the row 
     expect(v.rowPriced).toBe(true);
     expect(fig(s.values)).toEqual([984, 280]);
     expect(b!.family).toBe("MS");
-    expect(b!.familyLine).toBe("BoQ says GI -> priced as MS");
+    // INVERTED 12e-4c (owner 2026-10-13, the G1 principle: "BoQ says" only where a BoQ said it). BEFORE: "BoQ says GI -> priced as MS"
+    expect(b!.familyLine).toBe("You typed GI -> priced as MS");
     expect(b!.familyControl).toMatchObject({ id: FAM, label: "Pipe type", options: ["Copper", "MS", "PVC", "CPVC"], otherMode: true, typedValue: "GI", note: "Pipe type as the BoQ writes it" });
-    expect(b!.working.join("\n")).toContain("BoQ says GI -> priced as MS");
+    expect(b!.working.join("\n")).toContain("You typed GI -> priced as MS");
+    expect(b!.working.join("\n")).not.toContain("BoQ says");
   });
   it("typed uPVC 110 -> priced as PVC AND the next-size-up line; typed HDPE 50 -> PVC 50", () => {
     const u = calc(typedType("uPVC", { size_mm: "110" }, ["size_mm"]));
     expect(fig(u.values)).toEqual([1212, 168]);
     expect(u.b!.family).toBe("PVC");
-    expect(u.b!.familyLine).toBe("BoQ says uPVC -> priced as PVC");
+    // INVERTED 12e-4c (owner 2026-10-13, the G1 principle: "BoQ says" only where a BoQ said it). BEFORE: "BoQ says uPVC -> priced as PVC"
+    expect(u.b!.familyLine).toBe("You typed uPVC -> priced as PVC");
     expect(size(u.b)!.note).toBe("You typed 110 -> priced as 150 mm (next size up)");
     const h = calc(typedType("HDPE", { size_mm: "50" }));
     expect(fig(h.values)).toEqual([252, 56]);
-    expect(h.b!.familyLine).toBe("BoQ says HDPE -> priced as PVC");
+    // INVERTED 12e-4c (owner 2026-10-13, the G1 principle: "BoQ says" only where a BoQ said it). BEFORE: "BoQ says HDPE -> priced as PVC"
+    expect(h.b!.familyLine).toBe("You typed HDPE -> priced as PVC");
   });
   it("typed SS refuses with its own sentence and no price; typed ABC refuses by name (Q18)", () => {
     const ss = calc(typedType("SS", { size_mm: "50" }));

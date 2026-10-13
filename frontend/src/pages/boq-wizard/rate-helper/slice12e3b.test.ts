@@ -334,16 +334,24 @@ describe("12e-3b AC2 -- a Piping size written as two or more sizes prices the hi
   it("NEGATIVE: every other typed refusal keeps the one-size message ('two inch', '40-50', 'as per spec')", () => {
     for (const text of ["two inch", "40-50", "as per spec"]) expect(compute(PIP, { items: [pipe("MS", text)] }).v.reason).toBe("Type one pipe size, in mm or inches");
   });
-  it("NEGATIVE: Insulation's reader is untouched -- it declares no `typed_entry`, and reads '25/32' and '40/50' exactly as before this slice", () => {
+  // INVERTED 12e-4c (owner 2026-10-13, "fix": Insulation's pipe size "19/25" is two sizes and takes the higher, as
+  // Piping's rule). BEFORE: "... and through its own panel row: nothing says 'states two sizes'" -- the row priced
+  // '25/32' as 25/32 of an inch (19.84 mm -> 22.23, 265 / 14). AFTER: the higher, 32 -> 34.93, 304 / 14. The
+  // negative half is kept: the pure READER is untouched and Insulation still declares no `typed_entry`.
+  it("NEGATIVE: Insulation's READER is untouched -- it declares no `typed_entry`, and `readNumber` reads '25/32' and '40/50' exactly as before; its panel row now takes the higher (12e-4c)", () => {
     const ir = itemListPricingSpec(CFG[INS])!.numbers.pipe_size_mm;
     expect(ir.typed_entry).toBeUndefined();
     expect(readNumber("25/32", ir)).toEqual({ value: (25 / 32) * 25.4 });
     expect(readNumber("40/50", ir)).toEqual({ value: (40 / 50) * 25.4 });
     expect(readNumber("19/ 25 / 32 mm", itemListPricingSpec(CFG[INS])!.numbers.thickness_mm)).toMatchObject({ value: 32 });
     for (const cat of [INS, ADP]) for (const reader of Object.values(itemListPricingSpec(CFG[cat])!.numbers)) expect(reader.typed_entry).toBeUndefined();
-    // and through its own panel row: nothing says "states two sizes"
+    // and through its own panel row: 12e-4c -- it now says which of the two sizes was taken
     const r = priceItemList(itemListPricingSpec(CFG[INS])!, ITEMS, "Rmt", [{ attributes: cells({ item: NITRILE, cladding: "No", thickness_mm: "19", pipe_size_mm: "25/32" }) }]);
-    expect(JSON.stringify(r)).not.toMatch(/states two sizes/);
+    expect(JSON.stringify(r)).toMatch(/pipe size states two sizes \(25 \/ 32\) - the higher, 32, is taken/);
+    expect([r.supply, r.install]).toEqual([304, 14]);
+    // a real inch fraction is still not two sizes
+    const f = priceItemList(itemListPricingSpec(CFG[INS])!, ITEMS, "Rmt", [{ attributes: cells({ item: NITRILE, cladding: "No", thickness_mm: "19", pipe_size_mm: "3/4" }) }]);
+    expect(JSON.stringify(f)).not.toMatch(/states two sizes/);
   });
   it("owner D3b: the section mirrors the size the pipe PRICED as -- MS '25/32' prices 32, so the insulation takes 32 'from pipe'", () => {
     const { v } = compute(PIP, { items: [pipe("MS", "25/32", { insulated: "Yes" }, { [SEC]: ins(NITRILE, { cladding: "No", thickness_mm: "13" }) })] });

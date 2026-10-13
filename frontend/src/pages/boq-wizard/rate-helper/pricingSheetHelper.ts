@@ -2314,6 +2314,15 @@ function itemBlockView(
       } else if (sevLead) {
         note = sevLead;
       }
+    } else if (hop && hop.several && stated.trim() !== "") {
+      // SLICE 12e-4c (owner, 2026-10-13: "fix"): an axis that reads inches but declares no ladder wording
+      // (Insulation's pipe size) says which of two sizes was taken, in Piping's own words -- "BoQ says 19/25:
+      // states two sizes (19 / 25) - the higher, 25, is taken" -- and then, where the ladder moved it, where it
+      // landed, in this axis's own ladder wording.
+      note = `${said} ${stated.trim()}: ${severalSizesTaken(hop.several.sizes, hop.several.chosen)}`
+        + (hop.requested !== hop.fitted
+          ? ` -> priced as ${fmtNum(hop.fitted)}${u} ${hop.exact ? "(the sheet's own spelling of this size)" : "(next size up)"}`
+          : "");
     } else if (hop && hop.requested !== hop.fitted) {
       note = `${ladLead ?? `${said} ${fmtNum(hop.requested)}${u}`} -> priced as ${fmtNum(hop.fitted)}${u} `
         + (hop.exact ? "(the sheet's own spelling of this size)" : "(next size up)");
