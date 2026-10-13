@@ -11,10 +11,15 @@ Each row is a Cheque with what the table shows: number, bank (`bank_label`: the 
 Others), date, status, amount, description, Vendor or typed payee, who made it, the photo, and the
 last status change ("by <user> . <date>", from the Cheque's history).
 
-Who: `CHEQUE_ACCESS_PROFILES` (Project Managers are refused).
+Each row also carries its `lines` (kind, project and its name, PO/WO, payment, amount), oldest first,
+so the table can expand a row and show "+N" without a second read.
 
-#1417 adds the summary by status, the project / PO-WO filters (matched on any line with EXISTS)
-and the facets, over the same WHERE.
+The summary strip (`aggregates`: count and amount for All, Issued, Cleared, Cancelled), the rows and
+the facets (`get_cheque_facets`) all read the same WHERE, so they always agree. The project and PO/WO
+filters match a Cheque when ANY of its lines matches (EXISTS on `Cheque Line`), and the Cheque is
+still counted once, at its full amount (#1417).
+
+Who: `CHEQUE_ACCESS_PROFILES` (Project Managers are refused).
 """
 
 import json
@@ -24,6 +29,7 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from nirmaan_stack.api.cheques.save_cheque import assert_cheque_access
+from nirmaan_stack.services.cheques.rules import CANCELLED, CLEARED, ISSUED
 
 MAX_PAGE_LENGTH = 500
 #: The hook asks for every row with `for_export=true` plus `limit_page_length=0`.
@@ -51,8 +57,28 @@ _BASE = """
     LEFT JOIN "tabUser" changer ON changer.name = last.changed_by
 """
 
+# The page's rows also carry their lines. Kept out of `_BASE` so the count and the facets never build them.
+_LINES = """
+    LEFT JOIN LATERAL (
+        SELECT json_agg(json_build_object(
+                   'line_type', l.line_type, 'project', l.project, 'project_name', p.project_name,
+                   'record_doctype', l.record_doctype, 'record_name', l.record_name,
+                   'payment_doctype', l.payment_doctype, 'payment_name', l.payment_name, 'amount', l.amount
+               ) ORDER BY l.idx) AS lines
+        FROM "tabCheque Line" l
+        LEFT JOIN "tabProjects" p ON p.name = l.project
+        WHERE l.parent = q.name AND l.parenttype = 'Cheques'
+    ) ln ON TRUE
+"""
+
+#: The strip's per-status buckets: `<key>_count` and `<key>_amount` in `aggregates`.
+SUMMARY_STATUSES = {"issued": ISSUED, "cleared": CLEARED, "cancelled": CANCELLED}
+
+#: Filters on the Cheque's lines, by Cheque Line column: a Cheque matches when ANY of its lines does.
+LINE_FILTERS = {"project", "record_name"}
+
 FILTERABLE = {"name", "status", "bank", "bank_label", "vendor", "payee_name", "made_from", "owner",
-              "cheque_date", "creation"}
+              "cheque_date", "creation"} | LINE_FILTERS
 DATE_FIELDS = {"cheque_date", "creation"}
 SEARCHABLE = {"cheque_no", "name", "bank_label", "vendor_name", "payee_name", "description"}
 SORTABLE = {"name", "creation", "cheque_no", "bank_label", "cheque_date", "status", "amount", "vendor_name",
@@ -92,6 +118,22 @@ def _date_clause(field, op, value):
     frappe.throw(_("Unsupported filter operator: {0}").format(op))
 
 
+def _line_clause(field, op, value):
+    """A Cheque whose lines name any of the values. Only `=` and `in`: a negated line filter has two
+    readings (no line matches / some line differs), and the report offers neither."""
+    if op not in ("=", "in"):
+        frappe.throw(_("Unsupported filter operator for {0}: {1}").format(field, op))
+    values = [v for v in (value if isinstance(value, (list, tuple)) else [value]) if v]
+    if not values:
+        return "1=0", []
+    placeholders = ", ".join(["%s"] * len(values))
+    return (
+        'EXISTS (SELECT 1 FROM "tabCheque Line" fl WHERE fl.parent = q.name AND fl.parenttype = \'Cheques\' '
+        f'AND fl."{field}" IN ({placeholders}))',
+        values,
+    )
+
+
 def _build_where(filters, search_term, search_fields):
     """Returns (sql_fragment, params). Identifiers are allowlisted, values bound. An unknown field is
     refused rather than ignored: ignoring it would show more rows than asked for."""
@@ -104,6 +146,10 @@ def _build_where(filters, search_term, search_fields):
             frappe.throw(_("Unsupported filter field: {0}").format(field))
         if field in DATE_FIELDS:
             frag, vals = _date_clause(field, op, value)
+            clauses.append(frag)
+            params.extend(vals)
+        elif field in LINE_FILTERS:
+            frag, vals = _line_clause(field, op, value)
             clauses.append(frag)
             params.extend(vals)
         elif op in ("in", "not in"):
@@ -141,6 +187,34 @@ def _build_order(order_by):
     return f'q."{col}" {direction} NULLS LAST, q."name" ASC'
 
 
+def _where(filters, search_term, current_search_fields):
+    """The WHERE the rows, the summary and the facets share."""
+    filters = _coerce(filters) or []
+    if isinstance(filters, dict):
+        filters = [[k, "=", v] for k, v in filters.items()]
+    search_fields = _coerce(current_search_fields) or []
+    if isinstance(search_fields, str):
+        search_fields = [search_fields]
+    return _build_where(filters, search_term, search_fields)
+
+
+def _summary(where, params) -> dict:
+    """Count and amount of the filtered Cheques, all and per status. A Cheque counts once, at its full
+    amount, however many of its lines matched a project or PO/WO filter."""
+    columns, status_params = ["COUNT(*)", "COALESCE(SUM(q.amount), 0)"], []
+    for status in SUMMARY_STATUSES.values():
+        columns += ["COUNT(*) FILTER (WHERE q.status = %s)", "COALESCE(SUM(q.amount) FILTER (WHERE q.status = %s), 0)"]
+        status_params += [status, status]
+    values = frappe.db.sql(
+        f"SELECT {', '.join(columns)} FROM ({_BASE}) q {where}", tuple(status_params) + tuple(params)
+    )[0]
+    out = {"count": cint(values[0]), "total_amount": flt(values[1])}
+    for i, key in enumerate(SUMMARY_STATUSES):
+        out[f"{key}_count"] = cint(values[2 + 2 * i])
+        out[f"{key}_amount"] = flt(values[3 + 2 * i])
+    return out
+
+
 @frappe.whitelist()
 def get_cheques(
     doctype=None,
@@ -157,18 +231,12 @@ def get_cheques(
     """One page of Cheques for the Cheque Payments report.
 
     `doctype`, `fields` and the hook's other arguments are accepted and ignored: the row shape is
-    fixed here. `aggregates` carries the count and amount of the whole filtered set.
+    fixed here. `aggregates` is the summary strip over the whole filtered set: `count`,
+    `total_amount`, and `<issued|cleared|cancelled>_count` / `_amount`.
     """
     assert_cheque_access(frappe.session.user)
 
-    filters = _coerce(filters) or []
-    if isinstance(filters, dict):
-        filters = [[k, "=", v] for k, v in filters.items()]
-    search_fields = _coerce(current_search_fields) or []
-    if isinstance(search_fields, str):
-        search_fields = [search_fields]
-
-    where, params = _build_where(filters, search_term, search_fields)
+    where, params = _where(filters, search_term, current_search_fields)
     order = _build_order(order_by)
 
     exporting = for_export is True or (isinstance(for_export, str) and for_export.lower() == "true")
@@ -177,20 +245,70 @@ def get_cheques(
     else:
         page_length = min(cint(limit_page_length) or 50, EXPORT_MAX_PAGE_LENGTH if exporting else MAX_PAGE_LENGTH)
 
-    count, total_amount = frappe.db.sql(
-        f"SELECT COUNT(*), COALESCE(SUM(q.amount), 0) FROM ({_BASE}) q {where}", tuple(params)
-    )[0]
+    summary = _summary(where, params)
     rows = frappe.db.sql(
-        f"SELECT * FROM ({_BASE}) q {where} ORDER BY {order} LIMIT %s OFFSET %s",
+        f"SELECT q.*, ln.lines FROM ({_BASE}) q {_LINES} {where} ORDER BY {order} LIMIT %s OFFSET %s",
         tuple(params) + (page_length, max(cint(limit_start), 0)),
         as_dict=True,
     )
     for row in rows:
         row["amount"] = flt(row.get("amount"))
+        row["lines"] = [{**line, "amount": flt(line.get("amount"))} for line in (row.get("lines") or [])]
 
     return {
         "data": rows,
-        "total_count": cint(count),
-        "aggregates": {"total_amount": flt(total_amount), "count": cint(count)},
+        "total_count": summary["count"],
+        "aggregates": summary,
         "group_by_result": None,
     }
+
+
+# Facet field -> (the grouped value, its label). Header facets group the Cheques; line facets group
+# their lines, counting each Cheque once per value.
+_HEADER_FACETS = {
+    "status": ('q."status"', 'q."status"'),
+    "bank_label": ('q."bank_label"', 'q."bank_label"'),
+    "vendor": ('q."vendor"', 'MAX(q."vendor_name")'),
+}
+_LINE_FACETS = {
+    "project": ("l.project", "MAX(p.project_name)"),
+    "record_name": ("l.record_name", "l.record_name"),
+}
+
+
+@frappe.whitelist()
+def get_cheque_facets(field, filters=None, search_term=None, current_search_fields=None):
+    """The values one filter can offer, each with how many of the filtered Cheques carry it.
+
+    `filters` are the table's other filters (the caller leaves this facet's own selection out, or
+    ticking one value would hide its siblings). Blank values are not offered. Returns
+    `{field, values: [{value, label, count}]}`, most common first.
+    """
+    assert_cheque_access(frappe.session.user)
+    if field not in _HEADER_FACETS and field not in _LINE_FACETS:
+        frappe.throw(_("Unsupported facet field: {0}").format(field))
+
+    where, params = _where(filters, search_term, current_search_fields)
+    if field in _HEADER_FACETS:
+        value, label = _HEADER_FACETS[field]
+        source, count = f"({_BASE}) q", "COUNT(*)"
+    else:
+        value, label = _LINE_FACETS[field]
+        source = (
+            f"({_BASE}) q "
+            "JOIN \"tabCheque Line\" l ON l.parent = q.name AND l.parenttype = 'Cheques' "
+            'LEFT JOIN "tabProjects" p ON p.name = l.project'
+        )
+        count = "COUNT(DISTINCT q.name)"
+    rows = frappe.db.sql(
+        f"SELECT {value} AS value, {label} AS label, {count} AS cnt FROM {source} {where} "
+        f"GROUP BY {value} ORDER BY cnt DESC, value",
+        tuple(params),
+        as_dict=True,
+    )
+    values = [
+        {"value": r["value"], "label": r["label"] or r["value"], "count": cint(r["cnt"])}
+        for r in rows
+        if (r["value"] or "").strip()
+    ]
+    return {"field": field, "values": values}
