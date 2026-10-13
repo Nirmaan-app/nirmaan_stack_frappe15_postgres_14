@@ -5858,6 +5858,10 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   `unreconcile_refund` decides by `no_bank_line_by`, and `fields_before_match` recognises the match Version
   by the cleared mark (the status did not change). `waiting_refunds.cancel_waiting_refund` (creator or
   Accountant) makes a waiting refund Cancelled; the refund hook moves nothing for it.
+  `waiting_refunds.delete_cancelled_refund` (Admin or material Procurement, `REFUND_DELETE_PROFILES`;
+  owner, 2026-10-13, ADR-0032 amendment) deletes a Cancelled refund, refused when any `Outflow Row Match`
+  (even reversed) names it. It moves no money, and `_delete_keeping_its_number` puts the `VRF-` series
+  counter back so the number is never reused (`frappe.delete_doc` winds it back for the newest record).
 - ⚠️ **THE BANK-STATEMENT RUN SUGGESTS A WAITING REFUND FOR A CREDIT LINE (#1402, ADR-0032).** The pure
   rule `services/outflow_import/refund_suggestion.suggest_waiting_refunds`: (a) the line's bank reference
   equals the UTR typed on one or more waiting refunds, all one vendor's (the only rule that may suggest a
@@ -5914,7 +5918,9 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   row AND the Selected line; both stop the click so they never tick the row.
 - **Where refunds are READ:** as their own rows in the PO's and the WO's Transaction Details table,
   beside the payments, sorted in by payment date: teal-tinted row, a **Refund** tag under the amount,
-  status **Received** (no voucher, no delete; `components/vendor-refunds/VendorRefundTableRow` +
+  its status (Received, Reconciliation Pending or Cancelled, with "No bank proof" under a Received one
+  marked with no bank line) and, on the PO table, Cancel / Mark Received / Delete (Cancelled only) in the
+  last cell (no voucher; `components/vendor-refunds/VendorRefundTableRow` +
   `mergePaymentsAndRefunds`, fed by
   `api/vendor_refunds/list_refunds.get_vendor_refunds(document_type, document_name)`; this replaced the
   old "View Refunds" button + dialog) and a **Vendor

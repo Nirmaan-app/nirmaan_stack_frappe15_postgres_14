@@ -35,7 +35,8 @@ export const mergePaymentsAndRefunds = <P extends { name: string; payment_date?:
  * no payment status's colour), a "Refund" tag under the amount, UTR (plain text, like the payment rows),
  * date and its status (Received, Reconciliation Pending or Cancelled; only Received lowers the paid amount),
  * with the "No bank proof" badge under a Received one an Admin marked with no bank line (#1403).
- * No voucher, no delete. `actions` fills the last cell (the PO table's Cancel / Mark Received, #1403).
+ * No voucher. `actions` fills the last cell (the PO table's Cancel / Mark Received, #1403, and Delete for a
+ * Cancelled refund).
  * `tdsColumn` adds the empty TDS cell the WO table has.
  */
 export const VendorRefundTableRow = ({
