@@ -46819,3 +46819,80 @@ definitions, `from_attr`, the refuse list, Insulation's `near`). PROOF 2 by a ru
     then set back to "- select -" refuses "Type the thickness as a single number in mm" instead of taking the
     default (the typed-thickness test sees an empty typed value; that test's behaviour on an empty value is not
     changed by this slice).
+
+## Slice 12e-4c — Piping: three small fixes, then the capped paid read of real rows, the row-by-row hand check and the panel on real rows — as built 2026-10-13
+
+**Commits (unpushed at the time of writing):** `b1f32f7f2` fix(rate-helper) — the three fixes; `164cf9d75` test — the
+29 real rows, calculator = panel; the docs commit that carries this entry. Start tip `eef9dbdcd` (= origin). No asset,
+config or Python file changed; HVAC v38 and Electrical v66 stay live. Full report and the per-row workbook are on the
+Desktop: `2026-10-13_12e4c_Report.md`, `2026-10-13_12e4c_Rows.xlsx`.
+
+### Owner rulings taken in the run (by question)
+
+- **The gauge.** The prompt asked for "26G." to read as 26. ADP has no gauge reader: the text lands on the
+  plenum-THICKNESS reader, which refuses "26G" as a gauge and read "26G." as a 26 mm thickness. Ruled: "26G." refuses,
+  like "26G".
+- **The run's shape.** None of the six candidate sheets had a suggestion run, so the server refuses a selected-rows
+  Suggest there ("no completed run to carry the untouched rows forward from"), and two of the six fail the Suggest
+  gate (formulas not declared; one also has rows without a category). Ruled: whole-sheet Suggest on the four open
+  sheets, by the real route; the hand check, parity and cert cover the 29 Piping rows only; the two gated sheets (27
+  Piping rows) go to the 12e-5 audit.
+
+### The fixes (commit 1)
+
+1. A full stop kept inside a token for a decimal is not part of a word: "26G." and "24 G," refuse as a gauge on ADP's
+   plenum thickness, exactly as "26G" does.
+2. On an axis that reads a bare fraction as inches (`inches: true` — Insulation's pipe size), a slash pair that cannot
+   be an inch fraction is two sizes and takes the higher, with Piping's own line; a list takes the highest; a real
+   fraction ("3/4") stays inches. "19/25": 265 / 14 before (19/25 of an inch -> 22.23), 286 / 14 after (25 -> 28.58).
+3. A pipe type the pricer typed reads "You typed uPVC -> priced as PVC"; a model-read one keeps "BoQ says ...".
+
+Ten pins inverted under mechanical authority, each keeping its before line. Six mechanisms proven by vacuity. The
+13,365 stored rows replay byte-identical to 12e-4b's after-file (`9c53e4fe…c8ef8`): no stored row carries any of the
+three shapes.
+
+### The run
+
+- Whole-sheet Suggest through `rate_master.start_suggest(boq, sheet_name)` and the bench's own worker, one sheet at a
+  time: BOQ-26-00073 / HVAC, BOQ-26-00186 / HVAC WORKS, BOQ-26-00292 / HVAC, BOQ-26-00315 / PAC WORKS. Run documents
+  BRSR-26-00393 .. BRSR-26-00396, all complete and active; these are first runs, and none of the 142 run documents
+  that existed before changed.
+- 102 rows read: 29 Piping, and 73 others (ADP 37, wiring & cabling 11, Insulation 9, HVAC cables 8, HVAC raceway 3,
+  cable tray 2, conduit 2, earthing 1).
+- 47 calls, exactly as declared (18 batch + 29 second opinion; cap 67): batch 112,427 tokens in / 20,361 out; second
+  opinion 143,366 in / 893 out; 6 min 20 s; model `claude-opus-4-8`. All 18 batch requests are byte-identical to the
+  requests built before the run.
+
+### What the hand check found (29 Piping rows)
+
+- **No row is priced on a wrong reading.** 21 rows price and 8 refuse; 27 of the 28 pipe rows price or refuse exactly
+  as a person reading the row's own words would. The 28th, "1 CPVC" (BOQ-26-00186 row 108), refuses: the model
+  returned the bare 1 with no unit.
+- Reading errors per field: Pipe type 1 (row 60: answered PVC where the note says to leave it out for uPVC; the price
+  is unaffected, the amber "BoQ says uPVC -> priced as PVC" line is lost); Pipe size 1 safe miss (row 108); every
+  other field 0, including all 19 insulation items (material, thickness, cladding, pairing).
+- Second opinion: 26 agree, 3 disagree — 1 right (row 60), 2 noise (rows 106, 107); it agreed on row 108, the one row
+  where the missing unit matters.
+- The watch list: the insulation pair stayed out of the pipe size on all 7 rows; "Pipe type as written" was filled
+  from the heading; no unit was written for the bare size; rows 53-58 copy "13/19 mm" and all price at 19; no
+  insulation material outside the section's two; no undeclared marker; no pipe split or merged.
+
+### Findings for the next slice (reported, not repaired)
+
+1. **Second-opinion flags are stored and shown nowhere.** No screen reads `item_flags`; the panel and the grid show
+   nothing for a flagged row.
+2. On a no-unit refusal the insulation section still prices, reading the bare number as millimetres ("From pipe:
+   1 mm -> priced as 6.35 mm", 191 / 14 on row 108). The row offers no total, but the section figure is shown.
+3. The typed box is stricter than the model path: "22.3 mm O.D" and '5/8 " dia' are read on the panel but refused when
+   typed (one size in mm or inches); a "6/9 mm" thickness likewise (a single number). Six of the 29 rows.
+4. Six rows carry a text-check flag on "material as written" only because the heading's curly quotes were returned as
+   straight ones.
+5. A field's note says "priced as 25 mm (the smallest size)" where the block's working says "(next size up)".
+6. The two gated sheets' strata (NB sizes, MS C class, units; the uPVC / CPVC two-type heading) were not read.
+
+### State left
+
+- Replay baseline for the next slice: 13,467 rows (the 13,365 unchanged + the 102 new), sha256 `ff462a2f…cb6e4`.
+- Full suites: frontend 171 files / 6,586 tests, the 1 known failure (before 170 / 6,554); tsc 3,170, identical by file
+  and message. No Python suite (no Python file changed).
+- Capture log: 22 new lines (4 run headers + 18 batches), lines 249-270 of the current file.
