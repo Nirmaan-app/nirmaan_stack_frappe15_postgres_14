@@ -10,12 +10,16 @@ leave Approved -- live in `services/payment_hold.py` and run in the doctype's `v
 they hold for every other write path too. This endpoint only gives the tab clear messages and
 an idempotent toggle. The save goes through the document, so the doctype's `track_changes`
 records who held or released it, and when.
+
+Releasing a held Cheque payment moves it on to Reconciliation Pending (spec #1407): a Cheque payment
+skips "Payment need to paid", and the hold was the only thing keeping it there.
 """
 
 import frappe
 from frappe import _
 from frappe.utils import sbool
 
+from nirmaan_stack.api.payments.project_payments import _move_cheque_to_reconciliation
 from nirmaan_stack.services import settlement
 from nirmaan_stack.services.payment_hold import can_hold_payments
 
@@ -52,4 +56,9 @@ def set_payment_hold(name: str, hold) -> dict:
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
 
-	return {"name": doc.name, "on_hold": doc.on_hold}
+	if held:
+		return {"name": doc.name, "on_hold": doc.on_hold}
+	# A Cheque payment waits at Approved only while held (spec #1407): released, it moves on to
+	# Reconciliation Pending, in its own transaction now that the release is on disk. It no-ops
+	# for an Online payment. A failed move leaves it Approved, where Mark as Paid finishes it.
+	return {"name": doc.name, "on_hold": doc.on_hold, "moved": _move_cheque_to_reconciliation(doc.name)}

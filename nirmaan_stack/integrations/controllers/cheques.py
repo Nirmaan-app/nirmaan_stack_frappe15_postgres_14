@@ -4,7 +4,9 @@
 """Lifecycle controller for the Cheques doctype (spec #1407).
 
 `validate` holds the Cheque's own rules on EVERY write path (the cheques service, a patch, Desk):
-the header rules in `services/cheques/rules.header_problem` and the bank + cheque number uniqueness.
+the header rules in `services/cheques/rules.header_problem`, the line rules in
+`services/cheques/lines.lines_problem` (a payment on one live Cheque only, each PO/WO the Vendor's),
+and the bank + cheque number uniqueness.
 It also keeps the stored identity in step: `cheque_no` without spaces, `bank_key` derived from the
 bank, and no bank name on an ICICI Bank cheque. The unique constraint on `bank_key` + `cheque_no`
 (`Cheques.on_doctype_update`) backs this up against two saves racing.
@@ -15,6 +17,7 @@ A backfilled Cheque (#1419) has no photo: its writer sets `doc.flags.cheque_with
 import frappe
 from frappe import _
 
+from nirmaan_stack.services.cheques.lines import lines_problem, normalise_lines
 from nirmaan_stack.services.cheques.rules import duplicate_problem, header_problem, parse_header
 from nirmaan_stack.services.cheques.writer import existing_cheque
 
@@ -30,6 +33,11 @@ def validate(doc, method=None):
         line_count=len(doc.get("lines") or []),
         photo_required=doc.is_new() and not doc.flags.cheque_without_photo,
     )
+    if problem:
+        frappe.throw(_(problem))
+
+    normalise_lines(doc)
+    problem = lines_problem(doc)
     if problem:
         frappe.throw(_(problem))
 

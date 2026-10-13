@@ -272,11 +272,20 @@ class TestChequePayments(FrappeTestCase):
 			self._as_ceo(ceo_approve_payment, name, approved_amount=30000)
 		self.assertEqual(self._state(name), ("CEO Pending", 60000.0, []))
 
-	def test_the_mode_is_locked_after_creation(self):
-		name = self._plant(20000, "Requested")
-		doc = frappe.get_doc(PAYMENT, name)
+	def test_the_mode_changes_only_through_a_cheque(self):
+		"""Spec #1407: Online -> Cheque only by putting the payment on a Cheque; Cheque -> Online only
+		once its Cheque is Cancelled (`test_cheque_lines` covers both allowed moves)."""
+		cheque = self._plant(20000, "Requested")
+		doc = frappe.get_doc(PAYMENT, cheque)
 		doc.mode_of_payment = "Online"
-		with self.assertRaisesRegex(frappe.ValidationError, "Value cannot be changed"):
+		with self.assertRaisesRegex(frappe.ValidationError, "back to Online only once its Cheque is Cancelled"):
+			doc.save()
+		frappe.db.rollback()
+
+		online = self._plant(20000, "Requested", cheque=False)
+		doc = frappe.get_doc(PAYMENT, online)
+		doc.update({"mode_of_payment": "Cheque", "cheque_no": self._cheque_no(), "cheque_date": nowdate()})
+		with self.assertRaisesRegex(frappe.ValidationError, "becomes a Cheque payment by putting it on a Cheque"):
 			doc.save()
 
 	# -- the request's own checks -----------------------------------------------------------------

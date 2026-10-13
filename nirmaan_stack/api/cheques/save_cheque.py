@@ -9,15 +9,18 @@ the service's and the `validate` controller's.
 
 Who: `CHEQUE_ACCESS_PROFILES` (Admin, Accountant, Accountant Lead and the Procurement profiles).
 
-#1408 creates a Cheque with no lines (an Ad-hoc cheque). Lines (#1410, #1411) and editing (#1418)
-are added to this same endpoint.
+A Cheque with no lines is an Ad-hoc cheque. PO/WO Payment lines (#1410) put their payments on the
+Cheque: an Online payment becomes a Cheque payment, and once the save is committed each linked
+payment that is Approved and not on hold moves on to Reconciliation Pending through the same move
+every approval route uses. Expense lines (#1411) and editing (#1418) are added to this endpoint.
 """
 
 import frappe
 from frappe import _
 
-from nirmaan_stack.services.cheques.rules import MADE_FROM_REPORT, parse_header
-from nirmaan_stack.services.cheques.writer import create_cheque
+from nirmaan_stack.api.payments.project_payments import _move_cheque_to_reconciliation
+from nirmaan_stack.services.cheques.rules import MADE_FROM_REPORT, parse_header, parse_line
+from nirmaan_stack.services.cheques.writer import create_cheque, line_payments
 from nirmaan_stack.services.role_profiles import can_use_cheques
 
 #: Published after every Cheque write; the Cheque Payments report refetches on it.
@@ -41,14 +44,17 @@ def save_cheque(
     payee_name: str | None = None,
     description: str | None = None,
     attachment: str | None = None,
+    lines=None,
 ) -> dict:
     """Record a new Cheque, made from the report, at Issued.
 
     `bank` is "ICICI Bank" or "Others" (then `bank_name` is required). Exactly one of `vendor` or
     `payee_name`. `attachment` is the uploaded photo's file URL. `description` is required while
-    the Cheque has no lines.
+    the Cheque has no lines. `lines` is a list (or its JSON) of `{line_type, project, record_doctype,
+    record_name, payment_name?, amount?}`; a line with a payment and no amount takes the payment's.
 
-    Returns `{cheque, status}`.
+    Returns `{cheque, status, payments}`, `payments` being each linked payment's `{name, status}`
+    after the move.
     """
     user = frappe.session.user
     assert_cheque_access(user)
@@ -63,7 +69,19 @@ def save_cheque(
         "description": description,
         "attachment": attachment,
     })
-    doc = create_cheque(header, user=user, made_from=MADE_FROM_REPORT)
+    raw_lines = frappe.parse_json(lines) if isinstance(lines, str) else lines
+    doc = create_cheque(
+        header, user=user, made_from=MADE_FROM_REPORT, lines=[parse_line(line) for line in raw_lines or []]
+    )
     frappe.db.commit()
+    payments = line_payments(doc)
+    for payment in payments:
+        _move_cheque_to_reconciliation(payment)  # no-op unless Approved and not on hold
     frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheque": doc.name})
-    return {"cheque": doc.name, "status": doc.status}
+    return {
+        "cheque": doc.name,
+        "status": doc.status,
+        "payments": [
+            {"name": p, "status": frappe.db.get_value("Project Payments", p, "status")} for p in payments
+        ],
+    }

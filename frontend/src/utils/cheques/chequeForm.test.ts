@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { chequeFormSchema, saveChequeArgs, type ChequeFormInput } from "./chequeForm";
+import type { ChequeLineDraft } from "./chequeLines";
 
 const PHOTO = "/private/files/cheque.jpg";
 
@@ -16,6 +17,16 @@ const valid = (overrides: Partial<ChequeFormInput> = {}): ChequeFormInput => ({
     attachment: PHOTO,
     description: "Office rent, October",
     lines: [],
+    ...overrides,
+});
+
+const poLine = (overrides: Partial<ChequeLineDraft> = {}): ChequeLineDraft => ({
+    line_type: "PO/WO Payment",
+    project: "PROJ-1",
+    record_doctype: "Service Requests",
+    record_name: "SR-001",
+    payment_name: "",
+    amount: 5000,
     ...overrides,
 });
 
@@ -55,6 +66,27 @@ describe("chequeFormSchema", () => {
         expect(problemAt(valid({ amount: "" as unknown as number }), "amount")).toBeDefined();
     });
 
+    it("needs no description once the cheque has a line", () => {
+        expect(chequeFormSchema.safeParse(valid({ description: "", lines: [poLine()] })).success).toBe(true);
+    });
+
+    it("asks each PO/WO line for its project, its PO or Work Order, and an amount when it has no payment", () => {
+        const issues = (line: ChequeLineDraft) => {
+            const result = chequeFormSchema.safeParse(valid({ lines: [line] }));
+            return result.success ? undefined : result.error.issues.map((i) => [i.path.join("."), i.message]);
+        };
+        expect(issues(poLine({ project: "" }))).toContainEqual(["lines.0.project", "Pick the project."]);
+        expect(issues(poLine({ record_name: "" }))).toContainEqual(["lines.0.record_name", "Pick the PO or Work Order."]);
+        expect(issues(poLine({ amount: "" }))).toContainEqual(["lines.0.amount", "Enter the amount, greater than 0."]);
+        expect(issues(poLine({ payment_name: "PAY-1", amount: 20000 }))).toBeUndefined();
+    });
+
+    it("keeps PO/WO lines to a Vendor payee", () => {
+        expect(problemAt(valid({ payee_kind: "typed", vendor: "", payee_name: "Tata Power", lines: [poLine()] }), "lines")).toBe(
+            "A PO or Work Order payment needs a cheque made out to a Vendor, not a typed payee."
+        );
+    });
+
     it("accepts a post-dated cheque", () => {
         expect(chequeFormSchema.safeParse(valid({ cheque_date: "2027-03-01" })).success).toBe(true);
     });
@@ -83,6 +115,13 @@ describe("saveChequeArgs", () => {
         expect(args.bank_name).toBe("HDFC Bank");
         expect(args.payee_name).toBe("Tata Power");
         expect(args.vendor).toBeUndefined();
+    });
+
+    it("sends the lines, when there are any", () => {
+        const args = saveChequeArgs(chequeFormSchema.parse(valid({ lines: [poLine({ amount: "5000" })] })));
+        expect(args.lines).toEqual([
+            { line_type: "PO/WO Payment", project: "PROJ-1", record_doctype: "Service Requests", record_name: "SR-001", amount: 5000 },
+        ]);
     });
 
     it("drops a bank name typed before switching back to ICICI Bank", () => {

@@ -28,6 +28,8 @@ import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto"
 import { getFrappeError } from "@/utils/frappeErrors";
 import { cn } from "@/lib/utils";
 
+import { ChequeLinesTable } from "./ChequeLinesTable";
+
 const SAVE_CHEQUE_API = "nirmaan_stack.api.cheques.save_cheque.save_cheque";
 
 interface AddChequeDialogProps {
@@ -41,8 +43,9 @@ const Required = () => <span className="ml-0.5 text-red-500">*</span>;
 
 /**
  * Reports > Payment > Cheque Payment > Add Cheque (spec #1407): photo first, then the bank, number,
- * date, amount, the payee (a Vendor or a typed name) and a description. #1408 saves a Cheque with no
- * lines (an Ad-hoc cheque); the lines table (#1410, #1411) and the photo reader (#1409) build on it.
+ * date, amount, the payee (a Vendor or a typed name), the lines and a description. A Vendor cheque
+ * takes PO/WO payment lines (`ChequeLinesTable`, #1410); with no lines it is an Ad-hoc cheque and
+ * needs the description. Expense lines (#1411) and the photo reader (#1409) build on it.
  *
  * The photo is uploaded as soon as it is picked, so the form holds its file URL (and #1409 can read
  * it). The server re-checks every rule.
@@ -70,6 +73,8 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved }: AddChequeDialog
     const values = form.watch();
     const bank = values.bank;
     const payeeKind = values.payee_kind;
+    const vendor = values.vendor;
+    const lineCount = values.lines?.length ?? 0;
     const fromPhoto = (field: ChequePhotoField) => isFromPhoto(field, values, reader.photo);
     const photoPayee = reader.photo?.payee_name;
     const payeeMismatch = usePayeeVendorMismatch(payeeKind === "vendor" ? photoPayee : undefined, values.vendor);
@@ -109,7 +114,12 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved }: AddChequeDialog
     const onSubmit = async (values: ChequeFormValues) => {
         try {
             const res = await saveCheque(saveChequeArgs(values));
-            toast({ title: "Cheque saved", description: `Cheque ${values.cheque_no.trim()} is Issued.`, variant: "success" });
+            const paid = values.lines.filter((l) => l.payment_name).length;
+            toast({
+                title: "Cheque saved",
+                description: `Cheque ${values.cheque_no.trim()} is Issued.${paid ? ` ${paid} payment${paid > 1 ? "s are" : " is"} now on it.` : ""}`,
+                variant: "success",
+            });
             close(false);
             onSaved(res.message.cheque);
         } catch (e) {
@@ -119,7 +129,7 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved }: AddChequeDialog
 
     return (
         <Dialog open={open} onOpenChange={close}>
-            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[560px]">
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[960px]">
                 <DialogHeader>
                     <DialogTitle>Add Cheque</DialogTitle>
                     <DialogDescription>
@@ -248,7 +258,15 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved }: AddChequeDialog
                             render={({ field }) => (
                                 <FormItem>
                                     <FormLabel>Made out to<Required /></FormLabel>
-                                    <RadioGroup value={field.value} onValueChange={field.onChange} className="flex gap-6">
+                                    <RadioGroup
+                                        value={field.value}
+                                        onValueChange={(value) => {
+                                            field.onChange(value);
+                                            // PO/WO lines belong to a Vendor cheque only.
+                                            form.setValue("lines", []);
+                                        }}
+                                        className="flex gap-6"
+                                    >
                                         <label className="flex items-center gap-2 text-sm">
                                             <RadioGroupItem value="vendor" /> A Vendor
                                         </label>
@@ -270,7 +288,12 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved }: AddChequeDialog
                                                 withOthers={false}
                                                 usePortal
                                                 value={field.value || null}
-                                                onChange={(option) => field.onChange(option?.value ?? "")}
+                                                onChange={(option) => {
+                                                    const next = option?.value ?? "";
+                                                    // Each PO/WO line is the Vendor's: a new Vendor starts the lines afresh.
+                                                    if (next !== field.value) form.setValue("lines", []);
+                                                    field.onChange(next);
+                                                }}
                                                 placeholder="Pick the Vendor"
                                             />
                                         </FormControl>
@@ -310,12 +333,13 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved }: AddChequeDialog
                                 )}
                             />
                         )}
+                        {payeeKind === "vendor" && <ChequeLinesTable vendor={vendor || undefined} disabled={saving} />}
                         <FormField
                             control={form.control}
                             name="description"
                             render={({ field }) => (
                                 <FormItem>
-                                    <FormLabel>Description<Required /></FormLabel>
+                                    <FormLabel>Description{lineCount === 0 && <Required />}</FormLabel>
                                     <FormControl>
                                         <Textarea placeholder="What this cheque pays for (rent, a deposit, ...)" {...field} />
                                     </FormControl>
