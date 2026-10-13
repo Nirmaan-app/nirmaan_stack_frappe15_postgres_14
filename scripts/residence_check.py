@@ -75,6 +75,8 @@ PURE_MODULES = [
     "nirmaan_stack/services/non_project_inflows.py",
     # The refund link rule (#1399): how much of each Received refund settles a PO Adjustment.
     "nirmaan_stack/services/refund_links.py",
+    # The waiting-refund suggestion rule (#1402): which waiting Vendor Refund a bank credit line may be.
+    "nirmaan_stack/services/outflow_import/refund_suggestion.py",
 ]
 
 

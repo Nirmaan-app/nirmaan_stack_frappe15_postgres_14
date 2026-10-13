@@ -414,9 +414,20 @@ def matchable_refunds(vendor: str) -> list[dict]:
     vendor = (vendor or "").strip()
     if not vendor:
         return []
+    return _matchable_refunds({"vendor": vendor})
+
+
+def every_matchable_refund() -> list[dict]:
+    """`matchable_refunds` across EVERY vendor, oldest first: the pool the Bulk Import run suggests
+    from (#1402). A bank reference may name a refund before any vendor is known."""
+    return _matchable_refunds({})
+
+
+def _matchable_refunds(filters: dict) -> list[dict]:
+    """THE POOL'S MEMBERSHIP, in one place for both readers above (#1401, #1402, #1403)."""
     rows = frappe.get_all(
         VENDOR_REFUNDS,
-        filters={"vendor": vendor},
+        filters=filters,
         or_filters=[
             ["status", "in", list(MATCHABLE_STATUSES)],
             ["no_bank_line", "=", 1],

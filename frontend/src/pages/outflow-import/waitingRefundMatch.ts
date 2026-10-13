@@ -9,6 +9,7 @@
 // each is still waiting, all one vendor's, and that together they add up EXACTLY to the line (owner,
 // 2026-10-13: no partial allocation for credit lines).
 
+import type { WaitingRefundSuggestion } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 /** One row of `inflows.get_waiting_vendor_refunds`: a refund this vendor's credit line may be matched to. */
@@ -101,3 +102,25 @@ export const waitingRefundProblem = (
 /** The `refunds` the match posts: the ticked refunds' names, in tick order. */
 export const waitingRefundNames = (form: WaitingRefundForm | undefined): string[] =>
     (form?.picks ?? []).map((p) => p.name);
+
+/** The import run's suggestion (#1402) as the form the dialog opens on: its vendor, its refunds ticked. */
+export const suggestedWaitingRefundForm = (suggestion: WaitingRefundSuggestion): WaitingRefundForm => ({
+    vendor: suggestion.vendor,
+    picks: suggestion.refunds.map((r) => ({ name: r.name, amount: r.amount, label: r.label })),
+});
+
+/** Why the import suggested these refunds, shown in the dialog while the ticks are still its own. */
+export const waitingRefundSuggestionNote = (suggestion: WaitingRefundSuggestion): string => {
+    const names = suggestion.refunds.map((r) => r.name).join(", ");
+    return suggestion.basis === "Bank reference"
+        ? `Suggested by the import: this bank line's reference is the UTR typed on ${names}. Check and match.`
+        : `Suggested by the import: the money came from this vendor's bank account, and ${names} is its only waiting refund of this amount. Check and match.`;
+};
+
+/** The same vendor and the same refunds ticked, in any order. Nothing ticked never agrees. */
+export const sameWaitingRefunds = (a: WaitingRefundForm | undefined, b: WaitingRefundForm | undefined): boolean => {
+    const left = new Set(waitingRefundNames(a));
+    const right = new Set(waitingRefundNames(b));
+    if (!left.size || left.size !== right.size || a?.vendor !== b?.vendor) return false;
+    return [...left].every((name) => right.has(name));
+};

@@ -6,8 +6,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+    decisionOrigin,
     isConfirmable,
     recordAnywayWording,
+    seedDecisions,
     settlesAPickedRecord,
     type RowDecision,
 } from "./outflowTableModel";
@@ -112,5 +114,64 @@ describe("the decision", () => {
         expect(settlesAPickedRecord("vendorRefund")).toBe(false);
         expect(settlesAPickedRecord("Project Payments")).toBe(true);
         expect(settlesAPickedRecord(undefined)).toBe(true);
+    });
+});
+
+// #1402: the import run suggests the waiting refund(s) a credit line is (its bank reference is the UTR
+// typed on them). The dialog opens on "Match a waiting Vendor Refund" with them ticked, ready to confirm;
+// the accountant still clicks Match.
+describe("the import run's suggestion", () => {
+    const suggested = {
+        name: "ROW-1",
+        amount: 2000,
+        direction: "Credit",
+        row_status: "Mismatched",
+        waiting_refund_suggestion: {
+            vendor: "VEN-1",
+            basis: "Bank reference",
+            refunds: [
+                { name: "VRF-1", amount: 1180, label: "PO/1" },
+                { name: "VRF-2", amount: 820, label: "PO/2" },
+            ],
+        },
+    } as any;
+
+    it("opens the line on the match, the suggested refunds ticked and ready to confirm", () => {
+        const decision = seedDecisions([suggested], new Map()).get("ROW-1")!;
+
+        expect(decision).toEqual({
+            target: "waitingRefund",
+            waitingRefund: {
+                vendor: "VEN-1",
+                picks: [
+                    { name: "VRF-1", amount: 1180, label: "PO/1" },
+                    { name: "VRF-2", amount: 820, label: "PO/2" },
+                ],
+            },
+        });
+        expect(isConfirmable(suggested, decision)).toBe(true);
+        expect(waitingRefundNames(decision.waitingRefund)).toEqual(["VRF-1", "VRF-2"]);
+    });
+
+    it("reads as the suggestion until a tick changes", () => {
+        const decision = seedDecisions([suggested], new Map()).get("ROW-1")!;
+        expect(decisionOrigin(suggested, decision)).toBe("suggested");
+
+        const untick = toggleWaitingRefund(decision.waitingRefund!, refund("VRF-2", 820));
+        expect(decisionOrigin(suggested, { ...decision, waitingRefund: untick })).toBe("chosen");
+    });
+
+    it("never overwrites what the reviewer already chose for the line", () => {
+        const mine: RowDecision = { target: "vendorRefund" };
+        const held = new Map([["ROW-1", mine]]);
+
+        expect(seedDecisions([suggested], held).get("ROW-1")).toBe(mine);
+    });
+
+    it("is not seeded on a line that is no longer open, or carries none", () => {
+        for (const row_status of ["Settled", "Skipped", "Partially Allocated", "Pending match run"]) {
+            expect(seedDecisions([{ ...suggested, row_status }], new Map()).size).toBe(0);
+        }
+        expect(seedDecisions([{ ...suggested, waiting_refund_suggestion: null }], new Map()).size).toBe(0);
     });
 });
