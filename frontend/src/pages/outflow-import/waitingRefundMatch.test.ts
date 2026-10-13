@@ -20,11 +20,11 @@ import {
     waitingRefundsHeadline,
     waitingRefundTotals,
     withWaitingRefundVendor,
-    type WaitingRefund,
+    type MatchableRefund,
     type WaitingRefundForm,
 } from "./waitingRefundMatch";
 
-const refund = (name: string, amount: number): WaitingRefund => ({
+const refund = (name: string, amount: number): MatchableRefund => ({
     name,
     amount,
     document_type: "Procurement Orders",
@@ -37,7 +37,7 @@ const refund = (name: string, amount: number): WaitingRefund => ({
     creation: "2026-10-01 10:00:00",
 });
 
-const form = (...refunds: WaitingRefund[]): WaitingRefundForm => ({
+const form = (...refunds: MatchableRefund[]): WaitingRefundForm => ({
     vendor: "VEN-1",
     picks: refunds.map((r) => ({ name: r.name, amount: r.amount, label: r.document_name ?? r.name })),
 });

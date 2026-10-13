@@ -14,9 +14,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { useUserData } from "@/hooks/useUserData";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { EditRefundDialog } from "./EditRefundDialog";
 import type { VendorRefundRow } from "./useVendorRefunds";
 import { useWaitingRefundExits } from "./useWaitingRefundExits";
-import { canCancelRefund, canMarkReceivedWithoutBankLine } from "./waitingRefundExits";
+import {
+    canCancelRefund,
+    canMarkReceivedWithoutBankLine,
+    hasNoProofAtAll,
+    refundEditAccess,
+} from "./waitingRefundExits";
 
 type Exit = "cancel" | "markReceived";
 
@@ -28,19 +34,23 @@ interface WaitingRefundActionsProps {
 }
 
 /**
- * The ways out for a waiting Vendor Refund, in its Transaction Details row (#1403, ADR-0032).
- * "Cancel" for its creator or an Accountant; "Mark received" for an Admin, with a required reason.
- * Renders nothing for anyone else or for a refund no longer waiting. The server re-checks both.
+ * The actions on a Vendor Refund, in its PO's Transaction Details row (#1396, #1403, ADR-0032).
+ * "Edit" (its amount and PO while it waits, its proof, UTR and description at any status; "Attach proof"
+ * when it has none, #1404); and the ways out for a waiting one: "Cancel" for its creator or an
+ * Accountant, "Mark received" for an Admin with a required reason. Renders nothing for anyone who may do
+ * none of these. The server re-checks every one.
  */
 export const WaitingRefundActions = ({ refund, poId, onChanged }: WaitingRefundActionsProps) => {
     const { user_id, role } = useUserData();
-    const { cancel, markReceived, loading } = useWaitingRefundExits(poId);
+    const { cancel, markReceived, edit, loading } = useWaitingRefundExits(poId);
     const [open, setOpen] = useState<Exit | null>(null);
+    const [editing, setEditing] = useState(false);
     const [reason, setReason] = useState("");
 
+    const access = refundEditAccess(refund, user_id, role);
     const mayCancel = canCancelRefund(refund, user_id, role);
     const mayMark = canMarkReceivedWithoutBankLine(refund, user_id, role);
-    if (!mayCancel && !mayMark) return null;
+    if (!access.paperwork && !mayCancel && !mayMark) return null;
 
     const close = () => {
         setOpen(null);
@@ -77,6 +87,24 @@ export const WaitingRefundActions = ({ refund, poId, onChanged }: WaitingRefundA
 
     return (
         <span className="flex flex-col items-end gap-1">
+            {access.paperwork && (
+                <Button variant="outline" size="sm" className="h-6 px-2 text-[11px]" onClick={() => setEditing(true)}>
+                    {hasNoProofAtAll(refund) ? "Attach proof" : "Edit"}
+                </Button>
+            )}
+            {access.paperwork && editing && (
+                <EditRefundDialog
+                    refund={refund}
+                    poId={poId}
+                    access={access}
+                    open={editing}
+                    onOpenChange={setEditing}
+                    onSave={async (changes) => {
+                        await edit(refund.name, changes);
+                        onChanged?.();
+                    }}
+                />
+            )}
             {mayMark && (
                 <Button
                     variant="outline"

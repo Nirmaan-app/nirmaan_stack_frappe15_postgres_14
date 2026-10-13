@@ -9,6 +9,7 @@ import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { VendorInvoice } from "@/types/NirmaanStack/VendorInvoice";
 import { Projects as Project } from "@/types/NirmaanStack/Projects";
+import type { HeldRefund } from "@/types/NirmaanStack/VendorRefunds";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 import { poRevisionKeys, PO_REVISION_DOCTYPE, PO_REVISION_APIS } from "./poRevision.constants";
 import useSWR from "swr";
@@ -171,7 +172,7 @@ interface POLockCheckResult {
   remaining_credit?: number;
   // Waiting Vendor Refunds on the PO (#1400): until accounts match their bank lines they clear
   // nothing, so a PO Adjustment lock names them as what it waits for.
-  waiting_refunds?: { name: string; amount: number; payment_date?: string | null }[];
+  waiting_refunds?: HeldRefund[];
   [key: string]: any;
 }
 

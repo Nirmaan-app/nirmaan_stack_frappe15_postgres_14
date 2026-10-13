@@ -25,9 +25,11 @@ from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, ROW_DOCTYPE, 
 from nirmaan_stack.api.outflow_import.test_inflows import InflowFixture
 from nirmaan_stack.api.outflow_import.unreconcile import get_unreconcile_plan, unreconcile_row
 from nirmaan_stack.api.po_revisions.revision_po_check import check_po_in_pending_revisions
+from nirmaan_stack.api.vendor_refunds.list_refunds import get_vendor_refunds
 from nirmaan_stack.api.vendor_refunds.waiting_refunds import (
     mark_received_without_bank_line,
     record_waiting_refund,
+    update_waiting_refund,
 )
 from nirmaan_stack.services.outflow_import.settle import InflowNotRecordableError
 from nirmaan_stack.services.outflow_import.status import ROW_SETTLED, ROW_SKIPPED
@@ -379,3 +381,34 @@ class TestMatchingANoBankLineRefund(WaitingRefundFixture):
         # The line is free and the refund waits for it again.
         self._match(row, [refund])
         self.assertEqual(self._mark(refund).no_bank_line, 0)
+
+
+class TestABankMatchedRefundKeepsItsUtr(WaitingRefundFixture):
+    """While a bank line is matched to a refund, its UTR is the line's reference, and Unreconcile reads
+    it to know the match is still its own. So the UTR is fixed until the match is undone; the rest of
+    its paperwork stays editable (story 10)."""
+
+    def _row_of(self, po, refund):
+        return next(r for r in get_vendor_refunds(PO, po) if r["name"] == refund)
+
+    def test_its_utr_is_fixed_while_matched_and_editable_again_once_unmatched(self):
+        po, _adj = self._overpaid_po(-1180)
+        refund = self._waiting(po, 1180)
+        row = self._refund_row(1180)
+        self._match(row, [refund])
+        reference = self._reference_of(row)
+        self.assertTrue(self._row_of(po, refund)["bank_matched"], "the edit dialog locks the UTR on this")
+
+        with self.assertRaises(frappe.ValidationError):
+            update_waiting_refund(refund=refund, utr="TYPED-AFTER-THE-MATCH")
+        update_waiting_refund(refund=refund, utr=reference, description="the slip came later")
+        self.assertEqual(
+            frappe.db.get_value(VENDOR_REFUNDS, refund, ["utr", "description"]), (reference, "the slip came later")
+        )
+
+        result = unreconcile_row(row=row["name"], legs="all", reason="test: wrong refund matched")
+        self.assertEqual([leg["verdict"] for leg in result["reversed"]], ["unmatch_refund"])
+        self.assertFalse(self._row_of(po, refund)["bank_matched"])
+
+        update_waiting_refund(refund=refund, utr="TYPED-AGAIN")
+        self.assertEqual(frappe.db.get_value(VENDOR_REFUNDS, refund, "utr"), "TYPED-AGAIN")

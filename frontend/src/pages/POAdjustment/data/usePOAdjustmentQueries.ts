@@ -2,6 +2,7 @@ import { useFrappePostCall } from "frappe-react-sdk";
 import { useCallback } from "react";
 import useSWR from "swr";
 import { poAdjustmentKeys, PO_ADJUSTMENT_APIS } from "./poAdjustment.constants";
+import type { HeldRefund } from "@/types/NirmaanStack/VendorRefunds";
 
 interface AdjustmentItem {
   entry_type: string;
@@ -60,14 +61,7 @@ export interface POAdjustmentDoc {
   /** What this PO's waiting Vendor Refunds hold of its credit. */
   held_credit?: number;
   /** The waiting Vendor Refunds (Reconciliation Pending) that hold it, oldest first. */
-  waiting_refunds?: WaitingRefund[];
-}
-
-/** A Vendor Refund recorded before its bank line, as `get_po_adjustment` / the lock check send it. */
-export interface WaitingRefund {
-  name: string;
-  amount: number;
-  payment_date?: string | null;
+  waiting_refunds?: HeldRefund[];
 }
 
 interface CandidatePO {

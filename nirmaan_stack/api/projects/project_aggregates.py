@@ -4,6 +4,8 @@ from frappe.utils import flt, create_batch # Use flt for safe float conversion
 import json
 from frappe.utils.caching import redis_cache
 
+from nirmaan_stack.services.vendor_refunds import refunds_lowering_paid_by_project
+
 
 def _calculate_sr_totals(sr_doc):
     """
@@ -615,6 +617,7 @@ def get_projects_financial_rollup():
       - notional_gst           = Σ SR.total_amount × 0.18 (status=Approved AND gst != "true") — the GST never charged on GST-off WOs
       - inflow                 = Σ Project Inflows.amount
       - outflow                = Σ Project Payments.amount (status=Paid) + Σ Project Expenses.amount (status=Paid; link field 'projects')
+                                 − Σ Vendor Refunds.amount (status=Received, against a PO / WO)
       - liabilities            = Σ po_amount_delivered − Σ min(amount_paid, po_amount_delivered)   (min is PER-PO, then summed)
       - total_credit_purchase  = Σ PO Payment Terms.amount (payment_type=Credit) on those POs
 
@@ -691,6 +694,12 @@ def get_projects_financial_rollup():
         b = bucket(r.get("projects"))
         if b is not None:
             b["outflow"] += flt(r.get("amount"))
+    # Less Received Vendor Refunds on the project's POs / WOs: money back is not paid out (owner,
+    # 2026-10-13; the same rule as `_compute_cashflow_gap` and the PO's `amount_paid`).
+    for project, refunded in refunds_lowering_paid_by_project().items():
+        b = bucket(project)
+        if b is not None:
+            b["outflow"] -= refunded
 
     # total_credit_purchase — Credit terms on the valid (non-Merged/Inactive) POs.
     # This is a CROSS-PROJECT rollup, so valid_po_project holds EVERY non-Merged/Inactive

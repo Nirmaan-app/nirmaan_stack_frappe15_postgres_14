@@ -4,6 +4,7 @@ from frappe.utils import flt
 
 from nirmaan_stack.nirmaan_stack.doctype.projects.projects import CEO_HOLD_SYSTEM_USER
 from nirmaan_stack.services.ceo_hold import core
+from nirmaan_stack.services.vendor_refunds import refunds_lowering_paid_by_project
 from ..Notifications.pr_notifications import PrNotification
 
 
@@ -295,7 +296,7 @@ def on_procurement_order(doc, method=None):
 def _compute_cashflow_gap(project_id: str) -> float:
 	"""
 	Mirror of the frontend formula in projects.tsx (lines 462-477):
-	    gap = (paid_payments + all_expenses + liabilities) - all_inflows
+	    gap = (paid_payments - received_refunds + all_expenses + liabilities) - all_inflows
 	    liabilities = Σ po_amount_delivered − Σ min(amount_paid, po_amount_delivered)
 	"""
 	paid_payments = frappe.get_all(
@@ -310,7 +311,10 @@ def _compute_cashflow_gap(project_id: str) -> float:
 		filters=[["projects", "=", project_id], ["status", "=", "Paid"]],  # 'projects' (plural) is correct
 		fields=["amount"],
 	)
-	outflow = sum(flt(p.amount) for p in paid_payments) + sum(flt(e.amount) for e in expenses)
+	# A Received Vendor Refund on the project's POs / WOs is money back: it is no longer paid out
+	# (owner, 2026-10-13; the same rule as the PO's `amount_paid`).
+	refunded = refunds_lowering_paid_by_project(project_id).get(project_id, 0.0)
+	outflow = sum(flt(p.amount) for p in paid_payments) + sum(flt(e.amount) for e in expenses) - refunded
 
 	inflows = frappe.get_all(
 		"Project Inflows",

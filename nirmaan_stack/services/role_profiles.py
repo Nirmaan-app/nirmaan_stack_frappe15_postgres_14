@@ -249,6 +249,14 @@ def can_manage_mtc(user: str) -> bool:
 # with `ignore_permissions` (the Vendor Refunds DocPerms give these users read only).
 ADJUST_PAYMENTS_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + MATERIAL_PROCUREMENT_PROFILES
 
-# "An Accountant" for a waiting Vendor Refund (#1400): may correct its amount or PO while it waits,
-# besides the user who recorded it.
+# "An Accountant" for a waiting Vendor Refund (#1400): may correct its amount or PO while it waits, or
+# cancel it, besides the user who recorded it. Mirrored client-side by
+# `frontend/src/constants/roles.ts::REFUND_ACCOUNTANT_PROFILES`.
 REFUND_ACCOUNTANT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+# May complete a Vendor Refund's paperwork -- its proof, UTR and description -- at any status (#1396
+# story 10): whoever works the PO's payments, i.e. the "Adjust Payments" profiles and the Accountants.
+# Its amount and PO stay with its creator or an Accountant (`services/vendor_refunds.money_edit_problem`).
+# ENFORCEMENT boundary for `api/vendor_refunds/waiting_refunds.update_waiting_refund`. Mirrored
+# client-side by `frontend/src/constants/roles.ts::REFUND_PAPERWORK_PROFILES`.
+REFUND_PAPERWORK_PROFILES = ADJUST_PAYMENTS_PROFILES + REFUND_ACCOUNTANT_PROFILES

@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { Clock } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
+import { poRefundsTarget, useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
 import {
   isOverdueWaitingRefund,
   WAITING_REFUND_OVERDUE_DAYS,
@@ -19,7 +19,7 @@ interface WaitingRefundOverdueWarningProps {
  * in Transaction Details (Cancel, or an Admin's Mark received).
  */
 export const WaitingRefundOverdueWarning: React.FC<WaitingRefundOverdueWarningProps> = ({ poId }) => {
-  const { refunds } = useVendorRefunds({ documentType: "Procurement Orders", documentName: poId ?? "" });
+  const { refunds } = useVendorRefunds(poRefundsTarget(poId ?? ""));
   const overdue = useMemo(() => (refunds ?? []).filter((r) => isOverdueWaitingRefund(r)), [refunds]);
   if (overdue.length === 0) return null;
 

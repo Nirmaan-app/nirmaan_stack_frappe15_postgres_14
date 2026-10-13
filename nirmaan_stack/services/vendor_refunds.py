@@ -38,6 +38,10 @@ from decimal import ROUND_HALF_UP, Decimal
 import frappe
 from frappe.utils import cint, flt
 
+from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
+from nirmaan_stack.services.outflow_import.reference_guard import MATCH_DOCTYPE
+from nirmaan_stack.services.role_profiles import REFUND_ACCOUNTANT_PROFILES, has_role_profile
+
 VENDOR_REFUNDS = "Vendor Refunds"
 PROCUREMENT_ORDERS = "Procurement Orders"
 SERVICE_REQUESTS = "Service Requests"
@@ -164,6 +168,25 @@ def refunded_on(
     return totals
 
 
+def refunds_lowering_paid_by_project(project: str | None = None) -> dict[str, float]:
+    """The RECEIVED Vendor Refunds on each project's POs and Work Orders, by project -- on `project`
+    only when one is given (owner, 2026-10-13).
+
+    What the cashflow gap takes off "paid out": money a vendor sent back is not paid out any more. The
+    same rule as `amount_paid_of` (`LOWERS_PAID_STATUSES`), summed per project: a waiting or cancelled
+    refund lowers nothing, and a Misc. Expense refund is against no PO or Work Order.
+    """
+    filters = {
+        "document_type": ["in", list(REFUND_DOCUMENT_FIELDS)],
+        "status": ["in", list(LOWERS_PAID_STATUSES)],
+        "project": project if project else ["is", "set"],
+    }
+    totals: dict[str, float] = {}
+    for refund in frappe.get_all(VENDOR_REFUNDS, filters=filters, fields=["project", "amount"], limit_page_length=0):
+        totals[refund.project] = totals.get(refund.project, 0.0) + flt(refund.amount)
+    return totals
+
+
 def held_on(po_id: str) -> float:
     """How much of this PO's overpaid credit its waiting refunds hold (#1400, ADR-0032)."""
     return float(refunded_on(PROCUREMENT_ORDERS, [po_id], HOLDS_CREDIT_STATUSES).get(po_id, 0))
@@ -201,6 +224,41 @@ def money_edit_problem(status_before: str | None, is_creator: bool, is_accountan
         )
     if not (is_creator or is_accountant):
         return "Only the person who recorded this waiting refund, or an Accountant, can change its amount or PO."
+    return None
+
+
+def creator_and_accountant(refund, user: str) -> tuple[bool, bool]:
+    """Whether `user` recorded this refund as waiting, and whether they are an Accountant: the two ways
+    to be allowed to correct its money (`money_edit_problem`) or cancel it. `refund` is the record as
+    it stood before any edit being judged (a doc, or a mapping with `waiting_created_by`)."""
+    creator = refund.get("waiting_created_by")
+    return bool(creator) and creator == user, has_role_profile(user, REFUND_ACCOUNTANT_PROFILES)
+
+
+def bank_matched(names) -> set[str]:
+    """The refunds among `names` a Bulk Import credit line is matched to right now: a live (Settled)
+    `Outflow Row Match` leg points at them (#1401)."""
+    names = [n for n in (names or []) if n]
+    if not names:
+        return set()
+    return set(
+        frappe.get_all(
+            MATCH_DOCTYPE,
+            filters={"target_doctype": VENDOR_REFUNDS, "target_name": ["in", names], "match_kind": MATCH_SETTLED},
+            pluck="target_name",
+        )
+    )
+
+
+def utr_edit_problem(name: str, utr_changes: bool, is_bank_matched: bool) -> str | None:
+    """Why this refund's UTR may not change now, or None (#1396 review). While a bank line is matched
+    to it, its UTR is that line's reference, and Unreconcile reads it to know the match is still its
+    own: a changed UTR would make the match impossible to undo. Unreconcile first, then change it."""
+    if utr_changes and is_bank_matched:
+        return (
+            f"The UTR of {name} is the reference of the bank line matched to it. Unreconcile that line "
+            "in Bulk Import first if the UTR is wrong."
+        )
     return None
 
 

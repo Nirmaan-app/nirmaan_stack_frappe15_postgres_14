@@ -8,6 +8,8 @@ import {
     hasNoProofAtAll,
     isOverdueWaitingRefund,
     overdueWaitingFilters,
+    refundEditAccess,
+    refundEditChanges,
 } from "./waitingRefundExits";
 
 const NOW = new Date(2026, 9, 20, 12, 0, 0); // 20 Oct 2026, 12:00 local
@@ -96,5 +98,66 @@ describe("canMarkReceivedWithoutBankLine", () => {
         expect(
             canMarkReceivedWithoutBankLine(refund({ status: "Cancelled" }), "admin@nirmaan.app", "Nirmaan Admin Profile")
         ).toBe(false);
+    });
+});
+
+// #1396 stories 8 and 10: who may change what on a refund, mirroring `waiting_refunds.update_waiting_refund`.
+describe("refundEditAccess", () => {
+    const PROCUREMENT = "Nirmaan Procurement Executive Profile";
+
+    it("lets its creator or an Accountant change the amount and PO while it waits", () => {
+        expect(refundEditAccess(refund(), "buyer@nirmaan.app", PROCUREMENT).money).toBe(true);
+        expect(refundEditAccess(refund(), "acc@nirmaan.app", "Nirmaan Accountant Profile").money).toBe(true);
+        expect(refundEditAccess(refund(), "Administrator", "Loading").money).toBe(true);
+    });
+
+    it("fixes the amount and PO for anyone else, and for everyone once it is no longer waiting", () => {
+        expect(refundEditAccess(refund(), "other@nirmaan.app", PROCUREMENT).money).toBe(false);
+        expect(refundEditAccess(refund({ status: "Received" }), "buyer@nirmaan.app", PROCUREMENT).money).toBe(false);
+        expect(refundEditAccess(refund({ status: "Cancelled" }), "Administrator", "Loading").money).toBe(false);
+    });
+
+    it("lets anyone who works the PO's payments complete its paperwork at any status", () => {
+        for (const role of [PROCUREMENT, "Nirmaan PMO Executive Profile", "Nirmaan Admin Profile", "Nirmaan Accountant Lead Profile"]) {
+            expect(refundEditAccess(refund({ status: "Received" }), "someone@nirmaan.app", role).paperwork).toBe(true);
+        }
+        expect(refundEditAccess(refund(), "someone@nirmaan.app", "Nirmaan Project Manager Profile").paperwork).toBe(false);
+        expect(refundEditAccess(refund(), "buyer@nirmaan.app", "Nirmaan Project Manager Profile").paperwork).toBe(true);
+    });
+
+    it("keeps the UTR fixed while a bank line is matched to it", () => {
+        expect(refundEditAccess(refund({ bank_matched: true }), "Administrator", "Loading").utrLocked).toBe(true);
+        expect(refundEditAccess(refund({ bank_matched: false }), "Administrator", "Loading").utrLocked).toBe(false);
+    });
+});
+
+describe("refundEditChanges", () => {
+    const saved = { amount: 500, document_name: "PO/1", utr: "UTR-1", description: null };
+    const form = (over: Record<string, string> = {}) => ({
+        amount: "500",
+        poId: "PO/1",
+        utr: "UTR-1",
+        description: "",
+        ...over,
+    });
+    const all = { money: true, paperwork: true, utrLocked: false };
+
+    it("sends only what changed", () => {
+        expect(refundEditChanges(saved, form(), all)).toEqual({});
+        expect(refundEditChanges(saved, form({ amount: "450", description: " slip came " }), all)).toEqual({
+            amount: 450,
+            description: "slip came",
+        });
+        expect(refundEditChanges(saved, form({ poId: "PO/2", utr: "" }), all)).toEqual({ po_id: "PO/2", utr: null });
+    });
+
+    it("never sends the amount or PO without money access, nor the UTR while it is fixed", () => {
+        expect(
+            refundEditChanges(saved, form({ amount: "1", poId: "PO/2", utr: "OTHER" }), {
+                money: false,
+                paperwork: true,
+                utrLocked: true,
+            })
+        ).toEqual({});
     });
 });

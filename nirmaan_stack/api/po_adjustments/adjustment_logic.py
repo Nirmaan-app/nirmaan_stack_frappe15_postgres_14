@@ -307,20 +307,34 @@ def write_off_adjustment(po_id, amount, reason):
     if not adj_name:
         frappe.throw(_("No PO Adjustment found for PO {0}").format(po_id))
 
-    adj_doc = frappe.get_doc("PO Adjustments", adj_name)
+    # The row lock every credit spender and a waiting refund take, so the hold read below is current.
+    adj_doc = frappe.get_doc("PO Adjustments", adj_name, for_update=True)
     remaining = flt(adj_doc.remaining_impact, 2)
     if abs(remaining) < 0.01:
         frappe.throw(_("{0} has nothing left to write off.").format(po_id))
 
+    # THE CREDIT HOLD (#1400, owner 2026-10-13): waiting Vendor Refunds hold their amount of a negative
+    # balance. That money is promised back, and the refund settles that part of the balance when it is
+    # Received, so a write-off may take only the unheld rest. A positive balance holds nothing.
+    held = flt(held_on(po_id), 2) if remaining < 0 else 0.0
+    writable = max(0.0, flt(abs(remaining) - held, 2))
+    if writable < 0.01:
+        frappe.throw(
+            _("All of {0} on {1} is held by waiting Vendor Refunds, so none of it can be written off.").format(
+                frappe.utils.fmt_money(abs(remaining), currency="INR"), po_id
+            )
+        )
+
     magnitude = abs(flt(amount, 2))
     if magnitude < 0.01:
         frappe.throw(_("Write-off amount must be greater than zero."))
-    if magnitude > abs(remaining) + 0.01:
+    if magnitude > writable + 0.01:
         frappe.throw(
-            _("Cannot write off {0} — only {1} is outstanding on {2}.").format(
+            _("Cannot write off {0} — only {1} is outstanding on {2}{3}.").format(
                 frappe.utils.fmt_money(magnitude, currency="INR"),
-                frappe.utils.fmt_money(abs(remaining), currency="INR"),
+                frappe.utils.fmt_money(writable, currency="INR"),
                 po_id,
+                _(" that no waiting Vendor Refund holds") if held else "",
             )
         )
 

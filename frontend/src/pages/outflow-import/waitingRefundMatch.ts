@@ -12,8 +12,12 @@
 import type { WaitingRefundSuggestion } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-/** One row of `inflows.get_waiting_vendor_refunds`: a refund this vendor's credit line may be matched to. */
-export interface WaitingRefund {
+/** `matcher.BASIS_BANK_REFERENCE`: the import found the refund by the line's bank reference (#1402). */
+export const BASIS_BANK_REFERENCE = "Bank reference";
+
+/** One row of `inflows.get_waiting_vendor_refunds`: a refund this vendor's credit line may be matched to --
+ *  waiting (Reconciliation Pending), or Received with no bank line (`services/vendor_refunds.is_matchable`). */
+export interface MatchableRefund {
     name: string;
     amount: number;
     document_type: string | null;
@@ -62,7 +66,7 @@ export const withWaitingRefundVendor = (
 ): WaitingRefundForm => (vendor === form.vendor ? form : { vendor, picks: [] });
 
 /** Tick or untick one waiting refund. */
-export const toggleWaitingRefund = (form: WaitingRefundForm, refund: WaitingRefund): WaitingRefundForm => {
+export const toggleWaitingRefund = (form: WaitingRefundForm, refund: MatchableRefund): WaitingRefundForm => {
     const picks = form.picks ?? [];
     if (picks.some((p) => p.name === refund.name)) {
         return { ...form, picks: picks.filter((p) => p.name !== refund.name) };
@@ -112,7 +116,7 @@ export const suggestedWaitingRefundForm = (suggestion: WaitingRefundSuggestion):
 /** Why the import suggested these refunds, shown in the dialog while the ticks are still its own. */
 export const waitingRefundSuggestionNote = (suggestion: WaitingRefundSuggestion): string => {
     const names = suggestion.refunds.map((r) => r.name).join(", ");
-    return suggestion.basis === "Bank reference"
+    return suggestion.basis === BASIS_BANK_REFERENCE
         ? `Suggested by the import: this bank line's reference is the UTR typed on ${names}. Check and match.`
         : `Suggested by the import: the money came from this vendor's bank account, and ${names} is its only waiting refund of this amount. Check and match.`;
 };

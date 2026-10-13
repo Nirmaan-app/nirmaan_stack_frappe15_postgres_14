@@ -1,5 +1,5 @@
 import { useFrappeGetCall } from "frappe-react-sdk";
-import type { VendorRefundStatus } from "./RefundStatusBadge";
+import type { VendorRefundStatus } from "@/types/NirmaanStack/VendorRefunds";
 
 /** One `Vendor Refunds` record, as `api/vendor_refunds/list_refunds.get_vendor_refunds` sends it. */
 export interface VendorRefundRow {
@@ -25,6 +25,8 @@ export interface VendorRefundRow {
     description?: string | null;
     refund_attachment?: string | null;
     creation: string;
+    /** A Bulk Import credit line is matched to it now: its UTR is that line's reference, fixed until Unreconcile. */
+    bank_matched?: boolean;
 }
 
 /** The PO or WO whose refunds to list. */
@@ -32,6 +34,12 @@ export interface VendorRefundsTarget {
     documentType: "Procurement Orders" | "Service Requests";
     documentName: string;
 }
+
+/** One PO's refunds: the target every PO-page reader and writer names. */
+export const poRefundsTarget = (poId: string): VendorRefundsTarget => ({
+    documentType: "Procurement Orders",
+    documentName: poId,
+});
 
 /** The SWR key of one PO's / WO's refund list, so a writer elsewhere can refresh it. */
 export const vendorRefundsKey = (target: VendorRefundsTarget) =>

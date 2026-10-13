@@ -83,7 +83,7 @@ import {
     waitingRefundTotals,
     waitingRefundsKey,
     withWaitingRefundVendor,
-    type WaitingRefund,
+    type MatchableRefund,
 } from "../waitingRefundMatch";
 import {
     INTENT_PART_PAYMENT,
@@ -281,7 +281,7 @@ const MATCH_WAITING_REFUND_TARGET: { id: DecisionTarget; label: string; hint: st
 
 /** A vendor's waiting refunds (`inflows.get_waiting_vendor_refunds`), or nothing until one is chosen. */
 const useWaitingRefunds = (vendor: string | null | undefined) => {
-    const { data, isLoading } = useFrappeGetCall<{ message: WaitingRefund[] }>(
+    const { data, isLoading } = useFrappeGetCall<{ message: MatchableRefund[] }>(
         "nirmaan_stack.api.outflow_import.inflows.get_waiting_vendor_refunds",
         { vendor },
         waitingRefundsKey(vendor)

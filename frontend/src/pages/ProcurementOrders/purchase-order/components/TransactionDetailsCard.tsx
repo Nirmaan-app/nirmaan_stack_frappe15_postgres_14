@@ -77,7 +77,7 @@ import { SquarePlus, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
 import { TruncatedText } from "@/components/common/TruncatedText";
-import { useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
+import { poRefundsTarget, useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
 import { mergePaymentsAndRefunds, VendorRefundTableRow } from "@/components/vendor-refunds/VendorRefundTableRow";
 import { WaitingRefundActions } from "@/components/vendor-refunds/WaitingRefundActions";
 // import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog";
@@ -121,7 +121,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
   const [paymentScreenshot, setPaymentScreenshot] = useState<File | null>(null);
 
   // Refunds against this PO sit in the payments table as their own rows (badge "Vendor Refund").
-  const { refunds } = useVendorRefunds({ documentType: "Procurement Orders", documentName: PO?.name ?? "" });
+  const { refunds } = useVendorRefunds(poRefundsTarget(PO?.name ?? ""));
   const transactionRows = useMemo(() => mergePaymentsAndRefunds(poPayments, refunds), [poPayments, refunds]);
 
   const [newPaymentDialog, setNewPaymentDialog] = useState(false);

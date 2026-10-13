@@ -17,6 +17,7 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.review import ROW_DOCTYPE, SCOPE_ALL, get_outflow_rows, match_batch
 from nirmaan_stack.api.outflow_import.test_waiting_refund_match import WaitingRefundFixture
+from nirmaan_stack.api.vendor_refunds.waiting_refunds import mark_received_without_bank_line
 from nirmaan_stack.services.outflow_import.normalize import normalize_reference
 from nirmaan_stack.services.outflow_import.status import ROW_SETTLED
 from nirmaan_stack.services.vendor_refunds import CANCELLED, RECEIVED
@@ -108,3 +109,23 @@ class TestTheRunSuggestsAWaitingRefund(WaitingRefundFixture):
 
         self.assertIsNone(self._shown(row))
         self.assertIsNone(frappe.db.get_value(ROW_DOCTYPE, row["name"], "suggested_refunds"))
+
+    def test_a_refund_received_with_no_bank_line_is_suggested_for_its_late_bank_line(self):
+        po, _adj = self._overpaid_po(-1180)
+        reference = f"UTR1402{frappe.generate_hash(length=8)}"
+        refund = self._waiting(po, 1180, utr=reference)
+        mark_received_without_bank_line(refund=refund, reason="test: vendor confirmed by email")
+        row = self._line_with_reference(1180, reference)
+
+        match_batch(self.batch.name)
+
+        self.assertEqual(
+            self._shown(row),
+            {
+                "vendor": self.vendor,
+                "basis": "Bank reference",
+                "refunds": [{"name": refund, "amount": 1180.0, "label": po}],
+            },
+        )
+        self._match(row, [refund])
+        self.assertEqual(frappe.db.get_value("Vendor Refunds", refund, ["status", "no_bank_line"]), (RECEIVED, 0))

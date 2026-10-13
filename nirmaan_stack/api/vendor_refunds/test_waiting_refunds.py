@@ -19,15 +19,24 @@ import frappe
 from frappe.utils import flt
 
 from nirmaan_stack.api.po_adjustments._payment_utils import usable_po_credit
-from nirmaan_stack.api.po_adjustments.adjustment_logic import execute_adjustment, get_po_adjustment
+from nirmaan_stack.api.po_adjustments.adjustment_logic import (
+    execute_adjustment,
+    get_po_adjustment,
+    write_off_adjustment,
+)
 from nirmaan_stack.api.po_revisions.revision_po_check import check_po_in_pending_revisions
 from nirmaan_stack.api.vendor_refunds import credit_fixture
-from nirmaan_stack.api.vendor_refunds.waiting_refunds import record_waiting_refund, update_waiting_refund
+from nirmaan_stack.api.vendor_refunds.waiting_refunds import (
+    cancel_waiting_refund,
+    record_waiting_refund,
+    update_waiting_refund,
+)
 from nirmaan_stack.services.role_profiles import (
     ACCOUNTANT_PROFILE,
     ADMIN_PROFILE,
     MATERIAL_PROCUREMENT_PROFILES,
     PMO_EXECUTIVE_PROFILE,
+    PROJECT_MANAGER_PROFILE,
 )
 from nirmaan_stack.services.vendor_refunds import CANCELLED, RECEIVED, RECONCILIATION_PENDING
 
@@ -263,6 +272,26 @@ class TestRecordAWaitingRefund(WaitingRefundFixture):
         frappe.set_user("Administrator")
         self.assertEqual(flt(frappe.db.get_value(VENDOR_REFUNDS, name, "amount")), 400)
 
+    def test_anyone_who_works_its_po_payments_may_complete_its_paperwork_but_not_its_money(self):
+        po, _ = self._overpaid_po()
+        creator = self._as(MATERIAL_PROCUREMENT_PROFILES)
+        name = self._record(po, 500)["refund"]
+
+        self._as(MATERIAL_PROCUREMENT_PROFILES + (PMO_EXECUTIVE_PROFILE,), exclude=(creator,))
+        update_waiting_refund(refund=name, utr="TEST-1396-UTR", description="vendor sent the slip")
+        with self.assertRaises(frappe.PermissionError):
+            update_waiting_refund(refund=name, amount=400)
+
+        self._as((PROJECT_MANAGER_PROFILE,))
+        with self.assertRaises(frappe.PermissionError):
+            update_waiting_refund(refund=name, description="not mine to change")
+
+        frappe.set_user("Administrator")
+        self.assertEqual(
+            frappe.db.get_value(VENDOR_REFUNDS, name, ["amount", "utr", "description"]),
+            (500, "TEST-1396-UTR", "vendor sent the slip"),
+        )
+
     def test_a_received_refund_keeps_its_amount_and_po_but_its_paperwork_stays_editable(self):
         po, _ = self._overpaid_po()
         name = self._record(po, 500)["refund"]
@@ -301,3 +330,29 @@ class TestRecordAWaitingRefund(WaitingRefundFixture):
         doc.status = CANCELLED
         doc.save(ignore_permissions=True)
         self.assertEqual(frappe.db.get_value(VENDOR_REFUNDS, name, "status"), CANCELLED)
+
+
+class TestAWriteOffLeavesTheHeldCredit(WaitingRefundFixture):
+    """Write Off respects the hold (owner, 2026-10-13): of a negative balance it may write off only the
+    part no waiting refund holds, so the refund still has a balance to settle when it is Received."""
+
+    def test_only_the_unheld_part_of_a_negative_balance_may_be_written_off(self):
+        po, adj = self._overpaid_po()
+        self._record(po, 1000)
+
+        with self.assertRaises(frappe.ValidationError):
+            write_off_adjustment(po, CREDIT, "not money")
+        with self.assertRaises(frappe.ValidationError):
+            write_off_adjustment(po, 181, "not money")
+        write_off_adjustment(po, 180, "not money")
+
+        self.assertAlmostEqual(flt(frappe.db.get_value(ADJ, adj, "remaining_impact")), -1000, places=2)
+        self.assertAlmostEqual(get_po_adjustment(po)["held_credit"], 1000, places=2)
+
+    def test_a_cancelled_refund_holds_nothing_so_the_whole_balance_may_go(self):
+        po, adj = self._overpaid_po()
+        cancel_waiting_refund(self._record(po, 1000)["refund"])
+
+        write_off_adjustment(po, CREDIT, "not money")
+
+        self.assertAlmostEqual(flt(frappe.db.get_value(ADJ, adj, "remaining_impact")), 0, places=2)

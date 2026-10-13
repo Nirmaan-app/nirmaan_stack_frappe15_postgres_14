@@ -55,12 +55,12 @@ class _Line:
         self.direction = direction
 
 
-def _waiting(name, amount, vendor, utr=""):
+def _waiting(name, amount, vendor, utr="", status="Reconciliation Pending"):
     return TargetRef(
         doctype="Vendor Refunds",
         name=name,
         amount=Decimal(str(amount)),
-        status="Reconciliation Pending",
+        status=status,
         vendor=vendor,
         reference=utr,
     )
@@ -105,6 +105,15 @@ class TestAUtrTypedOnAWaitingRefund(unittest.TestCase):
         ]
 
         self.assertIsNone(_suggest(line, pool))
+
+    def test_a_refund_received_with_no_bank_line_is_suggested_like_a_waiting_one(self):
+        """#1403: the pool also holds Received refunds an Admin marked with no bank line."""
+        line = _Line("28886", bank_reference_no="UTR123456789")
+        pool = [_waiting("VRF-1", "28886", "VEN-SUNRISE", utr="UTR123456789", status="Received")]
+
+        suggestion = _suggest(line, pool)
+
+        self.assertEqual((suggestion.names, suggestion.basis), (("VRF-1",), BASIS_BANK_REFERENCE))
 
     def test_a_debit_line_is_never_suggested_a_refund(self):
         line = _Line("28886", bank_reference_no="UTR123", direction="Debit")

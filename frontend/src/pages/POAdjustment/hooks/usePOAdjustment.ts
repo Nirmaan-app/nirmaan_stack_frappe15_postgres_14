@@ -1,13 +1,11 @@
 import { useState, useCallback, useMemo } from "react";
-import { useSWRConfig } from "swr";
 import { toast } from "@/components/ui/use-toast";
 import {
   useExecuteAdjustment,
   useRecordWaitingRefund,
 } from "../data/usePOAdjustmentMutations";
 import { creditOnOffer } from "../adjustmentOffer";
-import { poRevisionKeys } from "@/pages/PORevision/data/poRevision.constants";
-import { vendorRefundsKey } from "@/components/vendor-refunds/useVendorRefunds";
+import { useRefreshPORefundViews } from "@/components/vendor-refunds/useRefreshPORefundViews";
 import {
   usePOAdjustment,
   useAdjustmentCandidatePOs,
@@ -43,7 +41,7 @@ export function usePOAdjustmentDialog(
   const { execute, loading: executeLoading } = useExecuteAdjustment();
   // "Vendor Refund" records a waiting Vendor Refund instead (#1400, ADR-0032)
   const { record, loading: recordLoading } = useRecordWaitingRefund();
-  const { mutate: globalMutate } = useSWRConfig();
+  const refreshRefundViews = useRefreshPORefundViews();
 
   // Combined loading state for the UI "Processing..." spinner
   const executing = fileUploadLoading || executeLoading || recordLoading;
@@ -184,12 +182,7 @@ export function usePOAdjustmentDialog(
               description: "Payment adjustment has been processed successfully.",
             }
       );
-      if (recorded.length > 0) {
-        await Promise.all([
-          globalMutate(poRevisionKeys.lockCheck(poId)),
-          globalMutate(vendorRefundsKey({ documentType: "Procurement Orders", documentName: poId })),
-        ]);
-      }
+      if (recorded.length > 0) await refreshRefundViews(poId);
       mutate();
       resetForm();
       if (onSuccess) onSuccess();
@@ -201,7 +194,7 @@ export function usePOAdjustmentDialog(
         variant: "destructive",
       });
     }
-  }, [poId, refundAdjustments, upload, execute, record, globalMutate, mutate, resetForm, onSuccess]);
+  }, [poId, refundAdjustments, upload, execute, record, refreshRefundViews, mutate, resetForm, onSuccess]);
 
   return {
     adjustmentMethod,

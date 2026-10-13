@@ -12,9 +12,11 @@ Received.
 
 * `record_waiting_refund` -- Admin, PMO Executive and the material Procurement profiles (exactly who
   may open "Adjust Payments", `ADJUST_PAYMENTS_PROFILES`), up to the PO's UNHELD overpaid balance.
-* `update_waiting_refund` -- its creator or an Accountant. Amount and PO only while it waits (the rule
+* `update_waiting_refund` -- amount and PO: its creator or an Accountant, only while it waits (the rule
   is `services/vendor_refunds.money_edit_problem`, also enforced on every save by
-  `integrations/controllers/vendor_refunds.guard_money_edit`); proof, UTR and description at any status.
+  `integrations/controllers/vendor_refunds.guard_money_edit`). Proof, UTR and description: anyone who
+  works the PO's payments (`REFUND_PAPERWORK_PROFILES`), at any status -- except the UTR while a bank
+  line is matched to it (`utr_edit_problem`): Unreconcile reads it.
 * `cancel_waiting_refund` (#1403) -- its creator or an Accountant. Cancelled: it counts for nothing and
   holds nothing, so the PO's overpaid credit is free again. Nothing else moves; the PO stays locked
   until its balance is cleared another way.
@@ -33,7 +35,7 @@ from frappe.utils import flt
 from nirmaan_stack.api.po_adjustments._payment_utils import usable_po_credit
 from nirmaan_stack.services.role_profiles import (
     ADJUST_PAYMENTS_PROFILES,
-    REFUND_ACCOUNTANT_PROFILES,
+    REFUND_PAPERWORK_PROFILES,
     has_role_profile,
     is_nirmaan_admin,
 )
@@ -42,12 +44,15 @@ from nirmaan_stack.services.vendor_refunds import (
     PROCUREMENT_ORDERS,
     RECONCILIATION_PENDING,
     VENDOR_REFUNDS,
+    bank_matched,
     cancel_problem,
+    creator_and_accountant,
     document_project,
     held_on,
     money_edit_problem,
     no_bank_line_problem,
     no_bank_line_values,
+    utr_edit_problem,
 )
 
 #: The realtime event "Adjust Payments" already listens to; the PO page refetches on it.
@@ -82,12 +87,6 @@ def _po(po_id: str) -> dict:
 def _publish(po_ids, refund: str, status: str = "waiting_refund") -> None:
     for po_id in sorted({p for p in po_ids if p}):
         frappe.publish_realtime(event=_EVENT, message={"po_id": po_id, "status": status, "refund": refund})
-
-
-def _is_creator_or_accountant(doc, user: str) -> bool:
-    """Its creator or an Accountant: who may cancel a waiting refund."""
-    is_creator = bool(doc.waiting_created_by) and doc.waiting_created_by == user
-    return is_creator or has_role_profile(user, REFUND_ACCOUNTANT_PROFILES)
 
 
 def _credit_after(doc) -> dict:
@@ -164,21 +163,24 @@ def update_waiting_refund(
 ):
     """Correct a Vendor Refund: amount or PO while it waits, proof / UTR / description at any status.
 
-    Only the user who recorded it as waiting, or an Accountant. A field left out is left as it is.
+    Amount and PO: only the user who recorded it as waiting, or an Accountant. Proof, UTR and
+    description: also anyone who works the PO's payments (`REFUND_PAPERWORK_PROFILES`); the UTR stays
+    fixed while a bank line is matched to it. A field left out is left as it is.
     """
     doc = frappe.get_doc(VENDOR_REFUNDS, refund, for_update=True)
     user = frappe.session.user
-    is_creator = bool(doc.waiting_created_by) and doc.waiting_created_by == user
-    is_accountant = has_role_profile(user, REFUND_ACCOUNTANT_PROFILES)
-    if not (is_creator or is_accountant):
-        raise frappe.PermissionError(
-            _("Only the person who recorded this refund as waiting, or an Accountant, can change it.")
-        )
+    is_creator, is_accountant = creator_and_accountant(doc, user)
+    if not (is_creator or has_role_profile(user, REFUND_PAPERWORK_PROFILES)):
+        raise frappe.PermissionError(_("You are not allowed to change this refund."))
 
     old_po = doc.document_name
     new_amount = flt(amount, 2) if amount not in (None, "") else flt(doc.amount, 2)
     new_po = po_id or old_po
     if new_amount != flt(doc.amount, 2) or new_po != old_po:
+        if not (is_creator or is_accountant):
+            raise frappe.PermissionError(
+                _("Only the person who recorded this refund as waiting, or an Accountant, can change its amount or PO.")
+            )
         problem = money_edit_problem(doc.status, is_creator, is_accountant)
         if problem:
             frappe.throw(problem)
@@ -193,7 +195,13 @@ def update_waiting_refund(
         _assert_within_unheld(new_po, new_amount, own_hold=flt(doc.amount) if new_po == old_po else 0.0)
         doc.amount = new_amount
 
-    for field, value in (("utr", utr), ("refund_attachment", refund_attachment), ("description", description)):
+    if utr is not _UNSET:
+        new_utr = (utr or "").strip() or None
+        problem = utr_edit_problem(doc.name, new_utr != (doc.utr or None), doc.name in bank_matched([doc.name]))
+        if problem:
+            frappe.throw(problem)
+        doc.utr = new_utr
+    for field, value in (("refund_attachment", refund_attachment), ("description", description)):
         if value is not _UNSET:
             doc.set(field, (value or "").strip() or None)
 
@@ -213,7 +221,7 @@ def cancel_waiting_refund(refund: str):
     Returns `{refund, status, held_credit, usable_credit}`.
     """
     doc = frappe.get_doc(VENDOR_REFUNDS, refund, for_update=True)
-    if not _is_creator_or_accountant(doc, frappe.session.user):
+    if not any(creator_and_accountant(doc, frappe.session.user)):
         raise frappe.PermissionError(
             _("Only the person who recorded this refund as waiting, or an Accountant, can cancel it.")
         )

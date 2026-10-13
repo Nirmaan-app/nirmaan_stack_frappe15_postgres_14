@@ -24,12 +24,13 @@ from frappe.utils import flt
 
 from nirmaan_stack.api.invoices._item_billing_sync import recompute_document_amount_due
 from nirmaan_stack.api.po_adjustments.refund_links import sync_po_refund_links, unlink_refund
-from nirmaan_stack.services.role_profiles import REFUND_ACCOUNTANT_PROFILES, has_role_profile
+from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import trigger_check
 from nirmaan_stack.services.vendor_refunds import (
     LOWERS_PAID_STATUSES,
     PROCUREMENT_ORDERS,
     REFUND_DOCUMENT_FIELDS,
     amount_paid_of,
+    creator_and_accountant,
     money_edit_problem,
 )
 
@@ -78,6 +79,13 @@ def recompute_document_amount_paid(doc, method=None):
             entry_type = ENTRY_CHANGED
         sync_po_refund_links(pos, entry_type)
 
+    # The cashflow gap takes Received refunds off "paid out" (owner, 2026-10-13), so a refund entering,
+    # leaving or changing while Received re-evaluates its project's cashflow hold -- as a payment
+    # entering or leaving Paid does (`on_project_payment`). `trigger_check` never commits.
+    counted = [d for d in (doc, before) if d is not None and d.status in LOWERS_PAID_STATUSES]
+    for project in sorted({d.project for d in counted if d.project}):
+        trigger_check(project)
+
 
 def unlink_from_adjustments(doc, method=None):
     """Bound to on_trash: drop the PO Adjustment entries pointing at this refund before it goes.
@@ -97,12 +105,8 @@ def guard_money_edit(doc, method=None):
     before = doc.get_doc_before_save()
     if before is None or _identity(before) == _identity(doc):
         return
-    user = frappe.session.user
-    problem = money_edit_problem(
-        before.status,
-        is_creator=bool(before.waiting_created_by) and before.waiting_created_by == user,
-        is_accountant=has_role_profile(user, REFUND_ACCOUNTANT_PROFILES),
-    )
+    is_creator, is_accountant = creator_and_accountant(before, frappe.session.user)
+    problem = money_edit_problem(before.status, is_creator, is_accountant)
     if problem:
         frappe.throw(problem)
 

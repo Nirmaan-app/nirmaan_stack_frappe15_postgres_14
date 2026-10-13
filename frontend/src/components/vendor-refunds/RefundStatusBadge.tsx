@@ -1,11 +1,5 @@
 import { Badge, type BadgeProps } from "@/components/ui/badge";
-
-/**
- * A `Vendor Refunds.status` (#1398, ADR-0032), the backend's `services/vendor_refunds.REFUND_STATUSES`.
- * Only a Received refund lowers its order's paid amount; a Reconciliation Pending one waits for its bank
- * line; a Cancelled one counts for nothing.
- */
-export type VendorRefundStatus = "Reconciliation Pending" | "Received" | "Cancelled";
+import type { VendorRefundStatus } from "@/types/NirmaanStack/VendorRefunds";
 
 const STATUS_VARIANT: Record<VendorRefundStatus, BadgeProps["variant"]> = {
     Received: "teal",

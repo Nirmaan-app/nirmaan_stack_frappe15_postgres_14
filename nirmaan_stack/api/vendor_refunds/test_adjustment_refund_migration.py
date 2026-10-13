@@ -16,6 +16,7 @@ import frappe
 from frappe.utils import flt
 
 from nirmaan_stack.api.po_adjustments._payment_utils import _recalculate_amount_paid
+from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import _compute_cashflow_gap
 from nirmaan_stack.api.vendor_refunds.test_waiting_refunds import (
     ADJ,
     ADJ_ITEM,
@@ -97,11 +98,15 @@ class TestConvertAnAdjustmentRefund(WaitingRefundFixture):
         paid, due = frappe.db.get_value(PO, po, ["amount_paid", "amount_due"])
         return flt(paid, 2), flt(due, 2), flt(frappe.db.get_value(ADJ, adj, "remaining_impact"), 2)
 
+    def _cashflow_gap(self):
+        return flt(_compute_cashflow_gap(self.project), 2)
+
     # ── the conversion ──────────────────────────────────────────────────────────
 
     def test_an_old_refund_becomes_one_received_vendor_refund_and_running_again_changes_nothing(self):
         po, adj, payment = self._old_style_refund()
         before = self._money_figures(po, adj)
+        gap_before = self._cashflow_gap()
         # The old shape really is overpaid by 1,180 less the 500 refunded, paid 11,180 - 500.
         self.assertEqual(before, (10680.0, -10680.0, -680.0))
 
@@ -135,8 +140,9 @@ class TestConvertAnAdjustmentRefund(WaitingRefundFixture):
         self.assertFalse(entries[0].project_payment)
         self.assertEqual(flt(entries[0].amount, 2), REFUNDED)
 
-        # Paid amount, amount due and adjustment balance: unchanged to the paisa.
+        # Paid amount, amount due, adjustment balance and the project's cashflow gap: unchanged to the paisa.
         self.assertEqual(self._money_figures(po, adj), before)
+        self.assertEqual(self._cashflow_gap(), gap_before)
 
     def test_proof_on_the_payment_is_carried_and_its_file_kept_and_a_made_up_utr_is_dropped(self):
         po, adj, payment = self._old_style_refund(

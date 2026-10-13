@@ -27,8 +27,10 @@ WHY NOTHING MOVES
     The -X payment leaves (paid +X) and the +X Received refund arrives (paid -X), so the paid amount
     and amount due are unchanged. The entry keeps its +X: the refund sync step
     (`api/po_adjustments/refund_links.sync_po_refund_links`) links min(refund, unsettled balance),
-    which is X here, so the adjustment balance is unchanged. Per PO, the paid amount, amount due and
-    adjustment balance are read before and after; if any differs at the paisa, the patch throws and
+    which is X here, so the adjustment balance is unchanged. The project's cashflow gap counted the -X
+    payment in "paid out" and now takes the +X Received refund off it, so it is unchanged too. Per PO,
+    the paid amount, amount due, adjustment balance and its project's cashflow gap are read before and
+    after; if any differs at the paisa, the patch throws and
     the migration rolls back, writing nothing.
 
 IDEMPOTENT
@@ -59,6 +61,7 @@ from frappe.utils import flt, now_datetime
 
 from nirmaan_stack.api.po_adjustments._payment_utils import _recalculate_amount_paid
 from nirmaan_stack.api.po_adjustments.refund_links import ENTRY_TYPE, PO_ADJUSTMENTS, sync_po_refund_links
+from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import _compute_cashflow_gap
 from nirmaan_stack.services.vendor_refunds import (
     PROCUREMENT_ORDERS,
     VENDOR_REFUNDS,
@@ -143,9 +146,15 @@ def _old_entries(pos: list[str] | None) -> list:
 
 
 def _figures(po: str) -> dict:
-    paid, due = frappe.db.get_value(PROCUREMENT_ORDERS, po, ["amount_paid", "amount_due"])
+    paid, due, project = frappe.db.get_value(PROCUREMENT_ORDERS, po, ["amount_paid", "amount_due", "project"])
     balance = frappe.db.get_value(PO_ADJUSTMENTS, {"po_id": po}, "remaining_impact")
-    return {"amount_paid": money(paid), "amount_due": money(due), "balance": money(balance)}
+    return {
+        "amount_paid": money(paid),
+        "amount_due": money(due),
+        "balance": money(balance),
+        # The -X Paid payment counted in "paid out"; the Received refund now comes off it instead.
+        "cashflow_gap": money(_compute_cashflow_gap(project)) if project else None,
+    }
 
 
 def _convert(entry) -> str:

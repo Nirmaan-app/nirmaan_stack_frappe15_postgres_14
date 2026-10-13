@@ -11,3 +11,15 @@ export function creditOnOffer(remainingImpact: number, usableCredit?: number): n
   const claimed = Math.abs(remainingImpact);
   return usableCredit === undefined ? claimed : Math.max(0, Math.min(claimed, usableCredit));
 }
+
+/**
+ * How much of the balance an Admin's Write Off may take (owner, 2026-10-13). Waiting Vendor Refunds hold
+ * their amount of a negative balance: that money is promised back and the refund settles it once
+ * Received, so only the unheld rest may be written off. A positive balance holds nothing. Mirrors
+ * `adjustment_logic.write_off_adjustment`, which re-checks under the adjustment's row lock.
+ */
+export function writableOnWriteOff(remainingImpact: number, heldCredit?: number): number {
+  const outstanding = Math.abs(remainingImpact);
+  if (remainingImpact >= 0) return outstanding;
+  return Math.max(0, Math.round((outstanding - (heldCredit ?? 0)) * 100) / 100);
+}
