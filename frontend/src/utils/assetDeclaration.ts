@@ -49,3 +49,18 @@ export function countDeclarationsToSign(
     })
   ).length;
 }
+
+export type AssetKindTab = "Project" | "IT";
+
+/**
+ * Which of a profile's Project / IT asset tabs to open: the one with a declaration waiting, Project
+ * first when both have one; with none waiting, Project unless the person holds only IT assets.
+ */
+export function assetTabToOpen(
+  project: { total: number; pending: number },
+  it: { total: number; pending: number }
+): AssetKindTab {
+  if (project.pending > 0) return "Project";
+  if (it.pending > 0 || project.total === 0) return it.total > 0 ? "IT" : "Project";
+  return "Project";
+}

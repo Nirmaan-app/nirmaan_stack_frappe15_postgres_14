@@ -20,10 +20,11 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "../ui/sidebar";
-import { BadgeCheck, Bell, ChevronsUpDown, HelpCircle, Info, LogOut } from "lucide-react";
+import { BadgeCheck, Bell, ChevronsUpDown, HelpCircle, LogOut } from "lucide-react";
 import { Notifications } from "./notifications";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { useMyPendingDeclarationCount } from "@/hooks/useUserAssignments";
+import { PendingDeclarationIcon, PendingDeclarationTooltip, pendingDeclarationLabel } from "../helpers/PendingDeclarationIcon";
 
 export function UserNav({ isMobileMain = false }) {
   const userData = useUserData();
@@ -33,10 +34,7 @@ export function UserNav({ isMobileMain = false }) {
 
   const { isMobile, state, toggleSidebar } = useSidebar();
   const pendingDeclarations = useMyPendingDeclarationCount();
-  const pendingDeclarationLabel =
-    pendingDeclarations === 1
-      ? "Asset declaration pending. Click to sign it."
-      : `${pendingDeclarations} asset declarations pending. Click to sign them.`;
+  const pendingDeclarationText = pendingDeclarationLabel(pendingDeclarations);
 
   // The badge sits inside the menu's trigger button: stop the event so it opens the profile's
   // Assets tab instead of the menu.
@@ -62,7 +60,8 @@ export function UserNav({ isMobileMain = false }) {
       if (isMobile && !isMobileMain) {
         toggleSidebar();
       }
-      navigate(`/users/${userData.user_id}`);
+      // Declarations waiting: open the Assets tab, on the Project / IT tab that needs signing.
+      navigate(`/users/${userData.user_id}${pendingDeclarations > 0 ? "?tab=assets" : ""}`);
     }
   };
 
@@ -121,21 +120,20 @@ export function UserNav({ isMobileMain = false }) {
               {pendingDeclarations > 0 && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span
+                    <PendingDeclarationIcon
+                      size="md"
                       role="button"
                       tabIndex={0}
-                      aria-label={pendingDeclarationLabel}
+                      aria-label={pendingDeclarationText}
                       onPointerDown={(event) => event.stopPropagation()}
                       onClick={openMyAssets}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") openMyAssets(event);
                       }}
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600 ring-1 ring-amber-300 hover:bg-amber-200"
-                    >
-                      <Info className="h-4 w-4" />
-                    </span>
+                      className="hover:bg-amber-200"
+                    />
                   </TooltipTrigger>
-                  <TooltipContent side="right">{pendingDeclarationLabel}</TooltipContent>
+                  <TooltipContent side="right">{pendingDeclarationText}</TooltipContent>
                 </Tooltip>
               )}
               <ChevronsUpDown className="ml-auto mr-2 size-4" />
@@ -187,6 +185,9 @@ export function UserNav({ isMobileMain = false }) {
               >
                 <BadgeCheck className="w-4 h-4" />
                 Profile
+                {pendingDeclarations > 0 && (
+                  <PendingDeclarationTooltip className="ml-auto" side="right" label={pendingDeclarationText} />
+                )}
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />

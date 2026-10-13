@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { canSignDeclaration, countDeclarationsToSign } from "./assetDeclaration";
+import { assetTabToOpen, canSignDeclaration, countDeclarationsToSign } from "./assetDeclaration";
 
 const base = {
   viewerId: "kiran@nirmaan.app",
@@ -56,5 +56,19 @@ describe("countDeclarationsToSign (the sidebar badge)", () => {
   it("counts only the signable ones among several", () => {
     const rows = [row("ASSET-1"), row("ASSET-2"), row("ASSET-LAP-029"), row("ASSET-3", "/files/x.pdf")];
     expect(countDeclarationsToSign(me, rows, new Set(["ASSET-1", "ASSET-2", "ASSET-3"]))).toBe(2);
+  });
+});
+
+describe("assetTabToOpen", () => {
+  it("opens the tab with a declaration waiting, Project first", () => {
+    expect(assetTabToOpen({ total: 1, pending: 1 }, { total: 1, pending: 0 })).toBe("Project");
+    expect(assetTabToOpen({ total: 1, pending: 0 }, { total: 2, pending: 1 })).toBe("IT");
+    expect(assetTabToOpen({ total: 1, pending: 1 }, { total: 1, pending: 1 })).toBe("Project");
+  });
+
+  it("with nothing waiting, opens Project unless the person holds only IT assets", () => {
+    expect(assetTabToOpen({ total: 2, pending: 0 }, { total: 3, pending: 0 })).toBe("Project");
+    expect(assetTabToOpen({ total: 0, pending: 0 }, { total: 3, pending: 0 })).toBe("IT");
+    expect(assetTabToOpen({ total: 0, pending: 0 }, { total: 0, pending: 0 })).toBe("Project");
   });
 });

@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useFrappeUpdateDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
 import {
   Dialog,
@@ -37,7 +37,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUserData } from "@/hooks/useUserData";
-import { canSignDeclaration } from "@/utils/assetDeclaration";
+import { assetTabToOpen, canSignDeclaration } from "@/utils/assetDeclaration";
+import { PendingDeclarationTooltip, pendingDeclarationLabel } from "@/components/helpers/PendingDeclarationIcon";
 import { AssignAssetToUserDialog } from "./AssignAssetToUserDialog";
 import { SignDeclarationDialog } from "@/pages/Assets/components/SignDeclarationDialog";
 import { getAssetPermissions } from "@/pages/Assets/utils/permissions";
@@ -73,6 +74,12 @@ interface AssetCategoryRecord {
 }
 
 type AssetSubTab = "Project" | "IT";
+
+/** The mark on a Project / IT tab that has declarations still to sign or upload (same icon as the sidebar). */
+function PendingDeclarationMark({ count, canSign }: { count: number; canSign: boolean }) {
+  if (count === 0) return null;
+  return <PendingDeclarationTooltip label={pendingDeclarationLabel(count, canSign)} />;
+}
 
 interface UserAssetsTabProps {
   user: NirmaanUsers;
@@ -292,16 +299,25 @@ export function UserAssetsTab({
     (a) => !a.asset_declaration_attachment
   ).length;
 
-  // Open on the sub-tab that needs attention (the sidebar's pending-declaration badge lands here):
-  // decided once, when the assignments first load, and never after the user picks a sub-tab.
-  const subTabDecided = useRef(false);
+  // Declarations still waiting, per tab -- the same test as the "Declaration Pending" count above.
+  const projectPending = projectAssignments.filter((a) => !a.asset_declaration_attachment).length;
+  const itPending = itAssignments.filter((a) => !a.asset_declaration_attachment).length;
+
+  // Open on the tab that needs attention: when the assignments first load, and again on every
+  // navigation here -- the sidebar's pending-declaration icon navigates even when this profile is
+  // already open, so it switches tabs too. A tab the user picks stays until the next navigation.
+  const location = useLocation();
+  const subTabDecidedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (subTabDecided.current || projectAssignments.length + itAssignments.length === 0) return;
-    subTabDecided.current = true;
-    const hasPending = (list: AssetManagementRecord[]) => list.some((a) => !a.asset_declaration_attachment);
-    const projectNeedsNothing = !hasPending(projectAssignments);
-    if (projectNeedsNothing && (hasPending(itAssignments) || projectAssignments.length === 0)) setSubTab("IT");
-  }, [projectAssignments, itAssignments]);
+    if (subTabDecidedFor.current === location.key || projectAssignments.length + itAssignments.length === 0) return;
+    subTabDecidedFor.current = location.key;
+    setSubTab(
+      assetTabToOpen(
+        { total: projectAssignments.length, pending: projectPending },
+        { total: itAssignments.length, pending: itPending }
+      )
+    );
+  }, [location.key, projectAssignments.length, itAssignments.length, projectPending, itPending]);
 
   const visibleAssignments = subTab === "Project" ? projectAssignments : itAssignments;
 
@@ -423,7 +439,7 @@ export function UserAssetsTab({
         <Tabs
           value={subTab}
           onValueChange={(v) => {
-            subTabDecided.current = true;
+            subTabDecidedFor.current = location.key;
             setSubTab(v as AssetSubTab);
           }}
         >
@@ -438,6 +454,7 @@ export function UserAssetsTab({
               <Badge variant="secondary" className="ml-1 px-1.5 py-0 h-5 text-xs">
                 {projectAssignments.length}
               </Badge>
+              <PendingDeclarationMark count={projectPending} canSign={isOwnProfile} />
             </TabsTrigger>
             <TabsTrigger
               value="IT"
@@ -449,6 +466,7 @@ export function UserAssetsTab({
               <Badge variant="secondary" className="ml-1 px-1.5 py-0 h-5 text-xs">
                 {itAssignments.length}
               </Badge>
+              <PendingDeclarationMark count={itPending} canSign={isOwnProfile} />
             </TabsTrigger>
           </TabsList>
         </Tabs>
