@@ -6,7 +6,7 @@
 A bank statement's match run (the ICICI contains-guard run) attaches to each open credit line the
 waiting refund(s) the pure rule `services/outflow_import/refund_suggestion` finds, and the screen's row
 read hands them to the decision dialog ready to confirm. The accountant still confirms: the run writes
-nothing to a refund, and the suggestion settles only through `inflows.match_waiting_refunds`.
+nothing to a refund, and the suggestion settles only through `waiting_refund_match.match_waiting_refunds`.
 
 The only rule live on today's data is the bank reference: ICICI has no account or IFSC column.
 
@@ -16,14 +16,14 @@ The only rule live on today's data is the bank reference: ICICI has no account o
 import frappe
 
 from nirmaan_stack.api.outflow_import.review import ROW_DOCTYPE, SCOPE_ALL, get_outflow_rows, match_batch
-from nirmaan_stack.api.outflow_import.test_waiting_refund_match import WaitingRefundFixture
+from nirmaan_stack.api.outflow_import.test_waiting_refund_match import BankLineRefundFixture
 from nirmaan_stack.api.vendor_refunds.waiting_refunds import mark_received_without_bank_line
 from nirmaan_stack.services.outflow_import.normalize import normalize_reference
 from nirmaan_stack.services.outflow_import.status import ROW_SETTLED
 from nirmaan_stack.services.vendor_refunds import CANCELLED, RECEIVED
 
 
-class TestTheRunSuggestsAWaitingRefund(WaitingRefundFixture):
+class TestTheRunSuggestsAWaitingRefund(BankLineRefundFixture):
     """⚠️ AT MOST SIX CONSUMING TESTS PER CLASS: the fixture holds six open credits."""
 
     def _line_with_reference(self, amount, reference):

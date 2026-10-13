@@ -21,6 +21,7 @@ from nirmaan_stack.api.po_adjustments._payment_utils import (
 from nirmaan_stack.api.po_adjustments.refund_links import get_po_refund_links
 from nirmaan_stack.api.po_revisions.revision_logic import on_approval_revision
 from nirmaan_stack.api.po_revisions.revision_po_check import check_po_in_pending_revisions
+from nirmaan_stack.api.vendor_refunds.po_refund_fixture import purge
 
 PO = "Procurement Orders"
 RATE, TAX = 100.0, 18.0
@@ -39,30 +40,26 @@ class TestABankLineRefundSettlesTheBalance(InflowFixture):
     @classmethod
     def tearDownClass(cls):
         frappe.db.rollback()
+        adjustments = cls._adjustments()
         scopes = [
-            ("PO Adjustment Items", {"parent": ["in", cls._adjustments()]}),
+            ("PO Adjustment Items", {"parent": ["in", adjustments]}),
             ("PO Adjustments", {"po_id": ["in", cls.own_pos]}),
             ("PO Revisions Items", {"parent": ["in", cls.own_revisions]}),
             ("PO Revisions", {"name": ["in", cls.own_revisions]}),
             ("Project Payments", {"document_name": ["in", cls.own_pos]}),
             ("PO Payment Terms", {"parent": ["in", cls.own_pos]}),
             ("Purchase Order Item", {"parent": ["in", cls.own_pos]}),
-            ("Version", {"docname": ["in", cls.own_pos + cls.own_revisions + cls._adjustments()]}),
+            ("Version", {"docname": ["in", cls.own_pos + cls.own_revisions + adjustments]}),
             (PO, {"name": ["in", cls.own_pos]}),
         ]
-        failures = []
-        for doctype, filters in scopes:
-            if not cls.own_pos:
-                break
-            try:
-                frappe.db.delete(doctype, filters)
-                frappe.db.commit()
-            except Exception as e:  # report, keep purging the rest
-                frappe.db.rollback()
-                failures.append(f"{doctype}: {e}")
-        super().tearDownClass()
-        if failures:
-            raise AssertionError("purge failed: " + "; ".join(failures))
+        try:
+            if cls.own_pos:
+                purge([
+                    (doctype, lambda doctype=doctype, filters=filters: frappe.db.delete(doctype, filters))
+                    for doctype, filters in scopes
+                ])
+        finally:
+            super().tearDownClass()
 
     @classmethod
     def _adjustments(cls):

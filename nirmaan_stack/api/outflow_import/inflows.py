@@ -21,10 +21,9 @@ THE THREE DISPOSITIONS A CREDIT CAN TAKE, DIVIDED BY WHO IS BEHIND THE MONEY:
   * `create_vendor_refund` -- money a VENDOR paid back, written as one `Vendor Refund` per PO / Work
     Order it is against, plus one for a Misc. Expense part. It creates no Project Payment; each PO / WO
     part lowers that document's paid amount.
-  * `match_waiting_refunds` (#1401) -- the same money when "Adjust Payments" already recorded it as a
-    waiting Vendor Refund: the line is matched to the existing refund(s), which turn Received. Nothing
-    is created. `get_waiting_vendor_refunds` is the pool the dialog lists, and the reason "Create a
-    vendor refund" warns first.
+  * `waiting_refund_match.match_waiting_refunds` (#1401) -- the same money when "Adjust Payments"
+    already recorded it as a waiting Vendor Refund: the line is matched to the existing refund(s),
+    which turn Received. Nothing is created. Its own module, beside this one, on these guards.
 
 The axis this module splits on is DIRECTION: `expenses.py` holds every endpoint that writes an
 OUTFLOW, and this one holds the ones a reviewer may take with a credit row, sharing
@@ -97,14 +96,9 @@ from nirmaan_stack.services.outflow_import.settle import (
     create_inflow_from_row,
     create_non_project_inflow_from_row,
     create_vendor_refund_from_row,
-    match_waiting_refunds_to_row,
 )
-from nirmaan_stack.services.outflow_import.ledgers import INFLOW_DOCTYPES, VENDOR_REFUND_DOCTYPE
-from nirmaan_stack.services.vendor_refunds import (
-    PROCUREMENT_ORDERS,
-    matchable_refunds,
-    refund_documents,
-)
+from nirmaan_stack.services.outflow_import.ledgers import INFLOW_DOCTYPES
+from nirmaan_stack.services.vendor_refunds import refund_documents
 
 __all__ = [
     "create_inflow",
@@ -112,8 +106,6 @@ __all__ = [
     "create_vendor_refund",
     "get_inflow_context",
     "get_vendor_refund_documents",
-    "get_waiting_vendor_refunds",
-    "match_waiting_refunds",
 ]
 
 
@@ -327,113 +319,6 @@ def create_vendor_refund(
         {"doctype": r.doctype, "name": r.name, "amount": float(r.amount)} for r in results
     ]
     return summary
-
-
-@frappe.whitelist(methods=["POST"])
-def match_waiting_refunds(row: str, refunds=None, confirm_mismatch=False):
-    """Match a bank CREDIT to one or more waiting `Vendor Refund`s, creating nothing (#1401, ADR-0032).
-
-    URL: /api/method/nirmaan_stack.api.outflow_import.inflows.match_waiting_refunds
-
-    ⚠️ THE CLIENT SENDS ONLY WHICH REFUNDS (`refunds`: a list of names, or its JSON). The amounts are
-    the refunds' own and the line's, read server-side; together they must add up to the line EXACTLY
-    (owner, 2026-10-13: no partial allocation for credit lines), so the row is loaded as for every
-    whole-transfer write (`_load_settleable_row`, which refuses a Settled or partly allocated line).
-
-    ⚠️ THE SAME PRELUDE AS `create_vendor_refund`: this import's own earlier inflow for the credit, then
-    the recorded-money guard (#1260). The guard counts only RECEIVED refunds
-    (`candidates.CONTAINS_LEDGERS`), so a waiting refund whose typed UTR is the line's own reference
-    does not refuse its own match; the refunds being matched are also passed as `writing`.
-
-    ⚠️ ONE LEG PER REFUND, `created_by_import = 0`, all inside one savepoint and one commit. That flag is
-    what makes Unreconcile send the refund back to waiting instead of deleting it. Each refund's save
-    runs the PO sync through the refund hook: paid amount, the adjustment link (balance and lock) and
-    the vendor's credit move in this same transaction.
-    """
-    actor = require_outflow_access()
-    if isinstance(refunds, str):
-        refunds = frappe.parse_json(refunds) if refunds.strip().startswith("[") else [refunds]
-    names = [str(name).strip() for name in (refunds or []) if str(name or "").strip()]
-    staged, doc = _load_settleable_row(row)
-    _guard_is_a_credit(doc)
-    _guard_not_already_recorded(staged, doc)
-    _guard_money_not_recorded(
-        staged, doc, confirm_mismatch, writing=[(VENDOR_REFUND_DOCTYPE, name) for name in names]
-    )
-    statement_file_url = _statement_file_url(doc["import_batch"])
-
-    savepoint = f"ofi_refund_match_{frappe.generate_hash(length=10)}"
-    frappe.db.savepoint(savepoint)
-    try:
-        results = match_waiting_refunds_to_row(
-            staged,
-            refunds=names,
-            # FROM THE STORED ROW, NEVER FROM THE PAYLOAD -- see `create_non_project_inflow`.
-            direction=doc.get("direction"),
-            statement_file_url=statement_file_url,
-        )
-        for result in results:
-            _record_settlement(staged, doc, result, actor)
-        # Nothing was created, so the note reads "Settled", not "Recorded".
-        _refresh_row_allocation(staged.name, actor, results[0])
-    except Exception:
-        frappe.db.rollback(save_point=savepoint)
-        raise
-    frappe.db.release_savepoint(savepoint)
-
-    statuses = _refresh_batch_rollup(doc["import_batch"])
-    frappe.db.commit()
-    # AFTER THE COMMIT, for the reason `create_non_project_inflow` gives.
-    for result in results:
-        _link_statement_file_to_target(statement_file_url, result)
-    _publish_refund_pos([result.name for result in results])
-    summary = _summary(row, results[0], doc["import_batch"], statuses)
-    summary["records"] = [
-        {"doctype": r.doctype, "name": r.name, "amount": float(r.amount)} for r in results
-    ]
-    return summary
-
-
-@frappe.whitelist()
-def get_waiting_vendor_refunds(vendor: str):
-    """The vendor's refunds a credit line may be matched to, oldest first (#1401): what the decision
-    dialog lists under "Match a waiting Vendor Refund", and what makes "Create a vendor refund" warn.
-
-    Each row: name, amount, status, document_type, document_name, project, project_name, payment_date,
-    utr, waiting_created_by, creation. Gated by the import's own access rule.
-    """
-    require_outflow_access()
-    rows = matchable_refunds(vendor)
-    project_ids = sorted({row.project for row in rows if row.project})
-    names = (
-        dict(
-            frappe.get_all(
-                "Projects",
-                filters={"name": ["in", project_ids]},
-                fields=["name", "project_name"],
-                as_list=True,
-                limit_page_length=0,
-            )
-        )
-        if project_ids
-        else {}
-    )
-    for row in rows:
-        row["project_name"] = names.get(row.project) or row.project
-    return rows
-
-
-def _publish_refund_pos(refunds) -> None:
-    """Tell an open PO page its refund moved: the event "Adjust Payments" and the lock banner listen to."""
-    pos = frappe.get_all(
-        VENDOR_REFUND_DOCTYPE,
-        filters={"name": ["in", list(refunds) or ["-"]], "document_type": PROCUREMENT_ORDERS},
-        pluck="document_name",
-    )
-    for po_id in sorted({po for po in pos if po}):
-        frappe.publish_realtime(
-            event="po:payment_adjustment", message={"po_id": po_id, "status": "refund_matched"}
-        )
 
 
 @frappe.whitelist()

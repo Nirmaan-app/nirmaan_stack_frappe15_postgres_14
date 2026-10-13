@@ -5833,7 +5833,7 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   The rest beyond the balance is `get_po_refund_links(po_id).over_balance`, the PO page's warning. ⚠️ Tests
   that refund REAL POs pick POs with no `PO Adjustments`, since their raw purge cannot undo a link.
 - ⚠️ **A CREDIT LINE MAY BE MATCHED TO WAITING REFUNDS INSTEAD (#1401, ADR-0032).**
-  `inflows.match_waiting_refunds(row, refunds)` matches the line to one or more existing Reconciliation
+  `waiting_refund_match.match_waiting_refunds(row, refunds)` matches the line to one or more existing Reconciliation
   Pending refunds of one vendor (pool: `get_waiting_vendor_refunds(vendor)` ->
   `services/vendor_refunds.matchable_refunds`). Their amounts must add up to the line EXACTLY
   (`waiting_match_problem`; owner 2026-10-13: no partial allocation for credit lines). Each refund turns
@@ -5845,7 +5845,10 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   counts only `Received` refunds** (`candidates.CONTAINS_LEDGERS`, `ContainsLedger.status`): a waiting
   refund whose typed UTR is the line's reference must not get its own line skipped. The dialog's "Match a
   waiting Vendor Refund" card sits above "Create a vendor refund", which warns when the vendor has waiting
-  refunds (`waitingRefundMatch.ts`).
+  refunds (`waitingRefundMatch.ts`). **A matched refund's UTR is fixed while its leg is live**
+  (`vendor_refunds.utr_edit_problem`, asked by `waiting_refunds.update_waiting_refund`; the refund rows
+  carry `bank_matched`): `unmatch_refund` refuses a refund whose UTR is no longer one of the line's
+  references as "Changed elsewhere", so a paperwork edit must not change it. Unreconcile first.
 - ⚠️ **"RECEIVED WITH NO BANK LINE" IS STILL WAITING FOR ITS LINE (#1403, ADR-0032).** An Admin's
   `waiting_refunds.mark_received_without_bank_line(refund, reason)` makes a waiting refund Received at once
   (it counts) with `no_bank_line = 1` ("No bank proof") and `no_bank_line_by` / `_at` / `_reason`. While

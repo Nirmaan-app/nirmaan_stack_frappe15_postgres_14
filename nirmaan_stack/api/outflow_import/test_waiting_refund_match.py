@@ -20,12 +20,14 @@ import frappe
 from frappe.utils import getdate
 
 from nirmaan_stack.api.outflow_import.expenses import MoneyAlreadyRecordedError
-from nirmaan_stack.api.outflow_import.inflows import get_waiting_vendor_refunds, match_waiting_refunds
+from nirmaan_stack.api.outflow_import.waiting_refund_match import get_waiting_vendor_refunds, match_waiting_refunds
 from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, ROW_DOCTYPE, match_batch
 from nirmaan_stack.api.outflow_import.test_inflows import InflowFixture
 from nirmaan_stack.api.outflow_import.unreconcile import get_unreconcile_plan, unreconcile_row
 from nirmaan_stack.api.po_revisions.revision_po_check import check_po_in_pending_revisions
+from nirmaan_stack.api.vendor_refunds import po_refund_fixture
 from nirmaan_stack.api.vendor_refunds.list_refunds import get_vendor_refunds
+from nirmaan_stack.api.vendor_refunds.po_refund_fixture import ADJ, PO
 from nirmaan_stack.api.vendor_refunds.waiting_refunds import (
     mark_received_without_bank_line,
     record_waiting_refund,
@@ -35,17 +37,13 @@ from nirmaan_stack.services.outflow_import.settle import InflowNotRecordableErro
 from nirmaan_stack.services.outflow_import.status import ROW_SETTLED, ROW_SKIPPED
 from nirmaan_stack.services.vendor_refunds import CANCELLED, RECEIVED, RECONCILIATION_PENDING
 
-PO = "Procurement Orders"
-ADJ = "PO Adjustments"
-ADJ_ITEM = "PO Adjustment Items"
-PAYMENT = "Project Payments"
 VENDOR_REFUNDS = "Vendor Refunds"
 
 #: Each PO is worth 10,000 and was paid 11,180: up to 1,180 genuinely overpaid.
 TOTAL, PAID = 10000.0, 11180.0
 
 
-class WaitingRefundFixture(InflowFixture):
+class BankLineRefundFixture(InflowFixture):
     """Overpaid POs and waiting refunds on the fixture's vendor, purged by name after each test. Also
     read by `test_waiting_refund_suggestion` (#1402).
 
@@ -57,75 +55,18 @@ class WaitingRefundFixture(InflowFixture):
 
     def tearDown(self):
         frappe.set_user("Administrator")
-        frappe.db.rollback()
-        refunds = self.refunds or ["-"]
-        scopes = [
-            ("Version", lambda: frappe.db.delete(
-                "Version", {"ref_doctype": ["in", [VENDOR_REFUNDS, ADJ]],
-                            "docname": ["in", refunds + (self.adjustments or ["-"])]})),
-            ("File", lambda: frappe.db.delete(
-                "File", {"attached_to_doctype": VENDOR_REFUNDS, "attached_to_name": ["in", refunds]})),
-            (VENDOR_REFUNDS, lambda: frappe.db.delete(VENDOR_REFUNDS, {"name": ["in", refunds]})),
-            (PAYMENT, lambda: self.pos and frappe.db.delete(
-                PAYMENT, {"document_type": PO, "document_name": ["in", self.pos]})),
-            (ADJ_ITEM, lambda: self.adjustments and frappe.db.delete(ADJ_ITEM, {"parent": ["in", self.adjustments]})),
-            (ADJ, lambda: self.adjustments and frappe.db.delete(ADJ, {"name": ["in", self.adjustments]})),
-            (PO, lambda: self.pos and frappe.db.delete(PO, {"name": ["in", self.pos]})),
-        ]
-        failures = []
-        for label, purge in scopes:
-            try:
-                purge()
-                frappe.db.commit()
-            except Exception as exc:  # report, never strand the next scope
-                frappe.db.rollback()
-                failures.append(f"{label}: {exc}")
-        if failures:
-            raise AssertionError("purge failed: " + "; ".join(failures))
+        po_refund_fixture.purge(po_refund_fixture.po_scopes(self.pos, self.adjustments, self.refunds))
 
     # ── fixture ─────────────────────────────────────────────────────────────────
 
     def _overpaid_po(self, remaining):
         """A PO of the fixture's vendor paid 11,180 on 10,000 through one real Paid payment, its
         adjustment Pending at `remaining` (negative: the vendor owes that much back)."""
-        po = f"TEST-1401-PO-{frappe.generate_hash(length=10)}"
-        frappe.db.sql(
-            f"""INSERT INTO "tab{PO}"
-                    (name, creation, modified, modified_by, owner, docstatus, idx, project, vendor,
-                     amount_paid, total_amount, amount_invoiced, amount_due, status)
-                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, %s,
-                        %s, %s, 0, %s, 'PO Approved')""",
-            (po, self.refund_project, self.vendor, PAID, TOTAL, -PAID),
+        po, adj = po_refund_fixture.overpaid_po(
+            "TEST-1401", self.refund_project, self.vendor, PAID, TOTAL, remaining
         )
         self.pos.append(po)
-        frappe.db.sql(
-            f"""INSERT INTO "tab{PAYMENT}"
-                    (name, creation, modified, modified_by, owner, docstatus, idx,
-                     document_type, document_name, project, vendor, amount, status)
-                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0,
-                        %s, %s, %s, %s, %s, 'Paid')""",
-            (f"TEST-1401-PAY-{frappe.generate_hash(length=10)}", PO, po, self.refund_project,
-             self.vendor, PAID),
-        )
-        adj = f"TEST-1401-ADJ-{frappe.generate_hash(length=8)}"
-        frappe.db.sql(
-            f"""INSERT INTO "tab{ADJ}"
-                    (name, creation, modified, modified_by, owner, docstatus, idx,
-                     po_id, project, vendor, status, remaining_impact)
-                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0,
-                        %s, %s, %s, 'Pending', %s)""",
-            (adj, po, self.refund_project, self.vendor, remaining),
-        )
         self.adjustments.append(adj)
-        frappe.db.sql(
-            f"""INSERT INTO "tab{ADJ_ITEM}"
-                    (name, creation, modified, modified_by, owner, docstatus, idx,
-                     parent, parenttype, parentfield, entry_type, amount)
-                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 1,
-                        %s, %s, 'adjustment_items', 'Revision Impact', %s)""",
-            (frappe.generate_hash(length=10), adj, ADJ, remaining),
-        )
-        frappe.db.commit()
         return po, adj
 
     def _waiting(self, po, amount, utr="TYPED-BY-PROCUREMENT", payment_date="2026-10-01"):
@@ -148,7 +89,7 @@ class WaitingRefundFixture(InflowFixture):
         return match_waiting_refunds(row=row["name"], refunds=frappe.as_json(refunds), **kwargs)
 
 
-class TestMatchingAWaitingRefund(WaitingRefundFixture):
+class TestMatchingAWaitingRefund(BankLineRefundFixture):
     """⚠️ AT MOST SIX CONSUMING TESTS PER CLASS: the fixture holds six open credits."""
 
     # ── the match ───────────────────────────────────────────────────────────────
@@ -295,7 +236,7 @@ class TestMatchingAWaitingRefund(WaitingRefundFixture):
         self.assertEqual(frappe.db.get_value(VENDOR_REFUNDS, refund, "status"), RECEIVED)
 
 
-class TestMatchingANoBankLineRefund(WaitingRefundFixture):
+class TestMatchingANoBankLineRefund(BankLineRefundFixture):
     """#1403: an Admin marked a waiting refund Received with no bank line. It already counts, and it stays
     in the waiting pool, so the late bank line is matched to it (adding the bank leg, removing the "No
     bank proof" mark) instead of becoming a second refund. Unreconcile returns it to "Received, no bank
@@ -383,7 +324,7 @@ class TestMatchingANoBankLineRefund(WaitingRefundFixture):
         self.assertEqual(self._mark(refund).no_bank_line, 0)
 
 
-class TestABankMatchedRefundKeepsItsUtr(WaitingRefundFixture):
+class TestABankMatchedRefundKeepsItsUtr(BankLineRefundFixture):
     """While a bank line is matched to a refund, its UTR is the line's reference, and Unreconcile reads
     it to know the match is still its own. So the UTR is fixed until the match is undone; the rest of
     its paperwork stays editable (story 10)."""

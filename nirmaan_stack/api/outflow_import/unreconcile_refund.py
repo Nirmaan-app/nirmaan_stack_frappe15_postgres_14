@@ -5,7 +5,7 @@
 
 `unreconcile.unreconcile_row` asks the pure decision module, which answers `unmatch_refund` for a
 Vendor Refunds leg the import did not create (`created_by_import = 0`, written only by
-`inflows.match_waiting_refunds`). This module reads that refund's facts and, on that verdict, puts it
+`waiting_refund_match.match_waiting_refunds`). This module reads that refund's facts and, on that verdict, puts it
 back. Nothing here commits: it runs inside the orchestrator's savepoint.
 
 ⚠️ THE REFUND IS KEPT. It existed before the line (procurement recorded it from "Adjust Payments"), so

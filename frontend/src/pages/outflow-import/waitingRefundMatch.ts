@@ -4,7 +4,7 @@
 // recorded from "Adjust Payments" before the bank line waits at Reconciliation Pending; a credit line is
 // matched to one or more of them instead of creating a second refund. Pure: no React, no fetch.
 //
-// ⚠️ CONVENIENCE ONLY. The server (`inflows.match_waiting_refunds`, rule
+// ⚠️ CONVENIENCE ONLY. The server (`waiting_refund_match.match_waiting_refunds`, rule
 // `services/vendor_refunds.waiting_match_problem`) re-reads every refund under lock and re-checks that
 // each is still waiting, all one vendor's, and that together they add up EXACTLY to the line (owner,
 // 2026-10-13: no partial allocation for credit lines).
@@ -15,7 +15,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 /** `matcher.BASIS_BANK_REFERENCE`: the import found the refund by the line's bank reference (#1402). */
 export const BASIS_BANK_REFERENCE = "Bank reference";
 
-/** One row of `inflows.get_waiting_vendor_refunds`: a refund this vendor's credit line may be matched to --
+/** One row of `waiting_refund_match.get_waiting_vendor_refunds`: a refund this vendor's credit line may be matched to --
  *  waiting (Reconciliation Pending), or Received with no bank line (`services/vendor_refunds.is_matchable`). */
 export interface MatchableRefund {
     name: string;

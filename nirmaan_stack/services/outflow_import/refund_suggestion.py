@@ -6,7 +6,7 @@
 PURE MODULE, beside `matcher.py` and on its types: no `frappe`, no database. The caller passes the
 line, its vendor resolution and the pool of refunds waiting for a bank line
 (`services/vendor_refunds.every_matchable_refund`). It PROPOSES; the accountant confirms through the
-decision dialog, which posts to `inflows.match_waiting_refunds` (owner ruling 2026-08-07: every match
+decision dialog, which posts to `waiting_refund_match.match_waiting_refunds` (owner ruling 2026-08-07: every match
 needs a person).
 
 The same evidence as outgoing payments, and nothing weaker:

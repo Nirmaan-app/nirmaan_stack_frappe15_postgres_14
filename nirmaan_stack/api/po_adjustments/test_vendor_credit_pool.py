@@ -20,6 +20,7 @@ import unittest
 import frappe
 
 from nirmaan_stack.api.po_adjustments.adjustment_logic import get_vendor_adjustment_credit
+from nirmaan_stack.api.vendor_refunds.po_refund_fixture import purge
 
 PO_DOCTYPE = "Procurement Orders"
 ADJ_DOCTYPE = "PO Adjustments"
@@ -34,23 +35,13 @@ class VendorCreditPoolTests(unittest.TestCase):
         self.pos, self.adjustments = [], []
 
     def tearDown(self):
-        frappe.db.rollback()
-        scopes = (
-            (ADJ_DOCTYPE, self.adjustments),
-            (PO_DOCTYPE, self.pos),
-        )
-        failures = []
-        for doctype, names in scopes:
-            try:
-                for name in names:
-                    frappe.db.sql(f'DELETE FROM "tab{doctype}" WHERE name=%s', (name,))
-                frappe.db.commit()
-            except Exception as exc:  # report, never strand the next scope
-                frappe.db.rollback()
-                failures.append(f"{doctype}: {exc}")
-        super().tearDown()
-        if failures:
-            raise AssertionError("purge failed: " + "; ".join(failures))
+        try:
+            purge([
+                (ADJ_DOCTYPE, lambda: self.adjustments and frappe.db.delete(ADJ_DOCTYPE, {"name": ["in", self.adjustments]})),
+                (PO_DOCTYPE, lambda: self.pos and frappe.db.delete(PO_DOCTYPE, {"name": ["in", self.pos]})),
+            ])
+        finally:
+            super().tearDown()
 
     def _source(self, remaining, amount_paid, total_amount):
         po = f"TEST-1397-PO-{frappe.generate_hash(length=10)}"

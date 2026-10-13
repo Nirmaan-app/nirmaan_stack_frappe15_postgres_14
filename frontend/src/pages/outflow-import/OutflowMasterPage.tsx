@@ -436,7 +436,7 @@ export const OutflowMasterPage = () => {
     // MATCHED to it; nothing is created. ⚠️ THE PAYLOAD CARRIES ONLY WHICH REFUNDS: the server re-reads
     // their amounts and the line's, and refuses unless they add up exactly.
     const { call: callMatchWaitingRefunds } = useFrappePostCall(
-        "nirmaan_stack.api.outflow_import.inflows.match_waiting_refunds"
+        "nirmaan_stack.api.outflow_import.waiting_refund_match.match_waiting_refunds"
     );
     // ⚠️ A SEPARATE ENDPOINT, AND THE SEPARATION IS THE GUARD (slice PS). The bulk confirm loops
     // `settleOne`, which calls `settle_row`; a partial can only ever be reached from one reviewer

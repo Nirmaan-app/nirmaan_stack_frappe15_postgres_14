@@ -42,21 +42,14 @@ class TestConvertAnAdjustmentRefund(WaitingRefundFixture):
         super().setUp()
         self.files = []
 
-    def tearDown(self):
-        frappe.db.rollback()
-        for label, purge in (
+    def _purge_scopes(self):
+        return [
             (TERMS, lambda: self.pos and frappe.db.delete(TERMS, {"parent": ["in", self.pos]})),
             ("File", lambda: self.files and frappe.db.delete("File", {"name": ["in", self.files]})),
             ("Deleted Document", lambda: self.pos and frappe.db.sql(
                 """DELETE FROM "tabDeleted Document" WHERE deleted_doctype = %s AND data LIKE %s""",
                 (PAYMENT, "%TEST-1404-%"))),
-        ):
-            try:
-                purge()
-                frappe.db.commit()
-            except Exception:
-                frappe.db.rollback()
-        super().tearDown()
+        ] + super()._purge_scopes()
 
     # ── fixture: the old shape, as `execute_adjustment` "Vendor-has-refund" wrote it ──
 

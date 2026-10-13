@@ -40,20 +40,11 @@ class TestARefundLowersTheCashflowGap(WaitingRefundFixture):
         self.project = project.name
         frappe.db.commit()
 
-    def tearDown(self):
-        frappe.db.rollback()
-        try:
-            ceo_hold.clear_all_reasons(self.project)
-            frappe.db.delete("Projects", {"name": self.project})
-            frappe.db.commit()
-        except Exception as exc:  # report after the fixture's own purge has run
-            frappe.db.rollback()
-            failure = exc
-        else:
-            failure = None
-        super().tearDown()
-        if failure:
-            raise AssertionError(f"purge failed: Projects: {failure}")
+    def _purge_scopes(self):
+        return super()._purge_scopes() + [
+            ("CEO Hold Reason", lambda: ceo_hold.clear_all_reasons(self.project)),
+            ("Projects", lambda: frappe.db.delete("Projects", {"name": self.project})),
+        ]
 
     def _outflow(self):
         return flt(get_projects_financial_rollup()[self.project]["outflow"], 2)

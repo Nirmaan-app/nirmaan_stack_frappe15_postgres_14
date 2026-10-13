@@ -25,7 +25,8 @@ from nirmaan_stack.api.po_adjustments.adjustment_logic import (
     write_off_adjustment,
 )
 from nirmaan_stack.api.po_revisions.revision_po_check import check_po_in_pending_revisions
-from nirmaan_stack.api.vendor_refunds import credit_fixture
+from nirmaan_stack.api.vendor_refunds import credit_fixture, po_refund_fixture
+from nirmaan_stack.api.vendor_refunds.po_refund_fixture import ADJ, ADJ_ITEM, PAYMENT, PO
 from nirmaan_stack.api.vendor_refunds.waiting_refunds import (
     cancel_waiting_refund,
     record_waiting_refund,
@@ -40,10 +41,6 @@ from nirmaan_stack.services.role_profiles import (
 )
 from nirmaan_stack.services.vendor_refunds import CANCELLED, RECEIVED, RECONCILIATION_PENDING
 
-PO = "Procurement Orders"
-ADJ = "PO Adjustments"
-ADJ_ITEM = "PO Adjustment Items"
-PAYMENT = "Project Payments"
 VENDOR_REFUNDS = "Vendor Refunds"
 
 #: The PO is worth 10,000 and was paid 11,180: 1,180 genuinely overpaid, and the ledger says so.
@@ -72,72 +69,24 @@ class WaitingRefundFixture(unittest.TestCase):
 
     def tearDown(self):
         frappe.set_user("Administrator")
+        po_refund_fixture.purge(self._purge_scopes())
+
+    def _purge_scopes(self):
+        """What this suite made, children first; a subclass adds its own scopes in front."""
         frappe.db.rollback()
         refunds = frappe.get_all(VENDOR_REFUNDS, {"document_name": ["in", self.pos or ["-"]]}, pluck="name")
-        scopes = [
-            ("Version", lambda: refunds and frappe.db.delete(
-                "Version", {"ref_doctype": VENDOR_REFUNDS, "docname": ["in", refunds]})),
-            (VENDOR_REFUNDS, lambda: refunds and frappe.db.delete(VENDOR_REFUNDS, {"name": ["in", refunds]})),
-            (PAYMENT, lambda: self.pos and frappe.db.delete(
-                PAYMENT, {"document_type": PO, "document_name": ["in", self.pos]})),
-            (ADJ_ITEM, lambda: self.adjustments and frappe.db.delete(ADJ_ITEM, {"parent": ["in", self.adjustments]})),
-            (ADJ, lambda: self.adjustments and frappe.db.delete(ADJ, {"name": ["in", self.adjustments]})),
-            (PO, lambda: self.pos and frappe.db.delete(PO, {"name": ["in", self.pos]})),
+        return po_refund_fixture.po_scopes(self.pos, self.adjustments, refunds) + [
             ("vendor credit", lambda: credit_fixture.restore(self.credit)),
         ]
-        failures = []
-        for label, purge in scopes:
-            try:
-                purge()
-                frappe.db.commit()
-            except Exception as exc:  # report, never strand the next scope
-                frappe.db.rollback()
-                failures.append(f"{label}: {exc}")
-        if failures:
-            raise AssertionError("purge failed: " + "; ".join(failures))
 
     # ── fixture ─────────────────────────────────────────────────────────────────
 
     def _overpaid_po(self, remaining=-CREDIT):
         """A PO paid 11,180 on 10,000 through one real Paid payment, its adjustment Pending at
-        `remaining`. amount_due already agrees with amount_paid, so a recompute moves nothing."""
-        po = f"TEST-1400-PO-{frappe.generate_hash(length=10)}"
-        frappe.db.sql(
-            f"""INSERT INTO "tab{PO}"
-                    (name, creation, modified, modified_by, owner, docstatus, idx, project, vendor,
-                     amount_paid, total_amount, amount_invoiced, amount_due, status)
-                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, %s,
-                        %s, %s, 0, %s, 'PO Approved')""",
-            (po, self.project, self.vendor, PAID, TOTAL, -PAID),
-        )
+        `remaining`."""
+        po, adj = po_refund_fixture.overpaid_po("TEST-1400", self.project, self.vendor, PAID, TOTAL, remaining)
         self.pos.append(po)
-        frappe.db.sql(
-            f"""INSERT INTO "tab{PAYMENT}"
-                    (name, creation, modified, modified_by, owner, docstatus, idx,
-                     document_type, document_name, project, vendor, amount, status)
-                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0,
-                        %s, %s, %s, %s, %s, 'Paid')""",
-            (f"TEST-1400-PAY-{frappe.generate_hash(length=10)}", PO, po, self.project, self.vendor, PAID),
-        )
-        adj = f"TEST-1400-ADJ-{frappe.generate_hash(length=8)}"
-        frappe.db.sql(
-            f"""INSERT INTO "tab{ADJ}"
-                    (name, creation, modified, modified_by, owner, docstatus, idx,
-                     po_id, project, vendor, status, remaining_impact)
-                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0,
-                        %s, %s, %s, 'Pending', %s)""",
-            (adj, po, self.project, self.vendor, remaining),
-        )
         self.adjustments.append(adj)
-        frappe.db.sql(
-            f"""INSERT INTO "tab{ADJ_ITEM}"
-                    (name, creation, modified, modified_by, owner, docstatus, idx,
-                     parent, parenttype, parentfield, entry_type, amount)
-                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 1,
-                        %s, %s, 'adjustment_items', 'Revision Impact', %s)""",
-            (frappe.generate_hash(length=10), adj, ADJ, remaining),
-        )
-        frappe.db.commit()
         return po, adj
 
     def _figures(self, po, adj):

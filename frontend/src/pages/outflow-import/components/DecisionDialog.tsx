@@ -279,10 +279,10 @@ const MATCH_WAITING_REFUND_TARGET: { id: DecisionTarget; label: string; hint: st
     hint: "a refund procurement already recorded — it turns Received; nothing new is created",
 };
 
-/** A vendor's waiting refunds (`inflows.get_waiting_vendor_refunds`), or nothing until one is chosen. */
+/** A vendor's waiting refunds (`waiting_refund_match.get_waiting_vendor_refunds`), or nothing until one is chosen. */
 const useWaitingRefunds = (vendor: string | null | undefined) => {
     const { data, isLoading } = useFrappeGetCall<{ message: MatchableRefund[] }>(
-        "nirmaan_stack.api.outflow_import.inflows.get_waiting_vendor_refunds",
+        "nirmaan_stack.api.outflow_import.waiting_refund_match.get_waiting_vendor_refunds",
         { vendor },
         waitingRefundsKey(vendor)
     );
