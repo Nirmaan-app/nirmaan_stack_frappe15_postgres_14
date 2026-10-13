@@ -12,7 +12,9 @@ Who: `CHEQUE_ACCESS_PROFILES` (Admin, Accountant, Accountant Lead and the Procur
 A Cheque with no lines is an Ad-hoc cheque. PO/WO Payment lines (#1410) put their payments on the
 Cheque: an Online payment becomes a Cheque payment, and once the save is committed each linked
 payment that is Approved and not on hold moves on to Reconciliation Pending through the same move
-every approval route uses. Expense lines (#1411) and editing (#1418) are added to this endpoint.
+every approval route uses. Expense lines (#1411) name a Project Expense or Non Project Expense and
+change nothing on it; a cheque with a typed payee takes expense lines only. Editing (#1418) is to be
+added to this endpoint.
 """
 
 import frappe
@@ -47,7 +49,8 @@ def save_cheque(
     `bank` is "ICICI Bank" or "Others" (then `bank_name` is required). Exactly one of `vendor` or
     `payee_name`. `attachment` is the uploaded photo's file URL. `description` is required while
     the Cheque has no lines. `lines` is a list (or its JSON) of `{line_type, project, record_doctype,
-    record_name, payment_name?, amount?}`; a line with a payment and no amount takes the payment's.
+    record_name, payment_name?, amount?}`; an expense line's expense goes in `payment_name`, and a
+    line with a payment or expense and no amount takes its amount.
 
     Returns `{cheque, status, payments}`, `payments` being each linked payment's `{name, status}`
     after the move.

@@ -87,6 +87,28 @@ describe("chequeFormSchema", () => {
         );
     });
 
+    it("lets a typed-payee cheque carry expense lines", () => {
+        const typed = { payee_kind: "typed" as const, vendor: "", payee_name: "Tata Power", description: "" };
+        const lines = [
+            poLine({ line_type: "Non-project Expense", project: "", record_doctype: "", record_name: "", payment_name: "NPE-1" }),
+            poLine({ line_type: "Project Expense", record_doctype: "", record_name: "", payment_name: "PE-1" }),
+        ];
+        expect(chequeFormSchema.safeParse(valid({ ...typed, lines })).success).toBe(true);
+    });
+
+    it("asks an expense line for its expense, and a Project Expense line for its project", () => {
+        const issues = (line: ChequeLineDraft) => {
+            const result = chequeFormSchema.safeParse(valid({ lines: [line] }));
+            return result.success ? undefined : result.error.issues.map((i) => [i.path.join("."), i.message]);
+        };
+        const npe = poLine({ line_type: "Non-project Expense", project: "", record_doctype: "", record_name: "" });
+        expect(issues(npe)).toEqual([["lines.0.payment_name", "Pick the Non-Project Expense."]]);
+        expect(issues({ ...npe, line_type: "Project Expense" })).toEqual([
+            ["lines.0.project", "Pick the project."],
+            ["lines.0.payment_name", "Pick the Project Expense."],
+        ]);
+    });
+
     it("accepts a post-dated cheque", () => {
         expect(chequeFormSchema.safeParse(valid({ cheque_date: "2027-03-01" })).success).toBe(true);
     });

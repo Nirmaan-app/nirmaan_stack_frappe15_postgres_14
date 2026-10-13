@@ -5,6 +5,9 @@
  * server-side list over Cheques (`api/cheques/list_cheques.get_cheques`); Add Cheque records a new one.
  * Admin, Accountant, Accountant Lead and Procurement may open it (`CHEQUE_ACCESS_PROFILES`); the
  * server enforces the same.
+ *
+ * The cheque number opens the detail view (photo, lines, history). Accounts (`CHEQUE_ACCOUNTS_PROFILES`)
+ * also get the row's Status button and the bulk bar (#1412); the server refuses anyone else.
  */
 
 import { useMemo, useState } from "react";
@@ -12,10 +15,15 @@ import { useFrappeEventListener } from "frappe-react-sdk";
 import { Plus } from "lucide-react";
 
 import { AddChequeDialog } from "@/components/cheques/AddChequeDialog";
+import { ChangeChequeStatusDialog } from "@/components/cheques/ChangeChequeStatusDialog";
+import { ChequeDetailDialog } from "@/components/cheques/ChequeDetailDialog";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Button } from "@/components/ui/button";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
+import { useUserData } from "@/hooks/useUserData";
+import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
+import { canChangeChequeStatus } from "@/utils/cheques/chequeStatus";
 
 import { getChequePaymentColumns } from "./columns/chequePaymentColumns";
 import {
@@ -30,9 +38,32 @@ import {
 
 const URL_KEY = "cheques";
 
+/** The Cheques a Change status dialog moves, with their shared status (undefined when mixed). */
+interface StatusTarget {
+    cheques: string[];
+    status?: ChequeStatus;
+}
+
+const sharedStatus = (rows: Pick<ChequeRow, "status">[]): ChequeStatus | undefined =>
+    rows.length && rows.every((r) => r.status === rows[0].status) ? rows[0].status : undefined;
+
 export default function ChequePaymentReport() {
+    const { role } = useUserData();
+    const canChangeStatus = canChangeChequeStatus(role);
     const [adding, setAdding] = useState(false);
-    const columns = useMemo(() => getChequePaymentColumns(), []);
+    const [detail, setDetail] = useState<string | null>(null);
+    const [statusTarget, setStatusTarget] = useState<StatusTarget>({ cheques: [] });
+
+    const columns = useMemo(
+        () =>
+            getChequePaymentColumns({
+                onOpen: setDetail,
+                onChangeStatus: canChangeStatus
+                    ? (row) => setStatusTarget({ cheques: [row.name], status: row.status })
+                    : undefined,
+            }),
+        [canChangeStatus],
+    );
 
     const {
         table,
@@ -55,10 +86,14 @@ export default function ChequePaymentReport() {
         searchableFields: CHEQUE_SEARCHABLE_FIELDS,
         defaultSort: "creation desc",
         urlSyncKey: URL_KEY,
+        enableRowSelection: canChangeStatus,
+        getRowId: (row) => row.name,
     });
 
     // Another user's save shows up without a reload.
     useFrappeEventListener(CHEQUES_CHANGED_EVENT, () => refetch());
+
+    const selected = table.getSelectedRowModel().rows.map((r) => r.original);
 
     if (error) return <AlertDestructive error={error} />;
 
@@ -81,13 +116,43 @@ export default function ChequePaymentReport() {
                 onExportAll={exportAllRows}
                 isExporting={isExporting}
                 exportFileName="cheques"
+                showRowSelection={canChangeStatus}
                 toolbarActions={
-                    <Button size="sm" onClick={() => setAdding(true)}>
-                        <Plus className="mr-1 h-4 w-4" /> Add Cheque
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        {canChangeStatus && selected.length > 0 && (
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                    setStatusTarget({ cheques: selected.map((r) => r.name), status: sharedStatus(selected) })
+                                }
+                            >
+                                Change status ({selected.length})
+                            </Button>
+                        )}
+                        <Button size="sm" onClick={() => setAdding(true)}>
+                            <Plus className="mr-1 h-4 w-4" /> Add Cheque
+                        </Button>
+                    </div>
                 }
             />
             <AddChequeDialog open={adding} onOpenChange={setAdding} onSaved={() => refetch()} />
+            <ChequeDetailDialog
+                cheque={detail}
+                onClose={() => setDetail(null)}
+                onChangeStatus={
+                    canChangeStatus ? (cheque, status) => setStatusTarget({ cheques: [cheque], status }) : undefined
+                }
+            />
+            <ChangeChequeStatusDialog
+                cheques={statusTarget.cheques}
+                currentStatus={statusTarget.status}
+                onClose={() => setStatusTarget({ cheques: [] })}
+                onDone={() => {
+                    table.resetRowSelection();
+                    refetch();
+                }}
+            />
         </>
     );
 }

@@ -17,11 +17,12 @@ Built so far:
   endpoint can ask it before inserting a payment.
 * `link_payments` -- puts each line's Project Payment on the Cheque: link, mode Cheque, number and
   date (#1410). `create_cheque` calls it; the caller then moves the payments on after its commit.
+  An expense line's expense (#1411) is never written: linking an expense changes nothing on it.
 * `payment_cheque_problem` and `create_payment_cheque` -- the one-line Cheque for one payment, made
   from the PO/WO page (#1414 Request Payment; #1416 Convert to Cheque). Ask the first BEFORE the
   payment is inserted: a Project Payment's `after_insert` commits, so a refusal after it is too late.
 
-To come, each beside these: editing a Cheque and its lines (#1411, #1418), status change for
+To come, each beside these: editing a Cheque and its lines (#1418), status change for
 one or many with history (#1412), switching a payment back to Online, and detaching a Rejected or deleted payment's line (#1413).
 
 The line pickers' lists are read-only and live in `services/cheques/pickers.py`; the line rules

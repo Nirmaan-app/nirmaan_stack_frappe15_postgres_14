@@ -12,6 +12,20 @@ const fileNameOf = (url: string) => {
 
 const isPdf = (url: string) => /\.pdf$/i.test(fileNameOf(url));
 
+/** A Cheque's photo shown inline: the image, or the PDF in a frame. */
+export const ChequePhoto = ({ url, chequeNo, className }: { url: string; chequeNo?: string; className?: string }) => {
+    const href = `${SITEURL}${url}`;
+    return isPdf(url) ? (
+        <iframe src={href} title={`Cheque ${chequeNo ?? ""}`} className={className ?? "h-[70vh] w-full rounded border"} />
+    ) : (
+        <img
+            src={href}
+            alt={`Cheque ${chequeNo ?? ""}`}
+            className={className ?? "max-h-[70vh] w-full rounded border object-contain"}
+        />
+    );
+};
+
 interface ChequePhotoLinkProps {
     /** The Cheque's `attachment` file URL; a backfilled Cheque has none. */
     url?: string | null;
@@ -53,16 +67,7 @@ export const ChequePhotoLink = ({ url, chequeNo }: ChequePhotoLinkProps) => {
                             </a>
                         </DialogTitle>
                     </DialogHeader>
-                    {open &&
-                        (isPdf(url) ? (
-                            <iframe src={href} title={`Cheque ${chequeNo ?? ""}`} className="h-[70vh] w-full rounded border" />
-                        ) : (
-                            <img
-                                src={href}
-                                alt={`Cheque ${chequeNo ?? ""}`}
-                                className="max-h-[70vh] w-full rounded border object-contain"
-                            />
-                        ))}
+                    {open && <ChequePhoto url={url} chequeNo={chequeNo} />}
                 </DialogContent>
             </Dialog>
         </>

@@ -11,6 +11,11 @@ optionally one of its payments:
 * `eligible_payments` -- the record's payments that may go on a Cheque: none on a live (not
   Cancelled) Cheque, none Rejected. It says what it hid and why, so the dialog can say so.
 
+A Project Expense line asks for a project, then one of its Project Expenses; a Non-project Expense
+line for a Non Project Expense only (#1411):
+
+* `eligible_expenses` -- the expenses not on a live Cheque, and the ones it hid.
+
 The same rules are enforced on save by `lines.lines_problem`; these lists only spare the user a
 refusal.
 """
@@ -20,7 +25,10 @@ from frappe.utils import cint, flt
 
 from nirmaan_stack.services.cheques.lines import live_cheques_of
 from nirmaan_stack.services.cheques.rules import (
+    EXPENSE_LINE_TYPES,
+    LINE_PAYMENT_DOCTYPES,
     PAYMENT_DOCTYPE,
+    PROJECT_EXPENSE_DOCTYPE,
     PAYMENT_REJECTED,
     PO_DOCTYPE,
     RECORD_DOCTYPES,
@@ -98,3 +106,45 @@ def eligible_payments(record_doctype: str, record_name: str, *, exclude_cheque: 
                 "on_hold": cint(r.on_hold),
             })
     return {"payments": payments, "hidden": {"on_cheque": on_cheque, "rejected": rejected}}
+
+
+def eligible_expenses(line_type: str, project: str | None = None, *, exclude_cheque: str | None = None) -> dict:
+    """The expenses an expense line may name, newest first, and what was hidden (#1411).
+
+    A Project Expense line offers its project's Project Expenses (none until the project is picked);
+    a Non-project Expense line every Non Project Expense. An expense on a live (not Cancelled) Cheque
+    is hidden; one only on Cancelled Cheques is offered. `exclude_cheque` is the Cheque being edited:
+    its own expenses are not "on a live Cheque".
+
+    Returns `{expenses: [{name, amount, status, type, description, payment_date}], hidden:
+    {on_cheque: [{payment, cheque, cheque_no, status}]}}`.
+    """
+    if line_type not in EXPENSE_LINE_TYPES:
+        raise ValueError(f"not an expense line kind: {line_type!r}")
+    doctype = LINE_PAYMENT_DOCTYPES[line_type]
+    filters = {}
+    if doctype == PROJECT_EXPENSE_DOCTYPE:
+        if not project:
+            return {"expenses": [], "hidden": {"on_cheque": []}}
+        filters["projects"] = project
+    rows = frappe.get_all(
+        doctype,
+        filters=filters,
+        fields=["name", "amount", "status", "type", "description", "payment_date"],
+        order_by="creation desc",
+    )
+    live = live_cheques_of(doctype, [r.name for r in rows], exclude=exclude_cheque)
+    expenses = [
+        {
+            "name": r.name,
+            "amount": flt(r.amount),
+            "status": r.status,
+            "type": r.type,
+            "description": r.description,
+            "payment_date": r.payment_date,
+        }
+        for r in rows
+        if r.name not in live
+    ]
+    on_cheque = [{"payment": r.name, **live[r.name]} for r in rows if r.name in live]
+    return {"expenses": expenses, "hidden": {"on_cheque": on_cheque}}
