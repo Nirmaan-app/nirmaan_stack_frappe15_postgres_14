@@ -33,6 +33,8 @@ from nirmaan_stack.api.payments.project_payments import (
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services.cheques.rules import ChequeHeader, ChequeLineInput
+from nirmaan_stack.services.cheques.writer import create_cheque
 
 PAYMENT = "Project Payments"
 SR = "Service Requests"
@@ -331,14 +333,45 @@ class TestChequePayments(FrappeTestCase):
 		update_payment_request(json.dumps({"action": "fulfil", "name": name, "utr": utr, "pay_date": nowdate()}))
 		frappe.db.commit()
 
+	def _on_one_cheque(self, number, *payments, bank="ICICI Bank", bank_name=None):
+		"""Put `payments` on one new Cheque (#1419: the guard keys on the Cheque link)."""
+		header = ChequeHeader(
+			bank=bank, bank_name=bank_name, cheque_no=number, cheque_date=nowdate(),
+			amount=sum(flt(frappe.db.get_value(PAYMENT, p, "amount")) for p in payments), vendor=self.vendor,
+			payee_name=None, description=None, attachment="https://storage.example.invalid/private/files/cheque-test.jpg",
+		)
+		lines = [
+			ChequeLineInput(line_type="PO/WO Payment", project=self.project, record_doctype=SR, record_name=self.sr,
+							payment_doctype=PAYMENT, payment_name=p, amount=0)
+			for p in payments
+		]
+		create_cheque(header, user=U, made_from="Report", lines=lines)
+		frappe.db.commit()
+
 	def test_payments_on_one_cheque_all_reconcile_against_its_number(self):
+		ChequeFixture.attach(self)
 		number = self._cheque_no()
 		first = self._plant(20000, RECON, cheque_no=number)
 		second = self._plant(30000, RECON, cheque_no=number)
+		self._on_one_cheque(number, first, second)
 		self._fulfil(first, number)
 		self._fulfil(second, number)  # the same reference: refused before, allowed for the same cheque
 		for name in (first, second):
 			self.assertEqual(frappe.db.get_value(PAYMENT, name, ["status", "utr"]), ("Paid", number))
+
+	def test_the_same_number_on_two_cheques_still_blocks(self):
+		"""The siblings are the payments on the same Cheque, not every payment sharing its number (#1419):
+		cheque 004521 of ICICI Bank and cheque 004521 of another bank are two cheques."""
+		ChequeFixture.attach(self)
+		number = self._cheque_no()
+		icici = self._plant(20000, RECON, cheque_no=number)
+		other_bank = self._plant(30000, RECON, cheque_no=number)
+		self._on_one_cheque(number, icici)
+		self._on_one_cheque(number, other_bank, bank="Others", bank_name="HDFC Bank")
+		self._fulfil(icici, number)
+		with self.assertRaisesRegex(frappe.ValidationError, "already recorded"):
+			self._fulfil(other_bank, number)
+		self.assertEqual(frappe.db.get_value(PAYMENT, other_bank, "status"), RECON)
 
 	def test_a_reference_held_by_another_payment_still_blocks_a_cheque(self):
 		"""Only payments on the SAME cheque excuse each other."""

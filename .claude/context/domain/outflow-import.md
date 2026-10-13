@@ -6285,8 +6285,10 @@ ONE bank line, so every payment on it carries the same reference — the cheque 
 reconcile pre-fills it) or the clearing line's UTR. Before this, the second such payment was refused
 "Bank reference … is already recorded on payment …".
 
-- **`reference_guard.cheque_siblings_of(target)`** — the other payments with the target's `cheque_no`,
-  and only when the target is itself `mode_of_payment = Cheque`. `assert_reference_is_free` unions it with
+- **`reference_guard.cheque_siblings_of(target)`** — the other Cheque payments linked to the target's
+  Cheque (the `cheque` link; until #1419 it was every payment with the target's `cheque_no`, which made
+  two banks' cheques with one number siblings), and only when the target is itself `mode_of_payment =
+  Cheque` with a Cheque. `assert_reference_is_free` unions it with
   the transfer siblings. It is computed INSIDE the guard from the target, never passed by a caller, so the
   import (`settle._assert_reference_is_free`) and the manual fulfil (`project_payments._fulfil_payment`)
   cannot disagree — the "two call sites must move together" rule holds by construction.
