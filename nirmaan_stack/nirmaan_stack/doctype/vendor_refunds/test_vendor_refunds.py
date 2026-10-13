@@ -49,6 +49,8 @@ class TestAVendorRefundMovesAmountPaid(unittest.TestCase):
             FROM "tabProcurement Orders" po
             WHERE po.status <> 'Merged' AND po.amount_paid >= 1000
               AND po.vendor IS NOT NULL AND po.project IS NOT NULL {cls._EXTRA_PO_FILTER}
+              -- #1399: a refund on a PO with an adjustment links into it, which is not under test here.
+              AND NOT EXISTS (SELECT 1 FROM "tabPO Adjustments" a WHERE a.po_id = po.name)
               AND NOT EXISTS (
                   SELECT 1 FROM "tabVendor Refunds" r
                   WHERE r.document_type = 'Procurement Orders' AND r.document_name = po.name)

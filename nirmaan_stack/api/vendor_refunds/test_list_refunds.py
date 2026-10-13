@@ -31,6 +31,9 @@ class TestGetVendorRefunds(unittest.TestCase):
             SELECT name, vendor, project FROM "tabProcurement Orders"
             WHERE status <> 'Merged' AND amount_paid >= 1000
               AND vendor IS NOT NULL AND project IS NOT NULL
+              -- #1399: a refund on a PO with an adjustment links into it; the raw purge cannot undo that.
+              AND NOT EXISTS (
+                  SELECT 1 FROM "tabPO Adjustments" a WHERE a.po_id = "tabProcurement Orders".name)
             ORDER BY name LIMIT 1
             """,
             as_dict=True,
