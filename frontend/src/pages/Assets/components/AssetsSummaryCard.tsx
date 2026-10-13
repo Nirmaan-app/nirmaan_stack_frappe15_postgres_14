@@ -145,7 +145,7 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
                     ) : (
                         <div className="grid grid-cols-2 gap-4">
                             {/* Primary Metric - Total Assets with breakdown */}
-                            <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/40 dark:to-teal-950/30 rounded-lg p-4 border border-emerald-100 dark:border-emerald-900/50">
+                            <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/40 dark:to-teal-950/30 rounded-lg p-3 border border-emerald-100 dark:border-emerald-900/50">
                                 <dt className="text-xs font-medium text-emerald-600/80 dark:text-emerald-400/80 uppercase tracking-wide mb-1 flex items-center gap-1.5">
                                     <Package className="h-3 w-3" />
                                     {totalLabel}
@@ -172,37 +172,35 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
                                 </div>
                             </div>
                             {/* Secondary Metric - Categories */}
-                            <div className="bg-slate-50/80 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
-                                <dt className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1 flex items-center gap-1.5">
-                                    <Boxes className="h-3 w-3" />
-                                    {categoriesLabel}
-                                </dt>
-                                <dd className="text-2xl font-bold text-slate-700 dark:text-slate-300 tabular-nums">
-                                    {categories}
-                                </dd>
-                                <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 block">
-                                    Asset types defined
-                                </span>
-                                <div className="mt-3 border-t border-slate-200 dark:border-slate-700 pt-2">
-                                    <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1.5 flex items-center gap-1">
+                            {/* Compact: the count on one line, the most-unassigned categories as wrapping chips */}
+                            <div className="bg-slate-50/80 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
+                                <div className="flex items-center justify-between gap-2">
+                                    <dt className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+                                        <Boxes className="h-3 w-3" />
+                                        {categoriesLabel}
+                                    </dt>
+                                    <dd className="text-lg font-bold leading-none text-slate-700 dark:text-slate-300 tabular-nums">
+                                        {categories}
+                                    </dd>
+                                </div>
+                                <div className="mt-2 flex flex-wrap items-center gap-1">
+                                    <span className="mr-0.5 text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide inline-flex items-center gap-1">
                                         <UserX className="h-3 w-3" />
                                         Most unassigned
-                                    </div>
+                                    </span>
                                     {topUnassigned.length === 0 ? (
-                                        <p className="text-[11px] text-slate-400 dark:text-slate-500">Every asset is assigned.</p>
+                                        <span className="text-[11px] text-slate-400 dark:text-slate-500">Every asset is assigned.</span>
                                     ) : (
-                                        <ul className="space-y-1">
-                                            {topUnassigned.map(({ category, count }) => (
-                                                <li key={category} className="flex items-center justify-between gap-2 text-xs">
-                                                    <span className="truncate text-slate-600 dark:text-slate-300" title={category}>
-                                                        {category}
-                                                    </span>
-                                                    <span className="shrink-0 rounded bg-slate-100 dark:bg-slate-700 px-1.5 font-semibold tabular-nums text-slate-700 dark:text-slate-200">
-                                                        {count}
-                                                    </span>
-                                                </li>
-                                            ))}
-                                        </ul>
+                                        topUnassigned.map(({ category, count }) => (
+                                            <span
+                                                key={category}
+                                                title={`${category}: ${count} unassigned`}
+                                                className="inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-0.5 text-[11px] text-slate-600 dark:text-slate-300"
+                                            >
+                                                <span className="truncate">{category}</span>
+                                                <span className="shrink-0 font-semibold tabular-nums text-slate-800 dark:text-slate-100">{count}</span>
+                                            </span>
+                                        ))
                                     )}
                                 </div>
                             </div>
