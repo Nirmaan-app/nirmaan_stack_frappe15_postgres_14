@@ -18,6 +18,9 @@ Built so far:
 * `link_payments` -- puts each line's Project Payment on the Cheque: link, mode Cheque, number and
   date (#1410). `create_cheque` calls it; the caller then moves the payments on after its commit.
   An expense line's expense (#1411) is never written: linking an expense changes nothing on it.
+* `payment_cheque_problem` and `create_payment_cheque` -- the one-line Cheque for one payment, made
+  from the PO/WO page (#1414 Request Payment; #1416 Convert to Cheque). Ask the first BEFORE the
+  payment is inserted: a Project Payment's `after_insert` commits, so a refusal after it is too late.
 
 To come, each beside these: editing a Cheque and its lines (#1418), status change for
 one or many with history (#1412), switching a payment back to Online, and detaching a Rejected or deleted payment's line (#1413).
@@ -36,15 +39,31 @@ from frappe.utils import now_datetime
 from nirmaan_stack.services.cheque_payments import MODE_CHEQUE
 from nirmaan_stack.services.cheques.rules import (
     ISSUED,
+    LINE_PO_WO_PAYMENT,
     MADE_FROM,
+    MADE_FROM_PO_WO_PAGE,
     PAYMENT_DOCTYPE,
     ChequeHeader,
     ChequeLineInput,
     bank_key,
+    header_problem,
     normalise_cheque_no,
+    request_duplicate_problem,
 )
 
 CHEQUES = "Cheques"
+
+#: Published by every endpoint after a Cheque write commits; the Cheque Payments report refetches on it.
+CHEQUES_CHANGED_EVENT = "cheques:changed"
+
+
+class DuplicateChequeError(frappe.ValidationError):
+    """A one-line Cheque for a payment names a bank + cheque number already recorded (#1414).
+
+    Raised on Submit, before anything is created. The Request Payment dialog shows the same refusal
+    earlier, with a link to that Cheque, from `api/cheques/find_cheque` (its `exc_type` is free for a
+    caller that wants to tell this refusal apart).
+    """
 
 
 def history_row(from_status: str | None, to_status: str, user: str, note: str | None = None) -> dict:
@@ -104,6 +123,44 @@ def create_cheque(header: ChequeHeader, *, user: str, made_from: str, lines: lis
     doc.insert(ignore_permissions=True)
     link_payments(doc)
     return doc
+
+
+def payment_cheque_problem(header: ChequeHeader) -> tuple[str | None, str | None]:
+    """Why a one-line Cheque for a payment cannot be made from `header`: `(refusal, existing)`.
+
+    `existing` is the Cheque already recorded with this bank + cheque number (then the refusal is
+    `request_duplicate_problem`), else None. `(None, None)` when it can be made. The line itself
+    cannot fail: its PO / Work Order, project and Vendor are the payment's own.
+    """
+    problem = header_problem(header, line_count=1, photo_required=True)
+    if problem:
+        return problem, None
+    existing = existing_cheque(header.bank, header.bank_name, header.cheque_no)
+    if existing:
+        return request_duplicate_problem(header), existing
+    return None, None
+
+
+def create_payment_cheque(header: ChequeHeader, payment_name: str, *, user: str):
+    """A new Cheque, made from the PO/WO page, with one line for `payment_name` (#1414, #1416).
+
+    The line names the payment's PO / Work Order and that record's project, for the whole cheque
+    amount: the cheque pays this one payment. `header.vendor` must be the record's Vendor. The
+    payment is put on the Cheque (`link_payments`); THE CALLER commits, then moves it on.
+    """
+    record_doctype, record_name = frappe.db.get_value(
+        PAYMENT_DOCTYPE, payment_name, ["document_type", "document_name"]
+    )
+    line = ChequeLineInput(
+        line_type=LINE_PO_WO_PAYMENT,
+        project=frappe.db.get_value(record_doctype, record_name, "project"),
+        record_doctype=record_doctype,
+        record_name=record_name,
+        payment_doctype=PAYMENT_DOCTYPE,
+        payment_name=payment_name,
+        amount=header.amount,
+    )
+    return create_cheque(header, user=user, made_from=MADE_FROM_PO_WO_PAGE, lines=[line])
 
 
 def line_payments(doc) -> list[str]:

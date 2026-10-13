@@ -216,7 +216,7 @@ export default function RequestPaymentDialog(p:Props){
 
       {/* No cheque figure until the rate has landed: with no rate yet it would show the gross. */}
       <PaymentModeFields value={payMode} onChange={setPayMode} amount={tdsLoading ? undefined : amount}
-                         tds={tds} companyBorne={companyBorne} />
+                         tds={tds} companyBorne={companyBorne} vendor={p.vendor} />
 
       <div className="mt-3 flex gap-2 justify-center">
         {isMutating
