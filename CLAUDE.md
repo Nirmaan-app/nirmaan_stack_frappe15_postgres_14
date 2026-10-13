@@ -28,7 +28,8 @@ Three standards fail silently when broken, so they are summarised here too (full
 ## Session workflow
 
 - **Tickets and specs are GitHub issues.** Read the ticket and its parent spec first:
-  `gh issue view <n> --comments --repo Nirmaan-app/nirmaan_stack_frappe15_postgres_14`.
+  `gh issue view <n> --json title,body,labels,comments --repo Nirmaan-app/nirmaan_stack_frappe15_postgres_14`
+  (`--comments` alone prints only the comments, never the body).
 - **Ad-hoc work (no ticket): write a plan and wait for the user's review before writing code.** Under
   `/implement`, the ticket is the approved plan: build it without re-planning or stopping for review.
 - **Commit once per ticket, on the current branch;** branch only when the user asks. Run
