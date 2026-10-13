@@ -75,7 +75,7 @@ export const RequestPaymentDialog = ({
             </div>
           </div>
         </div>
-        <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} />
+        <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} vendor={term.vendor} />
         <div className="flex justify-end gap-3 mt-4">
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel

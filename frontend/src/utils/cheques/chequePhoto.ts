@@ -1,17 +1,30 @@
 import { CHEQUE_BANK, type ChequeBank } from "@/types/NirmaanStack/Cheques";
 
-import { EMPTY_CHEQUE_FORM, type ChequeFormInput } from "./chequeForm";
+import { EMPTY_CHEQUE_FORM } from "./chequeForm";
 
 /**
- * What a cheque photo fills on the cheque form (spec #1407, #1409). Pure, so vitest covers it (F4).
+ * What a cheque photo fills on a cheque form (spec #1407, #1409). Pure, so vitest covers it (F4).
  *
  * The server reads the photo (`api/payment_autofill.extract_payment_fields(mode="cheque")`) and sends
  * every field it was unsure of as empty. Here the reply becomes form values, and a field keeps its
  * "From photo" tag only while it still holds what the photo said.
+ *
+ * Two forms use it: Add Cheque (`chequeForm.ts`) and the Request Payment dialog's Cheque mode
+ * (`pages/ProjectPayments/paymentMode.ts`, #1414). Any form whose values carry these field names works.
  */
 
 /** The form fields a photo can fill. `bank` covers the Others bank name too. */
 export type ChequePhotoField = "bank" | "cheque_no" | "cheque_date" | "amount" | "payee_name";
+
+/** The cheque fields a form holds, as its inputs hold them (an amount input hands back text). */
+export interface ChequePhotoValues {
+    bank?: string;
+    bank_name?: string;
+    cheque_no?: string;
+    cheque_date?: string;
+    amount?: number | string;
+    payee_name?: string;
+}
 
 /** What one photo said: only the fields it could read. */
 export interface ChequePhoto {
@@ -55,28 +68,29 @@ export const payeeMismatch = (message: unknown): { payee: string; vendorName: st
     return { payee: text(reply.extracted), vendorName: text(reply.expected_name) };
 };
 
-const FIELDS: ChequePhotoField[] = ["bank", "cheque_no", "cheque_date", "amount", "payee_name"];
+/** Every field a photo can fill. */
+export const CHEQUE_PHOTO_FIELDS: readonly ChequePhotoField[] = ["bank", "cheque_no", "cheque_date", "amount", "payee_name"];
 
 /** True while the form's `field` holds exactly what `photo` said. */
-export const isFromPhoto = (field: ChequePhotoField, current: ChequeFormInput, photo: ChequePhoto | null): boolean => {
+export const isFromPhoto = (field: ChequePhotoField, current: ChequePhotoValues, photo: ChequePhoto | null): boolean => {
     if (!photo || photo[field] === undefined) return false;
     switch (field) {
         case "bank":
             return current.bank === photo.bank && (photo.bank !== CHEQUE_BANK.OTHERS || current.bank_name?.trim() === photo.bank_name);
         case "amount":
             // The number input hands its value back as text.
-            return current.amount !== ("" as unknown) && Number(current.amount) === photo.amount;
+            return current.amount !== "" && current.amount !== undefined && Number(current.amount) === photo.amount;
         default:
             return (current[field] ?? "").toString().trim() === photo[field];
     }
 };
 
 /** One field's form values as `photo` gives them. */
-const valuesOf = (field: ChequePhotoField, photo: ChequePhoto): Partial<ChequeFormInput> =>
+const valuesOf = (field: ChequePhotoField, photo: ChequePhoto): ChequePhotoValues =>
     field === "bank" ? { bank: photo.bank, bank_name: photo.bank_name ?? "" } : { [field]: photo[field] };
 
-/** One field's form values when empty. */
-const emptyOf = (field: ChequePhotoField): Partial<ChequeFormInput> =>
+/** One field's form values when empty (the same on every cheque form). */
+const emptyOf = (field: ChequePhotoField): ChequePhotoValues =>
     field === "bank"
         ? { bank: EMPTY_CHEQUE_FORM.bank, bank_name: EMPTY_CHEQUE_FORM.bank_name }
         : { [field]: EMPTY_CHEQUE_FORM[field] };
@@ -86,13 +100,18 @@ const emptyOf = (field: ChequePhotoField): Partial<ChequeFormInput> =>
  *
  * A field `next` could read takes its value. A field it could not read keeps what the user has,
  * except a value the previous photo put there and nobody changed: that belongs to the old cheque,
- * so it is cleared.
+ * so it is cleared. Only `fields` are touched (a form with no payee box leaves `payee_name` out).
  */
-export const photoFill = (current: ChequeFormInput, previous: ChequePhoto | null, next: ChequePhoto): Partial<ChequeFormInput> => {
-    const fill: Partial<ChequeFormInput> = {};
-    for (const field of FIELDS) {
+export const photoFill = <V extends ChequePhotoValues>(
+    current: V,
+    previous: ChequePhoto | null,
+    next: ChequePhoto,
+    fields: readonly ChequePhotoField[] = CHEQUE_PHOTO_FIELDS,
+): Partial<V> => {
+    const fill: ChequePhotoValues = {};
+    for (const field of fields) {
         if (next[field] !== undefined) Object.assign(fill, valuesOf(field, next));
         else if (isFromPhoto(field, current, previous)) Object.assign(fill, emptyOf(field));
     }
-    return fill;
+    return fill as Partial<V>;
 };

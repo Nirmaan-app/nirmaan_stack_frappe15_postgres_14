@@ -20,12 +20,8 @@ from frappe import _
 
 from nirmaan_stack.api.payments.project_payments import _move_cheque_to_reconciliation
 from nirmaan_stack.services.cheques.rules import MADE_FROM_REPORT, parse_header, parse_line
-from nirmaan_stack.services.cheques.writer import create_cheque, line_payments
+from nirmaan_stack.services.cheques.writer import CHEQUES_CHANGED_EVENT, create_cheque, line_payments
 from nirmaan_stack.services.role_profiles import can_use_cheques
-
-#: Published after every Cheque write; the Cheque Payments report refetches on it.
-CHEQUES_CHANGED_EVENT = "cheques:changed"
-
 
 def assert_cheque_access(user: str) -> None:
     """Refuse a user outside `CHEQUE_ACCESS_PROFILES` (Project Managers included)."""
