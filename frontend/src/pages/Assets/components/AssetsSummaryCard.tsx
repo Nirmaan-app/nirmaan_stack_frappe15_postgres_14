@@ -1,5 +1,12 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Package, Boxes, UserCheck, UserX, AlertTriangle } from "lucide-react";
 import { TailSpin } from "react-loader-spinner";
 import { useCounts, CountSpec } from "@/hooks/useCounts";
@@ -12,8 +19,12 @@ import {
 import { useAssetCategoryNamesByType } from '../hooks/useAssetCategoryNamesByType';
 import { useAssetMasterNamesByType } from '../hooks/useAssetMasterNamesByType';
 import { CategoryUnassigned, useCategoryAssetCounts } from '../hooks/useCategoryAssetCounts';
+import { AssetListView, openAssetList } from '../utils/assetListLinks';
 
 type AssetSummaryMode = 'project' | 'it' | 'categories';
+
+const ASSET_TYPES: readonly AssetCategoryType[] = ['Project', 'IT'];
+const TYPE_TAB_LABEL: Record<AssetCategoryType, string> = { Project: 'Project Assets', IT: 'IT Assets' };
 
 interface AssetsSummaryCardsProps {
     activeTab: AssetSummaryMode;
@@ -36,20 +47,98 @@ interface SummaryViewModel {
     unassignedByCategory: CategoryUnassigned[];
 }
 
+/** Hover text of a count that opens a list; `type` is unset on the Categories tab, which asks which. */
+function listTitle(view: AssetListView, type?: AssetCategoryType): string {
+    const what = type ? `${type} assets` : 'assets';
+    const shown = {
+        all: `Show all ${what}`,
+        assigned: `Show assigned ${what}`,
+        unassigned: `Show unassigned ${what}`,
+        pending: `Show ${what} waiting for a declaration`,
+    }[view];
+    return type ? shown : `${shown} (choose Project or IT)`;
+}
+
+const FOCUS_RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1';
+
+interface CountLinkProps {
+    view: AssetListView;
+    /** Project / IT tab: open that tab's list. */
+    type?: AssetCategoryType;
+    /** Categories tab: each type's count, for the "Open in" menu (a type with none is disabled). */
+    byType: Record<AssetCategoryType, number>;
+    className: string;
+    children: React.ReactNode;
+}
+
+/**
+ * A count on the card that opens its list. On the Project / IT tabs it opens that tab's list; the
+ * Categories tab covers both kinds, so it asks which one first.
+ */
+const CountLink: React.FC<CountLinkProps> = ({ view, type, byType, className, children }) => {
+    const buttonClass = `${className} ${FOCUS_RING} cursor-pointer transition-colors`;
+    if (type) {
+        return (
+            <button type="button" title={listTitle(view, type)} onClick={() => openAssetList({ type, view })} className={buttonClass}>
+                {children}
+            </button>
+        );
+    }
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <button type="button" title={listTitle(view)} className={buttonClass}>
+                    {children}
+                </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-[11rem]">
+                <DropdownMenuLabel className="text-xs font-medium text-slate-500">Open in</DropdownMenuLabel>
+                {ASSET_TYPES.map((t) => (
+                    <DropdownMenuItem
+                        key={t}
+                        disabled={byType[t] === 0}
+                        onSelect={() => openAssetList({ type: t, view })}
+                        className="text-sm"
+                    >
+                        {TYPE_TAB_LABEL[t]}
+                        <span className="ml-auto pl-4 font-semibold tabular-nums">{byType[t]}</span>
+                    </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+};
+
+/** A category with unassigned assets; opens its type's Unassigned list filtered to it. */
+const CategoryChip: React.FC<{ type: AssetCategoryType; chip: CategoryUnassigned }> = ({ type, chip: { category, count } }) => (
+    <button
+        type="button"
+        title={`Show the ${count} unassigned ${category} assets`}
+        onClick={() => openAssetList({ type, view: 'unassigned', category })}
+        className={`inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-0.5 text-[11px] text-slate-600 dark:text-slate-300 hover:border-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors ${FOCUS_RING}`}
+    >
+        <span className="truncate">{category}</span>
+        <span className="shrink-0 font-semibold tabular-nums text-slate-800 dark:text-slate-100">{count}</span>
+    </button>
+);
+
 export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTab }) => {
     const isCategoriesMode = activeTab === 'categories';
-    const typeForScope: AssetCategoryType | undefined = isCategoriesMode
-        ? undefined
-        : activeTab === 'project'
-            ? 'Project'
-            : 'IT';
+    const scopeType: AssetCategoryType | undefined = isCategoriesMode ? undefined : activeTab === 'project' ? 'Project' : 'IT';
 
     const globalView = useGlobalSummary(isCategoriesMode);
-    const scopedView = useScopedSummary(typeForScope);
+    // The Categories tab needs both kinds too: its chips are grouped by kind, and its counts open
+    // a menu with each kind's number -- the same numbers that kind's own tab shows.
+    const projectView = useScopedSummary(isCategoriesMode || scopeType === 'Project' ? 'Project' : undefined);
+    const itView = useScopedSummary(isCategoriesMode || scopeType === 'IT' ? 'IT' : undefined);
+    const typeViews: Record<AssetCategoryType, SummaryViewModel> = { Project: projectView, IT: itView };
 
-    const view = isCategoriesMode ? globalView : scopedView;
+    const view = scopeType ? typeViews[scopeType] : globalView;
+    const isLoading = isCategoriesMode
+        ? globalView.isLoading || projectView.isLoading || itView.isLoading
+        : view.isLoading;
 
-    if (view.isLoading) {
+    if (isLoading) {
         return (
             <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
                 <CardContent className="p-4 sm:p-6">
@@ -61,7 +150,17 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
         );
     }
 
-    const { total, assigned, unassigned, pendingDecl, categories, hasError, title, totalLabel, unassignedLabel, categoriesHint, unassignedByCategory } = view;
+    const { total, assigned, unassigned, pendingDecl, categories, title, totalLabel, unassignedLabel, categoriesHint, unassignedByCategory } = view;
+    const hasError = view.hasError || (isCategoriesMode && (projectView.hasError || itView.hasError));
+
+    const byType = (pick: (v: SummaryViewModel) => number): Record<AssetCategoryType, number> => ({
+        Project: pick(projectView),
+        IT: pick(itView),
+    });
+    const totalByType = byType((v) => v.total);
+    const assignedByType = byType((v) => v.assigned);
+    const unassignedByType = byType((v) => v.unassigned);
+    const pendingByType = byType((v) => v.pendingDecl);
 
     return (
         <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
@@ -80,29 +179,29 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
                             </div>
                             {/* Primary metric */}
                             <div className="flex-1 min-w-0">
-                                <div className="flex items-baseline gap-2">
+                                <CountLink view="all" type={scopeType} byType={totalByType} className="flex items-baseline gap-2 rounded">
                                     <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
                                         {total}
                                     </span>
                                     <span className="text-[10px] font-medium text-slate-400 dark:text-slate-500 uppercase">
                                         {totalLabel}
                                     </span>
-                                </div>
+                                </CountLink>
                                 {/* Breakdown pills */}
                                 <div className="flex flex-wrap gap-1 mt-1">
-                                    <span className="px-1.5 py-0.5 text-[9px] font-medium bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded inline-flex items-center gap-0.5">
+                                    <CountLink view="assigned" type={scopeType} byType={assignedByType} className="px-1.5 py-0.5 text-[9px] font-medium bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 rounded inline-flex items-center gap-0.5 active:bg-emerald-200">
                                         <UserCheck className="h-2.5 w-2.5" />
                                         {assigned}
-                                    </span>
-                                    <span className="px-1.5 py-0.5 text-[9px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded inline-flex items-center gap-0.5">
+                                    </CountLink>
+                                    <CountLink view="unassigned" type={scopeType} byType={unassignedByType} className="px-1.5 py-0.5 text-[9px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded inline-flex items-center gap-0.5 active:bg-slate-200">
                                         <UserX className="h-2.5 w-2.5" />
                                         {unassigned}
-                                    </span>
+                                    </CountLink>
                                     {pendingDecl > 0 && (
-                                        <span className="px-1.5 py-0.5 text-[9px] font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded inline-flex items-center gap-0.5">
+                                        <CountLink view="pending" type={scopeType} byType={pendingByType} className="px-1.5 py-0.5 text-[9px] font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded inline-flex items-center gap-0.5 active:bg-amber-200">
                                             <AlertTriangle className="h-2.5 w-2.5" />
                                             {pendingDecl}
-                                        </span>
+                                        </CountLink>
                                     )}
                                 </div>
                             </div>
@@ -145,61 +244,72 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
                             {/* Primary Metric - Total Assets with breakdown */}
                             <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/40 dark:to-teal-950/30 rounded-lg p-3 border border-emerald-100 dark:border-emerald-900/50">
                                 {/* Same shape as the unassigned box beside it: label left, count top-right */}
-                                <div className="flex items-center justify-between gap-2">
-                                    <dt className="text-xs font-medium text-emerald-600/80 dark:text-emerald-400/80 uppercase tracking-wide flex items-center gap-1.5">
+                                <CountLink view="all" type={scopeType} byType={totalByType} className="w-[calc(100%+0.5rem)] -mx-1 px-1 flex items-center justify-between gap-2 rounded hover:bg-emerald-100/70 dark:hover:bg-emerald-900/40">
+                                    <span className="text-xs font-medium text-emerald-600/80 dark:text-emerald-400/80 uppercase tracking-wide flex items-center gap-1.5">
                                         <Package className="h-3 w-3" />
                                         {totalLabel}
-                                    </dt>
-                                    <dd className="text-lg font-bold leading-none text-emerald-700 dark:text-emerald-400 tabular-nums">
+                                    </span>
+                                    <span className="text-lg font-bold leading-none text-emerald-700 dark:text-emerald-400 tabular-nums">
                                         {total}
-                                    </dd>
-                                </div>
+                                    </span>
+                                </CountLink>
                                 {/* Breakdown badges */}
                                 <div className="flex flex-wrap gap-1.5 mt-2">
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded-full">
+                                    <CountLink view="assigned" type={scopeType} byType={assignedByType} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded-full hover:bg-emerald-200 dark:hover:bg-emerald-800/60">
                                         <UserCheck className="h-3 w-3" />
                                         {assigned} Assigned
-                                    </span>
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full">
+                                    </CountLink>
+                                    <CountLink view="unassigned" type={scopeType} byType={unassignedByType} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-full hover:bg-slate-200 dark:hover:bg-slate-600">
                                         <UserX className="h-3 w-3" />
                                         {unassigned} Unassigned
-                                    </span>
+                                    </CountLink>
                                     {pendingDecl > 0 && (
-                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-full">
+                                        <CountLink view="pending" type={scopeType} byType={pendingByType} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 rounded-full hover:bg-amber-200 dark:hover:bg-amber-800/60">
                                             <AlertTriangle className="h-3 w-3" />
                                             {pendingDecl} Pending Decl
-                                        </span>
+                                        </CountLink>
                                     )}
                                 </div>
                             </div>
-                            {/* Secondary Metric - Categories */}
                             {/* Unassigned: the total top-right, then EVERY category with unassigned assets as wrapping chips */}
                             <div className="bg-slate-50/80 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
-                                <div className="flex items-center justify-between gap-2">
-                                    <dt className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+                                <CountLink view="unassigned" type={scopeType} byType={unassignedByType} className="w-[calc(100%+0.5rem)] -mx-1 px-1 flex items-center justify-between gap-2 rounded hover:bg-slate-100 dark:hover:bg-slate-700/60">
+                                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
                                         <UserX className="h-3 w-3" />
                                         {unassignedLabel}
-                                    </dt>
-                                    <dd className="text-lg font-bold leading-none text-slate-700 dark:text-slate-300 tabular-nums">
+                                    </span>
+                                    <span className="text-lg font-bold leading-none text-slate-700 dark:text-slate-300 tabular-nums">
                                         {unassigned}
-                                    </dd>
-                                </div>
-                                <div className="mt-2 flex flex-wrap items-center gap-1">
-                                    {unassignedByCategory.length === 0 ? (
-                                        <span className="text-[11px] text-slate-400 dark:text-slate-500">Every asset is assigned.</span>
-                                    ) : (
-                                        unassignedByCategory.map(({ category, count }) => (
-                                            <span
-                                                key={category}
-                                                title={`${category}: ${count} unassigned`}
-                                                className="inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-0.5 text-[11px] text-slate-600 dark:text-slate-300"
-                                            >
-                                                <span className="truncate">{category}</span>
-                                                <span className="shrink-0 font-semibold tabular-nums text-slate-800 dark:text-slate-100">{count}</span>
-                                            </span>
-                                        ))
-                                    )}
-                                </div>
+                                    </span>
+                                </CountLink>
+                                {unassignedByCategory.length === 0 ? (
+                                    <div className="mt-2 text-[11px] text-slate-400 dark:text-slate-500">Every asset is assigned.</div>
+                                ) : scopeType ? (
+                                    <div className="mt-2 flex flex-wrap items-center gap-1">
+                                        {unassignedByCategory.map((chip) => (
+                                            <CategoryChip key={chip.category} type={scopeType} chip={chip} />
+                                        ))}
+                                    </div>
+                                ) : (
+                                    // Categories tab: one row per kind; its label opens that kind's Unassigned list.
+                                    <div className="mt-2 space-y-1">
+                                        {ASSET_TYPES.filter((t) => typeViews[t].unassignedByCategory.length > 0).map((t) => (
+                                            <div key={t} className="flex flex-wrap items-center gap-1">
+                                                <button
+                                                    type="button"
+                                                    title={listTitle('unassigned', t)}
+                                                    onClick={() => openAssetList({ type: t, view: 'unassigned' })}
+                                                    className={`mr-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200 cursor-pointer transition-colors ${FOCUS_RING}`}
+                                                >
+                                                    {t} · {typeViews[t].unassigned}
+                                                </button>
+                                                {typeViews[t].unassignedByCategory.map((chip) => (
+                                                    <CategoryChip key={chip.category} type={t} chip={chip} />
+                                                ))}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}

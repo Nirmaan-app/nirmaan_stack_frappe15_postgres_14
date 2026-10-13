@@ -5,7 +5,8 @@
  * Granular permissions allow different roles to have specific capabilities.
  */
 
-import { ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PROCUREMENT_PROFILES, isProcurementProfile } from "@/constants/roles";
+import { ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE, PROCUREMENT_PROFILES, isProcurementProfile } from "@/constants/roles";
+import type { AssetCategoryType } from "../assets.constants";
 
 // Roles that can manage ALL aspects of assets (add, edit, delete, assign, categories)
 export const ASSET_ADMIN_ROLES = [
@@ -26,6 +27,13 @@ export const ASSET_PROCUREMENT_ROLES = PROCUREMENT_PROFILES;
  */
 export const ASSET_HISTORY_ROLES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
 
+/**
+ * Roles that assign and unassign EVERY asset; procurement does Project assets only (owner, 2026-10-13).
+ * Mirrors `ASSET_ASSIGN_ALL_PROFILES` / `ASSET_ASSIGN_PROJECT_PROFILES` in
+ * `nirmaan_stack/services/role_profiles.py`, which the server enforces -- keep the two in sync.
+ */
+export const ASSET_ASSIGN_ALL_ROLES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, PMO_EXECUTIVE_PROFILE];
+
 // Combined list of all roles that can access assets module
 export const ASSET_ACCESS_ROLES = [
     ...ASSET_ADMIN_ROLES,
@@ -40,8 +48,13 @@ export interface AssetPermissions {
     canAddAsset: boolean;
     /** Can add new asset categories */
     canAddCategory: boolean;
-    /** Can assign/unassign assets to users */
+    /** Can assign/unassign at least one kind of asset (procurement: Project assets only) */
     canAssignAsset: boolean;
+    /**
+     * Can assign/unassign an asset of this kind. Admin, HR and PMO: any; procurement: Project only,
+     * so an unknown kind (still loading) shows nothing to procurement.
+     */
+    canAssignAssetType: (type: AssetCategoryType | null | undefined) => boolean;
     /** Can edit existing assets */
     canEditAsset: boolean;
     /** Can delete assets */
@@ -63,7 +76,7 @@ export interface AssetPermissions {
  * | View Assets       | ✓         | ✓  | ✓           |
  * | Add Asset         | ✓         | ✓  | ✓           |
  * | Add Category      | ✓         | ✓  | ✗           |
- * | Assign/Unassign   | ✓         | ✓  | ✓           |
+ * | Assign/Unassign   | ✓         | ✓  | Project only|
  * | Edit Asset        | ✓         | ✓  | ✗           |
  * | Delete Asset      | ✓         | ✓  | ✗           |
  * | Manage Categories | ✓         | ✓  | ✗           |
@@ -89,6 +102,8 @@ export function getAssetPermissions(
     // Can manage all (for backward compatibility with existing code)
     const canManageAll = hasFullAccess || hasHRAccess;
 
+    const assignsEveryKind = isAdmin || ASSET_ASSIGN_ALL_ROLES.includes(role ?? '');
+
     return {
         // View: Anyone with asset access can view
         canViewAssets: hasFullAccess || hasHRAccess || hasProcurementAccess,
@@ -99,8 +114,9 @@ export function getAssetPermissions(
         // Add Category: Only admin roles and HR (NOT Procurement)
         canAddCategory: hasFullAccess || hasHRAccess,
 
-        // Assign/Unassign: All roles with asset access can assign
-        canAssignAsset: hasFullAccess || hasHRAccess || hasProcurementAccess,
+        // Assign/Unassign: Admin, HR and PMO any asset; procurement Project assets only
+        canAssignAsset: assignsEveryKind || hasProcurementAccess,
+        canAssignAssetType: (type) => assignsEveryKind || (hasProcurementAccess && type === 'Project'),
 
         // Edit Asset: Only admin roles and HR (NOT Procurement)
         canEditAsset: canManageAll,

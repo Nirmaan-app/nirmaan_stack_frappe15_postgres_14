@@ -365,7 +365,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const { upload } = useFrappeFileUpload();
 
     // Get granular permissions for current user
-    const { canViewAssets, canEditAsset, canAssignAsset, canViewHistory, canUploadDeclaration } = getAssetPermissions(
+    const { canViewAssets, canEditAsset, canAssignAsset, canAssignAssetType, canViewHistory, canUploadDeclaration } = getAssetPermissions(
         userData?.user_id,
         userData?.role
     );
@@ -662,8 +662,8 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                             </Button>
                         )}
 
-                        {/* Assignment Actions */}
-                        {asset?.current_assignee ? (
+                        {/* Assignment Actions -- procurement: Project assets only */}
+                        {!canAssignAssetType(currentCategoryType) ? null : asset?.current_assignee ? (
                             <Button
                                 variant="outline"
                                 size="sm"

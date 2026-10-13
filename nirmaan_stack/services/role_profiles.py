@@ -131,6 +131,14 @@ DEPARTMENT_EDIT_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE
 # `canViewHistory` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep the two in sync.
 ASSET_HISTORY_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
 
+# Assign and unassign assets (owner, 2026-10-13): Admin, HR and PMO handle every asset; procurement
+# handles Project assets only. Nobody else, whatever Roles their profile bundles (System Manager on
+# Project Lead / Design Lead / Estimates carries Asset Management create + delete). HR Lead is not in
+# the Assets module yet. `services/asset_assign_access.py` enforces it; mirrored client-side by
+# `canAssignAssetType` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep the two in sync.
+ASSET_ASSIGN_ALL_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, PMO_EXECUTIVE_PROFILE)
+ASSET_ASSIGN_PROJECT_PROFILES = PROCUREMENT_PROFILES
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Resolvers — the ONE way a whitelisted endpoint answers "is this user X?".

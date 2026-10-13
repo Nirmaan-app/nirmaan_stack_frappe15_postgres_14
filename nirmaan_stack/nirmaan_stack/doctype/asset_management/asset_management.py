@@ -4,12 +4,18 @@
 import frappe
 from frappe.model.document import Document
 
+from nirmaan_stack.services.asset_assign_access import check_may_assign
 from nirmaan_stack.services.asset_department import department_move, reason_refusal
 
 
 class AssetManagement(Document):
 	def validate(self):
 		if self.is_new():
+			# Who may assign this kind of asset (procurement: Project assets only). Here rather than in the
+			# endpoint so a REST or Desk insert can't skip it; server code inserting with
+			# ignore_permissions is trusted, as everywhere in Frappe.
+			if not self.flags.ignore_permissions:
+				check_may_assign(self.asset, "assign")
 			self.check_not_already_assigned()
 			self.decide_department_move()
 		else:

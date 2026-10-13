@@ -12,6 +12,7 @@ departments) and the Asset Management hooks, so this endpoint only gathers the i
 import frappe
 
 from nirmaan_stack.integrations.controllers.asset_management import free_asset, notify_asset_changed
+from nirmaan_stack.services.asset_assign_access import check_may_assign
 from nirmaan_stack.services.asset_history import UNASSIGNED, add_history
 from nirmaan_stack.services.asset_unassign import unassign_reason_refusal, unassign_reason_text
 
@@ -96,6 +97,8 @@ def unassign_asset(asset: str, reason: str, details: str | None = None, assignme
         POST /api/method/nirmaan_stack.api.assets.assign.unassign_asset
         {"asset": "ASSET-LAP-029", "reason": "Employee left / exit", "details": "Returned on last day"}
     """
+    # Procurement may unassign Project assets only; Admin, HR and PMO any (services/asset_assign_access.py).
+    check_may_assign(asset, "unassign")
     refusal = unassign_reason_refusal(reason, details)
     if refusal:
         frappe.throw(refusal)

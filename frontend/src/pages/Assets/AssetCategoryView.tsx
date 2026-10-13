@@ -69,7 +69,7 @@ const AssetCategoryView: React.FC = () => {
 
 const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId }) => {
     const userData = useUserData();
-    const { canAssignAsset } = getAssetPermissions(userData?.user_id, userData?.role);
+    const { canAssignAssetType } = getAssetPermissions(userData?.user_id, userData?.role);
 
     // Dialog states
     const [assignDialogOpen, setAssignDialogOpen] = useState(false);
@@ -245,6 +245,8 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
 
     const categoryType = category?.category_type;
     const isKnownCategoryType = categoryType === 'Project' || categoryType === 'IT';
+    // Procurement assigns and unassigns Project assets only.
+    const canAssignThisType = canAssignAssetType(categoryType);
 
     return (
         <div className="space-y-6">
@@ -357,7 +359,7 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
                                         assigneeName={asset.current_assignee ? assigneeMap[asset.current_assignee] : null}
                                         isAssigned={true}
                                         isDeclarationPending={declarationPendingMap[asset.name] ?? false}
-                                        showUnassignAction={canAssignAsset}
+                                        showUnassignAction={canAssignThisType}
                                         onUnassignClick={() => handleUnassignClick(asset)}
                                     />
                                 ))}
@@ -399,7 +401,7 @@ const AssetCategoryViewContent: React.FC<{ categoryId: string }> = ({ categoryId
                                         serialNumber={asset.asset_serial_number}
                                         condition={asset.asset_condition}
                                         isAssigned={false}
-                                        showAssignAction={canAssignAsset}
+                                        showAssignAction={canAssignThisType}
                                         onAssignClick={() => handleAssignClick(asset)}
                                     />
                                 ))}

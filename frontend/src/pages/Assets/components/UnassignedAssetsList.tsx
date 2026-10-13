@@ -173,7 +173,8 @@ const UnassignedAssetsListInner: React.FC<UnassignedAssetsListInnerProps> = ({
         return opts.sort((a, b) => a.label.localeCompare(b.label));
     }, [facetCounts]);
 
-    const { canAssignAsset } = getAssetPermissions(userData?.user_id, userData?.role);
+    // Procurement assigns Project assets only.
+    const canAssignAsset = getAssetPermissions(userData?.user_id, userData?.role).canAssignAssetType(assetType);
 
     const handleAssignClick = (asset: AssetMaster) => {
         setSelectedAsset({ id: asset.name, name: asset.asset_name });
