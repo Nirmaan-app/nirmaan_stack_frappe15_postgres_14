@@ -80,18 +80,35 @@ def on_trash(doc, method):
     if not doc.asset:
         return
 
-    add_history(doc.asset, UNASSIGNED, assigned_to=doc.asset_assigned_to)
+    # Every unassign says why (owner, 2026-10-13). The reason rides on the record's flags from
+    # `api/assets/assign.unassign_asset`, which checked it; a Desk or API delete carries none.
+    reason = doc.flags.unassign_reason
+    if not reason:
+        frappe.throw(
+            "Give a reason for unassigning. Unassign from the asset page or the person's profile, "
+            "where the reason is asked."
+        )
+
+    add_history(doc.asset, UNASSIGNED, assigned_to=doc.asset_assigned_to, reason=reason)
     move_files_to_asset(doc.name, doc.asset)
     notify_asset_changed(doc.asset)
 
     if frappe.db.get_value(ASSET_MASTER_DOCTYPE, doc.asset, "current_assignee") == doc.asset_assigned_to:
-        # asset_city / asset_state are fetched from `project`; set_value skips Asset Master's validate,
-        # which would otherwise blank them when the project is cleared, so they are cleared here too.
-        frappe.db.set_value(
-            ASSET_MASTER_DOCTYPE,
-            doc.asset,
-            {"current_assignee": None, "project": None, "asset_city": None, "asset_state": None},
-        )
+        free_asset(doc.asset)
+
+
+def free_asset(asset: str) -> None:
+    """Clear the asset's holder and the project it was assigned for.
+
+    asset_city / asset_state are fetched from `project`; set_value skips Asset Master's validate,
+    which would otherwise blank them when the project is cleared, so they are cleared here too.
+    Nothing else is derived from these fields, so no recompute is skipped.
+    """
+    frappe.db.set_value(
+        ASSET_MASTER_DOCTYPE,
+        asset,
+        {"current_assignee": None, "project": None, "asset_city": None, "asset_state": None},
+    )
 
 
 def move_files_to_asset(assignment: str, asset: str) -> None:

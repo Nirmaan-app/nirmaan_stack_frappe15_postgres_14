@@ -57,21 +57,20 @@ export function useCategoryAssetCounts(enabled = true) {
         const unassignedOf = (category: string) =>
             Math.max((totalByCategory[category] ?? 0) - (assignedByCategory[category] ?? 0), 0);
 
-        /** The categories with the most unassigned assets, optionally limited to some categories. */
-        const topUnassigned = (limit: number, onlyCategories?: string[]): CategoryUnassigned[] => {
+        /** Every category with unassigned assets, most first, optionally limited to some categories. */
+        const unassignedByCategory = (onlyCategories?: string[]): CategoryUnassigned[] => {
             const allowed = onlyCategories ? new Set(onlyCategories) : null;
             return Object.keys(totalByCategory)
                 .filter((category) => !allowed || allowed.has(category))
                 .map((category) => ({ category, count: unassignedOf(category) }))
                 .filter((row) => row.count > 0)
-                .sort((a, b) => b.count - a.count || a.category.localeCompare(b.category))
-                .slice(0, limit);
+                .sort((a, b) => b.count - a.count || a.category.localeCompare(b.category));
         };
 
         return {
             totalByCategory,
             assignedByCategory,
-            topUnassigned,
+            unassignedByCategory,
             isLoading: totalsLoading || assignedLoading,
         };
     }, [totals, assigned, totalsLoading, assignedLoading]);

@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
-import { useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappeFileUpload } from "frappe-react-sdk";
+import { useFrappeUpdateDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
 import {
   Dialog,
   DialogClose,
@@ -41,6 +41,9 @@ import { canSignDeclaration } from "@/utils/assetDeclaration";
 import { AssignAssetToUserDialog } from "./AssignAssetToUserDialog";
 import { SignDeclarationDialog } from "@/pages/Assets/components/SignDeclarationDialog";
 import { getAssetPermissions } from "@/pages/Assets/utils/permissions";
+import { UnassignReasonFields } from "@/pages/Assets/components/UnassignReasonFields";
+import { isUnassignReasonValid } from "@/utils/assetUnassign";
+import { getFrappeError } from "@/utils/frappeErrors";
 import { ASSET_MANAGEMENT_DOCTYPE } from "@/pages/Assets/assets.constants";
 
 // Types for asset data
@@ -228,7 +231,9 @@ export function UserAssetsTab({
   const userData = useUserData();
   const { canUploadDeclaration } = getAssetPermissions(userData?.user_id, userData?.role);
   const { updateDoc } = useFrappeUpdateDoc();
-  const { deleteDoc } = useFrappeDeleteDoc();
+  // One request: the reason is checked, the assignment removed and the reason kept on the asset's
+  // "Unassigned" history row (api/assets/assign.py).
+  const { call: unassignAsset } = useFrappePostCall("nirmaan_stack.api.assets.assign.unassign_asset");
   const { upload } = useFrappeFileUpload();
 
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
@@ -236,6 +241,8 @@ export function UserAssetsTab({
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState<AssetManagementRecord | null>(null);
   const [isUnassigning, setIsUnassigning] = useState(false);
+  const [unassignReason, setUnassignReason] = useState("");
+  const [unassignDetails, setUnassignDetails] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [declarationFile, setDeclarationFile] = useState<File | null>(null);
   const [subTab, setSubTab] = useState<AssetSubTab>("Project");
@@ -315,11 +322,14 @@ export function UserAssetsTab({
 
     setIsUnassigning(true);
     try {
-      // Deleting the assignment is the whole unassign: its on_trash hook writes the history row,
-      // keeps the declaration file, and frees the asset (holder, project, city, state) in one
-      // transaction. A leftover row for someone who no longer holds the asset is removed without
-      // touching the real holder.
-      await deleteDoc(ASSET_MANAGEMENT_DOCTYPE, selectedAssignment.name);
+      // This card's own row: a leftover row for someone who no longer holds the asset is removed
+      // without touching the real holder.
+      await unassignAsset({
+        asset: selectedAssignment.asset,
+        assignment: selectedAssignment.name,
+        reason: unassignReason,
+        details: unassignDetails.trim() || undefined,
+      });
 
       toast({
         title: "Asset Unassigned",
@@ -333,7 +343,7 @@ export function UserAssetsTab({
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error?.message || "Failed to unassign asset.",
+        description: getFrappeError(error),
         variant: "destructive",
       });
     } finally {
@@ -489,6 +499,8 @@ export function UserAssetsTab({
                 }
                 onUnassign={() => {
                   setSelectedAssignment(assignment);
+                  setUnassignReason("");
+                  setUnassignDetails("");
                   setUnassignDialogOpen(true);
                 }}
                 onUploadDeclaration={() => {
@@ -546,6 +558,13 @@ export function UserAssetsTab({
               ? This will remove the asset from this user.
             </DialogDescription>
           </DialogHeader>
+          <UnassignReasonFields
+            reason={unassignReason}
+            details={unassignDetails}
+            onReasonChange={setUnassignReason}
+            onDetailsChange={setUnassignDetails}
+            disabled={isUnassigning}
+          />
           <DialogFooter className="gap-2 sm:gap-0">
             {isUnassigning ? (
               <TailSpin color="hsl(var(--destructive))" height={40} width={40} />
@@ -560,6 +579,7 @@ export function UserAssetsTab({
                 <Button
                   variant="destructive"
                   onClick={handleUnassign}
+                  disabled={!isUnassignReasonValid(unassignReason, unassignDetails)}
                   className="gap-1"
                 >
                   <UserMinus className="h-4 w-4" />

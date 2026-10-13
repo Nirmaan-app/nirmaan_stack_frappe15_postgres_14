@@ -19,7 +19,7 @@ import frappe
 from frappe.model.rename_doc import rename_doc
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.assets.assign import assign_asset
+from nirmaan_stack.api.assets.assign import assign_asset, unassign_asset
 from nirmaan_stack.api.users import create_user
 from nirmaan_stack.patches.v3_0.remove_leftover_asset_assignments import find_leftovers, remove_leftover
 
@@ -270,7 +270,7 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
         })
         file_doc.db_insert()
 
-        frappe.delete_doc("Asset Management", assignment.name, ignore_permissions=True, delete_permanently=True)
+        frappe.delete_doc("Asset Management", assignment.name, ignore_permissions=True, flags={"unassign_reason": "Returned – no longer needed"}, delete_permanently=True)
 
         self.assertFalse(self._asset("current_assignee"))
         self.assertEqual(self._asset("department"), "Projects")
@@ -302,10 +302,63 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
         frappe.db.set_value(
             "Asset Master", self.asset, {"project": "ZZD fake project", "asset_city": "Pune", "asset_state": "MH"}
         )
-        frappe.delete_doc("Asset Management", assignment.name, ignore_permissions=True, delete_permanently=True)
+        frappe.delete_doc("Asset Management", assignment.name, ignore_permissions=True, flags={"unassign_reason": "Returned – no longer needed"}, delete_permanently=True)
         self.assertEqual(
             [self._asset(f) for f in ("current_assignee", "project", "asset_city", "asset_state")], [None] * 4
         )
+
+    # -- unassigning says why (owner, 2026-10-13) ------------------------------------------------
+
+    def test_unassign_needs_a_valid_reason(self):
+        self._assign(self.pm)
+        with self.assertRaisesRegex(frappe.ValidationError, "Choose why"):
+            unassign_asset(self.asset, "")
+        with self.assertRaisesRegex(frappe.ValidationError, "Choose why"):
+            unassign_asset(self.asset, "aaaaaaaaaa")
+        with self.assertRaisesRegex(frappe.ValidationError, "at least 10"):
+            unassign_asset(self.asset, "Other", "short")
+        self.assertEqual(self._asset("current_assignee"), self.pm)
+
+    def test_unassign_keeps_the_reason_on_the_history_row(self):
+        self._assign(self.pm)
+        frappe.db.set_value("Asset Master", self.asset, "project", "ZZD fake project")
+        unassign_asset(self.asset, "Employee left / exit", "returned on the last day")
+        self.assertFalse(self._asset("current_assignee"))
+        self.assertFalse(self._asset("project"))
+        row = self._history()[-1]
+        self.assertEqual(
+            (row.event, row.assigned_to, row.reason),
+            ("Unassigned", self.pm, "Employee left / exit — returned on the last day"),
+        )
+
+    def test_a_delete_without_a_reason_is_refused(self):
+        """Desk / API: deleting the assignment directly carries no reason."""
+        assignment = self._assign(self.pm)
+        history_before = len(self._history())
+        with self.assertRaisesRegex(frappe.ValidationError, "Give a reason for unassigning"):
+            frappe.delete_doc("Asset Management", assignment.name, ignore_permissions=True)
+        self.assertEqual(self._asset("current_assignee"), self.pm)
+        self.assertEqual(len(self._history()), history_before)
+
+    def test_a_holder_without_an_assignment_row_is_freed_with_the_reason(self):
+        frappe.db.set_value("Asset Master", self.asset, "current_assignee", self.pm)  # no row
+        unassign_asset(self.asset, "Lost or stolen")
+        self.assertFalse(self._asset("current_assignee"))
+        row = self._history()[-1]
+        self.assertEqual((row.event, row.assigned_to, row.reason), ("Unassigned", self.pm, "Lost or stolen"))
+
+    def test_unassigning_a_leftover_row_keeps_the_real_holder(self):
+        self._assign(self.pm)
+        leftover = self._leftover(self.no_dept)
+        unassign_asset(self.asset, "Returned – no longer needed", assignment=leftover)
+        self.assertFalse(frappe.db.exists("Asset Management", leftover))
+        self.assertEqual(self._asset("current_assignee"), self.pm)
+
+    def test_an_assignment_of_another_asset_is_refused(self):
+        other = self._new_asset("Projects")
+        row = self._assign(self.pm, asset=other).name
+        with self.assertRaisesRegex(frappe.ValidationError, "not for"):
+            unassign_asset(self.asset, "Lost or stolen", assignment=row)
 
     def test_removing_an_old_duplicate_keeps_the_real_holder(self):
         stale = self._assign(self.pm)
@@ -318,7 +371,7 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
         current.db_insert()
         frappe.db.set_value("Asset Master", self.asset, "current_assignee", self.no_dept)
 
-        frappe.delete_doc("Asset Management", stale.name, ignore_permissions=True, delete_permanently=True)
+        frappe.delete_doc("Asset Management", stale.name, ignore_permissions=True, flags={"unassign_reason": "Returned – no longer needed"}, delete_permanently=True)
         self.assertEqual(self._asset("current_assignee"), self.no_dept)
 
     def test_assign_and_unassign_tell_open_asset_pages(self):
@@ -333,7 +386,7 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
             assignment = self._assign(self.pm)
             self.assertTrue(asset_updates(publish), "Assign sent no update for the asset")
             publish.reset_mock()
-            frappe.delete_doc("Asset Management", assignment.name, ignore_permissions=True, delete_permanently=True)
+            frappe.delete_doc("Asset Management", assignment.name, ignore_permissions=True, flags={"unassign_reason": "Returned – no longer needed"}, delete_permanently=True)
             self.assertTrue(asset_updates(publish), "Unassign sent no update for the asset")
 
     # -- leftover assignment rows (ASSET-LAP-029) -----------------------------------------------

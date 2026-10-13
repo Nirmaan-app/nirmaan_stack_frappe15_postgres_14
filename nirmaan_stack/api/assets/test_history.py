@@ -123,7 +123,7 @@ class TestHistoryNamesPeopleAsText(FrappeTestCase):
         frappe.set_user(cls.former)
         add_history(cls.asset, DECLARATION_SIGNED, assigned_to=cls.former)
         frappe.set_user("Administrator")
-        frappe.delete_doc("Asset Management", returned, ignore_permissions=True)
+        frappe.delete_doc("Asset Management", returned, ignore_permissions=True, flags={"unassign_reason": "Returned – no longer needed"})
         cls._assign(cls.holder)  # still holds it
 
     @classmethod

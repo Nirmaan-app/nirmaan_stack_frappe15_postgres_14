@@ -13,9 +13,6 @@ import { useAssetCategoryNamesByType } from '../hooks/useAssetCategoryNamesByTyp
 import { useAssetMasterNamesByType } from '../hooks/useAssetMasterNamesByType';
 import { CategoryUnassigned, useCategoryAssetCounts } from '../hooks/useCategoryAssetCounts';
 
-/** How many categories the "most unassigned" list shows. */
-const TOP_UNASSIGNED_LIMIT = 5;
-
 type AssetSummaryMode = 'project' | 'it' | 'categories';
 
 interface AssetsSummaryCardsProps {
@@ -32,10 +29,11 @@ interface SummaryViewModel {
     hasError: boolean;
     title: string;
     totalLabel: string;
-    categoriesLabel: string;
+    /** "Total Unassigned Project Assets" -- the right-hand box's title. */
+    unassignedLabel: string;
     categoriesHint: string;
-    /** Categories with the most unassigned assets, in this tab's scope. */
-    topUnassigned: CategoryUnassigned[];
+    /** Every category with unassigned assets in this tab's scope, most first. */
+    unassignedByCategory: CategoryUnassigned[];
 }
 
 export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTab }) => {
@@ -63,7 +61,7 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
         );
     }
 
-    const { total, assigned, unassigned, pendingDecl, categories, hasError, title, totalLabel, categoriesLabel, categoriesHint, topUnassigned } = view;
+    const { total, assigned, unassigned, pendingDecl, categories, hasError, title, totalLabel, unassignedLabel, categoriesHint, unassignedByCategory } = view;
 
     return (
         <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-800">
@@ -146,13 +144,16 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
                         <div className="grid grid-cols-2 gap-4">
                             {/* Primary Metric - Total Assets with breakdown */}
                             <div className="bg-gradient-to-br from-emerald-50 to-teal-50/50 dark:from-emerald-950/40 dark:to-teal-950/30 rounded-lg p-3 border border-emerald-100 dark:border-emerald-900/50">
-                                <dt className="text-xs font-medium text-emerald-600/80 dark:text-emerald-400/80 uppercase tracking-wide mb-1 flex items-center gap-1.5">
-                                    <Package className="h-3 w-3" />
-                                    {totalLabel}
-                                </dt>
-                                <dd className="text-2xl font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">
-                                    {total}
-                                </dd>
+                                {/* Same shape as the unassigned box beside it: label left, count top-right */}
+                                <div className="flex items-center justify-between gap-2">
+                                    <dt className="text-xs font-medium text-emerald-600/80 dark:text-emerald-400/80 uppercase tracking-wide flex items-center gap-1.5">
+                                        <Package className="h-3 w-3" />
+                                        {totalLabel}
+                                    </dt>
+                                    <dd className="text-lg font-bold leading-none text-emerald-700 dark:text-emerald-400 tabular-nums">
+                                        {total}
+                                    </dd>
+                                </div>
                                 {/* Breakdown badges */}
                                 <div className="flex flex-wrap gap-1.5 mt-2">
                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded-full">
@@ -172,26 +173,22 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
                                 </div>
                             </div>
                             {/* Secondary Metric - Categories */}
-                            {/* Compact: the count on one line, the most-unassigned categories as wrapping chips */}
+                            {/* Unassigned: the total top-right, then EVERY category with unassigned assets as wrapping chips */}
                             <div className="bg-slate-50/80 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700">
                                 <div className="flex items-center justify-between gap-2">
                                     <dt className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
-                                        <Boxes className="h-3 w-3" />
-                                        {categoriesLabel}
+                                        <UserX className="h-3 w-3" />
+                                        {unassignedLabel}
                                     </dt>
                                     <dd className="text-lg font-bold leading-none text-slate-700 dark:text-slate-300 tabular-nums">
-                                        {categories}
+                                        {unassigned}
                                     </dd>
                                 </div>
                                 <div className="mt-2 flex flex-wrap items-center gap-1">
-                                    <span className="mr-0.5 text-[10px] font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide inline-flex items-center gap-1">
-                                        <UserX className="h-3 w-3" />
-                                        Most unassigned
-                                    </span>
-                                    {topUnassigned.length === 0 ? (
+                                    {unassignedByCategory.length === 0 ? (
                                         <span className="text-[11px] text-slate-400 dark:text-slate-500">Every asset is assigned.</span>
                                     ) : (
-                                        topUnassigned.map(({ category, count }) => (
+                                        unassignedByCategory.map(({ category, count }) => (
                                             <span
                                                 key={category}
                                                 title={`${category}: ${count} unassigned`}
@@ -254,9 +251,9 @@ function useGlobalSummary(enabled: boolean): SummaryViewModel {
         hasError: !!error,
         title: 'Assets Summary',
         totalLabel: 'Total Assets',
-        categoriesLabel: 'Asset Categories',
+        unassignedLabel: 'Total Unassigned Assets',
         categoriesHint: categoriesCount === 1 ? 'Category' : 'Categories',
-        topUnassigned: categoryCounts.topUnassigned(TOP_UNASSIGNED_LIMIT),
+        unassignedByCategory: categoryCounts.unassignedByCategory(),
     };
 }
 
@@ -328,8 +325,8 @@ function useScopedSummary(type: AssetCategoryType | undefined): SummaryViewModel
         hasError: !!countsError,
         title: `${typeLabel} Assets Summary`,
         totalLabel: `Total ${typeLabel} Assets`,
-        categoriesLabel: `${typeLabel} Asset Categories`,
+        unassignedLabel: `Total Unassigned ${typeLabel} Assets`,
         categoriesHint: categories === 1 ? `${typeLabel} Category` : `${typeLabel} Categories`,
-        topUnassigned: categoryCounts.topUnassigned(TOP_UNASSIGNED_LIMIT, categoryNames),
+        unassignedByCategory: categoryCounts.unassignedByCategory(categoryNames),
     };
 }

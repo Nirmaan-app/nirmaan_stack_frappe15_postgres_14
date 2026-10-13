@@ -1,4 +1,4 @@
-"""Assign an asset to a person -- the whole assignment in one request.
+"""Assign an asset to a person, or unassign it -- each the whole change in one request.
 
 Creates the Asset Management record (the current assignment) and, in the same transaction, makes the
 person the asset's holder, sets the project, moves the asset's department when the person is in another
@@ -10,6 +10,10 @@ departments) and the Asset Management hooks, so this endpoint only gathers the i
 """
 
 import frappe
+
+from nirmaan_stack.integrations.controllers.asset_management import free_asset, notify_asset_changed
+from nirmaan_stack.services.asset_history import UNASSIGNED, add_history
+from nirmaan_stack.services.asset_unassign import unassign_reason_refusal, unassign_reason_text
 
 ASSET_MASTER_DOCTYPE = "Asset Master"
 ASSET_MANAGEMENT_DOCTYPE = "Asset Management"
@@ -67,3 +71,56 @@ def assign_asset(
         "assignment": assignment.name,
         "department": frappe.db.get_value(ASSET_MASTER_DOCTYPE, asset, "department"),
     }
+
+
+@frappe.whitelist(methods=["POST"])
+def unassign_asset(asset: str, reason: str, details: str | None = None, assignment: str | None = None) -> dict:
+    """Unassign `asset`, saying why (owner, 2026-10-13).
+
+    The reason must be one of `services/asset_unassign.UNASSIGN_REASONS`; "Other" needs details. It is
+    kept on the asset's "Unassigned" history row. Deleting the assignment is the unassign itself: its
+    on_trash hook writes that row, keeps the declaration file and frees the asset (holder, project,
+    city, state), all in this one transaction.
+
+    Args:
+        asset: Asset Master name.
+        reason: one of UNASSIGN_REASONS.
+        details: free text; required (at least 10 characters) for "Other", optional otherwise.
+        assignment: the Asset Management row to remove. Default: the row of the asset's current
+            holder. A profile card passes its own row, which may be an old leftover for someone else.
+
+    Returns:
+        {"asset": <asset>}
+
+    Example:
+        POST /api/method/nirmaan_stack.api.assets.assign.unassign_asset
+        {"asset": "ASSET-LAP-029", "reason": "Employee left / exit", "details": "Returned on last day"}
+    """
+    refusal = unassign_reason_refusal(reason, details)
+    if refusal:
+        frappe.throw(refusal)
+    reason_text = unassign_reason_text(reason, details)
+
+    holder = frappe.db.get_value(ASSET_MASTER_DOCTYPE, asset, "current_assignee")
+    if not assignment and holder:
+        assignment = frappe.db.get_value(
+            ASSET_MANAGEMENT_DOCTYPE, {"asset": asset, "asset_assigned_to": holder}, "name"
+        )
+
+    if assignment:
+        if frappe.db.get_value(ASSET_MANAGEMENT_DOCTYPE, assignment, "asset") != asset:
+            frappe.throw(f"That assignment is not for {asset}.")
+        # delete_doc checks the delete permission; the reason reaches on_trash on the record's flags.
+        frappe.delete_doc(ASSET_MANAGEMENT_DOCTYPE, assignment, flags={"unassign_reason": reason_text})
+    elif holder:
+        # A holder with no assignment row: free the asset directly, and still record why.
+        if not frappe.has_permission(ASSET_MASTER_DOCTYPE, "write", asset):
+            frappe.throw("You don't have permission to unassign assets.", frappe.PermissionError)
+        free_asset(asset)
+        add_history(asset, UNASSIGNED, assigned_to=holder, reason=reason_text)
+        notify_asset_changed(asset)
+    else:
+        frappe.throw(f"{asset} is not assigned to anyone.")
+
+    frappe.db.commit()
+    return {"asset": asset}
