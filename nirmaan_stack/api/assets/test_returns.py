@@ -3,7 +3,7 @@
 - A declaration arriving (signed or uploaded) ticks Received with that day's date.
 - The holder returns their asset from their profile; it stays assigned until a manager acts.
 - Approve (Admin / HR / PMO; procurement for Project assets) unassigns it with the return date.
-- Reject (Admin / HR / PMO only) clears the return; the person keeps the asset.
+- Reject (the same people as Approve) clears the return; the person keeps the asset.
 
 People are bare User + Nirmaan Users rows plus the Role their profile bundles, so the doctype's delete
 permission passes and the profile rules decide. Nothing commits.
@@ -224,10 +224,20 @@ class TestReceiveAndReturn(FrappeTestCase):
         request_return(assignment)
         self.assertEqual(self._row(assignment).returned, 1)
 
-    def test_procurement_cannot_reject(self):
-        _, assignment = self._returned()
+    def test_procurement_rejects_project_returns_but_not_it(self):
+        _, project_assignment = self._returned(kind="Project")
+        _, it_assignment = self._returned(kind="IT")
         frappe.set_user(self.procurement)
-        with self.assertRaisesRegex(frappe.PermissionError, "Admin, HR or PMO"):
+        reject_return(project_assignment)
+        self.assertEqual(self._row(project_assignment).returned, 0)
+        with self.assertRaisesRegex(frappe.PermissionError, "Project assets only"):
+            reject_return(it_assignment)
+        self.assertEqual(self._row(it_assignment).returned, 1)
+
+    def test_someone_who_cannot_unassign_cannot_reject(self):
+        _, assignment = self._returned()
+        frappe.set_user(self.stranger)
+        with self.assertRaises(frappe.PermissionError):
             reject_return(assignment)
         self.assertEqual(self._row(assignment).returned, 1)
 

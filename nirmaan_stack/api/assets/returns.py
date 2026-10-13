@@ -6,8 +6,8 @@
 - Approve -- the same people as Unassign (Admin, HR, PMO; procurement for Project assets): the full
   Unassign (`api/assets/assign.unassign_asset`) with the reason "Returned – no longer needed" and the
   return date, so the asset is free and its history says when it came back.
-- Reject -- Admin, HR or PMO only: clears the two fields, the person keeps the asset. History: "Return
-  Rejected".
+- Reject -- the same people as Approve (owner, 2026-10-13: procurement too, for Project assets): clears
+  the two fields, the person keeps the asset. History: "Return Rejected".
 
 The holder only reads Asset Management, so the checks here are the authorisation and the saves pass
 `ignore_permissions`.
@@ -19,7 +19,6 @@ from frappe.utils import formatdate, today
 from nirmaan_stack.api.assets.assign import unassign_asset
 from nirmaan_stack.services.asset_assign_access import check_may_assign
 from nirmaan_stack.services.asset_history import RETURN_REJECTED, RETURN_REQUESTED, add_history
-from nirmaan_stack.services.role_profiles import ASSET_ASSIGN_ALL_PROFILES, has_role_profile
 
 ASSET_MASTER_DOCTYPE = "Asset Master"
 ASSET_MANAGEMENT_DOCTYPE = "Asset Management"
@@ -85,9 +84,8 @@ def reject_return(assignment: str) -> dict:
     Example:
         POST /api/method/nirmaan_stack.api.assets.returns.reject_return {"assignment": "k72sevcfkp"}
     """
-    if not has_role_profile(frappe.session.user, ASSET_ASSIGN_ALL_PROFILES):
-        frappe.throw("Only Admin, HR or PMO can reject a return.", frappe.PermissionError)
     row = _assignment(assignment, for_update=True)
+    check_may_assign(row.asset, "reject returns of")
     if not row.returned:
         frappe.throw("This asset has no return waiting for approval.")
 

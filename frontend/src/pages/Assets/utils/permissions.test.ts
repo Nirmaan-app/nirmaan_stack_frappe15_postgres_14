@@ -73,15 +73,3 @@ describe("canAssignAssetType", () => {
     expect(source).toContain("ASSET_ASSIGN_PROJECT_PROFILES = PROCUREMENT_PROFILES");
   });
 });
-
-describe("canRejectReturn", () => {
-  it("lets Admin, HR Executive, PMO and the Administrator user reject a return -- never procurement", () => {
-    for (const role of ["Nirmaan Admin Profile", "Nirmaan HR Executive Profile", "Nirmaan PMO Executive Profile"]) {
-      expect(getAssetPermissions("a@x", role).canRejectReturn).toBe(true);
-    }
-    expect(getAssetPermissions("Administrator", null).canRejectReturn).toBe(true);
-    for (const role of ["Nirmaan Procurement Executive Profile", "Nirmaan Procurement Lead Profile", "Nirmaan Project Manager Profile"]) {
-      expect(getAssetPermissions("a@x", role).canRejectReturn).toBe(false);
-    }
-  });
-});

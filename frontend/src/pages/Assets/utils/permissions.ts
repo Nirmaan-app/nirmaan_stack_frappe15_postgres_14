@@ -55,11 +55,7 @@ export interface AssetPermissions {
      * so an unknown kind (still loading) shows nothing to procurement.
      */
     canAssignAssetType: (type: AssetCategoryType | null | undefined) => boolean;
-    /**
-     * Can turn down an employee's return (owner, 2026-10-13): Admin, HR and PMO only, never procurement.
-     * Approving one follows canAssignAssetType, as it unassigns the asset.
-     */
-    canRejectReturn: boolean;
+
     /** Can edit existing assets */
     canEditAsset: boolean;
     /** Can delete assets */
@@ -122,7 +118,6 @@ export function getAssetPermissions(
         // Assign/Unassign: Admin, HR and PMO any asset; procurement Project assets only
         canAssignAsset: assignsEveryKind || hasProcurementAccess,
         canAssignAssetType: (type) => assignsEveryKind || (hasProcurementAccess && type === 'Project'),
-        canRejectReturn: assignsEveryKind,
 
         // Edit Asset: Only admin roles and HR (NOT Procurement)
         canEditAsset: canManageAll,

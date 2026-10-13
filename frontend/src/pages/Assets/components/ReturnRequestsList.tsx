@@ -19,6 +19,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/use-toast';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { useUserData } from '@/hooks/useUserData';
@@ -76,9 +77,9 @@ const showDate = (value: string | null | undefined) => (value ? formatDate(value
 
 /**
  * The Return By tab (owner, 2026-10-13): assets whose holder says they gave them back, in the same table
- * as the Assigned tab -- search, sort, filters, export. Approve unassigns the asset (Admin, HR, PMO;
- * procurement for Project assets); Reject clears the return and the person keeps it (Admin, HR, PMO).
- * Both are confirmed first; the server re-checks who may do them.
+ * as the Assigned tab -- search, sort, filters, export. Approve unassigns the asset; Reject clears the
+ * return and the person keeps it. Both belong to the people who may unassign it -- Admin, HR, PMO, and
+ * procurement for Project assets (owner, 2026-10-13). Both are confirmed first; the server re-checks.
  */
 export const ReturnRequestsList: React.FC<ReturnRequestsListProps> = ({ assetType, onChanged }) => {
     // Wait for the tab's asset list, so the first fetch is never scoped to nothing (see AssignedAssetsList).
@@ -169,8 +170,8 @@ const ReturnRequestsTable: React.FC<ReturnRequestsListProps & { masterNames: str
 
     // Approve / Reject
     const userData = useUserData();
-    const { canAssignAssetType, canRejectReturn } = getAssetPermissions(userData?.user_id, userData?.role);
-    const canApprove = canAssignAssetType(assetType);
+    // Approve and Reject: the people who may unassign this kind of asset.
+    const canDecide = getAssetPermissions(userData?.user_id, userData?.role).canAssignAssetType(assetType);
     const [decision, setDecision] = useState<Decision | null>(null);
     const [saving, setSaving] = useState(false);
     const { toast } = useToast();
@@ -195,7 +196,7 @@ const ReturnRequestsTable: React.FC<ReturnRequestsListProps & { masterNames: str
                     <span className="tabular-nums">{row.original.asset.slice(-6)}</span>
                 </Link>
             ),
-            size: 100,
+            size: 90,
         },
         {
             accessorKey: 'asset',
@@ -209,7 +210,7 @@ const ReturnRequestsTable: React.FC<ReturnRequestsListProps & { masterNames: str
                     {assetsMap[row.original.asset]?.asset_name || row.original.asset}
                 </Link>
             ),
-            size: 200,
+            size: 170,
         },
         {
             id: 'asset_category',
@@ -229,7 +230,7 @@ const ReturnRequestsTable: React.FC<ReturnRequestsListProps & { masterNames: str
                     <span className="text-gray-400">—</span>
                 );
             },
-            size: 140,
+            size: 130,
         },
         {
             accessorKey: 'asset_assigned_to',
@@ -244,7 +245,7 @@ const ReturnRequestsTable: React.FC<ReturnRequestsListProps & { masterNames: str
                     {usersMap[row.original.asset_assigned_to] || row.original.asset_assigned_to}
                 </Link>
             ),
-            size: 180,
+            size: 160,
         },
         {
             accessorKey: 'returned_on',
@@ -255,7 +256,7 @@ const ReturnRequestsTable: React.FC<ReturnRequestsListProps & { masterNames: str
                     {showDate(row.original.returned_on)}
                 </span>
             ),
-            size: 130,
+            size: 120,
         },
         {
             accessorKey: 'received_on',
@@ -263,7 +264,7 @@ const ReturnRequestsTable: React.FC<ReturnRequestsListProps & { masterNames: str
             cell: ({ row }) => (
                 <span className="text-sm text-gray-500 tabular-nums">{showDate(row.original.received_on)}</span>
             ),
-            size: 120,
+            size: 110,
         },
         assignmentDepartmentColumn<ReturnRow>((assetId) => assetsMap[assetId]?.department),
         ...(isProjectTab
@@ -289,46 +290,54 @@ const ReturnRequestsTable: React.FC<ReturnRequestsListProps & { masterNames: str
                               </span>
                           );
                       },
-                      size: 200,
+                      size: 160,
                   },
               ] as ColumnDef<ReturnRow>[])
             : []),
         {
             id: 'actions',
             enableSorting: false,
-            header: () => <span className="text-xs font-semibold">Actions</span>,
+            header: () => <div className="text-center text-xs font-semibold">Actions</div>,
             meta: { excludeFromExport: true },
-            cell: ({ row }) => (
-                <div className="flex items-center gap-2">
-                    {canRejectReturn && (
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-                            onClick={() => setDecision({ kind: 'reject', row: row.original })}
-                        >
-                            <XCircle className="h-3.5 w-3.5" />
-                            Reject
-                        </Button>
-                    )}
-                    {canApprove && (
-                        <Button
-                            size="sm"
-                            className="h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-700"
-                            onClick={() => setDecision({ kind: 'approve', row: row.original })}
-                        >
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            Approve
-                        </Button>
-                    )}
-                    {!canRejectReturn && !canApprove && <span className="text-xs text-gray-400">—</span>}
-                </div>
-            ),
-            size: 200,
+            cell: ({ row }) =>
+                canDecide ? (
+                    <div className="flex items-center justify-center gap-1.5">
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    size="icon"
+                                    variant="outline"
+                                    aria-label="Reject the return"
+                                    className="h-8 w-8 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                                    onClick={() => setDecision({ kind: 'reject', row: row.original })}
+                                >
+                                    <XCircle className="h-4 w-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Reject the return</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    size="icon"
+                                    aria-label="Approve the return"
+                                    className="h-8 w-8 bg-emerald-600 text-white hover:bg-emerald-700"
+                                    onClick={() => setDecision({ kind: 'approve', row: row.original })}
+                                >
+                                    <CheckCircle2 className="h-4 w-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Approve the return</TooltipContent>
+                        </Tooltip>
+                    </div>
+                ) : (
+                    <div className="text-center text-xs text-gray-400">—</div>
+                ),
+            size: 96,
         },
         // categoryFilter is deliberately not a dep: the funnel owns its selection, and rebuilding the
         // columns on every pick would remount its popover (as in AssignedAssetsList).
-    ], [assetsMap, usersMap, projectsById, facets, isProjectTab, canApprove, canRejectReturn]);
+    ], [assetsMap, usersMap, projectsById, facets, isProjectTab, canDecide]);
 
     const {
         table,
