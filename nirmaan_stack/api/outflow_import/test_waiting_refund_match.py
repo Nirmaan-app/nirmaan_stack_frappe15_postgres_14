@@ -43,8 +43,11 @@ VENDOR_REFUNDS = "Vendor Refunds"
 TOTAL, PAID = 10000.0, 11180.0
 
 
-class WaitingRefundMatchFixture(InflowFixture):
-    """⚠️ AT MOST SIX CONSUMING TESTS PER CLASS: the fixture holds six open credits."""
+class WaitingRefundFixture(InflowFixture):
+    """Overpaid POs and waiting refunds on the fixture's vendor, purged by name after each test. Also
+    read by `test_waiting_refund_suggestion` (#1402).
+
+    ⚠️ AT MOST SIX CONSUMING TESTS PER CLASS: the fixture holds six open credits."""
 
     def setUp(self):
         frappe.set_user("Administrator")
@@ -143,7 +146,9 @@ class WaitingRefundMatchFixture(InflowFixture):
         return match_waiting_refunds(row=row["name"], refunds=frappe.as_json(refunds), **kwargs)
 
 
-class TestMatchingAWaitingRefund(WaitingRefundMatchFixture):
+class TestMatchingAWaitingRefund(WaitingRefundFixture):
+    """⚠️ AT MOST SIX CONSUMING TESTS PER CLASS: the fixture holds six open credits."""
+
     # ── the match ───────────────────────────────────────────────────────────────
 
     def test_matching_one_waiting_refund_makes_it_received_and_clears_the_adjustment(self):
@@ -288,7 +293,7 @@ class TestMatchingAWaitingRefund(WaitingRefundMatchFixture):
         self.assertEqual(frappe.db.get_value(VENDOR_REFUNDS, refund, "status"), RECEIVED)
 
 
-class TestMatchingANoBankLineRefund(WaitingRefundMatchFixture):
+class TestMatchingANoBankLineRefund(WaitingRefundFixture):
     """#1403: an Admin marked a waiting refund Received with no bank line. It already counts, and it stays
     in the waiting pool, so the late bank line is matched to it (adding the bank leg, removing the "No
     bank proof" mark) instead of becoming a second refund. Unreconcile returns it to "Received, no bank

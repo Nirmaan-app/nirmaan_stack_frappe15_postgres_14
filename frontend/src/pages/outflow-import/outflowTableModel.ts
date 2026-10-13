@@ -39,7 +39,12 @@ import {
 import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable.config";
 import { inflowHref } from "@/pages/inflow-payments/config/inflowPaymentsTable.config";
 import { nonProjectInflowHref } from "@/pages/non-project-inflows/config/nonProjectInflowsTable.config";
-import { waitingRefundProblem, type WaitingRefundForm } from "./waitingRefundMatch";
+import {
+    sameWaitingRefunds,
+    suggestedWaitingRefundForm,
+    waitingRefundProblem,
+    type WaitingRefundForm,
+} from "./waitingRefundMatch";
 import {
     descriptionRequired,
     isInflowType,
@@ -3193,12 +3198,19 @@ const SETTLEABLE_TARGETS: readonly string[] = [
  * suggestion rendered as ready-to-confirm on a row nobody may settle is bad enough to check twice.
  */
 export const suggestedDecision = (row: OutflowImportRow): RowDecision | null => {
+    if (!OPEN_ROW_STATUSES.has(row.row_status)) return null;
+    if (row.row_status === ROW_PENDING_MATCH) return null;
+    // #1402: a credit line the run found to be waiting Vendor Refund(s) opens on the match, those
+    // refunds ticked. Its own field, never `suggested_name` (a group does not fit it). The server
+    // sends it only while every refund still waits.
+    const refunds = row.waiting_refund_suggestion;
+    if (refunds?.refunds?.length) {
+        return { target: "waitingRefund", waitingRefund: suggestedWaitingRefundForm(refunds) };
+    }
     const target = (row.suggested_doctype ?? "").trim();
     const linkTo = (row.suggested_name ?? "").trim();
     if (!target || !linkTo) return null;
     if (!SETTLEABLE_TARGETS.includes(target)) return null;
-    if (!OPEN_ROW_STATUSES.has(row.row_status)) return null;
-    if (row.row_status === ROW_PENDING_MATCH) return null;
     // ⚠️ A ONE-ELEMENT SET (Task 7) -- the match run only ever proposes a single record, so this
     // is `linkTargets`' singleton case. `recordKey` is the SAME identity function the picker and
     // `parseRecordKey` share; a second way to spell `"<doctype>|<name>"` here would be exactly the
@@ -3253,6 +3265,13 @@ export const decisionOrigin = (
 ): DecisionOrigin => {
     if (!decision) return "none";
     const suggestion = suggestedDecision(row);
+    // A waiting-refund suggestion (#1402) has no link keys; it agrees when the same refunds are ticked.
+    if (suggestion?.target === "waitingRefund") {
+        return decision.target === "waitingRefund" &&
+            sameWaitingRefunds(suggestion.waitingRefund, decision.waitingRefund)
+            ? "suggested"
+            : "chosen";
+    }
     // ⚠️ COMPARED AS NORMALISED KEY SETS (issue #1240), never field-against-field. The suggestion is
     // always banked in `linkTargets`, but a person picking that same record in Normal mode writes
     // `linkTo` -- and a field-against-field compare would then read a word-for-word agreement as

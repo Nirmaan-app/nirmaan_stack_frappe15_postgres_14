@@ -74,8 +74,11 @@ import { useUserData } from "@/hooks/useUserData";
 import type { UnreconcileResult } from "../unreconcileView";
 import { UnreconcilePanel } from "./UnreconcileDialog";
 import {
+    sameWaitingRefunds,
+    suggestedWaitingRefundForm,
     toggleWaitingRefund,
     waitingRefundProblem,
+    waitingRefundSuggestionNote,
     waitingRefundsHeadline,
     waitingRefundTotals,
     waitingRefundsKey,
@@ -2983,9 +2986,19 @@ const WaitingRefundMatchForm = ({
     const { matched, remaining } = waitingRefundTotals(form, row.amount);
     const problem = picks.length ? waitingRefundProblem(form, row.amount) : null;
     const isTicked = (name: string) => picks.some((p) => p.name === name);
+    // #1402: the import's suggestion, said while the ticks are still exactly its own.
+    const importSuggestion = row.waiting_refund_suggestion;
+    const showsSuggestion =
+        !!importSuggestion?.refunds?.length &&
+        sameWaitingRefunds(suggestedWaitingRefundForm(importSuggestion), form);
 
     return (
         <div className="space-y-3">
+            {showsSuggestion && importSuggestion && (
+                <p className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm">
+                    {waitingRefundSuggestionNote(importSuggestion)}
+                </p>
+            )}
             <div className="space-y-1.5 sm:max-w-sm">
                 <Label className="text-xs">Vendor</Label>
                 <SearchPicker

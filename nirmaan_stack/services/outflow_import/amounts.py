@@ -52,6 +52,12 @@ amount), which neither can reach and neither may be stretched to reach. A TDS pa
   * `candidates.load_expense_targets`       -- the SQL pool query
   * `matcher.match_payments` / `match_expenses` -- the in-memory comparison (tier 1 at
                                                `TIER1_TOLERANCE`, tier 2 at `AMOUNT_TOLERANCE`)
+  * `refund_suggestion.suggest_waiting_refunds` (#1402) -- rule (b), `TIER1_TOLERANCE`, the same
+                                               strict window as tier 1: a credit line's bank account
+                                               and IFSC are the vendor's, and exactly one waiting
+                                               refund agrees within Re 1. It only SUGGESTS; the match
+                                               write (`vendor_refunds.waiting_match_problem`) holds
+                                               the refunds to the line exactly, at the paisa.
   * `settle.settle_payment`                  -- the payment WRITE guard.
   * `expense_links.one_line_fits` (#1299)    -- Decide's one-line expense rule, read by the picker's
                                                `suggested` flag AND `settle_row`'s write: SETTLE
