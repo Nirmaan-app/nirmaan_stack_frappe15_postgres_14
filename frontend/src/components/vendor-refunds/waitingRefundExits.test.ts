@@ -5,6 +5,7 @@ import {
     canCancelRefund,
     canMarkReceivedWithoutBankLine,
     hasNoBankProof,
+    hasNoProofAtAll,
     isOverdueWaitingRefund,
     overdueWaitingFilters,
 } from "./waitingRefundExits";
@@ -52,6 +53,23 @@ describe("hasNoBankProof", () => {
 
     it("is gone once a bank line is matched to it", () => {
         expect(hasNoBankProof(refund({ status: "Received", no_bank_line: 0 }))).toBe(false);
+    });
+});
+
+// #1404: a refund migrated from Adjust Payments with no proof is flagged so accounts attach one.
+describe("hasNoProofAtAll", () => {
+    it("is a Received refund with no bank line and no attachment", () => {
+        expect(hasNoProofAtAll(refund({ status: "Received", no_bank_line: 1, refund_attachment: null }))).toBe(true);
+        expect(hasNoProofAtAll(refund({ status: "Received", no_bank_line: 1, refund_attachment: "" }))).toBe(true);
+    });
+
+    it("is gone once proof is attached or a bank line is matched", () => {
+        expect(hasNoProofAtAll(refund({ status: "Received", no_bank_line: 1, refund_attachment: "/files/p.png" }))).toBe(false);
+        expect(hasNoProofAtAll(refund({ status: "Received", no_bank_line: 0, refund_attachment: null }))).toBe(false);
+    });
+
+    it("does not flag a waiting refund, whose bank line is still to come", () => {
+        expect(hasNoProofAtAll(refund({ refund_attachment: null }))).toBe(false);
     });
 });
 
