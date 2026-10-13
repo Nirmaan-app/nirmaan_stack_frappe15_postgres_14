@@ -309,6 +309,75 @@ def convert_duplicate_problem(header: ChequeHeader) -> str:
     )
 
 
+# -- editing a Cheque (#1418) --------------------------------------------------------------------
+#: The header fields an edit compares. The photo (`attachment`) is apart: it may always be replaced.
+EDITABLE_HEADER_FIELDS = (
+    "bank", "bank_name", "cheque_no", "cheque_date", "amount", "vendor", "payee_name", "description",
+)
+#: What a Cheque made from the PO/WO page keeps, so it stays in step with the payment it came from.
+LOCKED_ON_PO_WO_PAGE = {"cheque_no": "number", "cheque_date": "date", "amount": "amount"}
+
+
+def edit_access_problem(*, status: str, owner: str, user: str, any_cheque: bool) -> str | None:
+    """Why `user` may not edit this Cheque, or None. `any_cheque` is True for Admin, Accountant and
+    Accountant Lead; anyone else who may use cheques (Procurement) edits only the Issued Cheques
+    they created."""
+    if any_cheque or (status == ISSUED and owner == user):
+        return None
+    return "You can edit only the Issued cheques you created."
+
+
+def _join(words: list[str]) -> str:
+    return words[0] if len(words) == 1 else f"{', '.join(words[:-1])} and {words[-1]}"
+
+
+def edit_problem(
+    before: ChequeHeader,
+    after: ChequeHeader,
+    *,
+    status: str,
+    made_from: str,
+    lines_before: list[ChequeLineInput],
+    lines_after: list[ChequeLineInput],
+) -> str | None:
+    """Why this edit of a Cheque cannot be saved, or None. The rules are the ones the editor sees:
+
+    * the photo can be replaced, never removed;
+    * a Cleared or Cancelled Cheque can change only its photo;
+    * an Issued Cheque made from the PO/WO page keeps its number, date and amount (they stay in step
+      with the payment it came from), but its other fields and its lines can change;
+    * an Issued Cheque made on the report can change everything;
+    * a line holding a Project Payment cannot come off an Issued Cheque: a Cheque payment always has
+      its Cheque, and goes back to Online only once that Cheque is Cancelled. A line with no payment,
+      or an expense line, comes off freely.
+
+    The header and line rules every save runs (one payee, a live Cheque per payment, ...) are the
+    `validate` controller's, not repeated here.
+    """
+    if before.attachment and not after.attachment:
+        return "The cheque's photo can be replaced, not removed."
+    changed = [f for f in EDITABLE_HEADER_FIELDS if getattr(before, f) != getattr(after, f)]
+    if status != ISSUED:
+        if changed or lines_before != lines_after:
+            return f"Cheque {before.cheque_no} is {status}: only its photo can change."
+        return None
+    if made_from == MADE_FROM_PO_WO_PAGE:
+        locked = [LOCKED_ON_PO_WO_PAGE[f] for f in changed if f in LOCKED_ON_PO_WO_PAGE]
+        if locked:
+            return (
+                f"Cheque {before.cheque_no} was made from the PO/WO page, so its {_join(locked)} cannot "
+                f"change here: change {'it' if len(locked) == 1 else 'them'} on the payment."
+            )
+    kept = {line.payment_name for line in lines_after if line.payment_doctype == PAYMENT_DOCTYPE}
+    for line in lines_before:
+        if line.payment_doctype == PAYMENT_DOCTYPE and line.payment_name not in kept:
+            return (
+                f"Payment {line.payment_name} cannot be taken off cheque {before.cheque_no} while it is "
+                "Issued: reject the payment, or cancel the cheque and Switch to Online."
+            )
+    return None
+
+
 def _cheque_text(cheque_no: str | None, cheque_status: str | None) -> str:
     if not cheque_status:
         return f"cheque {cheque_no}, which no Cheque record holds" if cheque_no else "a cheque"

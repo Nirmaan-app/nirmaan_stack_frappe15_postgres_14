@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import formatToIndianRupee from "@/utils/FormatPrice";
+import { LOCKED_LINE_HINT } from "@/utils/cheques/chequeEdit";
 import type { ChequeFormInput } from "@/utils/cheques/chequeForm";
 import {
     addLineOptions,
@@ -37,6 +38,10 @@ interface ChequeLinesTableProps {
     vendorPayee: boolean;
     vendor?: string;
     disabled?: boolean;
+    /** The Cheque being edited (#1418): the pickers keep offering its own payments and expenses. */
+    cheque?: string;
+    /** Payments whose lines cannot come off, nor change payment (an Issued Cheque's, #1418). */
+    lockedPayments?: string[];
 }
 
 /**
@@ -51,7 +56,7 @@ interface ChequeLinesTableProps {
  * Lines may span projects. Lives inside the dialog's react-hook-form (`lines`); the server re-checks
  * every rule.
  */
-export const ChequeLinesTable = ({ vendorPayee, vendor, disabled }: ChequeLinesTableProps) => {
+export const ChequeLinesTable = ({ vendorPayee, vendor, disabled, cheque, lockedPayments = [] }: ChequeLinesTableProps) => {
     const { control } = useFormContext<ChequeFormInput>();
     const { fields, append, remove } = useFieldArray({ control, name: "lines" });
     const lines = (useWatch({ control, name: "lines" }) ?? []) as ChequeLineDraft[];
@@ -92,10 +97,18 @@ export const ChequeLinesTable = ({ vendorPayee, vendor, disabled }: ChequeLinesT
                                         index={index}
                                         records={records}
                                         disabled={disabled}
+                                        cheque={cheque}
+                                        locked={Boolean(lines[index]?.payment_name) && lockedPayments.includes(lines[index].payment_name)}
                                         onRemove={() => remove(index)}
                                     />
                                 ) : (
-                                    <ExpenseLineRow key={field.id} index={index} disabled={disabled} onRemove={() => remove(index)} />
+                                    <ExpenseLineRow
+                                        key={field.id}
+                                        index={index}
+                                        disabled={disabled}
+                                        cheque={cheque}
+                                        onRemove={() => remove(index)}
+                                    />
                                 )
                             )}
                         </TableBody>
@@ -128,6 +141,7 @@ export const ChequeLinesTable = ({ vendorPayee, vendor, disabled }: ChequeLinesT
                 </DropdownMenuContent>
             </DropdownMenu>
             <p className="text-xs text-muted-foreground">{EXPENSE_NOTE}</p>
+            {lockedPayments.length > 0 && <p className="text-xs text-muted-foreground">{LOCKED_LINE_HINT}</p>}
         </div>
     );
 };
@@ -136,16 +150,27 @@ interface PoWoLineRowProps {
     index: number;
     records: VendorRecord[];
     disabled?: boolean;
+    cheque?: string;
+    /** The line holds a payment that cannot come off this Cheque: only its amount may change. */
+    locked?: boolean;
     onRemove: () => void;
 }
 
-const PoWoLineRow = ({ index, records, disabled, onRemove }: PoWoLineRowProps) => {
+const PoWoLineRow = ({ index, records, disabled, cheque, locked, onRemove }: PoWoLineRowProps) => {
     const { control, setValue } = useFormContext<ChequeFormInput>();
     const line = useWatch({ control, name: `lines.${index}` }) as ChequeLineDraft;
-    const { eligible, isLoading } = useEligiblePayments(line.record_doctype, line.record_name);
+    const { eligible, isLoading } = useEligiblePayments(line.record_doctype, line.record_name, cheque);
     const picked = eligible?.payments.find((p) => p.name === line.payment_name);
     const hidden = hiddenPaymentsText(eligible?.hidden);
+    // An edited line keeps its project and record in the list, even one the pickers no longer offer.
+    const projects = withCurrent(lineProjects(records), line.project);
     const inProject = recordsInProject(records, line.project);
+    const recordOptions = withCurrent(
+        inProject.map((r) => ({ value: r.name, label: `${recordKind(r.doctype)} ${r.name}` })),
+        line.record_name,
+        line.record_doctype && `${recordKind(line.record_doctype)} ${line.record_name}`,
+    );
+    const pinned = disabled || locked;
 
     const set = (name: keyof ChequeLineDraft, value: string | number) =>
         setValue(`lines.${index}.${name}`, value, { shouldValidate: true, shouldDirty: true });
@@ -161,7 +186,7 @@ const PoWoLineRow = ({ index, records, disabled, onRemove }: PoWoLineRowProps) =
                         <FormItem>
                             <Select
                                 value={field.value || undefined}
-                                disabled={disabled}
+                                disabled={pinned}
                                 onValueChange={(value) => {
                                     field.onChange(value);
                                     set("record_doctype", "");
@@ -173,7 +198,7 @@ const PoWoLineRow = ({ index, records, disabled, onRemove }: PoWoLineRowProps) =
                                     <SelectTrigger><SelectValue placeholder="Project" /></SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                    {lineProjects(records).map((p) => (
+                                    {projects.map((p) => (
                                         <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
                                     ))}
                                 </SelectContent>
@@ -191,7 +216,7 @@ const PoWoLineRow = ({ index, records, disabled, onRemove }: PoWoLineRowProps) =
                         <FormItem>
                             <Select
                                 value={field.value || undefined}
-                                disabled={disabled || !line.project}
+                                disabled={pinned || !line.project}
                                 onValueChange={(value) => {
                                     const record = inProject.find((r) => r.name === value);
                                     field.onChange(value);
@@ -203,10 +228,8 @@ const PoWoLineRow = ({ index, records, disabled, onRemove }: PoWoLineRowProps) =
                                     <SelectTrigger><SelectValue placeholder="PO or WO" /></SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                    {inProject.map((r) => (
-                                        <SelectItem key={`${r.doctype}-${r.name}`} value={r.name}>
-                                            {recordKind(r.doctype)} {r.name}
-                                        </SelectItem>
+                                    {recordOptions.map((r) => (
+                                        <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
@@ -218,7 +241,7 @@ const PoWoLineRow = ({ index, records, disabled, onRemove }: PoWoLineRowProps) =
             <TableCell>
                 <Select
                     value={line.payment_name || NO_PAYMENT}
-                    disabled={disabled || !line.record_name || isLoading}
+                    disabled={pinned || !line.record_name || isLoading}
                     onValueChange={(value) => {
                         const payment = eligible?.payments.find((p) => p.name === value);
                         set("payment_name", payment ? payment.name : "");
@@ -264,10 +287,22 @@ const PoWoLineRow = ({ index, records, disabled, onRemove }: PoWoLineRowProps) =
                 />
             </TableCell>
             <TableCell>
-                <Button type="button" variant="ghost" size="icon" disabled={disabled} onClick={onRemove} aria-label="Remove line">
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    disabled={pinned}
+                    onClick={onRemove}
+                    aria-label="Remove line"
+                    title={locked ? LOCKED_LINE_HINT : undefined}
+                >
                     <Trash2 className="h-4 w-4" />
                 </Button>
             </TableCell>
         </TableRow>
     );
 };
+
+/** `options` with the current `value` added when it is missing from them. */
+const withCurrent = (options: { value: string; label: string }[], value: string, label?: string) =>
+    !value || options.some((o) => o.value === value) ? options : [...options, { value, label: label || value }];

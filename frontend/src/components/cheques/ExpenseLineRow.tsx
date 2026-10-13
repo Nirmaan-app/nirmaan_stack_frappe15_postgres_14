@@ -27,6 +27,8 @@ export const NotNeeded = () => <span className="text-xs text-muted-foreground">N
 interface ExpenseLineRowProps {
     index: number;
     disabled?: boolean;
+    /** The Cheque being edited (#1418): its own expenses stay offered. */
+    cheque?: string;
     onRemove: () => void;
 }
 
@@ -35,12 +37,12 @@ interface ExpenseLineRowProps {
  * Project Expense line picks a project, then one of its Project Expenses; a Non-project Expense line
  * a Non Project Expense only. The picker hides expenses already on a live Cheque and says how many.
  */
-export const ExpenseLineRow = ({ index, disabled, onRemove }: ExpenseLineRowProps) => {
+export const ExpenseLineRow = ({ index, disabled, cheque, onRemove }: ExpenseLineRowProps) => {
     const { control, setValue } = useFormContext<ChequeFormInput>();
     const line = useWatch({ control, name: `lines.${index}` }) as ChequeLineDraft;
     const needs = LINE_NEEDS[line.line_type];
     const projects = useAllProjects();
-    const { eligible, isLoading } = useEligibleExpenses(line.line_type, line.project);
+    const { eligible, isLoading } = useEligibleExpenses(line.line_type, line.project, cheque);
     const expenseOptions = (eligible?.expenses ?? []).map((e) => ({ value: e.name, label: expenseLabel(e), amount: e.amount }));
     const hidden = hiddenExpensesText(eligible?.hidden);
 

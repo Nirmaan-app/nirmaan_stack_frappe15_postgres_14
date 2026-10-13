@@ -64,18 +64,21 @@ interface ChequeColumnActions {
     onOpen: (cheque: string) => void;
     /** Opens Change status for one Cheque; absent for a user who may not change status. */
     onChangeStatus?: (row: ChequeRow) => void;
+    /** Opens Edit for one Cheque (#1418), shown on the rows `canEdit` allows. */
+    onEdit?: (row: ChequeRow) => void;
+    canEdit?: (row: ChequeRow) => boolean;
 }
 
 /**
  * The Cheque Payments report's columns (spec #1407): one row per Cheque. The cheque number and
- * "Details" open the detail view; "Status" opens Change status (#1412). The chevron beside the number
- * expands the row into its lines (#1417; the page passes `renderExpandedRow` to DataTable).
- * Edit arrives with #1418.
+ * "Details" open the detail view; "Status" opens Change status (#1412); "Edit" opens the Edit dialog
+ * (#1418). The chevron beside the number expands the row into its lines (#1417; the page passes
+ * `renderExpandedRow` to DataTable).
  *
  * The facet columns' ids (`status`, `bank_label`, `vendor`, `project`, `record_name`) are the
  * endpoint's filter fields.
  */
-export const getChequePaymentColumns = ({ onOpen, onChangeStatus }: ChequeColumnActions): ColumnDef<ChequeRow>[] => [
+export const getChequePaymentColumns = ({ onOpen, onChangeStatus, onEdit, canEdit }: ChequeColumnActions): ColumnDef<ChequeRow>[] => [
     {
         accessorKey: "cheque_no",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Cheque No" className={WRAP_HEADER} />,
@@ -274,6 +277,11 @@ export const getChequePaymentColumns = ({ onOpen, onChangeStatus }: ChequeColumn
                 <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => onOpen(row.original.name)}>
                     Details
                 </Button>
+                {onEdit && canEdit?.(row.original) && (
+                    <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => onEdit(row.original)}>
+                        Edit
+                    </Button>
+                )}
                 {onChangeStatus && (
                     <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => onChangeStatus(row.original)}>
                         Status
@@ -281,7 +289,7 @@ export const getChequePaymentColumns = ({ onOpen, onChangeStatus }: ChequeColumn
                 )}
             </div>
         ),
-        size: 140,
+        size: 190,
         enableSorting: false,
         enableHiding: false,
         meta: { excludeFromExport: true },

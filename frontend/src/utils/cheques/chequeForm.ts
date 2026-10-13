@@ -25,8 +25,12 @@ const lineSchema = z.object({
     amount: z.union([z.number(), z.string()]),
 }) satisfies z.ZodType<ChequeLineDraft>;
 
-/** The photo is uploaded as soon as it is picked; the form holds its file URL. */
-export const chequeFormSchema = z
+/**
+ * The form's schema. The photo is uploaded as soon as it is picked; the form holds its file URL.
+ * `photoRequired` is false only when editing a Cheque that has none (a backfilled one, #1419/#1418):
+ * the server asks for the photo on a new Cheque only.
+ */
+export const makeChequeFormSchema = ({ photoRequired }: { photoRequired: boolean }) => z
     .object({
         bank: z.enum([CHEQUE_BANK.ICICI, CHEQUE_BANK.OTHERS], {
             errorMap: () => ({ message: "Choose the bank the cheque is drawn on: ICICI Bank or Others." }),
@@ -54,7 +58,7 @@ export const chequeFormSchema = z
         if (v.payee_kind === "typed" && !v.payee_name?.trim()) {
             ctx.addIssue({ code: "custom", path: ["payee_name"], message: "Type the payee's name." });
         }
-        if (!v.attachment) {
+        if (photoRequired && !v.attachment) {
             ctx.addIssue({ code: "custom", path: ["attachment"], message: "Upload the photo of the cheque." });
         }
         if (v.payee_kind !== "vendor" && v.lines.some((l) => l.line_type === LINE_TYPE.PO_WO)) {
@@ -85,6 +89,8 @@ export const chequeFormSchema = z
         }
     });
 
+export const chequeFormSchema = makeChequeFormSchema({ photoRequired: true });
+
 export type ChequeFormInput = z.input<typeof chequeFormSchema>;
 export type ChequeFormValues = z.output<typeof chequeFormSchema>;
 
@@ -114,6 +120,8 @@ export interface SaveChequeArgs {
     description?: string;
     attachment?: string;
     lines?: SaveLineArg[];
+    /** The Cheque being edited (#1418); absent for a new one. */
+    name?: string;
 }
 
 /** Turn valid form values into the save arguments: one payee only, a bank name only for Others. */
