@@ -819,12 +819,44 @@ def select_prompt_text(cfg):
     return _read_prompt(path)
 
 
-def build_items_spec(cfg):
+# SLICE 12e-4b (owner D-2, 2026-10-13): the marker a SECTION item carries -- on the model's reply element and
+# on the stored item alike ({"section": "<section id>", "attributes": {...}}). An item of the config's own
+# kind carries no such key, so every stored item of every config without a delegated section is unchanged.
+SECTION_MARK = "section"
+
+# SLICE 12e-4b (owner D-2): the one paragraph that tells the model how a second kind of item is asked. It
+# lives in this wrapper, like SYNONYMS / DEFAULTS / ROW_CONTEXT_SHAPE, so the shared item-list prompt asset
+# (which ADP and Insulation rows are also sent) stays untouched; it is appended ONLY to a request whose
+# ITEMS_SPEC carries `sections`.
+SECTION_ITEMS_GUIDANCE = (
+    "\n\nSECTION_ITEMS: a row of this category may ALSO pay for a second kind of item. ITEMS_SPEC.sections "
+    "lists each such kind: its `id`, its `label` and its own `items_spec` (its own attribute definitions, "
+    "their notes and its own family attribute). When THIS row's text, or an ancestor that describes this "
+    "row's item, says the row pays for that kind too (a pipe \"duly insulated with 19 mm nitrile rubber\"), "
+    "return it as a SEPARATE element of `items`, marked \"section\": \"<id>\", with its attributes answered "
+    "from THAT section's definitions and notes only. An element with no \"section\" key is a main item and is "
+    "answered from the main attribute_definitions only. Never put a section's attribute on a main item, nor a "
+    "main attribute on a section item. Return the section items in the order of the main items they belong "
+    "to: the first section item belongs to the first main item, the second to the second. Return no section "
+    "item when the text says nothing about that kind for this row.\n"
+)
+
+
+def build_items_spec(cfg, configs=None, discipline=None):
     """SLICE 4: the ITEMS_SPEC block an item-list config's prompt consumes -- the PER-ITEM attribute
     definitions projected exactly like `build_attribute_defs` projects row attributes ({id, label, type
     [, values][, allow_none]}), plus which attribute names the family and which the per-row-unit
     quantity. Entirely CONFIG-DRIVEN from cfg.list_spec (no category named). Returns None unless the
-    config is in item_list mode with a list_spec, so every other mode is byte-identical."""
+    config is in item_list mode with a list_spec, so every other mode is byte-identical.
+
+    SLICE 12e-4b (owner D-2 / D1a: "no second copy"): a config declaring a DELEGATED section
+    (`list_spec.sections[].category_id`) also asks that category's OWN questions. With `configs` (the
+    `{(discipline, category_id): config}` map the caller already holds) and `discipline`, each such section
+    is attached under `"sections"` as `{id, label, items_spec}`, where `items_spec` is THIS function's result
+    for the delegated config -- the very object a row of that category is asked with, built at asking time
+    and written nowhere. A config with no delegated section, a call without `configs`, and a section whose
+    category is not loaded (the load-time cross-category check refuses that state) all return the object
+    exactly as before, with no `sections` key."""
     if cfg.get("matching_mode") != LIST_MODE:
         return None
     spec = cfg.get("list_spec")
@@ -851,7 +883,32 @@ def build_items_spec(cfg):
     # CHECK 2 switch (owner 2026-09-23): declared in config per category; OFF for every category that does
     # not declare it. Carried on the spec so the batch site reads ONE object.
     out["second_opinion"] = bool(spec.get("second_opinion"))
+    # SLICE 12e-4b (owner D-2): the delegated sections' own specs, whole. Nothing is read when the config
+    # declares no section, so the object above is returned untouched for every other config.
+    sections = []
+    for s in spec.get("sections") or []:
+        cid = s.get("category_id") if isinstance(s, dict) else None
+        if not cid:
+            continue   # the config's own section (its own items) asks nothing more
+        target = (configs or {}).get((discipline, cid))
+        sub = build_items_spec(target) if isinstance(target, dict) else None
+        if sub is None:
+            continue
+        sections.append({"id": s["id"], "label": s.get("label") or s["id"], "items_spec": sub})
+    if sections:
+        out["sections"] = sections
     return out
+
+
+def _item_spec_for(items_spec, raw_item):
+    """SLICE 12e-4b: `(spec, section id or None)` for one reply element or stored item -- the section's own
+    `items_spec` when the item carries the marker of a section the spec declares, else the main spec."""
+    mark = raw_item.get(SECTION_MARK) if isinstance(raw_item, dict) else None
+    if isinstance(mark, str):
+        for s in items_spec.get("sections") or []:
+            if s["id"] == mark:
+                return s["items_spec"], mark
+    return items_spec, None
 
 
 def _norm_text(s):
@@ -880,12 +937,15 @@ def apply_row_text_check(row_items, payload_item, items_spec, drops, rid):
     firing on a clean stage-2 row was a condensed copy of the row's own words -- a drop would have thrown
     away a true value, so the check flags and never drops). A legitimate ancestor value passes because
     the ancestor chain is part of the payload. Matching is casefold + whitespace-collapsed substring, so
-    "750" inside "750X450" and "25mm" inside "25mm thick" pass. Returns the flags."""
-    defs = items_spec.get("attribute_definitions") or []
-    text_ids = [d["id"] for d in defs if d.get("type") == "text"]
+    "750" inside "750X450" and "25mm" inside "25mm thick" pass. Returns the flags.
+
+    SLICE 12e-4b (owner D-2): an item marked as a section's is checked on THAT section's `text` definitions
+    (the delegated category's own), an unmarked one on the main definitions exactly as before."""
     haystack = _norm_text(" | ".join(_payload_strings(payload_item)))
     flags = []
     for idx, it in enumerate(row_items):
+        spec, _sid = _item_spec_for(items_spec, it)
+        text_ids = [d["id"] for d in (spec.get("attribute_definitions") or []) if d.get("type") == "text"]
         attrs = it.get("attributes") or {}
         for aid in text_ids:
             cell = attrs.get(aid)
@@ -906,10 +966,20 @@ def second_opinion_content(review_prompt, payload_item, row_items, items_spec=No
     labels, types, values, notes -- owner ruling 3b, 2026-09-23: judged by id alone the reviewer called a
     gauge in a `_mm` attribute wrong although its label allows one), then the row's own payload and the
     items returned for it, and NOTHING from any other row (the reason the check is one call per row,
-    never a batch)."""
-    shown = [{"attributes": {k: c.get("value") for k, c in (it.get("attributes") or {}).items() if c.get("value") is not None}}
-             for it in row_items]
+    never a batch).
+
+    SLICE 12e-4b (owner D-1 / D-2): where the spec carries delegated sections the reviewer is told how a
+    second kind is asked (the SAME paragraph the first reader had) and sees which kind each item is (its
+    marker, first). A spec without sections builds the request exactly as before."""
+    shown = []
+    for it in row_items:
+        entry = {"attributes": {k: c.get("value") for k, c in (it.get("attributes") or {}).items() if c.get("value") is not None}}
+        if it.get(SECTION_MARK):
+            entry = {SECTION_MARK: it[SECTION_MARK], **entry}
+        shown.append(entry)
     spec_block = ("\n\nITEMS_SPEC:\n" + json.dumps(items_spec, ensure_ascii=False)) if items_spec else ""
+    if items_spec and items_spec.get("sections"):
+        spec_block += SECTION_ITEMS_GUIDANCE
     return (review_prompt + spec_block + "\n\nROW:\n" + json.dumps(payload_item, ensure_ascii=False)
             + "\n\nITEMS:\n" + json.dumps(shown, ensure_ascii=False))
 
@@ -1009,9 +1079,16 @@ def parse_item_list(el, items_spec, drops, rid):
         `not_in_family_list` -- the prompt sentence is guidance, this is the enforcement; a "None"
         (not mentioned) passes untouched, and an item with NO family answer at all leaves the value as coerced.
     A reply that is not JSON at all never reaches here: `_extract_json_array` raises and the batch's
-    existing retry / halt path handles it exactly as for every other mode."""
-    defs = items_spec.get("attribute_definitions") or []
-    family_id = items_spec.get("family_attribute_id")
+    existing retry / halt path handles it exactly as for every other mode.
+
+    SLICE 12e-4b (owner D-2): where the spec carries delegated sections, an element marked
+    `"section": "<id>"` with a DECLARED id is coerced by THAT section's definitions and family attribute
+    (the delegated category's own closed lists and types) and stored as `{"attributes": {...}, "section":
+    "<id>"}`; its coercion records carry the marker too. An unmarked element is read and stored exactly as
+    before (no new key). A marker the spec does not declare is recorded in drops["items_unknown_section"]
+    and the element is read as a main item, so it shows as a block that needs a person -- never dropped
+    silently. A spec without sections never looks at the marker."""
+    has_sections = bool(items_spec.get("sections"))
     raw_items = el.get("items")
     if not isinstance(raw_items, list):
         drops["items_rows_without_list"].append(
@@ -1025,6 +1102,12 @@ def parse_item_list(el, items_spec, drops, rid):
         if not isinstance(it, dict):
             drops["items_not_objects"].setdefault(str(rid), []).append(idx)
             continue
+        spec, section_id = _item_spec_for(items_spec, it) if has_sections else (items_spec, None)
+        if has_sections and section_id is None and it.get(SECTION_MARK) is not None:
+            drops["items_unknown_section"].setdefault(str(rid), []).append({"item": idx, "raw": it.get(SECTION_MARK)})
+        defs = spec.get("attribute_definitions") or []
+        family_id = spec.get("family_attribute_id")
+        marked = {SECTION_MARK: section_id} if section_id else {}
         attrs = it.get("attributes")
         if not isinstance(attrs, dict):
             attrs = {}
@@ -1050,11 +1133,11 @@ def parse_item_list(el, items_spec, drops, rid):
             item[aid] = {"value": value, "confidence": max(0.0, min(1.0, conf))}
             if raw is not None and value is None:
                 drops["items_coerce_failed"].setdefault(str(rid), []).append(
-                    {"item": idx, "attr": aid, "raw": raw, "reason": reason})
+                    {"item": idx, "attr": aid, "raw": raw, "reason": reason, **marked})
                 if aid == family_id:
                     drops["items_family_unrecognised"].setdefault(str(rid), []).append(
-                        {"item": idx, "raw": raw})
-        out.append({"attributes": item})
+                        {"item": idx, "raw": raw, **marked})
+        out.append({"attributes": item, **marked})
     return out
 
 
@@ -2649,6 +2732,10 @@ def batch_prompt_content(prompt_text, attr_defs, payload_items, synonyms=None, d
     # None and its content is byte-identical (pinned for four Electrical categories).
     if items_spec:
         content += "\n\nITEMS_SPEC:\n" + json.dumps(items_spec, ensure_ascii=False)
+        # SLICE 12e-4b (owner D-2): only a spec that carries delegated sections gets the paragraph that
+        # explains the second kind, directly after the block it describes.
+        if items_spec.get("sections"):
+            content += SECTION_ITEMS_GUIDANCE
     # EA-4 ext-a: owner-authored estimator rules, injected for EVERY category (never composite-gated).
     # The guidance text is authored by the estimator and passed through VERBATIM -- do not reword it
     # here. Absent => this block is skipped and the payload is byte-identical to pre-ext-a.
@@ -2823,6 +2910,9 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 "items_not_objects": {},
                 "items_family_unrecognised": {},
                 "items_coerce_failed": {},
+                # SLICE 12e-4b (owner D-2, decision 6): {excel_row: [{item, raw}]} -- a reply element whose
+                # "section" marker names no section the config declares; the element is kept as a main item.
+                "items_unknown_section": {},
                 # SLICE 4 CHECKS (owner 2026-09-23): {excel_row: [{item, attr, raw}]} dropped by the text check;
                 # the second opinion's per-row verdicts, its failures, and its SEPARATE token usage.
                 "items_not_in_row_text": {},
@@ -3280,7 +3370,9 @@ def _group_context(configs, disc, cat):
     # the verbatim move of slice 3); every other mode gets `items_spec: None` and is byte-identical.
     is_list = cfg.get("matching_mode") == LIST_MODE
     ctx = _group_context_body(cfg, catalog, disc, is_composite)
-    ctx["items_spec"] = build_items_spec(cfg) if is_list else None
+    # SLICE 12e-4b (owner D-2): `configs` and the resolved discipline let a config with a delegated section
+    # carry that category's own spec; every config without one gets the object it always got.
+    ctx["items_spec"] = build_items_spec(cfg, configs, disc) if is_list else None
     if is_list:
         ctx["defs"] = []
     return ctx

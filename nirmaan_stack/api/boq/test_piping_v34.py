@@ -942,7 +942,17 @@ class TestSlice12e3aSectionsV37(FrappeTestCase):
         self.assertNotEqual(p37, p36)
         self.assertIn('"insulated"', p37)
         self.assertNotIn('"insulated"', p36)
-        for word in ("sections", "include_when", "add_label", "from pipe", "hvac_insulation", "Nitrile Rubber Insulation"):
+        # INVERTED by SLICE 12e-4b under mechanical authority (owner D-2, 2026-10-13: a Piping row is also asked
+        # Insulation's OWN questions, built from Insulation's config at asking time).
+        # BEFORE: for word in ("sections", "include_when", "add_label", "from pipe", "hvac_insulation",
+        #                      "Nitrile Rubber Insulation"): assertNotIn(word, p37)   -- nothing of the section reached the model
+        # AFTER: the delegated category's QUESTIONS reach it (its spec under "sections", its material list) ...
+        for word in ('"sections"', "Nitrile Rubber Insulation"):
+            self.assertIn(word, p37, "the delegated category's own questions reach the model: %s" % word)
+        self.assertIn(json.dumps(extraction.build_items_spec(c37[("HVAC", INSULATION)]), ensure_ascii=False), p37)
+        self.assertNotIn('"sections"', p36)
+        # ... NEGATIVE HALF KEPT: the section's DECLARATION (how the panel opens, mirrors and prices it) still does not
+        for word in ("include_when", "add_label", "from pipe", "hvac_insulation"):
             self.assertNotIn(word, p37, "nothing of the section declaration reaches the model: %s" % word)
 
 
