@@ -9,6 +9,10 @@
  * The cheque number opens the detail view (photo, lines, history). Accounts (`CHEQUE_ACCOUNTS_PROFILES`)
  * also get the row's Status button and the bulk bar (#1412); the server refuses anyone else. Edit
  * (#1418) shows on the rows the user may edit: accounts any, Procurement its own Issued Cheques.
+ *
+ * #1417: the summary strip is the list call's own `aggregates`, so it follows every filter and the
+ * search; the facets (status, bank, Vendor, project, PO/WO) come from `get_cheque_facets` over the same
+ * WHERE; a row expands into its lines.
  */
 
 import { useMemo, useState } from "react";
@@ -18,6 +22,7 @@ import { Plus } from "lucide-react";
 import { AddChequeDialog } from "@/components/cheques/AddChequeDialog";
 import { ChangeChequeStatusDialog } from "@/components/cheques/ChangeChequeStatusDialog";
 import { ChequeDetailDialog } from "@/components/cheques/ChequeDetailDialog";
+import { ChequeLinesView } from "@/components/cheques/ChequeLinesView";
 import { DataTable } from "@/components/data-table/new-data-table";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Button } from "@/components/ui/button";
@@ -27,6 +32,7 @@ import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
 import { canEditCheque } from "@/utils/cheques/chequeEdit";
 import { canChangeChequeStatus } from "@/utils/cheques/chequeStatus";
 
+import { ChequeSummaryStrip } from "./ChequeSummaryStrip";
 import { getChequePaymentColumns } from "./columns/chequePaymentColumns";
 import {
     CHEQUE_DATE_COLUMNS,
@@ -36,7 +42,9 @@ import {
     CHEQUES_DOCTYPE,
     CHEQUES_LIST_API,
     ChequeRow,
+    chequeSummary,
 } from "../config/chequePaymentTable.config";
+import { useChequeFacets } from "../config/useChequeFacets";
 
 const URL_KEY = "cheques";
 
@@ -82,6 +90,9 @@ export default function ChequePaymentReport() {
         setSelectedSearchField,
         exportAllRows,
         isExporting,
+        columnFilters,
+        aggregates,
+        isAggregatesLoading,
     } = useServerDataTable<ChequeRow>({
         // Nominal: the endpoint fixes the row shape.
         doctype: CHEQUES_DOCTYPE,
@@ -97,6 +108,9 @@ export default function ChequePaymentReport() {
 
     // Another user's save shows up without a reload.
     useFrappeEventListener(CHEQUES_CHANGED_EVENT, () => refetch());
+
+    const { facetOptions, onFacetOpen } = useChequeFacets({ columnFilters, searchTerm, selectedSearchField });
+    const summary = useMemo(() => chequeSummary(aggregates), [aggregates]);
 
     const selected = table.getSelectedRowModel().rows.map((r) => r.original);
 
@@ -116,6 +130,16 @@ export default function ChequePaymentReport() {
                 searchTerm={searchTerm}
                 onSearchTermChange={setSearchTerm}
                 dateFilterColumns={CHEQUE_DATE_COLUMNS}
+                facetFilterOptions={facetOptions}
+                onFacetOpen={onFacetOpen}
+                summaryCard={<ChequeSummaryStrip buckets={summary} loading={isAggregatesLoading} />}
+                // Expanded rows change row heights, which a virtualised list would misplace.
+                enableVirtualization={false}
+                renderExpandedRow={(row) => (
+                    <div className="px-10 py-2">
+                        <ChequeLinesView lines={row.original.lines} />
+                    </div>
+                )}
                 showExportButton
                 onExport="default"
                 onExportAll={exportAllRows}

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 
+import { ChequeLinesView } from "@/components/cheques/ChequeLinesView";
 import { ChequePhoto } from "@/components/cheques/ChequePhotoLink";
 import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
 import { Button } from "@/components/ui/button";
@@ -96,45 +97,7 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, onChangeStatus }: Ch
                             {cheque.lines.length === 0 ? (
                                 <p className="text-sm text-muted-foreground">No lines: an Ad-hoc cheque.</p>
                             ) : (
-                                <div className="overflow-x-auto rounded border">
-                                    <table className="w-full text-sm">
-                                        <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
-                                            <tr>
-                                                <th className="px-3 py-2">Type</th>
-                                                <th className="px-3 py-2">Project</th>
-                                                <th className="px-3 py-2">PO / WO</th>
-                                                <th className="px-3 py-2">Payment</th>
-                                                <th className="px-3 py-2 text-right">Amount</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {cheque.lines.map((line) => (
-                                                <tr key={line.idx} className="border-t">
-                                                    <td className="px-3 py-2 whitespace-nowrap">{line.line_type}</td>
-                                                    <td className="px-3 py-2">{line.project || "--"}</td>
-                                                    <td className="px-3 py-2">{line.record_name || "--"}</td>
-                                                    <td className="px-3 py-2">
-                                                        {line.payment_name ? (
-                                                            <>
-                                                                {line.payment_name}
-                                                                {line.payment_status && (
-                                                                    <span className="ml-1 text-xs text-muted-foreground">
-                                                                        ({line.payment_status})
-                                                                    </span>
-                                                                )}
-                                                            </>
-                                                        ) : (
-                                                            <span className="text-muted-foreground">No payment yet</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="px-3 py-2 text-right whitespace-nowrap">
-                                                        {formatToRoundedIndianRupee(line.amount)}
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
+                                <ChequeLinesView lines={cheque.lines} />
                             )}
                         </section>
 
