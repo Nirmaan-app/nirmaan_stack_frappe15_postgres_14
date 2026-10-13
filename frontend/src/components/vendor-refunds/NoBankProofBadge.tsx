@@ -1,18 +1,19 @@
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/utils/FormatDate";
-import { hasNoBankProof } from "./waitingRefundExits";
+import { hasNoBankProof, hasNoProofAtAll } from "./waitingRefundExits";
 import type { VendorRefundRow } from "./useVendorRefunds";
 
 /**
  * "No bank proof" (#1403): an Admin marked this refund Received with no bank line, and no Bulk Import
- * credit line has been matched to it yet. Shows who marked it, when and why. Renders nothing otherwise.
+ * credit line has been matched to it yet. Shows who marked it, when and why, and "No proof attached" when
+ * it has no attachment either (#1404), so accounts can find it and attach one. Renders nothing otherwise.
  */
 export const NoBankProofBadge = ({
     refund,
 }: {
     refund: Pick<
         VendorRefundRow,
-        "status" | "no_bank_line" | "no_bank_line_by" | "no_bank_line_at" | "no_bank_line_reason"
+        "status" | "no_bank_line" | "no_bank_line_by" | "no_bank_line_at" | "no_bank_line_reason" | "refund_attachment"
     >;
 }) => {
     if (!hasNoBankProof(refund)) return null;
@@ -28,6 +29,11 @@ export const NoBankProofBadge = ({
             <Badge variant="outline" className="whitespace-nowrap border-amber-500 text-amber-700">
                 No bank proof
             </Badge>
+            {hasNoProofAtAll(refund) && (
+                <Badge variant="outline" className="whitespace-nowrap border-red-500 text-red-600">
+                    No proof attached
+                </Badge>
+            )}
             <span className="text-[11px] leading-tight text-muted-foreground">
                 {marked && <>Marked by {marked}</>}
                 {refund.no_bank_line_reason && <span className="block italic">"{refund.no_bank_line_reason}"</span>}

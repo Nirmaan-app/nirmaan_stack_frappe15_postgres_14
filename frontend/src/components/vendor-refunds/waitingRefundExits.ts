@@ -25,6 +25,7 @@ interface RefundState {
     creation: string;
     waiting_created_by?: string | null;
     no_bank_line?: number | null;
+    refund_attachment?: string | null;
 }
 
 /** A Frappe datetime ("2026-10-01 09:00:00.000000"), read as local time like the rest of the app. */
@@ -50,6 +51,12 @@ export const overdueWaitingFilters = (now: Date = new Date()): [string, string, 
 /** Received with no bank line, and no bank line matched to it yet: the "No bank proof" badge. */
 export const hasNoBankProof = (refund: Pick<RefundState, "status" | "no_bank_line">): boolean =>
     refund.status === "Received" && Boolean(refund.no_bank_line);
+
+/** "No bank proof" and no attachment either: nothing on record shows the money arrived (e.g. a refund
+ *  migrated from Adjust Payments without proof, #1404). Accounts should attach the proof. */
+export const hasNoProofAtAll = (
+    refund: Pick<RefundState, "status" | "no_bank_line" | "refund_attachment">
+): boolean => hasNoBankProof(refund) && !refund.refund_attachment;
 
 /** May this user cancel this refund? Its creator or an Accountant, while it waits. */
 export const canCancelRefund = (refund: RefundState, user: string, role: string): boolean =>
