@@ -18,7 +18,8 @@
   "refund_attachment",
   "amount",
   "payment_date",
-  "description"
+  "description",
+  "waiting_created_by"
  ],
  "fields": [
   {
@@ -108,6 +109,14 @@
    "fieldname": "description",
    "fieldtype": "Small Text",
    "label": "Description"
+  },
+  {
+   "description": "Who recorded it as a waiting refund (Reconciliation Pending) from Adjust Payments. While it waits, only this user or an Accountant may change its amount or PO.",
+   "fieldname": "waiting_created_by",
+   "fieldtype": "Link",
+   "label": "Recorded as Waiting By",
+   "options": "User",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,

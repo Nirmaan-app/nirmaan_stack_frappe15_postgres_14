@@ -61,6 +61,9 @@ export function POAdjustmentDialog({
     handleSubmit,
     adjustment,
     absImpact,
+    offered,
+    heldCredit,
+    waitingRefunds,
     isNegative,
     totalAllocated,
     remainingToAdjust,
@@ -150,7 +153,7 @@ export function POAdjustmentDialog({
   const canSubmit =
     refundAdjustments.length > 0 && totalAllocated > 0 && !executing;
 
-  const allocationPercent = absImpact > 0 ? Math.min(100, (totalAllocated / absImpact) * 100) : 0;
+  const allocationPercent = offered > 0 ? Math.min(100, (totalAllocated / offered) * 100) : 0;
 
   return (
     <Dialog
@@ -209,6 +212,21 @@ export function POAdjustmentDialog({
             </Alert>
           ) : (
             <div className="space-y-4">
+              {/* Credit held by waiting Vendor Refunds (#1400): offered to nothing else */}
+              {heldCredit > 0 && (
+                <div className="rounded-lg border border-amber-200/60 bg-amber-50/50 px-4 py-2.5 space-y-0.5">
+                  {waitingRefunds.map((refund) => (
+                    <p key={refund.name} className="text-xs font-medium text-amber-800">
+                      {formatToIndianRupee(refund.amount)} held for {refund.name} (waiting for bank)
+                    </p>
+                  ))}
+                  <p className="text-[10px] text-amber-700/80">
+                    Held money cannot be sent to another PO or used here until accounts match the
+                    refund with the bank line, or it is cancelled.
+                  </p>
+                </div>
+              )}
+
               {/* Remaining tracker with progress bar */}
               <div className={`rounded-lg border px-4 py-3 ${remainingToAdjust <= 0.01 ? "bg-green-50/60 border-green-200/60" : "bg-amber-50/40 border-amber-200/50"}`}>
                 <div className="flex items-center justify-between mb-2">
@@ -227,7 +245,7 @@ export function POAdjustmentDialog({
                   />
                 </div>
                 <p className="text-[10px] text-gray-400 mt-1">
-                  {formatToIndianRupee(totalAllocated)} of {formatToIndianRupee(absImpact)} allocated
+                  {formatToIndianRupee(totalAllocated)} of {formatToIndianRupee(offered)} allocated
                 </p>
               </div>
 
@@ -523,7 +541,11 @@ export function POAdjustmentDialog({
               disabled={!canSubmit}
               className="px-5"
             >
-              {executing ? "Processing..." : "Apply Adjustment"}
+              {executing
+                ? "Processing..."
+                : adjustmentMethod === "Refunded"
+                  ? "Record Waiting Refund"
+                  : "Apply Adjustment"}
             </Button>
           )}
         </div>
@@ -693,6 +715,14 @@ function RefundCard({ adj, onUpdate, onRemove, maxAmount }: RefundCardProps) {
           </button>
         </div>
       </div>
+
+      <Alert className="border-amber-200 bg-amber-50/50 py-2">
+        <AlertCircle className="h-4 w-4 text-amber-600" />
+        <AlertDescription className="text-xs text-amber-800">
+          This refund waits for the bank line. It does not count until accounts match it with the
+          bank statement: the paid amount and the balance stay as they are, and the PO stays locked.
+        </AlertDescription>
+      </Alert>
 
       <div className="space-y-2.5">
         <div className="space-y-1">

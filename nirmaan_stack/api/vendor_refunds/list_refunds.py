@@ -23,6 +23,8 @@ _FIELDS = [
     "amount",
     # Received / Reconciliation Pending / Cancelled (#1398): only a Received one lowers the paid amount.
     "status",
+    # Who recorded it as waiting from Adjust Payments (#1400); blank for a refund made from a bank line.
+    "waiting_created_by",
     "utr",
     "payment_date",
     "description",

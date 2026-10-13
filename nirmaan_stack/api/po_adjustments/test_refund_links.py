@@ -269,7 +269,13 @@ class TestARefundLeavingUndoesItsLink(RefundLinkFixture):
         self._approve(second, new_qty=84)
         refund = self._refund(first, 25488)
 
+        # A Received refund's PO is fixed (#1400): it moves only after Unreconcile sends it back
+        # to waiting, and links again once it is Received on its new PO.
+        refund.status = RECONCILIATION_PENDING
+        refund.save(ignore_permissions=True)
         refund.document_name = second
+        refund.save(ignore_permissions=True)
+        refund.status = RECEIVED
         refund.save(ignore_permissions=True)
 
         self.assertEqual(self._links(first), {})

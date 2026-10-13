@@ -322,6 +322,7 @@ doc_events = {
     # PO that recompute is the refund sync step (#1399), which also links the refund into the PO
     # Adjustment. `on_trash` only drops those links, before Frappe's link check refuses the delete.
     "Vendor Refunds": {
+        "validate": "nirmaan_stack.integrations.controllers.vendor_refunds.guard_money_edit",
         "on_update": "nirmaan_stack.integrations.controllers.vendor_refunds.recompute_document_amount_paid",
         "on_trash": "nirmaan_stack.integrations.controllers.vendor_refunds.unlink_from_adjustments",
         "after_delete": "nirmaan_stack.integrations.controllers.vendor_refunds.recompute_document_amount_paid",
