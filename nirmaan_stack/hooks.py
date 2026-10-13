@@ -318,10 +318,13 @@ doc_events = {
         "after_delete": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
     },
     # A refund lowers its PO's / WO's `amount_paid` (Paid payments LESS refunds). `on_update` covers
-    # insert; `after_delete`, never `on_trash`, so the sum no longer counts the deleted refund.
+    # insert; `after_delete`, never `on_trash`, so the sum no longer counts the deleted refund. On a
+    # PO that recompute is the refund sync step (#1399), which also links the refund into the PO
+    # Adjustment. `on_trash` only drops those links, before Frappe's link check refuses the delete.
     "Vendor Refunds": {
         "validate": "nirmaan_stack.integrations.controllers.vendor_refunds.guard_money_edit",
         "on_update": "nirmaan_stack.integrations.controllers.vendor_refunds.recompute_document_amount_paid",
+        "on_trash": "nirmaan_stack.integrations.controllers.vendor_refunds.unlink_from_adjustments",
         "after_delete": "nirmaan_stack.integrations.controllers.vendor_refunds.recompute_document_amount_paid",
     },
     "Project Payments": {

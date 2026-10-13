@@ -13,7 +13,8 @@
   "target_po",
   "expense_type",
   "refund_date",
-  "refund_attachment"
+  "refund_attachment",
+  "vendor_refund"
  ],
  "fields": [
   {
@@ -74,6 +75,14 @@
    "fieldname": "refund_attachment",
    "fieldtype": "Attach",
    "label": "Refund Attachment"
+  },
+  {
+   "description": "The Received Vendor Refund this entry stands for. Written only by the refund sync step (api/po_adjustments/refund_links), which recomputes these entries from source; such an entry creates no Project Payment and no payment term.",
+   "fieldname": "vendor_refund",
+   "fieldtype": "Link",
+   "label": "Vendor Refund",
+   "options": "Vendor Refunds",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,

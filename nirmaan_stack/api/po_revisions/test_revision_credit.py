@@ -28,6 +28,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
+from nirmaan_stack.api.po_adjustments._payment_utils import (
+    _create_project_payment,
+    _recalculate_amount_paid,
+)
 from nirmaan_stack.api.po_revisions.revision_logic import on_approval_revision
 
 RATE, TAX = 100.0, 18.0
@@ -90,7 +94,11 @@ class RevisionIncreaseSpendsCreditTests(FrappeTestCase):
             "payment_type": "Cash",
         })
         po.insert(ignore_permissions=True, ignore_links=True)
-        frappe.db.set_value("Procurement Orders", po.name, "amount_paid", paid)
+        # A REAL Paid payment, not a `set_value`: approval runs the refund sync step (#1399), which
+        # recomputes `amount_paid` from payments and refunds, so a bare figure would read back as 0.
+        if paid:
+            _create_project_payment(po.name, self.project, self.vendor, paid, "Paid")
+        _recalculate_amount_paid(po.name)
         return po.name
 
     def _approve(self, po_name, new_qty):

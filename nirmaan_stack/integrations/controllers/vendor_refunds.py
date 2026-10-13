@@ -8,11 +8,13 @@ Wired to the Vendor Refunds doctype itself (`doc_events` in hooks.py), so every 
 changes or disappears recomputes it: the bank-statement import, its Undo (`frappe.delete_doc`), and a
 Desk edit or delete. A raw-SQL delete runs no hook -- such a caller must recompute itself.
 
-It also RECOUNTS THE VENDOR'S CREDIT (#1398, ADR-0032), as a payment does: credit used reads the PO's
-stored `amount_paid`, so a refund that moves it moves credit used and available credit too, and Vendor
-Hold reads a current figure. A refund against a Work Order or a Misc. Expense has no credit to move
-(credit is measured on POs only). This is the ONE place a refund save recounts credit; a later sync
-step must not recount it again.
+On a PO it runs the REFUND SYNC STEP (`api/po_adjustments/refund_links.sync_po_refund_links`, #1399,
+ADR-0032): the PO's paid amount and amount due, its PO Adjustment's Vendor Refund links (a Received
+refund settles the negative balance by itself), and THE VENDOR'S CREDIT (#1398), as a payment does:
+credit used reads the PO's stored `amount_paid`, so a refund that moves it moves credit used and
+available credit too, and Vendor Hold reads a current figure. A refund against a Work Order or a Misc.
+Expense has no link and no credit to move (both are PO-only); only its paid amount is recomputed here.
+This is the ONE place a refund save recounts credit.
 
 ⚠️ NEVER COMMITS. The import writes refunds inside a savepoint; a commit here would end it.
 """
@@ -21,7 +23,7 @@ import frappe
 from frappe.utils import flt
 
 from nirmaan_stack.api.invoices._item_billing_sync import recompute_document_amount_due
-from nirmaan_stack.api.outflow_import.vendor_credit_refresh import recompute_vendor_credit
+from nirmaan_stack.api.po_adjustments.refund_links import sync_po_refund_links, unlink_refund
 from nirmaan_stack.services.role_profiles import REFUND_ACCOUNTANT_PROFILES, has_role_profile
 from nirmaan_stack.services.vendor_refunds import (
     PROCUREMENT_ORDERS,
@@ -53,8 +55,10 @@ def recompute_document_amount_paid(doc, method=None):
         targets.add((before.document_type, before.document_name))
 
     for document_type, document_name in targets:
-        # A Misc. Expense names no document, so it has no paid amount to move.
-        if document_type not in REFUND_DOCUMENT_FIELDS or not document_name:
+        # A Misc. Expense names no document, so it has no paid amount to move. A PO is the sync's.
+        if document_type not in REFUND_DOCUMENT_FIELDS or document_type == PROCUREMENT_ORDERS:
+            continue
+        if not document_name:
             continue
         # `set_value`, like the payment-side recompute: saving the PO / WO would fire its own hooks.
         frappe.db.set_value(
@@ -62,7 +66,7 @@ def recompute_document_amount_paid(doc, method=None):
         )
         recompute_document_amount_due(document_type, document_name)
 
-    # From source over every PO of the vendor; folded so a re-point writes one ledger entry.
+    # Paid amount, links and credit, from source; folded so a re-point writes one credit entry.
     pos = [name for document_type, name in targets if document_type == PROCUREMENT_ORDERS and name]
     if pos:
         if method == "after_delete":
@@ -71,7 +75,16 @@ def recompute_document_amount_paid(doc, method=None):
             entry_type = ENTRY_RECORDED
         else:
             entry_type = ENTRY_CHANGED
-        recompute_vendor_credit(pos, entry_type)
+        sync_po_refund_links(pos, entry_type)
+
+
+def unlink_from_adjustments(doc, method=None):
+    """Bound to on_trash: drop the PO Adjustment entries pointing at this refund before it goes.
+
+    Frappe's link check runs after on_trash and would refuse the delete while an entry still names
+    it. `after_delete` then runs the full sync, which may re-link the PO's other refunds.
+    """
+    unlink_refund(doc.name)
 
 
 def guard_money_edit(doc, method=None):
