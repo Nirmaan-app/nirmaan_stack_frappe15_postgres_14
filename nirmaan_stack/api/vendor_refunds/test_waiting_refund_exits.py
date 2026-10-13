@@ -187,6 +187,14 @@ class TestDeleteACancelledRefund(WaitingRefundFixture):
         self.assertEqual(frappe.db.count(LEDGER, {"parent": self.vendor}), ledger_before)
         self.assertAlmostEqual(usable_po_credit(po), CREDIT, places=2)
 
+    def test_its_number_is_never_given_to_a_new_refund(self):
+        po, _ = self._overpaid_po()
+        name = self._cancelled(po)
+
+        delete_cancelled_refund(refund=name)
+
+        self.assertNotEqual(self._record(po, 100)["refund"], name)
+
     def test_procurement_may_delete_it_and_pmo_or_an_accountant_may_not(self):
         po, _ = self._overpaid_po()
         name = self._cancelled(po)

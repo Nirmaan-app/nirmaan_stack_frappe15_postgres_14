@@ -25,7 +25,7 @@ Received.
   `no_bank_line` ("No bank proof") until a Bulk Import credit line is matched to it.
 * `delete_cancelled_refund` -- an Admin or material Procurement (`REFUND_DELETE_PROFILES`), a
   Cancelled refund only, and never one a bank line was once matched to. It never counted, so nothing
-  moves.
+  moves. Its number is never given to a later refund.
 
 The Vendor Refunds DocPerms give these users read only, so both write with `ignore_permissions` behind
 the profile checks here: these checks are the enforcement boundary.
@@ -281,7 +281,21 @@ def delete_cancelled_refund(refund: str):
     if problem:
         frappe.throw(problem)
     po_id = doc.document_name
-    frappe.delete_doc(VENDOR_REFUNDS, doc.name, ignore_permissions=True)
+    _delete_keeping_its_number(doc.name)
     frappe.db.commit()
     _publish([po_id], doc.name, "refund_deleted")
     return {"refund": doc.name, "po_id": po_id}
+
+
+def _delete_keeping_its_number(name: str):
+    """Delete the refund, but never hand its number to the next one (owner, 2026-10-13).
+
+    `frappe.delete_doc` winds the naming series back when the newest refund is deleted, so the next
+    refund would reuse the number. Put the counter back. `tabSeries` is a plain counter with no hooks.
+    """
+    series = frappe.qb.DocType("Series")
+    key = name.rstrip("0123456789")  # VRF-26-00634 -> VRF-26-
+    current = frappe.qb.from_(series).select(series.current).where(series.name == key).run()
+    frappe.delete_doc(VENDOR_REFUNDS, name, ignore_permissions=True)
+    if current:
+        frappe.qb.update(series).set(series.current, current[0][0]).where(series.name == key).run()
