@@ -359,6 +359,8 @@ doc_events = {
         ],
         "on_trash": [
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
+            # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
+            "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
         # Deleting the expense deletes the request it came from. after_delete, not on_trash --
@@ -378,6 +380,8 @@ doc_events = {
         # generate_versions needs the pre-delete data, so it stays on on_trash.
         "on_trash": [
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
+            # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
+            "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
         # Cashflow recompute moved to after_delete so the gap query runs AFTER the

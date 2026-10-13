@@ -105,11 +105,14 @@ def parse_header(values: dict) -> ChequeHeader:
     )
 
 
-def header_problem(header: ChequeHeader, *, line_count: int, photo_required: bool) -> str | None:
+def header_problem(
+    header: ChequeHeader, *, line_count: int, photo_required: bool, cancelled: bool = False
+) -> str | None:
     """Why this header cannot be saved, or None.
 
-    `line_count` is how many Cheque lines it carries: a Cheque with none is an Ad-hoc cheque and
-    needs a description. `photo_required` is True for every new Cheque except a backfilled one.
+    `line_count` is how many Cheque lines it carries: a live Cheque with none is an Ad-hoc cheque
+    and needs a description. A `cancelled` one may have neither: its last payment dropped off
+    (#1413). `photo_required` is True for every new Cheque except a backfilled one.
     A post-dated cheque date is allowed.
     """
     if header.bank not in BANKS:
@@ -128,7 +131,7 @@ def header_problem(header: ChequeHeader, *, line_count: int, photo_required: boo
         return "Pick the Vendor the cheque is made out to, or type the payee's name."
     if photo_required and not header.attachment:
         return "Upload the photo of the cheque."
-    if line_count == 0 and not header.description:
+    if line_count == 0 and not header.description and not cancelled:
         return "A cheque with no lines is an Ad-hoc cheque: write a description of what it pays for."
     return None
 
