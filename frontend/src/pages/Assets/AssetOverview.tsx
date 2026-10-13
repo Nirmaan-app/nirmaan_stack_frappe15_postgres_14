@@ -88,6 +88,7 @@ import {
 } from './assets.constants';
 import { useAssetProjectOptions } from './hooks/useAssetProjectOptions';
 import { getAssetPermissions } from './utils/permissions';
+import { AssetsAccessDenied } from './AssetsRoute';
 
 interface AssetMaster {
     name: string;
@@ -364,7 +365,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const { upload } = useFrappeFileUpload();
 
     // Get granular permissions for current user
-    const { canEditAsset, canAssignAsset, canViewHistory, canUploadDeclaration } = getAssetPermissions(
+    const { canViewAssets, canEditAsset, canAssignAsset, canViewHistory, canUploadDeclaration } = getAssetPermissions(
         userData?.user_id,
         userData?.role
     );
@@ -487,6 +488,13 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     };
 
     if (error) return <AlertDestructive error={error} />;
+
+    // Route guard for one asset: asset roles see any asset; anyone else only the asset they hold now,
+    // which they open from their profile to sign the declaration. Decided once the role and the asset
+    // have loaded, so a typed URL doesn't flash "Access Denied".
+    if (userData?.role !== 'Loading' && asset && !canViewAssets && asset.current_assignee !== userData?.user_id) {
+        return <AssetsAccessDenied />;
+    }
 
     // Handle assignment refresh
     const handleAssignmentChange = () => {
