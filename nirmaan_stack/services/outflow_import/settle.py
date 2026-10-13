@@ -1448,6 +1448,9 @@ def match_waiting_refunds_to_row(
     line's date as its `payment_date`, and the statement as its proof when it has none. Returns one
     `SettleResult(created=False)` per refund, in the order asked; each becomes one match leg.
 
+    #1403: a refund an Admin marked Received with no bank line waits here too. It already counts, so
+    its save moves no money; the match clears its `no_bank_line` mark ("No bank proof").
+
     ⚠️ THE REFUNDS ARE LOCKED (name order, so two matches cannot deadlock) AND THE RULE IS ASKED ON WHAT
     THE LOCK READ (`services/vendor_refunds.waiting_match_problem`): every one still waiting, one vendor,
     none twice, and adding up EXACTLY to the row -- a credit line is never partly allocated (owner,
@@ -1471,7 +1474,8 @@ def match_waiting_refunds_to_row(
     locked = {}
     for name in sorted(set(names)):
         refund = frappe.db.get_value(
-            VENDOR_REFUND, name, ["name", "amount", "status", "vendor"], as_dict=True, for_update=True
+            VENDOR_REFUND, name, ["name", "amount", "status", "vendor", "no_bank_line"],
+            as_dict=True, for_update=True,
         )
         if not refund:
             frappe.throw(f"Vendor Refund '{name}' not found.", InflowNotRecordableError, title="Not found")
@@ -1487,6 +1491,10 @@ def match_waiting_refunds_to_row(
     for name in names:
         doc = frappe.get_doc(VENDOR_REFUND, name)
         doc.status = RECEIVED
+        # #1403: a refund marked Received with no bank line now has its bank line; the "No bank proof"
+        # mark comes off (who marked it, when and why stay). Clearing it is also what makes this save's
+        # Version recognisable to Unreconcile, since such a refund's status does not change here.
+        doc.no_bank_line = 0
         doc.utr = reference
         doc.payment_date = getattr(row, "added_on_date", None)
         apply_statement_attachment(doc, statement_file_url)

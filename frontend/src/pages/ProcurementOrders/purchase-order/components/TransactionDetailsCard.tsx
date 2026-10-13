@@ -79,6 +79,7 @@ import { TailSpin } from "react-loader-spinner";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
 import { mergePaymentsAndRefunds, VendorRefundTableRow } from "@/components/vendor-refunds/VendorRefundTableRow";
+import { WaitingRefundActions } from "@/components/vendor-refunds/WaitingRefundActions";
 // import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog";
 
 interface TransactionDetailsCardProps {
@@ -93,10 +94,12 @@ interface TransactionDetailsCardProps {
     totalWithTax: number
   }
   AllPoPaymentsListMutate: any
+  /** After a waiting refund is cancelled or marked received (#1403): refetch the PO (its paid amount). */
+  onRefundChanged?: () => void
 }
 
 export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
-  estimatesViewing, PO, getTotal, amountPaid, poPayments, poPaymentsMutate, AllPoPaymentsListMutate
+  estimatesViewing, PO, getTotal, amountPaid, poPayments, poPaymentsMutate, AllPoPaymentsListMutate, onRefundChanged
 }) => {
 
   const { role } = useUserData();
@@ -354,7 +357,19 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
           <TableBody>
             {transactionRows.length > 0 ? (
               transactionRows.map((row) => {
-                if (row.kind === "refund") return <VendorRefundTableRow key={row.name} refund={row.refund} />;
+                if (row.kind === "refund") {
+                  return (
+                    <VendorRefundTableRow
+                      key={row.name}
+                      refund={row.refund}
+                      actions={
+                        PO?.name && !estimatesViewing ? (
+                          <WaitingRefundActions refund={row.refund} poId={PO.name} onChanged={onRefundChanged} />
+                        ) : null
+                      }
+                    />
+                  );
+                }
                 const payment = row.payment;
                 return (
                   <TableRow key={payment?.name}>

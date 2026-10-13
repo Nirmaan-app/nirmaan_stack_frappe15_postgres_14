@@ -25,7 +25,10 @@ from nirmaan_stack.api.outflow_import.review import MATCH_DOCTYPE, ROW_DOCTYPE, 
 from nirmaan_stack.api.outflow_import.test_inflows import InflowFixture
 from nirmaan_stack.api.outflow_import.unreconcile import get_unreconcile_plan, unreconcile_row
 from nirmaan_stack.api.po_revisions.revision_po_check import check_po_in_pending_revisions
-from nirmaan_stack.api.vendor_refunds.waiting_refunds import record_waiting_refund
+from nirmaan_stack.api.vendor_refunds.waiting_refunds import (
+    mark_received_without_bank_line,
+    record_waiting_refund,
+)
 from nirmaan_stack.services.outflow_import.settle import InflowNotRecordableError
 from nirmaan_stack.services.outflow_import.status import ROW_SETTLED, ROW_SKIPPED
 from nirmaan_stack.services.vendor_refunds import CANCELLED, RECEIVED, RECONCILIATION_PENDING
@@ -40,7 +43,7 @@ VENDOR_REFUNDS = "Vendor Refunds"
 TOTAL, PAID = 10000.0, 11180.0
 
 
-class TestMatchingAWaitingRefund(InflowFixture):
+class WaitingRefundMatchFixture(InflowFixture):
     """⚠️ AT MOST SIX CONSUMING TESTS PER CLASS: the fixture holds six open credits."""
 
     def setUp(self):
@@ -139,6 +142,8 @@ class TestMatchingAWaitingRefund(InflowFixture):
     def _match(self, row, refunds, **kwargs):
         return match_waiting_refunds(row=row["name"], refunds=frappe.as_json(refunds), **kwargs)
 
+
+class TestMatchingAWaitingRefund(WaitingRefundMatchFixture):
     # ── the match ───────────────────────────────────────────────────────────────
 
     def test_matching_one_waiting_refund_makes_it_received_and_clears_the_adjustment(self):
@@ -281,3 +286,91 @@ class TestMatchingAWaitingRefund(InflowFixture):
         # The line is free: it can be matched again.
         self._match(row, [refund])
         self.assertEqual(frappe.db.get_value(VENDOR_REFUNDS, refund, "status"), RECEIVED)
+
+
+class TestMatchingANoBankLineRefund(WaitingRefundMatchFixture):
+    """#1403: an Admin marked a waiting refund Received with no bank line. It already counts, and it stays
+    in the waiting pool, so the late bank line is matched to it (adding the bank leg, removing the "No
+    bank proof" mark) instead of becoming a second refund. Unreconcile returns it to "Received, no bank
+    line": it keeps counting."""
+
+    def _no_bank_line(self, po, amount, **kwargs):
+        refund = self._waiting(po, amount, **kwargs)
+        mark_received_without_bank_line(refund=refund, reason="test: vendor confirmed by email")
+        return refund
+
+    def _mark(self, refund):
+        return frappe.db.get_value(
+            VENDOR_REFUNDS, refund,
+            ["status", "no_bank_line", "no_bank_line_by", "no_bank_line_reason", "utr", "payment_date"],
+            as_dict=True,
+        )
+
+    def _counted(self, po, adj):
+        paid, (remaining, status), locked = self._figures(po, adj)
+        return paid, abs(remaining) < 1, status, locked
+
+    def test_a_late_bank_line_is_matched_to_it_with_no_second_refund(self):
+        po, adj = self._overpaid_po(-1180)
+        refund = self._no_bank_line(po, 1180)
+        counted = (PAID - 1180, True, "Done", False)
+        self.assertEqual(self._counted(po, adj), counted, "it counts before any bank line")
+        self.assertIn(refund, [r["name"] for r in get_waiting_vendor_refunds(self.vendor)])
+        row = self._refund_row(1180)
+        refunds_before = frappe.db.count(VENDOR_REFUNDS)
+
+        self._match(row, [refund])
+
+        self.assertEqual(frappe.db.count(VENDOR_REFUNDS), refunds_before, "no second refund")
+        mark = self._mark(refund)
+        self.assertEqual((mark.status, mark.no_bank_line), (RECEIVED, 0), "the bank leg removes the badge")
+        self.assertEqual(
+            (mark.no_bank_line_by, mark.no_bank_line_reason),
+            ("Administrator", "test: vendor confirmed by email"),
+            "who marked it, and why, stay as its history",
+        )
+        self.assertEqual(mark.utr, self._reference_of(row))
+        legs = frappe.get_all(MATCH_DOCTYPE, {"import_row": row["name"]}, ["target_name", "created_by_import"])
+        self.assertEqual([(l.target_name, l.created_by_import) for l in legs], [(refund, 0)])
+        self.assertEqual(frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED)
+        # It counted already; the match moves nothing.
+        self.assertEqual(self._counted(po, adj), counted)
+        self.assertNotIn(refund, [r["name"] for r in get_waiting_vendor_refunds(self.vendor)])
+
+    def test_its_typed_reference_is_not_money_already_recorded_until_matched(self):
+        po, _adj = self._overpaid_po(-1180)
+        row = self._refund_row(1180)
+        refund = self._no_bank_line(
+            po, 1180, utr=self._reference_of(row), payment_date=str(getdate(row["added_on"]))
+        )
+
+        match_batch(self.batch.name)
+
+        self.assertNotEqual(frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SKIPPED)
+        self._match(row, [refund])
+        self.assertEqual(self._mark(refund).no_bank_line, 0)
+
+    def test_unreconcile_returns_it_to_received_with_no_bank_line(self):
+        po, adj = self._overpaid_po(-1180)
+        refund = self._no_bank_line(po, 1180, utr="TYPED-BY-PROCUREMENT", payment_date="2026-10-01")
+        row = self._refund_row(1180)
+        self._match(row, [refund])
+
+        plan = get_unreconcile_plan(row["name"])
+        self.assertEqual([leg["verdict"] for leg in plan["legs"]], ["unmatch_refund"])
+        self.assertIn("no bank line", plan["legs"][0]["what_happens"])
+        unreconcile_row(row=row["name"], legs="all", reason="test: wrong refund matched")
+
+        mark = self._mark(refund)
+        self.assertEqual(
+            (mark.status, mark.no_bank_line, mark.utr, getdate(mark.payment_date)),
+            (RECEIVED, 1, "TYPED-BY-PROCUREMENT", getdate("2026-10-01")),
+        )
+        self.assertNotEqual(frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), ROW_SETTLED)
+        # It still counts: paid stays down, the balance stays clear, the PO stays unlocked.
+        self.assertEqual(self._counted(po, adj), (PAID - 1180, True, "Done", False))
+        self.assertIn(refund, [r["name"] for r in get_waiting_vendor_refunds(self.vendor)])
+
+        # The line is free and the refund waits for it again.
+        self._match(row, [refund])
+        self.assertEqual(self._mark(refund).no_bank_line, 0)

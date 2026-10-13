@@ -5846,6 +5846,15 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   refund whose typed UTR is the line's reference must not get its own line skipped. The dialog's "Match a
   waiting Vendor Refund" card sits above "Create a vendor refund", which warns when the vendor has waiting
   refunds (`waitingRefundMatch.ts`).
+- ⚠️ **"RECEIVED WITH NO BANK LINE" IS STILL WAITING FOR ITS LINE (#1403, ADR-0032).** An Admin's
+  `waiting_refunds.mark_received_without_bank_line(refund, reason)` makes a waiting refund Received at once
+  (it counts) with `no_bank_line = 1` ("No bank proof") and `no_bank_line_by` / `_at` / `_reason`. While
+  marked it is in the match pool (`vendor_refunds.is_matchable`) and is NOT recorded money for the credit
+  duplicate guard (`ContainsLedger.still_waiting`). The match clears `no_bank_line` (by/at/reason stay as
+  history) and moves no money. Unreconcile of that leg puts `no_bank_line = 1` back and keeps it Received:
+  `unreconcile_refund` decides by `no_bank_line_by`, and `fields_before_match` recognises the match Version
+  by the cleared mark (the status did not change). `waiting_refunds.cancel_waiting_refund` (creator or
+  Accountant) makes a waiting refund Cancelled; the refund hook moves nothing for it.
 - ⚠️ **The rules have ONE home: `services/vendor_refunds.py`.** `refund_document_problem` (one record:
   a PO / WO is that vendor's, on the chosen project WHEN one is chosen, not a **Merged** PO, **paid > 0**
   (`paid_of` = stored `amount_paid` **+ every refund stored against it**, since the stored figure is net)

@@ -14,6 +14,12 @@ export interface VendorRefundRow {
     status: VendorRefundStatus;
     /** Who recorded it as waiting from Adjust Payments (#1400); blank for one made from a bank line. */
     waiting_created_by?: string | null;
+    /** 1 while an Admin's "Received with no bank line" stands unmatched (#1403): the "No bank proof" badge. */
+    no_bank_line?: number | null;
+    /** Who marked it Received with no bank line, when and why; kept after a bank line is matched to it. */
+    no_bank_line_by?: string | null;
+    no_bank_line_at?: string | null;
+    no_bank_line_reason?: string | null;
     utr?: string | null;
     payment_date?: string | null;
     description?: string | null;

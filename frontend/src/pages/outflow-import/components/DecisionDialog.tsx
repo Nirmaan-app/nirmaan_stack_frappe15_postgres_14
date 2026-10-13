@@ -3052,7 +3052,15 @@ const WaitingRefundMatchForm = ({
                                                         onClick={(event) => event.stopPropagation()}
                                                     />
                                                 </td>
-                                                <td className="px-2 py-1.5 font-medium">{refund.name}</td>
+                                                <td className="px-2 py-1.5 font-medium">
+                                                    {refund.name}
+                                                    {/* #1403: already counted by an Admin; this line is its bank proof. */}
+                                                    {refund.no_bank_line ? (
+                                                        <span className="block text-[11px] font-normal text-amber-700">
+                                                            No bank proof
+                                                        </span>
+                                                    ) : null}
+                                                </td>
                                                 <td className="px-2 py-1.5">
                                                     <span className="block">{refund.document_name || "—"}</span>
                                                     {refund.project_name && (

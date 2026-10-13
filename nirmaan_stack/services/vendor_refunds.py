@@ -36,7 +36,7 @@ guess. A Misc. Expense records the chosen project, or none.
 from decimal import ROUND_HALF_UP, Decimal
 
 import frappe
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 VENDOR_REFUNDS = "Vendor Refunds"
 PROCUREMENT_ORDERS = "Procurement Orders"
@@ -65,10 +65,18 @@ TAKES_REFUNDABLE_STATUSES = (RECEIVED, RECONCILIATION_PENDING)
 #: credit reader `_payment_utils.usable_po_credit`.
 HOLDS_CREDIT_STATUSES = (RECONCILIATION_PENDING,)
 #: A refund a Bulk Import credit line may be MATCHED to (#1401): one still waiting for its bank line.
-#: ⚠️ #1403 widens the pool to a Received-with-no-bank-line refund that has no live bank leg yet; that
-#: is a second condition (the no-bank-line mark), not a status, so it goes in `matchable_refunds` and
-#: `waiting_match_problem`, not here.
+#: ⚠️ The pool also holds a RECEIVED refund marked `no_bank_line` (#1403, `is_matchable`): that is a
+#: second condition, not a status, so it is not listed here.
 MATCHABLE_STATUSES = (RECONCILIATION_PENDING,)
+
+#: RECEIVED WITH NO BANK LINE (#1403, ADR-0032): an Admin made a waiting refund count without its bank
+#: line, giving a reason. It is Received (it lowers the paid amount, settles the adjustment, unlocks the
+#: PO) and carries `no_bank_line = 1` -- the "No bank proof" badge -- until a Bulk Import credit line is
+#: matched to it, which clears the mark (Unreconcile sets it back). `no_bank_line_by` / `_at` /
+#: `_reason` record who marked it, when and why, and stay after the match as its history.
+#: ⚠️ WHILE MARKED IT IS NOT "ALREADY RECORDED MONEY" for the bank-line duplicate guard
+#: (`candidates.CONTAINS_LEDGERS`): its bank line is the one it is waiting to be matched to.
+NO_BANK_LINE_FIELDS = ("no_bank_line", "no_bank_line_by", "no_bank_line_at", "no_bank_line_reason")
 
 #: Each document type a refund may point at -> (its vendor field, its project field).
 REFUND_DOCUMENT_FIELDS: dict[str, tuple[str, str]] = {
@@ -194,6 +202,44 @@ def money_edit_problem(status_before: str | None, is_creator: bool, is_accountan
     if not (is_creator or is_accountant):
         return "Only the person who recorded this waiting refund, or an Accountant, can change its amount or PO."
     return None
+
+
+def cancel_problem(status: str | None) -> str | None:
+    """Why this refund cannot be cancelled, or None (#1403). Only a waiting one: a Received refund is
+    money that arrived (Unreconcile, not Cancel, undoes a wrong match), and a Cancelled one already is.
+    Who may cancel (its creator or an Accountant) is the endpoint's check."""
+    if status != RECONCILIATION_PENDING:
+        return (
+            f"A {status or 'recorded'} refund cannot be cancelled. Only a refund still waiting for its "
+            "bank line (Reconciliation Pending) can be."
+        )
+    return None
+
+
+def no_bank_line_problem(status: str | None, reason: str | None) -> str | None:
+    """Why this refund cannot be marked Received with no bank line, or None (#1403). Only a waiting
+    one, and only with a reason. Who may (an Admin) is the endpoint's check."""
+    if status != RECONCILIATION_PENDING:
+        return (
+            f"A {status or 'recorded'} refund cannot be marked Received with no bank line. Only a "
+            "refund still waiting for its bank line (Reconciliation Pending) can be."
+        )
+    if not (reason or "").strip():
+        return "Give a reason for marking this refund Received with no bank line."
+    return None
+
+
+def no_bank_line_values(user: str, reason: str, at) -> dict:
+    """The fields that make a refund Received with no bank line (#1403): it counts at once and carries
+    the "No bank proof" mark, with who marked it, when and why. Set them on a waiting refund and save
+    (the refund hook then runs the PO sync), or put them on a new refund that never had a bank line."""
+    return {
+        "status": RECEIVED,
+        "no_bank_line": 1,
+        "no_bank_line_by": user,
+        "no_bank_line_at": at,
+        "no_bank_line_reason": (reason or "").strip(),
+    }
 
 
 def document_project(document_type: str, document_name: str) -> str | None:
@@ -350,33 +396,48 @@ def refund_allocation_problem(vendor, project, allocations, refund_amount) -> st
     return None
 
 
+def is_matchable(refund) -> bool:
+    """May a bank credit line be matched to this refund? (#1401, #1403) It is still waiting for its
+    line: Reconciliation Pending, or Received with no bank line (marked by an Admin, not matched yet)."""
+    status = refund.get("status")
+    return status in MATCHABLE_STATUSES or (status == RECEIVED and bool(cint(refund.get("no_bank_line"))))
+
+
 def matchable_refunds(vendor: str) -> list[dict]:
     """The vendor's refunds a bank credit line may be matched to, oldest first (#1401): the pool the
     Bulk Import decision dialog lists once a vendor is chosen.
 
-    Each row: name, amount, document_type, document_name, project, payment_date, utr,
-    waiting_created_by, creation. #1403 adds Received-with-no-bank-line refunds with no live bank leg.
+    Each row: name, amount, status, vendor, document_type, document_name, project, payment_date, utr,
+    waiting_created_by, no_bank_line, creation. Waiting refunds and, since #1403, Received refunds
+    marked `no_bank_line` (`is_matchable`).
     """
     vendor = (vendor or "").strip()
     if not vendor:
         return []
-    return frappe.get_all(
+    rows = frappe.get_all(
         VENDOR_REFUNDS,
-        filters={"vendor": vendor, "status": ["in", list(MATCHABLE_STATUSES)]},
+        filters={"vendor": vendor},
+        or_filters=[
+            ["status", "in", list(MATCHABLE_STATUSES)],
+            ["no_bank_line", "=", 1],
+        ],
         fields=[
             "name", "amount", "status", "vendor", "document_type", "document_name", "project",
-            "payment_date", "utr", "waiting_created_by", "creation",
+            "payment_date", "utr", "waiting_created_by", "no_bank_line", "creation",
         ],
         order_by="creation asc",
         limit_page_length=0,
     )
+    # The SQL narrows; the rule decides, so the pool and the match can never disagree.
+    return [row for row in rows if is_matchable(row)]
 
 
 def waiting_match_problem(refunds, line_amount) -> str | None:
     """Why one bank credit line cannot be matched to these refunds, or None (#1401).
 
-    `refunds` are mappings with `name`, `amount`, `status`, `vendor`, read under lock by the caller.
-    Every one must be waiting (`MATCHABLE_STATUSES`), all one vendor's, none twice, and together they
+    `refunds` are mappings with `name`, `amount`, `status`, `vendor`, `no_bank_line`, read under lock
+    by the caller. Every one must still wait for its bank line (`is_matchable`: Reconciliation Pending,
+    or Received with no bank line), all one vendor's, none twice, and together they
     must add up EXACTLY (to the paisa) to the line: a credit line is never partly allocated (owner,
     2026-10-13), as `refund_allocation_problem` holds a created refund's parts to the line.
     """
@@ -391,7 +452,7 @@ def waiting_match_problem(refunds, line_amount) -> str | None:
             return f"{name} is chosen twice."
         seen.add(name)
         status = refund.get("status")
-        if status not in MATCHABLE_STATUSES:
+        if not is_matchable(refund):
             return (
                 f"{name} is {status or 'not recorded'}, not waiting for its bank line, "
                 "so it cannot be matched."
