@@ -98,6 +98,7 @@ from nirmaan_stack.services.outflow_import.normalize import normalize_amount, no
 from nirmaan_stack.services.outflow_import.parser import BANK_TERMINAL_STATUSES, is_terminal_status
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
 from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
+from nirmaan_stack.services.vendor_refunds import RECEIVED as VENDOR_REFUND_RECEIVED
 
 __all__ = [
     "load_vendor_index",
@@ -383,7 +384,9 @@ class ContainsLedger:
     doctype: str
     table: str
     reference: str
-    paid_only: bool
+    status: str | None
+    """The ONE status a record must have to count as recorded money, or None for a book with no status
+    (the two inflow books). `Paid` on the three settle ledgers; `Received` on Vendor Refunds (#1401)."""
     description: str | None = None
     part_linked: bool = False
     """Does this ledger also enter the guard PER LIVE SLIP while Reconciliation Pending? (ADR-0027 R3)
@@ -396,22 +399,27 @@ class ContainsLedger:
 
 
 CONTAINS_LEDGERS: tuple[ContainsLedger, ...] = (
-    ContainsLedger(PAYMENT_DOCTYPE, "tabProject Payments", "utr", paid_only=True),
+    ContainsLedger(PAYMENT_DOCTYPE, "tabProject Payments", "utr", status=PAID),
     ContainsLedger(
-        PROJECT_EXPENSE_DOCTYPE, "tabProject Expenses", "payment_ref", paid_only=True,
+        PROJECT_EXPENSE_DOCTYPE, "tabProject Expenses", "payment_ref", status=PAID,
         description="description", part_linked=True,
     ),
     ContainsLedger(
-        NON_PROJECT_EXPENSE_DOCTYPE, "tabNon Project Expenses", "payment_ref", paid_only=True,
+        NON_PROJECT_EXPENSE_DOCTYPE, "tabNon Project Expenses", "payment_ref", status=PAID,
         description="description", part_linked=True,
     ),
     # Inflows have no status: every one counts (owner ruling on #1252).
-    ContainsLedger(INFLOW_DOCTYPE, "tabProject Inflows", "utr", paid_only=False),
+    ContainsLedger(INFLOW_DOCTYPE, "tabProject Inflows", "utr", status=None),
     # #1268 (ADR-0016 A-D2): a credit's other book. Without it a receipt recorded as a Non Project
     # Inflow -- by hand, or by an earlier import -- is invisible, and the same money is recorded twice.
-    ContainsLedger(NON_PROJECT_INFLOW_DOCTYPE, "tabNon Project Inflows", "utr", paid_only=False),
+    ContainsLedger(NON_PROJECT_INFLOW_DOCTYPE, "tabNon Project Inflows", "utr", status=None),
     # The third credit book: a credit recorded as a Vendor Refund is recorded, whichever card did it.
-    ContainsLedger(VENDOR_REFUND_DOCTYPE, "tabVendor Refunds", "utr", paid_only=False),
+    # ⚠️ ONLY A RECEIVED ONE (#1401, ADR-0032). A waiting refund (Reconciliation Pending) is money the
+    # vendor SAYS it sent, with a UTR typed by hand: it is what the line should be MATCHED to, and
+    # counting it here would skip the very line that proves it. A Cancelled one never arrived.
+    # ⚠️ #1403: a Received refund marked "no bank line" with no live bank leg is also still waiting
+    # for its line; this filter must exclude it too when that mark lands.
+    ContainsLedger(VENDOR_REFUND_DOCTYPE, "tabVendor Refunds", "utr", status=VENDOR_REFUND_RECEIVED),
 )
 
 
@@ -433,7 +441,8 @@ def load_recorded_by_contains(
         see less than Python's, so the WHOLE-STRING token can be missed; the ASCII pieces still hit;
       * LEDGER BY DIRECTION -- `contains_guard.ledgers_for_direction`, so the direction map has one
         home. A line with no direction contributes nothing;
-      * STATUS -- `Paid` on the three settle ledgers; every Project Inflow and Non Project Inflow;
+      * STATUS -- `Paid` on the three settle ledgers; `Received` Vendor Refunds (#1401: a waiting one is
+        matched, not a duplicate); every Project Inflow and Non Project Inflow;
         and (ADR-0027 R3) `Reconciliation Pending` expenses that already carry live `Settled` slips,
         which enter ONCE PER SLIP -- see the comment on that branch below.
 
@@ -480,7 +489,7 @@ def load_recorded_by_contains(
                 continue
             ref = f'"{ledger.reference}"'
             description = f'"{ledger.description}"' if ledger.description else "NULL"
-            status = ' AND status = %s' if ledger.paid_only else ""
+            status = ' AND status = %s' if ledger.status else ""
             selects.append(
                 f"""
                 SELECT %s AS doctype, %s AS direction, name, amount::text AS amount,
@@ -490,7 +499,7 @@ def load_recorded_by_contains(
                 WHERE {ref} IS NOT NULL AND btrim({ref}) <> ''{status}
                 """
             )
-            select_params += [doctype, direction] + ([PAID] if ledger.paid_only else [])
+            select_params += [doctype, direction] + ([ledger.status] if ledger.status else [])
             if not ledger.part_linked:
                 continue
             slip_description = f"e.{description}" if ledger.description else "NULL"
@@ -598,11 +607,12 @@ def _contains_status(ledger: ContainsLedger, import_row) -> str:
     """The status a contains-guard candidate carries: the one its branch of the union selected for.
 
     A per-slip candidate is a `Reconciliation Pending` expense by construction (R3); a whole-record
-    candidate is `Paid` on the three settle ledgers and blank on the inflows, which have no status.
+    candidate is `Paid` on the three settle ledgers, `Received` on Vendor Refunds, and blank on the two
+    inflow books, which have no status.
     """
     if import_row:
         return RECONCILIATION_PENDING
-    return PAID if ledger.paid_only else ""
+    return ledger.status or ""
 
 
 def load_record_claims(records) -> tuple[RecordClaim, ...]:

@@ -64,6 +64,11 @@ TAKES_REFUNDABLE_STATUSES = (RECEIVED, RECONCILIATION_PENDING)
 #: A waiting refund HOLDS its amount of its PO's overpaid credit (#1400): `held_on`, read by the one
 #: credit reader `_payment_utils.usable_po_credit`.
 HOLDS_CREDIT_STATUSES = (RECONCILIATION_PENDING,)
+#: A refund a Bulk Import credit line may be MATCHED to (#1401): one still waiting for its bank line.
+#: ⚠️ #1403 widens the pool to a Received-with-no-bank-line refund that has no live bank leg yet; that
+#: is a second condition (the no-bank-line mark), not a status, so it goes in `matchable_refunds` and
+#: `waiting_match_problem`, not here.
+MATCHABLE_STATUSES = (RECONCILIATION_PENDING,)
 
 #: Each document type a refund may point at -> (its vendor field, its project field).
 REFUND_DOCUMENT_FIELDS: dict[str, tuple[str, str]] = {
@@ -342,6 +347,64 @@ def refund_allocation_problem(vendor, project, allocations, refund_amount) -> st
     refund = money(refund_amount)
     if total != refund:
         return f"The amounts add up to {total}, but the refund is {refund}. They must match."
+    return None
+
+
+def matchable_refunds(vendor: str) -> list[dict]:
+    """The vendor's refunds a bank credit line may be matched to, oldest first (#1401): the pool the
+    Bulk Import decision dialog lists once a vendor is chosen.
+
+    Each row: name, amount, document_type, document_name, project, payment_date, utr,
+    waiting_created_by, creation. #1403 adds Received-with-no-bank-line refunds with no live bank leg.
+    """
+    vendor = (vendor or "").strip()
+    if not vendor:
+        return []
+    return frappe.get_all(
+        VENDOR_REFUNDS,
+        filters={"vendor": vendor, "status": ["in", list(MATCHABLE_STATUSES)]},
+        fields=[
+            "name", "amount", "status", "vendor", "document_type", "document_name", "project",
+            "payment_date", "utr", "waiting_created_by", "creation",
+        ],
+        order_by="creation asc",
+        limit_page_length=0,
+    )
+
+
+def waiting_match_problem(refunds, line_amount) -> str | None:
+    """Why one bank credit line cannot be matched to these refunds, or None (#1401).
+
+    `refunds` are mappings with `name`, `amount`, `status`, `vendor`, read under lock by the caller.
+    Every one must be waiting (`MATCHABLE_STATUSES`), all one vendor's, none twice, and together they
+    must add up EXACTLY (to the paisa) to the line: a credit line is never partly allocated (owner,
+    2026-10-13), as `refund_allocation_problem` holds a created refund's parts to the line.
+    """
+    refunds = list(refunds or [])
+    if not refunds:
+        return "Choose at least one waiting Vendor Refund to match this bank line to."
+    seen: set[str] = set()
+    total = Decimal("0")
+    for refund in refunds:
+        name = refund.get("name")
+        if name in seen:
+            return f"{name} is chosen twice."
+        seen.add(name)
+        status = refund.get("status")
+        if status not in MATCHABLE_STATUSES:
+            return (
+                f"{name} is {status or 'not recorded'}, not waiting for its bank line, "
+                "so it cannot be matched."
+            )
+        total += money(refund.get("amount"))
+    if len({refund.get("vendor") for refund in refunds}) > 1:
+        return "The refunds chosen are from different vendors. One bank line is one vendor's refund."
+    line = money(line_amount)
+    if total != line:
+        return (
+            f"The refunds chosen add up to {total}, but the bank line is {line}. "
+            "They must match exactly."
+        )
     return None
 
 
