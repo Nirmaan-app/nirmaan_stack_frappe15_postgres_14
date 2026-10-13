@@ -1,6 +1,6 @@
 import { useFrappeGetCall, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
 
-import { ASSET_MANAGEMENT_DOCTYPE, ASSET_MANAGEMENT_FIELDS } from "@/pages/Assets/assets.constants";
+import { ASSET_MANAGEMENT_DOCTYPE, ASSET_MANAGEMENT_RETURN_FIELDS } from "@/pages/Assets/assets.constants";
 import { useUserData } from "@/hooks/useUserData";
 import { countDeclarationsToSign } from "@/utils/assetDeclaration";
 
@@ -11,6 +11,10 @@ export interface UserAssignment {
   asset_assigned_on: string;
   asset_declaration_attachment: string | null;
   creation: string;
+  received?: 0 | 1;
+  received_on?: string | null;
+  returned?: 0 | 1;
+  returned_on?: string | null;
 }
 
 /**
@@ -56,7 +60,8 @@ export function useUserAssignments(userId: string | undefined, enabled = true) {
   return useFrappeGetDocList<UserAssignment>(
     ASSET_MANAGEMENT_DOCTYPE,
     {
-      fields: [...ASSET_MANAGEMENT_FIELDS],
+      // With the receive / return fields: the profile card shows Received, Returned and Return.
+      fields: [...ASSET_MANAGEMENT_RETURN_FIELDS],
       filters: [["asset_assigned_to", "=", userId ?? ""]],
       limit: 1000,
       orderBy: { field: "creation", order: "desc" },

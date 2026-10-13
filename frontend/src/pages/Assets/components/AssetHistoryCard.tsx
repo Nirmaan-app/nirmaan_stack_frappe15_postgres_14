@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowRightLeft, ExternalLink, FileCheck, History, PackagePlus, UserMinus, UserPlus } from 'lucide-react';
+import { ArrowRightLeft, ExternalLink, FileCheck, History, PackagePlus, Undo2, UserMinus, UserPlus } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { AssetHistoryRow, HistoryTone, describeHistory } from '@/utils/assetHistory';
@@ -11,6 +11,7 @@ const TONE_STYLE: Record<HistoryTone, { icon: React.ReactNode; dot: string }> = 
     declaration: { icon: <FileCheck className="h-3.5 w-3.5" />, dot: 'bg-blue-100 text-blue-700' },
     unassigned: { icon: <UserMinus className="h-3.5 w-3.5" />, dot: 'bg-red-100 text-red-700' },
     department: { icon: <ArrowRightLeft className="h-3.5 w-3.5" />, dot: 'bg-indigo-100 text-indigo-700' },
+    return: { icon: <Undo2 className="h-3.5 w-3.5" />, dot: 'bg-sky-100 text-sky-700' },
 };
 
 const FILTERS: { tone: HistoryTone | 'all'; label: string }[] = [
@@ -18,6 +19,7 @@ const FILTERS: { tone: HistoryTone | 'all'; label: string }[] = [
     { tone: 'assigned', label: 'Assigned' },
     { tone: 'unassigned', label: 'Unassigned' },
     { tone: 'declaration', label: 'Declarations' },
+    { tone: 'return', label: 'Returns' },
     { tone: 'department', label: 'Department' },
     { tone: 'added', label: 'Added' },
 ];

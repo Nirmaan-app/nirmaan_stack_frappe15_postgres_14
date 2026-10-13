@@ -9,7 +9,11 @@
   "asset",
   "asset_assigned_to",
   "asset_assigned_on",
-  "asset_declaration_attachment"
+  "asset_declaration_attachment",
+  "received",
+  "received_on",
+  "returned",
+  "returned_on"
  ],
  "fields": [
   {
@@ -42,12 +46,40 @@
    "fieldname": "asset_declaration_attachment",
    "fieldtype": "Attach",
    "label": "Asset Declaration Attachment"
+  },
+  {
+   "default": "0",
+   "description": "Ticked by the server when the declaration is signed in the app or a signed scan is uploaded.",
+   "fieldname": "received",
+   "fieldtype": "Check",
+   "label": "Received",
+   "read_only": 1
+  },
+  {
+   "fieldname": "received_on",
+   "fieldtype": "Date",
+   "label": "Received Date",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Ticked when the holder confirms Return on their profile; cleared if Admin, HR or PMO reject the return. Approving it unassigns the asset.",
+   "fieldname": "returned",
+   "fieldtype": "Check",
+   "label": "Returned By User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "returned_on",
+   "fieldtype": "Date",
+   "label": "Return Date",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-12 16:08:22.857165",
+ "modified": "2026-10-13 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Asset Management",

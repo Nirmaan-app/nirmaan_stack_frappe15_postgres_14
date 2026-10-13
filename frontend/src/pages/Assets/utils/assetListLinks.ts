@@ -3,7 +3,7 @@ import { urlStateManager } from '@/utils/urlStateManager';
 import { AssetCategoryType } from '../assets.constants';
 
 /** The sub-tabs of the Project / IT tabs (AssetsPage's `?view=`). */
-export type AssetListView = 'all' | 'assigned' | 'unassigned' | 'pending';
+export type AssetListView = 'all' | 'assigned' | 'unassigned' | 'pending' | 'returns';
 
 export interface AssetListTarget {
     type: AssetCategoryType;
@@ -13,15 +13,16 @@ export interface AssetListTarget {
 }
 
 /** Each sub-tab's table, as its list passes it to useServerDataTable (`urlSyncKey`, plus `_<type>`). */
-const LIST_SYNC_KEY: Record<AssetListView, string> = {
+const LIST_SYNC_KEY: Partial<Record<AssetListView, string>> = {
     all: 'asset_master',
     assigned: 'assigned_assets',
     unassigned: 'unassigned_assets',
     pending: 'pending_actions',
+    returns: 'return_requests',
 };
 
-export const assetListSyncKey = (type: AssetCategoryType, view: AssetListView): string =>
-    `${LIST_SYNC_KEY[view]}_${type.toLowerCase()}`;
+export const assetListSyncKey = (type: AssetCategoryType, view: AssetListView): string | null =>
+    LIST_SYNC_KEY[view] ? `${LIST_SYNC_KEY[view]}_${type.toLowerCase()}` : null;
 
 /**
  * The URL params that open a list from the summary card: its tab and sub-tab, on page 1, with the
@@ -31,11 +32,15 @@ export const assetListSyncKey = (type: AssetCategoryType, view: AssetListView): 
 export function assetListParams({ type, view, category }: AssetListTarget): Record<string, string | null> {
     const listKey = assetListSyncKey(type, view);
     return {
-        [`${listKey}_q`]: null,
-        [`${listKey}_pageIdx`]: '0',
-        [`${listKey}_filters`]: category
-            ? encodeFiltersForUrl([{ id: 'asset_category', value: [category] }])
-            : null,
+        ...(listKey
+            ? {
+                  [`${listKey}_q`]: null,
+                  [`${listKey}_pageIdx`]: '0',
+                  [`${listKey}_filters`]: category
+                      ? encodeFiltersForUrl([{ id: 'asset_category', value: [category] }])
+                      : null,
+              }
+            : {}),
         view: view === 'all' ? null : view,
         tab: type === 'IT' ? 'it' : null,
     };

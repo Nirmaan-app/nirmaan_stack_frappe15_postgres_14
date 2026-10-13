@@ -59,3 +59,20 @@ describe("formatHistoryTime", () => {
     expect(formatHistoryTime("not a date")).toBeNull();
   });
 });
+
+describe("return events", () => {
+  const nameOf = (id?: string | null) => (id === "bittu@x" ? "Bittu" : id ?? "");
+
+  it("reads a return and a rejection in plain words, under the Returns filter", () => {
+    const [rejected, requested] = describeHistory(
+      [
+        { name: "a", idx: 1, event: "Return Requested", assigned_to: "bittu@x", done_by: "bittu@x", done_on: "2026-10-14 10:12:00" },
+        { name: "b", idx: 2, event: "Return Rejected", assigned_to: "bittu@x", done_by: "hr@x", done_on: "2026-10-14 16:00:00", reason: "Return of 14-10-2026" },
+      ],
+      nameOf
+    );
+    expect(requested.title).toBe("Returned by Bittu, waiting for approval");
+    expect(rejected.title).toBe("Return rejected, Bittu keeps it");
+    expect([requested.tone, rejected.tone]).toEqual(["return", "return"]);
+  });
+});

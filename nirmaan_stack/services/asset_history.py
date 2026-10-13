@@ -25,6 +25,8 @@ DECLARATION_SIGNED = "Declaration Signed"
 DECLARATION_UPLOADED = "Declaration Uploaded"
 UNASSIGNED = "Unassigned"
 DEPARTMENT_SET = "Department Set"
+RETURN_REQUESTED = "Return Requested"  # the holder says they gave it back (api/assets/returns.py)
+RETURN_REJECTED = "Return Rejected"  # Admin / HR / PMO: not received, the person keeps it
 
 ROW_FIELDS = ("assigned_to", "declaration", "from_department", "to_department", "reason")
 

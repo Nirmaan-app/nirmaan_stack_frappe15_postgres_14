@@ -23,6 +23,7 @@ import {
   CirclePlus,
   PackageSearch,
   Undo2,
+  CheckCircle2,
   UserMinus,
   ExternalLink,
   Calendar,
@@ -55,6 +56,12 @@ interface AssetManagementRecord {
   asset_assigned_on: string;
   asset_declaration_attachment: string | null;
   creation: string;
+  /** Ticked by the server when the declaration arrives (signed or uploaded). */
+  received?: 0 | 1;
+  received_on?: string | null;
+  /** Ticked when the holder returns it; cleared if Admin / HR / PMO reject the return. */
+  returned?: 0 | 1;
+  returned_on?: string | null;
 }
 
 interface AssetMasterRecord {
@@ -100,10 +107,12 @@ function AssetCard({
   isAdmin,
   canUploadDeclaration,
   canSign,
+  canReturn = false,
   hasPage = true,
   onUnassign,
   onUploadDeclaration,
   onSign,
+  onReturn,
 }: {
   assignment: AssetManagementRecord;
   asset: AssetMasterRecord | undefined;
@@ -114,9 +123,12 @@ function AssetCard({
   canUploadDeclaration: boolean;
   /** The viewer is the assignee and the declaration is still pending. */
   canSign: boolean;
+  /** The viewer holds it, the declaration is on file and no return is waiting: show Return. */
+  canReturn?: boolean;
   onUnassign: () => void;
   onUploadDeclaration: () => void;
   onSign: () => void;
+  onReturn?: () => void;
 }) {
   const isPendingDeclaration = !assignment.asset_declaration_attachment;
 
@@ -158,18 +170,26 @@ function AssetCard({
           )}
         </div>
 
-        {/* Asset Details */}
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          {asset?.asset_serial_number && (
-            <div className="flex items-center gap-1.5 text-muted-foreground">
-              <Hash className="h-3.5 w-3.5" />
-              <span className="truncate">{asset.asset_serial_number}</span>
+        {/* Asset Details: serial and assigned date on the left, Received on the right */}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground">
+            {asset?.asset_serial_number && (
+              <div className="flex min-w-0 items-center gap-1.5">
+                <Hash className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="truncate">{asset.asset_serial_number}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-1.5" title="Assigned on">
+              <Calendar className="h-3.5 w-3.5" />
+              <span>{formatDate(assignment.asset_assigned_on)}</span>
             </div>
-          )}
-          <div className="flex items-center gap-1.5 text-muted-foreground">
-            <Calendar className="h-3.5 w-3.5" />
-            <span>{formatDate(assignment.asset_assigned_on)}</span>
           </div>
+          {!!assignment.received && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 whitespace-nowrap">
+              <CheckCircle2 className="h-3 w-3" />
+              Received {assignment.received_on ? formatDate(assignment.received_on) : ""}
+            </span>
+          )}
         </div>
 
         {/* Declaration Status */}
@@ -195,6 +215,16 @@ function AssetCard({
 
           {/* Action Buttons */}
           <div className="flex items-center gap-1">
+            {canReturn && (
+              <Button
+                size="sm"
+                onClick={onReturn}
+                className="h-7 px-2.5 text-xs gap-1 bg-red-600 text-white hover:bg-red-700"
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+                Return
+              </Button>
+            )}
             {canSign && (
               <Button
                 size="sm"
@@ -229,6 +259,14 @@ function AssetCard({
             )}
           </div>
         </div>
+
+        {/* Returned, waiting for approval (owner, 2026-10-13) */}
+        {!!assignment.returned && (
+          <span className="inline-flex w-fit items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">
+            <Undo2 className="h-3 w-3" />
+            Returned {assignment.returned_on ? formatDate(assignment.returned_on) : ""} · waiting for approval
+          </span>
+        )}
       </CardContent>
     </Card>
   );
@@ -265,6 +303,11 @@ export function UserAssetsTab({
   const [subTab, setSubTab] = useState<AssetSubTab>("Project");
   // The dialog holds the row's name; the live row is read from the refetched list.
   const [signingAssignmentName, setSigningAssignmentName] = useState<string | null>(null);
+  // Return (owner, 2026-10-13): the holder tells HR / Admin they gave the asset back; it stays
+  // assigned until one of them approves it on the Assets page's Return By tab.
+  const [returningAssignment, setReturningAssignment] = useState<AssetManagementRecord | null>(null);
+  const [isReturning, setIsReturning] = useState(false);
+  const { call: requestReturn } = useFrappePostCall("nirmaan_stack.api.assets.returns.request_return");
 
   // Get asset details by ID
   const getAssetDetails = useCallback(
@@ -537,6 +580,14 @@ export function UserAssetsTab({
                   setUploadDialogOpen(true);
                 }}
                 onSign={() => setSigningAssignmentName(assignment.name)}
+                canReturn={
+                  isOwnProfile &&
+                  assignment.asset_assigned_to === userData?.user_id &&
+                  asset?.current_assignee === userData?.user_id &&
+                  !!assignment.asset_declaration_attachment &&
+                  !assignment.returned
+                }
+                onReturn={() => setReturningAssignment(assignment)}
               />
             );
           })}
@@ -573,6 +624,54 @@ export function UserAssetsTab({
           onSigned={onMutate}
         />
       )}
+
+      {/* Return Asset Dialog (the holder, own profile) */}
+      <Dialog open={!!returningAssignment} onOpenChange={(open) => !open && !isReturning && setReturningAssignment(null)}>
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
+              <Undo2 className="h-6 w-6 text-amber-600" />
+            </div>
+            <DialogTitle className="text-center">
+              Return {getAssetDetails(returningAssignment?.asset || "")?.asset_name || returningAssignment?.asset}?
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              This tells HR / Admin that you gave the asset back today, {formatDate(new Date())}.
+            </DialogDescription>
+          </DialogHeader>
+          <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            It stays assigned to you until they approve the return.
+          </p>
+          <DialogFooter className="gap-2 sm:justify-center">
+            <DialogClose asChild>
+              <Button variant="outline" disabled={isReturning}>Cancel</Button>
+            </DialogClose>
+            <Button
+              disabled={isReturning}
+              onClick={async () => {
+                if (!returningAssignment) return;
+                setIsReturning(true);
+                try {
+                  await requestReturn({ assignment: returningAssignment.name });
+                  toast({
+                    title: "Return sent",
+                    description: "HR / Admin will approve it. The asset stays with you until then.",
+                    variant: "success",
+                  });
+                  setReturningAssignment(null);
+                  onMutate();
+                } catch (error) {
+                  toast({ title: "Couldn't return the asset", description: getFrappeError(error), variant: "destructive" });
+                } finally {
+                  setIsReturning(false);
+                }
+              }}
+            >
+              {isReturning ? "Sending…" : "Yes, I returned it"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Unassign Asset Dialog */}
       <Dialog open={unassignDialogOpen} onOpenChange={setUnassignDialogOpen}>

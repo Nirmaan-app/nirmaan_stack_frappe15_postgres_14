@@ -51,6 +51,18 @@ export const ASSET_MANAGEMENT_FIELDS = [
     'creation',
 ] as const;
 
+/**
+ * The assignment plus its receive / return fields (owner, 2026-10-13): the profile cards and the
+ * Return By tab. Kept apart from ASSET_MANAGEMENT_FIELDS so the other lists don't need the columns.
+ */
+export const ASSET_MANAGEMENT_RETURN_FIELDS = [
+    ...ASSET_MANAGEMENT_FIELDS,
+    'received',
+    'received_on',
+    'returned',
+    'returned_on',
+] as const;
+
 // Searchable fields for Asset Master
 export const ASSET_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "asset_name", label: "Asset Name", placeholder: "Search by asset name...", default: true },
@@ -121,4 +133,8 @@ export const ASSET_CACHE_KEYS = {
 
     // Asset Management (for individual asset assignments)
     assetManagement: (assetId: string) => `${ASSET_MANAGEMENT_DOCTYPE}_${assetId}`,
+
+    // Returns waiting for approval (useReturnRequests) and their assets' details
+    RETURN_REQUESTS: `${ASSET_MANAGEMENT_DOCTYPE}_return_requests`,
+    returnRequestAssets: (assetIds: string[]) => `${ASSET_MASTER_DOCTYPE}_return_requests:${assetIds.join('|')}`,
 } as const;

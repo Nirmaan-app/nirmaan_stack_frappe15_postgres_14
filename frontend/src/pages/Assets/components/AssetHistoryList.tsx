@@ -24,6 +24,8 @@ const EVENT_OPTIONS = [
     'Declaration Uploaded',
     'Department Set',
     'Asset Added',
+    'Return Requested',
+    'Return Rejected',
 ].map((event) => ({ label: event, value: event }));
 
 const EVENT_BADGE: Record<string, string> = {
@@ -33,6 +35,8 @@ const EVENT_BADGE: Record<string, string> = {
     'Declaration Signed': 'bg-blue-50 text-blue-700 border-blue-200',
     'Declaration Uploaded': 'bg-blue-50 text-blue-700 border-blue-200',
     'Department Set': 'bg-indigo-50 text-indigo-700 border-indigo-200',
+    'Return Requested': 'bg-sky-50 text-sky-700 border-sky-200',
+    'Return Rejected': 'bg-sky-50 text-sky-700 border-sky-200',
 };
 
 interface HistoryListRow {

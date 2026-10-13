@@ -19,7 +19,7 @@ export interface AssetHistoryRow {
   reason?: string | null;
 }
 
-export type HistoryTone = "added" | "assigned" | "declaration" | "unassigned" | "department";
+export type HistoryTone = "added" | "assigned" | "declaration" | "unassigned" | "department" | "return";
 
 export interface HistoryEntry {
   key: string;
@@ -42,6 +42,8 @@ const TONES: Record<string, HistoryTone> = {
   "Declaration Uploaded": "declaration",
   Unassigned: "unassigned",
   "Department Set": "department",
+  "Return Requested": "return",
+  "Return Rejected": "return",
 };
 
 /** "12-Oct-2026 04:05 PM" from a Frappe datetime ("2026-10-12 16:05:15.510342"); null if unreadable. */
@@ -66,6 +68,10 @@ function titleFor(row: AssetHistoryRow, nameOf: (id?: string | null) => string):
       return `Unassigned from ${nameOf(row.assigned_to)}`;
     case "Department Set":
       return row.from_department ? "Department changed" : `Department set to ${row.to_department ?? ""}`.trim();
+    case "Return Requested":
+      return `Returned by ${nameOf(row.assigned_to)}, waiting for approval`;
+    case "Return Rejected":
+      return `Return rejected, ${nameOf(row.assigned_to)} keeps it`;
     default:
       return row.event;
   }

@@ -3,6 +3,7 @@
 
 import frappe
 from frappe.model.document import Document
+from frappe.utils import today
 
 from nirmaan_stack.services.asset_assign_access import check_may_assign
 from nirmaan_stack.services.asset_department import department_move, reason_refusal
@@ -20,6 +21,18 @@ class AssetManagement(Document):
 			self.decide_department_move()
 		else:
 			self.keep_asset_and_person()
+		self.mark_received()
+
+	def mark_received(self):
+		"""A declaration arriving -- signed in the app or a signed scan uploaded -- means the person has the
+		asset (owner, 2026-10-13): tick Received, dated that day. Nobody types these two fields.
+
+		Only when the declaration arrives in this save: an assignment signed before the field existed
+		must not get the date of some later, unrelated save (a return, say).
+		"""
+		if self.get("asset_declaration_attachment") and self.has_value_changed("asset_declaration_attachment") and not self.received:
+			self.received = 1
+			self.received_on = today()
 
 	def keep_asset_and_person(self):
 		"""An assignment is for one asset and one person for its whole life.

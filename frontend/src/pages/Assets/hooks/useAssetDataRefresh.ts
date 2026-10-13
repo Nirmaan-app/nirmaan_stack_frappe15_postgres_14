@@ -38,6 +38,8 @@ export const useAssetDataRefresh = () => {
         // Per-category counts (Categories table + the summary card's "most unassigned" list)
         mutate(ASSET_CACHE_KEYS.CATEGORY_ASSET_COUNTS);
         mutate(ASSET_CACHE_KEYS.CATEGORY_ASSIGNED_COUNTS);
+        // Returns waiting for approval: an unassign or a return elsewhere changes the Return By count.
+        mutate(ASSET_CACHE_KEYS.RETURN_REQUESTS);
     }, [mutate]);
 
     /**
