@@ -1,6 +1,6 @@
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { Info } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Info } from "lucide-react";
 
 import { ChequePhotoLink } from "@/components/cheques/ChequePhotoLink";
 import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
@@ -11,12 +11,53 @@ import SITEURL from "@/constants/siteURL";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-import { ChequeRow, payeeOf, statusChangeText } from "../../config/chequePaymentTable.config";
+import {
+    ChequeRow,
+    daysOutstanding,
+    firstWithMore,
+    hasNoPhoto,
+    isStale,
+    linesGap,
+    payeeOf,
+    statusChangeText,
+} from "../../config/chequePaymentTable.config";
 
 /** Lets a sortable header's title break onto a second line, so columns stay narrow. */
 const WRAP_HEADER = "[&_button]:whitespace-normal text-left";
 
 const dateText = (v?: string | null) => (v ? formatDate(v) : "");
+
+const projectsOf = (r: ChequeRow) => r.lines.map((l) => l.project_name || l.project);
+const recordsOf = (r: ChequeRow) => r.lines.map((l) => l.record_name);
+
+const firstWithMoreText = (values: (string | null | undefined)[]) => {
+    const { first, more } = firstWithMore(values);
+    return first ? `${first}${more ? ` +${more}` : ""}` : "";
+};
+
+/** "PO-001 +2": the first line's value, and a muted count of the others. */
+const FirstWithMore = ({ values }: { values: (string | null | undefined)[] }) => {
+    const { first, more } = firstWithMore(values);
+    if (!first) return <span className="text-muted-foreground">--</span>;
+    return (
+        <div className="flex min-w-0 items-center gap-1">
+            <TruncatedText text={first} className="max-w-full" />
+            {more > 0 && (
+                <span className="shrink-0 rounded bg-muted px-1 text-[11px] text-muted-foreground">+{more}</span>
+            )}
+        </div>
+    );
+};
+
+/** What the ⚠ beside the amount says. */
+const gapText = (gap: number) =>
+    `The lines are ${formatToRoundedIndianRupee(Math.abs(gap))} ${gap > 0 ? "short of" : "more than"} the cheque amount.`;
+
+const daysText = (r: ChequeRow) => {
+    const days = daysOutstanding(r);
+    if (days === null) return "";
+    return days < 0 ? "Post-dated" : `${days} ${days === 1 ? "day" : "days"}`;
+};
 
 interface ChequeColumnActions {
     /** Opens the Cheque detail view. */
@@ -27,24 +68,43 @@ interface ChequeColumnActions {
 
 /**
  * The Cheque Payments report's columns (spec #1407): one row per Cheque. The cheque number and
- * "Details" open the detail view; "Status" opens Change status (#1412). Edit arrives with #1418;
- * the expandable lines with #1417.
+ * "Details" open the detail view; "Status" opens Change status (#1412). The chevron beside the number
+ * expands the row into its lines (#1417; the page passes `renderExpandedRow` to DataTable).
+ * Edit arrives with #1418.
+ *
+ * The facet columns' ids (`status`, `bank_label`, `vendor`, `project`, `record_name`) are the
+ * endpoint's filter fields.
  */
 export const getChequePaymentColumns = ({ onOpen, onChangeStatus }: ChequeColumnActions): ColumnDef<ChequeRow>[] => [
     {
         accessorKey: "cheque_no",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Cheque No" className={WRAP_HEADER} />,
         cell: ({ row }) => (
-            <button
-                type="button"
-                onClick={() => onOpen(row.original.name)}
-                className="font-medium whitespace-nowrap text-blue-600 hover:underline"
-                title="Open the cheque"
-            >
-                {row.original.cheque_no}
-            </button>
+            <div className="flex items-center gap-1">
+                {row.original.lines.length > 0 ? (
+                    <button
+                        type="button"
+                        onClick={() => row.toggleExpanded()}
+                        className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted"
+                        aria-label={row.getIsExpanded() ? "Hide the lines" : "Show the lines"}
+                        aria-expanded={row.getIsExpanded()}
+                    >
+                        {row.getIsExpanded() ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    </button>
+                ) : (
+                    <span className="w-5 shrink-0" />
+                )}
+                <button
+                    type="button"
+                    onClick={() => onOpen(row.original.name)}
+                    className="font-medium whitespace-nowrap text-blue-600 hover:underline"
+                    title="Open the cheque"
+                >
+                    {row.original.cheque_no}
+                </button>
+            </div>
         ),
-        size: 100,
+        size: 125,
         meta: { exportHeaderName: "Cheque No", exportValue: (r: ChequeRow) => r.cheque_no },
     },
     {
@@ -82,11 +142,30 @@ export const getChequePaymentColumns = ({ onOpen, onChangeStatus }: ChequeColumn
     {
         accessorKey: "amount",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" className={WRAP_HEADER} />,
-        cell: ({ row }) => (
-            <div className="whitespace-nowrap font-medium">{formatToRoundedIndianRupee(row.original.amount)}</div>
-        ),
-        size: 110,
+        cell: ({ row }) => {
+            const gap = linesGap(row.original);
+            return (
+                <div className="flex items-center gap-1 whitespace-nowrap font-medium">
+                    {formatToRoundedIndianRupee(row.original.amount)}
+                    {gap !== null && (
+                        <span title={gapText(gap)} aria-label={gapText(gap)}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                        </span>
+                    )}
+                </div>
+            );
+        },
+        size: 120,
         meta: { isNumeric: true, exportHeaderName: "Amount", exportValue: (r: ChequeRow) => formatForReport(r.amount) },
+    },
+    {
+        id: "record_name",
+        accessorFn: (r) => firstWithMoreText(recordsOf(r)),
+        header: "PO / WO",
+        cell: ({ row }) => <FirstWithMore values={recordsOf(row.original)} />,
+        size: 150,
+        enableSorting: false,
+        meta: { exportHeaderName: "PO / WO", exportValue: (r: ChequeRow) => firstWithMoreText(recordsOf(r)) },
     },
     {
         accessorKey: "description",
@@ -97,7 +176,16 @@ export const getChequePaymentColumns = ({ onOpen, onChangeStatus }: ChequeColumn
         meta: { exportHeaderName: "Description", exportValue: (r: ChequeRow) => r.description || "" },
     },
     {
-        id: "payee",
+        id: "project",
+        accessorFn: (r) => firstWithMoreText(projectsOf(r)),
+        header: "Project",
+        cell: ({ row }) => <FirstWithMore values={projectsOf(row.original)} />,
+        size: 160,
+        enableSorting: false,
+        meta: { exportHeaderName: "Project", exportValue: (r: ChequeRow) => firstWithMoreText(projectsOf(r)) },
+    },
+    {
+        id: "vendor",
         accessorFn: (r) => payeeOf(r).label,
         header: "Vendor / Payee",
         cell: ({ row }) => {
@@ -115,6 +203,34 @@ export const getChequePaymentColumns = ({ onOpen, onChangeStatus }: ChequeColumn
         size: 170,
         enableSorting: false,
         meta: { exportHeaderName: "Vendor / Payee", exportValue: (r: ChequeRow) => payeeOf(r).label },
+    },
+    {
+        id: "days_outstanding",
+        accessorFn: (r) => daysOutstanding(r),
+        header: "Days Outstanding",
+        cell: ({ row }) => {
+            const text = daysText(row.original);
+            if (!text) return <span className="text-muted-foreground">--</span>;
+            return (
+                <div className="flex flex-col items-start gap-0.5">
+                    <span className="whitespace-nowrap">{text}</span>
+                    {isStale(row.original) && (
+                        <span
+                            className="rounded bg-red-100 px-1 text-[11px] font-medium text-red-700"
+                            title="Issued more than 90 days ago: a cheque is good for 3 months from its date."
+                        >
+                            Stale
+                        </span>
+                    )}
+                </div>
+            );
+        },
+        size: 105,
+        enableSorting: false,
+        meta: {
+            exportHeaderName: "Days Outstanding",
+            exportValue: (r: ChequeRow) => [daysText(r), isStale(r) ? "Stale" : ""].filter(Boolean).join(" "),
+        },
     },
     {
         accessorKey: "owner",
@@ -135,12 +251,19 @@ export const getChequePaymentColumns = ({ onOpen, onChangeStatus }: ChequeColumn
     {
         accessorKey: "attachment",
         header: "Photo",
-        cell: ({ row }) => <ChequePhotoLink url={row.original.attachment} chequeNo={row.original.cheque_no} />,
+        cell: ({ row }) =>
+            hasNoPhoto(row.original) ? (
+                <span className="whitespace-nowrap rounded bg-amber-100 px-1 text-[11px] font-medium text-amber-800">
+                    No photo
+                </span>
+            ) : (
+                <ChequePhotoLink url={row.original.attachment} chequeNo={row.original.cheque_no} />
+            ),
         size: 80,
         enableSorting: false,
         meta: {
             exportHeaderName: "Photo",
-            exportValue: (r: ChequeRow) => (r.attachment ? `${SITEURL}${r.attachment}` : ""),
+            exportValue: (r: ChequeRow) => (r.attachment ? `${SITEURL}${r.attachment}` : "No photo"),
         },
     },
     {

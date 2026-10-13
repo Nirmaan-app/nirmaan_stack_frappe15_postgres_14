@@ -89,6 +89,11 @@ export interface DataTableProps<T> {
 
   /* row-level styling callback */
   getRowClassName?: (row: TanRow<T>) => string | undefined;
+
+  /** Optional: what an expanded row shows beneath it, across the full width. A row is expanded by
+      `row.toggleExpanded()` (for example from a chevron in a cell); tables without this prop are unchanged.
+      Expanded rows change row heights, so pair it with `enableVirtualization={false}`. */
+  renderExpandedRow?: (row: TanRow<T>) => React.ReactNode;
 }
 
 /* ---------- component --------------------------------------------------- */
@@ -114,6 +119,7 @@ export function DataTable<T>({
   stickyColumnClassName = "bg-background",
   tableHeight = "70vh",
   getRowClassName,
+  renderExpandedRow,
 }: DataTableProps<T>) {
 
   /* ───────── helpers ───────── */
@@ -374,8 +380,10 @@ export function DataTable<T>({
                 {renderRows.map(vRow => {
                   const row = rows[vRow.index] as TanRow<T>;
                   const customRowClassName = getRowClassName?.(row);
+                  const expanded = renderExpandedRow && row.getIsExpanded() ? renderExpandedRow(row) : null;
                   return (
-                    <TableRow key={row.id} data-state={row.getIsSelected() ? "selected" : undefined} className={customRowClassName}>
+                    <React.Fragment key={row.id}>
+                    <TableRow data-state={row.getIsSelected() ? "selected" : undefined} className={customRowClassName}>
                       {shouldRenderIndicatorColumn && (
                         <TableCell
                           className={cn("sticky left-0 w-[20px] px-1", stickyColumnClassName)}
@@ -424,6 +432,16 @@ export function DataTable<T>({
                         );
                       })}
                     </TableRow>
+                    {expanded && (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell
+                          colSpan={leafCols.length + (shouldRenderIndicatorColumn ? 1 : 0) + (shouldRenderSelectionColumn ? 1 : 0)}
+                          className="bg-muted/30 p-0">
+                          {expanded}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    </React.Fragment>
                   );
                 })}
 
