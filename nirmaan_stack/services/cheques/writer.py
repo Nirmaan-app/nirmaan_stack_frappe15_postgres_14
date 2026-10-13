@@ -23,7 +23,8 @@ Built so far:
   payment is inserted: a Project Payment's `after_insert` commits, so a refusal after it is too late.
 
 To come, each beside these: editing a Cheque and its lines (#1418), status change for
-one or many with history (#1412), switching a payment back to Online, and detaching a Rejected or deleted payment's line (#1413).
+one or many with history (#1412), and switching a payment back to Online. A Rejected or deleted
+payment's line comes off in `services/cheques/detach.py` (#1413).
 
 The line pickers' lists are read-only and live in `services/cheques/pickers.py`; the line rules
 that read the database in `services/cheques/lines.py`.

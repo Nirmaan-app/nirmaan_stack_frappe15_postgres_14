@@ -10,6 +10,9 @@ from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_hold import validate_hold
+from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of
+from nirmaan_stack.services.cheques.detach import DELETED, REJECTED
+from nirmaan_stack.services.cheques.rules import PAYMENT_REJECTED
 
 # Imports for notification system
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_accountants, get_allowed_manager_users, get_allowed_procurement_users
@@ -365,6 +368,11 @@ def on_update(doc, method):
     if not old_doc or old_doc.status == doc.status:
         return # Do nothing if status hasn't changed
 
+    # A Rejected payment drops off its Cheque (#1413). Commit-free: bulk reject saves inside a
+    # savepoint. Above the notification branches, several of which return.
+    if doc.status == PAYMENT_REJECTED:
+        drop_off_cheques_of(doc, REJECTED)
+
     # Call the search-based helper function to sync the status.
     _find_and_update_po_term(doc, doc.status)
 
@@ -491,6 +499,10 @@ def on_trash(doc, method):
     """
     # Always revert to "Created" - frontend will determine eligibility based on due_date
     _find_and_update_po_term(doc, "Created", clear_link=True)
+
+    # A deleted payment drops off its Cheque (#1413). Here, not later: Frappe checks links AFTER
+    # `on_trash`, and a Cheque Line still naming the payment would refuse the delete.
+    drop_off_cheques_of(doc, DELETED)
 
     # A tax deduction belongs to its payment and does not outlive it — there is no reversal
     # workflow, so deleting the payment deletes the row (owner ruling 2026-09-10).
