@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { NO_DEPARTMENT_LABEL } from '@/constants/departments';
 import { normalizeDepartment } from '@/utils/assetDepartment';
 
+import { AssetLookupFacetFilter } from '../components/AssetLookupFacetFilter';
+
 /** An asset's department, or a quiet "No department". */
 export function DepartmentBadge({ department }: { department?: string | null }) {
     if (!department) return <span className="text-xs text-gray-400">{NO_DEPARTMENT_LABEL}</span>;
@@ -30,13 +32,29 @@ export function assetDepartmentColumn<T extends { department?: string | null }>(
     };
 }
 
-/** Department column for tables whose rows are assignments; the department comes from the asset. */
+/**
+ * Department column for tables whose rows are assignments; the department comes from the asset.
+ *
+ * The table's own filters only reach the assignment's fields, so a Department filter is a lookup
+ * funnel (as Project / City / State are): pass `filter` and the page narrows its `asset` scope with
+ * the picked values (`matchesDepartmentFilter`).
+ */
 export function assignmentDepartmentColumn<T extends { asset: string }>(
-    departmentOf: (assetId: string) => string | null | undefined
+    departmentOf: (assetId: string) => string | null | undefined,
+    filter?: { options: { label: string; value: string }[]; onChange: (next: string[]) => void }
 ): ColumnDef<T> {
     return {
         id: 'asset_department',
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Department" />,
+        enableSorting: !filter,
+        header: ({ column }) =>
+            filter ? (
+                <div className="flex items-center gap-1">
+                    <AssetLookupFacetFilter title="Department" options={filter.options} onChange={filter.onChange} />
+                    <DataTableColumnHeader column={column} title="Department" />
+                </div>
+            ) : (
+                <DataTableColumnHeader column={column} title="Department" />
+            ),
         cell: ({ row }) => <DepartmentBadge department={departmentOf(row.original.asset)} />,
         size: 140,
         meta: {
@@ -63,4 +81,10 @@ export function departmentFacetOptions(departments: (string | null | undefined)[
         .map(([department, count]) => ({ label: `${department} (${count})`, value: department }));
     if (blank > 0) options.push({ label: `${NO_DEPARTMENT_LABEL} (${blank})`, value: NOT_SET_FACET_VALUE });
     return options;
+}
+
+/** True when an asset's department is one of the picked filter values ("No department" included). */
+export function matchesDepartmentFilter(department: string | null | undefined, picked: string[]): boolean {
+    const value = normalizeDepartment(department);
+    return value ? picked.includes(value) : picked.includes(NOT_SET_FACET_VALUE);
 }

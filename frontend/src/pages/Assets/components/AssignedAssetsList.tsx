@@ -18,7 +18,7 @@ import {
     ASSET_MANAGEMENT_DATE_COLUMNS,
     AssetCategoryType,
 } from '../assets.constants';
-import { assignmentDepartmentColumn } from '../utils/departmentColumn';
+import { assignmentDepartmentColumn, departmentFacetOptions, matchesDepartmentFilter } from '../utils/departmentColumn';
 import { useAssetMasterNamesByType } from '../hooks/useAssetMasterNamesByType';
 import { useAssetProjectOptions } from '../hooks/useAssetProjectOptions';
 import { AssetLookupFacetFilter } from './AssetLookupFacetFilter';
@@ -121,6 +121,9 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
     const [projectFilter, setProjectFilter] = useState<string[]>([]);
     const [cityFilter, setCityFilter] = useState<string[]>([]);
     const [stateFilter, setStateFilter] = useState<string[]>([]);
+    // Category and Department live on the Asset Master too, so they filter the same way.
+    const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
+    const [departmentFilter, setDepartmentFilter] = useState<string[]>([]);
 
     // Option lists (with counts) built from the same assets the tab is scoped to.
     const lookupFacetOptions = useMemo(() => {
@@ -152,16 +155,21 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
 
     // Asset names matching every active lookup filter — null means "no constraint".
     const lookupScopedAssetNames = useMemo<string[] | null>(() => {
-        if (!projectFilter.length && !cityFilter.length && !stateFilter.length) return null;
+        if (
+            !projectFilter.length && !cityFilter.length && !stateFilter.length &&
+            !categoryFilter.length && !departmentFilter.length
+        ) return null;
         return (assetsList ?? [])
             .filter((a) => {
                 if (projectFilter.length && !projectFilter.includes(a.project || '')) return false;
                 if (cityFilter.length && !cityFilter.includes((a.asset_city || '').trim())) return false;
                 if (stateFilter.length && !stateFilter.includes((a.asset_state || '').trim())) return false;
+                if (categoryFilter.length && !categoryFilter.includes(a.asset_category || '')) return false;
+                if (departmentFilter.length && !matchesDepartmentFilter(a.department, departmentFilter)) return false;
                 return true;
             })
             .map((a) => a.name);
-    }, [assetsList, projectFilter, cityFilter, stateFilter]);
+    }, [assetsList, projectFilter, cityFilter, stateFilter, categoryFilter, departmentFilter]);
 
     // Source for facets — distinct `asset` + `asset_assigned_to` for this
     // scope, taken from Asset Management directly (mirrors the table query
@@ -206,6 +214,22 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
         });
         return opts.sort((a, b) => a.label.localeCompare(b.label));
     }, [facetCounts, assetsMap]);
+
+    // Category / Department options with counts, from the assigned rows themselves (not every asset).
+    const assignedLookupOptions = useMemo(() => {
+        const rows = facetSource ?? [];
+        const categories = new Map<string, number>();
+        rows.forEach((row) => {
+            const category = assetsMap[row.asset]?.asset_category;
+            if (category) categories.set(category, (categories.get(category) ?? 0) + 1);
+        });
+        return {
+            category: Array.from(categories.entries())
+                .map(([value, count]) => ({ label: `${value} (${count})`, value }))
+                .sort((a, b) => a.label.localeCompare(b.label)),
+            department: departmentFacetOptions(rows.map((row) => assetsMap[row.asset]?.department)),
+        };
+    }, [facetSource, assetsMap]);
 
     const assigneeOptions = useMemo(() => {
         const opts: { label: string; value: string }[] = [];
@@ -255,8 +279,19 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
         },
         {
             id: 'asset_category',
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
+            enableSorting: false,
+            header: ({ column }) => (
+                <div className="flex items-center gap-1">
+                    <AssetLookupFacetFilter
+                        title="Category"
+                        options={assignedLookupOptions.category}
+                        onChange={setCategoryFilter}
+                    />
+                    <DataTableColumnHeader column={column} title="Category" />
+                </div>
+            ),
             meta: {
+                exportHeaderName: 'Category',
                 exportValue: (row: any) => assetsMap[row.asset]?.asset_category || ''
             },
             cell: ({ row }) => {
@@ -271,7 +306,10 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
             },
             size: 140,
         },
-        assignmentDepartmentColumn<AssetManagement>((assetId) => assetsMap[assetId]?.department),
+        assignmentDepartmentColumn<AssetManagement>((assetId) => assetsMap[assetId]?.department, {
+            options: assignedLookupOptions.department,
+            onChange: setDepartmentFilter,
+        }),
         {
             accessorKey: 'asset_assigned_to',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Assigned To" />,
@@ -421,7 +459,7 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
         // The funnels own their own selection (see AssetLookupFacetFilter); listing
         // the selection here would rebuild these column defs on every checkbox,
         // remounting the popover and closing it after a single pick.
-    ], [assetsMap, usersMap, projectsById, lookupFacetOptions, isProjectTab]);
+    ], [assetsMap, usersMap, projectsById, lookupFacetOptions, assignedLookupOptions, isProjectTab]);
 
     const additionalFilters = useMemo(() => {
         // Intersect the type scope (Project/IT tab) with the lookup-filter scope.
