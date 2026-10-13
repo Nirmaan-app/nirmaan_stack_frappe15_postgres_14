@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import {
+    addLineOptions,
     conversionHint,
+    emptyLine,
+    expenseLabel,
+    hiddenExpensesText,
     hiddenPaymentsText,
+    LINE_NEEDS,
     lineProjects,
     linesSummary,
     recordsInProject,
     saveLineArgs,
+    withoutPoWoLines,
     type ChequeLineDraft,
     type VendorRecord,
 } from "./chequeLines";
@@ -130,5 +136,80 @@ describe("saveLineArgs", () => {
             { line_type: "PO/WO Payment", project: "PROJ-1", record_doctype: "Procurement Orders", record_name: "PO/001", payment_name: "PAY-1", amount: 20000 },
             { line_type: "PO/WO Payment", project: "PROJ-1", record_doctype: "Procurement Orders", record_name: "PO/001", amount: 5000 },
         ]);
+    });
+
+    it("sends the expense as the line's payment, with a project only for a Project Expense", () => {
+        expect(
+            saveLineArgs([
+                line({ line_type: "Project Expense", payment_name: "PE-1", amount: 4000 }),
+                line({ line_type: "Non-project Expense", payment_name: "NPE-1", amount: "600" }),
+            ])
+        ).toEqual([
+            { line_type: "Project Expense", project: "PROJ-1", payment_name: "PE-1", amount: 4000 },
+            { line_type: "Non-project Expense", payment_name: "NPE-1", amount: 600 },
+        ]);
+    });
+});
+
+describe("the line kinds (#1411)", () => {
+    it("asks each kind only for the boxes it needs", () => {
+        expect(LINE_NEEDS["PO/WO Payment"]).toEqual({ project: true, record: true, expense: false });
+        expect(LINE_NEEDS["Project Expense"]).toEqual({ project: true, record: false, expense: true });
+        expect(LINE_NEEDS["Non-project Expense"]).toEqual({ project: false, record: false, expense: true });
+    });
+
+    it("offers all three kinds on a Vendor cheque", () => {
+        expect(addLineOptions({ vendorPayee: true, vendor: "VEN-1" }).map((o) => [o.type, o.disabledReason])).toEqual([
+            ["PO/WO Payment", undefined],
+            ["Project Expense", undefined],
+            ["Non-project Expense", undefined],
+        ]);
+    });
+
+    it("shows the PO/WO kind disabled, with the reason, on a typed-payee cheque", () => {
+        const [poWo, ...expenses] = addLineOptions({ vendorPayee: false, vendor: "" });
+        expect(poWo.disabledReason).toBe("A PO or Work Order payment needs a cheque made out to a Vendor.");
+        expect(expenses.every((o) => o.disabledReason === undefined)).toBe(true);
+    });
+
+    it("asks for the Vendor before a PO/WO line", () => {
+        expect(addLineOptions({ vendorPayee: true, vendor: "" })[0].disabledReason).toBe(
+            "Pick the Vendor first: its POs and Work Orders are offered."
+        );
+    });
+
+    it("starts each kind empty", () => {
+        expect(emptyLine("Non-project Expense")).toEqual({
+            line_type: "Non-project Expense", project: "", record_doctype: "", record_name: "", payment_name: "", amount: "",
+        });
+    });
+
+    it("keeps the expense lines and drops the PO/WO lines when the payee changes", () => {
+        const kept = [line({ line_type: "Project Expense" }), line({ line_type: "Non-project Expense" })];
+        expect(withoutPoWoLines([line(), ...kept])).toEqual(kept);
+    });
+});
+
+describe("the expense picker", () => {
+    it("says how many expenses it hid for being on a live cheque", () => {
+        expect(
+            hiddenExpensesText({
+                on_cheque: [
+                    { payment: "NPE-1", cheque: "C1", cheque_no: "004530", status: "Issued" },
+                    { payment: "NPE-2", cheque: "C1", cheque_no: "004530", status: "Issued" },
+                ],
+            })
+        ).toBe("Not shown: 2 already on cheque 004530 (Issued).");
+        expect(hiddenExpensesText({ on_cheque: [] })).toBe("");
+        expect(hiddenExpensesText(undefined)).toBe("");
+    });
+
+    it("labels an expense by its name, amount, type and description", () => {
+        expect(
+            expenseLabel({ name: "NPE-1", amount: 6000, status: "Paid", type: "Electricity", description: "Office power, Sept", payment_date: null })
+        ).toBe("NPE-1 · ₹6,000.00 · Electricity · Office power, Sept");
+        expect(
+            expenseLabel({ name: "NPE-2", amount: 50, status: "Approved", type: null, description: null, payment_date: null })
+        ).toBe("NPE-2 · ₹50.00");
     });
 });

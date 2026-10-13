@@ -3,7 +3,7 @@ import { z } from "zod";
 import { CHEQUE_BANK } from "@/types/NirmaanStack/Cheques";
 import { parseNumber } from "@/utils/parseNumber";
 
-import { saveLineArgs, type ChequeLineDraft, type SaveLineArg } from "./chequeLines";
+import { EXPENSE_LABELS, LINE_NEEDS, LINE_TYPE, saveLineArgs, type ChequeLineDraft, type SaveLineArg } from "./chequeLines";
 
 /**
  * The Add Cheque form's rules (spec #1407), pure so vitest covers them without React (F4).
@@ -15,7 +15,7 @@ import { saveLineArgs, type ChequeLineDraft, type SaveLineArg } from "./chequeLi
 /** Who the cheque is made out to: a Vendor picked from the list, or a name typed in. */
 export type PayeeKind = "vendor" | "typed";
 
-/** One Cheque line. Its rules are checked in the form's `superRefine`; only PO/WO Payment lines so far (#1410). */
+/** One Cheque line of any kind. Its rules, per kind (`LINE_NEEDS`), are checked in the form's `superRefine`. */
 const lineSchema = z.object({
     line_type: z.enum(["PO/WO Payment", "Project Expense", "Non-project Expense"]),
     project: z.string(),
@@ -41,7 +41,7 @@ export const chequeFormSchema = z
         payee_name: z.string().optional(),
         attachment: z.string().optional(),
         description: z.string().optional(),
-        /** The Cheque's lines; none makes it an Ad-hoc cheque. PO/WO lines (#1410); expense lines arrive in #1411. */
+        /** The Cheque's lines; none makes it an Ad-hoc cheque. A typed payee takes expense lines only. */
         lines: z.array(lineSchema).default([]),
     })
     .superRefine((v, ctx) => {
@@ -57,7 +57,7 @@ export const chequeFormSchema = z
         if (!v.attachment) {
             ctx.addIssue({ code: "custom", path: ["attachment"], message: "Upload the photo of the cheque." });
         }
-        if (v.lines.length && v.payee_kind !== "vendor") {
+        if (v.payee_kind !== "vendor" && v.lines.some((l) => l.line_type === LINE_TYPE.PO_WO)) {
             ctx.addIssue({
                 code: "custom",
                 path: ["lines"],
@@ -65,12 +65,15 @@ export const chequeFormSchema = z
             });
         }
         v.lines.forEach((line, i) => {
-            if (!line.project) ctx.addIssue({ code: "custom", path: ["lines", i, "project"], message: "Pick the project." });
-            if (!line.record_name) {
-                ctx.addIssue({ code: "custom", path: ["lines", i, "record_name"], message: "Pick the PO or Work Order." });
-            }
-            if (!line.payment_name && parseNumber(line.amount) <= 0) {
-                ctx.addIssue({ code: "custom", path: ["lines", i, "amount"], message: "Enter the amount, greater than 0." });
+            const needs = LINE_NEEDS[line.line_type];
+            const issue = (field: keyof ChequeLineDraft, message: string) =>
+                ctx.addIssue({ code: "custom", path: ["lines", i, field], message });
+            if (needs.project && !line.project) issue("project", "Pick the project.");
+            if (needs.record && !line.record_name) issue("record_name", "Pick the PO or Work Order.");
+            if (needs.expense && !line.payment_name) issue("payment_name", `Pick the ${EXPENSE_LABELS[line.line_type]}.`);
+            // A picked payment or expense lends its amount; otherwise the amount is typed.
+            if (!line.payment_name && !needs.expense && parseNumber(line.amount) <= 0) {
+                issue("amount", "Enter the amount, greater than 0.");
             }
         });
         if (v.lines.length === 0 && !v.description?.trim()) {

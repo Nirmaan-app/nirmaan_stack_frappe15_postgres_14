@@ -7,31 +7,36 @@ The `validate` controller (`integrations/controllers/cheques.py`) runs `normalis
 `lines_problem` on every save, so the rules hold for every writer. The pure half of each rule is in
 `rules.py`; this module fetches the facts it needs.
 
-The rules (#1410, PO/WO Payment lines):
+The rules:
 
-* each PO / Work Order is the Cheque's Vendor's and in its line's project;
-* each payment is a payment of its line's PO / Work Order, and a Rejected one cannot be put on;
-* a payment sits on at most one Cheque that is not Cancelled, and on one line of it.
-
-Expense lines arrive with #1411.
+* PO/WO Payment lines (#1410): each PO / Work Order is the Cheque's Vendor's and in its line's
+  project, so a cheque with a typed payee takes none; each payment is a payment of its line's PO /
+  Work Order, and a Rejected one cannot be put on.
+* Expense lines (#1411): the expense is required; a Project Expense is in its line's project.
+* A payment or an expense sits on at most one Cheque that is not Cancelled, and on one line of it.
 """
 
 import frappe
 
 from nirmaan_stack.services.cheques.rules import (
     CANCELLED,
-    LINE_PO_WO_PAYMENT,
+    EXPENSE_LINE_TYPES,
+    LINE_PAYMENT_DOCTYPES,
     PAYMENT_DOCTYPE,
+    PROJECT_EXPENSE_DOCTYPE,
     RECORD_DOCTYPES,
     ChequeLineInput,
+    expense_line_problem,
+    line_kind_problem,
     parse_line,
     po_wo_line_problem,
 )
 
 
 def live_cheques_of(payment_doctype: str, payment_names, *, exclude: str | None = None) -> dict[str, dict]:
-    """`{payment: {cheque, cheque_no, status}}` for each of `payment_names` that sits on a Cheque
-    that is not Cancelled. `exclude` leaves one Cheque out (the one being saved)."""
+    """`{payment: {cheque, cheque_no, status}}` for each of `payment_names` (Project Payments or
+    expenses of `payment_doctype`) that sits on a Cheque that is not Cancelled. `exclude` leaves one
+    Cheque out (the one being saved)."""
     names = tuple(sorted({n for n in payment_names if n}))
     if not names:
         return {}
@@ -53,8 +58,9 @@ def live_cheques_of(payment_doctype: str, payment_names, *, exclude: str | None 
 
 
 def normalise_lines(doc) -> None:
-    """Trim each line, name a PO/WO line's payment doctype, and copy a picked payment's amount onto
-    a line that has none (the form copies it once on pick; this covers every other writer)."""
+    """Keep only the boxes each line's kind uses, name its payment doctype, and copy a picked
+    payment's or expense's amount onto a line that has none (the form copies it once on pick; this
+    covers every other writer)."""
     for row in doc.get("lines") or []:
         line = parse_line(row.as_dict())
         row.update({
@@ -66,42 +72,60 @@ def normalise_lines(doc) -> None:
             "payment_name": line.payment_name,
             "amount": line.amount,
         })
-        if line.payment_doctype == PAYMENT_DOCTYPE and line.amount <= 0:
-            row.amount = frappe.db.get_value(PAYMENT_DOCTYPE, line.payment_name, "amount") or 0
+        if line.payment_doctype and line.amount <= 0:
+            row.amount = frappe.db.get_value(line.payment_doctype, line.payment_name, "amount") or 0
 
 
 def lines_problem(doc) -> str | None:
     """Why the Cheque's lines cannot be saved ("Line N: ..."), or None."""
     lines = [parse_line(row.as_dict()) for row in doc.get("lines") or []]
     before = None if doc.is_new() else doc.get_doc_before_save()
-    on_before = {row.payment_name for row in (before.get("lines") if before else []) or [] if row.payment_name}
+    on_before = {_key(parse_line(row.as_dict())) for row in (before.get("lines") if before else []) or []}
 
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     for n, line in enumerate(lines, 1):
-        problem = _line_problem(line, cheque_vendor=doc.get("vendor"), newly_linked=line.payment_name not in on_before)
-        if not problem and line.payment_name:
-            if line.payment_name in seen:
-                problem = f"payment {line.payment_name} is on two lines of this cheque."
-            seen.add(line.payment_name)
+        key = _key(line)
+        problem = _line_problem(line, cheque_vendor=doc.get("vendor"), newly_linked=key not in on_before)
+        if not problem and key:
+            if key in seen:
+                problem = f"{_noun(line)} {line.payment_name} is on two lines of this cheque."
+            seen.add(key)
         if problem:
             return f"Line {n}: {problem}"
 
     if (doc.get("status") or "") == CANCELLED:
         return None
-    live = live_cheques_of(PAYMENT_DOCTYPE, seen, exclude=None if doc.is_new() else doc.name)
+    exclude = None if doc.is_new() else doc.name
+    live = {
+        (doctype, payment): other
+        for doctype in sorted({d for d, _ in seen})
+        for payment, other in live_cheques_of(doctype, [p for d, p in seen if d == doctype], exclude=exclude).items()
+    }
     for n, line in enumerate(lines, 1):
-        other = live.get(line.payment_name)
+        other = live.get(_key(line))
         if other:
             return (
-                f"Line {n}: payment {line.payment_name} is already on cheque {other['cheque_no']} "
+                f"Line {n}: {_noun(line)} {line.payment_name} is already on cheque {other['cheque_no']} "
                 f"({other['status']})."
             )
     return None
 
 
+def _key(line: ChequeLineInput) -> tuple[str, str] | None:
+    """What the line pays, as (doctype, name); None while it names nothing."""
+    return (line.payment_doctype, line.payment_name) if line.payment_doctype and line.payment_name else None
+
+
+def _noun(line: ChequeLineInput) -> str:
+    return "expense" if line.line_type in EXPENSE_LINE_TYPES else "payment"
+
+
 def _line_problem(line: ChequeLineInput, *, cheque_vendor: str | None, newly_linked: bool) -> str | None:
-    if line.line_type != LINE_PO_WO_PAYMENT:
-        return "only PO or Work Order payment lines can be saved for now."
+    problem = line_kind_problem(line)
+    if problem:
+        return problem
+    if line.line_type in EXPENSE_LINE_TYPES:
+        return expense_line_problem(line, expense=_expense(line))
     record = None
     if line.record_doctype in RECORD_DOCTYPES and line.record_name:
         record = frappe.db.get_value(line.record_doctype, line.record_name, ["project", "vendor"], as_dict=True)
@@ -113,3 +137,14 @@ def _line_problem(line: ChequeLineInput, *, cheque_vendor: str | None, newly_lin
     return po_wo_line_problem(
         line, cheque_vendor=cheque_vendor, record=record, payment=payment, newly_linked=newly_linked
     )
+
+
+def _expense(line: ChequeLineInput) -> dict | None:
+    """The line's expense as `{project}` (`{}` for a Non Project Expense), or None if it does not exist."""
+    if not line.payment_name:
+        return None
+    doctype = LINE_PAYMENT_DOCTYPES[line.line_type]
+    if doctype == PROJECT_EXPENSE_DOCTYPE:
+        row = frappe.db.get_value(doctype, line.payment_name, "projects", as_dict=True)
+        return {"project": row.projects} if row else None
+    return {} if frappe.db.exists(doctype, line.payment_name) else None
