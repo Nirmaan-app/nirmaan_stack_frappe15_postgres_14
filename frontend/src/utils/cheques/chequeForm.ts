@@ -15,9 +15,9 @@ import { saveLineArgs, type ChequeLineDraft, type SaveLineArg } from "./chequeLi
 /** Who the cheque is made out to: a Vendor picked from the list, or a name typed in. */
 export type PayeeKind = "vendor" | "typed";
 
-/** One PO/WO Payment line (#1410). Its rules are checked in the form's `superRefine`. */
+/** One Cheque line. Its rules are checked in the form's `superRefine`; only PO/WO Payment lines so far (#1410). */
 const lineSchema = z.object({
-    line_type: z.literal("PO/WO Payment"),
+    line_type: z.enum(["PO/WO Payment", "Project Expense", "Non-project Expense"]),
     project: z.string(),
     record_doctype: z.string(),
     record_name: z.string(),

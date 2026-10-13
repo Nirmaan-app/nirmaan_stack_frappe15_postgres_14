@@ -71,8 +71,10 @@ describe("chequeFormSchema", () => {
     });
 
     it("asks each PO/WO line for its project, its PO or Work Order, and an amount when it has no payment", () => {
-        const issues = (line: ReturnType<typeof poLine>) =>
-            chequeFormSchema.safeParse(valid({ lines: [line] })).error?.issues.map((i) => [i.path.join("."), i.message]);
+        const issues = (line: ChequeLineDraft) => {
+            const result = chequeFormSchema.safeParse(valid({ lines: [line] }));
+            return result.success ? undefined : result.error.issues.map((i) => [i.path.join("."), i.message]);
+        };
         expect(issues(poLine({ project: "" }))).toContainEqual(["lines.0.project", "Pick the project."]);
         expect(issues(poLine({ record_name: "" }))).toContainEqual(["lines.0.record_name", "Pick the PO or Work Order."]);
         expect(issues(poLine({ amount: "" }))).toContainEqual(["lines.0.amount", "Enter the amount, greater than 0."]);
