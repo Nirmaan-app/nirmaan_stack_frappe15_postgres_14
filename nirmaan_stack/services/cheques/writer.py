@@ -10,8 +10,9 @@ Request Payment endpoints and the backfill patch do).
 Built so far:
 
 * `create_cheque` -- a new Cheque at Issued with its "created" history row. The report's Add
-  Cheque (`MADE_FROM_REPORT`) uses it today; the one-line Cheque for a payment (#1414, #1416) and the
-  backfill (#1419) are meant to call it too, with `made_from=MADE_FROM_PO_WO_PAGE`.
+  Cheque (`MADE_FROM_REPORT`) and the one-line Cheque for a payment (#1414, #1416) use it.
+* `backfill_cheque` -- the backfill patch's Cheque for old cheque payments (#1419): no photo, made
+  from the PO/WO page, straight at its status, created by the earliest payment's requester.
 * `existing_cheque` -- the Cheque already recorded for a bank + cheque number, if any. The `validate`
   controller refuses a duplicate with it, so the rule holds on every write path; a Request Payment
   endpoint can ask it before inserting a payment.
@@ -103,8 +104,48 @@ def create_cheque(header: ChequeHeader, *, user: str, made_from: str, lines: lis
     """
     if made_from not in MADE_FROM:
         raise ValueError(f"unknown made_from {made_from!r}")
+    doc = _new_cheque(header, made_from=made_from, lines=lines, status=ISSUED, history=history_row(None, ISSUED, user))
+    doc.insert(ignore_permissions=True)
+    link_payments(doc)
+    return doc
+
+
+def backfill_cheque(
+    header: ChequeHeader,
+    lines: list[ChequeLineInput],
+    *,
+    status: str,
+    owner: str,
+    note: str,
+    left_off: list[str] = (),
+):
+    """A Cheque for old cheque payments that had none (#1419): made from the PO/WO page, with no photo,
+    straight at `status` (one history row, by `owner`, saying why), created by `owner`. Each line's
+    payment is put on it (`link_payments`), and each payment in `left_off` (a Rejected payment kept off
+    the lines) gets the link only, so every Cheque payment names its Cheque. Returns it.
+
+    The `validate` controller still runs every other rule. Only the backfill patch calls this.
+    """
+    doc = _new_cheque(
+        header, made_from=MADE_FROM_PO_WO_PAGE, lines=lines, status=status, history=history_row(None, status, owner, note)
+    )
+    doc.flags.cheque_without_photo = True
+    doc.insert(ignore_permissions=True)
+    # Frappe stamps the session user as owner outside a migrate. Raw on purpose: `owner` is metadata
+    # no rule or hook reads, and a Cheque moves no money figure.
+    doc.db_set("owner", owner, update_modified=False)
+    link_payments(doc)
+    for name in left_off:
+        pay = frappe.get_doc(PAYMENT_DOCTYPE, name)
+        pay.cheque = doc.name
+        pay.save(ignore_permissions=True)
+    return doc
+
+
+def _new_cheque(header: ChequeHeader, *, made_from: str, lines, status: str, history: dict):
+    """An unsaved Cheque; the caller inserts it. Row-locks the payments its lines name first."""
     _lock_payments([line.payment_name for line in lines if line.payment_doctype == PAYMENT_DOCTYPE])
-    doc = frappe.get_doc({
+    return frappe.get_doc({
         "doctype": CHEQUES,
         "bank": header.bank,
         "bank_name": header.bank_name,
@@ -115,14 +156,11 @@ def create_cheque(header: ChequeHeader, *, user: str, made_from: str, lines: lis
         "payee_name": header.payee_name,
         "description": header.description,
         "attachment": header.attachment,
-        "status": ISSUED,
+        "status": status,
         "made_from": made_from,
-        "status_history": [history_row(None, ISSUED, user)],
+        "status_history": [history],
         "lines": [asdict(line) for line in lines],
     })
-    doc.insert(ignore_permissions=True)
-    link_payments(doc)
-    return doc
 
 
 def payment_cheque_problem(header: ChequeHeader) -> tuple[str | None, str | None]:
