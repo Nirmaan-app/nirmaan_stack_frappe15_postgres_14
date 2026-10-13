@@ -15,9 +15,9 @@ from ._payment_utils import (
     _transfer_credit,
     _lock_and_assert_source_credit,
     _lock_and_assert_dest_capacity,
+    usable_po_credit,
 )
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
-from nirmaan_stack.services.po_credit import usable_credit
 
 
 def _last_ledger_edit(adj_name):
@@ -430,18 +430,14 @@ def get_vendor_adjustment_credit(vendor, exclude_po=None):
             continue
         if adj.po_id in pending_rev_pos:
             continue
-        po = frappe.db.get_value(
-            "Procurement Orders", adj.po_id,
-            ["project_name", "status", "amount_paid", "total_amount"], as_dict=True
-        ) or {}
-        # D2 cap — the pool must offer only what each source actually overpaid, or the
-        # picker invites someone to spend a phantom and `_lock_and_assert_source_credit`
-        # rejects it at apply time. Same function on both sides, so they cannot disagree.
-        available = flt(
-            usable_credit(adj.remaining_impact, po.get("amount_paid"), po.get("total_amount")), 2
-        )
+        # The pool offers what `_lock_and_assert_source_credit` will accept at apply time:
+        # both read `usable_po_credit`, so they cannot disagree (D2 cap, and any hold on it).
+        available = flt(usable_po_credit(adj.po_id), 2)
         if available <= 0:
             continue
+        po = frappe.db.get_value(
+            "Procurement Orders", adj.po_id, ["project_name", "status"], as_dict=True
+        ) or {}
         sources.append({
             "po_id": adj.po_id,
             "project": adj.project,

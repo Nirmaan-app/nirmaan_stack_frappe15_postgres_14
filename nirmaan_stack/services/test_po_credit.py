@@ -19,7 +19,9 @@ one is ₹0.52 apart from accumulated rounding. A cap that shaved that would be 
 own — someone would be told their ₹155,454.38 credit is ₹155,453.86 with no explanation.
 """
 
+import ast
 import unittest
+from pathlib import Path
 
 from nirmaan_stack.services.po_credit import (
     CAP_TOLERANCE,
@@ -109,3 +111,28 @@ class UsableCreditTests(unittest.TestCase):
                         if ledger_credit(remaining) <= real_overpayment(paid, total) + CAP_TOLERANCE
                         else real_overpayment(paid, total) + 1e-9,
                     )
+
+
+class OneReaderTests(unittest.TestCase):
+    """Only `usable_po_credit` may apply the cap; every spender and listing reads through it.
+
+    A second caller of `usable_credit` is a second copy of "how much may this PO spend", and the
+    copies drift: a credit hold added to one reader would leave the other offering held money.
+    """
+
+    SHARED_READER = Path("api/po_adjustments/_payment_utils.py")
+
+    def test_only_the_shared_reader_calls_usable_credit(self):
+        package = Path(__file__).resolve().parent.parent
+        callers = []
+        for path in package.rglob("*.py"):
+            if path.name.startswith("test_") or path.name == "po_credit.py":
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    func = node.func
+                    name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+                    if name == "usable_credit":
+                        callers.append(path.relative_to(package))
+        self.assertEqual(sorted(set(callers)), [self.SHARED_READER])
