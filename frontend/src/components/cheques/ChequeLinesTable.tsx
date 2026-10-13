@@ -1,7 +1,8 @@
 import { useFieldArray, useFormContext, useWatch } from "react-hook-form";
-import { AlertTriangle, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -9,9 +10,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import formatToIndianRupee from "@/utils/FormatPrice";
 import type { ChequeFormInput } from "@/utils/cheques/chequeForm";
 import {
+    addLineOptions,
     conversionHint,
-    EMPTY_PO_WO_LINE,
+    emptyLine,
+    EXPENSE_NOTE,
     hiddenPaymentsText,
+    LINE_LABELS,
+    LINE_TYPE,
     lineProjects,
     linesSummary,
     recordsInProject,
@@ -19,6 +24,7 @@ import {
     type VendorRecord,
 } from "@/utils/cheques/chequeLines";
 
+import { ExpenseLineRow } from "./ExpenseLineRow";
 import { useEligiblePayments, useVendorRecords } from "./useChequePickers";
 
 /** Radix Select reserves "" for "no value", so "No payment yet" needs its own token. */
@@ -26,17 +32,31 @@ const NO_PAYMENT = "__no_payment__";
 
 const recordKind = (doctype: string) => (doctype === "Service Requests" ? "WO" : "PO");
 
+interface ChequeLinesTableProps {
+    /** True when the cheque is made out to a Vendor; a typed payee takes expense lines only. */
+    vendorPayee: boolean;
+    vendor?: string;
+    disabled?: boolean;
+}
+
 /**
- * The Add Cheque dialog's lines table (spec #1407, #1410): each PO/WO line picks a project, one of
- * the Vendor's POs or Work Orders in it, then optionally one of its payments. Lines may span
- * projects. Lives inside the dialog's react-hook-form (`lines`); the server re-checks every rule.
+ * The Add Cheque dialog's lines table (spec #1407). "Add line" asks for the kind (#1411), and each
+ * line asks only for the boxes its kind needs (`LINE_NEEDS`):
+ *
+ * - a PO/WO line picks a project, one of the Vendor's POs or Work Orders in it, then optionally one
+ *   of its payments (#1410);
+ * - a Project Expense line picks a project, then one of its Project Expenses;
+ * - a Non-project Expense line picks a Non Project Expense only (`ExpenseLineRow`).
+ *
+ * Lines may span projects. Lives inside the dialog's react-hook-form (`lines`); the server re-checks
+ * every rule.
  */
-export const ChequeLinesTable = ({ vendor, disabled }: { vendor?: string; disabled?: boolean }) => {
+export const ChequeLinesTable = ({ vendorPayee, vendor, disabled }: ChequeLinesTableProps) => {
     const { control } = useFormContext<ChequeFormInput>();
     const { fields, append, remove } = useFieldArray({ control, name: "lines" });
     const lines = (useWatch({ control, name: "lines" }) ?? []) as ChequeLineDraft[];
     const amount = useWatch({ control, name: "amount" });
-    const { records, isLoading } = useVendorRecords(vendor);
+    const { records } = useVendorRecords(vendorPayee ? vendor : undefined);
     const summary = linesSummary(amount as number | string, lines);
 
     return (
@@ -56,39 +76,58 @@ export const ChequeLinesTable = ({ vendor, disabled }: { vendor?: string; disabl
                     <Table>
                         <TableHeader>
                             <TableRow>
+                                <TableHead className="min-w-[120px]">Type</TableHead>
                                 <TableHead className="min-w-[160px]">Project</TableHead>
-                                <TableHead className="min-w-[160px]">PO / WO</TableHead>
-                                <TableHead className="min-w-[200px]">Payment</TableHead>
+                                <TableHead className="min-w-[140px]">PO / WO</TableHead>
+                                <TableHead className="min-w-[220px]">Payment / Expense</TableHead>
                                 <TableHead className="min-w-[120px]">Amount (₹)</TableHead>
                                 <TableHead className="w-10" />
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {fields.map((field, index) => (
-                                <PoWoLineRow
-                                    key={field.id}
-                                    index={index}
-                                    records={records}
-                                    disabled={disabled}
-                                    onRemove={() => remove(index)}
-                                />
-                            ))}
+                            {fields.map((field, index) =>
+                                lines[index]?.line_type === LINE_TYPE.PO_WO ? (
+                                    <PoWoLineRow
+                                        key={field.id}
+                                        index={index}
+                                        records={records}
+                                        disabled={disabled}
+                                        onRemove={() => remove(index)}
+                                    />
+                                ) : (
+                                    <ExpenseLineRow key={field.id} index={index} disabled={disabled} onRemove={() => remove(index)} />
+                                )
+                            )}
                         </TableBody>
                     </Table>
                 </div>
             )}
             <FormField control={control} name="lines" render={() => <FormItem><FormMessage /></FormItem>} />
-            <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={disabled || !vendor || isLoading}
-                onClick={() => append({ ...EMPTY_PO_WO_LINE })}
-            >
-                <Plus className="mr-1 h-4 w-4" />
-                Add PO / WO payment line
-            </Button>
-            {!vendor && <p className="text-xs text-muted-foreground">Pick the Vendor to add its PO and Work Order payments.</p>}
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <Button type="button" variant="outline" size="sm" disabled={disabled}>
+                        <Plus className="mr-1 h-4 w-4" />
+                        Add line
+                        <ChevronDown className="ml-1 h-4 w-4" />
+                    </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-80">
+                    {addLineOptions({ vendorPayee, vendor }).map((option) => (
+                        <DropdownMenuItem
+                            key={option.type}
+                            disabled={Boolean(option.disabledReason)}
+                            onSelect={() => append(emptyLine(option.type))}
+                            className="flex flex-col items-start gap-0.5"
+                        >
+                            <span>{option.label}</span>
+                            {option.disabledReason && (
+                                <span className="text-xs text-muted-foreground">{option.disabledReason}</span>
+                            )}
+                        </DropdownMenuItem>
+                    ))}
+                </DropdownMenuContent>
+            </DropdownMenu>
+            <p className="text-xs text-muted-foreground">{EXPENSE_NOTE}</p>
         </div>
     );
 };
@@ -113,6 +152,7 @@ const PoWoLineRow = ({ index, records, disabled, onRemove }: PoWoLineRowProps) =
 
     return (
         <TableRow className="align-top">
+            <TableCell className="text-sm">{LINE_LABELS[line.line_type]}</TableCell>
             <TableCell>
                 <FormField
                     control={control}

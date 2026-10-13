@@ -5,7 +5,8 @@
 
 `validate` holds the Cheque's own rules on EVERY write path (the cheques service, a patch, Desk):
 the header rules in `services/cheques/rules.header_problem`, the line rules in
-`services/cheques/lines.lines_problem` (a payment on one live Cheque only, each PO/WO the Vendor's),
+`services/cheques/lines.lines_problem` (a payment or expense on one live Cheque only, each PO/WO the
+Vendor's so a typed payee takes expense lines only, a Project Expense in its line's project),
 and the bank + cheque number uniqueness.
 It also keeps the stored identity in step: `cheque_no` without spaces, `bank_key` derived from the
 bank, and no bank name on an ICICI Bank cheque. The unique constraint on `bank_key` + `cheque_no`

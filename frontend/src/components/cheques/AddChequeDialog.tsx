@@ -24,6 +24,7 @@ import {
     type ChequeFormInput,
     type ChequeFormValues,
 } from "@/utils/cheques/chequeForm";
+import { withoutPoWoLines } from "@/utils/cheques/chequeLines";
 import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { cn } from "@/lib/utils";
@@ -44,8 +45,8 @@ const Required = () => <span className="ml-0.5 text-red-500">*</span>;
 /**
  * Reports > Payment > Cheque Payment > Add Cheque (spec #1407): photo first, then the bank, number,
  * date, amount, the payee (a Vendor or a typed name), the lines and a description. A Vendor cheque
- * takes PO/WO payment lines (`ChequeLinesTable`, #1410); with no lines it is an Ad-hoc cheque and
- * needs the description. Expense lines (#1411) and the photo reader (#1409) build on it.
+ * takes PO/WO payment lines (#1410) and expense lines (#1411); a typed-payee cheque expense lines
+ * only (`ChequeLinesTable`). With no lines it is an Ad-hoc cheque and needs the description.
  *
  * The photo is uploaded as soon as it is picked, so the form holds its file URL (and #1409 can read
  * it). The server re-checks every rule.
@@ -114,7 +115,7 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved }: AddChequeDialog
     const onSubmit = async (values: ChequeFormValues) => {
         try {
             const res = await saveCheque(saveChequeArgs(values));
-            const paid = values.lines.filter((l) => l.payment_name).length;
+            const paid = values.lines.filter((l) => l.line_type === "PO/WO Payment" && l.payment_name).length;
             toast({
                 title: "Cheque saved",
                 description: `Cheque ${values.cheque_no.trim()} is Issued.${paid ? ` ${paid} payment${paid > 1 ? "s are" : " is"} now on it.` : ""}`,
@@ -262,8 +263,8 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved }: AddChequeDialog
                                         value={field.value}
                                         onValueChange={(value) => {
                                             field.onChange(value);
-                                            // PO/WO lines belong to a Vendor cheque only.
-                                            form.setValue("lines", []);
+                                            // PO/WO lines belong to a Vendor cheque only; expense lines to any.
+                                            form.setValue("lines", withoutPoWoLines(form.getValues("lines") ?? []));
                                         }}
                                         className="flex gap-6"
                                     >
@@ -290,8 +291,10 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved }: AddChequeDialog
                                                 value={field.value || null}
                                                 onChange={(option) => {
                                                     const next = option?.value ?? "";
-                                                    // Each PO/WO line is the Vendor's: a new Vendor starts the lines afresh.
-                                                    if (next !== field.value) form.setValue("lines", []);
+                                                    // Each PO/WO line is the Vendor's: a new Vendor drops them.
+                                                    if (next !== field.value) {
+                                                        form.setValue("lines", withoutPoWoLines(form.getValues("lines") ?? []));
+                                                    }
                                                     field.onChange(next);
                                                 }}
                                                 placeholder="Pick the Vendor"
@@ -333,7 +336,7 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved }: AddChequeDialog
                                 )}
                             />
                         )}
-                        {payeeKind === "vendor" && <ChequeLinesTable vendor={vendor || undefined} disabled={saving} />}
+                        <ChequeLinesTable vendorPayee={payeeKind === "vendor"} vendor={vendor || undefined} disabled={saving} />
                         <FormField
                             control={form.control}
                             name="description"

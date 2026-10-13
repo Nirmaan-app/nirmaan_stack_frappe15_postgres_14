@@ -1,6 +1,7 @@
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 
-import type { EligiblePayments, VendorRecord } from "@/utils/cheques/chequeLines";
+import type { ChequeLineType } from "@/types/NirmaanStack/Cheques";
+import type { EligibleExpenses, EligiblePayments, VendorRecord } from "@/utils/cheques/chequeLines";
 
 const PICKERS = "nirmaan_stack.api.cheques.pickers";
 
@@ -12,6 +13,31 @@ export const useVendorRecords = (vendor: string | undefined) => {
         vendor ? `cheque-vendor-records-${vendor}` : null
     );
     return { records: data?.message ?? [], error, isLoading };
+};
+
+/**
+ * The expenses an expense line may name, and what was hidden (#1411). A Project Expense line asks
+ * only once its project is picked; a Non-project Expense line at once.
+ */
+export const useEligibleExpenses = (lineType: ChequeLineType, project: string) => {
+    const ready = lineType === "Non-project Expense" || (lineType === "Project Expense" && Boolean(project));
+    const { data, error, isLoading } = useFrappeGetCall<{ message: EligibleExpenses }>(
+        `${PICKERS}.get_eligible_expenses`,
+        { line_type: lineType, project: project || undefined },
+        ready ? `cheque-eligible-expenses-${lineType}-${project}` : null
+    );
+    return { eligible: data?.message, error, isLoading };
+};
+
+/** Every project by name, for a Project Expense line (any project's expense may go on a cheque). */
+export const useAllProjects = () => {
+    const { data, isLoading } = useFrappeGetDocList<{ name: string; project_name: string }>(
+        "Projects",
+        { fields: ["name", "project_name"], limit: 0, orderBy: { field: "project_name", order: "asc" } },
+        "cheque-line-all-projects"
+    );
+    const options = (data ?? []).map((p) => ({ value: p.name, label: p.project_name || p.name }));
+    return { options, isLoading };
 };
 
 /** A PO's or Work Order's payments that may go on a Cheque, and what was hidden. */
