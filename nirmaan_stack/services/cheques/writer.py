@@ -26,7 +26,8 @@ Convert to Cheque, Link a new cheque and Switch to Online on a payment (#1416) l
 `services/cheques/payment_actions.py` and make their Cheque through `create_payment_cheque`.
 
 To come, each beside these: editing a Cheque and its lines (#1418), status change for
-one or many with history (#1412), and detaching a Rejected or deleted payment's line (#1413).
+one or many with history (#1412). A Rejected or deleted payment's line comes off in
+`services/cheques/detach.py` (#1413).
 
 The line pickers' lists are read-only and live in `services/cheques/pickers.py`; the line rules
 that read the database in `services/cheques/lines.py`.
