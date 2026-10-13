@@ -225,8 +225,9 @@ export const UnreconcilePanel = ({
 
             {plan.reverse_all_only && (
                 <p className="text-xs text-muted-foreground">
-                    Vendor refunds on a transfer are undone together: Reverse all deletes every vendor
-                    refund on it, and the transfer goes back to needing a record.
+                    Vendor refunds on a transfer are undone together: Reverse all undoes every vendor
+                    refund on it, and the transfer goes back to needing a record. A refund made from
+                    this transfer is deleted; a waiting refund it was matched to goes back to waiting.
                 </p>
             )}
 

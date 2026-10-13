@@ -5832,6 +5832,20 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   the hooks. A writer using raw SQL on refunds, or LOWERING a ledger's base balance, calls the step itself.
   The rest beyond the balance is `get_po_refund_links(po_id).over_balance`, the PO page's warning. ⚠️ Tests
   that refund REAL POs pick POs with no `PO Adjustments`, since their raw purge cannot undo a link.
+- ⚠️ **A CREDIT LINE MAY BE MATCHED TO WAITING REFUNDS INSTEAD (#1401, ADR-0032).**
+  `inflows.match_waiting_refunds(row, refunds)` matches the line to one or more existing Reconciliation
+  Pending refunds of one vendor (pool: `get_waiting_vendor_refunds(vendor)` ->
+  `services/vendor_refunds.matchable_refunds`). Their amounts must add up to the line EXACTLY
+  (`waiting_match_problem`; owner 2026-10-13: no partial allocation for credit lines). Each refund turns
+  `Received` with the line's reference and date (`settle.match_waiting_refunds_to_row`, a `doc.save` that
+  writes a Version and runs the PO sync through the hook). Nothing is created; each leg has
+  `created_by_import = 0`. **That flag decides Unreconcile**: a Vendor Refunds leg with 0 gets
+  `unmatch_refund` (the refund goes back to the status, UTR and date of the match Version, and is kept;
+  `api/outflow_import/unreconcile_refund.py`), with 1 still `delete_created`. **The credit duplicate guard
+  counts only `Received` refunds** (`candidates.CONTAINS_LEDGERS`, `ContainsLedger.status`): a waiting
+  refund whose typed UTR is the line's reference must not get its own line skipped. The dialog's "Match a
+  waiting Vendor Refund" card sits above "Create a vendor refund", which warns when the vendor has waiting
+  refunds (`waitingRefundMatch.ts`).
 - ⚠️ **The rules have ONE home: `services/vendor_refunds.py`.** `refund_document_problem` (one record:
   a PO / WO is that vendor's, on the chosen project WHEN one is chosen, not a **Merged** PO, **paid > 0**
   (`paid_of` = stored `amount_paid` **+ every refund stored against it**, since the stored figure is net)

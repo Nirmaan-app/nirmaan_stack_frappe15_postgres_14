@@ -5953,7 +5953,7 @@ class TestTheContainsQueryReadsATextOrNumericAmount(unittest.TestCase):
                   "INF-JUNK", 0, "zz", date(2031, 3, 10)),
         )
         frappe.db.commit()
-        return [C.ContainsLedger(INFLOW_DOCTYPE, table, "utr", paid_only=False)]
+        return [C.ContainsLedger(INFLOW_DOCTYPE, table, "utr", status=None)]
 
     def _pool(self, ledgers):
         line = _StagedRowLike(narration="MMT/IMPS/600219693408/CLIENT", direction="Credit")
@@ -6019,7 +6019,7 @@ class TestTheContainsQueryMirrorsThePureTokens(unittest.TestCase):
             added_on=_GUARD_DAY,
         )
         pool = C.load_recorded_by_contains(
-            [line], ledgers=[C.ContainsLedger(INFLOW_DOCTYPE, table, "utr", paid_only=False)]
+            [line], ledgers=[C.ContainsLedger(INFLOW_DOCTYPE, table, "utr", status=None)]
         )
         every_record = [
             replace(next(iter(pool)), name=name, reference=reference)
