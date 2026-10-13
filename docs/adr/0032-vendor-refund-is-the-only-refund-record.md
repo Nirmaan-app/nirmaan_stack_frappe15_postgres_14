@@ -4,7 +4,7 @@ Date: 2026-10-12
 
 ## Status
 
-**Proposed** (owner grilling session 2026-10-09 to 2026-10-12). Supersedes the *Deferred* note
+**Accepted** 2026-10-14, built under #1396 (owner grilling session 2026-10-09 to 2026-10-12). Supersedes the *Deferred* note
 "Vendor Refund from a bank credit" and accepted risk AR1 in
 [ADR-0016](0016-bank-statement-import-creates-inflows.md).
 
