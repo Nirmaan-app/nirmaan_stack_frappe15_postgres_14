@@ -437,6 +437,9 @@ describe("12e-2 AC6 -- the Derivation tab lists P1-P5 from the config, no intern
       "A typed pipe size is one size, in mm or inches",
       "A Copper, MS and 2 more row stating its own figure in the class / wall thickness carries a line saying what was priced",
       "Fitting the stated pipe size to the catalogue",
+      // INVERTED at 12e-4b (owner F-3, 2026-10-13): one line more, generated from keys this config already
+      // carries (the second inch conversion + the below-the-smallest ruling). BEFORE: 14 titles, without it.
+      "A pipe size written as a bare number that could be inches refuses",
       "Then the priced steps below, in their own order",
       "A catalogue cell derived from another row's cell follows its base",
       "Multiplied by how many of the item one unit of the row pays for",

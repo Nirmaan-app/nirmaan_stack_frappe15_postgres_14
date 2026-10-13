@@ -318,7 +318,10 @@ describe("12e-2b AC5 -- D4 (a): slot diffuser per sq.m / per number keeps 'dampe
       expect(field(b, "damper").options).toEqual(["with", "without"]);
       expect(field(b, "damper").value).toBe("without");
       expect(field(b, "damper").defaulted).toBe(true);
-      expect(b.working).toContain("damper not mentioned -> without (damper not mentioned (or not answered) = without)");
+      // INVERTED at 12e-4b (owner G2: no working line repeats itself). BEFORE:
+      //   expect(b.working).toContain("damper not mentioned -> without (damper not mentioned (or not answered) = without)");
+      expect(b.working).toContain("damper not mentioned -> without");
+      expect(b.working.some((w) => w.includes("(damper not mentioned"))).toBe(false);
       expect(values).toEqual({});
       expect(v.reason).toBe(want);
       // picking "with" prices
@@ -431,7 +434,11 @@ describe("12e-2b AC7 -- the Derivation tab: the family is named, and Piping neve
       const l = lines(cat).find((x) => x.title === "That kind's rule for that unit")!;
       expect(l.detail).toBe("a kind priced per metre and per square metre has a rule for each");
     }
-    expect([lines(INS).length, lines(ADP).length, lines(PIP).length]).toEqual([24, 18, 14]);
+    // INVERTED at 12e-4b (owner F-3): Piping's tab gains the no-unit line. BEFORE: `toEqual([24, 18, 14])`.
+    // The negative half is kept: Insulation and ADP are still 24 and 18.
+    expect([lines(INS).length, lines(ADP).length, lines(PIP).length]).toEqual([24, 18, 15]);
+    expect(lines(PIP).map((l) => l.title)).toContain("A pipe size written as a bare number that could be inches refuses");
+    for (const cat of [INS, ADP]) expect(lines(cat).map((l) => l.title)).not.toContain("A pipe size written as a bare number that could be inches refuses");
   });
   it("NEGATIVE (vacuity): a config with two unit classes keeps the old sentence even if it is Piping-shaped", () => {
     const two = structuredClone(CFG[PIP]) as RateCategoryConfig & { list_spec: { pricing: { unit_classes: Record<string, string[]> } } };

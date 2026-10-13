@@ -56,7 +56,7 @@ function compute(category: string, state: ItemListEditState, unit = "mts") {
 }
 /** The BoQ-ROW (panel) path: the model's stored answer through `extractionByRow`, the row's own unit. */
 function panel(category: string, answer: Array<Record<string, string>>, state?: ItemListEditState, unit = "Rmt") {
-  const row = { excelRow: 1, description: "", attributes: {}, items: answer.map((a) => ({ attributes: cells(a) })) } as ExtractionRow;
+  const row = { excelRow: 1, description: "", attributes: {}, items: answer.map(({ section, ...a }) => ({ attributes: cells(a), ...(section ? { section } : {}) })) } as ExtractionRow;   // 12e-4b (owner D-2): an insulation answer carries the marker the run stores, on the ITEM
   const h = makePricingSheetHelper({ configsByCategory: CONFIGS, items: ITEMS, extractionByRow: new Map([[1, row]]) });
   const ctx: RateHelperRowContext & { unit?: string } = { excelRow: 1, description: "", nodeType: "Line Item", category, discipline: "HVAC", rateKinds: [...KINDS], unit };
   const r = h.compute(ctx, state ? { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(state) } : {});
@@ -165,7 +165,7 @@ describe("12e-3c AC0 (F10) -- an insulation section under a pipe takes the pipe'
     expect(secBlock(attached(linked.v)).working).toEqual(secBlock(attached(typed.v)).working);
   });
   it("ON THE BoQ-ROW PATH the same link: the pricer's pipe quantity reaches the model's insulation; a count the MODEL read on the insulation item does not break it (owner: 'The pipe's')", () => {
-    const answer: Array<Record<string, string>> = [{ pipe_type: "MS", size_mm: "32" }, { item: NITRILE, cladding: "26G Aluminium", thickness_mm: "13", qty_per_row_unit: "5" }];
+    const answer: Array<Record<string, string>> = [{ pipe_type: "MS", size_mm: "32" }, { section: SEC, item: NITRILE, cladding: "26G Aluminium", thickness_mm: "13", qty_per_row_unit: "5" }];
     const first = panel(PIP, answer);
     let b = secBlock(attached(first.v));
     expect({ qty: b.qty, tag: b.qtyMirrorTag }).toEqual({ qty: "1", tag: "from pipe" });
@@ -231,7 +231,7 @@ describe("12e-3c AC1 (F4) -- in the calculator an unfilled choice says 'pick a c
   it("NEGATIVE: a MODEL-READ BoQ row keeps the existing wording, on Insulation and in a Piping section", () => {
     const own = panel(INS, [{ item: NITRILE, thickness_mm: "13", pipe_size_mm: "50" }]);
     expect(own.v.items[0].reason).toBe("could not tell cladding");
-    const sec = panel(PIP, [{ pipe_type: "MS", size_mm: "32" }, { item: NITRILE, thickness_mm: "13" }]);
+    const sec = panel(PIP, [{ pipe_type: "MS", size_mm: "32" }, { section: SEC, item: NITRILE, thickness_mm: "13" }]);
     expect(secBlock(attached(sec.v)).reason).toBe("could not tell cladding");
     expect(shown(sec.v).join("\n")).not.toContain("pick a");
   });
@@ -273,7 +273,10 @@ describe("12e-3c AC2 (F7) -- no field id written with an underscore reaches a li
   it("the cause, fixed: Insulation's default line reads 'thickness not mentioned -> 9 (...)', never 'thickness_mm ...'", () => {
     const { v } = compute(INS, { items: [{ base: null, family: NITRILE, attrs: { cladding: "26G Aluminium", pipe_size_mm: "50" }, other: ["pipe_size_mm"] }] });
     expect(fig(v.totals)).toEqual([556, 224]);
-    expect(v.items[0].working).toContain("thickness not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)");
+    // INVERTED at 12e-4b (owner G2: no working line repeats itself). BEFORE:
+    //   expect(v.items[0].working).toContain("thickness not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)");
+    expect(v.items[0].working).toContain("thickness not mentioned -> 9 mm, then the ladder");
+    expect(v.items[0].working.filter((w) => w.split("not mentioned").length > 2)).toEqual([]);
     expect(v.items[0].working.join("\n")).not.toContain("thickness_mm");
   });
   it("the word is the field's OWN label from the config, never a word list: a relabelled field reads by its new label", () => {
@@ -288,7 +291,12 @@ describe("12e-3c AC2 (F7) -- no field id written with an underscore reaches a li
   });
   it("NEGATIVE: with no labels the line is untouched; an id with no underscore is a word and is left; a longer token is not cut", () => {
     expect(plainPricerText("thickness_mm not mentioned -> 9")).toBe("thickness_mm not mentioned -> 9");
-    expect(plainPricerText("item not mentioned -> Nitrile", [], { item: "Insulation material" })).toBe("item not mentioned -> Nitrile");
+    // INVERTED at 12e-4b (owner G3: "item" at the START of a default's line is the field, and reads as its label).
+    // BEFORE: expect(plainPricerText("item not mentioned -> Nitrile", [], { item: "Insulation material" })).toBe("item not mentioned -> Nitrile");
+    expect(plainPricerText("item not mentioned -> Nitrile", [], { item: "Insulation material" })).toBe("insulation material not mentioned -> Nitrile");
+    // NEGATIVE HALF KEPT: anywhere else an id with no underscore is a word and is left
+    expect(plainPricerText("this item not mentioned -> Nitrile", [], { item: "Insulation material" })).toBe("this item not mentioned -> Nitrile");
+    expect(plainPricerText("item mentioned twice", [], { item: "Insulation material" })).toBe("item mentioned twice");
     expect(plainPricerText("my_thickness_mm_x stays", [], { thickness_mm: "Thickness (mm)" })).toBe("my_thickness_mm_x stays");
     expect(plainPricerText("item supply: ROUNDUP(supply, 0)", [], { thickness_mm: "Thickness (mm)" })).toBe("item supply: ROUNDUP(supply, 0)");
   });
@@ -315,7 +323,8 @@ describe("12e-3c AC2 (F7) -- no field id written with an underscore reaches a li
   it("the Piping section's lines are Insulation's, cleaned by Insulation's own labels", () => {
     const { v } = compute(PIP, { items: [pipe("MS", "32", { insulated: "Yes" }, { [SEC]: ins(NITRILE, { cladding: "26G Aluminium" }) })] });
     const w = secBlock(attached(v)).working;
-    expect(w).toContain("thickness not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)");
+    // INVERTED at 12e-4b (owner G2). BEFORE: expect(w).toContain("thickness not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)");
+    expect(w).toContain("thickness not mentioned -> 9 mm, then the ladder");
     expect(shown(v).filter((l) => SNAKE.test(l))).toEqual([]);
   });
   it("NEGATIVE: the PURE pricer still writes the id (the label is applied where the view is built, by the one function)", () => {
@@ -376,7 +385,7 @@ describe("12e-3c AC4 (F11) -- a field marked 'default' always shows its value", 
     // the Piping sections: each offered material under a pipe the section cannot follow (100) and one it can (32)
     for (const material of [NITRILE, PUF]) for (const size of ["100", "32"]) for (const cladding of ["26G Aluminium", "No"]) {
       check(`calc section ${material} ${size}`, compute(PIP, { items: [pipe("MS", size, { insulated: "Yes" }, { [SEC]: ins(material, { cladding }) })] }).v);
-      check(`row section ${material} ${size}`, panel(PIP, [{ pipe_type: "MS", size_mm: size }, { item: material, cladding, thickness_mm: "None" }]).v);
+      check(`row section ${material} ${size}`, panel(PIP, [{ pipe_type: "MS", size_mm: size }, { section: SEC, item: material, cladding, thickness_mm: "None" }]).v);
     }
     expect(empty).toEqual([]);
     expect(amber).toBeGreaterThan(100);
@@ -436,11 +445,13 @@ describe("12e-3c AC6 -- the Derivation tab says the quantity rule, generated fro
   const lines = (cfg: RateCategoryConfig) => itemListRuleOrder(cfg, ITEMS);
   it("Piping has 19 lines; line 18 is the quantity rule, word for word, between the mirror and the total", () => {
     const all = lines(CFG[PIP]);
-    expect(all).toHaveLength(19);
-    expect(all[16].title).toBe("The insulation section takes the pipe size its pipe priced as");
-    expect(all[17]).toEqual({ n: 18, title: "The insulation section's quantity is its pipe's until the pricer types their own",
+    // INVERTED at 12e-4b (owner F-3: the no-unit line sits above, so every later line moves down one). BEFORE:
+    // `toHaveLength(19)`, `all[16]`, `all[17]` with `n: 18`, `all[18]`. The words are unchanged.
+    expect(all).toHaveLength(20);
+    expect(all[17].title).toBe("The insulation section takes the pipe size its pipe priced as");
+    expect(all[18]).toEqual({ n: 19, title: "The insulation section's quantity is its pipe's until the pricer types their own",
       detail: "shown 'from pipe' and following the pipe's box; a quantity typed in the section is kept; a section that belongs to no pipe keeps its own, 1 unless typed" });
-    expect(all[18].title).toBe("The row total adds every pipe and every section");
+    expect(all[19].title).toBe("The row total adds every pipe and every section");
   });
   it("it comes from the config: a section with no toggle (never under an item) has no quantity line; another label and tag change the words", () => {
     const noToggle = structuredClone(CFG[PIP]) as unknown as { list_spec: { sections: Array<Record<string, any>> } };

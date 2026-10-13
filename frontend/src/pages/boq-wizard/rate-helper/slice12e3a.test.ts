@@ -56,7 +56,7 @@ function compute(category: string, state: ItemListEditState, w: World = {}, unit
 }
 /** The PANEL path: the model's stored answer (a LIST of items) through `extractionByRow`, the row's own unit. */
 function panel(answer: Array<Record<string, string>>, state?: ItemListEditState, unit = "Rmt", w: World = {}) {
-  const row = { excelRow: 1, description: "", attributes: {}, items: answer.map((a) => ({ attributes: cells(a) })) } as ExtractionRow;
+  const row = { excelRow: 1, description: "", attributes: {}, items: answer.map(({ section, ...a }) => ({ attributes: cells(a), ...(section ? { section } : {}) })) } as ExtractionRow;   // 12e-4b (owner D-2): an insulation answer carries the marker the run stores, on the ITEM
   const h = makePricingSheetHelper({ configsByCategory: w.configs ?? CONFIGS, items: w.items ?? ITEMS, extractionByRow: new Map([[1, row]]) });
   const ctx: RateHelperRowContext & { unit?: string } = { excelRow: 1, description: "", nodeType: "Line Item", category: PIP, discipline: "HVAC", rateKinds: [...KINDS], unit };
   const r = h.compute(ctx, state ? { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(state) } : {});
@@ -125,7 +125,9 @@ describe("12e-3a AC1 -- the end-to-end proof: Copper 5/8\", Insulated = Yes, 26G
     // INVERTED at 12e-3b (owner D1b): the material IS picked in the section, so the section carries NO "not
     // mentioned" line and its working is the calculator's, line for line. BEFORE: the section was unpicked,
     // `working` contained DEFAULT_LINE and equalled the calculator's only with that line filtered out.
-    const DEFAULT_LINE = "item not mentioned -> Nitrile Rubber Insulation (material not mentioned -> Nitrile by row kind: per metre = pipe, per sq.m = sheet, acoustic / lining in the row or its headings = acoustic)";
+    // INVERTED at 12e-4b (owner G2 / G3: the field's label, and nothing said twice). BEFORE:
+    //   "item not mentioned -> Nitrile Rubber Insulation (material not mentioned -> Nitrile by row kind: per metre = pipe, per sq.m = sheet, acoustic / lining in the row or its headings = acoustic)"
+    const DEFAULT_LINE = "insulation material not mentioned -> Nitrile Rubber Insulation (Nitrile by row kind: per metre = pipe, per sq.m = sheet, acoustic / lining in the row or its headings = acoustic)";
     expect(secBlock(sv).working).not.toContain(DEFAULT_LINE);
     expect(secBlock(sv).working).toEqual(own.v.items[0].working);
     // with the material picked in the section too, the working lines are identical, line for line
@@ -359,8 +361,9 @@ describe("12e-3a AC5 -- the section is priced by the delegated category's OWN co
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 describe("12e-3a AC5 -- the model path (owner Q3 / Q4): insulation arrives as a second item of the row's list", () => {
   const PIPE1 = { pipe_type: "Copper", size_mm: '5/8"' }, PIPE2 = { pipe_type: "Copper", size_mm: '3/8"' };
-  const INS1 = { item: NITRILE, cladding: "26G Aluminium", thickness_mm: "13" };
-  const INS2 = { item: NITRILE, cladding: "No", thickness_mm: "13" };
+  // 12e-4b (owner D-2): the model's insulation items carry `section: "insulation"` (BEFORE: no marker; told apart by lacking pipe_type)
+  const INS1 = { section: SEC, item: NITRILE, cladding: "26G Aluminium", thickness_mm: "13" };
+  const INS2 = { section: SEC, item: NITRILE, cladding: "No", thickness_mm: "13" };
   it("insulation facts present -> the pipe reads Insulated = Yes and its section holds those values", () => {
     const { v, values } = panel([{ ...PIPE1, insulated: "Yes" }, INS1]);
     expect(v.items).toHaveLength(1);                                  // the insulation item is NOT drawn as a pipe
@@ -388,7 +391,7 @@ describe("12e-3a AC5 -- the model path (owner Q3 / Q4): insulation arrives as a 
     expect(v.sections).toMatchObject({ lines: 2, bad: 1 });
   });
   it("the k-th insulation item attaches to the k-th pipe; an extra one is independent", () => {
-    const { v } = panel([PIPE1, PIPE2, INS1, INS2, { item: PUF, cladding: "No", thickness_mm: "25", pipe_size_mm: "40" }]);
+    const { v } = panel([PIPE1, PIPE2, INS1, INS2, { section: SEC, item: PUF, cladding: "No", thickness_mm: "25", pipe_size_mm: "40" }]);
     expect(v.items).toHaveLength(2);
     expect(field(secBlock(attached(v, 0)), "cladding").value).toBe("26G Aluminium");
     expect(field(secBlock(attached(v, 1)), "cladding").value).toBe("No");
@@ -398,7 +401,7 @@ describe("12e-3a AC5 -- the model path (owner Q3 / Q4): insulation arrives as a 
     expect(v.sections!.lines).toBe(5);
   });
   it("model insulation with NO pipe item is an independent section, and prices on its own", () => {
-    const { v, values } = panel([{ item: NITRILE, cladding: "No", thickness_mm: "13", pipe_size_mm: "15.88" }]);
+    const { v, values } = panel([{ section: SEC, item: NITRILE, cladding: "No", thickness_mm: "13", pipe_size_mm: "15.88" }]);
     expect(v.items).toHaveLength(0);
     expect(v.sections!.independent).toHaveLength(1);
     expect(values).toEqual({ supply_rate: 216, install_rate: 14, combined_rate: 230 });
@@ -525,7 +528,7 @@ describe("12e-3a AC6 -- the mirror (owner D3 / D3a / D3b / Q6)", () => {
     expect(none.v.rowPriced).toBe(false);
   });
   it("the same cases through the BoQ-panel path (the model's pipe): 5/8\" mirrors 15.875 and prices as the calculator does", () => {
-    const viaModel = panel([{ pipe_type: "Copper", size_mm: '5/8"' }, { item: NITRILE, cladding: "26G Aluminium", thickness_mm: "13" }]);
+    const viaModel = panel([{ pipe_type: "Copper", size_mm: '5/8"' }, { section: SEC, item: NITRILE, cladding: "26G Aluminium", thickness_mm: "13" }]);
     const viaCalc = compute(PIP, insulated("Copper", '5/8"', ins(NITRILE, PICKS)));
     const f = field(secBlock(attached(viaModel.v)), "pipe_size_mm");
     expect(f).toMatchObject({ typedValue: "15.875", value: "15.88", mirrorTag: "from pipe",

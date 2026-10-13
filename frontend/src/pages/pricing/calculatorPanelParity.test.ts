@@ -35,8 +35,8 @@ import { describe, expect, it } from "vitest";
 import type { RateCategoryConfig, RateMasterItem } from "./rate-master/rateMasterTypes";
 import { mergeItemsByName } from "@/pages/boq-wizard/rate-helper/rateHelperPlumbing";
 import { itemListPricingSpec } from "@/pages/boq-wizard/rate-helper/itemListPricing";
-import { isSuggestion } from "@/pages/boq-wizard/rate-helper/rateHelperTypes";
-import { ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, applyItemEdit, type ItemBlockView, type ItemListEditState, type ItemListSuggestion, type ItemListView } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
+import { isSuggestion, type ExtractionRow } from "@/pages/boq-wizard/rate-helper/rateHelperTypes";
+import { ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, applyItemEdit, makePricingSheetHelper, type ItemBlockView, type ItemListEditState, type ItemListSuggestion, type ItemListView } from "@/pages/boq-wizard/rate-helper/pricingSheetHelper";
 import {
   AWAITING_CORPUS_DIVERGENCES,
   AWAITING_SWEEP_DIVERGENCES,
@@ -46,6 +46,7 @@ import {
   calculatorHelper,
   classifyDivergence,
   emptyCaseFor,
+  extractionRowFor,
   hasPrice,
   itemListCasesForCategory,
   panelCtx,
@@ -920,16 +921,16 @@ describe("12e-3c parity -- the quantity link, the calculator's 'pick' sentence, 
   }
   const CASES_12E3C: Case12e3c[] = [
     { id: "Q1", rule: "AC0 quantity link",
-      row: [{ pipe_type: "MS", size_mm: "32" }, { item: NITRILE, cladding: "26G Aluminium", thickness_mm: "13" }],
+      row: [{ pipe_type: "MS", size_mm: "32" }, { section: SEC, item: NITRILE, cladding: "26G Aluminium", thickness_mm: "13" }],
       rowEdit: (st) => applyItemEdit(st, { op: "set_qty", index: 0, qty: "2" }),
       calculator: { items: [{ base: null, family: "MS", attrs: { size_mm: "32", insulated: "Yes" }, other: ["size_mm"], qty: "2",
                               sections: { [SEC]: { base: null, family: NITRILE, attrs: { cladding: "26G Aluminium", thickness_mm: "13" } } } }] } },
     { id: "W1", rule: "AC1 pick a cladding",
-      row: [{ pipe_type: "MS", size_mm: "32" }, { item: NITRILE, thickness_mm: "13" }],
+      row: [{ pipe_type: "MS", size_mm: "32" }, { section: SEC, item: NITRILE, thickness_mm: "13" }],
       calculator: { items: [{ base: null, family: "MS", attrs: { size_mm: "32", insulated: "Yes" }, other: ["size_mm"],
                               sections: { [SEC]: { base: null, family: NITRILE, attrs: { thickness_mm: "13" } } } }] } },
     { id: "D1", rule: "AC4 a default shows its value",
-      row: [{ pipe_type: "MS", size_mm: "100" }, { item: NITRILE, cladding: "26G Aluminium" }],
+      row: [{ pipe_type: "MS", size_mm: "100" }, { section: SEC, item: NITRILE, cladding: "26G Aluminium" }],
       calculator: { items: [{ base: null, family: "MS", attrs: { size_mm: "100", insulated: "Yes" }, other: ["size_mm"],
                               sections: { [SEC]: { base: null, family: NITRILE, attrs: { cladding: "26G Aluminium" } } } }] } },
     { id: "T1", rule: "AC5 Insulated default",
@@ -941,8 +942,12 @@ describe("12e-3c parity -- the quantity link, the calculator's 'pick' sentence, 
     return { s: r as ItemListSuggestion, v: (r as ItemListSuggestion).itemList! };
   };
   function both(c: Case12e3c) {
-    const pc: ParityCase = { cat: PIP, unit: "mts", desc: "", attrs: {}, items: c.row };
-    const ph = panelHelper(cfg37, items37, pc);
+    // 12e-4b (owner D-2): an insulation answer carries the marker the run stores -- `section`, on the ITEM beside
+    // its attributes (BEFORE: `items: c.row`, no marker; the item was told apart by lacking pipe_type)
+    const pc: ParityCase = { cat: PIP, unit: "mts", desc: "", attrs: {}, items: c.row.map(({ section: _s, ...a }) => a) };
+    const stored = extractionRowFor(pc) as ExtractionRow & { items: Array<{ attributes: unknown; section?: string }> };
+    c.row.forEach((a, i) => { if (a.section) stored.items[i].section = a.section; });
+    const ph = makePricingSheetHelper({ configsByCategory: cfg37, items: items37, extractionByRow: new Map([[stored.excelRow, stored]]) });
     let row = list(ph.compute(panelCtx(pc)));
     if (c.rowEdit) row = list(ph.compute(panelCtx(pc), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(c.rowEdit(row.v.editState)) }));
     const calc = list(calculatorHelper(cfg37, items37).compute(calculatorCtx("HVAC", PIP),

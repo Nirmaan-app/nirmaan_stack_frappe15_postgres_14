@@ -66,7 +66,7 @@ function compute(category: string, state: ItemListEditState, unit = "mts") {
 }
 /** The PANEL path: the model's stored answer (a LIST of items) through `extractionByRow`, the row's own unit. */
 function panel(category: string, answer: Array<Record<string, string>>, state?: ItemListEditState, unit = "Rmt") {
-  const row = { excelRow: 1, description: "", attributes: {}, items: answer.map((a) => ({ attributes: cells(a) })) } as ExtractionRow;
+  const row = { excelRow: 1, description: "", attributes: {}, items: answer.map(({ section, ...a }) => ({ attributes: cells(a), ...(section ? { section } : {}) })) } as ExtractionRow;   // 12e-4b (owner D-2): an insulation answer carries the marker the run stores, on the ITEM
   const h = makePricingSheetHelper({ configsByCategory: CONFIGS, items: ITEMS, extractionByRow: new Map([[1, row]]) });
   const ctx: RateHelperRowContext & { unit?: string } = { excelRow: 1, description: "", nodeType: "Line Item", category, discipline: "HVAC", rateKinds: [...KINDS], unit };
   const r = h.compute(ctx, state ? { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(state) } : {});
@@ -163,7 +163,10 @@ describe("12e-3b AC1 -- D1b: in the calculator a section opens on the material l
     const { v } = compute(INS, { items: [{ base: null, family: null, attrs: { cladding: "26G Aluminium", thickness_mm: "13", pipe_size_mm: "15.875" }, other: ["pipe_size_mm"] }] });
     expect(v.items[0].family).toBe(NITRILE);
     expect(v.items[0].familyDefaulted).toBeDefined();
-    expect(v.items[0].working.join("\n")).toContain("item not mentioned -> Nitrile Rubber Insulation");
+    // INVERTED at 12e-4b (owner G3: the field's label, never the id "item"). BEFORE:
+    //   toContain("item not mentioned -> Nitrile Rubber Insulation")
+    expect(v.items[0].working.join("\n")).toContain("insulation material not mentioned -> Nitrile Rubber Insulation");
+    expect(v.items[0].working.some((w) => w.startsWith("item not mentioned"))).toBe(false);
     expect((v as ItemListView).pickFamily).toBeUndefined();
   });
   it("ON A BoQ ROW the model-path default stays: insulated Yes with no material -> Nitrile, amber, Insulation's own line; no picker", () => {
@@ -215,7 +218,10 @@ describe("12e-3b AC2 -- a Piping size written as two or more sizes prices the hi
     { text: "20/25 NB", fam: "MS", kind: "pair", sizes: "20 / 25", taken: "25" },
     { text: "15/20", fam: "MS", kind: "pair", sizes: "15 / 20", taken: "20" },          // top <= 16 but 20 is no inch denominator
     { text: "17/32", fam: "MS", kind: "pair", sizes: "17 / 32", taken: "32" },          // bottom 32 but top above 16
-    { text: "8/7", fam: "MS", kind: "pair", sizes: "8 / 7", taken: "8" },
+    // INVERTED at 12e-4b (owner F-3, ruled in the run: "the size taken from a pair or list goes through the same F-3
+    // check as a bare number ... Invert the '8/7' pin to the refusal, keeping its before line"). BEFORE, a row here:
+    //   { text: "8/7", fam: "MS", kind: "pair", sizes: "8 / 7", taken: "8" },      -- priced as a bare MS 8 did: 19 mm, 456 / 112
+    // AFTER: the test "'8/7' written with no unit ..." below.
     { text: `1${INCH}/2${INCH}`, fam: "MS", kind: "pair", sizes: `1${INCH} / 2${INCH}`, taken: `2${INCH}` },   // owner Q11
     { text: "1 inch / 2 inch", fam: "MS", kind: "pair", sizes: `1${INCH} / 2${INCH}`, taken: `2${INCH}` },
     // a unit written once at the end is the unit of the bare part before it: 4 inch and 3 inch, never 4 mm and 3 inch
@@ -240,6 +246,23 @@ describe("12e-3b AC2 -- a Piping size written as two or more sizes prices the hi
     expect(field(typed.v.items[0], "size_mm").note!.startsWith(`You typed ${c.text}: ${lineOf(c)}`)).toBe(true);
     expect(field(model.v.items[0], "size_mm").note!.startsWith(`BoQ says ${c.text}: ${lineOf(c)}`)).toBe(true);
     expect(severalSizesPick(c.text, READER)).toMatchObject({ chosen: c.taken });
+  });
+  it("'8/7' written with no unit: the pair is still read as a pair and the higher, 8, is taken -- and a bare 8 that could be inches refuses (12e-4b, owner F-3)", () => {
+    const REFUSAL = "size 8 has no unit - price this row by hand";
+    const typed = compute(PIP, { items: [pipe("MS", "8/7")] });
+    const model = panel(PIP, [{ pipe_type: "MS", size_mm: "8/7" }]);
+    for (const x of [typed, model]) {
+      expect({ priced: x.v.rowPriced, values: x.values, reason: x.v.items[0].reason }).toEqual({ priced: false, values: {}, reason: REFUSAL });
+    }
+    // a bare MS 8 typed alone refuses with the same sentence -- the reference the BEFORE row priced against
+    expect(compute(PIP, { items: [pipe("MS", "8")] }).v.items[0].reason).toBe(REFUSAL);
+    // NEGATIVE HALF KEPT: the reading itself is unchanged -- a pair, the higher taken
+    expect(severalSizesPick("8/7", READER)).toMatchObject({ sizes: ["8", "7"], chosen: "8", unitless: true });
+    // NEGATIVE: the same pair WITH its unit is not a bare number and prices as it always did (below the smallest -> 19 mm)
+    const withUnit = compute(PIP, { items: [pipe("MS", "8/7 mm")] });
+    expect({ priced: withUnit.v.rowPriced, values: withUnit.values }).toEqual({ priced: true, values: { supply_rate: 456, install_rate: 112, combined_rate: 568 } });
+    expect(withUnit.v.items[0].working).toContain("pipe size states two sizes (8 / 7) - the higher, 8, is taken");
+    expect(severalSizesPick("8/7 mm", READER)).toMatchObject({ chosen: "8", unitless: false });
   });
   it("the two lines, word for word", () => {
     expect(severalSizesTaken(["25", "32"], "32")).toBe("states two sizes (25 / 32) - the higher, 32, is taken");
@@ -333,7 +356,7 @@ describe("12e-3b AC2 -- a Piping size written as two or more sizes prices the hi
     expect(attached(v).view.totals).toEqual(attached(plain.v).view.totals);
     expect(secBlock(attached(v)).working).toEqual(secBlock(attached(plain.v)).working);
     // and on the model path
-    const m = panel(PIP, [{ pipe_type: "MS", size_mm: "25/32" }, { item: NITRILE, cladding: "No", thickness_mm: "13" }]);
+    const m = panel(PIP, [{ pipe_type: "MS", size_mm: "25/32" }, { section: SEC, item: NITRILE, cladding: "No", thickness_mm: "13" }]);
     expect(field(secBlock(attached(m.v)), "pipe_size_mm").typedValue).toBe("32");
   });
 });
@@ -500,9 +523,13 @@ describe("12e-3b AC6 -- the Derivation tab lists the insulation section's lines 
   // `all.slice(14)` equal to the four lines below with the row total numbered 18. The four lines' words are unchanged.
   it("the four lines, word for word, after the 14 Piping had (12e-3c: a fifth, the quantity line, sits before the total, which is now line 19)", () => {
     const all = lines(CFG[PIP]);
-    expect(all).toHaveLength(19);
-    expect(all[17].title).toBe("The insulation section's quantity is its pipe's until the pricer types their own");
-    expect([...all.slice(14, 17), { ...all[18], n: 18 }]).toEqual([
+    // INVERTED at 12e-4b (owner F-3: the no-unit line sits after "Fitting the stated pipe size", so every later line
+    // moves down one). BEFORE: `toHaveLength(19)`, `all[17].title`, `[...all.slice(14, 17), { ...all[18], n: 18 }]`.
+    // The four lines' words, and the numbers this test has always named them by, are unchanged.
+    expect(all).toHaveLength(20);
+    expect(all[11].title).toBe("A pipe size written as a bare number that could be inches refuses");
+    expect(all[18].title).toBe("The insulation section's quantity is its pipe's until the pricer types their own");
+    expect([...all.slice(15, 18).map((l) => ({ ...l, n: l.n - 1 })), { ...all[19], n: 18 }]).toEqual([
       { n: 15, title: "Each pipe says whether it has insulation: Insulated Yes opens the insulation section under that pipe",
         detail: "insulation not mentioned -> No, shown as assumed on a BoQ row; any other answer removes only that section; 'Add insulation' adds a section that belongs to no pipe; in the calculator a section opens with nothing picked" },
       { n: 16, title: "The insulation section is priced by Insulation's rules",
@@ -518,7 +545,7 @@ describe("12e-3b AC6 -- the Derivation tab lists the insulation section's lines 
     edited.list_spec.sections[1].label = "Lagging";
     edited.list_spec.sections[1].families = ["Tubular Puf Insulation"];
     edited.list_spec.sections[1].mirror.tag = "as the pipe";
-    const all = lines(edited as unknown as RateCategoryConfig).slice(14);
+    const all = lines(edited as unknown as RateCategoryConfig).slice(15);   // 12e-4b: BEFORE `.slice(14)` (the no-unit line sits above)
     expect(all[0].title).toBe("Each pipe says whether it has lagging: Insulated Yes opens the lagging section under that pipe");
     expect(all[1].title).toBe("The lagging section is priced by Lagging's rules");
     expect(all[1].detail).toContain("the kinds offered: Tubular Puf Insulation");
@@ -528,8 +555,11 @@ describe("12e-3b AC6 -- the Derivation tab lists the insulation section's lines 
     expect(lines(CFG[INS])).toHaveLength(24);
     expect(lines(CFG[ADP])).toHaveLength(18);
     const v36pip = V36.category_configs.find((c) => c.category_id === PIP)!;
-    expect(lines(v36pip)).toHaveLength(14);
-    expect(lines(CFG[PIP]).slice(0, 14).map((l) => l.title)).toEqual(lines(v36pip).map((l) => l.title));
+    // INVERTED at 12e-4b (owner F-3): BEFORE `toHaveLength(14)` and `.slice(0, 14)`. v36 already carries the keys the
+    // no-unit line is generated from, so it reads 15 under this code; the claim itself is unchanged -- everything
+    // before the section's lines is what a config with no section has.
+    expect(lines(v36pip)).toHaveLength(15);
+    expect(lines(CFG[PIP]).slice(0, 15).map((l) => l.title)).toEqual(lines(v36pip).map((l) => l.title));
     for (const cat of [INS, ADP]) expect(lines(CFG[cat]).map((l) => l.title).join("\n")).not.toMatch(/section/i);
     const text = lines(CFG[PIP]).map((l) => `${l.title} | ${l.detail ?? ""}`).join("\n");
     expect(text).not.toMatch(/hvac_insulation|pipe_size_mm|size_mm|include_when|\{chosen\}|\{pipe\}/);

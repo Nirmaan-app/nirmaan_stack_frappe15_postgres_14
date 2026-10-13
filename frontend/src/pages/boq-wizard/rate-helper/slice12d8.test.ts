@@ -169,7 +169,9 @@ describe("SLICE 12d-8 / R1 -- a value the system clears stays blank and the row 
     expect(block.state).toBe("priced");
     // INVERTED at 12e-3c (owner F7 "fix": no field id on a pricer's line). BEFORE:
     //   expect(block.working).toContain("thickness_mm not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)");
-    expect(block.working).toContain("thickness not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)");
+    // INVERTED AGAIN at 12e-4b (owner G2: no working line repeats itself). BEFORE:
+    //   expect(block.working).toContain("thickness not mentioned -> 9 (thickness not mentioned -> 9 mm, then the ladder)");
+    expect(block.working).toContain("thickness not mentioned -> 9 mm, then the ladder");
     expect(block.working.join("\n")).not.toContain("thickness_mm");
     expect(r.values).toEqual({ supply_rate: 556, install_rate: 224, combined_rate: 780 });
   });
@@ -177,7 +179,9 @@ describe("SLICE 12d-8 / R1 -- a value the system clears stays blank and the row 
   it("NEGATIVE: a damper NEVER given still defaults on the calculator (ADP absent_as_none)", () => {
     const { r, block } = calculator("hvac_adp", "round diffuser", { dia_mm: "200" }, "nos");
     expect(block.state).toBe("priced");
-    expect(block.working).toContain("damper not mentioned -> without (damper not mentioned (or not answered) = without)");
+    // INVERTED at 12e-4b (owner G2). BEFORE:
+    //   expect(block.working).toContain("damper not mentioned -> without (damper not mentioned (or not answered) = without)");
+    expect(block.working).toContain("damper not mentioned -> without");
     expect(r.values).toEqual({ supply_rate: 986, install_rate: 400, combined_rate: 1386 });
   });
 

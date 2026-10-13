@@ -136,6 +136,16 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       add(`A row naming one ${name(famAttrId)} prices as it; two different ones with none chosen refuse`,
           `the names in the row's own text, read through the same map; ${plainSentence(String(ft.from_row.refuse).replace("{types}", "the names found"))}`);
     }
+    // SLICE 12e-4b (owner D-3; decisions 2 / 3 / 7): the family as the BoQ writes it, where the config names
+    // the attribute that carries it
+    if (typeof ft.from_attr === "string" && ft.from_attr.trim()) {
+      const asWritten = labels[String(ft.from_attr)] ?? String(ft.from_attr).replace(/_/g, " ");
+      add(`A ${name(famAttrId)} left unanswered is read from '${asWritten}'`,
+          [`the BoQ's own word, from the row or else its headings, read exactly as the same word typed in the ${name(famAttrId)} box`,
+           `a word naming several kinds prices as the one they all mean and refuses when they differ`,
+           `an answered ${name(famAttrId)} always wins over it`,
+           `shown read-only, and only where it differs from the kind priced`].join("; "));
+    }
   }
 
   const fwn = pr.family_when_none;
@@ -284,6 +294,22 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       bits.push("above the largest stocked size refuses, naming the size");
     }
     add(`Fitting the stated ${name(a)} to the catalogue`, bits.join("; "));
+    // SLICE 12e-4b (owner F-1): the nearest-size rule declared for THIS axis alone
+    const axisNear = pr.numbers?.[a]?.near;
+    if (typeof axisNear === "number") {
+      const unit = String(pr.numbers?.[a]?.unit ?? "mm");
+      add(`A ${name(a)} within ${axisNear} ${unit} of a stocked size counts as that size`,
+          `with a line saying so: '${name(a)} <stated> is <stocked> on the sheet (within ${axisNear} ${unit})'; a size further away takes the next size the catalogue stocks, as before`);
+    }
+    // SLICE 12e-4b (owner F-3): a bare number that could be an inch size, on an axis that reads inches two ways
+    // and rules below-the-smallest
+    const inchAlt = pr.numbers?.[a]?.inch_mm_alt;
+    if (typeof inchAlt === "number" && pr.size_match?.below_smallest === "smallest") {
+      add(`A ${name(a)} written as a bare number that could be inches refuses`,
+          [`a number with no unit, below the smallest stocked size, whose reading in inches (at 25.4 or ${inchAlt} ${String(pr.numbers?.[a]?.unit ?? "mm")} to the inch) falls within the stocked sizes: 'size <number> has no unit - price this row by hand'`,
+           `the same number written with its unit ('1 inch', '1 mm') prices`,
+           `a bare number that cannot be an inch size takes the smallest size, as before`].join("; "));
+    }
   }
 
   // ── 8. the priced steps ───────────────────────────────────────────────────────────────────────────

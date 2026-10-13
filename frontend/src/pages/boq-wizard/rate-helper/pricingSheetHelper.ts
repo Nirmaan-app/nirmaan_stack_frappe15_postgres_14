@@ -2252,7 +2252,10 @@ function itemBlockView(
      */
     const unitOf = spec.numbers[f.skuAttr]?.unit;
     const u = unitOf ? ` ${unitOf}` : "";
-    const said = userEdited ? "You typed" : "BoQ says";
+    // SLICE 12e-4b (owner G1, 2026-10-12 "yes"): a value NOBODY stated -- the ruled default -- is named as the
+    // default; "BoQ says 9 mm" under a thickness no BoQ mentioned (and, in the calculator, with no BoQ at all)
+    // was a sentence about a source that does not exist. A value the BoQ did state keeps "BoQ says".
+    const said = userEdited ? "You typed" : (defaulted ? "Default" : "BoQ says");
     /**
      * SLICE 12e-2b (AC13): a PICK the block's other answers do not stock was laddered, not cleared. Its line
      * opens "<picked> is not stocked with <the other answer>" where a typed value's opens "You typed <value>";
@@ -2510,6 +2513,9 @@ function itemBlockView(
     readOnly: (spec.panel_readonly ?? []).flatMap((id) => {
       const raw = assembled.attributes[id]?.value;
       if (raw === null || raw === undefined || raw === "None" || String(raw).trim() === "") return [];
+      // SLICE 12e-4b (owner D-3, decision 2 "(b)"): the family AS WRITTEN is shown only where it differs from
+      // the family priced -- "copper" beside Copper says nothing, "uPVC" beside PVC is the point of the line
+      if (id === spec.family_text?.from_attr && family !== null && String(raw).trim().toLowerCase() === family.trim().toLowerCase()) return [];
       const def = defs.find((d) => d.id === id);
       return [{ id, label: def?.label ?? id, value: String(raw) }];
     }),
@@ -2894,25 +2900,25 @@ function computeItemList(
   if (declared.length === 0) return computeItemListOwn(category, spec, items, ctx, ext, inRun, overrides);
 
   const hasOwn = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
-  const ownFam = familyAttr(spec);
-  const ownDefIds = new Set(listSpecDefs(category).map((d) => d.id));
   const resolved = declared.map((s) => {
     const cfg = configOf(s.category_id);
     const dspec = cfg ? itemListPricingSpec(cfg) : null;
-    return { s, cfg: dspec ? cfg : null, dspec, defIds: new Set(cfg ? listSpecDefs(cfg).map((d) => d.id) : []) };
+    return { s, cfg: dspec ? cfg : null, dspec };
   });
 
   /**
-   * THE MODEL'S ITEMS, TOLD APART (owner Q3: insulation "arrives as a second item in the row's list"). An item
-   * carrying this config's own family attribute is one of its own; any other item carrying an attribute only
-   * the delegated category defines belongs to that section. The validator refuses a section whose category
-   * keeps its family in the owner's family attribute, so the test cannot be ambiguous.
+   * THE MODEL'S ITEMS, TOLD APART (owner Q3: insulation "arrives as a second item in the row's list").
+   * SLICE 12e-4b (owner D-2, 2026-10-13): BY THE MARKER THE RUN STORES. An item belongs to a section when its
+   * `section` equals that section's id -- the marker the model answers and the parser keeps, coerced by the
+   * delegated category's own definitions. Every other item is this config's own, a marker naming no declared
+   * section included (the parser stores such an item with no marker at all, so it shows as a blank block that
+   * needs a person). REPLACES 12e-3a's test (an item NOT carrying the owner's family key): the parser stores
+   * every definition of the row's category on every item, so no stored item could ever have passed it.
    */
   const ownModel: ExtractedListItem[] = [];
   const secModel: Record<string, ExtractedListItem[]> = {};
   for (const it of ext?.items ?? []) {
-    const keys = Object.keys(it.attributes ?? {});
-    const sec = keys.includes(ownFam) ? undefined : resolved.find((r) => keys.some((k) => r.defIds.has(k) && !ownDefIds.has(k)));
+    const sec = typeof it.section === "string" ? resolved.find((r) => r.s.id === it.section) : undefined;
     if (sec) (secModel[sec.s.id] ??= []).push(it); else ownModel.push(it);
   }
   const probe: OwnPassProbe = { sectionCounts: Object.fromEntries(resolved.map((r) => [r.s.id, (secModel[r.s.id] ?? []).length])) };

@@ -89,6 +89,15 @@ export interface NumberReader {
    * before. ABSENT => the reader is byte-identical.
    */
   typed_entry?: "one_size";
+  /**
+   * SLICE 12e-4b (owner F-1, 2026-10-13: "insulation should get the original pipe size read by BoQ and then will
+   * match/ ladder independently based on insulation logic" + "option B"): on THIS axis the nearest stocked size
+   * within this distance of the stated value counts as the stated size (a 22.3 pipe is the sheet's 22.23) -- the
+   * rule `size_match.near` declares for a whole category (Q14a), declared for ONE axis so the category's other
+   * ladders are untouched. The working carries "... is <rung> on the sheet (within <near> <unit>)". ABSENT =>
+   * the axis resolves exactly as before, byte-identical.
+   */
+  near?: number;
 }
 
 /**
@@ -107,6 +116,13 @@ export interface FamilyTextSpec {
   /** "BoQ says {from} -> priced as {to} (owner rule)" */
   line: string;
   from_row?: { rule: string; refuse: string };
+  /**
+   * SLICE 12e-4b (owner D-3, 2026-10-13): the TEXT item attribute that carries the family AS THE BoQ WRITES IT
+   * ("Pipe type as written": GI, uPVC, SS ...). Read only when the family answer itself is absent and the row's
+   * own words (`from_row`) named none, through the SAME reader a typed family goes through (`readFamilyWord`).
+   * The key name is the one `unstocked_materials.from_attr` uses. ABSENT => nothing is read.
+   */
+  from_attr?: string;
 }
 
 export interface ConversionOption {
@@ -612,6 +628,10 @@ export interface ExtractedListItem {
   /** SLICE 6 (T4, the owner's unit-rate ruling): how many of this item ONE row unit pays for. Absent => 1.
    * Blank / non-numeric / non-positive => the item refuses ("quantity per row unit is blank"). */
   qtyPerRowUnit?: number | string | null;
+  /** SLICE 12e-4b (owner D-2): the DELEGATED SECTION this item belongs to (`list_spec.sections[].id`), as the
+   * run stores it for an item the model answered from that section's own questions. ABSENT on every item of
+   * the config's own kind, which is every stored item of every config without a delegated section. */
+  section?: string;
 }
 
 export interface DefaultedAttr {
@@ -885,9 +905,28 @@ const ONE_SIZE_FORMS: RegExp[] = [
   new RegExp(String.raw`^\s*(?:(\d+)[\s-]+)?(\d+)\s*/\s*(\d+)\s*${INCH_UNIT}?\s*$`, "i"),
   new RegExp(String.raw`^\s*\d+(?:\.\d+)?\s*${INCH_UNIT}\s*$`, "i"),
 ];
+/**
+ * SLICE 12e-4b (owner F-2, 2026-10-13: "fix") -- A TRAILING FULL STOP NEVER STOPS A SIZE FROM READING. A BoQ ends
+ * a size with punctuation as often as not ("19/25 mm.", "32/40mm.", "25 mm,"), and the three tests that decide
+ * whether a text IS one size, a list of sizes or a single thickness all anchor on the END of the text -- so the
+ * mark alone turned a size the ruling prices into "pick one". The mark is dropped before those tests look; the
+ * text a pricer or the BoQ wrote is still what every line quotes. Only a full stop, comma, semicolon or colon
+ * at the very end: an inch mark, a bracket and anything inside the text are untouched.
+ */
+export function withoutTrailingPunctuation(text: string): string {
+  return text.replace(/[\s.,;:]+$/, "");
+}
+
+/** SLICE 12e-4b (owner F-3): a number written with nothing else -- no unit, no inch mark, no second number. */
+export const BARE_NUMBER_RE = /^\s*\d+(?:\.\d+)?\s*$/;
+/** SLICE 12e-4b (owner F-3): the ONE sentence a bare number that could be an inch size refuses with. */
+export function noUnitMessage(size: string): string {
+  return `size ${size} has no unit - price this row by hand`;
+}
+
 export function isOneSizeEntry(text: string | number | null | undefined): boolean {
   if (text === null || text === undefined) return false;
-  const s = unicodeFractions(String(text)).trim();
+  const s = withoutTrailingPunctuation(unicodeFractions(String(text)).trim());
   if (s === "") return false;
   if (ONE_SIZE_FORMS[0].test(s) || ONE_SIZE_FORMS[2].test(s)) return true;
   const m = s.match(ONE_SIZE_FORMS[1]);
@@ -951,10 +990,16 @@ export function severalSizesMessage(name: string, sizes: readonly string[]): str
  * fraction (`3/4" / 1"` -- three quarters and one inch, or 3, 4 and 1 inch).
  */
 const SIZE_PART = new RegExp(String.raw`^\s*(\d+(?:\.\d+)?)(?:\s*(mm\s*dia|mm\s*od|mm|nb|dia|od)|(${INCH_UNIT}))?\s*$`, "i");
-export interface SeveralSizesPick { sizes: string[]; chosen: string; token: string }
+export interface SeveralSizesPick {
+  sizes: string[]; chosen: string; token: string;
+  /** SLICE 12e-4b (owner F-3, ruled in the run): the size taken was written with NO unit -- no unit on it and
+   * none written once at the end of the list -- so it is a bare number as far as the unit goes. */
+  unitless: boolean;
+}
 export function severalSizesPick(text: string | number | null | undefined, reader: NumberReader): SeveralSizesPick | null {
   if (slashSizes(text) === null) return null;
-  const texts = unicodeFractions(String(text)).trim().split("/");
+  // SLICE 12e-4b (owner F-2): "19/25 mm." is the pair 19 / 25 mm -- the full stop is not part of the last size
+  const texts = withoutTrailingPunctuation(unicodeFractions(String(text)).trim()).split("/");
   const parts: Array<{ n: string; unit: "mm" | "inch" | null }> = [];
   for (const t of texts) {
     const m = t.match(SIZE_PART);
@@ -977,7 +1022,7 @@ export function severalSizesPick(text: string | number | null | undefined, reade
     if (best === null || r.value > best.value) best = { i, value: r.value };
   }
   if (best === null) return null;
-  return { sizes: parts.map(shown), chosen: shown(parts[best.i]), token: shown(parts[best.i]) };
+  return { sizes: parts.map(shown), chosen: shown(parts[best.i]), token: shown(parts[best.i]), unitless: parts[best.i].unit === null };
 }
 /** The line a taken size carries: "pipe size states two sizes (25 / 32) - the higher, 32, is taken". */
 export function severalSizesTaken(sizes: readonly string[], chosen: string): string {
@@ -1529,6 +1574,38 @@ export function familyFromRowText(
 }
 
 /**
+ * SLICE 12e-4b (owner D-3, 2026-10-13; decisions 3 / 4) -- ONE READER FOR A FAMILY WORD, WHOEVER WROTE IT. The
+ * word is what the pricer typed in the family's "Other..." box, or what the model copied into the attribute
+ * `family_text.from_attr` names ("Pipe type as written"). Both go through this, so the two paths cannot differ.
+ * In order:
+ *   1. the exact spelling of a stocked family, a mapped one or a refused one -- `readFamilyText`, unchanged
+ *      ("uPVC" -> PVC with its line; "SS" -> its sentence);
+ *   2. a word holding SEVERAL names, through the row-text rule (`familyFromRowText`, where the config declares
+ *      `from_row`): names that all land on one family price as it ("MS / GI" -> MS, "BoQ names MS / GI ->
+ *      priced as MS"); two different ones refuse naming them ("uPVC/ CPVC");
+ *   3. a refused word inside a longer text ("SS 304", "stainless steel pipe") -> that word's own sentence;
+ *   4. anything else -> null: the caller refuses BY NAME (the R18 sentence).
+ * A config without `family_text` never reaches it. PURE.
+ */
+export function readFamilyWord(
+  spec: ItemListPricingSpec,
+  text: string | number | null | undefined,
+): { family: string; line?: string; rule?: string } | { refuse: string; rule: string } | null {
+  const exact = readFamilyText(spec, text);
+  if (exact !== null) return exact;
+  if (text === null || text === undefined) return null;
+  const word = String(text).trim();
+  if (word === "" || word.toLowerCase() === "none") return null;
+  const several = familyFromRowText(spec, word);
+  if (several && "refuse" in several) return several;
+  if (several) return { family: several.family, line: `BoQ names ${several.named.join(" / ")} -> priced as ${several.family}`, rule: several.rule };
+  for (const r of spec.family_text?.refuse ?? []) {
+    if (wordStartHit(word, [r.from]) !== null) return { refuse: r.refuse, rule: r.rule };
+  }
+  return null;
+}
+
+/**
  * SLICE 12d-4a (owner D7 + D11). PURE. The NAMED-MATERIAL refusal for one item, or null: the family is a
  * `no_sku_families` value (T5, 12d-1b), or an `unstocked_materials` word sits in the row's own text or in the
  * text the model copied as the material (D7) -- whatever family the model picked. ONE definition, read by
@@ -1619,6 +1696,17 @@ function priceOneItem(
       out.working.push(out.familyLine);
     }
   }
+  // SLICE 12e-4b (owner D-3; decision 3): still no family -- neither answered nor named in the row's own words --
+  // and the config names the attribute that carries the family AS WRITTEN ("Pipe type as written"). That word
+  // becomes the family answer and is read below by the ONE reader a typed word goes through, so "uPVC" prices
+  // as PVC with its line and "SS" refuses with its sentence exactly as the same word typed would. An ANSWERED
+  // family is never touched: the dropdown answer wins over a disagreeing word (the word is still shown).
+  const asWrittenAttr = spec.family_text?.from_attr;
+  if ((out.familyRaw === null || out.familyRaw === "None") && asWrittenAttr) {
+    const w = rawValue(item, asWrittenAttr);
+    const word = w !== null && w !== "None" ? String(w).trim() : "";
+    if (word !== "") out.familyRaw = word;
+  }
   // SLICE 12d-1a (owner R6): category-NEUTRAL -- the sentence names the family in the config's own label
   // ("no item family could be told", "no insulation material could be told"); it used to say "ADP kind".
   if (out.familyRaw === null || out.familyRaw === "None") return blank(`no ${(spec.family_label ?? "item family").toLowerCase()} could be told for this item`);
@@ -1627,8 +1715,10 @@ function priceOneItem(
   // a stocked spelling (any case), a mapped one (GI -> MS, with its line), a refused one (SS, with its own
   // sentence); anything else stays as written and refuses BY NAME below (the R18 sentence). A config without
   // the key never reaches this and is byte-identical.
+  // SLICE 12e-4b (owner D-3): `readFamilyWord` is `readFamilyText` first (every exact spelling reads as it
+  // always did), then a word holding several names and a refused word inside a longer text.
   if (spec.family_text) {
-    const read = readFamilyText(spec, out.familyRaw);
+    const read = readFamilyWord(spec, out.familyRaw);
     if (read && "refuse" in read) return blank(read.refuse);
     if (read) {
       family = read.family;
@@ -1675,6 +1765,8 @@ function priceOneItem(
   const altReads: Record<string, { alt: number; raw: string }> = {};
   // SLICE 12e-3b: an axis whose stated text was two or more sizes -- the sizes as named and the one taken
   const severalReads: Record<string, { sizes: string[]; chosen: string }> = {};
+  // SLICE 12e-4b (owner F-3): an axis whose taken size came from a list written with no unit at all
+  const unitlessLists = new Set<string>();
   let layersFrom: { attr: string; raw: string; layers: number[] } | null = null;
   const notes: string[] = [];
   for (const attr of spec.match_attrs) {
@@ -1722,7 +1814,8 @@ function priceOneItem(
       if (spec.compose && attr === spec.compose.attr && reader.name === "thickness") {
         for (const src of reader.from) {
           const cell = item.attributes?.[src];
-          if (cell && cell.typed === true && !TYPED_THICKNESS_RE.test(String(cell.value ?? ""))) {
+          // SLICE 12e-4b (owner F-2): a trailing full stop is not part of the number ("19 mm." is 19)
+          if (cell && cell.typed === true && !TYPED_THICKNESS_RE.test(withoutTrailingPunctuation(String(cell.value ?? "")))) {
             got = { blank: TYPED_THICKNESS_MESSAGE };
             break;
           }
@@ -1745,6 +1838,7 @@ function priceOneItem(
           if (pick && taken && "value" in taken) {
             got = taken;
             severalReads[attr] = { sizes: pick.sizes, chosen: pick.chosen };
+            if (pick.unitless) unitlessLists.add(attr);
             notes.push(`${reader.name} ${severalSizesTaken(pick.sizes, pick.chosen)}`);
           } else {
             got = { blank: severalSizesMessage(reader.name, sizes) };
@@ -2106,11 +2200,20 @@ function priceOneItem(
       const viaAlt = resolveSize(altRead.alt, sizes, spec.size_match);
       if (viaAlt) { matched = { ...viaAlt, exact: false }; how = "alt"; }
     }
-    const near = spec.size_match?.near;
+    /**
+     * SLICE 12e-4b (owner F-1, 2026-10-13, "option B"): the SAME nearest-rung rule, declared for ONE axis
+     * (`numbers.<axis>.near`) where a category wants it on that axis alone -- Insulation's pipe size, so a pipe
+     * read as 22.3 is the sheet's 22.23 and no longer buys the next size up, while its thickness ladder is
+     * untouched. The axis key wins over the category one; where it is the one that matched, the working line
+     * says how close the rule allows ("... on the sheet (within 0.1 mm)").
+     */
+    const axisNear = spec.numbers[attr]?.near;
+    const near = typeof axisNear === "number" ? axisNear : spec.size_match?.near;
+    let nearOnAxis = false;
     if (!matched && typeof near === "number" && near > 0) {
       for (const cand of [want, ...(altRead ? [altRead.alt] : [])]) {
         const r = nearestRung(cand, sizes, near);
-        if (r !== null) { matched = { rung: r, dp: -1, exact: r === cand }; how = "near"; break; }
+        if (r !== null) { matched = { rung: r, dp: -1, exact: r === cand }; how = "near"; nearOnAxis = typeof axisNear === "number"; break; }
       }
     }
     if (matched && !matched.exact) {
@@ -2120,7 +2223,29 @@ function priceOneItem(
       sel[attr] = matched.rung;
       out.working.push(how === "alt" && altRead
         ? `${name} ${fmt(want)} (${altRead.raw}) is ${fmt(matched.rung)} on the sheet at ${fmt(spec.numbers[attr]?.inch_mm_alt ?? 25)} mm to the inch`
-        : `${name} ${fmt(want)} is ${fmt(matched.rung)} on the sheet`);
+        : `${name} ${fmt(want)} is ${fmt(matched.rung)} on the sheet${nearOnAxis ? ` (within ${fmt(near as number)} ${spec.numbers[attr]?.unit ?? "mm"})` : ""}`);
+    }
+    /**
+     * SLICE 12e-4b (owner F-3, 2026-10-13: "this should refuse pricing if we cant determine the size/ unit
+     * correctly"; ruled in the run: "could be inches" = the number x 25.4 OR x 25 lands within the type's stocked
+     * range, smallest to largest). A BARE number -- no unit written with it -- that is BELOW the smallest stocked
+     * size and COULD BE AN INCH SIZE is not priced as the smallest size: nobody can tell whether "1" is one
+     * millimetre or one inch. It refuses with one sentence. The same number with its unit ("1 inch", "1 mm"),
+     * a number at or above the smallest size, and a small number whose inch reading falls outside the stocked
+     * range (MS 15: 381 mm) all price exactly as before. The rule rides on keys the axis already declares --
+     * it reads inches two ways (`inch_mm_alt`) and rules below-the-smallest (`size_match.below_smallest`) -- so
+     * no other category reaches it; the test is the text the pricer or the model wrote, never the row around it.
+     */
+    const inchAlt = spec.numbers[attr]?.inch_mm_alt;
+    if (!matched && typeof inchAlt === "number" && spec.size_match?.below_smallest === "smallest" && want < rungs[0].size) {
+      const written = (spec.numbers[attr]?.from ?? []).map((src) => rawValue(item, src)).find((v) => v !== null);
+      // ... or the size TAKEN from a pair / list that carried no unit ("8/7"): the same question, the same answer
+      // (owner, in the run: "the size taken from a pair or list goes through the same F-3 check as a bare number")
+      const bare = unitlessLists.has(attr)
+        || (written !== undefined && written !== null && BARE_NUMBER_RE.test(withoutTrailingPunctuation(String(written))));
+      const lo = rungs[0].size, hi = rungs[rungs.length - 1].size;
+      const couldBeInches = [want * 25.4, want * inchAlt].some((mm) => mm >= lo && mm <= hi);
+      if (bare && couldBeInches) return { ...blank(noUnitMessage(fmt(want))), selection: sel };
     }
     const fit = fitModuleLadder(rungs, matched ? matched.rung : want, "up");
     if (!fit) {

@@ -143,6 +143,34 @@ export function labelAsWord(label: string): string {
 /** A field id written with an underscore (`thickness_mm`) -- the only kind that can be told from a word. */
 const isSnakeId = (id: string) => /^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+$/.test(id);
 
+/** How the pricer opens a default's working line after the field: "<field> not mentioned -> <value> (<rule>)". */
+const NOT_MENTIONED_LEAD = " not mentioned -> ";
+
+/**
+ * SLICE 12e-4b (owner G2, 2026-10-12 "yes") -- NO WORKING LINE REPEATS ITSELF. The pricer writes a default as
+ * "<field> not mentioned -> <value> (<rule>)", and the rule a config carries is usually that same statement
+ * in the owner's words -- so the screen read "thickness not mentioned -> 9 (thickness not mentioned -> 9 mm,
+ * then the ladder)". Where the bracketed rule is itself a "... not mentioned ..." statement, only what it
+ * ADDS is kept:
+ *   the rule's outcome extends the value   -> "thickness not mentioned -> 9 mm, then the ladder"
+ *   the rule's outcome IS the value        -> "damper not mentioned -> without"
+ *   the rule's outcome says something else -> "cladding not mentioned -> No (without cladding)"
+ * A rule that is not such a statement ("VCD = GI rectangular; fire damper = without sleeve") is left as it
+ * is, and so is every line of any other shape. Idempotent.
+ */
+export function onceOnly(line: string): string {
+  const m = line.match(/^(.+?) not mentioned -> (.+?) \((.*\bnot mentioned\b.*)\)$/);
+  if (!m) return line;
+  const [, field, value, rule] = m;
+  const said = rule.match(/\bnot mentioned\b(?:\s*\([^)]*\))?\s*(?:->|=)\s*(.+)$/);
+  if (!said) return line;
+  const outcome = said[1].trim();
+  const v = value.trim();
+  if (outcome.toLowerCase() === v.toLowerCase()) return `${field}${NOT_MENTIONED_LEAD}${v}`;
+  if (outcome.toLowerCase().startsWith(v.toLowerCase()) && !/[A-Za-z0-9.]/.test(outcome.charAt(v.length))) return `${field}${NOT_MENTIONED_LEAD}${outcome}`;
+  return `${field}${NOT_MENTIONED_LEAD}${v} (${outcome})`;
+}
+
 /** A code token: `R14`, `D9b`, `T1`, `S6`, `Q8`, or `slice 11`. */
 const CODE_TOKEN = String.raw`(?:(?:R|D|T|S|Q)-?\d+[a-z]?|slice \d+)`;
 /** A run of code tokens joined by " / ": `R5 / R14 / slice 11`. */
@@ -177,6 +205,14 @@ export function plainPricerText(text: unknown, items: ReadonlyArray<PlainEnglish
     const word = labelAsWord(fieldLabels[id]);
     if (word !== "") s = s.replace(new RegExp(String.raw`(?<![A-Za-z0-9_])${escapeRe(id)}(?![A-Za-z0-9_])`, "g"), word);
   }
+  // SLICE 12e-4b (owner G3, 2026-10-12 "yes"): a field id WITHOUT an underscore ("item", "ul") cannot be told
+  // from a word anywhere in a sentence -- but the pricer writes a default's line as "<id> not mentioned -> ...",
+  // so at the START of such a line the id is known and reads as its field's label ("insulation material not
+  // mentioned -> ...", never "item not mentioned -> ..."). Only there; a word elsewhere is left alone.
+  for (const id of Object.keys(fieldLabels).filter((k) => !isSnakeId(k)).sort((a, b) => b.length - a.length)) {
+    const word = labelAsWord(fieldLabels[id]);
+    if (word !== "" && s.startsWith(`${id}${NOT_MENTIONED_LEAD}`)) { s = `${word}${s.slice(id.length)}`; break; }
+  }
   // a Pricing Input the items do not carry (no items loaded yet): its id written as plain words, never bare
   s = s.replace(/pricing input: ([A-Za-z0-9]+(?:_[A-Za-z0-9]+)+)/g, (_m, id: string) => `pricing input: ${id.replace(/_/g, " ")}`);
   s = plainSentence(s);
@@ -184,6 +220,8 @@ export function plainPricerText(text: unknown, items: ReadonlyArray<PlainEnglish
   s = unitSpellings(s);
   s = s.replace(new RegExp(String.raw`,\s*${CODE_RUN}(?=\))`, "g"), "");
   s = s.replace(new RegExp(String.raw`(^|\(|;\s*)${CODE_RUN}\s+(?=\S)`, "g"), "$1");
+  // SLICE 12e-4b (owner G2): a default's line never says the same thing twice
+  s = onceOnly(s);
   // nothing else is normalised: a family name may carry a leading space (' Fiberglass Rigid Board ...') and keeps it
   return lead + s.trimEnd();
 }
