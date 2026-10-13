@@ -18,6 +18,7 @@
  *
  * What each block protects is said in its `describe`. Negative halves sit beside every positive.
  */
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-master/rateMasterTypes";
 import type { ExtractionRow, RateHelperRowContext } from "./rateHelperTypes";
@@ -26,7 +27,7 @@ import { readJsonFixture } from "@/pages/pricing/calculatorPanelParity.harness";
 import { itemListRuleOrder } from "@/pages/pricing/rate-master/itemListRuleOrder";
 import { onceOnly, plainPricerText } from "@/pages/pricing/rate-master/plainEnglish";
 import {
-  ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, assembleItems, decodeItemEdits, makePricingSheetHelper, unitChoicesOf,
+  ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, assembleItems, buildExtractionByRow, decodeItemEdits, makePricingSheetHelper, unitChoicesOf,
   type ItemBlockView, type ItemEdit, type ItemFieldView, type ItemListEditState, type ItemListSuggestion, type ItemListView,
   type SectionBlockView,
 } from "./pricingSheetHelper";
@@ -46,8 +47,9 @@ const SS_SENTENCE = "No SKU in the catalogue for SS pipe - price this row by han
 /**
  * WHAT THIS SLICE ADDS TO THE TWO CONFIGS, as far as the frontend reads them (the model notes are the asset's
  * and are not read here): the as-written definition after Pipe type, where the pricer reads it, the read-only
- * line, "Stainless steel" in the refuse list, the second opinion on -- and Insulation's one key. Applied to v37
- * in memory; the mint (`scripts/_instruments/mint_hvac_v34_piping.py questions`) writes the same keys.
+ * line, "Stainless steel" in the refuse list, the second opinion on -- and Insulation's one key. The mint
+ * (`scripts/_instruments/mint_hvac_v34_piping.py questions`) writes the same keys; the tests below run on the
+ * COMMITTED v38 file, and "AC10" pins that file against v37 + exactly this.
  */
 function withSliceKeys(base: Record<string, RateCategoryConfig>): Record<string, RateCategoryConfig> {
   const out = structuredClone(base) as Record<string, any>;
@@ -61,10 +63,12 @@ function withSliceKeys(base: Record<string, RateCategoryConfig>): Record<string,
   out[INS].list_spec.pricing.numbers.pipe_size_mm.near = 0.1;
   return out as Record<string, RateCategoryConfig>;
 }
-const CFG: Record<string, RateCategoryConfig> = withSliceKeys(CFG37);
+// BEFORE the v38 mint this file ran on `withSliceKeys(CFG37)`; it now reads the committed asset
+const V38 = readJsonFixture<Asset>(new URL(`${DATA}rate_master_hvac_all_v38.json`, import.meta.url));
+const CFG: Record<string, RateCategoryConfig> = Object.fromEntries(V38.category_configs.map((c) => [c.category_id, c]));
 const CONFIGS = new Map<string, RateCategoryConfig>(Object.entries(CFG));
 const CONFIGS37 = new Map<string, RateCategoryConfig>(Object.entries(CFG37));
-const ITEMS: RateMasterItem[] = V37.items.map((it) => ({ ...it, discipline: V37.discipline } as RateMasterItem));
+const ITEMS: RateMasterItem[] = V38.items.map((it) => ({ ...it, discipline: V38.discipline } as RateMasterItem));
 const ITEM_LIST = [INS, ADP, PIP] as const;
 const KINDS = ["supply_rate", "install_rate", "combined_rate"] as const;
 const NITRILE = "Nitrile Rubber Insulation", PUF = "Tubular Puf Insulation";
@@ -712,5 +716,132 @@ describe("12e-4b AC11 -- the Derivation tab says the new rules, generated from t
     expect(text).not.toMatch(/\b[a-z0-9]+_[a-z0-9_]+\b/i);
     expect(text).not.toMatch(/\(owner/i);
     expect(text).not.toMatch(/\b[RDTSQF]-?\d{1,2}[a-z]?\b/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("12e-4b AC10 (the frontend's half) -- HVAC v38 is v37 plus exactly the keys these tests rely on", () => {
+  const noNotes = (cfg: RateCategoryConfig) => {
+    const c = structuredClone(cfg) as Record<string, any>;
+    for (const d of c.list_spec.attribute_definitions) delete d.note;
+    return c;
+  };
+  it("the two changed configs: v38's Piping and Insulation equal v37's with the slice's keys applied (the model notes apart, which no frontend code reads)", () => {
+    const want = withSliceKeys(CFG37);
+    expect(noNotes(CFG[PIP])).toEqual(noNotes(want[PIP]));
+    expect(CFG[INS]).toEqual(want[INS]);
+    // the Piping notes DID change, all four, and the new definition carries one
+    const notes = (cfg: RateCategoryConfig) => Object.fromEntries(listSpecDefs(cfg).map((d) => [d.id, String((d as { note?: string }).note ?? "")]));
+    for (const id of ["pipe_type", "size_mm", "pipe_class", "insulated"]) expect({ id, changed: notes(CFG[PIP])[id] !== notes(CFG37[PIP])[id] }).toEqual({ id, changed: true });
+    expect(notes(CFG[PIP])[AS_WRITTEN].length).toBeGreaterThan(100);
+    expect(JSON.stringify(V38)).not.toContain("is written in 12e-4");
+  });
+  it("every other config and every item: byte-equal to v37", () => {
+    for (const c of V37.category_configs) {
+      if (c.category_id === PIP || c.category_id === INS) continue;
+      expect({ cat: c.category_id, same: JSON.stringify(CFG[c.category_id]) === JSON.stringify(c) }).toEqual({ cat: c.category_id, same: true });
+    }
+    expect(V38.category_configs.map((c) => c.category_id)).toEqual(V37.category_configs.map((c) => c.category_id));
+    expect(JSON.stringify(V38.items)).toBe(JSON.stringify(V37.items));
+    expect(V38.items).toHaveLength(379);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════
+describe("12e-4b AC0 (the frontend's half) -- the stored rows of BOQ-26-00073 / HVAC rows 53 and 60, on the panel", () => {
+  // WHAT THE RUN STORED for the two rows -- the list `test_piping_v34.test_28` gets from the real `run_extraction`
+  // with the 12e-4a stub answers. The two halves are tied by the digest of this list in canonical JSON, pinned
+  // in both files: if either side's rows change, one of the two digests stops matching.
+  const AC0_STORED_SHA256 = "8fb71189d4f1302d9f3d689b5170bf256297f40e1fad750eac3d808b6d4cd72d";
+  const c = (value: string | null, confidence = 0.9) => ({ value, confidence });
+  const z = () => ({ value: null, confidence: 0 });
+  const AC0_STORED = [
+    { excel_row: 53, description: "22.3 mm O.D (wall Thickness-1.0 mm) (insulation : 13/19 mm)", category_id: PIP, attributes: {},
+      items: [
+        { attributes: { pipe_type: c("Copper"), [AS_WRITTEN]: c("copper"), size_mm: c("22.3 mm O.D"), pipe_class: c("wall Thickness-1.0 mm"), insulated: c("Yes") } },
+        { attributes: { item: c(NITRILE), cladding: c("None", 0.6), thickness_mm: c("13/19 mm"), pipe_size_mm: z(), brand: z(), material_as_written: c("Nitrile rubber") }, section: SEC },
+      ],
+      item_flags: [] },
+    { excel_row: 60, description: "25 mm dia", category_id: PIP, attributes: {},
+      items: [
+        { attributes: { pipe_type: z(), [AS_WRITTEN]: c("uPVC"), size_mm: c("25 mm dia"), pipe_class: c("heavy class (10KG)"), insulated: c("Yes") } },
+        { attributes: { item: c(NITRILE), cladding: c("None", 0.6), thickness_mm: c("6/9 mm"), pipe_size_mm: z(), brand: z(), material_as_written: z() }, section: SEC },
+      ],
+      item_flags: [] },
+  ];
+  /** The canonical JSON both halves hash: sorted keys, no spaces. */
+  const canonical = (x: unknown): string => {
+    if (Array.isArray(x)) return `[${x.map(canonical).join(",")}]`;
+    if (x !== null && typeof x === "object") return `{${Object.keys(x as object).sort().map((k) => `${JSON.stringify(k)}:${canonical((x as Record<string, unknown>)[k])}`).join(",")}}`;
+    return JSON.stringify(x);
+  };
+  const HEADINGS: Record<number, string[]> = {
+    53: ["VRF SYSTEM", "Supplying, Installing, testing and commissioning of interconnecting Liquid / Gas refrigerant copper piping duly insulated with Close cell elastomeric Nitrile rubber Class ‘O’ tubular insulation of thickness 13 or 19 mm as mentioned below"],
+    60: ["VRF SYSTEM", "Supply, installation, testing and commissioning Rigid heavy class (10KG) uPVC Condensate Drain piping of following sizes with minimum 6/9 mm nitrile rubber insulation over the pipes, complete with fittings, supports, U trap arrangement, clean plug and accessories for units as per specifications and technical specification."],
+  };
+  function row(excelRow: number) {
+    const stored = AC0_STORED.find((r) => r.excel_row === excelRow)!;
+    const h = makePricingSheetHelper({ configsByCategory: CONFIGS, items: ITEMS, extractionByRow: buildExtractionByRow(AC0_STORED as never) });
+    const ctx = { excelRow, description: stored.description, nodeType: "Line Item", category: PIP, discipline: "HVAC", rateKinds: [...KINDS], unit: "Metre",
+                  headings: HEADINGS[excelRow], ownNotes: [] } as RateHelperRowContext & { unit?: string };
+    const r = h.compute(ctx, {});
+    if (!isSuggestion(r)) throw new Error("expected a suggestion");
+    const s = r as ItemListSuggestion;
+    return { s, v: s.itemList!, values: s.values };
+  }
+
+  it("the rows priced here ARE the rows the backend half stored (the digest both files pin)", () => {
+    expect(createHash("sha256").update(canonical(AC0_STORED), "utf8").digest("hex")).toBe(AC0_STORED_SHA256);
+  });
+  it("row 53: Copper 22.3 -> the 22.2 pipe, 1,814 / 220; insulation Nitrile, '13/19' -> the higher 19, pipe 22.3 'from pipe' -> 22.23 within 0.1 mm, 265 / 14; the row is the sum, 2,079 / 234", () => {
+    const { v, values } = row(53);
+    expect(v.items).toHaveLength(1);
+    const p53 = v.items[0];
+    expect({ source: p53.source, family: p53.family, size: field(p53, "size_mm").value, figures: fig(p53.figures) }).toEqual({ source: "model", family: "Copper", size: "22.2", figures: [1814, 220] });
+    expect(field(p53, "size_mm").note).toBe("BoQ says 22.3 mm O.D -> 22.3 mm -> priced as 22.2 mm (the sheet's own spelling of this size)");
+    expect(p53.readOnly).toEqual([]);                                             // "copper" beside Copper: nothing to show (decision 2)
+    expect(field(p53, "insulated").value).toBe("Yes");
+    const sb = secBlock(attached(v));
+    expect(sb.family).toBe(NITRILE);
+    const t = field(sb, "thickness_mm"), ps = field(sb, "pipe_size_mm"), cl = field(sb, "cladding");
+    expect(t.value).toBe("19");
+    expect(t.note).toContain("states two values -- the higher, 19, is taken");
+    expect({ value: cl.value, defaulted: cl.defaulted }).toEqual({ value: "No", defaulted: true });
+    expect({ typed: ps.typedValue, value: ps.value, tag: ps.mirrorTag }).toEqual({ typed: "22.3", value: "22.23", tag: "from pipe" });
+    expect(sb.working).toContain("pipe size 22.3 is 22.23 on the sheet (within 0.1 mm)");
+    expect(fig(sb.figures)).toEqual([265, 14]);
+    expect(values).toEqual({ supply_rate: 2079, install_rate: 234, combined_rate: 2313 });
+    expect(v.sections).toMatchObject({ lines: 2, bad: 0 });
+    // every figure is the pure pricer's for the same inputs typed by hand
+    expect(fig(p53.figures)).toEqual(pure(PIP, pipe("Copper", "22.3")));
+    expect(fig(sb.figures)).toEqual(pure(INS, ins(NITRILE, { cladding: "No", thickness_mm: "19", pipe_size_mm: "22.3" }, ["pipe_size_mm"])));
+    expect(sb.qtyMirrorTag).toBe("from pipe");
+  });
+  it("row 60: 'Pipe type as written: uPVC' -> PVC with 'BoQ says uPVC -> priced as PVC', 120 / 28; insulation '6/9' is a THICKNESS (9 -> 13), pipe 25 'from pipe' -> 28.58, 238 / 14; the row 358 / 42", () => {
+    const { v, values } = row(60);
+    const p60 = v.items[0];
+    expect({ family: p60.family, line: p60.familyLine, size: field(p60, "size_mm").value, figures: fig(p60.figures) })
+      .toEqual({ family: "PVC", line: "BoQ says uPVC -> priced as PVC", size: "25", figures: [120, 28] });
+    expect(p60.readOnly).toEqual([{ id: AS_WRITTEN, label: "Pipe type as written", value: "uPVC" }]);
+    expect(field(p60, "pipe_class")).toMatchObject({ value: "heavy class (10KG)", readOnly: true });
+    const sb = secBlock(attached(v));
+    const t = field(sb, "thickness_mm"), ps = field(sb, "pipe_size_mm");
+    expect(t.value).toBe("13");
+    expect(sb.working.some((w) => w.includes("'6/9 mm' states two values -- the higher, 9, is taken"))).toBe(true);
+    expect(t.note).toBe("BoQ says 9 mm -> priced as 13 mm (next size up)");
+    expect({ typed: ps.typedValue, value: ps.value, tag: ps.mirrorTag }).toEqual({ typed: "25", value: "28.58", tag: "from pipe" });
+    expect(fig(sb.figures)).toEqual([238, 14]);
+    expect(values).toEqual({ supply_rate: 358, install_rate: 42, combined_rate: 400 });
+    expect(fig(p60.figures)).toEqual(pure(PIP, pipe("PVC", "25")));
+    expect(fig(p60.figures)).toEqual(fig(compute(PIP, { items: [typedType("uPVC", "25")] }).values));     // == the word typed in the Other... box
+    expect(fig(sb.figures)).toEqual(pure(INS, ins(NITRILE, { cladding: "No", thickness_mm: "9", pipe_size_mm: "25" }, ["pipe_size_mm"])));
+    // 6/9 never became a pipe size: the pipe's size field reads the row's own 25
+    expect(field(p60, "size_mm").note ?? "").not.toContain("6/9");
+  });
+  it("NEGATIVE (what these rows gave before): with the pre-slice asset (v37: no as-written rule, no 0.1 mm match) row 60 cannot tell its pipe type and row 53's insulation buys the next size up", () => {
+    const h = makePricingSheetHelper({ configsByCategory: CONFIGS37, items: ITEMS, extractionByRow: buildExtractionByRow(AC0_STORED as never) });
+    const at = (excelRow: number) => (h.compute({ excelRow, description: "", nodeType: "Line Item", category: PIP, discipline: "HVAC", rateKinds: [...KINDS], unit: "Metre" } as RateHelperRowContext, {}) as ItemListSuggestion).itemList!;
+    expect(at(60).items[0].reason).toBe("no pipe type could be told for this item");
+    expect(fig(secBlock(attached(at(53))).figures)).toEqual([286, 14]);
   });
 });

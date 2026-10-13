@@ -510,6 +510,157 @@ def add_sections(base, out):
     frappe.destroy()
 
 
+# SLICE 12e-4b (owner D-1 / D-2 / D-3, F-1, F-3, decisions 1-4 and 8, 2026-10-13) -- PHASE `questions`: HVAC v38 =
+# v37 + WHAT THE MODEL IS ASKED ON A PIPING ROW, AND ONE INSULATION KEY. Nothing is minted and no item is touched.
+#   Piping config, `list_spec`:
+#     (a) the model notes of the four definitions (the two "(... is written in 12e-4.)" placeholders are gone);
+#         the ignore list rides in the Pipe type note (decision 8), the unit sentence in the Pipe size note (F-3);
+#     (b) one new definition after `pipe_type`: `pipe_type_as_written` (text) -- the BoQ's own word (D-3);
+#     (c) `second_opinion: true` (D-1: "ON while building a new category");
+#     (d) `pricing.family_text.from_attr` (where the pricer reads that word), "Stainless steel" in
+#         `pricing.family_text.refuse` (decision 4), and `pricing.panel_readonly` (shown, never typed).
+#   Insulation config: `list_spec.pricing.numbers.pipe_size_mm.near: 0.1` (F-1, "option B": Insulation's OWN
+#     pipe-size match also takes a stocked size within 0.1 mm) -- that one key and nothing else.
+# The candidate is the base file with those two configs edited IN PLACE (it stops if re-dumping the unedited base
+# does not reproduce its bytes). Offline validation: the config validator on every config AND the cross-category
+# check. NO database write; `load` then runs as before.
+# ---------------------------------------------------------------------------------------------------------
+AS_WRITTEN_ID = "pipe_type_as_written"
+PIPING_NOTES_V38 = {
+    "pipe_type": (
+        "Which pipe THIS row buys - one of the four stocked types. Answer it only when the row's own text, or a "
+        "heading that describes this row's pipe, names that very type: refrigerant / copper piping is Copper; "
+        "MS or mild steel piping is MS; PVC is PVC; CPVC is CPVC. A drain or condensate line takes the type the "
+        "text names for it. The row's own word wins over a heading: a row that says PVC under a CPVC heading is "
+        "PVC. Where the text names any other type (GI, uPVC, HDPE, SS, anything else), or names two different "
+        "types for this pipe and the row itself does not say which, LEAVE THIS OUT - never choose the nearest "
+        "stocked type; the pricer does that from 'Pipe type as written'. Return one item per pipe the row pays "
+        "for. Testing, painting, sleeves, welding, nitrogen or vacuum work, civil work, identification and "
+        "valves named with the pipe are NOT items and change no attribute: ignore them."
+    ),
+    AS_WRITTEN_ID: (
+        "The pipe's type in the BoQ's OWN WORD, copied exactly as written: from the row's own text when it "
+        "names one, else from the nearest heading that describes this row's pipe (copper, MS, GI, uPVC, HDPE, "
+        "SS). Answer it on every pipe whose type the text names, also when 'Pipe type' is answered. Where the "
+        "text names two or more types for this pipe, copy them all as written ('MS / GI', 'uPVC/ CPVC'). Leave "
+        "it out only when neither the row nor its headings name a type. Recorded and shown; the pricer maps it "
+        "or refuses it by name."
+    ),
+    "size_mm": (
+        "The pipe's own size AS THE ROW WRITES IT, with its unit: mm, an NB number (50 NB), inches (5/8\", "
+        "1-1/4\", 2 inch) or an outside diameter in mm (22.3 mm O.D). Never converted, never rounded. The row's "
+        "own size comes first; a heading gives the size only when the row states none. Where the text names two "
+        "sizes and says which one is this pipe's, return that one; otherwise copy both as written (25/32 mm). "
+        "Where the row writes its size as a bare number with no unit (3/4, 1, 1-1/4), take the UNIT - never "
+        "the size - from a heading that describes this row's pipe, or from the neighbouring rows of the same "
+        "list (rows beside it written 3/4\", 1\", 1-1/4\" make a bare 1 an inch size), and write the unit with "
+        "the size ('1 inch'). Where neither the row, its headings nor its neighbours give a unit, return the "
+        "number bare, exactly as written. A "
+        "wall thickness, a gauge, a class, a schedule or a pressure rating is NEVER the pipe size: in '22.3 mm "
+        "O.D (wall Thickness-1.0 mm)' the size is 22.3 mm. A number or a slash pair written next to "
+        "'insulation', 'insulated', 'thick' or 'thickness' ('insulation : 13/19 mm', 'with 6/9 mm nitrile "
+        "rubber insulation', '9 MM insulation foam') is a THICKNESS and is never the pipe size."
+    ),
+    "pipe_class": (
+        "A class, wall thickness, schedule, grade or 'seamless' / 'ERW' the text states for the pipe, copied as "
+        "written. A wall thickness written beside the size ('100NB - 5.4mm thick (Min)', 'wall Thickness-1.0 "
+        "mm') is the PIPE's wall thickness: it goes here and is never an insulation thickness. Recorded and "
+        "shown; it never changes the price (the sheet has one rate per size)."
+    ),
+    "insulated": (
+        "Whether THIS pipe is insulated. Yes when the row, or a heading that describes this row's pipe, says it "
+        "is insulated or gives any insulation fact for it (a material, a thickness, 'duly insulated', 'with 9 MM "
+        "insulation foam'). No only when the text says this pipe is NOT insulated (bare, uninsulated). Leave it "
+        "out when the text does not mention insulation for this pipe. When Yes, also return the insulation as "
+        "its own item in the insulation section, in the same position as its pipe."
+    ),
+}
+STAINLESS_REFUSAL = {"from": "Stainless steel",
+                     "refuse": "No SKU in the catalogue for SS pipe - price this row by hand",
+                     "rule": "Q16 SS refuses (owner 2026-10-10); 'Stainless steel' spelled out joins it (owner 2026-10-13)"}
+INSULATION_PIPE_SIZE_NEAR = 0.1     # owner F-1 "option B" -- the distance Piping's own ladder already uses (Q14a)
+
+
+def piping_questions_config(base_config):
+    """The v38 Piping config: v37's + the five notes, the as-written definition, the second opinion ON, and the
+    three `pricing` additions. Every other key, and the order of every existing key, verbatim."""
+    cfg = copy.deepcopy(base_config)
+    spec = cfg["list_spec"]
+    assert [d["id"] for d in spec["attribute_definitions"]] == ["pipe_type", "size_mm", "pipe_class", "insulated"], spec["attribute_definitions"]
+    defs = []
+    for d in spec["attribute_definitions"]:
+        d = dict(d)
+        assert "note" in d, d
+        d["note"] = PIPING_NOTES_V38[d["id"]]
+        defs.append(d)
+        if d["id"] == "pipe_type":
+            defs.append({"id": AS_WRITTEN_ID, "label": "Pipe type as written", "type": "text", "note": PIPING_NOTES_V38[AS_WRITTEN_ID]})
+    spec["attribute_definitions"] = defs
+    assert spec.get("second_opinion") is False
+    spec["second_opinion"] = True
+    pr = spec["pricing"]
+    ft = pr["family_text"]
+    assert "from_attr" not in ft and [r["from"] for r in ft["refuse"]] == ["SS"], ft
+    ft["refuse"] = ft["refuse"] + [copy.deepcopy(STAINLESS_REFUSAL)]
+    ft["from_attr"] = AS_WRITTEN_ID
+    assert "panel_readonly" not in pr
+    # `panel_readonly` sits directly before `panel_optional`, its sibling (shown and never typed / an optional box)
+    pricing = {}
+    for k, v in pr.items():
+        if k == "panel_optional":
+            pricing["panel_readonly"] = [AS_WRITTEN_ID]
+        pricing[k] = v
+    assert "panel_readonly" in pricing
+    spec["pricing"] = pricing
+    for text in (json.dumps(cfg, ensure_ascii=False),):
+        assert "is written in 12e-4" not in text, "a placeholder note survived"
+    return cfg
+
+
+def insulation_near_config(base_config):
+    """The v38 Insulation config: v37's + `numbers.pipe_size_mm.near`. That one key."""
+    cfg = copy.deepcopy(base_config)
+    reader = cfg["list_spec"]["pricing"]["numbers"]["pipe_size_mm"]
+    assert "near" not in reader, reader
+    reader["near"] = INSULATION_PIPE_SIZE_NEAR
+    return cfg
+
+
+def add_questions(base, out):
+    """12e-4b `questions`: v38 = base (v37) + the Piping config's questions and the one Insulation key. NO database write."""
+    import frappe
+    os.chdir("/workspace/development/frappe-bench/sites")
+    frappe.init(site="localhost"); frappe.connect()
+    from nirmaan_stack.services.boq_rate_master import config_validation, extraction
+    raw = open(base, encoding="utf-8", newline="").read()
+    payload = json.loads(raw)
+    dump = lambda p: json.dumps(p, indent=1, ensure_ascii=False)
+    if dump(payload) != raw.rstrip("\n"):
+        raise SystemExit("re-dumping the unedited base does not reproduce its bytes -- the file convention moved; stop")
+    ids = [c["category_id"] for c in payload["category_configs"]]
+    pi, ii = ids.index(CATEGORY_ID), ids.index(INSULATION_CATEGORY_ID)
+    before = payload["category_configs"][pi]
+    payload["category_configs"][pi] = piping_questions_config(before)
+    payload["category_configs"][ii] = insulation_near_config(payload["category_configs"][ii])
+    stored = [dict(c, discipline=payload["discipline"]) for c in payload["category_configs"]]
+    for c in stored:
+        config_validation._validate_config(c)
+    problems = config_validation.delegated_section_problems(stored, payload["items"])
+    if problems:
+        raise SystemExit("12e-4b: the cross-category check refuses the candidate: %r" % problems)
+    cfgs = {(payload["discipline"], c["category_id"]): c for c in stored}
+    q_before = [d["id"] for d in extraction.build_items_spec(before)["attribute_definitions"]]
+    spec = extraction.build_items_spec(cfgs[(payload["discipline"], CATEGORY_ID)], cfgs, payload["discipline"])
+    q_after = [d["id"] for d in spec["attribute_definitions"]]
+    assert q_after == ["pipe_type", AS_WRITTEN_ID, "size_mm", "pipe_class", "insulated"], (q_before, q_after)
+    assert spec["second_opinion"] is True and [s["id"] for s in spec["sections"]] == ["insulation"], spec
+    open(out, "w", encoding="utf-8", newline="").write(dump(payload) + raw[len(raw.rstrip("\n")):])
+    print("candidate written:", out, "| items", len(payload["items"]), "| configs", len(payload["category_configs"]),
+          "| Piping questions", q_before, "->", q_after, "| second opinion", spec["second_opinion"],
+          "| section questions", [d["id"] for d in spec["sections"][0]["items_spec"]["attribute_definitions"]])
+    frappe.destroy()
+
+
 def load(candidate, canonical):
     import frappe
     os.chdir("/workspace/development/frappe-bench/sites")
@@ -532,7 +683,7 @@ def load(candidate, canonical):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("phase", choices=["build", "name", "price", "sections", "load"])
+    ap.add_argument("phase", choices=["build", "name", "price", "sections", "questions", "load"])
     ap.add_argument("--workbook"); ap.add_argument("--base"); ap.add_argument("--out")
     ap.add_argument("--candidate"); ap.add_argument("--canonical")
     a = ap.parse_args()
@@ -544,5 +695,7 @@ if __name__ == "__main__":
         price_items(a.workbook, a.base, a.out)   # 12e-2
     elif a.phase == "sections":
         add_sections(a.base, a.out)              # 12e-3a
+    elif a.phase == "questions":
+        add_questions(a.base, a.out)             # 12e-4b
     else:
         load(a.candidate, a.canonical)

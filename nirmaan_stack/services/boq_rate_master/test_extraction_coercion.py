@@ -2331,7 +2331,11 @@ class TestItemListSlice4(FrappeTestCase):
         # BEFORE: ... == ["pipe_type", "size_mm", "pipe_class"]
         pip_questions = [d["id"] for d in extraction.build_items_spec(pip)["attribute_definitions"]]
         self.assertNotEqual(pip_questions, ["pipe_type", "size_mm", "pipe_class"])
-        self.assertEqual(pip_questions, ["pipe_type", "size_mm", "pipe_class", "insulated"])
+        # INVERTED AGAIN by SLICE 12e-4b under mechanical authority (owner D-3, 2026-10-13: the model is also asked
+        # the pipe's type in the BoQ's own word, from v38): exactly one more definition, directly after Pipe type.
+        # BEFORE: self.assertEqual(pip_questions, ["pipe_type", "size_mm", "pipe_class", "insulated"])
+        self.assertNotEqual(pip_questions, ["pipe_type", "size_mm", "pipe_class", "insulated"])
+        self.assertEqual(pip_questions, ["pipe_type", "pipe_type_as_written", "size_mm", "pipe_class", "insulated"])
         # NEGATIVE HALF KEPT: every category that is none of those three still yields None
         for key in self.cfgs:
             if key not in (("HVAC", "hvac_adp"), ("HVAC", "hvac_insulation"), ("HVAC", "hvac_piping")):
@@ -3509,7 +3513,8 @@ class TestSlice12d4cModelCall(FrappeTestCase):
         with open(_asset_path(CURRENT_HVAC_ASSET), "r", encoding="utf-8") as fh:
             cls.v33 = json.load(fh)
         assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v36.json"   # 12e-3a: moved again (BEFORE: == v36)
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v37.json"   # 12e-3a: v37 (+ the Insulation section on Piping)
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v37.json"   # 12e-4b: moved again (BEFORE: == v37, 12e-3a)
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v38.json"   # 12e-4b: v38 (+ what a Piping row is asked, + Insulation's one key)
 
     _cfgs = staticmethod(TestSlice12d1bModelCall._cfgs)
     _row = staticmethod(TestSlice12d1bModelCall._row)

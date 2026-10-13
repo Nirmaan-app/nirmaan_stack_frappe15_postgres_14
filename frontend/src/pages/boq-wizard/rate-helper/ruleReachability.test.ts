@@ -32,7 +32,7 @@ import {
 import { familyAttr, itemListPricingSpec, priceItemList } from "./itemListPricing";
 
 const ASSET = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
-  new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v37.json", import.meta.url),   // 12e-2: v33 -> v36 (Insulation and ADP carried byte-equal; Piping gains its rules); 12e-3b: v36 -> v37 (Piping gains its insulation section; Insulation and ADP byte-equal)
+  new URL("../../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v38.json", import.meta.url),   // 12e-4b: v37 -> v38 (Insulation, ADP and every item carried; Piping gains its model questions, the as-written rule and the second opinion; Insulation one key). BEFORE: v37. 12e-2: v33 -> v36 (Insulation and ADP carried byte-equal; Piping gains its rules); 12e-3b: v36 -> v37 (Piping gains its insulation section; Insulation and ADP byte-equal)
 );
 const CFG: Record<string, RateCategoryConfig> = Object.fromEntries(ASSET.category_configs.map((c) => [c.category_id, c]));
 const CONFIGS = new Map<string, RateCategoryConfig>(Object.entries(CFG));
@@ -133,6 +133,9 @@ const T = {
   typedSize: "A typed pipe size is one size, in mm or inches",
   // ── SLICE 12e-4b (owner F-3): a bare number that could be an inch size refuses ──
   noUnit: "A pipe size written as a bare number that could be inches refuses",
+  // ── SLICE 12e-4b (owner D-3 / F-1), generated from the two keys HVAC v38 adds ──
+  asWritten: "A pipe type left unanswered is read from 'Pipe type as written'",
+  nearPipe: "A pipe size within 0.1 mm of a stocked size counts as that size",
   readClass: "A Copper, MS and 2 more row stating its own figure in the class / wall thickness carries a line saying what was priced",
 };
 /** Tab lines that are NOT panel-path rules (a catalogue / rate-master rule the pricer never reads), by name. */
@@ -142,6 +145,11 @@ const NOT_PANEL_RULES: Record<string, string> = {
 
 const CASES: Case[] = [
   // ── INSULATION ──────────────────────────────────────────────────────────────────────────────────
+  // 12e-4b (owner F-1, "option B"): Insulation's own pipe-size match takes a stocked size within 0.1 mm. Positive on
+  // the model path and the calculator; negative: 0.11 away still takes the next size up, and says nothing of 0.1 mm.
+  { id: "I15a", rule: T.nearPipe, cat: INS, path: "panel", kind: "pos", unit: "RMT", model: [m(NIT, { pipe_size_mm: "22.3" })], re: ["pipe size 22.3 is 22.23 on the sheet (within 0.1 mm)"], priced: true },
+  { id: "I15a-calc", rule: T.nearPipe, cat: INS, path: "calc", kind: "pos", edits: calc(NR, { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "22.3" }, ["pipe_size_mm"]), rowUnit: "mts", re: ["pipe size 22.3 is 22.23 on the sheet (within 0.1 mm)"], priced: true },
+  { id: "I15b-neg", rule: T.nearPipe, cat: INS, path: "panel", kind: "neg", unit: "RMT", model: [m(NIT, { pipe_size_mm: "22.34" })], re: ["pipe size 22.34 is not on the sheet -> 28.58 (next size up"], not: ["within 0.1 mm"], priced: true },
   { id: "I1a", rule: T.unit, cat: INS, path: "panel", kind: "pos", unit: "sqft", model: [THMI], re: ["per sq.ft: sq.m rate x 0.0929"], priced: true },
   { id: "I1a-calc", rule: T.unit, cat: INS, path: "calc", kind: "pos", edits: calc(THM, { cladding: "No", thickness_mm: "19" }), rowUnit: "sqft", re: ["per sq.ft: sq.m rate x 0.0929"], priced: true },
   { id: "I1b", rule: T.unit, cat: INS, path: "panel", kind: "pos", unit: "", model: [NIT], re: ["No unit on the BoQ row -> priced per metre"], priced: true },
@@ -302,6 +310,13 @@ const CASES: Case[] = [
   { id: "P1g", rule: T.pipeRow, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "None", size_mm: "50" }], description: "MS / GI pipe 50 mm dia with fittings", re: ["BoQ names MS / GI -> priced as MS", "family:MS"], priced: true },
   { id: "P1h", rule: T.pipeRow, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "None", size_mm: "50" }], description: "copper or PVC drain pipe 50 mm", re: ["two pipe types are named in this row (Copper, PVC) - pick the type"], priced: false },
   { id: "P1i-neg", rule: T.pipeRow, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "None", size_mm: "50" }], description: "pipe 50 mm dia", headings: ["MS piping"], re: ["no pipe type could be told for this item"], not: ["BoQ names", "two pipe types"], priced: false },
+  // 12e-4b (owner D-3): the BoQ's own word, read only when the pipe type itself is unanswered. Positive: a mapped word
+  // prices with its line, a refused one refuses with its sentence; negative: an ANSWERED type wins over the word
+  // (decision 3), and with neither a type nor a word the row keeps the old sentence.
+  { id: "P1j", rule: T.asWritten, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type_as_written: "uPVC", size_mm: "25" }], re: ["BoQ says uPVC -> priced as PVC", "family:PVC"], priced: true },
+  { id: "P1k", rule: T.asWritten, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type_as_written: "Stainless steel", size_mm: "25" }], re: ["No SKU in the catalogue for SS pipe - price this row by hand"], priced: false },
+  { id: "P1l-neg", rule: T.asWritten, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "MS", pipe_type_as_written: "SS", size_mm: "50" }], re: ["family:MS"], not: ["No SKU in the catalogue for SS", "BoQ says SS"], priced: true },
+  { id: "P1m-neg", rule: T.asWritten, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "None", pipe_type_as_written: "None", size_mm: "50" }], re: ["no pipe type could be told for this item"], not: ["BoQ says", "BoQ names"], priced: false },
   // the rule for the unit, and the needs
   { id: "P6a", rule: T.ruleForUnit, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [MS50], re: ["family:MS"], priced: true },
   { id: "P6b-neg", rule: T.ruleForUnit, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "Copper", size_mm: "15.9" }], re: [], not: ["no SKU per"], priced: true },
@@ -462,7 +477,7 @@ const matches = (text: string, p: string | RegExp) => (typeof p === "string" ? t
 describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the panel's entry point (live v33)", () => {
   const titles = (cat: string) => itemListRuleOrder(CFG[cat], ITEMS).map((l) => l.title);
 
-  it("THE GUARD: the rules this file names EQUAL the rules the config generates (Insulation 24, ADP 18, Piping 19 -- 14 before 12e-3b, four section lines then, the quantity line at 12e-3c); a new rule without a case, or a case naming a dead rule, fails here", () => {
+  it("THE GUARD: the rules this file names EQUAL the rules the config generates (Insulation 25, ADP 18, Piping 21 at 12e-4b / v38 -- Insulation 24 and Piping 19 before it); a new rule without a case, or a case naming a dead rule, fails here", () => {
     for (const cat of [INS, ADP, PIP]) {
       const generated = new Set(titles(cat));
       const named = new Set([...CASES.filter((c) => c.cat === cat).map((c) => c.rule), ...PICKER_CASES.filter(() => cat === ADP).map((p) => p.rule), ...Object.keys(NOT_PANEL_RULES).filter((t) => generated.has(t))]);
@@ -470,17 +485,23 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
       const dead = [...named].filter((t) => !generated.has(t));
       expect({ cat, uncovered, dead }).toEqual({ cat, uncovered: [], dead: [] });
     }
-    expect(titles(INS)).toHaveLength(24);
+    // INVERTED at 12e-4b (owner F-1; HVAC v38): BEFORE `toHaveLength(24)`. Insulation's one new key generates one line.
+    expect(titles(INS)).toHaveLength(25);
+    expect(titles(INS)).toContain(T.nearPipe);
     expect(titles(ADP)).toHaveLength(18);
     // INVERTED at 12e-3b (AC6): BEFORE `toHaveLength(14)` on v36. v37 declares the insulation section, which adds the four
     // lines named here; the 14 before them are unchanged, in the same order.
     // INVERTED at 12e-3c (owner F10 / U6): BEFORE `toHaveLength(18)` and `slice(14)` equal to the four section lines.
     // INVERTED at 12e-4b (owner F-3: the no-unit line, generated from keys v36 already carries, sits after "Fitting the
     // stated pipe size"). BEFORE: `toHaveLength(19)`, `slice(14)` the five section lines, `slice(0, 14)` v36's titles.
-    expect(titles(PIP)).toHaveLength(20);
-    expect(titles(PIP)[11]).toBe(T.noUnit);
-    expect(titles(PIP).slice(15)).toEqual([T.secToggle, T.secRules, T.secMirror, T.secQty, T.secTotal]);
-    expect(titles(PIP).slice(0, 15)).toEqual(itemListRuleOrder(V36_PIPING, ITEMS).map((l) => l.title));
+    // INVERTED AGAIN at 12e-4b (owner D-3; HVAC v38 names the as-written attribute, which generates one more line, sixth).
+    // BEFORE (v37, this slice's code): `toHaveLength(20)`, `[11]` the no-unit line, `slice(15)` the five section lines,
+    // `slice(0, 15)` v36's titles.
+    expect(titles(PIP)).toHaveLength(21);
+    expect(titles(PIP)[5]).toBe(T.asWritten);
+    expect(titles(PIP)[12]).toBe(T.noUnit);
+    expect(titles(PIP).slice(16)).toEqual([T.secToggle, T.secRules, T.secMirror, T.secQty, T.secTotal]);
+    expect(titles(PIP).slice(0, 16).filter((t) => t !== T.asWritten)).toEqual(itemListRuleOrder(V36_PIPING, ITEMS).map((l) => l.title));
     for (const cat of [INS, ADP]) expect(titles(cat)).not.toContain(T.noUnit);
     // every NOT-panel rule is a REAL tab line (never a stale excuse)
     for (const t of Object.keys(NOT_PANEL_RULES)) expect(titles(INS).includes(t) || titles(ADP).includes(t)).toBe(true);

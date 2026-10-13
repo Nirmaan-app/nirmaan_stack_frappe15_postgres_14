@@ -37,6 +37,7 @@ What these tests protect, in plain English:
              ZERO changes (the derived cells read as untouched).
 """
 import copy
+import hashlib
 import json
 import os
 import re
@@ -273,7 +274,10 @@ class TestSlice12e1AssetV34(FrappeTestCase):
         # 12e-3a: INVERTED again under mechanical authority -- v37 (the Insulation section on Piping) is the newest;
         # BEFORE: self.assertEqual(max(ns), 36)
         self.assertNotEqual(max(ns), 36, "12e-3a: v36 is no longer the newest")
-        self.assertEqual(max(ns), 37)
+        # 12e-4b: INVERTED again under mechanical authority -- v38 (what a Piping row is asked) is the newest.
+        # BEFORE: self.assertEqual(max(ns), 37)
+        self.assertNotEqual(max(ns), 37, "12e-4b: v37 is no longer the newest")
+        self.assertEqual(max(ns), 38)
         self.assertTrue(os.path.exists(_asset_path(V35)), "v35 stays on disk as the 12e-1b record")
         self.assertTrue(os.path.exists(_asset_path(V34)), "v34 stays on disk as the 12e-1 record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -689,7 +693,10 @@ class TestSlice12e2AssetV36(FrappeTestCase):
         # 12e-3a: INVERTED under mechanical authority -- v37 is the newest; v36 stays on disk as the 12e-2 record.
         # BEFORE: self.assertEqual(max(ns), 36)
         self.assertNotEqual(max(ns), 36, "12e-3a: v36 is no longer the newest")
-        self.assertEqual(max(ns), 37)
+        # 12e-4b: INVERTED again under mechanical authority -- v38 (what a Piping row is asked) is the newest.
+        # BEFORE: self.assertEqual(max(ns), 37)
+        self.assertNotEqual(max(ns), 37, "12e-4b: v37 is no longer the newest")
+        self.assertEqual(max(ns), 38)
         self.assertTrue(os.path.exists(_asset_path(V36)))
         self.assertTrue(os.path.exists(_asset_path(V35)))
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -809,7 +816,11 @@ class TestSlice12e3aSectionsV37(FrappeTestCase):
     def test_15_v37_is_the_newest_hvac_asset_on_disk(self):
         d = os.path.dirname(_asset_path(V37))
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
-        self.assertEqual(max(ns), 37)
+        # 12e-4b: INVERTED under mechanical authority -- v38 is the newest; v37 stays on disk as the 12e-3a record.
+        # BEFORE: self.assertEqual(max(ns), 37)
+        self.assertNotEqual(max(ns), 37, "12e-4b: v37 is no longer the newest")
+        self.assertEqual(max(ns), 38)
+        self.assertTrue(os.path.exists(_asset_path(V37)))
         self.assertTrue(os.path.exists(_asset_path(V36)), "v36 stays on disk as the 12e-2 record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
 
@@ -1247,3 +1258,344 @@ class TestSlice12e3cSingleConfigLoad(FrappeTestCase):
                                       "items": [it for it in self.v37["items"] if it["kind"] == "hvac_piping_item"]})
         self.assertIn("category_config is missing 'pipelines'", str(cm.exception))
         self.assertEqual(self._live(), live_before)
+
+
+V38 = "rate_master_hvac_all_v38.json"   # 12e-4b: v37 + what a Piping row is asked (D-1 / D-2 / D-3, F-3) + Insulation's one key (F-1)
+AS_WRITTEN = "pipe_type_as_written"
+SS_SENTENCE = "No SKU in the catalogue for SS pipe - price this row by hand"
+# AC0 -- BOQ-26-00073 / sheet "HVAC" / rows 53 and 60, as `assemble_population` yields them (read 2026-10-13): each
+# row's own text and its parent heading are the BoQ's, word for word; the grandparent ("VRF SYSTEM") is carried by
+# its description alone (its 2.5 KB specification note says nothing about a pipe and is left out of the fixture).
+AC0_PARENT_53 = (
+    "Supplying, Installing, testing and commissioning of interconnecting Liquid / Gas refrigerant copper piping duly "
+    "insulated with Close cell elastomeric Nitrile rubber Class ‘O’ tubular insulation of thickness 13 or 19 mm as "
+    "mentioned below with minimum 45 Kg/ m2 density, thermal conductivity 0.037 W/MK or better at 20 deg mean "
+    "temperature. The exposed to sun refrigerant pipe insulation shall be cover with UL certified UV protective coating "
+    "with 7 mill fiber glass cloth applied by suitable adhesive. All the copper piping shall be eddy current test "
+    "certified. All piping inside & outside the building shall run inside and propoerly supported using cable trays. "
+    "Notes: 1. This items shall include cost of refrigerant filling for required lenghth of pipe. 2. The piping upto "
+    "15.1 mm will be soft drawn and higher sizes will be hard drawn. 3. Insulation thickness to be 13mm for liquid line "
+    "and 19mm for suction line 4. The cost of cable trays has been has been considered elsewhere in the tender. 5. The "
+    "cost of UL certified UV protective coating has been has been considered elsewhere in the tender."
+)
+AC0_PARENT_60 = (
+    "Supply, installation, testing and commissioning Rigid heavy class (10KG) uPVC Condensate Drain piping of following "
+    "sizes with minimum 6/9 mm nitrile rubber insulation over the pipes, complete with fittings, supports, U trap "
+    "arrangement, clean plug and accessories for units as per specifications and technical specification."
+)
+
+
+def _ac0_row(excel_row, description, parent):
+    return {"excel_row": excel_row, "node_type": "Line Item", "description": description, "sheet_name": "HVAC",
+            "committed_version": 1, "notes": "", "own_notes_raw": None, "attached_notes": None, "append_notes_raw": None,
+            "ancestors": [{"node_type": "Preamble", "description": "VRF SYSTEM", "notes": "", "own_notes_raw": None, "attached_notes": None, "append_notes_raw": None},
+                          {"node_type": "Preamble", "description": parent, "notes": "", "own_notes_raw": None, "attached_notes": None, "append_notes_raw": None}],
+            "warnings": [], "category_id": CATEGORY, "discipline": "HVAC"}
+
+
+AC0_ROWS = [_ac0_row(53, "22.3 mm O.D (wall Thickness-1.0 mm) (insulation : 13/19 mm)", AC0_PARENT_53),
+            _ac0_row(60, "25 mm dia", AC0_PARENT_60)]
+_c = lambda v, conf=0.9: {"value": v, "confidence": conf}
+# the 12e-4a stub answers (X1, X2), as a model would write them: a pipe item, then the marked insulation item
+AC0_REPLY = [
+    {"id": 53, "items": [
+        {"attributes": {"pipe_type": _c("Copper"), AS_WRITTEN: _c("copper"), "size_mm": _c("22.3 mm O.D"),
+                        "pipe_class": _c("wall Thickness-1.0 mm"), "insulated": _c("Yes")}},
+        {"section": "insulation", "attributes": {"item": _c("Nitrile Rubber Insulation"), "cladding": _c("None", 0.6), "thickness_mm": _c("13/19 mm"),
+                                                 "material_as_written": _c("Nitrile rubber")}}]},
+    {"id": 60, "items": [
+        {"attributes": {AS_WRITTEN: _c("uPVC"), "size_mm": _c("25 mm dia"), "pipe_class": _c("heavy class (10KG)"), "insulated": _c("Yes")}},
+        {"section": "insulation", "attributes": {"item": _c("Nitrile Rubber Insulation"), "cladding": _c("None", 0.6), "thickness_mm": _c("6/9 mm")}}]},
+]
+_z = {"value": None, "confidence": 0.0}
+# WHAT THE RUN STORES for those two rows (`run_extraction`'s result rows): every definition of each item's own kind
+# present, the insulation item marked. The frontend half of AC0 (`slice12e4b.test.ts`) prices THIS shape; the two
+# halves are tied by `AC0_STORED_SHA256`, the digest of this list in canonical JSON, pinned in both files.
+AC0_STORED = [
+    {"excel_row": 53, "description": "22.3 mm O.D (wall Thickness-1.0 mm) (insulation : 13/19 mm)", "category_id": CATEGORY, "attributes": {},
+     "items": [
+         {"attributes": {"pipe_type": _c("Copper"), AS_WRITTEN: _c("copper"), "size_mm": _c("22.3 mm O.D"),
+                         "pipe_class": _c("wall Thickness-1.0 mm"), "insulated": _c("Yes")}},
+         {"attributes": {"item": _c("Nitrile Rubber Insulation"), "cladding": _c("None", 0.6), "thickness_mm": _c("13/19 mm"), "pipe_size_mm": dict(_z),
+                         "brand": dict(_z), "material_as_written": _c("Nitrile rubber")}, "section": "insulation"}],
+     "item_flags": []},
+    {"excel_row": 60, "description": "25 mm dia", "category_id": CATEGORY, "attributes": {},
+     "items": [
+         {"attributes": {"pipe_type": dict(_z), AS_WRITTEN: _c("uPVC"), "size_mm": _c("25 mm dia"), "pipe_class": _c("heavy class (10KG)"),
+                         "insulated": _c("Yes")}},
+         {"attributes": {"item": _c("Nitrile Rubber Insulation"), "cladding": _c("None", 0.6), "thickness_mm": _c("6/9 mm"), "pipe_size_mm": dict(_z),
+                         "brand": dict(_z), "material_as_written": dict(_z)}, "section": "insulation"}],
+     "item_flags": []},
+]
+AC0_STORED_SHA256 = "8fb71189d4f1302d9f3d689b5170bf256297f40e1fad750eac3d808b6d4cd72d"
+
+
+def _canonical(obj):
+    """The canonical JSON both AC0 halves hash: sorted keys, no spaces, UTF-8 as written, and a whole-number float
+    written as the integer it is (Python writes 0.0 where JavaScript writes 0 -- the run document is JSON, so the
+    frontend reads the same number either way)."""
+    def norm(x):
+        if isinstance(x, float) and x.is_integer():
+            return int(x)
+        if isinstance(x, dict):
+            return {k: norm(v) for k, v in x.items()}
+        if isinstance(x, list):
+            return [norm(v) for v in x]
+        return x
+    return json.dumps(norm(obj), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+class TestSlice12e4bAssetV38(FrappeTestCase):
+    """SLICE 12e-4b (2026-10-13) -- HVAC v38 = v37 + what the model is asked on a Piping row + one Insulation key.
+
+      test_24  THE DIFF: every item and every other config byte-equal; Insulation differs by `numbers.pipe_size_mm.near`
+               alone; Piping by the five notes, the as-written definition, the second opinion, `family_text.from_attr`,
+               "Stainless steel" in the refuse list and `panel_readonly` -- taken out again, the config IS v37's.
+      test_25  v38 is the newest HVAC asset on disk; v37 stays as the 12e-3a record.
+      test_26  THE VALIDATOR admits `family_text.from_attr` and `numbers.<axis>.near`, and refuses each in a wrong
+               shape by name (NEGATIVE, one refusal per mistake).
+      test_27  WHAT THE MODEL IS SENT with v38: the five notes with their rulings in them, the as-written question,
+               Insulation's block whole, the second opinion on; NEGATIVE: every other HVAC category's request is
+               byte-identical v37 -> v38 (Insulation's too -- its new key is a pricing key and never reaches the model).
+      test_28  AC0, the backend half: the 12e-4a stub answers for BOQ-26-00073 rows 53 and 60 through the REAL
+               `run_extraction` (the real request builder, the real `_extract_batch`, the real result row) with a
+               stub client -- no network, no capture-log line -- store exactly `AC0_STORED`.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.v37, cls.v38 = _read(V37), _read(V38)
+        cls.cfg = next(c for c in cls.v38["category_configs"] if c["category_id"] == CATEGORY)
+        cls.cfg37 = next(c for c in cls.v37["category_configs"] if c["category_id"] == CATEGORY)
+        cls.ins = next(c for c in cls.v38["category_configs"] if c["category_id"] == INSULATION)
+        cls.ins37 = next(c for c in cls.v37["category_configs"] if c["category_id"] == INSULATION)
+        cls.cfgs38 = {("HVAC", c["category_id"]): c for c in _stored(cls.v38)}
+        cls.cfgs37 = {("HVAC", c["category_id"]): c for c in _stored(cls.v37)}
+
+    def test_24_v38_is_v37_plus_the_ruled_changes_and_nothing_else(self):
+        self.assertEqual(self.v38["items"], self.v37["items"], "every item unchanged, in the same order")
+        self.assertEqual(json.dumps(self.v38["items"]), json.dumps(self.v37["items"]))
+        self.assertEqual([c["category_id"] for c in self.v38["category_configs"]], [c["category_id"] for c in self.v37["category_configs"]])
+        changed = [a["category_id"] for a, b in zip(self.v38["category_configs"], self.v37["category_configs"]) if a != b]
+        self.assertEqual(changed, [INSULATION, CATEGORY])
+        for k in set(self.v37) | set(self.v38):
+            if k not in ("items", "category_configs"):
+                self.assertEqual(self.v38.get(k), self.v37.get(k), "top-level key %s is unchanged" % k)
+        # Insulation: the ONE key
+        self.assertEqual(self.ins["list_spec"]["pricing"]["numbers"]["pipe_size_mm"]["near"], 0.1)
+        back = copy.deepcopy(self.ins)
+        del back["list_spec"]["pricing"]["numbers"]["pipe_size_mm"]["near"]
+        self.assertEqual(back, self.ins37, "with the one key taken out the Insulation config IS v37's")
+        self.assertEqual(json.dumps(back), json.dumps(self.ins37), "and in the same key order")
+        self.assertNotIn("near", self.ins["list_spec"]["pricing"]["numbers"]["thickness_mm"])
+        self.assertEqual(self.ins["list_spec"]["pricing"]["size_match"], {"dp": [2, 1]})
+        # Piping: the listed changes, and nothing else
+        ls = self.cfg["list_spec"]
+        self.assertEqual([d["id"] for d in ls["attribute_definitions"]], ["pipe_type", AS_WRITTEN, "size_mm", "pipe_class", "insulated"])
+        d = ls["attribute_definitions"][1]
+        self.assertEqual({k: d[k] for k in ("id", "label", "type")}, {"id": AS_WRITTEN, "label": "Pipe type as written", "type": "text"})
+        self.assertEqual(sorted(d), ["id", "label", "note", "type"])
+        self.assertIs(ls["second_opinion"], True)
+        pr = ls["pricing"]
+        self.assertEqual(pr["family_text"]["from_attr"], AS_WRITTEN)
+        self.assertEqual([r["from"] for r in pr["family_text"]["refuse"]], ["SS", "Stainless steel"])
+        self.assertEqual({r["refuse"] for r in pr["family_text"]["refuse"]}, {SS_SENTENCE})
+        self.assertEqual(pr["panel_readonly"], [AS_WRITTEN])
+        self.assertEqual(ls["attribute_definitions"][0]["values"], ["Copper", "MS", "PVC", "CPVC"], "the dropdown stays the four stocked types")
+        back = copy.deepcopy(self.cfg)
+        bl = back["list_spec"]
+        bl["attribute_definitions"] = [x for x in bl["attribute_definitions"] if x["id"] != AS_WRITTEN]
+        for x, old in zip(bl["attribute_definitions"], self.cfg37["list_spec"]["attribute_definitions"]):
+            self.assertNotEqual(x["note"], old["note"], x["id"])
+            self.assertEqual({k: v for k, v in x.items() if k != "note"}, {k: v for k, v in old.items() if k != "note"}, x["id"])
+            x["note"] = old["note"]
+        bl["second_opinion"] = False
+        bl["pricing"]["family_text"]["refuse"] = bl["pricing"]["family_text"]["refuse"][:1]
+        del bl["pricing"]["family_text"]["from_attr"]
+        del bl["pricing"]["panel_readonly"]
+        self.assertEqual(back, self.cfg37, "with the listed changes taken out the Piping config IS v37's")
+        self.assertEqual(json.dumps(back), json.dumps(self.cfg37), "and in the same key order")
+        # the two placeholders are gone from the whole asset
+        self.assertNotIn("is written in 12e-4", json.dumps(self.v38))
+        self.assertIn("is written in 12e-4", json.dumps(self.v37))
+
+    def test_25_v38_is_the_newest_hvac_asset_on_disk(self):
+        d = os.path.dirname(_asset_path(V38))
+        ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
+        self.assertEqual(max(ns), 38)
+        self.assertTrue(os.path.exists(_asset_path(V37)), "v37 stays on disk as the 12e-3a record")
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
+
+    def test_26_the_validator_admits_the_two_new_keys_and_refuses_each_wrong_shape_by_name(self):
+        def refused(base, mutate, needle):
+            cfg = copy.deepcopy(base)
+            mutate(cfg["list_spec"])
+            with self.assertRaises(frappe.ValidationError) as cm:
+                config_validation._validate_config(loader._loaded_config(cfg, "HVAC", {}))
+            self.assertIn(needle, str(cm.exception))
+        for c in _stored(self.v38):
+            config_validation._validate_config(c)                      # every shipped config passes
+        self.assertEqual(config_validation.delegated_section_problems(_stored(self.v38), self.v38["items"]), [])
+        ft = lambda ls: ls["pricing"]["family_text"]
+        # `from_attr`: a text definition of this category that the pricing does not match on
+        refused(self.cfg, lambda ls: ft(ls).update(from_attr=""), "from_attr must be an item attribute id")
+        refused(self.cfg, lambda ls: ft(ls).update(from_attr=7), "from_attr must be an item attribute id")
+        refused(self.cfg, lambda ls: ft(ls).update(from_attr="pipe_word"), "from_attr names 'pipe_word', which is not an item attribute of this category")
+        refused(self.cfg, lambda ls: ft(ls).update(from_attr="pipe_type"), "from_attr: 'pipe_type' is read by the pricing")
+        refused(self.cfg, lambda ls: ft(ls).update(from_attr="size_mm"), "from_attr: 'size_mm' is read by the pricing")
+        refused(self.cfg, lambda ls: ft(ls).update(from_attr="insulated"), "from_attr: 'insulated' must be a text definition")
+        # ... and it MAY be shown read-only: that is the ruled shape (D-3), so the shipped pair passes; a definition
+        # the config does not carry cannot be read-only
+        refused(self.cfg, lambda ls: ls.update(attribute_definitions=[d for d in ls["attribute_definitions"] if d["id"] != AS_WRITTEN]),
+                "which is not an item attribute of this category")
+        # v37 (no such key) is still refused the key under its old closed list only by NAME of a wrong shape, never for lacking it
+        config_validation._validate_config(loader._loaded_config(copy.deepcopy(self.cfg37), "HVAC", {}))
+        # `near` on one axis: a positive number, on a ladder
+        num = lambda ls: ls["pricing"]["numbers"]["pipe_size_mm"]
+        for bad in (0, -0.1, "0.1", True, None):
+            refused(self.ins, lambda ls, bad=bad: num(ls).update(near=bad), "numbers['pipe_size_mm'].near must be a positive number")
+        refused(self.ins, lambda ls: ls["pricing"].update(ladders=["thickness_mm"]), "numbers['pipe_size_mm'].near needs 'pipe_size_mm' in list_spec.pricing.ladders")
+        refused(self.ins, lambda ls: num(ls).update(nearest=0.1), "nearest")          # an unknown reader key is still refused by name
+        ok = copy.deepcopy(self.ins)
+        ok["list_spec"]["pricing"]["numbers"]["thickness_mm"]["near"] = 0.5       # a second ladder may declare its own
+        config_validation._validate_config(loader._loaded_config(ok, "HVAC", {}))
+
+    def test_27_what_the_model_is_sent_with_v38_and_nothing_else_moves(self):
+        row = AC0_ROWS[0]
+        payload = [extraction._ai_item(row)]
+
+        def content(g):
+            return extraction.batch_prompt_content(g["prompt"], g["defs"], payload, synonyms=g["synonyms"], defaults=g["defaults"],
+                                                   none_guidance=g["none_guidance"], slot_spec=g["slot_spec"],
+                                                   resolution_rules=g["resolution_rules"], rules=g["rules"], items_spec=g.get("items_spec"))
+        g38 = extraction._group_context(self.cfgs38, "HVAC", CATEGORY)
+        spec = g38["items_spec"]
+        self.assertEqual([d["id"] for d in spec["attribute_definitions"]], ["pipe_type", AS_WRITTEN, "size_mm", "pipe_class", "insulated"])
+        self.assertIs(spec["second_opinion"], True)
+        self.assertEqual([s["id"] for s in spec["sections"]], ["insulation"])
+        self.assertEqual(spec["sections"][0]["items_spec"], extraction.build_items_spec(self.cfgs38[("HVAC", INSULATION)]))
+        self.assertIs(spec["sections"][0]["items_spec"]["second_opinion"], False, "Insulation's own switch is Insulation's (D-1: Piping only)")
+        req = content(g38)
+        notes = {d["id"]: d["note"] for d in spec["attribute_definitions"]}
+        # each ruling, in the note that carries it
+        for aid, sentences in {
+            "pipe_type": ["LEAVE THIS OUT - never choose the nearest stocked type",                       # D-3
+                          "The row's own word wins over a heading",                                       # Q15
+                          "Testing, painting, sleeves, welding, nitrogen or vacuum work, civil work, identification and valves named with the pipe are NOT items"],   # decision 8
+            AS_WRITTEN: ["in the BoQ's OWN WORD, copied exactly as written", "also when 'Pipe type' is answered", "('MS / GI', 'uPVC/ CPVC')"],
+            "size_mm": ["take the UNIT - never the size - from a heading that describes this row's pipe, or from the neighbouring rows of the same list",   # F-3 (1)
+                        "write the unit with the size ('1 inch')",
+                        "return the number bare, exactly as written",                                     # F-3 (2)
+                        "is a THICKNESS and is never the pipe size",                                      # F6
+                        "is NEVER the pipe size: in '22.3 mm O.D (wall Thickness-1.0 mm)' the size is 22.3 mm"],
+            "pipe_class": ["it goes here and is never an insulation thickness", "it never changes the price"],
+            "insulated": ["Leave it out when the text does not mention insulation for this pipe",        # decision 1
+                          "also return the insulation as its own item in the insulation section, in the same position as its pipe"],
+        }.items():
+            for s in sentences:
+                self.assertIn(s, notes[aid], aid)
+                self.assertIn(json.dumps(s, ensure_ascii=False)[1:-1], req, aid)
+        for d in spec["attribute_definitions"]:                                     # decision 9: no "service" attribute
+            self.assertNotIn("service", (d["id"] + " " + d["label"]).lower(), d["id"])
+        self.assertEqual(req.count(extraction.SECTION_ITEMS_GUIDANCE), 1)
+        self.assertEqual(req.count(json.dumps(extraction.build_items_spec(self.cfgs38[("HVAC", INSULATION)]), ensure_ascii=False)), 1)
+        # the second opinion reads the same spec, the same notes and the same paragraph
+        review = extraction.second_opinion_content(extraction._read_review_prompt(), payload[0], [], spec)
+        for s in ("LEAVE THIS OUT - never choose the nearest stocked type", "valves named with the pipe are NOT items", "return the number bare"):
+            self.assertIn(s, review)
+        self.assertEqual(review.count(extraction.SECTION_ITEMS_GUIDANCE), 1)
+        # nothing of the pricing block reaches the model
+        for word in ("from_attr", "panel_readonly", "family_text", "Stainless steel", '"near"', "inch_mm_alt"):
+            self.assertNotIn(word, req, word)
+        # NEGATIVE: every other HVAC category's request is byte-identical v37 -> v38 (NAMED), Insulation's included
+        checked = []
+        for key in sorted(self.cfgs37):
+            if key[1] == CATEGORY or not extraction.config_is_eligible(self.cfgs37[key], self.cfgs37):
+                continue
+            g37, g = extraction._group_context(self.cfgs37, *key), extraction._group_context(self.cfgs38, *key)
+            self.assertEqual(g, g37, key[1])
+            self.assertEqual(content(g), content(g37), key[1])
+            checked.append(key[1])
+        self.assertEqual(checked, ["hvac_adp", "hvac_insulation"])
+        self.assertNotEqual(content(g38), content(extraction._group_context(self.cfgs37, "HVAC", CATEGORY)))
+
+    def test_28_ac0_the_stub_answers_through_the_real_run_store_the_pinned_rows(self):
+        from nirmaan_stack.api.boq.wizard import ai_settings
+        seen = {"contents": []}
+
+        class _Usage:
+            input_tokens, output_tokens = 11, 7
+
+        class _Block:
+            def __init__(self, t): self.text = t
+
+        class _Resp:
+            def __init__(self, t): self.content = [_Block(t)]; self.stop_reason = "end_turn"; self.usage = _Usage()
+
+        class _Msgs:
+            def create(self, **kw):
+                c = kw["messages"][0]["content"]
+                seen["contents"].append(c)
+                m = re.search(r'ROW:\n\{"id": (\d+)', c)
+                if m:
+                    return _Resp(json.dumps({"id": int(m.group(1)), "verdict": "agree", "issues": []}))
+                return _Resp(json.dumps(AC0_REPLY))
+
+        class _Client:
+            messages = _Msgs()
+
+        captured = []
+        patches = [(extraction, "assemble_population", lambda boq, sheet: (1, copy.deepcopy(AC0_ROWS))),
+                   (extraction, "load_configs_with_alias_targets", lambda discs=None: self.cfgs38),
+                   (extraction, "_capture_write", lambda rec: captured.append(rec)),
+                   (ai_settings, "get_boq_ai_settings", lambda: {"enabled": True, "model": "stub-model"})]
+        originals = [(mod, name, getattr(mod, name)) for mod, name, _new in patches]
+        try:
+            for mod, name, new in patches:
+                setattr(mod, name, new)
+            out = extraction.run_extraction("BOQ-AC0-STUB", "HVAC", client=_Client())
+        finally:
+            for mod, name, orig in originals:
+                setattr(mod, name, orig)
+        self.assertEqual(out["ai_status"], "ran")
+        self.assertIs(out["complete"], True)
+        self.assertEqual(out["attempted_rows"], [53, 60])
+        # one batch call for the two rows, then ONE review per row (the second opinion is on for Piping in v38)
+        self.assertEqual(len(seen["contents"]), 3)
+        batch = seen["contents"][0]
+        self.assertEqual(batch.count(extraction.SECTION_ITEMS_GUIDANCE), 1)
+        self.assertIn(json.dumps(extraction.build_items_spec(self.cfgs38[("HVAC", INSULATION)]), ensure_ascii=False), batch)
+        self.assertIn(json.dumps(AC0_PARENT_60, ensure_ascii=False), batch)          # the heading that names uPVC is in the payload
+        reviews = {int(re.search(r'ROW:\n\{"id": (\d+)', c).group(1)): c for c in seen["contents"][1:]}
+        self.assertEqual(sorted(reviews), [53, 60])
+        self.assertEqual(json.loads(reviews[60].split("\n\nITEMS:\n")[1]), [
+            {"attributes": {AS_WRITTEN: "uPVC", "size_mm": "25 mm dia", "pipe_class": "heavy class (10KG)", "insulated": "Yes"}},
+            {"section": "insulation", "attributes": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "6/9 mm"}}])
+        # THE STORED ROWS -- the shape the panel reads
+        self.assertEqual(out["results"], AC0_STORED)
+        self.assertEqual(hashlib.sha256(_canonical(out["results"]).encode("utf-8")).hexdigest(), AC0_STORED_SHA256)
+        for r in out["results"]:
+            self.assertEqual([it.get("section") for it in r["items"]], [None, "insulation"])
+            self.assertEqual(list(r["items"][0]["attributes"]), ["pipe_type", AS_WRITTEN, "size_mm", "pipe_class", "insulated"])
+            self.assertEqual(list(r["items"][1]["attributes"]), ["item", "cladding", "thickness_mm", "pipe_size_mm", "brand", "material_as_written"])
+        # nothing was dropped, flagged or left unread; every capture record went to the in-memory collector
+        drops = [rec["drops"] for rec in captured if "drops" in rec]
+        self.assertEqual(len(drops), 1)
+        for k in ("items_coerce_failed", "items_unknown_section", "items_not_in_row_text", "items_family_unrecognised"):
+            self.assertEqual(drops[0][k], {}, k)
+        self.assertEqual(drops[0]["second_opinion_verdicts"], {"53": "agree", "60": "agree"})
+        self.assertEqual(drops[0]["second_opinion_usage"]["calls"], 2)
+        # NEGATIVE: the same answer with the as-written question not asked (v37's definitions) keeps no such value
+        patches[1] = (extraction, "load_configs_with_alias_targets", lambda discs=None: self.cfgs37)
+        originals = [(mod, name, getattr(mod, name)) for mod, name, _new in patches]
+        try:
+            for mod, name, new in patches:
+                setattr(mod, name, new)
+            old = extraction.run_extraction("BOQ-AC0-STUB", "HVAC", client=_Client())
+        finally:
+            for mod, name, orig in originals:
+                setattr(mod, name, orig)
+        self.assertNotEqual(old["results"], AC0_STORED)
+        self.assertNotIn(AS_WRITTEN, old["results"][1]["items"][0]["attributes"])
+        self.assertEqual(old["results"][1]["items"][1]["section"], "insulation")     # the marker is code, not this asset
