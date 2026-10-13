@@ -22,9 +22,12 @@ Built so far:
   from the PO/WO page (#1414 Request Payment; #1416 Convert to Cheque). Ask the first BEFORE the
   payment is inserted: a Project Payment's `after_insert` commits, so a refusal after it is too late.
 
+Convert to Cheque, Link a new cheque and Switch to Online on a payment (#1416) live in
+`services/cheques/payment_actions.py` and make their Cheque through `create_payment_cheque`.
+
 To come, each beside these: editing a Cheque and its lines (#1418), status change for
-one or many with history (#1412), and switching a payment back to Online. A Rejected or deleted
-payment's line comes off in `services/cheques/detach.py` (#1413).
+one or many with history (#1412). A Rejected or deleted payment's line comes off in
+`services/cheques/detach.py` (#1413).
 
 The line pickers' lists are read-only and live in `services/cheques/pickers.py`; the line rules
 that read the database in `services/cheques/lines.py`.
@@ -126,11 +129,14 @@ def create_cheque(header: ChequeHeader, *, user: str, made_from: str, lines: lis
     return doc
 
 
-def payment_cheque_problem(header: ChequeHeader) -> tuple[str | None, str | None]:
+def payment_cheque_problem(
+    header: ChequeHeader, *, duplicate=request_duplicate_problem
+) -> tuple[str | None, str | None]:
     """Why a one-line Cheque for a payment cannot be made from `header`: `(refusal, existing)`.
 
     `existing` is the Cheque already recorded with this bank + cheque number (then the refusal is
-    `request_duplicate_problem`), else None. `(None, None)` when it can be made. The line itself
+    `duplicate(header)`: the Request Payment wording by default, `convert_duplicate_problem` for
+    Convert to Cheque), else None. `(None, None)` when it can be made. The line itself
     cannot fail: its PO / Work Order, project and Vendor are the payment's own.
     """
     problem = header_problem(header, line_count=1, photo_required=True)
@@ -138,7 +144,7 @@ def payment_cheque_problem(header: ChequeHeader) -> tuple[str | None, str | None
         return problem, None
     existing = existing_cheque(header.bank, header.bank_name, header.cheque_no)
     if existing:
-        return request_duplicate_problem(header), existing
+        return duplicate(header), existing
     return None, None
 
 

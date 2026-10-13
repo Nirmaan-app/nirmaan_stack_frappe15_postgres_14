@@ -39,3 +39,42 @@ class TestBankIdentity(unittest.TestCase):
 
     def test_a_cheque_number_keeps_leading_zeros_and_loses_spaces(self):
         self.assertEqual(rules.normalise_cheque_no(" 004 521 "), "004521")
+
+
+class TestPaymentChequeButtons(unittest.TestCase):
+    """Which payments Convert to Cheque / Link a new cheque and Switch to Online accept (#1416)."""
+
+    def test_an_online_payment_that_is_not_rejected_converts(self):
+        for status in ("Requested", "CEO Pending", "Approved", "Reconciliation Pending", "Paid"):
+            self.assertIsNone(rules.new_payment_cheque_problem("P1", is_cheque=False, status=status))
+        self.assertIn("is Rejected", rules.new_payment_cheque_problem("P1", is_cheque=False, status="Rejected"))
+
+    def test_a_cheque_payment_gets_a_new_cheque_only_once_its_cheque_is_cancelled(self):
+        self.assertIsNone(
+            rules.new_payment_cheque_problem("P1", is_cheque=True, status="Approved", cheque_no="1", cheque_status="Cancelled")
+        )
+        for cheque_status in ("Issued", "Cleared"):
+            self.assertEqual(
+                rules.new_payment_cheque_problem(
+                    "P1", is_cheque=True, status="Approved", cheque_no="004521", cheque_status=cheque_status
+                ),
+                f"Payment P1 is on cheque 004521 ({cheque_status}). A new cheque can be linked only once that "
+                "cheque is Cancelled.",
+            )
+        self.assertIn("is Rejected", rules.new_payment_cheque_problem(
+            "P1", is_cheque=True, status="Rejected", cheque_no="1", cheque_status="Cancelled"
+        ))
+
+    def test_a_cheque_payment_no_cheque_records_is_refused_both(self):
+        self.assertIn("which no Cheque record holds", rules.new_payment_cheque_problem(
+            "P1", is_cheque=True, status="Approved", cheque_no="004521"
+        ))
+        self.assertIn("which no Cheque record holds", rules.switch_to_online_problem(
+            "P1", is_cheque=True, cheque_no="004521"
+        ))
+
+    def test_switch_to_online_needs_a_cancelled_cheque(self):
+        self.assertIsNone(rules.switch_to_online_problem("P1", is_cheque=True, cheque_no="1", cheque_status="Cancelled"))
+        self.assertEqual(rules.switch_to_online_problem("P1", is_cheque=False), "Payment P1 is already Online.")
+        self.assertIn("only once its cheque is Cancelled; it is on cheque 1 (Issued)",
+                      rules.switch_to_online_problem("P1", is_cheque=True, cheque_no="1", cheque_status="Issued"))

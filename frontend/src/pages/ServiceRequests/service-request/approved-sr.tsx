@@ -57,7 +57,9 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
 import SRPdf from "./SRPdf";
 import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
-import { TruncatedText } from "@/components/common/TruncatedText";
+import { PaymentChequeActions } from "@/components/cheques/PaymentChequeActions";
+import { PaymentUtrOrCheque } from "@/components/cheques/PaymentUtrOrCheque";
+import { useChequeChips } from "@/components/cheques/useChequeChips";
 import { GstPaymentTag } from "@/pages/ProjectPayments/components/GstPaymentTag";
 import { usePaymentSummary } from "@/pages/ProjectPayments/components/PaymentSummaryBlock";
 import { PayForChoice } from "@/pages/ProjectPayments/components/PayForChoice";
@@ -245,6 +247,8 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     // Refunds against this WO sit in the payments table as their own rows (badge "Vendor Refund").
     const { refunds } = useVendorRefunds({ documentType: "Service Requests", documentName: id ?? "" });
     const transactionRows = useMemo(() => mergePaymentsAndRefunds(projectPayments, refunds), [projectPayments, refunds]);
+    // The cheque chip's number and status for every payment on a Cheque: one call for the card (#1416).
+    const chequeChips = useChequeChips((projectPayments || []).map((p) => p.cheque));
 
     // Fetch vendor invoices for this SR
     const { data: vendorInvoices, isLoading: vendorInvoicesLoading } = useFrappeGetDocList<VendorInvoice>("Vendor Invoices", {
@@ -773,7 +777,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                 <TableRow>
                                     <TableHead className="text-black font-bold">Amount</TableHead>
                                     <TableHead className="text-black font-bold">TDS</TableHead>
-                                    <TableHead className="text-black font-bold">UTR No.</TableHead>
+                                    <TableHead className="text-black font-bold">UTR / Cheque</TableHead>
                                     <TableHead className="text-black font-bold">Payment Date</TableHead>
                                     <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
                                     {/* 1. ADD VOUCHER HEADER */}
@@ -800,7 +804,10 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                     {tds ? formatToRoundedIndianRupee(tds.tds_amount) : "--"}
                                                 </TableCell>
                                                 <TableCell className="font-semibold">
-                                                    <TruncatedText text={payment?.utr} />
+                                                    <PaymentUtrOrCheque
+                                                        payment={payment}
+                                                        chip={payment.cheque ? chequeChips[payment.cheque] : undefined}
+                                                    />
                                                 </TableCell>
 
 
@@ -827,6 +834,11 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 {/* ----------------------------------------------- */}
 
                                                 <TableCell className="text-red-500 text-end w-[5%]">
+                                                    <PaymentChequeActions
+                                                        payment={payment}
+                                                        chip={payment.cheque ? chequeChips[payment.cheque] : undefined}
+                                                        onChanged={refreshPayments}
+                                                    />
                                                     {/* Approved: Admin only (owner, 18 Sep) — as on the PO page. Paid: never.
                                                         Deleting the payment also deletes its Payment TDS Deduction (server on_trash).
                                                         A REJECTED payment: Admin also gets the trash in the summary view, which is how
