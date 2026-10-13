@@ -180,8 +180,15 @@ def _payments_select():
             -- Mode of Payment (2026-09-19). ⚠️ POSITIONAL, like every column here: the
             -- same three sit at the same place in `_expense_select`, blank there.
             COALESCE(p."mode_of_payment", '')::text AS mode_of_payment,
-            COALESCE(p."cheque_no", '')::text AS cheque_no,
+            -- The Cheque's own number when the payment is on one (the payment's copy otherwise, for a
+            -- cheque payment from before Cheques).
+            COALESCE(NULLIF(c."cheque_no", ''), p."cheque_no", '')::text AS cheque_no,
             p."cheque_date"                 AS cheque_date,
+            -- The cheque chip (#1415, spec #1407): the Cheque the payment is on and its status, so
+            -- every list draws the chip with no fetch per row. ⚠️ POSITIONAL: blank at the same place
+            -- in `_expense_select` (an expense line changes nothing on the expense).
+            COALESCE(p."cheque", '')::text  AS cheque,
+            COALESCE(c."status", '')::text  AS cheque_status,
             -- Payment hold (2026-09-22). ⚠️ POSITIONAL: `0` at the same place in `_expense_select`.
             COALESCE(p."on_hold", 0)        AS on_hold,
             -- Payment kind (ADR-0030): 1 on a GST payment, which is never taxed -- the lists tag it
@@ -192,6 +199,7 @@ def _payments_select():
             -- ⚠️ POSITIONAL: last in `_expense_select` too.
             ''::text                        AS invoice
         FROM "tabProject Payments" p
+        LEFT JOIN "tabCheques" c ON c."name" = p."cheque"
         {linked_join}
     """.format(
         src=SOURCE_VENDOR_PAYMENT,
@@ -261,6 +269,8 @@ def _expense_select(table, source, project_col):
             ''::text                        AS mode_of_payment,
             ''::text                        AS cheque_no,
             NULL::date                      AS cheque_date,
+            ''::text                        AS cheque,
+            ''::text                        AS cheque_status,
             -- Only a PO / WO payment can be held.
             0                               AS on_hold,
             -- Only a Work Order payment can be a GST payment.

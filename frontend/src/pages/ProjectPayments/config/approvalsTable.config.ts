@@ -7,6 +7,7 @@
  */
 
 import { SearchFieldOption } from "@/components/data-table/new-data-table";
+import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
 import { PP_TABS, PPTabValue } from "./ppTabs.constants";
 
 export const APPROVAL_QUEUE_API =
@@ -119,8 +120,15 @@ export interface ApprovalQueueRow {
   document_type: string;
   /** A payment's Mode of Payment; blank on an expense (and on a payment from before the field). */
   mode_of_payment: string;
+  /** The Cheque's own number when the payment is on one; else the payment's copy (an older cheque payment). */
   cheque_no: string;
   cheque_date: string | null;
+  /**
+   * The Cheque the payment is on, and its status (spec #1407): what the cheque chip draws, so it needs no
+   * fetch per row. Blank on an Online payment, an older cheque payment no Cheque records, and every expense.
+   */
+  cheque: string;
+  cheque_status: ChequeStatus | "";
   /**
    * 1 while a PO / WO payment is held from payment (`services/payment_hold.py`); always 0 on an
    * expense. The row stays Approved — see `queueRowActions.isHeldQueueRow`.
