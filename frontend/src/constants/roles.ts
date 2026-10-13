@@ -338,8 +338,8 @@ export const canViewTargetProgress = (
 // UI gate only; no server-side role check backs these.
 // ---------------------------------------------------------------------------
 
-const ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile";
-const ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile";
+export const ACCOUNTANT_PROFILE = "Nirmaan Accountant Profile";
+export const ACCOUNTANT_LEAD_PROFILE = "Nirmaan Accountant Lead Profile";
 const ESTIMATES_EXECUTIVE_PROFILE = "Nirmaan Estimates Executive Profile";
 const SALES_EXECUTIVE_PROFILE = "Nirmaan Sales Executive Profile";
 const SALES_LEAD_PROFILE = "Nirmaan Sales Lead Profile";
@@ -523,3 +523,32 @@ export const reviewsExpenseRequests = (
 ): boolean =>
   userId === "Administrator" ||
   (!!role && EXPENSE_REQUEST_REVIEW_PROFILES.includes(role));
+
+// ---------------------------------------------------------------------------
+// Vendor Refunds (#1396, ADR-0032). Mirrored server-side by `services/role_profiles.py`, which is the
+// ENFORCEMENT boundary (`api/vendor_refunds/waiting_refunds`); these only decide which controls render.
+// ---------------------------------------------------------------------------
+
+/** The Admin user or an Admin profile: `role_profiles.is_nirmaan_admin`. */
+export const isNirmaanAdmin = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || role === ADMIN_PROFILE;
+
+/** `REFUND_ACCOUNTANT_PROFILES`: "an Accountant" for a waiting refund. Besides its creator, may correct its
+ *  amount or PO while it waits, or cancel it. */
+export const REFUND_ACCOUNTANT_PROFILES: readonly string[] = [ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE];
+
+/** `ADJUST_PAYMENTS_PROFILES`: may open "Adjust Payments" on a PO and record a waiting refund from it. */
+export const ADJUST_PAYMENTS_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  ...MATERIAL_PROCUREMENT_PROFILES,
+];
+
+/** `REFUND_PAPERWORK_PROFILES`: may complete a refund's proof, UTR and description at any status. */
+export const REFUND_PAPERWORK_PROFILES: readonly string[] = [
+  ...ADJUST_PAYMENTS_PROFILES,
+  ...REFUND_ACCOUNTANT_PROFILES,
+];
+
+/** `REFUND_DELETE_PROFILES`: may delete a Cancelled Vendor Refund (an Admin or material Procurement). */
+export const REFUND_DELETE_PROFILES: readonly string[] = [ADMIN_PROFILE, ...MATERIAL_PROCUREMENT_PROFILES];

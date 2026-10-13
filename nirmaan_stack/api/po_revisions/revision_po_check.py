@@ -2,6 +2,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from nirmaan_stack.services.vendor_refunds import waiting_refunds_of
+
 # A PO Adjustment is "open" (payment-locked / surfaced) if it is Pending, OR if it
 # is 'Done' but still carries usable overpaid credit (remaining_impact at/below this).
 # This keeps a small Done credit reusable & visible (e.g. for a manual transfer).
@@ -30,6 +32,8 @@ def check_po_in_pending_revisions(po_id):
         "has_credit_notice": False,
         "credit_notice_id": None,
         "remaining_credit": 0.0,
+        # Waiting Vendor Refunds on this PO: [{name, amount, payment_date}] (#1400).
+        "waiting_refunds": [],
     }
 
     # Check 1: Is this PO the Original PO being revised? (locks both items and payments)
@@ -59,6 +63,12 @@ def check_po_in_pending_revisions(po_id):
         as_dict=True,
     )
     if adjustment:
+        # The waiting Vendor Refunds behind the lock (#1400, ADR-0032): until accounts match their
+        # bank lines they clear nothing, so the banner names them as what the PO waits for.
+        result["waiting_refunds"] = [
+            {"name": r.name, "amount": flt(r.amount), "payment_date": r.payment_date}
+            for r in waiting_refunds_of(po_id)
+        ]
         if adjustment.status == "Pending":
             result["is_payment_locked"] = True
             result["payment_lock_source"] = "PO Adjustment"

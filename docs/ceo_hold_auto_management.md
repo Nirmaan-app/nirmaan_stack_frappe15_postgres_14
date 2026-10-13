@@ -43,7 +43,7 @@ Concretely:
 
 | Side of the equation | Comes from |
 |---|---|
-| **Paid out** | All Project Payments with status = Paid + all Project Expenses |
+| **Paid out** | All Project Payments with status = Paid + all Project Expenses, less Received Vendor Refunds on the project's POs and Work Orders (money a vendor sent back, spec #1396) |
 | **Owed** (liabilities) | For each PO: amount of goods *delivered* minus the portion of that delivery already paid |
 | **Received** | All Project Inflows |
 
@@ -99,6 +99,7 @@ User actions that can naturally trigger an auto-release:
 | Increasing an existing Inflow amount | Same |
 | **Deleting** a Paid Project Payment (e.g., reversing a mistaken entry) | Reduces paid-out side |
 | **Deleting** a Project Expense | Reduces paid-out side |
+| A Vendor Refund turning Received (bank line matched, or marked Received with no bank line) | Reduces paid-out side |
 | A PO's `amount_paid` catching up with `po_amount_delivered` | Reduces liabilities |
 | **Raising** the project's `Cashflow Gap Limit` | Threshold moves above gap |
 

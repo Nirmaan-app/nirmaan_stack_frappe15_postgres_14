@@ -56,6 +56,8 @@ from nirmaan_stack.api.outflow_import.review import (
 )
 from nirmaan_stack.api.outflow_import.long_reference_fixture import _give_row_a_long_narration
 from nirmaan_stack.api.outflow_import.upload import _stage_batch
+from nirmaan_stack.api.vendor_credit import _compute_credit_used
+from nirmaan_stack.api.vendor_refunds import credit_fixture
 from nirmaan_stack.services.outflow_import import parser as parser_module
 from nirmaan_stack.services.outflow_import import settle as settle_module
 from nirmaan_stack.services.outflow_import.contains_guard import match_surface
@@ -142,6 +144,9 @@ class InflowFixture(unittest.TestCase):
             FROM "tabProcurement Orders"
             WHERE status = 'Delivered' AND amount_paid >= 1000
               AND vendor IS NOT NULL AND project IS NOT NULL
+              -- #1399: a refund on a PO with an adjustment links into it; the raw purge cannot undo that.
+              AND NOT EXISTS (
+                  SELECT 1 FROM "tabPO Adjustments" a WHERE a.po_id = "tabProcurement Orders".name)
             GROUP BY vendor, project HAVING COUNT(*) >= 2
             ORDER BY vendor, project LIMIT 1
             """,
@@ -156,6 +161,9 @@ class InflowFixture(unittest.TestCase):
             )
             for po in cls.refund_pos
         }
+        # Each refund save recounts its vendor's credit and the endpoint commits (#1398); the raw
+        # purge cannot undo that either.
+        cls.vendor_credit = credit_fixture.snapshot([cls.vendor])
         frappe.db.commit()
 
     @classmethod
@@ -197,6 +205,7 @@ class InflowFixture(unittest.TestCase):
         # The raw purge ran no refund hook: put back each PO's figures exactly as found.
         for po, figures in cls.refund_po_figures.items():
             frappe.db.set_value("Procurement Orders", po, figures, update_modified=False)
+        credit_fixture.restore(cls.vendor_credit)
         frappe.db.delete(MATCH_DOCTYPE, {"import_batch": ["in", cls.batches]})
         for name in cls.batches:
             frappe.db.delete(ROW_DOCTYPE, {"import_batch": name})
@@ -1237,6 +1246,64 @@ class TestTheVendorRefund(InflowFixture):
         for kind in offered.values():
             for document in kind:
                 self.assertGreater(document["paid"], 0)
+
+
+class TestAVendorRefundFromABankLine(InflowFixture):
+    """A refund recorded from a bank line is Received, and recounts its vendor's credit (#1398).
+
+    On a real PO UNDERPAID by at least Rs 1,000 against what was delivered and created after April
+    2025, so its `delivered - paid` counts towards credit used: a Rs 1,000 refund lowers paid by 1,000
+    and raises the vendor's credit used by exactly 1,000.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        po = frappe.db.sql(
+            """
+            SELECT po.name, po.vendor, po.project FROM "tabProcurement Orders" po
+            WHERE po.status NOT IN ('Cancelled', 'Merged', 'Inactive') AND po.creation >= '2025-04-01'
+              AND po.amount_paid >= 1000 AND COALESCE(po.po_amount_delivered, 0) >= po.amount_paid + 1000
+              AND po.vendor IS NOT NULL AND po.project IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM "tabPO Adjustments" a WHERE a.po_id = po.name)
+              -- The stored figure is already what the refund hook recomputes, so only the refund moves it.
+              AND ABS(po.amount_paid - (
+                  COALESCE((
+                      SELECT SUM(pp.amount) FROM "tabProject Payments" pp
+                      WHERE pp.document_type = 'Procurement Orders' AND pp.document_name = po.name
+                        AND pp.status = 'Paid'), 0)
+                  - COALESCE((
+                      SELECT SUM(r.amount) FROM "tabVendor Refunds" r
+                      WHERE r.document_type = 'Procurement Orders' AND r.document_name = po.name
+                        AND r.status = 'Received'), 0))) < 0.01
+            ORDER BY po.name LIMIT 1
+            """,
+            as_dict=True,
+        )[0]
+        cls.underpaid = po
+        cls.refund_po_figures[po.name] = frappe.db.get_value(
+            "Procurement Orders", po.name, _REFUND_PO_FIGURES, as_dict=True
+        )
+        cls.vendor_credit.update(credit_fixture.snapshot([po.vendor]))
+        frappe.db.commit()
+
+    def test_it_is_received_and_moves_the_vendor_s_credit_used(self):
+        po = self.underpaid
+        base = _compute_credit_used(frappe.get_doc("Vendors", po.vendor))
+        row, summary = self._refund(
+            vendor=po.vendor, project=po.project, allocations=[self._po(po.name, "1000")]
+        )
+        name = summary["records"][0]["name"]
+
+        self.assertEqual(frappe.db.get_value(VENDOR_REFUND, name, "status"), "Received")
+        self.assertAlmostEqual(
+            float(frappe.db.get_value("Vendors", po.vendor, "credit_used")), float(base) + 1000, places=2
+        )
+
+        unreconcile_row(row=row["name"], legs="all", reason="test: refund credit undo")
+        self.assertAlmostEqual(
+            float(frappe.db.get_value("Vendors", po.vendor, "credit_used")), float(base), places=2
+        )
 
 
 class TestTheVendorRefundRefusals(InflowFixture):

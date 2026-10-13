@@ -4,6 +4,9 @@ import { TableCell, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import type { ReactNode } from "react";
+import { NoBankProofBadge } from "./NoBankProofBadge";
+import { RefundStatusBadge } from "./RefundStatusBadge";
 import type { VendorRefundRow } from "./useVendorRefunds";
 
 /** One row of a PO's / WO's Transaction Details: a payment, or a vendor refund against the order. */
@@ -30,18 +33,22 @@ export const mergePaymentsAndRefunds = <P extends { name: string; payment_date?:
 /**
  * A vendor refund in a Transaction Details table, beside the order's payments: a teal-tinted row (teal is
  * no payment status's colour), a "Refund" tag under the amount, UTR (plain text, like the payment rows),
- * date and status "Received".
- * No voucher, no delete.
+ * date and its status (Received, Reconciliation Pending or Cancelled; only Received lowers the paid amount),
+ * with the "No bank proof" badge under a Received one an Admin marked with no bank line (#1403).
+ * No voucher. `actions` fills the last cell (the PO table's Cancel / Mark Received, #1403, and Delete for a
+ * Cancelled refund).
  * `tdsColumn` adds the empty TDS cell the WO table has.
  */
 export const VendorRefundTableRow = ({
     refund,
     tdsColumn = false,
     className,
+    actions,
 }: {
     refund: VendorRefundRow;
     tdsColumn?: boolean;
     className?: string;
+    actions?: ReactNode;
 }) => (
     <TableRow className={cn("bg-teal-50 hover:bg-teal-100", className)}>
         <TableCell>
@@ -56,9 +63,12 @@ export const VendorRefundTableRow = ({
         </TableCell>
         <TableCell>{refund.payment_date ? formatDate(refund.payment_date) : "--"}</TableCell>
         <TableCell className="whitespace-nowrap">
-            <Badge variant="teal">Received</Badge>
+            <span className="flex flex-col items-start gap-1">
+                <RefundStatusBadge status={refund.status} />
+                <NoBankProofBadge refund={refund} />
+            </span>
         </TableCell>
         <TableCell className="text-center w-[10%]">--</TableCell>
-        <TableCell className="w-[5%]" />
+        <TableCell className="w-[5%] text-end">{actions}</TableCell>
     </TableRow>
 );

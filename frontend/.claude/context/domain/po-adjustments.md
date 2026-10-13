@@ -47,7 +47,7 @@ Each financial event creates entries that sum to track the running balance:
 | **Auto Absorb** | positive | Negative revision | Absorption from Created payment terms |
 | **Against PO** | positive | Manual adjustment | Credit transferred to another PO |
 | **Adhoc** | positive | Manual adjustment | Written off as project expense |
-| **Vendor Refund** | positive | Manual adjustment | Vendor returned money |
+| **Vendor Refund** | positive | Refund sync (automatic) | Points at a *Received* Vendor Refund (`vendor_refund` link) that settles part of the negative balance. Creates no payment and no term (ADR-0032) |
 
 **Positive diff is CREDIT-AWARE** (`_auto_add_payment_term` + `_get_available_po_credit`): an increase first consumes any existing overpaid credit (`max(0, -remaining_impact)`, read by number/status-agnostic), and only the *uncovered* balance becomes a new `Created` term.
 
@@ -165,10 +165,17 @@ src/pages/POAdjustment/
 - Creates `Project Expenses` record if expense type specified
 - Description max 140 chars
 
-### Vendor Refund
-- User uploads refund proof (PDF/image) + refund date + optional UTR reference
-- Creates negative payment on original PO + "RA Vendor" Return term
-- UTR auto-set to `VR-{po_id}` when attachment provided
+### Vendor Refund (ADR-0032)
+- "Record Waiting Refund": proof, refund date, optional UTR. Records a Vendor Refund at *Reconciliation
+  Pending*; **no negative payment, no "RA Vendor" term** (that branch is gone; the 3 old ones were
+  migrated by #1404).
+- A waiting refund counts for nothing and **holds** its amount: the dialog shows "₹X held for VRF-…
+  (waiting for bank)" and offers only the rest. The PO stays payment-locked until Bulk Import matches
+  the bank line and the refund turns *Received*.
+- Once *Received*, `refund_links.sync_po_refund_links` writes the ledger's *Vendor Refund* entry pointing
+  at it, up to the balance, whichever came first (refund or revision).
+- Ways out: Cancel (creator or Accountant), Mark Received with no bank line (Admin, with reason), and
+  Delete a Cancelled one (Admin or Procurement, never one a bank line was matched to).
 
 ### Mixed Methods
 - Primary method selected via pills (Against PO / Adhoc / Vendor Refund)

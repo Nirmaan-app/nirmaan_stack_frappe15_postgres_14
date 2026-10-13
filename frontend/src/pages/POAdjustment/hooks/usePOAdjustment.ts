@@ -1,6 +1,11 @@
 import { useState, useCallback, useMemo } from "react";
 import { toast } from "@/components/ui/use-toast";
-import { useExecuteAdjustment } from "../data/usePOAdjustmentMutations";
+import {
+  useExecuteAdjustment,
+  useRecordWaitingRefund,
+} from "../data/usePOAdjustmentMutations";
+import { creditOnOffer } from "../adjustmentOffer";
+import { useRefreshPORefundViews } from "@/components/vendor-refunds/useRefreshPORefundViews";
 import {
   usePOAdjustment,
   useAdjustmentCandidatePOs,
@@ -34,13 +39,20 @@ export function usePOAdjustmentDialog(
 
   // Hook for executing the final PO adjustment logic
   const { execute, loading: executeLoading } = useExecuteAdjustment();
+  // "Vendor Refund" records a waiting Vendor Refund instead (#1400, ADR-0032)
+  const { record, loading: recordLoading } = useRecordWaitingRefund();
+  const refreshRefundViews = useRefreshPORefundViews();
 
   // Combined loading state for the UI "Processing..." spinner
-  const executing = fileUploadLoading || executeLoading;
+  const executing = fileUploadLoading || executeLoading || recordLoading;
 
   const remainingImpact = adjustment?.remaining_impact ?? 0;
   const isNegative = remainingImpact < 0;
   const absImpact = Math.abs(remainingImpact);
+  // What may be resolved: the credit not capped away or held by a waiting refund.
+  const offered = creditOnOffer(remainingImpact, adjustment?.usable_credit);
+  const heldCredit = adjustment?.held_credit ?? 0;
+  const waitingRefunds = adjustment?.waiting_refunds ?? [];
 
   const totalAllocated = useMemo(
     () => refundAdjustments.reduce((sum, a) => sum + (a.amount || 0), 0),
@@ -48,8 +60,8 @@ export function usePOAdjustmentDialog(
   );
 
   const remainingToAdjust = useMemo(
-    () => Math.max(0, absImpact - totalAllocated),
-    [absImpact, totalAllocated]
+    () => Math.max(0, offered - totalAllocated),
+    [offered, totalAllocated]
   );
 
   const isPOSelected = refundAdjustments.some((a) => a.type === "Another PO");
@@ -123,44 +135,54 @@ export function usePOAdjustmentDialog(
 
       /**
        * STEP 2: Map the adjustments into the format the Backend API expects.
-       * We use the URLs obtained in Step 1 for any attachments.
+       * A vendor refund is not an adjustment: it is recorded as a waiting Vendor Refund.
        */
-      const entries = adjustmentsWithUrls.map((adj) => {
-        if (adj.type === "Another PO") {
-          return {
-            return_type: "Against-po" as const,
-            amount: adj.amount,
-            target_pos: [{ po_number: adj.po_id!, amount: adj.amount }],
-          };
-        }
-        if (adj.type === "Adhoc") {
-          return {
-            return_type: "Ad-hoc" as const,
-            amount: adj.amount,
-            "ad-hoc_type": adj.adhoc_type,
-            "ad-hoc_description": adj.description,
-            comment: adj.comment,
-          };
-        }
-        // Refunded (Vendor Refund)
-        return {
-          return_type: "Vendor-has-refund" as const,
-          amount: adj.amount,
-          refund_date: adj.date,
-          refund_attachment: adj.refund_attachment, // This now contains a valid URL!
-          utr: adj.transaction_ref,
-        };
-      });
+      const refunds = adjustmentsWithUrls.filter((adj) => adj.type === "Refunded");
+      const entries = adjustmentsWithUrls
+        .filter((adj) => adj.type !== "Refunded")
+        .map((adj) =>
+          adj.type === "Another PO"
+            ? {
+                return_type: "Against-po" as const,
+                amount: adj.amount,
+                target_pos: [{ po_number: adj.po_id!, amount: adj.amount }],
+              }
+            : {
+                return_type: "Ad-hoc" as const,
+                amount: adj.amount,
+                "ad-hoc_type": adj.adhoc_type,
+                "ad-hoc_description": adj.description,
+                comment: adj.comment,
+              }
+        );
 
       /**
        * STEP 3: Submit the final data to the backend.
        */
-      await execute(poId, entries as Parameters<typeof execute>[1]);
+      if (entries.length > 0) await execute(poId, entries);
+      const recorded: string[] = [];
+      for (const refund of refunds) {
+        const res = await record(poId, {
+          amount: refund.amount,
+          payment_date: refund.date,
+          utr: refund.transaction_ref,
+          refund_attachment: refund.refund_attachment,
+        });
+        if (res?.refund) recorded.push(res.refund);
+      }
 
-      toast({
-        title: "Adjustment applied",
-        description: "Payment adjustment has been processed successfully.",
-      });
+      toast(
+        recorded.length > 0
+          ? {
+              title: "Waiting refund recorded",
+              description: `${recorded.join(", ")} waits for its bank line. It counts once accounts match it; until then the PO stays locked.`,
+            }
+          : {
+              title: "Adjustment applied",
+              description: "Payment adjustment has been processed successfully.",
+            }
+      );
+      if (recorded.length > 0) await refreshRefundViews(poId);
       mutate();
       resetForm();
       if (onSuccess) onSuccess();
@@ -172,7 +194,7 @@ export function usePOAdjustmentDialog(
         variant: "destructive",
       });
     }
-  }, [poId, refundAdjustments, execute, mutate, resetForm]);
+  }, [poId, refundAdjustments, upload, execute, record, refreshRefundViews, mutate, resetForm, onSuccess]);
 
   return {
     adjustmentMethod,
@@ -188,6 +210,9 @@ export function usePOAdjustmentDialog(
     isLoading,
     remainingImpact,
     absImpact,
+    offered,
+    heldCredit,
+    waitingRefunds,
     isNegative,
     totalAllocated,
     remainingToAdjust,

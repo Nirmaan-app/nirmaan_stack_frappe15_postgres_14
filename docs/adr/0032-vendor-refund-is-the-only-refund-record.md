@@ -40,9 +40,13 @@ still asking for ₹25,488 on 9-Oct, and only an admin write-off to get out.
    same PO, the system links them up to the balance, whichever arrived first. A refund larger than
    the balance keeps the rest unlinked, with a warning on the PO. Unreconciling a refund removes
    its link and the balance returns.
-5. **A refund that never matches** ends *Cancelled* (kept for history, holds nothing), or an Admin
+5. **A refund that never matches** ends *Cancelled* (counts for nothing, holds nothing), or an Admin
    marks it *Received* with no bank line and a typed reason. That one shows "No bank proof" and
    stays matchable, so a late bank line is linked to it and never makes a second refund.
+   **Amended 2026-10-13 (owner):** a *Cancelled* refund may be **deleted** by an Admin or
+   Procurement, unless a bank line was ever matched to it (its reversed match records are bank
+   history and must keep naming it). Deleting it moves no money, because it never counted. Its VRF
+   number is never reused. This replaces "kept for history" from the grilling.
 6. **Bulk Import suggests, never decides.** It suggests a waiting refund only when the line's bank
    account + IFSC belong to the vendor and exactly one waiting refund of that vendor has the same
    amount (±₹1), or when the bank reference equals a UTR typed on waiting refunds. It never groups

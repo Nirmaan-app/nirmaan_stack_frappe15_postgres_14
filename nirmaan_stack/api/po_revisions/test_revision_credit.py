@@ -28,6 +28,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
+from nirmaan_stack.api.po_adjustments._payment_utils import (
+    _create_project_payment,
+    _recalculate_amount_paid,
+)
 from nirmaan_stack.api.po_revisions.revision_logic import on_approval_revision
 
 RATE, TAX = 100.0, 18.0
@@ -90,7 +94,11 @@ class RevisionIncreaseSpendsCreditTests(FrappeTestCase):
             "payment_type": "Cash",
         })
         po.insert(ignore_permissions=True, ignore_links=True)
-        frappe.db.set_value("Procurement Orders", po.name, "amount_paid", paid)
+        # A REAL Paid payment, not a `set_value`: approval runs the refund sync step (#1399), which
+        # recomputes `amount_paid` from payments and refunds, so a bare figure would read back as 0.
+        if paid:
+            _create_project_payment(po.name, self.project, self.vendor, paid, "Paid")
+        _recalculate_amount_paid(po.name)
         return po.name
 
     def _approve(self, po_name, new_qty):
@@ -184,3 +192,25 @@ class RevisionIncreaseSpendsCreditTests(FrappeTestCase):
         increase = self._approve(po, new_qty=12)  # +₹236
 
         self.assertEqual(self._revision_term(po, increase), 236.0)
+
+    def test_credit_held_by_a_waiting_refund_is_not_spent_by_an_increase(self):
+        # #1400, ADR-0032: the vendor says it sent the ₹236 back. Until the bank line is matched
+        # that credit is HELD, so an increase is billed in full and the hold stays.
+        po = self._po(qty=10, paid=_line_total(10))
+        self._approve(po, new_qty=8)  # −₹236 of real overpaid credit
+        frappe.get_doc({
+            "doctype": "Vendor Refunds",
+            "vendor": self.vendor,
+            "document_type": "Procurement Orders",
+            "document_name": po,
+            "amount": 236,
+            "status": "Reconciliation Pending",
+            "payment_date": frappe.utils.today(),
+        }).insert(ignore_permissions=True)
+
+        increase = self._approve(po, new_qty=10)  # +₹236
+
+        self.assertEqual(self._revision_term(po, increase), 236.0)
+        adj = self._adjustment(po)
+        self.assertAlmostEqual(flt(adj.remaining_impact), -236.0, places=2)
+        self.assertEqual(adj.status, "Pending")

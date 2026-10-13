@@ -240,3 +240,29 @@ MTC_PROJECT_SCOPED_PROFILES = (PROJECT_MANAGER_PROFILE, PROJECT_LEAD_PROFILE)
 def can_manage_mtc(user: str) -> bool:
     """True when `user` may upload / edit / delete an MTC. Administrator always passes."""
     return has_role_profile(user, MTC_MANAGE_PROFILES)
+
+
+# May open "Adjust Payments" on a PO and record a waiting Vendor Refund from it (#1400, ADR-0032:
+# "anyone who may use Adjust Payments may record one"). Waiting refunds are PO-only, so the material
+# procurement profiles, exactly as the PO page's button gate (`PODetails.tsx`).
+# ENFORCEMENT boundary for `api/vendor_refunds/waiting_refunds.record_waiting_refund`, which writes
+# with `ignore_permissions` (the Vendor Refunds DocPerms give these users read only).
+ADJUST_PAYMENTS_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + MATERIAL_PROCUREMENT_PROFILES
+
+# "An Accountant" for a waiting Vendor Refund (#1400): may correct its amount or PO while it waits, or
+# cancel it, besides the user who recorded it. Mirrored client-side by
+# `frontend/src/constants/roles.ts::REFUND_ACCOUNTANT_PROFILES`.
+REFUND_ACCOUNTANT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+# May complete a Vendor Refund's paperwork -- its proof, UTR and description -- at any status (#1396
+# story 10): whoever works the PO's payments, i.e. the "Adjust Payments" profiles and the Accountants.
+# Its amount and PO stay with its creator or an Accountant (`services/vendor_refunds.money_edit_problem`).
+# ENFORCEMENT boundary for `api/vendor_refunds/waiting_refunds.update_waiting_refund`. Mirrored
+# client-side by `frontend/src/constants/roles.ts::REFUND_PAPERWORK_PROFILES`.
+REFUND_PAPERWORK_PROFILES = ADJUST_PAYMENTS_PROFILES + REFUND_ACCOUNTANT_PROFILES
+
+# May delete a Cancelled Vendor Refund from its PO's Transaction Details (owner, 2026-10-13): an Admin or
+# material Procurement (waiting refunds, and so Cancelled ones, are PO-only). ENFORCEMENT boundary for
+# `api/vendor_refunds/waiting_refunds.delete_cancelled_refund`. Mirrored client-side by
+# `frontend/src/constants/roles.ts::REFUND_DELETE_PROFILES`.
+REFUND_DELETE_PROFILES = (ADMIN_PROFILE,) + MATERIAL_PROCUREMENT_PROFILES
