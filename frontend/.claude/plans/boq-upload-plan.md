@@ -46602,3 +46602,220 @@ today's schema can run it; only a database that still holds the column could.
 2. Other wizard tests leave rows on every run, as before this slice: deleting a BoQ does not delete its drafts' work
    package rows, and some sheet drafts outlive their BoQ. The table holds 152 sheet drafts with no BoQ and 1,702 work
    package rows with no draft.
+
+---
+
+## Slice 12e-4b — Piping: Insulation's questions asked on a Piping row, "Pipe type as written", the size fixes, HVAC v38 (stubbed answers only; the paid read is 12e-4c) — as built 2026-10-13
+
+**Commits (unpushed at the time of writing):** `7005dc7e1` feat(extraction) — the delegated questions and the section
+marker; `dcd1ec321` feat(rate-helper) — the sorting, the as-written reader, the size fixes, the wording fixes;
+`04ec8e92f` feat(rate-master) — HVAC v38, the validator, the newest-asset pins, AC0; the docs commit that carries this
+entry. Start tip `c29406060` (= origin). **No model call was made: every model answer in this slice is a stub.**
+It follows the stopped 12e-4 (`Desktop\2026-10-13_12e4_Report.md`) and the 12e-4a design recon
+(`Desktop\2026-10-13_12e4a_Design.md`), whose design it builds.
+
+### Owner rulings (quoted in the prompt; four more taken in the run by question)
+
+- D-1 the second opinion ON for Piping only; D-2 a Piping row is also asked Insulation's own questions for a second,
+  marked item, built from Insulation's config at asking time; D-3 "Pipe type as written", mapped by the pricer.
+- F-1 "option B": Insulation's own pipe-size match also takes a stocked size within 0.1 mm. F-2 "fix": trailing
+  punctuation. F-3: a bare size's unit comes from the heading or neighbouring rows, else the number stays bare and a
+  bare number below the smallest stocked size refuses. Decisions 1-4 and 6-9 of the design; G1-G3.
+- **In the run, F-3 scope:** *"Option 1, with one addition: 'could be inches' means the number x 25.4 OR x 25 lands
+  within the type's stocked range (smallest to largest), so PVC '6' (150 at x 25) refuses ... No price pin may move;
+  if one would, STOP."* (Option 1: refuse only where that many inches is a stocked size; MS 15 keeps pricing as 19.)
+- **In the run, the no-unit test:** *"The model's answer only"* — code never searches the row or headings for a unit.
+- **In the run, a unit-less pair:** *"With no unit, the size taken from a pair or list goes through the same F-3
+  check as a bare number ... Invert the '8/7' pin to the refusal, keeping its before line; owner's word given."*
+
+### What was built
+
+| Ruling | Change | Where |
+|---|---|---|
+| D-2 asking | `build_items_spec(cfg, configs, discipline)` attaches each delegated section as `{id, label, items_spec}`, `items_spec` being the same function's result for the delegated config; `_group_context` passes the map; `SECTION_ITEMS_GUIDANCE` (one paragraph, in the wrapper) is appended to the batch request and the second-opinion request only where the spec carries sections | `extraction.py` |
+| D-2 keeping | `parse_item_list` coerces an element marked `"section": "<id>"` by that section's definitions and stores `{"attributes", "section"}`; unmarked exactly as before; an undeclared marker is recorded in `drops["items_unknown_section"]` and the element kept as a main item; `apply_row_text_check` reads a marked item by its own text definitions; the reviewer is shown the marker | `extraction.py` |
+| D-2 sorting | an item is a section's when `item.section` equals the section's id (`ExtractedListItem.section`); REPLACES the 12e-3a test, which no stored item could satisfy | `pricingSheetHelper.ts` `computeItemList` |
+| D-3 | `family_text.from_attr`; `readFamilyWord` (exact spelling, then several names, then a refused word inside a text) serves the as-written word AND a word typed in the "Other..." box; shown read-only only where it differs from the type priced | `itemListPricing.ts`, `pricingSheetHelper.ts`, `config_validation.py` |
+| F-1 | `numbers.<axis>.near` — the nearest-size rule for ONE ladder, with "... on the sheet (within 0.1 mm)" | `itemListPricing.ts`, `config_validation.py`; Insulation's one config key |
+| F-2 | `withoutTrailingPunctuation` before the one-size test, the slash-list pick and the typed-thickness test | `itemListPricing.ts` |
+| F-3 | a bare number (or the size taken from a unit-less pair) below the smallest stocked size refuses "size N has no unit - price this row by hand" when N x 25.4 or N x 25 is within the family's stocked range; rides on `inch_mm_alt` + `size_match.below_smallest`, no new key | `itemListPricing.ts` |
+| G1-G3 | "Default 9 mm -> priced as 13 mm (next size up)"; `onceOnly`; a field id at the start of a default's line reads as its label | `pricingSheetHelper.ts`, `plainEnglish.ts` |
+| AC11 | three generated Derivation lines | `itemListRuleOrder.ts` |
+| v38 | phase `questions` of the mint instrument | `scripts/_instruments/mint_hvac_v34_piping.py` |
+
+**Where F-1 lives (verified first):** Insulation's size match is CONFIG (`size_match: {"dp": [2, 1]}`); the code was
+already general. `size_match.near` was NOT used for it: that key is category-wide (it would also soften the thickness
+ladder) and it switches every Insulation hop's line to the "declared rung" wording. The one Insulation key is
+`list_spec.pricing.numbers.pipe_size_mm.near: 0.1`.
+
+### HVAC v38 = v37 + (AC10)
+
+`rate_master_hvac_all_v38.json`, sha256 `0d88e6b6...b7b7a4`; 379 items / 10 configs; diff against v37: 7 lines
+removed, 23 added. Every item byte-identical and in the same order; eight configs byte-identical.
+
+| Config | Path | Change |
+|---|---|---|
+| hvac_insulation | `list_spec.pricing.numbers.pipe_size_mm.near` | added, `0.1` |
+| hvac_piping | `list_spec.attribute_definitions` | 4 -> 5: `pipe_type_as_written` (text) after `pipe_type`; the notes of the other four replaced |
+| hvac_piping | `list_spec.second_opinion` | `false` -> `true` |
+| hvac_piping | `list_spec.pricing.family_text.refuse` | 1 -> 2: "Stainless steel", the SS sentence |
+| hvac_piping | `list_spec.pricing.family_text.from_attr` | added, `pipe_type_as_written` |
+| hvac_piping | `list_spec.pricing.panel_readonly` | added, `[pipe_type_as_written]` |
+
+Loaded on dev: pre-load snapshot `BRMS-26-00511`, batch `rmbulk-ec1d31dbe762`, retirements_without_reason 0; live HVAC
+== the file by content (0 items / 0 configs differing; item checksum `93bbac8f3c13d86c` unchanged, configs
+`f9710d61b4799a68`); Electrical == v66 untouched (`784d1dbe8024d5f8` / `aa8d0a49ef645120`). No hand step (the
+candidate carries the series order and `intentional_removals`). Mint gate v37 -> v38 PASS; `--latest` PASS (kinds disjoint against Electrical v66).
+
+### AC evidence
+
+- **AC0** (stubbed, on the committed code and v38). `test_piping_v34.test_28`: the 12e-4a stub answers for
+  BOQ-26-00073 / HVAC rows 53 and 60 through the real `run_extraction` (the real request builder, `_extract_batch`,
+  the real result row) with a stub client — 1 batch call + 2 reviews, no capture-log line — store the pinned rows.
+  `slice12e4b.test.ts` AC0 prices those rows from the panel's entry point; the two halves share one sha256 of the
+  stored rows. Row 53: Copper 22.3 -> 22.2, **1,814 / 220**; insulation Nitrile, "13/19" -> 19, pipe 22.3 "from pipe"
+  -> 22.23 within 0.1 mm, **265 / 14**; row **2,079 / 234**. Row 60: "Pipe type as written: uPVC" -> PVC, "BoQ says
+  uPVC -> priced as PVC", **120 / 28**; insulation "6/9" -> 9 -> 13, pipe 25 -> 28.58, **238 / 14**; row **358 / 42**.
+  Every figure equals the pure pricer's.
+- **AC1 / AC2** `TestSlice12e4bSectionQuestions` (8 tests): Insulation's block inside a Piping request byte for byte;
+  the requests of the 16 other eligible categories byte-identical to the pre-slice code, run side by side from
+  `git show c29406060`; positive and negative parse, text-check, second-opinion and batch-site cases.
+- **AC3** the 22 fixtures re-marked: `slice12e3a.test.ts` 7, `slice12e3b.test.ts` 1, `slice12e3c.test.ts` 2,
+  `ruleReachability.test.ts` 6 (S2a, S2b-neg, S3a, S4a, S5a, S5b-neg), `calculatorPanelParity.test.ts` 6 (Q1, W1, D1
+  pairs). Three more insulation fixtures that stayed green without the marker were marked too so they still exercise a
+  section (reachability S3b-neg, S4b-neg; the 12e-3c sweep's row section).
+- **AC4** parity for GI, uPVC, HDPE, SS, "Stainless steel", "MS / GI", "uPVC/ CPVC": as written == typed in the
+  "Other..." box on type, line, refusal, figures and working. The one named difference: on a refusal the typed word
+  heads the block, the as-written word sits on its read-only line.
+- **AC5** 22.3 -> 22.23, 265 / 14 (v37: 28.58, 286 / 14), on the calculator, a BoQ row and a Piping section; 0.10
+  away matches, 0.11 does not; the thickness ladder untouched.
+- **AC6** "19/25 mm." -> 25, "32/40mm." -> 40, "25 mm," -> 25; 12 forms x 6 marks; a typed thickness "19 mm." -> 19.
+- **AC7** the table below; the count over the 1,650 current Piping rows' own text: **1** row is a bare number below
+  the smallest size of the type it names — BOQ-26-00186 / HVAC WORKS / row 108, "1 CPVC". (18 more short rows open
+  with a small number and no unit, 17 of them a tonnage — "1.5 TR - Hi-Wall" — which is no pipe size at all.)
+- **AC8** G1 note "Default 9 mm -> priced as 13 mm (next size up)"; the sweep (every kind x unit of Insulation, ADP
+  and Piping, calculator and row) finds no repeated line, no line opening with a field id and no "BoQ says" on a
+  default.
+- **AC11** Piping 19 -> **21** lines (the as-written rule, sixth; the no-unit refusal after the size fit); Insulation
+  24 -> **25** (the 0.1 mm rule after the pipe-size fit); ADP 18. `ruleReachability` names each with positive and
+  negative panel-path cases; named == generated.
+- **AC12** below. **AC13** capture log: no real model line added; no Pricing Input and no item written.
+
+### The no-unit table (AC7; typed and read agree on all 64 cells)
+
+| Typed / read | Copper (6.4 - 47.6) | MS (19 - 300) | PVC (25 - 150) | CPVC (25 - 75) |
+|---|---|---|---|---|
+| 1 | refuses | refuses | refuses | refuses |
+| 2 | 6.4 (smallest) | refuses | refuses | refuses |
+| 3 | 6.4 | refuses | refuses | refuses (75 at x 25) |
+| 4, 5 | 6.4 | refuses | refuses | 25 (smallest) |
+| 6 | 6.4 | refuses | refuses (150 at x 25) | 25 |
+| 7 - 9 | 9.5 (next size up) | refuses | 25 (smallest) | 25 |
+| 10, 11 | 12.7 | refuses | 25 | 25 |
+| 12 | 12.7 | refuses (300 at x 25) | 25 | 25 |
+| 8/7 | 9.5 | refuses (size 8) | 25 | 25 |
+| 3/4 (an inch fraction) | 19.1 | 19 | 25 | 25 |
+| 25/32 | 34.9 | 32 | 32 | 32 |
+| 40/50 | refuses: above the largest (47.6) | 50 | 50 | 50 |
+
+"refuses" = "size N has no unit - price this row by hand". MS 13 and above (13 inches = 330 / 325 mm) take the
+smallest size as before; MS 15 still prices 456 / 112.
+
+### AC12 — blast radius (13,365 stored rows of 101 active runs, panel path, against the start-of-slice output)
+
+Output sha256 `9c53e4fe...ac8ef8` against the baseline `52b3407a...f027a`; run once on the changed code before the
+v38 load and once after it - the two outputs are byte-identical. **42 rows differ, all HVAC (40 `hvac_adp`, 2
+`hvac_insulation`); 0 of the 13,077 Electrical rows and 0 of the 18 rows with no discipline; no figure, status or
+refusal moved.** No stored row was moved by F-1 or F-2 (no stored Insulation row states a pipe size within 0.1 mm
+of a stocked one, and no stored size ends in punctuation); no active run holds a Piping row. Every change is one
+of four working lines (G2 / G3), 44 line changes on the 42 rows:
+
+| Rows | Category | Before | After |
+|---|---|---|---|
+| 18 | ADP | damper not mentioned -> without (damper not mentioned (or not answered) = without) | damper not mentioned -> without |
+| 16 | ADP | insulated not mentioned -> with (insulation not mentioned (or not answered) = insulated) | insulated not mentioned -> with (insulated) |
+| 8 | ADP | ul not mentioned -> no (UL not mentioned (or not answered) = non-UL) | UL listed not mentioned -> no (non-UL) |
+| 2 | Insulation | cladding not mentioned -> No (cladding not mentioned -> without cladding) | cladding not mentioned -> No (without cladding) |
+
+By sheet: BOQ-26-00341 / HVAC Lowside works 15, BOQ-26-00325 / LOW SIDE HVAC BOQ 7, BOQ-26-00321 / AIR DISTRIBUTION
+7, BOQ-26-00329 / HVAC BOQ 5, BOQ-26-00336 / HVAC 5, BOQ-26-00340 / HVAC 3 (rows 61 and 62 are the two Insulation
+rows). The row list is in the Desktop report.
+
+### Pins inverted under mechanical authority (each keeps its before line; none deleted)
+
+`test_piping_v34` test_18 (the delegated questions now reach the model), test_06 / test_13 / test_15 (newest asset
+38); `test_rate_master` `CURRENT_HVAC_ASSET` + its six name pins; `test_extraction_coercion` the name pin and
+test_il_02 (the Piping question list gains `pipe_type_as_written`); frontend: the Derivation counts and positions
+(`slice12e2`, `slice12e2b`, `slice12e3b`, `slice12e3c`, `ruleReachability`), the default lines (`slice12d8`,
+`slice12e2b`, `slice12e3a`, `slice12e3b`, `slice12e3c`, `ruleReachability`), and **one price pin, by the owner's
+word**: `slice12e3b` MS "8/7" (456 / 112 -> the no-unit refusal). No other price assertion changed.
+
+### Tests
+
+- New: `TestSlice12e4bSectionQuestions` 8 and `TestSlice12e4bAssetV38` 5 (Python); `slice12e4b.test.ts` 59;
+  `ruleReachability` +12 cases.
+- Vacuity: 18 frontend mechanisms, 10 extraction mechanisms and 7 validator refusals, each red when disabled
+  (1 to 14 failing tests), every file restored byte-identical, green before and after.
+- Targeted sets: commit 1 - test_extraction_coercion 216, test_piping_v34 27, test_spec_reader 34,
+  test_rate_suggest 75, test_rate_master 742, all OK; commit 2 - `src/pages/boq-wizard` + `src/pages/pricing`, 99
+  files / 4,661; commit 3 - the same five Python modules (test_piping_v34 32; test_rate_master's two historical
+  Insulation pins re-run green by name after their normalisation) and 99 files / 4,674.
+- Full suites after the last code commit: Python **8,067** tests, failures=6 errors=2 - the 8 knowns by name
+  (before: 8,054, the same 8 plus the daily-window test); frontend **170 files / 6,554**, 1 failed, the known
+  `writeOffControl` (before: 169 / 6,483 / 1) - the first full run also timed out once at 5 s in
+  `plainEnglish.test.ts` (2.0 s alone; clean on the re-run of the same set); `tsc` **3,170**, identical to before by
+  file and message. Logs: `Desktop\2026-10-13_12e4b_python_full.log`, `_frontend_full.log`, `_tsc_full.log`.
+
+### Browser cert (2026-10-13; `Desktop\2026-10-13_12e4b_screens\`, 16 files)
+
+De-stale in full: 20 processes stopped on TERM (none left), ports 8000 / 8080 / 9000 free, pycache 211 -> 0, `.vite`
+removed, bench ping after 226 s, vite after 75 s. PROOF 1 on the served transformed modules (`function
+withoutTrailingPunctuation`, `function readFamilyWord`, `function noUnitMessage`, `nearOnAxis`, `unitlessLists`,
+`typeof it.section`, `function onceOnly`, the three Derivation titles) and on a fresh backend read (the live Piping
+definitions, `from_attr`, the refuse list, Insulation's `near`). PROOF 2 by a runtime import in the page (`onceOnly`,
+`noUnitMessage`, `withoutTrailingPunctuation`). The tab came up hidden once; the owner brought it to the front.
+
+- **C1** Piping, "Other..." uPVC, 25: PVC, "BoQ says uPVC -> priced as PVC", **120 / 28**; "SS" and "Stainless
+  steel": "No SKU in the catalogue for SS pipe - price this row by hand".
+- **C2** Insulation, Nitrile, No, 19, Other 22.3: "pipe size 22.3 is 22.23 on the sheet (within 0.1 mm)", **265 / 14**.
+- **C3** Piping, Copper, Other 22.3, Insulated Yes, Nitrile, No, 19: pipe 22.2, **1,814 / 220**; section "from pipe"
+  22.3 -> 22.23, **265 / 14**; total **2,079 / 234 / 2,313**.
+- **C4** MS "19/25 mm.": "You typed 19/25 mm.: states two sizes (19 / 25) - the higher, 25, is taken", 480 / 140.
+- **C5** CPVC "1": "size 1 has no unit - price this row by hand"; "1 inch": "You typed 1 inch -> 25.4 mm / 25 mm ->
+  priced as 25 mm", 240 / 28 (25 mm by the second conversion, not "the smallest size" as the prompt worded it).
+- **C6** Insulation, Nitrile, 26G, 50, thickness untouched: "Default 9 mm -> priced as 13 mm (next size up)", the
+  working line once, **556 / 224 / 780**. The field's label on a real row: BOQ-26-00325 / LOW SIDE HVAC BOQ / row 186
+  reads "UL listed not mentioned -> no (non-UL)". No screen renders "item not mentioned" today (the calculator always
+  picks the material; no stored row has it), so that line was read from the page's own module, not seen drawn.
+- **C7** Derivation: Piping **21** (line 6 the as-written rule, line 13 the no-unit refusal), Insulation **25** (line
+  18 the 0.1 mm rule).
+- **C8** ADP fire damper, UL yes, 600 x 600: **7,830 / 692 / 8,522**. BOQ-26-00174 / "Electrical " / row 309: **1,884**
+  combined (1,504 + 380), its before figure. "Use this value" not pressed; no override was needed; Fast render
+  restored on both sheets.
+- **C9** HVAC 379 / 10 == v38, Electrical 1,402 / 13 == v66, 0 differing; capture log: no real model line.
+
+### Findings (reported, not repaired)
+
+1. The read-only line renders "Pipe type as written (BoQ): uPVC" (the panel's existing read-only format, as Brand).
+2. A word naming a stocked type and a refused one ("MS / SS") prices as the stocked type: the design's order reads
+   the family names before the refuse list.
+3. ADP's plenum-thickness reader does not recognise "26G." as a gauge because of the trailing dot (it reads 26). F-2
+   was applied only where a trailing mark STOPPED a reading; this one is the opposite and was left.
+4. Insulation's pipe-size reader still reads "19/25" as 19/25 of an inch (the pinned 12e-3b behaviour); F-2 changes
+   nothing there.
+5. The size field is not outlined red on the no-unit refusal (the sentence does not name "pipe size"); the block's
+   own line carries it.
+6. "1 mm" typed reads "You typed 1 mm -> 1 mm -> priced as 25 mm (the smallest size)" (the 12e-2 line shape).
+7. A section's thickness note says "BoQ says 9 mm -> priced as 13 mm" where the BoQ wrote "6/9 mm" (the pair's line
+   is in the working, not on the field).
+8. The no-unit Derivation line is generated from keys v36 and v37 already carry, so those configs read one line more
+   under this code (Piping 14 -> 15, 19 -> 20).
+9. The capture log rolled during this slice's Python runs (8 MB): 1,021 -> 1,250 lines in what is now `.1`, and the
+   oldest generation (written 2026-09-09) was dropped by the keep-5 rule. Every added line is a test fixture's.
+10. `scripts/_instruments/README.md` (the instrument's last-run line) is outside the slice's file list and was not
+    updated.
+11. Seen in the cert, outside the slice: the Spreadsheet tab of `/hvac-pricing` showed "Something went wrong" right
+    after the restart (the Calculator tab on the same page worked; cause not looked into). A thickness picked and
+    then set back to "- select -" refuses "Type the thickness as a single number in mm" instead of taking the
+    default (the typed-thickness test sees an empty typed value; that test's behaviour on an empty value is not
+    changed by this slice).

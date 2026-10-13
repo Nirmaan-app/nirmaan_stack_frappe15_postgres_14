@@ -905,8 +905,9 @@ item with a readable number, keeps its own remove control, and no toggle adds or
 Q2a):** every item and every section is a LINE, each rounded by its own rules; the row total is the sum of the lines;
 any refused line means no total and "n of m items need a person", priced lines keeping their figures. An attached
 section prices on its own even where its item refuses; a row with no item and a priced independent section totals
-that section. **The model's answer (owner Q3 / Q4):** a section item is told apart by carrying an attribute only the
-delegated category defines and not the owner's family attribute; the k-th one attaches to the k-th item of the answer,
+that section. **The model's answer (owner Q3 / Q4; the sorting REPLACED by owner D-2, 12e-4b -- see the paragraph on
+the section marker below):** a section item is the one whose `section` equals the section's id; the k-th one attaches
+to the k-th item of the answer,
 extras are independent; facts present mean the toggle reads open even where the model said otherwise. **Session
 state:** an attached section's edits live ON its item's edit entry (`ItemEdit.sections`), so removing or changing the
 item (owner S1: a changed item starts blank) takes them with it; independent ones sit beside the items
@@ -968,9 +969,89 @@ section pass sets `noRow` on the context it hands a delegated category -- the sa
 boundary to "pick a cladding", built from the config's choice fields and their labels (no field is named in code).
 The same boundary function (`say`, in `computeItemListOwn`) hands the category's own field labels to
 `plainPricerText`, which writes a field id spelled with an underscore as its label ("thickness not mentioned -> 9",
-never "thickness_mm ..."). An id with no underscore cannot be told from a word and is left ("item not mentioned ->
+never "thickness_mm ..."). An id with no underscore cannot be told from a word and is left -- except at the START of a default's line, where 12e-4b (owner G3) reads it as its label (BEFORE: "item not mentioned ->
 ..."). ⚠️ Item-list categories only: HVAC Raceway and HVAC Cables are priced by Electrical's row-level engine and keep
 its lines until the Electrical retrofit (owner 2026-10-12: "Leave for the retrofit").
+
+**A DELEGATED SECTION'S QUESTIONS ARE ASKED FROM THE DELEGATED CONFIG, AND ITS ITEM CARRIES A MARKER (owner D-2,
+2026-10-13: a Piping row "is also asked Insulation's OWN questions for a second, marked item, built from
+Insulation's config at asking time - NO second copy"; slice 12e-4b).** `extraction.build_items_spec(cfg, configs,
+discipline)` attaches each delegated section under `"sections"` as `{id, label, items_spec}`, where `items_spec` is
+that same function's result for the delegated config -- the very object a row of that category is asked with, built
+when the request is assembled and written nowhere. A config with no delegated section, a call without the config
+map and a section whose category is not loaded all return the object exactly as before, so every other category's
+request is byte-identical (pinned against the pre-slice code, run side by side from `git show`). One paragraph,
+`SECTION_ITEMS_GUIDANCE`, tells the model how the second kind is returned; it lives in the wrapper (like SYNONYMS
+and DEFAULTS) and is appended only to a request whose spec carries sections, so the shared item-list prompt asset
+is untouched. The model returns a section item as a SEPARATE element marked `"section": "<id>"`.
+`parse_item_list` coerces a marked element by THAT section's definitions and family attribute and stores
+`{"attributes": {...}, "section": "<id>"}`; an unmarked element is stored exactly as before (no new key); a marker
+the config does not declare is recorded in `drops["items_unknown_section"]` and the element is kept as a main item,
+so it shows as a blank block that needs a person (owner decision 6: visible beats silent). The text check and the
+second opinion read a marked item by its own section's definitions, and the reviewer is shown the marker and the
+same paragraph. ⚠️ **THE PANEL SORTS BY THE MARKER AND BY NOTHING ELSE** (`pricingSheetHelper.computeItemList`): an
+item is a section's when `item.section` equals that section's id. The 12e-3a test -- an item NOT carrying the
+owner's family key -- could never be true of a stored item, because the parser stores every definition of the
+row's category on every item. A category that declares no section never reads the key.
+
+**THE FAMILY "AS WRITTEN" IS READ BY THE ONE READER A TYPED WORD GOES THROUGH (owner D-3, 2026-10-13; decisions 2 /
+3 / 4; slice 12e-4b, HVAC v38).** The Pipe type dropdown stays the four stocked types; a text definition
+(`pipe_type_as_written`) carries the BoQ's own word, from the row or else its headings. `list_spec.pricing.
+family_text.from_attr` names it (the key name `unstocked_materials.from_attr` uses; the validator requires a `text`
+definition of the category that the pricing does not match on, and allows it in `panel_readonly`). The pricer's
+order: (1) an ANSWERED family is used and the word is not read -- a dropdown answer wins over a disagreeing word;
+(2) else the row's OWN words (`from_row`, unchanged); (3) else the as-written word becomes the family answer;
+(4) else "no pipe type could be told". Step 3 and a word typed in the family's "Other..." box go through ONE
+function, `itemListPricing.readFamilyWord`: the exact spelling of a stocked, mapped or refused family
+(`readFamilyText`, unchanged: uPVC -> PVC with its line, SS -> its sentence); then a word holding several names
+through the row-text rule ("MS / GI" -> MS, "uPVC/ CPVC" refuses naming both); then a refused word inside a longer
+text ("SS 304"); else the caller refuses by name. "Stainless steel" is a second entry of the config's refuse list,
+not code. The word is shown read-only and ONLY where it differs from the family priced (decision 2). ⚠️ On a
+refusal the typed word heads the block (it sits in the type box) while the as-written word sits on its read-only
+line -- the one named difference between the two paths; type, line, refusal, figures and working are equal
+(`slice12e4b.test.ts`, the parity set).
+
+**ONE AXIS MAY DECLARE THE NEAREST-SIZE RULE FOR ITSELF, AND INSULATION'S PIPE SIZE DOES (owner F-1, 2026-10-13:
+"insulation should get the original pipe size read by BoQ and then will match/ ladder independently based on
+insulation logic" + "option B"; slice 12e-4b, HVAC v38).** `numbers.<axis>.near` is `size_match.near` for that
+ladder alone; the axis key wins over the category one. Insulation declares `numbers.pipe_size_mm.near: 0.1`, so a
+pipe read as 22.3 is the sheet's 22.23 instead of the next size up (28.58), in the Insulation category and in a
+Piping section alike -- the section is still handed the size AS READ (22.3, "from pipe") and Insulation's own rule
+lands it. Where the axis key is what matched, the working says so: "pipe size 22.3 is 22.23 on the sheet (within
+0.1 mm)". ⚠️ It is deliberately NOT `size_match.near` on Insulation: that key is category-wide (the thickness ladder
+would take 13.05 as 13 instead of the next size up) and it switches every hop's line to the "declared rung" wording.
+The validator refuses the key on an axis that is not a ladder.
+
+**A TRAILING FULL STOP NEVER STOPS A SIZE FROM READING (owner F-2, 2026-10-13: "fix"; slice 12e-4b).**
+`itemListPricing.withoutTrailingPunctuation` drops a full stop, comma, semicolon or colon at the very END of a text
+before the three tests that anchor on the end look at it: whether a typed entry is one size (`isOneSizeEntry`),
+which size a slash list takes (`severalSizesPick`: "19/25 mm." -> 25) and whether a typed thickness is a single
+number. The text as written is still what every line quotes. `readNumber` itself is not changed: no reading inside
+it was stopped by a trailing mark. (Known and left: ADP's plenum-thickness reader does not recognise "26G." as a
+gauge because of the dot; reported in 12e-4b, not ruled.)
+
+**A BARE NUMBER THAT COULD BE AN INCH SIZE REFUSES (owner F-3, 2026-10-13: "this should refuse pricing if we cant
+determine the size/ unit correctly"; ruled in the run; slice 12e-4b).** On a size axis that reads inches two ways
+(`inch_mm_alt`) and rules below-the-smallest (`size_match.below_smallest`) -- Piping's, and no other -- a number
+written with NO unit that is below the smallest stocked size of its family refuses "size N has no unit - price this
+row by hand" when N x 25.4 OR N x `inch_mm_alt` falls within the family's stocked range (smallest to largest). The
+same number with its unit ("1 inch", "1 mm"), a number at or above the smallest size, and a small number whose inch
+reading is out of range (MS 15: 381 / 375 mm) price exactly as before. The size TAKEN from a pair or list written
+with no unit ("8/7" -> 8) goes through the same check; an inch fraction ("3/4") is already inches and never a bare
+number. The test reads the ANSWER -- what the pricer typed or the model returned -- never the row or its headings:
+a heading's "6mm nitrile rubber insulation" must not make a bare "1" priceable. The Pipe size note tells the model
+to take a bare size's UNIT (never the size) from a heading or the neighbouring rows of the same list and to write
+it with the size, else to return the number bare. No config key: the rule rides on the two keys above.
+
+**A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
+12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
+(next size up)", in the calculator and on a BoQ row alike; a value the BoQ stated keeps "BoQ says", one the pricer
+typed "You typed". G2: the pricer writes a default as "<field> not mentioned -> <value> (<rule>)" and the rule is
+usually that same statement, so `plainEnglish.onceOnly` keeps only what the rule ADDS ("thickness not mentioned ->
+9 mm, then the ladder"; "damper not mentioned -> without"; "cladding not mentioned -> No (without cladding)"). G3:
+at the START of such a line a field id with no underscore is known to be the field and reads as its label
+("insulation material not mentioned -> ...", "UL listed not mentioned -> no (non-UL)"); anywhere else such an id
+cannot be told from a word and is left. All three are at the view boundary: the pure pricer's working is unchanged.
 
 **THE SECTION DECLARATION IS CHECKED IN TWO HALVES, AND THE CROSS-CATEGORY HALF RUNS AT EVERY WRITE (12e-3a, owner
 2026-10-11: "Add loader.py to scope"; the config editor's save also runs it).** `_validate_list_sections` (inside
@@ -1264,11 +1345,11 @@ states two sizes ..." under the field (`slashSizes`, `severalSizesPick`, `severa
 parts are compared as the reader reads them, so an inch size and an mm size compare in mm; a unit written once at the
 end is the unit of the bare parts before it. ⚠️ NOT RULED, SO NOT GUESSED: a list holding an inch fraction
 (`3/4" / 1"`) and a part that is not one size keep the "- pick one" refusal. The model's own choice of a row's size is
-whatever it returns as ONE size (12e-4 writes that instruction). The delegated section mirrors the read that LANDED, so
+whatever it returns as ONE size (the Pipe size note says so since HVAC v38, 12e-4b). The delegated section mirrors the read that LANDED, so
 it takes the taken size (owner D3b). The test is confined by the same `typed_entry` key, so Insulation's pipe-size
 reader, which shares `readNumber`, is byte-identical -- it still reads "25/32" as an inch fraction. A family answer written as the BoQ writes it is
 read by ONE reader (`family_text`: GI -> MS, uPVC / HDPE -> PVC with the line, SS refuses with its sentence, any
-other spelling refuses by name), shared by the calculator's typed "Other..." pipe type and the 12e-4 model path.
+other spelling refuses by name), shared by the calculator's typed "Other..." pipe type and the model's "Pipe type as written" (12e-4b: `readFamilyWord`, above).
 
 ---
 

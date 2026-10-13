@@ -469,6 +469,17 @@ _Moved verbatim from `frontend/CLAUDE.md` when it was cut down to material every
   field the dropdown does not stock arrives with `otherMode` true and the ruled value in `typedValue`, or with the
   value appended to `options`; the panel draws what it is given and decides nothing. "pick a cladding" is the
   helper's rewording of the pricer's "could not tell cladding" in the calculator only.
+- **A section's item is the one the run MARKED, and the as-written word and a default's wording come from the view
+  (12e-4b, owner D-2 / D-3 / G1-G3; full text in root `.claude/context/domain/boq-rate-master.md` § Load-bearing
+  invariants).** `computeItemList` sorts a stored item into a delegated section when `item.section` equals that
+  section's id (`ExtractedListItem.section`) and by nothing else; an item with no marker, or a marker no section
+  declares, is the config's own and shows as a block. A fixture that hands a Piping row a model-read insulation item
+  must carry `section: "insulation"` ON THE ITEM, beside `attributes` -- without it the test still runs, on a blank
+  pipe block. The read-only line a config declares for the family as written (`family_text.from_attr` +
+  `panel_readonly`) is in `ItemBlockView.readOnly` only where the word differs from the family priced; the panel
+  draws it with its existing read-only markup ("<label> (BoQ): <value>") and no new code. A defaulted number's note
+  leads "Default"; a default's working line arrives already said once and by its field's label
+  (`plainEnglish.onceOnly`) -- the panel words nothing itself.
 - **A two-way field always offers both values; a ladder pick ladders; an unstocked pair refuses by name (12e-2b,
   owner 2026-10-10; full text in root `.claude/context/domain/boq-rate-master.md` § Load-bearing invariants, beside
   S1).** Owner: *"for attributes whose options are yes/no, with/without type both values must be shown in the
