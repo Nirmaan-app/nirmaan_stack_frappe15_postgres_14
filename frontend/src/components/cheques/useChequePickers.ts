@@ -17,14 +17,15 @@ export const useVendorRecords = (vendor: string | undefined) => {
 
 /**
  * The expenses an expense line may name, and what was hidden (#1411). A Project Expense line asks
- * only once its project is picked; a Non-project Expense line at once.
+ * only once its project is picked; a Non-project Expense line at once. `cheque` is the Cheque being
+ * edited (#1418): its own expenses stay offered.
  */
-export const useEligibleExpenses = (lineType: ChequeLineType, project: string) => {
+export const useEligibleExpenses = (lineType: ChequeLineType, project: string, cheque?: string) => {
     const ready = lineType === "Non-project Expense" || (lineType === "Project Expense" && Boolean(project));
     const { data, error, isLoading } = useFrappeGetCall<{ message: EligibleExpenses }>(
         `${PICKERS}.get_eligible_expenses`,
-        { line_type: lineType, project: project || undefined },
-        ready ? `cheque-eligible-expenses-${lineType}-${project}` : null
+        { line_type: lineType, project: project || undefined, cheque },
+        ready ? `cheque-eligible-expenses-${lineType}-${project}-${cheque ?? ""}` : null
     );
     return { eligible: data?.message, error, isLoading };
 };
@@ -40,13 +41,16 @@ export const useAllProjects = () => {
     return { options, isLoading };
 };
 
-/** A PO's or Work Order's payments that may go on a Cheque, and what was hidden. */
-export const useEligiblePayments = (recordDoctype: string, recordName: string) => {
+/**
+ * A PO's or Work Order's payments that may go on a Cheque, and what was hidden. `cheque` is the
+ * Cheque being edited (#1418): its own payments stay offered.
+ */
+export const useEligiblePayments = (recordDoctype: string, recordName: string, cheque?: string) => {
     const ready = Boolean(recordDoctype && recordName);
     const { data, error, isLoading } = useFrappeGetCall<{ message: EligiblePayments }>(
         `${PICKERS}.get_eligible_payments`,
-        { record_doctype: recordDoctype, record_name: recordName },
-        ready ? `cheque-eligible-payments-${recordDoctype}-${recordName}` : null
+        { record_doctype: recordDoctype, record_name: recordName, cheque },
+        ready ? `cheque-eligible-payments-${recordDoctype}-${recordName}-${cheque ?? ""}` : null
     );
     return { eligible: data?.message, error, isLoading };
 };

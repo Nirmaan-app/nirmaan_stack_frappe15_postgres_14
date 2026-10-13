@@ -7,7 +7,8 @@
  * server enforces the same.
  *
  * The cheque number opens the detail view (photo, lines, history). Accounts (`CHEQUE_ACCOUNTS_PROFILES`)
- * also get the row's Status button and the bulk bar (#1412); the server refuses anyone else.
+ * also get the row's Status button and the bulk bar (#1412); the server refuses anyone else. Edit
+ * (#1418) shows on the rows the user may edit: accounts any, Procurement its own Issued Cheques.
  */
 
 import { useMemo, useState } from "react";
@@ -23,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { useUserData } from "@/hooks/useUserData";
 import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
+import { canEditCheque } from "@/utils/cheques/chequeEdit";
 import { canChangeChequeStatus } from "@/utils/cheques/chequeStatus";
 
 import { getChequePaymentColumns } from "./columns/chequePaymentColumns";
@@ -48,9 +50,10 @@ const sharedStatus = (rows: Pick<ChequeRow, "status">[]): ChequeStatus | undefin
     rows.length && rows.every((r) => r.status === rows[0].status) ? rows[0].status : undefined;
 
 export default function ChequePaymentReport() {
-    const { role } = useUserData();
+    const { role, user_id } = useUserData();
     const canChangeStatus = canChangeChequeStatus(role);
     const [adding, setAdding] = useState(false);
+    const [editing, setEditing] = useState<string | null>(null);
     const [detail, setDetail] = useState<string | null>(null);
     const [statusTarget, setStatusTarget] = useState<StatusTarget>({ cheques: [] });
 
@@ -61,8 +64,10 @@ export default function ChequePaymentReport() {
                 onChangeStatus: canChangeStatus
                     ? (row) => setStatusTarget({ cheques: [row.name], status: row.status })
                     : undefined,
+                onEdit: (row) => setEditing(row.name),
+                canEdit: (row) => canEditCheque(row, role, user_id),
             }),
-        [canChangeStatus],
+        [canChangeStatus, role, user_id],
     );
 
     const {
@@ -137,6 +142,12 @@ export default function ChequePaymentReport() {
                 }
             />
             <AddChequeDialog open={adding} onOpenChange={setAdding} onSaved={() => refetch()} />
+            <AddChequeDialog
+                open={Boolean(editing)}
+                cheque={editing}
+                onOpenChange={(open) => !open && setEditing(null)}
+                onSaved={() => refetch()}
+            />
             <ChequeDetailDialog
                 cheque={detail}
                 onClose={() => setDetail(null)}

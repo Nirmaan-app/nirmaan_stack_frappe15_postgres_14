@@ -23,12 +23,14 @@ Built so far:
   from the PO/WO page (#1414 Request Payment; #1416 Convert to Cheque). Ask the first BEFORE the
   payment is inserted: a Project Payment's `after_insert` commits, so a refusal after it is too late.
 
+* `edit_cheque` -- the report's Edit (#1418): what may change depends on the status, where the
+  Cheque was made and who made it (`rules.edit_access_problem`, `rules.edit_problem`). A payment
+  added on edit is put on the Cheque exactly as on create.
+
 Convert to Cheque, Link a new cheque and Switch to Online on a payment (#1416) live in
 `services/cheques/payment_actions.py` and make their Cheque through `create_payment_cheque`.
-
-To come, each beside these: editing a Cheque and its lines (#1418), status change for
-one or many with history (#1412). A Rejected or deleted payment's line comes off in
-`services/cheques/detach.py` (#1413).
+Status change for one or many, with history, is `services/cheques/status.py` (#1412). A Rejected or
+deleted payment's line comes off in `services/cheques/detach.py` (#1413).
 
 The line pickers' lists are read-only and live in `services/cheques/pickers.py`; the line rules
 that read the database in `services/cheques/lines.py`.
@@ -39,6 +41,7 @@ A Cheque moves no money figure: amounts paid, amounts owed, TDS and vendor credi
 from dataclasses import asdict
 
 import frappe
+from frappe import _
 from frappe.utils import now_datetime
 
 from nirmaan_stack.services.cheque_payments import MODE_CHEQUE
@@ -51,8 +54,12 @@ from nirmaan_stack.services.cheques.rules import (
     ChequeHeader,
     ChequeLineInput,
     bank_key,
+    edit_access_problem,
+    edit_problem,
     header_problem,
     normalise_cheque_no,
+    parse_header,
+    parse_line,
     request_duplicate_problem,
 )
 
@@ -146,6 +153,58 @@ def backfill_cheque(
     return doc
 
 
+def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | None, *, user: str, any_cheque: bool):
+    """Save the report's Edit of Cheque `name`: its new `header`, and its `lines` (None keeps them).
+    Returns it.
+
+    Re-reads the Cheque under its row lock, then refuses with `frappe.PermissionError` a user who may
+    not edit it (`any_cheque` is False for Procurement: only their own Issued Cheques), and with a
+    validation error an edit the rules forbid (`rules.edit_problem`). The `validate` controller still
+    runs every header and line rule.
+
+    A payment added on edit is put on the Cheque as on create (`link_payments`), and a new number or
+    date is copied onto the payments already on it. ⚠️ THE CALLER COMMITS, THEN MOVES THE PAYMENTS ON.
+    """
+    doc = frappe.get_doc(CHEQUES, name, for_update=True)
+    problem = edit_access_problem(status=doc.status, owner=doc.owner, user=user, any_cheque=any_cheque)
+    if problem:
+        frappe.throw(_(problem), frappe.PermissionError)
+
+    lines_before = [parse_line(row.as_dict()) for row in doc.get("lines") or []]
+    lines_after = lines_before if lines is None else list(lines)
+    problem = edit_problem(
+        parse_header(doc.as_dict()),
+        header,
+        status=doc.status,
+        made_from=doc.made_from,
+        lines_before=lines_before,
+        lines_after=lines_after,
+    )
+    if problem:
+        frappe.throw(_(problem))
+
+    _lock_payments([line.payment_name for line in lines_after if line.payment_doctype == PAYMENT_DOCTYPE])
+    doc.update({
+        "bank": header.bank,
+        "bank_name": header.bank_name,
+        "cheque_no": header.cheque_no,
+        "cheque_date": header.cheque_date,
+        "amount": header.amount,
+        "vendor": header.vendor,
+        "payee_name": header.payee_name,
+        "description": header.description,
+        "attachment": header.attachment,
+    })
+    if lines_after != lines_before:
+        doc.set("lines", [asdict(line) for line in lines_after])
+    doc.save(ignore_permissions=True)
+    # Lines and the number change only while Issued; a Cleared or Cancelled Cheque's payments may
+    # have moved on (Switch to Online, Link a new cheque) and must not be pulled back.
+    if doc.status == ISSUED:
+        link_payments(doc)
+    return doc
+
+
 def _new_cheque(header: ChequeHeader, *, made_from: str, lines, status: str, history: dict):
     """An unsaved Cheque; the caller inserts it. Row-locks the payments its lines name first."""
     _lock_payments([line.payment_name for line in lines if line.payment_doctype == PAYMENT_DOCTYPE])
@@ -222,17 +281,21 @@ def link_payments(doc) -> None:
     payment (an Online one converts) and copy the cheque number and date onto it.
 
     Its status is left alone here; the caller's move after commit does the rest. Saved through the
-    document so its `validate` (the mode rule, the hold) and `track_changes` run. A Cheque moves no
-    money figure, so nothing is recomputed.
+    document so its `validate` (the mode rule, the hold) and `track_changes` run. A payment already
+    in step (an edit that left it alone) is not saved again. A Cheque moves no money figure, so
+    nothing is recomputed.
     """
+    values = {
+        "cheque": doc.name,
+        "mode_of_payment": MODE_CHEQUE,
+        "cheque_no": doc.cheque_no,
+        "cheque_date": doc.cheque_date,
+    }
     for name in line_payments(doc):
         pay = frappe.get_doc(PAYMENT_DOCTYPE, name)
-        pay.update({
-            "cheque": doc.name,
-            "mode_of_payment": MODE_CHEQUE,
-            "cheque_no": doc.cheque_no,
-            "cheque_date": doc.cheque_date,
-        })
+        if all(str(pay.get(field) or "") == str(value or "") for field, value in values.items()):
+            continue
+        pay.update(values)
         pay.save(ignore_permissions=True)
 
 

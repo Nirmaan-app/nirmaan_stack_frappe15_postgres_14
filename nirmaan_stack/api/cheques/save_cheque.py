@@ -13,8 +13,11 @@ A Cheque with no lines is an Ad-hoc cheque. PO/WO Payment lines (#1410) put thei
 Cheque: an Online payment becomes a Cheque payment, and once the save is committed each linked
 payment that is Approved and not on hold moves on to Reconciliation Pending through the same move
 every approval route uses. Expense lines (#1411) name a Project Expense or Non Project Expense and
-change nothing on it; a cheque with a typed payee takes expense lines only. Editing (#1418) is to be
-added to this endpoint.
+change nothing on it; a cheque with a typed payee takes expense lines only.
+
+With `name` it saves the report's Edit of that Cheque (#1418). Admin, Accountant and Accountant Lead
+(`CHEQUE_ACCOUNTS_PROFILES`) edit any Cheque; Procurement only the Issued Cheques they created. What
+may change depends on the status and where the Cheque was made (`services/cheques/rules.edit_problem`).
 """
 
 import frappe
@@ -22,8 +25,9 @@ from frappe import _
 
 from nirmaan_stack.api.payments.project_payments import _move_cheque_to_reconciliation
 from nirmaan_stack.services.cheques.rules import MADE_FROM_REPORT, parse_header, parse_line
-from nirmaan_stack.services.cheques.writer import CHEQUES_CHANGED_EVENT, create_cheque, line_payments
-from nirmaan_stack.services.role_profiles import can_use_cheques
+from nirmaan_stack.services.cheques.writer import CHEQUES_CHANGED_EVENT, create_cheque, edit_cheque, line_payments
+from nirmaan_stack.services.role_profiles import CHEQUE_ACCOUNTS_PROFILES, can_use_cheques, has_role_profile
+
 
 def assert_cheque_access(user: str) -> None:
     """Refuse a user outside `CHEQUE_ACCESS_PROFILES` (Project Managers included)."""
@@ -43,14 +47,16 @@ def save_cheque(
     description: str | None = None,
     attachment: str | None = None,
     lines=None,
+    name: str | None = None,
 ) -> dict:
-    """Record a new Cheque, made from the report, at Issued.
+    """Record a new Cheque, made from the report, at Issued; or, with `name`, save the Edit of that Cheque.
 
     `bank` is "ICICI Bank" or "Others" (then `bank_name` is required). Exactly one of `vendor` or
     `payee_name`. `attachment` is the uploaded photo's file URL. `description` is required while
     the Cheque has no lines. `lines` is a list (or its JSON) of `{line_type, project, record_doctype,
     record_name, payment_name?, amount?}`; an expense line's expense goes in `payment_name`, and a
-    line with a payment or expense and no amount takes its amount.
+    line with a payment or expense and no amount takes its amount. On an edit the whole Cheque is
+    sent back as the user left it; `lines` left out keeps the lines as they are.
 
     Returns `{cheque, status, payments}`, `payments` being each linked payment's `{name, status}`
     after the move.
@@ -69,9 +75,13 @@ def save_cheque(
         "attachment": attachment,
     })
     raw_lines = frappe.parse_json(lines) if isinstance(lines, str) else lines
-    doc = create_cheque(
-        header, user=user, made_from=MADE_FROM_REPORT, lines=[parse_line(line) for line in raw_lines or []]
-    )
+    parsed = None if raw_lines is None else [parse_line(line) for line in raw_lines]
+    if name:
+        doc = edit_cheque(
+            name, header, parsed, user=user, any_cheque=has_role_profile(user, CHEQUE_ACCOUNTS_PROFILES)
+        )
+    else:
+        doc = create_cheque(header, user=user, made_from=MADE_FROM_REPORT, lines=parsed or [])
     frappe.db.commit()
     payments = line_payments(doc)
     for payment in payments:
