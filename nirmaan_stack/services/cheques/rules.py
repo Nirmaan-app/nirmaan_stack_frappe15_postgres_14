@@ -140,6 +140,36 @@ RECORD_DOCTYPES = (PO_DOCTYPE, WORK_ORDER_DOCTYPE)
 #: The payment a PO/WO Payment line names.
 PAYMENT_DOCTYPE = "Project Payments"
 PAYMENT_REJECTED = "Rejected"
+#: The expense an expense line names (#1411). Linking one changes nothing on it.
+PROJECT_EXPENSE_DOCTYPE = "Project Expenses"
+NON_PROJECT_EXPENSE_DOCTYPE = "Non Project Expenses"
+
+#: What each line kind's `payment_name` is a name of.
+LINE_PAYMENT_DOCTYPES = {
+    LINE_PO_WO_PAYMENT: PAYMENT_DOCTYPE,
+    LINE_PROJECT_EXPENSE: PROJECT_EXPENSE_DOCTYPE,
+    LINE_NON_PROJECT_EXPENSE: NON_PROJECT_EXPENSE_DOCTYPE,
+}
+EXPENSE_LINE_TYPES = (LINE_PROJECT_EXPENSE, LINE_NON_PROJECT_EXPENSE)
+#: The expense as a user names it, in a refusal.
+EXPENSE_LABELS = {LINE_PROJECT_EXPENSE: "Project Expense", LINE_NON_PROJECT_EXPENSE: "Non-Project Expense"}
+
+
+@dataclass(frozen=True)
+class LineNeeds:
+    """Whether a line kind asks for a project and a PO / Work Order. Mirrored by the dialog's
+    `utils/cheques/chequeLines.LINE_NEEDS`. A PO/WO line's payment is optional; an expense line's
+    expense is required."""
+
+    project: bool
+    record: bool
+
+
+LINE_NEEDS = {
+    LINE_PO_WO_PAYMENT: LineNeeds(project=True, record=True),
+    LINE_PROJECT_EXPENSE: LineNeeds(project=True, record=False),
+    LINE_NON_PROJECT_EXPENSE: LineNeeds(project=False, record=False),
+}
 
 
 @dataclass(frozen=True)
@@ -156,21 +186,24 @@ class ChequeLineInput:
 
 
 def parse_line(values: dict) -> ChequeLineInput:
-    """Read one line out of `values`. A PO/WO Payment line's payment is always a Project Payment."""
+    """Read one line out of `values`, keeping only the boxes its kind asks for (`LINE_NEEDS`).
+
+    The payment doctype follows from the kind: a PO/WO Payment line names a Project Payment (when it
+    names one), an expense line its kind's expense. A Non-project Expense line has no project, and no
+    expense line has a PO / Work Order. A line of an unknown kind keeps what was sent, to be refused.
+    """
     def text(key):
         return _text(values.get(key)) or None
 
     line_type = text("line_type")
     payment_name = text("payment_name")
-    payment_doctype = text("payment_doctype")
-    if line_type == LINE_PO_WO_PAYMENT:
-        payment_doctype = PAYMENT_DOCTYPE if payment_name else None
+    needs = LINE_NEEDS.get(line_type, LineNeeds(project=True, record=True))
     return ChequeLineInput(
         line_type=line_type,
-        project=text("project"),
-        record_doctype=text("record_doctype"),
-        record_name=text("record_name"),
-        payment_doctype=payment_doctype,
+        project=text("project") if needs.project else None,
+        record_doctype=text("record_doctype") if needs.record else None,
+        record_name=text("record_name") if needs.record else None,
+        payment_doctype=LINE_PAYMENT_DOCTYPES.get(line_type) if payment_name else None,
         payment_name=payment_name,
         amount=flt(values.get("amount"), 2),
     )
@@ -215,9 +248,49 @@ def po_wo_line_problem(
     return None
 
 
+def line_kind_problem(line: ChequeLineInput) -> str | None:
+    """Why the line's kind is not one a Cheque takes, or None."""
+    if line.line_type not in LINE_TYPES:
+        return f"choose the kind of line: {', '.join(LINE_TYPES)}."
+    return None
+
+
+def expense_line_problem(line: ChequeLineInput, *, expense: dict | None) -> str | None:
+    """Why a Project Expense or Non-project Expense line cannot be saved, or None. The caller
+    prefixes "Line N: ".
+
+    `expense` is the named expense's `{project}` (`{}` for a Non Project Expense, which has no
+    project), or None when it does not exist. The expense is required: what a cheque pays beyond its
+    lines is covered by its description. Any payee, a typed one included, may carry expense lines.
+    """
+    if LINE_NEEDS[line.line_type].project and not line.project:
+        return "pick the project."
+    if not line.payment_name:
+        return f"pick the {EXPENSE_LABELS[line.line_type]}."
+    if expense is None:
+        return f"expense {line.payment_name} was not found."
+    if line.line_type == LINE_PROJECT_EXPENSE and expense.get("project") != line.project:
+        return f"expense {line.payment_name} is not in project {line.project}."
+    if line.amount <= 0:
+        return "enter the amount, greater than 0."
+    return None
+
+
 def duplicate_problem(header: ChequeHeader, existing: str) -> str:
     """The refusal for a bank + cheque number already recorded, naming the Cheque that has it."""
     return (
         f"Cheque {header.cheque_no} on {bank_label(header.bank or '', header.bank_name)} is already "
         f"recorded as {existing}."
+    )
+
+
+def request_duplicate_problem(header: ChequeHeader) -> str:
+    """The refusal when a PO / Work Order Request Payment names a bank + cheque number already
+    recorded (#1414). A payment requested there always gets its own new Cheque; joining an existing
+    one is done from the report."""
+    label = bank_label(header.bank or "", header.bank_name)
+    return (
+        f"Cheque {header.cheque_no} ({label}) already exists. A payment made here gets its own new "
+        f"cheque. To put this payment on {header.cheque_no}, request it as Online, then add it to the "
+        f"cheque in Reports, Cheque Payments."
     )
