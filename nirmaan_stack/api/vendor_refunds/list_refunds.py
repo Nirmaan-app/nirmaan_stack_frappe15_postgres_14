@@ -21,6 +21,8 @@ _FIELDS = [
     "document_type",
     "document_name",
     "amount",
+    # Received / Reconciliation Pending / Cancelled (#1398): only a Received one lowers the paid amount.
+    "status",
     "utr",
     "payment_date",
     "description",

@@ -112,7 +112,12 @@ from typing import Callable
 import frappe
 
 from nirmaan_stack.services.non_project_inflows import inflow_type_problem
-from nirmaan_stack.services.vendor_refunds import document_project, money, refund_allocation_problem
+from nirmaan_stack.services.vendor_refunds import (
+    RECEIVED,
+    document_project,
+    money,
+    refund_allocation_problem,
+)
 from nirmaan_stack.services.outflow_import.amounts import (
     AMOUNT_TOLERANCE,
     amounts_match,
@@ -1354,8 +1359,10 @@ def create_vendor_refund_from_row(
     within what is still refundable on it, and the parts adding up to the row exactly. Each record's
     own `validate` asks the per-document half again on insert.
 
-    ⚠️ NO STATUS, NO APPROVAL: a record counts the moment it is saved; the review gate is the bank row a
-    person confirmed (owner ruling Q8), as on the other inflow books.
+    ⚠️ EVERY RECORD IS `Received` (#1398, ADR-0032), set here explicitly: the bank line IS the proof, so
+    it counts the moment it is saved, with no approval; the review gate is the bank row a person
+    confirmed (owner ruling Q8), as on the other inflow books. Left unset, Frappe would give the
+    required Select its first option, `Reconciliation Pending`, and the refund would lower nothing.
     """
     if (direction or "").strip() != DIRECTION_CREDIT:
         frappe.throw(
@@ -1414,6 +1421,7 @@ def create_vendor_refund_from_row(
                 # it is what the credit-side contains-match searches for.
                 "utr": reference,
                 "payment_date": getattr(row, "added_on_date", None),
+                "status": RECEIVED,
             }
         )
         # A brand-new record has no proof of its own, so the blank-only rule always lets this land.

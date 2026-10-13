@@ -9,7 +9,7 @@ bank credit split across three POs and the rest as misc becomes four records. Tw
 
   * `refund_document_problem` -- ONE record. Against a PO / WO: the document is that vendor's, on the
     chosen project when one is chosen, not a Merged PO, has been PAID something, and the amount is more than 0 and no more than
-    is still refundable on it (paid, less what earlier refunds already took). A Misc. Expense names no
+    is still refundable on it (paid, less what earlier Received and waiting refunds hold). A Misc. Expense names no
     document and has no cap -- only an amount more than 0. Asked by `Vendor Refunds.validate` on every
     save, and by the rule below for each part.
   * `refund_allocation_problem` -- ONE bank credit: a vendor, at least one part, no
@@ -20,13 +20,13 @@ bank credit split across three POs and the rest as misc becomes four records. Tw
 `refund_documents` is the list the Bulk Import dialog offers, built from the SAME field map, status
 exclusions and paid rule, so it cannot offer a document the write then refuses.
 
-⚠️ A REFUND LOWERS ITS PO'S / WO'S `amount_paid` (owner, 2026-09-17, reversing the same day's "moves no
-paid amount"). The stored field is `amount_paid_of`: the document's Paid `Project Payments` LESS its
-Vendor Refunds -- recomputed from source, never decremented. EVERY writer of the field asks it
+⚠️ A RECEIVED REFUND LOWERS ITS PO'S / WO'S `amount_paid` (owner, 2026-09-17, reversing the same day's
+"moves no paid amount"; only Received since #1398). The stored field is `amount_paid_of`: the document's
+Paid `Project Payments` LESS its Received Vendor Refunds -- recomputed from source, never decremented. EVERY writer of the field asks it
 (`Project Payments.update_parent_amount_paid`, `_payment_utils._recalculate_amount_paid`, and the refund
 hook in `integrations/controllers/vendor_refunds`), so a payment settling after a refund cannot write
 the refund back out. It creates no `Project Payment`. Because the stored figure is now NET, `paid_of`
-adds the refunds back to get what was PAID -- the cap would otherwise subtract every refund twice.
+adds the Received refunds back to get what was PAID -- the cap would otherwise subtract them twice.
 
 ⚠️ THE PROJECT IS OPTIONAL (owner, 2026-09-17). With none chosen the lists cover the vendor's documents
 on EVERY project, and a PO / WO refund records its DOCUMENT'S project (`document_project`) -- never a
@@ -45,6 +45,22 @@ SERVICE_REQUESTS = "Service Requests"
 #: The `document_type` of a refund against NO document -- the part of a credit no PO or Work Order
 #: takes. Not a DocType: `document_name` stays blank, so the Dynamic Link is never resolved.
 MISC_EXPENSE = "Misc. Expense"
+
+#: A refund's status (#1398, ADR-0032). RECONCILIATION PENDING: recorded before its bank line, on the
+#: vendor's word. RECEIVED: a bank credit line is matched to it, or it was recorded straight from one.
+#: CANCELLED: a waiting refund that will never arrive; kept for history.
+RECONCILIATION_PENDING = "Reconciliation Pending"
+RECEIVED = "Received"
+CANCELLED = "Cancelled"
+#: The doctype's Select, in its order (pinned by `services/test_vendor_refund_status`).
+REFUND_STATUSES = (RECONCILIATION_PENDING, RECEIVED, CANCELLED)
+
+#: ⚠️ THE STATUS SPLITS WHAT `refunded_on` MEANS, so every caller names which of these it wants.
+#: Only a Received refund LOWERS the paid amount (`amount_paid_of`), so only it is added back to get
+#: what was paid (`paid_of`). The cap ("no more than is still refundable") also counts a waiting
+#: refund, so the money the vendor says it sent cannot be refunded twice. Cancelled counts for nothing.
+LOWERS_PAID_STATUSES = (RECEIVED,)
+TAKES_REFUNDABLE_STATUSES = (RECEIVED, RECONCILIATION_PENDING)
 
 #: Each document type a refund may point at -> (its vendor field, its project field).
 REFUND_DOCUMENT_FIELDS: dict[str, tuple[str, str]] = {
@@ -80,14 +96,16 @@ def money(value) -> Decimal:
 def paid_of(document_type: str, document, refunded: Decimal) -> Decimal:
     """How much has been paid on this document -- THE one definition of "paid" for a refund.
 
-    The stored `amount_paid` is NET of the document's refunds (`amount_paid_of`), so `refunded` -- EVERY
-    refund stored against it, a record being re-saved included -- is added back.
+    The stored `amount_paid` is NET of the document's Received refunds (`amount_paid_of`), so `refunded`
+    -- every RECEIVED refund stored against it (`LOWERS_PAID_STATUSES`), a record being re-saved
+    included -- is added back. Adding back any other status would invent money that was never paid.
     """
     return money(document.get("amount_paid")) + refunded
 
 
 def amount_paid_of(document_type: str, document_name: str, exclude_payment: str | None = None) -> float:
-    """THE stored `amount_paid` of a PO / Work Order: its `Paid` Project Payments LESS its Vendor Refunds.
+    """THE stored `amount_paid` of a PO / Work Order: its `Paid` Project Payments LESS its RECEIVED
+    Vendor Refunds (a waiting or cancelled refund lowers nothing, ADR-0032).
 
     `exclude_payment` is a payment being trashed -- still in the table while its `on_trash` runs. With
     no refund against the document this is exactly the plain sum of its Paid payments.
@@ -98,16 +116,26 @@ def amount_paid_of(document_type: str, document_name: str, exclude_payment: str 
     total_paid = sum(
         flt(p.amount) for p in frappe.get_all("Project Payments", filters=filters, fields=["amount"])
     )
-    refunded = refunded_on(document_type, [document_name]).get(document_name)
+    refunded = refunded_on(document_type, [document_name], LOWERS_PAID_STATUSES).get(document_name)
     return total_paid - float(refunded) if refunded else total_paid
 
 
-def refunded_on(document_type: str, names, exclude_refund: str | None = None) -> dict[str, Decimal]:
-    """What earlier `Vendor Refunds` already took off each document, by name."""
+def refunded_on(
+    document_type: str, names, statuses: tuple[str, ...], exclude_refund: str | None = None
+) -> dict[str, Decimal]:
+    """The `Vendor Refunds` at one of `statuses` stored against each document, by name.
+
+    `statuses` has no default: the caller says whether it is asking what LOWERED the paid amount
+    (`LOWERS_PAID_STATUSES`) or what the cap must hold back (`TAKES_REFUNDABLE_STATUSES`).
+    """
     names = [n for n in (names or []) if n]
     if not names:
         return {}
-    filters = {"document_type": document_type, "document_name": ["in", names]}
+    filters = {
+        "document_type": document_type,
+        "document_name": ["in", names],
+        "status": ["in", list(statuses)],
+    }
     if exclude_refund:
         filters["name"] = ["!=", exclude_refund]
     totals: dict[str, Decimal] = {}
@@ -131,8 +159,8 @@ def refund_documents(vendor: str, project: str | None = None) -> dict[str, list[
     """Every PAID document of this vendor a refund may point at, newest first, per type -- on `project`
     when one is given, on every project otherwise.
 
-    Each row carries `paid`, `refunded` (what earlier refunds took off it) and `refundable` -- the most
-    a new refund against it may be -- plus `project` and `project_name`.
+    Each row carries `paid`, `refunded` (what earlier Received and waiting refunds hold of it) and
+    `refundable` -- the most a new refund against it may be -- plus `project` and `project_name`.
     """
     project = (project or "").strip()
     result: dict[str, list[dict]] = {}
@@ -151,10 +179,12 @@ def refund_documents(vendor: str, project: str | None = None) -> dict[str, list[
             order_by="creation desc",
             limit_page_length=0,
         )
-        refunded = refunded_on(document_type, [row.name for row in rows])
+        names = [row.name for row in rows]
+        received = refunded_on(document_type, names, LOWERS_PAID_STATUSES)
+        refunded = refunded_on(document_type, names, TAKES_REFUNDABLE_STATUSES)
         for row in rows:
             already = refunded.get(row.name, Decimal("0"))
-            paid = paid_of(document_type, row, already)
+            paid = paid_of(document_type, row, received.get(row.name, Decimal("0")))
             row["paid"] = float(paid)
             row["refunded"] = float(already)
             row["refundable"] = float(max(paid - already, Decimal("0")))
@@ -218,18 +248,16 @@ def refund_document_problem(
     if document.get("status") in EXCLUDED_STATUSES.get(document_type, ()):
         return f"{document_name} is {document.get('status')}; record the refund on its master PO."
 
-    stored = refunded_on(document_type, [document_name]).get(document_name, Decimal("0"))
-    paid = paid_of(document_type, document, stored)
+    received = refunded_on(document_type, [document_name], LOWERS_PAID_STATUSES)
+    paid = paid_of(document_type, document, received.get(document_name, Decimal("0")))
     if paid <= 0:
         return f"Nothing has been paid on {document_name}, so nothing can be refunded against it."
     amount = money(amount)
     if amount <= 0:
         return f"Enter an amount greater than 0 for {document_name}."
-    already = (
-        refunded_on(document_type, [document_name], exclude_refund).get(document_name, Decimal("0"))
-        if exclude_refund
-        else stored
-    )
+    already = refunded_on(
+        document_type, [document_name], TAKES_REFUNDABLE_STATUSES, exclude_refund
+    ).get(document_name, Decimal("0"))
     refundable = max(paid - already, Decimal("0"))
     if amount > refundable:
         return (
