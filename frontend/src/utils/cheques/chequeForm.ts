@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 import { CHEQUE_BANK } from "@/types/NirmaanStack/Cheques";
+import { parseNumber } from "@/utils/parseNumber";
+
+import { saveLineArgs, type ChequeLineDraft, type SaveLineArg } from "./chequeLines";
 
 /**
  * The Add Cheque form's rules (spec #1407), pure so vitest covers them without React (F4).
@@ -11,6 +14,16 @@ import { CHEQUE_BANK } from "@/types/NirmaanStack/Cheques";
 
 /** Who the cheque is made out to: a Vendor picked from the list, or a name typed in. */
 export type PayeeKind = "vendor" | "typed";
+
+/** One PO/WO Payment line (#1410). Its rules are checked in the form's `superRefine`. */
+const lineSchema = z.object({
+    line_type: z.literal("PO/WO Payment"),
+    project: z.string(),
+    record_doctype: z.string(),
+    record_name: z.string(),
+    payment_name: z.string(),
+    amount: z.union([z.number(), z.string()]),
+}) satisfies z.ZodType<ChequeLineDraft>;
 
 /** The photo is uploaded as soon as it is picked; the form holds its file URL. */
 export const chequeFormSchema = z
@@ -28,8 +41,8 @@ export const chequeFormSchema = z
         payee_name: z.string().optional(),
         attachment: z.string().optional(),
         description: z.string().optional(),
-        /** The Cheque's lines; none yet in #1408 (an Ad-hoc cheque). Lines arrive in #1410 / #1411. */
-        lines: z.array(z.unknown()).default([]),
+        /** The Cheque's lines; none makes it an Ad-hoc cheque. PO/WO lines (#1410); expense lines arrive in #1411. */
+        lines: z.array(lineSchema).default([]),
     })
     .superRefine((v, ctx) => {
         if (v.bank === CHEQUE_BANK.OTHERS && !v.bank_name?.trim()) {
@@ -44,6 +57,22 @@ export const chequeFormSchema = z
         if (!v.attachment) {
             ctx.addIssue({ code: "custom", path: ["attachment"], message: "Upload the photo of the cheque." });
         }
+        if (v.lines.length && v.payee_kind !== "vendor") {
+            ctx.addIssue({
+                code: "custom",
+                path: ["lines"],
+                message: "A PO or Work Order payment needs a cheque made out to a Vendor, not a typed payee.",
+            });
+        }
+        v.lines.forEach((line, i) => {
+            if (!line.project) ctx.addIssue({ code: "custom", path: ["lines", i, "project"], message: "Pick the project." });
+            if (!line.record_name) {
+                ctx.addIssue({ code: "custom", path: ["lines", i, "record_name"], message: "Pick the PO or Work Order." });
+            }
+            if (!line.payment_name && parseNumber(line.amount) <= 0) {
+                ctx.addIssue({ code: "custom", path: ["lines", i, "amount"], message: "Enter the amount, greater than 0." });
+            }
+        });
         if (v.lines.length === 0 && !v.description?.trim()) {
             ctx.addIssue({
                 code: "custom",
@@ -81,6 +110,7 @@ export interface SaveChequeArgs {
     payee_name?: string;
     description?: string;
     attachment?: string;
+    lines?: SaveLineArg[];
 }
 
 /** Turn valid form values into the save arguments: one payee only, a bank name only for Others. */
@@ -93,4 +123,5 @@ export const saveChequeArgs = (v: ChequeFormValues): SaveChequeArgs => ({
     ...(v.payee_kind === "vendor" ? { vendor: v.vendor } : { payee_name: v.payee_name?.trim() }),
     ...(v.description?.trim() ? { description: v.description.trim() } : {}),
     ...(v.attachment ? { attachment: v.attachment } : {}),
+    ...(v.lines.length ? { lines: saveLineArgs(v.lines) } : {}),
 });

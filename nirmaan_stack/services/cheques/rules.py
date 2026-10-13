@@ -133,6 +133,88 @@ def header_problem(header: ChequeHeader, *, line_count: int, photo_required: boo
     return None
 
 
+#: What a PO/WO Payment line's record is: a PO, or a Work Order (doctype `Service Requests`).
+PO_DOCTYPE = "Procurement Orders"
+WORK_ORDER_DOCTYPE = "Service Requests"
+RECORD_DOCTYPES = (PO_DOCTYPE, WORK_ORDER_DOCTYPE)
+#: The payment a PO/WO Payment line names.
+PAYMENT_DOCTYPE = "Project Payments"
+PAYMENT_REJECTED = "Rejected"
+
+
+@dataclass(frozen=True)
+class ChequeLineInput:
+    """One Cheque line as a form sends it, trimmed. Empty text is None; an untyped amount is 0."""
+
+    line_type: str | None
+    project: str | None
+    record_doctype: str | None
+    record_name: str | None
+    payment_doctype: str | None
+    payment_name: str | None
+    amount: float
+
+
+def parse_line(values: dict) -> ChequeLineInput:
+    """Read one line out of `values`. A PO/WO Payment line's payment is always a Project Payment."""
+    def text(key):
+        return _text(values.get(key)) or None
+
+    line_type = text("line_type")
+    payment_name = text("payment_name")
+    payment_doctype = text("payment_doctype")
+    if line_type == LINE_PO_WO_PAYMENT:
+        payment_doctype = PAYMENT_DOCTYPE if payment_name else None
+    return ChequeLineInput(
+        line_type=line_type,
+        project=text("project"),
+        record_doctype=text("record_doctype"),
+        record_name=text("record_name"),
+        payment_doctype=payment_doctype,
+        payment_name=payment_name,
+        amount=flt(values.get("amount"), 2),
+    )
+
+
+def po_wo_line_problem(
+    line: ChequeLineInput,
+    *,
+    cheque_vendor: str | None,
+    record: dict | None,
+    payment: dict | None,
+    newly_linked: bool = True,
+) -> str | None:
+    """Why a PO/WO Payment line cannot be saved, or None. The caller prefixes "Line N: ".
+
+    `record` is the PO / Work Order's `{project, vendor}` (None when it does not exist); `payment`
+    is the payment's `{document_type, document_name, status}` (None when the line names none). Only
+    a payment `newly_linked` by this save is refused for being Rejected: one Rejected later, while
+    already on the Cheque, drops off by itself (#1413) and must not block the Cheque's other saves.
+    """
+    if not cheque_vendor:
+        return "a PO or Work Order payment needs a cheque made out to a Vendor, not a typed payee."
+    if not line.project:
+        return "pick the project."
+    if line.record_doctype not in RECORD_DOCTYPES or not line.record_name:
+        return "pick the PO or Work Order."
+    if record is None:
+        return f"{line.record_name} was not found."
+    if record.get("vendor") != cheque_vendor:
+        return f"{line.record_name} is not a PO or Work Order of this cheque's Vendor."
+    if record.get("project") != line.project:
+        return f"{line.record_name} is not in project {line.project}."
+    if line.payment_name:
+        if payment is None:
+            return f"payment {line.payment_name} was not found."
+        if (payment.get("document_type"), payment.get("document_name")) != (line.record_doctype, line.record_name):
+            return f"payment {line.payment_name} is not a payment of {line.record_name}."
+        if (payment.get("status") or "").strip() == PAYMENT_REJECTED and newly_linked:
+            return f"payment {line.payment_name} is Rejected and cannot be put on a cheque."
+    if line.amount <= 0:
+        return "enter the amount, greater than 0."
+    return None
+
+
 def duplicate_problem(header: ChequeHeader, existing: str) -> str:
     """The refusal for a bank + cheque number already recorded, naming the Cheque that has it."""
     return (
