@@ -274,6 +274,22 @@ def cancel_problem(status: str | None) -> str | None:
     return None
 
 
+def delete_problem(status: str | None, has_bank_history: bool) -> str | None:
+    """Why this refund cannot be deleted, or None. Only a Cancelled one: it never counted and holds
+    nothing, so deleting it moves no money. A Received refund is money that arrived and a waiting one is
+    a promise still open (Cancel it first). A refund a bank line was once matched to is kept even when
+    Cancelled: its Outflow Row Match legs are the audit trail. Who may (an Admin or Procurement) is the
+    endpoint's check."""
+    if status != CANCELLED:
+        return (
+            f"A {status or 'recorded'} refund cannot be deleted. Only a Cancelled refund can be; cancel a "
+            "waiting refund first."
+        )
+    if has_bank_history:
+        return "This refund was once matched to a bank line, so it is kept for the bank-match history."
+    return None
+
+
 def no_bank_line_problem(status: str | None, reason: str | None) -> str | None:
     """Why this refund cannot be marked Received with no bank line, or None (#1403). Only a waiting
     one, and only with a reason. Who may (an Admin) is the endpoint's check."""

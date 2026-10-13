@@ -19,12 +19,35 @@ import type { VendorRefundRow } from "./useVendorRefunds";
 import { useWaitingRefundExits } from "./useWaitingRefundExits";
 import {
     canCancelRefund,
+    canDeleteRefund,
     canMarkReceivedWithoutBankLine,
     hasNoProofAtAll,
     refundEditAccess,
 } from "./waitingRefundExits";
 
-type Exit = "cancel" | "markReceived";
+type Exit = "cancel" | "markReceived" | "delete";
+
+/** Each confirm dialog's words, by the action it confirms. */
+const EXIT_COPY: Record<Exit, { title: (name: string) => string; body: (amount: string) => string; button: string }> = {
+    cancel: {
+        title: (name) => `Cancel waiting refund ${name}?`,
+        body: (amount) =>
+            `The refund of ${amount} is kept as Cancelled and counts for nothing. The overpaid credit it holds is free again. The PO stays locked until its balance is cleared another way.`,
+        button: "Cancel refund",
+    },
+    markReceived: {
+        title: (name) => `Mark ${name} received with no bank line?`,
+        body: (amount) =>
+            `The refund of ${amount} counts now: the paid amount drops, the adjustment balance clears and the PO unlocks. It shows "No bank proof" until a bank line is matched to it in Bulk Import.`,
+        button: "Mark received",
+    },
+    delete: {
+        title: (name) => `Delete cancelled refund ${name}?`,
+        body: (amount) =>
+            `The cancelled refund of ${amount} is removed for good. It never counted, so no paid amount, balance or credit moves.`,
+        button: "Delete refund",
+    },
+};
 
 interface WaitingRefundActionsProps {
     refund: VendorRefundRow;
@@ -37,12 +60,13 @@ interface WaitingRefundActionsProps {
  * The actions on a Vendor Refund, in its PO's Transaction Details row (#1396, #1403, ADR-0032).
  * "Edit" (its amount and PO while it waits, its proof, UTR and description at any status; "Attach proof"
  * when it has none, #1404); and the ways out for a waiting one: "Cancel" for its creator or an
- * Accountant, "Mark received" for an Admin with a required reason. Renders nothing for anyone who may do
- * none of these. The server re-checks every one.
+ * Accountant, "Mark received" for an Admin with a required reason; and "Delete" on a Cancelled one for an
+ * Admin or material Procurement. Renders nothing for anyone who may do none of these. The server
+ * re-checks every one.
  */
 export const WaitingRefundActions = ({ refund, poId, onChanged }: WaitingRefundActionsProps) => {
     const { user_id, role } = useUserData();
-    const { cancel, markReceived, edit, loading } = useWaitingRefundExits(poId);
+    const { cancel, markReceived, edit, remove, loading } = useWaitingRefundExits(poId);
     const [open, setOpen] = useState<Exit | null>(null);
     const [editing, setEditing] = useState(false);
     const [reason, setReason] = useState("");
@@ -50,7 +74,8 @@ export const WaitingRefundActions = ({ refund, poId, onChanged }: WaitingRefundA
     const access = refundEditAccess(refund, user_id, role);
     const mayCancel = canCancelRefund(refund, user_id, role);
     const mayMark = canMarkReceivedWithoutBankLine(refund, user_id, role);
-    if (!access.paperwork && !mayCancel && !mayMark) return null;
+    const mayDelete = canDeleteRefund(refund, user_id, role);
+    if (!access.paperwork && !mayCancel && !mayMark && !mayDelete) return null;
 
     const close = () => {
         setOpen(null);
@@ -66,6 +91,9 @@ export const WaitingRefundActions = ({ refund, poId, onChanged }: WaitingRefundA
                     description: `${refund.name} is Cancelled. Its credit is free again; the PO stays locked until its balance is cleared another way.`,
                     variant: "success",
                 });
+            } else if (open === "delete") {
+                await remove(refund.name);
+                toast({ title: "Refund deleted", description: `${refund.name} is deleted.`, variant: "success" });
             } else if (open === "markReceived") {
                 await markReceived(refund.name, reason.trim());
                 toast({
@@ -125,19 +153,23 @@ export const WaitingRefundActions = ({ refund, poId, onChanged }: WaitingRefundA
                     Cancel
                 </Button>
             )}
+            {mayDelete && (
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-[11px] text-destructive hover:text-destructive"
+                    onClick={() => setOpen("delete")}
+                >
+                    Delete
+                </Button>
+            )}
 
             <AlertDialog open={open !== null} onOpenChange={(next) => !next && close()}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>
-                            {open === "cancel"
-                                ? `Cancel waiting refund ${refund.name}?`
-                                : `Mark ${refund.name} received with no bank line?`}
-                        </AlertDialogTitle>
+                        <AlertDialogTitle>{open && EXIT_COPY[open].title(refund.name)}</AlertDialogTitle>
                         <AlertDialogDescription>
-                            {open === "cancel"
-                                ? `The refund of ${formatToRoundedIndianRupee(refund.amount)} is kept as Cancelled and counts for nothing. The overpaid credit it holds is free again. The PO stays locked until its balance is cleared another way.`
-                                : `The refund of ${formatToRoundedIndianRupee(refund.amount)} counts now: the paid amount drops, the adjustment balance clears and the PO unlocks. It shows "No bank proof" until a bank line is matched to it in Bulk Import.`}
+                            {open && EXIT_COPY[open].body(formatToRoundedIndianRupee(refund.amount))}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     {open === "markReceived" && (
@@ -158,9 +190,9 @@ export const WaitingRefundActions = ({ refund, poId, onChanged }: WaitingRefundA
                         <Button
                             onClick={submit}
                             disabled={loading || (open === "markReceived" && !reason.trim())}
-                            variant={open === "cancel" ? "destructive" : "default"}
+                            variant={open === "markReceived" ? "default" : "destructive"}
                         >
-                            {loading ? "Saving…" : open === "cancel" ? "Cancel refund" : "Mark received"}
+                            {loading ? "Saving…" : open && EXIT_COPY[open].button}
                         </Button>
                     </AlertDialogFooter>
                 </AlertDialogContent>

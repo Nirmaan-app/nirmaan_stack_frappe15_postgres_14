@@ -383,6 +383,14 @@ export const PurchaseOrder = () => {
       orderBy: { field: "name", order: "desc" },
     });
 
+  // After any Vendor Refund write or adjustment on this PO: refetch what the page shows from the PO and
+  // its payments (paid amount, amount due, payment rows, terms). The refund views refresh themselves
+  // (`useRefreshPORefundViews`).
+  const refreshPOPage = useCallback(
+    () => Promise.all([poMutate(), poPaymentsMutate(), AllPoPaymentsListMutate()]),
+    [poMutate, poPaymentsMutate, AllPoPaymentsListMutate]
+  );
+
 
   useEffect(() => {
     // console.log("STEP 1: Initial list from database:", potentialMergePOsList);
@@ -1201,7 +1209,7 @@ export const PurchaseOrder = () => {
                     poPayments={poPayments}
                     poPaymentsMutate={poPaymentsMutate}
                     AllPoPaymentsListMutate={AllPoPaymentsListMutate}
-                    onRefundChanged={() => poMutate()}
+                    onRefundChanged={refreshPOPage}
                   />
 
                   <POPaymentTermsCard
@@ -1451,6 +1459,7 @@ export const PurchaseOrder = () => {
           vendor={PO.vendor}
           isOpen={isAdjustmentDialogOpen}
           onClose={() => setIsAdjustmentDialogOpen(false)}
+          onSuccess={refreshPOPage}
         />
       )}
     </div>

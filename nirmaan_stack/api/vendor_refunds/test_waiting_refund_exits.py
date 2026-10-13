@@ -29,6 +29,7 @@ from nirmaan_stack.api.vendor_refunds.test_waiting_refunds import (
 )
 from nirmaan_stack.api.vendor_refunds.waiting_refunds import (
     cancel_waiting_refund,
+    delete_cancelled_refund,
     mark_received_without_bank_line,
 )
 from nirmaan_stack.services.role_profiles import (
@@ -163,3 +164,52 @@ class TestMarkItReceivedWithNoBankLine(WaitingRefundFixture):
         with self.assertRaises(frappe.ValidationError):
             mark_received_without_bank_line(refund=name, reason="a reason")
         self.assertEqual(frappe.db.get_value(VENDOR_REFUNDS, name, "status"), CANCELLED)
+
+
+class TestDeleteACancelledRefund(WaitingRefundFixture):
+    def _cancelled(self, po):
+        name = self._record(po, 500)["refund"]
+        cancel_waiting_refund(refund=name)
+        return name
+
+    def test_an_admin_deletes_it_and_nothing_moves(self):
+        po, adj = self._overpaid_po()
+        name = self._cancelled(po)
+        before = self._figures(po, adj)
+        ledger_before = frappe.db.count(LEDGER, {"parent": self.vendor})
+        self._as((ADMIN_PROFILE,))
+
+        delete_cancelled_refund(refund=name)
+
+        frappe.set_user("Administrator")
+        self.assertFalse(frappe.db.exists(VENDOR_REFUNDS, name))
+        self.assertEqual(self._figures(po, adj), before)
+        self.assertEqual(frappe.db.count(LEDGER, {"parent": self.vendor}), ledger_before)
+        self.assertAlmostEqual(usable_po_credit(po), CREDIT, places=2)
+
+    def test_procurement_may_delete_it_and_pmo_or_an_accountant_may_not(self):
+        po, _ = self._overpaid_po()
+        name = self._cancelled(po)
+        for profile in (PMO_EXECUTIVE_PROFILE, ACCOUNTANT_PROFILE):
+            with self.subTest(profile=profile):
+                self._as((profile,))
+                with self.assertRaises(frappe.PermissionError):
+                    delete_cancelled_refund(refund=name)
+                frappe.set_user("Administrator")
+                self.assertTrue(frappe.db.exists(VENDOR_REFUNDS, name))
+
+        self._as(MATERIAL_PROCUREMENT_PROFILES)
+        delete_cancelled_refund(refund=name)
+        frappe.set_user("Administrator")
+        self.assertFalse(frappe.db.exists(VENDOR_REFUNDS, name))
+
+    def test_a_waiting_or_received_refund_cannot_be_deleted(self):
+        po, _ = self._overpaid_po()
+        waiting = self._record(po, 300)["refund"]
+        received = self._record(po, 200)["refund"]
+        mark_received_without_bank_line(refund=received, reason="test: vendor confirmed")
+        for name in (waiting, received):
+            with self.subTest(refund=name):
+                with self.assertRaises(frappe.ValidationError):
+                    delete_cancelled_refund(refund=name)
+                self.assertTrue(frappe.db.exists(VENDOR_REFUNDS, name))

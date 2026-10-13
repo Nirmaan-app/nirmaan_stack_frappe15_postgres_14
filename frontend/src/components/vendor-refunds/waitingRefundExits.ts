@@ -6,15 +6,20 @@
 // authoritative. Edit: amount and PO = its creator or an Accountant, while it waits; proof, UTR and
 // description = anyone who works the PO's payments (`REFUND_PAPERWORK_PROFILES`), the UTR fixed while a
 // bank line is matched to it. Cancel = its creator or an Accountant, while it waits. Mark Received with
-// no bank line = an Admin, while it waits.
+// no bank line = an Admin, while it waits. Delete = an Admin or material Procurement, once Cancelled.
 
-import { isNirmaanAdmin, REFUND_ACCOUNTANT_PROFILES, REFUND_PAPERWORK_PROFILES } from "@/constants/roles";
+import {
+    isNirmaanAdmin,
+    REFUND_ACCOUNTANT_PROFILES,
+    REFUND_DELETE_PROFILES,
+    REFUND_PAPERWORK_PROFILES,
+} from "@/constants/roles";
 import { VENDOR_REFUND_STATUS, type VendorRefundStatus } from "@/types/NirmaanStack/VendorRefunds";
 
 /** A waiting refund older than this many days (since it was recorded) is flagged on its PO. */
 export const WAITING_REFUND_OVERDUE_DAYS = 15;
 
-const { WAITING, RECEIVED } = VENDOR_REFUND_STATUS;
+const { WAITING, RECEIVED, CANCELLED } = VENDOR_REFUND_STATUS;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface RefundState {
@@ -84,6 +89,11 @@ export const canCancelRefund = (refund: RefundState, user: string, role: string)
 /** May this user mark this refund Received with no bank line? An Admin, while it waits. */
 export const canMarkReceivedWithoutBankLine = (refund: RefundState, user: string, role: string): boolean =>
     refund.status === WAITING && isNirmaanAdmin(role, user);
+
+/** May this user delete this refund? An Admin or material Procurement, once it is Cancelled. The server
+ *  also keeps one a bank line was once matched to. */
+export const canDeleteRefund = (refund: RefundState, user: string, role: string): boolean =>
+    refund.status === CANCELLED && (user === "Administrator" || REFUND_DELETE_PROFILES.includes(role));
 
 /** A refund edit as `update_waiting_refund` takes it. A field left out is left as it is; `null` clears it. */
 export interface RefundEdit {

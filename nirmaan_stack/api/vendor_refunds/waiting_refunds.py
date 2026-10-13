@@ -23,6 +23,9 @@ Received.
 * `mark_received_without_bank_line` (#1403) -- an Admin, with a reason. Received at once (the refund
   hook runs the PO sync: paid amount, adjustment balance and lock, vendor credit) and marked
   `no_bank_line` ("No bank proof") until a Bulk Import credit line is matched to it.
+* `delete_cancelled_refund` -- an Admin or material Procurement (`REFUND_DELETE_PROFILES`), a
+  Cancelled refund only, and never one a bank line was once matched to. It never counted, so nothing
+  moves.
 
 The Vendor Refunds DocPerms give these users read only, so both write with `ignore_permissions` behind
 the profile checks here: these checks are the enforcement boundary.
@@ -35,6 +38,7 @@ from frappe.utils import flt
 from nirmaan_stack.api.po_adjustments._payment_utils import usable_po_credit
 from nirmaan_stack.services.role_profiles import (
     ADJUST_PAYMENTS_PROFILES,
+    REFUND_DELETE_PROFILES,
     REFUND_PAPERWORK_PROFILES,
     has_role_profile,
     is_nirmaan_admin,
@@ -47,6 +51,7 @@ from nirmaan_stack.services.vendor_refunds import (
     bank_matched,
     cancel_problem,
     creator_and_accountant,
+    delete_problem,
     document_project,
     held_on,
     money_edit_problem,
@@ -256,3 +261,27 @@ def mark_received_without_bank_line(refund: str, reason: str | None = None):
     frappe.db.commit()
     _publish([doc.document_name], doc.name, "refund_received_without_bank_line")
     return _credit_after(doc)
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_cancelled_refund(refund: str):
+    """Delete a Cancelled Vendor Refund (owner, 2026-10-13). An Admin or material Procurement.
+
+    A Cancelled refund never lowered a paid amount and holds no credit, so nothing moves. One a bank
+    line was once matched to is refused: its Outflow Row Match legs (reversed) still name it and are the
+    bank-match history. Returns `{refund, po_id}`.
+    """
+    if not has_role_profile(frappe.session.user, REFUND_DELETE_PROFILES):
+        raise frappe.PermissionError(_("Only an Admin or Procurement can delete a cancelled refund."))
+    doc = frappe.get_doc(VENDOR_REFUNDS, refund, for_update=True)
+    has_bank_history = bool(
+        frappe.db.exists("Outflow Row Match", {"target_doctype": VENDOR_REFUNDS, "target_name": doc.name})
+    )
+    problem = delete_problem(doc.status, has_bank_history)
+    if problem:
+        frappe.throw(problem)
+    po_id = doc.document_name
+    frappe.delete_doc(VENDOR_REFUNDS, doc.name, ignore_permissions=True)
+    frappe.db.commit()
+    _publish([po_id], doc.name, "refund_deleted")
+    return {"refund": doc.name, "po_id": po_id}

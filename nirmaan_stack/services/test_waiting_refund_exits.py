@@ -19,6 +19,7 @@ from datetime import datetime
 from nirmaan_stack.services.vendor_refunds import (
     NO_BANK_LINE_FIELDS,
     cancel_problem,
+    delete_problem,
     no_bank_line_problem,
     no_bank_line_values,
 )
@@ -40,6 +41,19 @@ class TestCancellingAWaitingRefund(unittest.TestCase):
         for status in ("Received", "Cancelled"):
             with self.subTest(status=status):
                 self.assertIn(f"{status} refund cannot be cancelled", cancel_problem(status))
+
+
+class TestDeletingACancelledRefund(unittest.TestCase):
+    def test_a_cancelled_refund_with_no_bank_history_may_be_deleted(self):
+        self.assertIsNone(delete_problem("Cancelled", has_bank_history=False))
+
+    def test_a_waiting_or_received_refund_may_not(self):
+        for status in ("Reconciliation Pending", "Received"):
+            with self.subTest(status=status):
+                self.assertIn("Only a Cancelled refund", delete_problem(status, has_bank_history=False))
+
+    def test_a_cancelled_refund_once_matched_to_a_bank_line_is_kept(self):
+        self.assertIn("bank line", delete_problem("Cancelled", has_bank_history=True))
 
 
 class TestMarkingItReceivedWithNoBankLine(unittest.TestCase):

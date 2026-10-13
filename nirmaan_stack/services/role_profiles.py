@@ -260,3 +260,9 @@ REFUND_ACCOUNTANT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 # ENFORCEMENT boundary for `api/vendor_refunds/waiting_refunds.update_waiting_refund`. Mirrored
 # client-side by `frontend/src/constants/roles.ts::REFUND_PAPERWORK_PROFILES`.
 REFUND_PAPERWORK_PROFILES = ADJUST_PAYMENTS_PROFILES + REFUND_ACCOUNTANT_PROFILES
+
+# May delete a Cancelled Vendor Refund from its PO's Transaction Details (owner, 2026-10-13): an Admin or
+# material Procurement (waiting refunds, and so Cancelled ones, are PO-only). ENFORCEMENT boundary for
+# `api/vendor_refunds/waiting_refunds.delete_cancelled_refund`. Mirrored client-side by
+# `frontend/src/constants/roles.ts::REFUND_DELETE_PROFILES`.
+REFUND_DELETE_PROFILES = (ADMIN_PROFILE,) + MATERIAL_PROCUREMENT_PROFILES

@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 
 import {
     canCancelRefund,
+    canDeleteRefund,
     canMarkReceivedWithoutBankLine,
     hasNoBankProof,
     hasNoProofAtAll,
@@ -87,6 +88,24 @@ describe("canCancelRefund", () => {
         expect(canCancelRefund(refund(), "other@nirmaan.app", "Nirmaan Procurement Executive Profile")).toBe(false);
         expect(canCancelRefund(refund(), "admin@nirmaan.app", "Nirmaan Admin Profile")).toBe(false);
         expect(canCancelRefund(refund({ status: "Received" }), "buyer@nirmaan.app", "x")).toBe(false);
+    });
+});
+
+describe("canDeleteRefund", () => {
+    const cancelled = refund({ status: "Cancelled" });
+
+    it("lets an Admin or material Procurement delete a Cancelled refund", () => {
+        expect(canDeleteRefund(cancelled, "admin@nirmaan.app", "Nirmaan Admin Profile")).toBe(true);
+        expect(canDeleteRefund(cancelled, "Administrator", "Loading")).toBe(true);
+        expect(canDeleteRefund(cancelled, "buyer@nirmaan.app", "Nirmaan Procurement Executive Profile")).toBe(true);
+        expect(canDeleteRefund(cancelled, "mp@nirmaan.app", "Nirmaan Material Procurement Executive Profile")).toBe(true);
+    });
+
+    it("refuses PMO and Accountants, and any refund not Cancelled", () => {
+        expect(canDeleteRefund(cancelled, "pmo@nirmaan.app", "Nirmaan PMO Executive Profile")).toBe(false);
+        expect(canDeleteRefund(cancelled, "acc@nirmaan.app", "Nirmaan Accountant Profile")).toBe(false);
+        expect(canDeleteRefund(refund(), "admin@nirmaan.app", "Nirmaan Admin Profile")).toBe(false);
+        expect(canDeleteRefund(refund({ status: "Received" }), "admin@nirmaan.app", "Nirmaan Admin Profile")).toBe(false);
     });
 });
 

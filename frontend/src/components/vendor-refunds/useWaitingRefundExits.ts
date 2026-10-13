@@ -12,6 +12,11 @@ interface ExitResult {
     usable_credit: number;
 }
 
+interface DeleteResult {
+    refund: string;
+    po_id: string;
+}
+
 interface EditResult {
     refund: string;
     status: string;
@@ -20,8 +25,8 @@ interface EditResult {
 }
 
 /**
- * Edit a Vendor Refund, cancel a waiting one, or mark it Received with no bank line (#1403), from a
- * PO's Transaction Details. The server gates all three (`waiting_refunds`). Afterwards every view of the
+ * Edit a Vendor Refund, cancel a waiting one, mark it Received with no bank line (#1403), or delete a
+ * Cancelled one, from a PO's Transaction Details. The server gates all four (`waiting_refunds`). Afterwards every view of the
  * PO the refund moves is refreshed (`useRefreshPORefundViews`), both POs when an edit moves it.
  */
 export function useWaitingRefundExits(poId: string) {
@@ -29,6 +34,7 @@ export function useWaitingRefundExits(poId: string) {
     const cancelCall = useFrappePostCall<{ message: ExitResult }>(`${API}.cancel_waiting_refund`);
     const markCall = useFrappePostCall<{ message: ExitResult }>(`${API}.mark_received_without_bank_line`);
     const editCall = useFrappePostCall<{ message: EditResult }>(`${API}.update_waiting_refund`);
+    const deleteCall = useFrappePostCall<{ message: DeleteResult }>(`${API}.delete_cancelled_refund`);
 
     const cancel = async (refund: string) => {
         const res = await cancelCall.call({ refund });
@@ -49,10 +55,17 @@ export function useWaitingRefundExits(poId: string) {
         return res?.message;
     };
 
+    const remove = async (refund: string) => {
+        const res = await deleteCall.call({ refund });
+        await refresh(poId);
+        return res?.message;
+    };
+
     return {
         cancel,
         markReceived,
         edit,
-        loading: cancelCall.loading || markCall.loading || editCall.loading,
+        remove,
+        loading: cancelCall.loading || markCall.loading || editCall.loading || deleteCall.loading,
     };
 }

@@ -41,6 +41,8 @@ interface POAdjustmentDialogProps {
   vendor: string;
   isOpen: boolean;
   onClose: () => void;
+  /** After a successful adjustment or waiting refund: the page refetches what the dialog does not own. */
+  onSuccess?: () => void;
 }
 
 export function POAdjustmentDialog({
@@ -48,6 +50,7 @@ export function POAdjustmentDialog({
   vendor,
   isOpen,
   onClose,
+  onSuccess,
 }: POAdjustmentDialogProps) {
   const {
     adjustmentMethod,
@@ -71,7 +74,10 @@ export function POAdjustmentDialog({
     candidatePOs,
     candidatesLoading,
     executing,
-  } = usePOAdjustmentDialog(poId, vendor, isOpen, onClose);
+  } = usePOAdjustmentDialog(poId, vendor, isOpen, () => {
+    onSuccess?.();
+    onClose();
+  });
 
   const [isMethodDialogOpen, setIsMethodDialogOpen] = React.useState(false);
 

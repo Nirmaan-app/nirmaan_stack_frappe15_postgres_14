@@ -47,6 +47,8 @@ def recompute_document_amount_paid(doc, method=None):
     `after_delete`, never `on_trash`: on_trash fires BEFORE the row leaves the database, so the sum
     would still count the refund being deleted. `get_doc_before_save()` is None on insert and delete.
     """
+    if method == "after_delete" and doc.status not in LOWERS_PAID_STATUSES:
+        return  # a waiting or Cancelled refund never counted, so deleting it moves no money
     before = doc.get_doc_before_save()
     if before is not None and _money_fields(before) == _money_fields(doc):
         return  # a UTR / description / attachment edit moves no money

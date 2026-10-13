@@ -549,3 +549,6 @@ export const REFUND_PAPERWORK_PROFILES: readonly string[] = [
   ...ADJUST_PAYMENTS_PROFILES,
   ...REFUND_ACCOUNTANT_PROFILES,
 ];
+
+/** `REFUND_DELETE_PROFILES`: may delete a Cancelled Vendor Refund (an Admin or material Procurement). */
+export const REFUND_DELETE_PROFILES: readonly string[] = [ADMIN_PROFILE, ...MATERIAL_PROCUREMENT_PROFILES];
