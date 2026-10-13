@@ -112,6 +112,8 @@ export const ASSET_CACHE_KEYS = {
 
     // Projects dropdown (Project-Asset project/city/state picker)
     PROJECTS_DROPDOWN: `${ASSET_MASTER_DOCTYPE}_projects_dropdown`,
+    /** Every Won project, for the Project pickers (api/assets/projects.get_won_projects). */
+    WON_PROJECTS: `${ASSET_MASTER_DOCTYPE}_won_projects`,
 
     // Category-name lists by type (used by useAssetCategoryNamesByType)
     PROJECT_CATEGORIES_NAMES: `${ASSET_CATEGORY_DOCTYPE}_names_project`,
