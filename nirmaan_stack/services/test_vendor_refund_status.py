@@ -19,6 +19,7 @@ from nirmaan_stack.services.vendor_refunds import (
     LOWERS_PAID_STATUSES,
     REFUND_STATUSES,
     TAKES_REFUNDABLE_STATUSES,
+    money_edit_problem,
 )
 
 _DOCTYPE_JSON = os.path.join(
@@ -47,3 +48,25 @@ class TestTheStatus(unittest.TestCase):
 
     def test_the_cap_counts_received_and_waiting_refunds_but_not_cancelled_ones(self):
         self.assertEqual(set(TAKES_REFUNDABLE_STATUSES), {"Received", "Reconciliation Pending"})
+
+
+class TestWhoMayCorrectAWaitingRefund(unittest.TestCase):
+    """While a refund waits, its creator or an Accountant may change its amount or PO (#1400,
+    ADR-0032). After it is Received its amount and PO are fixed for everybody; a Cancelled one is
+    history."""
+
+    def test_the_creator_may_correct_a_waiting_refund(self):
+        self.assertIsNone(money_edit_problem("Reconciliation Pending", is_creator=True, is_accountant=False))
+
+    def test_an_accountant_may_correct_a_waiting_refund(self):
+        self.assertIsNone(money_edit_problem("Reconciliation Pending", is_creator=False, is_accountant=True))
+
+    def test_anyone_else_may_not(self):
+        self.assertIn(
+            "Accountant", money_edit_problem("Reconciliation Pending", is_creator=False, is_accountant=False)
+        )
+
+    def test_a_received_or_cancelled_refund_is_fixed_even_for_its_creator_or_an_accountant(self):
+        for status in ("Received", "Cancelled"):
+            with self.subTest(status=status):
+                self.assertIn(status, money_edit_problem(status, is_creator=True, is_accountant=True))

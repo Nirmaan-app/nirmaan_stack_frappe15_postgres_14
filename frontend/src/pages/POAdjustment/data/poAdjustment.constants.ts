@@ -26,6 +26,9 @@ export const PO_ADJUSTMENT_APIS = {
     "nirmaan_stack.api.po_adjustments.adjustment_logic.apply_vendor_credit_to_po",
   writeOff:
     "nirmaan_stack.api.po_adjustments.adjustment_logic.write_off_adjustment",
+  /** "Vendor Refund" records a waiting Vendor Refund, not an adjustment (#1400, ADR-0032). */
+  recordWaitingRefund:
+    "nirmaan_stack.api.vendor_refunds.waiting_refunds.record_waiting_refund",
 } as const;
 
 /** Server-side cap on a write-off reason (`WRITE_OFF_REASON_MAX_LEN`). */

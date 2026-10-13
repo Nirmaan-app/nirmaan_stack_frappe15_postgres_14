@@ -169,6 +169,9 @@ interface POLockCheckResult {
   has_credit_notice?: boolean;
   credit_notice_id?: string;
   remaining_credit?: number;
+  // Waiting Vendor Refunds on the PO (#1400): until accounts match their bank lines they clear
+  // nothing, so a PO Adjustment lock names them as what it waits for.
+  waiting_refunds?: { name: string; amount: number; payment_date?: string | null }[];
   [key: string]: any;
 }
 

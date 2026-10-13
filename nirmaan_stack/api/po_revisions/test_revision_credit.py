@@ -184,3 +184,25 @@ class RevisionIncreaseSpendsCreditTests(FrappeTestCase):
         increase = self._approve(po, new_qty=12)  # +₹236
 
         self.assertEqual(self._revision_term(po, increase), 236.0)
+
+    def test_credit_held_by_a_waiting_refund_is_not_spent_by_an_increase(self):
+        # #1400, ADR-0032: the vendor says it sent the ₹236 back. Until the bank line is matched
+        # that credit is HELD, so an increase is billed in full and the hold stays.
+        po = self._po(qty=10, paid=_line_total(10))
+        self._approve(po, new_qty=8)  # −₹236 of real overpaid credit
+        frappe.get_doc({
+            "doctype": "Vendor Refunds",
+            "vendor": self.vendor,
+            "document_type": "Procurement Orders",
+            "document_name": po,
+            "amount": 236,
+            "status": "Reconciliation Pending",
+            "payment_date": frappe.utils.today(),
+        }).insert(ignore_permissions=True)
+
+        increase = self._approve(po, new_qty=10)  # +₹236
+
+        self.assertEqual(self._revision_term(po, increase), 236.0)
+        adj = self._adjustment(po)
+        self.assertAlmostEqual(flt(adj.remaining_impact), -236.0, places=2)
+        self.assertEqual(adj.status, "Pending")

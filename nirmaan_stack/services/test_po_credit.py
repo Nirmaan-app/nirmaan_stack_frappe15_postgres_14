@@ -113,6 +113,36 @@ class UsableCreditTests(unittest.TestCase):
                     )
 
 
+class HeldCreditTests(unittest.TestCase):
+    """A waiting Vendor Refund HOLDS its amount of the PO's overpaid credit (#1400, ADR-0032).
+
+    The vendor says it sent ₹X back; until the bank line is matched the money has not moved, so the
+    credit stays on the ledger, but nothing may spend the part the refund will take: not a revision
+    increase, not a push to another PO, not a pull into one.
+    """
+
+    def test_a_waiting_refund_holds_back_its_amount(self):
+        # Paid 24,780 on a 20,650 PO: 4,130 overpaid; the vendor says 1,000 of it is coming back.
+        self.assertEqual(usable_credit(-4130, 24780, 20650, held=1000), 3130.0)
+
+    def test_a_hold_of_the_whole_credit_leaves_nothing_to_spend(self):
+        self.assertEqual(usable_credit(-4130, 24780, 20650, held=4130), 0.0)
+
+    def test_a_hold_larger_than_the_credit_never_goes_negative(self):
+        self.assertEqual(usable_credit(-4130, 24780, 20650, held=9000), 0.0)
+
+    def test_the_hold_comes_off_the_capped_figure_not_the_ledger_claim(self):
+        """Ledger claims 5,000, only 1,200 was really overpaid, 1,000 of it is promised back."""
+        self.assertEqual(usable_credit(-5000, 11200, 10000, held=1000), 200.0)
+
+    def test_no_hold_changes_nothing(self):
+        self.assertEqual(usable_credit(-4130, 24780, 20650), 4130.0)
+        self.assertEqual(usable_credit(-4130, 24780, 20650, held=None), 4130.0)
+
+    def test_a_hold_read_from_the_db_layer_is_tolerated(self):
+        self.assertEqual(usable_credit("-4130", "24780", "20650", held="1000.00"), 3130.0)
+
+
 class OneReaderTests(unittest.TestCase):
     """Only `usable_po_credit` may apply the cap; every spender and listing reads through it.
 

@@ -50,6 +50,22 @@ export interface POAdjustmentDoc {
   computed_from_children?: number;
   ledger_in_sync?: boolean;
   manual_edit?: AdjustmentManualEdit | null;
+  /**
+   * The overpaid credit the server will let this PO spend: the ledger claim, capped at what was
+   * really overpaid, less what waiting Vendor Refunds hold (#1400). Optional for an older backend.
+   */
+  usable_credit?: number;
+  /** What this PO's waiting Vendor Refunds hold of its credit. */
+  held_credit?: number;
+  /** The waiting Vendor Refunds (Reconciliation Pending) that hold it, oldest first. */
+  waiting_refunds?: WaitingRefund[];
+}
+
+/** A Vendor Refund recorded before its bank line, as `get_po_adjustment` / the lock check send it. */
+export interface WaitingRefund {
+  name: string;
+  amount: number;
+  payment_date?: string | null;
 }
 
 interface CandidatePO {

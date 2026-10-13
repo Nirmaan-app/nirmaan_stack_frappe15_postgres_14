@@ -61,6 +61,9 @@ REFUND_STATUSES = (RECONCILIATION_PENDING, RECEIVED, CANCELLED)
 #: refund, so the money the vendor says it sent cannot be refunded twice. Cancelled counts for nothing.
 LOWERS_PAID_STATUSES = (RECEIVED,)
 TAKES_REFUNDABLE_STATUSES = (RECEIVED, RECONCILIATION_PENDING)
+#: A waiting refund HOLDS its amount of its PO's overpaid credit (#1400): `held_on`, read by the one
+#: credit reader `_payment_utils.usable_po_credit`.
+HOLDS_CREDIT_STATUSES = (RECONCILIATION_PENDING,)
 
 #: Each document type a refund may point at -> (its vendor field, its project field).
 REFUND_DOCUMENT_FIELDS: dict[str, tuple[str, str]] = {
@@ -146,6 +149,46 @@ def refunded_on(
             refund.amount
         )
     return totals
+
+
+def held_on(po_id: str) -> float:
+    """How much of this PO's overpaid credit its waiting refunds hold (#1400, ADR-0032)."""
+    return float(refunded_on(PROCUREMENT_ORDERS, [po_id], HOLDS_CREDIT_STATUSES).get(po_id, 0))
+
+
+def waiting_refunds_of(po_id: str) -> list[dict]:
+    """This PO's waiting refunds, oldest first: what holds its credit and what its lock waits for."""
+    if not po_id:
+        return []
+    return frappe.get_all(
+        VENDOR_REFUNDS,
+        filters={
+            "document_type": PROCUREMENT_ORDERS,
+            "document_name": po_id,
+            "status": ["in", list(HOLDS_CREDIT_STATUSES)],
+        },
+        fields=["name", "amount", "payment_date", "utr", "waiting_created_by", "creation"],
+        order_by="creation asc",
+        limit_page_length=0,
+    )
+
+
+def money_edit_problem(status_before: str | None, is_creator: bool, is_accountant: bool) -> str | None:
+    """Why this user may not change a refund's amount, vendor or document, or None (#1400, ADR-0032).
+
+    Only while it waits (Reconciliation Pending), and only by the user who recorded it as waiting or
+    an Accountant. A Received refund's amount and document are fixed: a matched bank record cannot
+    drift, and only Unreconcile (which sends it back to waiting) can change them. A Cancelled one is
+    history. Its proof, UTR and description are not covered here: they stay editable at any status.
+    """
+    if status_before != RECONCILIATION_PENDING:
+        return (
+            f"The amount and PO of a {status_before or 'recorded'} refund cannot be changed. "
+            "Only a refund still waiting for its bank line (Reconciliation Pending) can be corrected."
+        )
+    if not (is_creator or is_accountant):
+        return "Only the person who recorded this waiting refund, or an Accountant, can change its amount or PO."
+    return None
 
 
 def document_project(document_type: str, document_name: str) -> str | None:

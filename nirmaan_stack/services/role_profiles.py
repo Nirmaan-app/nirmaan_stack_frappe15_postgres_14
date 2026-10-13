@@ -240,3 +240,15 @@ MTC_PROJECT_SCOPED_PROFILES = (PROJECT_MANAGER_PROFILE, PROJECT_LEAD_PROFILE)
 def can_manage_mtc(user: str) -> bool:
     """True when `user` may upload / edit / delete an MTC. Administrator always passes."""
     return has_role_profile(user, MTC_MANAGE_PROFILES)
+
+
+# May open "Adjust Payments" on a PO and record a waiting Vendor Refund from it (#1400, ADR-0032:
+# "anyone who may use Adjust Payments may record one"). Waiting refunds are PO-only, so the material
+# procurement profiles, exactly as the PO page's button gate (`PODetails.tsx`).
+# ENFORCEMENT boundary for `api/vendor_refunds/waiting_refunds.record_waiting_refund`, which writes
+# with `ignore_permissions` (the Vendor Refunds DocPerms give these users read only).
+ADJUST_PAYMENTS_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + MATERIAL_PROCUREMENT_PROFILES
+
+# "An Accountant" for a waiting Vendor Refund (#1400): may correct its amount or PO while it waits,
+# besides the user who recorded it.
+REFUND_ACCOUNTANT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)

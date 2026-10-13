@@ -22,10 +22,12 @@ from frappe.utils import flt
 
 from nirmaan_stack.api.invoices._item_billing_sync import recompute_document_amount_due
 from nirmaan_stack.api.outflow_import.vendor_credit_refresh import recompute_vendor_credit
+from nirmaan_stack.services.role_profiles import REFUND_ACCOUNTANT_PROFILES, has_role_profile
 from nirmaan_stack.services.vendor_refunds import (
     PROCUREMENT_ORDERS,
     REFUND_DOCUMENT_FIELDS,
     amount_paid_of,
+    money_edit_problem,
 )
 
 #: The `Vendor Credit Ledger` entry each kind of refund event writes.
@@ -70,6 +72,30 @@ def recompute_document_amount_paid(doc, method=None):
         else:
             entry_type = ENTRY_CHANGED
         recompute_vendor_credit(pos, entry_type)
+
+
+def guard_money_edit(doc, method=None):
+    """Refuse a change to a refund's amount, vendor or document that its status or the user does not
+    allow (#1400, ADR-0032; the rule is `services/vendor_refunds.money_edit_problem`). Bound to
+    validate, so a Desk edit obeys it as the endpoints do. A new record and a status, proof, UTR or
+    description change pass untouched.
+    """
+    before = doc.get_doc_before_save()
+    if before is None or _identity(before) == _identity(doc):
+        return
+    user = frappe.session.user
+    problem = money_edit_problem(
+        before.status,
+        is_creator=bool(before.waiting_created_by) and before.waiting_created_by == user,
+        is_accountant=has_role_profile(user, REFUND_ACCOUNTANT_PROFILES),
+    )
+    if problem:
+        frappe.throw(problem)
+
+
+def _identity(doc) -> tuple:
+    """What a refund is OF: the money and what it is against. Its status is not part of it."""
+    return (doc.vendor, doc.document_type, doc.document_name, flt(doc.amount))
 
 
 def _money_fields(doc) -> tuple:

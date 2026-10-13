@@ -1,8 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
 
-"""A Vendor Refund lowers its PO's `amount_paid` -- on insert, edit, re-point and delete -- and a later
-payment recompute keeps it lowered.
+"""A Received Vendor Refund lowers its PO's `amount_paid` -- on insert, on turning Received and on delete
+-- and a later payment recompute keeps it lowered. Its amount and PO change only while it waits (#1400).
 
     bench --site localhost run-tests --app nirmaan_stack \
         --module nirmaan_stack.nirmaan_stack.doctype.vendor_refunds.test_vendor_refunds
@@ -123,26 +123,42 @@ class TestAVendorRefundMovesAmountPaid(unittest.TestCase):
 
     # --- tests -----------------------------------------------------------------------------
 
-    def test_insert_edit_repoint_and_delete_each_recompute(self):
+    def test_insert_status_change_and_delete_each_recompute(self):
         refund = self._refund(self.first, 100)
         self.assertAlmostEqual(self._paid(self.first), self._was(self.first) - 100, places=2)
         self._assert_due_follows_paid(self.first)
+        frappe.delete_doc(VENDOR_REFUNDS, refund.name, ignore_permissions=True)
+        self.assertAlmostEqual(self._paid(self.first), self._was(self.first), places=2)
 
-        refund.amount = 250
-        refund.save(ignore_permissions=True)
-        self.assertAlmostEqual(self._paid(self.first), self._was(self.first) - 250, places=2)
-
-        # Re-pointed: the PO it LEFT gets its paid amount back, the new one loses the refund.
-        refund.document_name = self.second
-        refund.save(ignore_permissions=True)
+        # A waiting refund corrected and re-pointed (#1400) moves nothing until it is Received,
+        # and then only on the PO it ended up on.
+        waiting = self._refund(self.first, 100, status=RECONCILIATION_PENDING)
+        waiting.amount = 250
+        waiting.save(ignore_permissions=True)
+        waiting.document_name = self.second
+        waiting.save(ignore_permissions=True)
+        self.assertAlmostEqual(self._paid(self.first), self._was(self.first), places=2)
+        self.assertAlmostEqual(self._paid(self.second), self._was(self.second), places=2)
+        waiting.status = RECEIVED
+        waiting.save(ignore_permissions=True)
         self.assertAlmostEqual(self._paid(self.first), self._was(self.first), places=2)
         self.assertAlmostEqual(self._paid(self.second), self._was(self.second) - 250, places=2)
-        self._assert_due_follows_paid(self.first)
         self._assert_due_follows_paid(self.second)
 
-        frappe.delete_doc(VENDOR_REFUNDS, refund.name, ignore_permissions=True)
+        frappe.delete_doc(VENDOR_REFUNDS, waiting.name, ignore_permissions=True)
         self.assertAlmostEqual(self._paid(self.second), self._was(self.second), places=2)
         self._assert_due_follows_paid(self.second)
+
+    def test_a_received_refund_s_amount_and_po_are_fixed(self):
+        """#1400, ADR-0032: a matched bank record cannot drift; only Unreconcile can change it."""
+        refund = self._refund(self.first, 100)
+        for field, value in (("amount", 250), ("document_name", self.second)):
+            with self.subTest(field=field):
+                doc = frappe.get_doc(VENDOR_REFUNDS, refund.name)
+                doc.set(field, value)
+                with self.assertRaises(frappe.ValidationError):
+                    doc.save(ignore_permissions=True)
+        self.assertAlmostEqual(self._paid(self.first), self._was(self.first) - 100, places=2)
 
     def test_an_edit_that_moves_no_money_leaves_the_po_untouched(self):
         refund = self._refund(self.first, 10)
@@ -165,14 +181,21 @@ class TestAVendorRefundMovesAmountPaid(unittest.TestCase):
         self.assertAlmostEqual(row["refunded"], 60, places=2)
         self.assertAlmostEqual(row["refundable"], self._was(self.first) - 60, places=2)
 
-        # Re-saving the refund does not count its own amount against itself.
-        refund.amount = self._was(self.first)
-        refund.save(ignore_permissions=True)
-        self.assertAlmostEqual(self._paid(self.first), 0, places=2)
-        refund.amount = self._was(self.first) + 1
-        with self.assertRaises(frappe.ValidationError):
-            refund.save(ignore_permissions=True)
         frappe.delete_doc(VENDOR_REFUNDS, refund.name, ignore_permissions=True)
+
+        # Re-saving a refund does not count its own amount against itself. (Only a waiting refund's
+        # amount may change, #1400.)
+        waiting = self._refund(self.first, 60, status=RECONCILIATION_PENDING)
+        waiting.amount = self._was(self.first)
+        waiting.save(ignore_permissions=True)
+        waiting.amount = self._was(self.first) + 1
+        with self.assertRaises(frappe.ValidationError):
+            waiting.save(ignore_permissions=True)
+        waiting.reload()
+        waiting.status = RECEIVED
+        waiting.save(ignore_permissions=True)
+        self.assertAlmostEqual(self._paid(self.first), 0, places=2)
+        frappe.delete_doc(VENDOR_REFUNDS, waiting.name, ignore_permissions=True)
 
     def test_only_a_received_refund_lowers_the_paid_amount(self):
         waiting = self._refund(self.first, 100, status=RECONCILIATION_PENDING)
@@ -255,28 +278,31 @@ class TestAVendorRefundRecountsVendorCredit(TestAVendorRefundMovesAmountPaid):
         return [r for r in rows if r.name not in self.ledger]
 
     def test_create_change_repoint_and_delete_each_recount_the_vendor_s_credit(self):
-        refund = self._refund(self.first, 100)
-        self.assertAlmostEqual(self._credit_used(), self.base + 100, places=2)
+        refund = self._refund(self.first, 100, status=RECONCILIATION_PENDING)
+        self.assertAlmostEqual(self._credit_used(), self.base, places=2)
         entries = self._new_ledger_rows()
         self.assertEqual(len(entries), 1)
         self.assertIn(self.first, entries[0].po_id)
 
         refund.amount = 250
         refund.save(ignore_permissions=True)
-        self.assertAlmostEqual(self._credit_used(), self.base + 250, places=2)
-
         refund.document_name = self.second
         refund.save(ignore_permissions=True)
-        self.assertAlmostEqual(self._credit_used(), self.base + 250, places=2)
+        self.assertAlmostEqual(self._credit_used(), self.base, places=2)
         # Both POs named: the one it left and the one it moved to.
         self.assertIn(self.first, self._new_ledger_rows()[-1].po_id)
         self.assertIn(self.second, self._new_ledger_rows()[-1].po_id)
+
+        refund.status = RECEIVED
+        refund.save(ignore_permissions=True)
+        self.assertAlmostEqual(self._credit_used(), self.base + 250, places=2)
 
         frappe.delete_doc(VENDOR_REFUNDS, refund.name, ignore_permissions=True)
         self.assertAlmostEqual(self._credit_used(), self.base, places=2)
         self.assertEqual(
             [r.entry_type for r in self._new_ledger_rows()],
-            ["Vendor Refund Recorded", "Vendor Refund Changed", "Vendor Refund Changed", "Vendor Refund Deleted"],
+            ["Vendor Refund Recorded", "Vendor Refund Changed", "Vendor Refund Changed",
+             "Vendor Refund Changed", "Vendor Refund Deleted"],
         )
 
     def test_a_waiting_refund_moves_no_credit_until_it_is_received(self):

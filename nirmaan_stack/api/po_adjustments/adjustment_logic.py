@@ -1,6 +1,10 @@
 """
-Manual PO Adjustment API — handles Against-po, Adhoc, and Vendor Refund flows.
+Manual PO Adjustment API — handles Against-po and Adhoc flows (and the admin Write Off).
 Operates on the PO Adjustments doctype created by the revision approval process.
+
+A vendor refund is NOT an adjustment method any more (#1400, ADR-0032): "Adjust Payments" records a
+waiting Vendor Refund through `api/vendor_refunds/waiting_refunds.record_waiting_refund`, and the old
+negative-payment + "RA Vendor" branch is gone.
 """
 import frappe
 from frappe import _
@@ -18,6 +22,7 @@ from ._payment_utils import (
     usable_po_credit,
 )
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
+from nirmaan_stack.services.vendor_refunds import held_on, waiting_refunds_of
 
 
 def _last_ledger_edit(adj_name):
@@ -85,18 +90,32 @@ def get_po_adjustment(po_id):
     doc["computed_from_children"] = computed
     doc["ledger_in_sync"] = in_sync
     doc["manual_edit"] = None if in_sync else _last_ledger_edit(adj_name)
+    # What "Adjust Payments" may offer (#1400): the credit the server will accept, after the cap
+    # and the hold, and the waiting refunds that hold the rest ("₹X held for VRF-…").
+    doc["usable_credit"] = flt(usable_po_credit(po_id), 2)
+    doc["held_credit"] = flt(held_on(po_id), 2)
+    doc["waiting_refunds"] = waiting_refunds_of(po_id)
     return doc
+
+
+#: The methods `execute_adjustment` runs. A vendor refund is not one of them (#1400).
+ADJUSTMENT_RETURN_TYPES = ("Against-po", "Ad-hoc")
 
 
 @frappe.whitelist()
 def execute_adjustment(po_id, adjustments_json):
     """
-    Processes manual adjustment entries (Against-po, Adhoc, Vendor Refund).
+    Processes manual adjustment entries (Against-po, Ad-hoc).
     Creates payments, appends child entries to PO Adjustment doc,
     recalculates remaining_impact, and sets status.
     """
     try:
         adjustments = json.loads(adjustments_json) if isinstance(adjustments_json, str) else adjustments_json
+        for entry in adjustments:
+            if entry.get("return_type") not in ADJUSTMENT_RETURN_TYPES:
+                frappe.throw(_(
+                    "{0} is not an adjustment method. A vendor refund is recorded as a waiting Vendor Refund."
+                ).format(entry.get("return_type") or "A blank method"))
 
         adj_name = frappe.db.get_value("PO Adjustments", {"po_id": po_id}, "name")
         if not adj_name:
@@ -108,7 +127,7 @@ def execute_adjustment(po_id, adjustments_json):
 
         # CONCURRENCY GUARD (source side): lock this PO's adjustment row and assert it
         # still holds enough overpaid credit to cover everything this submission resolves
-        # (Against-PO transfers + Adhoc + Vendor Refund). Prevents a stale dialog or a
+        # (Against-PO transfers + Adhoc). Prevents a stale dialog or a
         # concurrent vendor-credit PULL from spending the same credit twice. The PULL
         # endpoint takes the SAME lock, so the two serialize.
         total_to_resolve = 0.0
@@ -164,25 +183,6 @@ def execute_adjustment(po_id, adjustments_json):
                         "project_payment": pay_out.name,
                         "target_po": t_po_id,
                     })
-
-            elif r_type == "Vendor-has-refund":
-                pay_refund = _create_project_payment(
-                    po_id=po_id, project=adj_doc.project, vendor=adj_doc.vendor,
-                    amt=-amount, status="Paid",
-                    utr=entry.get("utr"),
-                    attachment=entry.get("refund_attachment")
-                )
-                _append_return_payment_term(original_po, pay_refund, "RA Vendor", -amount)
-
-                adj_doc.append("adjustment_items", {
-                    "entry_type": "Vendor Refund",
-                    "amount": flt(amount),
-                    "description": f"Vendor refund received",
-                    "timestamp": nowdate(),
-                    "project_payment": pay_refund.name,
-                    "refund_date": entry.get("refund_date") or nowdate(),
-                    "refund_attachment": entry.get("refund_attachment"),
-                })
 
             elif r_type == "Ad-hoc":
                 desc = entry.get("ad-hoc_description", "")
