@@ -158,6 +158,30 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
     alone. A revert that would put a child back into a loop is refused BEFORE anything is written. Children an
     old AI accept moved keep their snapshot revert. **Off for a template BoQ**: rows are renumbered there, so the
     `row N` in a history entry cannot be trusted.
+  - **The review screen reads flags ONLY from `check_flags` / `check_summary` (S4a, ADR-0034).** It holds no
+    flag rule: every pill, filter result, count, reason line and the greyed Mark Finalized come from those two
+    through `frontend/.../reviewCheckFlags.ts`. A new need of the screen is met by ADDING to what
+    `review_flags` sends (`flagged_by_kind` was added that way - the kinds of ALL flagged rows, for the "all
+    checked" line, since `by_kind` counts open flags only), never by re-deriving on the client. **No AI or
+    Gemini piece is on the review screen**: no run button, no suggestion, no model name (R6, R21). The AI
+    answers still travel in the reply; nothing reads them.
+  - **"Looks OK" has an Undo: `review_flags.unmark_row_looks_ok` (S4a).** One row per call, a raw column write,
+    no edit history; refused on a Finalized sheet, during a parse and where no tick stands ("Row N has no Looks
+    OK to undo."). The whitelist of `review_flags` is pinned to exactly `get_check_summary`,
+    `mark_row_looks_ok`, `unmark_row_looks_ok`, each one row per call.
+  - **`revert_to_parser` replies with BOTH lists (S4a, R27):** `reverted_children` and
+    `children_not_returned` - the children a restructure of the row moved that stay because a later move of the
+    child still stands (`review_flags.children_left_behind`, read BEFORE the revert writes). The reply is
+    pinned as a whole dict.
+  - **A revert re-offers a suggestion only on a row that already carries a status (S4a, R23).**
+    `ai_suggested_parent` / `gemini_suggested_parent` are 0 by column default and row 0 is a real row, so
+    "parent >= 0" alone marked a never-answered row Pending - a stray Gemini block, and on the Claude side a
+    false "Check parent". Both tests in `revert_to_parser` require `*_suggestion_status` first.
+  - **The parser's "needs-review" warning is silent on a row Claude re-typed (S4a, R24):**
+    `_compute_advisory_flags` skips it when `parser_classification` is set and differs from
+    `classification`. Its only reason (`priced_preamble_with_children`) is about the PARSER's type. Every
+    other warning rule is unchanged; `get_structural_breaks` fetches `parser_classification` through
+    `_ADVISORY_EXTRA_FIELDS` so both readers agree.
   - **Run-log records are kept 6 months**, pruned at most once a day by the EXISTING 5-minute task
     (`ai_run_log.prune_old_runs`). No scheduler entry was added. Under a test run a prune with no BoQ deletes
     nothing. An expiring cache key is read with `expires=True`: a plain read is answered from the process's own
@@ -227,7 +251,7 @@ This manifest names the **one owning module** for each BoQ backend concept (per 
 | **The joined `description` + `description_parts_raw` shape** | `services/boq_parser/classifier.py` (`_description_columns` / `_description_parts`) — owner-locked | re-join description columns anywhere else, or assume a single description column |
 | **The rendered Claude review prompt** (template + rows + GUIDANCE) and its version | `services/boq_ai_assist.py` (`_render_chunk_prompt`, `PROMPT_VERSION`) | build the prompt text anywhere else, or change it without bumping the version the result cache is keyed on |
 | **The Claude run log, its health check and the automatic run after a parse** (run records, heartbeat, the 6 / 22-minute rule, stuck-flag clean-up, the after-parse enqueue) | `api/boq/wizard/ai_run_log.py` (the worker and the endpoint in `ai_assist.py` only CALL it; `parse_run.py` calls `on_parse_start` + `enqueue_after_parse`) | write a `BoQ AI Run Log` field from anywhere else, clear `ai_in_progress` / `gemini_in_progress` outside `_publish_*_event` and the health check, or enqueue the Claude worker from a third place |
-| **Review flags** ("Check type" / "Check parent", their reason codes and counts, Claude's sure changes, "Looks OK", the finalize block, which children a revert returns) | `api/boq/wizard/review_flags.py` (`sheet_flag_state` is the single reader; `review_screen.get_review_rows`, `mark_sheet_parsed_check_done` and `revert_to_parser` only CALL it; `ai_run_log.check_state` owns the check status) | store a flag on a row, re-derive a flag or a count at a call site, write `parser_classification` or `ai_flags_ok` from anywhere else, or add a bulk "Looks OK" |
+| **Review flags** ("Check type" / "Check parent", their reason codes and counts, Claude's sure changes, "Looks OK" and its Undo, the finalize block, which children a revert returns and which it leaves) | `api/boq/wizard/review_flags.py` (`sheet_flag_state` is the single reader; `review_screen.get_review_rows`, `mark_sheet_parsed_check_done` and `revert_to_parser` only CALL it; `ai_run_log.check_state` owns the check status) | store a flag on a row, re-derive a flag or a count at a call site (the review SCREEN included - it reads `check_flags` / `check_summary` only), write `parser_classification` or `ai_flags_ok` from anywhere else, or add a bulk "Looks OK" / Undo |
 | **The examples library and the candidate-parent shortlist** (build, file, on-demand rebuild, look-up exclusions) | `services/boq_ai_guidance.py` (`build_guidance` is the worker's one entry point) — reads `frappe.db` by design, so it is **not** a `PURE_MODULES` entry | read the library file directly, rebuild it from a scheduler, or apply the family / TestProject exclusions anywhere but the look-up |
 | **Committed-tier amount / parent-rate recomputation** | **NONE, deliberately** — the committed controllers are CAPTURE-ONLY; the future tendering module owns calculations | re-add `amount = qty x rate` or a parent-rate overwrite to a committed controller |
 

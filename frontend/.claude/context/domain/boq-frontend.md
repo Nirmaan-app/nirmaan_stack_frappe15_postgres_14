@@ -75,6 +75,35 @@ owner-locked invariants. The full as-built detail (component contracts, per-slic
 - **Search highlight = RINGS (`ring-inset`), never backgrounds** (a background would mask the edited-green tint).
 - **Filters gate on the FILTER axis (`classificationVisible && passesFilter`), NOT the collapse axis** — a hit can
   never be a filtered-out row, and stepping auto-expands a collapsed-parent hit via `revealAndScrollToRow`.
+- **Review flags are DRAWN here, never decided here (S4a, ADR-0034, owner-locked).** The server works the flags
+  out (`review_flags.py`) and sends `check_flags` on each row and `check_summary` on the sheet. The pure
+  `reviewCheckFlags.ts` turns those into the pill (`checkPill`), the Check filter (`matchesCheckFilter`), the
+  counter strip (`checkCounter`), the reason lines (`checkReasonLines` - codes map to text there; an unknown code
+  shows NO line, a code is never shown), the reason Mark Finalized is greyed (`finalizeBlockMessage`, in the
+  SERVER's order of checks) and the revert message (`revertMessageLines`). `ReviewCheckParts.tsx` only draws.
+  **Do not add a client-side rule for "is this row flagged" or a client-side count** - ask the server for the
+  field instead, or the button and the server's refusal can disagree. Every sentence of the feature lives in
+  `reviewCheckFlags.ts`.
+- **No AI or Gemini piece on the review screen (S4a, owner-locked: R1, R6, R21, R22).** No run button, no
+  suggestion block, no confidence pill, no model name, no "Accepted" label - a row accepted from an old pill reads
+  "Edited". While the automatic check runs the page shows only the "Checking rows…" chip (`isCheckRunning`: the
+  sheet's `ai_in_progress` OR `check_summary.check_running`), and shows no text when it ends, whatever the
+  outcome. `RestructureModal.tsx` still has an AI-preset branch; nothing passes those props any more.
+- **The Check column took the AI Rec column's place**, so the fixed-anchor count stays 8 (`totalCols`); it is
+  inside the same `!templateOrigin` fragment as Status and must stay in lockstep with its header, its body cell
+  and that count. Order: Excel Row | Status | Check | Sl.No | Parent | Row Type | Looks OK (revision) |
+  Description.
+- **Three ticks, three meanings, never merged:** the parser-warning "Looks OK" (`dismiss_row_flags`), the
+  revision "Looks OK" column (`affirm_revision_row`), and the flag "OK" / "Looks OK" with its "Undo"
+  (`review_flags.mark_row_looks_ok` / `unmark_row_looks_ok`, one row per call). The flag tick is an
+  acknowledgement, not an edit: it does not call `onEditIntent` (the server takes the draft lock) and it refreshes
+  through `onRemarkSaved`.
+- **Row colour order (the channel-collision rule):** the orange wash of an open flag sits BEFORE the edited-green
+  tint, so an edited row stays green; the orange left edge is withheld on an unconfirmed revision row, whose red
+  edge keeps the left border.
+- **The page re-reads itself when a parse of its BoQ ends** (`boq:parse_run_done` in `SheetReviewPage.tsx`) and
+  when the check ends (`boq:ai_pass_done`, plus a 3-second poll while `isCheckRunning`). The poll stops itself
+  once the refreshed data says the check is over - the resolve handler must not stop it.
 - **Finalized / "Parsed Check Done" freeze:** `readOnly` HIDES every write affordance; backend
   `_guard_sheet_not_frozen` is the durable backstop. Restructure goes through `RestructureModal` (5 child-placement
   options + a batch cycle-guard). A flag dismissal / remark is NOT an edit (the row stays "Original").

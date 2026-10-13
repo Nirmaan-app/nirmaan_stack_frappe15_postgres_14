@@ -46160,3 +46160,78 @@ Before = S2's saved full run: **8,221 tests**, failures 6 + errors 6. Targeted b
 tests): all green except the three known errors of `test_update_sheet_draft.TestMigrateWorkPackageToMulti`.
 Full suite after the last code commit (03:26 - 04:01 IST, dev2's bench up): **8,356 tests (8,221 + 135 new), failures 7 + errors 6 = 13**: S2's 12 by name plus `test_daily_window_picks_a_wo_touched_since`, the 00:00 - 05:30 IST flake, present at that hour. Nothing new. No frontend file changed, so no vitest / tsc run. `residence_check`: backend rules holding; F5 120 vs 117
 and F2 221 vs 217 as before.
+
+
+## Slice S4a — THE REVIEW SCREEN: CHECK FLAGS, LOOKS OK AND UNDO, AI AND GEMINI UI REMOVED (2026-10-13, dev2) — SHIPPED
+
+Branch `feature/boq-jev-integration`, built and certified in the dev2 environment only. Decision record: ADR-0034.
+Invariants: `boq-frontend.md` § Load-bearing invariants (the "Review flags are DRAWN here, never decided here" bullet
+and the five after it) and `boq-backend.md` § Parser, review tree and commit. No doctype change, no migration. The
+banner for a failed or stalled check, the removal of the three "Edit values" blocks and the hub are S4b.
+
+**What it is.** The review screen now shows what S3 works out. A flagged row carries a pill ("Check type", "Check
+parent", "Check both", then "Checked") and an orange wash; a strip above the grid counts the rows left; the row detail
+has a "Needs checking" block with the reason and a "Looks OK" button, with "Undo" once ticked. Mark Finalized is greyed
+out, with the reason on hover, while the check runs or a flag is open. Every AI and Gemini piece is gone from the
+screen: no run button, no suggestion, no confidence, no model name.
+
+**Built.** Commit `cfc7100c3` (feat, boq-review), 12 files:
+- `frontend/src/pages/boq-wizard/reviewCheckFlags.ts` (new, pure) — every sentence of the feature and the reading of
+  `check_flags` / `check_summary`: `checkPill`, `matchesCheckFilter`, `checkCounter`, `checkReasonLines`,
+  `isCheckRunning`, `finalizeBlockMessage`, `revertMessageLines`. No flag rule lives on the client.
+- `ReviewCheckParts.tsx` (new) — draws the pill, the counter strip and the "Needs checking" block.
+- `ReviewTree.tsx` — AI Rec column, Gemini column, both accept blocks and the indigo / violet row tints removed; Check
+  column in the AI Rec column's place (anchor count stays 8), Check filter, tint, grid "OK", Undo, the revert notice.
+  Prop `geminiEnabled` replaced by `checkSummary`.
+- `SheetReviewPage.tsx` — the AI and Gemini buttons, strips and message lines removed; the "Checking rows…" chip; Mark
+  Finalized greyed through `finalizeBlockMessage`; a `boq:parse_run_done` listener; the 3-second poll stops itself.
+- `boqTypes.ts` — the check types added, the Gemini view types removed. `GeminiAcceptBlock.tsx` and
+  `GeminiSuggestionColumn.tsx` deleted.
+- `api/boq/wizard/review_flags.py` — `unmark_row_looks_ok` (whitelisted, one row per call), `children_left_behind` /
+  `children_not_returned`, `flagged_by_kind` in the summary, `no_looks_ok_message`.
+- `api/boq/wizard/review_screen.py` — `revert_to_parser` returns `children_not_returned` and re-offers a suggestion
+  only on a row that already carries a status, on the Claude and the Gemini line (both owner-approved, Q-b);
+  `_compute_advisory_flags` drops the parser's needs-review warning on a row Claude re-typed.
+- Tests: `test_review_flags.py` 102 -> 142; `reviewCheckFlags.test.ts` (new, 38). In `test_review_screen.py` four
+  whole-reply pins gained `"children_not_returned": []` and the whitelist pin gained `unmark_row_looks_ok`.
+
+**Proofs.** 25 mechanisms were each broken in turn and each turned its named tests red, then restored byte-identical
+(12 backend, 13 frontend). Protected checksums re-taken after the build: of 37 entries only `revert_to_parser` and
+the whole file `ReviewTree.tsx` differ. All 666 indexes and every BoQ table column identical before and after.
+
+**End-to-end (BOQ-26-00059 / FPS, 39 rows; two paid runs, 56,726 input tokens).** Re-parse from the hub; the chip
+showed and cleared with no reload; 6 flagged of 38 non-blank rows = 15.8% (row 31 "Check type"; rows 21, 22, 23, 24, 29
+"Check parent"); screen and server agreed at every step. Change type and Change parent struck their pills; grid "OK",
+detail "Looks OK", "Undo" and a re-tick worked; a revert of row 20 said *"Row 20 reverted, along with 3 child rows it
+had moved: rows 21, 23, 24."* and *"Row 22 was not moved back because it was moved separately."* Green strip, Mark
+Finalized, committed v2: 38 committed rows, 0 differences against the review rows and against the screen. The parser
+warning: gone on FPS rows 20 and 28 after the re-type; on HVAC row 12, 13 warnings -> 12 on a type change -> 13 after
+the revert. The first paid run was exploratory (it produced no "Check type" row); the second is the one reported.
+
+**Not seen on screen.** A flagged revision row with both ticks (owner ruling Q-i: no paid re-parse of a real-project
+copy) — tests only, deferred to S5. The "Has a unit or quantity but isn't an Item" line and "Row N has no Looks OK to
+undo." — tests only.
+
+**Findings carried forward (S4b unless said).**
+1. While the check runs the strip shows the raw parse's unit / quantity flags for about a minute, then settles.
+2. A revert as the very first action on a freshly loaded page failed once (the page's draft-lock call and the revert's
+   own collide); a second click works. Older than S4a; not changed.
+3. A failed or stalled check shows nothing on the screen until the banner exists.
+4. Moving a child onto the parent Claude named closes its flag (S3's rule), so the strip can turn green mid-way.
+5. The AI answers still travel in the review reply and the AI / Gemini endpoints are intact; nothing on the screen
+   reads them. `RestructureModal.tsx` still has an AI-preset branch that no caller reaches.
+6. A reverted row reads "Edited" (owner: unchanged in S4a).
+7. `review_flags.py` is past the 500-line guideline.
+
+### Tests (measured in-session, dev2)
+
+Before: Python = S3's saved full run, **8,356 tests**, failures 7 + errors 6; vitest **5,986 tests**, 1 failed
+(`writeOffControl.test.ts`, a 5-second timeout); tsc **3,170 errors in 300 files** (dev2's standing list, run with a
+4 GB heap; the plain run dies out of memory). Targeted before the commit (33 modules, 2,090 tests): the three known
+errors of `test_update_sheet_draft.TestMigrateWorkPackageToMulti` plus two snag-PDF tests that need the bench, which
+was down for the run.
+After the code commit: Python full suite (15:40 - 16:28 IST) **8,396 tests (8,356 + 40 new), failures 6 + errors 6 =
+12**, all in S3's list by name; the 00:00 - 05:30 IST flake `test_daily_window_picks_a_wo_touched_since` passed at
+that hour. vitest **6,024 tests (5,986 + 38 new)**, the same 1 failure. tsc **3,170 errors in 300 files**, the same
+list line for line (line numbers set aside), none in a file S4a changed. `residence_check`: backend rules holding;
+F5 120 vs 117 and F2 221 vs 217 as before.
