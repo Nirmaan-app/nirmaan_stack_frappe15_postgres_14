@@ -43,3 +43,24 @@ export const getFrappeError = (error: any): string => {
     // 3. Fallback to basic message or toString
     return error.message || error.toString() || "Something went wrong.";
 };
+
+/**
+ * Frappe's messages carry HTML -- a link-check refusal links every record it names
+ * (`... linked with Nirmaan Notifications <a href="...">9ekd6leegl</a>`) -- and a toast shows text,
+ * so the tags would appear as typed. Keeps each link's text, decodes the common entities.
+ */
+const toPlainText = (html: string): string =>
+    html
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;|&#x27;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+/** The server's exact reason as plain text, for a toast (see `toPlainText`). */
+export const getFrappeErrorText = (error: any): string => toPlainText(getFrappeError(error));
