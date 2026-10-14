@@ -46298,3 +46298,53 @@ or that has a unit or quantity without being an Item, is flagged (S3). The revie
 a sheet until every flag is checked. The hub and the parse summary say how many rows each sheet needs checked, and a
 sheet whose check did not finish says so and can still be finalized on the parser's result. No AI or Gemini control or
 name is left on the review screen. S3, S4a and S4b ship together (R30); S5 is the end-to-end trial on real BoQs.
+
+## Slice S5 - END-TO-END TRIAL ON 10 REAL BoQs (2026-10-14, dev2) - DONE (no code change)
+
+Operational run on tip `3c0c008ae`; no code, doctype or migration changed, so no test suite ran. Full report and raw
+data: Desktop `JEV Integration\s5\REPORT_s5.md` and `s5\data\` (rows, actions, runs, set-up, blanking, confusion
+tables, screens, defects, raw review rows at three points; README per file).
+
+**What was tried.** Ten committed Sep-Oct 2026 BoQs with a clean set-up (00283, 00236, 00212, 00318, 00274, 00344,
+00327, 00333, 00304, 00297) plus two revision pairs (00212 -> 00227, 00318 -> 00337). Each original's set-up and
+committed rows were recorded as the answer key; a copy with every rate and amount blanked (formulas and text too;
+four proofs per sheet) was uploaded to "Test Project 1-10" (tendering), set up as the original, parsed (Claude checked
+it automatically), re-parsed on four sheets, reviewed with every user action, finalized and committed. 00283 and 00236
+ran fully in the browser (real file picker, set-up by hand, full cert); the rest through the same whitelisted endpoints
+in-process as the owner's dev2 user. Test BoQs BOQ-26-00639..00650 are kept on dev2.
+
+**Results.**
+
+| Measure | Clean rows (headline, Q1) | All rows | Bar |
+|---|---|---|---|
+| Row type (parser + Claude = parser; 0 sure changes) | 94.8% (324 rows) | 97.3% (2,002) | 95% |
+| Parent | 93.2% | 96.2% | 90% |
+| Rows flagged | 13.3% | 19.4% | 10 / 25 / 50% |
+| Flag catch rate / precision | 48% / 27.9% | 58.7% / 15.7% | - |
+| "Suggested" right (type / parent) | 5 of 10 / 8 of 39 | 13 of 69 / 37 of 347 | - |
+| "Suggested" taken when the row was wrong | - | 42 of 59 (71%) | - |
+
+- End to end: 12 BoQs, 29 sheet commits; committed = review screen, 0 differences everywhere; committed = answer key
+  except 23 "Sub - Total" rows, which the blanked copies parse as note/preamble/spacer and a user cannot set back
+  (Subtotal is not a choosable type). Without those rows type is 98.0% clean / 98.3% all.
+- Set-up copied with 0 unexplained differences; re-parse = fresh parse on 00304 Sheet2, 00274 CCTV, 00283 FFA, 00236
+  FAPA; finalize refused naming the rows; downstream pricing rows = committed nodes on all 29 sheets.
+- Revisions: 0 copied rows flagged on both (D5); a row needing both the revision Looks OK and a check flag shows both,
+  separately, on screen (T9).
+- Sheets over 40% flagged: 00297 FAS 63% (0 of 68 flags on a wrong row), 00212 cabling 57%, 00327 49.5%.
+- 84% of rows had their own original among Claude's five examples; every sheet would need a clean re-run once the
+  original's family is excluded from the library.
+- Spend: 31 Claude runs, 1,872,327 input tokens (cap 80 / 3,000,000); 0 failures. Every BoQ outside the test projects
+  unchanged (checksums of all 383 before and after).
+
+**Defects (recorded, not fixed; for S6).**
+- **Wrong result:** a sheet whose name starts or ends with a space (00274 " Rodent", 00236 "FPS ") never gets the
+  automatic check: `ai_run_log._enqueue_after_parse` selects sheets with a Frappe `["in", ...]` filter, which strips the
+  values. The sheet shows no flags and no "not checked" warning, and can be finalized with wrong rows.
+- Flag noise: parent flags whose Suggested parent is wrong, on rows already right (00297, 00344, 00327).
+- Confusing: Mark Finalized disabled with its reason only in an invisible tooltip; Subtotal not choosable; after a
+  re-parse of a committed sheet the card still says "Committed v1 - Ready for tendering" and the commit dialog
+  re-commits untouched sheets; deep-link review route flashes "Access Denied" before the role loads; search Enter
+  finds but does not scroll; column-map role rows re-sort while mapping.
+- Cosmetic: hub subtitle "Map sheets before parsing" after commit and footer "0 of 2 reviewed - 2 checked"; reverted
+  row keeps "Edited"; upload screen holds "Parsing BoQ..." while the tab is hidden.
