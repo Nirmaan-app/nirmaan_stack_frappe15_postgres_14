@@ -11,6 +11,7 @@ USAGE
     name = self.payees.payee()                     # a fresh Active Payee, made by `writer.create_payee`
     number = self.payees.account_number()          # a fresh account number nobody holds
     self.payees.fail_ifsc_lookup()                 # the next lookups find nothing
+    PayeeFixture.class_payee(holder, number, ifsc) # in setUpClass; call PayeeFixture.purge() in tearDownClass
 
 Every Payee it makes carries `TEST_IFSC` and a `TESTPYE` holder name, and `purge` sweeps every
 Payee with either, so a test that dies before it records a name strands nothing. Links to a
@@ -25,8 +26,8 @@ from unittest import mock
 
 import frappe
 
-from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE
-from nirmaan_stack.services.payees.writer import create_payee
+from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE, parse_details
+from nirmaan_stack.services.payees.writer import create_payee, existing_payee
 
 TEST_IFSC = "TEST0PYE001"
 HOLDER_PREFIX = "TESTPYE"
@@ -67,6 +68,21 @@ class PayeeFixture:
         doc = create_payee(holder or self.holder(), account_number or self.account_number(), ifsc)
         frappe.db.commit()
         return doc.name
+
+    @classmethod
+    def class_payee(cls, holder: str, account_number: str, ifsc: str) -> str:
+        """A Payee for a class-level fixture (`setUpClass`), lookups patched only for the create.
+
+        Reuses the Payee already holding this account + IFSC (a run that died before its purge), so
+        the fixture never trips the duplicate refusal. `holder` must start with `HOLDER_PREFIX`: the
+        caller's `tearDownClass` calls `purge`, which sweeps by holder name and test IFSC."""
+        assert holder.startswith(HOLDER_PREFIX), holder
+        existing = existing_payee(parse_details(holder, account_number, ifsc))
+        if existing:
+            return existing
+        fixture = cls()
+        with fixture.lookup:
+            return fixture.payee(holder=holder, account_number=account_number, ifsc=ifsc)
 
     @staticmethod
     def purge() -> None:

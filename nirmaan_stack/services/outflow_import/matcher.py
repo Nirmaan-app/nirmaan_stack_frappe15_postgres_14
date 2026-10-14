@@ -122,7 +122,11 @@ TIER_NONE = ""
 
 @dataclass(frozen=True)
 class VendorRef:
-    """A vendor as the matcher needs to see it. Raw values -- normalisation happens here."""
+    """A vendor as the matcher needs to see it. Raw values -- normalisation happens here.
+
+    `account_name`, `account_number` and `ifsc` are the vendor's CURRENT Payee's (ADR-0033); blank
+    when it has none. `candidates.load_vendor_index` fills them.
+    """
 
     name: str
     vendor_name: str = ""

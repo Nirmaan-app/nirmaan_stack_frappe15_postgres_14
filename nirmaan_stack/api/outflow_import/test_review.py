@@ -54,6 +54,7 @@ from nirmaan_stack.api.outflow_import.review import (
 from nirmaan_stack.api.outflow_import.expenses import allocate_row, create_expense, settle_row
 from nirmaan_stack.api.outflow_import.test_allocate_row import AllocationFixture
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
+from nirmaan_stack.api.payees.payee_fixture import PayeeFixture
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.contains_guard import find_hits
@@ -2835,14 +2836,17 @@ class TestTheTierLadderEndToEnd(OutflowReviewFixture):
         # admits it; the payment's junk UTR is what keeps tier 0 out of the way.
         cls.tier1_row = cls._row("0010")
         cls.test_vendor = f"TEST-OFV-{frappe.generate_hash(length=10)}"
+        # The vendor's account is its Payee's (#1427).
+        payee = PayeeFixture.class_payee(
+            "TESTPYE Testvendor Theta Ltd", cls.tier1_row.bank_account, cls.tier1_row.ifsc
+        )
         frappe.db.sql(
             """
             INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-                                      vendor_name, account_number, ifsc)
-            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s)
+                                      vendor_name, payee)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s)
             """,
-            (cls.test_vendor, "Administrator", "Administrator", "Testvendor Theta Ltd",
-             cls.tier1_row.bank_account, cls.tier1_row.ifsc),
+            (cls.test_vendor, "Administrator", "Administrator", "Testvendor Theta Ltd", payee),
         )
         cls.pay_tier1 = cls._insert_payment_row(
             amount=cls.tier1_row.amount, status=SETTLEABLE,
@@ -2884,6 +2888,7 @@ class TestTheTierLadderEndToEnd(OutflowReviewFixture):
         frappe.db.delete("Vendors", {"name": cls.test_vendor})
         frappe.db.delete("Projects", {"name": cls.test_project})
         super().tearDownClass()
+        PayeeFixture.purge()
 
     def test_tier_1_matches_on_the_bank_account_and_ifsc(self):
         row = self._rows_by_transfer_suffix()["0010"]
@@ -2946,14 +2951,15 @@ class TestStackAutoPairing(OutflowReviewFixture):
         cls.stack_account = "98765432101"
         cls.stack_ifsc = "TEST0009999"
         cls.stack_vendor = f"TEST-OFV-{frappe.generate_hash(length=10)}"
+        # The vendor's account is its Payee's (#1427).
+        payee = PayeeFixture.class_payee("TESTPYE Testvendor Stackco Ltd", cls.stack_account, cls.stack_ifsc)
         frappe.db.sql(
             """
             INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-                                      vendor_name, account_number, ifsc)
-            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s)
+                                      vendor_name, payee)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s)
             """,
-            (cls.stack_vendor, "Administrator", "Administrator",
-             "Testvendor Stackco Ltd", cls.stack_account, cls.stack_ifsc),
+            (cls.stack_vendor, "Administrator", "Administrator", "Testvendor Stackco Ltd", payee),
         )
         cls.extra_vendors.append(cls.stack_vendor)
 
@@ -3043,6 +3049,7 @@ class TestStackAutoPairing(OutflowReviewFixture):
         for name in getattr(cls, "extra_vendors", []):
             frappe.db.delete("Vendors", {"name": name})
         super().tearDownClass()
+        PayeeFixture.purge()
 
     def _suggestions(self, names) -> list:
         return [

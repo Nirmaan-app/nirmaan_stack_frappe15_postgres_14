@@ -39,6 +39,7 @@ from nirmaan_stack.api.outflow_import.test_review import (
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_account
 from nirmaan_stack.api.outflow_import.test_settle_payment import SETTLEABLE
+from nirmaan_stack.api.payees.payee_fixture import PayeeFixture
 from nirmaan_stack.services.outflow_import.sources import source_runs_the_matcher
 from nirmaan_stack.services.outflow_import.status import (
     ROW_MATCHED,
@@ -478,14 +479,15 @@ class TestAOneLineRunNeverUnpairsAStack(OutflowReviewFixture):
         super().setUpClass()
         cls.account = "98765432172"
         cls.vendor = f"TEST-OFV-{frappe.generate_hash(length=10)}"
+        # The vendor's account is its Payee's (#1427).
+        payee = PayeeFixture.class_payee("TESTPYE Testvendor Linescope Ltd", cls.account, "TEST0009172")
         frappe.db.sql(
             """
             INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-                                      vendor_name, account_number, ifsc)
-            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s)
+                                      vendor_name, payee)
+            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s)
             """,
-            (cls.vendor, "Administrator", "Administrator", "Testvendor Linescope Ltd",
-             cls.account, "TEST0009172"),
+            (cls.vendor, "Administrator", "Administrator", "Testvendor Linescope Ltd", payee),
         )
         cls.stack_rows = [cls._stack_row(s) for s in ("0003", "0004", "0005")]
         cls.stack_payments = []
@@ -530,6 +532,7 @@ class TestAOneLineRunNeverUnpairsAStack(OutflowReviewFixture):
     def tearDownClass(cls):
         frappe.db.delete("Vendors", {"name": cls.vendor})
         super().tearDownClass()
+        PayeeFixture.purge()
 
     def test_the_precondition_the_two_siblings_are_paired(self):
         self.assertEqual(self.sibling_picks_before, set(self.stack_payments))

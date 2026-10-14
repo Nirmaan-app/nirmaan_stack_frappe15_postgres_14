@@ -32,7 +32,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   an existing Payee or new bank details and writes none of the old vendor bank fields. Every screen
   that shows or checks a vendor's bank details (hover card, detail popover, the PO / WO
   payment-request gate, the bank file, the vendor list) reads the vendor's Payee through
-  `services/payees/vendor_account.vendor_accounts`, gated by Vendors read, not Payee read. On the
+  `services/payees/vendor_account.vendor_accounts`, gated by Vendors read, not Payee read. So do
+  Bulk Import's vendor index (Tier 1, refund suggestions) and the payment autofill's holder-name check
+  (#1427): a line paid to a vendor's previous Payee reaches no Tier 1 (ADR-0033). On the
   vendor page (#1426) the Account Details card shows the vendor's Payee and how many other vendors
   share it (`choosing.vendor_account`); Change account / Add bank details go through
   `api/payees/vendor_payee.change_vendor_payee` (`choosing.link_vendor`), and the other vendors on
@@ -92,7 +94,8 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | Payee links | `payee` (Link to Payee) on `Vendors`, `Expense Request`, `Project Expenses`, `Non Project Expenses` |
 | Add Payee endpoints | `api/payees/add_payee.py`: `add_payee`, `check_payee`, `lookup_ifsc` |
 | Payees list endpoint | `api/payees/list_payees.get_payees` (data-table contract; the tab is the filter `["tab", "=", …]`) |
-| Test fixture | `api/payees/payee_fixture.PayeeFixture`: offline IFSC lookups, purges every test Payee |
+| Test fixture | `api/payees/payee_fixture.PayeeFixture`: offline IFSC lookups, purges every test Payee; `class_payee` for a `setUpClass` |
+| A vendor's account (Bulk Import, autofill) | `services/payees/vendor_account.vendor_accounts()` (no argument: every vendor with a Payee) (#1427) |
 | Vendor bank details → Payees (#1424) | `patches/v3_0/move_vendor_bank_details_to_payees.py` (re-runnable; its docstring holds the grouping, fallback and skip rules); test `api/payees/test_vendor_payees_patch.py` |
 | Frontend fields + dialog | `components/payees/` (`PayeeBankFields`, `usePayeeBankForm`, `AddPayeeDialog`) |
 | Expense payee rules (#1429) | `services/payees/expense_rules.py` (pure: Required / Optional / Not asked, vendor's Payee, Inactive), `services/payees/expense_payee.py` (`request_payee_for`, `assert_pickable`, `change_expense_payee`), `services/payees/search.py` (`search_active_payees`) |
