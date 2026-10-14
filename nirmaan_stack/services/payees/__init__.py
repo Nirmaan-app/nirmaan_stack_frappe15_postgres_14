@@ -10,6 +10,9 @@
 * `expense_rules` (pure) / `expense_payee` -- the Expense payee: an expense type's Required / Optional
   / Not asked, the vendor's Payee, Inactive (`request_payee_for`, `change_expense_payee`).
 * `search` -- `search_active_payees`, for the Expense Request's picker.
+* `matching` (pure) -- `rank_payees`, `name_similarity`: which Payees look like a vendor.
+* `choosing` -- `suggest_for_vendor`, `payee_choices` / `payee_choice`, `assert_pickable`,
+  `choose_payee`: a vendor's Payee.
 
 Import from the submodule (`from nirmaan_stack.services.payees.writer import create_payee`).
 Invariants: `.claude/context/domain/payees.md`.

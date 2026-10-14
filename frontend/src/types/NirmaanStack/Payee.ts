@@ -66,3 +66,37 @@ export interface PayeeOption {
     /** How many payments have left Approved for it; only search rows carry it. */
     times_paid?: number;
 }
+
+/** How a suggested Payee matches a vendor (`services/payees/matching`). */
+export const PAYEE_MATCH = {
+    /** A vendor already linked to the Payee has the same PAN. */
+    STRONG: "strong",
+    /** No PAN agrees; the names read alike. */
+    NAME_ONLY: "name_only",
+} as const;
+
+export type PayeeMatch = (typeof PAYEE_MATCH)[keyof typeof PAYEE_MATCH];
+
+/** A vendor linked to a Payee, as the vendor screens list it. */
+export interface PayeeLinkedVendor {
+    name: string;
+    vendor_name: string | null;
+    vendor_city: string | null;
+    vendor_pan: string | null;
+}
+
+/**
+ * A Payee as the vendor screens show it before linking a vendor to it
+ * (`services/payees/choosing.payee_choices`): its summary, every linked vendor and expense, and
+ * the latest payment that left Approved for it.
+ */
+export interface PayeeChoice extends PayeeSummary {
+    linked_vendors: PayeeLinkedVendor[];
+    linked_expenses: { name: string; doctype: "Project Expenses" | "Non Project Expenses" }[];
+    last_payment: { date: string; document: string } | null;
+}
+
+/** One "Payees that look like this vendor" entry (`api/payees/vendor_payee.suggest_vendor_payees`). */
+export interface PayeeSuggestion extends PayeeChoice {
+    match: PayeeMatch;
+}

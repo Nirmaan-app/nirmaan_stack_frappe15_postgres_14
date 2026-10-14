@@ -20,10 +20,10 @@ The IFSC's bank and branch come from `api/payees/add_payee.lookup_ifsc`, open to
 import frappe
 
 from nirmaan_stack.api.expense_requests.access import guard_can_raise
+from nirmaan_stack.api.payees.add_payee import duplicate_verdict
 from nirmaan_stack.services.payees.links import payee_for_vendor, payee_summary
-from nirmaan_stack.services.payees.rules import duplicate_problem, parse_details
 from nirmaan_stack.services.payees.search import search_active_payees
-from nirmaan_stack.services.payees.writer import DuplicatePayeeError, create_payee, existing_payee
+from nirmaan_stack.services.payees.writer import DuplicatePayeeError, create_payee
 
 
 @frappe.whitelist()
@@ -39,11 +39,7 @@ def search_payees(text: str | None = None, limit: int = 8) -> list[dict]:
 def check_request_payee(account_number: str, ifsc: str) -> dict:
     """The Payee already holding this account number + IFSC: `{duplicate: <summary> | None, message}`."""
     guard_can_raise()
-    existing = existing_payee(parse_details("", account_number, ifsc))
-    if not existing:
-        return {"duplicate": None, "message": None}
-    summary = payee_summary(existing)
-    return {"duplicate": summary, "message": duplicate_problem(existing, summary["account_name"])}
+    return duplicate_verdict(account_number, ifsc)
 
 
 @frappe.whitelist(methods=["POST"])

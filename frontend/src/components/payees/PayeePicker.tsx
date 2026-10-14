@@ -47,11 +47,20 @@ export function PayeePicker({ choice, disabled }: PayeePickerProps) {
                     <PayeeBankFields
                         payeeForm={choice.bankForm}
                         disabled={disabled || choice.adding}
-                        onUseDuplicate={(dup) => {
-                            choice.bankForm.reset();
-                            choice.pick(dup);
-                        }}
-                        stacked
+                        layout="form"
+                        // A raiser can't open the Payees page, so the block offers the Payee to pick.
+                        duplicateAction={(dup) => (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    choice.bankForm.reset();
+                                    choice.pick(dup);
+                                }}
+                                className="font-semibold text-red-700 hover:underline"
+                            >
+                                Pick {dup.name} instead
+                            </button>
+                        )}
                     />
                     <p className="text-xs text-muted-foreground">
                         This adds a new payee. If the account is already on record, you'll be asked to pick that payee

@@ -49,11 +49,15 @@ export interface PayeeBankForm {
     reset: () => void;
 }
 
-/**
- * `checkApi` is the duplicate pre-check each screen may call: the Payees page's `check_payee`
- * (Accounts only) by default; the Expense Request passes its own (`check_request_payee`).
- */
-export function usePayeeBankForm({ checkApi = CHECK_PAYEE_API }: { checkApi?: string } = {}): PayeeBankForm {
+interface PayeeBankFormOptions {
+    /**
+     * The duplicate pre-check endpoint. Each screen asks through its own, which checks who may add a
+     * Payee there: the Payees page `check_payee`, the vendor screens `vendor_payee.check_vendor_payee`.
+     */
+    checkApi?: string;
+}
+
+export function usePayeeBankForm({ checkApi = CHECK_PAYEE_API }: PayeeBankFormOptions = {}): PayeeBankForm {
     const [form, setForm] = useState<PayeeFormValues>(EMPTY_PAYEE_FORM);
     const [bank, setBank] = useState<BankBranch | null>(null);
     const [ifscError, setIfscError] = useState<string | null>(null);

@@ -7,13 +7,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { SheetClose } from "@/components/ui/sheet"
 import { useToast } from "@/components/ui/use-toast"
-import { ACCOUNT_NUMBER_REGEX, IFSC_REGEX, NAME_REGEX } from "@/constants/vendorFormRegex"
-import { accountNumberDuplicateMessage, findVendorsByPan, vendorNamesLabel } from "./utils/vendorDuplicates"
+import { NAME_REGEX } from "@/constants/vendorFormRegex"
+import { findVendorsByPan, vendorNamesLabel } from "./utils/vendorDuplicates"
 import { vendorTaxIdSchemas } from "./utils/vendorTaxIds"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
+import type { PayeeSummary } from "@/types/NirmaanStack/Payee"
+import { VendorPayeeSection } from "@/components/payees/VendorPayeeSection"
+import { useVendorPayeeChoice } from "@/components/payees/useVendorPayeeChoice"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useSWRConfig } from "frappe-react-sdk"
-import { usePincodeData, useExistingVendors, useBankDetails } from './data/useVendorQueries'
+import { usePincodeData, useExistingVendors } from './data/useVendorQueries'
 import { useCreateVendorAndAddress } from './data/useVendorMutations'
 import { ListChecks, ListRestart } from "lucide-react"
 import { useCallback, useEffect, useState } from "react"
@@ -22,30 +25,16 @@ import { useNavigate } from "react-router-dom"
 import * as z from "zod"
 
 
+/** `create_vendor_and_address`'s reply. 409: the bank details belong to `duplicate` already. */
+type CreateVendorReply =
+  | { status: 200; message: string; payee: string }
+  | { status: 409; error: string; duplicate: PayeeSummary }
+  | { status: 400; error: string };
 
-const getVendorFormSchema = (service: boolean, accountNumber: string | undefined, existingVendors: Vendors[] | undefined, bank_details: any, pincode_data: any) => {
-  // Bank details are MANDATORY at creation. edit-vendor deliberately keeps them
-  // optional — a large share of existing vendors predate this rule and must stay
-  // editable without sourcing bank details first.
-  const accountNumberSchema = z
-      .string({ required_error: "Account number is required" })
-      .min(1, { message: "Account number is required" })
-      .regex(ACCOUNT_NUMBER_REGEX, {
-          message: "Account number must be 9 to 18 digits.",
-      })
-      // A second vendor may not be pointed at an account number already in use.
-      .refine((value) => !accountNumberDuplicateMessage(existingVendors, value), (value) => ({
-          message: accountNumberDuplicateMessage(existingVendors, value)
-              ?? "This account number is already registered to another vendor.",
-      }));
-  const confirmAccountNumberSchema = z
-      .string({ required_error: "Confirm account number is required" })
-      .min(1, { message: "Confirm account number is required" })
-      .refine((value) => value === accountNumber, {
-          message: "Account numbers do not match.",
-      });
-
-
+// Bank details are MANDATORY at creation, and they are the vendor's Payee (spec #1420, ADR-0033): a
+// Payee already on record or new details, held by `useVendorPayeeChoice`, outside this schema.
+// Duplicates are the server's call (`services/payees/`), not a rule on this form.
+const getVendorFormSchema = (service: boolean, existingVendors: Vendors[] | undefined, pincode_data: any) => {
   return z.object({
       vendor_contact_person_name: z
           .string({
@@ -142,35 +131,6 @@ const getVendorFormSchema = (service: boolean, accountNumber: string | undefined
               .min(0, { message: "TDS % cannot be negative." })
               .max(100, { message: "TDS % cannot exceed 100." })
       ),
-      account_number: accountNumberSchema,
-      confirm_account_number:confirmAccountNumberSchema,
-      account_name: z
-          .string({ required_error: "Account holder name is required" })
-          .min(3, {
-              message: "Must be at least 3 characters.",
-          }),
-      // Auto-filled (and disabled) from the IFSC lookup — a valid IFSC is what
-      // guarantees these two are populated, so they carry no rule of their own.
-      bank_name: z.string().optional(),
-      bank_branch: z.string().optional(),
-      ifsc: z
-      .string({ required_error: "IFSC code is required" })
-      .min(1, { message: "IFSC code is required" })
-      .regex(IFSC_REGEX, {
-        message: "Invalid IFSC code. Example: SBIN0005943"
-      })
-      .refine((ifsc) => {
-          if (!ifsc || ifsc.length !== 11) {
-            return true;
-          }
-
-          if (bank_details && !bank_details.message.error) {
-            return true;
-          }
-          return false;
-        }, {
-          message: "IFSC Code Not Found",
-        }),
     });
 };
 
@@ -185,26 +145,13 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
 
     const navigate = useNavigate()
     const [vendorType, setVendorType] = useState<string | null>(null)
-    const [accountNumber, setAccountNumber] = useState<string>("");
-    const [IFSC, setIFSC] = useState<string>("");
     const [pincode, setPincode] = useState<string>("")
 
     const { data: pincode_data } = usePincodeData(pincode)
     const { data: existingVendors } = useExistingVendors();
-    const { data: bank_details, isLoading: bankDetailsLoading } = useBankDetails(IFSC);
+    const payeeChoice = useVendorPayeeChoice()
 
-    useEffect(() => {
-        if (bank_details && !bank_details.message.error) {
-            form.setValue("bank_branch", bank_details.message.BRANCH);
-            form.setValue("bank_name", bank_details.message.BANK);
-            return;
-        }
-        form.setValue("bank_branch", undefined);
-        form.setValue("bank_name", undefined);
-
-    }, [bank_details, IFSC]) 
-
-    const VendorFormSchema = getVendorFormSchema(vendorType === "Service", accountNumber, existingVendors, bank_details, pincode_data)
+    const VendorFormSchema = getVendorFormSchema(vendorType === "Service", existingVendors, pincode_data)
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
         // Every other field starts blank; this one is the sole seeded default, so
@@ -249,14 +196,9 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
             // NOT `undefined` like its neighbours -- "Reset" must return this to
             // the standard rate, the same state a freshly-opened form is in.
             tds_deduction_percentage: 2,
-            account_number: undefined,
-            confirm_account_number: undefined,
-            account_name: undefined,
-            bank_name: undefined,
-            bank_branch: undefined,
-            ifsc: undefined,
         });
         form.clearErrors();
+        payeeChoice.reset();
         document.getElementById("vendorShopName")?.focus()
     }
 
@@ -299,13 +241,12 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
                 return
             }
 
-            // Bank Name / Branch are filled by the IFSC lookup, never typed. If the
-            // lookup has not resolved (still in flight, or failed) the vendor would be
-            // created with empty bank details — block instead.
-            if (!values.bank_name || !values.bank_branch) {
+            // The vendor's Payee: one on record, or new bank details complete, looked
+            // up and not already a Payee.
+            if (payeeChoice.problem) {
                 toast({
-                    title: "Error!",
-                    description: "Bank details are not verified yet. Please re-check the IFSC Code and wait for the Bank Name and Branch to fill in.",
+                    title: "Bank details",
+                    description: payeeChoice.problem,
                     variant: "destructive"
                 });
                 return
@@ -313,13 +254,23 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
 
             // No categories: a new vendor starts empty and the daily job
             // (tasks/vendor_category_sync.py) fills them in from its POs and Work Orders.
-            const response = await createVendorAndAddress({
+            const response: { message: CreateVendorReply } = await createVendorAndAddress({
                 values: { ...values },
                 vendorType: vendorType,
                 service: service,
+                ...payeeChoice.answer(),
               });
 
-                if (response.message.status === 200) {
+                if (response.message.status === 409) {
+                  // A Payee already holds these details (the pre-check missed it):
+                  // show it in the bank section, which offers it instead.
+                  payeeChoice.payeeForm.setDuplicate(response.message.duplicate);
+                  toast({
+                    title: 'Failed!',
+                    description: response.message.error,
+                    variant: 'destructive',
+                  });
+                } else if (response.message.status === 200) {
                 if (service) {
                   await mutate('Service Vendors');
                 } else {
@@ -475,7 +426,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
 
             console.error("Submit Error", error);
         }
-    }, [createVendorAndAddress, navigation, mutate, vendorType, service ]);
+    }, [createVendorAndAddress, navigation, mutate, vendorType, service, payeeChoice ]);
 
     // A PAN another vendor already holds is allowed — warn, never block.
     const samePanVendors = findVendorsByPan(existingVendors, form.watch("vendor_pan"));
@@ -762,122 +713,11 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
                                     )}
                                 />
                                 <p className="text-sky-600 font-semibold pb-2">Vendor Bank Details</p>
-                                <FormField
-                                    control={form.control}
-                                    name="account_name"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="flex">Account Name<sup className="text-sm text-red-600">*</sup></FormLabel>
-                                            <FormControl>
-                                                <Input 
-                                                    placeholder="Enter Account Name" 
-                                                    {...field}
-                                                    autoComplete="new-password" 
-                                                    autoCorrect="off"
-
-                                                 />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="account_number"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="flex">Account Number<sup className="text-sm text-red-600">*</sup></FormLabel>
-                                            <FormControl>
-                                                <Input
-                                                  placeholder="Enter Account Number"
-                                                  {...field}
-                                                  type="password"
-                                                  autoComplete="new-password" 
-                                                  autoCorrect="off"
-                                                  
-                                                  onChange={(e) => {
-                                                    setAccountNumber(e.target.value);
-                                                    field.onChange(e.target.value === "" ? undefined : e);
-                                                    form.trigger("confirm_account_number")
-                                                  }}
-                                                />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                  control={form.control}
-                                  name="confirm_account_number"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel className="flex">Confirm Account Number<sup className="text-sm text-red-600">*</sup></FormLabel>
-                                      <FormControl>
-                                        <Input placeholder="Confirm Account Number" 
-                                        {...field} 
-                                        autoComplete="new-password" 
-                                        autoCorrect="off"
-                                        onChange={(e) => {
-                                          field.onChange(e.target.value === "" ? undefined : e);
-                                        }}
-                                        />
-                                      </FormControl>
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-                                <FormField
-                                  control={form.control}
-                                  name="ifsc"
-                                  render={({ field }) => (
-                                    <FormItem>
-                                      <FormLabel className="flex">IFSC Code<sup className="text-sm text-red-600">*</sup></FormLabel>
-                                      <FormControl>
-                                        <Input 
-                                          placeholder="Enter IFSC Code" 
-                                          {...field} 
-                                          onChange={(e) => {
-                                            const value = e.target.value.toUpperCase()
-                                            setIFSC(value)
-                                            field.onChange(value === "" ? undefined :  value)
-                                          }}
-                                        />
-                                      </FormControl>
-                                      {IFSC.length === 11 && bankDetailsLoading ? (
-                                        <p className="text-xs text-muted-foreground">Looking up bank details...</p>
-                                      ) : (
-                                        <p className="text-xs text-muted-foreground">Bank Name and Branch fill in automatically from this code.</p>
-                                      )}
-                                      <FormMessage />
-                                    </FormItem>
-                                  )}
-                                />
-
-                                <FormField
-                                    control={form.control}
-                                    name="bank_name"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="flex items-center gap-1">Bank Name<span className="text-xs font-normal text-muted-foreground">(auto-filled from IFSC)</span></FormLabel>
-                                            <FormControl>
-                                                <Input disabled={true} placeholder="Fills in from IFSC Code" {...field} value={field.value || ""} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                                <FormField
-                                    control={form.control}
-                                    name="bank_branch"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel className="flex items-center gap-1">Bank Branch<span className="text-xs font-normal text-muted-foreground">(auto-filled from IFSC)</span></FormLabel>
-                                            <FormControl>
-                                                <Input disabled={true} placeholder="Fills in from IFSC Code" {...field} value={field.value || ""} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
+                                <VendorPayeeSection
+                                    choice={payeeChoice}
+                                    vendorName={form.watch("vendor_name")}
+                                    vendorPan={form.watch("vendor_pan")}
+                                    disabled={createVendorAndAddressLoading}
                                 />
                                 <div className="flex space-x-2 items-center justify-end">
                                     {(createVendorAndAddressLoading) ? (<ButtonLoading />) : (

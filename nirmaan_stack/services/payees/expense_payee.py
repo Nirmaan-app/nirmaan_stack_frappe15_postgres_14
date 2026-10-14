@@ -9,8 +9,8 @@ message says what to do.
 
 * `request_payee_for` -- the Payee an Expense Request carries on create and on edit. The Expense
   Request endpoints (`api/expense_requests/create`, `update`) call it.
-* `assert_pickable` -- refuse a Payee that doesn't exist or is Inactive, unless the record already
-  points at it (Inactive stops new picks; records keep theirs).
+* Inactive: a newly picked Payee must pass `choosing.assert_pickable` (the vendor screens' rule
+  too); the Payee a record already holds is kept even if it has gone Inactive since.
 * `change_expense_payee` -- change a Project / Non-Project Expense's Payee until it is Paid.
   Checks no role: the calling endpoint does.
 
@@ -25,12 +25,11 @@ from frappe import _
 from nirmaan_stack.services.payees.expense_rules import (
     NOT_ASKED,
     OPTIONAL,
-    inactive_problem,
     paid_expense_problem,
     request_payee,
 )
 from nirmaan_stack.services.payees.links import payee_for_vendor
-from nirmaan_stack.services.payees.rules import INACTIVE, PAYEE_DOCTYPE
+from nirmaan_stack.services.payees.choosing import assert_pickable
 
 #: The Expense statuses past which the Payee is fixed.
 PAID = "Paid"
@@ -63,20 +62,10 @@ def _resolve(rule, *, expense_type, vendor, payee, current):
     )
     if verdict.problem:
         frappe.throw(_(verdict.problem), title=_("Who gets paid"))
-    if verdict.payee:
-        assert_pickable(verdict.payee, current=current)
+    # Inactive stops NEW picks: the Payee the record already holds is kept.
+    if verdict.payee and verdict.payee != current:
+        assert_pickable(verdict.payee)
     return verdict.payee
-
-
-def assert_pickable(payee: str, *, current: str | None = None) -> None:
-    """Refuse Payee `payee` unless it exists and is Active, or is the one already held (`current`)."""
-    if payee == current:
-        return
-    status = frappe.db.get_value(PAYEE_DOCTYPE, payee, "status")
-    if status is None:
-        frappe.throw(_("Payee {0} doesn't exist.").format(payee), title=_("Who gets paid"))
-    if status == INACTIVE:
-        frappe.throw(_(inactive_problem(payee)), title=_("Who gets paid"))
 
 
 def change_expense_payee(doctype: str, name: str, payee: str | None):

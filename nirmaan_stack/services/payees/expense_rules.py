@@ -70,11 +70,6 @@ def request_payee(rule, *, expense_type, payee, vendor, vendor_payee) -> PayeeVe
     return PayeeVerdict(payee, None)
 
 
-def inactive_problem(payee: str) -> str:
-    """The refusal for newly picking Payee `payee`, which is Inactive."""
-    return f"Payee {payee} is Inactive and can't be picked. Pick another payee, or add a new one."
-
-
 def paid_expense_problem(expense: str) -> str:
     """The refusal for changing the Payee of an expense that is already Paid."""
     return f"{expense} is already paid, so its payee can no longer change."

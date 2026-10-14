@@ -1,10 +1,12 @@
 /**
- * The four Payee bank fields (spec #1420, approved mockup screen 3): holder name, account number,
- * the account number again, IFSC. Paste is turned off in both number boxes, the IFSC fills in the
- * bank and branch, and an account another Payee already holds shows that Payee with a link to it.
+ * The four Payee bank fields (spec #1420, approved mockup screens 3 and 5): holder name, account
+ * number, the account number again, IFSC. Paste is turned off in both number boxes, the IFSC fills in
+ * the bank and branch, and an account another Payee already holds shows that Payee.
  *
- * Driven by `usePayeeBankForm`. Add Payee renders it; the new-vendor form (#1425) and the Expense
- * Request (#1429) reuse it, so the same rules hold everywhere a Payee is added.
+ * Driven by `usePayeeBankForm`. Add Payee renders it as a dialog (`layout="dialog"`: labels on the
+ * left); the vendor screens (#1425/#1426) render it inside their forms (`layout="form"`: labels on
+ * top, Bank Name and Branch as read-only boxes) and the Expense Request (#1429) reuses it too, so
+ * the same rules hold everywhere a Payee is added.
  */
 
 import type { ClipboardEvent, ReactNode } from "react";
@@ -13,6 +15,7 @@ import { AlertCircle } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
 import { accountsMatch, cleanAccountNumber, duplicateSentence } from "@/utils/payees/payeeForm";
 import { payeeHref } from "@/utils/payees/payeeRoutes";
@@ -21,37 +24,49 @@ import type { PayeeBankForm } from "./usePayeeBankForm";
 
 const blockPaste = (e: ClipboardEvent<HTMLInputElement>) => e.preventDefault();
 
+type Layout = "dialog" | "form";
+
 interface PayeeBankFieldsProps {
     payeeForm: PayeeBankForm;
     disabled?: boolean;
-    /** Offer "Pick this payee" on the duplicate block instead of a link to the Payees page, for a
-     *  screen whose user can't open that page (the Expense Request's picker). */
-    onUseDuplicate?: (duplicate: PayeeSummary) => void;
-    /** Labels above the fields at every width, for a narrow container such as a dialog section. */
-    stacked?: boolean;
+    /** `dialog` (default): labels on the left, as Add Payee. `form`: labels on top, as the vendor form. */
+    layout?: Layout;
+    /**
+     * What the duplicate block offers. Default: a link to open that Payee on the Payees page (only
+     * Accounts and Admin may). The vendor screens offer "Use this payee" instead.
+     */
+    duplicateAction?: (duplicate: PayeeSummary) => ReactNode;
 }
 
-export function PayeeBankFields({ payeeForm, disabled, onUseDuplicate, stacked }: PayeeBankFieldsProps) {
+export function PayeeBankFields({ payeeForm, disabled, layout = "dialog", duplicateAction }: PayeeBankFieldsProps) {
     const { form, setField, bank, lookingUp, ifscError, duplicate } = payeeForm;
     const mismatch =
         !!cleanAccountNumber(form.confirm_account_number) && !accountsMatch(form) ? "The account numbers don't match." : null;
+    const inForm = layout === "form";
 
     return (
         <div className="flex flex-col gap-4">
-            <Row stacked={stacked} id="payee_account_name" label="Account Holder Name" help="As the bank has it. This is the name the bank file sends.">
+            <Row
+                layout={layout}
+                id="payee_account_name"
+                label={inForm ? "Account Name" : "Account Holder Name"}
+                help="As the bank has it. This is the name the bank file sends."
+            >
                 <Input
                     id="payee_account_name"
                     value={form.account_name}
+                    placeholder={inForm ? "Enter Account Name" : undefined}
                     onChange={(e) => setField("account_name", e.target.value)}
                     disabled={disabled}
                     autoComplete="off"
                 />
             </Row>
-            <Row stacked={stacked} id="payee_account_number" label="Account Number" help="Type it. Paste is turned off.">
+            <Row layout={layout} id="payee_account_number" label="Account Number" help="Type it. Paste is turned off.">
                 <Input
                     id="payee_account_number"
                     type="password"
                     value={form.account_number}
+                    placeholder={inForm ? "Enter Account Number" : undefined}
                     onChange={(e) => setField("account_number", e.target.value)}
                     onPaste={blockPaste}
                     onDrop={(e) => e.preventDefault()}
@@ -61,7 +76,7 @@ export function PayeeBankFields({ payeeForm, disabled, onUseDuplicate, stacked }
                 />
             </Row>
             <Row
-                stacked={stacked}
+                layout={layout}
                 id="payee_confirm_account_number"
                 label="Confirm Account Number"
                 help="Type it again. Paste is turned off."
@@ -70,6 +85,7 @@ export function PayeeBankFields({ payeeForm, disabled, onUseDuplicate, stacked }
                 <Input
                     id="payee_confirm_account_number"
                     value={form.confirm_account_number}
+                    placeholder={inForm ? "Enter Account Number again" : undefined}
                     onChange={(e) => setField("confirm_account_number", e.target.value)}
                     onPaste={blockPaste}
                     onDrop={(e) => e.preventDefault()}
@@ -78,24 +94,36 @@ export function PayeeBankFields({ payeeForm, disabled, onUseDuplicate, stacked }
                     inputMode="numeric"
                 />
             </Row>
-            <Row stacked={stacked} id="payee_ifsc" label="IFSC Code" error={ifscError}>
+            <Row
+                layout={layout}
+                id="payee_ifsc"
+                label="IFSC Code"
+                error={ifscError}
+                help={inForm && !lookingUp ? "Bank Name and Branch fill in automatically from this code." : undefined}
+            >
                 <Input
                     id="payee_ifsc"
                     value={form.ifsc}
                     maxLength={11}
-                    placeholder="e.g. SBIN0005943"
+                    placeholder={inForm ? "Enter IFSC Code" : "e.g. SBIN0005943"}
                     onChange={(e) => setField("ifsc", e.target.value)}
                     disabled={disabled}
                     autoComplete="off"
                 />
                 {lookingUp && <p className="mt-1.5 text-xs text-muted-foreground">Looking up the IFSC...</p>}
-                {bank && (
+                {bank && !inForm && (
                     <p className="mt-1.5 text-xs text-green-700">
                         {bank.bank_name}
                         {bank.bank_branch ? ` - ${bank.bank_branch}` : ""}
                     </p>
                 )}
             </Row>
+            {inForm && (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <ReadOnlyBox id="payee_bank_name" label="Bank Name" value={bank?.bank_name} />
+                    <ReadOnlyBox id="payee_bank_branch" label="Bank Branch" value={bank?.bank_branch} />
+                </div>
+            )}
 
             {duplicate && (
                 <div role="alert" className="flex gap-2.5 rounded-md border border-red-200 bg-red-50 px-3.5 py-3">
@@ -103,21 +131,18 @@ export function PayeeBankFields({ payeeForm, disabled, onUseDuplicate, stacked }
                     <div className="text-[13px] leading-normal text-red-900">
                         <p className="font-semibold">This account is already a payee</p>
                         <p className="mt-0.5">{duplicateSentence(duplicate)}</p>
-                        <p className="mt-1.5">
-                            {onUseDuplicate ? (
-                                <button
-                                    type="button"
-                                    onClick={() => onUseDuplicate(duplicate)}
+                        <div className="mt-1.5">
+                            {duplicateAction ? (
+                                duplicateAction(duplicate)
+                            ) : (
+                                <Link
+                                    to={payeeHref(duplicate.name, duplicate.status)}
                                     className="font-semibold text-red-700 hover:underline"
                                 >
-                                    Pick {duplicate.name} instead
-                                </button>
-                            ) : (
-                                <Link to={payeeHref(duplicate.name, duplicate.status)} className="font-semibold text-red-700 hover:underline">
                                     Open {duplicate.name}
                                 </Link>
                             )}
-                        </p>
+                        </div>
                     </div>
                 </div>
             )}
@@ -126,7 +151,7 @@ export function PayeeBankFields({ payeeForm, disabled, onUseDuplicate, stacked }
 }
 
 interface RowProps {
-    stacked?: boolean;
+    layout: Layout;
     id: string;
     label: string;
     help?: string;
@@ -134,17 +159,17 @@ interface RowProps {
     children: ReactNode;
 }
 
-/** One labelled field: label on the left, the input with its help or error line on the right. */
-function Row({ stacked, id, label, help, error, children }: RowProps) {
+/** One labelled field: label on the left (dialog) or on top (form), the input with its help or error line. */
+function Row({ layout, id, label, help, error, children }: RowProps) {
+    const dialog = layout === "dialog";
     return (
         <div
-            className={
-                stacked
-                    ? "flex flex-col gap-1.5"
-                    : "grid grid-cols-1 items-start gap-1.5 sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-3"
-            }
+            className={cn(
+                "grid grid-cols-1 items-start gap-1.5",
+                dialog && "sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-3",
+            )}
         >
-            <Label htmlFor={id} className={stacked ? undefined : "sm:pt-2.5 sm:text-right"}>
+            <Label htmlFor={id} className={cn(dialog && "sm:pt-2.5 sm:text-right")}>
                 {label}
                 <span className="text-destructive">*</span>
             </Label>
@@ -156,6 +181,18 @@ function Row({ stacked, id, label, help, error, children }: RowProps) {
                     help && <p className="mt-1.5 text-xs text-muted-foreground">{help}</p>
                 )}
             </div>
+        </div>
+    );
+}
+
+/** A box the IFSC lookup fills (the vendor form's Bank Name and Branch). */
+function ReadOnlyBox({ id, label, value }: { id: string; label: string; value?: string | null }) {
+    return (
+        <div className="grid grid-cols-1 gap-1.5">
+            <Label htmlFor={id}>
+                {label} <span className="font-normal text-muted-foreground">(auto-filled from IFSC)</span>
+            </Label>
+            <Input id={id} disabled value={value ?? ""} placeholder="Fills in from IFSC Code" />
         </div>
     );
 }
