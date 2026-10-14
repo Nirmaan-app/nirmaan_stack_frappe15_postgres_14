@@ -2,7 +2,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { CriticalPRTag } from "../types";
+import { PRPackageRow } from "../types";
 import { CheckCircle2, AlertCircle, ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
@@ -20,58 +20,27 @@ const facetedFilterFn = (row: any, columnId: string, filterValue: string[]) => {
     return filterValue.includes(cellValue);
 };
 
-export const getPRTagTableColumns = (projectId: string): ColumnDef<CriticalPRTag>[] => {
+export const getPRTagTableColumns = (projectId: string): ColumnDef<PRPackageRow>[] => {
     return [
-        {
-            accessorKey: "header",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Headers" />,
-            cell: ({ row }) => (
-                <Badge variant="outline" className="text-xs truncate max-w-[150px]">
-                    {row.original.header}
-                </Badge>
-            ),
-            enableColumnFilter: true,
-            filterFn: facetedFilterFn,
-            size: 150,
-        },
-        {
-            accessorKey: "name",
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Tag Name" />,
-            cell: ({ row }) => (
-                <span className="font-medium text-gray-900 text-xs truncate block max-w-[200px]">
-                    {row.original.name}
-                </span>
-            ),
-            size: 200,
-        },
         {
             accessorKey: "package",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Package" />,
             cell: ({ row }) => (
-                <span className="text-xs text-gray-500 truncate block max-w-[150px]">
-                    {row.original.package || "--"}
-                </span>
+                <Badge variant="outline" className="text-xs truncate max-w-[200px]">
+                    {row.original.package}
+                </Badge>
             ),
             enableColumnFilter: true,
             filterFn: facetedFilterFn,
-            size: 150,
+            size: 200,
         },
         {
-            accessorKey: "associated_prs",
+            id: "prs",
             header: () => <div className="text-center w-full text-[10px] text-gray-500 uppercase font-bold tracking-wider">Linked PRs</div>,
-            accessorFn: (row) => {
-                const prsRaw = row.associated_prs;
-                const prs = typeof prsRaw === "string" 
-                    ? JSON.parse(prsRaw || '{"prs":[]}').prs 
-                    : prsRaw?.prs;
-                return prs?.length > 0 ? prs.map((pr: string) => `• ${pr}`).join("\n") : "";
-            },
+            accessorFn: (row) => (row.prs.length > 0 ? row.prs.map((pr) => `• ${pr}`).join("\n") : ""),
             cell: ({ row }) => {
-                const prsRaw = row.original.associated_prs;
-                const prs = typeof prsRaw === "string" 
-                    ? JSON.parse(prsRaw || '{"prs":[]}').prs 
-                    : prsRaw?.prs;
-                const count = prs?.length || 0;
+                const prs = row.original.prs;
+                const count = prs.length;
 
                 if (count === 0) {
                     return <span className="text-xs text-gray-400 text-center block w-full">--</span>;
@@ -95,11 +64,11 @@ export const getPRTagTableColumns = (projectId: string): ColumnDef<CriticalPRTag
                                     Linked Procurement Requests
                                 </DialogTitle>
                                 <p className="text-sm text-gray-500 mt-1">
-                                    {row.original.name}
+                                    {row.original.package}
                                 </p>
                             </DialogHeader>
                             <div className="space-y-2 mt-4 max-h-[300px] overflow-y-auto pr-1">
-                                {prs.map((pr: string) => (
+                                {prs.map((pr) => (
                                     <Link
                                         key={pr}
                                         to={`/projects/${projectId}/${pr}`}

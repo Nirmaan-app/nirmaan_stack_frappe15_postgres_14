@@ -78,9 +78,11 @@ export interface ProcurementRequestItemDetail {
 }
 
 
+/** One `pr_tag_list` row: a package the PR carries, written from its items by the server. */
 export interface PRTag {
 	name?: string;
-	tag_header: string;
+	/** Retired 2026-10: blank on every row written since; never read it. */
+	tag_header?: string | null;
 	tag_package: string;
 }
 

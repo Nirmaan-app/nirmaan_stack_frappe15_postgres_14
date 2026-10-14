@@ -825,7 +825,8 @@ export const appRoutes: RouteObject[] = [
           { path: "packages-settings", element: <PackagesSettings /> },
           { path: "product-packages", element: <Navigate to="/packages-settings?tab=product-packages" replace /> },
           { path: "milestone-packages", element: <Navigate to="/packages-settings?tab=milestone-packages" replace /> },
-          { path: "pr-header-packages", element: <Navigate to="/packages-settings?tab=pr-header-packages" replace /> },
+          // PR headers were retired (PR packages now come from the items): old links land on the settings page.
+          { path: "pr-header-packages", element: <Navigate to="/packages-settings" replace /> },
           { path: "design-packages", element: <Navigate to="/packages-settings?tab=design-packages" replace /> },
           { path: "commission-packages", element: <Navigate to="/packages-settings?tab=commission-packages" replace /> },
           { path: "work-order-rate-card", element: <WOServicePackages /> },

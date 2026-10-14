@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useFrappeDocumentEventListener } from 'frappe-react-sdk';
 
 // Import UI Components
-import { WorkPackageSelector } from './components/WorkPackageSelector';
 import { ItemSelectorControls } from './components/ItemSelectorControls';
 import { OrderListDisplay } from './components/OrderListDisplay';
 import { ActionButtons } from './components/ActionButtons';
@@ -29,7 +28,10 @@ import LoadingFallback from '@/components/layout/loaders/LoadingFallback';
 import { useProcurementRequest } from '@/hooks/useProcurementRequest';
 
 
-type PageState = 'loading' | 'wp-selection' | 'item-selection' | 'error';
+type PageState = 'loading' | 'item-selection' | 'error';
+
+// Always offered, even when the project has not enabled it (the old header picker did the same).
+const ALWAYS_AVAILABLE_PACKAGES = ["Tool & Equipments"];
 
 // extractMakesFromChildTableForMultipleWPs, extractCategoryToPackageMap, and CategoryMakesMap
 // are now imported from @/hooks/useMakeOptions
@@ -44,7 +46,6 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
 
     const setStoreComment = useProcurementRequestStore(state => state.setNewPRComment);
     const initializeStore = useProcurementRequestStore(state => state.initialize);
-    const selectedHeaderTagsFromStore = useProcurementRequestStore(state => state.selectedHeaderTags);
     const isStoreInitialized = useProcurementRequestStore(state => state.isInitialized);
 
     const { data: existingPRData, isLoading: existingPRLoading, mutate: existingPRDataMutate } = useProcurementRequest(prId)
@@ -62,6 +63,16 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
 
     const { project, categoryList, itemOptions, isLoading: dataLoading, error: dataError, itemMutate } = useProcurementRequestData();
 
+    // Built once per category list: the live Packages chips and the add-item handler memoise on it.
+    const categoryToPackageMap = useMemo(() => extractCategoryToPackageMap(categoryList), [categoryList]);
+
+    // There is no package step: the PR's packages come from its items (the server writes them),
+    // so makes are loaded for every package the project uses.
+    const projectPackages = useMemo(() => Array.from(new Set([
+        ...(project?.project_wp_category_makes?.map(m => m.procurement_package).filter(Boolean) as string[] || []),
+        ...ALWAYS_AVAILABLE_PACKAGES,
+    ])), [project]);
+
     useEffect(() => {
         if (mode === "create" && !projectId) return;
 
@@ -76,12 +87,12 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
         }
 
         let initialDataForStore: {
-            workPackage: string,
-            selectedHeaderTags: { tag_header: string; tag_package: string }[],
             procList: ProcurementRequestItem[],
             categories: CategorySelection[]
         } | undefined = undefined;
-        let combinedMakesMap: CategoryMakesMap = {};
+        const combinedMakesMap: CategoryMakesMap = project
+            ? extractMakesFromChildTableForMultipleWPs(project, projectPackages)
+            : {};
 
         if ((mode === 'edit' || mode === 'resolve') && existingPRData) {
             const transformedProcList: ProcurementRequestItem[] = (existingPRData.order_list || []).map(
@@ -101,26 +112,14 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
             );
 
             initialDataForStore = {
-                // Pr_work_Package
-                // workPackage: existingPRData.work_package || '',
-                // @ts-ignore - pr_tag_list might not be in the generated types yet
-                selectedHeaderTags: (existingPRData.pr_tag_list || []).map(tag => ({
-                    tag_header: tag.tag_header,
-                    tag_package: tag.tag_package
-                })),
                 procList: transformedProcList,
                 categories: [],
             };
-
-            if (initialDataForStore.selectedHeaderTags.length > 0 && project) {
-                const packages = initialDataForStore.selectedHeaderTags.map(h => h.tag_package);
-                combinedMakesMap = extractMakesFromChildTableForMultipleWPs(project, packages);
-            }
         }
         const projId = mode === "create" ? projectId : existingPRData?.project;
         initializeStore(mode, projId, prId, combinedMakesMap, initialDataForStore);
 
-    }, [mode, projectId, prId, initializeStore, existingPRData, existingPRLoading, project]);
+    }, [mode, projectId, prId, initializeStore, existingPRData, existingPRLoading, project, projectPackages]);
 
     // Derive Items-compatible array from itemOptions for fuzzy search in NewItemDialog
     const rawItemList = useMemo(() =>
@@ -136,9 +135,7 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
     );
 
     const {
-        selectedWP,
         procList, selectedCategories, undoStack, newPRComment,
-        selectHeaders,
         addOrUpdateItem,
         updateItemInList,
         deleteItemFromList,
@@ -156,34 +153,10 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
             setPage('loading');
         } else if (dataError) {
             setPage('error');
-        } else if (selectedHeaderTagsFromStore.length === 0) {
-            setPage('wp-selection');
         } else {
             setPage('item-selection');
         }
-    }, [isStoreInitialized, dataLoading, selectedHeaderTagsFromStore, dataError]);
-
-    const handleHeadersSelect = useCallback((headers: { tag_header: string; tag_package: string }[]) => {
-        if (!project && headers.length > 0) {
-            toast({ title: "Error", description: "Project data not available to fetch makes.", variant: "destructive" });
-            return;
-        }
-
-        let combinedMakesMap: CategoryMakesMap = {};
-        if (headers.length > 0 && project) {
-            const packages = headers.map(h => h.tag_package);
-            combinedMakesMap = extractMakesFromChildTableForMultipleWPs(project, packages);
-        }
-
-        selectHeaders(headers, combinedMakesMap);
-
-        if (headers.length === 0) {
-            setPage('wp-selection');
-        } else {
-            setPage('item-selection');
-        }
-
-    }, [project, selectHeaders, setPage]);
+    }, [isStoreInitialized, dataLoading, dataError]);
 
     const handleSubmitWithComment = async (finalCommentFromDialog: string) => {
         setStoreComment(finalCommentFromDialog);
@@ -204,14 +177,7 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
 
     return (
         <div className="flex-1 space-y-4 px-4 py-4">
-            {page === 'wp-selection' && (
-                <WorkPackageSelector
-                    onSelectHeaders={handleHeadersSelect}
-                    project={project}
-                />
-            )}
-
-            {page === 'item-selection' && selectedHeaderTagsFromStore.length > 0 && (
+            {page === 'item-selection' && (
                 <>
                     {mode === 'edit' && (
                         <Alert variant="warning" className="mb-4">
@@ -229,16 +195,10 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                     )}
 
                     <ItemSelectorControls
-                        selectedWP={selectedWP}
-                        selectedHeaderTags={selectedHeaderTagsFromStore}
-                        categoryToPackageMap={extractCategoryToPackageMap(categoryList)}
+                        categoryToPackageMap={categoryToPackageMap}
                         itemOptions={itemOptions}
                         onAddItem={addOrUpdateItem}
                         onOpenNewItemDialog={() => setShowNewItemDialog(true)}
-                        allowWpEdit={mode === 'create'}
-                        onEditWP={() => {
-                            handleHeadersSelect([]);
-                        }}
                         disabled={isSubmitting}
                         categoryList={categoryList}
                         updateCategoryMakesInStore={updateCategoryMakes}
@@ -246,7 +206,7 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                         procList={procList}
                         allProjectPackages={Array.from(new Set(project?.project_wp_category_makes?.map(m => m.procurement_package) || []))}
                         projectWpCategoryMakes={project?.project_wp_category_makes}
-                        relevantPackages={selectedHeaderTagsFromStore.map(h => h.tag_package)}
+                        relevantPackages={projectPackages}
                     />
 
                     <div className="flex flex-col justify-between min-h-[48vh]">
@@ -283,8 +243,7 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                 isOpen={showNewItemDialog}
                 onOpenChange={setShowNewItemDialog}
                 categories={categoryList || []}
-                selectedHeaderTags={selectedHeaderTagsFromStore}
-                categoryToPackageMap={extractCategoryToPackageMap(categoryList)}
+                categoryToPackageMap={categoryToPackageMap}
                 onSubmit={addOrUpdateItem}
                 fuzzySearch={handleFuzzySearch}
                 itemMutate={itemMutate}
@@ -299,8 +258,8 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
                 onDeleteItem={deleteItemFromList}
                 updateCategoryMakesInStore={updateCategoryMakes}
                 projectWpCategoryMakes={project?.project_wp_category_makes}
-                relevantPackages={selectedHeaderTagsFromStore.map(h => h.tag_package)}
-                categoryToPackageMap={extractCategoryToPackageMap(categoryList)}
+                relevantPackages={projectPackages}
+                categoryToPackageMap={categoryToPackageMap}
             />
         </div>
     );

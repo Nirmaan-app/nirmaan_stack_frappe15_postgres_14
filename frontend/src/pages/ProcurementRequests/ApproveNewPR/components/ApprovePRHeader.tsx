@@ -21,7 +21,7 @@ interface ApprovePRHeaderProps {
     hasDraft?: boolean;
     lastSavedText?: string | null;
     isSaving?: boolean;
-    tags?: { tag_header: string; tag_package: string }[];
+    packages?: string[];
 }
 
 /**
@@ -61,7 +61,7 @@ export const ApprovePRHeader: React.FC<ApprovePRHeaderProps> = ({
     hasDraft = false,
     lastSavedText = null,
     isSaving = false,
-    tags,
+    packages,
 }) => {
     const formattedDate = createdDate ? formatDate(createdDate) : '';
     const showDraftIndicator = hasDraft || isSaving || lastSavedText;
@@ -137,9 +137,9 @@ export const ApprovePRHeader: React.FC<ApprovePRHeaderProps> = ({
             <div className="flex flex-wrap items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-100/80 w-full min-h-[44px]">
                 <div className="flex flex-wrap items-center gap-4">
 
-                    {tags && tags.length > 0 && (
+                    {packages && packages.length > 0 && (
 
-                        <WPRTagsBadge tags={tags} />
+                        <WPRTagsBadge packages={packages} />
 
                     )}
                 </div>
