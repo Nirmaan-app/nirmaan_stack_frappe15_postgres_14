@@ -614,11 +614,25 @@ save an invalid template**.
 - **A format NEVER declares a field named after a native column** (`comment`,
   `amount`, `type`, `projects`). Those are real columns the ledger row is built from; a format
   field of the same name would record the value twice and let the two disagree.
-- **Payee bank details are NOT asked** (owner, 2026-08-18). Payment details belong to the
-  payment, not the request — the accountant records them at Mark-as-Paid.
-  **Superseded 2026-10-14 by [ADR-0033](../../../docs/adr/0033-payee-is-one-bank-account.md)
-  (proposed, not built):** a request names a Payee when its expense type
-  asks for one. This rule still describes the code until ADR-0033 is built.
+- **A request names who gets paid: a Payee** ([ADR-0033](../../../docs/adr/0033-payee-is-one-bank-account.md)
+  is the source; it retired the 2026-08-18 rule that a request asks for no payee bank details).
+  Built by #1429 (spec #1420):
+  - `Expense Type.payee_rule` (*Who gets paid*): *Required*, *Optional* or *Not asked* (the
+    default). Set in Expense Packages' Edit dialog (`masters.update_expense_type`). ⚠️ It is a
+    fixture field like the rest of the type, so a value set in the app is reset by the next migrate
+    unless the fixture is re-exported.
+  - The request's `payee` is applied by `services/payees/expense_payee.request_payee_for` on create
+    AND edit (rules pure in `services/payees/expense_rules.py`): *Required* refuses none; *Not
+    asked* stores none whatever was sent; a request with a vendor is paid into that vendor's Payee
+    (filled in; any other refused); a newly picked Inactive Payee is refused, but an edit may keep
+    the one it already holds.
+  - Approval (`convert.create_ledger_row`) copies `payee` onto the Project or Non-Project Expense.
+    The reviewer sees it: `get_my_expense_requests` rows carry `payee_details`.
+  - The dialog's picker (search, add new, the vendor's Payee) calls `api/expense_requests/payees`,
+    gated on `access.can_raise_requests`, never the Accounts-only `api/payees/` endpoints.
+  - An Expense's Payee changes until it is *Paid* through `expense_payee.change_expense_payee`
+    (no endpoint yet; Record Payment's "Change payee" is #1431).
+  - Free-text bank fields in formats are removed by #1430; old requests keep their text.
 - **ONE FORMAT PER EXPENSE TYPE** (owner, 2026-08-18), replacing an earlier shared
   accommodation shape. A staff PG, a labour dorm, a deposit and a hotel booking are four
   different questions, and the evidence differs per type: all 7 live Staff rows name exactly

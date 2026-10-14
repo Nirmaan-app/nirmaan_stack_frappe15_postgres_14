@@ -40,7 +40,15 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 - **Who:** the Payees page and its endpoints (`api/payees/`) are Admin, Accountant and Accountant Lead
   only (`services/role_profiles.PAYEE_MANAGE_PROFILES`, mirrored in `frontend/src/constants/roles.ts`).
   The vendor screens' Payee step (`api/payees/vendor_payee`, `api/create_vendor_and_address`) is
-  for whoever may create a vendor (`VENDOR_PAYEE_PROFILES`).
+  for whoever may create a vendor (`VENDOR_PAYEE_PROFILES`). Anyone who can raise an Expense
+  Request searches and adds Payees only through the request's endpoints
+  (`api/expense_requests/payees.py`, #1429), which call the same `create_payee`.
+- **Expense payee** (#1429): an expense type's *Who gets paid* (`Expense Type.payee_rule`) is
+  *Required*, *Optional* or *Not asked* (default). A request or expense with a vendor is paid into
+  that vendor's Payee and no other; *Not asked* stores none; an Inactive Payee can't be newly
+  picked, but a record already holding it keeps it. One owner: `services/payees/expense_rules.py`
+  (pure) applied by `services/payees/expense_payee.py`. Approval copies the request's Payee onto the
+  Expense; an Expense's Payee changes until it is *Paid* (`change_expense_payee`).
 
 ## Where things are
 
@@ -53,6 +61,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | Test fixture | `api/payees/payee_fixture.PayeeFixture`: offline IFSC lookups, purges every test Payee |
 | Vendor bank details → Payees (#1424) | `patches/v3_0/move_vendor_bank_details_to_payees.py` (re-runnable; its docstring holds the grouping, fallback and skip rules); test `api/payees/test_vendor_payees_patch.py` |
 | Frontend fields + dialog | `components/payees/` (`PayeeBankFields`, `usePayeeBankForm`, `AddPayeeDialog`) |
+| Expense payee rules (#1429) | `services/payees/expense_rules.py` (pure: Required / Optional / Not asked, vendor's Payee, Inactive), `services/payees/expense_payee.py` (`request_payee_for`, `assert_pickable`, `change_expense_payee`), `services/payees/search.py` (`search_active_payees`) |
+| Expense Request picker endpoints | `api/expense_requests/payees.py` (`search_payees`, `check_request_payee`, `add_request_payee`, `get_vendor_payee`), gated on `access.can_raise_requests` |
+| Frontend picker | `components/payees/PayeePicker.tsx` + `usePayeeChoice.ts` (pick or add new; reused by Change payee) |
 | Frontend rules | `utils/payees/payeeForm.ts`, `utils/payees/payeeRoutes.ts` (`payeeHref`) |
 | Payees page | `pages/payees/PayeesPage.tsx`, route `/payees` |
 | Vendor Payee endpoints | `api/payees/vendor_payee.py`: `suggest_vendor_payees`, `get_payee_choice`, `check_vendor_payee` |

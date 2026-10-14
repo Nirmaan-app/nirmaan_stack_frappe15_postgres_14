@@ -28,6 +28,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import SITEURL from "@/constants/siteURL";
 import { attachmentsFromSourceData } from "@/utils/expenseFormat";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { payeeAccountLine, payeeBankLine } from "@/utils/payees/expensePayee";
 import type { ExpenseRequest } from "@/types/NirmaanStack/ExpenseRequest";
 
 export type ReviewAction = "approve" | "reject";
@@ -152,6 +153,21 @@ export const ReviewActionDialog: React.FC<Props> = ({
                                 )}</>
                             : <span className="text-muted-foreground">-- non-project --</span>}
                     </Row>
+                    {/* Who gets paid (ADR-0033): the reviewer can catch a wrong account before
+                        approval copies it onto the expense. */}
+                    {r?.payee_details && (
+                        <Row label="Who gets paid">
+                            <span className="font-medium">{r.payee_details.account_name}</span>
+                            <span className="block text-xs tabular-nums text-muted-foreground">
+                                {payeeAccountLine(r.payee_details)}
+                            </span>
+                            {payeeBankLine(r.payee_details) && (
+                                <span className="block text-xs text-muted-foreground">
+                                    {payeeBankLine(r.payee_details)}
+                                </span>
+                            )}
+                        </Row>
+                    )}
                     <Row label="Raised by">
                         {getUserName?.(r?.owner) || r?.owner}
                         {r?.creation ? ` \u00b7 ${formatDate(r.creation)}` : ""}

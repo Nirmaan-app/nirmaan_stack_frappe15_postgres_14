@@ -18,6 +18,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	native_description,
 	native_invoice,
 )
+from nirmaan_stack.services.payees.expense_payee import request_payee_for
 
 
 @frappe.whitelist(methods=["POST"])
@@ -28,6 +29,7 @@ def create_expense_request(
 	projects: str | None = None,
 	vendor: str | None = None,
 	source_data=None,
+	payee: str | None = None,
 ):
 	"""Create one `Expense Request` at `Pending Approval`.
 
@@ -50,6 +52,9 @@ def create_expense_request(
 	it does not. There is deliberately NO `description` field on the doctype: one home means
 	every later reader (the approval dialog, the ledger description, the flatten) looks in
 	one place and none of them can disagree.
+
+	`payee` is who gets paid (ADR-0033), ruled by the type's *Who gets paid* setting and the
+	vendor's own Payee: `services/payees/expense_payee.request_payee_for` owns every rule.
 	"""
 	guard_requestable(expense_type)
 
@@ -74,6 +79,9 @@ def create_expense_request(
 	# prose. Which types ask for it is the FORMAT's decision, so nothing is named here.
 	promoted = _promote_mapped(expense_type, source_data)
 
+	# After the promotion: a vendor a format inferred is paid into its Payee just the same.
+	payee = request_payee_for(expense_type, vendor=vendor or promoted.get("vendor"), payee=payee)
+
 	doc = frappe.new_doc("Expense Request")
 	doc.update(
 		{
@@ -88,6 +96,7 @@ def create_expense_request(
 			# requester picked on screen, so it outranks one a format inferred. `None` would
 			# blank a promoted value, so it is only applied when actually given.
 			**({"vendor": vendor} if vendor else {}),
+			"payee": payee,
 		}
 	)
 	doc.insert()

@@ -51,6 +51,22 @@ export interface PayeeSummary {
     last_paid: string | null;
 }
 
+/**
+ * A Payee as a picker shows it (#1429): a search row from `api/expense_requests/payees.search_payees`
+ * (with `times_paid`), or a `PayeeSummary` (the vendor's Payee, one just added, a request's own).
+ */
+export interface PayeeOption {
+    name: string;
+    account_name: string;
+    account_number: string;
+    ifsc: string;
+    bank_name?: string | null;
+    bank_branch?: string | null;
+    status: PayeeStatus;
+    /** How many payments have left Approved for it; only search rows carry it. */
+    times_paid?: number;
+}
+
 /** How a suggested Payee matches a vendor (`services/payees/matching`). */
 export const PAYEE_MATCH = {
     /** A vendor already linked to the Payee has the same PAN. */
