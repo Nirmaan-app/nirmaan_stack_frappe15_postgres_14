@@ -60,8 +60,6 @@ const DOCTYPE = "Procurement Requests";
 const URL_SYNC_KEY = "pr_approve"; // Unique key for this specific table instance/view
 
 // --- Component ---
-/** A PR's procurement packages, each once (rows written before 2026-10 can repeat one). */
-
 export const ApproveSelectVendor: React.FC = () => {
   const { db } = useContext(FrappeContext) as FrappeConfig;
 

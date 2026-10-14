@@ -64,8 +64,6 @@ const SentBackRequest = React.lazy(() => import("@/pages/Sent Back Requests/sent
 const DOCTYPE = 'Procurement Requests';
 const URL_SYNC_KEY_BASE = 'pr'; // Base key for URL params for this page
 
-/** A PR's procurement packages, each once (rows written before 2026-10 can repeat one). */
-
 
 const PRDataTableWrapper: React.FC<{
     tab: string;

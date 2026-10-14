@@ -61,7 +61,12 @@ const NewProcurementRequestPageInner: React.FC<{ resolve?: boolean; edit?: boole
         if (prId) emitDocOpen();
     }, [prId, emitDocOpen]);
 
-    const { project, categoryList, itemOptions, isLoading: dataLoading, error: dataError, itemMutate } = useProcurementRequestData();
+    const { project: loadedProject, categoryList, itemOptions, isLoading: dataLoading, error: dataError, itemMutate } = useProcurementRequestData();
+    // The data hook loads the project the STORE points at, which until the store is initialised for
+    // this page can still be the previous session's project. Use it (its makes and packages) only
+    // once it is the project being opened.
+    const openedProjectId = mode === "create" ? projectId : existingPRData?.project;
+    const project = loadedProject?.name === openedProjectId ? loadedProject : undefined;
 
     // Built once per category list: the live Packages chips and the add-item handler memoise on it.
     const categoryToPackageMap = useMemo(() => extractCategoryToPackageMap(categoryList), [categoryList]);
