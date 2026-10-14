@@ -533,13 +533,17 @@ def _enqueue_after_parse(boq_name: str, parsed_sheets: list, user: str | None,
         "BoQ General Specs Sheet", filters={"parent": boq_name, "parenttype": "BOQs"},
         pluck="source_sheet_name",
     ))
+    # Names kept in PYTHON, never through a Frappe `["in", [...]]` filter: it STRIPS every value, so
+    # a sheet named " Rodent" or "FPS " matched nothing and was never checked (S5 DEF-01, #152).
+    wanted = set(parsed_sheets)
     drafts = {
         d.sheet_name: d
         for d in frappe.get_all(
             _SHEET_DRAFT,
-            filters={"parent": boq_name, "parenttype": "BOQs", "sheet_name": ["in", parsed_sheets]},
+            filters={"parent": boq_name, "parenttype": "BOQs"},
             fields=["sheet_name", "wizard_status", "last_parsed_at"],
         )
+        if d.sheet_name in wanted   # sheet_name VERBATIM (#152)
     }
     # Only a sheet whose status the parse left at "Parsed": a failed, Hidden, Skip or
     # general-specs sheet never is.

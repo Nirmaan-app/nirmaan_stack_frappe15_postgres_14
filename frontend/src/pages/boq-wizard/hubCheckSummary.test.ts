@@ -6,9 +6,12 @@ import {
   CARD_ALL_CHECKED,
   CARD_CHECK_INCOMPLETE,
   CARD_CHECK_INCOMPLETE_NOTE,
+  CARD_NOT_CHECKED,
   SUMMARY_TO_CHECK_TITLE,
   anyCheckRunning,
   cardCheck,
+  cardNotChecked,
+  footerNotChecked,
   footerRowsToCheck,
   parseSummary,
   summaryReady,
@@ -141,10 +144,15 @@ describe("parseSummary (U8)", () => {
     expect(out.toCheckLines).toEqual(["UPS 4 of 8 rows (50%) - review the whole sheet"]);
   });
 
-  it("falls back to the old 'Parsed:' line for a sheet with no check on record or no counts", () => {
-    expect(parseSummary(["A", "B"], { A: NOT_RUN }).parsedLine).toBe("Parsed: A, B");
+  it("falls back to the old 'Parsed:' line for a sheet with no counts; a not-run sheet has its own line", () => {
+    // INVERTED in S6 (U1, owner rulings V1 / Q-i). Was: expect(parseSummary(["A", "B"], { A: NOT_RUN })
+    // .parsedLine).toBe("Parsed: A, B") -- a sheet whose check never ran sat under "Parsed:".
+    const out = parseSummary(["A", "B"], { A: NOT_RUN });
+    expect(out.parsedLine).toBe("Parsed: B");
+    expect(out.notCheckedLine).toBe("Parsed, not checked: A");
+    // Negative half kept: a sheet with no counts at all still falls back to "Parsed:".
     expect(parseSummary(["A"], undefined)).toEqual({
-      checkedLine: null, parsedLine: "Parsed: A", toCheckLines: [], incompleteLines: [],
+      checkedLine: null, parsedLine: "Parsed: A", notCheckedLine: null, toCheckLines: [], incompleteLines: [],
     });
   });
 
@@ -160,7 +168,7 @@ describe("parseSummary (U8)", () => {
 
   it("is empty when nothing was parsed", () => {
     expect(parseSummary([], { FPS: SIX_OPEN })).toEqual({
-      checkedLine: null, parsedLine: null, toCheckLines: [], incompleteLines: [],
+      checkedLine: null, parsedLine: null, notCheckedLine: null, toCheckLines: [], incompleteLines: [],
     });
     expect(SUMMARY_TO_CHECK_TITLE).toBe("Rows to check before finalizing");
   });
@@ -218,5 +226,39 @@ describe("hub source (U3-U8)", () => {
     const sentence = /Each sheet is parsed and then its rows are checked automatically\.\s+This runs in the background and can take up to ~15 minutes on\s+large workbooks\. You can keep working; you'll see a summary here\s+when it's done\./g;
     expect(dialog.match(sentence)).toHaveLength(2);
     expect(dialog).not.toContain("~10 minutes");
+  });
+});
+
+// ── S6 (U1, owner rulings V1 / Q-i): "not checked" only while the sheet changed since its commit ──
+describe("not checked (S6 U1)", () => {
+  it("a Parsed or Finalized sheet whose check never ran, never committed or re-parsed since -> 'not checked'", () => {
+    expect(CARD_NOT_CHECKED).toBe("not checked");
+    expect(cardNotChecked("Parsed", NOT_RUN, true)).toEqual({ text: "not checked", tone: "attention" });
+    expect(cardNotChecked("Finalized", NOT_RUN, true)).toEqual({ text: "not checked", tone: "attention" });
+  });
+
+  it("nothing for a committed sheet unchanged since, a checked sheet, a running check or no counts", () => {
+    expect(cardNotChecked("Finalized", NOT_RUN, false)).toBeNull();
+    expect(cardNotChecked("Parsed", SIX_OPEN, true)).toBeNull();
+    expect(cardNotChecked("Parsed", INCOMPLETE, true)).toBeNull();
+    expect(cardNotChecked("Parsed", { ...NOT_RUN, check_running: true }, true)).toBeNull();
+    expect(cardNotChecked("Config Done", NOT_RUN, true)).toBeNull();
+    expect(cardNotChecked("Parsed", undefined, true)).toBeNull();
+  });
+
+  it("the footer counts only not-run sheets that changed since their commit", () => {
+    const sheets = { A: NOT_RUN, "B ": NOT_RUN, C: SIX_OPEN };
+    expect(footerNotChecked(["A", "B ", "C"], sheets, new Set(["A", "B ", "C"]))).toBe(" · 2 not checked");
+    expect(footerNotChecked(["A", "B ", "C"], sheets, new Set(["A"]))).toBe(" · 1 not checked");
+    expect(footerNotChecked(["A", "B ", "C"], sheets, new Set())).toBe("");
+    expect(footerNotChecked(["A"], undefined, new Set(["A"]))).toBe("");
+  });
+
+  it("the hub and the card wire it in (source)", () => {
+    const hub = readFileSync(join(__dirname, "BoqHubPage.tsx"), "utf8");
+    const card = readFileSync(join(__dirname, "SheetCard.tsx"), "utf8");
+    expect(hub).toContain("footerNotChecked(reviewableDrafts.map((d) => d.sheet_name), checkSheets, changedSheets)");
+    expect(hub).toContain("parseResult.check.notCheckedLine");
+    expect(card).toContain("cardNotChecked(effectiveStatus, checkSummary, !!changedSinceCommit)");
   });
 });

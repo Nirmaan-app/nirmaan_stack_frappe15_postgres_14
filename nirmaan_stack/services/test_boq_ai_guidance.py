@@ -16,6 +16,8 @@ site's real library file: the build's reads are FAKED, and every file lives in a
   TestRevisionFamily      the source_boq chain, both directions
   TestBuildLibraryRule    the truth rule + "never a rate / amount column", on faked reads
 """
+import hashlib
+import json
 import os
 import pickle
 import shutil
@@ -390,6 +392,38 @@ class TestBuildGuidance(unittest.TestCase):
         descriptions = [e["description"] for e in g[3]["similar_reviewed_rows"]]
         self.assertGreaterEqual(descriptions.count("Supply of 2 core copper cable"), 3,
                                 "BOQ-A, BOQ-B and BOQ-T all carry the identical row")
+
+    # -- S6 F2: the evaluation exclusion list (site config) --------------------------------------
+
+    def _guidance(self, lib, conf=None, drop_key=True):
+        with mock.patch.object(G, "get_library", return_value=(lib, False)),              mock.patch.object(G, "revision_family", return_value=frozenset({"BOQ-X"})),              mock.patch.dict(frappe.conf, conf or {}):
+            if drop_key and conf is None:
+                frappe.conf.pop(G.EVALUATION_EXCLUDE_KEY, None)
+            return build_guidance("BOQ-X", self._rows())
+
+    def test_an_absent_or_empty_evaluation_list_changes_nothing(self):
+        """Production has no list: the guidance must be byte-identical to the pre-S6 rule
+        (family | testproject), computed here directly."""
+        lib = _small_library(testproject=["BOQ-T"])
+        before = json.dumps(G.guidance_for_rows(self._rows(), lib, frozenset({"BOQ-X", "BOQ-T"})), sort_keys=True)
+        absent = json.dumps(self._guidance(lib), sort_keys=True)
+        empty = json.dumps(self._guidance(lib, {G.EVALUATION_EXCLUDE_KEY: []}), sort_keys=True)
+        self.assertEqual(hashlib.sha256(absent.encode()).hexdigest(), hashlib.sha256(before.encode()).hexdigest())
+        self.assertEqual(empty, before)
+        self.assertEqual(json.loads(absent)["3"]["similar_reviewed_rows"][0]["description"],
+                         "Supply of 2 core copper cable", "the vacuity partner: BOQ-A / BOQ-B rows are there")
+
+    def test_a_filled_evaluation_list_keeps_those_boqs_out(self):
+        lib = _small_library(testproject=["BOQ-T"])
+        g = self._guidance(lib, {G.EVALUATION_EXCLUDE_KEY: ["BOQ-A", "BOQ-B"]})
+        self.assertEqual([e["description"] for e in g[3]["similar_reviewed_rows"]],
+                         ["Supply of 4 core copper cable"])
+
+    def test_the_evaluation_list_reader(self):
+        with mock.patch.dict(frappe.conf, {G.EVALUATION_EXCLUDE_KEY: ["BOQ-1", "BOQ-2"]}):
+            self.assertEqual(G.evaluation_exclusions(), frozenset({"BOQ-1", "BOQ-2"}))
+        with mock.patch.dict(frappe.conf, {G.EVALUATION_EXCLUDE_KEY: None}):
+            self.assertEqual(G.evaluation_exclusions(), frozenset())
 
     def test_library_failure_continues_without_examples_and_says_so(self):
         with mock.patch.object(G, "get_library", side_effect=RuntimeError("rebuild failed")), \

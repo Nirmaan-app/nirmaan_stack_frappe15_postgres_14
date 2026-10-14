@@ -66,6 +66,10 @@ _SAVEPOINT = "boq_ai_guidance"
 
 # The committed-grid column roles the library may read. A rate / amount role is never read.
 _ALLOWED_ROLE_PREFIXES = ("sl_no", "description", "unit", "qty")
+# S6 F2: a site-config list of BoQ names kept out of every look-up, for an EVALUATION only (a clean
+# re-run of test copies whose originals are in the library). Absent / empty in production, where it
+# changes nothing.
+EVALUATION_EXCLUDE_KEY = "boq_ai_evaluation_exclude_boqs"
 
 
 # ---------------------------------------------------------------------------
@@ -585,6 +589,12 @@ def revision_family(boq_name: str) -> frozenset:
     return frozenset(n for n in parent if find(n) == root)
 
 
+def evaluation_exclusions() -> frozenset:
+    """The BoQ names in site config `boq_ai_evaluation_exclude_boqs` (S6 F2). Empty unless an
+    evaluation set it; production never does."""
+    return frozenset(str(n) for n in (frappe.conf.get(EVALUATION_EXCLUDE_KEY) or []))
+
+
 def _text(v: Any) -> str:
     return '' if v is None else str(v).strip()
 
@@ -693,7 +703,7 @@ def build_guidance(boq_name: str, rows: list, info: dict | None = None) -> dict:
     frappe.db.savepoint(_SAVEPOINT)
     try:
         library, rebuilt = get_library()
-        exclude = revision_family(boq_name) | library.testproject
+        exclude = revision_family(boq_name) | library.testproject | evaluation_exclusions()
     except Exception as exc:
         library = None
         try:

@@ -201,10 +201,16 @@ import {
   matchesCheckFilter,
   orderWithSuggestion,
   revertMessageLines,
+  searchEnterAction,
   suggestionFor,
   type CheckFilter,
 } from "./reviewCheckFlags";
 import { afterEditIntent } from "./editIntent";
+import {
+  describeRevertEntry,
+  reasonWithExcelRows,
+  type DescribedEditEntry,
+} from "./reviewHistory";
 import {
   CHECK_OPEN_ROW_EDGE,
   CHECK_OPEN_ROW_TINT,
@@ -227,11 +233,7 @@ function formatEditAt(at: unknown): string {
 
 // A2 edit-log clarity: a described edit_log entry for render. `null` from
 // describeEditEntry means "suppress this entry" (the #162 no-op reclassify).
-interface DescribedEditEntry {
-  verb: string;
-  detail: string | null;
-  showField: boolean;
-}
+// DescribedEditEntry moved to ./reviewHistory (S6).
 
 // ClassificationPill + CLS_PILL_CLASSES + fmtNum were extracted to ./reviewRender
 // (Slice 2). ClassificationPill is imported at the top; fmtNum is now module-private
@@ -300,6 +302,11 @@ const REMARK_MAX_LEN = 250;
 // (mirrors backend _ASSIGNABLE_CLASSIFICATIONS). subtotal_marker / header_repeat are
 // parser-only DETECTIONS -- valid existing/FROM states but never offered as targets.
 const ASSIGNABLE_CLASSIFICATIONS = ["line_item", "preamble", "note", "spacer"] as const;
+// S6 (F6 / U5, owner rulings V3-2 / Q-d): the review Change list also offers "Subtotal" (mirrors the
+// backend's _REVIEW_ASSIGNABLE_CLASSIFICATIONS). Subtotal cannot have children, so a row with
+// children goes through RestructureModal like a note or spacer. Only the Change list uses this;
+// "Change parent" and the template Insert-row list stay on the four types.
+const REVIEW_TARGET_CLASSIFICATIONS = [...ASSIGNABLE_CLASSIFICATIONS, "subtotal_marker"] as const;
 
 // §9 #159: the 6 classification values offered in the Classification filter checklist --
 // the full FROM/read vocab (CLS_LABELS keys), NOT ASSIGNABLE_CLASSIFICATIONS (the 4 write
@@ -811,7 +818,15 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // Returns null to SUPPRESS the entry entirely -- the #162 "Change parent" door
   // writes a no-op same-value human_classification entry alongside the real
   // human_parent move; rendering it would duplicate the move, so it is dropped.
-  const describeEditEntry = (entry: EditLogEntry): DescribedEditEntry | null => {
+  const describeEditEntry = (entry: EditLogEntry, row: ReviewRow): DescribedEditEntry | null => {
+    // S6 (F7 / Q-h): a revert entry stores what it cleared (to: null); name the parsed type /
+    // parent the row went back to (the row's own `classification` / `parent_index`).
+    const reverted = describeRevertEntry(entry, {
+      parsedClassification: row.classification,
+      parentLabel: editParentLabel,
+      parsedParent: row.parent_index,
+    });
+    if (reverted) return reverted;
     if (entry.field === "human_classification") {
       if (entry.from !== entry.to) {
         const f = CLS_LABELS[String(entry.from ?? "")] ?? String(entry.from ?? "—");
@@ -835,6 +850,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       showField: true,
     };
   };
+  // S6 (F13 / U11): a stored reason's "row N" is the internal index; shown as the Excel row.
+  const reasonText = (reason: string): string =>
+    reasonWithExcelRows(reason, (idx) => byIdx.get(idx)?.source_row_number);
 
   // Descriptor processing: dedupe fixed-anchor roles, extract anchor letters, area map.
   const { displayDescriptors, appendDescriptors, slNoLetter, descriptionLetter, descriptionDescriptors, areaColorMap, hasPerAreaQty, areaQtyDescriptors, qtyTotalDescriptor } = useMemo(() => {
@@ -1509,8 +1527,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   }, [rows, searchQuery, statusFilter, classFilter, checkFilter, showSpacers, showNotes, showSubtotals, deltaFilterOnly, qtyGapFilterOnly, qtyGapRowIndexes]);
 
   const searchHitSet = useMemo(() => new Set(searchHits), [searchHits]);
+  // S6 (F8): has the current match been scrolled to since the matches last changed?
+  const searchShownRef = useRef(false);
   // Reset the hit pointer whenever the hit set changes (mirror SheetSearchView :288-290).
-  useEffect(() => { setSearchCurrentIdx(0); }, [searchHits]);
+  useEffect(() => { setSearchCurrentIdx(0); searchShownRef.current = false; }, [searchHits]);
   const safeSearchIdx = searchHits.length > 0 ? Math.min(searchCurrentIdx, searchHits.length - 1) : 0;
   const currentHitRowIdx = searchHits.length > 0 ? searchHits[safeSearchIdx] : null;
 
@@ -1521,12 +1541,28 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     const ni = (safeSearchIdx - 1 + searchHits.length) % searchHits.length;
     setSearchCurrentIdx(ni);
     revealAndScrollToRow(searchHits[ni]);
+    searchShownRef.current = true;
   };
   const stepSearchNext = () => {
     if (searchHits.length === 0) return;
     const ni = (safeSearchIdx + 1) % searchHits.length;
     setSearchCurrentIdx(ni);
     revealAndScrollToRow(searchHits[ni]);
+    searchShownRef.current = true;
+  };
+  // S6 (F8 / U7): Enter scrolls to the current match (then steps on); Shift+Enter steps back --
+  // the same moves as the arrow buttons.
+  const onSearchKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter") return;
+    const action = searchEnterAction(searchHits.length, searchShownRef.current, e.shiftKey);
+    if (!action) return;
+    e.preventDefault();
+    if (action === "prev") stepSearchPrev();
+    else if (action === "next") stepSearchNext();
+    else {
+      revealAndScrollToRow(searchHits[safeSearchIdx]);
+      searchShownRef.current = true;
+    }
   };
 
   if (rows.length === 0) {
@@ -2019,6 +2055,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={onSearchKeyDown}
                 placeholder="Search description…"
                 className="h-8 w-56 pl-7 pr-7 text-xs"
                 aria-label="Search descriptions"
@@ -3010,7 +3047,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                         suggested type sits first, marked "Suggested". Every other type
                                         follows in its usual order; nothing is pre-selected, and an
                                         unflagged row's list is exactly as before. */}
-                                      {orderWithSuggestion<string>(ASSIGNABLE_CLASSIFICATIONS, suggestedType).map(c => (
+                                      {orderWithSuggestion<string>(REVIEW_TARGET_CLASSIFICATIONS, suggestedType).map(c => (
                                         <DropdownMenuItem key={c} onClick={() => onPickClass(row, c)}>
                                           {CLS_LABELS[c] ?? c}
                                           {c === suggestedType && <SuggestedTag />}
@@ -3226,7 +3263,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                 // post-suppression list.
                                 const described = (Array.isArray(row.edit_log) ? [...row.edit_log] : [])
                                   .reverse()
-                                  .map((entry) => ({ entry, d: describeEditEntry(entry) }))
+                                  .map((entry) => ({ entry, d: describeEditEntry(entry, row) }))
                                   .filter((x): x is { entry: EditLogEntry; d: DescribedEditEntry } => x.d !== null);
                                 return described.length > 0 ? (
                                   <ul className="mt-0.5 space-y-0.5">
@@ -3249,7 +3286,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                         {" — "}
                                         <span className="text-muted-foreground">{entry.by} · {formatEditAt(entry.at)}</span>
                                         {entry.reason ? (
-                                          <span className="text-muted-foreground"> · reason: {entry.reason}</span>
+                                          <span className="text-muted-foreground"> · reason: {reasonText(entry.reason)}</span>
                                         ) : null}
                                       </li>
                                     ))}

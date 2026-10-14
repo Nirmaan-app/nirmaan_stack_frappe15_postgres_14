@@ -9,6 +9,8 @@ import {
   CHECK_RUNNING_MESSAGE,
   CHECKING_ROWS_LABEL,
   CHECK_INCOMPLETE_BANNER,
+  CHECK_NOT_RUN_BANNER,
+  OPEN_ROWS_LIMIT,
   REPARSE_SHEET_LABEL,
   REVERT_FAILED_MESSAGE,
   REVERT_HINT,
@@ -20,6 +22,9 @@ import {
   finalizeBlockMessage,
   heavyBannerText,
   isCheckIncomplete,
+  isCheckNotRun,
+  openRowsText,
+  searchEnterAction,
   isCheckOpen,
   isCheckRunning,
   isRowFlagged,
@@ -611,5 +616,99 @@ describe("review screen source (U9, U11, R31c)", () => {
     expect(radios).toBeGreaterThan(0);
     expect(line).toBeGreaterThan(radios);
     expect(picker).toBeGreaterThan(line);
+  });
+});
+
+// ── S6 ───────────────────────────────────────────────────────────────────────
+
+describe("finalize block names the open rows (S6 F3 / U2)", () => {
+  const base = { breakCount: 0, unaffirmedCount: 0, qtyGap: 0, checkRunning: false };
+  const sum = (open: number[]) => summary({ to_check: open.length, flagged: open.length, open_rows: open });
+
+  it("the server's refusal sentence, with Excel rows (S5: 'Check the 2 flagged rows ...')", () => {
+    expect(finalizeBlockMessage({ ...base, summary: sum([26, 44]) })).toBe(
+      "Check the 2 flagged rows before finalizing: rows 26, 44.",
+    );
+    expect(finalizeBlockMessage({ ...base, summary: sum([10]) })).toBe("Check the 1 flagged row before finalizing: row 10.");
+  });
+
+  it("at most 20 rows, then 'and N more' (review_flags.finalize_refusal)", () => {
+    const many = Array.from({ length: 23 }, (_, i) => i + 2);
+    expect(OPEN_ROWS_LIMIT).toBe(20);
+    expect(openRowsText(many)).toBe(`rows ${many.slice(0, 20).join(", ")} and 3 more`);
+  });
+
+  it("negative: no row list when the server sent none; the other reasons keep their words", () => {
+    expect(finalizeBlockMessage({ ...base, summary: summary({ to_check: 6, flagged: 6 }) })).toBe(
+      "Check the 6 flagged rows before finalizing.",
+    );
+    expect(finalizeBlockMessage({ ...base, breakCount: 1, summary: sum([26]) })).toBe(
+      "Fix the must-fix structural issues listed above before finalizing.",
+    );
+    expect(openRowsText([])).toBe("");
+  });
+
+  it("the review page shows it as text beside the button (source)", () => {
+    const page = readFileSync(join(__dirname, "SheetReviewPage.tsx"), "utf8");
+    expect(page).toContain('{sheetStatus === "Parsed" && !reviewLoading && finalizeBlock && (');
+    expect(page).toContain("disabled={reviewLoading || finalizeBlock !== null}");
+  });
+});
+
+describe("not-checked banner (S6 U1, Q-i)", () => {
+  const NOT_RUN = summary({ check_status: "not_run" });
+
+  it("check never ran, sheet changed since its commit -> the banner", () => {
+    expect(isCheckNotRun(NOT_RUN, false, true)).toBe(true);
+    expect(CHECK_NOT_RUN_BANNER).toBe(
+      "This sheet's rows were not checked automatically. Look over every row yourself before finalizing.",
+    );
+  });
+
+  it("negative: committed and unchanged, check done / incomplete, or running -> no banner", () => {
+    expect(isCheckNotRun(NOT_RUN, false, false)).toBe(false);
+    expect(isCheckNotRun(summary(), false, true)).toBe(false);
+    expect(isCheckNotRun(summary({ check_status: "incomplete" }), false, true)).toBe(false);
+    expect(isCheckNotRun(NOT_RUN, true, true)).toBe(false);
+    expect(isCheckIncomplete(NOT_RUN)).toBe(false);
+  });
+
+  it("the review page places it (source)", () => {
+    const page = readFileSync(join(__dirname, "SheetReviewPage.tsx"), "utf8");
+    expect(page).toContain("{checkNotRun && <CheckNotRunBanner />}");
+  });
+});
+
+describe("Enter in the review search (S6 F8 / U7)", () => {
+  it("first Enter scrolls to the current match, then steps on; Shift+Enter steps back", () => {
+    expect(searchEnterAction(2, false, false)).toBe("reveal");
+    expect(searchEnterAction(2, true, false)).toBe("next");
+    expect(searchEnterAction(2, true, true)).toBe("prev");
+  });
+
+  it("negative: no match -> nothing", () => {
+    expect(searchEnterAction(0, false, false)).toBeNull();
+    expect(searchEnterAction(0, true, true)).toBeNull();
+  });
+
+  it("the search box handles Enter (source)", () => {
+    const tree = readFileSync(join(__dirname, "ReviewTree.tsx"), "utf8");
+    expect(tree).toContain("onKeyDown={onSearchKeyDown}");
+    expect(tree).toContain("revealAndScrollToRow(searchHits[safeSearchIdx]);");
+  });
+});
+
+describe("Subtotal in the review Change list (S6 F6 / U5)", () => {
+  const tree = readFileSync(join(__dirname, "ReviewTree.tsx"), "utf8");
+
+  it("the Change list offers the four types and Subtotal", () => {
+    expect(tree).toContain('const REVIEW_TARGET_CLASSIFICATIONS = [...ASSIGNABLE_CLASSIFICATIONS, "subtotal_marker"] as const;');
+    expect(tree).toContain("orderWithSuggestion<string>(REVIEW_TARGET_CLASSIFICATIONS, suggestedType)");
+  });
+
+  it("negative: the four-type list itself is unchanged (Change parent, template Insert row use it)", () => {
+    expect(tree).toContain('const ASSIGNABLE_CLASSIFICATIONS = ["line_item", "preamble", "note", "spacer"] as const;');
+    expect(orderWithSuggestion<string>(["line_item", "preamble", "note", "spacer", "subtotal_marker"], "subtotal_marker")[0])
+      .toBe("subtotal_marker");
   });
 });

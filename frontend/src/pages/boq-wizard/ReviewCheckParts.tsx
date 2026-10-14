@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import type { RowCheckFlags } from "./boqTypes";
 import {
   CHECK_INCOMPLETE_BANNER,
+  CHECK_NOT_RUN_BANNER,
   LOOKS_OK_LABEL,
   NEEDS_CHECKING_HINT,
   NEEDS_CHECKING_TITLE,
@@ -202,6 +203,16 @@ export function CheckIncompleteBanner({ onReparse }: CheckIncompleteBannerProps)
           <RefreshCw className="h-3.5 w-3.5" /> {REPARSE_SHEET_LABEL}
         </Button>
       )}
+    </div>
+  );
+}
+
+/** S6 (U1): the automatic check never ran on this sheet (and it changed since its last commit). */
+export function CheckNotRunBanner() {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm">
+      <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+      <p className="text-amber-900 dark:text-amber-100">{CHECK_NOT_RUN_BANNER}</p>
     </div>
   );
 }

@@ -233,9 +233,24 @@ export function finalizeBlockMessage(input: FinalizeBlockInput): string | null {
   if (checkRunning) return CHECK_RUNNING_MESSAGE;
   const toCheck = summary?.to_check ?? 0;
   if (toCheck > 0) {
-    return `Check the ${toCheck} flagged ${rowsWord(toCheck)} before finalizing.`;
+    // S6 (F3 / U2): name the open rows -- Excel rows, the server's own `open_rows` -- as the
+    // server's refusal does (review_flags.finalize_refusal: up to 20, then "and N more").
+    const rows = openRowsText(summary?.open_rows ?? []);
+    return `Check the ${toCheck} flagged ${rowsWord(toCheck)} before finalizing${rows ? `: ${rows}` : ""}.`;
   }
   return null;
+}
+
+/** The server's refusal list limit (review_flags.REFUSAL_ROW_LIMIT). */
+export const OPEN_ROWS_LIMIT = 20;
+
+/** "row 26" / "rows 26, 44" / "rows 1, 2, ... 20 and 3 more"; "" for none. */
+export function openRowsText(openRows: readonly number[]): string {
+  if (openRows.length === 0) return "";
+  if (openRows.length === 1) return `row ${openRows[0]}`;
+  const shown = openRows.slice(0, OPEN_ROWS_LIMIT).join(", ");
+  const more = openRows.length - OPEN_ROWS_LIMIT;
+  return more > 0 ? `rows ${shown} and ${more} more` : `rows ${shown}`;
 }
 
 // ── The revert message ───────────────────────────────────────────────────────
@@ -299,6 +314,22 @@ export function isCheckIncomplete(
 ): boolean {
   return !checkRunning && summary?.check_status === "incomplete";
 }
+
+/**
+ * S6 (U1, owner rulings V1 / Q-i): the automatic check never ran on this sheet's current parse,
+ * and the sheet changed since its last commit (never committed, or re-parsed after it). A sheet
+ * committed and unchanged since says nothing. `changedSinceCommit` from hubState.
+ */
+export function isCheckNotRun(
+  summary: CheckSummary | null | undefined,
+  checkRunning: boolean,
+  changedSinceCommit: boolean,
+): boolean {
+  return !checkRunning && summary?.check_status === "not_run" && changedSinceCommit;
+}
+
+export const CHECK_NOT_RUN_BANNER =
+  "This sheet's rows were not checked automatically. Look over every row yourself before finalizing.";
 
 export const CHECK_INCOMPLETE_BANNER =
   "The automatic row check didn't finish on this sheet. Only rows with a unit or quantity that aren't Items were flagged. Re-parse the sheet to run the full check again.";
@@ -413,3 +444,20 @@ export const REVERT_LABEL = "Revert to original";
 export const REVERT_HINT =
   "Restores this row (and any moved children) to how it was after parsing. Its check flag comes back.";
 export const REVERT_FAILED_MESSAGE = "Could not revert this row. Please try again.";
+
+// ── Review search: Enter (S6 F8 / U7) ────────────────────────────────────────
+
+/**
+ * What Enter in the review search box does: the first Enter after the matches change scrolls to
+ * the current match (the arrows' `revealAndScrollToRow`); each further Enter steps to the next;
+ * Shift+Enter steps back. null = nothing to do (no match).
+ */
+export function searchEnterAction(
+  hitCount: number,
+  currentShown: boolean,
+  shift: boolean,
+): "reveal" | "next" | "prev" | null {
+  if (hitCount === 0) return null;
+  if (shift) return "prev";
+  return currentShown ? "next" : "reveal";
+}

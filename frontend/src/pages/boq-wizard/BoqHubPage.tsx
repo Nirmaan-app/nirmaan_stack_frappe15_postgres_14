@@ -47,11 +47,13 @@ import { ParseRunDialog } from "./ParseRunDialog";
 import {
   SUMMARY_TO_CHECK_TITLE,
   anyCheckRunning,
+  footerNotChecked,
   footerRowsToCheck,
   parseSummary,
   summaryReady,
   type ParseSummary,
 } from "./hubCheckSummary";
+import { footerSetUp, hubSubtitle, setUpCount, sheetsChangedSinceCommit } from "./hubState";
 import { SheetCard } from "./SheetCard";
 import { ExportWorkbookDialog } from "./ExportWorkbookDialog";
 import { CommitDialog } from "./CommitDialog";
@@ -801,6 +803,17 @@ const BoqHubPage = () => {
   // wizard_status bucket -- derived from committed-state (keyed by sheet_name VERBATIM).
   const committedCount = allDrafts.filter((s) => committedMap.has(s.sheet_name)).length;
 
+  // S6 (F12 / Q-i): sheets never committed or re-parsed after their last commit (VERBATIM keys).
+  // Drives the commit dialog's pre-selection, the cards' commit line and "not checked" (U1).
+  const changedSheets = sheetsChangedSinceCommit(allDrafts, committedMap);
+  // S6 (U4): the subtitle stage and the footer's set-up count follow the BoQ's real state.
+  const hubStage = hubSubtitle({
+    statuses: dataSheets.map((s) => ({ sheet_name: s.sheet_name, status: getEffectiveStatus(s) })),
+    changed: changedSheets,
+    committedCount,
+  });
+  const setUpTotal = setUpCount(dataSheets.map((s) => getEffectiveStatus(s)));
+
   // ── Export eligibility (Slice D2b) ────────────────────────────────────────
   // The "Export Parsed BoQ" menu action + the dialog checklist operate on every
   // "Finalized" sheet (VERBATIM names, #152). Empty => the menu item is disabled.
@@ -1012,7 +1025,7 @@ const BoqHubPage = () => {
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             V{boq.version ?? 1} &middot;{" "}
-            {isTemplateOrigin ? "Cloned from template — review, commit & price" : "Map sheets before parsing"}
+            {isTemplateOrigin ? "Cloned from template — review, commit & price" : hubStage}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3 pt-1">
@@ -1166,6 +1179,7 @@ const BoqHubPage = () => {
             checkSummary={checkSheets?.[draft.sheet_name]}
             workHeaders={workPackageMap[draft.sheet_name]}
             committedState={committedMap.get(draft.sheet_name)}
+            changedSinceCommit={changedSheets.has(draft.sheet_name)}
             staleReason={staleMap.get(draft.sheet_name)}
             downstreamState={downstreamSheets[draft.sheet_name]}
             isTemplateOrigin={isTemplateOrigin}
@@ -1203,6 +1217,7 @@ const BoqHubPage = () => {
                     onOpenReview={handleOpenReview}
                     workHeaders={workPackageMap[draft.sheet_name]}
                     committedState={committedMap.get(draft.sheet_name)}
+                    changedSinceCommit={changedSheets.has(draft.sheet_name)}
                     staleReason={staleMap.get(draft.sheet_name)}
                     isTemplateOrigin={isTemplateOrigin}
                   />
@@ -1263,17 +1278,21 @@ const BoqHubPage = () => {
       {/* ── Parse-gate footer (M2.11/M2.12) ─────────────────────────────── */}
       <div className="border-t border-border pt-4 flex items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          {/* Template origin has no Configure/Parse step, so the "reviewed" (Config Done)
-              tally is meaningless -- lead with the plain data-sheet count instead. */}
+          {/* Template origin has no Configure/Parse step, so the "set up" tally is meaningless --
+              lead with the plain data-sheet count instead. S6 (U4): "set up" counts Config Done,
+              Parsed and Finalized (display only -- the parse gate still counts Config Done), and
+              the Finalized count is labelled "finalized" (it was "checked"). */}
           {isTemplateOrigin
             ? `${totalDataCount} data ${totalDataCount === 1 ? "sheet" : "sheets"}`
-            : `${reviewedCount} of ${totalDataCount} data ${totalDataCount === 1 ? "sheet" : "sheets"} reviewed`}
+            : footerSetUp(setUpTotal, totalDataCount)}
           {parsedCount > 0 && ` · ${parsedCount} parsed`}
-          {parsedCheckDoneCount > 0 && ` · ${parsedCheckDoneCount} checked`}
+          {parsedCheckDoneCount > 0 && ` · ${parsedCheckDoneCount} finalized`}
           {committedCount > 0 && ` · ${committedCount} committed`}
           {generalSpecsCount > 0 && ` · ${generalSpecsCount} general specs`}
           {skippedCount > 0 && ` · ${skippedCount} skipped`}
           {hiddenCount > 0 && ` · ${hiddenCount} hidden`}
+          {/* S6 (U1): sheets whose automatic check never ran and that changed since their commit. */}
+          {footerNotChecked(reviewableDrafts.map((d) => d.sheet_name), checkSheets, changedSheets)}
           {/* S4b (U6): rows still to check, summed over the Parsed sheets -- the server's numbers. */}
           {footerRowsToCheck(
             dataSheets.filter((d) => getEffectiveStatus(d) === "Parsed").map((d) => d.sheet_name),
@@ -1490,6 +1509,7 @@ const BoqHubPage = () => {
         boqName={boq.name}
         eligibleSheets={committableSheets}
         committedState={committedMap}
+        changedSinceCommit={changedSheets}
         onCommitted={handleCommitted}
       />
 
@@ -1638,6 +1658,10 @@ const BoqHubPage = () => {
               )}
               {parseResult.check.parsedLine && (
                 <p className="font-medium text-foreground">{parseResult.check.parsedLine}</p>
+              )}
+              {/* S6 (U1): parsed sheets whose automatic check never ran. */}
+              {parseResult.check.notCheckedLine && (
+                <p className="font-medium text-foreground">{parseResult.check.notCheckedLine}</p>
               )}
               {parseResult.check.toCheckLines.length > 0 && (
                 <div className="text-foreground">

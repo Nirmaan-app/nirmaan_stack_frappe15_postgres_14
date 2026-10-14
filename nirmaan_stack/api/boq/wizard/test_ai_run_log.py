@@ -48,6 +48,9 @@ _SHEETS = {
     "FailedSheet": "Parse failed",
     "SpecsSheet": "General specs",
     "SpecsButParsed": "Parsed",      # listed as a general-specs sheet: never checked
+    # S6 F1: names with a leading / trailing space (S5 DEF-01). Hidden here; a test sets them Parsed.
+    " LeadSpace": "Hidden",
+    "TrailSpace ": "Hidden",
 }
 _PARSED_AT = datetime.datetime(2026, 1, 5, 10, 0, 0)
 
@@ -630,6 +633,29 @@ class TestAutoRunAfterParse(_RunLogCase):
         frappe.cache().set_value(key, {"status": "error", "error_code": "internal"})
         self._enqueue([_SHEET])
         self.assertIsNone(frappe.cache().get_value(key))
+
+    def test_a_sheet_named_with_a_leading_or_trailing_space_is_checked(self):
+        """S6 F1 (S5 DEF-01): the sheets are picked by their EXACT names. A Frappe ["in", ...]
+        filter strips the values, so " LeadSpace" and "TrailSpace " used to get no job at all."""
+        for sheet in (" LeadSpace", "TrailSpace "):
+            self._set_draft(sheet, {"wizard_status": "Parsed"})
+        frappe.db.commit()
+        runs, enqueue = self._enqueue([" LeadSpace", "TrailSpace "])
+        self.assertEqual(sorted(c.kwargs["sheet_name"] for c in enqueue.call_args_list),
+                         sorted([" LeadSpace", "TrailSpace "]))
+        self.assertEqual(sorted(r.sheet_name for r in self._runs()), sorted([" LeadSpace", "TrailSpace "]))
+        self.assertEqual(len(runs), 2)
+        self.assertEqual([self._flag(" LeadSpace"), self._flag("TrailSpace ")], [1, 1])
+
+    def test_a_stripped_name_does_not_match_a_spaced_sheet(self):
+        """S6 F1 negative: matching is exact both ways -- "LeadSpace" (no space) is not the sheet
+        " LeadSpace", and a spaced sheet the parse did not report, or one not Parsed, gets no job."""
+        self._set_draft(" LeadSpace", {"wizard_status": "Parsed"})
+        frappe.db.commit()
+        runs, enqueue = self._enqueue(["LeadSpace", "TrailSpace"])
+        self.assertEqual((runs, enqueue.called, self._runs()), ([], False, []))
+        runs, enqueue = self._enqueue(["TrailSpace "])      # still Hidden
+        self.assertEqual((runs, enqueue.called, self._runs()), ([], False, []))
 
     def test_under_a_test_run_nothing_is_ever_queued(self):
         """A parse inside a test must never put a real, paid job on the site's queue."""

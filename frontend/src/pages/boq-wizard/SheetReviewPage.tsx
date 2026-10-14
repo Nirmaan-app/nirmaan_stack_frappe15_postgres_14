@@ -42,6 +42,7 @@ import { DownstreamBanner } from "./DownstreamBanner";
 import type {
   AiPassDonePayload,
   BOQsDoc,
+  GetCommittedStateResponse,
   GetReviewRowsResponse,
   GetStructuralBreaksResponse,
   LockInfo,
@@ -57,9 +58,11 @@ import {
   finalizeBlockMessage,
   heavyBannerText,
   isCheckIncomplete,
+  isCheckNotRun,
   isCheckRunning,
 } from "./reviewCheckFlags";
-import { CheckIncompleteBanner, HeavySheetBanner } from "./ReviewCheckParts";
+import { CheckIncompleteBanner, CheckNotRunBanner, HeavySheetBanner } from "./ReviewCheckParts";
+import { changedSinceCommit } from "./hubState";
 
 // B1 (ADR-0011): the DRAFT single-editor lock sentinel version + reject marker. Real committed
 // versions start at 1, so version 0 is the disjoint draft-tier identity (mirrors the backend
@@ -112,6 +115,14 @@ const SheetReviewPage = () => {
   // line_item_parent_not_preamble, cycle); the panel inside ReviewTree groups them distinctly above
   // the softer advisories, and their presence disables the Finalize button (the server hard-blocks
   // any break). Read-only endpoint -- no write, no status change. Same disable-until-params guard.
+  // S6 (U1, owner ruling Q-i): this sheet's committed state -- "not checked" shows only while the
+  // sheet changed since its last commit. Same read the hub makes; no write.
+  const { data: committedStateData } = useFrappeGetCall<{ message: GetCommittedStateResponse }>(
+    "nirmaan_stack.api.boq.wizard.commit_gate.get_committed_state",
+    { boq_name: boqId ?? "" },
+    boqId ? undefined : null,
+  );
+
   const { data: breaksData, mutate: breaksMutate } = useFrappeGetCall<{ message: GetStructuralBreaksResponse }>(
     "nirmaan_stack.api.boq.wizard.review_screen.get_structural_breaks",
     { boq_name: boqId ?? "", sheet_name: sheetName ?? "" },
@@ -651,6 +662,15 @@ const SheetReviewPage = () => {
   // anything. The heavy-sheet advice is about finalizing, so it shows on a Parsed sheet only.
   const heavyBanner = sheetStatus === "Parsed" ? heavyBannerText(checkSummary, checkRunning) : null;
   const checkIncomplete = !isParsing && isCheckIncomplete(checkSummary, checkRunning);
+  // S6 (U1): the check never ran on this parse and the sheet changed since its last commit.
+  const thisCommitted = (committedStateData?.message?.committed_state ?? []).find(
+    (c) => c.sheet_name === sheetName,   // VERBATIM (#152)
+  );
+  const thisDraft = (boq?.sheet_drafts ?? []).find((d) => d.sheet_name === sheetName);
+  const checkNotRun = !isParsing && isCheckNotRun(
+    checkSummary, checkRunning,
+    changedSinceCommit(thisDraft?.last_parsed_at, thisCommitted?.committed_at, !!thisCommitted),
+  );
   // "Re-parse sheet" hands over to the hub, which owns the re-parse confirmation and the parse
   // run: the hub opens today's dialog for this sheet (owner ruling Q-h). VERBATIM name (#152).
   const handleReparseFromBanner = () =>
@@ -771,6 +791,11 @@ const SheetReviewPage = () => {
               Mark Finalized
             </Button>
           )}
+          {/* S6 (F3 / U2): the reason the button is off, as visible text -- the disabled button's
+              hover never shows (pointer events are off). Names the open rows (Excel rows). */}
+          {sheetStatus === "Parsed" && !reviewLoading && finalizeBlock && (
+            <span className="max-w-md text-xs text-amber-700 dark:text-amber-300">{finalizeBlock}</span>
+          )}
           {/* S4a (U16): the automatic check of this sheet is running. No button starts it and
               no AI is named; the chip clears by itself when the check ends. */}
           {checkRunning && (
@@ -830,6 +855,8 @@ const SheetReviewPage = () => {
       {checkIncomplete && (
         <CheckIncompleteBanner onReparse={readOnly ? undefined : handleReparseFromBanner} />
       )}
+      {/* S6 (U1): the automatic check never ran on this sheet (and it changed since its commit). */}
+      {checkNotRun && <CheckNotRunBanner />}
       {/* S4b (U1): more than 40% of the rows are flagged -- advice only. */}
       {heavyBanner && <HeavySheetBanner text={heavyBanner} />}
 

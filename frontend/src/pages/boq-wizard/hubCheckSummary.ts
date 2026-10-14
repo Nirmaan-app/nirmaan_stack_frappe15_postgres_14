@@ -50,7 +50,8 @@ const NOTHING: CardCheck = { chip: null, stageSub: null, lines: [], note: null }
 /**
  * What one sheet card shows about the check. `effectiveStatus` is the card's own status; only a
  * Parsed or Finalized sheet has anything to say. A sheet parsed before the check existed
- * (`not_run`) and a sheet with no flagged row show nothing -- the card is exactly as before.
+ * (`not_run`) and a sheet with no flagged row show nothing here -- the card is exactly as before;
+ * S6's "not checked" line comes from `cardNotChecked`, which needs the commit state too.
  */
 export function cardCheck(
   effectiveStatus: string,
@@ -73,6 +74,22 @@ export function cardCheck(
     lines.push({ text: CARD_ALL_CHECKED, tone: "ok" });
   }
   return { chip: null, stageSub: null, lines, note };
+}
+
+// S6 (U1, owner rulings V1 / Q-i): a sheet whose automatic check never ran must not look like a
+// clean, checked sheet -- but only while that matters: the sheet was never committed, or was
+// re-parsed after its last commit. A committed sheet unchanged since shows nothing.
+export const CARD_NOT_CHECKED = "not checked";
+
+/** The extra card line for a not-checked sheet, or null. `changedSinceCommit` from hubState. */
+export function cardNotChecked(
+  effectiveStatus: string,
+  summary: CheckSummary | null | undefined,
+  changedSinceCommit: boolean,
+): CardCheckLine | null {
+  if (!summary || summary.check_running || summary.check_status !== "not_run") return null;
+  if (effectiveStatus !== "Parsed" && effectiveStatus !== "Finalized") return null;
+  return changedSinceCommit ? { text: CARD_NOT_CHECKED, tone: "attention" } : null;
 }
 
 /** Is the check of any sheet of this BoQ running? Drives the hub's poll. */
@@ -102,6 +119,22 @@ export function footerRowsToCheck(
   return total > 0 ? ` · ${rowsToCheck(total)}` : "";
 }
 
+/**
+ * The footer's " · N not checked" (U1), N = sheets among `sheetNames` (Parsed or Finalized,
+ * VERBATIM) whose check never ran and that changed since their last commit; "" at zero.
+ */
+export function footerNotChecked(
+  sheetNames: readonly string[],
+  sheets: Record<string, CheckSummary> | null | undefined,
+  changed: ReadonlySet<string>,
+): string {
+  if (!sheets) return "";
+  const n = sheetNames.filter(
+    (name) => sheets[name]?.check_status === "not_run" && !sheets[name]?.check_running && changed.has(name),
+  ).length;
+  return n > 0 ? ` · ${n} not checked` : "";
+}
+
 // ── The "Parse complete" summary ─────────────────────────────────────────────
 
 export const SUMMARY_TO_CHECK_TITLE = "Rows to check before finalizing";
@@ -111,6 +144,9 @@ export interface ParseSummary {
   checkedLine: string | null;
   /** "Parsed: C" -- parsed sheets with no finished or failed check on record (the old wording). */
   parsedLine: string | null;
+  /** "Parsed, not checked: D" -- parsed sheets whose check never ran (S6 U1). A sheet this parse
+   *  just parsed has changed since any commit, so Q-i's rule always holds here. */
+  notCheckedLine: string | null;
   /** One line per sheet that has rows to check: "A 6 of 38 rows (15.8%)". */
   toCheckLines: string[];
   /** One line per sheet whose check did not finish. */
@@ -127,12 +163,14 @@ export function parseSummary(
 ): ParseSummary {
   const checked: string[] = [];
   const plain: string[] = [];
+  const notChecked: string[] = [];
   const toCheckLines: string[] = [];
   const incompleteLines: string[] = [];
   for (const name of parsedSheetNames) {
     const summary = sheets?.[name];
     const label = displayName(name);
     if (summary?.check_status === "done") checked.push(label);
+    else if (summary?.check_status === "not_run" && !summary.check_running) notChecked.push(label);
     else if (summary?.check_status === "incomplete") {
       incompleteLines.push(
         `Check didn't finish: ${label} - only the quantity / unit check ran. Re-parse the sheet to try again.`,
@@ -148,6 +186,7 @@ export function parseSummary(
   return {
     checkedLine: checked.length > 0 ? `Parsed and checked: ${checked.join(", ")}` : null,
     parsedLine: plain.length > 0 ? `Parsed: ${plain.join(", ")}` : null,
+    notCheckedLine: notChecked.length > 0 ? `Parsed, not checked: ${notChecked.join(", ")}` : null,
     toCheckLines,
     incompleteLines,
   };

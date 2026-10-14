@@ -64,6 +64,12 @@ _ASSIGNABLE_CLASSIFICATIONS: frozenset[str] = frozenset({
     "line_item", "preamble", "note", "spacer",
 })
 
+# S6 F6 (S5 DEF-06, owner V3-2 / Q-d): the REVIEW screen may also set "Subtotal" -- a missed subtotal
+# could not be fixed. Used ONLY by save_review_edit's and save_review_restructure's target checks.
+# The shared set above stays as it is (the template paths import it and still refuse subtotal), and
+# header_repeat stays parser-only everywhere.
+_REVIEW_ASSIGNABLE_CLASSIFICATIONS: frozenset[str] = _ASSIGNABLE_CLASSIFICATIONS | {"subtotal_marker"}
+
 # EA-6a slice 2. The note class is deliberately declared HERE and not added to
 # commit_validation's taxonomy block: that module owns the classes the COMMIT branches on
 # (priceable vs grid-only), and "note" is neither -- it is the class whose ATTACHMENT this
@@ -2123,11 +2129,11 @@ def save_review_edit(
         # FROM-but-not-TO (Slice 1b-alpha): only the 4 ASSIGNABLE classes may be set as
         # a target. subtotal_marker / header_repeat remain valid FROM states + reads (the
         # full vocab) but can never be assigned manually. value=None/"" clears.
-        if value and value not in _ASSIGNABLE_CLASSIFICATIONS:
+        if value and value not in _REVIEW_ASSIGNABLE_CLASSIFICATIONS:
             frappe.throw(
                 f"'{value}' is a parser-only classification and cannot be assigned "
                 f"manually; assignable classes are: "
-                f"{', '.join(sorted(_ASSIGNABLE_CLASSIFICATIONS))}.",
+                f"{', '.join(sorted(_REVIEW_ASSIGNABLE_CLASSIFICATIONS))}.",
                 title="Invalid classification",
             )
         # value=None or "" clears the override -- leave as-is for the write step
@@ -2367,11 +2373,11 @@ def save_review_restructure(
         frappe.throw("row_index must be an integer.", title="Invalid row_index")
 
     # FROM-but-not-TO: only the 4 assignable classes are valid write targets.
-    if new_classification not in _ASSIGNABLE_CLASSIFICATIONS:
+    if new_classification not in _REVIEW_ASSIGNABLE_CLASSIFICATIONS:
         frappe.throw(
             f"'{new_classification}' is a parser-only classification and cannot be "
             f"assigned manually; assignable classes are: "
-            f"{', '.join(sorted(_ASSIGNABLE_CLASSIFICATIONS))}.",
+            f"{', '.join(sorted(_REVIEW_ASSIGNABLE_CLASSIFICATIONS))}.",
             title="Invalid classification",
         )
 

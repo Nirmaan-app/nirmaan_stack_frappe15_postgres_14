@@ -3408,16 +3408,37 @@ class TestSaveReviewRestructure(FrappeTestCase):
     # -- REJECT: FROM-but-not-TO (parser-only classes rejected as targets) --
 
     def test_reject_subtotal_marker_target(self):
+        """INVERTED in S6 (F6, owner V3-2 / Q-d; was: subtotal_marker rejected, nothing written).
+        The review screen may now set "Subtotal": the reclassify and its child move are written.
+        The negative half stays in test_reject_header_repeat_target below (header_repeat is still
+        refused) and in test_subtotal_stays_refused_on_the_shared_set."""
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="subtotal_marker",
+            child_moves={2: 4},
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(self._get_doc(1).human_classification, "subtotal_marker")
+        self.assertEqual(self._get_doc(2).human_parent, 4, "the child moves as the user chose")
+
+    def test_save_review_edit_accepts_subtotal_and_still_refuses_header_repeat(self):
+        """S6 F6 on the single-row path (a childless row): subtotal_marker is accepted;
+        header_repeat stays parser-only."""
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=3,
+                         field="human_classification", value="subtotal_marker")
+        self.assertEqual(self._get_doc(3).human_classification, "subtotal_marker")
         with self.assertRaises(frappe.ValidationError):
-            save_review_restructure(
-                boq_name=self.boq_name, sheet_name=self.sheet_name,
-                row_index=1, new_classification="subtotal_marker",
-                child_moves={2: 4},
-            )
-        self.assertFalse(self._get_doc(1).human_classification,
-                         "a rejected reclassify must not write the target")
-        self.assertEqual(self._get_doc(2).human_parent, -1,
-                         "a rejected reclassify must not move any child")
+            save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=2,
+                             field="human_classification", value="header_repeat")
+        self.assertFalse(self._get_doc(2).human_classification)
+
+    def test_subtotal_stays_refused_on_the_shared_set(self):
+        """S6 F6 negative: only the REVIEW set gains subtotal; the shared set the template paths
+        import is unchanged."""
+        from nirmaan_stack.api.boq.wizard import review_screen as rs
+        self.assertNotIn("subtotal_marker", rs._ASSIGNABLE_CLASSIFICATIONS)
+        self.assertEqual(rs._REVIEW_ASSIGNABLE_CLASSIFICATIONS - rs._ASSIGNABLE_CLASSIFICATIONS,
+                         {"subtotal_marker"})
 
     def test_reject_header_repeat_target(self):
         with self.assertRaises(frappe.ValidationError):

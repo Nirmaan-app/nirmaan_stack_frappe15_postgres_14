@@ -7,7 +7,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
 import type { BoQSheetDraft, CheckSummary, CommittedSheetState } from "./boqTypes";
-import { cardCheck } from "./hubCheckSummary";
+import { cardCheck, cardNotChecked } from "./hubCheckSummary";
+import { reparsedAfterCommitLine } from "./hubState";
 import {
   computeSheetStages,
   type StageAccent,
@@ -189,6 +190,11 @@ interface SheetCardProps {
    * no review rows -> the card shows nothing about the check (exactly as before S4b).
    */
   checkSummary?: CheckSummary;
+  /**
+   * S6 (F12 / Q-i): never committed, or re-parsed after its last commit (hubState). Drives the
+   * commit line's wording and whether a not-checked sheet says so. undefined => false.
+   */
+  changedSinceCommit?: boolean;
 }
 
 export function SheetCard({
@@ -207,6 +213,7 @@ export function SheetCard({
   downstreamState,
   isTemplateOrigin,
   checkSummary,
+  changedSinceCommit,
 }: SheetCardProps) {
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelInput, setLabelInput] = useState("");
@@ -384,6 +391,9 @@ export function SheetCard({
   // "Parsed · check in progress" in place of the parse date.
   const check = cardCheck(effectiveStatus, checkSummary);
   if (check.stageSub) zone2DynamicSub = check.stageSub;
+  // S6 (U1): "not checked" for a sheet whose check never ran -- only while it changed since commit.
+  const notChecked = cardNotChecked(effectiveStatus, checkSummary, !!changedSinceCommit);
+  const checkLines = notChecked ? [...check.lines, notChecked] : check.lines;
 
   // The zones actually rendered: ① always; ② unless N/A (aside skip/hidden/general-specs);
   // ③ unless hidden (uncommitted aside / general-specs). Aside cards collapse to one zone.
@@ -775,9 +785,16 @@ export function SheetCard({
                               </span>
                             )
                           )}
-                          <span className="text-[10.5px] italic text-muted-foreground/60">
-                            Ready for tendering &mdash; click Tendering below.
-                          </span>
+                          {/* S6 (U10): a sheet re-parsed after its commit says the commit is behind. */}
+                          {changedSinceCommit ? (
+                            <span className="text-[10.5px] italic text-amber-700 dark:text-amber-400">
+                              {reparsedAfterCommitLine(committedState.commit_version)}
+                            </span>
+                          ) : (
+                            <span className="text-[10.5px] italic text-muted-foreground/60">
+                              Ready for tendering &mdash; click Tendering below.
+                            </span>
+                          )}
                         </div>
                       </div>
                     ) : n === 3 && effectiveStatus === "Finalized" && !committedState ? (
@@ -806,11 +823,11 @@ export function SheetCard({
 
                   {/* S4b (U4, U5): rows to check / all checked / check incomplete -- under the
                       Review step. Nothing on a sheet with no flagged row or no check on record. */}
-                  {n === 2 && (check.lines.length > 0 || check.note) && (
+                  {n === 2 && (checkLines.length > 0 || check.note) && (
                     <div className="mt-1.5 pl-[84px] text-xs">
-                      {check.lines.length > 0 && (
+                      {checkLines.length > 0 && (
                         <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                          {check.lines.map((line) => (
+                          {checkLines.map((line) => (
                             <span
                               key={line.text}
                               className={cn(
