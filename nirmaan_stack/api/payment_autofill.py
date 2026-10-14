@@ -17,7 +17,7 @@ from nirmaan_stack.services.extraction.helpers import (
     normalize_utr,
     pick_entity,
 )
-from nirmaan_stack.services.payees.links import vendor_accounts
+from nirmaan_stack.services.payees.vendor_account import vendor_accounts
 from nirmaan_stack.services.role_profiles import assert_cheque_form_access
 
 MIN_CONFIDENCE = 0.70
@@ -246,7 +246,7 @@ def match_payee_to_vendor(payee, vendor):
 
 def _vendor_match(vendor, extracted):
     """`extracted` (a name read off a document) fuzzy-compared with the Vendor's display name and the
-    holder name of its current Payee (`payees.links.vendor_accounts`); a hit on EITHER is a match. No
+    holder name of its current Payee (`payees.vendor_account.vendor_accounts`); a hit on EITHER is a match. No
     vendor or no name is None, never False."""
     result = {
         "expected_name": "",
@@ -259,13 +259,12 @@ def _vendor_match(vendor, extracted):
         return result  # no vendor → nothing to compare
 
     try:
-        account = next(iter(vendor_accounts([vendor])), None)
+        vendor_name = frappe.db.get_value("Vendors", vendor, "vendor_name")
+        account = vendor_accounts([vendor]).get(vendor) or {}
     except Exception:
         return result
-    if account is None:
-        return result  # no such vendor
-    result["expected_name"] = (account.vendor_name or "").strip()
-    result["expected_account_name"] = (account.account_name or "").strip()
+    result["expected_name"] = (vendor_name or "").strip()
+    result["expected_account_name"] = (account.get("account_name") or "").strip()
 
     # Match if the beneficiary hits EITHER the display name or the bank account
     # holder name. match stays None ("can't verify") only when both comparisons

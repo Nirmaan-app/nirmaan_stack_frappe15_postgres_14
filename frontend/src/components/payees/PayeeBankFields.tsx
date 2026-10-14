@@ -135,10 +135,7 @@ export function PayeeBankFields({ payeeForm, disabled, layout = "dialog", duplic
                             {duplicateAction ? (
                                 duplicateAction(duplicate)
                             ) : (
-                                <Link
-                                    to={payeeHref(duplicate.name, duplicate.status)}
-                                    className="font-semibold text-red-700 hover:underline"
-                                >
+                                <Link to={payeeHref(duplicate.name)} className="font-semibold text-red-700 hover:underline">
                                     Open {duplicate.name}
                                 </Link>
                             )}

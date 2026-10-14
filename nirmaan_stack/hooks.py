@@ -216,6 +216,9 @@ doc_events = {
         "on_update": "nirmaan_stack.integrations.controllers.project_progress_reports.relink_attachment_files"
     },
     "Vendors": {
+        # An Inactive Payee can't be newly picked (#1423, spec #1420); the same controller runs on
+        # every doctype that links a Payee.
+        "validate": "nirmaan_stack.integrations.controllers.payee_links.validate",
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.generate_vendor_category",
         # IMPLEMENT ON_UPDATE
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.update_vendor_category",
@@ -349,7 +352,10 @@ doc_events = {
     # live `Outflow Row Match` slips. Its `on_trash` comes FIRST so a refused delete never mints a
     # version row for a document that is still there.
     "Non Project Expenses": {
-        "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+        "validate": [
+            "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+            "nirmaan_stack.integrations.controllers.payee_links.validate",
+        ],
         # Both exit immediately unless the row is transitioning INTO Paid, so the ~700
         # ordinary saves cost one field comparison each. STATE FIRST, then the telling:
         # the request must already read Paid by the time the requester is notified.
@@ -368,7 +374,10 @@ doc_events = {
         "after_delete": "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
     },
     "Project Expenses": {
-        "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+        "validate": [
+            "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+            "nirmaan_stack.integrations.controllers.payee_links.validate",
+        ],
         "after_insert": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
         "on_update": [
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
@@ -424,6 +433,9 @@ doc_events = {
     # ADR-0033). The Payee module (`services/payees/`) is the only code that creates a Payee.
     "Payee": {
         "validate": "nirmaan_stack.integrations.controllers.payee.validate",
+    },
+    "Expense Request": {
+        "validate": "nirmaan_stack.integrations.controllers.payee_links.validate",
     },
     "Material Test Certificate": {
         "validate": "nirmaan_stack.integrations.controllers.material_test_certificate.validate",

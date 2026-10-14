@@ -12,8 +12,7 @@ const vendorPayment = (over: Partial<BankFileRow> = {}): BankFileRow => ({
 	documentName: "PO/001/26-27",
 	amount: 125000.5,
 	projectLabel: "Tower A",
-	vendorName: "Acme Traders",
-	account: { holderName: "ACME TRADERS PVT LTD", accountNumber: "0050200012345", ifsc: "HDFC0001234" },
+	payee: { account_name: "ACME TRADERS PVT LTD", account_number: "0050200012345", ifsc: "HDFC0001234" },
 	...over,
 });
 
@@ -21,7 +20,7 @@ const ICICI = { format: "icici", paymentMode: "IMPS", debitAccountNumber: "09370
 const CASHFREE = { format: "cashfree", paymentMode: "NEFT", debitAccountNumber: "093705003327", now: NOW } as const;
 
 describe("buildBankFile — ICICI", () => {
-	it("writes today's PAB_VENDOR columns, in today's order", () => {
+	it("pays a vendor payment into the vendor's Payee, in today's PAB_VENDOR columns and order", () => {
 		const file = buildBankFile([vendorPayment()], ICICI);
 
 		expect(file.csv).toBe(
@@ -46,28 +45,25 @@ describe("buildBankFile — Cashfree", () => {
 		);
 	});
 
-	it("names the vendor when the account holder name has no letters in it", () => {
-		const numberTypedAsName = vendorPayment({
-			vendorName: "SAFETYWALA EQUIPMENTS LLP",
-			account: { holderName: " 50200012345 ", accountNumber: "50200012345", ifsc: "HDFC0001234" },
-		});
-		const blankName = vendorPayment({
-			vendorName: "Blank Name Co",
-			account: { holderName: "", accountNumber: "1234", ifsc: "SBIN0000001" },
-		});
-
-		const file = buildBankFile([numberTypedAsName, blankName], CASHFREE);
-
-		expect(file.rows.map((r) => r.name)).toEqual(["SAFETYWALA EQUIPMENTS LLP", "Blank Name Co"]);
-	});
-
-	it("keeps a holder name that has letters, trimmed", () => {
+	it("names the beneficiary by the Payee's holder name, never the vendor's", () => {
 		const file = buildBankFile(
-			[vendorPayment({ account: { holderName: "  R. Kumar  ", accountNumber: "1234", ifsc: "SBIN0000001" } })],
+			[vendorPayment({ payee: { account_name: "SAFETYWALA EQUIPMENTS LLP", account_number: "50200012345", ifsc: "HDFC0001234" } })],
 			CASHFREE,
 		);
 
-		expect(file.rows[0].name).toBe("R. Kumar");
+		expect(file.rows[0].name).toBe("SAFETYWALA EQUIPMENTS LLP");
+	});
+
+	it("keeps the holder name as the Payee holds it, trimmed, even when it is not a name", () => {
+		const file = buildBankFile(
+			[
+				vendorPayment({ payee: { account_name: "  R. Kumar  ", account_number: "1234", ifsc: "SBIN0000001" } }),
+				vendorPayment({ payee: { account_name: " 50200012345 ", account_number: "50200012345", ifsc: "HDFC0001234" } }),
+			],
+			CASHFREE,
+		);
+
+		expect(file.rows.map((r) => r.name)).toEqual(["R. Kumar", "50200012345"]);
 	});
 });
 
@@ -85,55 +81,47 @@ describe("buildBankFile — rows left out", () => {
 		documentName: "Site diesel",
 		amount: 900,
 		projectLabel: "Tower A",
-		vendorName: "Acme Traders",
-		account: { holderName: "ACME TRADERS PVT LTD", accountNumber: "0050200012345", ifsc: "HDFC0001234" },
+		payee: { account_name: "ACME TRADERS PVT LTD", account_number: "0050200012345", ifsc: "HDFC0001234" },
 	};
-	const noIfsc = vendorPayment({
-		documentName: "PO/002/26-27",
-		account: { holderName: "X", accountNumber: "1234", ifsc: "  " },
-	});
-	const noAccountNumber = vendorPayment({
-		documentName: "PO/003/26-27",
-		account: { holderName: "X", accountNumber: "", ifsc: "SBIN0000001" },
-	});
-	const noAccountAtAll = vendorPayment({ documentName: "PO/004/26-27", account: undefined });
+	const noPayee = (documentName: string) => vendorPayment({ documentName, payee: undefined });
+	const [noPayee2, noPayee3, noPayee4] = ["PO/002/26-27", "PO/003/26-27", "PO/004/26-27"].map(noPayee);
 
-	it("leaves out expenses, and vendor payments missing the account number or IFSC, saying why", () => {
+	it("leaves out expenses, and vendor payments whose vendor has no Payee, saying why", () => {
 		const payable = vendorPayment();
-		const file = buildBankFile([expense, noIfsc, payable, noAccountNumber, noAccountAtAll], ICICI);
+		const file = buildBankFile([expense, noPayee2, payable, noPayee3, noPayee4], ICICI);
 
 		expect(file.rows.map((r) => r.REMARK)).toEqual(["PO/001/26-27"]);
 		expect(file.leftOut).toEqual([
 			{ row: expense, reason: "expense" },
-			{ row: noIfsc, reason: "no_account" },
-			{ row: noAccountNumber, reason: "no_account" },
-			{ row: noAccountAtAll, reason: "no_account" },
+			{ row: noPayee2, reason: "no_payee" },
+			{ row: noPayee3, reason: "no_payee" },
+			{ row: noPayee4, reason: "no_payee" },
 		]);
 	});
 
 	it("numbers Cashfree transferIds over the rows in the file only", () => {
-		const file = buildBankFile([noIfsc, vendorPayment(), expense, vendorPayment()], CASHFREE);
+		const file = buildBankFile([noPayee2, vendorPayment(), expense, vendorPayment()], CASHFREE);
 
 		expect(file.rows.map((r) => r.transferId)).toEqual([`${STAMP}01`, `${STAMP}02`]);
 	});
 
 	it("produces an empty file when no row can be paid", () => {
-		const file = buildBankFile([expense, noIfsc], ICICI);
+		const file = buildBankFile([expense, noPayee2], ICICI);
 
 		expect(file.rows).toEqual([]);
 		expect(file.leftOut).toHaveLength(2);
 	});
 
 	it("names the left-out rows the way the toast says them", () => {
-		const fourNoBank = [noIfsc, noAccountNumber, noAccountAtAll, vendorPayment({ documentName: "PO/005/26-27", account: undefined })];
+		const fourNoPayee = [noPayee2, noPayee3, noPayee4, noPayee("PO/005/26-27")];
 
 		expect(describeLeftOut(buildBankFile([expense], ICICI).leftOut)).toEqual(["1 expense (no vendor)"]);
-		expect(describeLeftOut(buildBankFile([noIfsc], ICICI).leftOut)).toEqual([
-			"1 payment with no vendor bank account / IFSC (PO/002/26-27)",
+		expect(describeLeftOut(buildBankFile([noPayee2], ICICI).leftOut)).toEqual([
+			"1 payment whose vendor has no Payee (PO/002/26-27)",
 		]);
-		expect(describeLeftOut(buildBankFile([expense, expense, ...fourNoBank], ICICI).leftOut)).toEqual([
+		expect(describeLeftOut(buildBankFile([expense, expense, ...fourNoPayee], ICICI).leftOut)).toEqual([
 			"2 expenses (no vendor)",
-			"4 payments with no vendor bank account / IFSC (PO/002/26-27, PO/003/26-27, PO/004/26-27, …)",
+			"4 payments whose vendor has no Payee (PO/002/26-27, PO/003/26-27, PO/004/26-27, …)",
 		]);
 		expect(describeLeftOut([])).toEqual([]);
 	});

@@ -8,7 +8,8 @@ page's Change account (#1426) share it.
   `matching.rank_payees` (same PAN of a linked vendor first, then name), each with its links.
 * `payee_choices` / `payee_choice` -- what the confirmation shows before a vendor is pointed at a
   Payee: its summary, every linked vendor and expense, and its last payment.
-* `assert_pickable` -- an Inactive Payee (or none) can't be newly picked.
+* `assert_pickable` -- an Inactive Payee (or none) can't be newly picked: the form's early refusal,
+  in `rules.inactive_pick_problem`'s words. `guard.check_payee_pick` refuses it on every save.
 * `choose_payee` -- the vendor's Payee from the form's answer: an existing one (pickable), or new
   bank details made into a Payee by `writer.create_payee`.
 
@@ -22,7 +23,7 @@ from frappe import _
 
 from nirmaan_stack.services.payees.links import payee_summaries
 from nirmaan_stack.services.payees.matching import Candidate, LinkedVendor, rank_payees
-from nirmaan_stack.services.payees.rules import ACTIVE, PAID_STATUSES, PAYEE_DOCTYPE
+from nirmaan_stack.services.payees.rules import ACTIVE, PAID_STATUSES, PAYEE_DOCTYPE, inactive_pick_problem
 from nirmaan_stack.services.payees.writer import create_payee
 
 _PAID = ", ".join(f"'{status}'" for status in PAID_STATUSES)
@@ -129,7 +130,7 @@ def assert_pickable(name: str) -> None:
     if status is None:
         frappe.throw(_("Payee {0} does not exist.").format(name))
     if status != ACTIVE:
-        frappe.throw(_("{0} is {1}: it can't be picked for a vendor or an expense.").format(name, status))
+        frappe.throw(_(inactive_pick_problem(name)))
 
 
 def choose_payee(payee: str | None = None, bank: dict | None = None) -> str:

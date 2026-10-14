@@ -254,7 +254,7 @@ anything. A name is a scoring form, never an identity.
 
 **A vendor's account is its CURRENT Payee's** (#1427, [ADR-0033](../../../docs/adr/0033-payee-is-one-bank-account.md)).
 `candidates.load_vendor_index` reads account, IFSC and holder name through
-`services/payees/links.vendor_accounts`, never from a vendor field. A Payee shared by several vendors
+`services/payees/vendor_account.vendor_accounts`, never from a vendor field. A Payee shared by several vendors
 admits a payment of ANY of them at tier 1 (the shared-account rule above, unchanged). A line paid to a
 vendor's PREVIOUS Payee reaches no tier 1 and is matched by hand: v1 keeps no Payee history (ADR-0033
 "Not in v1"). Refund suggestions read the same index. Tests: `services/outflow_import/test_vendor_payee_index.py`.
