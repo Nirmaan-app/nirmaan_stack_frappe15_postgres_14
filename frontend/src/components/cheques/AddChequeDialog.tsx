@@ -76,7 +76,7 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved, cheque }: AddCheq
     };
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[960px]">
+            <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-6xl">
                 <DialogHeader>
                     <DialogTitle>{editing ? `Edit Cheque ${detail?.cheque_no ?? ""}` : "Add Cheque"}</DialogTitle>
                     <DialogDescription>
@@ -168,6 +168,8 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
         }
     };
 
+    // While a save is in flight (validation included) the form cannot be sent again: a second send of
+    // the same cheque is refused as a duplicate after the first one saved and closed the dialog.
     const onSubmit = async (values: ChequeFormValues) => {
         try {
             const res = await saveCheque(edit ? editChequeArgs(edit.name, values) : saveChequeArgs(values));
@@ -188,7 +190,9 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
 
     return (
         <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            {/* min-w-0: a grid item of the dialog, it would otherwise grow to the lines table's width and
+                scroll the whole dialog sideways; the table scrolls in its own box instead. */}
+            <form onSubmit={form.handleSubmit(onSubmit)} className="min-w-0 space-y-4">
                 {lockHint && (
                     <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">{lockHint}</p>
                 )}
@@ -341,7 +345,10 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
                     )}
                 />
                 {payeeKind === "vendor" ? (
+                    // Keyed: the two payee boxes share this spot, and a reused Controller would keep
+                    // showing the Vendor box's value in the typed-name box (a photo's payee missing).
                     <FormField
+                        key="vendor"
                         control={form.control}
                         name="vendor"
                         render={({ field }) => (
@@ -382,6 +389,7 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
                     />
                 ) : (
                     <FormField
+                        key="payee_name"
                         control={form.control}
                         name="payee_name"
                         render={({ field }) => (
@@ -426,7 +434,7 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
                 />
                 <DialogFooter>
                     <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-                    <Button type="submit" disabled={saving || uploading || reader.reading}>
+                    <Button type="submit" disabled={form.formState.isSubmitting || saving || uploading || reader.reading}>
                         {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         {edit ? "Save changes" : "Save Cheque"}
                     </Button>

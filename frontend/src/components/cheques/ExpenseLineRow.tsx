@@ -38,7 +38,7 @@ interface ExpenseLineRowProps {
  * a Non Project Expense only. The picker hides expenses already on a live Cheque and says how many.
  */
 export const ExpenseLineRow = ({ index, disabled, cheque, onRemove }: ExpenseLineRowProps) => {
-    const { control, setValue } = useFormContext<ChequeFormInput>();
+    const { control, setValue, formState } = useFormContext<ChequeFormInput>();
     const line = useWatch({ control, name: `lines.${index}` }) as ChequeLineDraft;
     const needs = LINE_NEEDS[line.line_type];
     const projects = useAllProjects();
@@ -46,8 +46,9 @@ export const ExpenseLineRow = ({ index, disabled, cheque, onRemove }: ExpenseLin
     const expenseOptions = (eligible?.expenses ?? []).map((e) => ({ value: e.name, label: expenseLabel(e), amount: e.amount }));
     const hidden = hiddenExpensesText(eligible?.hidden);
 
+    // Validated only once the form was submitted, as in `PoWoLineRow`: no stale "Pick the ..." error.
     const set = (name: keyof ChequeLineDraft, value: string | number) =>
-        setValue(`lines.${index}.${name}`, value, { shouldValidate: true, shouldDirty: true });
+        setValue(`lines.${index}.${name}`, value, { shouldValidate: formState.isSubmitted, shouldDirty: true });
 
     return (
         <TableRow className="align-top">

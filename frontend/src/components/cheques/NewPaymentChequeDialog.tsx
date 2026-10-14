@@ -18,7 +18,7 @@ import {
 } from "@/pages/ProjectPayments/paymentMode";
 import { forecastTds } from "@/pages/ProjectPayments/tdsForecast";
 import type { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { newChequeStatusHint, PUT_ON_NEW_CHEQUE_API, tdsStillToWithhold } from "@/utils/cheques/paymentChequeActions";
 
@@ -81,11 +81,11 @@ export const NewPaymentChequeDialog = ({ payment, kind, onClose, onDone }: NewPa
 
     return (
         <Dialog open onOpenChange={(o) => !o && !loading && onClose()}>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-xl">
                 <DialogHeader>
                     <DialogTitle>{copy.title}</DialogTitle>
                     <DialogDescription>
-                        Payment {payment.name}, {formatToRoundedIndianRupee(payment.amount)}, {payment.status}.
+                        Payment {payment.name}, {formatToIndianRupeeOrZero(payment.amount)}, {payment.status}.
                         {kind === "link_new" && payment.cheque && " Its cancelled cheque stays as history."}
                     </DialogDescription>
                 </DialogHeader>

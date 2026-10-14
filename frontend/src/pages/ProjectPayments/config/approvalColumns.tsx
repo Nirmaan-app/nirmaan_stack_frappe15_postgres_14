@@ -718,7 +718,8 @@ const REGISTRY: Record<
     id: "utr_ref",
     accessorKey: "utr_ref",
     header: ({ column }) => <DataTableColumnHeader column={column} title="UTR / Ref" />,
-    size: 150,
+    // Wide enough for a whole cheque chip ("Cheque 004521 · Issued").
+    size: 200,
     // A cheque payment shows its cheque chip (spec #1407), which opens the Cheque; once reconciled,
     // its UTR sits under the chip. An Online payment shows its UTR as before.
     cell: ({ row }) => {

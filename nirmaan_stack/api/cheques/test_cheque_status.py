@@ -258,6 +258,8 @@ class TestChequeStatus(FrappeTestCase):
         cheque = self._cheque(payment)
         change_cheque_status(cheque, "Cleared", note="banked")
         change_cheque_status(cheque, "Issued", note="bank returned it")
+        # The fixture names a project by its ID; give it a name of its own. No hook reads project_name.
+        frappe.db.set_value("Projects", self.project, "project_name", "Cheque Detail Tower")
 
         detail = get_cheque(cheque)
 
@@ -267,6 +269,8 @@ class TestChequeStatus(FrappeTestCase):
             [(l["record_name"], l["payment_name"], l["payment_status"], flt(l["amount"])) for l in detail["lines"]],
             [(self.sr, payment, "Requested", 30000.0)],
         )
+        # The project by name, as the report row shows it, not its ID.
+        self.assertEqual([(l["project"], l["project_name"]) for l in detail["lines"]], [(self.project, "Cheque Detail Tower")])
         self.assertEqual(
             [(h["from_status"], h["to_status"], h["note"]) for h in detail["history"]],
             [(None, "Issued", None), ("Issued", "Cleared", "banked"), ("Cleared", "Issued", "bank returned it")],

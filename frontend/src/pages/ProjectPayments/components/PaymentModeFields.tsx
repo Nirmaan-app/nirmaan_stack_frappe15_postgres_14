@@ -230,7 +230,7 @@ export const PaymentModeFields = ({
 						</div>
 						<div className="space-y-1">
 							<Label htmlFor="cheque-amount" className="text-xs">
-								Cheque amount (₹)<Required />{fromPhoto("amount") && <FromPhotoTag />}
+								Amount (₹)<Required />{fromPhoto("amount") && <FromPhotoTag />}
 							</Label>
 							<Input
 								id="cheque-amount"

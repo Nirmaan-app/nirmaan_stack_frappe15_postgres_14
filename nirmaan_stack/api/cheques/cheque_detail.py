@@ -23,6 +23,13 @@ def _full_names(users) -> dict:
     return dict(frappe.get_all("User", filters={"name": ["in", users]}, fields=["name", "full_name"], as_list=True))
 
 
+def _project_names(projects) -> dict:
+    projects = sorted({p for p in projects if p})
+    if not projects:
+        return {}
+    return dict(frappe.get_all("Projects", filters={"name": ["in", projects]}, fields=["name", "project_name"], as_list=True))
+
+
 def _statuses(doctype: str, names) -> dict:
     names = sorted({n for n in names if n})
     if not names or not frappe.db.has_column(doctype, "status"):
@@ -34,7 +41,7 @@ def _statuses(doctype: str, names) -> dict:
 def get_cheque(name: str) -> dict:
     """One Cheque as the detail view shows it.
 
-    `lines` carry each payment's current `payment_status`; `history` is oldest first, each row with
+    `lines` carry each payment's current `payment_status` and the project's `project_name`; `history` is oldest first, each row with
     the changer's full name. `bank_label` is the typed name for an Others bank.
     """
     assert_cheque_access(frappe.session.user)
@@ -47,11 +54,13 @@ def get_cheque(name: str) -> dict:
     statuses = {}
     for doctype in {row.payment_doctype for row in lines if row.payment_doctype}:
         statuses[doctype] = _statuses(doctype, [row.payment_name for row in lines if row.payment_doctype == doctype])
+    project_names = _project_names(row.project for row in lines)
     out["lines"] = [
         {
             "idx": row.idx,
             "line_type": row.line_type,
             "project": row.project,
+            "project_name": project_names.get(row.project),
             "record_doctype": row.record_doctype,
             "record_name": row.record_name,
             "payment_doctype": row.payment_doctype,

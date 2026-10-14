@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useFrappePostCall } from "frappe-react-sdk";
+import { useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import useSWR from "swr";
 
@@ -20,6 +20,8 @@ import {
     type ChequeStatusesResult,
 } from "@/utils/cheques/chequeStatus";
 import { getFrappeError } from "@/utils/frappeErrors";
+
+import { chequeDetailKey } from "./useChequeDetail";
 
 interface ChangeChequeStatusDialogProps {
     /** The Cheques to move (one from a row, several from the bulk bar). */
@@ -48,6 +50,7 @@ export const ChangeChequeStatusDialog = ({ cheques, currentStatus, onClose, onDo
     const { call: changeMany, loading: changingMany } = useFrappePostCall<{ message: ChequeStatusesResult }>(CHEQUE_STATUSES_API);
     const { call: changeOne, loading: changingOne } = useFrappePostCall<{ message: { status: ChequeStatus } }>(CHEQUE_STATUS_API);
 
+    const { mutate } = useSWRConfig();
     const single = cheques.length === 1;
     const { data: preview, isValidating: previewing } = useSWR(
         ["cheque-status-preview", cheques.join("|"), target],
@@ -76,6 +79,9 @@ export const ChangeChequeStatusDialog = ({ cheques, currentStatus, onClose, onDo
                     variant: r.message.skipped.length ? "default" : "success",
                 });
             }
+            // A detail view open on these Cheques shows the new status and history at once, without
+            // waiting on the realtime event.
+            cheques.forEach((cheque) => mutate(chequeDetailKey(cheque)));
             onDone();
             onClose();
         } catch (e) {

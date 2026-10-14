@@ -96,12 +96,13 @@ interface TransactionDetailsCardProps {
     totalWithTax: number
   }
   AllPoPaymentsListMutate: any
-  /** After a waiting refund is cancelled or marked received (#1403): refetch the PO (its paid amount). */
-  onRefundChanged?: () => void
+  /** After a waiting refund is cancelled or marked received (#1403), or a payment's cheque changes
+      (#1416): refetch the PO (its paid amount, its payment terms' statuses) and its payments. */
+  onPOChanged: () => void
 }
 
 export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
-  estimatesViewing, PO, getTotal, amountPaid, poPayments, poPaymentsMutate, AllPoPaymentsListMutate, onRefundChanged
+  estimatesViewing, PO, getTotal, amountPaid, poPayments, poPaymentsMutate, AllPoPaymentsListMutate, onPOChanged
 }) => {
 
   const { role } = useUserData();
@@ -368,7 +369,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                       refund={row.refund}
                       actions={
                         PO?.name && !estimatesViewing ? (
-                          <WaitingRefundActions refund={row.refund} poId={PO.name} onChanged={onRefundChanged} />
+                          <WaitingRefundActions refund={row.refund} poId={PO.name} onChanged={onPOChanged} />
                         ) : null
                       }
                     />
@@ -431,10 +432,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                       <PaymentChequeActions
                         payment={payment}
                         chip={payment.cheque ? chequeChips[payment.cheque] : undefined}
-                        onChanged={() => {
-                          poPaymentsMutate();
-                          AllPoPaymentsListMutate?.();
-                        }}
+                        onChanged={onPOChanged}
                       />
                       {/* The row's status and the reader's role decide (`canDeletePayment`), the same on
                           every route that opens the PO. */}

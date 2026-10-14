@@ -13,6 +13,7 @@ export interface ChequeDetailLine {
     idx: number;
     line_type: ChequeLineType;
     project?: string | null;
+    project_name?: string | null;
     record_doctype?: string | null;
     record_name?: string | null;
     payment_doctype?: string | null;
@@ -54,12 +55,15 @@ export interface ChequeDetail {
     history: ChequeDetailHistory[];
 }
 
+/** The detail view's cache key for one Cheque: revalidate it after changing that Cheque. */
+export const chequeDetailKey = (name: string) => `cheque-detail-${name}`;
+
 /** The Cheque named `name` for the detail view, refetched whenever any Cheque changes. Idle when null. */
 export const useChequeDetail = (name: string | null) => {
     const { data, error, isLoading, mutate } = useFrappeGetCall<{ message: ChequeDetail }>(
         CHEQUE_DETAIL_API,
         { name },
-        name ? `cheque-detail-${name}` : null,
+        name ? chequeDetailKey(name) : null,
     );
     useFrappeEventListener(CHEQUES_CHANGED_EVENT, () => {
         if (name) mutate();

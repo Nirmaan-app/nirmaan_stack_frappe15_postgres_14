@@ -7,7 +7,7 @@ import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { chequeDateText } from "@/utils/cheques/chequeChip";
 import { getFrappeError } from "@/utils/frappeErrors";
 
@@ -76,7 +76,7 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, onChangeStatus }: Ch
                             <div className="grid grid-cols-2 gap-3 content-start">
                                 <Field label="Bank">{cheque.bank_label}</Field>
                                 <Field label="Cheque date">{chequeDateText(cheque.cheque_date)}</Field>
-                                <Field label="Amount">{formatToRoundedIndianRupee(cheque.amount)}</Field>
+                                <Field label="Amount">{formatToIndianRupeeOrZero(cheque.amount)}</Field>
                                 <Field label={cheque.vendor ? "Vendor" : "Payee"}>
                                     {cheque.vendor ? cheque.vendor_name || cheque.vendor : cheque.payee_name}
                                 </Field>

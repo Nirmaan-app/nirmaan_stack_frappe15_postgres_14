@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { chequeFormSchema, saveChequeArgs, type ChequeFormInput } from "./chequeForm";
+import { chequeFormSchema, linesErrorMessage, saveChequeArgs, type ChequeFormInput } from "./chequeForm";
 import type { ChequeLineDraft } from "./chequeLines";
 
 const PHOTO = "/private/files/cheque.jpg";
@@ -149,5 +149,19 @@ describe("saveChequeArgs", () => {
     it("drops a bank name typed before switching back to ICICI Bank", () => {
         const args = saveChequeArgs(chequeFormSchema.parse(valid({ bank_name: "HDFC Bank" })));
         expect(args.bank_name).toBeUndefined();
+    });
+});
+
+describe("linesErrorMessage", () => {
+    it("reads the lines' own error, nested at root by react-hook-form", () => {
+        expect(linesErrorMessage({ root: { message: "A PO or Work Order payment needs a cheque made out to a Vendor." } }))
+            .toBe("A PO or Work Order payment needs a cheque made out to a Vendor.");
+        expect(linesErrorMessage({ message: "Lines are wrong." })).toBe("Lines are wrong.");
+    });
+
+    it("shows nothing for errors on one line's boxes (no 'undefined')", () => {
+        const perLine = [{ record_name: { message: "Pick the PO or Work Order." } }];
+        expect(linesErrorMessage(perLine as never)).toBeUndefined();
+        expect(linesErrorMessage(undefined)).toBeUndefined();
     });
 });

@@ -73,7 +73,7 @@ export const PaymentChequeActions = ({ payment, chip, onChanged }: PaymentCheque
                 </Button>
             )}
             {buttons.switchOnline && (
-                <Button variant="ghost" size="sm" className={BUTTON} onClick={() => setSwitching(true)}>
+                <Button variant="outline" size="sm" className={BUTTON} onClick={() => setSwitching(true)}>
                     Switch to Online
                 </Button>
             )}

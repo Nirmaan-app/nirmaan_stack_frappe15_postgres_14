@@ -69,8 +69,8 @@ interface ChequeColumnActions {
 
 /**
  * The Cheque Payments report's columns (spec #1407): one row per Cheque. The cheque number and
- * "Details" open the detail view; "Status" opens Change status (#1412); "Edit" opens the Edit dialog
- * (#1418). The chevron beside the number expands the row into its lines (#1417; the page passes
+ * "View Cheque Details" open the detail view; "Change Cheque Status" opens Change status (#1412);
+ * "Edit Cheque Details" opens the Edit dialog (#1418), stacked one under the other (owner). The chevron beside the number expands the row into its lines (#1417; the page passes
  * `renderExpandedRow` to DataTable).
  *
  * The facet columns' ids (`status`, `bank_label`, `vendor`, `project`, `record_name`) are the
@@ -271,18 +271,18 @@ export const getChequePaymentColumns = ({ onOpen, onChangeStatus, onEdit, canEdi
         id: "actions",
         header: "Actions",
         cell: ({ row }) => (
-            <div className="flex items-center gap-1">
-                <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => onOpen(row.original.name)}>
-                    Details
+            <div className="flex flex-col items-stretch gap-1">
+                <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => onOpen(row.original.name)}>
+                    View Cheque Details
                 </Button>
                 {onEdit && canEdit?.(row.original) && (
                     <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => onEdit(row.original)}>
-                        Edit
+                        Edit Cheque Details
                     </Button>
                 )}
                 {onChangeStatus && (
                     <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => onChangeStatus(row.original)}>
-                        Status
+                        Change Cheque Status
                     </Button>
                 )}
             </div>

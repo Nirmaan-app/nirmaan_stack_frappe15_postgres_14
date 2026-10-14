@@ -1,5 +1,5 @@
 import type { ChequeLineType } from "@/types/NirmaanStack/Cheques";
-import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 
 /** One line as a read-only view shows it. `payment_status` only where the caller has it (the detail view). */
 export interface ChequeLineViewRow {
@@ -48,7 +48,7 @@ export function ChequeLinesView({ lines }: { lines: ChequeLineViewRow[] }) {
                                 )}
                             </td>
                             <td className="px-3 py-2 text-right whitespace-nowrap">
-                                {formatToRoundedIndianRupee(line.amount)}
+                                {formatToIndianRupeeOrZero(line.amount)}
                             </td>
                         </tr>
                     ))}

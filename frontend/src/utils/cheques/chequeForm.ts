@@ -136,3 +136,15 @@ export const saveChequeArgs = (v: ChequeFormValues): SaveChequeArgs => ({
     ...(v.attachment ? { attachment: v.attachment } : {}),
     ...(v.lines.length ? { lines: saveLineArgs(v.lines) } : {}),
 });
+
+/**
+ * The error on the lines as a whole (a PO/WO line on a typed payee), or undefined. Once the lines are
+ * a field array, react-hook-form nests that error at `root`; an error on one line's box is an array
+ * with no message of its own, and shows under that box instead.
+ */
+export const linesErrorMessage = (
+    error: { message?: unknown; root?: { message?: unknown } } | undefined,
+): string | undefined => {
+    const message = error?.root?.message ?? error?.message;
+    return typeof message === "string" && message ? message : undefined;
+};

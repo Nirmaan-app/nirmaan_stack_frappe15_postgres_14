@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { paymentsSwitchingToOnline, switchBackHint } from "@/utils/cheques/chequeEdit";
-import type { ChequeFormInput } from "@/utils/cheques/chequeForm";
+import { linesErrorMessage, type ChequeFormInput } from "@/utils/cheques/chequeForm";
 import {
     addLineOptions,
     conversionHint,
@@ -30,6 +30,9 @@ import { useEligiblePayments, useVendorRecords } from "./useChequePickers";
 
 /** Radix Select reserves "" for "no value", so "No payment yet" needs its own token. */
 const NO_PAYMENT = "__no_payment__";
+
+/** Lets a picked value's text shrink and clip inside its fixed column. */
+const TRIGGER = "[&>span]:min-w-0";
 
 const recordKind = (doctype: string) => (doctype === "Service Requests" ? "WO" : "PO");
 
@@ -57,8 +60,9 @@ interface ChequeLinesTableProps {
  * every rule.
  */
 export const ChequeLinesTable = ({ vendorPayee, vendor, disabled, cheque, recordedPayments = [] }: ChequeLinesTableProps) => {
-    const { control } = useFormContext<ChequeFormInput>();
+    const { control, formState } = useFormContext<ChequeFormInput>();
     const { fields, append, remove } = useFieldArray({ control, name: "lines" });
+    const linesError = linesErrorMessage(formState.errors.lines);
     const lines = (useWatch({ control, name: "lines" }) ?? []) as ChequeLineDraft[];
     const amount = useWatch({ control, name: "amount" });
     const { records } = useVendorRecords(vendorPayee ? vendor : undefined);
@@ -78,16 +82,18 @@ export const ChequeLinesTable = ({ vendorPayee, vendor, disabled, cheque, record
                 </div>
             )}
             {fields.length > 0 && (
+                // Fixed columns, so a long payment or expense label truncates in its box instead of
+                // widening the table; below the min width the table scrolls here, not the dialog.
                 <div className="overflow-x-auto rounded-md border">
-                    <Table>
+                    <Table className="min-w-[760px] table-fixed">
                         <TableHeader>
                             <TableRow>
-                                <TableHead className="min-w-[120px]">Type</TableHead>
-                                <TableHead className="min-w-[160px]">Project</TableHead>
-                                <TableHead className="min-w-[140px]">PO / WO</TableHead>
-                                <TableHead className="min-w-[220px]">Payment / Expense</TableHead>
-                                <TableHead className="min-w-[120px]">Amount (₹)</TableHead>
-                                <TableHead className="w-10" />
+                                <TableHead className="w-[13%]">Type</TableHead>
+                                <TableHead className="w-[20%]">Project</TableHead>
+                                <TableHead className="w-[16%]">PO / WO</TableHead>
+                                <TableHead className="w-[31%]">Payment / Expense</TableHead>
+                                <TableHead className="w-[14%]">Amount (₹)</TableHead>
+                                <TableHead className="w-12" />
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -115,7 +121,7 @@ export const ChequeLinesTable = ({ vendorPayee, vendor, disabled, cheque, record
                     </Table>
                 </div>
             )}
-            <FormField control={control} name="lines" render={() => <FormItem><FormMessage /></FormItem>} />
+            {linesError && <p className="text-[0.8rem] font-medium text-destructive">{linesError}</p>}
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button type="button" variant="outline" size="sm" disabled={disabled}>
@@ -157,7 +163,7 @@ interface PoWoLineRowProps {
 }
 
 const PoWoLineRow = ({ index, records, disabled, cheque, onRemove }: PoWoLineRowProps) => {
-    const { control, setValue } = useFormContext<ChequeFormInput>();
+    const { control, setValue, formState } = useFormContext<ChequeFormInput>();
     const line = useWatch({ control, name: `lines.${index}` }) as ChequeLineDraft;
     const { eligible, isLoading } = useEligiblePayments(line.record_doctype, line.record_name, cheque);
     const picked = eligible?.payments.find((p) => p.name === line.payment_name);
@@ -171,8 +177,10 @@ const PoWoLineRow = ({ index, records, disabled, cheque, onRemove }: PoWoLineRow
         line.record_doctype && `${recordKind(line.record_doctype)} ${line.record_name}`,
     );
 
+    // Validated only once the form was submitted, as the boxes' own changes are: a box cleared before
+    // then must not show an error that its later pick (unvalidated until submit) would leave stale.
     const set = (name: keyof ChequeLineDraft, value: string | number) =>
-        setValue(`lines.${index}.${name}`, value, { shouldValidate: true, shouldDirty: true });
+        setValue(`lines.${index}.${name}`, value, { shouldValidate: formState.isSubmitted, shouldDirty: true });
 
     return (
         <TableRow className="align-top">
@@ -194,7 +202,7 @@ const PoWoLineRow = ({ index, records, disabled, cheque, onRemove }: PoWoLineRow
                                 }}
                             >
                                 <FormControl>
-                                    <SelectTrigger><SelectValue placeholder="Project" /></SelectTrigger>
+                                    <SelectTrigger className={TRIGGER}><SelectValue placeholder="Project" /></SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
                                     {projects.map((p) => (
@@ -224,7 +232,7 @@ const PoWoLineRow = ({ index, records, disabled, cheque, onRemove }: PoWoLineRow
                                 }}
                             >
                                 <FormControl>
-                                    <SelectTrigger><SelectValue placeholder="PO or WO" /></SelectTrigger>
+                                    <SelectTrigger className={TRIGGER}><SelectValue placeholder="PO or WO" /></SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
                                     {recordOptions.map((r) => (
@@ -248,7 +256,7 @@ const PoWoLineRow = ({ index, records, disabled, cheque, onRemove }: PoWoLineRow
                         if (payment) set("amount", payment.amount);
                     }}
                 >
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectTrigger className={TRIGGER}><SelectValue /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value={NO_PAYMENT}>No payment yet</SelectItem>
                         {eligible?.payments.map((p) => (
