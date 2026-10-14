@@ -84,20 +84,6 @@ const secBlock = (sv: SectionBlockView): ItemBlockView => sv.view.items[0];
 const pipe = (family: string, size: string, more: Record<string, string> = {}, sections?: Record<string, ItemEdit>): ItemEdit =>
   ({ base: null, family, attrs: { size_mm: size, ...more }, other: ["size_mm"], ...(sections ? { sections } : {}) });
 const ins = (attrs: Record<string, string>, other: string[] = [], family = NITRILE): ItemEdit => ({ base: null, family, attrs, ...(other.length ? { other } : {}) });
-/** Every display string of a view, sections included. */
-function shown(v: ItemListView): string[] {
-  const out: string[] = [];
-  if (v.reason) out.push(v.reason);
-  const blockOf = (b: ItemBlockView) => {
-    if (b.reason) out.push(b.reason);
-    if (b.familyLine) out.push(b.familyLine);
-    out.push(...b.working);
-    for (const f of b.fields) { if (f.note) out.push(f.note); if (f.mirrorLine) out.push(f.mirrorLine); }
-    for (const sv of b.sections ?? []) { if (sv.view.reason) out.push(sv.view.reason); sv.view.items.forEach(blockOf); }
-  };
-  v.items.forEach(blockOf);
-  return out;
-}
 
 // The 12e-4c run's stored answers for the four rows the findings name -- copied AS STORED (calculatorPanelParity's
 // 12e-4c fixture carries the same 29 rows; these are the run's own words, text, unit and headings).
