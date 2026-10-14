@@ -236,7 +236,7 @@ v2 → v3: `Reconciled` → `Skipped`/`Matched` · `Amount mismatch` → `Mismat
                inside the narration, paid within 15 days
                                               amounts differ          -> Mismatched
 3. TIER 0     normalised UTR equal                     (finds fan-out; payments)
-4. TIER 1     beneficiary account AND IFSC = a vendor's, amount +-Re 1 (payments)
+4. TIER 1     beneficiary account AND IFSC = a vendor's Payee's, amount +-Re 1 (payments)
 5. TIER 2     amount +-Rs 5 AND the remark names the record's project  (payments + Project Expenses)
 6. OUTCOME    >=1 approved candidate -> Matched     else -> Mismatched
 ```
@@ -251,6 +251,13 @@ name needs ≥2 non-noise words. **Containment, not Jaccard** — a statement na
 of the vendor name. ⚠️ **Only the `ifsc_matches` candidates admit anything to tier 1**; the name
 scoring still runs and is still persisted as the row's resolved vendor, but it no longer MATCHES
 anything. A name is a scoring form, never an identity.
+
+**A vendor's account is its CURRENT Payee's** (#1427, [ADR-0033](../../../docs/adr/0033-payee-is-one-bank-account.md)).
+`candidates.load_vendor_index` reads account, IFSC and holder name through
+`services/payees/links.vendor_accounts`, never from a vendor field. A Payee shared by several vendors
+admits a payment of ANY of them at tier 1 (the shared-account rule above, unchanged). A line paid to a
+vendor's PREVIOUS Payee reaches no tier 1 and is matched by hand: v1 keeps no Payee history (ADR-0033
+"Not in v1"). Refund suggestions read the same index. Tests: `services/outflow_import/test_vendor_payee_index.py`.
 
 **Project corroboration** (`project_match.py`): a remark names a project if it contains the project's
 whole name (longest nested name wins — `Fujitsu Chennai` over `Fujitsu`), else a keyword unique to

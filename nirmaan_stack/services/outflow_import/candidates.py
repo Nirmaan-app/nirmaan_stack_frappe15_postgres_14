@@ -98,6 +98,7 @@ from nirmaan_stack.services.outflow_import.normalize import normalize_amount, no
 from nirmaan_stack.services.outflow_import.parser import BANK_TERMINAL_STATUSES, is_terminal_status
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
 from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
+from nirmaan_stack.services.payees.links import vendor_accounts
 from nirmaan_stack.services.vendor_refunds import RECEIVED as VENDOR_REFUND_RECEIVED
 
 __all__ = [
@@ -162,14 +163,14 @@ def amount_window_sql(column: str, amounts: Sequence[Decimal]) -> tuple[str, lis
 
 
 def load_vendor_index() -> VendorIndex:
-    """Build the vendor index once per batch. ~1,077 rows; normalising per row would be 50x this."""
-    rows = frappe.db.sql(
-        """
-        SELECT name, vendor_name, account_name, account_number, ifsc
-        FROM "tabVendors"
-        """,
-        as_dict=True,
-    )
+    """Build the vendor index once per batch. ~1,077 rows; normalising per row would be 50x this.
+
+    A vendor's account, IFSC and holder name are its CURRENT Payee's (`payees.links.vendor_accounts`,
+    #1427, ADR-0033): a Payee shared by several vendors admits a payment of any of them at tier 1, and
+    a line paid to a vendor's previous Payee reaches no tier 1 (it is matched by hand). No vendor bank
+    field is read.
+    """
+    rows = vendor_accounts()
     return build_vendor_index(
         [
             VendorRef(

@@ -17,6 +17,7 @@ from nirmaan_stack.services.extraction.helpers import (
     normalize_utr,
     pick_entity,
 )
+from nirmaan_stack.services.payees.links import vendor_accounts
 from nirmaan_stack.services.role_profiles import assert_cheque_form_access
 
 MIN_CONFIDENCE = 0.70
@@ -209,7 +210,7 @@ def _build_vendor_match(file_doc, extracted_beneficiary):
     """Soft check that the receipt's beneficiary matches this payment's vendor.
 
     The beneficiary printed on a bank-transfer receipt is the credited account
-    holder, i.e. the vendor's bank `account_name` — often not the vendor's display
+    holder, i.e. the holder name of the vendor's Payee — often not the vendor's display
     `vendor_name`. So the beneficiary is fuzzy-compared against BOTH and matches if
     it hits EITHER, which keeps the soft warning from crying wolf. Returns
     {expected_name, expected_account_name, extracted, match, by} where match is
@@ -244,8 +245,9 @@ def match_payee_to_vendor(payee, vendor):
 
 
 def _vendor_match(vendor, extracted):
-    """`extracted` (a name read off a document) fuzzy-compared with the Vendor's display name and its
-    bank account holder name; a hit on EITHER is a match. No vendor or no name is None, never False."""
+    """`extracted` (a name read off a document) fuzzy-compared with the Vendor's display name and the
+    holder name of its current Payee (`payees.links.vendor_accounts`); a hit on EITHER is a match. No
+    vendor or no name is None, never False."""
     result = {
         "expected_name": "",
         "expected_account_name": "",
@@ -257,13 +259,13 @@ def _vendor_match(vendor, extracted):
         return result  # no vendor → nothing to compare
 
     try:
-        vendor_name, account_name = frappe.db.get_value(
-            "Vendors", vendor, ["vendor_name", "account_name"]
-        ) or ("", "")
+        account = next(iter(vendor_accounts([vendor])), None)
     except Exception:
         return result
-    result["expected_name"] = (vendor_name or "").strip()
-    result["expected_account_name"] = (account_name or "").strip()
+    if account is None:
+        return result  # no such vendor
+    result["expected_name"] = (account.vendor_name or "").strip()
+    result["expected_account_name"] = (account.account_name or "").strip()
 
     # Match if the beneficiary hits EITHER the display name or the bank account
     # holder name. match stays None ("can't verify") only when both comparisons

@@ -5,7 +5,7 @@
 * `writer` -- `create_payee` (the only creator), `existing_payee`, `assert_not_duplicate`,
   `DuplicatePayeeError`.
 * `links` -- `payee_summaries` / `payee_summary`, `is_paid`, `payee_for_vendor`,
-  `PAYEES_WITH_LINKS_SQL`.
+  `vendor_accounts` (each vendor's current Payee account), `PAYEES_WITH_LINKS_SQL`.
 * `ifsc` -- `lookup_ifsc` (refuses an IFSC it can't find), `fetch_ifsc` (the HTTP call tests patch).
 * `expense_rules` (pure) / `expense_payee` -- the Expense payee: an expense type's Required / Optional
   / Not asked, the vendor's Payee, Inactive (`request_payee_for`, `change_expense_payee`).

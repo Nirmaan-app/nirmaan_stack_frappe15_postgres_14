@@ -14,6 +14,9 @@
 
 `PAYEES_WITH_LINKS_SQL` is the one query behind all of this: the Payees list (`api/payees/
 list_payees`) filters and sorts over it, and `payee_summaries` reads single Payees from it.
+
+**A vendor's account** is the account of the Payee it links to now (`vendor_accounts`). Bulk Import's
+vendor index and the payment autofill's holder-name check read it there, never from a vendor field.
 """
 
 from __future__ import annotations
@@ -113,3 +116,25 @@ def is_paid(name: str) -> bool:
 def payee_for_vendor(vendor: str) -> str | None:
     """The Payee a vendor is paid into today, or None when it has none."""
     return frappe.db.get_value("Vendors", vendor, "payee") or None
+
+
+def vendor_accounts(vendors: list[str] | None = None) -> list[dict]:
+    """Each vendor with the account it is paid into today: `{name, vendor_name, payee, account_name,
+    account_number, ifsc}`, the last four read from its Payee and None when it has none. Every vendor
+    when `vendors` is None. A Payee shared by several vendors appears once per vendor; a vendor's
+    previous Payees do not appear at all (ADR-0033)."""
+    where, params = "", {}
+    if vendors is not None:
+        if not vendors:
+            return []
+        where, params = "WHERE v.name IN %(vendors)s", {"vendors": tuple(vendors)}
+    return frappe.db.sql(
+        f"""
+        SELECT v.name, v.vendor_name, v.payee, p.account_name, p.account_number, p.ifsc
+        FROM "tabVendors" v
+        LEFT JOIN "tabPayee" p ON p.name = v.payee
+        {where}
+        """,
+        params,
+        as_dict=True,
+    )

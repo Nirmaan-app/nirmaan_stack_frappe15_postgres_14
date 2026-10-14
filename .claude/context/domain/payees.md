@@ -32,6 +32,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 - **Every Payee has a holder name, an account number and an IFSC.** Bank and branch come from the IFSC
   lookup when the Payee is created, never from the caller, and a lookup that finds nothing refuses the
   Payee. The lookup does not run on later saves.
+- **A vendor's bank account is read from its current Payee, everywhere** (#1427): Bulk Import's vendor
+  index and Tier 1, refund suggestions and the payment autofill's holder-name check all read
+  `links.vendor_accounts`. A line paid to a vendor's previous Payee reaches no Tier 1 (ADR-0033).
 - **Paid** means money has left *Approved* for the Payee: a Project Payment of a vendor linked to it
   now, or an expense linked to it, at *Reconciliation Pending* or *Paid*. A PO / WO payment stores no
   Payee (ADR-0033 "Not in v1"), so a vendor's payments count for the Payee it links to today.
@@ -58,7 +61,8 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | Payee links | `payee` (Link to Payee) on `Vendors`, `Expense Request`, `Project Expenses`, `Non Project Expenses` |
 | Add Payee endpoints | `api/payees/add_payee.py`: `add_payee`, `check_payee`, `lookup_ifsc` |
 | Payees list endpoint | `api/payees/list_payees.get_payees` (data-table contract; the tab is the filter `["tab", "=", …]`) |
-| Test fixture | `api/payees/payee_fixture.PayeeFixture`: offline IFSC lookups, purges every test Payee |
+| Test fixture | `api/payees/payee_fixture.PayeeFixture`: offline IFSC lookups, purges every test Payee; `class_payee` for a `setUpClass` |
+| A vendor's account (Bulk Import, autofill) | `services/payees/links.vendor_accounts` (#1427) |
 | Vendor bank details → Payees (#1424) | `patches/v3_0/move_vendor_bank_details_to_payees.py` (re-runnable; its docstring holds the grouping, fallback and skip rules); test `api/payees/test_vendor_payees_patch.py` |
 | Frontend fields + dialog | `components/payees/` (`PayeeBankFields`, `usePayeeBankForm`, `AddPayeeDialog`) |
 | Expense payee rules (#1429) | `services/payees/expense_rules.py` (pure: Required / Optional / Not asked, vendor's Payee, Inactive), `services/payees/expense_payee.py` (`request_payee_for`, `assert_pickable`, `change_expense_payee`), `services/payees/search.py` (`search_active_payees`) |
