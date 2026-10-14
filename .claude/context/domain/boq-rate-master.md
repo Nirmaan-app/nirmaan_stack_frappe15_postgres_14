@@ -999,7 +999,12 @@ row's category on every item. A category that declares no section never reads th
 (`pipe_type_as_written`) carries the BoQ's own word, from the row or else its headings. `list_spec.pricing.
 family_text.from_attr` names it (the key name `unstocked_materials.from_attr` uses; the validator requires a `text`
 definition of the category that the pricing does not match on, and allows it in `panel_readonly`). The pricer's
-order: (1) an ANSWERED family is used and the word is not read -- a dropdown answer wins over a disagreeing word;
+order: (1) an ANSWERED family is used and the word does not decide it -- a dropdown answer wins over a disagreeing
+word; where the MODEL answered the family and the word reads as that SAME family (uPVC beside PVC, GI beside MS,
+"MS / GI" beside MS) the word's own line still shows ("BoQ says uPVC -> priced as PVC"), exactly as when the word
+decides (owner, 2026-10-14: "fix"; slice 12e-4d AC1); a word that reads as ANOTHER family, refuses or reads as nothing
+changes nothing -- the conflict case is not ruled and is pinned as it is; a family the pricer picked starts from the
+pick alone, so no word is read;
 (2) else the row's OWN words (`from_row`, unchanged); (3) else the as-written word becomes the family answer;
 (4) else "no pipe type could be told". Step 3 and a word typed in the family's "Other..." box go through ONE
 function, `itemListPricing.readFamilyWord`: the exact spelling of a stocked, mapped or refused family
@@ -1043,9 +1048,22 @@ a heading's "6mm nitrile rubber insulation" must not make a bare "1" priceable. 
 to take a bare size's UNIT (never the size) from a heading or the neighbouring rows of the same list and to write
 it with the size, else to return the number bare. No config key: the rule rides on the two keys above.
 
+**A SECTION NEVER PRICES A SIZE ITS PIPE REFUSED TO READ (owner, 2026-10-14: "fix"; slice 12e-4d AC2).** When an item
+refuses on the READING of a number axis -- "size N has no unit", "... - pick one" (several sizes), "no number in
+'...' for pipe size", "Type one pipe size, in mm or inches", a cleared pick -- `priceOneItem` names the axis on the
+result (`sizeRefused`); `mirroredNumber` mirrors nothing from it; and a section whose `mirror.from` is that axis,
+whose own size box the pricer has not typed in, refuses with the item's own sentence and shows no figure (its size
+field reads "From pipe: <sentence>", its box open and empty). A size the pricer TYPES in the section's box prices the
+section exactly as before ("the user can change it if they want"). An item refused for anything else -- SS, an
+unknown type, a size above the largest -- leaves its section as it was: nothing read, nothing mirrored, the section
+reads its own cell (SS) or refuses with its own sentence (above the largest). BEFORE: row 108's section priced the
+bare 1 as 1 mm (191 / 14), and a pipe size the model could not read let the section price the model's own section
+cell.
+
 **A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
 12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
-(next size up)", in the calculator and on a BoQ row alike; a value the BoQ stated keeps "BoQ says", one the pricer
+(the smallest size)" (12e-4d AC3: below the smallest stocked size the field's line and the working both say "(the
+smallest size)", between two sizes both "(next size up)"), in the calculator and on a BoQ row alike; a value the BoQ stated keeps "BoQ says", one the pricer
 typed "You typed". G2: the pricer writes a default as "<field> not mentioned -> <value> (<rule>)" and the rule is
 usually that same statement, so `plainEnglish.onceOnly` keeps only what the rule ADDS ("thickness not mentioned ->
 9 mm, then the ladder"; "damper not mentioned -> without"; "cladding not mentioned -> No (without cladding)"). G3:

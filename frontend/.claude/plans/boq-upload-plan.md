@@ -46896,3 +46896,69 @@ three shapes.
 - Full suites: frontend 171 files / 6,586 tests, the 1 known failure (before 170 / 6,554); tsc 3,170, identical by file
   and message. No Python suite (no Python file changed).
 - Capture log: 22 new lines (4 run headers + 18 batches), lines 249-270 of the current file.
+
+## Slice 12e-4d — Piping: five small fixes from the 12e-4c findings — as built 2026-10-14
+
+**Commits (unpushed at the time of writing):** `b9dcec377` fix(rate-helper) — AC1, AC2, AC3, AC5; `de8de84e4`
+fix(rate-master) — AC4, the one Python change, standing alone (a declared departure: three commits become four);
+`de01cd9e0` test — the unused helper tsc found in the new test file, a separate commit by the owner's choice; the docs
+commit that carries this entry. Start tip `46fe956ff` (= origin). No asset, config, model note or prompt changed; HVAC
+v38 and Electrical v66 stay live. No model call. Full report on the Desktop: `2026-10-14_12e4d_Report.md`.
+
+### The fixes and the rulings they carry (owner, 2026-10-14: "fix" on each)
+
+1. **AC1 — the as-written word keeps its line.** Where the MODEL answered the pipe type itself and copied a different
+   word as written that reads as the SAME type (uPVC -> PVC, GI -> MS, HDPE -> PVC, "MS / GI" -> MS), the family line
+   "BoQ says uPVC -> priced as PVC" shows, exactly as when the word decides (`priceOneItem`, `modelAnswered`). The
+   conflict case (the word reads as another type, refuses or reads as nothing) is pinned as it is and counted: **0**
+   such items among the 28 Piping pipe items of the 13,467 stored rows. A dropdown pick starts from the pick alone, so
+   no word is read; a typed type keeps "You typed". Row 60: the line is back, 358 / 42 unchanged.
+2. **AC2 — a section never prices a size its pipe refused to read.** A size-reading refusal names its axis
+   (`ItemPriceResult.sizeRefused`): "size N has no unit", "... - pick one", "no number in '...' for pipe size",
+   "Type one pipe size, in mm or inches", a cleared pick. `mirroredNumber` mirrors nothing from it; an attached
+   section whose own box the pricer has not typed in refuses with the pipe's sentence and shows no figure (its size
+   field "From pipe: <sentence>"). A size typed in the section's box prices as before. A pipe refused for anything
+   else (SS, an unknown type, above the largest) leaves the section as it was. Row 108: 191 / 14 is gone.
+3. **AC3 — one wording for the size step.** Below the smallest stocked size the field's line and the working both say
+   "(the smallest size)"; between two sizes both "(next size up)" (`LadderHop.belowSmallest` on an axis without
+   `how`; `hopLandedWords`). Swept on Piping, Insulation (category and section) and ADP. Wording only.
+4. **AC4 — the text check folds curly quotes.** `extraction.apply_row_text_check` (and only it) folds ‘ ’ ′ to ' and
+   “ ” ″ to " on both sides before comparing. The flag is stored only (run document `item_flags`, capture `drops`):
+   no screen reads it and it changes no reading or price. Proved offline with no model call: the 18 batch requests of
+   12e-4c rebuild byte-identical with a stub client; over the 4 runs' stored answers the six flags on BOQ-26-00073
+   rows 53-58 go and no other flag exists; over every item-list batch of both capture generations 22 flags at HEAD ->
+   15 now, 7 go (all curly marks, one of them BOQ-26-00033 / LOWSIDE row 183), 0 added.
+5. **AC5 — a typed size is echoed as typed.** "You typed 3/4 -> 19.05 mm -> priced as ...", never "You typed 19.05 mm"
+   (`typedSizeEcho`, typed cells only; a BoQ value and a size mirrored from a pipe keep their lines). Side finding:
+   ADP's neck / diameter / torque readers read a typed "3/4" as two values and take 4.
+
+Unchanged by ruling: rows 53-58 at 19 mm ("ok"); a bare "1" keeps refusing; no second-opinion screen; the two gated
+sheets are out of 12e-5.
+
+### Blast radius (AC6) and parity (AC7)
+
+11 of the 13,467 stored rows change, all in the listed classes: the amber line (BOQ-26-00073 row 60); a section figure
+replaced by a refusal (BOQ-26-00186 row 108, the only figure change); size-step wording (00186 rows 106, 107, 74;
+00315 rows 26, 28, 30; ADP 00321 row 75, 00336 row 41, 00341 row 55). No Electrical row. The 12e-4c replay harness
+records no section, so a section-aware harness was run beside it. `calculatorPanelParity.test.ts`'s 29 real rows pass
+unchanged (22 / 6 / 1): row 108's section refuses on both surfaces.
+
+### Browser cert (2026-10-14, :8080, after a full de-stale; screens on the Desktop)
+
+C1 row 60: the amber "BoQ says uPVC -> priced as PVC", "Pipe type as written (BoQ): uPVC", 358 / 42. C2 row 108: the
+pipe and its insulation section both "size 1 has no unit - price this row by hand", no section figure; the refused
+section's other fields show the model's own values ("- select -" cladding, "6mm") as any refused section does --
+accepted by the owner as part of U2. C3 rows 106 / 107: "(the smallest size)" on both lines, 339 / 42 and 459 / 42. C4
+row 53: no new line, 2,079 / 234. C5 Calculator: Insulation "3/4" -> "You typed 3/4 -> 19.05 mm -> ...", "19/25" 286 /
+14; Piping typed "uPVC" -> "You typed uPVC -> priced as PVC", 120 / 28. C6 CPVC 50 + Nitrile, no cladding, 9: 924 / 70.
+C7 ADP fire damper UL "600 x 600": 7,830 / 692; Electrical BOQ-26-00174 row 309: 1,884. C8 v38 / v66 by content.
+
+### State left
+
+- Replay baseline for the next slice: 13,467 rows, sha256 `46c63c4dc0b1ee82bb301354d1864801a62c229dc0938925866d790d07a0d2b4`
+  (the section-aware record: `24400f8e46a25fc3cf88a04b488d62bc4c1e8f3c03da6e263ada05e931272123`).
+- Full suites: frontend 172 files / 6,616 tests, the 1 known timeout (before 171 / 6,586); tsc 3,170, identical by
+  file and message; Python 8,074 tests, the named knowns only (before 8,067).
+- The Python test runs re-import two HVAC Piping SKUs (rmi-05293f782520 / rmi-dc60907cc08a) under a new batch each
+  time: content identical, accepted by the owner as test residue (active batch now `rmbulk-9ac734f48f8c`).
+- `residence_check`: F5 120 / 117 and F2 221 / 217 over baseline before this slice; it adds none.
