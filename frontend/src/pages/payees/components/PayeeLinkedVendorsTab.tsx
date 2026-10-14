@@ -7,13 +7,13 @@ import { Link } from "react-router-dom";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import type { PayeeLinkedVendor } from "@/types/NirmaanStack/Payee";
+import type { PayeePageVendor } from "@/types/NirmaanStack/Payee";
 import { formatDate } from "@/utils/FormatDate";
 
 const statusChip = (status?: string | null) =>
     status === "On-Hold" ? "border-amber-300 bg-amber-50 text-amber-700" : "border-green-300 bg-green-50 text-green-700";
 
-export function PayeeLinkedVendorsTab({ vendors }: { vendors: PayeeLinkedVendor[] }) {
+export function PayeeLinkedVendorsTab({ vendors }: { vendors: PayeePageVendor[] }) {
     return (
         <div className="flex flex-col gap-2.5">
             <p className="text-sm text-zinc-600">A PO or Work Order payment to any of these vendors goes to this account.</p>

@@ -9,6 +9,9 @@
 * `guard` -- what `validate` controllers refuse on every write path: `check_payee_save` (Locked, the
   holder-name role), `check_payee_pick` (Inactive can't be newly picked).
 * `ifsc` -- `lookup_ifsc` (refuses an IFSC it can't find), `fetch_ifsc` (the HTTP call tests patch).
+* `matching` (pure) -- `rank_payees`, `name_similarity`: which Payees look like a vendor.
+* `choosing` -- `suggest_for_vendor`, `payee_choices` / `payee_choice`, `assert_pickable`,
+  `choose_payee`: a vendor's Payee.
 
 Import from the submodule (`from nirmaan_stack.services.payees.writer import create_payee`).
 Invariants: `.claude/context/domain/payees.md`.

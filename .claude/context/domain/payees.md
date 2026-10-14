@@ -12,14 +12,22 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   - `rules.py` (pure): cleaning what was typed (`parse_details`), what makes details complete
     (`details_problem`), the duplicate refusal's wording, `PAYEE_STATUSES`, `PAID_STATUSES`.
   - `writer.py`: `create_payee` is the only code that creates a Payee. It checks no role: each
-    calling endpoint checks who may add a Payee from that screen. `edit_holder_name` and
-    `set_status` (Active / Inactive) are the only edits.
+    calling endpoint checks who may add a Payee from that screen. The one other creator is
+    `backfill_payee`, for the #1424 patch only: bank and branch as recorded on the vendor, no lookup.
+    `edit_holder_name` and `set_status` (Active / Inactive) are the only edits.
   - `links.py`: what a Payee is linked to, "paid" and last paid (`PAYEES_WITH_LINKS_SQL`,
     `payee_summaries`, `is_paid`, `payee_for_vendor`), and one Payee's page (`payee_page`:
     `linked_vendors`, `linked_expenses`, `holder_name_changed_on`).
   - `guard.py`: the refusals `validate` controllers run on every write path (`check_payee_save`,
     `check_payee_pick`).
   - `ifsc.py`: the IFSC lookup (Razorpay), the app's only outside bank service.
+  - `matching.py` (pure): which Payees look like a vendor. *Strong match*: a vendor linked to the
+    Payee has the same PAN; *Name only*: no PAN agrees but the names read alike. Strong first.
+  - `choosing.py`: a vendor's Payee. `suggest_for_vendor` (Active Payees only), `payee_choices`
+    (links + last payment, for the confirmation), `assert_pickable` (the vendor form's early
+    refusal of an Inactive Payee; `guard.check_payee_pick` is the every-path one), `choose_payee` (an existing Payee or new details through `create_payee`).
+- **A vendor's bank account is its Payee.** Vendor creation (`api/create_vendor_and_address`) takes
+  an existing Payee or new bank details and writes none of the old vendor bank fields.
 - **No two Payees share an account number + IFSC**, compared on `normalized_account`: the account
   number without spaces, dashes or leading zeros, exactly as Bulk Import compares a bank line
   (`services/outflow_import/normalize.normalize_account` owns that rule). The `validate` controller
@@ -46,6 +54,8 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   status. An Expense Request is not counted until approval carries its Payee onto an expense.
 - **Who:** the Payees page and its endpoints (`api/payees/`) are Admin, Accountant and Accountant Lead
   only (`services/role_profiles.PAYEE_MANAGE_PROFILES`, mirrored in `frontend/src/constants/roles.ts`).
+  The vendor screens' Payee step (`api/payees/vendor_payee`, `api/create_vendor_and_address`) is
+  for whoever may create a vendor (`VENDOR_PAYEE_PROFILES`).
 
 ## Where things are
 
@@ -56,7 +66,10 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | Add Payee endpoints | `api/payees/add_payee.py`: `add_payee`, `check_payee`, `lookup_ifsc` |
 | Payees list endpoint | `api/payees/list_payees.get_payees` (data-table contract; the tab is the filter `["tab", "=", …]`) |
 | Test fixture | `api/payees/payee_fixture.PayeeFixture`: offline IFSC lookups, purges every test Payee |
+| Vendor bank details → Payees (#1424) | `patches/v3_0/move_vendor_bank_details_to_payees.py` (re-runnable; its docstring holds the grouping, fallback and skip rules); test `api/payees/test_vendor_payees_patch.py` |
 | Frontend fields + dialog | `components/payees/` (`PayeeBankFields`, `usePayeeBankForm`, `AddPayeeDialog`) |
 | Frontend rules | `utils/payees/payeeForm.ts`, `utils/payees/payeeRoutes.ts` (`payeeHref`) |
 | Payees page | `pages/payees/PayeesPage.tsx`, route `/payees` |
 | One Payee's page (#1423) | `pages/payees/PayeePage.tsx`, route `/payees/:payeeId`; endpoints `api/payees/payee_page.py` (`get_payee`, `edit_holder_name`, `set_payee_status`); `components/payees/EditHolderNameDialog`; rules `utils/payees/payeePage.ts` |
+| Vendor Payee endpoints | `api/payees/vendor_payee.py`: `suggest_vendor_payees`, `get_payee_choice`, `check_vendor_payee` |
+| Vendor Payee step (frontend) | `components/payees/VendorPayeeSection` + `useVendorPayeeChoice`, `PayeeSuggestionsPanel`, `UsePayeeDialog`, `vendorPayeeApi`; wording in `utils/payees/payeeChoice.ts` |

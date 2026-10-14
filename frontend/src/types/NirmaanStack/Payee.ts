@@ -51,8 +51,42 @@ export interface PayeeSummary {
     last_paid: string | null;
 }
 
-/** A Vendor paid into a Payee, as the Payee page's Linked Vendors tab shows it (`links.linked_vendors`). */
+/** How a suggested Payee matches a vendor (`services/payees/matching`). */
+export const PAYEE_MATCH = {
+    /** A vendor already linked to the Payee has the same PAN. */
+    STRONG: "strong",
+    /** No PAN agrees; the names read alike. */
+    NAME_ONLY: "name_only",
+} as const;
+
+export type PayeeMatch = (typeof PAYEE_MATCH)[keyof typeof PAYEE_MATCH];
+
+/** A vendor linked to a Payee, as the vendor screens list it. */
 export interface PayeeLinkedVendor {
+    name: string;
+    vendor_name: string | null;
+    vendor_city: string | null;
+    vendor_pan: string | null;
+}
+
+/**
+ * A Payee as the vendor screens show it before linking a vendor to it
+ * (`services/payees/choosing.payee_choices`): its summary, every linked vendor and expense, and
+ * the latest payment that left Approved for it.
+ */
+export interface PayeeChoice extends PayeeSummary {
+    linked_vendors: PayeeLinkedVendor[];
+    linked_expenses: { name: string; doctype: "Project Expenses" | "Non Project Expenses" }[];
+    last_payment: { date: string; document: string } | null;
+}
+
+/** One "Payees that look like this vendor" entry (`api/payees/vendor_payee.suggest_vendor_payees`). */
+export interface PayeeSuggestion extends PayeeChoice {
+    match: PayeeMatch;
+}
+
+/** A Vendor paid into a Payee, as the Payee page's Linked Vendors tab shows it (`links.linked_vendors`). */
+export interface PayeePageVendor {
     name: string;
     vendor_name: string;
     vendor_type?: string | null;
@@ -71,7 +105,7 @@ export const PAYEE_EXPENSE_KIND = {
 export type PayeeExpenseKind = (typeof PAYEE_EXPENSE_KIND)[keyof typeof PAYEE_EXPENSE_KIND];
 
 /** A Project or Non Project Expense naming a Payee, at any status (`links.linked_expenses`). */
-export interface PayeeLinkedExpense {
+export interface PayeePageExpense {
     name: string;
     kind: PayeeExpenseKind;
     expense_type?: string | null;
@@ -90,6 +124,6 @@ export interface PayeePage extends PayeeSummary {
     locked: boolean;
     /** ISO date its holder name last changed; null when never. */
     holder_name_changed_on: string | null;
-    linked_vendors: PayeeLinkedVendor[];
-    linked_expenses: PayeeLinkedExpense[];
+    linked_vendors: PayeePageVendor[];
+    linked_expenses: PayeePageExpense[];
 }

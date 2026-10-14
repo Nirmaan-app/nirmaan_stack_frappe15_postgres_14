@@ -7,7 +7,7 @@ import { Link } from "react-router-dom";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { PAYEE_EXPENSE_KIND, type PayeeLinkedExpense } from "@/types/NirmaanStack/Payee";
+import { PAYEE_EXPENSE_KIND, type PayeePageExpense } from "@/types/NirmaanStack/Payee";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 
@@ -16,7 +16,7 @@ const KIND_LABEL = {
     [PAYEE_EXPENSE_KIND.NON_PROJECT]: "Non Project Expense",
 };
 
-const kindChip = (kind: PayeeLinkedExpense["kind"]) =>
+const kindChip = (kind: PayeePageExpense["kind"]) =>
     kind === PAYEE_EXPENSE_KIND.PROJECT
         ? "bg-violet-50 text-violet-700 ring-violet-200"
         : "bg-amber-50 text-amber-800 ring-amber-200";
@@ -28,7 +28,7 @@ const statusChip = (status: string) =>
           ? "bg-amber-100 text-amber-800"
           : "bg-zinc-100 text-zinc-700";
 
-export function PayeeLinkedExpensesTab({ expenses }: { expenses: PayeeLinkedExpense[] }) {
+export function PayeeLinkedExpensesTab({ expenses }: { expenses: PayeePageExpense[] }) {
     return (
         <div className="flex flex-col gap-2.5">
             <p className="text-sm text-zinc-600">Project and Non Project Expenses that name this payee.</p>
