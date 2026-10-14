@@ -35,6 +35,9 @@ interface EditHolderNameDialogProps {
     onOpenChange: (open: boolean) => void;
     payee: Pick<PayeeSummary, "name" | "account_name" | "account_number" | "ifsc" | "vendors">;
     onSaved?: (payee: PayeeSummary) => void;
+    /** What the name box starts with; the saved holder name when not given. The vendor rename prompt
+     * (#1426) passes the vendor's new name. */
+    initialName?: string;
 }
 
 const LockedValue = ({ value }: { value: string }) => (
@@ -44,13 +47,14 @@ const LockedValue = ({ value }: { value: string }) => (
     </div>
 );
 
-export function EditHolderNameDialog({ open, onOpenChange, payee, onSaved }: EditHolderNameDialogProps) {
-    const [holder, setHolder] = useState(payee.account_name);
+export function EditHolderNameDialog({ open, onOpenChange, payee, onSaved, initialName }: EditHolderNameDialogProps) {
+    const startName = initialName ?? payee.account_name;
+    const [holder, setHolder] = useState(startName);
     const { call, loading } = useFrappePostCall<{ message: { payee: PayeeSummary } }>(EDIT_HOLDER_NAME_API);
 
-    // Closing without saving drops what was typed, so the next open starts from the saved name.
+    // Closing without saving drops what was typed, so the next open starts from the same name.
     const change = (next: boolean) => {
-        if (!next) setHolder(payee.account_name);
+        if (!next) setHolder(startName);
         onOpenChange(next);
     };
 

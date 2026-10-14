@@ -113,3 +113,8 @@ def status_change_problem(name: str, current: str, wanted: str) -> str | None:
 def inactive_pick_problem(name: str) -> str:
     """The refusal when a vendor, an expense or an expense request newly picks Inactive Payee `name`."""
     return f"{name} is Inactive, so it can't be picked any more. Pick an active payee, or add a new one."
+
+
+def already_linked_problem(vendor: str, payee: str) -> str:
+    """The refusal when Change account picks the Payee vendor `vendor` is already paid into."""
+    return f"{vendor} is already paid into {payee}. Pick another payee, or enter new bank details."
