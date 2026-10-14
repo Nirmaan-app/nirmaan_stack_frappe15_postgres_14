@@ -26,7 +26,7 @@ import { ExternalLink } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useVendorPayeeAccount } from "@/components/payees/vendorPayeeAccount";
+import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { poLinkFor, routeName } from "./poRoute";
@@ -179,7 +179,8 @@ export const VendorDetailPopover: React.FC<VendorDetailPopoverProps> = ({
     vendorId,
     open ? undefined : null,
   );
-  const { account: payeeAccount, isLoading: payeeLoading } = useVendorPayeeAccount(vendorId, open);
+  const { account, isLoading: payeeLoading } = useVendorAccount(vendorId, open);
+  const payeeAccount = account?.payee;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

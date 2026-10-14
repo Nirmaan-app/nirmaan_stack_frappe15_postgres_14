@@ -67,7 +67,8 @@ class TestVendorAccount(FrappeTestCase):
         self.assertEqual(account["other_vendors"], 2)
 
     def test_a_vendor_with_no_payee_has_no_account(self):
-        self.assertEqual(get_vendor_account(self._vendor()), {"payee": None, "other_vendors": 0})
+        account = get_vendor_account(self._vendor())
+        self.assertEqual((account["payee"], account["other_vendors"]), (None, 0))
 
     # -- Change account -------------------------------------------------------------------------
     def test_change_account_to_an_existing_payee_links_the_vendor_and_writes_no_old_bank_fields(self):

@@ -41,9 +41,8 @@ import { useToast } from "@/components/ui/use-toast";
 import ProjectSelect from "@/components/custom-select/project-select";
 import VendorSelect, { OTHERS_VENDOR_VALUE } from "@/components/custom-select/vendor-select";
 
-import {
-    DuplicatePayeeError, GET_VENDOR_PAYEE_API, usePayeeChoice,
-} from "@/components/payees/usePayeeChoice";
+import { DuplicatePayeeError, usePayeeChoice } from "@/components/payees/usePayeeChoice";
+import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
 import { asksWhoGetsPaid, showsWhoGetsPaid, whoGetsPaidProblem } from "@/utils/payees/expensePayee";
 
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -61,7 +60,7 @@ import {
 import FormatFieldsRenderer, {
     FormatAnswers, FormatFiles, requiredKeys, toResponses,
 } from "./FormatFieldsRenderer";
-import WhoGetsPaidSection, { type VendorPayee } from "./WhoGetsPaidSection";
+import WhoGetsPaidSection from "./WhoGetsPaidSection";
 
 /** One option per expense type.
  *
@@ -236,13 +235,9 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     const payeeRule = selected?.payee_rule ?? "";
     const asksPayee = !!selected && asksWhoGetsPaid(payeeRule);
     const showsPayee = !!selected && showsWhoGetsPaid(payeeRule, vendorChosen);
-    const { data: vendorPayeeRes, isLoading: vendorPayeeLoading } =
-        useFrappeGetCall<{ message: VendorPayee }>(
-            GET_VENDOR_PAYEE_API,
-            { vendor: form.vendor },
-            showsPayee && vendorChosen ? `request_vendor_payee_${form.vendor}` : null
-        );
-    const vendorPayee = vendorChosen ? vendorPayeeRes?.message ?? null : null;
+    const { account: vendorAccount, isLoading: vendorPayeeLoading } =
+        useVendorAccount(form.vendor, showsPayee && vendorChosen);
+    const vendorPayee = vendorChosen ? vendorAccount ?? null : null;
     const payeeProblem = asksPayee
         ? whoGetsPaidProblem({
             rule: payeeRule,

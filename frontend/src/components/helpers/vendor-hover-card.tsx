@@ -1,4 +1,4 @@
-import { useVendorPayeeAccount } from "@/components/payees/vendorPayeeAccount"
+import { useVendorAccount } from "@/components/payees/vendorPayeeAccount"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
 import { useFrappeGetDoc } from "frappe-react-sdk"
 import { useState } from "react"
@@ -10,7 +10,7 @@ export const VendorHoverCard: React.FC<{vendor_id?: string}> = ({ vendor_id }) =
 
     // Read when the card first opens, not for every vendor name a page renders.
     const [opened, setOpened] = useState(false)
-    const { account: payeeAccount } = useVendorPayeeAccount(vendor_id, opened)
+    const payeeAccount = useVendorAccount(vendor_id, opened).account?.payee
 
     const navigate = useNavigate()
     return (

@@ -1,3 +1,5 @@
+import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
+
 /**
  * The vendor page's account rules (#1426, spec #1420, approved mockup screens 7 and 8): the Account
  * Details card's wording and when renaming a vendor asks what happens to its bank account. Pure, so
@@ -61,22 +63,22 @@ export interface VendorPayeeGateProblem {
 }
 
 /**
- * The payment-request gate's verdict. `account` is the vendor's Payee: `undefined` while it loads (or
+ * The payment-request gate's verdict. `payee` is the vendor's Payee: `undefined` while it loads (or
  * when the read failed: `failed`), `null` when the vendor has none. A request goes through only once
  * the vendor is known to have one, so a slow or failed read never lets a request out unchecked.
  */
 export const vendorPayeeGateProblem = ({
     vendorLabel,
-    account,
+    payee,
     failed,
 }: {
     vendorLabel?: string | null;
-    account: object | null | undefined;
+    payee: PayeeSummary | null | undefined;
     failed: boolean;
 }): VendorPayeeGateProblem | null => {
     const vendor = vendorLabel || "This vendor";
-    if (account) return null;
-    if (account === null) {
+    if (payee) return null;
+    if (payee === null) {
         return {
             title: "Bank details missing",
             description: `${vendor} has no Payee (bank account). Add the vendor's bank account on the vendor page to request the payment.`,

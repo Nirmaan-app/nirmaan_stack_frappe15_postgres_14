@@ -21,7 +21,6 @@ const API = "nirmaan_stack.api.expense_requests.payees";
 export const SEARCH_PAYEES_API = `${API}.search_payees`;
 export const CHECK_REQUEST_PAYEE_API = `${API}.check_request_payee`;
 export const ADD_REQUEST_PAYEE_API = `${API}.add_request_payee`;
-export const GET_VENDOR_PAYEE_API = `${API}.get_vendor_payee`;
 
 export type PayeeChoiceMode = "pick" | "new";
 

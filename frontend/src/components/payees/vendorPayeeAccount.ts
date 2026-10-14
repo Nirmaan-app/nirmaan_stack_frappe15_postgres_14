@@ -35,6 +35,7 @@ export type VendorPayeeAccounts = Record<string, VendorPayeeAccount>;
 
 /** One vendor's account (`get_vendor_account`): its Payee and who else shares it. */
 export interface VendorAccount {
+    vendor_name: string | null;
     payee: PayeeSummary | null;
     /** Other vendors paid into the same Payee. */
     other_vendors: number;
@@ -62,30 +63,6 @@ export function useVendorAccount(vendor: string | undefined, enabled = true) {
 }
 
 /**
- * One vendor's Payee as the screens show it: `undefined` while loading, when not asked or when the
- * read failed; `null` when the vendor has no Payee.
- */
-export function useVendorPayeeAccount(vendor: string | undefined, enabled = true) {
-    const { account, isLoading, error } = useVendorAccount(vendor, enabled);
-    const payee = account?.payee;
-    const payeeAccount: VendorPayeeAccount | null | undefined =
-        account === undefined
-            ? undefined
-            : payee
-              ? {
-                    payee: payee.name,
-                    account_name: payee.account_name,
-                    account_number: payee.account_number,
-                    ifsc: payee.ifsc,
-                    bank_name: payee.bank_name ?? undefined,
-                    bank_branch: payee.bank_branch ?? undefined,
-                    status: payee.status,
-                }
-              : null;
-    return { account: payeeAccount, isLoading, error };
-}
-
-/**
  * The payment-request gate: a PO or Work Order payment ends as a row in the ICICI / Cashfree bank
  * file, which is paid into the vendor's Payee. A request for a vendor with no Payee only defers the
  * failure to the accountant, so it is refused at the source, with the remedy in the message.
@@ -94,8 +71,8 @@ export function useVendorPayeeAccount(vendor: string | undefined, enabled = true
  * and when it failed too, each with its own reason (`utils/payees/vendorAccount.vendorPayeeGateProblem`).
  */
 export function useVendorPayeeGate(vendor: string | undefined, vendorLabel?: string) {
-    const { account, error } = useVendorPayeeAccount(vendor);
-    const problem = vendorPayeeGateProblem({ vendorLabel, account, failed: !!error });
+    const { account, error } = useVendorAccount(vendor);
+    const problem = vendorPayeeGateProblem({ vendorLabel, payee: account?.payee, failed: !!error });
     const showPayeeBlockedToast = useCallback(() => {
         if (problem) toast({ ...problem, variant: "destructive" });
     }, [problem]);

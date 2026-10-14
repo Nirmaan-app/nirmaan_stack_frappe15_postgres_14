@@ -16,11 +16,11 @@ from frappe.tests.utils import FrappeTestCase
 from nirmaan_stack.api.expense_requests.payees import (
 	add_request_payee,
 	check_request_payee,
-	get_vendor_payee,
 	search_payees,
 )
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
-from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture
+from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture, delete_each
+from nirmaan_stack.api.payees.vendor_payee import get_vendor_account
 from nirmaan_stack.services import expense_request_routing as routing
 from nirmaan_stack.services.payees.expense_payee import change_expense_payee
 
@@ -28,26 +28,6 @@ PM_USER = "exr_test_pyepm@example.com"
 NOBODY = "exr_test_pyenobody@example.com"
 PM_PROFILE = "Nirmaan Project Manager Profile"
 NPE = "Non Project Expenses"
-
-
-def _delete_each(scopes, *, raw=False):
-	"""Delete each `(doctype, name)` in its own scope, rolling back first so a poisoned transaction
-	strands nothing; report every failure after trying them all. `raw` deletes the row only (a row
-	inserted raw has no hooks to undo)."""
-	frappe.db.rollback()
-	failures = []
-	for doctype, name in scopes:
-		try:
-			if raw:
-				frappe.db.delete(doctype, {"name": name})
-			elif frappe.db.exists(doctype, name):
-				frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
-			frappe.db.commit()
-		except Exception as e:  # report, never swallow: a stranded row is permanent dev data
-			frappe.db.rollback()
-			failures.append(f"{doctype} {name}: {e}")
-	if failures:
-		raise AssertionError("Clean-up failed: " + "; ".join(failures))
 
 
 class TestRequestPayees(FrappeTestCase):
@@ -72,7 +52,7 @@ class TestRequestPayees(FrappeTestCase):
 		scopes = [("Expense Type", cls.expense_type)] + [
 			(dt, email) for email in (PM_USER, NOBODY) for dt in ("Nirmaan Users", "User")
 		]
-		_delete_each(scopes)
+		delete_each(scopes)
 		super().tearDownClass()
 
 	def setUp(self):
@@ -106,7 +86,7 @@ class TestRequestPayees(FrappeTestCase):
 		)
 		frappe.db.commit()
 
-		self.addCleanup(_delete_each, [(doctype, name)], raw=True)
+		self.addCleanup(delete_each, [(doctype, name)], raw={doctype})
 		return name
 
 	def _search(self, text):
@@ -175,11 +155,14 @@ class TestRequestPayees(FrappeTestCase):
 
 	# --- the vendor's Payee --------------------------------------------------
 
-	def test_a_raiser_reads_the_vendors_payee(self):
+	def test_a_raiser_reads_the_vendors_payee_as_every_screen_does(self):
+		"""The request dialog reads the picked vendor's account through the vendor screens' endpoint:
+		a raiser can, because the vendor picker already needs Vendors read."""
 		payee = self.payees.payee()
-		out = self._as(PM_USER, get_vendor_payee, vendor=self.payees.vendor(payee))
-		self.assertEqual(out["payee"]["name"], payee)
-		self.assertIsNone(self._as(PM_USER, get_vendor_payee, vendor=self.payees.vendor())["payee"])
+		vendor = self.payees.vendor(payee, vendor_name="TESTPYE Raiser Vendor")
+		out = self._as(PM_USER, get_vendor_account, vendor=vendor)
+		self.assertEqual((out["vendor_name"], out["payee"]["name"]), ("TESTPYE Raiser Vendor", payee))
+		self.assertIsNone(self._as(PM_USER, get_vendor_account, vendor=self.payees.vendor())["payee"])
 
 	# --- changing an Expense's Payee -----------------------------------------
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
 import { holderNameChoiceHelp, renameNeedsPrompt, sharedAccountLine, vendorPayeeGateProblem } from "./vendorAccount";
 
 describe("sharedAccountLine", () => {
@@ -52,26 +53,29 @@ describe("renameNeedsPrompt", () => {
 });
 
 describe("vendorPayeeGateProblem", () => {
-    const account = { payee: "PYE-0412" };
+    const payee: PayeeSummary = {
+        name: "PYE-0412", account_name: "Kaveri Ductfab", account_number: "50200061234567", ifsc: "HDFC0000195",
+        status: "Active", vendors: 1, expenses: 0, last_paid: null,
+    };
 
     it("lets the request through once the vendor is known to have a Payee", () => {
-        expect(vendorPayeeGateProblem({ vendorLabel: "Kaveri", account, failed: false })).toBeNull();
+        expect(vendorPayeeGateProblem({ vendorLabel: "Kaveri", payee, failed: false })).toBeNull();
     });
 
     it("blocks while the account is still loading", () => {
-        expect(vendorPayeeGateProblem({ vendorLabel: "Kaveri", account: undefined, failed: false })?.title).toBe(
+        expect(vendorPayeeGateProblem({ vendorLabel: "Kaveri", payee: undefined, failed: false })?.title).toBe(
             "Checking the bank account",
         );
     });
 
     it("blocks with its own reason when the read failed", () => {
-        const problem = vendorPayeeGateProblem({ vendorLabel: "Kaveri", account: undefined, failed: true });
+        const problem = vendorPayeeGateProblem({ vendorLabel: "Kaveri", payee: undefined, failed: true });
         expect(problem?.title).toBe("Couldn't check the bank account");
         expect(problem?.description).toContain("Kaveri's bank account");
     });
 
     it("blocks a vendor with no Payee and says how to fix it", () => {
-        const problem = vendorPayeeGateProblem({ vendorLabel: "Kaveri", account: null, failed: false });
+        const problem = vendorPayeeGateProblem({ vendorLabel: "Kaveri", payee: null, failed: false });
         expect(problem?.title).toBe("Bank details missing");
         expect(problem?.description).toContain("Add the vendor's bank account on the vendor page");
     });

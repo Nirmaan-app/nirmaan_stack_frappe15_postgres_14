@@ -11,7 +11,8 @@ import type { PayeeSuggestion, PayeeWithLinks } from "@/types/NirmaanStack/Payee
 
 const VENDOR_PAYEE_API = "nirmaan_stack.api.payees.vendor_payee";
 export const SUGGEST_VENDOR_PAYEES_API = `${VENDOR_PAYEE_API}.suggest_vendor_payees`;
-export const GET_PAYEE_CHOICE_API = `${VENDOR_PAYEE_API}.get_payee_choice`;
+/** One Payee with its links (`PayeeWithLinks`); the endpoint keeps its first name. */
+export const GET_PAYEE_WITH_LINKS_API = `${VENDOR_PAYEE_API}.get_payee_choice`;
 export const CHECK_VENDOR_PAYEE_API = `${VENDOR_PAYEE_API}.check_vendor_payee`;
 export const CHANGE_VENDOR_PAYEE_API = `${VENDOR_PAYEE_API}.change_vendor_payee`;
 
@@ -46,9 +47,9 @@ export function useVendorPayeeSuggestions(vendorName: string | undefined, vendor
 /** One Payee with every linked vendor and expense and its last payment, for the confirmation. */
 export function usePayeeWithLinks(payee: string | null) {
     const { data, isLoading, error } = useFrappeGetCall<{ message: PayeeWithLinks }>(
-        GET_PAYEE_CHOICE_API,
+        GET_PAYEE_WITH_LINKS_API,
         { payee },
-        payee ? `payee-choice:${payee}` : null,
+        payee ? `payee-with-links:${payee}` : null,
     );
     return { choice: data?.message ?? null, isLoading, error };
 }

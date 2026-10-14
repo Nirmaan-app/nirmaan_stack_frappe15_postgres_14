@@ -14,8 +14,8 @@ A vendor is paid into the Payee it links to NOW (a PO / WO payment stores no Pay
 * `payee_for_vendor` -- the name of the Payee one vendor is paid into (the expense rules, Change
   account).
 * `vendor_account` -- one vendor's Payee as a summary, with how many other vendors share it: the
-  vendor page's Account Details card, the screens' single-vendor reads and the Expense Request's
-  vendor Payee.
+  vendor page's Account Details card and every screen's single-vendor read, the Expense Request's
+  vendor Payee among them.
 * `vendor_accounts` -- many vendors' account fields at once: the vendor list, the bank file, Bulk
   Import's vendor index and the payment autofill.
 """
@@ -61,8 +61,12 @@ def payee_for_vendor(vendor: str) -> str | None:
 
 
 def vendor_account(vendor: str) -> dict:
-    """One vendor's Payee: `{payee: <links.payee_summary> | None, other_vendors}`, `other_vendors`
-    being how many other vendors are paid into the same Payee."""
-    payee = payee_for_vendor(vendor)
+    """One vendor's Payee: `{vendor_name, payee: <links.payee_summary> | None, other_vendors}`,
+    `other_vendors` being how many other vendors are paid into the same Payee."""
+    vendor_name, payee = frappe.db.get_value("Vendors", vendor, ["vendor_name", "payee"]) or (None, None)
     summary = payee_summary(payee) if payee else None
-    return {"payee": summary, "other_vendors": summary["vendors"] - 1 if summary else 0}
+    return {
+        "vendor_name": vendor_name,
+        "payee": summary,
+        "other_vendors": summary["vendors"] - 1 if summary else 0,
+    }

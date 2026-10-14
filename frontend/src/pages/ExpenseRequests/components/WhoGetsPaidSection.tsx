@@ -13,22 +13,16 @@ import { TailSpin } from "react-loader-spinner";
 
 import { PayeePicker, PayeeReadOnly } from "@/components/payees/PayeePicker";
 import type { PayeeChoice } from "@/components/payees/usePayeeChoice";
-import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
+import type { VendorAccount } from "@/components/payees/vendorPayeeAccount";
 import { PAYEE_RULE, asPayeeRule, whoGetsPaidHelp } from "@/utils/payees/expensePayee";
-
-/** The picked vendor and its Payee, as `get_vendor_payee` returns them. */
-export interface VendorPayee {
-    vendor: string;
-    vendor_name: string | null;
-    payee: PayeeSummary | null;
-}
 
 interface Props {
     rule: string;
     expenseType: string;
     /** Set while a vendor (not "Others (No Vendor)") is picked. */
     vendorChosen: boolean;
-    vendorPayee: VendorPayee | null;
+    /** The picked vendor's account (`useVendorAccount`). */
+    vendorPayee: VendorAccount | null;
     vendorPayeeLoading: boolean;
     choice: PayeeChoice;
     /** Why the request can't be sent yet because of who gets paid, shown under the section. */

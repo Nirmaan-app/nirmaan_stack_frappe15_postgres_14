@@ -11,9 +11,10 @@ one needs. (The Payees page's own endpoints, `api/payees/`, are Accounts only.)
 * `check_request_payee` -- the Payee already holding an account + IFSC, before submit.
 * `add_request_payee` -- add a Payee from the request. A duplicate comes back as data, so the picker
   points the raiser at that Payee instead.
-* `get_vendor_payee` -- the vendor's own Payee, which the request fills in when a vendor is picked.
 
 Who: `access.can_raise_requests` (any requestable type visible to the caller; Admin always).
+The picked vendor's own Payee is read as every screen reads it, through
+`api/payees/vendor_payee.get_vendor_account` (Vendors read, which the request's vendor picker needs too).
 The IFSC's bank and branch come from `api/payees/add_payee.lookup_ifsc`, open to every signed-in user.
 """
 
@@ -22,7 +23,6 @@ import frappe
 from nirmaan_stack.api.expense_requests.access import guard_can_raise
 from nirmaan_stack.services.payees.links import payee_summary
 from nirmaan_stack.services.payees.search import search_active_payees
-from nirmaan_stack.services.payees.vendor_account import vendor_account
 from nirmaan_stack.services.payees.writer import create_payee, duplicate_verdict, unless_duplicate
 
 
@@ -53,16 +53,3 @@ def add_request_payee(account_name: str, account_number: str, ifsc: str) -> dict
     frappe.db.commit()
     return {"payee": payee_summary(doc.name)}
 
-
-@frappe.whitelist()
-def get_vendor_payee(vendor: str) -> dict:
-    """`{vendor, vendor_name, payee: <summary> | None, other_vendors}`: the Payee the vendor is paid
-    into today (`services/payees/vendor_account.vendor_account`)."""
-    guard_can_raise()
-    if not vendor:
-        return {"vendor": vendor, "vendor_name": None, "payee": None, "other_vendors": 0}
-    return {
-        "vendor": vendor,
-        "vendor_name": frappe.db.get_value("Vendors", vendor, "vendor_name"),
-        **vendor_account(vendor),
-    }
