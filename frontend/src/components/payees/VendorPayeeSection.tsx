@@ -28,6 +28,9 @@ interface VendorPayeeSectionProps {
     vendorName?: string;
     vendorPan?: string;
     disabled?: boolean;
+    /** The Payee the vendor is paid into today (the vendor page's Change account): left out of the
+     * suggestions, since picking it changes nothing. */
+    currentPayee?: string | null;
 }
 
 const OPTIONS: { mode: VendorPayeeMode; title: string; help: string }[] = [
@@ -43,7 +46,7 @@ const OPTIONS: { mode: VendorPayeeMode; title: string; help: string }[] = [
     },
 ];
 
-export function VendorPayeeSection({ choice, vendorName, vendorPan, disabled }: VendorPayeeSectionProps) {
+export function VendorPayeeSection({ choice, vendorName, vendorPan, disabled, currentPayee }: VendorPayeeSectionProps) {
     const [confirming, setConfirming] = useState<string | null>(null);
     const suggestions = useVendorPayeeSuggestions(vendorName, vendorPan);
     const { mode, setMode, chosen, payeeForm } = choice;
@@ -122,7 +125,7 @@ export function VendorPayeeSection({ choice, vendorName, vendorPan, disabled }: 
             <PayeeSuggestionsPanel
                 className="min-w-0 flex-[1_1_320px]"
                 asked={suggestions.asked}
-                suggestions={suggestions.suggestions}
+                suggestions={suggestions.suggestions.filter((s) => s.name !== currentPayee)}
                 isLoading={suggestions.isLoading}
                 error={suggestions.error}
                 chosen={mode === VENDOR_PAYEE_MODE.EXISTING ? chosen?.name : null}

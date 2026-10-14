@@ -1,25 +1,30 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The vendor screens' Payee step (#1425, spec #1420, ADR-0033): what the new-vendor form (and the
-vendor page's Change account, #1426) asks the server before Submit.
+"""The vendor screens' Payee step (#1425, #1426, spec #1420, ADR-0033): what the new-vendor form and
+the vendor page's Account Details card ask the server.
 
-Thin: check who is asking, call the Payee module (`services/payees/`). Read-only; the vendor is
-linked by the endpoint that saves it (`api/create_vendor_and_address`), through
-`services/payees/choosing.choose_payee`.
+Thin: check who is asking, call the Payee module (`services/payees/`). A new vendor is linked by
+the endpoint that saves it (`api/create_vendor_and_address`); an existing one by
+`change_vendor_payee`. Both go through `services/payees/choosing.choose_payee`.
 
 * `suggest_vendor_payees` -- "Payees that look like this vendor".
 * `get_payee_choice` -- what the confirmation lists before a vendor is pointed at a Payee.
 * `check_vendor_payee` -- the duplicate block before submit, as `add_payee.check_payee` gives it.
+* `get_vendor_account` -- the vendor page's Account Details card (#1426).
+* `change_vendor_payee` -- its Change account and Add bank details (#1426).
 
-Who: `services/role_profiles.VENDOR_PAYEE_PROFILES` (the people who may create a vendor).
+Who: `services/role_profiles.VENDOR_PAYEE_PROFILES` (the people who may create a vendor), except
+`get_vendor_account`, which anyone who may read the vendor may call.
 """
 
 import frappe
 from frappe import _
 
 from nirmaan_stack.api.payees.add_payee import duplicate_verdict
-from nirmaan_stack.services.payees.choosing import payee_choice, suggest_for_vendor
+from nirmaan_stack.services.payees.choosing import link_vendor, payee_choice, suggest_for_vendor, vendor_account
+from nirmaan_stack.services.payees.links import payee_summary
+from nirmaan_stack.services.payees.writer import DuplicatePayeeError
 from nirmaan_stack.services.role_profiles import assert_vendor_payee_access
 
 
@@ -47,3 +52,29 @@ def check_vendor_payee(account_number: str, ifsc: str) -> dict:
     """The Payee already holding this account number + IFSC: `{duplicate: <summary> | None, message}`."""
     assert_vendor_payee_access(frappe.session.user)
     return duplicate_verdict(account_number, ifsc)
+
+
+@frappe.whitelist()
+def get_vendor_account(vendor: str) -> dict:
+    """The vendor page's Account Details card: `{payee: <summary> | None, other_vendors}`
+    (`choosing.vendor_account`). Anyone who may read the vendor may read the account it is paid into."""
+    frappe.has_permission("Vendors", "read", doc=vendor, throw=True)
+    return vendor_account(vendor)
+
+
+@frappe.whitelist(methods=["POST"])
+def change_vendor_payee(vendor: str, payee: str | None = None, bank: dict | None = None) -> dict:
+    """Change account / Add bank details on the vendor page (#1426): point `vendor` at `payee` (an
+    Active Payee, through the confirmation) or at new `bank` details (`{account_name, account_number,
+    ifsc}`) made into a Payee (`choosing.link_vendor`). The other vendors on its old Payee keep it.
+
+    Returns `{payee: <summary>}`, or `{duplicate: <summary>, message}` when the bank details belong to
+    a Payee already; nothing changes then."""
+    assert_vendor_payee_access(frappe.session.user)
+    try:
+        linked = link_vendor(vendor, payee, bank)
+    except DuplicatePayeeError as e:
+        frappe.db.rollback()
+        return {"duplicate": payee_summary(e.existing), "message": str(e)}
+    frappe.db.commit()
+    return {"payee": payee_summary(linked)}

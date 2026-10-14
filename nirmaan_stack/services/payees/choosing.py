@@ -12,6 +12,8 @@ page's Change account (#1426) share it.
   in `rules.inactive_pick_problem`'s words. `guard.check_payee_pick` refuses it on every save.
 * `choose_payee` -- the vendor's Payee from the form's answer: an existing one (pickable), or new
   bank details made into a Payee by `writer.create_payee`.
+* `link_vendor` -- Change account (#1426): an existing vendor to another Payee, by `choose_payee`.
+* `vendor_account` -- the vendor page's Account Details card: its Payee and who else shares it.
 
 Checks no role and never commits: the calling endpoint does both.
 """
@@ -21,9 +23,15 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
-from nirmaan_stack.services.payees.links import payee_summaries
+from nirmaan_stack.services.payees.links import payee_for_vendor, payee_summaries, payee_summary
 from nirmaan_stack.services.payees.matching import Candidate, LinkedVendor, rank_payees
-from nirmaan_stack.services.payees.rules import ACTIVE, PAID_STATUSES, PAYEE_DOCTYPE, inactive_pick_problem
+from nirmaan_stack.services.payees.rules import (
+    ACTIVE,
+    PAID_STATUSES,
+    PAYEE_DOCTYPE,
+    already_linked_problem,
+    inactive_pick_problem,
+)
 from nirmaan_stack.services.payees.writer import create_payee
 
 _PAID = ", ".join(f"'{status}'" for status in PAID_STATUSES)
@@ -145,3 +153,25 @@ def choose_payee(payee: str | None = None, bank: dict | None = None) -> str:
     if bank:
         return create_payee(bank.get("account_name"), bank.get("account_number"), bank.get("ifsc")).name
     frappe.throw(_("Pick a payee on record or enter new bank details."))
+
+
+def link_vendor(vendor: str, payee: str | None = None, bank: dict | None = None) -> str:
+    """Point an existing vendor at another Payee (the vendor page's Change account and Add bank
+    details): `choose_payee`'s two paths, refusing the Payee it already has. Saves the vendor
+    through its `validate` controllers; the other vendors on its old Payee keep it. Returns the
+    vendor's new Payee."""
+    current = payee_for_vendor(vendor)
+    if payee and payee == current:
+        frappe.throw(_(already_linked_problem(vendor, payee)))
+    doc = frappe.get_doc("Vendors", vendor)
+    doc.payee = choose_payee(payee, bank)
+    doc.save(ignore_permissions=True)
+    return doc.payee
+
+
+def vendor_account(vendor: str) -> dict:
+    """What the vendor page's Account Details card shows: `{payee: <summary> | None, other_vendors}`,
+    `other_vendors` being how many other vendors are paid into the same Payee."""
+    payee = payee_for_vendor(vendor)
+    summary = payee_summary(payee) if payee else None
+    return {"payee": summary, "other_vendors": summary["vendors"] - 1 if summary else 0}
