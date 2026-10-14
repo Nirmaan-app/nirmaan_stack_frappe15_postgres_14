@@ -29,10 +29,14 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     `link_vendor` (Change account: an existing vendor to another Payee, by `choose_payee`, refusing
     the one it has) and `vendor_account` (the vendor page's card: its Payee and `other_vendors`).
 - **A vendor's bank account is its Payee.** Vendor creation (`api/create_vendor_and_address`) takes
-  an existing Payee or new bank details and writes none of the old vendor bank fields. So does the
-  vendor page (#1426): its Account Details card shows the vendor's Payee, and Change account / Add
-  bank details go through `api/payees/vendor_payee.change_vendor_payee` (`choosing.link_vendor`); the
-  other vendors on the old Payee keep it. The edit-vendor form has no bank fields. Renaming a vendor
+  an existing Payee or new bank details and writes none of the old vendor bank fields. Every screen
+  that shows or checks a vendor's bank details (hover card, detail popover, the PO / WO
+  payment-request gate, the bank file, the vendor list) reads the vendor's Payee through
+  `services/payees/vendor_account.vendor_accounts`, gated by Vendors read, not Payee read. On the
+  vendor page (#1426) the Account Details card shows the vendor's Payee and how many other vendors
+  share it (`choosing.vendor_account`); Change account / Add bank details go through
+  `api/payees/vendor_payee.change_vendor_payee` (`choosing.link_vendor`), and the other vendors on
+  the old Payee keep it; afterwards the card revalidates `vendorPayeeAccountKey` too. The edit-vendor form has no bank fields. Renaming a vendor
   with a Payee asks keep / update the holder name / new bank details / decide later; "update the
   holder name" is the Payees-page holder-name edit, so the holder-name rule (Accounts and Admins) holds.
 - **No two Payees share an account number + IFSC**, compared on `normalized_account`: the account
@@ -90,5 +94,6 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | Payees page | `pages/payees/PayeesPage.tsx`, route `/payees` |
 | One Payee's page (#1423) | `pages/payees/PayeePage.tsx`, route `/payees/:payeeId`; endpoints `api/payees/payee_page.py` (`get_payee`, `edit_holder_name`, `set_payee_status`); `components/payees/EditHolderNameDialog`; rules `utils/payees/payeePage.ts` |
 | Vendor Payee endpoints | `api/payees/vendor_payee.py`: `suggest_vendor_payees`, `get_payee_choice`, `check_vendor_payee`; `get_vendor_account`, `change_vendor_payee` (#1426) |
+| A vendor's account on screens (#1428) | `api/payees/vendor_accounts.py`: `get_vendor_payee_accounts`, `get_vendor_list`; frontend `components/payees/vendorPayeeAccount.ts` (`useVendorPayeeAccount`, `useVendorPayeeGate`) |
 | Vendor page account card + rename prompt (#1426) | `pages/vendors/components/VendorAccountCard`, `VendorRenameFlow`; `components/payees/ChangeVendorAccountDialog`, `VendorRenamePrompt`; wording in `utils/payees/vendorAccount.ts`; test `api/payees/test_vendor_account.py` |
 | Vendor Payee step (frontend) | `components/payees/VendorPayeeSection` + `useVendorPayeeChoice`, `PayeeSuggestionsPanel`, `UsePayeeDialog`, `vendorPayeeApi`; wording in `utils/payees/payeeChoice.ts` |
