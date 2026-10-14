@@ -46962,3 +46962,167 @@ C7 ADP fire damper UL "600 x 600": 7,830 / 692; Electrical BOQ-26-00174 row 309:
 - The Python test runs re-import two HVAC Piping SKUs (rmi-05293f782520 / rmi-dc60907cc08a) under a new batch each
   time: content identical, accepted by the owner as test residue (active batch now `rmbulk-9ac734f48f8c`).
 - `residence_check`: F5 120 / 117 and F2 221 / 217 over baseline before this slice; it adds none.
+
+## Slice 12e-5 — Piping: the row-108 carry-over check and fix, then the paid audit's Stage A (every row type, real route, row by row) — as built 2026-10-14 / 15
+
+**Commits (unpushed at the time of writing):**
+- `afb724640` fix(rate-helper): AC0 / AC1.
+- `c67aa70f4` test: AC10's real rows per row type.
+- `c93d7b120` test: the AC10 block without an inline `JSON.parse` (residence F2). A separate commit, by the 12e-4d precedent.
+- The docs commit that carries this entry.
+
+Start tip `53999a4a5` (= origin). No asset, config, model note or prompt changed; HVAC v38 and Electrical v66 stay live.
+
+Full report on the Desktop: `2026-10-14_12e5_Report.md`. Also there: `2026-10-14_12e5_StageA_Report.md` (interim) and `2026-10-14_12e5_Rows_StageA.xlsx`.
+
+**Plan change (owner, 2026-10-15):** the paid audit stopped after Stage A. Stage B (every remaining gate-open sheet, including the route (c) line below) moves to slice 12e-5c, after the fix slice 12e-5b. 12e-5 made no model call after Stage A except the one declared structure check (§3).
+
+### 1. Part 1: a refused insulation section keeps what the AI read
+
+The owner, on the 12e-4d review: "the attribute values should be captured else the user will have to enter everything from scratch".
+
+**AC0 (checked first, no fix needed).** On BOQ-26-00186 / HVAC WORKS row 108 ("1 CPVC", stored run), a pipe size entered in the pipe's box or the section's own ("1 inch" / "25.4") fills the section and prices it:
+- Nitrile; cladding No (amber); thickness 6 → 13; pipe size → 28.58.
+- The section prices **238 / 14**. That equals Calculator → Insulation and the pure pricer.
+- Derivation: SKU rmi-560e452197aa; supply ROUNDUP((131 + 30) × 1.05 = 169.05 → 170) × 1.4 = 238; install 10 × 1.4 = 14.
+
+**AC1 (the fix).**
+- `priceOneItem` now holds the "None" answers it had read into their ruled defaults when it refuses at a need (`ItemPriceResult.heldDefaults`). It holds them for choice attributes only, never on `defaulted`.
+- `priceSection` sets `showHeldDefaultsOn` (the section's mirror axis) on the context it hands the delegated category. `computeItemListOwn` shows the held defaults only for an item refusing at that need.
+- The result: a section refusing over its pipe's size shows cladding **"No"**, with its default tag and "cladding not mentioned → without cladding", exactly as on a priced row. Before, it showed "— select —".
+- It still shows no figure and no "priced as" line. "6mm" stays in its Other box. A thickness the AI did not read stays blank: the 9 mm default is not a value the AI read.
+
+**AC2 (blast radius).** 7 of 13,467 stored rows change, in the section's cladding only: BOQ-26-00186 rows 100-102 and 108; BOQ-26-00292 rows 10, 31 and 58. 0 figures and 0 Electrical rows change.
+
+**Tests.** `slice12e5.test.ts`, 12 tests. The targeted set is 26 files / 2,594 tests. Vacuity: 5 breaks, each turned the expected tests red, and each file was restored byte-identical.
+
+### 2. The audit: inventory, Stage A, the row-by-row check
+
+**Inventory (AC3, read-only).**
+
+| | Sheets | Piping rows |
+|---|---|---|
+| Current sheets on dev | 1,179 | |
+| Holding Piping (2 excluded sheets skipped unread) | 127 | 1,623 |
+| Gate open | **106** | **1,349** |
+| - with a completed run (Piping-only route) | 12 | 159 |
+| - no run (whole-sheet route) | 94 | 1,190, plus 3,006 other rows read |
+| Gate closed (listed, not run) | 21 | 274 |
+
+- Reconciles with 12e-4a's 1,650: 1,349 + 274 + 27 on the excluded sheets.
+- No SS or HDPE row exists on dev.
+- Every request was built in advance with a stub client through the real `run_extraction`.
+
+**Stage A.** Picked by the owner's rules: the 12 Piping-only sheets first, then the highest Piping share, with low share only to cover a stratum (00137 / CHW pipes for NB, 00088 / HVAC for no unit). Declared: 25 sheets, 292 Piping rows, 337 calls, cap 357.
+
+- **The partial-run stop.** After 3 sheets, BOQ-26-00231 ended *partial*. Its old "complete" run BRSR-26-00036 had read 25 of today's 103 rows, so a Piping-only run can never complete. 7 of the 12 Piping-only sheets had this gap.
+- **Owner ruling (a):** run the other 16 sheets; audit 00231 from the partial run's stored readings; move the other 6 sheets to Stage B as route (c).
+- **Leftover:** BRSR-26-00449 (partial, inactive) stays on dev for the owner's approval. Resume was never pressed.
+- **The run:** 19 sheets, **255 calls** on exactly the declared counts:
+  - 38 batch calls: 301,605 in / 70,702 out;
+  - 217 second opinions: 1,054,532 in / 7,955 out;
+  - 22:56-23:31 IST on 2026-10-14.
+- **Requests:** all 38 sent requests are byte-identical to the stub-built ones.
+- **Carry-forward:** every carried non-Piping row is byte-identical.
+- **Runs:** 19 documents added; 5 superseded as declared (BRSR-26-00139, 00393-00396).
+
+**AC7, the hand check (217 rows).** Each field was judged against the row's own words as sent.
+
+| Field | Right | Wrong | Safe miss | n/a |
+|---|---|---|---|---|
+| Pipe type | 215 | 1 | 0 | 1 |
+| Pipe type as written | 216 | 0 | 0 | 1 |
+| Pipe size | 198 | 0 | 18 | 1 |
+| Class | 140 | 0 | 0 | 77 |
+| Insulated | 206 | 10 | 0 | 1 |
+| Insulation material | 161 | 14 | 0 | 42 |
+| Insulation thickness | 164 | 10 | 1 | 42 |
+| Insulation cladding | 132 | 24 | 19 | 42 |
+| Insulation pipe size | 165 | 10 | 0 | 42 |
+| Insulation pairing | 165 | 10 | 0 | 42 |
+
+- **Priced on a wrong or incomplete reading:**
+  - BOQ-26-00231 rows 127-136 miss the 19 mm insulation row 126 states. BOQ Nodes does not make row 126 their parent.
+  - BOQ-26-00341 rows 63 and 69 have conditional glass cloth applied (owner: ok).
+- **The structure check (owner, 2026-10-15):** with row 126 set as their parent in memory only, one declared call (11,114 in / 3,421 out, no second opinion) reads Copper and the 19 mm nitrile on all 10 rows.
+  - Each prices as its twin in rows 139-148 (602 / 234 … 4,522 / 234).
+  - **10 / 10 PASS**, counted as passing by owner ruling. The sheet's structure is the user's to fix.
+- **Wrong readings with no price effect:** BOQ-26-00321 rows 15-26 ("26 G GI cladding" read as 26G Aluminium) and rows 78-81 ("tubular Nitrile rubber" read as Tubular Puf).
+- **Safe misses:**
+  - cladding left out instead of "None", 19 rows (00341 ×17 under an "Al. foil" note, 00162 ×2);
+  - inch-with-mm '1/2" (12.7mm)' refused as several sizes, 17 rows;
+  - the bare "1", 1 row;
+  - one thickness band.
+
+**AC8, second opinion.**
+- 30 rows disagreed, raising 44 issues: 17 right, 26 noise (20 of them "blind": it cannot see text the tree does not attach), 1 wrong.
+- It agreed with 39 rows that have a wrong or safe-miss field.
+- Its cost share is 78% of input.
+- Its request and reply are not saved anywhere; only the verdict, usage and (on disagree) a reason cut at 300 characters survive.
+- Variability against 12e-4c's 29 rows: one field changed (00186 / 106 "material as written": "foam" → "insulation foam"); verdicts unchanged.
+
+**AC9.**
+
+| | Answer |
+|---|---|
+| (a) insulation pairs kept out of the pipe size | 7 / 7 |
+| (b) as written not in the row's own text | 195 |
+| (c) a unit added to a bare size | 0 |
+| (d) the 53-58 shape | 7 |
+| (e) material not stocked (RPUF 12, closed cell polyethylene 6) | refused by name |
+| (f) undeclared section | 0 |
+| (g) a pipe split or merged wrongly | 0 |
+| (h) conflict case | 1 (00088 / 35, "CU") |
+| (i) no-unit refusals | 1 |
+
+**Payload integrity.**
+- 246 rows (217 + 12e-4c's 29) carry their exact request block, the questions and the raw reply, cut from the capture log by byte offset, never rebuilt.
+- 246 / 246 are complete.
+- 246 / 246 pass the structure check against BOQ Nodes under **EA-7** (owner-confirmed 2026-10-14: the row, parent and grandparent carry all their notes; great-grandparent and above carry the description plus appended notes only).
+- The builder is `extraction._ai_item`, reached by `start_suggest` → `_suggest_worker` → `run_extraction` → `_extract_batch`.
+
+### 3. AC10, AC11 and the suites
+
+- **AC10:** `calculatorPanelParity.test.ts` gains 22 named row types, one real Stage A row each.
+  - Parity: 13 outright, 1 typed, 1 "pick a" wording, 6 both refuse.
+  - 1 finding is pinned as it is: '1/2" (12.7mm)' refuses on the panel while its box shows 12.7, and the calculator prices 936 / 220.
+  - Over all 217 rows, by the parity method: 187 same, 30 in known classes.
+- **AC11, replay:** 13,467 → **13,674** rows. 207 added (152 Piping + 55 first readings of other categories on the whole-sheet runs); **0 changed, 0 removed, 0 Electrical**.
+- **New baselines (13,674 rows):**
+  - plain `5945b7d710bc8599d76bf6b34666460a0889457eb47a2a9fa10a3df91f366a19`;
+  - section-aware `1f04d04bf555f922929161606f1df4b8ec80b733040d24f77e9cc90bcf424acd`.
+- **Full suites:**
+  - Frontend: 173 files / 6,654 tests, the 1 known writeOffControl timeout (before: 172 / 6,616).
+  - tsc: 3,170, identical by file and message.
+  - No Python file changed, so no Python suite. Logs on the Desktop are the next slice's "before".
+- **Browser cert:** C1-C8 seen after a full de-stale; screens are on the Desktop.
+
+### 4. Owner rulings and findings carried to 12e-5b
+
+Rulings recorded:
+- BOQ-26-00341 rows 63 / 69 are ok.
+- PVC / CPVC drain pipes taking copper insulation sizes (next size up) is fine.
+- Closed cell = thermal, open cell = acoustic.
+- Second opinion off for Piping.
+- Stage B runs every sheet, including route (c), in 12e-5c.
+
+Findings for **12e-5b**:
+1. VRF or refrigerant piping = Copper; chilled water with no type stated = MS. "As written" must hold only words the BoQ wrote: 00231 rows 127-136 wrote "copper" when it was not in their payload.
+2. "26 G GI cladding" is read as written and mapped to aluminium with a "BoQ says" line until a GI cladding item exists.
+3. Tubular nitrile rubber is Nitrile Rubber Insulation, never Tubular PUF.
+4. Cladding not mentioned is "None", never left out. "Al. foil" → Aluminium Foil.
+5. Closed cell polyethylene → thermal nitrile (Nitrile Rubber Insulation on a pipe, Thermal Nitrile on a duct or sheet) with a "BoQ says" line. Only when "closed cell" is written; plain polyethylene, PE foam and XLPE stay refused.
+6. '1/2" (12.7mm)' reads as one size, and the box no longer shows 12.7 on a refused row.
+7. **Layered insulation:** only when the layers total within ±2 mm of the stated thickness, with the cladding measured on the pipe + 2 × the total thickness (BOQ-26-00162 row 17: 50 + 2 × 32 = 114 mm). Rows 17-18 are under-priced today.
+8. The partial-run bug on sheets whose last run predates today's rows. Never-read rows per sheet: 00231 42, 00269 26, 00321 / AIR DISTRIBUTION 5, 00325 6, 00327 2, 00329 7, 00336 2.
+9. The blank insulation item name (" / (Mts)") on every priced section.
+10. The "Nos" refusal wording ("not a count, area or length unit").
+11. The second opinion's request and reply are not saved.
+12. Copper pipe rows categorised ADP / Ducting are never read as Piping. BOQ-26-00341 rows 64 / 65 are confirmed; a pattern search finds 20 ADP candidates (unverified).
+
+**Stage B, for 12e-5c (declared, not run):**
+- Main: 81 sheets, 1,057 Piping rows, 2,951 other rows, 1,546 calls (cap 1,566), about 9.17M tokens in.
+- Route (c): 6 sheets, 75 Piping rows + 48 never-read rows, 90 calls (cap 110), about 0.50M tokens in.
+- The numbers assume the second opinion; with it off (owner ruling), Stage B is about 504 batch calls.
+
+**Dev leftovers, for the owner's approval:** BRSR-26-00449 (BOQ-26-00231, partial, inactive).
