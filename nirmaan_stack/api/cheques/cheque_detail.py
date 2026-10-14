@@ -16,33 +16,21 @@ _HEADER = ("name", "creation", "owner", "cheque_no", "bank", "bank_name", "chequ
            "vendor", "payee_name", "description", "attachment", "made_from")
 
 
-def _full_names(users) -> dict:
-    users = sorted({u for u in users if u})
-    if not users:
-        return {}
-    return dict(frappe.get_all("User", filters={"name": ["in", users]}, fields=["name", "full_name"], as_list=True))
-
-
-def _project_names(projects) -> dict:
-    projects = sorted({p for p in projects if p})
-    if not projects:
-        return {}
-    return dict(frappe.get_all("Projects", filters={"name": ["in", projects]}, fields=["name", "project_name"], as_list=True))
-
-
-def _statuses(doctype: str, names) -> dict:
+def _name_map(doctype: str, field: str, names) -> dict:
+    """`{name: field}` for the given `names` of `doctype`; empty when `doctype` has no `field`."""
     names = sorted({n for n in names if n})
-    if not names or not frappe.db.has_column(doctype, "status"):
+    if not names or not frappe.db.has_column(doctype, field):
         return {}
-    return dict(frappe.get_all(doctype, filters={"name": ["in", names]}, fields=["name", "status"], as_list=True))
+    return dict(frappe.get_all(doctype, filters={"name": ["in", names]}, fields=["name", field], as_list=True))
 
 
 @frappe.whitelist()
 def get_cheque(name: str) -> dict:
     """One Cheque as the detail view shows it.
 
-    `lines` carry each payment's current `payment_status` and the project's `project_name`; `history` is oldest first, each row with
-    the changer's full name. `bank_label` is the typed name for an Others bank.
+    `lines` carry each payment's current `payment_status` and the project's `project_name`; `history`
+    is oldest first, each row with the changer's full name. `bank_label` is the typed name for an
+    Others bank.
     """
     assert_cheque_access(frappe.session.user)
     doc = frappe.get_doc(CHEQUES, name)
@@ -53,8 +41,9 @@ def get_cheque(name: str) -> dict:
     lines = doc.get("lines") or []
     statuses = {}
     for doctype in {row.payment_doctype for row in lines if row.payment_doctype}:
-        statuses[doctype] = _statuses(doctype, [row.payment_name for row in lines if row.payment_doctype == doctype])
-    project_names = _project_names(row.project for row in lines)
+        payments = [row.payment_name for row in lines if row.payment_doctype == doctype]
+        statuses[doctype] = _name_map(doctype, "status", payments)
+    project_names = _name_map("Projects", "project_name", (row.project for row in lines))
     out["lines"] = [
         {
             "idx": row.idx,
@@ -72,7 +61,7 @@ def get_cheque(name: str) -> dict:
     ]
 
     history = doc.get("status_history") or []
-    names = _full_names([doc.owner] + [h.changed_by for h in history])
+    names = _name_map("User", "full_name", [doc.owner] + [h.changed_by for h in history])
     out["owner_name"] = names.get(doc.owner)
     out["history"] = [
         {

@@ -168,8 +168,6 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
         }
     };
 
-    // While a save is in flight (validation included) the form cannot be sent again: a second send of
-    // the same cheque is refused as a duplicate after the first one saved and closed the dialog.
     const onSubmit = async (values: ChequeFormValues) => {
         try {
             const res = await saveCheque(edit ? editChequeArgs(edit.name, values) : saveChequeArgs(values));
@@ -434,6 +432,9 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
                 />
                 <DialogFooter>
                     <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
+                    {/* While a save is in flight (validation included) the form cannot be sent again: a second
+                        send of the same cheque is refused as a duplicate after the first one saved and closed
+                        the dialog. */}
                     <Button type="submit" disabled={form.formState.isSubmitting || saving || uploading || reader.reading}>
                         {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         {edit ? "Save changes" : "Save Cheque"}

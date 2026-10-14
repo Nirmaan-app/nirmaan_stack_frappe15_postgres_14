@@ -70,7 +70,8 @@ interface ChequeColumnActions {
 /**
  * The Cheque Payments report's columns (spec #1407): one row per Cheque. The cheque number and
  * "View Cheque Details" open the detail view; "Change Cheque Status" opens Change status (#1412);
- * "Edit Cheque Details" opens the Edit dialog (#1418), stacked one under the other (owner). The chevron beside the number expands the row into its lines (#1417; the page passes
+ * "Edit Cheque Details" opens the Edit dialog (#1418); the actions stack one under the other. The
+ * chevron beside the number expands the row into its lines (#1417; the page passes
  * `renderExpandedRow` to DataTable).
  *
  * The facet columns' ids (`status`, `bank_label`, `vendor`, `project`, `record_name`) are the

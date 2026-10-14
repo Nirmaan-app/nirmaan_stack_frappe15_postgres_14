@@ -17,6 +17,7 @@ import {
 } from "@/utils/cheques/chequeLines";
 
 import { useAllProjects, useEligibleExpenses } from "./useChequePickers";
+import { useLineSetter } from "./useLineSetter";
 
 const PORTAL = { menuPortalTarget: document.body, menuPosition: "fixed" as const };
 const SEARCH: TokenSearchConfig = { searchFields: ["label", "value"], minSearchLength: 1, partialMatch: true };
@@ -38,17 +39,14 @@ interface ExpenseLineRowProps {
  * a Non Project Expense only. The picker hides expenses already on a live Cheque and says how many.
  */
 export const ExpenseLineRow = ({ index, disabled, cheque, onRemove }: ExpenseLineRowProps) => {
-    const { control, setValue, formState } = useFormContext<ChequeFormInput>();
+    const { control } = useFormContext<ChequeFormInput>();
     const line = useWatch({ control, name: `lines.${index}` }) as ChequeLineDraft;
     const needs = LINE_NEEDS[line.line_type];
     const projects = useAllProjects();
     const { eligible, isLoading } = useEligibleExpenses(line.line_type, line.project, cheque);
     const expenseOptions = (eligible?.expenses ?? []).map((e) => ({ value: e.name, label: expenseLabel(e), amount: e.amount }));
     const hidden = hiddenExpensesText(eligible?.hidden);
-
-    // Validated only once the form was submitted, as in `PoWoLineRow`: no stale "Pick the ..." error.
-    const set = (name: keyof ChequeLineDraft, value: string | number) =>
-        setValue(`lines.${index}.${name}`, value, { shouldValidate: formState.isSubmitted, shouldDirty: true });
+    const set = useLineSetter(index);
 
     return (
         <TableRow className="align-top">

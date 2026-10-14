@@ -27,14 +27,16 @@ import {
 
 import { ExpenseLineRow } from "./ExpenseLineRow";
 import { useEligiblePayments, useVendorRecords } from "./useChequePickers";
+import { useLineSetter } from "./useLineSetter";
 
 /** Radix Select reserves "" for "no value", so "No payment yet" needs its own token. */
 const NO_PAYMENT = "__no_payment__";
 
 /** Lets a picked value's text shrink and clip inside its fixed column. */
-const TRIGGER = "[&>span]:min-w-0";
+const TRIGGER_CLIP_CLASS = "[&>span]:min-w-0";
 
-const recordKind = (doctype: string) => (doctype === "Service Requests" ? "WO" : "PO");
+/** A PO's name already reads "PO/..."; a Work Order's ("SR-...") gets "WO" in front. */
+const recordLabel = (doctype: string, name: string) => (doctype === "Service Requests" ? `WO ${name}` : name);
 
 interface ChequeLinesTableProps {
     /** True when the cheque is made out to a Vendor; a typed payee takes expense lines only. */
@@ -88,10 +90,10 @@ export const ChequeLinesTable = ({ vendorPayee, vendor, disabled, cheque, record
                     <Table className="min-w-[760px] table-fixed">
                         <TableHeader>
                             <TableRow>
-                                <TableHead className="w-[13%]">Type</TableHead>
-                                <TableHead className="w-[20%]">Project</TableHead>
-                                <TableHead className="w-[16%]">PO / WO</TableHead>
-                                <TableHead className="w-[31%]">Payment / Expense</TableHead>
+                                <TableHead className="w-[12%]">Type</TableHead>
+                                <TableHead className="w-[19%]">Project</TableHead>
+                                <TableHead className="w-[20%]">PO / WO</TableHead>
+                                <TableHead className="w-[29%]">Payment / Expense</TableHead>
                                 <TableHead className="w-[14%]">Amount (₹)</TableHead>
                                 <TableHead className="w-12" />
                             </TableRow>
@@ -121,7 +123,12 @@ export const ChequeLinesTable = ({ vendorPayee, vendor, disabled, cheque, record
                     </Table>
                 </div>
             )}
-            {linesError && <p className="text-[0.8rem] font-medium text-destructive">{linesError}</p>}
+            {/* Not in a FormField: its error lookup on `lines` reads a `lines.root` error as "undefined". */}
+            {linesError && (
+                <FormItem>
+                    <FormMessage>{linesError}</FormMessage>
+                </FormItem>
+            )}
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <Button type="button" variant="outline" size="sm" disabled={disabled}>
@@ -163,7 +170,7 @@ interface PoWoLineRowProps {
 }
 
 const PoWoLineRow = ({ index, records, disabled, cheque, onRemove }: PoWoLineRowProps) => {
-    const { control, setValue, formState } = useFormContext<ChequeFormInput>();
+    const { control } = useFormContext<ChequeFormInput>();
     const line = useWatch({ control, name: `lines.${index}` }) as ChequeLineDraft;
     const { eligible, isLoading } = useEligiblePayments(line.record_doctype, line.record_name, cheque);
     const picked = eligible?.payments.find((p) => p.name === line.payment_name);
@@ -172,15 +179,11 @@ const PoWoLineRow = ({ index, records, disabled, cheque, onRemove }: PoWoLineRow
     const projects = withCurrent(lineProjects(records), line.project);
     const inProject = recordsInProject(records, line.project);
     const recordOptions = withCurrent(
-        inProject.map((r) => ({ value: r.name, label: `${recordKind(r.doctype)} ${r.name}` })),
+        inProject.map((r) => ({ value: r.name, label: recordLabel(r.doctype, r.name) })),
         line.record_name,
-        line.record_doctype && `${recordKind(line.record_doctype)} ${line.record_name}`,
+        line.record_doctype && recordLabel(line.record_doctype, line.record_name),
     );
-
-    // Validated only once the form was submitted, as the boxes' own changes are: a box cleared before
-    // then must not show an error that its later pick (unvalidated until submit) would leave stale.
-    const set = (name: keyof ChequeLineDraft, value: string | number) =>
-        setValue(`lines.${index}.${name}`, value, { shouldValidate: formState.isSubmitted, shouldDirty: true });
+    const set = useLineSetter(index);
 
     return (
         <TableRow className="align-top">
@@ -202,7 +205,7 @@ const PoWoLineRow = ({ index, records, disabled, cheque, onRemove }: PoWoLineRow
                                 }}
                             >
                                 <FormControl>
-                                    <SelectTrigger className={TRIGGER}><SelectValue placeholder="Project" /></SelectTrigger>
+                                    <SelectTrigger className={TRIGGER_CLIP_CLASS}><SelectValue placeholder="Project" /></SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
                                     {projects.map((p) => (
@@ -232,7 +235,7 @@ const PoWoLineRow = ({ index, records, disabled, cheque, onRemove }: PoWoLineRow
                                 }}
                             >
                                 <FormControl>
-                                    <SelectTrigger className={TRIGGER}><SelectValue placeholder="PO or WO" /></SelectTrigger>
+                                    <SelectTrigger className={TRIGGER_CLIP_CLASS}><SelectValue placeholder="PO or WO" /></SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
                                     {recordOptions.map((r) => (
@@ -256,7 +259,7 @@ const PoWoLineRow = ({ index, records, disabled, cheque, onRemove }: PoWoLineRow
                         if (payment) set("amount", payment.amount);
                     }}
                 >
-                    <SelectTrigger className={TRIGGER}><SelectValue /></SelectTrigger>
+                    <SelectTrigger className={TRIGGER_CLIP_CLASS}><SelectValue /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value={NO_PAYMENT}>No payment yet</SelectItem>
                         {eligible?.payments.map((p) => (

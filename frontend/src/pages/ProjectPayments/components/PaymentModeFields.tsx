@@ -229,8 +229,9 @@ export const PaymentModeFields = ({
 							/>
 						</div>
 						<div className="space-y-1">
-							<Label htmlFor="cheque-amount" className="text-xs">
-								Amount (₹)<Required />{fromPhoto("amount") && <FromPhotoTag />}
+							<Label htmlFor="cheque-amount" className="flex flex-wrap items-center gap-y-1 text-xs">
+								<span>Cheque amount (₹)<Required /></span>
+								{fromPhoto("amount") && <FromPhotoTag />}
 							</Label>
 							<Input
 								id="cheque-amount"
