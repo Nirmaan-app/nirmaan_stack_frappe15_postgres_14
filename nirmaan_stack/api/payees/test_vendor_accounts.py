@@ -39,12 +39,7 @@ class TestVendorAccounts(FrappeTestCase):
 
     def _vendor(self, payee):
         name = self.fx.vendor()
-        # The old vendor bank fields still hold something else: a screen must not show them.
-        frappe.db.set_value(
-            "Vendors", name,
-            {"payee": payee, "account_name": "OLD HOLDER", "account_number": "111", "ifsc": "OLDB0000001"},
-            update_modified=False,
-        )
+        frappe.db.set_value("Vendors", name, "payee", payee, update_modified=False)
         return name
 
     def _user(self, profile):

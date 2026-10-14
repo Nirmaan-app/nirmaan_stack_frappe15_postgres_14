@@ -254,7 +254,7 @@ anything. A name is a scoring form, never an identity.
 
 **A vendor's account is its CURRENT Payee's** (#1427, [ADR-0033](../../../docs/adr/0033-payee-is-one-bank-account.md)).
 `candidates.load_vendor_index` reads account, IFSC and holder name through
-`services/payees/vendor_account.vendor_accounts`, never from a vendor field. A Payee shared by several vendors
+`services/payees/vendor_account.vendor_accounts`: a vendor has no bank fields of its own (#1432 deleted them). A Payee shared by several vendors
 admits a payment of ANY of them at tier 1 (the shared-account rule above, unchanged). A line paid to a
 vendor's PREVIOUS Payee reaches no tier 1 and is matched by hand: v1 keeps no Payee history (ADR-0033
 "Not in v1"). Refund suggestions read the same index. Tests: `services/outflow_import/test_vendor_payee_index.py`.
@@ -5873,7 +5873,7 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   rule `services/outflow_import/refund_suggestion.suggest_waiting_refunds`: (a) the line's bank reference
   equals the UTR typed on one or more waiting refunds, all one vendor's (the only rule that may suggest a
   group; two vendors suggest nothing and stop the ladder), else (b) the line's account AND IFSC are a
-  vendor's (`matcher.account_ifsc_vendors`) and EXACTLY ONE of that vendor's waiting refunds agrees within
+  vendor's Payee's (`matcher.account_ifsc_vendors`) and EXACTLY ONE of that vendor's waiting refunds agrees within
   `TIER1_TOLERANCE`. Never a group from amounts, never a name-only vendor. ICICI has no account/IFSC
   columns, so only (a) is live today. `review._guard_duplicates_only` asks it for each open credit line
   the contains-guard left `Mismatched` with no recorded group (`api/outflow_import/refund_suggestions.

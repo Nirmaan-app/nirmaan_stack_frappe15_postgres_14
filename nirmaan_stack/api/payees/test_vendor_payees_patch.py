@@ -9,7 +9,13 @@ Payee's details, the expenses' Payee, and the patch log.
 
 ⚠️ RUNS AGAINST THE ENV DATABASE (each test commits). Every vendor and expense is inserted raw with a
 TESTPYE name and deleted after the test; every Payee is purged by `PayeeFixture`.
+
+#1432 deleted the five bank fields from the `Vendors` doctype. Frappe's migrate never drops a column,
+so a site that had them still has them, and that is what the patch reads. A site installed after the
+deletion has no such columns and never runs the patch, so this module skips there.
 """
+
+import unittest
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -25,6 +31,12 @@ U = "Administrator"
 
 
 class TestMoveVendorBankDetailsToPayees(FrappeTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        if not frappe.db.has_column("Vendors", "account_number"):
+            raise unittest.SkipTest("tabVendors has no old bank columns: a site installed after #1432")
+
     def setUp(self):
         frappe.set_user(U)
         self.payees = PayeeFixture.attach(self)

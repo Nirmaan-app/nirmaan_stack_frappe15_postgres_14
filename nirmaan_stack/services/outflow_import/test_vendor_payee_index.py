@@ -46,13 +46,13 @@ class TestTierOneReadsTheVendorsPayee(unittest.TestCase):
     def setUp(self):
         self.payees = PayeeFixture.attach(self)
 
-    def _vendor(self, payee=None, account_number=None, ifsc=None) -> str:
+    def _vendor(self, payee=None) -> str:
         name = f"TESTPYE-VEN-{frappe.generate_hash(length=8)}"
         frappe.db.sql(
             """INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-                                         vendor_name, payee, account_number, ifsc)
-               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, %s, %s, %s)""",
-            (name, f"TESTPYE Vendor {name}", payee, account_number, ifsc),
+                                         vendor_name, payee)
+               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, %s)""",
+            (name, f"TESTPYE Vendor {name}", payee),
         )
         frappe.db.commit()
 
@@ -89,10 +89,3 @@ class TestTierOneReadsTheVendorsPayee(unittest.TestCase):
         self.assertNotEqual(result.tier, TIER_ACCOUNT)
         self.assertEqual(result.payment_groups, ())
 
-    def test_the_vendors_own_bank_fields_admit_nothing(self):
-        account = self.payees.account_number()
-        vendor = self._vendor(payee=None, account_number=account, ifsc="TEST0PYE001")
-
-        result = match_row(_Line(account, "TEST0PYE001"), load_vendor_index(), (_payment(vendor),))
-
-        self.assertNotEqual(result.tier, TIER_ACCOUNT)

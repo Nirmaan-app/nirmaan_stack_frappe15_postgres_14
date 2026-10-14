@@ -29,6 +29,7 @@ from nirmaan_stack.services.payees.rules import INACTIVE, PAYEE_DOCTYPE
 
 U = "Administrator"
 PROJECT_MANAGER = "Nirmaan Project Manager Profile"
+#: The bank fields a Vendor held before Payees (#1432 deleted them; the account is the Payee's).
 OLD_BANK_FIELDS = ("account_name", "account_number", "ifsc", "bank_name", "bank_branch")
 
 
@@ -183,13 +184,17 @@ class TestVendorPayee(FrappeTestCase):
         frappe.set_user(U)
 
     # -- creating the vendor --------------------------------------------------------------------
-    def test_a_vendor_using_an_existing_payee_links_to_it_and_writes_no_old_bank_fields(self):
+    def test_a_vendor_has_no_bank_fields_of_its_own(self):
+        meta = frappe.get_meta("Vendors")
+        self.assertEqual([f for f in OLD_BANK_FIELDS if meta.has_field(f)], [])
+        self.assertEqual(meta.get_field("payee").options, PAYEE_DOCTYPE)
+
+    def test_a_vendor_using_an_existing_payee_links_to_it(self):
         payee = self.payees.payee()
         result, vendor = self._create(payee=payee)
         self.assertEqual(result["status"], 200, result)
         doc = frappe.get_doc("Vendors", vendor)
         self.assertEqual(doc.payee, payee)
-        self.assertEqual([doc.get(f) for f in OLD_BANK_FIELDS], [None] * len(OLD_BANK_FIELDS))
         self.assertEqual(result["payee"], payee)
 
     def test_new_bank_details_create_a_payee_and_link_the_vendor_to_it(self):
@@ -202,7 +207,6 @@ class TestVendorPayee(FrappeTestCase):
         self.assertEqual(
             (payee.account_name, payee.account_number, payee.ifsc, payee.bank_name), (holder, number, TEST_IFSC, "Test Bank")
         )
-        self.assertEqual([doc.get(f) for f in OLD_BANK_FIELDS], [None] * len(OLD_BANK_FIELDS))
 
     def test_details_matching_an_existing_payee_are_refused_naming_it_and_no_vendor_is_made(self):
         number = self.payees.account_number()
