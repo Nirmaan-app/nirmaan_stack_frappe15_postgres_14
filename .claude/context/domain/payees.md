@@ -23,7 +23,10 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     (links + last payment, for the confirmation), `assert_pickable` (an Inactive Payee can't be
     newly picked), `choose_payee` (an existing Payee or new details through `create_payee`).
 - **A vendor's bank account is its Payee.** Vendor creation (`api/create_vendor_and_address`) takes
-  an existing Payee or new bank details and writes none of the old vendor bank fields.
+  an existing Payee or new bank details and writes none of the old vendor bank fields. Every screen
+  that shows or checks a vendor's bank details (hover card, detail popover, the PO / WO
+  payment-request gate, the bank file, the vendor list) reads the vendor's Payee through
+  `services/payees/vendor_account.vendor_accounts`, gated by Vendors read, not Payee read.
 - **No two Payees share an account number + IFSC**, compared on `normalized_account`: the account
   number without spaces, dashes or leading zeros, exactly as Bulk Import compares a bank line
   (`services/outflow_import/normalize.normalize_account` owns that rule). The `validate` controller
@@ -56,4 +59,5 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | Frontend rules | `utils/payees/payeeForm.ts`, `utils/payees/payeeRoutes.ts` (`payeeHref`) |
 | Payees page | `pages/payees/PayeesPage.tsx`, route `/payees` |
 | Vendor Payee endpoints | `api/payees/vendor_payee.py`: `suggest_vendor_payees`, `get_payee_choice`, `check_vendor_payee` |
+| A vendor's account on screens (#1428) | `api/payees/vendor_accounts.py`: `get_vendor_payee_accounts`, `get_vendor_list`; frontend `components/payees/vendorPayeeAccount.ts` (`useVendorPayeeAccount`, `useVendorPayeeGate`) |
 | Vendor Payee step (frontend) | `components/payees/VendorPayeeSection` + `useVendorPayeeChoice`, `PayeeSuggestionsPanel`, `UsePayeeDialog`, `vendorPayeeApi`; wording in `utils/payees/payeeChoice.ts` |

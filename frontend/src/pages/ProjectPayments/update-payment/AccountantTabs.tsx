@@ -42,7 +42,6 @@ import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/use
 import { FacetOverrides } from '@/components/data-table/facetConfig';
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
-import { memoize } from "lodash";
 import { DOC_TYPES } from "../approve-payments/constants";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
@@ -73,6 +72,7 @@ import { canEditQueueRow, canHoldQueueRow, canWorkQueueRows, isHeldQueueRow } fr
 import { PAYMENT_HOLD_ROW_CLASSES, PaymentHoldNotice } from "../components/PaymentHoldNotice"
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 import { buildBankFile, describeLeftOut, type BankFileRow } from "../bankUploadFile";
+import { VENDOR_PAYEE_ACCOUNTS_API, type VendorPayeeAccounts } from "@/components/payees/vendorPayeeAccount";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -159,7 +159,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>(
         "Vendors",
         {
-            fields: ["name", "vendor_name", "account_number", "account_name", "ifsc"],
+            fields: ["name", "vendor_name"],
             limit: 10000
         },
         "Vendors_For_Accountant"
@@ -176,15 +176,10 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const vendorOptions = useMemo<SelectOption[]>(() => vendors?.map(v => ({ label: v.vendor_name, value: v.name })) || [], [vendors]);
 
 
-    const getVendorDetails = useCallback(memoize((vendorId: string | undefined): Vendors | undefined => {
-        return vendors?.find(vendor => vendor.name === vendorId);
-    }), [vendors]);
-
-
-    // const getRowSelectionDisabled = useCallback((vendorId: string | undefined): boolean => {
-    //     const vendor = getVendorDetails(vendorId);
-    //     return !vendor?.account_number; // Disable if no account number
-    // }, [getVendorDetails]);
+    // The bank file pays each vendor payment into its vendor's Payee, read when the file is built.
+    const { call: fetchVendorPayeeAccounts } = useFrappePostCall<{ message: VendorPayeeAccounts }>(
+        VENDOR_PAYEE_ACCOUNTS_API
+    );
 
     // --- Notification Handling ---
     const handleNewPaymentSeen = useCallback((notification: NotificationType | undefined) => {
@@ -499,7 +494,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         setIsExportDialogOpen(true);
     };
 
-    const exportSelectedToCSV = () => {
+    const exportSelectedToCSV = async () => {
         const selectedRows = table.getSelectedRowModel().rows;
         if (selectedRows.length === 0 && tab === "New Payments") {
             toast({ title: "No Data", description: "No payments selected for export.", variant: "default" });
@@ -518,25 +513,31 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             return;
         }
 
+        // A vendor payment is paid into its vendor's Payee as it is NOW (ADR-0033: the payment
+        // stores none), so the accounts are read at export, not from a list loaded earlier.
+        const isVendorPayment = (payment: ApprovalQueueRow) => payment.source === "Vendor Payment";
+        const vendorIds = [...new Set(
+            rowsToExport.map(({ original }) => original).filter(isVendorPayment).map((p) => p.vendor).filter(Boolean),
+        )];
+        let payeeAccounts: VendorPayeeAccounts;
+        try {
+            payeeAccounts = vendorIds.length > 0 ? (await fetchVendorPayeeAccounts({ vendors: vendorIds })).message : {};
+        } catch (error) {
+            toast({ title: "Export failed", description: getFrappeError(error), variant: "destructive" });
+            return;
+        }
+
         // ⚠️ THE BANK FILE IS NOT THE SELECTION. `buildBankFile` leaves out every ticked row
         // that can't be paid by bank transfer, and the toast names them: the accountant must
         // know the file is shorter than their selection.
         const bankFile = buildBankFile(
-            rowsToExport.map(({ original: payment }): BankFileRow => {
-                const vendor = getVendorDetails(payment.vendor);
-                return {
-                    kind: payment.source === "Vendor Payment" ? "vendor_payment" : "expense",
-                    documentName: payment.document_name,
-                    amount: payment.amount,
-                    projectLabel: projectLabelMap.get(payment.project) ?? payment.project,
-                    vendorName: vendor?.vendor_name,
-                    account: vendor && {
-                        holderName: vendor.account_name,
-                        accountNumber: vendor.account_number,
-                        ifsc: vendor.ifsc,
-                    },
-                };
-            }),
+            rowsToExport.map(({ original: payment }): BankFileRow => ({
+                kind: isVendorPayment(payment) ? "vendor_payment" : "expense",
+                documentName: payment.document_name,
+                amount: payment.amount,
+                projectLabel: projectLabelMap.get(payment.project) ?? payment.project,
+                payee: isVendorPayment(payment) && payment.vendor ? payeeAccounts[payment.vendor] : undefined,
+            })),
             { format: exportTarget, paymentMode, debitAccountNumber, now: new Date() },
         );
         const skippedParts = describeLeftOut(bankFile.leftOut);
@@ -544,7 +545,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         if (bankFile.rows.length === 0) {
             toast({
                 title: "Nothing to export",
-                description: `No selected row can go in a bank transfer file: ${skippedParts.join("; ")}. Select a vendor payment whose vendor has a bank account and IFSC.`,
+                description: `No selected row can go in a bank transfer file: ${skippedParts.join("; ")}. Select a vendor payment whose vendor has a Payee.`,
                 variant: "destructive",
             });
             setIsExportDialogOpen(false);
@@ -566,7 +567,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             description: skippedParts.length > 0
                 ? `${bankFile.rows.length} payments exported. Skipped: ${skippedParts.join("; ")}.`
                 : `${bankFile.rows.length} payments exported.`,
-            variant: bankFile.leftOut.some((l) => l.reason === "no_account") ? "default" : "success",
+            variant: bankFile.leftOut.some((l) => l.reason === "no_payee") ? "default" : "success",
         });
         setIsExportDialogOpen(false); // Close dialog
         table.resetRowSelection(); // Clear selection
