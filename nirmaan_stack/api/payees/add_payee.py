@@ -48,6 +48,11 @@ def add_payee(account_name: str, account_number: str, ifsc: str) -> dict:
 def check_payee(account_number: str, ifsc: str) -> dict:
     """The Payee already holding this account number + IFSC: `{duplicate: <summary> | None, message}`."""
     assert_payee_manager(frappe.session.user)
+    return duplicate_verdict(account_number, ifsc)
+
+
+def duplicate_verdict(account_number: str, ifsc: str) -> dict:
+    """`check_payee`'s reply, for an endpoint that has made its own role check (the vendor screens)."""
     details = parse_details("", account_number, ifsc)
     existing = existing_payee(details)
     if not existing:

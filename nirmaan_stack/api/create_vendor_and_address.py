@@ -1,8 +1,14 @@
 import frappe
 from frappe import _
-from typing import Dict, Union
+from typing import Dict, Optional, Union
 
-@frappe.whitelist()
+from nirmaan_stack.services.payees.choosing import choose_payee
+from nirmaan_stack.services.payees.links import payee_summary
+from nirmaan_stack.services.payees.writer import DuplicatePayeeError
+from nirmaan_stack.services.role_profiles import assert_vendor_payee_access
+
+
+@frappe.whitelist(methods=["POST"])
 def create_vendor_and_address(
     # ⚠️ `int` / `float` ARE REQUIRED, not tidiness. Frappe validates a whitelisted
     # endpoint's annotations with pydantic and REJECTS THE WHOLE REQUEST on a
@@ -13,7 +19,9 @@ def create_vendor_and_address(
     values: Dict[str, Union[str, int, float, None]],
     vendorType: str,
     service: bool,
-) -> Dict[str, Union[int, str]]:
+    payee: Optional[str] = None,
+    bank: Optional[Dict[str, Optional[str]]] = None,
+) -> Dict[str, Union[int, str, dict, None]]:
     """
     Create New Vendor and Associated New Address entries.
 
@@ -22,6 +30,14 @@ def create_vendor_and_address(
             names to values. Mostly strings; `tds_deduction_percentage` is numeric.
         vendorType (str): Vendor Type : Service | Material | Material & Service.
         service (bool): A flag indicating if the vendor is a service vendor.
+        payee (str): "Use a payee already on record": the Active Payee to link the vendor to.
+        bank (dict): "Enter new bank details": `{account_name, account_number, ifsc}`, made into a
+            Payee by the Payee module (`services/payees/choosing.choose_payee`). Exactly one of
+            `payee` / `bank` is required (spec #1420, #1425).
+
+    The vendor's bank account is its Payee (ADR-0033): the old vendor bank fields (`account_name`,
+    `account_number`, `ifsc`, `bank_name`, `bank_branch`) are never written. Who:
+    `role_profiles.VENDOR_PAYEE_PROFILES`.
 
     A new vendor starts with NO categories: `tasks/vendor_category_sync.py` fills them in from the
     vendor's POs and Work Orders (owner, 21/09/2026). A stale client still sending the old category
@@ -31,8 +47,12 @@ def create_vendor_and_address(
         Dict[str, Union[int, str]]: A dictionary containing the result of the operation.
             - "message": A success message if the operation was successful.
             - "error": An error message if the operation failed.
-            - "status": 200 if the operation was successful, 400 otherwise.
+            - "status": 200 if the operation was successful, 409 when the bank details belong to
+              a Payee already (nothing is created; "duplicate" is that Payee's summary), 400
+              otherwise.
+            - "payee": the vendor's Payee, on success.
     """
+    assert_vendor_payee_access(frappe.session.user)
     try:
         frappe.db.begin()
         addressDoc = frappe.new_doc("Address")
@@ -72,11 +92,7 @@ def create_vendor_and_address(
         # 0 (the zod rule is `.min(0)`), so that value is reachable, not theoretical.
         _tds = values.get("tds_deduction_percentage")
         vendorDoc.tds_deduction_percentage = 2 if _tds is None or _tds == "" else _tds
-        vendorDoc.account_number = values.get("account_number")
-        vendorDoc.account_name = values.get("account_name")
-        vendorDoc.bank_name = values.get("bank_name")
-        vendorDoc.bank_branch = values.get("bank_branch")
-        vendorDoc.ifsc = values.get("ifsc")
+        vendorDoc.payee = choose_payee(payee, bank)
         vendorDoc.credit_limit = 50000
         vendorDoc.available_credit = 50000
 
@@ -86,8 +102,11 @@ def create_vendor_and_address(
         vendorDoc.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        return {"message": "Vendor created successfully.", "status": 200}
+        return {"message": "Vendor created successfully.", "status": 200, "payee": vendorDoc.payee}
 
+    except DuplicatePayeeError as e:
+        frappe.db.rollback()
+        return {"error": str(e), "status": 409, "duplicate": payee_summary(e.existing)}
     except frappe.ValidationError as e:
         frappe.db.rollback()
         return {"error": str(e), "status": 400}

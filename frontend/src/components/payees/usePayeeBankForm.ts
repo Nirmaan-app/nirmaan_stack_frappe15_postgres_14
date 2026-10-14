@@ -49,7 +49,15 @@ export interface PayeeBankForm {
     reset: () => void;
 }
 
-export function usePayeeBankForm(): PayeeBankForm {
+interface PayeeBankFormOptions {
+    /**
+     * The duplicate pre-check endpoint. Each screen asks through its own, which checks who may add a
+     * Payee there: the Payees page `check_payee`, the vendor screens `vendor_payee.check_vendor_payee`.
+     */
+    checkApi?: string;
+}
+
+export function usePayeeBankForm({ checkApi = CHECK_PAYEE_API }: PayeeBankFormOptions = {}): PayeeBankForm {
     const [form, setForm] = useState<PayeeFormValues>(EMPTY_PAYEE_FORM);
     const [bank, setBank] = useState<BankBranch | null>(null);
     const [ifscError, setIfscError] = useState<string | null>(null);
@@ -57,7 +65,7 @@ export function usePayeeBankForm(): PayeeBankForm {
     const [lookingUp, setLookingUp] = useState(false);
 
     const { call: callLookup } = useFrappePostCall<{ message: BankBranch }>(LOOKUP_IFSC_API);
-    const { call: callCheck } = useFrappePostCall<{ message: { duplicate: PayeeSummary | null } }>(CHECK_PAYEE_API);
+    const { call: callCheck } = useFrappePostCall<{ message: { duplicate: PayeeSummary | null } }>(checkApi);
 
     const ifscTimer = useRef<ReturnType<typeof setTimeout>>();
     const checkTimer = useRef<ReturnType<typeof setTimeout>>();
