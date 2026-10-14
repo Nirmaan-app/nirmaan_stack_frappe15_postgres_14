@@ -12,6 +12,8 @@ depends on the screen, so this module checks no role. Nothing here commits; the 
 * `existing_payee` -- the Payee already holding an account number + IFSC, if any. A screen asks it
   before submit to show the duplicate block; the Payee `validate` controller asks it on every save.
 * `assert_not_duplicate` -- the refusal itself, shared by `create_payee` and the controller.
+* `backfill_payee` -- the patch's Payee for a vendor's bank details already on record (#1424): bank
+  and branch as recorded, no IFSC lookup.
 
 The rules themselves are pure, in `services/payees/rules.py`; links and "paid" are in
 `services/payees/links.py`; the IFSC lookup is `services/payees/ifsc.py`.
@@ -80,6 +82,28 @@ def create_payee(account_name, account_number, ifsc):
         "ifsc": details.ifsc,
         "bank_name": branch.bank_name,
         "bank_branch": branch.bank_branch,
+        "status": ACTIVE,
+    })
+    doc.insert(ignore_permissions=True)
+    return doc
+
+
+def backfill_payee(details: PayeeDetails, bank_name: str | None, bank_branch: str | None):
+    """Insert an Active Payee for bank details already on record (#1424's patch moves the vendors'
+    details here) and return it.
+
+    Unlike `create_payee`, bank and branch are the ones on record and the IFSC lookup is not asked:
+    the patch must not depend on an outside service, and it copies what is there rather than
+    re-deriving it. The `validate` controller still cleans the details and refuses incomplete ones
+    and a duplicate. Only the patch calls this. Never commits.
+    """
+    doc = frappe.get_doc({
+        "doctype": PAYEE_DOCTYPE,
+        "account_name": details.account_name,
+        "account_number": details.account_number,
+        "ifsc": details.ifsc,
+        "bank_name": (bank_name or "").strip() or None,
+        "bank_branch": (bank_branch or "").strip() or None,
         "status": ACTIVE,
     })
     doc.insert(ignore_permissions=True)

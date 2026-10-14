@@ -12,7 +12,8 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   - `rules.py` (pure): cleaning what was typed (`parse_details`), what makes details complete
     (`details_problem`), the duplicate refusal's wording, `PAYEE_STATUSES`, `PAID_STATUSES`.
   - `writer.py`: `create_payee` is the only code that creates a Payee. It checks no role: each
-    calling endpoint checks who may add a Payee from that screen.
+    calling endpoint checks who may add a Payee from that screen. The one other creator is
+    `backfill_payee`, for the #1424 patch only: bank and branch as recorded on the vendor, no lookup.
   - `links.py`: what a Payee is linked to, "paid" and last paid (`PAYEES_WITH_LINKS_SQL`,
     `payee_summaries`, `is_paid`, `payee_for_vendor`).
   - `ifsc.py`: the IFSC lookup (Razorpay), the app's only outside bank service.
@@ -50,6 +51,7 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | Add Payee endpoints | `api/payees/add_payee.py`: `add_payee`, `check_payee`, `lookup_ifsc` |
 | Payees list endpoint | `api/payees/list_payees.get_payees` (data-table contract; the tab is the filter `["tab", "=", …]`) |
 | Test fixture | `api/payees/payee_fixture.PayeeFixture`: offline IFSC lookups, purges every test Payee |
+| Vendor bank details → Payees (#1424) | `patches/v3_0/move_vendor_bank_details_to_payees.py` (re-runnable; its docstring holds the grouping, fallback and skip rules); test `api/payees/test_vendor_payees_patch.py` |
 | Frontend fields + dialog | `components/payees/` (`PayeeBankFields`, `usePayeeBankForm`, `AddPayeeDialog`) |
 | Frontend rules | `utils/payees/payeeForm.ts`, `utils/payees/payeeRoutes.ts` (`payeeHref`) |
 | Payees page | `pages/payees/PayeesPage.tsx`, route `/payees` |
