@@ -18,6 +18,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api import payment_autofill
+from nirmaan_stack.api.payees.payee_fixture import PayeeFixture
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.services.extraction.gemini import GeminiExtractor
 from nirmaan_stack.services.role_profiles import can_use_cheques
@@ -112,10 +113,10 @@ class TestPayeeMatchesVendor(FrappeTestCase):
     def setUp(self):
         fx = TaxedWorkOrderFixture.attach(self)
         self.vendor = fx.vendor()
-        # Test setup on a planted row: no doc_events matter for a Vendor's display names.
-        frappe.db.set_value(
-            "Vendors", self.vendor, {"vendor_name": "Sharma Steel Traders", "account_name": "KRISHNA METALS"}
-        )
+        # The Vendor is paid into a Payee whose holder name is not the Vendor's own (#1427).
+        payee = PayeeFixture.attach(self).payee(holder="KRISHNA METALS")
+        # Test setup on a planted row: no doc_events matter for a Vendor's display name or Payee link.
+        frappe.db.set_value("Vendors", self.vendor, {"vendor_name": "Sharma Steel Traders", "payee": payee})
         frappe.db.commit()
 
     def _match(self, payee):

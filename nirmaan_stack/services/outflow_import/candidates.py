@@ -98,6 +98,7 @@ from nirmaan_stack.services.outflow_import.normalize import normalize_amount, no
 from nirmaan_stack.services.outflow_import.parser import BANK_TERMINAL_STATUSES, is_terminal_status
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
 from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
+from nirmaan_stack.services.payees.vendor_account import vendor_accounts
 from nirmaan_stack.services.vendor_refunds import RECEIVED as VENDOR_REFUND_RECEIVED
 
 __all__ = [
@@ -162,26 +163,29 @@ def amount_window_sql(column: str, amounts: Sequence[Decimal]) -> tuple[str, lis
 
 
 def load_vendor_index() -> VendorIndex:
-    """Build the vendor index once per batch. ~1,077 rows; normalising per row would be 50x this."""
-    rows = frappe.db.sql(
-        """
-        SELECT name, vendor_name, account_name, account_number, ifsc
-        FROM "tabVendors"
-        """,
-        as_dict=True,
-    )
-    return build_vendor_index(
-        [
+    """Build the vendor index once per batch. ~1,077 rows; normalising per row would be 50x this.
+
+    A vendor's account, IFSC and holder name are its CURRENT Payee's
+    (`payees.vendor_account.vendor_accounts`, #1427, ADR-0033): a Payee shared by several vendors
+    admits a payment of any of them at tier 1, and a line paid to a vendor's previous Payee reaches no
+    tier 1 (it is matched by hand). No vendor bank field is read. A vendor with no Payee is still
+    indexed, by name only.
+    """
+    rows = frappe.db.sql('SELECT name, vendor_name FROM "tabVendors"', as_dict=True)
+    accounts = vendor_accounts()
+    vendors = []
+    for r in rows:
+        account = accounts.get(r["name"], {})
+        vendors.append(
             VendorRef(
                 name=r["name"],
                 vendor_name=r.get("vendor_name") or "",
-                account_name=r.get("account_name") or "",
-                account_number=r.get("account_number") or "",
-                ifsc=r.get("ifsc") or "",
+                account_name=account.get("account_name") or "",
+                account_number=account.get("account_number") or "",
+                ifsc=account.get("ifsc") or "",
             )
-            for r in rows
-        ]
-    )
+        )
+    return build_vendor_index(vendors)
 
 
 def load_project_index() -> ProjectIndex:
