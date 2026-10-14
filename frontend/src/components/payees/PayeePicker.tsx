@@ -18,7 +18,7 @@ import type { PayeeOption } from "@/types/NirmaanStack/Payee";
 import { payeeAccountLine, payeeBankLine, timesPaidText } from "@/utils/payees/expensePayee";
 
 import { PayeeBankFields } from "./PayeeBankFields";
-import { SEARCH_PAYEES_API, type PayeeChoice } from "./usePayeeChoice";
+import type { PayeeChoice } from "./usePayeeChoice";
 
 const DEBOUNCE_MS = 300;
 const MIN_SEARCH_LENGTH = 2;
@@ -113,9 +113,9 @@ function PickPanel({ choice, disabled }: PayeePickerProps) {
 
     const searching = query.length >= MIN_SEARCH_LENGTH;
     const { data, isLoading } = useFrappeGetCall<{ message: PayeeOption[] }>(
-        SEARCH_PAYEES_API,
+        choice.searchApi,
         { text: query },
-        searching ? `request_payee_search_${query}` : null,
+        searching ? `payee_search_${choice.searchApi}_${query}` : null,
     );
     const matches = (searching ? data?.message ?? [] : []).filter((p) => p.name !== picked?.name);
 

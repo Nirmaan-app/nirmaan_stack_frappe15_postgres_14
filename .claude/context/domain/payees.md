@@ -66,7 +66,15 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   that vendor's Payee and no other; *Not asked* stores none; an Inactive Payee can't be newly
   picked, but a record already holding it keeps it. One owner: `services/payees/expense_rules.py`
   (pure) applied by `services/payees/expense_payee.py`. Approval copies the request's Payee onto the
-  Expense; an Expense's Payee changes until it is *Paid* (`change_expense_payee`).
+  Expense; an Expense's Payee changes until it is *Paid* (`change_expense_payee`, which writes a
+  Version row since `db_set` leaves none).
+- **Paid to** (#1431): who a row the accountant pays is paid to is resolved in one place,
+  `services/payees/paid_to.py`: a PO / WO payment into its vendor's Payee now, an expense into its own
+  Payee. "Payment need to paid"'s Paid to column (the approval queue's `paid_to`), Export for Payment
+  (read again at export through `api/payees/expense_payee.get_paid_to`) and Record Payment's
+  "Pay ₹X to" box (`expense_pay_to`) all read it; no screen re-derives it. A row with no Payee is left
+  out of the bank file, never sent with a blank account. Change payee in Record Payment is Accounts only
+  (`api/payees/expense_payee.change_expense_payee`).
 
 ## Where things are
 
@@ -87,4 +95,5 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | One Payee's page (#1423) | `pages/payees/PayeePage.tsx`, route `/payees/:payeeId`; endpoints `api/payees/payee_page.py` (`get_payee`, `edit_holder_name`, `set_payee_status`); `components/payees/EditHolderNameDialog`; rules `utils/payees/payeePage.ts` |
 | Vendor Payee endpoints | `api/payees/vendor_payee.py`: `suggest_vendor_payees`, `get_payee_choice`, `check_vendor_payee` |
 | A vendor's account on screens (#1428) | `api/payees/vendor_accounts.py`: `get_vendor_payee_accounts`, `get_vendor_list`; frontend `components/payees/vendorPayeeAccount.ts` (`useVendorPayeeAccount`, `useVendorPayeeGate`) |
+| Paying: Paid to, bank file, Record Payment (#1431) | `services/payees/paid_to.py`; endpoints `api/payees/expense_payee.py` (`get_paid_to`, `get_expense_payee`, `search_payees`, `change_expense_payee`); frontend `components/payees/ExpensePayToBox`, `ChangeExpensePayeeDialog`, `expensePayeeApi`; wording `utils/payees/paidTo.ts`; file builder `pages/ProjectPayments/bankUploadFile.ts` |
 | Vendor Payee step (frontend) | `components/payees/VendorPayeeSection` + `useVendorPayeeChoice`, `PayeeSuggestionsPanel`, `UsePayeeDialog`, `vendorPayeeApi`; wording in `utils/payees/payeeChoice.ts` |

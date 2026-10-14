@@ -31,6 +31,7 @@
 import { ColumnDef } from "@tanstack/react-table";
 import { chequeChipText, showsChequeChip } from "@/utils/cheques/chequeChip";
 import { formatDate } from "@/utils/FormatDate";
+import { paidToExportText } from "@/utils/payees/paidTo";
 
 import {
   ApprovalQueueRow,
@@ -81,6 +82,8 @@ export const buildApprovalExportColumns = (
   col("vendor", "Vendor", (r) =>
     r.vendor ? ctx.vendorLabels.get(r.vendor) || r.vendor : "",
   ),
+  // Where the money goes (#1431): the vendor's Payee or the expense's own, or why there is none.
+  col("paid_to", "Paid To", (r) => paidToExportText(r.paid_to, r.expense_type)),
   col("project", "Project", (r) =>
     r.project ? ctx.projectLabels.get(r.project) || r.project : "",
   ),
