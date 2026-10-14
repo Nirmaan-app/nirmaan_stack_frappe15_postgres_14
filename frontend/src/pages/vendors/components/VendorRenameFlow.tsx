@@ -33,7 +33,7 @@ type Step = "prompt" | typeof RENAME_CHOICE.HOLDER_NAME | typeof RENAME_CHOICE.N
 
 export function VendorRenameFlow({ vendor, rename, onDone }: VendorRenameFlowProps) {
     const { role, user_id } = useUserData();
-    const { account, isLoading, mutate } = useVendorAccount(vendor.name);
+    const { account, isLoading, refresh } = useVendorAccount(vendor.name);
     const [step, setStep] = useState<Step>("prompt");
 
     const payee = account?.payee ?? null;
@@ -69,7 +69,7 @@ export function VendorRenameFlow({ vendor, rename, onDone }: VendorRenameFlowPro
                 onOpenChange={finish}
                 payee={payee}
                 initialName={rename.after}
-                onSaved={() => mutate()}
+                onSaved={() => refresh()}
             />
             <ChangeVendorAccountDialog
                 open={step === RENAME_CHOICE.NEW_BANK}
@@ -77,7 +77,7 @@ export function VendorRenameFlow({ vendor, rename, onDone }: VendorRenameFlowPro
                 vendor={{ name: vendor.name, vendor_name: rename.after, vendor_pan: vendor.vendor_pan }}
                 currentPayee={payee.name}
                 title="Enter new bank details"
-                onChanged={() => mutate()}
+                onChanged={() => refresh()}
             />
         </>
     );

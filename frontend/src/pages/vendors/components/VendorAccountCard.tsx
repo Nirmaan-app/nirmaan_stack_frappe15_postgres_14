@@ -29,7 +29,7 @@ interface VendorAccountCardProps {
 export const VendorAccountCard: React.FC<VendorAccountCardProps> = ({ vendor }) => {
     const { role, user_id } = useUserData();
     const [changing, setChanging] = useState(false);
-    const { account, isLoading, error, mutate } = useVendorAccount(vendor.name);
+    const { account, isLoading, error, refresh } = useVendorAccount(vendor.name);
     const payee = account?.payee ?? null;
     const mayChange = canSetVendorPayee(role, user_id);
 
@@ -111,7 +111,7 @@ export const VendorAccountCard: React.FC<VendorAccountCardProps> = ({ vendor }) 
                     vendor={vendor}
                     currentPayee={payee?.name}
                     title={payee ? "Change account" : "Add bank details"}
-                    onChanged={() => mutate()}
+                    onChanged={() => refresh()}
                 />
             )}
         </>
