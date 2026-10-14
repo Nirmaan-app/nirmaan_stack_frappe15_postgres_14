@@ -4,12 +4,17 @@
 """`validate` for every record that links a Payee: `Vendors`, `Expense Request`, `Project Expenses`
 and `Non Project Expenses` (#1423, spec #1420, ADR-0033).
 
-An Inactive Payee can't be newly picked; a record already pointing at it keeps it
-(`services/payees/guard.check_payee_pick`).
+The Payee rules no screen or API can skip live in the Payee module
+(`services/payees/guard.check_payee_links`): a vendor's Payee, an expense type's *Who gets paid*,
+an expense's Payee fixed once paid and changed only by Accounts, who may set a vendor's Payee, and
+Inactive Payees not newly picked.
 """
 
-from nirmaan_stack.services.payees.guard import check_payee_pick
+import frappe
+
+from nirmaan_stack.services.payees.guard import check_payee_links
 
 
 def validate(doc, method=None):
-    check_payee_pick(doc)
+    """Apply the Payee module's save rules to `doc` as the session user (may fill in `doc.payee`)."""
+    check_payee_links(doc, frappe.session.user)

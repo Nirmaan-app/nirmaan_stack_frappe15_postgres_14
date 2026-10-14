@@ -1,0 +1,32 @@
+{
+  "_about": "Shared by services/payees/test_rules.py + test_expense_rules.py and frontend utils/payees/payeeForm.test.ts + expensePayee.test.ts (F1): one set of cases, two twins. The server's rules are the boundary; the screens mirror them to block early.",
+  "details": [
+    {"name": "complete details", "account_name": "Kaveri Ductfab Systems", "account_number": "50200061234567", "ifsc": "HDFC0000195", "problem": null},
+    {"name": "spaces, dashes and a lower-case IFSC are cleaned", "account_name": "  Kaveri  Ductfab ", "account_number": "5020 0061-234567", "ifsc": " hdfc0000195 ", "problem": null},
+    {"name": "letters are allowed in an account number", "account_name": "Kaveri", "account_number": "be12ab34", "ifsc": "SBIN0003435", "problem": null},
+    {"name": "no holder name", "account_name": "   ", "account_number": "50200061234567", "ifsc": "HDFC0000195", "problem": "Enter the account holder name."},
+    {"name": "no account number", "account_name": "Kaveri", "account_number": "", "ifsc": "HDFC0000195", "problem": "Enter the account number."},
+    {"name": "an all-zero account number", "account_name": "Kaveri", "account_number": "0000", "ifsc": "HDFC0000195", "problem": "Enter the account number."},
+    {"name": "punctuation in the account number", "account_name": "Kaveri", "account_number": "5020/0061", "ifsc": "HDFC0000195", "problem": "An account number holds only letters and digits."},
+    {"name": "no IFSC", "account_name": "Kaveri", "account_number": "50200061234567", "ifsc": "  ", "problem": "Enter the IFSC."},
+    {"name": "an IFSC without the zero", "account_name": "Kaveri", "account_number": "50200061234567", "ifsc": "HDFC1000195", "problem": "An IFSC is 11 characters: four letters, a zero, then six letters or digits (e.g. SBIN0005943)."},
+    {"name": "a short IFSC", "account_name": "Kaveri", "account_number": "50200061234567", "ifsc": "HDFC000019", "problem": "An IFSC is 11 characters: four letters, a zero, then six letters or digits (e.g. SBIN0005943)."}
+  ],
+  "accounts": [
+    {"typed": "0050 2000-6123 4567", "clean": "0050200061234567", "normalized": "50200061234567"},
+    {"typed": "be12-ab34", "clean": "BE12AB34", "normalized": "BE12AB34"},
+    {"typed": "000", "clean": "000", "normalized": "0"}
+  ],
+  "payee_rules": ["Required", "Optional", "Not asked"],
+  "requests": [
+    {"name": "Required, no vendor, nobody picked", "rule": "Required", "vendor": null, "vendor_payee": null, "payee": null, "refused": true},
+    {"name": "Required, no vendor, a payee picked", "rule": "Required", "vendor": null, "vendor_payee": null, "payee": "PYE-0001", "refused": false},
+    {"name": "Optional, nobody picked", "rule": "Optional", "vendor": null, "vendor_payee": null, "payee": null, "refused": false},
+    {"name": "Not asked, nobody picked", "rule": "Not asked", "vendor": null, "vendor_payee": null, "payee": null, "refused": false},
+    {"name": "Required, a vendor with a Payee", "rule": "Required", "vendor": "VEN-1", "vendor_payee": "PYE-0007", "payee": "PYE-0007", "refused": false},
+    {"name": "Required, a vendor with no Payee", "rule": "Required", "vendor": "VEN-1", "vendor_payee": null, "payee": null, "refused": true},
+    {"name": "Optional, a vendor with no Payee", "rule": "Optional", "vendor": "VEN-1", "vendor_payee": null, "payee": null, "refused": false},
+    {"name": "Not asked, a vendor with no Payee", "rule": "Not asked", "vendor": "VEN-1", "vendor_payee": null, "payee": null, "refused": false},
+    {"name": "Not asked, a vendor with a Payee", "rule": "Not asked", "vendor": "VEN-1", "vendor_payee": "PYE-0007", "payee": null, "refused": false}
+  ]
+}

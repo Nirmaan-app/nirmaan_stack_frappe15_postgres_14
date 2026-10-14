@@ -39,7 +39,6 @@ from nirmaan_stack.api.expense_requests.create import (
 	guard_request_form,
 	guard_vendor_scope,
 )
-from nirmaan_stack.services.payees.expense_payee import request_payee_for
 
 
 def can_edit(req, user: str | None = None) -> bool:
@@ -102,11 +101,6 @@ def update_expense_request(
 
 	promoted = _promote_mapped(expense_type, source_data)
 
-	# Same rules as `create`. The Payee the request already holds may be kept even if it has
-	# gone Inactive since: Inactive stops new picks, not records already pointing at it.
-	payee = request_payee_for(expense_type, vendor=vendor or promoted.get("vendor"), payee=payee,
-	                          current=req.payee)
-
 	req.update(
 		{
 			"type": expense_type,
@@ -119,7 +113,10 @@ def update_expense_request(
 			"vendor": None,
 			**promoted,
 			**({"vendor": vendor} if vendor else {}),
-			"payee": payee,
+			# Same rules as `create`, applied by the save. The Payee the request already holds may be
+			# kept even if it has gone Inactive since: Inactive stops new picks, not records already
+			# pointing at it.
+			"payee": payee or None,
 		}
 	)
 	req.save()

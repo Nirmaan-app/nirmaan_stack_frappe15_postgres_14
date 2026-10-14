@@ -7,14 +7,15 @@ Reads the facts (the expense type's rule, the vendor's Payee, a Payee's status) 
 rules in `services/payees/expense_rules.py`. Every refusal is a `frappe.ValidationError` whose
 message says what to do.
 
-* `request_payee_for` -- the Payee an Expense Request carries on create and on edit. The Expense
-  Request endpoints (`api/expense_requests/create`, `update`) call it.
+* An Expense Request's Payee is applied on every save by `guard.check_payee_links`, which reads
+  `payee_rule` here; the request endpoints pass the Payee sent straight through.
 * Inactive: a newly picked Payee must pass `choosing.assert_pickable` (the vendor screens' rule
   too); the Payee a record already holds is kept even if it has gone Inactive since.
 * `change_expense_payee` -- change a Project / Non-Project Expense's Payee until it is paid
   (Reconciliation Pending or Paid). Checks no role: the calling endpoint does.
 
-Approval copies the request's Payee onto the Expense as-is (`api/expense_requests/convert`).
+Approval copies the request's Payee onto the Expense (`api/expense_requests/convert`); a request
+naming a vendor is paid into that vendor's Payee as it is at approval.
 """
 
 from __future__ import annotations
@@ -38,34 +39,6 @@ def payee_rule(expense_type: str) -> str:
     return frappe.db.get_value("Expense Type", expense_type, "payee_rule") or NOT_ASKED
 
 
-def request_payee_for(expense_type: str, *, vendor: str | None, payee: str | None,
-                      current: str | None = None) -> str | None:
-    """The Payee an Expense Request of `expense_type` naming `vendor` carries, given the `payee` sent.
-
-    `current` is the Payee the request already holds (on an edit): keeping it is allowed even if it
-    has gone Inactive since. Refuses a missing Payee on a *Required* type, a Payee that isn't the
-    vendor's, and a newly picked Inactive Payee. *Not asked* returns None whatever was sent.
-    """
-    return _resolve(payee_rule(expense_type), expense_type=expense_type, vendor=vendor,
-                    payee=payee, current=current)
-
-
-def _resolve(rule, *, expense_type, vendor, payee, current):
-    verdict = request_payee(
-        rule,
-        expense_type=expense_type,
-        payee=payee,
-        vendor=vendor,
-        vendor_payee=payee_for_vendor(vendor) if vendor else None,
-    )
-    if verdict.problem:
-        frappe.throw(_(verdict.problem), title=_("Who gets paid"))
-    # Inactive stops NEW picks: the Payee the record already holds is kept.
-    if verdict.payee and verdict.payee != current:
-        assert_pickable(verdict.payee)
-    return verdict.payee
-
-
 def change_expense_payee(doctype: str, name: str, payee: str | None):
     """Point a Project Expense or Non-Project Expense at another Payee (or none), until it is paid
     (`expense_rules.paid_expense_problem`). The status is read under the row lock.
@@ -84,13 +57,20 @@ def change_expense_payee(doctype: str, name: str, payee: str | None):
     if paid:
         frappe.throw(_(paid), title=_("Who gets paid"))
     rule = payee_rule(doc.type) if doc.get("type") else NOT_ASKED
-    resolved = _resolve(
+    vendor = doc.get("vendor") or None
+    verdict = request_payee(
         OPTIONAL if rule == NOT_ASKED else rule,
         expense_type=doc.get("type") or doctype,
-        vendor=doc.get("vendor"),
         payee=payee,
-        current=doc.get("payee"),
+        vendor=vendor,
+        vendor_payee=payee_for_vendor(vendor) if vendor else None,
     )
+    if verdict.problem:
+        frappe.throw(_(verdict.problem), title=_("Who gets paid"))
+    resolved = verdict.payee
+    # Inactive stops NEW picks: the Payee the expense already holds is kept.
+    if resolved and resolved != doc.get("payee"):
+        assert_pickable(resolved)
     previous = doc.get("payee") or None
     doc.db_set("payee", resolved)
     if resolved != previous:

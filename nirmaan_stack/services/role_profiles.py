@@ -331,7 +331,13 @@ VENDOR_PAYEE_PROFILES = (
 )
 
 
+def can_set_vendor_payee(user: str) -> bool:
+    """True when `user` may set which Payee a vendor is paid into. Administrator passes."""
+    return has_role_profile(user, VENDOR_PAYEE_PROFILES)
+
+
 def assert_vendor_payee_access(user: str) -> None:
-    """Refuse a user outside `VENDOR_PAYEE_PROFILES`. Every vendor-screen Payee endpoint starts with it."""
-    if not has_role_profile(user, VENDOR_PAYEE_PROFILES):
+    """Refuse a user outside `VENDOR_PAYEE_PROFILES`. Every vendor-screen Payee endpoint starts with it,
+    and the `Vendors` `validate` refuses a `payee` change by anyone else (`payees.guard`)."""
+    if not can_set_vendor_payee(user):
         raise frappe.PermissionError(_("You are not allowed to set a vendor's bank account."))

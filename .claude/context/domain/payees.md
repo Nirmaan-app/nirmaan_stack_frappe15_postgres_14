@@ -26,8 +26,8 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     vendor's account.
   - `versions.py`: facts read from Version history ("holder name last changed", "linked since",
     "Named by") are written and read through `write_field_change` / `last_field_change`.
-  - `guard.py`: the refusals `validate` controllers run on every write path (`check_payee_save`,
-    `check_payee_pick`).
+  - `guard.py`: the refusals `validate` controllers run on every write path (`check_payee_save` on
+    the Payee; `check_payee_links` on every record linking one). No screen or API can skip them.
   - `ifsc.py`: the IFSC lookup (Razorpay), the app's only outside bank service.
   - `matching.py` (pure): which Payees look like a vendor. *Strong match*: a vendor linked to the
     Payee has the same PAN; *Name only*: no PAN agrees but the names read alike. Strong first.
@@ -78,8 +78,10 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 - **Inactive**: an Inactive Payee can't be newly picked. `integrations/controllers/payee_links.validate`
   on `Vendors`, `Expense Request`, `Project Expenses` and `Non Project Expenses` refuses a save whose
   `payee` changed to an Inactive Payee (`guard.check_payee_pick`); a record already pointing at it
-  keeps it through any later save. A new expense inserted with an Inactive Payee (for example by
-  approval carrying a request's Payee) is a new pick and is refused.
+  keeps it through any later save. Carrying a link is not a new pick: approval puts the request's
+  Payee on its expense even if it went Inactive since, an expense naming a vendor takes the vendor's
+  Payee, and a *Not asked* request carries its vendor's. A request of an asked type that names a
+  vendor whose Payee is Inactive is still refused.
 - **Linked expenses** are `Project Expenses` and `Non Project Expenses` naming the Payee, at any
   status. An Expense Request is not counted until approval carries its Payee onto an expense.
 - **Who:** the Payees page and its endpoints (`api/payees/`) are Admin, Accountant and Accountant Lead
@@ -89,12 +91,19 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   Request searches and adds Payees only through the request's endpoints
   (`api/expense_requests/payees.py`, #1429), which call the same `create_payee`.
 - **Expense payee** (#1429): an expense type's *Who gets paid* (`Expense Type.payee_rule`) is
-  *Required*, *Optional* or *Not asked* (default). A request or expense with a vendor is paid into
-  that vendor's Payee and no other; *Not asked* stores none; an Inactive Payee can't be newly
-  picked, but a record already holding it keeps it. One owner: `services/payees/expense_rules.py`
-  (pure) applied by `services/payees/expense_payee.py`. Approval copies the request's Payee onto the
-  Expense; an Expense's Payee changes until it is *Paid* (`change_expense_payee`, which writes a
-  Version row since `db_set` leaves none).
+  *Required*, *Optional* or *Not asked* (default). A request or Project Expense with a vendor is
+  paid into that vendor's Payee and no other (filled in when blank); *Not asked* ignores a Payee the
+  raiser sent and stores none, except that a request naming a vendor carries the vendor's Payee, so
+  the accountant sees who to pay; an Inactive Payee can't be newly picked, but a record already
+  holding it keeps it. One owner: `services/payees/expense_rules.py` (pure: `request_payee`,
+  `follow_vendor`, `paid_expense_problem`), applied on EVERY save by `guard.check_payee_links`
+  (the request endpoints pass the Payee straight through), and by `expense_payee.change_expense_payee`.
+  Each rule is asked only on insert or when `payee`, `vendor` or the type changes, so older records
+  still re-save. Approval copies the request's Payee onto the Expense; a request naming a vendor is
+  paid into the vendor's Payee as it is at approval. An Expense's Payee is fixed once it is paid
+  (Reconciliation Pending or Paid); before that only Accounts change it, whether by Change payee
+  (`change_expense_payee`, which writes a Version row since `db_set` leaves none) or by any save.
+  Only `VENDOR_PAYEE_PROFILES` change `Vendors.payee`, on any save.
 - **Paid to** (#1431): who a row the accountant pays is paid to is resolved in one place,
   `services/payees/paid_to.py`: a PO / WO payment into its vendor's Payee now, an expense into its own
   Payee. "Payment need to paid"'s Paid to column (the approval queue's `paid_to`), Export for Payment

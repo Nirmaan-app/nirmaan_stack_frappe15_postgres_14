@@ -1304,6 +1304,33 @@ class TestExpenseRequestPayee(FrappeTestCase):
 		self.assertEqual(
 			frappe.db.get_value("Project Expenses", out["created_expense"], "payee"), payee)
 
+	def test_approval_carries_a_payee_that_went_inactive_since(self):
+		"""Approval carries the link the request already holds: not a new pick, so Inactive can't stop it."""
+		payee = self.payees.payee()
+		res = self._raise(self._type("Required"), payee=payee)
+		self._inactive(payee)
+		out = approve_expense_request(res["name"])
+		self.assertEqual(
+			frappe.db.get_value("Non Project Expenses", out["created_expense"], "payee"), payee)
+
+	def test_a_not_asked_request_with_a_vendor_carries_the_vendors_payee_onto_the_expense(self):
+		payee = self.payees.payee()
+		res = self._raise(self._type("Not asked", project=True), projects=self.project,
+		                  vendor=self.payees.vendor(payee), payee=self.payees.payee())
+		self.assertEqual(self._payee_of(res), payee)
+		out = approve_expense_request(res["name"])
+		self.assertEqual(frappe.db.get_value("Project Expenses", out["created_expense"], "payee"), payee)
+
+	def test_approval_pays_a_vendor_request_into_the_vendors_payee_as_it_is_now(self):
+		"""The vendor changed account between the request and its approval: the expense follows it."""
+		first, second = self.payees.payee(), self.payees.payee()
+		vendor = self.payees.vendor(first)
+		res = self._raise(self._type("Optional", project=True), projects=self.project, vendor=vendor)
+		frappe.db.set_value("Vendors", vendor, "payee", second, update_modified=False)
+		frappe.db.commit()
+		out = approve_expense_request(res["name"])
+		self.assertEqual(frappe.db.get_value("Project Expenses", out["created_expense"], "payee"), second)
+
 	def test_approval_of_a_request_with_no_payee_leaves_the_expense_without_one(self):
 		out = approve_expense_request(self._raise(self._type("Optional"))["name"])
 		self.assertFalse(

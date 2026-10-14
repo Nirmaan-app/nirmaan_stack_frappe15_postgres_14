@@ -3,6 +3,8 @@
 
 """The Payee rules that need no database (spec #1420, ADR-0033). Run with `devenv.sh unit`."""
 
+import json
+import os
 import unittest
 
 from nirmaan_stack.services.payees.rules import (
@@ -125,3 +127,24 @@ class TestPaidMeansOneThing(unittest.TestCase):
     def test_paid_is_the_settled_set(self):
         self.assertEqual(PAID_STATUSES, SETTLED_STATUSES)
         self.assertEqual(set(PAID_STATUSES), {"Reconciliation Pending", "Paid"})
+
+
+#: Shared with the frontend's `utils/payees/payeeForm.test.ts` (F1): one set of cases, two twins.
+SHARED = json.load(open(os.path.join(os.path.dirname(__file__), "payee_rules_cases.json")))
+
+
+class TestSharedCases(unittest.TestCase):
+    """The screens block early with these same verdicts and words (`utils/payees/payeeForm.ts`)."""
+
+    def test_details(self):
+        for case in SHARED["details"]:
+            with self.subTest(case["name"]):
+                details = parse_details(case["account_name"], case["account_number"], case["ifsc"])
+                self.assertEqual(details_problem(details), case["problem"])
+
+    def test_accounts(self):
+        for case in SHARED["accounts"]:
+            with self.subTest(case["typed"]):
+                details = parse_details("A", case["typed"], "HDFC0000195")
+                self.assertEqual((details.account_number, details.normalized_account),
+                                 (case["clean"], case["normalized"]))

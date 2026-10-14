@@ -186,7 +186,8 @@ def create_ledger_row(req):
 		"comment": req.comment or None,
 		# Who gets paid (ADR-0033), on BOTH ledgers: the accountant pays this account without
 		# re-entering it. Copied as-is: the request's rules were applied when it was raised or
-		# edited, and a Payee gone Inactive since stays on what already points at it.
+		# edited, and approval carries the link, so a Payee gone Inactive since stays on it
+		# (`services/payees/guard`: not a new pick).
 		"payee": req.get("payee") or None,
 	}
 
@@ -206,6 +207,9 @@ def create_ledger_row(req):
 		values["projects"] = req.projects
 		if req.get("vendor"):
 			values["vendor"] = req.vendor
+			# Paid into the vendor's Payee as it is NOW: the save fills it in from the vendor
+			# (`services/payees/guard`), so a vendor that changed account since is followed.
+			values["payee"] = None
 
 	row = frappe.new_doc(doctype)
 	row.update(values)

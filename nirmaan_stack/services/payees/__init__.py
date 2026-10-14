@@ -10,10 +10,12 @@
   `PAYEES_WITH_LINKS_SQL`, `payee_page` (`linked_vendors`, `linked_expenses`, `holder_name_changed_on`).
 * `versions` -- the Version rows read as history: `write_field_change`, `last_field_change`.
 * `guard` -- what `validate` controllers refuse on every write path: `check_payee_save` (Locked, the
-  holder-name role), `check_payee_pick` (Inactive can't be newly picked).
+  holder-name role), `check_payee_links` (a vendor's Payee, an expense type's Who gets paid, an
+  expense's Payee fixed once paid and changed only by Accounts, who sets a vendor's Payee, Inactive
+  can't be newly picked).
 * `ifsc` -- `lookup_ifsc` (refuses an IFSC it can't find), `fetch_ifsc` (the HTTP call tests patch).
 * `expense_rules` (pure) / `expense_payee` -- the Expense payee: an expense type's Required / Optional
-  / Not asked, the vendor's Payee, Inactive (`request_payee_for`, `change_expense_payee`).
+  / Not asked, the vendor's Payee (`follow_vendor`), paid (`payee_rule`, `change_expense_payee`).
 * `search` -- `search_active_payees`, for the Expense Request's picker.
 * `matching` (pure) -- `rank_payees`, `name_similarity`: which Payees look like a vendor.
 * `choosing` -- `suggest_for_vendor`, `payee_choices` / `payee_choice`, `assert_pickable`,
