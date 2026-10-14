@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""THE Payee writer: the only code that creates a Payee (spec #1420, ADR-0033).
+"""THE Payee writer: the only code that creates or edits a Payee (spec #1420, ADR-0033).
 
 Every screen that adds a Payee (the Payees page, and later the vendor screens and the Expense
 Request) calls `create_payee` from its own endpoint, after its own role check: who may add a Payee
@@ -14,6 +14,8 @@ depends on the screen, so this module checks no role. Nothing here commits; the 
 * `assert_not_duplicate` -- the refusal itself, shared by `create_payee` and the controller.
 * `backfill_payee` -- the patch's Payee for a vendor's bank details already on record (#1424): bank
   and branch as recorded, no IFSC lookup.
+* `edit_holder_name` -- a new holder name (Accounts and Admins only: the controller checks, #1423).
+* `set_status` -- mark a Payee Active or Inactive (#1423).
 
 The rules themselves are pure, in `services/payees/rules.py`; links and "paid" are in
 `services/payees/links.py`; the IFSC lookup is `services/payees/ifsc.py`.
@@ -32,6 +34,7 @@ from nirmaan_stack.services.payees.rules import (
     details_problem,
     duplicate_problem,
     parse_details,
+    status_change_problem,
 )
 
 
@@ -107,4 +110,28 @@ def backfill_payee(details: PayeeDetails, bank_name: str | None, bank_branch: st
         "status": ACTIVE,
     })
     doc.insert(ignore_permissions=True)
+    return doc
+
+
+def edit_holder_name(name: str, account_name: str):
+    """Save a new holder name on Payee `name` and return it. Only Accounts and Admins may: the Payee
+    `validate` controller (`guard.check_payee_save`) refuses anyone else as the session user, on this
+    and every other write path. Leaves a Version row, which the Payee page's "Holder name last
+    changed" reads. Never commits."""
+    doc = frappe.get_doc(PAYEE_DOCTYPE, name, for_update=True)
+    doc.account_name = account_name
+    doc.save(ignore_permissions=True, ignore_version=False)
+    return doc
+
+
+def set_status(name: str, status: str):
+    """Mark Payee `name` Active or Inactive and return it. An Inactive Payee can't be newly picked;
+    records already pointing at it keep it (`guard.check_payee_pick`). Refuses the status it already
+    has, read inside the row lock. Checks no role; never commits."""
+    doc = frappe.get_doc(PAYEE_DOCTYPE, name, for_update=True)
+    problem = status_change_problem(name, doc.status, status)
+    if problem:
+        frappe.throw(_(problem))
+    doc.status = status
+    doc.save(ignore_permissions=True, ignore_version=False)
     return doc

@@ -179,6 +179,10 @@ def create_ledger_row(req):
 		"amount": format_amount_for(doctype, Decimal(str(flt(req.amount)))),
 		"description": compose_description(req, source_format),
 		"comment": req.comment or None,
+		# Who gets paid (ADR-0033), on BOTH ledgers: the accountant pays this account without
+		# re-entering it. Copied as-is: the request's rules were applied when it was raised or
+		# edited, and a Payee gone Inactive since stays on what already points at it.
+		"payee": req.get("payee") or None,
 	}
 
 	# Declared mapping, not convention: a format slot carrying
