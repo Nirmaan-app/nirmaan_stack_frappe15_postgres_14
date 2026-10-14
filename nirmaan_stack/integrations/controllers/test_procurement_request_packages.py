@@ -125,16 +125,17 @@ class PRPackagesLifecycleTest(unittest.TestCase):
         return frappe.get_doc("Procurement Requests", doc.name)
 
     def _rows(self, doc):
-        return [(row.tag_package, row.tag_header or "") for row in self._reload(doc).pr_tag_list]
+        return [row.tag_package for row in self._reload(doc).pr_tag_list]
 
     def _tracker(self):
         """{package: [pr names]} as the PR Tracker detail page reads it."""
         return {row["package"]: row["prs"] for row in get_project_pr_packages(self.project)}
 
-    def _legacy_rows(self, doc, rows):
-        """Replace a PR's tag rows with old-style header rows, bypassing hooks like old data."""
+    def _legacy_rows(self, doc, packages):
+        """Replace a PR's tag rows with old-style rows (a package repeated once per old header),
+        bypassing hooks like old data."""
         frappe.db.sql('DELETE FROM "tabPR Tag Child Table" WHERE parent=%s', (doc.name,))
-        for idx, (package, header) in enumerate(rows, start=1):
+        for idx, package in enumerate(packages, start=1):
             frappe.get_doc({
                 "doctype": "PR Tag Child Table",
                 "name": frappe.generate_hash(length=10),
@@ -143,38 +144,34 @@ class PRPackagesLifecycleTest(unittest.TestCase):
                 "parentfield": "pr_tag_list",
                 "idx": idx,
                 "tag_package": package,
-                "tag_header": header,
             }).db_insert()
 
     # --- create ----------------------------------------------------------------------------
 
     def test_create_writes_one_row_per_item_package(self):
         pr = self._new_pr([self._item(HVAC), self._item(ELEC), self._item(HVAC)])
-        self.assertEqual(self._rows(pr), [(ELEC, ""), (HVAC, "")])
+        self.assertEqual(self._rows(pr), [ELEC, HVAC])
         self.assertEqual(self._tracker(), {ELEC: [pr.name], HVAC: [pr.name]})
 
     def test_create_replaces_client_sent_rows(self):
-        header = frappe.db.get_value("PR Tag Headers", {"tag_package": ELEC}, "name")
-        tags = [{"tag_package": FA}, {"tag_package": FA}]
-        if header:
-            tags.append({"tag_package": ELEC, "tag_header": header})
+        tags = [{"tag_package": FA}, {"tag_package": FA}, {"tag_package": ELEC}]
         pr = self._new_pr([self._item(HVAC)], tags=tags)
-        self.assertEqual(self._rows(pr), [(HVAC, "")])
+        self.assertEqual(self._rows(pr), [HVAC])
 
     def test_additional_charges_and_category_fallback(self):
         pr = self._new_pr([self._item(CHARGES), self._item(FA, own_package=False)])
-        self.assertEqual(self._rows(pr), [(FA, "")])
+        self.assertEqual(self._rows(pr), [FA])
 
     def test_custom_pr_gets_packages_from_items(self):
         pr = self._new_pr([self._item(FA)], tags=[{"tag_package": ELEC}], work_package="Custom")
-        self.assertEqual(self._rows(pr), [(FA, "")])
+        self.assertEqual(self._rows(pr), [FA])
 
     def test_auto_approval_second_save_keeps_the_tracker(self):
         # after_insert auto-approves and saves again; the tracker must still list the PR.
         with mock.patch(f"{CONTROLLER}.validate_procurement_request", lambda *a, **k: True):
             pr = self._new_pr([self._item(ELEC)])
         self.assertEqual(self._reload(pr).workflow_state, "Approved")
-        self.assertEqual(self._rows(pr), [(ELEC, "")])
+        self.assertEqual(self._rows(pr), [ELEC])
         self.assertEqual(self._tracker(), {ELEC: [pr.name]})
 
     # --- update ----------------------------------------------------------------------------
@@ -184,13 +181,13 @@ class PRPackagesLifecycleTest(unittest.TestCase):
         pr = self._reload(pr)
         pr.append("order_list", self._item(FA))
         pr.save(ignore_permissions=True)
-        self.assertEqual(self._rows(pr), [(ELEC, ""), (FA, "")])
+        self.assertEqual(self._rows(pr), [ELEC, FA])
         self.assertIn(FA, self._tracker())
 
         pr = self._reload(pr)
         pr.set("order_list", [row for row in pr.order_list if row.procurement_package != FA])
         pr.save(ignore_permissions=True)
-        self.assertEqual(self._rows(pr), [(ELEC, "")])
+        self.assertEqual(self._rows(pr), [ELEC])
         self.assertNotIn(FA, self._tracker(), "the last PR left FA")
 
     def test_status_change_never_moves_packages(self):
@@ -201,41 +198,39 @@ class PRPackagesLifecycleTest(unittest.TestCase):
         pr.save(ignore_permissions=True)
         pr = self._reload(pr)
         self.assertEqual([row.name for row in pr.pr_tag_list], names, "rows must not be rewritten")
-        self.assertEqual(self._rows(pr), [(ELEC, ""), (FA, "")])
+        self.assertEqual(self._rows(pr), [ELEC, FA])
 
     def test_editing_an_items_package_moves_rows(self):
         pr = self._reload(self._new_pr([self._item(ELEC)]))
         pr.order_list[0].procurement_package = FA
         pr.order_list[0].category = self.cat[FA]
         pr.save(ignore_permissions=True)
-        self.assertEqual(self._rows(pr), [(FA, "")])
+        self.assertEqual(self._rows(pr), [FA])
 
     def test_request_that_edits_tag_rows_is_rebuilt(self):
         pr = self._reload(self._new_pr([self._item(ELEC)]))
         pr.append("pr_tag_list", {"tag_package": HVAC})
         pr.save(ignore_permissions=True)
-        self.assertEqual(self._rows(pr), [(ELEC, "")])
+        self.assertEqual(self._rows(pr), [ELEC])
 
     # --- old rows written before this change -------------------------------------------------
 
-    def test_old_header_rows_collapse_without_rereading_items(self):
+    def test_old_repeated_rows_collapse_without_rereading_items(self):
         pr = self._new_pr([self._item(FA)])
-        hvac_headers = frappe.get_all("PR Tag Headers", filters={"tag_package": HVAC}, pluck="name")[:2]
-        legacy = [(HVAC, h) for h in hvac_headers] + [(ELEC, None)]
-        self._legacy_rows(pr, legacy)
+        self._legacy_rows(pr, [HVAC, HVAC, ELEC])
         pr = self._reload(pr)
         pr.comment = "a save that touches no item"
         pr.save(ignore_permissions=True)
         # Items say FA, but nothing about them changed: the stored packages stay, cleaned.
-        self.assertEqual(self._rows(pr), [(ELEC, ""), (HVAC, "")])
+        self.assertEqual(self._rows(pr), [ELEC, HVAC])
 
     def test_old_rows_are_rebuilt_once_items_change(self):
         pr = self._new_pr([self._item(FA)])
-        self._legacy_rows(pr, [(HVAC, None), (HVAC, None)])
+        self._legacy_rows(pr, [HVAC, HVAC])
         pr = self._reload(pr)
         pr.append("order_list", self._item(ELEC))
         pr.save(ignore_permissions=True)
-        self.assertEqual(self._rows(pr), [(ELEC, ""), (FA, "")])
+        self.assertEqual(self._rows(pr), [ELEC, FA])
 
     # --- live POs ------------------------------------------------------------------------
 
@@ -267,7 +262,7 @@ class PRPackagesLifecycleTest(unittest.TestCase):
         pr = self._reload(pr)
         pr.set("order_list", [row for row in pr.order_list if row.procurement_package != FA])
         pr.save(ignore_permissions=True)
-        self.assertEqual(self._rows(pr), [(ELEC, "")])
+        self.assertEqual(self._rows(pr), [ELEC])
 
     def test_a_live_po_never_adds_a_package(self):
         # A merged PO holds another PR's items (here HVAC) but points to this PR: still not added.
@@ -276,14 +271,13 @@ class PRPackagesLifecycleTest(unittest.TestCase):
         pr = self._reload(pr)
         pr.append("order_list", self._item(FA))
         pr.save(ignore_permissions=True)
-        self.assertEqual(self._rows(pr), [(ELEC, ""), (FA, "")])
+        self.assertEqual(self._rows(pr), [ELEC, FA])
 
     # --- tracker ---------------------------------------------------------------------------
 
-    def test_old_header_rows_show_once_per_package(self):
+    def test_old_repeated_rows_show_once_per_package(self):
         pr = self._new_pr([self._item(HVAC)])
-        hvac_headers = frappe.get_all("PR Tag Headers", filters={"tag_package": HVAC}, pluck="name")[:2]
-        self._legacy_rows(pr, [(HVAC, h) for h in hvac_headers] + [(HVAC, None)])
+        self._legacy_rows(pr, [HVAC, HVAC, HVAC])
         self.assertEqual(self._tracker(), {HVAC: [pr.name]})
 
     def test_two_prs_share_one_package(self):

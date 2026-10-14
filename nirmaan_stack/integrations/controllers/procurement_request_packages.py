@@ -36,7 +36,7 @@ def _item_dicts(doc) -> list[dict]:
 
 def _row_dicts(doc) -> list[dict]:
     return [
-        {"tag_package": row.get("tag_package"), "tag_header": row.get("tag_header")}
+        {"tag_package": row.get("tag_package")}
         for row in (doc.get("pr_tag_list") or [])
     ]
 

@@ -30,8 +30,8 @@ def item(package=None, category=None, status="Pending"):
     return {"procurement_package": package, "category": category, "status": status}
 
 
-def row(package, header=None):
-    return {"tag_package": package, "tag_header": header}
+def row(package):
+    return {"tag_package": package}
 
 
 class ItemPackageTest(unittest.TestCase):
@@ -102,9 +102,6 @@ class RowsTest(unittest.TestCase):
         self.assertTrue(rows_are_clean([row("Electrical Work"), row("HVAC System")]))
         self.assertTrue(rows_are_clean([]))
 
-    def test_a_header_is_not_clean(self):
-        self.assertFalse(rows_are_clean([row("Electrical Work", "Electrical")]))
-
     def test_a_repeated_package_is_not_clean(self):
         self.assertFalse(rows_are_clean([row("HVAC System"), row("HVAC System")]))
 
@@ -112,22 +109,17 @@ class RowsTest(unittest.TestCase):
         self.assertFalse(rows_are_clean([row(None)]))
 
     def test_stored_packages_collapse_old_hvac_rows(self):
-        rows = [
-            row("HVAC System", "HVAC Ducting"),
-            row("HVAC System", "HVAC VRF/DX"),
-            row("HVAC System", "HVAC Ancillary Work"),
-            row("HVAC System", "HVAC Chilled Water type"),
-            row("Electrical Work", "Electrical"),
-        ]
+        # Before the one-row-per-package patch, HVAC System had one row per header (4 headers).
+        rows = [row("HVAC System"), row("HVAC System"), row("HVAC System"), row("HVAC System"), row("Electrical Work")]
         self.assertEqual(stored_packages(rows), ["Electrical Work", "HVAC System"])
 
 
 class TagRowsActionTest(unittest.TestCase):
     def test_new_pr_always_rebuilds(self):
         self.assertEqual(tag_rows_action(True, None, ["FA System"], None, [row("FA System")]), ACTION_REBUILD)
-        # Even with rows a client sent, headers included.
+        # Even with rows a client sent.
         self.assertEqual(
-            tag_rows_action(True, None, ["FA System"], None, [row("Electrical Work", "Electrical")]),
+            tag_rows_action(True, None, ["FA System"], None, [row("Electrical Work"), row("Electrical Work")]),
             ACTION_REBUILD,
         )
 
@@ -145,8 +137,8 @@ class TagRowsActionTest(unittest.TestCase):
         rows = [row("FA System")]
         self.assertIsNone(tag_rows_action(False, ["FA System"], ["FA System"], rows, rows))
 
-    def test_old_header_rows_collapse_without_rebuilding(self):
-        rows = [row("HVAC System", "HVAC Ducting"), row("HVAC System", "HVAC VRF/DX"), row("Electrical Work", "Electrical")]
+    def test_old_repeated_rows_collapse_without_rebuilding(self):
+        rows = [row("HVAC System"), row("HVAC System"), row("Electrical Work")]
         # The items say FA System, but nothing about them changed: keep the stored packages.
         self.assertEqual(tag_rows_action(False, ["FA System"], ["FA System"], rows, rows), ACTION_COLLAPSE)
 

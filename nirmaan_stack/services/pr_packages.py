@@ -23,7 +23,8 @@ A PR's packages come from its items, never from a hand-picked header:
 4. Only the PR's own items count. A PO's items never add or keep a package (owner, 2026-10-14):
    a merged PO, which holds two PRs' items but points to one PR, shows under that PR's packages.
 
-The packages are stored as `pr_tag_list` rows: one row per package, sorted, `tag_header` empty.
+The packages are stored as `pr_tag_list` rows: one row per package, sorted. The retired header
+column is never read or written here.
 """
 
 from collections.abc import Iterable, Mapping
@@ -91,19 +92,16 @@ def categories_needing_lookup(items: Iterable[Mapping], valid_packages: Iterable
     return needed
 
 
-def tag_rows_signature(rows: Iterable[Mapping]) -> list[tuple[str, str]]:
-    """The tag rows as comparable (package, header) pairs, in row order."""
-    return [
-        ((row.get("tag_package") or "").strip(), (row.get("tag_header") or "").strip())
-        for row in rows
-    ]
+def tag_rows_signature(rows: Iterable[Mapping]) -> list[str]:
+    """The tag rows' packages, in row order (comparable between two saves)."""
+    return [(row.get("tag_package") or "").strip() for row in rows]
 
 
 def rows_are_clean(rows: Iterable[Mapping]) -> bool:
-    """True when every row names a package, none repeats, and none carries a header."""
+    """True when every row names a package and none repeats."""
     seen = set()
-    for package, header in tag_rows_signature(rows):
-        if not package or header or package in seen:
+    for package in tag_rows_signature(rows):
+        if not package or package in seen:
             return False
         seen.add(package)
     return True
@@ -111,7 +109,7 @@ def rows_are_clean(rows: Iterable[Mapping]) -> bool:
 
 def stored_packages(rows: Iterable[Mapping]) -> list[str]:
     """The sorted, de-duplicated packages the rows already hold."""
-    return sorted({package for package, _ in tag_rows_signature(rows) if package})
+    return sorted({package for package in tag_rows_signature(rows) if package})
 
 
 def tag_rows_action(
@@ -126,7 +124,7 @@ def tag_rows_action(
     - A new PR always rebuilds, so whatever a client sent is replaced.
     - An update rebuilds when the item packages changed, or when the request changed the tag
       rows themselves (a client or a Desk edit may not set packages by hand).
-    - Any other save only collapses rows that repeat a package or still carry a header.
+    - Any other save only collapses rows that repeat a package or name none.
     A status-only save changes no item package (rule 1), so it never rebuilds.
     """
     new_rows = list(new_rows)
