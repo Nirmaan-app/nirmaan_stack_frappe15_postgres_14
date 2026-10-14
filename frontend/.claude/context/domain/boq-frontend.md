@@ -104,6 +104,32 @@ owner-locked invariants. The full as-built detail (component contracts, per-slic
 - **The page re-reads itself when a parse of its BoQ ends** (`boq:parse_run_done` in `SheetReviewPage.tsx`) and
   when the check ends (`boq:ai_pass_done`, plus a 3-second poll while `isCheckRunning`). The poll stops itself
   once the refreshed data says the check is over - the resolve handler must not stop it.
+- **The hub and the parse summary read S3's counts only (S4b, ADR-0035, owner-locked).** `BoqHubPage.tsx`
+  fetches `review_flags.get_check_summary` (SWR key `boq-check-summary::<boq>`, a 4-second poll only while a check
+  runs, re-read on `boq:parse_run_done` and `boq:ai_pass_done`); the pure `hubCheckSummary.ts` turns it into the
+  card lines (`cardCheck`), the footer piece (`footerRowsToCheck`) and the summary (`parseSummary`). The summary is
+  HELD until no sheet that parse parsed is still being checked (`summaryReady`, Q-c). A sheet whose check is
+  running is left out of the footer sum, and the review counter strip is hidden while the check runs
+  (`checkCounter(summary, checkRunning)` returns null, R32): until the check ends, the count is the raw parse's
+  unit / quantity flags. Sheet names are looked up VERBATIM (#152) and shown trimmed.
+- **"Suggested" is a soft mark, never a choice (S4b, R31).** Only a row with an OPEN flag gets it, worked out in
+  the browser from the reply (`suggestionFor` / `orderWithSuggestion` / `suggestedParentLine` in
+  `reviewCheckFlags.ts`); a unit / quantity-only flag suggests Item. The Change list puts that type first with
+  the "Suggested" tag; `RestructureModal.tsx` shows ONE clickable "Suggested parent: row N - ..." line BELOW the
+  Keep / Move radios (above them it took the dialog's opening focus). Nothing is pre-selected, no AI is named,
+  the children's pickers and `ReviewRowParentPicker.tsx` get no mark, and the mark goes with the flag.
+- **No value editing on the review screen (S4b, R19).** "Edit values", "Edit text", "Edit per-area values", the
+  empty "Edit Row" toggle and the "Confirm value change" dialog are gone (they were never used). The template
+  quantity cells still save through the same `saveCall`; `save_review_edit` and old history entries stay.
+- **A revert waits for the page's draft-lock call (S4b, R33).** `afterEditIntent(onEditIntent, write)` in
+  `editIntent.ts` awaits the page's `ensureLockAcquired` promise, then sends `revert_to_parser`. Sent together,
+  the two locks collided on the server ("There was an error." on a first-click revert). Only the revert uses it;
+  other edit paths are unchanged. A failure with no server message reads "Could not revert this row. Please try
+  again." (U14).
+- **Residence (S4b modules).** `hubCheckSummary.ts` owns what the hub says about the check (card, footer,
+  summary) - do not count or word it in `BoqHubPage.tsx` / `SheetCard.tsx`. `editIntent.ts` owns "wait for the
+  lock, then write". `reviewCheckFlags.ts` owns every check sentence on the review screen, including the banners,
+  "Suggested", "Revert to original" and its hint. `ReviewCheckParts.tsx` only draws.
 - **Finalized / "Parsed Check Done" freeze:** `readOnly` HIDES every write affordance; backend
   `_guard_sheet_not_frozen` is the durable backstop. Restructure goes through `RestructureModal` (5 child-placement
   options + a batch cycle-guard). A flag dismissal / remark is NOT an edit (the row stays "Original").
@@ -1882,6 +1908,8 @@ The single header strip (`flex items-start gap-3` with an `ml-auto` cluster hold
 `SheetReviewPage` gains `const [expanded, setExpanded] = useState(false)` + an Esc-to-exit effect that REUSES the exported pure `shouldExitFullscreenOnEsc` from `./PricingGrid` (no duplication). Root wrapper className swaps via `cn()`: `fixed inset-0 z-50 flex flex-col space-y-4 overflow-auto bg-background p-4` when expanded, else the normal `flex-1 space-y-4 max-w-5xl mx-auto …`. ONE JSX tree → no remount → open detail panel / search / collapse / draft-lock survive the toggle (same rationale as pricing; NOT a Dialog/portal). `ReviewTree` gained an `expanded?: boolean` prop (default false) that relaxes its scroll-container cap at the table div: `cn("overflow-auto", expanded ? "max-h-[calc(100vh-6rem)]" : "max-h-[calc(100vh-16rem)]")` — a generous viewport cap rather than pricing's `flex-1 min-h-0` chain (the review banner stack makes the full flex-col plumbing fragile; the overlay's own `overflow-auto` scrolls regardless).
 
 ### "Edit Row" accordion in the row-detail panel (`ReviewTree.tsx`)
+> ⚠️ **REMOVED in S4b (ADR-0035, R19):** the accordion and the three blocks inside it are gone; kept below as the record.
+
 The three inline EDIT surfaces are collapsed behind ONE `Accordion type="single" collapsible` (shadcn `@/components/ui/accordion`), single `AccordionItem value="edit-row"`, label **"Edit Row"**, **closed by default** (no `defaultValue`; each row's panel mounts fresh → re-opens collapsed). Wraps **Edit values + Edit text + Edit per-area values + the shared save-error** (owner: per-area INCLUDED). **Remarks is EXCLUDED** — stays its own section immediately below the accordion, both its `readOnly` and editable branches untouched. Outer gate `!readOnly && (editableDescriptors.length > 0 || editableTextDescriptors.length > 0 || editableAreaDescriptors.length > 0)` → on a read-only/Finalized sheet the accordion is suppressed entirely (nothing editable inside) and the inline read-only remark shows as today. Trigger restyled to a COMPACT INLINE toggle (`w-auto flex-none justify-start gap-1.5 … text-[10px] uppercase …`) neutralizing shadcn's default `flex-1 justify-between` so the chevron sits beside the label (not stranded at the wide panel's right edge), matching the panel's other `text-[10px]` section labels; a subtle `border-t border-border/60 pt-1` divider sets it off. Everything else in the panel (edited/original badge, Classification/Parent reclassify controls, ParentChain/ChildrenList, AI + Gemini accept blocks, Warnings, Edit history) stays OUTSIDE, unchanged.
 
 ## Revised BoQ entry (S2, ADR-0014 D1/D2, branch `feature/upload-revised-boq`)

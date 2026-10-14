@@ -165,6 +165,16 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
     checked" line, since `by_kind` counts open flags only), never by re-deriving on the client. **No AI or
     Gemini piece is on the review screen**: no run button, no suggestion, no model name (R6, R21). The AI
     answers still travel in the reply; nothing reads them.
+  - **The hub reads the same counts (S4b, ADR-0035).** The sheet cards, the footer and the "Parse complete"
+    summary read `review_flags.get_check_summary` and nothing else; S4b changed no Python. The check's answers
+    in the review reply (`ai_suggested_classification` / `_parent` / `_is_root`) are now read by the screen for
+    one purpose only: the "Suggested" mark on a row with an OPEN flag (R31). Keep those three fields in the
+    reply, and keep `get_check_summary`'s `heavy`, `flagged_pct`, `non_blank_rows` and `check_running` as they
+    are - the banners and the hub depend on them.
+  - **A first-click revert races the page's draft lock - fixed in the browser, not here (S4b, R33).**
+    `revert_to_parser` takes its own server lock; when the page's `acquire_draft_lock` ran at the same moment,
+    the lock-row refresh in `pricing_lock.py` raised under REPEATABLE READ (a 500, no Error Log). The page now
+    waits for its lock call before it sends the revert. Do not "fix" it by dropping the server-side lock.
   - **"Looks OK" has an Undo: `review_flags.unmark_row_looks_ok` (S4a).** One row per call, a raw column write,
     no edit history; refused on a Finalized sheet, during a parse and where no tick stands ("Row N has no Looks
     OK to undo."). The whitelist of `review_flags` is pinned to exactly `get_check_summary`,

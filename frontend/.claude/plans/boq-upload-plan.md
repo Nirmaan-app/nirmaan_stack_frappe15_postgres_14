@@ -46235,3 +46235,66 @@ After the code commit: Python full suite (15:40 - 16:28 IST) **8,396 tests (8,35
 that hour. vitest **6,024 tests (5,986 + 38 new)**, the same 1 failure. tsc **3,170 errors in 300 files**, the same
 list line for line (line numbers set aside), none in a file S4a changed. `residence_check`: backend rules holding;
 F5 120 vs 117 and F2 221 vs 217 as before.
+
+
+## Slice S4b — BANNERS, HUB AND PARSE SUMMARY, SOFT SUGGESTION, EDIT-VALUES REMOVAL, REVERT FIXES (2026-10-14, dev2) — SHIPPED
+
+Branch `feature/boq-jev-integration`, built and certified in the dev2 environment only. Decision record: ADR-0035.
+Invariants: `boq-frontend.md` § Load-bearing invariants (the five S4b bullets after "The page re-reads itself") and
+`boq-backend.md` § Parser, review tree and commit (the two S4b bullets). Frontend only: no Python file, doctype or
+migration changed.
+
+**What it is.** The review screen warns when more than 40% of a sheet's non-blank rows are flagged, and when the
+automatic check did not finish (with a "Re-parse sheet" button that opens the hub's re-parse dialog). The hub's cards,
+footer and "Parse complete" summary say what the check found. A row with an open flag shows the check's answer as a
+"Suggested" type or parent, never pre-selected. The three "Edit values / text / per-area" blocks are gone. "Revert to
+parser" is "Revert to original", and it no longer fails as the first action after a page load.
+
+**Built.** Commit `ddd9a72af` (feat, boq-review), 14 files under `frontend/src/pages/boq-wizard/`:
+- `hubCheckSummary.ts` (new, pure) — `cardCheck`, `footerRowsToCheck`, `parseSummary`, `summaryReady`,
+  `anyCheckRunning`; every number from `review_flags.get_check_summary`.
+- `editIntent.ts` (new) — `afterEditIntent`: wait for the page's draft-lock call, then write (R33).
+- `reviewCheckFlags.ts` — banner texts, `pctText`, `isCheckIncomplete`, `suggestionFor`, `orderWithSuggestion`,
+  `suggestedParentLine`, `REVERT_LABEL` / `REVERT_HINT` / `REVERT_FAILED_MESSAGE`; `checkCounter` returns null while the
+  check runs (R32).
+- `ReviewCheckParts.tsx` — `SuggestedTag`, `HeavySheetBanner`, `CheckIncompleteBanner`.
+- `ReviewTree.tsx` — the Edit Row toggle, the three blocks and the "Confirm value change" dialog removed (`saveCall` kept
+  for the template quantity cells); the Change list ordered with the suggestion; the revert waits for the lock.
+- `RestructureModal.tsx` — one optional prop and one clickable "Suggested parent: ..." line below the Keep / Move radios.
+- `SheetReviewPage.tsx`, `BoqHubPage.tsx`, `SheetCard.tsx`, `ParseRunDialog.tsx`, `boqTypes.ts` — wiring and wording.
+- Tests: `reviewCheckFlags.test.ts` 38 -> 80; `hubCheckSummary.test.ts` (new, 32); `editIntent.test.ts` (new, 6).
+
+**Proofs.** 28 mechanisms were each broken in turn and each turned its named tests red, then restored byte-identical.
+Protected checksums: of 37 entries only the whole files `ReviewTree.tsx` and `RestructureModal.tsx` differ. All 666
+indexes and all 788 BoQ table columns identical before and after; every other review row and every other BoQ's committed
+nodes unchanged by count and checksum.
+
+**End-to-end (three paid runs, 85,182 input tokens; one AI-off window at zero cost).** BOQ-26-00059 / FPS re-parsed from
+the hub: the card and summary held during the check, then "FPS 5 of 38 rows (13.2%)"; every number equal to the
+server's. Flags checked by "Looks OK", by a different type and by a different parent than the one suggested; finalized;
+committed v3: 38 rows, 0 differences against the review rows and against the screen. AI switched off on dev2 for four
+minutes: BOQ-26-00060 / FPS (7 of 38, 18.4%, check incomplete) and BOQ-26-00300 / UPS (4 of 8, 50%: the heavy banner and
+the incomplete banner together); UPS's five earlier hand changes put back, finalized with the check incomplete (D1), not
+committed. Two defects found in the first pass and fixed before commit: the Suggested parent line took the dialog's
+opening focus (moved below the radios), and the hub footer counted a sheet still being checked (now left out). Ten
+recordings of the workflow were made for the owner.
+
+**Seen and left alone (R4).** A reverted row's Status reads "Edited" and its history line "Reclassified: Note -> — —"; a
+"moved parent" reason names the internal row index; `residence_check` F5 120 vs 117 and F2 221 vs 217, unchanged since
+before S3 (S4b adds none).
+
+### Tests (measured in-session, dev2)
+
+Before: vitest **6,024 tests**, 1 failed (`writeOffControl.test.ts`, a 5-second timeout); tsc **3,170 errors in 300
+files** (4 GB heap). No Python file changed, so no Python suite. Targeted before the commit: 28 files, **1,275 tests**,
+all passed. After the code commit: vitest **6,104 tests (6,024 + 80 new)**, the same 1 failure; tsc **3,170 errors in 300
+files**, the same list file by file, none in a file S4b changed.
+
+### Feature complete (S1-S4b)
+
+After a parse, Claude checks every sheet automatically (S1-S2). Its sure answers are applied, and every row it doubts,
+or that has a unit or quantity without being an Item, is flagged (S3). The reviewer sees the flags, the reason and a
+"Suggested" answer on the review screen. They fix the row or confirm it with "Looks OK" (S4a, S4b), and cannot finalize
+a sheet until every flag is checked. The hub and the parse summary say how many rows each sheet needs checked, and a
+sheet whose check did not finish says so and can still be finalized on the parser's result. No AI or Gemini control or
+name is left on the review screen. S3, S4a and S4b ship together (R30); S5 is the end-to-end trial on real BoQs.
