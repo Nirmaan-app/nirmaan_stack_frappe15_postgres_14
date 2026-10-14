@@ -15,6 +15,7 @@ import math # Though not used in the final version 3 logic, kept if needed later
 from typing import TypedDict
 
 from nirmaan_stack.api.projects._tendering_guard import validate_won
+from nirmaan_stack.integrations.controllers.procurement_request_packages import sync_pr_packages
 
 # Constants for Auto-Approval Logic
 AUTO_APPROVAL_THRESHOLD = 20000.0  # ₹20,000
@@ -602,6 +603,9 @@ def validate(doc, method):
     for item in items:
         if item.category == "Additional Charges" and item.billing_status != "Non-Billable":
             item.billing_status = "Non-Billable"
+
+    # Packages come from the items, never from a picked header (services/pr_packages.py).
+    sync_pr_packages(doc)
 
 def after_insert(doc, method):
     # if(frappe.db.exists({"doctype": "Procurement Requests", "project": doc.project, "work_package": doc.work_package, "owner": doc.owner, "workflow_state": "Pending"})):
