@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowRightLeft, ExternalLink, FileCheck, History, PackagePlus, Undo2, UserMinus, UserPlus } from 'lucide-react';
+import { ArrowRightLeft, ClipboardCheck, ClipboardList, ClipboardX, ExternalLink, FileCheck, History, PackagePlus, Undo2, UserMinus, UserPlus } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { AssetHistoryRow, HistoryTone, describeHistory } from '@/utils/assetHistory';
+import { AssetHistoryRow, AuditKind, HistoryTone, describeHistory } from '@/utils/assetHistory';
 import { useAssetHistoryPeople } from '../hooks/useAssetHistoryPeople';
 
 const TONE_STYLE: Record<HistoryTone, { icon: React.ReactNode; dot: string }> = {
@@ -12,6 +12,14 @@ const TONE_STYLE: Record<HistoryTone, { icon: React.ReactNode; dot: string }> = 
     unassigned: { icon: <UserMinus className="h-3.5 w-3.5" />, dot: 'bg-red-100 text-red-700' },
     department: { icon: <ArrowRightLeft className="h-3.5 w-3.5" />, dot: 'bg-indigo-100 text-indigo-700' },
     return: { icon: <Undo2 className="h-3.5 w-3.5" />, dot: 'bg-sky-100 text-sky-700' },
+    audit: { icon: <ClipboardCheck className="h-3.5 w-3.5" />, dot: 'bg-teal-100 text-teal-700' },
+};
+
+// Each audit event its own icon and colour (owner, 2026-10-14): asked, sent, missed.
+const AUDIT_STYLE: Record<AuditKind, { icon: React.ReactNode; dot: string }> = {
+    requested: { icon: <ClipboardList className="h-3.5 w-3.5" />, dot: 'bg-amber-100 text-amber-700' },
+    fulfilled: { icon: <ClipboardCheck className="h-3.5 w-3.5" />, dot: 'bg-teal-100 text-teal-700' },
+    missed: { icon: <ClipboardX className="h-3.5 w-3.5" />, dot: 'bg-red-100 text-red-700' },
 };
 
 const FILTERS: { tone: HistoryTone | 'all'; label: string }[] = [
@@ -20,6 +28,7 @@ const FILTERS: { tone: HistoryTone | 'all'; label: string }[] = [
     { tone: 'unassigned', label: 'Unassigned' },
     { tone: 'declaration', label: 'Declarations' },
     { tone: 'return', label: 'Returns' },
+    { tone: 'audit', label: 'Audits' },
     { tone: 'department', label: 'Department' },
     { tone: 'added', label: 'Added' },
 ];
@@ -51,7 +60,7 @@ export const AssetHistoryCard: React.FC<AssetHistoryCardProps> = ({ rows }) => {
                     <History className="h-4 w-4 text-gray-500" />
                     Asset History
                 </CardTitle>
-                <CardDescription>Every assignment, declaration and department change, newest first.</CardDescription>
+                <CardDescription>Every assignment, declaration, audit and department change, newest first.</CardDescription>
                 {allEntries.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 pt-2" role="group" aria-label="Filter the history">
                         {FILTERS.filter((f) => f.tone === 'all' || countFor(f.tone) > 0).map((f) => (
@@ -83,9 +92,9 @@ export const AssetHistoryCard: React.FC<AssetHistoryCardProps> = ({ rows }) => {
                                     <span className="absolute left-[13px] top-7 bottom-0 w-px bg-gray-200" aria-hidden />
                                 )}
                                 <span
-                                    className={`relative z-10 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full ${TONE_STYLE[entry.tone].dot}`}
+                                    className={`relative z-10 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full ${(entry.auditKind ? AUDIT_STYLE[entry.auditKind] : TONE_STYLE[entry.tone]).dot}`}
                                 >
-                                    {TONE_STYLE[entry.tone].icon}
+                                    {(entry.auditKind ? AUDIT_STYLE[entry.auditKind] : TONE_STYLE[entry.tone]).icon}
                                 </span>
                                 <div className="min-w-0 flex-1 space-y-1">
                                     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
@@ -111,6 +120,17 @@ export const AssetHistoryCard: React.FC<AssetHistoryCardProps> = ({ rows }) => {
                                             className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline"
                                         >
                                             View declaration
+                                            <ExternalLink className="h-3 w-3" />
+                                        </a>
+                                    )}
+                                    {entry.photoUrl && (
+                                        <a
+                                            href={entry.photoUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 text-xs font-medium text-teal-700 hover:underline"
+                                        >
+                                            View photo
                                             <ExternalLink className="h-3 w-3" />
                                         </a>
                                     )}

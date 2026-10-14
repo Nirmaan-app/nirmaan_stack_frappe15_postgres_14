@@ -46,7 +46,7 @@ interface AssetRow {
 
 /**
  * Every return waiting for approval (owner, 2026-10-13): assignments whose holder ticked "Returned".
- * One set of queries feeds the Return By tab's list and count and the summary card's badge, so they
+ * One set of queries feeds the Return Request tab's list and count and the summary card's badge, so they
  * always agree. There are few at a time, so it reads them all and splits them by kind here.
  */
 export function useReturnRequests(enabled = true) {

@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { ColumnDef } from '@tanstack/react-table';
 import { Link } from 'react-router-dom';
-import { useFrappeGetDocList, useFrappeUpdateDoc } from 'frappe-react-sdk';
+import { useFrappeGetDocList, useFrappePostCall, useFrappeUpdateDoc, useSWRConfig } from 'frappe-react-sdk';
 
 import { DataTable } from '@/components/data-table/new-data-table';
 import { DataTableColumnHeader } from '@/components/data-table/data-table-column-header';
@@ -21,9 +21,24 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { useToast } from '@/components/ui/use-toast';
+import { Switch } from '@/components/ui/switch';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { getFrappeError } from '@/utils/frappeErrors';
+import { auditCycleRanges, auditMonthLabel, cycleMonth } from '@/utils/assetAudit';
+import { cn } from '@/lib/utils';
 import { Pencil, Boxes, Briefcase, Laptop } from 'lucide-react';
 
 import {
+    ASSET_CACHE_KEYS,
     ASSET_CATEGORY_DOCTYPE,
     ASSET_CATEGORY_FIELDS,
     ASSET_CATEGORY_TYPE_OPTIONS,
@@ -37,6 +52,8 @@ interface AssetCategory {
     name: string;
     asset_category: string;
     category_type: AssetCategoryType | null;
+    /** "Monthly audit required" (owner, 2026-10-14). */
+    audit_required?: 0 | 1;
     creation: string;
     modified: string;
 }
@@ -89,7 +106,43 @@ export const AssetCategoriesList: React.FC = () => {
     }, [categoryCountByType]);
 
     // Only users with canManageCategories can edit
-    const { canManageCategories } = getAssetPermissions(userData?.user_id, userData?.role);
+    const { canManageCategories, canSwitchCategoryAudit } = getAssetPermissions(userData?.user_id, userData?.role);
+
+    // Monthly audit switch (owner, 2026-10-14): confirmed first, because switching it on opens this
+    // month's audits of the category's assigned assets at once.
+    const [auditSwitch, setAuditSwitch] = useState<{ category: AssetCategory; on: boolean } | null>(null);
+    const [isSwitching, setIsSwitching] = useState(false);
+    const { call: setCategoryAudit } = useFrappePostCall('nirmaan_stack.api.assets.audits.set_category_audit');
+    const { mutate } = useSWRConfig();
+    // This month split by the audit cycle, for the confirm dialog: [1st–27th, 28th–end].
+    const cycleRanges = auditCycleRanges(new Date());
+
+    const confirmAuditSwitch = async () => {
+        if (!auditSwitch) return;
+        const { category, on } = auditSwitch;
+        setIsSwitching(true);
+        try {
+            const result = await setCategoryAudit({ category: category.name, required: on ? 1 : 0 });
+            const opened: number = result?.message?.opened ?? 0;
+            toast({
+                title: on ? `Monthly audit on for ${category.asset_category}` : `Monthly audit off for ${category.asset_category}`,
+                description: on
+                    ? opened
+                        ? `Opened ${opened} audit${opened === 1 ? '' : 's'} for ${auditMonthLabel(cycleMonth(new Date()))}.`
+                        : 'No assigned asset needed an audit for this month yet.'
+                    : 'No new audits open. Open ones can still be sent; unsent ones are recorded Missed and closed on the 7th.',
+                variant: 'success',
+            });
+            setAuditSwitch(null);
+            refetchTable();
+            mutate(ASSET_CACHE_KEYS.AUDIT_PENDING);
+            mutate(ASSET_CACHE_KEYS.AUDITED_CATEGORIES);
+        } catch (error) {
+            toast({ title: "Couldn't switch the monthly audit", description: getFrappeError(error), variant: 'destructive' });
+        } finally {
+            setIsSwitching(false);
+        }
+    };
 
     const handleEditClick = useCallback((category: AssetCategory) => {
         setEditingCategory(category);
@@ -230,6 +283,26 @@ export const AssetCategoriesList: React.FC = () => {
             ),
             size: 140,
         },
+        // Monthly audit switch (owner, 2026-10-14): after Created On, and Admin's alone.
+        ...(canSwitchCategoryAudit ? [{
+            accessorKey: 'audit_required',
+            header: ({ column }: { column: any }) => <DataTableColumnHeader column={column} title="Monthly Audit" />,
+            meta: {
+                exportHeaderName: 'Monthly Audit',
+                exportValue: (row: AssetCategory) => (row.audit_required ? 'Yes' : 'No'),
+            },
+            cell: ({ row }: { row: any }) => {
+                const category = row.original as AssetCategory;
+                return (
+                    <Switch
+                        checked={!!category.audit_required}
+                        aria-label={`Monthly audit for ${category.asset_category}`}
+                        onCheckedChange={(next) => setAuditSwitch({ category, on: next })}
+                    />
+                );
+            },
+            size: 120,
+        }] : []),
         ...(canManageCategories ? [{
             id: 'actions',
             header: () => <span>Actions</span>,
@@ -250,7 +323,7 @@ export const AssetCategoriesList: React.FC = () => {
             },
             size: 80,
         }] : []),
-    ], [assetCountMap, assignedCountMap, canManageCategories, handleEditClick]);
+    ], [assetCountMap, assignedCountMap, canManageCategories, canSwitchCategoryAudit, handleEditClick]);
 
     const searchableFields = [
         { value: 'asset_category', label: 'Category Name', placeholder: 'Search categories...', default: true },
@@ -307,6 +380,60 @@ export const AssetCategoriesList: React.FC = () => {
                 showRowSelection={false}
                 className="[&_tr]:group"
             />
+
+            {/* Monthly audit switch confirmation */}
+            <AlertDialog open={!!auditSwitch} onOpenChange={(open) => !open && !isSwitching && setAuditSwitch(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>
+                            {auditSwitch?.on ? 'Turn on' : 'Turn off'} the monthly audit for {auditSwitch?.category.asset_category}?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            {auditSwitch?.on
+                                ? `Every assigned ${auditSwitch?.category.asset_category} with a signed declaration gets the ${auditMonthLabel(cycleMonth(new Date()))} audit now (unless it was already audited for that month), and one every month from then on.`
+                                : 'No new audits open for this category from now on. Audits already open stay and can still be sent; any still unsent on the 7th after their month are recorded Missed and closed.'}
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    {/* Which month an audit opened today is for: from the 28th it is next month's (owner, 2026-10-14). */}
+                    {auditSwitch?.on && (
+                        <div className="rounded-md border bg-muted/40 px-3 py-2.5 text-sm">
+                            <p className="mb-1.5 text-xs font-medium text-gray-600">Turned on during…</p>
+                            {cycleRanges.map((range) => (
+                                <div
+                                    key={range.days}
+                                    className={cn(
+                                        'flex items-center justify-between gap-3 rounded px-2 py-1 tabular-nums',
+                                        range.current ? 'bg-white font-medium text-gray-900 ring-1 ring-gray-200' : 'text-gray-500'
+                                    )}
+                                >
+                                    <span>{range.days}</span>
+                                    <span>
+                                        → {range.month} audit
+                                        {range.current && <span className="ml-1.5 text-xs font-normal text-emerald-700">(today)</span>}
+                                    </span>
+                                </div>
+                            ))}
+                            {cycleRanges[1].current && (
+                                <p className="mt-1.5 text-xs text-gray-600">
+                                    Today is the 28th or later, so no {auditMonthLabel(new Date())} audit is asked for.
+                                </p>
+                            )}
+                        </div>
+                    )}
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isSwitching}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            disabled={isSwitching}
+                            onClick={(event) => {
+                                event.preventDefault();
+                                confirmAuditSwitch();
+                            }}
+                        >
+                            {isSwitching ? 'Saving…' : auditSwitch?.on ? 'Turn on' : 'Turn off'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
             {/* Edit Dialog */}
             <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>

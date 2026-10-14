@@ -136,7 +136,7 @@ export const AssetsSummaryCards: React.FC<AssetsSummaryCardsProps> = ({ activeTa
     const typeViews: Record<AssetCategoryType, SummaryViewModel> = { Project: projectView, IT: itView };
 
     const view = scopeType ? typeViews[scopeType] : globalView;
-    // Returns waiting for approval (owner, 2026-10-13): the same numbers as the Return By tabs.
+    // Returns waiting for approval (owner, 2026-10-13): the same numbers as the Return Request tabs.
     const { byType: returnsByType } = useReturnRequests();
     const returns = scopeType ? returnsByType[scopeType] : returnsByType.Project + returnsByType.IT;
     const isLoading = isCategoriesMode

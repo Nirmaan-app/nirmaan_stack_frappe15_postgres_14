@@ -66,6 +66,11 @@ export interface AssetPermissions {
     canViewHistory: boolean;
     /** Can upload a signed declaration scan, anywhere it is offered (Admin only) */
     canUploadDeclaration: boolean;
+    /**
+     * Can see and switch a category's "Monthly audit required" (owner, 2026-10-14): Admin only (Admin
+     * profile + Administrator). Mirrors `ASSET_CATEGORY_AUDIT_PROFILES` in services/role_profiles.py.
+     */
+    canSwitchCategoryAudit: boolean;
 }
 
 /**
@@ -134,6 +139,9 @@ export function getAssetPermissions(
         // Every declaration upload -- Pending Declaration list, asset page, user page card and Assign
         // dialog: Admin only (owner, 2026-10-12); employees sign in the app.
         canUploadDeclaration: isAdmin || role === ADMIN_PROFILE,
+
+        // Monthly asset audit (owner, 2026-10-14)
+        canSwitchCategoryAudit: isAdmin || role === ADMIN_PROFILE,
     };
 }
 

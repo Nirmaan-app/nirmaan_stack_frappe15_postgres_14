@@ -72,6 +72,9 @@ import { AssetHistoryRow } from '@/utils/assetHistory';
 import { DepartmentSelect } from '@/components/common/DepartmentSelect';
 import { useDepartmentOptions } from '@/hooks/useDepartmentOptions';
 import { AssetHistoryCard } from './components/AssetHistoryCard';
+import { AuditStatusRow } from './components/AuditStatusRow';
+import { useAuditedCategories } from './hooks/useAuditPending';
+import { auditBadge } from '@/utils/assetAudit';
 import { DepartmentBadge } from './utils/departmentColumn';
 import { AssignAssetDialog } from './components/AssignAssetDialog';
 import { UnassignAssetDialog } from './components/UnassignAssetDialog';
@@ -121,6 +124,13 @@ interface AssetAssignment {
     asset_assigned_to: string;
     asset_assigned_on: string;
     asset_declaration_attachment: string;
+    received_on?: string | null;
+    /** Monthly asset audit (owner, 2026-10-14). */
+    audit_status?: string | null;
+    audit_month?: string | null;
+    last_audit_on?: string | null;
+    audit_overdue_since?: string | null;
+    audit_proof?: string | null;
 }
 
 interface NirmaanUser {
@@ -258,7 +268,10 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const { data: assignments, mutate: mutateAssignments } = useFrappeGetDocList<AssetAssignment>(
         ASSET_MANAGEMENT_DOCTYPE,
         {
-            fields: ['name', 'asset', 'asset_assigned_to', 'asset_assigned_on', 'asset_declaration_attachment'],
+            fields: [
+                'name', 'asset', 'asset_assigned_to', 'asset_assigned_on', 'asset_declaration_attachment',
+                'received_on', 'audit_status', 'audit_month', 'last_audit_on', 'audit_proof', 'audit_overdue_since',
+            ],
             filters: [['asset', '=', assetId]],
             orderBy: { field: 'asset_assigned_on', order: 'desc' },
             limit: 0,
@@ -269,6 +282,9 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     // The holder's row, never the newest-dated one: with a leftover row, "newest" can be someone else's,
     // and the declaration status, Sign, Upload and Unassign would then act on that person's row.
     const currentAssignment = assignments?.find((row) => row.asset_assigned_to === asset?.current_assignee);
+
+    // The monthly audit line under the holder (owner, 2026-10-14).
+    const auditedCategories = useAuditedCategories();
 
     // Fetch assignee user details
     const { data: assigneeUser } = useFrappeGetDoc<NirmaanUser>(
@@ -1018,6 +1034,17 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                         </p>
                                     </div>
                                 </div>
+                            )}
+                            {asset?.current_assignee && currentAssignment && (
+                                <AuditStatusRow
+                                    className="mt-3"
+                                    badge={auditBadge(
+                                        currentAssignment,
+                                        auditedCategories.has(asset.asset_category),
+                                        asset.asset_category
+                                    )}
+                                    proofUrl={currentAssignment.audit_proof}
+                                />
                             )}
                         </CardContent>
                     </Card>

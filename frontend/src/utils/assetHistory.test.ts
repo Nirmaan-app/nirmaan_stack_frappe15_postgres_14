@@ -76,3 +76,45 @@ describe("return events", () => {
     expect([requested.tone, rejected.tone]).toEqual(["return", "return"]);
   });
 });
+
+describe("monthly audit rows", () => {
+  const [fulfilled, created] = describeHistory(
+    [
+      { name: "a1", idx: 1, event: "Audit Requested", assigned_to: "bhavani@x", done_by: "Administrator", done_on: "2026-10-01 06:00:00", reason: "10/2026" },
+      {
+        name: "a2", idx: 2, event: "Audit Fulfilled", assigned_to: "bhavani@x", done_by: "bhavani@x", done_on: "2026-10-08 11:20:00",
+        reason: "Damaged · was Fair · Screen cracked", declaration: "/api/method/x?key=photo.jpg",
+      },
+    ],
+    nameOf
+  );
+
+  it("names a missed month, by System", () => {
+    const [missed] = describeHistory(
+      [{ name: "m1", idx: 3, event: "Audit Missed", assigned_to: "bhavani@x", done_by: "Administrator", done_on: "2026-11-01 06:00:00", reason: "10/2026" }],
+      nameOf
+    );
+    expect(missed.title).toBe("Audit Missed by Bhavani");
+    expect(missed.auditKind).toBe("missed");
+    expect(missed.by).toBe("System");
+    expect(missed.reason).toBe("10/2026");
+    expect(missed.tone).toBe("audit");
+  });
+
+  it("reads 'by System' for the cron and names the holder", () => {
+    expect(created.title).toBe("Audit Requested for Bhavani");
+    expect(created.auditKind).toBe("requested");
+    expect(created.by).toBe("System");
+    expect(created.tone).toBe("audit");
+    expect(created.photoUrl).toBeNull();
+  });
+
+  it("shows the condition and links the photo, not a declaration", () => {
+    expect(fulfilled.title).toBe("Audit Fulfilled by Bhavani · Damaged");
+    expect(fulfilled.auditKind).toBe("fulfilled");
+    expect(fulfilled.reason).toBe("Damaged · was Fair · Screen cracked");
+    expect(fulfilled.photoUrl).toBe("/api/method/x?key=photo.jpg");
+    expect(fulfilled.declarationUrl).toBeNull();
+    expect(fulfilled.declarationMissing).toBe(false);
+  });
+});

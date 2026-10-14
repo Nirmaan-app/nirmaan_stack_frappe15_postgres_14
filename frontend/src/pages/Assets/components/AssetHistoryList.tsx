@@ -26,6 +26,9 @@ const EVENT_OPTIONS = [
     'Asset Added',
     'Return Requested',
     'Return Rejected',
+    'Audit Requested',
+    'Audit Fulfilled',
+    'Audit Missed',
 ].map((event) => ({ label: event, value: event }));
 
 const EVENT_BADGE: Record<string, string> = {
@@ -37,6 +40,9 @@ const EVENT_BADGE: Record<string, string> = {
     'Department Set': 'bg-indigo-50 text-indigo-700 border-indigo-200',
     'Return Requested': 'bg-sky-50 text-sky-700 border-sky-200',
     'Return Rejected': 'bg-sky-50 text-sky-700 border-sky-200',
+    'Audit Requested': 'bg-amber-50 text-amber-700 border-amber-200',
+    'Audit Fulfilled': 'bg-teal-50 text-teal-700 border-teal-200',
+    'Audit Missed': 'bg-red-50 text-red-700 border-red-200',
 };
 
 interface HistoryListRow {
@@ -275,6 +281,11 @@ export const AssetHistoryList: React.FC = () => {
                                             {isDeclaration && row.declaration && (
                                                 <a href={row.declaration} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline">
                                                     View declaration <ExternalLink className="h-3 w-3" />
+                                                </a>
+                                            )}
+                                            {row.event === 'Audit Fulfilled' && row.declaration && (
+                                                <a href={row.declaration} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-teal-700 hover:underline">
+                                                    View photo <ExternalLink className="h-3 w-3" />
                                                 </a>
                                             )}
                                             {isDeclaration && !row.declaration && (

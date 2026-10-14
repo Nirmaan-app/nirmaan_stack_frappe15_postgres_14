@@ -10,6 +10,8 @@ export const ASSET_CATEGORY_FIELDS = [
     'name',
     'asset_category',
     'category_type',
+    // Monthly asset audit (owner, 2026-10-14): assigned assets of a ticked category are audited.
+    'audit_required',
     'creation',
     'modified',
 ] as const;
@@ -53,7 +55,7 @@ export const ASSET_MANAGEMENT_FIELDS = [
 
 /**
  * The assignment plus its receive / return fields (owner, 2026-10-13): the profile cards and the
- * Return By tab. Kept apart from ASSET_MANAGEMENT_FIELDS so the other lists don't need the columns.
+ * Return Request tab. Kept apart from ASSET_MANAGEMENT_FIELDS so the other lists don't need the columns.
  */
 export const ASSET_MANAGEMENT_RETURN_FIELDS = [
     ...ASSET_MANAGEMENT_FIELDS,
@@ -61,6 +63,19 @@ export const ASSET_MANAGEMENT_RETURN_FIELDS = [
     'received_on',
     'returned',
     'returned_on',
+] as const;
+
+/**
+ * The assignment plus its monthly-audit fields (owner, 2026-10-14): the profile cards, the sidebar
+ * badge and the Asset Audit tab's Pending list. The server writes them; nobody types them.
+ */
+export const ASSET_MANAGEMENT_AUDIT_FIELDS = [
+    ...ASSET_MANAGEMENT_RETURN_FIELDS,
+    'audit_status',
+    'audit_month',
+    'last_audit_on',
+    'audit_proof',
+    'audit_overdue_since',
 ] as const;
 
 // Searchable fields for Asset Master
@@ -137,4 +152,11 @@ export const ASSET_CACHE_KEYS = {
     // Returns waiting for approval (useReturnRequests) and their assets' details
     RETURN_REQUESTS: `${ASSET_MANAGEMENT_DOCTYPE}_return_requests`,
     returnRequestAssets: (assetIds: string[]) => `${ASSET_MASTER_DOCTYPE}_return_requests:${assetIds.join('|')}`,
+
+    // Monthly asset audit: the open audits (useAuditPending), their assets, and the Fulfilled list
+    // (a prefix: one key per tab + month + page).
+    AUDIT_PENDING: `${ASSET_MANAGEMENT_DOCTYPE}_audit_pending`,
+    auditPendingAssets: (assetIds: string[]) => `${ASSET_MASTER_DOCTYPE}_audit_pending:${assetIds.join('|')}`,
+    AUDIT_FULFILLED_PREFIX: 'asset_audit_fulfilled:',
+    AUDITED_CATEGORIES: `${ASSET_CATEGORY_DOCTYPE}_audited`,
 } as const;

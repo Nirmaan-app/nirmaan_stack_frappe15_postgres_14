@@ -76,7 +76,7 @@ interface ReturnRequestsListProps {
 const showDate = (value: string | null | undefined) => (value ? formatDate(value) : '—');
 
 /**
- * The Return By tab (owner, 2026-10-13): assets whose holder says they gave them back, in the same table
+ * The Return Request tab (owner, 2026-10-13): assets whose holder says they gave them back, in the same table
  * as the Assigned tab -- search, sort, filters, export. Approve unassigns the asset; Reject clears the
  * return and the person keeps it. Both belong to the people who may unassign it -- Admin, HR, PMO, and
  * procurement for Project assets (owner, 2026-10-13). Both are confirmed first; the server re-checks.

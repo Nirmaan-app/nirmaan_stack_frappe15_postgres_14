@@ -5,6 +5,8 @@
 
 import { format } from "date-fns";
 
+import { parseFulfilledText } from "@/utils/assetAudit";
+
 /** One `Asset History` child row as the asset document returns it. */
 export interface AssetHistoryRow {
   name: string;
@@ -19,7 +21,7 @@ export interface AssetHistoryRow {
   reason?: string | null;
 }
 
-export type HistoryTone = "added" | "assigned" | "declaration" | "unassigned" | "department" | "return";
+export type HistoryTone = "added" | "assigned" | "declaration" | "unassigned" | "department" | "return" | "audit";
 
 export interface HistoryEntry {
   key: string;
@@ -33,7 +35,19 @@ export interface HistoryEntry {
   declarationUrl: string | null;
   /** A declaration was recorded but its file is gone (removed before history kept files). */
   declarationMissing: boolean;
+  /** The audit photo on an "Audit Fulfilled" row (the row's file field; the event says what it is). */
+  photoUrl: string | null;
+  /** Which audit event, for its own icon and colour; the "Audits" filter still groups them by `tone`. */
+  auditKind: AuditKind | null;
 }
+
+export type AuditKind = "requested" | "fulfilled" | "missed";
+
+const AUDIT_KINDS: Record<string, AuditKind> = {
+  "Audit Requested": "requested",
+  "Audit Fulfilled": "fulfilled",
+  "Audit Missed": "missed",
+};
 
 const TONES: Record<string, HistoryTone> = {
   "Asset Added": "added",
@@ -44,6 +58,9 @@ const TONES: Record<string, HistoryTone> = {
   "Department Set": "department",
   "Return Requested": "return",
   "Return Rejected": "return",
+  "Audit Requested": "audit",
+  "Audit Fulfilled": "audit",
+  "Audit Missed": "audit",
 };
 
 /** "12-Oct-2026 04:05 PM" from a Frappe datetime ("2026-10-12 16:05:15.510342"); null if unreadable. */
@@ -72,6 +89,14 @@ function titleFor(row: AssetHistoryRow, nameOf: (id?: string | null) => string):
       return `Returned by ${nameOf(row.assigned_to)}, waiting for approval`;
     case "Return Rejected":
       return `Return rejected, ${nameOf(row.assigned_to)} keeps it`;
+    case "Audit Requested":
+      return `Audit Requested for ${nameOf(row.assigned_to)}`;
+    case "Audit Missed":
+      return `Audit Missed by ${nameOf(row.assigned_to)}`;
+    case "Audit Fulfilled": {
+      const { condition } = parseFulfilledText(row.reason);
+      return `Audit Fulfilled by ${nameOf(row.done_by)}${condition ? ` · ${condition}` : ""}`;
+    }
     default:
       return row.event;
   }
@@ -96,12 +121,17 @@ export function describeHistory(rows: AssetHistoryRow[], nameOf: (id?: string | 
         key: row.name,
         tone: TONES[row.event] ?? "added",
         title: titleFor(row, nameOf),
-        by: nameOf(row.done_by),
+        // The monthly cron runs as Administrator: its audit rows read "by System".
+        by: (row.event === "Audit Requested" || row.event === "Audit Missed") && row.done_by === "Administrator"
+          ? "System"
+          : nameOf(row.done_by),
         when: formatHistoryTime(row.done_on),
         department,
         reason: row.reason || null,
         declarationUrl: isDeclaration ? row.declaration || null : null,
         declarationMissing: isDeclaration && !row.declaration,
+        photoUrl: row.event === "Audit Fulfilled" ? row.declaration || null : null,
+        auditKind: AUDIT_KINDS[row.event] ?? null,
       };
     });
 }

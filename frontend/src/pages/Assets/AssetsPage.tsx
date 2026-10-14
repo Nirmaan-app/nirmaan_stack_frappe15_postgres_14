@@ -3,7 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { useUserData } from '@/hooks/useUserData';
 import { urlStateManager } from '@/utils/urlStateManager';
-import { Plus, Boxes, Briefcase, Laptop, Users, UserX, AlertTriangle, List, History, Building2, Undo2 } from 'lucide-react';
+import { Plus, Boxes, Briefcase, Laptop, Users, UserX, AlertTriangle, List, History, Building2, Undo2, ClipboardCheck } from 'lucide-react';
 import { canEditDepartments } from '@/constants/departments';
 
 import { AssetsSummaryCards } from './components/AssetsSummaryCard';
@@ -14,6 +14,8 @@ import { UnassignedAssetsList } from './components/UnassignedAssetsList';
 import { PendingActionsList } from './components/PendingActionsList';
 import { ReturnRequestsList } from './components/ReturnRequestsList';
 import { useReturnRequests } from './hooks/useReturnRequests';
+import { AssetAuditList } from './components/AssetAuditList';
+import { useAuditPendingCounts } from './hooks/useAuditPending';
 import { AddAssetCategoryDialog } from './components/AddAssetCategoryDialog';
 import { AddAssetDialog } from './components/AddAssetDialog';
 import { AssetHistoryList } from './components/AssetHistoryList';
@@ -23,10 +25,10 @@ import { getAssetPermissions } from './utils/permissions';
 import { AssetCategoryType } from './assets.constants';
 
 type AssetTopTab = 'project' | 'it' | 'categories' | 'departments' | 'history';
-type AssetSubTab = 'all' | 'assigned' | 'unassigned' | 'pending' | 'returns';
+type AssetSubTab = 'all' | 'assigned' | 'unassigned' | 'pending' | 'returns' | 'audit';
 
 const TOP_TABS: readonly AssetTopTab[] = ['project', 'it', 'categories', 'departments', 'history'];
-const SUB_TABS: readonly AssetSubTab[] = ['all', 'assigned', 'unassigned', 'pending', 'returns'];
+const SUB_TABS: readonly AssetSubTab[] = ['all', 'assigned', 'unassigned', 'pending', 'returns', 'audit'];
 
 // Keeps a tab in the URL (?tab= / ?view=) so Back from an asset's page lands on the
 // same tab instead of the default. replaceState via urlStateManager, like the tables'
@@ -55,7 +57,9 @@ const assetSubTabs: { id: AssetSubTab; label: string; shortLabel: string; icon: 
     { id: 'unassigned', label: 'Unassigned', shortLabel: 'Free', icon: UserX },
     { id: 'pending', label: 'Pending Declaration', shortLabel: 'Decl', icon: AlertTriangle },
     // Returns waiting for approval (owner, 2026-10-13); the tab carries their count.
-    { id: 'returns', label: 'Return By', shortLabel: 'Return', icon: Undo2 },
+    { id: 'returns', label: 'Return Request', shortLabel: 'Return', icon: Undo2 },
+    // Monthly asset audit (owner, 2026-10-14): open audits and the ones sent; the tab carries the open count.
+    { id: 'audit', label: 'Asset Audit', shortLabel: 'Audit', icon: ClipboardCheck },
 ];
 
 interface AssetSubTabsViewProps {
@@ -67,6 +71,7 @@ interface AssetSubTabsViewProps {
 const AssetSubTabsView: React.FC<AssetSubTabsViewProps> = ({ assetType, refreshKey, onAssetChange }) => {
     const [subTab, setSubTab] = useUrlTab<AssetSubTab>('view', SUB_TABS, 'all');
     const returnCount = useReturnRequests().byType[assetType];
+    const auditCount = useAuditPendingCounts()[assetType];
 
     return (
         <>
@@ -93,6 +98,11 @@ const AssetSubTabsView: React.FC<AssetSubTabsViewProps> = ({ assetType, refreshK
                             {tab.id === 'returns' && returnCount > 0 && (
                                 <span className="rounded-full bg-red-600 px-1.5 text-[11px] font-semibold leading-5 text-white tabular-nums">
                                     {returnCount}
+                                </span>
+                            )}
+                            {tab.id === 'audit' && auditCount > 0 && (
+                                <span className="rounded-full bg-red-600 px-1.5 text-[11px] font-semibold leading-5 text-white tabular-nums">
+                                    {auditCount}
                                 </span>
                             )}
                         </button>
@@ -123,6 +133,9 @@ const AssetSubTabsView: React.FC<AssetSubTabsViewProps> = ({ assetType, refreshK
                 )}
                 {subTab === 'returns' && (
                     <ReturnRequestsList key={`${assetType}-returns-${refreshKey}`} assetType={assetType} onChanged={onAssetChange} />
+                )}
+                {subTab === 'audit' && (
+                    <AssetAuditList key={`${assetType}-audit-${refreshKey}`} assetType={assetType} />
                 )}
             </div>
         </>

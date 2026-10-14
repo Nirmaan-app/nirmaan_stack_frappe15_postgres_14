@@ -55,7 +55,7 @@ describe("assetListSyncKey", () => {
     expect(assetListSyncKey("IT", view)).toBe(`${prefix}it`);
   });
 
-  it("matches ReturnRequestsList.tsx (Return By always has a type)", () => {
+  it("matches ReturnRequestsList.tsx (Return Request always has a type)", () => {
     const source = readFileSync(resolve(__dirname, "../components/ReturnRequestsList.tsx"), "utf-8");
     expect(source).toContain("urlSyncKey: `return_requests_${assetType.toLowerCase()}`");
     expect(assetListSyncKey("IT", "returns")).toBe("return_requests_it");
