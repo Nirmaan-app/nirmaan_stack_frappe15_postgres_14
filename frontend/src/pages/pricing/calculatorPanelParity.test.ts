@@ -1214,3 +1214,167 @@ describe("12e-4c AC8 -- the 29 real Piping rows the capped run read (BRSR-26-003
     expect(facts(calcOf(p, { insulated: "No" }))).not.toEqual(facts(p));
   });
 });
+
+// =====================================================================================================
+// SLICE 12e-5 AC10 -- ONE REAL STAGE A ROW PER ROW TYPE, calculator = panel
+// =====================================================================================================
+/**
+ * The 12e-5 Stage A audit (2026-10-14) read 217 Piping rows through the real Suggest route (runs BRSR-26-00447 ..
+ * 00465) with `claude-opus-4-8` on HVAC v38. ONE row per row type is pinned here (owner: "one row per stratum, not
+ * every row") -- the type named on each row. Each row is the model's answer AS THE RUN STORED IT, with the row's
+ * own text, unit, headings and own notes; `want` is what the panel showed, checked by hand against the row's words
+ * in the audit (its report, AC7). Three types exist on dev only among 12e-4c's 29 rows above (the rows 53-58 shape,
+ * uPVC in a heading, two sizes) and are covered by that block.
+ *
+ * `parity` names how the calculator, fed the panel's own answers (the 12e-4c method), agrees:
+ *   outright    -- the same blocks, sections, figures and refusals;
+ *   typed       -- the same once the typed box gets the number the BoQ states ("32mm thick" -> 32: the box takes one
+ *                  number, owner U4);
+ *   pick        -- the same refusal in the calculator's own wording ("pick a cladding" for "could not tell cladding",
+ *                  owner F4, 12e-3c);
+ *   both refuse -- neither surface shows a figure; the sentence differs by a known class: a unit the picker does
+ *                  not offer (owner R12), a material named as written on the panel and "none of these" in the
+ *                  calculator, several sizes for several unit counts.
+ *   finding     -- a DIVERGENCE the audit found, pinned as it is for the owner (12e-5 finding, for 12e-5b): the panel
+ *                  refuses '1/2" (12.7mm)' as several sizes while its size box shows 12.7, and the calculator, handed
+ *                  that box, prices 936 / 220. Owner ruling (12e-5): the inch-with-mm form reads as one size.
+ * BOQ-26-00162 / Water Side row 17 pins TODAY's figure: owner finding (12e-5, for 12e-5b) -- the cladding of a
+ * layered thickness should be measured on the pipe + 2 x the TOTAL thickness, so this figure is expected to move.
+ */
+describe("12e-5 AC10 -- one real Stage A row per row type (runs BRSR-26-00447 .. 00465): calculator = panel", () => {
+  const v38 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v38.json", import.meta.url),
+  );
+  const cfg38 = new Map<string, RateCategoryConfig>(v38.category_configs.map((c) => [c.category_id, c]));
+  const items38: RateMasterItem[] = v38.items.map((it) => ({ ...it, discipline: v38.discipline } as RateMasterItem));
+  const PIP = "hvac_piping";
+  interface TypeRow {
+    type: string;
+    id: string;
+    unit: string | null;
+    desc: string;
+    h: string[];
+    notes: string[];
+    items: Array<{ a: Record<string, string | null>; s?: string }>;
+    want: [number, number] | string;
+    parity: "outright" | "typed" | "pick" | "both refuse" | "finding";
+    /** "finding" only: the calculator's figure, pinned AS IT IS for the owner (a divergence this audit found). */
+    calc?: [number, number];
+    rewrite?: Record<string, string>;
+  }
+  const ROWS: TypeRow[] = [
+    {"type": "Copper O.D., insulation thickness in the row", "id": "BOQ-26-00273/247 - VRF System/30", "unit": "Rmt", "desc": "41.3 mm OD (Insulation = 19mm thick)", "h": ["Refrigerant Piping"], "notes": [], "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "41.3 mm OD", "pipe_class": "18G", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "19mm", "pipe_size_mm": "41.3 mm OD", "brand": null, "material_as_written": "closed cell elastomeric nitrile rubber insulation, class-o"}, "s": "insulation"}], "want": [4522, 234], "parity": "outright"},
+    {"type": "Copper inch fraction, type and insulation from the heading", "id": "BOQ-26-00231/HVAC BOQ/139", "unit": "Rmt", "desc": "2/8 inch dia.-21SWG", "h": ["VRF SYSTEM", "SITC of copper refrigerant piping of various sizes with soft / hard drawn copper piping necessary supports, fittings and clamps, insulation with 19 mm thk class 'O' nitrile rubber insulation with FM approval. Copper piping shall be of VRF grade with 100% eddy current testing. All wall crossings with proper PVC sleeve. Low / nil VOC adhesive shall be used. Arrow mark stickers with circuit numbers shall be provided on copper piping at every 3 mt distance. Soft copper piping shall be used for unit connections and balance piping shall be hard drawn copper piping. Insulation shall have silver clad with minimum 250 micron thickness for copper piping on the balcony for UV protection. Copper piping shall be clamped at every 1.5 mt. with PVC sleeve."], "notes": [], "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "2/8 inch", "pipe_class": "21SWG", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "19 mm", "pipe_size_mm": "2/8 inch", "brand": null, "material_as_written": "class 'O' nitrile rubber insulation"}, "s": "insulation"}], "want": [602, 234], "parity": "outright"},
+    {"type": "Copper mm dia, thickness in the row, 19 mm", "id": "BOQ-26-00215/VRV WORKS/47", "unit": "RMT", "desc": "41.3 mm dia with 19 mm thick insulation", "h": ["VRV SYSTEM", "Supply & installation of Refrigerant copper piping insulated with the specified thickness of closed cell elastomeric nitrile rubber insulation in a tubular form and joints sealed with black cotton tape. All the copper pipe should be hard drawn pipe should be considered except the unit connection."], "notes": [], "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "41.3 mm dia", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "19 mm", "pipe_size_mm": "41.3 mm", "brand": null, "material_as_written": "closed cell elastomeric nitrile rubber insulation"}, "s": "insulation"}], "want": [4522, 234], "parity": "outright"},
+    {"type": "CPVC drain, insulation from the heading (13 mm)", "id": "BOQ-26-00231/HVAC BOQ/31", "unit": "Rmt", "desc": "25 mm dia", "h": ["Preambles:", "CHILLED WATER CEILING SUSPENDED AHU", "SITC of SDR 13.5 CPVC drain ping with supports, clamps and insulation with 13 mm thk class 'O' nitrile rubber insulation of the following sizes. Insulation shall be FM Approved. Low / nil VOC adhesive shall be used."], "notes": [], "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "25 mm dia", "pipe_class": "SDR 13.5", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "13 mm", "pipe_size_mm": "25 mm", "brand": null, "material_as_written": "class 'O' nitrile rubber insulation"}, "s": "insulation"}], "want": [478, 42], "parity": "outright"},
+    {"type": "CPVC below its smallest size (18 -> 25), thickness not stated (ruled default)", "id": "BOQ-26-00098/VRF/90", "unit": "M", "desc": "18 mm dia", "h": ["DRAIN PIPING"], "notes": [], "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "18 mm dia", "pipe_class": "medium class", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": null, "pipe_size_mm": "18 mm", "brand": null, "material_as_written": "nitrile rubber"}, "s": "insulation"}], "want": [459, 42], "parity": "outright"},
+    {"type": "MS NB with wall thickness in the class (chilled water)", "id": "BOQ-26-00137/CHW pipes , Valves/17", "unit": "RMT", "desc": "250 NB - 5.4mm Thick (min)", "h": ["Supply, Installation, Testing & Commissioning & Handing over of the following:", "CHILLED WATER PIPING with Coupled fittings: Supply & erection of the following factory rolled MS 'C' class pipes as per IS 1239 / IS 3589 with specified wall thickness cut to required lengths and installed with all welded joints, Providing and fixing in position necessary grooved fittings like bends, elbows, tees, reducers, mating flange joints etc, Puff saddles, clamps and hardware etc as required at site. All Nut bolts to be of GI only. Necessary approval shall be taken for the sizes along with submittal. Fittings and Nipples for the BAS system to be incorporated. Note: CHW water pipes thickness shall be as per IS 1239 part-1 for pipes up to 150 mm and as per IS 3589 for pipes above 150mm dia.HVAC vendor shall do the opening in walls as required for HVAC work and make it good after installation. Negative tolerance is not accepted wherever the thickness is specified in the Tender / BOQ."], "notes": [], "items": [{"a": {"pipe_type": "MS", "pipe_type_as_written": "MS", "size_mm": "250 NB", "pipe_class": "'C' class, 5.4mm Thick (min)", "insulated": null}}], "want": [5616, 1400], "parity": "outright"},
+    {"type": "MS mm dia, class C, no insulation", "id": "BOQ-26-00231/HVAC BOQ/42", "unit": "Rmt", "desc": "80 mm dia", "h": ["CHILLED WATER PIPING AND ACCESSORIES", "Supply, Installation, Testing and Commissioning of MS chilled water pipe with supports, fittings, flanges, etc. MS class 'C' up to 150 mm dia as per IS1239 and above 150 mm dia as per IS 3589."], "notes": [], "items": [{"a": {"pipe_type": "MS", "pipe_type_as_written": "MS", "size_mm": "80 mm dia", "pipe_class": "class 'C'", "insulated": null}}], "want": [1440, 420], "parity": "outright"},
+    {"type": "PVC in the row text, insulation from the row", "id": "BOQ-26-00119/HVAC/34", "unit": "RMTS", "desc": "Supplying, laying/ fixing, testing and commissioning of 25mm Dia sizes of PVC Drain Piping using pipe with all necessary fittings with insulation as above but using 9mm thick Nitrile rubber sleeve. VRV (APPROX )", "h": ["AIR CONDITIONING EQUIPMENT", "ANCILARY WORKS FOR VRV/VRF SYSTEM"], "notes": [], "items": [{"a": {"pipe_type": "PVC", "pipe_type_as_written": "PVC", "size_mm": "25mm Dia", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "9mm", "pipe_size_mm": "25mm", "brand": null, "material_as_written": "Nitrile rubber"}, "s": "insulation"}], "want": [358, 42], "parity": "outright"},
+    {"type": "PVC NB with a kg class, no heading", "id": "BOQ-26-00088/HVAC/63", "unit": "M", "desc": "DRAIN PVC PIPE 32 NB 6 KG CLASS", "h": [], "notes": [], "items": [{"a": {"pipe_type": "PVC", "pipe_type_as_written": "PVC", "size_mm": "32 NB", "pipe_class": "6 KG CLASS", "insulated": null}}], "want": [168, 28], "parity": "outright"},
+    {"type": "MS + insulation with aluminium cladding and glass cloth (note schedule)", "id": "BOQ-26-00162/Water Side/19", "unit": "Rmt.", "desc": "32mm Dia", "h": ["CHILLED WATER PIPING with INSULATION."], "notes": [], "items": [{"a": {"pipe_type": "MS", "pipe_type_as_written": "MS", "size_mm": "32mm Dia", "pipe_class": "Heavy class 'C'", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "24G Aluminium with Glass Cloth", "thickness_mm": "25 mm thick", "pipe_size_mm": "32mm Dia", "brand": null, "material_as_written": "nitrile rubber foam sheet of density 50+/-2 kg/m3"}, "s": "insulation"}], "want": [1223, 469], "parity": "outright"},
+    {"type": "Layered thickness: 32 mm above the largest stocked (13 + 19)", "id": "BOQ-26-00162/Water Side/17", "unit": "Rmt.", "desc": "50mm. Dia", "h": ["CHILLED WATER PIPING with INSULATION."], "notes": [], "items": [{"a": {"pipe_type": "MS", "pipe_type_as_written": "MS", "size_mm": "50mm. Dia", "pipe_class": "Heavy class 'C'", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "24G Aluminium with Glass Cloth", "thickness_mm": "32mm thick", "pipe_size_mm": "50mm. Dia", "brand": null, "material_as_written": "nitrile rubber foam sheet of density 50+/-2 kg/m3"}, "s": "insulation"}], "want": [2031, 588], "parity": "typed", "rewrite": {"insulation.thickness_mm": "32"}},
+    {"type": "Insulated pipe above the insulation sheet (53.98): refuses", "id": "BOQ-26-00294/CHW PIPE BOQ/22", "unit": "Rmt", "desc": "150mm dia.", "h": ["AIR HANDLING UNITS (AHU )", "Chilled Water pipe"], "notes": [], "items": [{"a": {"pipe_type": "MS", "pipe_type_as_written": "MS", "size_mm": "150mm dia.", "pipe_class": "class C", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "25 mm", "pipe_size_mm": "150mm", "brand": null, "material_as_written": "Nitrile Rubber"}, "s": "insulation"}], "want": "pipe size 150 is above the largest size on the sheet (53.98)", "parity": "outright"},
+    {"type": "CPVC above its largest size (80 > 75): refuses", "id": "BOQ-26-00098/VRF/85", "unit": "M", "desc": "80 mm dia", "h": ["DRAIN PIPING"], "notes": [], "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "80 mm dia", "pipe_class": "medium class", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": null, "pipe_size_mm": "80 mm", "brand": null, "material_as_written": "nitrile rubber"}, "s": "insulation"}], "want": "pipe size 80 is above the largest size on the sheet (75)", "parity": "outright"},
+    {"type": "Inch size with mm in brackets: refused as several sizes", "id": "BOQ-26-00119/HVAC/20", "unit": "RMTS", "desc": "1/2\" (12.7mm)", "h": ["AIR CONDITIONING EQUIPMENT", "Supply, laying / fixing, testing and commissioning of following nominal sizes of Copper piping inside the building (with necessary clamps and fittings etc.)", "PIPE SIZE HD"], "notes": [], "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "Copper", "size_mm": "1/2\" (12.7mm)", "pipe_class": null, "insulated": null}}], "want": "pipe size states several sizes (1 / 2 / 12.7) - pick one", "parity": "finding", "calc": [936, 220]},
+    {"type": "Cladding left out by the model: could not tell cladding", "id": "BOQ-26-00341/VRV/33", "unit": "RMT", "desc": "41.3 mm dia(hard drawn) with 19 mm thick insulation", "h": ["REFRIGERANT COPPER PIPING"], "notes": [], "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": "41.3 mm dia", "pipe_class": "hard drawn", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": null, "thickness_mm": "19 mm", "pipe_size_mm": "41.3 mm", "brand": null, "material_as_written": null}, "s": "insulation"}], "want": "could not tell cladding", "parity": "pick"},
+    {"type": "Unstocked material (RPUF) refused by name", "id": "BOQ-26-00321/PIPING & VALVES/15", "unit": "Rmt", "desc": "300 mm dia", "h": ["Note: The contractor should read the specifications thoroughly and quote the price for each item. The BOQ should read in-conjunction with specification, drawing & equipment schedule. The cost shall include the cost of the material, transportation, taxes, duties, lifting, shifting, storing, handling, installation, testing and commissioning.", "CHILLED WATER PIPING AND RELATED VALVES", "MS C Class Pipes (factory rolled) as per IS 1239 / IS 3589 with specified wall thickness cut to required lengths and installed with all welded joints. All necessary fittings like bends, elbows, tees, reducers, mating flange joints etc., steel fabricated and machined flanges, structural supports, Puff saddles, clamps and hardware etc as requred at site to be considered. All Nut bolts to be of GI only and not MS. Fittings and Nipples for providing any BMS sensors as per BMS vendor requirement to be considered. Entire CHW system shall be PN16"], "notes": [], "items": [{"a": {"pipe_type": "MS", "pipe_type_as_written": "MS", "size_mm": "300 mm dia", "pipe_class": "C Class", "insulated": "Yes"}}, {"a": {"item": "none of these", "cladding": "26G Aluminium", "thickness_mm": "50 mm thick", "pipe_size_mm": "300 mm dia", "brand": null, "material_as_written": "RPUF"}, "s": "insulation"}], "want": "No SKU in the catalogue for RPUF - price this row by hand", "parity": "both refuse"},
+    {"type": "Unstocked material (closed cell polyethylene) refused by name", "id": "BOQ-26-00273/247 - VRF System/61", "unit": "Rmt", "desc": "20 mm dia.", "h": ["CPVC Pipes with 6mm thick Closed Cell Polyethylene"], "notes": [], "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "20 mm dia.", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "none of these", "cladding": "None", "thickness_mm": "6 mm", "pipe_size_mm": "20 mm dia.", "brand": null, "material_as_written": "6 mm thick closed cell polyethylene"}, "s": "insulation"}], "want": "No SKU in the catalogue for 6 mm thick closed cell polyethylene - price this row by hand", "parity": "both refuse"},
+    {"type": "UPVC as written, type left out (as-written decides)", "id": "BOQ-26-00162/Water Side/75", "unit": "Rmt.", "desc": "40mm. Dia", "h": ["CONDENSATE DRAIN PIPE FOR AHU'S."], "notes": [], "items": [{"a": {"pipe_type": null, "pipe_type_as_written": "UPVC", "size_mm": "40mm. Dia", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": null, "thickness_mm": "9mm", "pipe_size_mm": "40mm. Dia", "brand": null, "material_as_written": "nitrile rubber"}, "s": "insulation"}], "want": "could not tell cladding", "parity": "both refuse"},
+    {"type": "Several sizes for several unit counts: refuses", "id": "BOQ-26-00294/CHW PIPE BOQ/62", "unit": "Rmt", "desc": "supply, installation, testing and commissioning of AC drain pipe. Drain Piping shall be Hard PVC.25mm dia for single unit, 40mm dia for two units and 50mm dia for 3 units. Drain Piping shall be insulated with 13mm nitrile rubber insulation", "h": ["AIR HANDLING UNITS (AHU )", "Pressure Guage/Thermometer"], "notes": [], "items": [{"a": {"pipe_type": "PVC", "pipe_type_as_written": "Hard PVC", "size_mm": "25mm dia for single unit, 40mm dia for two units and 50mm dia for 3 units", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "None", "thickness_mm": "13mm", "pipe_size_mm": "25mm dia for single unit, 40mm dia for two units and 50mm dia for 3 units", "brand": null, "material_as_written": "nitrile rubber"}, "s": "insulation"}], "want": "several values stated for pipe size ('25mm dia for single unit, 40mm dia for two units and 50mm dia for 3 units')", "parity": "both refuse"},
+    {"type": "Unit Nos: refuses on the unit", "id": "BOQ-26-00321/PIPING & VALVES/78", "unit": "Nos", "desc": "50 mm dia", "h": ["Note: The contractor should read the specifications thoroughly and quote the price for each item. The BOQ should read in-conjunction with specification, drawing & equipment schedule. The cost shall include the cost of the material, transportation, taxes, duties, lifting, shifting, storing, handling, installation, testing and commissioning.", "CHILLED WATER PIPING AND RELATED VALVES", "CPVC Condensate Drain piping (Schedule 40) cut to required lengths, duly insulated with 9 mm thick tubular Nitrile rubber as per specifications. and installed with all screwed joints. Providing and fixing in position the necessary elbows, tees and reducers as per specifications required U trap door to be provided with proper supporting arrangement."], "notes": [], "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "50 mm dia", "pipe_class": "Schedule 40", "insulated": "Yes"}}, {"a": {"item": "Tubular Puf Insulation", "cladding": "None", "thickness_mm": "9 mm thick", "pipe_size_mm": "50 mm dia", "brand": null, "material_as_written": "tubular Nitrile rubber"}, "s": "insulation"}], "want": "unit 'Nos' is not a length unit", "parity": "both refuse"},
+    {"type": "Unit Set: refuses on the unit", "id": "BOQ-26-00162/Water Side/78", "unit": "Set", "desc": "Interconnection of MS piping for Air Handling Unit (AHU)", "h": ["CHILLED WATER PIPING with INSULATION."], "notes": [], "items": [{"a": {"pipe_type": "MS", "pipe_type_as_written": "MS", "size_mm": null, "pipe_class": "Heavy class 'C'", "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "24G Aluminium with Glass Cloth", "thickness_mm": null, "pipe_size_mm": null, "brand": null, "material_as_written": "nitrile rubber foam sheet of density 50+/-2 kg/m3"}, "s": "insulation"}], "want": "unit 'Set' is not a length unit", "parity": "both refuse"},
+    {"type": "No size and no unit (TR-rated lump row)", "id": "BOQ-26-00088/HVAC/34", "unit": null, "desc": "17.0 TR REFERIG COPPER PIPING&FLX COPPER CABLING", "h": ["11 TR DUCTABLE SPLIT", "REFRIDGERENT PIPING & CABLING"], "notes": [], "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "copper", "size_mm": null, "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "No", "thickness_mm": "6mm", "pipe_size_mm": null, "brand": null, "material_as_written": "nitrile foam"}, "s": "insulation"}], "want": "no pipe size stated", "parity": "outright"},
+  ];
+
+  type Shown = { s: ItemListSuggestion; v: ItemListView };
+  const list = (r: unknown): Shown => {
+    if (!isSuggestion(r as never)) throw new Error("expected a suggestion");
+    return { s: r as ItemListSuggestion, v: (r as ItemListSuggestion).itemList! };
+  };
+  function panelOf(r: TypeRow): Shown {
+    const pc: ParityCase = { cat: PIP, unit: r.unit ?? "", desc: r.desc, attrs: {}, items: r.items.map((i) => i.a), headings: r.h, ownNotes: r.notes };
+    const stored = extractionRowFor(pc) as ExtractionRow & { items: Array<{ attributes: unknown; section?: string }> };
+    r.items.forEach((i, n) => { if (i.s) stored.items[n].section = i.s; });
+    const ctx = { ...panelCtx(pc), unit: r.unit };
+    return list(makePricingSheetHelper({ configsByCategory: cfg38, items: items38, extractionByRow: new Map([[stored.excelRow, stored]]) }).compute(ctx));
+  }
+  type Edit = ItemListEditState["items"][number];
+  function editOf(b: ItemBlockView, rewrite: Record<string, string>, prefix = ""): Edit {
+    const attrs: Record<string, string> = {};
+    const other: string[] = [];
+    for (const f of b.fields) {
+      if (f.readOnly || f.mirrorTag) continue;
+      const v = rewrite[prefix + f.id] ?? (f.otherMode ? f.typedValue : f.value);
+      if (v !== "") attrs[f.id] = v;
+      if (f.otherMode) other.push(f.id);
+    }
+    const sections: Record<string, Edit> = {};
+    for (const sv of b.sections ?? []) {
+      const sb = sv.view.items[0];
+      if (!sb) continue;
+      const e = editOf(sb, rewrite, `${sv.sectionId}.`);
+      if (sb.qtyMirrorTag) delete e.qty;
+      sections[sv.sectionId] = e;
+    }
+    return { base: null, family: b.family, attrs, qty: b.qty, ...(other.length ? { other } : {}), ...(Object.keys(sections).length ? { sections } : {}) } as Edit;
+  }
+  function calcOf(panel: Shown, rewrite: Record<string, string> = {}): Shown {
+    const state = { items: panel.v.items.map((b) => editOf(b, rewrite)) };
+    return list(calculatorHelper(cfg38, items38).compute(calculatorCtx("HVAC", PIP), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(state), [ROW_UNIT_OVERRIDE_KEY]: "mts" }));
+  }
+  const blockFacts = (b: ItemBlockView): unknown => ({
+    family: b.family, state: b.state, reason: b.reason ?? null, figures: b.figures, qty: b.qty,
+    sections: (b.sections ?? []).map((sv) => ({ id: sv.sectionId, priced: sv.view.rowPriced, reason: sv.view.reason ?? null, totals: sv.view.totals ?? null, items: sv.view.items.map(blockFacts) })),
+  });
+  const facts = (x: Shown) => ({ values: x.s.values, rowPriced: x.v.rowPriced, reason: x.v.reason ?? null, unitClass: x.v.unitClass, items: x.v.items.map(blockFacts) });
+  const calcWording = (x: unknown) => JSON.parse(JSON.stringify(x).replace(/pick an? ([a-z ]+?)(?=")/g, "could not tell $1"));
+  const fig = (x: Shown): [number, number] | string => (x.v.rowPriced ? [x.s.values.supply_rate as number, x.s.values.install_rate as number] : (x.v.reason ?? "?"));
+
+  it("the fixture names exactly what it covers: 22 row types, one real row each, on 11 sheets of the Stage A runs", () => {
+    expect(ROWS).toHaveLength(22);
+    expect(new Set(ROWS.map((r) => r.type)).size).toBe(22);
+    expect(new Set(ROWS.map((r) => r.id)).size).toBe(22);
+    expect(ROWS.map((r) => r.type)).toEqual([
+      "Copper O.D., insulation thickness in the row", "Copper inch fraction, type and insulation from the heading", "Copper mm dia, thickness in the row, 19 mm",
+      "CPVC drain, insulation from the heading (13 mm)", "CPVC below its smallest size (18 -> 25), thickness not stated (ruled default)",
+      "MS NB with wall thickness in the class (chilled water)", "MS mm dia, class C, no insulation", "PVC in the row text, insulation from the row",
+      "PVC NB with a kg class, no heading", "MS + insulation with aluminium cladding and glass cloth (note schedule)", "Layered thickness: 32 mm above the largest stocked (13 + 19)",
+      "Insulated pipe above the insulation sheet (53.98): refuses", "CPVC above its largest size (80 > 75): refuses", "Inch size with mm in brackets: refused as several sizes",
+      "Cladding left out by the model: could not tell cladding", "Unstocked material (RPUF) refused by name", "Unstocked material (closed cell polyethylene) refused by name",
+      "UPVC as written, type left out (as-written decides)", "Several sizes for several unit counts: refuses", "Unit Nos: refuses on the unit", "Unit Set: refuses on the unit",
+      "No size and no unit (TR-rated lump row)",
+    ]);
+    expect(new Set(ROWS.map((r) => r.id.split("/").slice(0, 2).join("/"))).size).toBe(11);
+    const byParity: Record<string, number> = {};
+    for (const r of ROWS) byParity[r.parity] = (byParity[r.parity] ?? 0) + 1;
+    expect(byParity).toEqual({ outright: 13, typed: 1, pick: 1, "both refuse": 6, finding: 1 });
+  });
+  it("THE PANEL, row by row: 11 rows price at the figure the audit recorded, 11 refuse with the sentence it recorded", () => {
+    expect(Object.fromEntries(ROWS.map((r) => [r.id, fig(panelOf(r))]))).toEqual(Object.fromEntries(ROWS.map((r) => [r.id, r.want])));
+    expect(ROWS.filter((r) => typeof r.want !== "string")).toHaveLength(11);
+  });
+  it.each(ROWS.map((r) => [r.id, r] as const))("%s: the calculator, fed the panel's own answers, agrees", (_id, r) => {
+    const p = panelOf(r);
+    const c = calcOf(p, r.rewrite ?? {});
+    if (r.parity === "outright" || r.parity === "typed") expect(facts(c)).toEqual(facts(p));
+    else if (r.parity === "pick") expect(calcWording(facts(c))).toEqual(facts(p));
+    else if (r.parity === "finding") expect({ panel: fig(p), calc: fig(c) }).toEqual({ panel: r.want, calc: r.calc });
+    else {
+      expect({ panel: p.v.rowPriced, calc: c.v.rowPriced, panelValues: p.s.values, calcValues: c.s.values }).toEqual({ panel: false, calc: false, panelValues: {}, calcValues: {} });
+    }
+  });
+  it("the 'typed' row: the BoQ's own wording typed in the calculator refuses, the number typed plainly agrees on everything", () => {
+    const r = ROWS.find((x) => x.parity === "typed")!;
+    const p = panelOf(r);
+    expect(calcOf(p).v.rowPriced).toBe(false);
+    expect(facts(calcOf(p, r.rewrite))).toEqual(facts(p));
+  });
+  it("VACUITY: a different size or thickness handed to the calculator diverges on a real Stage A row", () => {
+    const r = ROWS.find((x) => x.id === "BOQ-26-00231/HVAC BOQ/31")!;
+    const p = panelOf(r);
+    expect(facts(calcOf(p))).toEqual(facts(p));
+    expect(facts(calcOf(p, { size_mm: "40" }))).not.toEqual(facts(p));
+    expect(facts(calcOf(p, { "insulation.thickness_mm": "19" }))).not.toEqual(facts(p));
+  });
+});
