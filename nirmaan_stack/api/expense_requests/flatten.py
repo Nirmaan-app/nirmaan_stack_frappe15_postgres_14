@@ -164,6 +164,22 @@ def flatten_pairs(source_data, source_format=None, skip_sections=()) -> list[tup
 	return out
 
 
+def undeclared_pairs(source_data, source_format) -> list[tuple[str, str]]:
+	"""(label, value) for every answer whose field the format no longer declares.
+
+	A field taken off a form (#1430 removed the free-text bank fields) leaves its answers on the
+	requests raised before. The format's `description_template` no longer names them, so without
+	this a request approved afterwards would lose what its requester typed. The label is the
+	readable key, since the format no longer holds one.
+	"""
+	declared = set(build_label_map(source_format))
+	return [
+		(_label_for(key, {}), text)
+		for key, value in flat_responses(source_data).items()
+		if key not in declared and (text := _render(value))
+	]
+
+
 def flatten_source_data(source_data, source_format=None) -> str:
 	"""`Label: value · Label: value` from the stored answers.
 

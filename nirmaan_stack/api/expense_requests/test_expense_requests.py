@@ -1063,6 +1063,40 @@ class TestExpenseRequests(FrappeTestCase):
 		desc = frappe.db.get_value("Non Project Expenses", out["created_expense"], "description")
 		self.assertEqual(desc, f"Stay for Asha. · [{res['name']}]")
 
+	def test_an_answer_the_form_no_longer_asks_still_reaches_the_description(self):
+		"""#1430 took the free-text bank fields off the forms. A request raised before that and
+		approved after keeps its typed text: the form's sentence no longer names it, so it
+		follows the sentence, labelled."""
+		before = json.dumps({
+			"templateId": "exr-test-dropped", "templateVersion": 1,
+			"description_template": "Stay for {guest}.[[ Pay to {account_holder}.]]",
+			"sections": [
+				{"id": "detail", "type": "fields", "fields": [
+					{"key": "guest", "label": "Guest", "type": "text", "required": True}]},
+				{"id": "payee_bank", "type": "fields", "fields": [
+					{"key": "account_holder", "label": "Name of Holder", "type": "text"},
+					{"key": "ifsc", "label": "IFSC", "type": "text"}]},
+			],
+		})
+		after = json.dumps({
+			"templateId": "exr-test-dropped", "templateVersion": 2,
+			"description_template": "Stay for {guest}.",
+			"sections": [{"id": "detail", "type": "fields", "fields": [
+				{"key": "guest", "label": "Guest", "type": "text", "required": True}]}],
+		})
+		typ = self._own_type(fmt=before, enabled=1)
+		res = self._raise_as(PM_USER, expense_type=typ, source_data={
+			"templateId": "exr-test-dropped", "templateVersion": 1,
+			"responses": {"detail": {"guest": "Asha"},
+			              "payee_bank": {"account_holder": "R Kumar", "ifsc": "HDFC0000123"}}})
+
+		frappe.db.set_value("Expense Type", typ, "source_format", after)
+		frappe.db.commit()
+		out = approve_expense_request(res["name"])
+		desc = frappe.db.get_value("Non Project Expenses", out["created_expense"], "description")
+		self.assertEqual(
+			desc, f"Stay for Asha. · Account Holder: R Kumar · Ifsc: HDFC0000123 · [{res['name']}]")
+
 
 class TestExpenseRequestPayee(FrappeTestCase):
 	"""Who gets paid (spec #1420 ticket #1429, ADR-0033): the type's rule, the vendor's Payee,

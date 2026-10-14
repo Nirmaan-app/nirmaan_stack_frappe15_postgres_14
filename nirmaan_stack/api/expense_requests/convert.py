@@ -30,6 +30,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	flatten_source_data,
 	native_invoice,
 	render_description_template,
+	undeclared_pairs,
 )
 from nirmaan_stack.services.outflow_import.settle import format_amount_for
 from nirmaan_stack.services.approval_raiser import raiser_level
@@ -101,7 +102,11 @@ def compose_description(req, source_format=None) -> str:
 	"""
 	prose = render_description_template(req.source_data, source_format)
 	if prose:
-		body = prose
+		# An answer to a field since taken off the form (#1430's bank fields) is not in the
+		# sentence, so it follows it: a request raised before keeps what was typed.
+		body = SEP.join([prose] + [
+			f"{label}: {value}" for label, value in undeclared_pairs(req.source_data, source_format)
+		])
 	elif source_format:
 		body = flatten_source_data(req.source_data, source_format)
 	else:
