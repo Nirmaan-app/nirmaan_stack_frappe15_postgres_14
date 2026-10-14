@@ -24,14 +24,14 @@ from nirmaan_stack.api.expense_requests.convert import (
 )
 from nirmaan_stack.api.expense_requests.flatten import flatten_pairs
 from nirmaan_stack.api.expense_requests.update import can_edit
-from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
-from nirmaan_stack.services.payees.links import payee_summaries
 from nirmaan_stack.services.expense_request_routing import (
 	category_for_type,
 	requestable_types,
 	resolved_categories,
 	reviewer_role_for_type,
 )
+from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
+from nirmaan_stack.services.payees.links import payee_summaries
 
 FIELDS = [
 	"name", "type", "projects", "amount", "comment",

@@ -10,11 +10,14 @@ from nirmaan_stack.services.payees.rules import (
     INACTIVE,
     details_problem,
     duplicate_problem,
+    PAID_STATUSES,
     inactive_pick_problem,
     locked_change_problem,
     parse_details,
+    pick_problem,
     status_change_problem,
 )
+from nirmaan_stack.services.settlement import SETTLED_STATUSES
 
 
 class TestParseDetails(unittest.TestCase):
@@ -103,3 +106,22 @@ class TestInactivePickProblem(unittest.TestCase):
         problem = inactive_pick_problem("PYE-0212")
         self.assertIn("PYE-0212 is Inactive", problem)
         self.assertIn("active payee", problem)
+
+
+class TestPickProblem(unittest.TestCase):
+    """One predicate for "can this Payee be newly picked": the screens' and every save's."""
+
+    def test_an_active_payee_can_be_picked(self):
+        self.assertIsNone(pick_problem("PYE-0212", ACTIVE))
+
+    def test_an_inactive_payee_cannot(self):
+        self.assertEqual(pick_problem("PYE-0212", INACTIVE), inactive_pick_problem("PYE-0212"))
+
+    def test_a_payee_that_does_not_exist_cannot(self):
+        self.assertIn("does not exist", pick_problem("PYE-9999", None))
+
+
+class TestPaidMeansOneThing(unittest.TestCase):
+    def test_paid_is_the_settled_set(self):
+        self.assertEqual(PAID_STATUSES, SETTLED_STATUSES)
+        self.assertEqual(set(PAID_STATUSES), {"Reconciliation Pending", "Paid"})

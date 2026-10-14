@@ -9,6 +9,7 @@ from nirmaan_stack.services.payees.expense_rules import (
     NOT_ASKED,
     OPTIONAL,
     REQUIRED,
+    paid_expense_problem,
     request_payee,
 )
 
@@ -65,3 +66,15 @@ class TestRequestPayee(unittest.TestCase):
 
     def test_not_asked_ignores_the_vendor_too(self):
         self.assertEqual(verdict(NOT_ASKED, payee="PYE-0001", vendor="VEN-1", vendor_payee="PYE-0007"), (None, None))
+
+
+class TestPaidExpenseProblem(unittest.TestCase):
+    def test_an_expense_keeps_its_payee_once_money_has_left_approved(self):
+        for status in ("Reconciliation Pending", "Paid"):
+            with self.subTest(status=status):
+                self.assertIn("already paid", paid_expense_problem("NPE-1", status))
+
+    def test_before_that_it_can_change(self):
+        for status in ("Requested", "CEO Pending", "Approved"):
+            with self.subTest(status=status):
+                self.assertIsNone(paid_expense_problem("NPE-1", status))

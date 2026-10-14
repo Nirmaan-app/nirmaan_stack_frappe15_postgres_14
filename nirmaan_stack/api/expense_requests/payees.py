@@ -20,10 +20,10 @@ The IFSC's bank and branch come from `api/payees/add_payee.lookup_ifsc`, open to
 import frappe
 
 from nirmaan_stack.api.expense_requests.access import guard_can_raise
-from nirmaan_stack.api.payees.add_payee import duplicate_verdict
-from nirmaan_stack.services.payees.links import payee_for_vendor, payee_summary
+from nirmaan_stack.services.payees.links import payee_summary
 from nirmaan_stack.services.payees.search import search_active_payees
-from nirmaan_stack.services.payees.writer import DuplicatePayeeError, create_payee
+from nirmaan_stack.services.payees.vendor_account import vendor_account
+from nirmaan_stack.services.payees.writer import create_payee, duplicate_verdict, unless_duplicate
 
 
 @frappe.whitelist()
@@ -47,22 +47,22 @@ def add_request_payee(account_name: str, account_number: str, ifsc: str) -> dict
     """Create an Active Payee from the request: `{payee: <summary>}`, or `{duplicate: <summary>,
     message}` when the account + IFSC already belong to a Payee (nothing is created then)."""
     guard_can_raise()
-    try:
-        doc = create_payee(account_name, account_number, ifsc)
-    except DuplicatePayeeError as e:
-        frappe.db.rollback()
-        return {"duplicate": payee_summary(e.existing), "message": str(e)}
+    doc, duplicate = unless_duplicate(lambda: create_payee(account_name, account_number, ifsc))
+    if duplicate:
+        return duplicate
     frappe.db.commit()
     return {"payee": payee_summary(doc.name)}
 
 
 @frappe.whitelist()
 def get_vendor_payee(vendor: str) -> dict:
-    """`{vendor, vendor_name, payee: <summary> | None}`: the Payee the vendor is paid into today."""
+    """`{vendor, vendor_name, payee: <summary> | None, other_vendors}`: the Payee the vendor is paid
+    into today (`services/payees/vendor_account.vendor_account`)."""
     guard_can_raise()
-    payee = payee_for_vendor(vendor) if vendor else None
+    if not vendor:
+        return {"vendor": vendor, "vendor_name": None, "payee": None, "other_vendors": 0}
     return {
         "vendor": vendor,
-        "vendor_name": frappe.db.get_value("Vendors", vendor, "vendor_name") if vendor else None,
-        "payee": payee_summary(payee) if payee else None,
+        "vendor_name": frappe.db.get_value("Vendors", vendor, "vendor_name"),
+        **vendor_account(vendor),
     }

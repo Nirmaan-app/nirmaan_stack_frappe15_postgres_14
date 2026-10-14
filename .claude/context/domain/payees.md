@@ -14,10 +14,18 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   - `writer.py`: `create_payee` is the only code that creates a Payee. It checks no role: each
     calling endpoint checks who may add a Payee from that screen. The one other creator is
     `backfill_payee`, for the #1424 patch only: bank and branch as recorded on the vendor, no lookup.
-    `edit_holder_name` and `set_status` (Active / Inactive) are the only edits.
-  - `links.py`: what a Payee is linked to, "paid" and last paid (`PAYEES_WITH_LINKS_SQL`,
-    `payee_summaries`, `is_paid`, `payee_for_vendor`), and one Payee's page (`payee_page`:
-    `linked_vendors`, `linked_expenses`, `holder_name_changed_on`).
+    `edit_holder_name` and `set_status` (Active / Inactive) are the only edits. A duplicate reaches a
+    screen as data through `duplicate_verdict` (before submit) and `unless_duplicate` (on submit,
+    rolling back); every endpoint that adds a Payee answers through them.
+  - `links.py`: what a Payee is linked to, "paid" and last paid (`PAID_ROWS_SQL`, the one "paid"
+    union every paid / last paid / times paid read selects from; `PAYEES_WITH_LINKS_SQL`,
+    `payee_summaries`, `is_paid`), and one Payee's page (`payee_page`: `linked_vendors`,
+    `linked_expenses`, `holder_name_changed_on`).
+  - `vendor_account.py`: THE vendor -> Payee read (`payee_for_vendor`, `vendor_account` for one vendor
+    with `other_vendors`, `vendor_accounts` for many). Nothing else reads `Vendors.payee` to find a
+    vendor's account.
+  - `versions.py`: facts read from Version history ("holder name last changed", "linked since",
+    "Named by") are written and read through `write_field_change` / `last_field_change`.
   - `guard.py`: the refusals `validate` controllers run on every write path (`check_payee_save`,
     `check_payee_pick`).
   - `ifsc.py`: the IFSC lookup (Razorpay), the app's only outside bank service.
@@ -25,9 +33,10 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     Payee has the same PAN; *Name only*: no PAN agrees but the names read alike. Strong first.
   - `choosing.py`: a vendor's Payee. `suggest_for_vendor` (Active Payees only), `payee_choices`
     (links + last payment, for the confirmation), `assert_pickable` (the vendor form's early
-    refusal of an Inactive Payee; `guard.check_payee_pick` is the every-path one), `choose_payee` (an existing Payee or new details through `create_payee`),
-    `link_vendor` (Change account: an existing vendor to another Payee, by `choose_payee`, refusing
-    the one it has) and `vendor_account` (the vendor page's card: its Payee and `other_vendors`).
+    refusal of an Inactive Payee; `guard.check_payee_pick` is the every-path one; both ask
+    `rules.pick_problem`), `choose_payee` (an existing Payee or new details through `create_payee`)
+    and `link_vendor` (Change account: an existing vendor to another Payee, by `choose_payee`,
+    refusing the one it has).
 - **A vendor's bank account is its Payee.** Vendor creation (`api/create_vendor_and_address`) takes
   an existing Payee or new bank details. `Vendors` has no bank fields: #1432 deleted the five
   (`account_name`, `account_number`, `ifsc`, `bank_name`, `bank_branch`), and with them the screen-only
@@ -42,7 +51,7 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   Bulk Import's vendor index (Tier 1, refund suggestions) and the payment autofill's holder-name check
   (#1427): a line paid to a vendor's previous Payee reaches no Tier 1 (ADR-0033). On the
   vendor page (#1426) the Account Details card shows the vendor's Payee and how many other vendors
-  share it (`choosing.vendor_account`); Change account / Add bank details go through
+  share it (`vendor_account.vendor_account`); Change account / Add bank details go through
   `api/payees/vendor_payee.change_vendor_payee` (`choosing.link_vendor`), and the other vendors on
   the old Payee keep it; afterwards the card revalidates `vendorPayeeAccountKey` too. The edit-vendor form has no bank fields. Renaming a vendor
   with a Payee asks keep / update the holder name / new bank details / decide later; "update the
@@ -56,7 +65,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   lookup when the Payee is created, never from the caller, and a lookup that finds nothing refuses the
   Payee. The lookup does not run on later saves.
 - **Paid** means money has left *Approved* for the Payee: a Project Payment of a vendor linked to it
-  now, or an expense linked to it, at *Reconciliation Pending* or *Paid*. A PO / WO payment stores no
+  now, or an expense linked to it, at *Reconciliation Pending* or *Paid* (`rules.PAID_STATUSES`, which
+  is `services/settlement.SETTLED_STATUSES`). The same set locks a Payee, fixes an expense's Payee
+  (Change payee, the save guard) and says "paid" in Record Payment's box. A PO / WO payment stores no
   Payee (ADR-0033 "Not in v1"), so a vendor's payments count for the Payee it links to today.
 - **Locked**: once a Payee is paid, its account number and IFSC never change. The Payee `validate`
   controller refuses the change on every write path (`guard.check_payee_save`); nothing stores the

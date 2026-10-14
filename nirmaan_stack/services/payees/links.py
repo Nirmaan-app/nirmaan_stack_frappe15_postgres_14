@@ -12,11 +12,15 @@
   A PO / WO payment stores no Payee (ADR-0033 "Not in v1"), so a vendor's payments count for the
   Payee it links to today.
 
-`PAYEES_WITH_LINKS_SQL` is the one query behind all of this: the Payees list (`api/payees/
+`PAID_ROWS_SQL` is "money that left Approved for a Payee", row by row: every reader of paid, last
+paid or times paid (here, `choosing`, `search`) selects from it, so the rule is written once.
+`PAYEES_WITH_LINKS_SQL` is the one query behind the counts: the Payees list (`api/payees/
 list_payees`) filters and sorts over it, and `payee_summaries` reads single Payees from it.
 
 One Payee's page (#1423) reads `payee_page`: the summary, the lock, when the holder name last changed,
 and the rows behind the counts (`linked_vendors`, `linked_expenses`).
+
+A vendor's Payee is `vendor_account`'s, not this module's.
 """
 
 from __future__ import annotations
@@ -24,8 +28,27 @@ from __future__ import annotations
 import frappe
 
 from nirmaan_stack.services.payees.rules import PAID_STATUSES, PAYEE_DOCTYPE
+from nirmaan_stack.services.payees.versions import changed_field_pattern, last_field_change
 
-_PAID = ", ".join(f"'{status}'" for status in PAID_STATUSES)
+#: `status IN (...)` for the paid statuses (`rules.PAID_STATUSES`), as SQL.
+PAID_STATUS_SQL = "(" + ", ".join(f"'{status}'" for status in PAID_STATUSES) + ")"
+
+#: One row per payment that has paid a Payee: `payee`, `paid_on` (its payment date, else the day it
+#: last changed) and `document` (a PO / WO payment's PO or WO, an expense's own ID). A Project Payment
+#: counts for the Payee its vendor links to NOW; an expense for its own Payee. Select from it as a
+#: subquery: `FROM ({PAID_ROWS_SQL}) paid WHERE paid.payee = ...`.
+PAID_ROWS_SQL = f"""
+    SELECT v.payee, COALESCE(pp.payment_date, pp.modified::date) AS paid_on,
+           COALESCE(pp.document_name, pp.name) AS document
+    FROM "tabProject Payments" pp JOIN "tabVendors" v ON v.name = pp.vendor
+    WHERE v.payee IS NOT NULL AND pp.status IN {PAID_STATUS_SQL}
+    UNION ALL
+    SELECT payee, COALESCE(payment_date, modified::date), name FROM "tabProject Expenses"
+    WHERE payee IS NOT NULL AND status IN {PAID_STATUS_SQL}
+    UNION ALL
+    SELECT payee, COALESCE(payment_date, modified::date), name FROM "tabNon Project Expenses"
+    WHERE payee IS NOT NULL AND status IN {PAID_STATUS_SQL}
+"""
 
 #: One row per Payee: its own fields plus `vendors`, `expenses` (counts) and `last_paid` (a date or NULL).
 #: Each link table is grouped once, so the list costs one pass over each, not one per Payee.
@@ -34,28 +57,23 @@ PAYEES_WITH_LINKS_SQL = f"""
            p.bank_name, p.bank_branch, p.status,
            COALESCE(v.vendors, 0) AS vendors,
            COALESCE(e.expenses, 0) AS expenses,
-           GREATEST(vp.last_paid, e.last_paid) AS last_paid
+           paid.last_paid
     FROM "tabPayee" p
     LEFT JOIN (
         SELECT payee, COUNT(*) AS vendors FROM "tabVendors" WHERE payee IS NOT NULL GROUP BY payee
     ) v ON v.payee = p.name
     LEFT JOIN (
-        SELECT vv.payee, MAX(COALESCE(pp.payment_date, pp.modified::date)) AS last_paid
-        FROM "tabProject Payments" pp
-        JOIN "tabVendors" vv ON vv.name = pp.vendor
-        WHERE vv.payee IS NOT NULL AND pp.status IN ({_PAID})
-        GROUP BY vv.payee
-    ) vp ON vp.payee = p.name
-    LEFT JOIN (
-        SELECT x.payee, COUNT(*) AS expenses,
-               MAX(COALESCE(x.payment_date, x.modified::date)) FILTER (WHERE x.status IN ({_PAID})) AS last_paid
+        SELECT x.payee, COUNT(*) AS expenses
         FROM (
-            SELECT payee, status, payment_date, modified FROM "tabProject Expenses" WHERE payee IS NOT NULL
+            SELECT payee FROM "tabProject Expenses" WHERE payee IS NOT NULL
             UNION ALL
-            SELECT payee, status, payment_date, modified FROM "tabNon Project Expenses" WHERE payee IS NOT NULL
+            SELECT payee FROM "tabNon Project Expenses" WHERE payee IS NOT NULL
         ) x
         GROUP BY x.payee
     ) e ON e.payee = p.name
+    LEFT JOIN (
+        SELECT payee, MAX(paid_on) AS last_paid FROM ({PAID_ROWS_SQL}) r GROUP BY payee
+    ) paid ON paid.payee = p.name
 """
 
 
@@ -100,22 +118,9 @@ def is_paid(name: str) -> bool:
     """True once money has left Approved for Payee `name`: a Project Payment of a vendor linked to it,
     or an expense linked to it, at Reconciliation Pending or Paid."""
     return bool(frappe.db.sql(
-        f"""
-        SELECT 1 FROM "tabProject Payments" pp JOIN "tabVendors" v ON v.name = pp.vendor
-        WHERE v.payee = %(name)s AND pp.status IN ({_PAID})
-        UNION ALL
-        SELECT 1 FROM "tabProject Expenses" WHERE payee = %(name)s AND status IN ({_PAID})
-        UNION ALL
-        SELECT 1 FROM "tabNon Project Expenses" WHERE payee = %(name)s AND status IN ({_PAID})
-        LIMIT 1
-        """,
+        f"SELECT 1 FROM ({PAID_ROWS_SQL}) paid WHERE paid.payee = %(name)s LIMIT 1",
         {"name": name},
     ))
-
-
-def payee_for_vendor(vendor: str) -> str | None:
-    """The Payee a vendor is paid into today, or None when it has none."""
-    return frappe.db.get_value("Vendors", vendor, "payee") or None
 
 
 #: A linked expense's kind, as the Payee page shows it.
@@ -141,7 +146,7 @@ def linked_vendors(name: str) -> list[dict]:
         WHERE v.payee = %(name)s
         ORDER BY v.vendor_name, v.name
         """,
-        {"name": name},
+        {"name": name, "payee_changed": changed_field_pattern("payee")},
         as_dict=True,
     )
     return [{**row, "linked_since": str(row.linked_since) if row.linked_since else None} for row in rows]
@@ -154,7 +159,7 @@ def linked_expenses(name: str) -> list[dict]:
     rows = frappe.db.sql(
         f"""
         SELECT x.name, x.kind, x.expense_type, x.project, x.project_name, x.amount, x.status,
-               CASE WHEN x.status IN ({_PAID}) THEN COALESCE(x.payment_date, x.modified::date) END AS paid_on
+               CASE WHEN x.status IN {PAID_STATUS_SQL} THEN COALESCE(x.payment_date, x.modified::date) END AS paid_on
         FROM (
             SELECT e.name, %(project_kind)s AS kind, e.type AS expense_type, e.projects AS project,
                    pr.project_name, e.amount, e.status, e.payment_date, e.modified, e.creation
@@ -179,12 +184,8 @@ def linked_expenses(name: str) -> list[dict]:
 
 def holder_name_changed_on(name: str) -> str | None:
     """The ISO date Payee `name`'s holder name last changed, from its Version history, or None."""
-    changed = frappe.db.sql(
-        """SELECT MAX(creation)::date FROM "tabVersion"
-           WHERE ref_doctype = %(doctype)s AND docname = %(name)s AND data LIKE '%%["account_name",%%'""",
-        {"doctype": PAYEE_DOCTYPE, "name": name},
-    )[0][0]
-    return str(changed) if changed else None
+    changed = last_field_change(PAYEE_DOCTYPE, name, "account_name")
+    return str(changed.creation.date()) if changed else None
 
 
 def payee_page(name: str) -> dict:

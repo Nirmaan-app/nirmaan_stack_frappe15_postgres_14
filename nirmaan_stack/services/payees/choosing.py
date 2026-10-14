@@ -13,7 +13,6 @@ page's Change account (#1426) share it.
 * `choose_payee` -- the vendor's Payee from the form's answer: an existing one (pickable), or new
   bank details made into a Payee by `writer.create_payee`.
 * `link_vendor` -- Change account (#1426): an existing vendor to another Payee, by `choose_payee`.
-* `vendor_account` -- the vendor page's Account Details card: its Payee and who else shares it.
 
 Checks no role and never commits: the calling endpoint does both.
 """
@@ -23,19 +22,16 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
-from nirmaan_stack.services.payees.links import payee_for_vendor, payee_summaries, payee_summary
+from nirmaan_stack.services.payees.links import PAID_ROWS_SQL, payee_summaries
 from nirmaan_stack.services.payees.matching import Candidate, LinkedVendor, rank_payees
 from nirmaan_stack.services.payees.rules import (
     ACTIVE,
-    PAID_STATUSES,
     PAYEE_DOCTYPE,
     already_linked_problem,
-    inactive_pick_problem,
+    pick_problem,
 )
+from nirmaan_stack.services.payees.vendor_account import payee_for_vendor
 from nirmaan_stack.services.payees.writer import create_payee
-
-_PAID = ", ".join(f"'{status}'" for status in PAID_STATUSES)
-EXPENSE_DOCTYPES = ("Project Expenses", "Non Project Expenses")
 
 
 def suggest_for_vendor(vendor_name: str | None, vendor_pan: str | None, *, limit: int = 5) -> list[dict]:
@@ -95,18 +91,9 @@ def payee_choices(names: list[str]) -> dict[str, dict]:
     # The latest paid row per Payee: a Project Payment of a vendor linked to it now, or a linked expense.
     last = frappe.db.sql(
         f"""
-        SELECT DISTINCT ON (payee) payee, paid_on, document FROM (
-            SELECT v.payee, COALESCE(pp.payment_date, pp.modified::date) AS paid_on,
-                   COALESCE(pp.document_name, pp.name) AS document
-            FROM "tabProject Payments" pp JOIN "tabVendors" v ON v.name = pp.vendor
-            WHERE v.payee IN %(names)s AND pp.status IN ({_PAID})
-            UNION ALL
-            SELECT payee, COALESCE(payment_date, modified::date), name FROM "tabProject Expenses"
-            WHERE payee IN %(names)s AND status IN ({_PAID})
-            UNION ALL
-            SELECT payee, COALESCE(payment_date, modified::date), name FROM "tabNon Project Expenses"
-            WHERE payee IN %(names)s AND status IN ({_PAID})
-        ) paid
+        SELECT DISTINCT ON (payee) payee, paid_on, document
+        FROM ({PAID_ROWS_SQL}) paid
+        WHERE payee IN %(names)s
         ORDER BY payee, paid_on DESC, document
         """,
         params,
@@ -133,12 +120,11 @@ def payee_choice(name: str) -> dict | None:
 
 
 def assert_pickable(name: str) -> None:
-    """Refuse a Payee that doesn't exist or is Inactive: neither can be newly picked."""
-    status = frappe.db.get_value(PAYEE_DOCTYPE, name, "status")
-    if status is None:
-        frappe.throw(_("Payee {0} does not exist.").format(name))
-    if status != ACTIVE:
-        frappe.throw(_(inactive_pick_problem(name)))
+    """Refuse a Payee that doesn't exist or is Inactive: neither can be newly picked
+    (`rules.pick_problem`)."""
+    problem = pick_problem(name, frappe.db.get_value(PAYEE_DOCTYPE, name, "status"))
+    if problem:
+        frappe.throw(_(problem))
 
 
 def choose_payee(payee: str | None = None, bank: dict | None = None) -> str:
@@ -168,10 +154,3 @@ def link_vendor(vendor: str, payee: str | None = None, bank: dict | None = None)
     doc.save(ignore_permissions=True)
     return doc.payee
 
-
-def vendor_account(vendor: str) -> dict:
-    """What the vendor page's Account Details card shows: `{payee: <summary> | None, other_vendors}`,
-    `other_vendors` being how many other vendors are paid into the same Payee."""
-    payee = payee_for_vendor(vendor)
-    summary = payee_summary(payee) if payee else None
-    return {"payee": summary, "other_vendors": summary["vendors"] - 1 if summary else 0}

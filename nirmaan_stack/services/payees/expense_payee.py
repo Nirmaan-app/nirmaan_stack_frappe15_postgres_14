@@ -11,8 +11,8 @@ message says what to do.
   Request endpoints (`api/expense_requests/create`, `update`) call it.
 * Inactive: a newly picked Payee must pass `choosing.assert_pickable` (the vendor screens' rule
   too); the Payee a record already holds is kept even if it has gone Inactive since.
-* `change_expense_payee` -- change a Project / Non-Project Expense's Payee until it is Paid.
-  Checks no role: the calling endpoint does.
+* `change_expense_payee` -- change a Project / Non-Project Expense's Payee until it is paid
+  (Reconciliation Pending or Paid). Checks no role: the calling endpoint does.
 
 Approval copies the request's Payee onto the Expense as-is (`api/expense_requests/convert`).
 """
@@ -22,17 +22,15 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
+from nirmaan_stack.services.payees.choosing import assert_pickable
 from nirmaan_stack.services.payees.expense_rules import (
     NOT_ASKED,
     OPTIONAL,
     paid_expense_problem,
     request_payee,
 )
-from nirmaan_stack.services.payees.links import payee_for_vendor
-from nirmaan_stack.services.payees.choosing import assert_pickable
-
-#: The Expense statuses past which the Payee is fixed.
-PAID = "Paid"
+from nirmaan_stack.services.payees.vendor_account import payee_for_vendor
+from nirmaan_stack.services.payees.versions import write_field_change
 
 
 def payee_rule(expense_type: str) -> str:
@@ -69,7 +67,8 @@ def _resolve(rule, *, expense_type, vendor, payee, current):
 
 
 def change_expense_payee(doctype: str, name: str, payee: str | None):
-    """Point a Project Expense or Non-Project Expense at another Payee (or none), until it is Paid.
+    """Point a Project Expense or Non-Project Expense at another Payee (or none), until it is paid
+    (`expense_rules.paid_expense_problem`). The status is read under the row lock.
 
     The request's rules hold: a *Required* type can't be left without one, a Project Expense with a
     vendor is paid into that vendor's Payee, and an Inactive Payee can't be newly picked. A *Not
@@ -80,9 +79,10 @@ def change_expense_payee(doctype: str, name: str, payee: str | None):
     no Version row, so one is written here: the change shows in the expense's history, and Record
     Payment's "Named by" reads who made it (`paid_to.expense_pay_to`). Never commits.
     """
-    doc = frappe.get_doc(doctype, name)
-    if doc.status == PAID:
-        frappe.throw(_(paid_expense_problem(name)), title=_("Who gets paid"))
+    doc = frappe.get_doc(doctype, name, for_update=True)
+    paid = paid_expense_problem(name, doc.status)
+    if paid:
+        frappe.throw(_(paid), title=_("Who gets paid"))
     rule = payee_rule(doc.type) if doc.get("type") else NOT_ASKED
     resolved = _resolve(
         OPTIONAL if rule == NOT_ASKED else rule,
@@ -94,13 +94,5 @@ def change_expense_payee(doctype: str, name: str, payee: str | None):
     previous = doc.get("payee") or None
     doc.db_set("payee", resolved)
     if resolved != previous:
-        frappe.get_doc({
-            "doctype": "Version",
-            "ref_doctype": doctype,
-            "docname": name,
-            # The shape and separators Frappe's own `Version.set_diff` writes, so readers that
-            # match `["payee",` find it.
-            "data": frappe.as_json({"changed": [["payee", previous, resolved]]}, indent=None,
-                                   separators=(",", ":")),
-        }).insert(ignore_permissions=True)
+        write_field_change(doctype, name, "payee", previous, resolved)
     return doc

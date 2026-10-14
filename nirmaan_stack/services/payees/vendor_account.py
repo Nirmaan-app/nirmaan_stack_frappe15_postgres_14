@@ -10,11 +10,21 @@ from here, never from the old `Vendors` bank fields and never by joining `tabPay
 
 A vendor is paid into the Payee it links to NOW (a PO / WO payment stores no Payee: ADR-0033
 "Not in v1"). A vendor with no Payee has no bank account.
+
+* `payee_for_vendor` -- the name of the Payee one vendor is paid into (the expense rules, Change
+  account).
+* `vendor_account` -- one vendor's Payee as a summary, with how many other vendors share it: the
+  vendor page's Account Details card, the screens' single-vendor reads and the Expense Request's
+  vendor Payee.
+* `vendor_accounts` -- many vendors' account fields at once: the vendor list, the bank file, Bulk
+  Import's vendor index and the payment autofill.
 """
 
 from __future__ import annotations
 
 import frappe
+
+from nirmaan_stack.services.payees.links import payee_summary
 
 #: What a screen shows of a vendor's Payee.
 VENDOR_ACCOUNT_FIELDS = ("payee", "account_name", "account_number", "ifsc", "bank_name", "bank_branch", "status")
@@ -43,3 +53,16 @@ def vendor_accounts(vendors: list[str] | None = None) -> dict[str, dict]:
         as_dict=True,
     )
     return {row.vendor: {field: row[field] for field in VENDOR_ACCOUNT_FIELDS} for row in rows}
+
+
+def payee_for_vendor(vendor: str) -> str | None:
+    """The Payee a vendor is paid into today, or None when it has none."""
+    return frappe.db.get_value("Vendors", vendor, "payee") or None
+
+
+def vendor_account(vendor: str) -> dict:
+    """One vendor's Payee: `{payee: <links.payee_summary> | None, other_vendors}`, `other_vendors`
+    being how many other vendors are paid into the same Payee."""
+    payee = payee_for_vendor(vendor)
+    summary = payee_summary(payee) if payee else None
+    return {"payee": summary, "other_vendors": summary["vendors"] - 1 if summary else 0}

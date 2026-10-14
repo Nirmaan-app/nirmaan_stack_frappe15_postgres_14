@@ -21,13 +21,14 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
-from nirmaan_stack.services.payees.expense_payee import PAID
+from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
 from nirmaan_stack.services.payees.links import payee_summary
+from nirmaan_stack.services.payees.rules import PAID_STATUSES
 from nirmaan_stack.services.payees.vendor_account import VENDOR_ACCOUNT_FIELDS, vendor_accounts
+from nirmaan_stack.services.payees.versions import last_field_change
 
 PAYMENT_DOCTYPE = "Project Payments"
-EXPENSE_DOCTYPES = ("Project Expenses", "Non Project Expenses")
 #: The row kinds the accountant pays.
 PAID_TO_DOCTYPES = (PAYMENT_DOCTYPE, *EXPENSE_DOCTYPES)
 
@@ -85,9 +86,7 @@ def paid_to_for(keys: list[dict]) -> list[dict]:
         names = [k["name"] for k in keys if k["doctype"] == doctype]
         if not names:
             continue
-        fields = ["name", "vendor"] if doctype == PAYMENT_DOCTYPE else ["name", "payee", "type"]
-        if doctype == "Project Expenses":
-            fields.append("vendor")
+        fields = ["name", "vendor"] if doctype == PAYMENT_DOCTYPE else _expense_fields(doctype, "name", "payee", "type")
         for row in frappe.get_all(doctype, filters={"name": ["in", names]}, fields=fields):
             facts[(doctype, row.name)] = {"doctype": doctype, "vendor": row.get("vendor"),
                                           "payee": row.get("payee"), "expense_type": row.get("type")}
@@ -100,9 +99,7 @@ def expense_pay_to(doctype: str, name: str) -> dict:
     Expense with a vendor is paid into that vendor's Payee, so Change payee can't pick another.
     `named_by` is `{how, user, full_name, on}` (`on` an ISO date) or None when nothing records it."""
     assert_paid_to_doctype(doctype, EXPENSE_DOCTYPES)
-    fields = ["name", "amount", "payee", "type", "status", "request_id"]
-    if doctype == "Project Expenses":
-        fields.append("vendor")
+    fields = _expense_fields(doctype, "name", "amount", "payee", "type", "status", "request_id")
     doc = frappe.db.get_value(doctype, name, fields, as_dict=True)
     if not doc:
         frappe.throw(_("{0} {1} not found.").format(doctype, name), frappe.DoesNotExistError)
@@ -115,21 +112,22 @@ def expense_pay_to(doctype: str, name: str) -> dict:
         "vendor": vendor,
         "vendor_name": frappe.db.get_value("Vendors", vendor, "vendor_name") if vendor else None,
         "vendor_fixed": bool(vendor),
-        "paid": doc.status == PAID,
+        # Paid as Change payee reads it (`expense_rules.paid_expense_problem`): money has left Approved.
+        "paid": doc.status in PAID_STATUSES,
         "named_by": _named_by(doctype, doc, vendor) if doc.payee else None,
     }
 
 
+def _expense_fields(doctype: str, *fields: str) -> list[str]:
+    """`fields` of an expense ledger, plus `vendor` where it has one. Only `Project Expenses` names a
+    vendor (`Non Project Expenses` has no such column); asked of the doctype, not re-stated."""
+    return [*fields, "vendor"] if frappe.get_meta(doctype).has_field("vendor") else list(fields)
+
+
 def _named_by(doctype, doc, vendor) -> dict | None:
-    changed = frappe.db.sql(
-        """SELECT owner, creation FROM "tabVersion"
-           WHERE ref_doctype = %(doctype)s AND docname = %(name)s AND data LIKE '%%["payee",%%'
-           ORDER BY creation DESC LIMIT 1""",
-        {"doctype": doctype, "name": doc.name},
-        as_dict=True,
-    )
+    changed = last_field_change(doctype, doc.name, "payee")
     if changed:
-        return _named(NAMED_BY_CHANGE, changed[0].owner, changed[0].creation)
+        return _named(NAMED_BY_CHANGE, changed.owner, changed.creation)
     if doc.request_id:
         request = frappe.db.get_value("Expense Request", doc.request_id, ["owner", "creation", "payee"],
                                       as_dict=True)

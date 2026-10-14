@@ -218,6 +218,13 @@ class TestPaidTo(FrappeTestCase):
         self.assertEqual(frappe.db.get_value(NPE, required, "payee"), first)
         self.assertEqual(frappe.db.get_value(NPE, paid, "payee"), first)
 
+    def test_the_box_says_paid_once_money_has_left_approved(self):
+        """Paid means one thing: the box closes Change payee at the statuses the server refuses it."""
+        payee = self.payees.payee()
+        for status, paid in (("Approved", False), ("Reconciliation Pending", True), ("Paid", True)):
+            with self.subTest(status=status):
+                self.assertEqual(get_expense_payee(NPE, self._expense(payee=payee, status=status))["paid"], paid)
+
     def test_an_optional_expense_can_be_left_without_a_payee(self):
         payee = self.payees.payee()
         expense = self._expense(rule="Optional", payee=payee)

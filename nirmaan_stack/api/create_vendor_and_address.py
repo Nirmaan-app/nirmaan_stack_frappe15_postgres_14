@@ -3,8 +3,7 @@ from frappe import _
 from typing import Dict, Optional, Union
 
 from nirmaan_stack.services.payees.choosing import choose_payee
-from nirmaan_stack.services.payees.links import payee_summary
-from nirmaan_stack.services.payees.writer import DuplicatePayeeError
+from nirmaan_stack.services.payees.writer import unless_duplicate
 from nirmaan_stack.services.role_profiles import assert_vendor_payee_access
 
 
@@ -54,61 +53,66 @@ def create_vendor_and_address(
     assert_vendor_payee_access(frappe.session.user)
     try:
         frappe.db.begin()
-        addressDoc = frappe.new_doc("Address")
-        addressDoc.address_title = values.get("vendor_name")
-        addressDoc.address_type = "Shop"
-        addressDoc.address_line1 = values.get("address_line_1")
-        addressDoc.address_line2 = values.get("address_line_2")
-        addressDoc.city = values.get("vendor_city")
-        addressDoc.state = values.get("vendor_state")
-        addressDoc.country = "India"
-        addressDoc.pincode = values.get("pin")
-        addressDoc.email_id = values.get("vendor_email")
-        addressDoc.phone = values.get("vendor_mobile")
-        addressDoc.insert(ignore_permissions=True)
-
-        vendorDoc = frappe.new_doc("Vendors")
-        vendorDoc.vendor_name = values.get("vendor_name")
-        vendorDoc.vendor_nickname = values.get("vendor_nickname")
-        vendorDoc.vendor_type = vendorType
-        vendorDoc.vendor_address = addressDoc.name
-        vendorDoc.vendor_city = addressDoc.city
-        vendorDoc.vendor_state = addressDoc.state
-        vendorDoc.vendor_contact_person_name = values.get("vendor_contact_person_name")
-        vendorDoc.vendor_mobile = values.get("vendor_mobile")
-        # Optional alternate number. Vendors doc only -- the Address doc carries a
-        # single `phone`, which belongs to the primary contact.
-        vendorDoc.vendor_alt_mobile = values.get("vendor_alt_mobile")
-        vendorDoc.vendor_email = values.get("vendor_email")
-        vendorDoc.vendor_gst = values.get("vendor_gst")
-        vendorDoc.vendor_pan = values.get("vendor_pan")
-        # The default is applied HERE, not by the doctype: this builds the doc
-        # field-by-field, so whatever this line assigns wins over the field default,
-        # and an omitted key would write 0.
-        #
-        # ⚠️ Tested against `None`/`""`, NEVER `or` -- `0 or 2` is 2, so a vendor
-        # deliberately set to 0% TDS would be silently saved at 2%. The form allows
-        # 0 (the zod rule is `.min(0)`), so that value is reachable, not theoretical.
-        _tds = values.get("tds_deduction_percentage")
-        vendorDoc.tds_deduction_percentage = 2 if _tds is None or _tds == "" else _tds
-        vendorDoc.payee = choose_payee(payee, bank)
-        vendorDoc.credit_limit = 50000
-        vendorDoc.available_credit = 50000
-
-        # Never None: the Vendors after_insert hook reads vendor_category["categories"].
-        vendorDoc.vendor_category = {"categories": []}
-
-        vendorDoc.insert(ignore_permissions=True)
+        vendorDoc, duplicate = unless_duplicate(lambda: _insert_vendor(values, vendorType, payee, bank))
+        if duplicate:
+            return {"error": duplicate["message"], "status": 409, "duplicate": duplicate["duplicate"]}
         frappe.db.commit()
 
         return {"message": "Vendor created successfully.", "status": 200, "payee": vendorDoc.payee}
 
-    except DuplicatePayeeError as e:
-        frappe.db.rollback()
-        return {"error": str(e), "status": 409, "duplicate": payee_summary(e.existing)}
     except frappe.ValidationError as e:
         frappe.db.rollback()
         return {"error": str(e), "status": 400}
     except Exception as e:
         frappe.db.rollback()
         return {"error": str(e), "status": 400}
+
+
+def _insert_vendor(values, vendorType, payee, bank):
+    """The vendor's Address, its Payee (`choose_payee`) and the vendor itself. Never commits."""
+    addressDoc = frappe.new_doc("Address")
+    addressDoc.address_title = values.get("vendor_name")
+    addressDoc.address_type = "Shop"
+    addressDoc.address_line1 = values.get("address_line_1")
+    addressDoc.address_line2 = values.get("address_line_2")
+    addressDoc.city = values.get("vendor_city")
+    addressDoc.state = values.get("vendor_state")
+    addressDoc.country = "India"
+    addressDoc.pincode = values.get("pin")
+    addressDoc.email_id = values.get("vendor_email")
+    addressDoc.phone = values.get("vendor_mobile")
+    addressDoc.insert(ignore_permissions=True)
+
+    vendorDoc = frappe.new_doc("Vendors")
+    vendorDoc.vendor_name = values.get("vendor_name")
+    vendorDoc.vendor_nickname = values.get("vendor_nickname")
+    vendorDoc.vendor_type = vendorType
+    vendorDoc.vendor_address = addressDoc.name
+    vendorDoc.vendor_city = addressDoc.city
+    vendorDoc.vendor_state = addressDoc.state
+    vendorDoc.vendor_contact_person_name = values.get("vendor_contact_person_name")
+    vendorDoc.vendor_mobile = values.get("vendor_mobile")
+    # Optional alternate number. Vendors doc only -- the Address doc carries a
+    # single `phone`, which belongs to the primary contact.
+    vendorDoc.vendor_alt_mobile = values.get("vendor_alt_mobile")
+    vendorDoc.vendor_email = values.get("vendor_email")
+    vendorDoc.vendor_gst = values.get("vendor_gst")
+    vendorDoc.vendor_pan = values.get("vendor_pan")
+    # The default is applied HERE, not by the doctype: this builds the doc
+    # field-by-field, so whatever this line assigns wins over the field default,
+    # and an omitted key would write 0.
+    #
+    # ⚠️ Tested against `None`/`""`, NEVER `or` -- `0 or 2` is 2, so a vendor
+    # deliberately set to 0% TDS would be silently saved at 2%. The form allows
+    # 0 (the zod rule is `.min(0)`), so that value is reachable, not theoretical.
+    _tds = values.get("tds_deduction_percentage")
+    vendorDoc.tds_deduction_percentage = 2 if _tds is None or _tds == "" else _tds
+    vendorDoc.payee = choose_payee(payee, bank)
+    vendorDoc.credit_limit = 50000
+    vendorDoc.available_credit = 50000
+
+    # Never None: the Vendors after_insert hook reads vendor_category["categories"].
+    vendorDoc.vendor_category = {"categories": []}
+
+    vendorDoc.insert(ignore_permissions=True)
+    return vendorDoc

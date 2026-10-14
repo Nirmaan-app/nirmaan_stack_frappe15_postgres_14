@@ -41,6 +41,8 @@ _NON_WORD = re.compile(r"[^a-z0-9]+")
 
 @dataclass(frozen=True)
 class LinkedVendor:
+    """A vendor linked to a candidate Payee now: its name and PAN, all the ranking reads of it."""
+
     vendor_name: str | None
     vendor_pan: str | None
 
@@ -56,6 +58,9 @@ class Candidate:
 
 @dataclass(frozen=True)
 class Suggestion:
+    """A Payee that looks like the vendor: how it matches (`STRONG` or `NAME_ONLY`) and how alike the
+    names read (0..1), which orders suggestions of the same kind."""
+
     payee: str
     match: str  # STRONG | NAME_ONLY
     score: float

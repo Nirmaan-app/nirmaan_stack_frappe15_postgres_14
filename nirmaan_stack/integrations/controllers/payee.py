@@ -24,6 +24,8 @@ from nirmaan_stack.services.payees.writer import assert_not_duplicate
 
 
 def validate(doc, method=None):
+    """Clean the Payee's details, derive `normalized_account`, refuse incomplete details and a duplicate;
+    on an existing Payee, refuse a holder-name change outside Accounts and a change to a Locked one."""
     details = parse_details(doc.account_name, doc.account_number, doc.ifsc)
     doc.account_name = details.account_name
     doc.account_number = details.account_number

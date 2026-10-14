@@ -16,23 +16,19 @@ import re
 import frappe
 
 from nirmaan_stack.services.outflow_import.normalize import normalize_account
-from nirmaan_stack.services.payees.rules import ACTIVE, PAID_STATUSES
+from nirmaan_stack.services.payees.links import PAID_ROWS_SQL
+from nirmaan_stack.services.payees.rules import ACTIVE
 
-_PAID = ", ".join(f"'{status}'" for status in PAID_STATUSES)
 _LIKE_SPECIALS = re.compile(r"([\\%_])")
 
 #: Shortest text worth searching: one letter matches half the Payees.
 MIN_SEARCH_LENGTH = 2
 
-#: Times paid = money has left Approved for the Payee (`rules.PAID_STATUSES`): a Project Payment of
-#: a vendor linked to it now, or an expense linked to it. The same meaning as `links.is_paid`.
+#: Times paid = how many payments have paid the Payee (`links.PAID_ROWS_SQL`): the same meaning as
+#: `links.is_paid` and "last paid".
 _SEARCH_SQL = f"""
     SELECT p.name, p.account_name, p.account_number, p.ifsc, p.bank_name, p.bank_branch, p.status,
-           (SELECT COUNT(*) FROM "tabProject Payments" pp JOIN "tabVendors" v ON v.name = pp.vendor
-             WHERE v.payee = p.name AND pp.status IN ({_PAID}))
-         + (SELECT COUNT(*) FROM "tabProject Expenses" e WHERE e.payee = p.name AND e.status IN ({_PAID}))
-         + (SELECT COUNT(*) FROM "tabNon Project Expenses" n WHERE n.payee = p.name AND n.status IN ({_PAID}))
-           AS times_paid
+           (SELECT COUNT(*) FROM ({PAID_ROWS_SQL}) paid WHERE paid.payee = p.name) AS times_paid
     FROM "tabPayee" p
     WHERE p.status = %(active)s AND ({{match}})
     ORDER BY times_paid DESC, p.account_name ASC

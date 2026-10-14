@@ -12,6 +12,9 @@ depends on the screen, so this module checks no role. Nothing here commits; the 
 * `existing_payee` -- the Payee already holding an account number + IFSC, if any. A screen asks it
   before submit to show the duplicate block; the Payee `validate` controller asks it on every save.
 * `assert_not_duplicate` -- the refusal itself, shared by `create_payee` and the controller.
+* `duplicate_verdict` / `unless_duplicate` -- a duplicate as DATA for a screen: the Payee already
+  holding the account (`{duplicate: <summary>, message}`), before submit and on submit. Every endpoint
+  that adds a Payee (the Payees page, the Expense Request, the vendor screens) answers through them.
 * `backfill_payee` -- the patch's Payee for a vendor's bank details already on record (#1424): bank
   and branch as recorded, no IFSC lookup.
 * `edit_holder_name` -- a new holder name (Accounts and Admins only: the controller checks, #1423).
@@ -27,6 +30,7 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.services.payees.ifsc import lookup_ifsc
+from nirmaan_stack.services.payees.links import payee_summary
 from nirmaan_stack.services.payees.rules import (
     ACTIVE,
     PAYEE_DOCTYPE,
@@ -62,6 +66,31 @@ def assert_not_duplicate(details: PayeeDetails, *, exclude: str | None = None) -
         error = DuplicatePayeeError(_(duplicate_problem(existing, holder)))
         error.existing = existing
         raise error
+
+
+def duplicate_reply(existing: str) -> dict:
+    """`{duplicate: <links.payee_summary>, message}` for Payee `existing`, which already holds the
+    account a screen was given: the screen shows it to pick instead."""
+    summary = payee_summary(existing)
+    return {"duplicate": summary, "message": _(duplicate_problem(existing, summary["account_name"]))}
+
+
+def duplicate_verdict(account_number, ifsc) -> dict:
+    """Before submit: the Payee already holding this account number + IFSC as `duplicate_reply`
+    gives it, or `{duplicate: None, message: None}`."""
+    existing = existing_payee(parse_details("", account_number, ifsc))
+    return duplicate_reply(existing) if existing else {"duplicate": None, "message": None}
+
+
+def unless_duplicate(action):
+    """On submit: run `action` (anything that may create a Payee) and return `(its result, None)`;
+    when it is refused as a duplicate, roll the request's transaction back and return
+    `(None, duplicate_reply)` instead, so nothing it did is kept. The caller commits a success."""
+    try:
+        return action(), None
+    except DuplicatePayeeError as e:
+        frappe.db.rollback()
+        return None, duplicate_reply(e.existing)
 
 
 def create_payee(account_name, account_number, ifsc):

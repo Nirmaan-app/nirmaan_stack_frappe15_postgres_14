@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
+from nirmaan_stack.services.payees.rules import PAID_STATUSES
+
 REQUIRED = "Required"
 OPTIONAL = "Optional"
 NOT_ASKED = "Not asked"
@@ -70,6 +72,10 @@ def request_payee(rule, *, expense_type, payee, vendor, vendor_payee) -> PayeeVe
     return PayeeVerdict(payee, None)
 
 
-def paid_expense_problem(expense: str) -> str:
-    """The refusal for changing the Payee of an expense that is already Paid."""
-    return f"{expense} is already paid, so its payee can no longer change."
+def paid_expense_problem(expense: str, status: str | None) -> str | None:
+    """Why expense `expense`, at `status`, can't change its Payee, or None. Once it is paid
+    (`rules.PAID_STATUSES`: Reconciliation Pending or Paid) the money has gone to that account, so the
+    record of who it went to is fixed."""
+    if status in PAID_STATUSES:
+        return f"{expense} is already paid, so its payee can no longer change."
+    return None

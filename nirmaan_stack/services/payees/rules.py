@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass
 
 from nirmaan_stack.services.outflow_import.normalize import normalize_account
+from nirmaan_stack.services.settlement import SETTLED_STATUSES
 
 PAYEE_DOCTYPE = "Payee"
 
@@ -27,7 +28,9 @@ INACTIVE = "Inactive"
 PAYEE_STATUSES = (ACTIVE, INACTIVE)
 
 #: A Project Payment or an Expense at one of these has paid its Payee: the money has left Approved.
-PAID_STATUSES = ("Reconciliation Pending", "Paid")
+#: The same set as "settled" (`services/settlement.SETTLED_STATUSES`), so paid means one thing: a
+#: Payee is Locked, an expense's Payee is fixed and "last paid" is read at exactly these statuses.
+PAID_STATUSES = SETTLED_STATUSES
 
 _SEPARATORS = re.compile(r"[\s\-]+")
 _SPACES = re.compile(r"\s+")
@@ -113,6 +116,18 @@ def status_change_problem(name: str, current: str, wanted: str) -> str | None:
 def inactive_pick_problem(name: str) -> str:
     """The refusal when a vendor, an expense or an expense request newly picks Inactive Payee `name`."""
     return f"{name} is Inactive, so it can't be picked any more. Pick an active payee, or add a new one."
+
+
+def pick_problem(name: str, status: str | None) -> str | None:
+    """Why Payee `name`, at `status` (None: no such Payee), can't be newly picked, or None. Only an
+    Active Payee can be; a record already pointing at an Inactive one keeps it (the callers ask this
+    of a new pick only). One predicate for the screens' early refusal (`choosing.assert_pickable`)
+    and the every-save one (`guard.check_payee_pick`)."""
+    if status is None:
+        return f"Payee {name} does not exist."
+    if status != ACTIVE:
+        return inactive_pick_problem(name)
+    return None
 
 
 def already_linked_problem(vendor: str, payee: str) -> str:

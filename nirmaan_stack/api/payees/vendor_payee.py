@@ -21,10 +21,10 @@ Who: `services/role_profiles.VENDOR_PAYEE_PROFILES` (the people who may create a
 import frappe
 from frappe import _
 
-from nirmaan_stack.api.payees.add_payee import duplicate_verdict
-from nirmaan_stack.services.payees.choosing import link_vendor, payee_choice, suggest_for_vendor, vendor_account
+from nirmaan_stack.services.payees.choosing import link_vendor, payee_choice, suggest_for_vendor
 from nirmaan_stack.services.payees.links import payee_summary
-from nirmaan_stack.services.payees.writer import DuplicatePayeeError
+from nirmaan_stack.services.payees.vendor_account import vendor_account
+from nirmaan_stack.services.payees.writer import duplicate_verdict, unless_duplicate
 from nirmaan_stack.services.role_profiles import assert_vendor_payee_access
 
 
@@ -56,8 +56,9 @@ def check_vendor_payee(account_number: str, ifsc: str) -> dict:
 
 @frappe.whitelist()
 def get_vendor_account(vendor: str) -> dict:
-    """The vendor page's Account Details card: `{payee: <summary> | None, other_vendors}`
-    (`choosing.vendor_account`). Anyone who may read the vendor may read the account it is paid into."""
+    """One vendor's account: `{payee: <summary> | None, other_vendors}` (`vendor_account.vendor_account`):
+    the vendor page's Account Details card and every screen that reads one vendor's bank account.
+    Anyone who may read the vendor may read the account it is paid into."""
     frappe.has_permission("Vendors", "read", doc=vendor, throw=True)
     return vendor_account(vendor)
 
@@ -71,10 +72,8 @@ def change_vendor_payee(vendor: str, payee: str | None = None, bank: dict | None
     Returns `{payee: <summary>}`, or `{duplicate: <summary>, message}` when the bank details belong to
     a Payee already; nothing changes then."""
     assert_vendor_payee_access(frappe.session.user)
-    try:
-        linked = link_vendor(vendor, payee, bank)
-    except DuplicatePayeeError as e:
-        frappe.db.rollback()
-        return {"duplicate": payee_summary(e.existing), "message": str(e)}
+    linked, duplicate = unless_duplicate(lambda: link_vendor(vendor, payee, bank))
+    if duplicate:
+        return duplicate
     frappe.db.commit()
     return {"payee": payee_summary(linked)}

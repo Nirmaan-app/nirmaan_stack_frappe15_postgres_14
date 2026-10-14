@@ -24,11 +24,10 @@ from frappe import _
 from nirmaan_stack.services.payees.links import is_paid
 from nirmaan_stack.services.payees.rules import (
     HOLDER_NAME_ROLE_PROBLEM,
-    INACTIVE,
     PAYEE_DOCTYPE,
-    inactive_pick_problem,
     locked_change_problem,
     parse_details,
+    pick_problem,
 )
 from nirmaan_stack.services.role_profiles import can_manage_payees
 
@@ -54,5 +53,6 @@ def check_payee_pick(doc) -> None:
     payee = doc.get("payee")
     if not payee or not doc.has_value_changed("payee"):
         return
-    if frappe.db.get_value(PAYEE_DOCTYPE, payee, "status") == INACTIVE:
-        frappe.throw(_(inactive_pick_problem(payee)))
+    problem = pick_problem(payee, frappe.db.get_value(PAYEE_DOCTYPE, payee, "status"))
+    if problem:
+        frappe.throw(_(problem))

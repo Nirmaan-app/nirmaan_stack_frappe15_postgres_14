@@ -20,13 +20,9 @@ import json
 
 import frappe
 
+from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 from nirmaan_stack.services.payees import expense_payee
-from nirmaan_stack.services.payees.paid_to import (
-    EXPENSE_DOCTYPES,
-    assert_paid_to_doctype,
-    expense_pay_to,
-    paid_to_for,
-)
+from nirmaan_stack.services.payees.paid_to import assert_paid_to_doctype, expense_pay_to, paid_to_for
 from nirmaan_stack.services.payees.search import search_active_payees
 from nirmaan_stack.services.role_profiles import assert_payee_manager
 
@@ -63,7 +59,7 @@ def search_payees(text: str | None = None, limit: int = 8) -> list[dict]:
 
 @frappe.whitelist(methods=["POST"])
 def change_expense_payee(doctype: str, name: str, payee: str | None = None) -> dict:
-    """Point expense `name` at Payee `payee` (or none), until it is Paid. Returns the new box."""
+    """Point expense `name` at Payee `payee` (or none), until it is paid. Returns the new box."""
     assert_payee_manager(frappe.session.user)
     assert_paid_to_doctype(doctype, EXPENSE_DOCTYPES)
     expense_payee.change_expense_payee(doctype, name, payee or None)

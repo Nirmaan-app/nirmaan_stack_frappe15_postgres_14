@@ -189,10 +189,12 @@ class TestRequestPayees(FrappeTestCase):
 		change_expense_payee(NPE, approved, second)
 		self.assertEqual(frappe.db.get_value(NPE, approved, "payee"), second)
 
-		paid = self._expense(first, status="Paid")
-		with self.assertRaises(frappe.ValidationError):
-			change_expense_payee(NPE, paid, second)
-		self.assertEqual(frappe.db.get_value(NPE, paid, "payee"), first)
+		# Paid means money has left Approved: Reconciliation Pending as much as Paid.
+		for status in ("Reconciliation Pending", "Paid"):
+			paid = self._expense(first, status=status)
+			with self.assertRaises(frappe.ValidationError):
+				change_expense_payee(NPE, paid, second)
+			self.assertEqual(frappe.db.get_value(NPE, paid, "payee"), first)
 
 	def test_an_expense_payee_change_obeys_the_request_rules(self):
 		first = self.payees.payee()

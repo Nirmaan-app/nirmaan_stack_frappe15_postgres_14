@@ -20,8 +20,8 @@ import frappe
 
 from nirmaan_stack.services.payees.ifsc import lookup_ifsc as lookup_bank_branch
 from nirmaan_stack.services.payees.links import payee_summary
-from nirmaan_stack.services.payees.rules import duplicate_problem, parse_details
-from nirmaan_stack.services.payees.writer import DuplicatePayeeError, create_payee, existing_payee
+from nirmaan_stack.services.payees.rules import parse_details
+from nirmaan_stack.services.payees.writer import create_payee, duplicate_verdict, unless_duplicate
 from nirmaan_stack.services.role_profiles import assert_payee_manager
 
 
@@ -35,11 +35,9 @@ def add_payee(account_name: str, account_number: str, ifsc: str) -> dict:
     and `last_paid`. Refuses incomplete details and an IFSC the lookup can't find.
     """
     assert_payee_manager(frappe.session.user)
-    try:
-        doc = create_payee(account_name, account_number, ifsc)
-    except DuplicatePayeeError as e:
-        frappe.db.rollback()
-        return {"duplicate": payee_summary(e.existing), "message": str(e)}
+    doc, duplicate = unless_duplicate(lambda: create_payee(account_name, account_number, ifsc))
+    if duplicate:
+        return duplicate
     frappe.db.commit()
     return {"payee": payee_summary(doc.name)}
 
@@ -49,16 +47,6 @@ def check_payee(account_number: str, ifsc: str) -> dict:
     """The Payee already holding this account number + IFSC: `{duplicate: <summary> | None, message}`."""
     assert_payee_manager(frappe.session.user)
     return duplicate_verdict(account_number, ifsc)
-
-
-def duplicate_verdict(account_number: str, ifsc: str) -> dict:
-    """`check_payee`'s reply, for an endpoint that has made its own role check (the vendor screens)."""
-    details = parse_details("", account_number, ifsc)
-    existing = existing_payee(details)
-    if not existing:
-        return {"duplicate": None, "message": None}
-    summary = payee_summary(existing)
-    return {"duplicate": summary, "message": duplicate_problem(existing, summary["account_name"])}
 
 
 @frappe.whitelist()

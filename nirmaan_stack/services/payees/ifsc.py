@@ -26,6 +26,8 @@ class IfscLookupError(frappe.ValidationError):
 
 @dataclass(frozen=True)
 class BankBranch:
+    """The bank and branch an IFSC belongs to, as the lookup names them."""
+
     bank_name: str
     bank_branch: str
 
