@@ -65,6 +65,7 @@ import {
   familyChoices,
   familyUnitClasses,
   fieldOptionsFromSkus,
+  inchWithMmEcho,
   itemFieldDefs,
   itemListPricingSpec,
   matchStatedToOption,
@@ -2243,6 +2244,8 @@ function itemBlockView(
   }
   const fieldDefs = itemFieldDefs(spec, defs, family, unitClass, { items, answers });
   const defaultedBy = new Map(res.defaulted.map((d) => [d.attr, d]));
+  // SLICE 12e-5b (owner R2): a choice priced from the BoQ's own words (`choice_text`) -- its value and amber line
+  const textMappedBy = new Map((res.textMapped ?? []).map((t) => [t.attr, t]));
   const hopBy = new Map(res.ladderHops.map((h) => [h.attr, h]));
   // SLICE 9 (owner A-6): a field a config override DECIDED shows the value that priced, under the
   // catalogue's own word for it, with the rule beneath -- a pricer must never read the variant the row
@@ -2260,7 +2263,8 @@ function itemBlockView(
     // a "None" (or an absent-as-none) answer shows the ruled default it became, marked; the pricer's own pick
     // shows as picked
     const defaulted = !!d && !userEdited && (stated === "None" || stated === "");
-    let value = defaulted ? d!.value : stated;
+    const tm = userEdited ? undefined : textMappedBy.get(f.skuAttr);
+    let value = defaulted ? d!.value : tm ? tm.value : stated;
     const hop = hopBy.get(f.skuAttr);
     // OWNER FA8: `dropdown_or_other` is a size dropdown too -- it shows the LADDER RESULT with the
     // note naming the stated size, which is the whole reason an unstocked size may be typed.
@@ -2451,10 +2455,18 @@ function itemBlockView(
       note = ov.rule;
       if (ov.display !== ov.value) optionLabels = { [ov.value]: ov.display };
     }
+    // SLICE 12e-5b (owner R6, AC1): a size written two ways that do not agree ('1/2" (15.9mm)') refused the row --
+    // the box shows no figure it refused on (the inch half alone would read as a stocked size), and the line says why
+    const echo = f.skuAttr in spec.numbers ? inchWithMmEcho(stated) : null;
+    const twoWaysHere = !!echo && "conflict" in echo && res.state === "blank" && !!res.reason && res.reason.includes(echo.conflict);
+    if (twoWaysHere) {
+      value = "";
+      note = `${said} ${stated.trim()}: ${res.reason}`;
+    }
     // OWNER FA8(c)/(d): a size field a pricer can type into explains HOW the value will be matched --
     // every number in the explanation read from the LIVE options, never written here.
     const matchHelp = f.allowOther ? sizeFieldHelp(spec, f.skuAttr, f.options ?? [])?.lines : undefined;
-    const needed = res.state === "blank" && reasonIsMine;
+    const needed = res.state === "blank" && (reasonIsMine || twoWaysHere);
     /**
      * SLICE 12c-S (owner S5 on F15) -- IS THIS FIELD IN "Other..." MODE? DECIDED HERE, NOT GUESSED.
      *
@@ -2500,7 +2512,7 @@ function itemBlockView(
       value,
       typedValue: defaultInBox ? value : stated,
       defaulted,
-      ...(defaulted ? { rule: d!.rule } : {}),
+      ...(defaulted ? { rule: d!.rule } : tm ? { rule: tm.line } : {}),
       ...(modelGave ? { readOnly: true as const } : {}),
       userEdited,
       otherMode: otherMode || defaultInBox,
@@ -2561,7 +2573,11 @@ function itemBlockView(
     qtyDefaulted: edit.qty === undefined && res.qtyDefaulted,
     state: res.state,
     ...(res.reason ? { reason: res.reason } : {}),
-    ...(res.sku ? { skuLine: `${res.sku.item_name ?? ""} / ${res.sku.item_detail ?? ""} (${res.sku.unit ?? ""})` } : {}),
+    // SLICE 12e-5b (owner, AC8a): a SKU that carries no item name (Insulation's) is named by its family -- it used to
+    // read " / (Mts)". A SKU WITH a name is untouched, so every Piping and ADP line is byte-identical.
+    ...(res.sku ? { skuLine: res.sku.item_name === undefined && !res.sku.item_detail && res.family
+      ? `${res.family} (${res.sku.unit ?? ""})`
+      : `${res.sku.item_name ?? ""} / ${res.sku.item_detail ?? ""} (${res.sku.unit ?? ""})` } : {}),
     working: ladRewrites.length
       ? blockWorking.map((w) => { const r = ladRewrites.find((x) => w.startsWith(`${x.from} -> `)); return r ? `${r.to}${w.slice(r.from.length)}` : w; })
       : blockWorking,
@@ -2687,6 +2703,10 @@ function computeItemListOwn(
        * the pricer would read the same way.
        */
       if (readLayers(raw) !== null) continue;
+      // SLICE 12e-5b (owner R6, AC1): nor a size written two ways that do not agree -- its inch half alone would
+      // match a stocked option and the box would show a size the row then refuses on
+      const echo = inchWithMmEcho(raw);
+      if (echo !== null && "conflict" in echo) continue;
       const hit = matchStatedToOptionDetailed(raw, opts, spec.numbers[f.skuAttr]);
       if (hit === null || hit.to === raw) continue;
       attributes[f.id] = { ...attributes[f.id], value: hit.to };
