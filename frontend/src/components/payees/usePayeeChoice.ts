@@ -13,7 +13,7 @@ import { useCallback, useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
 
 import type { PayeeOption, PayeeSummary } from "@/types/NirmaanStack/Payee";
-import { cleanIfsc } from "@/utils/payees/payeeForm";
+import { cleanIfsc, newPayeeProblem } from "@/utils/payees/payeeForm";
 
 import { usePayeeBankForm, type PayeeBankForm } from "./usePayeeBankForm";
 
@@ -75,13 +75,7 @@ export function usePayeeChoice(apis: PayeeChoiceApis = REQUEST_APIS): PayeeChoic
 
     const { form, problem: formProblem, duplicate, lookingUp, reset: resetBank, setDuplicate } = bankForm;
     const typedAnything = Object.values(form).some((v) => v.trim());
-    const newProblem = !typedAnything
-        ? null
-        : duplicate
-          ? "This account is already a payee. Pick it instead."
-          : lookingUp
-            ? "Looking up the IFSC..."
-            : formProblem;
+    const newProblem = typedAnything ? newPayeeProblem({ formProblem, duplicate: !!duplicate, lookingUp }) : null;
 
     const hasChoice = mode === "pick" ? !!picked : typedAnything && !newProblem;
     const problem = mode === "new" ? newProblem : null;

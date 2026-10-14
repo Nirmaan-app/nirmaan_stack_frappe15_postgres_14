@@ -45,7 +45,7 @@ describe("payee suggestion lines", () => {
     });
 
     it("reads the account as ID, number, IFSC, bank and branch", () => {
-        expect(accountLine(suggestion())).toBe("PYE-0412, A/c 50200061234567, HDFC0000195, HDFC Bank Rohtak");
+        expect(accountLine(suggestion())).toBe("PYE-0412, A/c 50200061234567, HDFC0000195, HDFC Bank, Rohtak");
         expect(accountLine(suggestion({ bank_name: null, bank_branch: null }))).toBe(
             "PYE-0412, A/c 50200061234567, HDFC0000195",
         );

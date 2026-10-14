@@ -23,11 +23,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { PAYEE_STATUS, type PayeeChoice } from "@/types/NirmaanStack/Payee";
+import { PAYEE_STATUS, type PayeeWithLinks } from "@/types/NirmaanStack/Payee";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { expensesLine, lastPaidLine } from "@/utils/payees/payeeChoice";
+import { bankLine } from "@/utils/payees/payeeForm";
 
-import { usePayeeChoice } from "./vendorPayeeApi";
+import { usePayeeWithLinks } from "./vendorPayeeApi";
 
 interface UsePayeeDialogProps {
     /** The Payee to confirm; the dialog is open while it is set. */
@@ -35,7 +36,7 @@ interface UsePayeeDialogProps {
     /** The vendor being pointed at it, as the sentence names it. */
     vendorLabel?: string;
     onCancel: () => void;
-    onConfirm: (choice: PayeeChoice) => void;
+    onConfirm: (choice: PayeeWithLinks) => void;
 }
 
 export function UsePayeeDialog({ payee, vendorLabel, onCancel, onConfirm }: UsePayeeDialogProps) {
@@ -47,7 +48,7 @@ export function UsePayeeDialog({ payee, vendorLabel, onCancel, onConfirm }: UseP
 
 function ConfirmDialog({ payee, vendorLabel, onCancel, onConfirm }: UsePayeeDialogProps & { payee: string }) {
     const [checked, setChecked] = useState(false);
-    const { choice, isLoading, error } = usePayeeChoice(payee);
+    const { choice, isLoading, error } = usePayeeWithLinks(payee);
     const inactive = choice?.status === PAYEE_STATUS.INACTIVE;
 
     return (
@@ -97,9 +98,9 @@ function ConfirmDialog({ payee, vendorLabel, onCancel, onConfirm }: UsePayeeDial
 }
 
 /** The Payee's account, then everything already linked to it and its last payment. */
-function ChoiceDetails({ choice }: { choice: PayeeChoice }) {
+function ChoiceDetails({ choice }: { choice: PayeeWithLinks }) {
     const expenses = expensesLine(choice);
-    const bank = [choice.bank_name, choice.bank_branch].filter(Boolean).join(", ");
+    const bank = bankLine(choice);
     return (
         <>
             <div className="rounded-md bg-muted px-3.5 py-3 text-sm leading-relaxed tabular-nums">

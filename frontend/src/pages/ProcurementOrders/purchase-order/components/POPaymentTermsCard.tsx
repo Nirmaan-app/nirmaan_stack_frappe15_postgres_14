@@ -932,7 +932,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   const { errors, isValid, hasVendorIssues } = usePOValidation(PO);
   // Not one of `errors`: a vendor with no Payee still has a dispatchable PO. It gates exactly one
   // action, requesting a payment (see `useVendorPayeeGate`).
-  const { missingPayee, showMissingPayeeToast } = useVendorPayeeGate(PO?.vendor, PO?.vendor_name);
+  const { payeeBlocked, showPayeeBlockedToast } = useVendorPayeeGate(PO?.vendor, PO?.vendor_name);
   const { role } = useUserData();
   const { isCEOHold, showBlockedToast } = useCEOHoldGuard(PO?.project);
   const { isOnHold: isVendorOnHold, showBlockedToast: showVendorBlockedToast } = useVendorHoldGuard(PO?.vendor);
@@ -1030,8 +1030,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
   const handleOpenRequestDialog = (term: PaymentTerm) => {
     // Checked here rather than only on confirm, so the dialog never opens on a request that
     // cannot be made — the user gets the reason on the click that started it.
-    if (missingPayee) {
-      showMissingPayeeToast();
+    if (payeeBlocked) {
+      showPayeeBlockedToast();
       return;
     }
     setTermToRequest(term);
@@ -1048,8 +1048,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     }
     // Re-checked on submit alongside the hold guards: the vendor doc can finish loading, or
     // its Payee be unlinked elsewhere, between opening this dialog and confirming it.
-    if (missingPayee) {
-      showMissingPayeeToast();
+    if (payeeBlocked) {
+      showPayeeBlockedToast();
       return;
     }
     if (!termToRequest) return;

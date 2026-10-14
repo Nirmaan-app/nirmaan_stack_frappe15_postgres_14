@@ -11,7 +11,7 @@ import { Link } from "react-router-dom";
 import { Repeat } from "lucide-react";
 
 import { ChangeVendorAccountDialog } from "@/components/payees/ChangeVendorAccountDialog";
-import { useVendorAccount } from "@/components/payees/vendorPayeeApi";
+import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { canManagePayees, canSetVendorPayee } from "@/constants/roles";

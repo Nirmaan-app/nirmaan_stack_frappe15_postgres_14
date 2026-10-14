@@ -1,16 +1,20 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
     PAYEE_RULE,
+    PAYEE_RULES,
     asPayeeRule,
     asksWhoGetsPaid,
     countAskingWhoGetsPaid,
     payeeAccountLine,
-    payeeBankLine,
     timesPaidText,
+    showsWhoGetsPaid,
     whoGetsPaidHelp,
     whoGetsPaidProblem,
 } from "./expensePayee";
+import { bankLine } from "./payeeForm";
 
 describe("asPayeeRule", () => {
     it("reads the three settings and treats anything else as Not asked (the default)", () => {
@@ -79,14 +83,64 @@ describe("payee lines", () => {
 
     it("reads the account, IFSC, bank and branch as the mockup does", () => {
         expect(payeeAccountLine(payee)).toBe("A/c 13512560000890, IFSC HDFC0001351");
-        expect(payeeBankLine(payee)).toBe("HDFC Bank, Andheri East");
-        expect(payeeBankLine({ ...payee, bank_branch: null })).toBe("HDFC Bank");
-        expect(payeeBankLine({ ...payee, bank_name: null, bank_branch: null })).toBe("");
+        expect(bankLine(payee)).toBe("HDFC Bank, Andheri East");
+        expect(bankLine({ ...payee, bank_branch: null })).toBe("HDFC Bank");
+        expect(bankLine({ ...payee, bank_name: null, bank_branch: null })).toBe("");
     });
 
     it("says how often a payee has been paid", () => {
         expect(timesPaidText(14)).toBe("Paid 14 times before.");
         expect(timesPaidText(1)).toBe("Paid once before.");
         expect(timesPaidText(0)).toBe("Not paid before.");
+    });
+});
+
+/** Shared with the server's suite (`services/payees/test_expense_rules.py`): one set of cases (F1). */
+const SHARED = JSON.parse(
+    readFileSync(resolve(__dirname, "../../../../nirmaan_stack/services/payees/payee_rules_cases.json"), "utf-8"),
+) as {
+    payee_rules: string[];
+    requests: {
+        name: string;
+        rule: string;
+        vendor: string | null;
+        vendor_payee: string | null;
+        payee: string | null;
+        refused: boolean;
+    }[];
+};
+
+describe("parity with services/payees/expense_rules.py (shared cases)", () => {
+    it("offers the server's rules, in its order", () => {
+        expect(PAYEE_RULES).toEqual(SHARED.payee_rules);
+    });
+
+    it.each(SHARED.requests)("$name: blocks sending exactly when the server refuses", (c) => {
+        const problem = whoGetsPaidProblem({
+            rule: c.rule,
+            expenseType: "Rent Expenses",
+            vendor: c.vendor,
+            vendorPayee: c.vendor_payee,
+            hasChoice: !!c.payee,
+        });
+        expect(problem !== null).toBe(c.refused);
+    });
+});
+
+describe("showsWhoGetsPaid", () => {
+    it("shows the section when the type asks", () => {
+        expect(showsWhoGetsPaid("Required", false)).toBe(true);
+        expect(showsWhoGetsPaid("Optional", false)).toBe(true);
+    });
+
+    it("shows a Not asked type's vendor account too, and nothing without a vendor", () => {
+        expect(showsWhoGetsPaid("Not asked", true)).toBe(true);
+        expect(showsWhoGetsPaid("Not asked", false)).toBe(false);
+    });
+
+    it("words the help line of a Not asked type", () => {
+        expect(whoGetsPaidHelp("Not asked", "Material Purchase")).toBe(
+            "Material Purchase doesn't ask who gets paid, but a vendor is paid into its own account.",
+        );
     });
 });

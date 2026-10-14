@@ -1,6 +1,7 @@
 // The request's "Who gets paid" section (spec #1420 ticket #1429, approved mockup screen 10).
 //
-// Shown when the expense type asks (Required or Optional). Three states:
+// Shown when the expense type asks (Required or Optional), or a vendor is picked on a Not asked type
+// (`showsWhoGetsPaid`: the request still carries the vendor's Payee). Three states:
 //   * a vendor is picked  -> that vendor's Payee, read-only (or a note that it has none);
 //   * no vendor, pick     -> search existing Payees;
 //   * no vendor, add new  -> the Add Payee fields, inline.

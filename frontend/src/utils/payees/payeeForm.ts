@@ -63,6 +63,30 @@ export const payeeFormProblem = (form: PayeeFormValues, { bankFound }: { bankFou
     return null;
 };
 
+/**
+ * Why new bank details on screen can't be saved yet, or null: the IFSC lookup is still running, the
+ * form has a problem (`payeeFormProblem`), or a Payee already holds the account. One rule for every
+ * screen that adds a Payee (the vendor screens' Payee step, the request's and Change payee's picker).
+ */
+export const newPayeeProblem = ({
+    formProblem,
+    duplicate,
+    lookingUp,
+}: {
+    formProblem: string | null;
+    duplicate: boolean;
+    lookingUp: boolean;
+}): string | null => {
+    if (lookingUp) return "Wait for the IFSC lookup.";
+    if (formProblem) return formProblem;
+    if (duplicate) return "This account is already a payee. Use that payee instead of adding a new one.";
+    return null;
+};
+
+/** "HDFC Bank, Rohtak": a Payee's bank and branch as every screen shows them; empty when neither is known. */
+export const bankLine = (p: { bank_name?: string | null; bank_branch?: string | null }): string =>
+    [p.bank_name, p.bank_branch].filter(Boolean).join(", ");
+
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** "3 vendors", "2 expenses": what a Payee is linked to; empty when nothing. */

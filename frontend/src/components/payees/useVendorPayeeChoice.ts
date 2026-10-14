@@ -9,7 +9,7 @@
 
 import { useCallback, useState } from "react";
 
-import type { PayeeChoice } from "@/types/NirmaanStack/Payee";
+import type { PayeeWithLinks } from "@/types/NirmaanStack/Payee";
 import {
     VENDOR_PAYEE_MODE,
     vendorPayeeAnswer,
@@ -25,9 +25,9 @@ export interface VendorPayeeChoice {
     mode: VendorPayeeMode;
     setMode: (mode: VendorPayeeMode) => void;
     /** The Payee picked through the confirmation, if any. */
-    chosen: PayeeChoice | null;
+    chosen: PayeeWithLinks | null;
     /** Pick a Payee (after the confirmation): switches to "Use a payee already on record". */
-    choose: (choice: PayeeChoice) => void;
+    choose: (choice: PayeeWithLinks) => void;
     payeeForm: PayeeBankForm;
     /** Why the vendor can't be saved with this answer yet, or null. */
     problem: string | null;
@@ -38,10 +38,10 @@ export interface VendorPayeeChoice {
 
 export function useVendorPayeeChoice(): VendorPayeeChoice {
     const [mode, setMode] = useState<VendorPayeeMode>(VENDOR_PAYEE_MODE.NEW);
-    const [chosen, setChosen] = useState<PayeeChoice | null>(null);
+    const [chosen, setChosen] = useState<PayeeWithLinks | null>(null);
     const payeeForm = usePayeeBankForm({ checkApi: CHECK_VENDOR_PAYEE_API });
 
-    const choose = useCallback((choice: PayeeChoice) => {
+    const choose = useCallback((choice: PayeeWithLinks) => {
         setChosen(choice);
         setMode(VENDOR_PAYEE_MODE.EXISTING);
     }, []);

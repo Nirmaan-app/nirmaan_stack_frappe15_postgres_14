@@ -4,19 +4,19 @@
  * name opens the Payee module's holder-name edit (`EditHolderNameDialog`, Accounts and Admins only),
  * started with the new name; Enter new bank details opens Change account. Decide later closes.
  *
- * Asks only when `renameNeedsPrompt` says so (the vendor has a Payee whose holder name is not the new
- * name); otherwise it finishes at once.
+ * Mounted only when `renameNeedsPrompt` says to ask (the vendor has a Payee whose holder name is not the
+ * new name): the page decides that in its rename handler.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { ChangeVendorAccountDialog } from "@/components/payees/ChangeVendorAccountDialog";
 import { EditHolderNameDialog } from "@/components/payees/EditHolderNameDialog";
-import { useVendorAccount } from "@/components/payees/vendorPayeeApi";
+import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
 import { VendorRenamePrompt } from "@/components/payees/VendorRenamePrompt";
 import { canManagePayees } from "@/constants/roles";
 import { useUserData } from "@/hooks/useUserData";
-import { RENAME_CHOICE, renameNeedsPrompt, type RenameChoice } from "@/utils/payees/vendorAccount";
+import { RENAME_CHOICE, type RenameChoice } from "@/utils/payees/vendorAccount";
 
 export interface VendorRename {
     before: string;
@@ -33,17 +33,11 @@ type Step = "prompt" | typeof RENAME_CHOICE.HOLDER_NAME | typeof RENAME_CHOICE.N
 
 export function VendorRenameFlow({ vendor, rename, onDone }: VendorRenameFlowProps) {
     const { role, user_id } = useUserData();
-    const { account, isLoading, refresh } = useVendorAccount(vendor.name);
+    const { account, refresh } = useVendorAccount(vendor.name);
     const [step, setStep] = useState<Step>("prompt");
 
     const payee = account?.payee ?? null;
-    const ask = !!account && renameNeedsPrompt({ ...rename, holder: payee?.account_name ?? null });
-
-    useEffect(() => {
-        if (!isLoading && account && !ask) onDone();
-    }, [isLoading, account, ask, onDone]);
-
-    if (!ask || !payee) return null;
+    if (!payee) return null;
 
     const choose = (choice: RenameChoice) => {
         if (choice === RENAME_CHOICE.KEEP) onDone();

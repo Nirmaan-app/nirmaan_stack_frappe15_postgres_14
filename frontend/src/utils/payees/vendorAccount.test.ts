@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { holderNameChoiceHelp, renameNeedsPrompt, sharedAccountLine } from "./vendorAccount";
+import { holderNameChoiceHelp, renameNeedsPrompt, sharedAccountLine, vendorPayeeGateProblem } from "./vendorAccount";
 
 describe("sharedAccountLine", () => {
     it("says how many other vendors are paid into the same account", () => {
@@ -48,5 +48,31 @@ describe("renameNeedsPrompt", () => {
         expect(
             renameNeedsPrompt({ before: "Kaveri (Pune)", after: "kaveri ductfab  systems pvt. ltd.", holder }),
         ).toBe(false);
+    });
+});
+
+describe("vendorPayeeGateProblem", () => {
+    const account = { payee: "PYE-0412" };
+
+    it("lets the request through once the vendor is known to have a Payee", () => {
+        expect(vendorPayeeGateProblem({ vendorLabel: "Kaveri", account, failed: false })).toBeNull();
+    });
+
+    it("blocks while the account is still loading", () => {
+        expect(vendorPayeeGateProblem({ vendorLabel: "Kaveri", account: undefined, failed: false })?.title).toBe(
+            "Checking the bank account",
+        );
+    });
+
+    it("blocks with its own reason when the read failed", () => {
+        const problem = vendorPayeeGateProblem({ vendorLabel: "Kaveri", account: undefined, failed: true });
+        expect(problem?.title).toBe("Couldn't check the bank account");
+        expect(problem?.description).toContain("Kaveri's bank account");
+    });
+
+    it("blocks a vendor with no Payee and says how to fix it", () => {
+        const problem = vendorPayeeGateProblem({ vendorLabel: "Kaveri", account: null, failed: false });
+        expect(problem?.title).toBe("Bank details missing");
+        expect(problem?.description).toContain("Add the vendor's bank account on the vendor page");
     });
 });

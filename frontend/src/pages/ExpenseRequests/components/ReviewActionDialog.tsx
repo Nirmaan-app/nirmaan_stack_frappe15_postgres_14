@@ -28,7 +28,8 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import SITEURL from "@/constants/siteURL";
 import { attachmentsFromSourceData } from "@/utils/expenseFormat";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { payeeAccountLine, payeeBankLine } from "@/utils/payees/expensePayee";
+import { payeeAccountLine } from "@/utils/payees/expensePayee";
+import { bankLine } from "@/utils/payees/payeeForm";
 import type { ExpenseRequest } from "@/types/NirmaanStack/ExpenseRequest";
 
 export type ReviewAction = "approve" | "reject";
@@ -161,9 +162,9 @@ export const ReviewActionDialog: React.FC<Props> = ({
                             <span className="block text-xs tabular-nums text-muted-foreground">
                                 {payeeAccountLine(r.payee_details)}
                             </span>
-                            {payeeBankLine(r.payee_details) && (
+                            {bankLine(r.payee_details) && (
                                 <span className="block text-xs text-muted-foreground">
-                                    {payeeBankLine(r.payee_details)}
+                                    {bankLine(r.payee_details)}
                                 </span>
                             )}
                         </Row>

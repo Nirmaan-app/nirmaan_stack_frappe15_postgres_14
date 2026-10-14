@@ -15,7 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { PayeeOption } from "@/types/NirmaanStack/Payee";
-import { payeeAccountLine, payeeBankLine, timesPaidText } from "@/utils/payees/expensePayee";
+import { payeeAccountLine, timesPaidText } from "@/utils/payees/expensePayee";
+import { bankLine } from "@/utils/payees/payeeForm";
 
 import { PayeeBankFields } from "./PayeeBankFields";
 import type { PayeeChoice } from "./usePayeeChoice";
@@ -153,7 +154,7 @@ interface PayeeCardProps {
 /** One Payee as a button: holder name, account and IFSC, bank and branch, how often paid. Clicking
  *  the selected one clears it. */
 function PayeeCard({ payee, selected, onClick, disabled }: PayeeCardProps) {
-    const bank = payeeBankLine(payee);
+    const bank = bankLine(payee);
     const paid = payee.times_paid === undefined ? "" : timesPaidText(payee.times_paid);
     return (
         <button
@@ -176,7 +177,7 @@ function PayeeCard({ payee, selected, onClick, disabled }: PayeeCardProps) {
 
 /** A Payee shown read-only (the vendor's own, on the request; the payee on a review). */
 export function PayeeReadOnly({ payee, note }: { payee: PayeeOption; note?: string }) {
-    const bank = payeeBankLine(payee);
+    const bank = bankLine(payee);
     return (
         <div className="rounded-md border bg-background px-3 py-2.5 text-[13px] leading-relaxed tabular-nums">
             <span className="block text-sm font-semibold">{payee.account_name}</span>

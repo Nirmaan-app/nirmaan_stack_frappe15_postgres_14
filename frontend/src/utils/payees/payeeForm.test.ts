@@ -1,9 +1,14 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
     accountsMatch,
+    bankLine,
+    cleanAccountNumber,
     duplicateSentence,
     linkedToLabels,
+    newPayeeProblem,
     normalizeAccount,
     payeeFormProblem,
     type PayeeFormValues,
@@ -73,5 +78,56 @@ describe("duplicateSentence", () => {
         expect(duplicateSentence({ name: "PYE-0405", account_name: "Mahalaxmi Hardware", vendors: 0, expenses: 0 })).toContain(
             "It is not linked to anything yet.",
         );
+    });
+});
+
+/** Shared with the server's suite (`services/payees/test_rules.py`): one set of cases, two twins (F1). */
+const SHARED = JSON.parse(
+    readFileSync(resolve(__dirname, "../../../../nirmaan_stack/services/payees/payee_rules_cases.json"), "utf-8"),
+) as {
+    details: { name: string; account_name: string; account_number: string; ifsc: string; problem: string | null }[];
+    accounts: { typed: string; clean: string; normalized: string }[];
+};
+
+describe("parity with services/payees/rules.py (shared cases)", () => {
+    it.each(SHARED.details)("$name", (c) => {
+        const typed = {
+            account_name: c.account_name,
+            account_number: c.account_number,
+            confirm_account_number: c.account_number,
+            ifsc: c.ifsc,
+        };
+        expect(payeeFormProblem(typed, { bankFound: true })).toBe(c.problem);
+    });
+
+    it.each(SHARED.accounts)("cleans $typed as the server does", (c) => {
+        expect(cleanAccountNumber(c.typed)).toBe(c.clean);
+        expect(normalizeAccount(c.typed)).toBe(c.normalized);
+    });
+});
+
+describe("newPayeeProblem", () => {
+    it("waits for the IFSC lookup before anything else", () => {
+        expect(newPayeeProblem({ formProblem: "Enter the IFSC.", duplicate: true, lookingUp: true })).toBe(
+            "Wait for the IFSC lookup.",
+        );
+    });
+
+    it("then the form's own problem, then a Payee already holding the account", () => {
+        expect(newPayeeProblem({ formProblem: "Enter the IFSC.", duplicate: true, lookingUp: false })).toBe(
+            "Enter the IFSC.",
+        );
+        expect(newPayeeProblem({ formProblem: null, duplicate: true, lookingUp: false })).toContain(
+            "already a payee",
+        );
+        expect(newPayeeProblem({ formProblem: null, duplicate: false, lookingUp: false })).toBeNull();
+    });
+});
+
+describe("bankLine", () => {
+    it("joins the bank and branch, leaving out what is unknown", () => {
+        expect(bankLine({ bank_name: "HDFC Bank", bank_branch: "Rohtak" })).toBe("HDFC Bank, Rohtak");
+        expect(bankLine({ bank_name: "HDFC Bank", bank_branch: null })).toBe("HDFC Bank");
+        expect(bankLine({})).toBe("");
     });
 });

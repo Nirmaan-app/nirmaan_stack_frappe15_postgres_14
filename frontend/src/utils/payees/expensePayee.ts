@@ -36,15 +36,29 @@ export const asPayeeRule = (value: string | null | undefined): PayeeRule =>
 export const asksWhoGetsPaid = (rule: string | null | undefined): boolean =>
     asPayeeRule(rule) !== PAYEE_RULE.NOT_ASKED;
 
+/**
+ * True when the request shows the "Who gets paid" section: its type asks, or a vendor is picked. A
+ * *Not asked* type naming a vendor still carries the vendor's Payee (the server fills it in), so the
+ * raiser sees whose account the accountant will pay.
+ */
+export const showsWhoGetsPaid = (rule: string | null | undefined, vendorChosen: boolean): boolean =>
+    asksWhoGetsPaid(rule) || vendorChosen;
+
 /** How many of these types ask who gets paid (the Expense Packages summary line). */
 export const countAskingWhoGetsPaid = (types: { payee_rule?: string | null }[]): number =>
     types.filter((t) => asksWhoGetsPaid(t.payee_rule)).length;
 
 /** The line under the section's heading on the request. */
-export const whoGetsPaidHelp = (rule: string | null | undefined, expenseType: string): string =>
-    asPayeeRule(rule) === PAYEE_RULE.REQUIRED
-        ? `Required for ${expenseType}. The accountant pays this account.`
-        : `Optional for ${expenseType}. Leave it blank if this is paid by card or cash.`;
+export const whoGetsPaidHelp = (rule: string | null | undefined, expenseType: string): string => {
+    switch (asPayeeRule(rule)) {
+        case PAYEE_RULE.REQUIRED:
+            return `Required for ${expenseType}. The accountant pays this account.`;
+        case PAYEE_RULE.OPTIONAL:
+            return `Optional for ${expenseType}. Leave it blank if this is paid by card or cash.`;
+        default:
+            return `${expenseType} doesn't ask who gets paid, but a vendor is paid into its own account.`;
+    }
+};
 
 export interface WhoGetsPaidState {
     rule: string | null | undefined;
@@ -76,8 +90,6 @@ interface PayeeAccount {
 }
 
 export const payeeAccountLine = (p: PayeeAccount): string => `A/c ${p.account_number}, IFSC ${p.ifsc}`;
-
-export const payeeBankLine = (p: PayeeAccount): string => [p.bank_name, p.bank_branch].filter(Boolean).join(", ");
 
 export const timesPaidText = (times: number): string =>
     times > 1 ? `Paid ${times} times before.` : times === 1 ? "Paid once before." : "Not paid before.";

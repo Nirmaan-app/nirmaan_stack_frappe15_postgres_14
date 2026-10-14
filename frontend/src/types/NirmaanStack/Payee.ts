@@ -90,14 +90,14 @@ export interface PayeeLinkedVendor {
  * (`services/payees/choosing.payee_choices`): its summary, every linked vendor and expense, and
  * the latest payment that left Approved for it.
  */
-export interface PayeeChoice extends PayeeSummary {
+export interface PayeeWithLinks extends PayeeSummary {
     linked_vendors: PayeeLinkedVendor[];
     linked_expenses: { name: string; doctype: "Project Expenses" | "Non Project Expenses" }[];
     last_payment: { date: string; document: string } | null;
 }
 
 /** One "Payees that look like this vendor" entry (`api/payees/vendor_payee.suggest_vendor_payees`). */
-export interface PayeeSuggestion extends PayeeChoice {
+export interface PayeeSuggestion extends PayeeWithLinks {
     match: PayeeMatch;
 }
 

@@ -52,7 +52,7 @@ export default function RequestPaymentDialog(p:Props){
   const { isCEOHold, showBlockedToast } = useCEOHoldGuard(p.project);
 
   /* A PO or Work Order payment is paid into the vendor's Payee: no Payee, no request. */
-  const { missingPayee, showMissingPayeeToast } = useVendorPayeeGate(open ? p.vendor : undefined);
+  const { payeeBlocked, showPayeeBlockedToast } = useVendorPayeeGate(open ? p.vendor : undefined);
 
   /* local state */
   const [mode,setMode] = useState<"custom"|"percentage"|"full"|"exGST"|"due">("custom");
@@ -129,8 +129,8 @@ export default function RequestPaymentDialog(p:Props){
       showBlockedToast();
       return;
     }
-    if (missingPayee) {
-      showMissingPayeeToast();
+    if (payeeBlocked) {
+      showPayeeBlockedToast();
       return;
     }
     try{

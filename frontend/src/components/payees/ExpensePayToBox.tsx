@@ -18,11 +18,12 @@ import { useUserData } from "@/hooks/useUserData";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { payeeBankLine } from "@/utils/payees/expensePayee";
+import { bankLine } from "@/utils/payees/payeeForm";
 import { namedByText, noPayeeBoxText } from "@/utils/payees/paidTo";
 
 import { ChangeExpensePayeeDialog } from "./ChangeExpensePayeeDialog";
-import { EXPENSE_PAYEE_API, expensePayToKey, type ExpensePayTo } from "./expensePayeeApi";
+import { ACCOUNTS_PAYEE_APIS, EXPENSE_PAYEE_API, expensePayToKey, type ExpensePayTo } from "./expensePayeeApi";
+import { usePayeeChoice } from "./usePayeeChoice";
 
 interface ExpensePayToBoxProps {
     doctype: "Project Expenses" | "Non Project Expenses";
@@ -33,6 +34,7 @@ interface ExpensePayToBoxProps {
 export function ExpensePayToBox({ doctype, expenseName, expenseType }: ExpensePayToBoxProps) {
     const { role, user_id } = useUserData();
     const [changing, setChanging] = useState(false);
+    const changeChoice = usePayeeChoice(ACCOUNTS_PAYEE_APIS);
     const { data, isLoading, error, mutate } = useFrappeGetCall<{ message: ExpensePayTo }>(
         EXPENSE_PAYEE_API,
         { doctype, name: expenseName },
@@ -53,7 +55,12 @@ export function ExpensePayToBox({ doctype, expenseName, expenseType }: ExpensePa
 
     const payee = payTo.payee;
     const canChange = canManagePayees(role, user_id) && !payTo.vendor_fixed && !payTo.paid;
-    const bank = payee ? payeeBankLine(payee) : "";
+    const bank = payee ? bankLine(payee) : "";
+    // Each open starts from the expense's own Payee.
+    const openChange = () => {
+        changeChoice.reset(payee);
+        setChanging(true);
+    };
 
     return (
         <section
@@ -73,7 +80,7 @@ export function ExpensePayToBox({ doctype, expenseName, expenseType }: ExpensePa
                     Pay {formatToRoundedIndianRupee(payTo.amount)} to
                 </h3>
                 {canChange && (
-                    <Button variant="link" size="sm" className="h-auto p-0 text-[13px]" onClick={() => setChanging(true)}>
+                    <Button variant="link" size="sm" className="h-auto p-0 text-[13px]" onClick={openChange}>
                         Change payee
                     </Button>
                 )}
@@ -120,6 +127,7 @@ export function ExpensePayToBox({ doctype, expenseName, expenseType }: ExpensePa
                     doctype={doctype}
                     payTo={payTo}
                     expenseType={expenseType}
+                    choice={changeChoice}
                     onSaved={(next) => mutate({ message: next }, { revalidate: false })}
                 />
             )}

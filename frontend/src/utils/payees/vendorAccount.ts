@@ -53,3 +53,43 @@ export const renameNeedsPrompt = ({
     after: string;
     holder: string | null;
 }): boolean => holder !== null && !sameName(before, after) && !sameName(after, holder);
+
+/** Why a PO / Work Order payment can't be requested yet because of the vendor's bank account, or null. */
+export interface VendorPayeeGateProblem {
+    title: string;
+    description: string;
+}
+
+/**
+ * The payment-request gate's verdict. `account` is the vendor's Payee: `undefined` while it loads (or
+ * when the read failed: `failed`), `null` when the vendor has none. A request goes through only once
+ * the vendor is known to have one, so a slow or failed read never lets a request out unchecked.
+ */
+export const vendorPayeeGateProblem = ({
+    vendorLabel,
+    account,
+    failed,
+}: {
+    vendorLabel?: string | null;
+    account: object | null | undefined;
+    failed: boolean;
+}): VendorPayeeGateProblem | null => {
+    const vendor = vendorLabel || "This vendor";
+    if (account) return null;
+    if (account === null) {
+        return {
+            title: "Bank details missing",
+            description: `${vendor} has no Payee (bank account). Add the vendor's bank account on the vendor page to request the payment.`,
+        };
+    }
+    if (failed) {
+        return {
+            title: "Couldn't check the bank account",
+            description: `Couldn't read ${vendorLabel || "the vendor"}'s bank account, so the payment can't be requested yet. Check your connection and try again.`,
+        };
+    }
+    return {
+        title: "Checking the bank account",
+        description: `${vendor}'s bank account is still loading. Try again in a moment.`,
+    };
+};

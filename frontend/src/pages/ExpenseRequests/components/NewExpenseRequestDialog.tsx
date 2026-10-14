@@ -44,7 +44,7 @@ import VendorSelect, { OTHERS_VENDOR_VALUE } from "@/components/custom-select/ve
 import {
     DuplicatePayeeError, GET_VENDOR_PAYEE_API, usePayeeChoice,
 } from "@/components/payees/usePayeeChoice";
-import { asksWhoGetsPaid, whoGetsPaidProblem } from "@/utils/payees/expensePayee";
+import { asksWhoGetsPaid, showsWhoGetsPaid, whoGetsPaidProblem } from "@/utils/payees/expensePayee";
 
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
@@ -231,14 +231,16 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     const vendorChosen = showVendor && !!form.vendor && form.vendor !== OTHERS_VENDOR_VALUE;
 
     // Who gets paid: asked unless the type says Not asked. With a vendor picked it is that
-    // vendor's own Payee, read here and shown read-only; the server fills in the same one.
+    // vendor's own Payee, read here and shown read-only, on a Not asked type too (the accountant
+    // pays it); the server fills in the same one.
     const payeeRule = selected?.payee_rule ?? "";
     const asksPayee = !!selected && asksWhoGetsPaid(payeeRule);
+    const showsPayee = !!selected && showsWhoGetsPaid(payeeRule, vendorChosen);
     const { data: vendorPayeeRes, isLoading: vendorPayeeLoading } =
         useFrappeGetCall<{ message: VendorPayee }>(
             GET_VENDOR_PAYEE_API,
             { vendor: form.vendor },
-            asksPayee && vendorChosen ? `request_vendor_payee_${form.vendor}` : null
+            showsPayee && vendorChosen ? `request_vendor_payee_${form.vendor}` : null
         );
     const vendorPayee = vendorChosen ? vendorPayeeRes?.message ?? null : null;
     const payeeProblem = asksPayee
@@ -586,7 +588,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                         </div>
                     )}
 
-                    {asksPayee && (
+                    {showsPayee && (
                         <WhoGetsPaidSection
                             rule={payeeRule}
                             expenseType={form.expense_type}

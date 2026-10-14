@@ -6,19 +6,25 @@
 
 import { format, parseISO } from "date-fns";
 
-import { PAYEE_MATCH, type PayeeChoice, type PayeeMatch, type PayeeSuggestion } from "@/types/NirmaanStack/Payee";
+import { PAYEE_MATCH, type PayeeWithLinks, type PayeeMatch, type PayeeSuggestion } from "@/types/NirmaanStack/Payee";
 
-import { cleanAccountNumber, cleanIfsc, linkedToLabels, type PayeeFormValues } from "./payeeForm";
+import {
+    bankLine,
+    cleanAccountNumber,
+    cleanIfsc,
+    linkedToLabels,
+    newPayeeProblem,
+    type PayeeFormValues,
+} from "./payeeForm";
 
 export const MATCH_LABEL: Record<PayeeMatch, string> = {
     [PAYEE_MATCH.STRONG]: "Strong match",
     [PAYEE_MATCH.NAME_ONLY]: "Name only",
 };
 
-/** "PYE-0412, A/c 50200061234567, HDFC0000195, HDFC Bank Rohtak". */
-export const accountLine = (p: Pick<PayeeChoice, "name" | "account_number" | "ifsc" | "bank_name" | "bank_branch">): string => {
-    const bank = [p.bank_name, p.bank_branch].filter(Boolean).join(" ");
-    return [p.name, `A/c ${p.account_number}`, p.ifsc, bank].filter(Boolean).join(", ");
+/** "PYE-0412, A/c 50200061234567, HDFC0000195, HDFC Bank, Rohtak". */
+export const accountLine = (p: Pick<PayeeWithLinks, "name" | "account_number" | "ifsc" | "bank_name" | "bank_branch">): string => {
+    return [p.name, `A/c ${p.account_number}`, p.ifsc, bankLine(p)].filter(Boolean).join(", ");
 };
 
 const MAX_NAMED = 5;
@@ -52,7 +58,7 @@ export const suggestionLinkLine = (s: PayeeSuggestion): string => {
 };
 
 /** "Last paid 08-Oct-2026, on PO/005/00107/26-27." */
-export const lastPaidLine = (c: Pick<PayeeChoice, "last_payment">): string =>
+export const lastPaidLine = (c: Pick<PayeeWithLinks, "last_payment">): string =>
     c.last_payment
         ? `Last paid ${format(parseISO(c.last_payment.date), "dd-MMM-yyyy")}, on ${c.last_payment.document}.`
         : "Never paid yet.";
@@ -110,14 +116,11 @@ export const vendorPayeeProblem = ({
     if (mode === VENDOR_PAYEE_MODE.EXISTING) {
         return chosen ? null : "Pick a payee from the matches, or enter new bank details.";
     }
-    if (lookingUp) return "Wait for the IFSC lookup.";
-    if (formProblem) return formProblem;
-    if (duplicate) return "This account is already a payee. Use that payee instead of adding a new one.";
-    return null;
+    return newPayeeProblem({ formProblem, duplicate, lookingUp });
 };
 
 /** "2 (PE-2026-00712, NPE-2026-00093)", or null when no expense names the Payee. */
-export const expensesLine = (c: Pick<PayeeChoice, "linked_expenses">): string | null =>
+export const expensesLine = (c: Pick<PayeeWithLinks, "linked_expenses">): string | null =>
     c.linked_expenses.length
         ? `${c.linked_expenses.length} (${namedList(c.linked_expenses.map((e) => e.name))})`
         : null;

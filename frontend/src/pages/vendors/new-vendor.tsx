@@ -604,7 +604,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
                                         </FormItem>
                                     )}
                                 />
-                                <p className="text-sky-600 font-semibold pb-2">Vendor Bank Details</p>
+                                <p className="text-sky-600 font-semibold pb-2">Vendor Payee</p>
                                 <VendorPayeeSection
                                     choice={payeeChoice}
                                     vendorName={form.watch("vendor_name")}

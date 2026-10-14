@@ -21,7 +21,7 @@ import { getUrlStringParam, useServerDataTable } from "@/hooks/useServerDataTabl
 import { cn } from "@/lib/utils";
 import { PAYEE_DOCTYPE, PAYEE_STATUS, type PayeeSummary } from "@/types/NirmaanStack/Payee";
 import { formatDate } from "@/utils/FormatDate";
-import { linkedToLabels } from "@/utils/payees/payeeForm";
+import { bankLine, linkedToLabels } from "@/utils/payees/payeeForm";
 import { PAYEES_TAB_PARAM, PAYEES_URL_KEY, PAYEE_TABS, isPayeeTab, payeeHref, type PayeeTab } from "@/utils/payees/payeeRoutes";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -34,7 +34,6 @@ import {
     pillCount,
 } from "./config/payeesTable.config";
 
-const bankAndBranch = (row: PayeeSummary) => [row.bank_name, row.bank_branch].filter(Boolean).join(", ");
 
 const columns: ColumnDef<PayeeSummary>[] = [
     {
@@ -72,9 +71,9 @@ const columns: ColumnDef<PayeeSummary>[] = [
     {
         accessorKey: "bank_name",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Bank and branch" />,
-        cell: ({ row }) => <div className="text-muted-foreground">{bankAndBranch(row.original) || "--"}</div>,
+        cell: ({ row }) => <div className="text-muted-foreground">{bankLine(row.original) || "--"}</div>,
         size: 220,
-        meta: { exportHeaderName: "Bank and Branch", exportValue: (row: PayeeSummary) => bankAndBranch(row) },
+        meta: { exportHeaderName: "Bank and Branch", exportValue: (row: PayeeSummary) => bankLine(row) },
     },
     {
         id: "linked_to",

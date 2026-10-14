@@ -6,6 +6,8 @@
 import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
 import type { NamedBy, PaidTo } from "@/utils/payees/paidTo";
 
+import type { PayeeChoiceApis } from "./usePayeeChoice";
+
 const API = "nirmaan_stack.api.payees.expense_payee";
 /** Who each `{doctype, name}` row is paid to, read now (Export for Payment). */
 export const PAID_TO_API = `${API}.get_paid_to`;
@@ -17,6 +19,13 @@ export const ACCOUNTS_SEARCH_PAYEES_API = `${API}.search_payees`;
 /** New bank details in Change payee go through the Payees page's own endpoints (Accounts only). */
 export const ACCOUNTS_CHECK_PAYEE_API = "nirmaan_stack.api.payees.add_payee.check_payee";
 export const ACCOUNTS_ADD_PAYEE_API = "nirmaan_stack.api.payees.add_payee.add_payee";
+
+/** Change payee's picker searches, checks and adds Payees through the Accounts endpoints. */
+export const ACCOUNTS_PAYEE_APIS: PayeeChoiceApis = {
+    search: ACCOUNTS_SEARCH_PAYEES_API,
+    check: ACCOUNTS_CHECK_PAYEE_API,
+    add: ACCOUNTS_ADD_PAYEE_API,
+};
 
 export type PaidToKey = { doctype: string; name: string };
 export type { PaidTo };
