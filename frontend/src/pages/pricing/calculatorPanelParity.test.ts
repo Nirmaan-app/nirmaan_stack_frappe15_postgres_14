@@ -1328,7 +1328,11 @@ describe("12e-5 AC10 -- one real Stage A row per row type (runs BRSR-26-00447 ..
     sections: (b.sections ?? []).map((sv) => ({ id: sv.sectionId, priced: sv.view.rowPriced, reason: sv.view.reason ?? null, totals: sv.view.totals ?? null, items: sv.view.items.map(blockFacts) })),
   });
   const facts = (x: Shown) => ({ values: x.s.values, rowPriced: x.v.rowPriced, reason: x.v.reason ?? null, unitClass: x.v.unitClass, items: x.v.items.map(blockFacts) });
-  const calcWording = (x: unknown) => JSON.parse(JSON.stringify(x).replace(/pick an? ([a-z ]+?)(?=")/g, "could not tell $1"));
+  /** The calculator's own wording for a choice not made yet (owner F4, 12e-3c), read back as the BoQ row's. */
+  const calcWording = (x: unknown): unknown =>
+    typeof x === "string" ? x.replace(/pick an? ([a-z ]+)$/g, "could not tell $1")
+      : Array.isArray(x) ? x.map(calcWording)
+        : x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, calcWording(v)])) : x;
   const fig = (x: Shown): [number, number] | string => (x.v.rowPriced ? [x.s.values.supply_rate as number, x.s.values.install_rate as number] : (x.v.reason ?? "?"));
 
   it("the fixture names exactly what it covers: 22 row types, one real row each, on 11 sheets of the Stage A runs", () => {
