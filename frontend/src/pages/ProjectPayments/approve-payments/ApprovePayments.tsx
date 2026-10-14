@@ -29,10 +29,10 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
+import { PAYMENT_STATUS } from "@/constants/paymentStatus";
 import {
   BULK_MAX_SELECTION,
   DOC_TYPES,
-  PAYMENT_STATUS,
   DIALOG_ACTION_TYPES,
   DialogActionType,
 } from "./constants";

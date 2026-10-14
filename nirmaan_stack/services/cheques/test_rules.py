@@ -83,7 +83,8 @@ class TestPaymentChequeButtons(unittest.TestCase):
     def test_the_mode_changes_only_through_a_cheque(self):
         def problem(was, now, *, cheque=None, old_cheque_status=None):
             return rules.mode_change_problem(
-                was_cheque=was, now_cheque=now, cheque=cheque, old_cheque_status=old_cheque_status
+                was_cheque=was, now_cheque=now, cheque=cheque, old_cheque_status=old_cheque_status,
+                on_old_cheque_lines=old_cheque_status is not None,
             )
 
         self.assertIsNone(problem(False, False))
@@ -134,4 +135,30 @@ class TestEditTakesPaymentsOff(unittest.TestCase):
             self.assertIsNone(rules.edit_problem(
                 header, header, status=rules.ISSUED, made_from=made_from,
                 lines_before=[self._line(rules.LINE_PO_WO_PAYMENT, "PAY-1")], lines_after=[],
+            ))
+
+    # The amount is left out: `flt(..., 2)` needs a site, so with no DB every amount reads 0.0.
+    # `api/cheques/test_cheque_edit` covers it.
+    def test_a_po_page_cheque_keeps_its_number_and_date_while_a_payment_is_on_it(self):
+        before = rules.parse_header({"bank": "ICICI Bank", "cheque_no": "1", "cheque_date": "2026-10-14",
+                                     "amount": 100, "vendor": "V", "attachment": "x"})
+        after = rules.parse_header({"bank": "ICICI Bank", "cheque_no": "2", "cheque_date": "2026-10-15",
+                                    "amount": 100, "vendor": "V", "attachment": "x"})
+        on_it = [self._line(rules.LINE_PO_WO_PAYMENT, "PAY-1")]
+        self.assertIn("so its number and date cannot change here", rules.edit_problem(
+            before, after, status=rules.ISSUED, made_from=rules.MADE_FROM_PO_WO_PAGE,
+            lines_before=on_it, lines_after=on_it,
+        ))
+
+    def test_a_po_page_cheque_with_no_payment_left_edits_like_a_report_made_one(self):
+        # Its payment came off (removed, swapped out, or dropped by a payee change): nothing to stay in step with.
+        before = rules.parse_header({"bank": "ICICI Bank", "cheque_no": "1", "cheque_date": "2026-10-14",
+                                     "amount": 100, "vendor": "V", "attachment": "x"})
+        after = rules.parse_header({"bank": "ICICI Bank", "cheque_no": "2", "cheque_date": "2026-10-15",
+                                    "amount": 100, "vendor": "V", "attachment": "x"})
+        no_payment = [self._line(rules.LINE_PO_WO_PAYMENT), self._line(rules.LINE_NON_PROJECT_EXPENSE, "NPE-1")]
+        for lines in ([], no_payment):
+            self.assertIsNone(rules.edit_problem(
+                before, after, status=rules.ISSUED, made_from=rules.MADE_FROM_PO_WO_PAGE,
+                lines_before=lines, lines_after=lines,
             ))

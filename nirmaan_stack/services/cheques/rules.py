@@ -316,7 +316,8 @@ def payment_duplicate_problem(header: ChequeHeader, *, made_from: str) -> str:
 EDITABLE_HEADER_FIELDS = (
     "bank", "bank_name", "cheque_no", "cheque_date", "amount", "vendor", "payee_name", "description",
 )
-#: What a Cheque made from the PO/WO page keeps, so it stays in step with the payment it came from.
+#: What a Cheque made from the PO/WO page keeps, so it stays in step with the payment it came from,
+#: while a Project Payment is still on it (`edit_problem`).
 LOCKED_ON_PO_WO_PAGE = {"cheque_no": "number", "cheque_date": "date", "amount": "amount"}
 
 
@@ -346,8 +347,10 @@ def edit_problem(
 
     * the photo can be replaced, never removed;
     * a Cleared or Cancelled Cheque can change only its photo;
-    * an Issued Cheque made from the PO/WO page keeps its number, date and amount (they stay in step
-      with the payment it came from), but its other fields and its lines can change;
+    * an Issued Cheque made from the PO/WO page keeps its number, date and amount while it still has a
+      Project Payment line (they stay in step with the payment), but its other fields and its lines can
+      change. With no Project Payment line left (removed, swapped out, or dropped by a payee change) it
+      edits like a report-made Cheque;
     * an Issued Cheque made on the report can change everything;
     * any line can come off an Issued Cheque. A Project Payment taken off switches back to Online
       (`payments_taken_off`), whatever its status, and its status stays as it is.
@@ -362,7 +365,7 @@ def edit_problem(
         if changed or lines_before != lines_after:
             return f"Cheque {before.cheque_no} is {status}: only its photo can change."
         return None
-    if made_from == MADE_FROM_PO_WO_PAGE:
+    if made_from == MADE_FROM_PO_WO_PAGE and any(line.payment_doctype == PAYMENT_DOCTYPE for line in lines_before):
         locked = [LOCKED_ON_PO_WO_PAGE[f] for f in changed if f in LOCKED_ON_PO_WO_PAGE]
         if locked:
             return (
@@ -454,7 +457,7 @@ def mode_change_problem(
     now_cheque: bool,
     cheque: str | None,
     old_cheque_status: str | None,
-    on_old_cheque_lines: bool = True,
+    on_old_cheque_lines: bool,
 ) -> str | None:
     """Why a payment's Mode of Payment may not change this way, or None (spec #1407). The Project
     Payments `validate` asks it on every save.

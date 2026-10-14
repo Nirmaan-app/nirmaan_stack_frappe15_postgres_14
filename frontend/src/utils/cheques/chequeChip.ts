@@ -1,4 +1,4 @@
-import { PAYMENT_STATUS } from "@/pages/ProjectPayments/approve-payments/constants";
+import { PAYMENT_STATUS } from "@/constants/paymentStatus";
 import { CHEQUE_STATUS } from "@/types/NirmaanStack/Cheques";
 import { formatDate } from "@/utils/FormatDate";
 

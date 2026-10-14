@@ -1,5 +1,5 @@
 import { CHEQUE_ACCESS_PROFILES } from "@/constants/roles";
-import { PAYMENT_STATUS } from "@/pages/ProjectPayments/approve-payments/constants";
+import { PAYMENT_STATUS } from "@/constants/paymentStatus";
 import { isChequePayment } from "@/pages/ProjectPayments/paymentMode";
 import { CHEQUE_STATUS } from "@/types/NirmaanStack/Cheques";
 

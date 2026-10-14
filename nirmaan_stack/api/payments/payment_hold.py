@@ -19,8 +19,8 @@ import frappe
 from frappe import _
 from frappe.utils import sbool
 
-from nirmaan_stack.services.cheque_payments import commit_move_to_reconciliation
 from nirmaan_stack.services import settlement
+from nirmaan_stack.services.cheque_payments import commit_move_to_reconciliation
 from nirmaan_stack.services.payment_hold import can_hold_payments
 
 PAYMENT = "Project Payments"

@@ -1,6 +1,6 @@
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
-import { PAYMENT_STATUS } from '../approve-payments/constants';
+import { PAYMENT_STATUS } from '@/constants/paymentStatus';
 import { PP_TABS } from './ppTabs.constants';
 import { CURRENT_USER_TOKEN } from './approvalsTable.config';
 

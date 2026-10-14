@@ -13,7 +13,6 @@ from nirmaan_stack.services.payment_hold import validate_hold
 from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of
 from nirmaan_stack.services.cheques.detach import DELETED
 from nirmaan_stack.services.cheques.rules import PAYMENT_REJECTED
-from nirmaan_stack.services.cheques.rules import PAYMENT_REJECTED
 
 # Imports for notification system
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_accountants, get_allowed_manager_users, get_allowed_procurement_users

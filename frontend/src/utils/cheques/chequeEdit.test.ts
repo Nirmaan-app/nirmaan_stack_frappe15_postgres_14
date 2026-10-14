@@ -93,14 +93,14 @@ describe("canEditCheque", () => {
 
 describe("chequeEditMode and its locks", () => {
     it("opens everything on a report-made Issued Cheque", () => {
-        const mode = chequeEditMode({ status: "Issued", made_from: "Report" });
+        const mode = chequeEditMode(detail({ made_from: "Report" }));
         expect(mode).toBe("all");
         expect(isHeaderLocked(mode, "cheque_no")).toBe(false);
         expect(editLockHint(mode, "Issued")).toBeUndefined();
     });
 
     it("keeps a PO-page Issued Cheque's number, date and amount", () => {
-        const mode = chequeEditMode({ status: "Issued", made_from: "PO/WO Page" });
+        const mode = chequeEditMode(detail({ made_from: "PO/WO Page" }));
         expect(mode).toBe("po_wo_page");
         expect(["cheque_no", "cheque_date", "amount"].map((f) => isHeaderLocked(mode, f))).toEqual([true, true, true]);
         expect(["bank", "vendor", "description", "lines", "attachment"].some((f) => isHeaderLocked(mode, f))).toBe(false);
@@ -109,9 +109,18 @@ describe("chequeEditMode and its locks", () => {
         );
     });
 
+    it("opens everything on a PO-page Issued Cheque with no Project Payment line left", () => {
+        // Its payment came off (removed, swapped out, or dropped by a payee change): nothing to stay in step with.
+        const withoutPayment = detail().lines.filter((l) => l.payment_doctype !== "Project Payments");
+        const mode = chequeEditMode(detail({ made_from: "PO/WO Page", lines: withoutPayment }));
+        expect(mode).toBe("all");
+        expect(isHeaderLocked(mode, "amount")).toBe(false);
+        expect(chequeEditMode(detail({ made_from: "PO/WO Page", lines: [] }))).toBe("all");
+    });
+
     it("leaves only the photo open on a Cleared or Cancelled Cheque, wherever it was made", () => {
         for (const status of ["Cleared", "Cancelled"] as const) {
-            const mode = chequeEditMode({ status, made_from: "PO/WO Page" });
+            const mode = chequeEditMode(detail({ status, made_from: "PO/WO Page" }));
             expect(mode).toBe("photo_only");
             expect(isHeaderLocked(mode, "attachment")).toBe(false);
             expect(["bank", "cheque_no", "vendor", "description", "lines"].every((f) => isHeaderLocked(mode, f))).toBe(true);

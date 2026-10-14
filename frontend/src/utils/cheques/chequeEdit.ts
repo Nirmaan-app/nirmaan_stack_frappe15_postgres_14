@@ -1,6 +1,6 @@
 import type { ChequeDetail } from "@/components/cheques/useChequeDetail";
 import { CHEQUE_ACCESS_PROFILES, CHEQUE_ACCOUNTS_PROFILES } from "@/constants/roles";
-import { CHEQUE_STATUS, type ChequeMadeFrom, type ChequeStatus } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_STATUS, type ChequeStatus } from "@/types/NirmaanStack/Cheques";
 
 import { saveChequeArgs, type ChequeFormInput, type ChequeFormValues, type SaveChequeArgs } from "./chequeForm";
 import { LINE_TYPE, saveLineArgs, type ChequeLineDraft } from "./chequeLines";
@@ -12,8 +12,9 @@ import { LINE_TYPE, saveLineArgs, type ChequeLineDraft } from "./chequeLines";
  * this only shapes the Edit dialog (which boxes are open, the hints) and who sees the Edit button.
  *
  * - An Issued Cheque made on the report: everything can change.
- * - An Issued Cheque made from the PO/WO page: its number, date and amount stay as on its payment;
- *   its other fields and its lines can change.
+ * - An Issued Cheque made from the PO/WO page: while a Project Payment line is still on it, its number,
+ *   date and amount stay as on its payment; its other fields and its lines can change. With no Project
+ *   Payment line left, it edits like a report-made Cheque.
  * - A Cleared or Cancelled Cheque: only its photo.
  * - Any line can come off an Issued Cheque. A Project Payment taken off switches back to Online, its
  *   status unchanged (`rules.payments_taken_off`); the dialog says so beside the lines.
@@ -30,9 +31,10 @@ export const canEditCheque = (cheque: { status: ChequeStatus; owner: string }, r
     CHEQUE_ACCOUNTS_PROFILES.includes(role) ||
     (CHEQUE_ACCESS_PROFILES.includes(role) && cheque.status === CHEQUE_STATUS.ISSUED && cheque.owner === user);
 
-export const chequeEditMode = (cheque: { status: ChequeStatus; made_from: ChequeMadeFrom }): ChequeEditMode => {
+export const chequeEditMode = (cheque: Pick<ChequeDetail, "status" | "made_from" | "lines">): ChequeEditMode => {
     if (cheque.status !== CHEQUE_STATUS.ISSUED) return "photo_only";
-    return cheque.made_from === "PO/WO Page" ? "po_wo_page" : "all";
+    const holdsPayment = cheque.lines.some((l) => l.line_type === LINE_TYPE.PO_WO && l.payment_name);
+    return cheque.made_from === "PO/WO Page" && holdsPayment ? "po_wo_page" : "all";
 };
 
 /** Whether the dialog locks a box: a header field's name, "lines", or "attachment" (the photo). */

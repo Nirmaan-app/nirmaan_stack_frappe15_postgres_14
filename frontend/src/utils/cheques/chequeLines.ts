@@ -1,6 +1,6 @@
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
-import { PAYMENT_STATUS } from "@/pages/ProjectPayments/approve-payments/constants";
+import { PAYMENT_STATUS } from "@/constants/paymentStatus";
 import type { ChequeLineType } from "@/types/NirmaanStack/Cheques";
 
 /**

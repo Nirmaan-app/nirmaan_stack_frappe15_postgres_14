@@ -313,6 +313,17 @@ class TestChequeEdit(FrappeTestCase):
         self._refused(reason, name, cheque_date=add_days(nowdate(), 1))
         self._refused(reason, name, amount=19000)
 
+    def test_a_po_page_cheque_with_no_payment_left_can_change_its_number_date_and_amount(self):
+        pay = self._plant("Requested")
+        name = self._from_po_page(pay)
+        self._edit(name, lines=[], description="Kept as an advance")  # its one payment comes off
+
+        number, date = self.cheques.number(), add_days(nowdate(), 3)
+        self._edit(name, cheque_no=number, cheque_date=date, amount=15000)
+        cheque = self._cheque(name)
+        self.assertEqual((cheque.cheque_no, str(cheque.cheque_date), flt(cheque.amount)), (number, date, 15000))
+        self.assertEqual(cheque.made_from, "PO/WO Page")
+
     # -- Cleared or Cancelled -------------------------------------------------------------------
     def test_a_cleared_or_cancelled_cheque_can_change_only_its_photo(self):
         pay = self._plant("Requested")

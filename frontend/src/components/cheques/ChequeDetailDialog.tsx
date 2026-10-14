@@ -82,7 +82,7 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, onChangeStatus }: Ch
                                 </Field>
                                 <Field label="Made from">{cheque.made_from}</Field>
                                 <Field label="Created by">
-                                    {cheque.owner_name || cheque.owner} · {chequeDateText(cheque.creation)}
+                                    {cheque.owner_name || cheque.owner} · {chequeDateText(cheque.creation) || "--"}
                                 </Field>
                                 <div className="col-span-2">
                                     <Field label="Description">{cheque.description}</Field>
@@ -115,7 +115,7 @@ export const ChequeDetailDialog = ({ cheque: name, onClose, onChangeStatus }: Ch
                                             )}
                                             <ChequeStatusBadge status={h.to_status} />
                                             <span className="ml-auto text-xs text-muted-foreground">
-                                                by {h.changed_by_name || h.changed_by} · {chequeDateText(h.changed_at)}
+                                                by {h.changed_by_name || h.changed_by} · {chequeDateText(h.changed_at) || "--"}
                                             </span>
                                         </div>
                                         {h.note && <p className="mt-1 whitespace-pre-wrap text-muted-foreground">{h.note}</p>}

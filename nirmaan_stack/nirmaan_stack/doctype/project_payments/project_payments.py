@@ -9,7 +9,7 @@ from frappe.model.naming import getseries
 
 from nirmaan_stack.services import settlement
 from nirmaan_stack.services.cheque_payments import is_cheque
-from nirmaan_stack.services.cheques.payment_actions import validate_mode_change
+from nirmaan_stack.services.cheques.payment_mode import validate_mode_change
 
 # A cheque's amount is fixed on paper, so it may not move while the payment is still being
 # approved -- no L1 amount edit, no CEO part-approval. Past approval it is left alone: the TDS
@@ -31,7 +31,7 @@ class ProjectPayments(Document):
 	def _validate_cheque(self):
 		"""A cheque carries its number and date, and keeps its amount.
 
-		The mode itself changes only through a Cheque (`services/cheques/payment_actions.validate_mode_change`).
+		The mode itself changes only through a Cheque (`services/cheques/payment_mode.validate_mode_change`).
 
 		⚠️ ONE CHEQUE MAY COVER SEVERAL PAYMENTS (owner, 2026-09-19, reversing the same day's
 		"one number, one live payment" ruling), so the number is deliberately NOT unique. The

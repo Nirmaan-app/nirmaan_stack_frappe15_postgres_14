@@ -15,8 +15,9 @@ Part of THE cheques service; never commits.
   no Cheque) goes back to Online and leaves that Cheque (`writer.take_payment_off`, which the report's
   Edit also uses when it takes a payment's line off an Issued Cheque). Its status does not change. The
   Cancelled Cheque keeps its line as history.
-* `validate_mode_change` -- the Project Payments `validate` rule that the mode changes only through a
-  Cheque, which is what lets `mode_of_payment` drop `set_only_once`.
+
+The Project Payments `validate` rule that the mode changes only through a Cheque is
+`services/cheques/payment_mode.validate_mode_change`.
 
 A Cheque moves no money figure, so nothing is recomputed.
 """
@@ -31,7 +32,6 @@ from nirmaan_stack.services.cheques.rules import (
     NEW_CHEQUE_FROM_PAYMENT,
     PAYMENT_DOCTYPE,
     ChequeHeader,
-    mode_change_problem,
     new_payment_cheque_problem,
     switch_to_online_problem,
 )
@@ -76,30 +76,6 @@ def switch_payment_to_online(payment_name: str):
     if problem:
         frappe.throw(_(problem))
     return take_payment_off(pay.name)
-
-
-def validate_mode_change(pay) -> None:
-    """Refuse a save of the Project Payment `pay` that changes its Mode of Payment other than through
-    a Cheque (`rules.mode_change_problem`). Called from its `validate`. A payment whose line an edit
-    took off its Cheque is no longer held by it, whatever that Cheque's status."""
-    before = pay.get_doc_before_save()
-    if not before:
-        return
-    old_cheque = before.get("cheque")
-    problem = mode_change_problem(
-        was_cheque=is_cheque(before),
-        now_cheque=is_cheque(pay),
-        cheque=pay.get("cheque"),
-        old_cheque_status=frappe.db.get_value(CHEQUES, old_cheque, "status") if old_cheque else None,
-        on_old_cheque_lines=bool(old_cheque) and bool(frappe.db.exists("Cheque Line", {
-            "parenttype": CHEQUES,
-            "parent": old_cheque,
-            "payment_doctype": PAYMENT_DOCTYPE,
-            "payment_name": pay.name,
-        })),
-    )
-    if problem:
-        frappe.throw(_(problem))
 
 
 def _locked_payment(payment_name: str):
