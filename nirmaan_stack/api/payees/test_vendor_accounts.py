@@ -3,8 +3,7 @@
 
 """Screens read a vendor's bank account from its Payee (#1428, spec #1420, ADR-0033).
 
-Drives the two endpoints the screens call: `get_vendor_payee_accounts` (hover card, detail popover,
-the payment-request gate, the bank file) and `get_vendor_list` (the vendor list's bank columns).
+Drives `get_vendor_list` (the vendor list's bank columns).
 Reads back what a screen shows: the Payee's details, or nothing for a vendor with no Payee.
 
 ⚠️ RUNS AGAINST THE ENV DATABASE (the fixtures commit). Vendors by `TaxedWorkOrderFixture`, Payees
@@ -15,11 +14,10 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture
-from nirmaan_stack.api.payees.vendor_accounts import get_vendor_list, get_vendor_payee_accounts
+from nirmaan_stack.api.payees.vendor_accounts import get_vendor_list
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 
 U = "Administrator"
-PROJECT_MANAGER = "Nirmaan Project Manager Profile"
 
 
 class TestVendorAccounts(FrappeTestCase):
@@ -41,50 +39,6 @@ class TestVendorAccounts(FrappeTestCase):
         name = self.fx.vendor()
         frappe.db.set_value("Vendors", name, "payee", payee, update_modified=False)
         return name
-
-    def _user(self, profile):
-        for user in frappe.get_all("Nirmaan Users", filters={"role_profile": profile}, pluck="name", limit=20):
-            if user and user != U and frappe.db.exists("User", user):
-                return user
-        self.skipTest(f"no user with {profile} on this site")
-
-    def test_a_vendor_reads_its_payees_account(self):
-        accounts = get_vendor_payee_accounts([self.with_payee, self.without_payee])
-
-        self.assertEqual(accounts, {
-            self.with_payee: {
-                "payee": self.payee,
-                "account_name": self.holder,
-                "account_number": self.number,
-                "ifsc": TEST_IFSC,
-                "bank_name": "Test Bank",
-                "bank_branch": "Test Branch",
-                "status": "Active",
-            },
-        })
-
-    def test_vendors_arrive_as_json_from_the_browser(self):
-        accounts = get_vendor_payee_accounts(frappe.as_json([self.with_payee]))
-
-        self.assertEqual(list(accounts), [self.with_payee])
-
-    def test_no_vendors_reads_nothing(self):
-        self.assertEqual(get_vendor_payee_accounts([]), {})
-
-    def test_anyone_who_reads_vendors_reads_their_accounts_without_payee_access(self):
-        user = self._user(PROJECT_MANAGER)
-        self.assertFalse(frappe.has_permission("Payee", "read", user=user))
-        frappe.set_user(user)
-
-        accounts = get_vendor_payee_accounts([self.with_payee])
-
-        self.assertEqual(accounts[self.with_payee]["account_number"], self.number)
-
-    def test_someone_who_cannot_read_vendors_is_refused(self):
-        frappe.set_user("Guest")
-
-        with self.assertRaises(frappe.PermissionError):
-            get_vendor_payee_accounts([self.with_payee])
 
     def test_the_vendor_list_carries_each_vendors_payee_columns(self):
         result = get_vendor_list(

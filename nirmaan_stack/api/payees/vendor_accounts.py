@@ -5,8 +5,6 @@
 
 Thin: check who is asking, call the Payee module (`services/payees/vendor_account`).
 
-* `get_vendor_payee_accounts` -- the hover card, the detail popover, the payment-request gate and
-  the bank file.
 * `get_vendor_list` -- the vendor list (`useServerDataTable`'s contract), each row carrying its
   Payee's columns as `payee_account_name`, `payee_account_number`, `payee_ifsc`, `payee_bank_name`,
   `payee_bank_branch`.
@@ -14,8 +12,6 @@ Thin: check who is asking, call the Payee module (`services/payees/vendor_accoun
 Who: whoever may read Vendors, as with the old vendor bank fields. The Payee doctype itself stays
 readable only by Accounts and Procurement; these endpoints show a vendor's account, not the Payees.
 """
-
-import json
 
 import frappe
 from frappe import _
@@ -25,16 +21,6 @@ from nirmaan_stack.services.payees.vendor_account import vendor_accounts
 
 VENDORS = "Vendors"
 _LIST_COLUMNS = ("account_name", "account_number", "ifsc", "bank_name", "bank_branch")
-
-
-@frappe.whitelist()
-def get_vendor_payee_accounts(vendors: str | list[str]) -> dict:
-    """`{vendor: {payee, account_name, account_number, ifsc, bank_name, bank_branch, status}}` for
-    each named vendor that has a Payee. A vendor with no Payee is left out."""
-    frappe.has_permission(VENDORS, "read", throw=True)
-    if isinstance(vendors, str):
-        vendors = json.loads(vendors)
-    return vendor_accounts(list(vendors or []))
 
 
 @frappe.whitelist()

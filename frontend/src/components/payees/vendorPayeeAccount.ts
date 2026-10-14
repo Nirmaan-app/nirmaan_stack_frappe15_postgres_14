@@ -2,8 +2,8 @@
  * A vendor's bank account is its Payee (#1428, #1426, spec #1420, ADR-0033). Every screen that shows
  * or checks ONE vendor's bank details reads it here, under one SWR key (`vendorAccountKey`): the
  * vendor page's Account Details card, the rename prompt, the hover card, the detail popover and the
- * payment-request gate. Revalidating that key after Change account updates all of them. Many vendors
- * at once (the bank file, the vendor list) go through `VENDOR_PAYEE_ACCOUNTS_API` / `VENDOR_LIST_API`.
+ * payment-request gate. Revalidating that key after Change account updates all of them. The vendor
+ * list reads every row's account through `VENDOR_LIST_API`.
  *
  * Server: `api/payees/vendor_payee.get_vendor_account` and `api/payees/vendor_accounts`, over
  * `services/payees/vendor_account`. Anyone who may read Vendors may read a vendor's account; the Payee
@@ -14,24 +14,14 @@ import { useCallback } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
 
 import { toast } from "@/components/ui/use-toast";
-import type { Payee, PayeeSummary } from "@/types/NirmaanStack/Payee";
+import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
 import { vendorPayeeGateProblem } from "@/utils/payees/vendorAccount";
 
 const VENDOR_ACCOUNTS_API = "nirmaan_stack.api.payees.vendor_accounts";
-export const VENDOR_PAYEE_ACCOUNTS_API = `${VENDOR_ACCOUNTS_API}.get_vendor_payee_accounts`;
 /** The vendor list, each row with its Payee's columns (`payee_account_number`, …). */
 export const VENDOR_LIST_API = `${VENDOR_ACCOUNTS_API}.get_vendor_list`;
 /** One vendor's account: its Payee's summary and how many other vendors share it. */
 export const GET_VENDOR_ACCOUNT_API = "nirmaan_stack.api.payees.vendor_payee.get_vendor_account";
-
-/** What a screen shows of a vendor's Payee. */
-export type VendorPayeeAccount = Pick<
-    Payee,
-    "account_name" | "account_number" | "ifsc" | "bank_name" | "bank_branch" | "status"
-> & { payee: string };
-
-/** `{vendor: account}`; a vendor with no Payee is left out. */
-export type VendorPayeeAccounts = Record<string, VendorPayeeAccount>;
 
 /** One vendor's account (`get_vendor_account`): its Payee and who else shares it. */
 export interface VendorAccount {
