@@ -170,3 +170,5 @@ nirmaan_stack.patches.v3_0.rebuild_vendor_categories_from_orders
 nirmaan_stack.patches.v3_0.backfill_vendor_invoice_base_gst
 nirmaan_stack.patches.v3_0.delete_stored_exact_repeats
 nirmaan_stack.patches.v3_0.delete_stored_exact_repeats_of_any_kind
+nirmaan_stack.patches.v3_0.pr_tags_one_row_per_package
+nirmaan_stack.patches.v3_0.pr_tags_add_item_packages
