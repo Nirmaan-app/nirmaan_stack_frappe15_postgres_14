@@ -490,7 +490,8 @@ describe("12e-2 -- Insulation and ADP are untouched on the panel (the 12d-8 line
     const b = r.itemList!.items[0];
     expect(b.familyControl).toBeUndefined();
     expect(b.familyLine).toBeUndefined();
-    expect(b.fields.find((f) => f.id === "pipe_size_mm")!.note).toBe("You typed 31.75 mm -> priced as 34.93 mm (next size up)");
+    // INVERTED at 12e-4d (AC5: a typed size is echoed as typed). BEFORE "You typed 31.75 mm -> priced as 34.93 mm (next size up)"
+    expect(b.fields.find((f) => f.id === "pipe_size_mm")!.note).toBe(`You typed 1-1/4${INCH} -> 31.75 mm -> priced as 34.93 mm (next size up)`);
     expect(b.fields.map((f) => f.id)).toEqual(["cladding", "thickness_mm", "pipe_size_mm"]);
     const d8 = h.compute(ctx, { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [{ base: null, family: "Nitrile Rubber Insulation", attrs: { cladding: "26G Aluminium", pipe_size_mm: "50" }, other: ["pipe_size_mm"] }] }), [ROW_UNIT_OVERRIDE_KEY]: "mts" }) as ItemListSuggestion;
     expect([d8.values.supply_rate, d8.values.install_rate, d8.values.combined_rate]).toEqual([556, 224, 780]);

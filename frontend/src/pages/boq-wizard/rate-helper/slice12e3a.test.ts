@@ -26,7 +26,7 @@ import {
   rowTotals, type ItemBlockView, type ItemEdit, type ItemEditOp, type ItemListEditState, type ItemListSuggestion, type ItemListView,
   type SectionBlockView,
 } from "./pricingSheetHelper";
-import { delegatedSections, itemFieldDefs, itemListPricingSpec, listSpecDefs, type ItemPriceResult } from "./itemListPricing";
+import { delegatedSections, itemFieldDefs, itemListPricingSpec, listSpecDefs, noUnitMessage, type ItemPriceResult } from "./itemListPricing";
 
 type Asset = { discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] };
 const DATA = "../../../../../nirmaan_stack/services/boq_rate_master/data/";
@@ -688,11 +688,20 @@ describe("12e-3a -- the edit state: section edits ride with their pipe, old stat
  * compared with Calculator -> Insulation for the same material, cladding, thickness and that pipe size typed:
  * figures, state, reason, the SKU line, every working line and every field -- the mirrored field's lead excepted,
  * BY NAME: `userEdited`, `mirrorTag` and the "From pipe:" lead of its note / working line.
+ *
+ * INVERTED at 12e-4d (owner, 2026-10-14: "fix"; AC2) for ONE named case: the MS pipe REFUSES ON ITS SIZE -- a bare
+ * number below MS's smallest size that could be inches ("6.35", "5.95": "size 6.35 has no unit - price this row by
+ * hand"). BEFORE: the section priced the bare number as millimetres, exactly as Calculator -> Insulation does (the
+ * comparison below). AFTER: the section refuses with the pipe's own sentence and shows no figure -- and the SAME size
+ * typed in the section's own box prices exactly as Calculator -> Insulation (owner: "the user can change it"). Every
+ * other comparison is unchanged; both halves are counted.
  */
 const SECTION_SKUS = ITEMS.filter((it) => it.kind === "hvac_insulation_item" && [NITRILE, PUF].includes(String(it.attributes?.item)));
 const LARGEST: Record<string, number> = Object.fromEntries([NITRILE, PUF].map((fam) =>
   [fam, Math.max(...SECTION_SKUS.filter((it) => it.attributes?.item === fam).map((it) => Number(it.attributes?.pipe_size_mm)))]));
 const num = (n: number) => String(Number(n.toFixed(4)));
+/** 12e-4d (AC2): how many of the 612 comparisons type an MS pipe size that refuses on its unit (measured, pinned). */
+const REFUSED_BY_PIPE_12E4D = 48;
 
 describe("12e-3a AC8 -- parity: the Piping section == Calculator -> Insulation, every pipe-insulation SKU x three pipe sizes", () => {
   it("the sweep covers every Nitrile Rubber (168) and Tubular Puf (36) SKU of v37 -- 204 SKUs, 612 comparisons", () => {
@@ -701,6 +710,7 @@ describe("12e-3a AC8 -- parity: the Piping section == Calculator -> Insulation, 
     expect(LARGEST).toEqual({ [NITRILE]: 53.98, [PUF]: 300 });
   });
   let compared = 0;
+  let refusedByPipe = 0;
   for (const sku of SECTION_SKUS) {
     const fam = String(sku.attributes!.item), cladding = String(sku.attributes!.cladding);
     const thickness = num(Number(sku.attributes!.thickness_mm)), size = Number(sku.attributes!.pipe_size_mm);
@@ -708,8 +718,22 @@ describe("12e-3a AC8 -- parity: the Piping section == Calculator -> Insulation, 
     it(`${fam} | ${cladding} | ${thickness} mm | pipe ${sizes.exact} (exact), ${sizes.laddered} (laddered), ${sizes.refused} (refused)`, () => {
       for (const [kind, typed] of Object.entries(sizes)) {
         const picks = { cladding, thickness_mm: thickness };
-        const sv = attached(compute(PIP, insulated("MS", typed, ins(fam, picks))).v);
+        const whole = compute(PIP, insulated("MS", typed, ins(fam, picks))).v;
+        const sv = attached(whole);
         const own = insCalc(fam, { ...picks, pipe_size_mm: typed });
+        if (whole.items[0].reason === noUnitMessage(typed)) {
+          // the AC2 half: the section refuses with the pipe's sentence, no figure anywhere on it
+          const a = secBlock(sv);
+          expect({ kind, priced: sv.view.rowPriced, reason: sv.view.reason, totals: sv.view.totals, state: a.state, blockReason: a.reason, figures: a.figures })
+            .toEqual({ kind, priced: false, reason: noUnitMessage(typed), totals: undefined, state: "blank", blockReason: noUnitMessage(typed), figures: {} });
+          expect(field(a, "pipe_size_mm"), kind).toMatchObject({ mirrorTag: "from pipe", value: "", note: `From pipe: ${noUnitMessage(typed)}` });
+          // ... and the pricer's own size in the section's box prices it exactly as Calculator -> Insulation
+          const typedHere = attached(compute(PIP, insulated("MS", typed, ins(fam, { ...picks, pipe_size_mm: typed }, ["pipe_size_mm"]))).v);
+          expect([typedHere.view.rowPriced, typedHere.view.totals], kind).toEqual([own.v.rowPriced, own.v.totals]);
+          refusedByPipe++;
+          compared++;
+          continue;
+        }
         const a = secBlock(sv), b = own.v.items[0];
         expect(field(a, "pipe_size_mm").mirrorTag, kind).toBe("from pipe");
         expect(sv.view.rowPriced, kind).toBe(own.v.rowPriced);
@@ -736,5 +760,7 @@ describe("12e-3a AC8 -- parity: the Piping section == Calculator -> Insulation, 
   it("the count: 612 comparisons ran, none skipped", () => {
     expect(compared).toBe(SECTION_SKUS.length * 3);
     expect(compared).toBe(612);
+    // 12e-4d (AC2): the comparisons where the MS pipe refused on its size, named above, and counted
+    expect(refusedByPipe).toBe(REFUSED_BY_PIPE_12E4D);
   });
 });

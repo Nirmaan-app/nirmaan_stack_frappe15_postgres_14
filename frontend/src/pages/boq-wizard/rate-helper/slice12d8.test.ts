@@ -90,7 +90,9 @@ describe("SLICE 12d-8 / R1 -- a value the system clears stays blank and the row 
     expect(r.values).toEqual({ supply_rate: 412, install_rate: 14, combined_rate: 426 });
     expect(block.state).toBe("priced");
     expect(field(block, "thickness_mm").value).toBe("65");
-    expect(field(block, "thickness_mm").note).toBe("25 mm is not stocked with pipe size 100 -> priced as 65 mm (next size up)");
+    // INVERTED at 12e-4d (AC3: below the smallest stocked size both lines say "the smallest size"). BEFORE
+    // "25 mm is not stocked with pipe size 100 -> priced as 65 mm (next size up)"
+    expect(field(block, "thickness_mm").note).toBe("25 mm is not stocked with pipe size 100 -> priced as 65 mm (the smallest size)");
     // the same value TYPED through "Other..." prices the same (the AC13 stop condition)
     expect(calculator("hvac_insulation", PUF, { cladding: "No", pipe_size_mm: "100", thickness_mm: "25" }, "mts", ["thickness_mm"]).r.values).toEqual(r.values);
     // the NEGATIVE half of the 12d-7 defect: no default fired
@@ -220,7 +222,8 @@ describe("SLICE 12d-8 / R2 -- a number-matched model value keeps the reader's ow
     expect(r.values).toEqual({ supply_rate: 412, install_rate: 14, combined_rate: 426 });
     const th = field(block, "thickness_mm");
     expect(th.value).toBe("65");
-    expect(th.note).toBe("BoQ says 25 to 50 -> 50 mm (range '25 to 50' -> its top value 50) -> priced as 65 mm (next size up)");
+    // INVERTED at 12e-4d (AC3). BEFORE "... -> priced as 65 mm (next size up)"
+    expect(th.note).toBe("BoQ says 25 to 50 -> 50 mm (range '25 to 50' -> its top value 50) -> priced as 65 mm (the smallest size)");
     expect(block.working).toContain("thickness: range '25 to 50' -> its top value 50");
   });
 
@@ -250,7 +253,8 @@ describe("SLICE 12d-8 / R3 -- typing into an Other... box the MODEL opened is ty
     expect(f.otherMode).toBe(true);
     expect(f.typedValue).toBe("5");
     expect(f.value).toBe("6.35");       // the ladder's answer still shows beside the box (C-R4)
-    expect(f.note).toBe("You typed 5 mm -> priced as 6.35 mm (next size up)");
+    // INVERTED at 12e-4d (AC3: 5 is below the smallest pipe size, 6.35). BEFORE "You typed 5 mm -> priced as 6.35 mm (next size up)"
+    expect(f.note).toBe("You typed 5 mm -> priced as 6.35 mm (the smallest size)");
     const r2 = panel("hvac_insulation", { ...NIT, pipe_size_mm: "250 NB" }, "RMT", { base: 0, family: null, attrs: { pipe_size_mm: "50" } });
     expect(field(r2.block, "pipe_size_mm").otherMode).toBe(true);
     expect(field(r2.block, "pipe_size_mm").typedValue).toBe("50");
@@ -289,7 +293,9 @@ describe("SLICE 12d-8 / R3 -- typing into an Other... box the MODEL opened is ty
     expect(r.values).toEqual({ supply_rate: 412, install_rate: 14, combined_rate: 426 });
     expect(field(block, "thickness_mm").value).toBe("65");
     expect(field(block, "thickness_mm").otherMode).toBe(false);
-    expect(field(block, "thickness_mm").note).toBe("25 mm is not stocked with pipe size 100 -> priced as 65 mm (next size up)");
+    // INVERTED at 12e-4d (AC3: below the smallest stocked size both lines say "the smallest size"). BEFORE
+    // "25 mm is not stocked with pipe size 100 -> priced as 65 mm (next size up)"
+    expect(field(block, "thickness_mm").note).toBe("25 mm is not stocked with pipe size 100 -> priced as 65 mm (the smallest size)");
     expect(field(block, "thickness_mm").note).not.toMatch(/You typed/);
   });
 });

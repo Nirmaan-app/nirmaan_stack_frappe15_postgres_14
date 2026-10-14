@@ -6123,7 +6123,9 @@ describe("SLICE 12c-S -- units, Other... state and per-field lines", () => {
     const th = field("thickness_mm");
     expect(th.value).toBe("65");                     // the value USED
     expect(th.options).toEqual(["65"]);              // narrowed to what this pipe stocks (unchanged)
-    expect(th.note).toBe("25 mm is not stocked with pipe size 100 -> priced as 65 mm (next size up)");
+    // INVERTED at 12e-4d (AC3: below the smallest stocked size both lines say "the smallest size"). BEFORE
+    // "25 mm is not stocked with pipe size 100 -> priced as 65 mm (next size up)"
+    expect(th.note).toBe("25 mm is not stocked with pipe size 100 -> priced as 65 mm (the smallest size)");
     expect(block.state).toBe("priced");
     expect(r.values).toEqual({ supply_rate: 412, install_rate: 14, combined_rate: 426 });
     expect(block.working.join("\n")).not.toMatch(/not mentioned -> 9|choose again/);
@@ -6140,7 +6142,8 @@ describe("SLICE 12c-S -- units, Other... state and per-field lines", () => {
       attrs: { cladding: "No", pipe_size_mm: "100", thickness_mm: "25" },
     });
     expect(field("thickness_mm").value).toBe("65");
-    expect(field("thickness_mm").note).toBe("25 mm is not stocked with pipe size 100 -> priced as 65 mm (next size up)");
+    // INVERTED at 12e-4d (AC3). BEFORE "25 mm is not stocked with pipe size 100 -> priced as 65 mm (next size up)"
+    expect(field("thickness_mm").note).toBe("25 mm is not stocked with pipe size 100 -> priced as 65 mm (the smallest size)");
     expect(block.state).toBe("priced");
   });
 
@@ -6152,7 +6155,8 @@ describe("SLICE 12c-S -- units, Other... state and per-field lines", () => {
     });
     expect(block.state).toBe("priced");
     expect(field("thickness_mm").value).toBe("65");  // the ladder's next size up, as before
-    expect(field("thickness_mm").note).toMatch(/next size up/);
+    // INVERTED at 12e-4d (AC3: 25 is below the smallest thickness pipe 100 stocks). BEFORE toMatch(/next size up/)
+    expect(field("thickness_mm").note).toMatch(/the smallest size/);
   });
 
   // -- the edit operations themselves -----------------------------------------------------------

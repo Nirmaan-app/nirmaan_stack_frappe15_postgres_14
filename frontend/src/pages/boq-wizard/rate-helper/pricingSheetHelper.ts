@@ -83,6 +83,7 @@ import {
   type ItemFieldDef,
   type ItemListPricingSpec,
   type ItemPriceResult,
+  type LadderHop,
 } from "./itemListPricing";
 import type {
   AttrNote,
@@ -2155,6 +2156,27 @@ function unstockedPicks(
   });
 }
 
+/** SLICE 12e-4d (owner, 2026-10-14: "fix"; AC3) -- PURE. How a ladder hop on an axis WITHOUT `how` landed, in
+ * the words the working line uses for the same step: the sheet's spelling, the smallest size (below the smallest
+ * stocked size), or the next size up (between two stocked sizes). */
+export function hopLandedWords(hop: LadderHop): string {
+  return hop.exact ? "(the sheet's own spelling of this size)" : hop.belowSmallest ? "(the smallest size)" : "(next size up)";
+}
+
+/**
+ * SLICE 12e-4d (owner, 2026-10-14: "ok (fix)"; AC5) -- PURE. What the field's line quotes for a size the PRICER
+ * typed on an axis without `how`: the text AS TYPED, then the number it was read as wherever the two differ --
+ * "You typed 3/4 -> 19.05 mm", never "You typed 19.05 mm". A bare number, or the number with its own unit, is
+ * quoted as before ("You typed 25 mm"), which also keeps a size mirrored from a pipe byte-identical.
+ */
+export function typedSizeEcho(typed: string, requested: number, unitSuffix: string): string {
+  const read = `${fmtNum(requested)}${unitSuffix}`;
+  const t = typed.trim();
+  const plain = t === "" || (/^\d+(?:\.\d+)?$/.test(t) && Number(t) === requested)
+    || t.replace(/\s+/g, " ").toLowerCase() === read.trim().toLowerCase();
+  return plain ? read : `${t} -> ${read}`;
+}
+
 function itemBlockView(
   spec: ItemListPricingSpec,
   defs: ReturnType<typeof listSpecDefs>,
@@ -2321,11 +2343,13 @@ function itemBlockView(
       // landed, in this axis's own ladder wording.
       note = `${said} ${stated.trim()}: ${severalSizesTaken(hop.several.sizes, hop.several.chosen)}`
         + (hop.requested !== hop.fitted
-          ? ` -> priced as ${fmtNum(hop.fitted)}${u} ${hop.exact ? "(the sheet's own spelling of this size)" : "(next size up)"}`
+          ? ` -> priced as ${fmtNum(hop.fitted)}${u} ${hopLandedWords(hop)}`
           : "");
     } else if (hop && hop.requested !== hop.fitted) {
-      note = `${ladLead ?? `${said} ${fmtNum(hop.requested)}${u}`} -> priced as ${fmtNum(hop.fitted)}${u} `
-        + (hop.exact ? "(the sheet's own spelling of this size)" : "(next size up)");
+      // SLICE 12e-4d (AC5): a size the PRICER typed is quoted as typed ("You typed 3/4 -> 19.05 mm -> ..."); a
+      // value the BoQ stated keeps its line exactly as before (`typedSizeEcho` is reached only by a typed one)
+      const quoted = userEdited ? typedSizeEcho(stated, hop.requested, u) : `${fmtNum(hop.requested)}${u}`;
+      note = `${ladLead ?? `${said} ${quoted}`} -> priced as ${fmtNum(hop.fitted)}${u} ${hopLandedWords(hop)}`;
     }
     if (isSizeDropdown) {
       // SLICE 6b (V3, X3): the field shows the size that will be PRICED -- the ladder result -- with the note naming
@@ -2396,7 +2420,7 @@ function itemBlockView(
     })();
     if (matched && readerLine) {
       note = `${said} ${matched.from}${fromU} -> ${matched.to}${u} (${readerLine})`
-        + (hop && hop.requested !== hop.fitted ? ` -> priced as ${fmtNum(hop.fitted)}${u} ${hop.exact ? "(the sheet's own spelling of this size)" : "(next size up)"}` : "");
+        + (hop && hop.requested !== hop.fitted ? ` -> priced as ${fmtNum(hop.fitted)}${u} ${hopLandedWords(hop)}` : "");
     } else if (matched && !note) note = `${said} ${matched.from}${fromU} -> ${matched.to}${u} (the sheet's own spelling of this value)`;
     // SLICE 12c-S (E2E-1): a pick the pricer's later answers no longer stock was CLEARED before pricing;
     // the field says which value went and why, so nothing is substituted behind their back.
@@ -2886,6 +2910,9 @@ function computeItemListOwn(
  * item stated no readable number. */
 export function mirroredNumber(res: ItemPriceResult | undefined, attr: string): string | undefined {
   if (!res) return undefined;
+  // SLICE 12e-4d (AC2): a size whose READING refused the item ("size 1 has no unit") was never read -- nothing is
+  // mirrored from it, so an independent section can never take it either
+  if (res.sizeRefused === attr) return undefined;
   const hop = res.ladderHops.find((h) => h.attr === attr);
   if (hop) return fmtNum(hop.how === "alt" && typeof hop.alt === "number" ? hop.alt : hop.requested);
   const v = res.readValues?.[attr];
@@ -2944,6 +2971,8 @@ function computeItemList(
   const priceSection = (
     r: (typeof resolved)[number], secEdit: ItemEdit, pipe: number | null, index: number, mirrorText: string | undefined,
     ownerQty?: string,
+    /** SLICE 12e-4d (AC2): the item's own refusal, where it refused on the size this section takes from it */
+    pipeRefusal?: string,
   ): SectionBlockView => {
     const heading = `${r.s.label} - priced by ${r.cfg ? categoryLabel(r.cfg) : r.s.label}'s rules`;
     if (!r.cfg || !r.dspec) {
@@ -2976,6 +3005,15 @@ function computeItemList(
     const toId = mir ? r.dspec.numbers[mir.to]?.from[0] : undefined;
     const handEdited = toId !== undefined && hasOwn(secEdit.attrs, toId);
     const mirrored = !!mir && toId !== undefined && !handEdited && mirrorText !== undefined;
+    /**
+     * SLICE 12e-4d (owner, 2026-10-14: "fix"; AC2) -- A SECTION NEVER PRICES A SIZE ITS PIPE REFUSED TO READ. The
+     * pipe refused on its size ("size 1 has no unit - price this row by hand", "... - pick one", a size it cannot
+     * read, a cleared pick), and this section's size comes from that pipe: the section refuses with the pipe's
+     * own sentence and shows no figure. Its size box stays open and empty, so a size the pricer TYPES there
+     * prices the section exactly as before (owner: "the user can change it if they want"). A pipe refused for
+     * anything else (SS, an unknown type, a size above the largest) does not reach this.
+     */
+    const refusedByPipe = !!mir && toId !== undefined && !handEdited && pipeRefusal !== undefined;
     // the mirrored size enters the delegated category exactly as a size typed into its own "Other..." box
     // would (the same cell, the same reader, the same ladder) -- it is never resolved here
     /**
@@ -2991,14 +3029,33 @@ function computeItemList(
     const callEdit: ItemEdit = {
       base: modelItem ? 0 : null,
       family: secEdit.family,
-      attrs: mirrored ? { ...secEdit.attrs, [toId!]: mirrorText! } : { ...secEdit.attrs },
+      attrs: mirrored ? { ...secEdit.attrs, [toId!]: mirrorText! } : refusedByPipe ? { ...secEdit.attrs, [toId!]: "" } : { ...secEdit.attrs },
       ...(qtyLinked ? { qty: ownerQty } : (secEdit.qty !== undefined ? { qty: secEdit.qty } : {})),
-      ...(mirrored ? { other: [...new Set([...(secEdit.other ?? []), toId!])] } : (secEdit.other ? { other: [...secEdit.other] } : {})),
+      ...(mirrored || refusedByPipe ? { other: [...new Set([...(secEdit.other ?? []), toId!])] } : (secEdit.other ? { other: [...secEdit.other] } : {})),
     };
     const dext = modelItem ? ({ excelRow: ctx.excelRow, description: ctx.description, attributes: {}, items: [modelItem] } as ExtractionRowWithItems) : undefined;
     const res = computeItemListOwn(r.cfg, r.dspec, items, { ...ctx, unit: rowUnit, ...(calculator ? { noRow: true } : {}) }, dext, inRun,
                                    { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [callEdit] }) }) as ItemListSuggestion;
     const dview = res.itemList!;
+    if (refusedByPipe) {
+      const { totals: _t, ...rest } = dview;
+      const fromPipe = mirroredLead(`${TYPED_LEAD}${pipeRefusal}`, mir!.tag);
+      const view: ItemListView = {
+        ...rest,
+        families: dview.families.filter((f) => offered.has(f.family) && stocked(f.family)),
+        rowPriced: false,
+        reason: pipeRefusal,
+        items: dview.items.map(({ skuLine: _sku, ...b }) => ({
+          ...b,
+          ...(qtyLinked ? { qtyDefaulted: false, qtyMirrorTag: qtyTag } : {}),
+          state: "blank" as const,
+          reason: pipeRefusal,
+          figures: {},
+          fields: b.fields.map((f) => (f.id === toId ? { ...f, value: "", typedValue: "", userEdited: false, mirrorTag: mir!.tag, note: fromPipe } : f)),
+        })),
+      };
+      return { sectionId: r.s.id, heading, pipe, index, view };
+    }
     const view: ItemListView = {
       ...dview,
       // the families the section offers: the declared ones that have an active SKU today
@@ -3064,7 +3121,9 @@ function computeItemList(
       if (value !== inc.equals) continue;
       const secEdit: ItemEdit = edit.sections?.[r.s.id] ?? { base: modelSection ? edit.base : null, family: null, attrs: {} };
       editsOut.items[i] = { ...editsOut.items[i], sections: { ...(editsOut.items[i].sections ?? {}), [r.s.id]: secEdit } };
-      attached.push(priceSection(r, secEdit, i, 0, r.s.mirror ? mirroredNumber(layers.get(i)?.[0], r.s.mirror.from) : undefined, b.qty));
+      const own = layers.get(i)?.[0];
+      const pipeRefusal = r.s.mirror && own?.sizeRefused === r.s.mirror.from ? own.reason : undefined;
+      attached.push(priceSection(r, secEdit, i, 0, r.s.mirror ? mirroredNumber(own, r.s.mirror.from) : undefined, b.qty, pipeRefusal));
     }
     return { ...b, fields, ...(attached.length ? { sections: attached } : {}) };
   });

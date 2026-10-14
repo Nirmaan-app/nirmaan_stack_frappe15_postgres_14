@@ -578,7 +578,8 @@ describe("12e-4b AC7 (F-3) -- a bare number below the smallest stocked size that
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════
 describe("12e-4b AC8 (G1 / G2 / G3) -- a default is named as the default, no line repeats itself, a field reads by its label", () => {
-  const G1_NOTE = "Default 9 mm -> priced as 13 mm (next size up)";
+  // INVERTED at 12e-4d (AC3: 9 is below the smallest stocked thickness, 13). BEFORE "Default 9 mm -> priced as 13 mm (next size up)"
+  const G1_NOTE = "Default 9 mm -> priced as 13 mm (the smallest size)";
   it("G1: in the calculator the defaulted thickness's note names the default -- never 'BoQ says' -- and the figure is unmoved (556 / 224 / 780)", () => {
     const { v, values, s } = compute(INS, { items: [ins(NITRILE, { cladding: "26G Aluminium", pipe_size_mm: "50" }, ["pipe_size_mm"])] });
     expect(values).toEqual({ supply_rate: 556, install_rate: 224, combined_rate: 780 });
@@ -596,7 +597,8 @@ describe("12e-4b AC8 (G1 / G2 / G3) -- a default is named as the default, no lin
     expect(fig(said.values)).toEqual([556, 224]);
     // a value the PRICER typed still says so
     const typed = compute(INS, { items: [ins(NITRILE, { cladding: "26G Aluminium", pipe_size_mm: "50", thickness_mm: "9" }, ["pipe_size_mm", "thickness_mm"])] });
-    expect(field(typed.v.items[0], "thickness_mm").note).toBe("You typed 9 mm -> priced as 13 mm (next size up)");
+    // INVERTED at 12e-4d (AC3). BEFORE "You typed 9 mm -> priced as 13 mm (next size up)"
+    expect(field(typed.v.items[0], "thickness_mm").note).toBe("You typed 9 mm -> priced as 13 mm (the smallest size)");
   });
   it("G2: the default's working line says its rule ONCE", () => {
     const { v } = compute(INS, { items: [ins(NITRILE, { cladding: "26G Aluminium", pipe_size_mm: "50" }, ["pipe_size_mm"])] });
@@ -837,7 +839,8 @@ describe("12e-4b AC0 (the frontend's half) -- the stored rows of BOQ-26-00073 / 
     const t = field(sb, "thickness_mm"), ps = field(sb, "pipe_size_mm");
     expect(t.value).toBe("13");
     expect(sb.working.some((w) => w.includes("'6/9 mm' states two values -- the higher, 9, is taken"))).toBe(true);
-    expect(t.note).toBe("BoQ says 9 mm -> priced as 13 mm (next size up)");
+    // INVERTED at 12e-4d (AC3). BEFORE "BoQ says 9 mm -> priced as 13 mm (next size up)"
+    expect(t.note).toBe("BoQ says 9 mm -> priced as 13 mm (the smallest size)");
     expect({ typed: ps.typedValue, value: ps.value, tag: ps.mirrorTag }).toEqual({ typed: "25", value: "28.58", tag: "from pipe" });
     expect(fig(sb.figures)).toEqual([238, 14]);
     expect(values).toEqual({ supply_rate: 358, install_rate: 42, combined_rate: 400 });

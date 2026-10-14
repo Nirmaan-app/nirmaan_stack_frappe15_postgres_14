@@ -665,6 +665,10 @@ export interface LadderHop {
   alt?: number;
   /** SLICE 12e-3b: the stated text was two or more sizes -- the sizes as the line names them and the one taken */
   several?: { sizes: string[]; chosen: string };
+  /** SLICE 12e-4d (owner, 2026-10-14: "fix"; AC3): on an axis WITHOUT `how`, the stated value was below the
+   * smallest stocked size and took it -- so the field's line says "(the smallest size)", as the working does.
+   * Present ONLY then; an axis with `how` says so through `how: "smallest"`. */
+  belowSmallest?: true;
 }
 
 export interface ItemPriceResult {
@@ -701,6 +705,11 @@ export interface ItemPriceResult {
   skuUnitClass: string | null;
   state: "priced" | "blank";
   reason?: string;
+  /** SLICE 12e-4d (owner, 2026-10-14: "fix"; AC2): the NUMBER AXIS whose READING refused this item -- a stated
+   * size that could not be read (several sizes, not one size, a reader's own refusal, a cleared pick) or a bare
+   * number that could be inches ("size 1 has no unit"). A section that takes its size from this axis refuses
+   * with the same sentence instead of pricing a number the item itself would not price. Present ONLY then. */
+  sizeRefused?: string;
   /**
    * SLICE 12c-S. EVERY FACT THIS BLOCK RESOLVED, whether or not the row got far enough to use it.
    *
@@ -1684,6 +1693,8 @@ function priceOneItem(
   // (1) the family: absent = no ADP kind (R8); an alias prices as its target (R3); no SKU = blank (R18)
   const famRaw = rawValue(item, familyAttr(spec));
   out.familyRaw = famRaw === null ? null : String(famRaw);
+  // SLICE 12e-4d (AC1): the MODEL answered the family itself -- not the pricer, not a default, not the row's words
+  const modelAnswered = out.familyRaw !== null && out.familyRaw !== "None" && item.attributes?.[familyAttr(spec)]?.typed !== true;
   // SLICE 12d-1a (owner R2): a row that names NO material prices as the family its ROW KIND implies --
   // declared in config, marked as a default. ONLY over an absent / "None" answer; a stated family,
   // "none of these" included, is never touched.
@@ -1740,6 +1751,19 @@ function priceOneItem(
         const line = familyTyped ? typedFamilyLine(read.line) : read.line;
         out.familyLine = line;
         out.working.push(line);
+      } else if (modelAnswered && asWrittenAttr) {
+        // SLICE 12e-4d (owner, 2026-10-14: "fix"; AC1): the MODEL answered the family itself AND copied a
+        // different word as written ("PVC" answered, "uPVC" written). Where that word reads as the SAME family
+        // (uPVC -> PVC, GI -> MS, "MS / GI" -> MS), its line shows exactly as it does when the word decides. A
+        // word that reads as another family, refuses or reads as nothing is NOT acted on here (the conflict
+        // case, left for the owner); the answered family prices as before. Display only: no figure moves.
+        const w = rawValue(item, asWrittenAttr);
+        const word = w !== null && w !== "None" ? String(w).trim() : "";
+        const said = word !== "" && word.replace(/\s+/g, " ").toLowerCase() !== family.toLowerCase() ? readFamilyWord(spec, word) : null;
+        if (said && !("refuse" in said) && said.family === family && said.line) {
+          out.familyLine = said.line;
+          out.working.push(said.line);
+        }
       }
     }
   }
@@ -2127,7 +2151,8 @@ function priceOneItem(
      * mentioned -- and with the thickness default widened to every family, this order is what stops
      * a mentioned thickness pricing silently at 9 mm (the recon's measured defect, Q8).
      */
-    if (unreadable[n]) return { ...blank(unreadable[n]), selection: sel };
+    // SLICE 12e-4d (AC2): a NUMBER axis that refused on its reading is named, for a section that takes its size from it
+    if (unreadable[n]) return { ...blank(unreadable[n]), selection: sel, ...(n in spec.numbers ? { sizeRefused: n } : {}) };
     const ndef = spec.number_defaults?.[n];
     if (ndef && Number.isFinite(ndef.value)
         && (!ndef.families || (out.family !== null && ndef.families.includes(out.family)))) {
@@ -2265,7 +2290,7 @@ function priceOneItem(
         || (written !== undefined && written !== null && BARE_NUMBER_RE.test(withoutTrailingPunctuation(String(written))));
       const lo = rungs[0].size, hi = rungs[rungs.length - 1].size;
       const couldBeInches = [want * 25.4, want * inchAlt].some((mm) => mm >= lo && mm <= hi);
-      if (bare && couldBeInches) return { ...blank(noUnitMessage(fmt(want))), selection: sel };
+      if (bare && couldBeInches) return { ...blank(noUnitMessage(fmt(want))), selection: sel, sizeRefused: attr };
     }
     const fit = fitModuleLadder(rungs, matched ? matched.rung : want, "up");
     if (!fit) {
@@ -2304,11 +2329,16 @@ function priceOneItem(
     const declares = !!(spec.numbers[attr]?.typed_entry || spec.numbers[attr]?.inch_mm_alt
       || spec.size_match?.near !== undefined || spec.size_match?.below_smallest !== undefined);
     if (declares && how === undefined) how = fit.exact ? "exact" : (want < rungs[0].size ? "smallest" : "up");
+    // SLICE 12e-4d (owner, 2026-10-14: "fix"; AC3): ONE wording for the size step on the field's line and the
+    // working line -- below the smallest stocked size both say "(the smallest size)", between two stocked sizes
+    // both say "(next size up)". Wording only: the rung bought is the same.
+    const belowSmallest = !fit.exact && want < rungs[0].size;
     out.ladderHops.push({ attr, name, requested: want, fitted: fit.modules, exact: fit.exact,
       ...(declares ? { how, ...(altRead ? { raw: altRead.raw, alt: altRead.alt } : {}) } : {}),
-      ...(severalReads[attr] ? { several: severalReads[attr] } : {}) });
+      ...(severalReads[attr] ? { several: severalReads[attr] } : {}),
+      ...(!declares && belowSmallest ? { belowSmallest: true as const } : {}) });
     if (!fit.exact) {
-      out.working.push(`${name} ${fmt(want)} is not on the sheet -> ${fmt(fit.modules)} (next size up, R6)`);
+      out.working.push(`${name} ${fmt(want)} is not on the sheet -> ${fmt(fit.modules)} (${belowSmallest ? "the smallest size" : "next size up"}, R6)`);
       sel[attr] = fit.modules;
     }
     // a SKU without the ladder attribute is not on the ladder and must not match a laddered selection

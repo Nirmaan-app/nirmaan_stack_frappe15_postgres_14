@@ -499,7 +499,9 @@ describe("12e-2b AC13 -- a PICK on a LADDER field that another answer unstocks f
     const { b, values } = calc(INS, "Tubular Puf Insulation", { cladding: "No", pipe_size_mm: "100", thickness_mm: "25" }, "mts");
     expect(fig(values)).toEqual([412, 14]);
     expect(field(b, "thickness_mm").value).toBe("65");
-    expect(field(b, "thickness_mm").note).toBe("25 mm is not stocked with pipe size 100 -> priced as 65 mm (next size up)");
+    // INVERTED at 12e-4d (AC3: below the smallest stocked size both lines say "the smallest size"). BEFORE
+    // "25 mm is not stocked with pipe size 100 -> priced as 65 mm (next size up)"
+    expect(field(b, "thickness_mm").note).toBe("25 mm is not stocked with pipe size 100 -> priced as 65 mm (the smallest size)");
     expect(calc(INS, "Tubular Puf Insulation", { cladding: "No", pipe_size_mm: "100", thickness_mm: "25" }, "mts", ["thickness_mm"]).values).toEqual(values);
   });
   it("Insulation, Nitrile Rubber: thickness 25 PICKED, then pipe size 6.35 (stocks 13 / 19) -> COMPOSED 13 + 13, 466 / 238, the line on the field AND heading the working", () => {
