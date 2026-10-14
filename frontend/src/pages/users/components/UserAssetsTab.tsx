@@ -39,9 +39,13 @@ import {
 import { cn } from "@/lib/utils";
 import { useUserData } from "@/hooks/useUserData";
 import { assetTabToOpen, canSignDeclaration } from "@/utils/assetDeclaration";
-import { PendingDeclarationTooltip, pendingDeclarationLabel } from "@/components/helpers/PendingDeclarationIcon";
+import { AUDIT_PENDING, AuditBadge, auditBadge, canSubmitAudit, isAuditOverdue } from "@/utils/assetAudit";
+import { PendingDeclarationTooltip, pendingAssetActionsLabel } from "@/components/helpers/PendingDeclarationIcon";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AssignAssetToUserDialog } from "./AssignAssetToUserDialog";
 import { SignDeclarationDialog } from "@/pages/Assets/components/SignDeclarationDialog";
+import { SubmitAuditDialog } from "@/pages/Assets/components/SubmitAuditDialog";
+import { AuditStatusRow } from "@/pages/Assets/components/AuditStatusRow";
 import { getAssetPermissions } from "@/pages/Assets/utils/permissions";
 import { UnassignReasonFields } from "@/pages/Assets/components/UnassignReasonFields";
 import { isUnassignReasonValid } from "@/utils/assetUnassign";
@@ -62,6 +66,11 @@ interface AssetManagementRecord {
   /** Ticked when the holder returns it; cleared if Admin / HR / PMO reject the return. */
   returned?: 0 | 1;
   returned_on?: string | null;
+  /** Monthly asset audit (owner, 2026-10-14), written by the server. */
+  audit_status?: string | null;
+  audit_month?: string | null;
+  last_audit_on?: string | null;
+  audit_proof?: string | null;
 }
 
 interface AssetMasterRecord {
@@ -78,14 +87,34 @@ interface AssetCategoryRecord {
   name: string;
   asset_category: string;
   category_type?: "Project" | "IT";
+  /** "Monthly audit required" (owner, 2026-10-14). */
+  audit_required?: 0 | 1;
 }
 
 type AssetSubTab = "Project" | "IT";
 
-/** The mark on a Project / IT tab that has declarations still to sign or upload (same icon as the sidebar). */
-function PendingDeclarationMark({ count, canSign }: { count: number; canSign: boolean }) {
-  if (count === 0) return null;
-  return <PendingDeclarationTooltip label={pendingDeclarationLabel(count, canSign)} />;
+/**
+ * The mark on a Project / IT tab with declarations still to sign or upload, or audits still to send
+ * (same icon as the sidebar; red while an audit is waiting to be sent).
+ */
+function PendingDeclarationMark({
+  count,
+  audits = 0,
+  overdueAudits = 0,
+  canSign,
+}: {
+  count: number;
+  audits?: number;
+  overdueAudits?: number;
+  canSign: boolean;
+}) {
+  if (count + audits === 0) return null;
+  return (
+    <PendingDeclarationTooltip
+      auditPending={audits > 0}
+      label={pendingAssetActionsLabel(count, audits, canSign, overdueAudits)}
+    />
+  );
 }
 
 interface UserAssetsTabProps {
@@ -108,11 +137,15 @@ function AssetCard({
   canUploadDeclaration,
   canSign,
   canReturn = false,
+  returnBlockedByAudit = false,
   hasPage = true,
+  audit = null,
+  canAudit = false,
   onUnassign,
   onUploadDeclaration,
   onSign,
   onReturn,
+  onAudit,
 }: {
   assignment: AssetManagementRecord;
   asset: AssetMasterRecord | undefined;
@@ -125,10 +158,17 @@ function AssetCard({
   canSign: boolean;
   /** The viewer holds it, the declaration is on file and no return is waiting: show Return. */
   canReturn?: boolean;
+  /** Return would be allowed but the monthly audit is open: Return shows greyed out (owner, 2026-10-14). */
+  returnBlockedByAudit?: boolean;
+  /** The audit line, or null when there is nothing to show (a category that isn't audited). */
+  audit?: AuditBadge | null;
+  /** The viewer holds it and its audit is open: show Submit audit. */
+  canAudit?: boolean;
   onUnassign: () => void;
   onUploadDeclaration: () => void;
   onSign: () => void;
   onReturn?: () => void;
+  onAudit?: () => void;
 }) {
   const isPendingDeclaration = !assignment.asset_declaration_attachment;
 
@@ -225,6 +265,20 @@ function AssetCard({
                 Return
               </Button>
             )}
+            {returnBlockedByAudit && (
+              // A disabled button gets no hover, so the tooltip hangs on a wrapper (focusable for keyboard).
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0} className="inline-flex cursor-not-allowed rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    <Button size="sm" disabled className="pointer-events-none h-7 px-2.5 text-xs gap-1">
+                      <Undo2 className="h-3.5 w-3.5" />
+                      Return
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">Submit the pending audit first, then return it.</TooltipContent>
+              </Tooltip>
+            )}
             {canSign && (
               <Button
                 size="sm"
@@ -260,9 +314,14 @@ function AssetCard({
           </div>
         </div>
 
+        {/* Monthly audit (owner, 2026-10-14): pending with Submit audit for the holder, or done with the photo */}
+        {audit && (
+          <AuditStatusRow badge={audit} proofUrl={assignment.audit_proof} canSubmit={canAudit} onSubmit={onAudit} />
+        )}
+
         {/* Returned, waiting for approval (owner, 2026-10-13) */}
         {!!assignment.returned && (
-          <span className="inline-flex w-fit items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700">
+          <span className="inline-flex w-fit items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-600">
             <Undo2 className="h-3 w-3" />
             Returned {assignment.returned_on ? formatDate(assignment.returned_on) : ""} · waiting for approval
           </span>
@@ -304,10 +363,12 @@ export function UserAssetsTab({
   // The dialog holds the row's name; the live row is read from the refetched list.
   const [signingAssignmentName, setSigningAssignmentName] = useState<string | null>(null);
   // Return (owner, 2026-10-13): the holder tells HR / Admin they gave the asset back; it stays
-  // assigned until one of them approves it on the Assets page's Return By tab.
+  // assigned until one of them approves it on the Assets page's Return Request tab.
   const [returningAssignment, setReturningAssignment] = useState<AssetManagementRecord | null>(null);
   const [isReturning, setIsReturning] = useState(false);
   const { call: requestReturn } = useFrappePostCall("nirmaan_stack.api.assets.returns.request_return");
+  // Monthly audit (owner, 2026-10-14): the dialog holds the row's name; the live row comes from the list.
+  const [auditingAssignmentName, setAuditingAssignmentName] = useState<string | null>(null);
 
   // Get asset details by ID
   const getAssetDetails = useCallback(
@@ -325,6 +386,23 @@ export function UserAssetsTab({
     });
     return map;
   }, [categoryList]);
+
+  // Categories whose assigned assets get the monthly audit.
+  const auditedCategories = useMemo(
+    () => new Set((categoryList ?? []).filter((c) => !!c.audit_required).map((c) => c.name)),
+    [categoryList]
+  );
+
+  // The card's audit line: shown while an audit is open or once one was sent; nothing for a category
+  // that isn't audited or an asset with no audit yet, so those cards look as they did.
+  const getAuditBadge = useCallback(
+    (assignment: AssetManagementRecord): AuditBadge | null => {
+      const category = getAssetDetails(assignment.asset)?.asset_category;
+      const badge = auditBadge(assignment, !!category && auditedCategories.has(category), category);
+      return badge.tone === "off" || badge.tone === "none" ? null : badge;
+    },
+    [getAssetDetails, auditedCategories]
+  );
 
   // Determine an assignment's category type via its asset → category lookup.
   const getAssignmentType = useCallback(
@@ -355,6 +433,12 @@ export function UserAssetsTab({
   // Declarations still waiting, per tab -- the same test as the "Declaration Pending" count above.
   const projectPending = projectAssignments.filter((a) => !a.asset_declaration_attachment).length;
   const itPending = itAssignments.filter((a) => !a.asset_declaration_attachment).length;
+  // Monthly audits still open, in total and per tab.
+  const pendingAuditCount = (assetManagementList ?? []).filter((a) => a.audit_status === AUDIT_PENDING).length;
+  const projectAudits = projectAssignments.filter((a) => a.audit_status === AUDIT_PENDING).length;
+  const itAudits = itAssignments.filter((a) => a.audit_status === AUDIT_PENDING).length;
+  const projectOverdueAudits = projectAssignments.filter((a) => isAuditOverdue(a)).length;
+  const itOverdueAudits = itAssignments.filter((a) => isAuditOverdue(a)).length;
 
   // Open on the tab that needs attention: when the assignments first load, and again on every
   // navigation here -- the sidebar's pending-declaration icon navigates even when this profile is
@@ -366,17 +450,21 @@ export function UserAssetsTab({
     subTabDecidedFor.current = location.key;
     setSubTab(
       assetTabToOpen(
-        { total: projectAssignments.length, pending: projectPending },
-        { total: itAssignments.length, pending: itPending }
+        { total: projectAssignments.length, pending: projectPending + projectAudits },
+        { total: itAssignments.length, pending: itPending + itAudits }
       )
     );
-  }, [location.key, projectAssignments.length, itAssignments.length, projectPending, itPending]);
+  }, [location.key, projectAssignments.length, itAssignments.length, projectPending, itPending, projectAudits, itAudits]);
 
   const visibleAssignments = subTab === "Project" ? projectAssignments : itAssignments;
 
   const signingAssignment = useMemo(
     () => (assetManagementList ?? []).find((a) => a.name === signingAssignmentName),
     [assetManagementList, signingAssignmentName]
+  );
+  const auditingAssignment = useMemo(
+    () => (assetManagementList ?? []).find((a) => a.name === auditingAssignmentName),
+    [assetManagementList, auditingAssignmentName]
   );
 
   // All unassigned assets — the dialog filters internally by its Asset Type
@@ -484,6 +572,12 @@ export function UserAssetsTab({
               <span className="tabular-nums">{pendingDeclCount}</span> Declaration Pending
             </span>
           )}
+          {pendingAuditCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-amber-700">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span className="tabular-nums">{pendingAuditCount}</span> Audit Pending
+            </span>
+          )}
         </div>
       </div>
 
@@ -507,7 +601,12 @@ export function UserAssetsTab({
               <Badge variant="secondary" className="ml-1 px-1.5 py-0 h-5 text-xs">
                 {projectAssignments.length}
               </Badge>
-              <PendingDeclarationMark count={projectPending} canSign={isOwnProfile} />
+              <PendingDeclarationMark
+                count={projectPending}
+                audits={projectAudits}
+                overdueAudits={projectOverdueAudits}
+                canSign={isOwnProfile}
+              />
             </TabsTrigger>
             <TabsTrigger
               value="IT"
@@ -519,7 +618,12 @@ export function UserAssetsTab({
               <Badge variant="secondary" className="ml-1 px-1.5 py-0 h-5 text-xs">
                 {itAssignments.length}
               </Badge>
-              <PendingDeclarationMark count={itPending} canSign={isOwnProfile} />
+              <PendingDeclarationMark
+                count={itPending}
+                audits={itAudits}
+                overdueAudits={itOverdueAudits}
+                canSign={isOwnProfile}
+              />
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -552,6 +656,14 @@ export function UserAssetsTab({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {visibleAssignments.map((assignment) => {
             const asset = getAssetDetails(assignment.asset);
+            // The holder, own profile, declaration on file, no return waiting. An open audit greys
+            // Return out until it is sent (owner, 2026-10-14).
+            const returnable =
+              isOwnProfile &&
+              assignment.asset_assigned_to === userData?.user_id &&
+              asset?.current_assignee === userData?.user_id &&
+              !!assignment.asset_declaration_attachment &&
+              !assignment.returned;
             return (
               <AssetCard
                 key={assignment.name}
@@ -580,14 +692,20 @@ export function UserAssetsTab({
                   setUploadDialogOpen(true);
                 }}
                 onSign={() => setSigningAssignmentName(assignment.name)}
-                canReturn={
-                  isOwnProfile &&
-                  assignment.asset_assigned_to === userData?.user_id &&
-                  asset?.current_assignee === userData?.user_id &&
-                  !!assignment.asset_declaration_attachment &&
-                  !assignment.returned
-                }
+                canReturn={returnable && assignment.audit_status !== AUDIT_PENDING}
+                returnBlockedByAudit={returnable && assignment.audit_status === AUDIT_PENDING}
                 onReturn={() => setReturningAssignment(assignment)}
+                audit={getAuditBadge(assignment)}
+                canAudit={
+                  isOwnProfile &&
+                  canSubmitAudit({
+                    viewerId: userData?.user_id,
+                    assignedTo: assignment.asset_assigned_to,
+                    currentAssignee: asset?.current_assignee,
+                    auditStatus: assignment.audit_status,
+                  })
+                }
+                onAudit={() => setAuditingAssignmentName(assignment.name)}
               />
             );
           })}
@@ -622,6 +740,22 @@ export function UserAssetsTab({
           condition={getAssetDetails(signingAssignment.asset)?.asset_condition}
           assignedOn={signingAssignment.asset_assigned_on}
           onSigned={onMutate}
+        />
+      )}
+
+      {/* Submit Audit Dialog (the holder, own profile) */}
+      {auditingAssignment && (
+        <SubmitAuditDialog
+          key={auditingAssignment.name}
+          isOpen={!!auditingAssignment}
+          onOpenChange={(open) => {
+            if (!open) setAuditingAssignmentName(null);
+          }}
+          assignmentId={auditingAssignment.name}
+          assetName={getAssetDetails(auditingAssignment.asset)?.asset_name || auditingAssignment.asset}
+          auditMonth={auditingAssignment.audit_month}
+          currentCondition={getAssetDetails(auditingAssignment.asset)?.asset_condition}
+          onSubmitted={onMutate}
         />
       )}
 

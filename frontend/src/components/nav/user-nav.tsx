@@ -23,8 +23,8 @@ import {
 import { BadgeCheck, Bell, ChevronsUpDown, HelpCircle, LogOut } from "lucide-react";
 import { Notifications } from "./notifications";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
-import { useMyPendingDeclarationCount } from "@/hooks/useUserAssignments";
-import { PendingDeclarationIcon, PendingDeclarationTooltip, pendingDeclarationLabel } from "../helpers/PendingDeclarationIcon";
+import { useMyPendingAssetActions } from "@/hooks/useUserAssignments";
+import { PendingDeclarationIcon, PendingDeclarationTooltip, pendingAssetActionsLabel } from "../helpers/PendingDeclarationIcon";
 
 export function UserNav({ isMobileMain = false }) {
   const userData = useUserData();
@@ -33,8 +33,17 @@ export function UserNav({ isMobileMain = false }) {
   const location = useLocation();
 
   const { isMobile, state, toggleSidebar } = useSidebar();
-  const pendingDeclarations = useMyPendingDeclarationCount();
-  const pendingDeclarationText = pendingDeclarationLabel(pendingDeclarations);
+  // Declarations to sign and monthly audits to send: one icon, one tooltip. Red while an audit is waiting
+  // to be sent (owner, 2026-10-14); amber for declarations alone.
+  const pendingActions = useMyPendingAssetActions();
+  const pendingDeclarations = pendingActions.declarations + pendingActions.audits;
+  const auditPending = pendingActions.audits > 0;
+  const pendingDeclarationText = pendingAssetActionsLabel(
+    pendingActions.declarations,
+    pendingActions.audits,
+    true,
+    pendingActions.overdueAudits
+  );
 
   // The badge sits inside the menu's trigger button: stop the event so it opens the profile's
   // Assets tab instead of the menu.
@@ -88,9 +97,12 @@ export function UserNav({ isMobileMain = false }) {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             {/* {!isMobileMain ? ( */}
+            {/* An audit to send turns the whole name / email card light red, not just the icon. */}
             <SidebarMenuButton
               size="lg"
-              className={`data-[state=open]:bg-[#FFD3CC] data-[state=open]:text-sidebar-accent-foreground`}
+              className={`data-[state=open]:bg-[#FFD3CC] data-[state=open]:text-sidebar-accent-foreground ${
+                auditPending ? "bg-red-50 hover:bg-red-100" : ""
+              }`}
             >
               <div className="relative shrink-0">
                 <Avatar className="h-8 w-8 rounded-lg">
@@ -108,7 +120,11 @@ export function UserNav({ isMobileMain = false }) {
                 </Avatar>
                 {/* Collapsed sidebar hides the badge below; a dot keeps the reminder visible. */}
                 {pendingDeclarations > 0 && state === "collapsed" && (
-                  <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-amber-500 ring-2 ring-white" />
+                  <span
+                    className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-white ${
+                      auditPending ? "bg-red-500" : "bg-amber-500"
+                    }`}
+                  />
                 )}
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
@@ -122,6 +138,7 @@ export function UserNav({ isMobileMain = false }) {
                   <TooltipTrigger asChild>
                     <PendingDeclarationIcon
                       size="md"
+                      auditPending={auditPending}
                       role="button"
                       tabIndex={0}
                       aria-label={pendingDeclarationText}
@@ -130,7 +147,7 @@ export function UserNav({ isMobileMain = false }) {
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") openMyAssets(event);
                       }}
-                      className="hover:bg-amber-200"
+                      className={auditPending ? "hover:bg-red-200" : "hover:bg-amber-200"}
                     />
                   </TooltipTrigger>
                   <TooltipContent side="right">{pendingDeclarationText}</TooltipContent>
@@ -186,7 +203,12 @@ export function UserNav({ isMobileMain = false }) {
                 <BadgeCheck className="w-4 h-4" />
                 Profile
                 {pendingDeclarations > 0 && (
-                  <PendingDeclarationTooltip className="ml-auto" side="right" label={pendingDeclarationText} />
+                  <PendingDeclarationTooltip
+                    className="ml-auto"
+                    side="right"
+                    auditPending={auditPending}
+                    label={pendingDeclarationText}
+                  />
                 )}
               </DropdownMenuItem>
             </DropdownMenuGroup>
