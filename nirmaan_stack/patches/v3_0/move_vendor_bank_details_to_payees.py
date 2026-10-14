@@ -59,11 +59,17 @@ from nirmaan_stack.services.payees.writer import backfill_payee, existing_payee
 PATCH = "move_vendor_bank_details_to_payees"
 #: The doctypes that name a vendor and so take its Payee.
 VENDOR_LINKED_EXPENSES = ("Expense Request", "Project Expenses")
+#: The vendors' old bank columns this reads. #1432 deleted the fields; migrate keeps the columns, but
+#: a site installed after it never had them, and then there is nothing to move.
+OLD_BANK_COLUMNS = ("account_name", "account_number", "ifsc", "bank_name", "bank_branch")
 
 
 def execute():
     if not frappe.db.table_exists(PAYEE_DOCTYPE) or not frappe.db.has_column("Vendors", "payee"):
         print(f"{PATCH}: Payee / Vendors.payee absent, skipping")
+        return
+    if not all(frappe.db.has_column("Vendors", column) for column in OLD_BANK_COLUMNS):
+        print(f"{PATCH}: the vendors' old bank columns are absent, nothing to move")
         return
     result = move_vendor_bank_details()
     frappe.db.commit()

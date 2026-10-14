@@ -26,7 +26,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
-from nirmaan_stack.api.payees.payee_fixture import PayeeFixture
+from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each
+from nirmaan_stack.services.payees.guard import check_payee_links
 
 U = "Administrator"
 PM_USER = "pye_guard_pm@example.com"
@@ -62,23 +63,12 @@ class TestEveryWritePathKeepsThePayeeRules(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         frappe.set_user(U)
-        frappe.db.rollback()
         scopes = [("Expense Type", name) for name in cls.types.values()]
         scopes += [("Projects", cls.project), ("Nirmaan Users", PM_USER), ("User", PM_USER)]
-        failures = []
-        for doctype, name in scopes:
-            try:
-                if doctype == "Projects":
-                    frappe.db.delete(doctype, {"name": name})
-                elif frappe.db.exists(doctype, name):
-                    frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
-                frappe.db.commit()
-            except Exception as e:  # report, never swallow: a stranded row is permanent dev data
-                frappe.db.rollback()
-                failures.append(f"{doctype} {name}: {e}")
-        super().tearDownClass()
-        if failures:
-            raise AssertionError("clean-up failed: " + "; ".join(failures))
+        try:
+            delete_each(scopes, raw={"Projects"})
+        finally:
+            super().tearDownClass()
 
     def setUp(self):
         frappe.set_user(U)
@@ -91,18 +81,7 @@ class TestEveryWritePathKeepsThePayeeRules(FrappeTestCase):
 
     # -- helpers --------------------------------------------------------------------------------
     def _purge(self):
-        frappe.db.rollback()
-        failures = []
-        for doctype, name in reversed(self.planted):
-            try:
-                frappe.db.delete("Version", {"ref_doctype": doctype, "docname": name})
-                frappe.db.delete(doctype, {"name": name})
-                frappe.db.commit()
-            except Exception as e:  # report, never swallow: a stranded row is permanent dev data
-                frappe.db.rollback()
-                failures.append(f"{doctype} {name}: {e}")
-        if failures:
-            raise AssertionError("purge failed: " + "; ".join(failures))
+        delete_each(reversed(self.planted), raw={doctype for doctype, _ in self.planted})
 
     def _insert(self, values: dict) -> str:
         """Insert through the document layer (every `validate` runs); removed after the test."""
@@ -226,3 +205,86 @@ class TestEveryWritePathKeepsThePayeeRules(FrappeTestCase):
 
         self._save_as(U, "Vendors", vendor, payee=second)
         self.assertEqual(frappe.db.get_value("Vendors", vendor, "payee"), second)
+
+    def test_a_vendor_is_made_without_a_payee_by_anyone_who_may_make_one(self):
+        """Who may set a vendor's Payee is asked only when a Payee is set: a vendor made with none, by
+        someone outside `VENDOR_PAYEE_PROFILES`, needs no such role."""
+        vendor = frappe.new_doc("Vendors")
+        vendor.vendor_name = "TESTPYE guard vendor"
+        check_payee_links(vendor, PM_USER)
+
+        vendor.payee = self.payees.payee()
+        with self.assertRaisesRegex(frappe.PermissionError, "set a vendor's bank account"):
+            check_payee_links(vendor, PM_USER)
+
+    # -- correcting the vendor ------------------------------------------------------------------
+    def _vendor_pair(self):
+        first, second = self.payees.payee(), self.payees.payee()
+        return first, self.payees.vendor(first), second, self.payees.vendor(second)
+
+    def test_a_paid_expenses_vendor_is_corrected_and_its_payee_stays(self):
+        """The money already went to the old Payee: correcting the vendor afterwards moves nothing."""
+        first, v1, _, v2 = self._vendor_pair()
+        for status in ("Reconciliation Pending", "Paid"):
+            with self.subTest(status=status):
+                name = self._raw(PE, {"type": self.types["Optional"], "amount": 2500, "status": status,
+                                      "projects": self.project, "vendor": v1, "payee": first})
+                self._save_as(PM_USER, PE, name, vendor=v2)
+                self.assertEqual(tuple(frappe.db.get_value(PE, name, ["vendor", "payee"])), (v2, first))
+
+    def test_an_unpaid_expense_follows_its_new_vendors_payee(self):
+        first, v1, second, v2 = self._vendor_pair()
+        name = self._raw(PE, {"type": self.types["Optional"], "amount": 2500, "status": "Approved",
+                              "projects": self.project, "vendor": v1, "payee": first})
+        self._save_as(PM_USER, PE, name, vendor=v2)
+        self.assertEqual(frappe.db.get_value(PE, name, "payee"), second)
+
+    def test_clearing_the_vendor_clears_its_payee_until_paid(self):
+        first, v1, _, _ = self._vendor_pair()
+        request = self._raw(REQUEST, {"type": self.types["Optional"], "amount": 4300,
+                                      "status": "Pending Approval", "projects": self.project,
+                                      "vendor": v1, "payee": first})
+        self._save_as(U, REQUEST, request, vendor=None)
+        self.assertIsNone(frappe.db.get_value(REQUEST, request, "payee"))
+
+        unpaid = self._raw(PE, {"type": self.types["Optional"], "amount": 2500, "status": "Approved",
+                                "projects": self.project, "vendor": v1, "payee": first})
+        self._save_as(PM_USER, PE, unpaid, vendor=None)
+        self.assertIsNone(frappe.db.get_value(PE, unpaid, "payee"))
+
+        paid = self._raw(PE, {"type": self.types["Optional"], "amount": 2500, "status": "Paid",
+                              "projects": self.project, "vendor": v1, "payee": first})
+        self._save_as(PM_USER, PE, paid, vendor=None)
+        self.assertEqual(frappe.db.get_value(PE, paid, "payee"), first)
+
+    def test_clearing_the_vendor_is_no_door_to_another_payee(self):
+        """Only the vendor's own Payee moves with a vendor edit; naming another stays Accounts' call."""
+        first, v1, _, _ = self._vendor_pair()
+        name = self._raw(PE, {"type": self.types["Optional"], "amount": 2500, "status": "Approved",
+                              "projects": self.project, "vendor": v1, "payee": first})
+        with self.assertRaisesRegex(frappe.PermissionError, "change who an expense is paid to"):
+            self._save_as(PM_USER, PE, name, vendor=None, payee=self.payees.payee())
+
+    # -- a vendor's Inactive Payee -------------------------------------------------------------
+    def test_a_vendors_inactive_payee_is_carried_and_never_a_new_pick(self):
+        payee = self.payees.payee()
+        vendor = self.payees.vendor(payee)
+        frappe.db.set_value("Payee", payee, "status", "Inactive")
+        frappe.db.commit()
+        request = self._insert(self._request("Optional", vendor=vendor))
+        self.assertEqual(frappe.db.get_value(REQUEST, request, "payee"), payee)
+        expense = self._insert(self._expense(PE, vendor=vendor))
+        self.assertEqual(frappe.db.get_value(PE, expense, "payee"), payee)
+
+    # -- Required, on a change -----------------------------------------------------------------
+    def test_a_required_expense_cannot_be_left_without_its_payee(self):
+        payee = self.payees.payee()
+        name = self._raw(NPE, {"type": self.types["Required"], "amount": 2500, "status": "Approved",
+                               "payee": payee})
+        with self.assertRaisesRegex(frappe.ValidationError, "needs a payee"):
+            self._save_as(U, NPE, name, payee=None)
+
+    def test_a_required_expense_is_still_inserted_without_a_payee(self):
+        """Approval of a request from before payees, and Bulk Import, insert one with none."""
+        name = self._insert(self._expense(NPE, type=self.types["Required"]))
+        self.assertIsNone(frappe.db.get_value(NPE, name, "payee"))

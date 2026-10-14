@@ -14,17 +14,23 @@ any other code meet the same refusals. The rules themselves are pure, in `rules.
   `Non Project Expenses`). Asked only when the save inserts the record or changes `payee`, `vendor`
   or the type, so a record from before these rules still re-saves:
   - **A vendor's Payee**: a request or Project Expense naming a vendor is paid into that vendor's
-    Payee: filled in when blank, any other refused (`expense_rules.follow_vendor`).
+    Payee: filled in when blank, any other refused (`expense_rules.follow_vendor`). A Payee left as
+    it was while the vendor changed follows the new vendor; when the vendor is cleared, the old
+    vendor's Payee goes with it (any other Payee stays).
   - **Who gets paid**: an Expense Request carries what its type's rule says
-    (`expense_rules.request_payee`): a *Required* type can't be saved without one.
-  - **Paid**: an expense's Payee is fixed once it is paid (`expense_rules.paid_expense_problem`), and
-    before that only Accounts change it on an existing expense. Inserting one (approval) is not a
-    change; the #1424 patch writes raw and meets none of this.
-  - **Vendors**: only `role_profiles.VENDOR_PAYEE_PROFILES` set a vendor's Payee.
+    (`expense_rules.request_payee`): a *Required* type can't be saved without one. An expense of a
+    *Required* type can't have its Payee taken away; inserting one with none (approval of an older
+    request, Bulk Import) is allowed.
+  - **Paid**: once a record is paid (`rules.PAID_STATUSES`) its Payee is fixed
+    (`expense_rules.paid_expense_problem`): the money went there. Correcting its vendor then moves
+    nothing. Before that only Accounts change an existing expense's Payee, except as part of a vendor
+    edit (the vendor's own Payee, or none when the vendor is cleared). Inserting one (approval) is
+    not a change; the #1424 patch writes raw and meets none of this.
+  - **Vendors**: only `role_profiles.VENDOR_PAYEE_PROFILES` set or change a vendor's Payee; making a
+    vendor with none needs no such role.
   - **Inactive**: an Inactive Payee can't be newly picked (`rules.pick_problem`). A record already
-    pointing at it keeps it through any later save, and these are not new picks: approval carrying
-    the request's Payee onto its expense, an expense taking its vendor's Payee, and a *Not asked*
-    request carrying its vendor's.
+    pointing at it keeps it through any later save, and a Payee that comes from the record's vendor
+    or is carried from its request on approval is never a new pick.
 
 The wording is `rules.py`'s and `expense_rules.py`'s.
 """
@@ -38,13 +44,15 @@ from nirmaan_stack.services.payees.expense_payee import payee_rule
 from nirmaan_stack.services.payees.expense_rules import (
     EXPENSE_PAYEE_ROLE_PROBLEM,
     NOT_ASKED,
-    follow_vendor,
+    OPTIONAL,
+    REQUIRED,
     paid_expense_problem,
     request_payee,
 )
 from nirmaan_stack.services.payees.links import is_paid
 from nirmaan_stack.services.payees.rules import (
     HOLDER_NAME_ROLE_PROBLEM,
+    PAID_STATUSES,
     PAYEE_DOCTYPE,
     locked_change_problem,
     parse_details,
@@ -58,7 +66,6 @@ from nirmaan_stack.services.role_profiles import (
 
 REQUEST_DOCTYPE = "Expense Request"
 VENDORS_DOCTYPE = "Vendors"
-_WHO_GETS_PAID = "Who gets paid"
 
 
 def check_payee_save(doc, user: str) -> None:
@@ -79,11 +86,13 @@ def check_payee_save(doc, user: str) -> None:
 
 def check_payee_links(doc, user: str) -> None:
     """Every rule a record linking a Payee must pass on save, as `user` (the session user). May fill
-    in `doc.payee` (a vendor's Payee; what a request's rule leaves)."""
+    in or clear `doc.payee` (a vendor's Payee; what a request's rule leaves)."""
     if doc.doctype == VENDORS_DOCTYPE:
-        if _changed(doc, "payee"):
+        new_pick = _changed(doc, "payee") and bool(doc.get("payee") or not doc.is_new())
+        if new_pick:
             assert_vendor_payee_access(user)
-        new_pick = _changed(doc, "payee")
+    elif _paid(doc):
+        new_pick = False
     elif doc.doctype == REQUEST_DOCTYPE:
         new_pick = _apply_request_rules(doc)
     else:
@@ -103,50 +112,83 @@ def check_payee_pick(doc) -> None:
 
 
 def _apply_request_rules(doc) -> bool:
-    """Fill in or refuse an Expense Request's Payee by its type's rule. True when its Payee is one the
-    raiser picked (asked, and not carried from a *Not asked* type's vendor)."""
+    """Fill in, clear or refuse an Expense Request's Payee by its type's rule. True when its Payee is
+    one the raiser picked (no vendor named)."""
     if not _changed(doc, "payee", "vendor", "type"):
         return False
-    rule = payee_rule(doc.type) if doc.get("type") else NOT_ASKED
     vendor = doc.get("vendor") or None
     verdict = request_payee(
-        rule,
+        payee_rule(doc.type) if doc.get("type") else NOT_ASKED,
         expense_type=doc.get("type"),
-        payee=doc.get("payee"),
+        payee=_sent_payee(doc),
         vendor=vendor,
         vendor_payee=payee_for_vendor(vendor) if vendor else None,
     )
-    if verdict.problem:
-        frappe.throw(_(verdict.problem), title=_(_WHO_GETS_PAID))
+    _refuse(verdict.problem)
     doc.payee = verdict.payee
-    return rule != NOT_ASKED
+    return not vendor
 
 
 def _apply_expense_rules(doc, user: str) -> bool:
-    """A Project / Non-Project Expense: its vendor's Payee, then the paid and Accounts rules on a
-    change. True when its Payee is a new pick (not its vendor's, not carried from its request)."""
-    has_vendor = doc.meta.has_field("vendor") and bool(doc.get("vendor"))
-    vendor_changed = has_vendor and _changed(doc, "vendor")
-    from_vendor = False
-    if has_vendor and _changed(doc, "payee", "vendor"):
-        # A Payee left as it was while the vendor changed follows the vendor: it is not "sent".
-        sent = doc.get("payee") if _changed(doc, "payee") else None
-        vendor_payee = payee_for_vendor(doc.vendor)
-        verdict = follow_vendor(vendor=doc.vendor, payee=sent, vendor_payee=vendor_payee)
-        if verdict.problem:
-            frappe.throw(_(verdict.problem), title=_(_WHO_GETS_PAID))
-        doc.payee = verdict.payee
-        from_vendor = bool(vendor_payee)
-
+    """An unpaid Project / Non-Project Expense: its vendor's Payee, its type's rule, and only Accounts
+    changing it. True when its Payee is a new pick (not its vendor's, not carried from its request)."""
     before = doc.get_doc_before_save()
-    if before and _changed(doc, "payee"):
-        paid = paid_expense_problem(doc.name, before.get("status"))
-        if paid:
-            frappe.throw(_(paid), title=_(_WHO_GETS_PAID))
-        # Following a new vendor is part of the vendor edit, which its own permission governs.
-        if not vendor_changed and not can_manage_payees(user):
+    if not _changed(doc, "payee", "vendor"):
+        return False
+
+    vendor = (doc.get("vendor") or None) if doc.meta.has_field("vendor") else None
+    vendor_payee = payee_for_vendor(vendor) if vendor else None
+    rule = payee_rule(doc.type) if doc.get("type") else NOT_ASKED
+    # Accounts may name a Payee on any type; Required only stops one being taken away.
+    keeps_one = rule == REQUIRED and before is not None and before.get("payee")
+    verdict = request_payee(
+        REQUIRED if keeps_one else OPTIONAL,
+        expense_type=doc.get("type") or doc.doctype,
+        payee=_sent_payee(doc),
+        vendor=vendor,
+        vendor_payee=vendor_payee,
+    )
+    _refuse(verdict.problem)
+    doc.payee = verdict.payee
+
+    if before is not None and _changed(doc, "payee"):
+        # A vendor edit moves the vendor's own Payee (or none, the vendor cleared); its own
+        # permission governs it. Any other Payee is Accounts' call.
+        moved_by_vendor = _changed(doc, "vendor") and (doc.payee or None) == vendor_payee
+        if not moved_by_vendor and not can_manage_payees(user):
             raise frappe.PermissionError(_(EXPENSE_PAYEE_ROLE_PROBLEM))
-    return not from_vendor and not _carried_from_request(doc)
+    return not vendor and not _carried_from_request(doc)
+
+
+def _paid(doc) -> bool:
+    """True when the record was already paid before this save (`rules.PAID_STATUSES`); refuses the
+    save if it changes the Payee. Correcting a paid record's vendor moves nothing: the money went to
+    that account."""
+    before = doc.get_doc_before_save()
+    if before is None or before.get("status") not in PAID_STATUSES:
+        return False
+    if _changed(doc, "payee"):
+        _refuse(paid_expense_problem(doc.name, before.get("status")))
+    return True
+
+
+def _sent_payee(doc) -> str | None:
+    """The Payee this save asks for. One left as it was while the vendor changed is not asked for: it
+    gives way to the new vendor's Payee, and to none when the vendor was cleared and it was the old
+    vendor's."""
+    payee = doc.get("payee") or None
+    before = doc.get_doc_before_save()
+    if before is None or _changed(doc, "payee") or not _changed(doc, "vendor"):
+        return payee
+    if doc.get("vendor"):
+        return None
+    old_vendor = before.get("vendor")
+    return None if old_vendor and payee == payee_for_vendor(old_vendor) else payee
+
+
+def _refuse(problem: str | None) -> None:
+    if problem:
+        frappe.throw(_(problem), title=_("Who gets paid"))
 
 
 def _carried_from_request(doc) -> bool:

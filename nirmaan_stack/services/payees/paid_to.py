@@ -12,7 +12,7 @@ Paid to column, the ICICI / Cashfree file and Record Payment's "Pay ₹X to" box
   with the type's *Who gets paid* rule, so the screen can say whether the type needs one.
 
 `expense_pay_to` is the "Pay ₹X to" box: the expense's Payee, whether Change payee is closed to it,
-and who named the Payee: the accountant who last changed it (`change_expense_payee` leaves a
+and who named the Payee: the accountant who last changed it (`change_expense_payee` saves, leaving a
 Version row), else the raiser of the request it came from, else the vendor it is paid through.
 """
 

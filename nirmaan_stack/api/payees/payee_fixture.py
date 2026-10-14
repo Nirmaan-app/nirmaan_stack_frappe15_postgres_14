@@ -14,6 +14,7 @@ USAGE
     self.payees.fail_ifsc_lookup()                 # the next lookups find nothing
     PayeeFixture.class_payee(holder, number, ifsc) # in setUpClass, with PayeeFixture.insert_vendor(...);
                                                    # call PayeeFixture.purge(vendors=[...]) in tearDownClass
+    delete_each([(doctype, name), ...], raw={...})  # any other row a Payee suite planted
 
 Every Payee it makes carries `TEST_IFSC` and a `TESTPYE` holder name, and `purge` sweeps every
 Payee with either, so a test that dies before it records a name strands nothing. Links to a
@@ -25,10 +26,14 @@ an uncommitted delete made before the purge is undone by it. That is how #1427's
 stranded a `Testvendor Theta Ltd` vendor per run, which `TestAmbiguityIsNotResolved` then matched
 by name. Hand the vendors to `purge(vendors=...)` instead; it deletes them in their own scope.
 
+`clean_each` is the one clean-up loop of the Payee suites (CODING_STANDARDS § Writing tests: roll back
+first, each scope in its own try, report every failure); `purge` and `delete_each` run through it.
+
 ⚠️ RUNS AGAINST THE ENV DATABASE (the endpoints commit).
 """
 
 import random
+from collections.abc import Callable, Collection, Iterable
 from unittest import mock
 
 import frappe
@@ -116,39 +121,61 @@ class PayeeFixture:
 
     @staticmethod
     def purge(vendors=()) -> None:
-        """Delete `vendors`, every test Payee, its links and its audit rows. Rolls back first, so a
-        poisoned transaction cannot strand rows; each scope commits on its own and a failure is
-        reported, never swallowed."""
+        """Delete `vendors`, every test Payee, its links and its audit rows, each scope on its own
+        (`clean_each`, which rolls back first)."""
         frappe.db.rollback()
         names = frappe.get_all(
             PAYEE_DOCTYPE,
             or_filters={"ifsc": TEST_IFSC, "account_name": ["like", f"{HOLDER_PREFIX}%"]},
             pluck="name",
         )
-        scopes = []
+        steps = []
         if vendors:
-            scopes.append(("Vendors", lambda: frappe.db.delete("Vendors", {"name": ["in", list(vendors)]})))
+            steps.append(("Vendors", lambda: frappe.db.delete("Vendors", {"name": ["in", list(vendors)]})))
         if names:
             linked = {"names": tuple(names)}
-            scopes += [
+            steps += [
                 (f"{doctype} links", lambda d=doctype: frappe.db.sql(
                     f'UPDATE "tab{d}" SET payee = NULL WHERE payee IN %(names)s', linked))
                 for doctype in LINKING_DOCTYPES
             ]
-            scopes += [
+            steps += [
                 ("Version", lambda: frappe.db.delete(
                     "Version", {"ref_doctype": PAYEE_DOCTYPE, "docname": ["in", names]})),
                 ("Comment", lambda: frappe.db.delete(
                     "Comment", {"reference_doctype": PAYEE_DOCTYPE, "reference_name": ["in", names]})),
                 (PAYEE_DOCTYPE, lambda: frappe.db.delete(PAYEE_DOCTYPE, {"name": ["in", names]})),
             ]
-        failures = []
-        for what, step in scopes:
-            try:
-                step()
-                frappe.db.commit()
-            except Exception as e:  # report, never swallow: a stranded row is permanent dev data
-                frappe.db.rollback()
-                failures.append(f"{what}: {e}")
-        if failures:
-            raise AssertionError("Payee purge failed: " + "; ".join(failures))
+        clean_each(steps)
+
+
+def clean_each(steps: Iterable[tuple[str, Callable[[], object]]]) -> None:
+    """Run each `(label, step)` of a test's clean-up in its own scope: roll back first, so a poisoned
+    transaction strands nothing; commit after each step; try them all, then raise one AssertionError
+    naming every step that failed. A stranded row is permanent dev data, so nothing is swallowed."""
+    frappe.db.rollback()
+    failures = []
+    for label, step in steps:
+        try:
+            step()
+            frappe.db.commit()
+        except Exception as e:  # report, never swallow: a stranded row is permanent dev data
+            frappe.db.rollback()
+            failures.append(f"{label}: {e}")
+    if failures:
+        raise AssertionError("Clean-up failed: " + "; ".join(failures))
+
+
+def delete_each(scopes: Iterable[tuple[str, str]], *, raw: Collection[str] = ()) -> None:
+    """Delete each `(doctype, name)` in its own scope (`clean_each`). A doctype in `raw` loses the row
+    and its Version rows, raw: a row inserted raw has no hooks to undo. Any other is deleted with
+    `frappe.delete_doc`, when it exists."""
+    clean_each((f"{doctype} {name}", lambda d=doctype, n=name: _delete(d, n, d in raw)) for doctype, name in scopes)
+
+
+def _delete(doctype: str, name: str, raw: bool) -> None:
+    if raw:
+        frappe.db.delete("Version", {"ref_doctype": doctype, "docname": name})
+        frappe.db.delete(doctype, {"name": name})
+    elif frappe.db.exists(doctype, name):
+        frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)

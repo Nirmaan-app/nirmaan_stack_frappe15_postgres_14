@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import type { PayeeOption } from "@/types/NirmaanStack/Payee";
+import { PAYEE_STATUS, type PayeeOption } from "@/types/NirmaanStack/Payee";
 import { payeeAccountLine, timesPaidText } from "@/utils/payees/expensePayee";
 import { bankLine } from "@/utils/payees/payeeForm";
 
@@ -175,12 +175,22 @@ function PayeeCard({ payee, selected, onClick, disabled }: PayeeCardProps) {
     );
 }
 
-/** A Payee shown read-only (the vendor's own, on the request; the payee on a review). */
+/**
+ * A Payee shown read-only (the vendor's own, on the request; the payee on a review). An Inactive one
+ * says so: a vendor's Payee is carried even when Inactive, so whoever reviews the request sees it.
+ */
 export function PayeeReadOnly({ payee, note }: { payee: PayeeOption; note?: string }) {
     const bank = bankLine(payee);
     return (
         <div className="rounded-md border bg-background px-3 py-2.5 text-[13px] leading-relaxed tabular-nums">
-            <span className="block text-sm font-semibold">{payee.account_name}</span>
+            <span className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                {payee.account_name}
+                {payee.status === PAYEE_STATUS.INACTIVE && (
+                    <span className="rounded-md border border-zinc-300 bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-600">
+                        Inactive
+                    </span>
+                )}
+            </span>
             <span className="block">{payeeAccountLine(payee)}</span>
             {bank && <span className="block">{bank}</span>}
             {note && <p className="mt-1.5 text-xs text-muted-foreground">{note}</p>}

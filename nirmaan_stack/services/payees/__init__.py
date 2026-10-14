@@ -8,7 +8,7 @@
   (`duplicate_verdict`, `unless_duplicate`).
 * `links` -- `payee_summaries` / `payee_summary`, `is_paid`, `PAID_ROWS_SQL` (the one "paid" union),
   `PAYEES_WITH_LINKS_SQL`, `payee_page` (`linked_vendors`, `linked_expenses`, `holder_name_changed_on`).
-* `versions` -- the Version rows read as history: `write_field_change`, `last_field_change`.
+* `versions` -- the Version rows read as history: `last_field_change`, `changed_field_pattern`.
 * `guard` -- what `validate` controllers refuse on every write path: `check_payee_save` (Locked, the
   holder-name role), `check_payee_links` (a vendor's Payee, an expense type's Who gets paid, an
   expense's Payee fixed once paid and changed only by Accounts, who sets a vendor's Payee, Inactive

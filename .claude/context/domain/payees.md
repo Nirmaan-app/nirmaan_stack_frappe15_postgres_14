@@ -25,7 +25,8 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     with `other_vendors`, `vendor_accounts` for many). Nothing else reads `Vendors.payee` to find a
     vendor's account.
   - `versions.py`: facts read from Version history ("holder name last changed", "linked since",
-    "Named by") are written and read through `write_field_change` / `last_field_change`.
+    "Named by") are read through `last_field_change` / `changed_field_pattern`. Payee, Vendors and
+    both expense doctypes have `track_changes`, so every save that changes a field writes the row.
   - `guard.py`: the refusals `validate` controllers run on every write path (`check_payee_save` on
     the Payee; `check_payee_links` on every record linking one). No screen or API can skip them.
   - `ifsc.py`: the IFSC lookup (Razorpay), the app's only outside bank service.
@@ -82,9 +83,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   on `Vendors`, `Expense Request`, `Project Expenses` and `Non Project Expenses` refuses a save whose
   `payee` changed to an Inactive Payee (`guard.check_payee_pick`); a record already pointing at it
   keeps it through any later save. Carrying a link is not a new pick: approval puts the request's
-  Payee on its expense even if it went Inactive since, an expense naming a vendor takes the vendor's
-  Payee, and a *Not asked* request carries its vendor's. A request of an asked type that names a
-  vendor whose Payee is Inactive is still refused.
+  Payee on its expense even if it went Inactive since, and a Payee that comes from the record's
+  vendor is never a new pick, on requests (of any type) and expenses alike. The request dialog's
+  read-only vendor-Payee box shows an "Inactive" badge, so the raiser and the reviewer see it.
 - **Linked expenses** are `Project Expenses` and `Non Project Expenses` naming the Payee, at any
   status. An Expense Request is not counted until approval carries its Payee onto an expense.
 - **Who:** the Payees page and its endpoints (`api/payees/`) are Admin, Accountant and Accountant Lead
@@ -100,13 +101,29 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   the accountant sees who to pay; an Inactive Payee can't be newly picked, but a record already
   holding it keeps it. One owner: `services/payees/expense_rules.py` (pure: `request_payee`,
   `follow_vendor`, `paid_expense_problem`), applied on EVERY save by `guard.check_payee_links`
-  (the request endpoints pass the Payee straight through), and by `expense_payee.change_expense_payee`.
-  Each rule is asked only on insert or when `payee`, `vendor` or the type changes, so older records
-  still re-save. Approval copies the request's Payee onto the Expense; a request naming a vendor is
-  paid into the vendor's Payee as it is at approval. An Expense's Payee is fixed once it is paid
-  (Reconciliation Pending or Paid); before that only Accounts change it, whether by Change payee
-  (`change_expense_payee`, which writes a Version row since `db_set` leaves none) or by any save.
-  Only `VENDOR_PAYEE_PROFILES` change `Vendors.payee`, on any save.
+  (the request endpoints pass the Payee sent straight through). There is no second copy: Change
+  payee (`expense_payee.change_expense_payee`) sets the Payee and saves the expense, so the hook
+  decides. Each rule is asked only on insert or when `payee`, `vendor` or the type changes, so older
+  records still re-save. Approval copies the request's Payee onto the Expense, and so follows the
+  vendor's Payee as it is at approval.
+  - **Paid**: once a request or expense is paid (Reconciliation Pending or Paid) its Payee is fixed,
+    and a vendor change does NOT move it: the money already went to that account. Correcting the
+    vendor on a paid Project Expense saves with the stored Payee. The vendor / Payee match applies
+    only to unpaid records.
+  - **Changing the vendor** on an unpaid record: a Payee left as it was follows the new vendor's
+    Payee (none when it has none). **Clearing the vendor** (empty / *Others (No Vendor)*) clears a
+    Payee that was the old vendor's; any other Payee stays. The type's rule then applies as for any
+    record with no vendor.
+  - **Required on an expense**: a *Required* type's expense can't have its Payee taken away (Change
+    payee, Desk, a vendor change). Inserting one with none is allowed: approval of a request from
+    before payees, and Bulk Import. Any type's expense may be given a Payee by Accounts, *Not asked*
+    included: whoever pays it names the account.
+  - **Who changes an expense's Payee**: Accounts and Admins (`PAYEE_MANAGE_PROFILES`), on any save.
+    The one exemption is a vendor edit (`vendor_changed`): anyone who may edit the expense changes its
+    Payee only by changing its vendor, and then only to that vendor's own Payee, or to none when the
+    vendor is cleared. Naming any other Payee in the same save is still Accounts' call.
+  - **Vendors**: only `VENDOR_PAYEE_PROFILES` set or change `Vendors.payee`, on any save. Making a
+    vendor with no Payee needs no such role.
 - **Paid to** (#1431): who a row the accountant pays is paid to is resolved in one place,
   `services/payees/paid_to.py`: a PO / WO payment into its vendor's Payee now, an expense into its own
   Payee. "Payment need to paid"'s Paid to column (the approval queue's `paid_to`), Export for Payment
@@ -127,14 +144,14 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | A vendor's account (Bulk Import, autofill) | `services/payees/vendor_account.vendor_accounts()` (no argument: every vendor with a Payee) (#1427) |
 | Vendor bank details → Payees (#1424) | `patches/v3_0/move_vendor_bank_details_to_payees.py` (re-runnable; its docstring holds the grouping, fallback and skip rules); test `api/payees/test_vendor_payees_patch.py` |
 | Frontend fields + dialog | `components/payees/` (`PayeeBankFields`, `usePayeeBankForm`, `AddPayeeDialog`) |
-| Expense payee rules (#1429) | `services/payees/expense_rules.py` (pure: Required / Optional / Not asked, vendor's Payee, Inactive), `services/payees/expense_payee.py` (`request_payee_for`, `assert_pickable`, `change_expense_payee`), `services/payees/search.py` (`search_active_payees`) |
-| Expense Request picker endpoints | `api/expense_requests/payees.py` (`search_payees`, `check_request_payee`, `add_request_payee`, `get_vendor_payee`), gated on `access.can_raise_requests` |
+| Expense payee rules (#1429) | `services/payees/expense_rules.py` (pure: Required / Optional / Not asked, vendor's Payee, Inactive), `services/payees/expense_payee.py` (`payee_rule`, `change_expense_payee`), `services/payees/search.py` (`search_active_payees`) |
+| Expense Request picker endpoints | `api/expense_requests/payees.py` (`search_payees`, `check_request_payee`, `add_request_payee`), gated on `access.can_raise_requests`; the picked vendor's Payee is `useVendorAccount` (`get_vendor_account`, Vendors read) |
 | Frontend picker | `components/payees/PayeePicker.tsx` + `usePayeeChoice.ts` (pick or add new; reused by Change payee) |
 | Frontend rules | `utils/payees/payeeForm.ts` (form rules, `newPayeeProblem`, `bankLine`), `utils/payees/expensePayee.ts`, `utils/payees/payeeRoutes.ts` (`payeeHref`); pinned to the server's by the shared cases `services/payees/payee_rules_cases.json` (F1: `test_rules.py` / `test_expense_rules.py` and `payeeForm.test.ts` / `expensePayee.test.ts` run the same cases) |
 | Payees page | `pages/payees/PayeesPage.tsx`, route `/payees` |
 | One Payee's page (#1423) | `pages/payees/PayeePage.tsx`, route `/payees/:payeeId`; endpoints `api/payees/payee_page.py` (`get_payee`, `edit_holder_name`, `set_payee_status`); `components/payees/EditHolderNameDialog`; rules `utils/payees/payeePage.ts` |
 | Vendor Payee endpoints | `api/payees/vendor_payee.py`: `suggest_vendor_payees`, `get_payee_choice`, `check_vendor_payee`; `get_vendor_account`, `change_vendor_payee` (#1426) |
-| A vendor's account on screens (#1428) | `api/payees/vendor_accounts.py`: `get_vendor_payee_accounts`, `get_vendor_list`; frontend `components/payees/vendorPayeeAccount.ts` (`useVendorAccount`, `useVendorPayeeAccount`, `useVendorPayeeGate`). The gate blocks a PO / WO payment request until the vendor is KNOWN to have a Payee: while it loads and when the read fails too (`utils/payees/vendorAccount.vendorPayeeGateProblem`); used by the PO payment terms card, the PO / WO request dialog and the Credits page's request dialog |
+| A vendor's account on screens (#1428) | `api/payees/vendor_accounts.py`: `get_vendor_payee_accounts`, `get_vendor_list`; frontend `components/payees/vendorPayeeAccount.ts` (`useVendorAccount`, `useVendorPayeeGate`). The gate blocks a PO / WO payment request until the vendor is KNOWN to have a Payee: while it loads and when the read fails too (`utils/payees/vendorAccount.vendorPayeeGateProblem`); used by the PO payment terms card, the PO / WO request dialog and the Credits page's request dialog |
 | Paying: Paid to, bank file, Record Payment (#1431) | `services/payees/paid_to.py`; endpoints `api/payees/expense_payee.py` (`get_paid_to`, `get_expense_payee`, `search_payees`, `change_expense_payee`); frontend `components/payees/ExpensePayToBox`, `ChangeExpensePayeeDialog`, `expensePayeeApi`; wording `utils/payees/paidTo.ts`; file builder `pages/ProjectPayments/bankUploadFile.ts` |
 | Vendor page account card + rename prompt (#1426) | `pages/vendors/components/VendorAccountCard`, `VendorRenameFlow`; `components/payees/ChangeVendorAccountDialog`, `VendorRenamePrompt`; wording in `utils/payees/vendorAccount.ts`; test `api/payees/test_vendor_account.py` |
 | Vendor Payee step (frontend) | `components/payees/VendorPayeeSection` + `useVendorPayeeChoice`, `PayeeSuggestionsPanel`, `UsePayeeDialog`, `vendorPayeeApi`; wording in `utils/payees/payeeChoice.ts` |

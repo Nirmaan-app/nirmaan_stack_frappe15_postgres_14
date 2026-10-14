@@ -24,16 +24,16 @@ from unittest import mock
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture
+from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture, delete_each
 from nirmaan_stack.patches.v3_0 import move_vendor_bank_details_to_payees as patch
 from nirmaan_stack.patches.v3_0.move_vendor_bank_details_to_payees import (
+    OLD_BANK_COLUMNS,
     move_vendor_bank_details,
     summary,
 )
 from nirmaan_stack.services.payees.rules import ACTIVE, PAYEE_DOCTYPE
 
 U = "Administrator"
-BANK_FIELDS = ("account_name", "account_number", "ifsc", "bank_name", "bank_branch")
 
 
 class _PatchFixture(FrappeTestCase):
@@ -47,29 +47,15 @@ class _PatchFixture(FrappeTestCase):
         self.addCleanup(self._delete_rows)
 
     def _delete_rows(self):
-        """Roll back first, then each scope on its own, reporting any failure (CODING_STANDARDS
-        § Writing tests)."""
-        frappe.db.rollback()
-        scopes = [(doctype, [name]) for doctype, name in self.expenses]
-        if self.vendors:
-            scopes.append(("Vendors", self.vendors))
-        failures = []
-        for doctype, names in scopes:
-            try:
-                frappe.db.delete(doctype, {"name": ["in", names]})
-                frappe.db.commit()
-            except Exception as e:  # report, never swallow: a stranded row is permanent dev data
-                frappe.db.rollback()
-                failures.append(f"{doctype} {names}: {e}")
-        if failures:
-            raise AssertionError("clean-up failed: " + "; ".join(failures))
+        scopes = self.expenses + [("Vendors", name) for name in self.vendors]
+        delete_each(scopes, raw={doctype for doctype, _ in scopes})
 
     def _vendor(self, vendor_name, account_number=None, ifsc=TEST_IFSC, account_name=None,
                 bank_name="Fixture Bank", bank_branch="Fixture Branch") -> str:
         name = f"TESTPYE-VEN-{frappe.generate_hash(length=8)}"
-        bank = dict(zip(BANK_FIELDS, (account_name, account_number, ifsc, bank_name, bank_branch)))
+        bank = dict(zip(OLD_BANK_COLUMNS, (account_name, account_number, ifsc, bank_name, bank_branch)))
         # Into the old columns too where the site still has them (the reader test reads those).
-        old = [f for f in BANK_FIELDS if frappe.db.has_column("Vendors", f)]
+        old = [f for f in OLD_BANK_COLUMNS if frappe.db.has_column("Vendors", f)]
         columns = "".join(f", {f}" for f in old)
         marks = "".join(", %s" for _ in old)
         frappe.db.sql(
@@ -239,6 +225,21 @@ class TestMoveVendorBankDetailsToPayees(_PatchFixture):
         )
         self.assertEqual(after, before)
         self.assertEqual((second["made"], second["linked_vendors"], second["linked_expenses"]), ([], 0, 0))
+
+
+class TestTheSiteWithoutTheOldColumns(unittest.TestCase):
+    """A site installed after #1432 never had the vendors' bank columns: the patch has nothing to move
+    and must say so, not fail on the missing columns."""
+
+    def test_the_patch_moves_nothing_when_the_old_columns_are_absent(self):
+        real = frappe.db.has_column
+        absent = mock.patch.object(
+            frappe.db, "has_column",
+            side_effect=lambda doctype, column: column not in OLD_BANK_COLUMNS and real(doctype, column),
+        )
+        with absent, mock.patch.object(patch, "move_vendor_bank_details") as move:
+            patch.execute()
+        move.assert_not_called()
 
 
 class TestThePatchReadsTheOldColumns(_PatchFixture):

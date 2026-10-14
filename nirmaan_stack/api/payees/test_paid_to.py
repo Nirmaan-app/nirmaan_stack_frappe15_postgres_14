@@ -25,7 +25,7 @@ from nirmaan_stack.api.payees.expense_payee import (
     get_expense_payee,
     get_paid_to,
 )
-from nirmaan_stack.api.payees.payee_fixture import PayeeFixture
+from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each
 
 U = "Administrator"
 PM_USER = "pye_paidto_pm@example.com"
@@ -52,14 +52,12 @@ class TestPaidTo(FrappeTestCase):
     @classmethod
     def tearDownClass(cls):
         frappe.set_user(U)
-        frappe.db.rollback()
-        for name in cls.types.values():
-            frappe.delete_doc("Expense Type", name, force=True, ignore_permissions=True)
-        for doctype in ("Nirmaan Users", "User"):
-            if frappe.db.exists(doctype, PM_USER):
-                frappe.delete_doc(doctype, PM_USER, force=True, ignore_permissions=True)
-        frappe.db.commit()
-        super().tearDownClass()
+        scopes = [("Expense Type", name) for name in cls.types.values()]
+        scopes += [("Nirmaan Users", PM_USER), ("User", PM_USER)]
+        try:
+            delete_each(scopes)
+        finally:
+            super().tearDownClass()
 
     def setUp(self):
         frappe.set_user(U)
@@ -72,18 +70,7 @@ class TestPaidTo(FrappeTestCase):
 
     # -- helpers --------------------------------------------------------------------------------
     def _purge(self):
-        frappe.db.rollback()
-        failures = []
-        for doctype, name in reversed(self.planted):
-            try:
-                frappe.db.delete("Version", {"ref_doctype": doctype, "docname": name})
-                frappe.db.delete(doctype, {"name": name})
-                frappe.db.commit()
-            except Exception as e:  # report, never swallow: a stranded row is permanent dev data
-                frappe.db.rollback()
-                failures.append(f"{doctype} {name}: {e}")
-        if failures:
-            raise AssertionError("purge failed: " + "; ".join(failures))
+        delete_each(reversed(self.planted), raw={doctype for doctype, _ in self.planted})
 
     def _insert(self, doctype, values, owner=U):
         name = f"TEST-PAIDTO-{frappe.generate_hash(length=10)}"

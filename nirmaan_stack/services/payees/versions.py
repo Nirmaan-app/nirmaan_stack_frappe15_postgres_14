@@ -1,17 +1,15 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Version rows the Payee module writes and reads (spec #1420, ADR-0033).
+"""The Version rows the Payee module reads as history (spec #1420, ADR-0033).
 
 Some Payee facts are read from history rather than stored: when a Payee's holder name last changed
 (the Payee page), when a vendor was linked to its Payee (Linked Vendors) and who last changed an
 expense's Payee (Record Payment's "Named by"). Each is "the latest Version row of this record whose
 diff changed this field", in the shape Frappe's own `Version.set_diff` writes:
 `{"changed": [["<field>", <before>, <after>], ...]}`, compact, so a field change is found by
-`changed_field_pattern`.
+`changed_field_pattern`. Every record these read has `track_changes`, so its saves write the rows.
 
-* `write_field_change` -- the row for a change saved without the document layer (`db_set`), which
-  writes none of its own.
 * `last_field_change` -- `{owner, creation}` of the latest row changing a field, or None.
 * `changed_field_pattern` -- the LIKE pattern a query passes as a parameter to find such rows.
 """
@@ -24,17 +22,6 @@ import frappe
 def changed_field_pattern(field: str) -> str:
     """The `LIKE` pattern of a Version row whose diff changed `field`. Pass it as a query parameter."""
     return f'%["{field}",%'
-
-
-def write_field_change(doctype: str, name: str, field: str, before, after) -> None:
-    """Record that `field` of `doctype` `name` changed from `before` to `after`, as Frappe would on a
-    save. For a change written with `db_set`, which leaves no Version row. Never commits."""
-    frappe.get_doc({
-        "doctype": "Version",
-        "ref_doctype": doctype,
-        "docname": name,
-        "data": frappe.as_json({"changed": [[field, before, after]]}, indent=None, separators=(",", ":")),
-    }).insert(ignore_permissions=True)
 
 
 def last_field_change(doctype: str, name: str, field: str) -> dict | None:

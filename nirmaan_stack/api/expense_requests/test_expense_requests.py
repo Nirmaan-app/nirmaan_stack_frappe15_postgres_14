@@ -1243,12 +1243,14 @@ class TestExpenseRequestPayee(FrappeTestCase):
 			self._raise(self._type("Optional"), payee=payee)
 		self.assertIn("Inactive", str(ctx.exception))
 
-	def test_a_vendors_inactive_payee_is_refused(self):
+	def test_a_vendors_inactive_payee_is_carried_not_a_new_pick(self):
+		"""The vendor's Payee is who gets paid even when Inactive: the raiser picked the vendor, not
+		the Payee. The dialog shows it with an Inactive badge."""
 		payee = self.payees.payee()
 		self._inactive(payee)
-		with self.assertRaises(frappe.ValidationError):
-			self._raise(self._type("Optional", project=True), projects=self.project,
-			            vendor=self.payees.vendor(payee))
+		res = self._raise(self._type("Optional", project=True), projects=self.project,
+		                  vendor=self.payees.vendor(payee))
+		self.assertEqual(self._payee_of(res), payee)
 
 	# --- editing -------------------------------------------------------------
 

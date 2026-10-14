@@ -139,7 +139,7 @@ def linked_vendors(name: str) -> list[dict]:
                COALESCE(
                    (SELECT MAX(ver.creation) FROM "tabVersion" ver
                     WHERE ver.ref_doctype = 'Vendors' AND ver.docname = v.name
-                      AND ver.data LIKE '%%["payee",%%'),
+                      AND ver.data LIKE %(payee_changed)s),
                    GREATEST(v.creation, p.creation)
                )::date AS linked_since
         FROM "tabVendors" v JOIN "tabPayee" p ON p.name = v.payee

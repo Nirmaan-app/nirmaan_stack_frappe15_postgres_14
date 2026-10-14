@@ -10,9 +10,9 @@ import unittest
 from nirmaan_stack.services.payees.rules import (
     ACTIVE,
     INACTIVE,
+    PAID_STATUSES,
     details_problem,
     duplicate_problem,
-    PAID_STATUSES,
     inactive_pick_problem,
     locked_change_problem,
     parse_details,
@@ -129,8 +129,14 @@ class TestPaidMeansOneThing(unittest.TestCase):
         self.assertEqual(set(PAID_STATUSES), {"Reconciliation Pending", "Paid"})
 
 
+def load_shared_cases() -> dict:
+    """`payee_rules_cases.json`: the cases the server's rules and the screens' twins both run (F1)."""
+    with open(os.path.join(os.path.dirname(__file__), "payee_rules_cases.json")) as f:
+        return json.load(f)
+
+
 #: Shared with the frontend's `utils/payees/payeeForm.test.ts` (F1): one set of cases, two twins.
-SHARED = json.load(open(os.path.join(os.path.dirname(__file__), "payee_rules_cases.json")))
+SHARED = load_shared_cases()
 
 
 class TestSharedCases(unittest.TestCase):

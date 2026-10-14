@@ -20,7 +20,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.create_vendor_and_address import create_vendor_and_address
-from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture
+from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture, clean_each
 from nirmaan_stack.api.payees.vendor_payee import check_vendor_payee, get_payee_choice, suggest_vendor_payees
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.services.payees.choosing import suggest_for_vendor
@@ -84,16 +84,18 @@ class TestVendorPayee(FrappeTestCase):
         return name
 
     def _purge(self):
-        frappe.db.rollback()
-        for doctype, name in self.expenses:
-            frappe.db.delete(doctype, {"name": name})
-        for vendor in self.created_vendors:
-            address = frappe.db.get_value("Vendors", vendor, "vendor_address")
-            frappe.db.delete("Vendor Category", {"vendor": vendor})
-            frappe.db.delete("Vendors", {"name": vendor})
-            if address:
-                frappe.db.delete("Address", {"name": address})
-        frappe.db.commit()
+        steps = [(f"{doctype} {name}", lambda d=doctype, n=name: frappe.db.delete(d, {"name": n}))
+                 for doctype, name in self.expenses]
+        steps += [(f"Vendors {vendor}", lambda v=vendor: self._delete_vendor(v)) for vendor in self.created_vendors]
+        clean_each(steps)
+
+    @staticmethod
+    def _delete_vendor(vendor):
+        address = frappe.db.get_value("Vendors", vendor, "vendor_address")
+        frappe.db.delete("Vendor Category", {"vendor": vendor})
+        frappe.db.delete("Vendors", {"name": vendor})
+        if address:
+            frappe.db.delete("Address", {"name": address})
 
     def _values(self, vendor_name=None):
         return {

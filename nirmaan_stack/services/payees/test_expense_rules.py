@@ -3,8 +3,6 @@
 
 """The Expense payee rules (spec #1420 ticket #1429, ADR-0033). Run with `devenv.sh unit`."""
 
-import json
-import os
 import unittest
 
 from nirmaan_stack.services.payees.expense_rules import (
@@ -16,6 +14,7 @@ from nirmaan_stack.services.payees.expense_rules import (
     paid_expense_problem,
     request_payee,
 )
+from nirmaan_stack.services.payees.test_rules import load_shared_cases
 
 TYPE = "Labour Advance"
 
@@ -111,7 +110,7 @@ class TestPaidExpenseProblem(unittest.TestCase):
 
 
 #: Shared with the frontend's `utils/payees/expensePayee.test.ts` (F1): one set of cases, two twins.
-SHARED = json.load(open(os.path.join(os.path.dirname(__file__), "payee_rules_cases.json")))
+SHARED = load_shared_cases()
 
 
 class TestSharedCases(unittest.TestCase):

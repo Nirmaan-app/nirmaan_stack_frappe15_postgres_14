@@ -54,7 +54,7 @@ from nirmaan_stack.api.outflow_import.review import (
 from nirmaan_stack.api.outflow_import.expenses import allocate_row, create_expense, settle_row
 from nirmaan_stack.api.outflow_import.test_allocate_row import AllocationFixture
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
-from nirmaan_stack.api.payees.payee_fixture import PayeeFixture
+from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.contains_guard import find_hits
@@ -2880,9 +2880,11 @@ class TestTheTierLadderEndToEnd(OutflowReviewFixture):
     def tearDownClass(cls):
         # The purge rolls back first, so it goes FIRST and deletes the vendor itself: a delete made
         # before it was undone, which stranded one `Testvendor Theta Ltd` per run.
-        PayeeFixture.purge(vendors=[cls.test_vendor])
-        frappe.db.delete("Projects", {"name": cls.test_project})
-        frappe.db.commit()
+        # The project goes in its own scope too, even when the purge reports a failure.
+        try:
+            PayeeFixture.purge(vendors=[cls.test_vendor])
+        finally:
+            delete_each([("Projects", cls.test_project)], raw={"Projects"})
         super().tearDownClass()
 
     def test_tier_1_matches_on_the_bank_account_and_ifsc(self):
