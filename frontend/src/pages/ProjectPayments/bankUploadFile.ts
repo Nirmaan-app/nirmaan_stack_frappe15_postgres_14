@@ -1,27 +1,24 @@
 import { unparse } from "papaparse";
 
+import type { Payee } from "@/types/NirmaanStack/Payee";
 import { formatDate, formatDateToDDMMYYYY } from "@/utils/FormatDate";
 import { parseNumber } from "@/utils/parseNumber";
 
 /** Which bulk-transfer file to emit. ICICI's PAB_VENDOR layout and Cashfree's payout template share no columns. */
 export type BankFileFormat = "icici" | "cashfree";
 
-/** The bank account a row is paid into. */
-export interface BankFileAccount {
-	holderName?: string;
-	accountNumber?: string | number;
-	ifsc?: string;
-}
+/** The Payee a row is paid into: its holder name, account number and IFSC. */
+export type BankFilePayee = Pick<Payee, "account_name" | "account_number" | "ifsc">;
 
-/** One ticked row on "Payment need to paid", with the account it is paid into. */
+/** One ticked row on "Payment need to paid", with the Payee it is paid into. */
 export interface BankFileRow {
 	kind: "vendor_payment" | "expense";
 	/** PO / SR number: the ICICI remark and the tail of the Cashfree remark. */
 	documentName: string;
 	amount: number | string;
 	projectLabel: string | undefined;
-	vendorName?: string;
-	account?: BankFileAccount;
+	/** A vendor payment's is its vendor's Payee today (ADR-0033: a PO / WO payment stores none). */
+	payee?: BankFilePayee;
 }
 
 export interface BankFileOptions {
@@ -33,7 +30,7 @@ export interface BankFileOptions {
 }
 
 /** Why a ticked row is not in the bank file. */
-export type BankFileLeftOutReason = "expense" | "no_account";
+export type BankFileLeftOutReason = "expense" | "no_payee";
 
 export interface BankFileLeftOut {
 	row: BankFileRow;
@@ -56,14 +53,14 @@ export interface BankFile {
 }
 
 function iciciRow(row: BankFileRow, options: BankFileOptions): Record<string, BankFileCell> {
-	const account = row.account;
+	const payee = row.payee;
 	return {
 		PYMT_PROD_TYPE_CODE: "PAB_VENDOR",
 		PYMT_MODE: options.paymentMode,
 		DEBIT_ACC_NO: options.debitAccountNumber,
-		BNF_NAME: account?.holderName || "",
-		BENE_ACC_NO: account?.accountNumber || "",
-		BENE_IFSC: account?.ifsc || "",
+		BNF_NAME: payee?.account_name || "",
+		BENE_ACC_NO: payee?.account_number || "",
+		BENE_IFSC: payee?.ifsc || "",
 		AMOUNT: parseNumber(row.amount),
 		DEBIT_NARR: "",
 		CREDIT_NARR: "",
@@ -78,18 +75,14 @@ function iciciRow(row: BankFileRow, options: BankFileOptions): Record<string, Ba
 }
 
 function cashfreeRow(row: BankFileRow, idx: number, batchStamp: string, options: BankFileOptions): Record<string, BankFileCell> {
-	const account = row.account;
-	// Cashfree's `name` must be the ACCOUNT HOLDER's name, not the vendor's trading name. But
-	// some records have the account NUMBER typed into the holder name (SAFETYWALA EQUIPMENTS LLP is
-	// one). A name has at least one letter; if this one does not, fall back to the vendor name
-	// rather than send Cashfree a number to match on.
-	const holderName = (account?.holderName || "").trim();
-	const name = /[A-Za-z]/.test(holderName) ? holderName : (row.vendorName || "");
+	const payee = row.payee;
 	return {
 		transferId: `${batchStamp}${String(idx + 1).padStart(2, "0")}`,
-		bankAccount: account?.accountNumber || "",
-		ifsc: account?.ifsc || "",
-		name,
+		bankAccount: payee?.account_number || "",
+		ifsc: payee?.ifsc || "",
+		// The beneficiary is the Payee's holder name, the name the bank has on record. A holder name
+		// that is not a name is corrected on the Payee, not patched here.
+		name: (payee?.account_name || "").trim(),
 		email: CASHFREE_CONTACT_EMAIL,
 		phone: CASHFREE_CONTACT_PHONE,
 		amount: parseNumber(row.amount),
@@ -126,14 +119,11 @@ export function buildBankFile(rows: BankFileRow[], options: BankFileOptions): Ba
 }
 
 // ICICI and Cashfree both accept a file holding a row with a blank account or IFSC, and reject
-// that row only after upload, so an unpayable row is left out here, not at the bank. BOTH the
-// account number and the IFSC are required. The holder name needs no check: the Cashfree name
-// falls back to the vendor name.
+// that row only after upload, so a row with no Payee is left out here, not at the bank. A Payee
+// always holds a holder name, an account number and an IFSC.
 function leftOutReason(row: BankFileRow): BankFileLeftOutReason | null {
 	if (row.kind !== "vendor_payment") return "expense";
-	const accountNumber = String(row.account?.accountNumber ?? "").trim();
-	const ifsc = String(row.account?.ifsc ?? "").trim();
-	return accountNumber && ifsc ? null : "no_account";
+	return row.payee ? null : "no_payee";
 }
 
 /**
@@ -142,14 +132,14 @@ function leftOutReason(row: BankFileRow): BankFileLeftOutReason | null {
  */
 export function describeLeftOut(leftOut: BankFileLeftOut[]): string[] {
 	const expenses = leftOut.filter((l) => l.reason === "expense").length;
-	const noAccount = leftOut.filter((l) => l.reason === "no_account").map((l) => l.row.documentName);
+	const noPayee = leftOut.filter((l) => l.reason === "no_payee").map((l) => l.row.documentName);
 	const parts: string[] = [];
 	if (expenses > 0) {
 		parts.push(`${expenses} expense${expenses > 1 ? "s" : ""} (no vendor)`);
 	}
-	if (noAccount.length > 0) {
-		const named = noAccount.slice(0, 3).join(", ") + (noAccount.length > 3 ? ", …" : "");
-		parts.push(`${noAccount.length} payment${noAccount.length > 1 ? "s" : ""} with no vendor bank account / IFSC (${named})`);
+	if (noPayee.length > 0) {
+		const named = noPayee.slice(0, 3).join(", ") + (noPayee.length > 3 ? ", …" : "");
+		parts.push(`${noPayee.length} payment${noPayee.length > 1 ? "s" : ""} whose vendor has no Payee (${named})`);
 	}
 	return parts;
 }

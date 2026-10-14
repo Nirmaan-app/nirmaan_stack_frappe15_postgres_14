@@ -14,6 +14,7 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import { useRequestPayment } from "../hooks/useRequestPayment";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { useVendorPayeeGate } from "@/components/payees/vendorPayeeAccount";
 import { useDuplicateChequeOf } from "@/components/cheques/useExistingCheque";
 import { PaymentModeFields } from "../components/PaymentModeFields";
 import { PaymentSummaryBlock, usePaymentSummary } from "../components/PaymentSummaryBlock";
@@ -49,6 +50,9 @@ export default function RequestPaymentDialog(p:Props){
 
   /* CEO Hold guard */
   const { isCEOHold, showBlockedToast } = useCEOHoldGuard(p.project);
+
+  /* A PO or Work Order payment is paid into the vendor's Payee: no Payee, no request. */
+  const { missingPayee, showMissingPayeeToast } = useVendorPayeeGate(open ? p.vendor : undefined);
 
   /* local state */
   const [mode,setMode] = useState<"custom"|"percentage"|"full"|"exGST"|"due">("custom");
@@ -123,6 +127,10 @@ export default function RequestPaymentDialog(p:Props){
   const submit = async ()=>{
     if (isCEOHold) {
       showBlockedToast();
+      return;
+    }
+    if (missingPayee) {
+      showMissingPayeeToast();
       return;
     }
     try{
