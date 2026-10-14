@@ -130,17 +130,19 @@ class TestVendorPayee(FrappeTestCase):
         frappe.db.commit()
 
         suggestions = suggest_for_vendor(f"{self.firm} Ductfab Systems (Pune)", self.pan.lower())
+        # Payees already on the site may share "Ductfab Systems"; only this test's two are compared.
         self.assertEqual(
-            [(s["name"], s["match"]) for s in suggestions],
+            [(s["name"], s["match"]) for s in suggestions if s["name"] in (same_pan, name_only)],
             [(same_pan, STRONG), (name_only, NAME_ONLY)],
         )
+        self.assertEqual(suggestions[0]["name"], same_pan)
 
     def test_an_inactive_payee_is_never_suggested(self):
         moved = self.payees.payee(holder=self.payees.holder(f"{self.firm} Ductfab"))
         self._vendor(f"{self.firm} Ductfab", pan=self.pan, payee=moved)
         frappe.db.set_value(PAYEE_DOCTYPE, moved, "status", INACTIVE)
         frappe.db.commit()
-        self.assertEqual(suggest_for_vendor(f"{self.firm} Ductfab", self.pan), [])
+        self.assertNotIn(moved, [s["name"] for s in suggest_for_vendor(f"{self.firm} Ductfab", self.pan)])
 
     def test_a_suggestion_and_the_confirmation_list_every_link_and_the_last_payment(self):
         payee = self.payees.payee(holder=self.payees.holder(f"{self.firm} Ductfab"))
