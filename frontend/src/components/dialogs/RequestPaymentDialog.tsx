@@ -13,6 +13,7 @@ import { PoPaymentTermRow } from "@/types/NirmaanStack/POPaymentTerms"; // Use t
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
 import { useEffect, useState } from "react";
+import { useDuplicateChequeOf } from "@/components/cheques/useExistingCheque";
 import { PaymentModeFields } from "@/pages/ProjectPayments/components/PaymentModeFields";
 import {
   EMPTY_PAYMENT_MODE,
@@ -40,6 +41,7 @@ export const RequestPaymentDialog = ({
   const { data: lockData } = usePOLockCheck(term?.name);
   const isLocked = lockData?.is_locked || false;
   const [payMode, setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
+  const duplicateOf = useDuplicateChequeOf(payMode);
   // A fresh choice for every request: the dialog stays mounted between terms.
   useEffect(() => {
     if (isOpen) setPayMode(EMPTY_PAYMENT_MODE);
@@ -75,7 +77,7 @@ export const RequestPaymentDialog = ({
             </div>
           </div>
         </div>
-        <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} />
+        <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} vendor={term.vendor} />
         <div className="flex justify-end gap-3 mt-4">
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
@@ -83,7 +85,7 @@ export const RequestPaymentDialog = ({
           <Button
             className="bg-red-600 hover:bg-red-700 w-32"
             onClick={() => onConfirm(paymentModeArgs(payMode))}
-            disabled={isLoading || isLocked || !isPaymentModeComplete(payMode)}
+            disabled={isLoading || isLocked || !isPaymentModeComplete(payMode, duplicateOf)}
           >
             {isLoading ? (
               <TailSpin color="white" height={20} width={20} />

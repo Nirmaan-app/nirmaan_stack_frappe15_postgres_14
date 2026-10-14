@@ -31,12 +31,17 @@ export interface ProjectPayments{
 	 * (ADR-0030). Never taxed. Every older payment reads 0: a base payment.
 	 */
 	is_gst_payment?: 0 | 1
-	/**	Mode of Payment : Select - Online / Cheque (set once, at the request). Blank reads as Online. */
+	/**	Mode of Payment : Select - Online / Cheque. Blank reads as Online. Becomes Cheque when the payment
+	 * is put on a Cheque; goes back to Online only once that Cheque is Cancelled (spec #1407). */
 	mode_of_payment?: "Online" | "Cheque" | ""
-	/**	Cheque No : Data — a cheque only; one cheque may cover several payments, so it is not unique */
+	/**	Cheque No : Data — a cheque only, copied from its Cheque; one cheque may cover several payments */
 	cheque_no?: string
-	/**	Cheque Date : Date — a cheque only */
+	/**	Cheque Date : Date — a cheque only, copied from its Cheque */
 	cheque_date?: string
+	/**	Cheque : Link - Cheques (read-only) — the Cheque the payment is on, set by the cheques service */
+	cheque?: string | null
+	/**	On Hold : Check — an Approved payment held back from being paid */
+	on_hold?: 0 | 1
 	/**
 	 * Payment TDS : Link - Payment TDS Deduction (read-only)
 	 *

@@ -1,4 +1,4 @@
-"""Shared role-profile constants.
+"""Shared role-profile constants, the checks built on them, and the access asserts endpoints start with.
 
 ADR-0010 B1: a decision the business names gets one owning module. Endpoint role
 gating was previously an inline profile string repeated across ~14 modules,
@@ -7,8 +7,8 @@ real user — was refused by every one of them.
 
 Lives in ``services/`` rather than ``api/`` because BOTH ``api/`` and
 ``integrations/`` consume it, and api -> service is the one legal direction
-(same reasoning as ``services/boq_bcs/readiness.py``). It is pure data: no
-``frappe.db``, no request context.
+(same reasoning as ``services/boq_bcs/readiness.py``). It reads no request
+context.
 
 Note the two distinct layers, they are NOT the same thing:
 
@@ -20,14 +20,17 @@ Note the two distinct layers, they are NOT the same thing:
 Mirrored client-side by ``frontend/src/constants/roles.ts``; keep the two in sync.
 This layer is the enforcement boundary.
 
-The constants below are pure data. The RESOLVERS at the bottom
-(``get_role_profile`` / ``has_role_profile`` / ``is_nirmaan_admin``) read
+The constants are pure data. The RESOLVERS (``get_role_profile`` /
+``has_role_profile`` / ``is_nirmaan_admin``), the ``can_*`` checks built on them and
+the ``assert_*`` access guards (``assert_cheque_access`` /
+``assert_cheque_form_access``, which raise ``frappe.PermissionError``) read
 ``frappe.db`` — a DB read, never request context: every one takes ``user`` as an
 argument and none of them touch ``frappe.session``, so they stay callable from
 ``api/``, ``integrations/`` and a background job alike.
 """
 
 import frappe
+from frappe import _
 
 PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Procurement Executive Profile"
 PROCUREMENT_LEAD_PROFILE = "Nirmaan Procurement Lead Profile"
@@ -266,3 +269,32 @@ REFUND_PAPERWORK_PROFILES = ADJUST_PAYMENTS_PROFILES + REFUND_ACCOUNTANT_PROFILE
 # `api/vendor_refunds/waiting_refunds.delete_cancelled_refund`. Mirrored client-side by
 # `frontend/src/constants/roles.ts::REFUND_DELETE_PROFILES`.
 REFUND_DELETE_PROFILES = (ADMIN_PROFILE,) + MATERIAL_PROCUREMENT_PROFILES
+
+# Cheques (spec #1407). Admin, Accountant and Accountant Lead run cheques end to end; Procurement may
+# view the Cheque Payments report, add a Cheque and Convert to Cheque, but never change its status.
+# Project Managers have no access. ENFORCEMENT boundary for every endpoint in `api/cheques/`, which
+# write through `services/cheques/writer.py` with `ignore_permissions`: the Cheques DocPerms cannot
+# say this (`Nirmaan Procurement Executive` also rides on the Project Lead profile). Not tied to the
+# Payment TDS Deduction read permission. Mirrored client-side by
+# `frontend/src/constants/roles.ts::CHEQUE_ACCESS_PROFILES` / `CHEQUE_ACCOUNTS_PROFILES`.
+CHEQUE_ACCOUNTS_PROFILES = PAYMENT_SETTLE_PROFILES
+CHEQUE_ACCESS_PROFILES = CHEQUE_ACCOUNTS_PROFILES + PROCUREMENT_PROFILES
+
+
+def can_use_cheques(user: str) -> bool:
+    """True when `user` may open the Cheque Payments report and add a Cheque. Administrator passes."""
+    return has_role_profile(user, CHEQUE_ACCESS_PROFILES)
+
+
+def assert_cheque_access(user: str) -> None:
+    """Refuse a user outside `CHEQUE_ACCESS_PROFILES` (Project Managers included). Every cheques
+    endpoint starts with it."""
+    if not can_use_cheques(user):
+        raise frappe.PermissionError(_("You are not allowed to view or add cheques."))
+
+
+def assert_cheque_form_access(user: str) -> None:
+    """Refuse a user who may neither use cheques nor request a payment (create on Project Payments).
+    For the read-only helpers a cheque form calls, Request Payment's Cheque mode included."""
+    if not (can_use_cheques(user) or frappe.has_permission("Project Payments", "create", user=user)):
+        raise frappe.PermissionError(_("You are not allowed to look up cheques."))

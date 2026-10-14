@@ -76,10 +76,12 @@ import { debounce } from "lodash";
 import { SquarePlus, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { TailSpin } from "react-loader-spinner";
-import { TruncatedText } from "@/components/common/TruncatedText";
 import { poRefundsTarget, useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
 import { mergePaymentsAndRefunds, VendorRefundTableRow } from "@/components/vendor-refunds/VendorRefundTableRow";
 import { WaitingRefundActions } from "@/components/vendor-refunds/WaitingRefundActions";
+import { PaymentChequeActions } from "@/components/cheques/PaymentChequeActions";
+import { PaymentUtrOrCheque } from "@/components/cheques/PaymentUtrOrCheque";
+import { useChequeChips } from "@/components/cheques/useChequeChips";
 // import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog";
 
 interface TransactionDetailsCardProps {
@@ -94,12 +96,13 @@ interface TransactionDetailsCardProps {
     totalWithTax: number
   }
   AllPoPaymentsListMutate: any
-  /** After a waiting refund is cancelled or marked received (#1403): refetch the PO (its paid amount). */
-  onRefundChanged?: () => void
+  /** After a waiting refund is cancelled or marked received (#1403), or a payment's cheque changes
+      (#1416): refetch the PO (its paid amount, its payment terms' statuses) and its payments. */
+  onPOChanged: () => void
 }
 
 export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
-  estimatesViewing, PO, getTotal, amountPaid, poPayments, poPaymentsMutate, AllPoPaymentsListMutate, onRefundChanged
+  estimatesViewing, PO, getTotal, amountPaid, poPayments, poPaymentsMutate, AllPoPaymentsListMutate, onPOChanged
 }) => {
 
   const { role } = useUserData();
@@ -123,6 +126,8 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
   // Refunds against this PO sit in the payments table as their own rows (badge "Vendor Refund").
   const { refunds } = useVendorRefunds(poRefundsTarget(PO?.name ?? ""));
   const transactionRows = useMemo(() => mergePaymentsAndRefunds(poPayments, refunds), [poPayments, refunds]);
+  // The cheque chip's number and status for every payment on a Cheque: one call for the card (#1416).
+  const chequeChips = useChequeChips((poPayments || []).map((p) => p.cheque));
 
   const [newPaymentDialog, setNewPaymentDialog] = useState(false);
   const toggleNewPaymentDialog = useCallback(() => {
@@ -347,7 +352,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
           <TableHeader className="bg-red-100">
             <TableRow>
               <TableHead className="text-black font-bold">Amount</TableHead>
-              <TableHead className="text-black font-bold">UTR No.</TableHead>
+              <TableHead className="text-black font-bold">UTR / Cheque</TableHead>
               <TableHead className="text-black font-bold">Payment Date</TableHead>
               <TableHead className="text-black font-bold w-[5%]">Status</TableHead>
               <TableHead className="text-black font-bold text-center">Voucher</TableHead>
@@ -364,7 +369,7 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                       refund={row.refund}
                       actions={
                         PO?.name && !estimatesViewing ? (
-                          <WaitingRefundActions refund={row.refund} poId={PO.name} onChanged={onRefundChanged} />
+                          <WaitingRefundActions refund={row.refund} poId={PO.name} onChanged={onPOChanged} />
                         ) : null
                       }
                     />
@@ -376,8 +381,12 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                     <TableCell>
                       {formatToRoundedIndianRupee(payment?.amount)}
                     </TableCell>
-                    <TableCell className="overflow-hidden truncate max-w-28">
-                      <TruncatedText text={payment?.utr} className="max-w-28" />
+                    <TableCell className="overflow-hidden max-w-36">
+                      <PaymentUtrOrCheque
+                        payment={payment}
+                        chip={payment.cheque ? chequeChips[payment.cheque] : undefined}
+                        className="max-w-28"
+                      />
                     </TableCell>
                     <TableCell>
                       {payment?.payment_date ? formatDate(payment.payment_date) : "--"}
@@ -420,6 +429,11 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                       ) : ("--")}
                     </TableCell>
                     <TableCell className="text-red-500 text-end w-[5%]">
+                      <PaymentChequeActions
+                        payment={payment}
+                        chip={payment.cheque ? chequeChips[payment.cheque] : undefined}
+                        onChanged={onPOChanged}
+                      />
                       {/* The row's status and the reader's role decide (`canDeletePayment`), the same on
                           every route that opens the PO. */}
                       {canDeletePayment(payment?.status, role) &&

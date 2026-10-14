@@ -1209,7 +1209,7 @@ export const PurchaseOrder = () => {
                     poPayments={poPayments}
                     poPaymentsMutate={poPaymentsMutate}
                     AllPoPaymentsListMutate={AllPoPaymentsListMutate}
-                    onRefundChanged={refreshPOPage}
+                    onPOChanged={refreshPOPage}
                   />
 
                   <POPaymentTermsCard

@@ -58,6 +58,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { useDuplicateChequeOf } from "@/components/cheques/useExistingCheque";
 import { PaymentModeFields } from "@/pages/ProjectPayments/components/PaymentModeFields";
 import {
   EMPTY_PAYMENT_MODE,
@@ -66,6 +67,7 @@ import {
   PaymentModeArgs,
   PaymentModeValue,
 } from "@/pages/ProjectPayments/paymentMode";
+import { getFrappeError } from "@/utils/frappeErrors";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { format, isToday, isPast } from "date-fns"; // A great library for date handling
 
@@ -719,8 +721,10 @@ const RequestPaymentDialog = ({
   isLoading,
   isLocked,
   poName,
+  poVendor,
 }) => {
   const [payMode, setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
+  const duplicateOf = useDuplicateChequeOf(payMode);
   // Where this PO's money already stands, before the term is requested (owner, 2026-09-21).
   // The server still enforces the balance on submit; this block only shows it.
   const { summary, isLoading: summaryLoading } = usePaymentSummary(
@@ -769,7 +773,7 @@ const RequestPaymentDialog = ({
             return note ? <p className="text-xs text-sky-700 dark:text-sky-400">{note}</p> : null;
           })()}
         </div>
-        <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} />
+        <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} vendor={poVendor} />
         <div className="flex justify-end gap-3 mt-4">
           <Button type="button" variant="outline" onClick={onClose}>
             Cancel
@@ -777,7 +781,7 @@ const RequestPaymentDialog = ({
           <Button
             className="bg-red-600 hover:bg-red-700 w-32"
             onClick={() => onConfirm(paymentModeArgs(payMode))}
-            disabled={isLoading || isLocked || !isPaymentModeComplete(payMode)}
+            disabled={isLoading || isLocked || !isPaymentModeComplete(payMode, duplicateOf)}
           >
             {isLoading ? (
               <TailSpin color="white" height={20} width={20} />
@@ -1084,7 +1088,8 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
       console.log("getting error toast why ", error.message);
       toast({
         title: "Error",
-        description: `Could not request payment ${error?.message}`,
+        // The server's sentence (e.g. a cheque number already recorded), not the transport's.
+        description: `Could not request payment: ${getFrappeError(error)}`,
         variant: "destructive",
       });
     } finally {
@@ -1299,6 +1304,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
         isLoading={CreatePPApiLoading}
         isLocked={isLocked}
         poName={PO?.name}
+        poVendor={PO?.vendor}
       />
     </>
   );

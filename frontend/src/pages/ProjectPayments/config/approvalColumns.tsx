@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import SITEURL from "@/constants/siteURL";
 import { TruncatedText } from "@/components/common/TruncatedText";
+import { ChequeChip } from "@/components/cheques/ChequeChip";
+import { showsChequeChip, utrOrChequeText } from "@/utils/cheques/chequeChip";
 import {
   DocumentDetailPopover,
   ProjectDetailPopover,
@@ -42,6 +44,10 @@ import {
 } from "./approvalsTable.config";
 import { PP_TABS } from "./ppTabs.constants";
 import { isHeldQueueRow } from "./queueRowActions";
+
+/** The tabs whose Against cell carries the cheque chip under the PO / WO id (spec #1407). The later tabs
+ *  show it in UTR / Ref instead. */
+const CHEQUE_CHIP_UNDER_AGAINST: ReadonlySet<ApprovalTab> = new Set([PP_TABS.APPROVE_PAYMENTS, PP_TABS.CEO_PENDING]);
 
 export interface ApprovalColumnCtx {
   tab: ApprovalTab;
@@ -427,24 +433,35 @@ const REGISTRY: Record<
             {body}
           </DocumentDetailPopover>
         ) : body;
-        if (r.bank_line_count <= 0) return documentCard;
+        // The cheque chip on the two approval tabs (spec #1407), so an approver knows a payment is a
+        // cheque before approving it. ⚠️ ITS OWN LINE, OUTSIDE THE DOCUMENT CARD'S TRIGGER: the chip
+        // is a button, and a button inside the trigger's button is invalid markup.
+        const chip = CHEQUE_CHIP_UNDER_AGAINST.has(ctx.tab) && showsChequeChip(r) ? (
+          <span className="mt-0.5 block">
+            <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} />
+          </span>
+        ) : null;
+        if (r.bank_line_count <= 0 && !chip) return documentCard;
         // A payment bank lines settle gets the same Bank lines card as an expense — on its OWN
         // trigger line, because the PO / WO number already opens the document's card. For a
         // payment a part payment split, the count and the card are the whole request's.
         return (
           <span className="block min-w-0">
             {documentCard}
-            <ExpenseBankLinesPopover
-              doctype={r.doctype}
-              name={r.name}
-              subtitle={r.document_name || undefined}
-              status={r.status}
-              lineCount={r.bank_line_count}
-            >
-              <span className="text-[10px] text-muted-foreground">
-                {r.bank_line_count} bank {r.bank_line_count === 1 ? "line" : "lines"}
-              </span>
-            </ExpenseBankLinesPopover>
+            {r.bank_line_count > 0 && (
+              <ExpenseBankLinesPopover
+                doctype={r.doctype}
+                name={r.name}
+                subtitle={r.document_name || undefined}
+                status={r.status}
+                lineCount={r.bank_line_count}
+              >
+                <span className="text-[10px] text-muted-foreground">
+                  {r.bank_line_count} bank {r.bank_line_count === 1 ? "line" : "lines"}
+                </span>
+              </ExpenseBankLinesPopover>
+            )}
+            {chip}
           </span>
         );
       }
@@ -701,17 +718,29 @@ const REGISTRY: Record<
     id: "utr_ref",
     accessorKey: "utr_ref",
     header: ({ column }) => <DataTableColumnHeader column={column} title="UTR / Ref" />,
-    size: 150,
-    // A cheque has no UTR until it is reconciled, so until then its number stands in, labelled.
-    cell: ({ row }) =>
-      row.original.utr_ref
-        ? <TruncatedText text={row.original.utr_ref} className="max-w-[9rem] font-mono text-[11px]" />
-        : row.original.cheque_no
-          ? <TruncatedText text={`Cheque ${row.original.cheque_no}`} className="max-w-[9rem] font-mono text-[11px]" />
-          : <Blank />,
+    // Wide enough for a whole cheque chip ("Cheque 004521 · Issued").
+    size: 200,
+    // A cheque payment shows its cheque chip (spec #1407), which opens the Cheque; once reconciled,
+    // its UTR sits under the chip. An Online payment shows its UTR as before.
+    cell: ({ row }) => {
+      const r = row.original;
+      if (!showsChequeChip(r)) {
+        return r.utr_ref
+          ? <TruncatedText text={r.utr_ref} className="max-w-[9rem] font-mono text-[11px]" />
+          : <Blank />;
+      }
+      return (
+        <span className="block min-w-0">
+          <ChequeChip cheque={r.cheque} chequeNo={r.cheque_no} status={r.cheque_status} />
+          {r.utr_ref && (
+            <TruncatedText text={r.utr_ref} className="mt-0.5 block max-w-[9rem] font-mono text-[10px] text-muted-foreground" />
+          )}
+        </span>
+      );
+    },
     meta: {
       exportHeaderName: "UTR / Ref",
-      exportValue: (r: ApprovalQueueRow) => r.utr_ref || (r.cheque_no ? `Cheque ${r.cheque_no}` : ""),
+      exportValue: (r: ApprovalQueueRow) => utrOrChequeText(r),
     },
   }),
 

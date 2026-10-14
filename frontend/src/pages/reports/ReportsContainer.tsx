@@ -7,9 +7,9 @@ import { DCMIRReportType, POReportOption, SROption, PaymentTDSReportType, Projec
 import { getUrlStringParam } from '@/hooks/useServerDataTable';
 import { urlStateManager } from '@/utils/urlStateManager';
 import { cn } from '@/lib/utils';
+import { paymentTabReports } from './config/paymentTab.config';
 import {
     MATERIAL_PROCUREMENT_PROFILES,
-    PAYMENT_TDS_ACCESS,
     PROCUREMENT_PROFILES,
     SERVICE_PROCUREMENT_PROFILES,
     isProcurementProfile,
@@ -193,14 +193,12 @@ export default function ReportsContainer() {
         if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Project Manager Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
             availableTabs.push({ label: "DCs & MIRs", value: REPORTS_TABS.DCS_MIRS });
         }
-        // ⚠️ READS THE SHARED CONSTANT rather than listing profiles inline, unlike its
-        // neighbours above. `PAYMENT_TDS_ACCESS` is NARROWER than every other tab here and has
-        // to be: the `Payment TDS Deduction` doctype grants read to System Manager / Nirmaan
-        // Accountant / Nirmaan Accountant Lead only, so PMO, Project Lead and the procurement
-        // profiles would land on a PermissionError. The same constant drives the report-type
-        // default and the legacy-route redirect — an inline second copy drifts the day one of
+        // ⚠️ READS THE SHARED HELPER rather than listing profiles inline, unlike its
+        // neighbours above. Each of the tab's reports has its own gate (TDS Deduction:
+        // `PAYMENT_TDS_ACCESS`; Cheque Payment: `CHEQUE_ACCESS_PROFILES`), and the same helper
+        // drives the report list and the default -- an inline second copy drifts the day one of
         // them is edited, and it fails quietly: a visible tab that cannot load.
-        if (PAYMENT_TDS_ACCESS.includes(role)) {
+        if (paymentTabReports(role).length > 0) {
             availableTabs.push({ label: "Payment", value: REPORTS_TABS.PAYMENT_TDS });
         }
         return availableTabs;
@@ -280,7 +278,8 @@ export default function ReportsContainer() {
             }
             return [];
         } else if (activeTab === REPORTS_TABS.PAYMENT_TDS) {
-            return PAYMENT_TDS_ACCESS.includes(role) ? paymentTdsReportOptions : [];
+            const allowed = paymentTabReports(role);
+            return paymentTdsReportOptions.filter(option => allowed.includes(option.value));
         }
         return [];
     }, [activeTab, role, canSee2BReconcileReport]);

@@ -29,10 +29,10 @@ import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
+import { PAYMENT_STATUS } from "@/constants/paymentStatus";
 import {
   BULK_MAX_SELECTION,
   DOC_TYPES,
-  PAYMENT_STATUS,
   DIALOG_ACTION_TYPES,
   DialogActionType,
 } from "./constants";
@@ -713,16 +713,22 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           // included, so the server can now move it on to Reconciliation Pending. The approval
           // stands whatever happens here: a cheque that is not moved stays Approved, where
           // "Mark as Paid" finishes it.
-          if (isPaymentRow && newStatus === PAYMENT_STATUS.APPROVED && isChequePayment(row)) {
+          //
+          // ⚠️ CALLED FOR EVERY APPROVED PAYMENT, NOT ONLY ROWS THAT READ "Cheque". A payment can be
+          // put on a Cheque (and so become a Cheque payment, spec #1407) after this queue was loaded;
+          // the server reads the mode from the payment itself and does nothing for an Online one.
+          if (isPaymentRow && newStatus === PAYMENT_STATUS.APPROVED) {
             let moved = false;
             try {
               moved = Boolean((await moveChequeCall({ payment_id: selectedPayment.name }))?.message?.moved);
             } catch (moveError) {
               console.error("Cheque payment was approved but not moved on:", moveError);
             }
-            successMessage = moved
-              ? "Cheque payment approved and moved to Reconciliation Pending."
-              : "Payment approved, but the cheque could not be moved on. Mark it as paid from \"Payment need to paid\".";
+            if (moved) {
+              successMessage = "Cheque payment approved and moved to Reconciliation Pending.";
+            } else if (isChequePayment(row)) {
+              successMessage = "Payment approved, but the cheque could not be moved on. Mark it as paid from \"Payment need to paid\".";
+            }
           }
         }
         refetch();

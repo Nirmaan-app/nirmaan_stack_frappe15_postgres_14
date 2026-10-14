@@ -359,6 +359,8 @@ doc_events = {
         ],
         "on_trash": [
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
+            # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
+            "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
         # Deleting the expense deletes the request it came from. after_delete, not on_trash --
@@ -378,6 +380,8 @@ doc_events = {
         # generate_versions needs the pre-delete data, so it stays on on_trash.
         "on_trash": [
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
+            # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
+            "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
         # Cashflow recompute moved to after_delete so the gap query runs AFTER the
@@ -410,6 +414,11 @@ doc_events = {
         "validate": "nirmaan_stack.integrations.controllers.project_billing.package_validate",
         "before_rename": "nirmaan_stack.integrations.controllers.project_billing.package_before_rename",
         "on_trash": "nirmaan_stack.integrations.controllers.project_billing.package_on_trash",
+    },
+    # Header rules + bank / cheque number uniqueness on every write path (spec #1407). The
+    # cheques service (`services/cheques/writer.py`) is the only code that writes a Cheque.
+    "Cheques": {
+        "validate": "nirmaan_stack.integrations.controllers.cheques.validate",
     },
     "Material Test Certificate": {
         "validate": "nirmaan_stack.integrations.controllers.material_test_certificate.validate",

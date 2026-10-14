@@ -16,6 +16,11 @@ from nirmaan_stack.services.approval_tiers import (
 )
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services import cheque_payments
+from nirmaan_stack.api.payments.payment_cheque import (
+    cheque_header,
+    put_on_new_cheque,
+    refuse_unless_cheque_can_be_made,
+)
 # api -> service is the one legal direction (ADR-0010). See `reference_guard.py`'s module
 # docstring: this call site and `settle._assert_reference_is_free` must move together.
 from nirmaan_stack.services.outflow_import.reference_guard import assert_reference_is_free
@@ -91,9 +96,14 @@ def create_payment_request_for_service(data: str) -> str:
             "amount" : 12345.67,
             "is_gst_payment": 0 | 1,                        # Work Orders only; base when absent
             "mode_of_payment": "Online" | "Cheque",           # optional, Online when absent
-            "cheque_no": "...", "cheque_date": "YYYY-MM-DD"    # required for a cheque
+            # A cheque (#1414) -- the payment gets its own new one-line Cheque:
+            "bank": "ICICI Bank" | "Others", "bank_name": "...",  # bank_name for Others only
+            "cheque_no": "...", "cheque_date": "YYYY-MM-DD",
+            "cheque_amount": 9800.0,                           # what the cheque is written for
+            "cheque_attachment": "/private/files/..."          # the cheque photo, required
         }
-    Returns: JSON string { "name": "<PAY-00042-087>" }
+    Returns: JSON string { "name": "<PAY-00042-087>", "cheque": "<CHQ-26-00001>" | null }
+    A bank + cheque number already recorded refuses the whole request (`DuplicateChequeError`).
     """
     payload = frappe.parse_json(data)
     doctype = payload.get("doctype")
@@ -120,6 +130,10 @@ def create_payment_request_for_service(data: str) -> str:
         assert_within_work_order_limit(src, amount, gst_payment)
     else:
         _assert_within_po_balance(src, amount)
+
+    # Before the insert: its `after_insert` commits, so a refusal after it would come too late.
+    cheque = cheque_header(payload, vendor=src.vendor)
+    refuse_unless_cheque_can_be_made(cheque)
 
     # ── create payment doc  (ACID wrapper) ─────────────────────────
     # Small payments auto-approve; negative refunds (amount < 0) always go
@@ -155,15 +169,16 @@ def create_payment_request_for_service(data: str) -> str:
     elif l1_cleared:
         _comment_raiser_approval(pay, ceo_cleared)
 
+    cheque_name = put_on_new_cheque(pay.name, cheque)
     frappe.db.commit()
 
     # A cheque born Approved (the auto band, or a raiser who holds the approval) goes straight
     # on to Reconciliation Pending, in its own transaction now that the approval (and its TDS)
     # is on disk.
     if status == "Approved" and cheque_payments.is_cheque(pay):
-        _move_cheque_to_reconciliation(pay.name)
+        cheque_payments.commit_move_to_reconciliation(pay.name)
 
-    return frappe.as_json({"name": pay.name})
+    return frappe.as_json({"name": pay.name, "cheque": cheque_name})
 
 @frappe.whitelist()
 def create_project_payment(
@@ -176,10 +191,19 @@ def create_project_payment(
     mode_of_payment: str | None = None,
     cheque_no: str | None = None,
     cheque_date: str | None = None,
+    bank: str | None = None,
+    bank_name: str | None = None,
+    cheque_amount: float | None = None,
+    cheque_attachment: str | None = None,
 ):
     """
     Creates a new "Project Payments" doc AND updates the source PO Payment Term row
     to establish the link. This is the primary function called by the frontend.
+
+    In Cheque mode (#1414) the payment gets its own new one-line Cheque, made from `bank`
+    (+ `bank_name` for Others), `cheque_no`, `cheque_date`, `cheque_amount` and the photo
+    `cheque_attachment`; the reply names it as `cheque`. A bank + cheque number already recorded
+    refuses the whole request (`DuplicateChequeError`) and creates nothing.
 
     Uses a two-phase approach to ensure atomicity:
     1. Validate and update the PO term status first (prevents duplicate requests)
@@ -243,6 +267,18 @@ def create_project_payment(
                 "Maximum amount you can request is {0} (available balance)"
             ).format(frappe.format_value(available, "Currency")))
 
+        # --- Step 3b: the cheque, checked BEFORE the insert (its `after_insert` commits) ---
+        cheque = cheque_header({
+            "mode_of_payment": mode_of_payment,
+            "bank": bank,
+            "bank_name": bank_name,
+            "cheque_no": cheque_no,
+            "cheque_date": cheque_date,
+            "cheque_amount": cheque_amount,
+            "cheque_attachment": cheque_attachment,
+        }, vendor=src.vendor)
+        refuse_unless_cheque_can_be_made(cheque)
+
         # --- Step 4: Create the payment document (small ones skip both gates) ---
         auto_approve = is_auto_approved(amount)
         status, l1_cleared, ceo_cleared = _route_new_payment(amount)
@@ -278,6 +314,9 @@ def create_project_payment(
         elif l1_cleared:
             _comment_raiser_approval(pay, ceo_cleared)
 
+        # --- Step 4b: a cheque payment goes on its own new one-line Cheque ---
+        cheque_name = put_on_new_cheque(pay.name, cheque)
+
         # --- Step 5: Update the PO Payment Term row, mirroring the payment status ---
         # This establishes the bidirectional relationship.
         frappe.db.set_value(
@@ -294,12 +333,13 @@ def create_project_payment(
         # Reconciliation Pending too (the line above would otherwise put it back to Approved).
         if status == "Approved" and cheque_payments.is_cheque(pay):
             frappe.db.commit()
-            _move_cheque_to_reconciliation(pay.name)
+            cheque_payments.commit_move_to_reconciliation(pay.name)
 
         # --- Step 6: Return success ---
         return {
             "status": 200,
-            "message": f"Payment {pay.name} has been requested."
+            "message": f"Payment {pay.name} has been requested.",
+            "cheque": cheque_name,
         }
 
     except frappe.DoesNotExistError:
@@ -385,7 +425,7 @@ def ceo_approve_payment(payment_id: str, approved_amount=None) -> dict:
 
     if cheque_payments.is_cheque(pay):
         frappe.db.commit()
-        if _move_cheque_to_reconciliation(pay.name):
+        if cheque_payments.commit_move_to_reconciliation(pay.name):
             return {"status": "success", "message": _("Cheque payment approved and moved to Reconciliation Pending.")}
 
     return {"status": "success", "message": _("Payment forwarded for fulfilment.")}
@@ -450,27 +490,6 @@ def _mode_fields(source: dict) -> dict:
     }
 
 
-def _move_cheque_to_reconciliation(payment_name: str) -> bool:
-    """Move an Approved cheque payment on to Reconciliation Pending, in its OWN transaction.
-
-    ⚠️ CALL IT ONLY AFTER THE APPROVAL HAS BEEN COMMITTED. It commits or rolls back by itself, so
-    a failure here can never take the approval with it, and it NEVER raises: a payment it could
-    not move stays at `Approved`, in "Payment need to paid", where the accountant's "Mark as Paid"
-    makes the same move. The rule itself is `services/cheque_payments.move_to_reconciliation`.
-    """
-    try:
-        moved = cheque_payments.move_to_reconciliation(payment_name)
-        frappe.db.commit()
-        return moved
-    except Exception:
-        frappe.db.rollback()
-        frappe.log_error(
-            title=f"Cheque payment not moved to Reconciliation Pending ({payment_name})",
-            message=frappe.get_traceback(),
-        )
-        return False
-
-
 @frappe.whitelist()
 def move_cheque_payment_to_reconciliation(payment_id: str) -> dict:
     """The single L1 approve writes `Approved` from the browser (`updateDoc`), so it has no server
@@ -478,7 +497,7 @@ def move_cheque_payment_to_reconciliation(payment_id: str) -> dict:
     for an online payment or one not at `Approved`, so a repeated or stray call is harmless.
     """
     frappe.has_permission("Project Payments", "write", doc=payment_id, throw=True)
-    return {"moved": _move_cheque_to_reconciliation(payment_id)}
+    return {"moved": cheque_payments.commit_move_to_reconciliation(payment_id)}
 
 
 @frappe.whitelist()

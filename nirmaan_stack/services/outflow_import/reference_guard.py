@@ -23,10 +23,13 @@ guard would be switched off rather than narrowed.
 ⚠️ ONE CHEQUE, SEVERAL PAYMENTS -- THE SECOND, AND ONLY OTHER, SIBLING SET (owner, 2026-09-19). A cheque
 may cover several payments, and it clears as ONE bank line, so every payment written on it carries the
 same reference -- the cheque number, or the clearing line's UTR. `cheque_siblings_of` excuses exactly the
-other payments whose `cheque_no` is this payment's, and only when this payment is itself a cheque. It is
-computed HERE, from the target, rather than passed in by a caller, so the import and the manual fulfil
-cannot disagree about it. Scoped as tightly as the transfer set: a payment holding the reference that is
-not on the same cheque still blocks, and an online payment has no cheque siblings at all.
+other Cheque payments linked to this payment's Cheque (the `cheque` link, spec #1407 / #1419), and only
+when this payment is itself a Cheque payment with a Cheque. It is keyed on the Cheque, not the cheque
+number: two banks' cheques can share a number, and a payment whose cheque is a different Cheque is not a
+sibling. It is computed HERE, from the target, rather than passed in by a caller, so the import and the
+manual fulfil cannot disagree about it. Scoped as tightly as the transfer set: a payment holding the
+reference that is not on the same Cheque still blocks, and an online payment has no cheque siblings at
+all.
 
 ⚠️ THE EXACT COMPARISON IS ON THE STORED VALUE AS-IS, unchanged from before -- this is not the normalised
 matcher key. (Since #1259 a CONTAINMENT check runs beside it and does normalise both sides, so a padded
@@ -105,17 +108,18 @@ def sibling_payments_of(reference: str, transfer_id: str | None) -> set:
 
 
 def cheque_siblings_of(target_name: str) -> set:
-    """The other payments written on the same cheque as this one. Empty unless it is a cheque.
+    """The other Cheque payments on the same Cheque as this one. Empty unless it is a Cheque payment
+    with a Cheque.
 
     See the module docstring: one cheque clears as one bank line, so these legitimately share its
-    reference. Keyed on the cheque number as stored (the doctype trims it on save).
+    reference. Keyed on the `cheque` link (#1419), not the cheque number.
     """
-    row = frappe.db.get_value(PAYMENT_DOCTYPE, target_name, ["mode_of_payment", "cheque_no"], as_dict=True)
-    if not row or (row.mode_of_payment or "").strip() != MODE_CHEQUE or not (row.cheque_no or "").strip():
+    row = frappe.db.get_value(PAYMENT_DOCTYPE, target_name, ["mode_of_payment", "cheque"], as_dict=True)
+    if not row or (row.mode_of_payment or "").strip() != MODE_CHEQUE or not row.cheque:
         return set()
     rows = frappe.db.get_all(
         PAYMENT_DOCTYPE,
-        filters={"mode_of_payment": MODE_CHEQUE, "cheque_no": row.cheque_no.strip(), "name": ["!=", target_name]},
+        filters={"mode_of_payment": MODE_CHEQUE, "cheque": row.cheque, "name": ["!=", target_name]},
         pluck="name",
     )
     return set(rows)
