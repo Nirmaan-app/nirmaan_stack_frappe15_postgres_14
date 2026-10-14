@@ -211,6 +211,31 @@ export const filterPOsByPackage = <T extends POWithPR>(
 };
 
 /**
+ * The "Select Package" dropdown of the Link POs / Edit Task dialogs: the project's enabled packages
+ * PLUS every package the project's PRs carry (their `pr_tag_list`), sorted, then "Custom".
+ *
+ * Enabled packages alone hid POs: a PR's packages come from its items, so a tools-only PR carries
+ * "Tool & Equipments" even in a project that never enabled it, and its PO had no option to show under.
+ */
+export const buildPackageOptions = (
+    projectPackageRows: { procurement_package?: string | null }[] | undefined,
+    prRows: PRPackageRow[] | undefined
+): { label: string; value: string }[] => {
+    const packages = new Set<string>();
+    projectPackageRows?.forEach((row) => {
+        const pkg = row?.procurement_package?.trim();
+        if (pkg) packages.add(pkg);
+    });
+    buildPRPackageMap(prRows).forEach((info) => info.packages.forEach((pkg) => packages.add(pkg)));
+    packages.delete(CUSTOM_PACKAGE_OPTION);
+
+    return [
+        ...Array.from(packages).sort().map((pkg) => ({ label: pkg, value: pkg })),
+        { label: CUSTOM_PACKAGE_OPTION, value: CUSTOM_PACKAGE_OPTION },
+    ];
+};
+
+/**
  * ─── Task ↔ PO links (Critical PO Task Child Table) ──────────
  *
  * The link lives on the PO: one `Critical PO Task Child Table` row per (PO, task). useProjectPOTaskLinks
