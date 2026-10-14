@@ -49,13 +49,29 @@ export interface PayeeChoice {
     resolve: () => Promise<PayeeOption | null>;
     /** Start again, picking `seed` (a request's own Payee when editing it). */
     reset: (seed?: PayeeOption | null) => void;
+    /** Where the picker searches Payees. */
+    searchApi: string;
 }
 
-export function usePayeeChoice(): PayeeChoice {
+/** The endpoints a screen searches, checks and adds Payees through: the request's (anyone who can
+ *  raise one) by default; Record Payment's Change payee passes the Accounts ones. */
+export interface PayeeChoiceApis {
+    search: string;
+    check: string;
+    add: string;
+}
+
+const REQUEST_APIS: PayeeChoiceApis = {
+    search: SEARCH_PAYEES_API,
+    check: CHECK_REQUEST_PAYEE_API,
+    add: ADD_REQUEST_PAYEE_API,
+};
+
+export function usePayeeChoice(apis: PayeeChoiceApis = REQUEST_APIS): PayeeChoice {
     const [mode, setMode] = useState<PayeeChoiceMode>("pick");
     const [picked, setPicked] = useState<PayeeOption | null>(null);
-    const bankForm = usePayeeBankForm({ checkApi: CHECK_REQUEST_PAYEE_API });
-    const { call: callAdd, loading: adding } = useFrappePostCall<{ message: AddReply }>(ADD_REQUEST_PAYEE_API);
+    const bankForm = usePayeeBankForm({ checkApi: apis.check });
+    const { call: callAdd, loading: adding } = useFrappePostCall<{ message: AddReply }>(apis.add);
 
     const { form, problem: formProblem, duplicate, lookingUp, reset: resetBank, setDuplicate } = bankForm;
     const typedAnything = Object.values(form).some((v) => v.trim());
@@ -104,5 +120,5 @@ export function usePayeeChoice(): PayeeChoice {
         [resetBank],
     );
 
-    return { mode, setMode, picked, pick, bankForm, hasChoice, problem, adding, resolve, reset };
+    return { mode, setMode, picked, pick, bankForm, hasChoice, problem, adding, resolve, reset, searchApi: apis.search };
 }

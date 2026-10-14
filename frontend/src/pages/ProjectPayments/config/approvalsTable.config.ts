@@ -8,6 +8,7 @@
 
 import { SearchFieldOption } from "@/components/data-table/new-data-table";
 import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
+import type { PaidTo } from "@/utils/payees/paidTo";
 import { PP_TABS, PPTabValue } from "./ppTabs.constants";
 
 export const APPROVAL_QUEUE_API =
@@ -52,7 +53,7 @@ export type ApprovalTab = PPTabValue;
  */
 export type ApprovalColumnId =
   | "actions" | "source" | "against" | "requested_on"
-  | "vendor" | "project" | "amount" | "tier" | "raised_by"
+  | "vendor" | "paid_to" | "project" | "amount" | "tier" | "raised_by"
   | "approved_on" | "paid_on" | "utr_ref" | "proof" | "payment_by"
   | "reconciled_on" | "status" | "project_value" | "cashflow_gap";
 
@@ -143,6 +144,11 @@ export interface ApprovalQueueRow {
    *  invoices are Vendor Invoices. Drives the Paid tab's Upload Invoice action. */
   invoice: string;
   has_invoice: boolean;
+  /** An expense's own Payee (blank on a PO / WO payment, which stores none: ADR-0033). */
+  payee: string;
+  /** Who the row is paid to: the vendor's Payee for a PO / WO payment, the expense's own for an
+   *  expense. Resolved by the server's Payee module (`services/payees/paid_to`). */
+  paid_to?: PaidTo;
 }
 
 /**
@@ -167,9 +173,9 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
     "actions", "source", "against", "requested_on",
     "vendor", "project", "amount", "project_value", "cashflow_gap",
   ],
-  // "Payment need to paid"
+  // "Payment need to paid" — Paid to in Vendor's place (#1431): where every row's money goes.
   [PP_TABS.NEW_PAYMENTS]: [
-    "actions", "source", "against", "vendor",
+    "actions", "source", "against", "paid_to",
     "project", "amount", "approved_on", "raised_by",
   ],
   // "Payment Done / Reconciliation Pending" — `payment_by` earns its place here:

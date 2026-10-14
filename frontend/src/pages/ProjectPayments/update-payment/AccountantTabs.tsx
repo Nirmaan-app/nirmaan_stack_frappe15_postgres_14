@@ -72,7 +72,7 @@ import { canEditQueueRow, canHoldQueueRow, canWorkQueueRows, isHeldQueueRow } fr
 import { PAYMENT_HOLD_ROW_CLASSES, PaymentHoldNotice } from "../components/PaymentHoldNotice"
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 import { buildBankFile, describeLeftOut, type BankFileRow } from "../bankUploadFile";
-import { VENDOR_PAYEE_ACCOUNTS_API, type VendorPayeeAccounts } from "@/components/payees/vendorPayeeAccount";
+import { PAID_TO_API, type PaidTo, type PaidToKey } from "@/components/payees/expensePayeeApi";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -176,10 +176,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const vendorOptions = useMemo<SelectOption[]>(() => vendors?.map(v => ({ label: v.vendor_name, value: v.name })) || [], [vendors]);
 
 
-    // The bank file pays each vendor payment into its vendor's Payee, read when the file is built.
-    const { call: fetchVendorPayeeAccounts } = useFrappePostCall<{ message: VendorPayeeAccounts }>(
-        VENDOR_PAYEE_ACCOUNTS_API
-    );
+    // The bank file pays each row into its Payee, read when the file is built.
+    const { call: fetchPaidTo } = useFrappePostCall<{ message: PaidTo[] }>(PAID_TO_API);
 
     // --- Notification Handling ---
     const handleNewPaymentSeen = useCallback((notification: NotificationType | undefined) => {
@@ -259,9 +257,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     );
 
 
-    // ⚠️ SELECTABLE ≠ EXPORTABLE. Every row on this tab can be ticked — expenses, and
-    // vendors with no bank details — because the ticks also drive bulk Mark as Paid. The
-    // bank-transfer CSV filters the unpayable ones back out (see exportSelectedToCSV).
+    // ⚠️ SELECTABLE ≠ EXPORTABLE. Every row on this tab can be ticked — rows with no Payee
+    // included — because the ticks also drive bulk Mark as Paid. The bank-transfer CSV
+    // leaves the unpayable ones back out (see exportSelectedToCSV).
     //
     // A HELD payment cannot be ticked: the ticks drive bulk Mark as Paid AND the bank payout
     // file, and a held payment must reach neither. `PaymentHoldNotice` says why.
@@ -513,31 +511,35 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             return;
         }
 
-        // A vendor payment is paid into its vendor's Payee as it is NOW (ADR-0033: the payment
-        // stores none), so the accounts are read at export, not from a list loaded earlier.
-        const isVendorPayment = (payment: ApprovalQueueRow) => payment.source === "Vendor Payment";
-        const vendorIds = [...new Set(
-            rowsToExport.map(({ original }) => original).filter(isVendorPayment).map((p) => p.vendor).filter(Boolean),
-        )];
-        let payeeAccounts: VendorPayeeAccounts;
+        // Each row is paid into its Payee as it is NOW: a vendor payment into its vendor's (ADR-0033:
+        // the payment stores none), an expense into its own. So the accounts are read at export, not
+        // from the list loaded earlier. The server's Payee module resolves both.
+        const payments = rowsToExport.map(({ original }) => original);
+        let paidTo: PaidTo[];
         try {
-            payeeAccounts = vendorIds.length > 0 ? (await fetchVendorPayeeAccounts({ vendors: vendorIds })).message : {};
+            paidTo = (await fetchPaidTo({
+                rows: payments.map((p): PaidToKey => ({ doctype: p.doctype, name: p.name })),
+            })).message;
         } catch (error) {
             toast({ title: "Export failed", description: getFrappeError(error), variant: "destructive" });
             return;
         }
 
         // ⚠️ THE BANK FILE IS NOT THE SELECTION. `buildBankFile` leaves out every ticked row
-        // that can't be paid by bank transfer, and the toast names them: the accountant must
+        // that has no Payee to pay into, and the toast names them: the accountant must
         // know the file is shorter than their selection.
         const bankFile = buildBankFile(
-            rowsToExport.map(({ original: payment }): BankFileRow => ({
-                kind: isVendorPayment(payment) ? "vendor_payment" : "expense",
-                documentName: payment.document_name,
-                amount: payment.amount,
-                projectLabel: projectLabelMap.get(payment.project) ?? payment.project,
-                payee: isVendorPayment(payment) && payment.vendor ? payeeAccounts[payment.vendor] : undefined,
-            })),
+            payments.map((payment, i): BankFileRow => {
+                const isVendorPayment = payment.doctype === "Project Payments";
+                return {
+                    kind: isVendorPayment ? "vendor_payment" : "expense",
+                    // An expense has no PO / SR: its own ID is the remark.
+                    documentName: isVendorPayment ? payment.document_name : payment.name,
+                    amount: payment.amount,
+                    projectLabel: projectLabelMap.get(payment.project) ?? (payment.project || "Non Project"),
+                    payee: paidTo[i]?.account ?? undefined,
+                };
+            }),
             { format: exportTarget, paymentMode, debitAccountNumber, now: new Date() },
         );
         const skippedParts = describeLeftOut(bankFile.leftOut);
@@ -545,7 +547,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         if (bankFile.rows.length === 0) {
             toast({
                 title: "Nothing to export",
-                description: `No selected row can go in a bank transfer file: ${skippedParts.join("; ")}. Select a vendor payment whose vendor has a Payee.`,
+                description: `No selected row has a payee to pay into: ${skippedParts.join("; ")}. Pay these by hand, or give them a payee first.`,
                 variant: "destructive",
             });
             setIsExportDialogOpen(false);
@@ -565,9 +567,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         toast({
             title: "Export Successful",
             description: skippedParts.length > 0
-                ? `${bankFile.rows.length} payments exported. Skipped: ${skippedParts.join("; ")}.`
+                ? `${bankFile.rows.length} payments exported. Left out, to pay by hand: ${skippedParts.join("; ")}.`
                 : `${bankFile.rows.length} payments exported.`,
-            variant: bankFile.leftOut.some((l) => l.reason === "no_payee") ? "default" : "success",
+            variant: bankFile.leftOut.length > 0 ? "default" : "success",
         });
         setIsExportDialogOpen(false); // Close dialog
         table.resetRowSelection(); // Clear selection
