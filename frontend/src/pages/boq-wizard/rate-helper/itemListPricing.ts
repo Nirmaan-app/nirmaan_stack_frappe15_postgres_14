@@ -711,6 +711,17 @@ export interface ItemPriceResult {
    * with the same sentence instead of pricing a number the item itself would not price. Present ONLY then. */
   sizeRefused?: string;
   /**
+   * SLICE 12e-5 (owner, 2026-10-14: "the attribute values should be captured else the user will have to enter
+   * everything from scratch"; AC1) -- THE DEFAULTS AN ITEM HAD READ WHEN IT REFUSED AT A NEED. A "None" answer is
+   * read into its ruled default (cladding "None" -> "No") BEFORE the needs loop; a refusal there (a size never
+   * stated, or one that could not be read) used to drop them, so the field showed the raw "None". They are HELD
+   * here, never on `defaulted`, so no block shows them by itself: a delegated SECTION refusing on the size its
+   * pipe gives it shows them, as its own category shows them on a priced row. Display only -- nothing here
+   * reaches the matcher. `need` is the numbers axis the item refused at. Present ONLY on such a refusal with at
+   * least one held default (a choice attribute's; a number's default is never held).
+   */
+  heldDefaults?: { need: string; defaulted: DefaultedAttr[] };
+  /**
    * SLICE 12c-S. EVERY FACT THIS BLOCK RESOLVED, whether or not the row got far enough to use it.
    *
    * ⚠️ `selection` IS NOT A SUBSTITUTE, and that is why this exists. `selection` is filled one need at
@@ -2133,6 +2144,11 @@ function priceOneItem(
   // SLICE 12c-S: publish every resolved fact NOW, before the needs loop can return on the first
   // missing one -- the dropdowns narrow on these, and a block that refuses must still narrow.
   out.readValues = { ...read };
+  // SLICE 12e-5 (AC1): the "None" answers already read into their ruled defaults, held on a refusal below
+  const held = (n: string): Pick<ItemPriceResult, "heldDefaults"> => {
+    const d = readDefaulted.filter((x) => needs.includes(x.attr) && !(x.attr in spec.numbers));
+    return d.length ? { heldDefaults: { need: n, defaulted: d } } : {};
+  };
   // (4) the needs (R7-R10, R2): the first missing one names the blank; only the needed facts reach the matcher
   for (const n of needs) {
     if (n in read) { sel[n] = read[n]; continue; }
@@ -2152,7 +2168,7 @@ function priceOneItem(
      * a mentioned thickness pricing silently at 9 mm (the recon's measured defect, Q8).
      */
     // SLICE 12e-4d (AC2): a NUMBER axis that refused on its reading is named, for a section that takes its size from it
-    if (unreadable[n]) return { ...blank(unreadable[n]), selection: sel, ...(n in spec.numbers ? { sizeRefused: n } : {}) };
+    if (unreadable[n]) return { ...blank(unreadable[n]), selection: sel, ...(n in spec.numbers ? { sizeRefused: n } : {}), ...held(n) };
     const ndef = spec.number_defaults?.[n];
     if (ndef && Number.isFinite(ndef.value)
         && (!ndef.families || (out.family !== null && ndef.families.includes(out.family)))) {
@@ -2162,7 +2178,7 @@ function priceOneItem(
       readDefaulted.push({ attr: n, value: fmt(ndef.value), rule: ndef.rule });
       continue;
     }
-    return { ...blank(spec.choice_attrs.includes(n) ? `could not tell ${reasonName(spec, n)}` : `no ${reasonName(spec, n)} stated`), selection: sel };
+    return { ...blank(spec.choice_attrs.includes(n) ? `could not tell ${reasonName(spec, n)}` : `no ${reasonName(spec, n)} stated`), selection: sel, ...held(n) };
   }
   out.defaulted = readDefaulted.filter((d) => needs.includes(d.attr));
 

@@ -151,6 +151,10 @@ export type RowContextWithUnit = RateHelperRowContext & {
    * calculator's. A section is always handed the row's unit, so "no unit supplied" cannot tell it that there
    * is no row; this does. Absent everywhere else. */
   noRow?: boolean;
+  /** SLICE 12e-5 (AC1): set by the section pass to the numbers axis its pipe's size reaches. An item of the
+   * delegated category refusing AT THAT NEED shows the defaults it had read (`ItemPriceResult.heldDefaults`)
+   * exactly as a priced item shows its own. Absent everywhere else, so no category's own row changes. */
+  showHeldDefaultsOn?: string;
 };
 
 /** A pipeline id is surfaced in the helper iff it is NOT a BCS pipeline (owner deferral). PURE. */
@@ -2823,9 +2827,12 @@ function computeItemListOwn(
       index: i, familyRaw: null, family: null, skuUnitClass: null, state: "blank", reason: priced.reason,
       selection: {}, readValues: {}, defaulted: [], ladderHops: [], overrides: [], conversion: null, sku: null, finals: {}, qty: 1, qtyDefaulted: true, figures: {}, working: [], pipelineResults: [],
     };
+    // SLICE 12e-5 (AC1): a section's item refusing on the size its pipe gives it shows what it had read
+    const held = ctx.showHeldDefaultsOn !== undefined && res.state === "blank" && res.heldDefaults?.need === ctx.showHeldDefaultsOn
+      ? { ...res, defaulted: res.heldDefaults.defaulted } : res;
     // the block is drawn from what was PRICED (the stale pick removed), with the cleared value carried
     // separately so the field can name it
-    return itemBlockView(spec, defs, e, forDisplay[i], res, unitClass, items, mine.length ? mine : [res],
+    return itemBlockView(spec, defs, e, forDisplay[i], held, unitClass, items, mine.length ? mine : [res],
                          clearedPicks[i] ?? new Map(), matchedByBlock[i] ?? new Map(),
                          e.family === null && e.base !== null ? modelItems[e.base] : undefined,
                          ladderedPicks[i] ?? new Map());
@@ -3034,7 +3041,16 @@ function computeItemList(
       ...(mirrored || refusedByPipe ? { other: [...new Set([...(secEdit.other ?? []), toId!])] } : (secEdit.other ? { other: [...secEdit.other] } : {})),
     };
     const dext = modelItem ? ({ excelRow: ctx.excelRow, description: ctx.description, attributes: {}, items: [modelItem] } as ExtractionRowWithItems) : undefined;
-    const res = computeItemListOwn(r.cfg, r.dspec, items, { ...ctx, unit: rowUnit, ...(calculator ? { noRow: true } : {}) }, dext, inRun,
+    /**
+     * SLICE 12e-5 (owner, 2026-10-14, on 12e-4d: "the attribute values should be captured else the user will have
+     * to enter everything from scratch"; AC1) -- A SECTION REFUSING OVER ITS PIPE'S SIZE KEEPS WHAT THE AI READ.
+     * Whether its pipe refused the size (12e-4d AC2) or stated none, the section's item refuses at the size need,
+     * and the defaults it had already read ("None" -> cladding "No", amber, with its rule) used to be dropped, so
+     * the field showed "- select -". They are shown now exactly as Insulation shows them on a priced row; the
+     * section still refuses, with no figure and no "priced as" line. A value with no dropdown word ("6mm") shows
+     * as before, in its "Other..." box.
+     */
+    const res = computeItemListOwn(r.cfg, r.dspec, items, { ...ctx, unit: rowUnit, ...(calculator ? { noRow: true } : {}), ...(mir ? { showHeldDefaultsOn: mir.to } : {}) }, dext, inRun,
                                    { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [callEdit] }) }) as ItemListSuggestion;
     const dview = res.itemList!;
     if (refusedByPipe) {
