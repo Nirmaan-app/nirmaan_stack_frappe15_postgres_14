@@ -940,8 +940,16 @@ def apply_row_text_check(row_items, payload_item, items_spec, drops, rid):
     "750" inside "750X450" and "25mm" inside "25mm thick" pass. Returns the flags.
 
     SLICE 12e-4b (owner D-2): an item marked as a section's is checked on THAT section's `text` definitions
-    (the delegated category's own), an unmarked one on the main definitions exactly as before."""
-    haystack = _norm_text(" | ".join(_payload_strings(payload_item)))
+    (the delegated category's own), an unmarked one on the main definitions exactly as before.
+
+    SLICE 12e-4d (owner, 2026-10-14: "fix"; AC4): a curly quote mark and a straight one are the SAME character to
+    this check -- on both sides, the row's text and the value. The model often returns a heading's curly
+    quotes as straight ones (Class ‘O’ copied as Class 'O'), and that alone flagged a value that is in
+    the row. The set, named: ‘ ’ and the prime ′ read as ' ; “ ” and the double prime
+    ″ read as ". Only this comparison folds them: the request, the stored value and the flag's raw text
+    are untouched."""
+    quote_fold = str.maketrans({"\u2018": "'", "\u2019": "'", "\u2032": "'", "\u201c": '"', "\u201d": '"', "\u2033": '"'})
+    haystack = _norm_text(" | ".join(_payload_strings(payload_item))).translate(quote_fold)
     flags = []
     for idx, it in enumerate(row_items):
         spec, _sid = _item_spec_for(items_spec, it)
@@ -954,7 +962,7 @@ def apply_row_text_check(row_items, payload_item, items_spec, drops, rid):
             val = cell.get("value")
             if val is None or val == "None":
                 continue
-            if _norm_text(val) in haystack:
+            if _norm_text(val).translate(quote_fold) in haystack:
                 continue
             drops["items_not_in_row_text"].setdefault(str(rid), []).append({"item": idx, "attr": aid, "raw": val})
             flags.append({"check": "text", "item": idx, "attr": aid, "reason": COERCE_NOT_IN_ROW_TEXT, "raw": val})
