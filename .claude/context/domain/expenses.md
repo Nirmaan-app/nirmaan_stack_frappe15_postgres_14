@@ -632,7 +632,22 @@ save an invalid template**.
     gated on `access.can_raise_requests`, never the Accounts-only `api/payees/` endpoints.
   - An Expense's Payee changes until it is *Paid* through `expense_payee.change_expense_payee`
     (no endpoint yet; Record Payment's "Change payee" is #1431).
-  - Free-text bank fields in formats are removed by #1430; old requests keep their text.
+  - **No format asks for bank details or who gets paid as free text** (#1430): the Payroll,
+    Accommodation Deposit and Staff Accommodation Rent "Payee Bank Details" sections, and the
+    fields that only named the payee (Rent's landlord, the Deposit's landlord / PG, Payroll's
+    employee, the "Paid To" of Office Maintenance, Pooja, Other Financial and Staff Welfare), are
+    gone. Those types ask for a Payee instead: *Required* for Rent Expenses and Accommodation
+    Deposit (paid by transfer into the landlord's account, and a deposit is recovered from it),
+    *Optional* for the other six (card, cash, or a payroll batch with no single payee). The choice
+    is pinned by `api/expense_requests/test_request_forms.py`, which also refuses a bank field or a
+    `description_template` placeholder naming a field the form no longer asks. Bank Interest's
+    "Bank Account No." stays: it is the company's own account, not who gets paid. Supplier-name
+    fields (Service Provider, Print Vendor, Firm / Consultant, Supplier, ...) stay, and those
+    types stay *Not asked*.
+  - **Old requests keep their text.** Their answers stay in `source_data`; a request raised
+    before a field was removed and approved after gets those answers after the format's sentence,
+    labelled from the key (`flatten.undeclared_pairs`, used by `convert.compose_description`).
+    Ledger descriptions already written are never rewritten.
 - **ONE FORMAT PER EXPENSE TYPE** (owner, 2026-08-18), replacing an earlier shared
   accommodation shape. A staff PG, a labour dorm, a deposit and a hotel booking are four
   different questions, and the evidence differs per type: all 7 live Staff rows name exactly
