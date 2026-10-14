@@ -205,6 +205,10 @@ doc_events = {
         "after_insert": "nirmaan_stack.integrations.controllers.asset_master.after_insert",
         "on_update": "nirmaan_stack.integrations.controllers.asset_master.on_update",
     },
+    "Asset Category": {
+        # Monthly asset audit: ticking "Monthly audit required" opens the cycle month's audits of its assets.
+        "on_update": "nirmaan_stack.integrations.controllers.asset_category.on_update",
+    },
     "Projects": {
         "after_insert": [
             "nirmaan_stack.nirmaan_stack.doctype.project_work_milestones.project_work_milestones.generate_pwm",
@@ -521,6 +525,14 @@ scheduler_events = {
         ],
 		"0 2 * * *": [
 			"nirmaan_stack.tasks.action_item_reconcile.run_nightly_reconcile"
+		],
+		# Monthly asset audit (tasks/asset_audit.py): the 28th opens next month's audit for everyone up to
+		# date; the 7th records last month's unsent audits as Missed and opens this month's for late senders.
+		"0 6 28 * *": [
+			"nirmaan_stack.tasks.asset_audit.open_next_month_audits"
+		],
+		"0 6 7 * *": [
+			"nirmaan_stack.tasks.asset_audit.close_last_month_audits"
 		]
 	}
 }

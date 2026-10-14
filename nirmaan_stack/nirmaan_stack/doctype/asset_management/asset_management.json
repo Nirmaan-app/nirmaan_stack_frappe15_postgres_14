@@ -13,7 +13,13 @@
   "received",
   "received_on",
   "returned",
-  "returned_on"
+  "returned_on",
+  "audit_section",
+  "audit_status",
+  "audit_month",
+  "last_audit_on",
+  "audit_proof",
+  "audit_overdue_since"
  ],
  "fields": [
   {
@@ -74,12 +80,52 @@
    "fieldtype": "Date",
    "label": "Return Date",
    "read_only": 1
+  },
+  {
+   "fieldname": "audit_section",
+   "fieldtype": "Section Break",
+   "label": "Audit"
+  },
+  {
+   "description": "Pending while the holder owes an audit (audit_month says which month); Fulfilled once sent. Written only by the server (services/asset_audit_open.py, api/assets/audits.submit_audit).",
+   "fieldname": "audit_status",
+   "fieldtype": "Select",
+   "label": "Audit Status",
+   "options": "\nPending\nFulfilled",
+   "read_only": 1
+  },
+  {
+   "description": "Month and year the current or latest audit is for, as MM/YYYY (e.g. 09/2026).",
+   "fieldname": "audit_month",
+   "fieldtype": "Data",
+   "label": "Audit Month",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_audit_on",
+   "fieldtype": "Date",
+   "label": "Last Audit On",
+   "read_only": 1
+  },
+  {
+   "description": "Photo from the holder's latest audit. Each audit replaces it; every photo stays linked from its Audit Fulfilled history row.",
+   "fieldname": "audit_proof",
+   "fieldtype": "Attach Image",
+   "label": "Audit Proof",
+   "read_only": 1
+  },
+  {
+   "description": "The first month of an unbroken run of missed audits (MM/YYYY): set when the 7th records an Audit Missed, kept while more months are missed, cleared when an audit is sent or the open audit closes. Written only by the server.",
+   "fieldname": "audit_overdue_since",
+   "fieldtype": "Data",
+   "label": "Overdue Since",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-13 18:00:00.000000",
+ "modified": "2026-10-14 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Asset Management",

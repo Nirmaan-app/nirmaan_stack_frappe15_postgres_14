@@ -6,6 +6,8 @@ deleted on Unassign. The permanent record is the asset's `Asset History`, writte
 
 import frappe
 
+from nirmaan_stack.services.asset_audit import NOTE_HANDOVER
+from nirmaan_stack.services.asset_audit_open import open_due_audits
 from nirmaan_stack.services.asset_history import (
     ASSIGNED,
     DECLARATION_SIGNED,
@@ -51,21 +53,26 @@ def after_insert(doc, method):
 
 
 def on_update(doc, method):
-    """Keep the holder in step, and record a declaration signed or uploaded after the assignment."""
+    """Keep the holder in step, record a declaration signed or uploaded after the assignment, and open the
+    month's audit for a holder whose declaration just arrived (the handover)."""
     if not doc.asset:
         return
     frappe.db.set_value(ASSET_MASTER_DOCTYPE, doc.asset, "current_assignee", doc.asset_assigned_to)
     notify_asset_changed(doc.asset)  # runs on insert too, so it covers Assign as well
 
-    if doc.flags.in_insert:
-        return  # after_insert already recorded a declaration that came with the assignment
-    if doc.has_value_changed(DECLARATION_FIELD) and doc.get(DECLARATION_FIELD):
+    declaration_arrived = bool(doc.get(DECLARATION_FIELD)) and doc.has_value_changed(DECLARATION_FIELD)
+    # after_insert already recorded a declaration that came with the assignment
+    if declaration_arrived and not doc.flags.in_insert:
         add_history(
             doc.asset,
             DECLARATION_SIGNED if doc.flags.e_signed else DECLARATION_UPLOADED,
             assigned_to=doc.asset_assigned_to,
             declaration=doc.get(DECLARATION_FIELD),
         )
+    if declaration_arrived:
+        # Owner, 2026-10-14: a new holder is asked at once, unless the asset was already audited this month
+        # or its category isn't audited (services/asset_audit_open.py decides).
+        open_due_audits(assignment=doc.name, note=NOTE_HANDOVER)
 
 
 def on_trash(doc, method):

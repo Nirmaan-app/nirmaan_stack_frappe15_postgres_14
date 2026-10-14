@@ -139,6 +139,13 @@ ASSET_HISTORY_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
 ASSET_ASSIGN_ALL_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, PMO_EXECUTIVE_PROFILE)
 ASSET_ASSIGN_PROJECT_PROFILES = PROCUREMENT_PROFILES
 
+# Monthly asset audit (owner, 2026-10-14). Switching a category's "Monthly audit required": Admin only (the
+# Categories tab shows the column to Admin alone, owner 2026-10-14). Reading audit rows from the history -- the
+# Asset Audit tab's Fulfilled list -- everyone who sees the Assets lists (`canViewAssets`), on top of
+# ASSET_HISTORY_PROFILES. Mirrored in `frontend/src/pages/Assets/utils/permissions.ts` -- keep in sync.
+ASSET_CATEGORY_AUDIT_PROFILES = (ADMIN_PROFILE,)
+ASSET_AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE) + PROCUREMENT_PROFILES
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Resolvers — the ONE way a whitelisted endpoint answers "is this user X?".
