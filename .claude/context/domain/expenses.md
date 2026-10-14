@@ -616,6 +616,9 @@ save an invalid template**.
   field of the same name would record the value twice and let the two disagree.
 - **Payee bank details are NOT asked** (owner, 2026-08-18). Payment details belong to the
   payment, not the request — the accountant records them at Mark-as-Paid.
+  **Superseded 2026-10-14 by [ADR-0033](../../../docs/adr/0033-payee-is-one-bank-account.md)
+  (proposed, not built):** a request names a Payee when its expense type
+  asks for one. This rule still describes the code until ADR-0033 is built.
 - **ONE FORMAT PER EXPENSE TYPE** (owner, 2026-08-18), replacing an earlier shared
   accommodation shape. A staff PG, a labour dorm, a deposit and a hotel booking are four
   different questions, and the evidence differs per type: all 7 live Staff rows name exactly
