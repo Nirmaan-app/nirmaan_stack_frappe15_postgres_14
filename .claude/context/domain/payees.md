@@ -12,9 +12,13 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   - `rules.py` (pure): cleaning what was typed (`parse_details`), what makes details complete
     (`details_problem`), the duplicate refusal's wording, `PAYEE_STATUSES`, `PAID_STATUSES`.
   - `writer.py`: `create_payee` is the only code that creates a Payee. It checks no role: each
-    calling endpoint checks who may add a Payee from that screen.
+    calling endpoint checks who may add a Payee from that screen. `edit_holder_name` and
+    `set_status` (Active / Inactive) are the only edits.
   - `links.py`: what a Payee is linked to, "paid" and last paid (`PAYEES_WITH_LINKS_SQL`,
-    `payee_summaries`, `is_paid`, `payee_for_vendor`).
+    `payee_summaries`, `is_paid`, `payee_for_vendor`), and one Payee's page (`payee_page`:
+    `linked_vendors`, `linked_expenses`, `holder_name_changed_on`).
+  - `guard.py`: the refusals `validate` controllers run on every write path (`check_payee_save`,
+    `check_payee_pick`).
   - `ifsc.py`: the IFSC lookup (Razorpay), the app's only outside bank service.
 - **No two Payees share an account number + IFSC**, compared on `normalized_account`: the account
   number without spaces, dashes or leading zeros, exactly as Bulk Import compares a bank line
@@ -27,6 +31,17 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 - **Paid** means money has left *Approved* for the Payee: a Project Payment of a vendor linked to it
   now, or an expense linked to it, at *Reconciliation Pending* or *Paid*. A PO / WO payment stores no
   Payee (ADR-0033 "Not in v1"), so a vendor's payments count for the Payee it links to today.
+- **Locked**: once a Payee is paid, its account number and IFSC never change. The Payee `validate`
+  controller refuses the change on every write path (`guard.check_payee_save`); nothing stores the
+  lock, it is `is_paid` asked at save time.
+- **Holder name**: only Admin, Accountant and Accountant Lead (`PAYEE_MANAGE_PROFILES`) may change
+  it, refused as the session user by the same controller on every write path, locked or not. The
+  edit leaves a Version row (`ignore_version=False`): "Holder name last changed" reads it.
+- **Inactive**: an Inactive Payee can't be newly picked. `integrations/controllers/payee_links.validate`
+  on `Vendors`, `Expense Request`, `Project Expenses` and `Non Project Expenses` refuses a save whose
+  `payee` changed to an Inactive Payee (`guard.check_payee_pick`); a record already pointing at it
+  keeps it through any later save. A new expense inserted with an Inactive Payee (for example by
+  approval carrying a request's Payee) is a new pick and is refused.
 - **Linked expenses** are `Project Expenses` and `Non Project Expenses` naming the Payee, at any
   status. An Expense Request is not counted until approval carries its Payee onto an expense.
 - **Who:** the Payees page and its endpoints (`api/payees/`) are Admin, Accountant and Accountant Lead
@@ -44,3 +59,4 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | Frontend fields + dialog | `components/payees/` (`PayeeBankFields`, `usePayeeBankForm`, `AddPayeeDialog`) |
 | Frontend rules | `utils/payees/payeeForm.ts`, `utils/payees/payeeRoutes.ts` (`payeeHref`) |
 | Payees page | `pages/payees/PayeesPage.tsx`, route `/payees` |
+| One Payee's page (#1423) | `pages/payees/PayeePage.tsx`, route `/payees/:payeeId`; endpoints `api/payees/payee_page.py` (`get_payee`, `edit_holder_name`, `set_payee_status`); `components/payees/EditHolderNameDialog`; rules `utils/payees/payeePage.ts` |

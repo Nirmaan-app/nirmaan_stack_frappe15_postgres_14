@@ -41,7 +41,7 @@ const columns: ColumnDef<PayeeSummary>[] = [
         accessorKey: "name",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Payee ID" />,
         cell: ({ row }) => (
-            <Link to={payeeHref(row.original.name, row.original.status)} className="font-medium text-blue-600 hover:underline">
+            <Link to={payeeHref(row.original.name)} className="font-medium text-blue-600 hover:underline">
                 {row.original.name}
             </Link>
         ),

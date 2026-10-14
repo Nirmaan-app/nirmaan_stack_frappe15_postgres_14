@@ -164,6 +164,7 @@ const ResolveInvoices = lazy(() => import("@/pages/temp/ResolveInvoices"));
 const RemindersPage = lazy(() => import("@/pages/Reminders/RemindersPage"));
 // Payees (spec #1420): every bank account the company pays into.
 const PayeesPage = lazy(() => import("@/pages/payees/PayeesPage"));
+const PayeePage = lazy(() => import("@/pages/payees/PayeePage"));
 // Document Search
 
 export const appRoutes: RouteObject[] = [
@@ -685,7 +686,11 @@ export const appRoutes: RouteObject[] = [
             children: [
               {
                 path: "payees",
-                children: [{ index: true, element: <Suspense fallback={null}><PayeesPage /></Suspense> }],
+                children: [
+                  { index: true, element: <Suspense fallback={null}><PayeesPage /></Suspense> },
+                  // One Payee (#1423): every link to a Payee is built by `utils/payees/payeeRoutes.payeeHref`.
+                  { path: ":payeeId", element: <Suspense fallback={null}><PayeePage /></Suspense> },
+                ],
               },
             ],
           },

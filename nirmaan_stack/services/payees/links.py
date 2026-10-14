@@ -14,13 +14,16 @@
 
 `PAYEES_WITH_LINKS_SQL` is the one query behind all of this: the Payees list (`api/payees/
 list_payees`) filters and sorts over it, and `payee_summaries` reads single Payees from it.
+
+One Payee's page (#1423) reads `payee_page`: the summary, the lock, when the holder name last changed,
+and the rows behind the counts (`linked_vendors`, `linked_expenses`).
 """
 
 from __future__ import annotations
 
 import frappe
 
-from nirmaan_stack.services.payees.rules import PAID_STATUSES
+from nirmaan_stack.services.payees.rules import PAID_STATUSES, PAYEE_DOCTYPE
 
 _PAID = ", ".join(f"'{status}'" for status in PAID_STATUSES)
 
@@ -113,3 +116,89 @@ def is_paid(name: str) -> bool:
 def payee_for_vendor(vendor: str) -> str | None:
     """The Payee a vendor is paid into today, or None when it has none."""
     return frappe.db.get_value("Vendors", vendor, "payee") or None
+
+
+#: A linked expense's kind, as the Payee page shows it.
+PROJECT_KIND = "Project"
+NON_PROJECT_KIND = "Non Project"
+
+
+def linked_vendors(name: str) -> list[dict]:
+    """The Vendors paid into Payee `name`: `{name, vendor_name, vendor_type, vendor_city, vendor_status,
+    linked_since}`, by vendor name. `linked_since` (ISO date) is the vendor's last change of its
+    Payee in its Version history; a link with no such row (made before it, or by a raw write) dates
+    from when both the vendor and the Payee existed."""
+    rows = frappe.db.sql(
+        """
+        SELECT v.name, v.vendor_name, v.vendor_type, v.vendor_city, v.vendor_status,
+               COALESCE(
+                   (SELECT MAX(ver.creation) FROM "tabVersion" ver
+                    WHERE ver.ref_doctype = 'Vendors' AND ver.docname = v.name
+                      AND ver.data LIKE '%%["payee",%%'),
+                   GREATEST(v.creation, p.creation)
+               )::date AS linked_since
+        FROM "tabVendors" v JOIN "tabPayee" p ON p.name = v.payee
+        WHERE v.payee = %(name)s
+        ORDER BY v.vendor_name, v.name
+        """,
+        {"name": name},
+        as_dict=True,
+    )
+    return [{**row, "linked_since": str(row.linked_since) if row.linked_since else None} for row in rows]
+
+
+def linked_expenses(name: str) -> list[dict]:
+    """The expenses naming Payee `name`, at any status, newest first: `{name, kind, expense_type,
+    project, project_name, amount, status, paid_on}`. `kind` is `PROJECT_KIND` or `NON_PROJECT_KIND`;
+    `paid_on` (ISO date) is set once the expense has paid the Payee, read as `last_paid` reads it."""
+    rows = frappe.db.sql(
+        f"""
+        SELECT x.name, x.kind, x.expense_type, x.project, x.project_name, x.amount, x.status,
+               CASE WHEN x.status IN ({_PAID}) THEN COALESCE(x.payment_date, x.modified::date) END AS paid_on
+        FROM (
+            SELECT e.name, %(project_kind)s AS kind, e.type AS expense_type, e.projects AS project,
+                   pr.project_name, e.amount, e.status, e.payment_date, e.modified, e.creation
+            FROM "tabProject Expenses" e LEFT JOIN "tabProjects" pr ON pr.name = e.projects
+            WHERE e.payee = %(name)s
+            UNION ALL
+            SELECT e.name, %(non_project_kind)s, e.type, NULL, NULL, e.amount, e.status, e.payment_date,
+                   e.modified, e.creation
+            FROM "tabNon Project Expenses" e
+            WHERE e.payee = %(name)s
+        ) x
+        ORDER BY x.creation DESC, x.name
+        """,
+        {"name": name, "project_kind": PROJECT_KIND, "non_project_kind": NON_PROJECT_KIND},
+        as_dict=True,
+    )
+    return [
+        {**row, "amount": float(row.amount or 0), "paid_on": str(row.paid_on) if row.paid_on else None}
+        for row in rows
+    ]
+
+
+def holder_name_changed_on(name: str) -> str | None:
+    """The ISO date Payee `name`'s holder name last changed, from its Version history, or None."""
+    changed = frappe.db.sql(
+        """SELECT MAX(creation)::date FROM "tabVersion"
+           WHERE ref_doctype = %(doctype)s AND docname = %(name)s AND data LIKE '%%["account_name",%%'""",
+        {"doctype": PAYEE_DOCTYPE, "name": name},
+    )[0][0]
+    return str(changed) if changed else None
+
+
+def payee_page(name: str) -> dict:
+    """Everything one Payee's page shows: `payee_summary`'s fields plus `creation`, `locked`
+    (`is_paid`: its account number and IFSC can't change), `holder_name_changed_on`,
+    `linked_vendors` and `linked_expenses`. Refuses a name with no Payee."""
+    summary = payee_summary(name)
+    if not summary:
+        frappe.throw(frappe._("Payee {0} not found.").format(name), frappe.DoesNotExistError)
+    return {
+        **summary,
+        "creation": str(frappe.db.get_value(PAYEE_DOCTYPE, name, "creation")),
+        "locked": is_paid(name),
+        "holder_name_changed_on": holder_name_changed_on(name),
+        "linked_vendors": linked_vendors(name),
+        "linked_expenses": linked_expenses(name),
+    }

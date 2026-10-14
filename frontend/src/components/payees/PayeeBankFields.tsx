@@ -97,7 +97,7 @@ export function PayeeBankFields({ payeeForm, disabled }: PayeeBankFieldsProps) {
                         <p className="font-semibold">This account is already a payee</p>
                         <p className="mt-0.5">{duplicateSentence(duplicate)}</p>
                         <p className="mt-1.5">
-                            <Link to={payeeHref(duplicate.name, duplicate.status)} className="font-semibold text-red-700 hover:underline">
+                            <Link to={payeeHref(duplicate.name)} className="font-semibold text-red-700 hover:underline">
                                 Open {duplicate.name}
                             </Link>
                         </p>
