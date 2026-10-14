@@ -17,6 +17,7 @@
   `choose_payee`: a vendor's Payee.
 * `vendor_account` -- `vendor_accounts`: a vendor's bank account (its Payee), for screens, Bulk
   Import's vendor index and the payment autofill.
+* `paid_to` -- `paid_to_rows`, `paid_to_for`, `expense_pay_to`: who a payment or expense row is paid to.
 
 Import from the submodule (`from nirmaan_stack.services.payees.writer import create_payee`).
 Invariants: `.claude/context/domain/payees.md`.

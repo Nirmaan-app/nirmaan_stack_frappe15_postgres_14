@@ -469,6 +469,23 @@ export const canManagePayees = (role?: string | null, userId?: string | null): b
   userId === "Administrator" || (!!role && PAYEE_MANAGE_PROFILES.includes(role));
 
 /**
+ * Who may set a vendor's bank account (its Payee) from the vendor screens (#1425/#1426): the vendor
+ * page's Change account and Add bank details. Mirrors `services/role_profiles.VENDOR_PAYEE_PROFILES`,
+ * the ENFORCEMENT boundary.
+ */
+export const VENDOR_PAYEE_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  PROJECT_LEAD_PROFILE,
+  ...PROCUREMENT_PROFILES,
+  ...PAYEE_MANAGE_PROFILES,
+];
+
+/** May change a vendor's bank account on the vendor page. The `Administrator` user always may. */
+export const canSetVendorPayee = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && VENDOR_PAYEE_PROFILES.includes(role));
+
+/**
  * Handover Documents -- the profiles that WORK a handover, and the ONLY ones that see it:
  * the `/hod-tracker` sidebar entry + route guard, and the project page's "Handover
  * Documents" tab (owner, 2026-10-07: "sidebar access", then "make those four profile only").

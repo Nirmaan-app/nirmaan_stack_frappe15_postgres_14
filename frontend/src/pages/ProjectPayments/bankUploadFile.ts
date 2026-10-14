@@ -13,11 +13,12 @@ export type BankFilePayee = Pick<Payee, "account_name" | "account_number" | "ifs
 /** One ticked row on "Payment need to paid", with the Payee it is paid into. */
 export interface BankFileRow {
 	kind: "vendor_payment" | "expense";
-	/** PO / SR number: the ICICI remark and the tail of the Cashfree remark. */
+	/** PO / SR number, or the expense's ID: the ICICI remark and the tail of the Cashfree remark. */
 	documentName: string;
 	amount: number | string;
 	projectLabel: string | undefined;
-	/** A vendor payment's is its vendor's Payee today (ADR-0033: a PO / WO payment stores none). */
+	/** A vendor payment's is its vendor's Payee today (ADR-0033: a PO / WO payment stores none); an
+	 *  expense's is its own. */
 	payee?: BankFilePayee;
 }
 
@@ -30,7 +31,7 @@ export interface BankFileOptions {
 }
 
 /** Why a ticked row is not in the bank file. */
-export type BankFileLeftOutReason = "expense" | "no_payee";
+export type BankFileLeftOutReason = "vendor_has_no_payee" | "expense_has_no_payee";
 
 export interface BankFileLeftOut {
 	row: BankFileRow;
@@ -122,24 +123,28 @@ export function buildBankFile(rows: BankFileRow[], options: BankFileOptions): Ba
 // that row only after upload, so a row with no Payee is left out here, not at the bank. A Payee
 // always holds a holder name, an account number and an IFSC.
 function leftOutReason(row: BankFileRow): BankFileLeftOutReason | null {
-	if (row.kind !== "vendor_payment") return "expense";
-	return row.payee ? null : "no_payee";
+	if (row.payee) return null;
+	return row.kind === "vendor_payment" ? "vendor_has_no_payee" : "expense_has_no_payee";
 }
 
 /**
- * The left-out rows as phrases for the export toast, one per reason, e.g.
- * "2 expenses (no vendor)". The accountant must know the file is shorter than their selection.
+ * The left-out rows as phrases for the export toast, one per reason, naming the first three, e.g.
+ * "2 expenses with no payee (PE-2026-00841, NPE-2026-00012)". The accountant must know the file is
+ * shorter than their selection, and which rows still need paying by hand.
  */
 export function describeLeftOut(leftOut: BankFileLeftOut[]): string[] {
-	const expenses = leftOut.filter((l) => l.reason === "expense").length;
-	const noPayee = leftOut.filter((l) => l.reason === "no_payee").map((l) => l.row.documentName);
+	const named = (reason: BankFileLeftOutReason) => {
+		const names = leftOut.filter((l) => l.reason === reason).map((l) => l.row.documentName);
+		return { count: names.length, list: names.slice(0, 3).join(", ") + (names.length > 3 ? ", …" : "") };
+	};
 	const parts: string[] = [];
-	if (expenses > 0) {
-		parts.push(`${expenses} expense${expenses > 1 ? "s" : ""} (no vendor)`);
+	const expenses = named("expense_has_no_payee");
+	if (expenses.count > 0) {
+		parts.push(`${expenses.count} expense${expenses.count > 1 ? "s" : ""} with no payee (${expenses.list})`);
 	}
-	if (noPayee.length > 0) {
-		const named = noPayee.slice(0, 3).join(", ") + (noPayee.length > 3 ? ", …" : "");
-		parts.push(`${noPayee.length} payment${noPayee.length > 1 ? "s" : ""} whose vendor has no Payee (${named})`);
+	const payments = named("vendor_has_no_payee");
+	if (payments.count > 0) {
+		parts.push(`${payments.count} payment${payments.count > 1 ? "s" : ""} whose vendor has no Payee (${payments.list})`);
 	}
 	return parts;
 }

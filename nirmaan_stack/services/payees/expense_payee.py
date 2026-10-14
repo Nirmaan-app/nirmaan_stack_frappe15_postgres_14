@@ -76,7 +76,9 @@ def change_expense_payee(doctype: str, name: str, payee: str | None):
     asked* type may still be given one here: whoever pays it is naming the account, not the raiser.
 
     Written with `db_set`, so no `validate` or `on_update` runs: the expense's own hooks read
-    status and amount, never `payee`, so there is nothing for them to recompute. Never commits.
+    status and amount, never `payee`, so there is nothing for them to recompute. `db_set` leaves
+    no Version row, so one is written here: the change shows in the expense's history, and Record
+    Payment's "Named by" reads who made it (`paid_to.expense_pay_to`). Never commits.
     """
     doc = frappe.get_doc(doctype, name)
     if doc.status == PAID:
@@ -89,5 +91,16 @@ def change_expense_payee(doctype: str, name: str, payee: str | None):
         payee=payee,
         current=doc.get("payee"),
     )
+    previous = doc.get("payee") or None
     doc.db_set("payee", resolved)
+    if resolved != previous:
+        frappe.get_doc({
+            "doctype": "Version",
+            "ref_doctype": doctype,
+            "docname": name,
+            # The shape and separators Frappe's own `Version.set_diff` writes, so readers that
+            # match `["payee",` find it.
+            "data": frappe.as_json({"changed": [["payee", previous, resolved]]}, indent=None,
+                                   separators=(",", ":")),
+        }).insert(ignore_permissions=True)
     return doc
