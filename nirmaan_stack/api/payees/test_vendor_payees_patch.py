@@ -11,16 +11,21 @@ Payee's details, the expenses' Payee, and the patch log.
 TESTPYE name and deleted after the test; every Payee is purged by `PayeeFixture`.
 
 #1432 deleted the five bank fields from the `Vendors` doctype. Frappe's migrate never drops a column,
-so a site that had them still has them, and that is what the patch reads. A site installed after the
-deletion has no such columns and never runs the patch, so this module skips there.
+so a site that had them still has them, and that is what the patch reads (`_vendors_without_payee`).
+A site installed after the deletion has no such columns. So the grouping, linking and logging run on
+every site with the patch's reader swapped for one that serves the planted bank details beside the
+real vendor rows (`TestMoveVendorBankDetailsToPayees`); only the reader itself needs the old columns
+(`TestThePatchReadsTheOldColumns`, skipped where they are gone).
 """
 
 import unittest
+from unittest import mock
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture
+from nirmaan_stack.patches.v3_0 import move_vendor_bank_details_to_payees as patch
 from nirmaan_stack.patches.v3_0.move_vendor_bank_details_to_payees import (
     move_vendor_bank_details,
     summary,
@@ -28,41 +33,54 @@ from nirmaan_stack.patches.v3_0.move_vendor_bank_details_to_payees import (
 from nirmaan_stack.services.payees.rules import ACTIVE, PAYEE_DOCTYPE
 
 U = "Administrator"
+BANK_FIELDS = ("account_name", "account_number", "ifsc", "bank_name", "bank_branch")
 
 
-class TestMoveVendorBankDetailsToPayees(FrappeTestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        if not frappe.db.has_column("Vendors", "account_number"):
-            raise unittest.SkipTest("tabVendors has no old bank columns: a site installed after #1432")
-
+class _PatchFixture(FrappeTestCase):
     def setUp(self):
         frappe.set_user(U)
         self.payees = PayeeFixture.attach(self)
         self.vendors: list[str] = []
         self.expenses: list[tuple[str, str]] = []
+        #: The bank details each planted vendor has on record, as the old columns held them.
+        self.bank: dict[str, dict] = {}
         self.addCleanup(self._delete_rows)
 
     def _delete_rows(self):
+        """Roll back first, then each scope on its own, reporting any failure (CODING_STANDARDS
+        § Writing tests)."""
         frappe.db.rollback()
-        for doctype, name in self.expenses:
-            frappe.db.delete(doctype, {"name": name})
+        scopes = [(doctype, [name]) for doctype, name in self.expenses]
         if self.vendors:
-            frappe.db.delete("Vendors", {"name": ["in", self.vendors]})
-        frappe.db.commit()
+            scopes.append(("Vendors", self.vendors))
+        failures = []
+        for doctype, names in scopes:
+            try:
+                frappe.db.delete(doctype, {"name": ["in", names]})
+                frappe.db.commit()
+            except Exception as e:  # report, never swallow: a stranded row is permanent dev data
+                frappe.db.rollback()
+                failures.append(f"{doctype} {names}: {e}")
+        if failures:
+            raise AssertionError("clean-up failed: " + "; ".join(failures))
 
     def _vendor(self, vendor_name, account_number=None, ifsc=TEST_IFSC, account_name=None,
                 bank_name="Fixture Bank", bank_branch="Fixture Branch") -> str:
         name = f"TESTPYE-VEN-{frappe.generate_hash(length=8)}"
+        bank = dict(zip(BANK_FIELDS, (account_name, account_number, ifsc, bank_name, bank_branch)))
+        # Into the old columns too where the site still has them (the reader test reads those).
+        old = [f for f in BANK_FIELDS if frappe.db.has_column("Vendors", f)]
+        columns = "".join(f", {f}" for f in old)
+        marks = "".join(", %s" for _ in old)
         frappe.db.sql(
-            """INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-                                         vendor_name, account_name, account_number, ifsc, bank_name, bank_branch)
-               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s, %s, %s, %s)""",
-            (name, U, U, vendor_name, account_name, account_number, ifsc, bank_name, bank_branch),
+            f"""INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
+                                          vendor_name{columns})
+                VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s{marks})""",
+            (name, U, U, vendor_name, *(bank[f] for f in old)),
         )
         frappe.db.commit()
         self.vendors.append(name)
+        self.bank[name] = bank
         return name
 
     def _expense(self, doctype, vendor) -> str:
@@ -85,6 +103,28 @@ class TestMoveVendorBankDetailsToPayees(FrappeTestCase):
     @staticmethod
     def _payee_of(vendor) -> str | None:
         return frappe.db.get_value("Vendors", vendor, "payee")
+
+
+class TestMoveVendorBankDetailsToPayees(_PatchFixture):
+    """The patch's grouping, linking and log on every site: its reader of the old columns is swapped
+    for one that serves the planted bank details beside the real vendor rows (still only vendors with
+    no Payee, in the patch's order), so the columns' absence after #1432 cannot skip it."""
+
+    def setUp(self):
+        super().setUp()
+        reader = mock.patch.object(patch, "_vendors_without_payee", self._planted_vendors_without_payee)
+        reader.start()
+        self.addCleanup(reader.stop)
+
+    def _planted_vendors_without_payee(self, vendors):
+        rows = frappe.db.sql(
+            """SELECT name, vendor_name FROM "tabVendors"
+               WHERE COALESCE(payee, '') = '' AND name IN %(vendors)s
+               ORDER BY creation, name""",
+            {"vendors": tuple(vendors or ())},
+            as_dict=True,
+        )
+        return [frappe._dict({**row, **self.bank[row.name]}) for row in rows]
 
     def test_vendors_sharing_an_account_and_ifsc_share_one_payee_with_the_longest_holder_name(self):
         number = self.payees.account_number()
@@ -199,3 +239,27 @@ class TestMoveVendorBankDetailsToPayees(FrappeTestCase):
         )
         self.assertEqual(after, before)
         self.assertEqual((second["made"], second["linked_vendors"], second["linked_expenses"]), ([], 0, 0))
+
+
+class TestThePatchReadsTheOldColumns(_PatchFixture):
+    """The one part that needs `tabVendors`' old bank columns: the patch's own reader. Skipped on a
+    site installed after #1432, which has no such columns and never runs the patch."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        if not frappe.db.has_column("Vendors", "account_number"):
+            raise unittest.SkipTest("tabVendors has no old bank columns: a site installed after #1432")
+
+    def test_the_patch_reads_each_vendors_details_from_the_old_columns(self):
+        number = self.payees.account_number()
+        vendor = self._vendor("Column reader", f"00{number}", account_name="TESTPYE Column Reader",
+                              bank_name="Column Bank", bank_branch="Column Branch")
+
+        self._run()
+
+        doc = frappe.get_doc(PAYEE_DOCTYPE, self._payee_of(vendor))
+        self.assertEqual(
+            (doc.account_name, doc.account_number, doc.ifsc, doc.bank_name, doc.bank_branch),
+            ("TESTPYE Column Reader", f"00{number}", TEST_IFSC, "Column Bank", "Column Branch"),
+        )
