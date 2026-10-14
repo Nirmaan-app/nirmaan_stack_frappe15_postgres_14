@@ -2,12 +2,13 @@
 
 - Return -- the person who holds the asset, from their own profile: ticks `returned` + `returned_on` on
   the assignment. The asset stays assigned; it only tells the managers "I've given this back". History:
-  "Return Requested".
+  "Return Requested". Refused while the asset's monthly audit is Pending (owner, 2026-10-14).
 - Approve -- the same people as Unassign (Admin, HR, PMO; procurement for Project assets): the full
   Unassign (`api/assets/assign.unassign_asset`) with the reason "Returned – no longer needed" and the
   return date, so the asset is free and its history says when it came back.
 - Reject -- the same people as Approve (owner, 2026-10-13: procurement too, for Project assets): clears
-  the two fields, the person keeps the asset. History: "Return Rejected".
+  the two fields, the person keeps the asset. History: "Return Rejected". If the asset now owes the
+  cycle month's audit (a run skipped it while the return waited), it opens.
 
 The holder only reads Asset Management, so the checks here are the authorisation and the saves pass
 `ignore_permissions`.
@@ -18,6 +19,8 @@ from frappe.utils import formatdate, today
 
 from nirmaan_stack.api.assets.assign import unassign_asset
 from nirmaan_stack.services.asset_assign_access import check_may_assign
+from nirmaan_stack.services.asset_audit import AUDIT_PENDING, NOTE_RETURN_REJECTED
+from nirmaan_stack.services.asset_audit_open import open_due_audits
 from nirmaan_stack.services.asset_history import RETURN_REJECTED, RETURN_REQUESTED, add_history
 
 ASSET_MASTER_DOCTYPE = "Asset Master"
@@ -43,6 +46,10 @@ def request_return(assignment: str) -> dict:
         frappe.throw("Only the person who holds this asset can return it.", frappe.PermissionError)
     if not row.get(DECLARATION_FIELD):
         frappe.throw("Sign the declaration for this asset first, then return it.")
+    if row.get("audit_status") == AUDIT_PENDING:
+        # Owner, 2026-10-14: the holder sends the open audit before handing the asset back. Admin / HR
+        # unassigning is never blocked by it.
+        frappe.throw("Submit the pending audit for this asset first, then return it.")
     if row.returned:
         frappe.throw(f"You already returned this asset on {formatdate(row.returned_on)}. It is waiting for approval.")
 
@@ -96,6 +103,9 @@ def reject_return(assignment: str) -> dict:
     add_history(
         row.asset, RETURN_REJECTED, assigned_to=row.asset_assigned_to, reason=f"Return of {formatdate(returned_on)}"
     )
+    # The 28th / 7th runs skip an asset while its return waits: open the cycle month's audit now if it
+    # owes one (owner, 2026-10-14).
+    open_due_audits(assignment=row.name, note=NOTE_RETURN_REJECTED)
     frappe.db.commit()
     return {"assignment": row.name}
 

@@ -1,4 +1,5 @@
-"""The asset history across all assets, with filters -- Admin and HR only (owner, 2026-10-12).
+"""The asset history across all assets, with filters -- Admin and HR only (owner, 2026-10-12), plus the audit
+rows for everyone who sees the Asset Audit tab (owner, 2026-10-14).
 
 Reads the `Asset History` child rows (written by `services/asset_history.py`) joined to their asset,
 newest first, one page at a time. A whitelisted read rather than the generic list API, because the
@@ -8,14 +9,22 @@ history is a child table and access is decided by role profile, which DocPerms c
 import frappe
 from frappe.utils import add_days, getdate
 
-from nirmaan_stack.services.role_profiles import ASSET_HISTORY_PROFILES, get_role_profile
+from nirmaan_stack.services.asset_history import AUDIT_REQUESTED, AUDIT_FULFILLED, AUDIT_MISSED
+from nirmaan_stack.services.role_profiles import ASSET_AUDIT_VIEW_PROFILES, ASSET_HISTORY_PROFILES, get_role_profile
 
 MAX_PAGE_LENGTH = 200
+AUDIT_EVENTS = (AUDIT_REQUESTED, AUDIT_FULFILLED, AUDIT_MISSED)
 
 
-def can_view_asset_history(user: str) -> bool:
-    """Admin, HR Executive, HR Lead, or the Administrator user."""
-    return user == "Administrator" or get_role_profile(user) in ASSET_HISTORY_PROFILES
+def can_view_asset_history(user: str, event: str | None = None) -> bool:
+    """Admin, HR Executive, HR Lead, or the Administrator user -- every event.
+
+    The audit events alone also for the people who see the Asset Audit tab (its Fulfilled list reads them
+    here): PMO and procurement too.
+    """
+    if user == "Administrator" or get_role_profile(user) in ASSET_HISTORY_PROFILES:
+        return True
+    return event in AUDIT_EVENTS and get_role_profile(user) in ASSET_AUDIT_VIEW_PROFILES
 
 
 @frappe.whitelist()
@@ -26,6 +35,7 @@ def get_asset_history(
     asset: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
+    category_type: str | None = None,
     start: int = 0,
     page_length: int = 50,
 ) -> dict:
@@ -37,6 +47,7 @@ def get_asset_history(
         person: rows about this person (assigned_to) or done by them (done_by).
         asset: part of the asset ID or name.
         from_date / to_date: YYYY-MM-DD, inclusive.
+        category_type: "Project" or "IT" -- rows of assets whose category is of that kind.
         start / page_length: paging (page_length at most 200).
 
     Returns:
@@ -45,7 +56,7 @@ def get_asset_history(
     Example:
         GET /api/method/nirmaan_stack.api.assets.history.get_asset_history?event=Assigned&department=Projects
     """
-    if not can_view_asset_history(frappe.session.user):
+    if not can_view_asset_history(frappe.session.user, event):
         frappe.throw("Only Admin and HR can see the asset history.", frappe.PermissionError)
 
     conditions = ["h.parenttype = 'Asset Master'", "h.parentfield = 'asset_history'"]
@@ -71,9 +82,15 @@ def get_asset_history(
     if to_date:
         conditions.append("h.done_on < %(to_date)s")
         values["to_date"] = str(add_days(getdate(to_date), 1))
+    if category_type:
+        conditions.append("c.category_type = %(category_type)s")
+        values["category_type"] = category_type
 
     where = " and ".join(conditions)
-    source = 'from "tabAsset History" h join "tabAsset Master" m on m.name = h.parent'
+    source = (
+        'from "tabAsset History" h join "tabAsset Master" m on m.name = h.parent'
+        ' left join "tabAsset Category" c on c.name = m.asset_category'
+    )
 
     total = frappe.db.sql(f"select count(*) {source} where {where}", values)[0][0]
     values["start"] = max(int(start or 0), 0)

@@ -119,10 +119,22 @@ def _declaration_format_ready() -> bool:
 
 
 def _render_declaration_pdf(asset) -> bytes:
-    """Render the declaration with `asset.declaration` set; the print format places the signature from it."""
-    return frappe.get_print(
-        ASSET_MASTER_DOCTYPE, asset.name, DECLARATION_FORMAT, doc=asset, as_pdf=True, no_letterhead=1
-    )
+    """Render the declaration with `asset.declaration` set; the print format places the signature from it.
+
+    Frappe's print view refuses anyone who can't read the Asset Master, and a project-scoped person (a PM)
+    can't read an asset booked to a project outside their project User Permissions -- ASSET-ANE-002 on
+    GURGAON-PROJ-00037 for a PM on four other projects. The signer was already checked as the asset's
+    holder (`_assert_can_sign`), and an asset assigned to a person always shows for them (owner,
+    2026-10-13), so print permissions are skipped for this one render and restored after.
+    """
+    previous = frappe.flags.ignore_print_permissions
+    frappe.flags.ignore_print_permissions = True
+    try:
+        return frappe.get_print(
+            ASSET_MASTER_DOCTYPE, asset.name, DECLARATION_FORMAT, doc=asset, as_pdf=True, no_letterhead=1
+        )
+    finally:
+        frappe.flags.ignore_print_permissions = previous
 
 
 def _save_declaration_file(row, pdf: bytes) -> str:

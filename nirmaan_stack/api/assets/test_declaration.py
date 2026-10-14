@@ -323,3 +323,32 @@ class TestSignDeclarationEndpoint(FrappeTestCase):
 
         result, _, _ = self._sign()  # once the other tab is done, signing works again
         self.assertEqual(result, {"file_url": self.url})
+
+
+class TestDeclarationRender(FrappeTestCase):
+    """The PDF renders for the holder even when they can't read the Asset Master (2026-10-14).
+
+    A PM's project User Permissions hid ASSET-ANE-002 (booked to GURGAON-PROJ-00037) from its holder, and
+    Frappe's print view refused the signature with "You need the 'print' permission". The signer is checked
+    as the holder before rendering, so the render skips print permissions -- for that call only.
+    """
+
+    def test_print_permissions_are_skipped_for_the_render_and_restored(self):
+        seen = {}
+
+        def fake_get_print(*args, **kwargs):
+            seen["during"] = frappe.flags.ignore_print_permissions
+            return FAKE_PDF
+
+        before = frappe.flags.ignore_print_permissions
+        with patch.object(frappe, "get_print", side_effect=fake_get_print):
+            self.assertEqual(declaration._render_declaration_pdf(frappe._dict(name="ASSET-X-001")), FAKE_PDF)
+        self.assertTrue(seen["during"])
+        self.assertEqual(frappe.flags.ignore_print_permissions, before)
+
+    def test_the_flag_is_restored_when_the_render_fails(self):
+        before = frappe.flags.ignore_print_permissions
+        with patch.object(frappe, "get_print", side_effect=RuntimeError("wkhtmltopdf died")):
+            with self.assertRaises(RuntimeError):
+                declaration._render_declaration_pdf(frappe._dict(name="ASSET-X-001"))
+        self.assertEqual(frappe.flags.ignore_print_permissions, before)
