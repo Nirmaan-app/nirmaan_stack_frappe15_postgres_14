@@ -18,6 +18,7 @@ change nothing on it; a cheque with a typed payee takes expense lines only.
 With `name` it saves the report's Edit of that Cheque (#1418). Admin, Accountant and Accountant Lead
 (`CHEQUE_ACCOUNTS_PROFILES`) edit any Cheque; Procurement only the Issued Cheques they created. What
 may change depends on the status and where the Cheque was made (`services/cheques/rules.edit_problem`).
+A payment whose line an edit takes off an Issued Cheque goes back to Online, its status unchanged.
 """
 
 import frappe

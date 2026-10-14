@@ -3,7 +3,7 @@ import { CHEQUE_ACCESS_PROFILES, CHEQUE_ACCOUNTS_PROFILES } from "@/constants/ro
 import { CHEQUE_STATUS, type ChequeMadeFrom, type ChequeStatus } from "@/types/NirmaanStack/Cheques";
 
 import { saveChequeArgs, type ChequeFormInput, type ChequeFormValues, type SaveChequeArgs } from "./chequeForm";
-import { LINE_TYPE, saveLineArgs } from "./chequeLines";
+import { LINE_TYPE, saveLineArgs, type ChequeLineDraft } from "./chequeLines";
 
 /**
  * Editing a Cheque from the report (#1418, spec #1407), pure so vitest covers it without React (F4).
@@ -15,8 +15,8 @@ import { LINE_TYPE, saveLineArgs } from "./chequeLines";
  * - An Issued Cheque made from the PO/WO page: its number, date and amount stay as on its payment;
  *   its other fields and its lines can change.
  * - A Cleared or Cancelled Cheque: only its photo.
- * - A line holding a Project Payment cannot come off an Issued Cheque; lines with no payment and
- *   expense lines can.
+ * - Any line can come off an Issued Cheque. A Project Payment taken off switches back to Online, its
+ *   status unchanged (`rules.payments_taken_off`); the dialog says so beside the lines.
  * - Admin, Accountant and Accountant Lead edit any Cheque; Procurement only the Issued ones they made.
  */
 
@@ -25,10 +25,6 @@ export type ChequeEditMode = "all" | "po_wo_page" | "photo_only";
 
 /** What a PO/WO-page Cheque keeps (`rules.LOCKED_ON_PO_WO_PAGE`). */
 const LOCKED_ON_PO_WO_PAGE = ["cheque_no", "cheque_date", "amount"];
-
-/** Why a payment line's remove button is off. Matches the server's refusal. */
-export const LOCKED_LINE_HINT =
-    "A payment on an Issued cheque cannot be taken off: reject the payment, or cancel the cheque and Switch to Online.";
 
 export const canEditCheque = (cheque: { status: ChequeStatus; owner: string }, role: string, user: string): boolean =>
     CHEQUE_ACCOUNTS_PROFILES.includes(role) ||
@@ -55,13 +51,25 @@ export const editLockHint = (mode: ChequeEditMode, status: ChequeStatus): string
     return undefined;
 };
 
-/** The Project Payments on an Issued Cheque's lines: their lines cannot come off, nor change payment. */
-export const lockedLinePayments = (cheque: Pick<ChequeDetail, "status" | "lines">): string[] =>
+/** The Project Payments on an Issued Cheque's lines: each one an edit takes off goes back to Online. */
+export const paymentsOnCheque = (cheque: Pick<ChequeDetail, "status" | "lines">): string[] =>
     cheque.status === CHEQUE_STATUS.ISSUED
         ? cheque.lines
               .filter((l) => l.line_type === LINE_TYPE.PO_WO && l.payment_name)
               .map((l) => l.payment_name as string)
         : [];
+
+/** Which of the Cheque's recorded payments the edited `lines` no longer hold (removed, or swapped out). */
+export const paymentsSwitchingToOnline = (
+    recorded: string[],
+    lines: Pick<ChequeLineDraft, "line_type" | "payment_name">[],
+): string[] => {
+    const kept = new Set(lines.filter((l) => l.line_type === LINE_TYPE.PO_WO).map((l) => l.payment_name));
+    return recorded.filter((payment) => !kept.has(payment));
+};
+
+/** The note beside the lines for a payment the edit takes off. */
+export const switchBackHint = (payment: string): string => `${payment} will switch back to Online.`;
 
 /** The Edit dialog's starting values: the Cheque as recorded. */
 export const chequeFormFromDetail = (d: ChequeDetail): ChequeFormInput => ({

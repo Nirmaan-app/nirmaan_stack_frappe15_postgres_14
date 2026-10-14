@@ -9,7 +9,9 @@ import {
     editChequeArgs,
     editLockHint,
     isHeaderLocked,
-    lockedLinePayments,
+    paymentsOnCheque,
+    paymentsSwitchingToOnline,
+    switchBackHint,
 } from "./chequeEdit";
 import { makeChequeFormSchema } from "./chequeForm";
 
@@ -118,9 +120,21 @@ describe("chequeEditMode and its locks", () => {
     });
 });
 
-describe("lockedLinePayments", () => {
-    it("names the Project Payments an Issued Cheque holds; lines with no payment and expense lines are free", () => {
-        expect(lockedLinePayments(detail())).toEqual(["PAY-1"]);
+describe("payments taken off on edit", () => {
+    it("names the Project Payments an Issued Cheque holds, not expenses or lines with no payment", () => {
+        expect(paymentsOnCheque(detail())).toEqual(["PAY-1"]);
+        expect(paymentsOnCheque(detail({ status: "Cleared" }))).toEqual([]);
+    });
+
+    it("says which recorded payments the edited lines no longer hold: removed or swapped out", () => {
+        const recorded = chequeFormFromDetail(detail()).lines ?? [];
+        expect(paymentsSwitchingToOnline(["PAY-1"], recorded)).toEqual([]);
+        expect(paymentsSwitchingToOnline(["PAY-1"], recorded.slice(1))).toEqual(["PAY-1"]);
+        expect(paymentsSwitchingToOnline(["PAY-1"], [{ ...recorded[0], payment_name: "PAY-9" }])).toEqual(["PAY-1"]);
+    });
+
+    it("tells the user the payment goes back to Online", () => {
+        expect(switchBackHint("PAY-1")).toBe("PAY-1 will switch back to Online.");
     });
 });
 

@@ -100,8 +100,38 @@ class TestPaymentChequeButtons(unittest.TestCase):
                 "A Cheque payment goes back to Online only once its Cheque is Cancelled.",
             )
 
+    def test_a_payment_whose_line_came_off_its_issued_cheque_may_go_online(self):
+        # #1418, story 82: the report's Edit took its line off, so the Cheque no longer holds it.
+        self.assertIsNone(rules.mode_change_problem(
+            was_cheque=True, now_cheque=False, cheque=None, old_cheque_status="Issued", on_old_cheque_lines=False
+        ))
+
     def test_switch_to_online_needs_a_cancelled_cheque(self):
         self.assertIsNone(rules.switch_to_online_problem("P1", is_cheque=True, cheque_no="1", cheque_status="Cancelled"))
         self.assertEqual(rules.switch_to_online_problem("P1", is_cheque=False), "Payment P1 is already Online.")
         self.assertIn("only once its cheque is Cancelled; it is on cheque 1 (Issued)",
                       rules.switch_to_online_problem("P1", is_cheque=True, cheque_no="1", cheque_status="Issued"))
+
+
+class TestEditTakesPaymentsOff(unittest.TestCase):
+    """A line holding a Project Payment may come off an Issued Cheque; the payment goes back to Online (#1418)."""
+
+    @staticmethod
+    def _line(line_type, payment=None):
+        return rules.parse_line({"line_type": line_type, "project": "P", "record_doctype": "Service Requests",
+                                 "record_name": "SR-1", "payment_name": payment, "amount": 100})
+
+    def test_the_payments_an_edit_takes_off_are_the_ones_no_line_holds_any_more(self):
+        wo, npe = rules.LINE_PO_WO_PAYMENT, rules.LINE_NON_PROJECT_EXPENSE
+        before = [self._line(wo, "PAY-1"), self._line(wo, "PAY-2"), self._line(wo), self._line(npe, "NPE-1")]
+        after = [self._line(wo, "PAY-2"), self._line(wo, "PAY-3")]
+        self.assertEqual(rules.payments_taken_off(before, after), ["PAY-1"])  # an expense is no payment
+
+    def test_an_issued_cheque_s_payment_line_may_come_off(self):
+        header = rules.parse_header({"bank": "ICICI Bank", "cheque_no": "1", "cheque_date": "2026-10-14",
+                                     "amount": 100, "vendor": "V", "attachment": "x"})
+        for made_from in rules.MADE_FROM:
+            self.assertIsNone(rules.edit_problem(
+                header, header, status=rules.ISSUED, made_from=made_from,
+                lines_before=[self._line(rules.LINE_PO_WO_PAYMENT, "PAY-1")], lines_after=[],
+            ))

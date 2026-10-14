@@ -25,7 +25,10 @@ Built so far:
 
 * `edit_cheque` -- the report's Edit (#1418): what may change depends on the status, where the
   Cheque was made and who made it (`rules.edit_access_problem`, `rules.edit_problem`). A payment
-  added on edit is put on the Cheque exactly as on create.
+  added on edit is put on the Cheque exactly as on create; one taken off goes back to Online
+  (`take_payment_off`), with a history note.
+* `take_payment_off` -- a payment back to Online, off its Cheque, status unchanged. The edit and
+  Switch to Online (#1416) both use it.
 
 Convert to Cheque, Link a new cheque and Switch to Online on a payment (#1416) live in
 `services/cheques/payment_actions.py` and make their Cheque through `create_payment_cheque`.
@@ -44,7 +47,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from nirmaan_stack.services.cheque_payments import MODE_CHEQUE
+from nirmaan_stack.services.cheque_payments import MODE_CHEQUE, MODE_ONLINE
 from nirmaan_stack.services.cheques.rules import (
     ISSUED,
     LINE_PO_WO_PAYMENT,
@@ -62,6 +65,8 @@ from nirmaan_stack.services.cheques.rules import (
     parse_line,
     NEW_CHEQUE_FROM_REQUEST,
     payment_duplicate_problem,
+    payments_taken_off,
+    taken_off_note,
 )
 
 CHEQUES = "Cheques"
@@ -164,7 +169,9 @@ def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | 
     runs every header and line rule.
 
     A payment added on edit is put on the Cheque as on create (`link_payments`), and a new number or
-    date is copied onto the payments already on it. ⚠️ THE CALLER COMMITS, THEN MOVES THE PAYMENTS ON.
+    date is copied onto the payments already on it. A payment whose line came off goes back to Online
+    (`take_payment_off`), and the Cheque's history names it. ⚠️ THE CALLER COMMITS, THEN MOVES THE
+    PAYMENTS ON.
     """
     doc = frappe.get_doc(CHEQUES, name, for_update=True)
     problem = edit_access_problem(status=doc.status, owner=doc.owner, user=user, any_cheque=any_cheque)
@@ -184,7 +191,8 @@ def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | 
     if problem:
         frappe.throw(_(problem))
 
-    _lock_payments([line.payment_name for line in lines_after if line.payment_doctype == PAYMENT_DOCTYPE])
+    taken_off = payments_taken_off(lines_before, lines_after)
+    _lock_payments([line.payment_name for line in lines_after if line.payment_doctype == PAYMENT_DOCTYPE] + taken_off)
     doc.update({
         "bank": header.bank,
         "bank_name": header.bank_name,
@@ -198,10 +206,15 @@ def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | 
     })
     if lines_after != lines_before:
         doc.set("lines", [asdict(line) for line in lines_after])
+    for payment in taken_off:
+        doc.append("status_history", history_row(doc.status, doc.status, user, taken_off_note(payment)))
     doc.save(ignore_permissions=True)
     # Lines and the number change only while Issued; a Cleared or Cancelled Cheque's payments may
     # have moved on (Switch to Online, Link a new cheque) and must not be pulled back.
     if doc.status == ISSUED:
+        # After the save: the payment's mode rule lets it go Online once its line is off the Cheque.
+        for payment in taken_off:
+            take_payment_off(payment)
         link_payments(doc)
     return doc
 
@@ -298,6 +311,20 @@ def link_payments(doc) -> None:
             continue
         pay.update(values)
         pay.save(ignore_permissions=True)
+
+
+def take_payment_off(payment_name: str):
+    """Switch a Cheque payment back to Online and clear its `cheque` link. Returns the payment.
+
+    Its status, amount and everything else stay as they are; the number and date are cleared by its own
+    `validate` (an Online payment has no cheque), whose mode rule (`rules.mode_change_problem`) refuses
+    it while its Cheque still holds it: Issued or Cleared with its line still on. The caller has
+    checked it may go. Its Version row records who.
+    """
+    pay = frappe.get_doc(PAYMENT_DOCTYPE, payment_name)
+    pay.update({"mode_of_payment": MODE_ONLINE, "cheque": None})
+    pay.save(ignore_permissions=True)
+    return pay
 
 
 def _lock_payments(names: list[str]) -> None:

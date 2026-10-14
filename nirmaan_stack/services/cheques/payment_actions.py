@@ -12,8 +12,9 @@ Part of THE cheques service; never commits.
   Reconciliation Pending now, a waiting payment on approval, a held one on release, and
   Reconciliation Pending or Paid stays.
 * `switch_payment_to_online` -- a Cheque payment whose Cheque is Cancelled (or, not Rejected, that is on
-  no Cheque) goes back to Online and leaves that Cheque. Its status does not change. The Cancelled
-  Cheque keeps its line as history.
+  no Cheque) goes back to Online and leaves that Cheque (`writer.take_payment_off`, which the report's
+  Edit also uses when it takes a payment's line off an Issued Cheque). Its status does not change. The
+  Cancelled Cheque keeps its line as history.
 * `validate_mode_change` -- the Project Payments `validate` rule that the mode changes only through a
   Cheque, which is what lets `mode_of_payment` drop `set_only_once`.
 
@@ -25,7 +26,7 @@ from dataclasses import replace
 import frappe
 from frappe import _
 
-from nirmaan_stack.services.cheque_payments import MODE_ONLINE, is_cheque
+from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.cheques.rules import (
     NEW_CHEQUE_FROM_PAYMENT,
     PAYMENT_DOCTYPE,
@@ -39,6 +40,7 @@ from nirmaan_stack.services.cheques.writer import (
     DuplicateChequeError,
     create_payment_cheque,
     payment_cheque_problem,
+    take_payment_off,
 )
 
 
@@ -73,14 +75,13 @@ def switch_payment_to_online(payment_name: str):
     )
     if problem:
         frappe.throw(_(problem))
-    pay.update({"mode_of_payment": MODE_ONLINE, "cheque": None})
-    pay.save(ignore_permissions=True)
-    return pay
+    return take_payment_off(pay.name)
 
 
 def validate_mode_change(pay) -> None:
     """Refuse a save of the Project Payment `pay` that changes its Mode of Payment other than through
-    a Cheque (`rules.mode_change_problem`). Called from its `validate`."""
+    a Cheque (`rules.mode_change_problem`). Called from its `validate`. A payment whose line an edit
+    took off its Cheque is no longer held by it, whatever that Cheque's status."""
     before = pay.get_doc_before_save()
     if not before:
         return
@@ -90,6 +91,12 @@ def validate_mode_change(pay) -> None:
         now_cheque=is_cheque(pay),
         cheque=pay.get("cheque"),
         old_cheque_status=frappe.db.get_value(CHEQUES, old_cheque, "status") if old_cheque else None,
+        on_old_cheque_lines=bool(old_cheque) and bool(frappe.db.exists("Cheque Line", {
+            "parenttype": CHEQUES,
+            "parent": old_cheque,
+            "payment_doctype": PAYMENT_DOCTYPE,
+            "payment_name": pay.name,
+        })),
     )
     if problem:
         frappe.throw(_(problem))

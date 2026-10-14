@@ -349,9 +349,8 @@ def edit_problem(
     * an Issued Cheque made from the PO/WO page keeps its number, date and amount (they stay in step
       with the payment it came from), but its other fields and its lines can change;
     * an Issued Cheque made on the report can change everything;
-    * a line holding a Project Payment cannot come off an Issued Cheque: a Cheque payment always has
-      its Cheque, and goes back to Online only once that Cheque is Cancelled. A line with no payment,
-      or an expense line, comes off freely.
+    * any line can come off an Issued Cheque. A Project Payment taken off switches back to Online
+      (`payments_taken_off`), whatever its status, and its status stays as it is.
 
     The header and line rules every save runs (one payee, a live Cheque per payment, ...) are the
     `validate` controller's, not repeated here.
@@ -370,14 +369,23 @@ def edit_problem(
                 f"Cheque {before.cheque_no} was made from the PO/WO page, so its {_join(locked)} cannot "
                 f"change here: change {'it' if len(locked) == 1 else 'them'} on the payment."
             )
-    kept = {line.payment_name for line in lines_after if line.payment_doctype == PAYMENT_DOCTYPE}
-    for line in lines_before:
-        if line.payment_doctype == PAYMENT_DOCTYPE and line.payment_name not in kept:
-            return (
-                f"Payment {line.payment_name} cannot be taken off cheque {before.cheque_no} while it is "
-                "Issued: reject the payment, or cancel the cheque and Switch to Online."
-            )
     return None
+
+
+def payments_taken_off(lines_before: list[ChequeLineInput], lines_after: list[ChequeLineInput]) -> list[str]:
+    """The Project Payments `lines_before` hold and `lines_after` do not, in line order. A payment taken
+    off an Issued Cheque switches back to Online (owner ruling, spec #1407 story 82)."""
+    kept = {line.payment_name for line in lines_after if line.payment_doctype == PAYMENT_DOCTYPE}
+    return [
+        line.payment_name
+        for line in lines_before
+        if line.payment_doctype == PAYMENT_DOCTYPE and line.payment_name and line.payment_name not in kept
+    ]
+
+
+def taken_off_note(payment: str) -> str:
+    """The Cheque's history note for a payment an edit took off it."""
+    return f"Payment {payment} was taken off the cheque, so it switched back to Online."
 
 
 #: A Cheque payment's Cheque that no longer holds it to the cheque: Cancelled, or none at all (a
@@ -441,19 +449,25 @@ def switch_to_online_problem(
 
 
 def mode_change_problem(
-    *, was_cheque: bool, now_cheque: bool, cheque: str | None, old_cheque_status: str | None
+    *,
+    was_cheque: bool,
+    now_cheque: bool,
+    cheque: str | None,
+    old_cheque_status: str | None,
+    on_old_cheque_lines: bool = True,
 ) -> str | None:
     """Why a payment's Mode of Payment may not change this way, or None (spec #1407). The Project
     Payments `validate` asks it on every save.
 
     Online -> Cheque happens when the cheques service puts the payment on a Cheque, which sets the
-    `cheque` link in the same save. Cheque -> Online only once the payment's Cheque
-    (`old_cheque_status`) is Cancelled, or when it was on none: nothing then holds it to the cheque.
+    `cheque` link in the same save. Cheque -> Online only once nothing holds the payment to its Cheque:
+    that Cheque (`old_cheque_status`) is Cancelled, or it was on none, or its line has come off it
+    (`on_old_cheque_lines` False: an edit took it off, #1418).
     """
     if was_cheque == now_cheque:
         return None
     if now_cheque:
         return None if cheque else "An Online payment becomes a Cheque payment by putting it on a Cheque."
-    if old_cheque_status not in _RELEASED_CHEQUE_STATUSES:
+    if old_cheque_status not in _RELEASED_CHEQUE_STATUSES and on_old_cheque_lines:
         return "A Cheque payment goes back to Online only once its Cheque is Cancelled."
     return None

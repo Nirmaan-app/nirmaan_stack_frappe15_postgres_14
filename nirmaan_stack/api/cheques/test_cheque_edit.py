@@ -246,14 +246,46 @@ class TestChequeEdit(FrappeTestCase):
         self._edit(name, lines=[])
         self.assertEqual(self._cheque(name).lines, [])
 
-    def test_a_line_holding_a_payment_cannot_be_removed_while_issued(self):
+    def test_a_payment_taken_off_an_issued_cheque_switches_back_to_online(self):
+        # Owner ruling (story 82): at any status, Paid included, the status stays as it is.
+        payments = {status: self._plant(status) for status in ("Requested", RECON, "Paid")}
+        name = self._add([self._wo_line(pay) for pay in payments.values()])
+
+        self._edit(name, lines=[])
+        self.assertEqual(self._cheque(name).lines, [])
+        for status, pay in payments.items():
+            state = self._payment(pay)
+            self.assertEqual(
+                (state.mode_of_payment, state.cheque, state.cheque_no, state.status), ("Online", None, None, status)
+            )
+        notes = [row.note for row in self._cheque(name).status_history]
+        for pay in payments.values():
+            self.assertIn(f"Payment {pay} was taken off the cheque, so it switched back to Online.", notes)
+        self.assertEqual(self._cheque(name).status, "Issued")
+
+    def test_swapping_a_line_s_payment_takes_the_old_one_off(self):
         pay = self._plant("Requested")
         other = self._plant("Requested")
         name = self._add([self._wo_line(pay)])
-        reason = f"Payment {pay} cannot be taken off cheque .*: reject the payment, or cancel the cheque and Switch to Online"
-        self._refused(reason, name, lines=[])
-        self._refused(reason, name, lines=[self._wo_line(other)])  # swapping it out is removing it
-        self.assertEqual(self._payment(pay).cheque, name)
+
+        self._edit(name, lines=[self._wo_line(other)])
+        self.assertEqual((self._payment(pay).mode_of_payment, self._payment(pay).cheque), ("Online", None))
+        self.assertEqual((self._payment(other).mode_of_payment, self._payment(other).cheque), ("Cheque", name))
+
+    def test_a_payment_still_on_its_issued_cheque_cannot_go_online_by_itself(self):
+        pay = self._plant("Requested")
+        self._add([self._wo_line(pay)])
+        doc = frappe.get_doc(PAYMENT, pay)
+        doc.update({"mode_of_payment": "Online", "cheque": None})
+        with self.assertRaisesRegex(frappe.ValidationError, "only once its Cheque is Cancelled"):
+            doc.save(ignore_permissions=True)
+        frappe.db.rollback()
+
+    def test_a_cheque_left_with_no_lines_still_needs_a_description(self):
+        pay = self._plant("Requested")
+        name = self._add([self._wo_line(pay)], description=None)
+        self._refused("Ad-hoc cheque: write a description", name, lines=[])
+        self.assertEqual((self._payment(pay).mode_of_payment, self._payment(pay).cheque), ("Cheque", name))
 
     # -- a PO-page Issued Cheque ----------------------------------------------------------------
     def test_a_po_page_cheque_can_change_its_lines(self):
@@ -265,6 +297,13 @@ class TestChequeEdit(FrappeTestCase):
         self._edit(name, lines=lines + [self._wo_line(second)], description="Two WO payments")
         self.assertEqual([l.payment_name for l in self._cheque(name).lines], [first, second])
         self.assertEqual(self._payment(second).status, RECON)
+
+    def test_a_po_page_cheque_s_payment_can_come_off(self):
+        pay = self._plant("Approved")
+        name = self._from_po_page(pay)
+        self._edit(name, lines=[], description="Kept as an advance")
+        self.assertEqual((self._payment(pay).mode_of_payment, self._payment(pay).cheque), ("Online", None))
+        self.assertEqual(self._payment(pay).status, RECON)  # where Convert to Cheque moved it
 
     def test_a_po_page_cheque_keeps_its_number_date_and_amount(self):
         pay = self._plant("Requested")

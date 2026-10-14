@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import formatToIndianRupee from "@/utils/FormatPrice";
-import { LOCKED_LINE_HINT } from "@/utils/cheques/chequeEdit";
+import { paymentsSwitchingToOnline, switchBackHint } from "@/utils/cheques/chequeEdit";
 import type { ChequeFormInput } from "@/utils/cheques/chequeForm";
 import {
     addLineOptions,
@@ -40,8 +40,8 @@ interface ChequeLinesTableProps {
     disabled?: boolean;
     /** The Cheque being edited (#1418): the pickers keep offering its own payments and expenses. */
     cheque?: string;
-    /** Payments whose lines cannot come off, nor change payment (an Issued Cheque's, #1418). */
-    lockedPayments?: string[];
+    /** The payments an Issued Cheque holds as recorded (#1418): each one the lines drop goes back to Online. */
+    recordedPayments?: string[];
 }
 
 /**
@@ -56,13 +56,14 @@ interface ChequeLinesTableProps {
  * Lines may span projects. Lives inside the dialog's react-hook-form (`lines`); the server re-checks
  * every rule.
  */
-export const ChequeLinesTable = ({ vendorPayee, vendor, disabled, cheque, lockedPayments = [] }: ChequeLinesTableProps) => {
+export const ChequeLinesTable = ({ vendorPayee, vendor, disabled, cheque, recordedPayments = [] }: ChequeLinesTableProps) => {
     const { control } = useFormContext<ChequeFormInput>();
     const { fields, append, remove } = useFieldArray({ control, name: "lines" });
     const lines = (useWatch({ control, name: "lines" }) ?? []) as ChequeLineDraft[];
     const amount = useWatch({ control, name: "amount" });
     const { records } = useVendorRecords(vendorPayee ? vendor : undefined);
     const summary = linesSummary(amount as number | string, lines);
+    const switching = paymentsSwitchingToOnline(recordedPayments, lines);
 
     return (
         <div className="space-y-2">
@@ -98,7 +99,6 @@ export const ChequeLinesTable = ({ vendorPayee, vendor, disabled, cheque, locked
                                         records={records}
                                         disabled={disabled}
                                         cheque={cheque}
-                                        locked={Boolean(lines[index]?.payment_name) && lockedPayments.includes(lines[index].payment_name)}
                                         onRemove={() => remove(index)}
                                     />
                                 ) : (
@@ -141,7 +141,9 @@ export const ChequeLinesTable = ({ vendorPayee, vendor, disabled, cheque, locked
                 </DropdownMenuContent>
             </DropdownMenu>
             <p className="text-xs text-muted-foreground">{EXPENSE_NOTE}</p>
-            {lockedPayments.length > 0 && <p className="text-xs text-muted-foreground">{LOCKED_LINE_HINT}</p>}
+            {switching.map((payment) => (
+                <p key={payment} className="rounded bg-blue-50 px-1.5 py-1 text-xs text-blue-700">{switchBackHint(payment)}</p>
+            ))}
         </div>
     );
 };
@@ -151,12 +153,10 @@ interface PoWoLineRowProps {
     records: VendorRecord[];
     disabled?: boolean;
     cheque?: string;
-    /** The line holds a payment that cannot come off this Cheque: only its amount may change. */
-    locked?: boolean;
     onRemove: () => void;
 }
 
-const PoWoLineRow = ({ index, records, disabled, cheque, locked, onRemove }: PoWoLineRowProps) => {
+const PoWoLineRow = ({ index, records, disabled, cheque, onRemove }: PoWoLineRowProps) => {
     const { control, setValue } = useFormContext<ChequeFormInput>();
     const line = useWatch({ control, name: `lines.${index}` }) as ChequeLineDraft;
     const { eligible, isLoading } = useEligiblePayments(line.record_doctype, line.record_name, cheque);
@@ -170,7 +170,6 @@ const PoWoLineRow = ({ index, records, disabled, cheque, locked, onRemove }: PoW
         line.record_name,
         line.record_doctype && `${recordKind(line.record_doctype)} ${line.record_name}`,
     );
-    const pinned = disabled || locked;
 
     const set = (name: keyof ChequeLineDraft, value: string | number) =>
         setValue(`lines.${index}.${name}`, value, { shouldValidate: true, shouldDirty: true });
@@ -186,7 +185,7 @@ const PoWoLineRow = ({ index, records, disabled, cheque, locked, onRemove }: PoW
                         <FormItem>
                             <Select
                                 value={field.value || undefined}
-                                disabled={pinned}
+                                disabled={disabled}
                                 onValueChange={(value) => {
                                     field.onChange(value);
                                     set("record_doctype", "");
@@ -216,7 +215,7 @@ const PoWoLineRow = ({ index, records, disabled, cheque, locked, onRemove }: PoW
                         <FormItem>
                             <Select
                                 value={field.value || undefined}
-                                disabled={pinned || !line.project}
+                                disabled={disabled || !line.project}
                                 onValueChange={(value) => {
                                     const record = inProject.find((r) => r.name === value);
                                     field.onChange(value);
@@ -241,7 +240,7 @@ const PoWoLineRow = ({ index, records, disabled, cheque, locked, onRemove }: PoW
             <TableCell>
                 <Select
                     value={line.payment_name || NO_PAYMENT}
-                    disabled={pinned || !line.record_name || isLoading}
+                    disabled={disabled || !line.record_name || isLoading}
                     onValueChange={(value) => {
                         const payment = eligible?.payments.find((p) => p.name === value);
                         set("payment_name", payment ? payment.name : "");
@@ -291,10 +290,9 @@ const PoWoLineRow = ({ index, records, disabled, cheque, locked, onRemove }: PoW
                     type="button"
                     variant="ghost"
                     size="icon"
-                    disabled={pinned}
+                    disabled={disabled}
                     onClick={onRemove}
                     aria-label="Remove line"
-                    title={locked ? LOCKED_LINE_HINT : undefined}
                 >
                     <Trash2 className="h-4 w-4" />
                 </Button>

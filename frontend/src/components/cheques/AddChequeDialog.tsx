@@ -25,7 +25,7 @@ import {
     editChequeArgs,
     editLockHint,
     isHeaderLocked,
-    lockedLinePayments,
+    paymentsOnCheque,
 } from "@/utils/cheques/chequeEdit";
 import {
     EMPTY_CHEQUE_FORM,
@@ -110,7 +110,7 @@ interface ChequeFormProps {
 const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
     const mode = edit ? chequeEditMode(edit) : "all";
     const locked = (field: string) => isHeaderLocked(mode, field);
-    const lockedPayments = edit ? lockedLinePayments(edit) : [];
+    const recordedPayments = edit ? paymentsOnCheque(edit) : [];
     const lockHint = edit ? editLockHint(mode, edit.status) : undefined;
     const [initial] = useState(() => (edit ? chequeFormFromDetail(edit) : EMPTY_CHEQUE_FORM));
     const form = useForm<ChequeFormInput, unknown, ChequeFormValues>({
@@ -140,8 +140,8 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
     const lineCount = values.lines?.length ?? 0;
     const fromPhoto = (field: ChequePhotoField) => isFromPhoto(field, values, reader.photo);
     const photoPayee = reader.photo?.payee_name;
-    // A payment line ties the Cheque to its Vendor, and cannot come off while it is Issued.
-    const payeeLocked = locked("vendor") || lockedPayments.length > 0;
+    // A new payee drops the PO/WO lines; on an edit, each recorded payment dropped goes back to Online.
+    const payeeLocked = locked("vendor");
     const payeeMismatch = usePayeeVendorMismatch(payeeKind === "vendor" ? photoPayee : undefined, values.vendor);
 
     const handlePhoto = async (file: File | null) => {
@@ -405,7 +405,7 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
                     vendor={vendor || undefined}
                     disabled={saving || locked("lines")}
                     cheque={edit?.name}
-                    lockedPayments={lockedPayments}
+                    recordedPayments={recordedPayments}
                 />
                 <FormField
                     control={form.control}
