@@ -1125,13 +1125,31 @@ thing — one master table across every import at `/bulk-import-outflow` — and
   to disagree about exactly that. ⚠️ **This is NOT the extraction the Cashbook slice rejected**: that
   one tried to share the tri-state TREE with `CashbookReviewTree`, and that finding stands. This
   moved the whole panel out of its `<Dialog>` shell, intact, sharing nothing with that file.
-- **The History dialog holds the last 10 imports** (CF/S4), behind a clock icon beside *Import
-  statement*; it replaced the filename list at the foot of the summary card. Fed by the SAME
-  `list_imports` the picker reads, so the two can never disagree about what exists. Obeys the Source
-  scope, **ignores** the period (it lists FILES, and a file's period is a column in it). ⚠️ Its count
-  is `successful_rows`, never `total_rows`, because it sits beside `gross_amount` — which has
-  excluded bank-refused transfers since parse time. Two figures describing different populations on
-  one line is the Skipped-chip defect in a smaller frame.
+- **The History dialog lists every statement, by source tab and Statement month** (owner ruling
+  2026-10-14, replacing CF/S4's "last 10, hard stop"), behind a clock icon beside *Import statement*;
+  it replaced the filename list at the foot of the summary card. One tab per source (Cashfree,
+  Cashbook, ICICI Bank Statement — no "All" tab), each with a count; a month selector (arrows + a
+  dropdown back to `earliest_import_month`, never a future month); a search over filename, uploader
+  and period (`matchesEveryToken`, shared with the picker). It opens on the pinned statement's tab and
+  END month, otherwise on the screen's single Source and the current month, and remembers nothing
+  between openings. ⚠️ **The tabs never write back to the screen's Source.** ⚠️ **The month is a
+  Statement month (GLOSSARY), not the screen's Period**: a statement is listed under every month its
+  declared period overlaps (blank period → upload date → `creation`), so the CF/S4 objection to
+  filtering files by the Period — that it makes the period column half-true — does not apply. Still
+  fed by `list_imports`, called with `month`, which lifts the 60-row cap; the picker never passes
+  `month` and keeps its cap. Why the cap went: 186 statements on the site against 60, 76 Cashfree in
+  one month, so an older statement was reachable from neither surface. ⚠️ Its count is
+  `successful_rows`, never `total_rows`, because it sits beside `gross_amount` — which has excluded
+  bank-refused transfers since parse time. Two figures describing different populations on one line
+  is the Skipped-chip defect in a smaller frame.
+- **The summary card is two rows, and Reset is the scope's own clear** (owner ruling 2026-10-14).
+  Row 1 is the scope at full width — Source, Import (stretches), Period, then **Reset**; row 2 is
+  *Re-run match* and *Confirm N matched*, right-aligned. Reset appears only while Source, Import or
+  Period is off its default (`summaryScopeIsDefault`) and puts all three back. ⚠️ **It is named
+  Reset, not "Clear filters", and it touches no column funnel** — the table's *Clear filters (N)*
+  clears the funnels and deliberately leaves Source and Period alone (`activeFilterCount`); the two
+  buttons are halves, not duplicates. ⚠️ `handleResetScope` leaves a pinned statement FIRST, then
+  clears the stores, so "all time" is written onto the URL the reader lands on.
 - **The `Reference` column is no longer "Reference (UTR)"** (CF/S1). It falls back to the wallet's
   `transfer_id`, so a Cashbook row stops rendering blank while the expense it created carries a
   reference. Shown as the **last 12 characters** when longer — ⚠️ **display only**: the stored

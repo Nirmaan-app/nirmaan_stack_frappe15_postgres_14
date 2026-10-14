@@ -37,6 +37,7 @@ from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     _match_order,
     _payment_order_names,
+    earliest_import_month,
     list_imports,
     get_batch_rows,
     get_confirmable_rows,
@@ -4103,6 +4104,97 @@ class TestTheImportListNarrowsBySourceOnTheServer(unittest.TestCase):
         for empty in (None, "", "[]", []):
             names = [b["name"] for b in list_imports(limit=200, sources=empty)]
             self.assertTrue(set(self.made) <= set(names), empty)
+
+
+class TestTheImportListByStatementMonth(unittest.TestCase):
+    """`list_imports(month=...)` -- the History dialog's Statement month (owner ruling 2026-10-14).
+
+    Fixtures sit in 1971, a year no real statement covers, so every assertion is about these rows
+    alone whatever else the site holds.
+    """
+
+    ICICI = "ICICI Bank Statement"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.made = []
+        cls.inside = cls._batch(period_from="1971-03-05", period_to="1971-03-20")
+        # A statement crossing the month boundary belongs to BOTH months it touches.
+        cls.straddles = cls._batch(period_from="1971-02-25", period_to="1971-03-08")
+        cls.outside = cls._batch(period_from="1971-04-01", period_to="1971-04-30")
+        cls.icici = cls._batch(period_from="1971-03-01", period_to="1971-03-31", source=cls.ICICI)
+        # No declared period: it falls back to the day it was uploaded.
+        cls.undated = cls._batch(period_from=None, period_to=None, uploaded_at="1971-06-15 10:00:00")
+        frappe.db.commit()
+
+    @classmethod
+    def _batch(cls, *, period_from, period_to, source="Cashfree", uploaded_at=None):
+        doc = frappe.new_doc(BATCH_DOCTYPE)
+        doc.source = source
+        doc.original_filename = f"month-test-{frappe.generate_hash(length=8)}.csv"
+        doc.period_from = period_from
+        doc.period_to = period_to
+        doc.uploaded_at = uploaded_at
+        doc.uploaded_by = "Administrator"
+        doc.insert(ignore_permissions=True)
+        cls.made.append(doc.name)
+        return doc
+
+    @classmethod
+    def tearDownClass(cls):
+        # Roll back first, then each delete on its own: a poisoned transaction must not strand the
+        # rest (CODING_STANDARDS § Writing tests).
+        frappe.db.rollback()
+        failures = []
+        for name in cls.made:
+            try:
+                frappe.delete_doc(BATCH_DOCTYPE, name, force=True, ignore_permissions=True)
+                frappe.db.commit()
+            except Exception as exc:  # noqa: BLE001 -- reported below, not swallowed
+                frappe.db.rollback()
+                failures.append(f"{name}: {exc}")
+        super().tearDownClass()
+        if failures:
+            raise AssertionError("month fixtures not cleaned up: " + "; ".join(failures))
+
+    def _names(self, month, **kwargs):
+        return {r["name"] for r in list_imports(month=month, **kwargs)}
+
+    def test_a_statement_inside_the_month_is_listed_and_one_outside_is_not(self):
+        names = self._names("1971-03")
+        self.assertIn(self.inside.name, names)
+        self.assertNotIn(self.outside.name, names)
+
+    def test_a_statement_spanning_two_months_belongs_to_both(self):
+        self.assertIn(self.straddles.name, self._names("1971-02"))
+        self.assertIn(self.straddles.name, self._names("1971-03"))
+
+    def test_a_month_lifts_the_row_cap(self):
+        """The reason the argument exists: the newest ten of sixty hid everything below the cut."""
+        names = self._names("1971-03", limit=1)
+        self.assertTrue({self.inside.name, self.straddles.name, self.icici.name} <= names)
+
+    def test_the_source_still_narrows_inside_a_month(self):
+        names = self._names("1971-03", sources=json.dumps([self.ICICI]))
+        self.assertIn(self.icici.name, names)
+        self.assertNotIn(self.inside.name, names)
+
+    def test_a_statement_with_no_period_falls_back_to_its_upload_month(self):
+        self.assertIn(self.undated.name, self._names("1971-06"))
+        self.assertNotIn(self.undated.name, self._names("1971-05"))
+
+    def test_a_malformed_month_is_refused_not_ignored(self):
+        """Ignoring it would return the whole UNCAPPED table -- the answer the argument prevents."""
+        for bad in ("1971-13", "1971-3", "March 1971", "1971-03-01"):
+            with self.assertRaises(frappe.ValidationError, msg=bad):
+                list_imports(month=bad)
+
+    def test_no_month_keeps_the_picker_s_cap(self):
+        self.assertEqual(len(list_imports(limit=1)), 1)
+
+    def test_the_earliest_month_reaches_back_to_the_oldest_statement(self):
+        self.assertLessEqual(earliest_import_month(), "1971-02")
 
 
 class TestTheHistoryFigures(OutflowReviewFixture):

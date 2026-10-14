@@ -33,6 +33,9 @@ TWO ROW STATES ARE NEVER RE-MATCHED:
   * `Settled`  -- an expense was written against this row. Re-matching would strand that audit.
 """
 
+import calendar
+import datetime
+import re
 from decimal import Decimal
 from typing import Sequence
 
@@ -3788,7 +3791,7 @@ def _targets_by_name(target_doctype: str, names: list) -> dict:
 
 
 @frappe.whitelist()
-def list_imports(limit=60, sources=None):
+def list_imports(limit=60, sources=None, month=None):
     """The import picker's options: newest first, labelled by what a person recognises.
 
     ⚠️ NOT THE BATCH ID. An accountant knows a statement by its file and the fortnight it covers;
@@ -3847,15 +3850,32 @@ def list_imports(limit=60, sources=None):
 
     `repeats_not_saved` is read straight off the batch (ADR-0031): how many exact repeats of lines
     already held the upload left out. Those lines have no rows, so it cannot be counted from the join.
+
+    ⚠️ `month` ("YYYY-MM") IS THE HISTORY DIALOG'S STATEMENT MONTH, AND IT LIFTS THE `LIMIT`
+    (owner ruling 2026-10-14). The dialog used to show the newest ten of this list, so a statement
+    below the cut could not be reached from it at all -- 186 statements were on the site against a
+    60-row cap, with 76 Cashfree statements in one month. A month is a bounded population the reader
+    chose, so it is returned whole. A statement belongs to EVERY month its declared period overlaps
+    (GLOSSARY: *Statement month*); a missing period falls back to the upload date, then `creation`.
+    The picker never passes `month`, so it keeps its cap and its order. The month narrows HERE, on
+    the server, for the reason the source does -- see the note above.
     """
     require_outflow_access()
     chosen = _parsed_sources(sources)
-    source_clause = ""
+    window = _parsed_month(month)
+    where = []
     params = [BANK_SUCCESS_STATUS, DIRECTION_DEBIT]
     if chosen:
-        source_clause = "WHERE (TRIM(COALESCE(b.source, '')) IN %s OR TRIM(COALESCE(b.source, '')) = '')"
+        where.append("(TRIM(COALESCE(b.source, '')) IN %s OR TRIM(COALESCE(b.source, '')) = '')")
         params.append(tuple(chosen))
-    params.append(max(1, min(int(limit or 60), 200)))
+    if window:
+        where.append(f"{_STATEMENT_START} <= %s AND {_STATEMENT_END} >= %s")
+        params.extend([window[1], window[0]])
+    where_clause = f"WHERE {' AND '.join(where)}" if where else ""
+    limit_clause = ""
+    if not window:
+        limit_clause = "LIMIT %s"
+        params.append(max(1, min(int(limit or 60), 200)))
     return frappe.db.sql(
         f"""
         SELECT b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
@@ -3866,16 +3886,59 @@ def list_imports(limit=60, sources=None):
                ) AS successful_rows
         FROM "tabOutflow Import Batch" b
         LEFT JOIN "tabOutflow Import Row" r ON r.import_batch = b.name
-        {source_clause}
+        {where_clause}
         GROUP BY b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
                  b.total_rows, b.repeats_not_saved, b.gross_amount, b.uploaded_at, b.uploaded_by,
                  b.creation
         ORDER BY b.period_to DESC NULLS LAST, b.uploaded_at DESC NULLS LAST, b.creation DESC
-        LIMIT %s
+        {limit_clause}
         """,
         tuple(params),
         as_dict=True,
     )
+
+
+# The first and last day a statement covers, for the Statement month (GLOSSARY). A batch whose
+# period did not parse falls back to the day it was uploaded, then to `creation` -- one SQL spelling,
+# shared by `list_imports(month=...)` and `earliest_import_month` so the dialog's month list and its
+# contents cannot disagree about where a statement sits.
+_STATEMENT_START = "COALESCE(b.period_from, b.period_to, b.uploaded_at::date, b.creation::date)"
+_STATEMENT_END = "COALESCE(b.period_to, b.period_from, b.uploaded_at::date, b.creation::date)"
+
+_MONTH_PATTERN = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
+
+
+@frappe.whitelist()
+def earliest_import_month():
+    """The oldest Statement month on the site, as "YYYY-MM", or `None` when nothing is imported.
+
+    The History dialog's month selector starts here. ⚠️ IT IS A BOUND, NOT A SECOND LIST OF
+    IMPORTS -- `list_imports` remains the one reader of which statements exist (slice CF/S4), so
+    this answers only "how far back can the selector go" and cannot offer a statement the list lacks.
+    It reads `_STATEMENT_START`, the same expression the month filter applies.
+    """
+    require_outflow_access()
+    earliest = frappe.db.sql(
+        f'SELECT MIN({_STATEMENT_START}) FROM "tabOutflow Import Batch" b'
+    )[0][0]
+    return earliest.strftime("%Y-%m") if earliest else None
+
+
+def _parsed_month(month):
+    """`(first_day, last_day)` of a "YYYY-MM" month, or `None` when no month was asked for.
+
+    ⚠️ A MALFORMED MONTH IS REFUSED, NOT IGNORED -- the opposite of `_parsed_sources`. Only the
+    History dialog sends one, from its own selector, so a bad value is a bug; quietly dropping it
+    would return the whole uncapped table, which is the one answer this argument exists to prevent.
+    """
+    if not month:
+        return None
+    found = _MONTH_PATTERN.match(str(month).strip())
+    if not found:
+        frappe.throw(f"Month '{month}' is not a YYYY-MM month.", title="Invalid month")
+    year, number = int(found.group(1)), int(found.group(2))
+    last = calendar.monthrange(year, number)[1]
+    return datetime.date(year, number, 1), datetime.date(year, number, last)
 
 
 def _parsed_sources(sources) -> list:
