@@ -481,14 +481,7 @@ class TestAOneLineRunNeverUnpairsAStack(OutflowReviewFixture):
         cls.vendor = f"TEST-OFV-{frappe.generate_hash(length=10)}"
         # The vendor's account is its Payee's (#1427).
         payee = PayeeFixture.class_payee("TESTPYE Testvendor Linescope Ltd", cls.account, "TEST0009172")
-        frappe.db.sql(
-            """
-            INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-                                      vendor_name, payee)
-            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s)
-            """,
-            (cls.vendor, "Administrator", "Administrator", "Testvendor Linescope Ltd", payee),
-        )
+        PayeeFixture.insert_vendor(payee, name=cls.vendor, vendor_name="Testvendor Linescope Ltd")
         cls.stack_rows = [cls._stack_row(s) for s in ("0003", "0004", "0005")]
         cls.stack_payments = []
         for _ in range(2):
@@ -530,9 +523,9 @@ class TestAOneLineRunNeverUnpairsAStack(OutflowReviewFixture):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("Vendors", {"name": cls.vendor})
+        # The purge rolls back first, so it deletes the vendor itself: a delete made before it is undone.
+        PayeeFixture.purge(vendors=[cls.vendor])
         super().tearDownClass()
-        PayeeFixture.purge()
 
     def test_the_precondition_the_two_siblings_are_paired(self):
         self.assertEqual(self.sibling_picks_before, set(self.stack_payments))

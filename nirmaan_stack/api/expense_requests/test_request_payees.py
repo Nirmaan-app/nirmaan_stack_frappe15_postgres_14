@@ -30,6 +30,26 @@ PM_PROFILE = "Nirmaan Project Manager Profile"
 NPE = "Non Project Expenses"
 
 
+def _delete_each(scopes, *, raw=False):
+	"""Delete each `(doctype, name)` in its own scope, rolling back first so a poisoned transaction
+	strands nothing; report every failure after trying them all. `raw` deletes the row only (a row
+	inserted raw has no hooks to undo)."""
+	frappe.db.rollback()
+	failures = []
+	for doctype, name in scopes:
+		try:
+			if raw:
+				frappe.db.delete(doctype, {"name": name})
+			elif frappe.db.exists(doctype, name):
+				frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+			frappe.db.commit()
+		except Exception as e:  # report, never swallow: a stranded row is permanent dev data
+			frappe.db.rollback()
+			failures.append(f"{doctype} {name}: {e}")
+	if failures:
+		raise AssertionError("Clean-up failed: " + "; ".join(failures))
+
+
 class TestRequestPayees(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
@@ -49,12 +69,10 @@ class TestRequestPayees(FrappeTestCase):
 	@classmethod
 	def tearDownClass(cls):
 		frappe.set_user("Administrator")
-		frappe.delete_doc("Expense Type", cls.expense_type, force=True, ignore_permissions=True)
-		for email in (PM_USER, NOBODY):
-			for dt in ("Nirmaan Users", "User"):
-				if frappe.db.exists(dt, email):
-					frappe.delete_doc(dt, email, force=True, ignore_permissions=True)
-		frappe.db.commit()
+		scopes = [("Expense Type", cls.expense_type)] + [
+			(dt, email) for email in (PM_USER, NOBODY) for dt in ("Nirmaan Users", "User")
+		]
+		_delete_each(scopes)
 		super().tearDownClass()
 
 	def setUp(self):
@@ -88,26 +106,7 @@ class TestRequestPayees(FrappeTestCase):
 		)
 		frappe.db.commit()
 
-		def _drop():
-			frappe.db.delete(doctype, {"name": name})
-			frappe.db.commit()
-		self.addCleanup(_drop)
-		return name
-
-	def _vendor(self, payee=None) -> str:
-		name = f"TESTPYE-VEN-{frappe.generate_hash(length=8)}"
-		frappe.db.sql(
-			"""INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-			                             vendor_name, payee)
-			   VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, %s)""",
-			(name, f"TESTPYE Vendor {name}", payee),
-		)
-		frappe.db.commit()
-
-		def _drop():
-			frappe.db.delete("Vendors", {"name": name})
-			frappe.db.commit()
-		self.addCleanup(_drop)
+		self.addCleanup(_delete_each, [(doctype, name)], raw=True)
 		return name
 
 	def _search(self, text):
@@ -178,9 +177,9 @@ class TestRequestPayees(FrappeTestCase):
 
 	def test_a_raiser_reads_the_vendors_payee(self):
 		payee = self.payees.payee()
-		out = self._as(PM_USER, get_vendor_payee, vendor=self._vendor(payee))
+		out = self._as(PM_USER, get_vendor_payee, vendor=self.payees.vendor(payee))
 		self.assertEqual(out["payee"]["name"], payee)
-		self.assertIsNone(self._as(PM_USER, get_vendor_payee, vendor=self._vendor())["payee"])
+		self.assertIsNone(self._as(PM_USER, get_vendor_payee, vendor=self.payees.vendor())["payee"])
 
 	# --- changing an Expense's Payee -----------------------------------------
 
@@ -208,7 +207,7 @@ class TestRequestPayees(FrappeTestCase):
 			change_expense_payee(NPE, expense, inactive)
 		# A Project Expense with a vendor is paid into the vendor's Payee only.
 		vendor_payee = self.payees.payee()
-		project_expense = self._expense(vendor_payee, vendor=self._vendor(vendor_payee),
+		project_expense = self._expense(vendor_payee, vendor=self.payees.vendor(vendor_payee),
 		                                doctype="Project Expenses")
 		with self.assertRaises(frappe.ValidationError):
 			change_expense_payee("Project Expenses", project_expense, first)

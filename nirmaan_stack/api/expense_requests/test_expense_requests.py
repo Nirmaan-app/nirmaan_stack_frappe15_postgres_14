@@ -1152,23 +1152,6 @@ class TestExpenseRequestPayee(FrappeTestCase):
 		return self._own_type(project=1 if project else 0, non_project=0 if project else 1,
 		                      payee_rule=rule)
 
-	def _vendor(self, payee=None) -> str:
-		"""A vendor inserted raw, paid into `payee`; deleted after the test."""
-		name = f"TESTPYE-VEN-{frappe.generate_hash(length=8)}"
-		frappe.db.sql(
-			"""INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-			                             vendor_name, payee)
-			   VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, %s)""",
-			(name, f"TESTPYE Vendor {name}", payee),
-		)
-		frappe.db.commit()
-
-		def _drop():
-			frappe.db.delete("Vendors", {"name": name})
-			frappe.db.commit()
-		self.addCleanup(_drop)
-		return name
-
 	def _inactive(self, payee):
 		frappe.db.set_value("Payee", payee, "status", "Inactive")
 		frappe.db.commit()
@@ -1235,11 +1218,11 @@ class TestExpenseRequestPayee(FrappeTestCase):
 	def test_a_vendor_fills_in_its_own_payee(self):
 		payee = self.payees.payee()
 		res = self._raise(self._type("Required", project=True), projects=self.project,
-		                  vendor=self._vendor(payee))
+		                  vendor=self.payees.vendor(payee))
 		self.assertEqual(self._payee_of(res), payee)
 
 	def test_a_payee_other_than_the_vendors_is_refused(self):
-		vendor = self._vendor(self.payees.payee())
+		vendor = self.payees.vendor(self.payees.payee())
 		other = self.payees.payee()
 		with self.assertRaises(frappe.ValidationError) as ctx:
 			self._raise(self._type("Optional", project=True), projects=self.project,
@@ -1249,7 +1232,7 @@ class TestExpenseRequestPayee(FrappeTestCase):
 	def test_required_type_with_a_vendor_that_has_no_bank_account_is_refused(self):
 		with self.assertRaises(frappe.ValidationError):
 			self._raise(self._type("Required", project=True), projects=self.project,
-			            vendor=self._vendor())
+			            vendor=self.payees.vendor())
 
 	# --- Inactive ------------------------------------------------------------
 
@@ -1265,7 +1248,7 @@ class TestExpenseRequestPayee(FrappeTestCase):
 		self._inactive(payee)
 		with self.assertRaises(frappe.ValidationError):
 			self._raise(self._type("Optional", project=True), projects=self.project,
-			            vendor=self._vendor(payee))
+			            vendor=self.payees.vendor(payee))
 
 	# --- editing -------------------------------------------------------------
 

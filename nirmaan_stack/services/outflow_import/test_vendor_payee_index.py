@@ -6,7 +6,7 @@
 Drives the vendor index the match run builds (`candidates.load_vendor_index`) through the matcher's
 entry point (`match_row`), against Payees and vendors planted in the env database.
 
-⚠️ RUNS AGAINST THE ENV DATABASE (fixtures commit; every row is removed after its test).
+⚠️ RUNS AGAINST THE ENV DATABASE (fixtures commit; `PayeeFixture` removes every row after its test).
 """
 
 import unittest
@@ -46,30 +46,13 @@ class TestTierOneReadsTheVendorsPayee(unittest.TestCase):
     def setUp(self):
         self.payees = PayeeFixture.attach(self)
 
-    def _vendor(self, payee=None) -> str:
-        name = f"TESTPYE-VEN-{frappe.generate_hash(length=8)}"
-        frappe.db.sql(
-            """INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-                                         vendor_name, payee)
-               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, %s)""",
-            (name, f"TESTPYE Vendor {name}", payee),
-        )
-        frappe.db.commit()
-
-        def _drop():
-            frappe.db.delete("Vendors", {"name": name})
-            frappe.db.commit()
-
-        self.addCleanup(_drop)
-        return name
-
     def _line_paid_to(self, payee: str) -> _Line:
         account, ifsc = frappe.db.get_value("Payee", payee, ["account_number", "ifsc"])
         return _Line(account, ifsc)
 
     def test_a_line_paid_to_a_shared_payee_matches_a_payment_of_either_vendor_at_tier_1(self):
         shared = self.payees.payee()
-        north, south = self._vendor(shared), self._vendor(shared)
+        north, south = self.payees.vendor(shared), self.payees.vendor(shared)
         line = self._line_paid_to(shared)
         index = load_vendor_index()
 
@@ -81,7 +64,7 @@ class TestTierOneReadsTheVendorsPayee(unittest.TestCase):
 
     def test_a_line_paid_to_a_vendors_previous_payee_does_not_reach_tier_1(self):
         previous, current = self.payees.payee(), self.payees.payee()
-        vendor = self._vendor(current)
+        vendor = self.payees.vendor(current)
         line = self._line_paid_to(previous)
 
         result = match_row(line, load_vendor_index(), (_payment(vendor),))

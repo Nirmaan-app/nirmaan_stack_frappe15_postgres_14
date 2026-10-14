@@ -2840,14 +2840,7 @@ class TestTheTierLadderEndToEnd(OutflowReviewFixture):
         payee = PayeeFixture.class_payee(
             "TESTPYE Testvendor Theta Ltd", cls.tier1_row.bank_account, cls.tier1_row.ifsc
         )
-        frappe.db.sql(
-            """
-            INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-                                      vendor_name, payee)
-            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s)
-            """,
-            (cls.test_vendor, "Administrator", "Administrator", "Testvendor Theta Ltd", payee),
-        )
+        PayeeFixture.insert_vendor(payee, name=cls.test_vendor, vendor_name="Testvendor Theta Ltd")
         cls.pay_tier1 = cls._insert_payment_row(
             amount=cls.tier1_row.amount, status=SETTLEABLE,
             utr="PO/077/00066/25-26", payment_date=None, project=cls.test_project,
@@ -2885,10 +2878,12 @@ class TestTheTierLadderEndToEnd(OutflowReviewFixture):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("Vendors", {"name": cls.test_vendor})
+        # The purge rolls back first, so it goes FIRST and deletes the vendor itself: a delete made
+        # before it was undone, which stranded one `Testvendor Theta Ltd` per run.
+        PayeeFixture.purge(vendors=[cls.test_vendor])
         frappe.db.delete("Projects", {"name": cls.test_project})
+        frappe.db.commit()
         super().tearDownClass()
-        PayeeFixture.purge()
 
     def test_tier_1_matches_on_the_bank_account_and_ifsc(self):
         row = self._rows_by_transfer_suffix()["0010"]
@@ -2953,14 +2948,7 @@ class TestStackAutoPairing(OutflowReviewFixture):
         cls.stack_vendor = f"TEST-OFV-{frappe.generate_hash(length=10)}"
         # The vendor's account is its Payee's (#1427).
         payee = PayeeFixture.class_payee("TESTPYE Testvendor Stackco Ltd", cls.stack_account, cls.stack_ifsc)
-        frappe.db.sql(
-            """
-            INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-                                      vendor_name, payee)
-            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s)
-            """,
-            (cls.stack_vendor, "Administrator", "Administrator", "Testvendor Stackco Ltd", payee),
-        )
+        PayeeFixture.insert_vendor(payee, name=cls.stack_vendor, vendor_name="Testvendor Stackco Ltd")
         cls.extra_vendors.append(cls.stack_vendor)
 
         # STACK A -- BALANCED: three transfers, three approved payments.
@@ -3046,10 +3034,9 @@ class TestStackAutoPairing(OutflowReviewFixture):
 
     @classmethod
     def tearDownClass(cls):
-        for name in getattr(cls, "extra_vendors", []):
-            frappe.db.delete("Vendors", {"name": name})
+        # The purge rolls back first, so it deletes the vendors itself (see TestTheTierLadderEndToEnd).
+        PayeeFixture.purge(vendors=getattr(cls, "extra_vendors", []))
         super().tearDownClass()
-        PayeeFixture.purge()
 
     def _suggestions(self, names) -> list:
         return [

@@ -9,14 +9,21 @@ USAGE
 -----
     self.payees = PayeeFixture.attach(self)        # IFSC lookups answered offline; purge after the test
     name = self.payees.payee()                     # a fresh Active Payee, made by `writer.create_payee`
+    vendor = self.payees.vendor(name)              # a vendor inserted raw, paid into it; purged too
     number = self.payees.account_number()          # a fresh account number nobody holds
     self.payees.fail_ifsc_lookup()                 # the next lookups find nothing
-    PayeeFixture.class_payee(holder, number, ifsc) # in setUpClass; call PayeeFixture.purge() in tearDownClass
+    PayeeFixture.class_payee(holder, number, ifsc) # in setUpClass, with PayeeFixture.insert_vendor(...);
+                                                   # call PayeeFixture.purge(vendors=[...]) in tearDownClass
 
 Every Payee it makes carries `TEST_IFSC` and a `TESTPYE` holder name, and `purge` sweeps every
 Payee with either, so a test that dies before it records a name strands nothing. Links to a
 purged Payee (`Vendors`, `Expense Request`, `Project Expenses`, `Non Project Expenses`) are cleared
 first, raw: `payee` is a plain link no hook reads.
+
+⚠️ `purge` ROLLS BACK FIRST, so a test's own delete must come AFTER it (or be committed before it):
+an uncommitted delete made before the purge is undone by it. That is how #1427's class fixtures
+stranded a `Testvendor Theta Ltd` vendor per run, which `TestAmbiguityIsNotResolved` then matched
+by name. Hand the vendors to `purge(vendors=...)` instead; it deletes them in their own scope.
 
 ⚠️ RUNS AGAINST THE ENV DATABASE (the endpoints commit).
 """
@@ -31,15 +38,17 @@ from nirmaan_stack.services.payees.writer import create_payee, existing_payee
 
 TEST_IFSC = "TEST0PYE001"
 HOLDER_PREFIX = "TESTPYE"
+VENDOR_PREFIX = "TESTPYE-VEN-"
 BANK = {"BANK": "Test Bank", "BRANCH": "Test Branch"}
 LINKING_DOCTYPES = ("Vendors", "Expense Request", "Project Expenses", "Non Project Expenses")
 
 
 class PayeeFixture:
-    """Answers IFSC lookups offline, hands out test account numbers and purges the Payees made."""
+    """Answers IFSC lookups offline, hands out test account numbers and vendors, and purges both."""
 
     def __init__(self):
         self.lookup = mock.patch("nirmaan_stack.services.payees.ifsc.fetch_ifsc", return_value=dict(BANK))
+        self.vendors: list[str] = []
 
     @classmethod
     def attach(cls, test) -> "PayeeFixture":
@@ -47,7 +56,7 @@ class PayeeFixture:
         fixture = cls()
         fixture.lookup_mock = fixture.lookup.start()
         test.addCleanup(fixture.lookup.stop)
-        test.addCleanup(fixture.purge)
+        test.addCleanup(lambda: cls.purge(vendors=fixture.vendors))
         return fixture
 
     def fail_ifsc_lookup(self) -> None:
@@ -69,6 +78,27 @@ class PayeeFixture:
         frappe.db.commit()
         return doc.name
 
+    def vendor(self, payee: str | None = None, *, vendor_name: str | None = None) -> str:
+        """A vendor inserted raw (`insert_vendor`), paid into `payee`; purged after the test."""
+        name = self.insert_vendor(payee, vendor_name=vendor_name)
+        self.vendors.append(name)
+        return name
+
+    @staticmethod
+    def insert_vendor(payee: str | None = None, *, name: str | None = None, vendor_name: str | None = None) -> str:
+        """Insert a bare vendor paid into `payee` and commit; returns its name. Raw, so no vendor hook
+        runs (a vendor's hooks read its categories, which a test vendor has none of). The caller
+        deletes it: `purge(vendors=[name])`."""
+        name = name or f"{VENDOR_PREFIX}{frappe.generate_hash(length=8)}"
+        frappe.db.sql(
+            """INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
+                                         vendor_name, payee)
+               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, %s)""",
+            (name, vendor_name or f"{HOLDER_PREFIX} Vendor {name}", payee),
+        )
+        frappe.db.commit()
+        return name
+
     @classmethod
     def class_payee(cls, holder: str, account_number: str, ifsc: str) -> str:
         """A Payee for a class-level fixture (`setUpClass`), lookups patched only for the create.
@@ -85,39 +115,40 @@ class PayeeFixture:
             return fixture.payee(holder=holder, account_number=account_number, ifsc=ifsc)
 
     @staticmethod
-    def purge() -> None:
-        """Delete every test Payee, its links and its audit rows. Rolls back first, so a poisoned
-        transaction cannot strand rows; each step commits on its own and a failure is reported."""
+    def purge(vendors=()) -> None:
+        """Delete `vendors`, every test Payee, its links and its audit rows. Rolls back first, so a
+        poisoned transaction cannot strand rows; each scope commits on its own and a failure is
+        reported, never swallowed."""
         frappe.db.rollback()
         names = frappe.get_all(
             PAYEE_DOCTYPE,
             or_filters={"ifsc": TEST_IFSC, "account_name": ["like", f"{HOLDER_PREFIX}%"]},
             pluck="name",
         )
-        if not names:
-            return
+        scopes = []
+        if vendors:
+            scopes.append(("Vendors", lambda: frappe.db.delete("Vendors", {"name": ["in", list(vendors)]})))
+        if names:
+            linked = {"names": tuple(names)}
+            scopes += [
+                (f"{doctype} links", lambda d=doctype: frappe.db.sql(
+                    f'UPDATE "tab{d}" SET payee = NULL WHERE payee IN %(names)s', linked))
+                for doctype in LINKING_DOCTYPES
+            ]
+            scopes += [
+                ("Version", lambda: frappe.db.delete(
+                    "Version", {"ref_doctype": PAYEE_DOCTYPE, "docname": ["in", names]})),
+                ("Comment", lambda: frappe.db.delete(
+                    "Comment", {"reference_doctype": PAYEE_DOCTYPE, "reference_name": ["in", names]})),
+                (PAYEE_DOCTYPE, lambda: frappe.db.delete(PAYEE_DOCTYPE, {"name": ["in", names]})),
+            ]
         failures = []
-        steps = [
-            (f'UPDATE "tab{doctype}" SET payee = NULL WHERE payee IN %(names)s', doctype)
-            for doctype in LINKING_DOCTYPES
-        ]
-        for sql, what in steps:
+        for what, step in scopes:
             try:
-                frappe.db.sql(sql, {"names": tuple(names)})
+                step()
                 frappe.db.commit()
             except Exception as e:  # report, never swallow: a stranded row is permanent dev data
                 frappe.db.rollback()
                 failures.append(f"{what}: {e}")
-        for doctype, filters in (
-            ("Version", {"ref_doctype": PAYEE_DOCTYPE, "docname": ["in", names]}),
-            ("Comment", {"reference_doctype": PAYEE_DOCTYPE, "reference_name": ["in", names]}),
-            (PAYEE_DOCTYPE, {"name": ["in", names]}),
-        ):
-            try:
-                frappe.db.delete(doctype, filters)
-                frappe.db.commit()
-            except Exception as e:
-                frappe.db.rollback()
-                failures.append(f"{doctype}: {e}")
         if failures:
             raise AssertionError("Payee purge failed: " + "; ".join(failures))
