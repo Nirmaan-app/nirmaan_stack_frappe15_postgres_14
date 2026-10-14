@@ -23,6 +23,7 @@ import {
   ClipboardMinus,
   HandCoins,
   PiggyBank,
+  BookUser,
   ReceiptText, FileUp,
   CreditCard,
   Dices,
@@ -74,6 +75,7 @@ import {
   HOD_ACCESS,
   MATERIAL_PROCUREMENT_PROFILES,
   NON_PROJECT_INFLOWS_ACCESS,
+  canManagePayees,
   PROCUREMENT_PROFILES,
   SERVICE_PROCUREMENT_PROFILES,
   canUseProjectBilling,
@@ -652,6 +654,16 @@ export function NewSidebar() {
         },
       ]
       : []),
+    // Payees (spec #1420) -- reads the same constant as the route guard (routesConfig.tsx).
+    ...(canManagePayees(role, user_id)
+      ? [
+        {
+          key: '/payees',
+          icon: BookUser,
+          label: 'Payees',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
@@ -860,6 +872,7 @@ export function NewSidebar() {
     "credits",
     "in-flow-payments",
     "non-project-inflows",
+    "payees",
     'invoice-reconciliation',
     'project-invoices',
     'expense',
@@ -917,6 +930,7 @@ export function NewSidebar() {
     "/credits": ["credits"],
     "/in-flow-payments": ["in-flow-payments"],
     "/non-project-inflows": ["non-project-inflows"],
+    "/payees": ["payees"],
     "/invoice-reconciliation": ["invoice-reconciliation"],
     "/project-invoices": ["project-invoices"],
     // Keyed on the module ROOT so every tab (requests / project / non-project) keeps the

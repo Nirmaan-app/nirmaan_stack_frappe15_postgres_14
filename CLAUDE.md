@@ -115,6 +115,7 @@ The BoQ docs are too large to read whole: `frontend/.claude/plans/boq-upload-pla
 | **Expenses** | `expenses.md` |
 | **Invoice Autofill**, **Invoice Qty** | `invoice-autofill.md`, `invoice-qty.md` |
 | **Outflow import** (bank statement settles payments and expenses) | `outflow-import.md` |
+| **Payees** (bank accounts vendors and expenses are paid into) | `payees.md` § Load-bearing invariants |
 | **Payment TDS** (tax deducted at source, not Technical Data Sheets) | `payment-tds.md` |
 | **Technical Data Sheets**: the TDS Repository, Project TDS requests and their approval (not tax TDS) | `tds.md` § Load-bearing invariants |
 | **Vendor Hold** | `frontend/.claude/context/domain/vendor-hold.md` |

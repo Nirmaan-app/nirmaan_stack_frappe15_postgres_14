@@ -298,3 +298,23 @@ def assert_cheque_form_access(user: str) -> None:
     For the read-only helpers a cheque form calls, Request Payment's Cheque mode included."""
     if not (can_use_cheques(user) or frappe.has_permission("Project Payments", "create", user=user)):
         raise frappe.PermissionError(_("You are not allowed to look up cheques."))
+
+
+# Payees (spec #1420, ADR-0033). Admin, Accountant and Accountant Lead manage Payees on the Payees page:
+# list them, add one, and (#1423) edit a holder name or mark one Inactive. Procurement adds Payees only
+# through the vendor screens, and anyone raising an Expense Request only through the request; those
+# endpoints carry their own checks and call the same Payee module (`services/payees/`). ENFORCEMENT
+# boundary for every endpoint in `api/payees/`, which write with `ignore_permissions`. Mirrored
+# client-side by `frontend/src/constants/roles.ts::PAYEE_MANAGE_PROFILES`.
+PAYEE_MANAGE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+
+def can_manage_payees(user: str) -> bool:
+    """True when `user` may use the Payees page. Administrator passes."""
+    return has_role_profile(user, PAYEE_MANAGE_PROFILES)
+
+
+def assert_payee_manager(user: str) -> None:
+    """Refuse a user outside `PAYEE_MANAGE_PROFILES`. Every Payees-page endpoint starts with it."""
+    if not can_manage_payees(user):
+        raise frappe.PermissionError(_("Only Accounts and Admins can manage payees here."))

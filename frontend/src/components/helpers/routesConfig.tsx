@@ -64,6 +64,7 @@ import {
   HOD_ACCESS,
   MTC_PAGE_PROFILES,
   NON_PROJECT_INFLOWS_ACCESS,
+  PAYEE_MANAGE_PROFILES,
   PROJECT_INVOICES_ACCESS,
   UPLOAD_BOQ_ACCESS,
 } from "@/constants/roles";
@@ -161,6 +162,8 @@ const RequestFromWarehouse = lazy(() => import("@/pages/Warehouse/RequestFromWar
 const ResolveInvoices = lazy(() => import("@/pages/temp/ResolveInvoices"));
 
 const RemindersPage = lazy(() => import("@/pages/Reminders/RemindersPage"));
+// Payees (spec #1420): every bank account the company pays into.
+const PayeesPage = lazy(() => import("@/pages/payees/PayeesPage"));
 // Document Search
 
 export const appRoutes: RouteObject[] = [
@@ -672,6 +675,17 @@ export const appRoutes: RouteObject[] = [
               {
                 path: "non-project-inflows",
                 children: [{ index: true, element: <NonProjectInflows /> }],
+              },
+            ],
+          },
+          // --- Payees (spec #1420) --- Accountant, Accountant Lead and Admin. The sidebar item and the
+          // header's Add Payee button read the same constant.
+          {
+            element: <RoleRoute allowed={PAYEE_MANAGE_PROFILES} what="Payees" />,
+            children: [
+              {
+                path: "payees",
+                children: [{ index: true, element: <Suspense fallback={null}><PayeesPage /></Suspense> }],
               },
             ],
           },
