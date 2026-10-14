@@ -13,6 +13,7 @@ import { AlertCircle } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
 import { accountsMatch, cleanAccountNumber, duplicateSentence } from "@/utils/payees/payeeForm";
 import { payeeHref } from "@/utils/payees/payeeRoutes";
 
@@ -23,16 +24,21 @@ const blockPaste = (e: ClipboardEvent<HTMLInputElement>) => e.preventDefault();
 interface PayeeBankFieldsProps {
     payeeForm: PayeeBankForm;
     disabled?: boolean;
+    /** Offer "Pick this payee" on the duplicate block instead of a link to the Payees page, for a
+     *  screen whose user can't open that page (the Expense Request's picker). */
+    onUseDuplicate?: (duplicate: PayeeSummary) => void;
+    /** Labels above the fields at every width, for a narrow container such as a dialog section. */
+    stacked?: boolean;
 }
 
-export function PayeeBankFields({ payeeForm, disabled }: PayeeBankFieldsProps) {
+export function PayeeBankFields({ payeeForm, disabled, onUseDuplicate, stacked }: PayeeBankFieldsProps) {
     const { form, setField, bank, lookingUp, ifscError, duplicate } = payeeForm;
     const mismatch =
         !!cleanAccountNumber(form.confirm_account_number) && !accountsMatch(form) ? "The account numbers don't match." : null;
 
     return (
         <div className="flex flex-col gap-4">
-            <Row id="payee_account_name" label="Account Holder Name" help="As the bank has it. This is the name the bank file sends.">
+            <Row stacked={stacked} id="payee_account_name" label="Account Holder Name" help="As the bank has it. This is the name the bank file sends.">
                 <Input
                     id="payee_account_name"
                     value={form.account_name}
@@ -41,7 +47,7 @@ export function PayeeBankFields({ payeeForm, disabled }: PayeeBankFieldsProps) {
                     autoComplete="off"
                 />
             </Row>
-            <Row id="payee_account_number" label="Account Number" help="Type it. Paste is turned off.">
+            <Row stacked={stacked} id="payee_account_number" label="Account Number" help="Type it. Paste is turned off.">
                 <Input
                     id="payee_account_number"
                     type="password"
@@ -55,6 +61,7 @@ export function PayeeBankFields({ payeeForm, disabled }: PayeeBankFieldsProps) {
                 />
             </Row>
             <Row
+                stacked={stacked}
                 id="payee_confirm_account_number"
                 label="Confirm Account Number"
                 help="Type it again. Paste is turned off."
@@ -71,7 +78,7 @@ export function PayeeBankFields({ payeeForm, disabled }: PayeeBankFieldsProps) {
                     inputMode="numeric"
                 />
             </Row>
-            <Row id="payee_ifsc" label="IFSC Code" error={ifscError}>
+            <Row stacked={stacked} id="payee_ifsc" label="IFSC Code" error={ifscError}>
                 <Input
                     id="payee_ifsc"
                     value={form.ifsc}
@@ -97,9 +104,19 @@ export function PayeeBankFields({ payeeForm, disabled }: PayeeBankFieldsProps) {
                         <p className="font-semibold">This account is already a payee</p>
                         <p className="mt-0.5">{duplicateSentence(duplicate)}</p>
                         <p className="mt-1.5">
-                            <Link to={payeeHref(duplicate.name, duplicate.status)} className="font-semibold text-red-700 hover:underline">
-                                Open {duplicate.name}
-                            </Link>
+                            {onUseDuplicate ? (
+                                <button
+                                    type="button"
+                                    onClick={() => onUseDuplicate(duplicate)}
+                                    className="font-semibold text-red-700 hover:underline"
+                                >
+                                    Pick {duplicate.name} instead
+                                </button>
+                            ) : (
+                                <Link to={payeeHref(duplicate.name, duplicate.status)} className="font-semibold text-red-700 hover:underline">
+                                    Open {duplicate.name}
+                                </Link>
+                            )}
                         </p>
                     </div>
                 </div>
@@ -109,6 +126,7 @@ export function PayeeBankFields({ payeeForm, disabled }: PayeeBankFieldsProps) {
 }
 
 interface RowProps {
+    stacked?: boolean;
     id: string;
     label: string;
     help?: string;
@@ -117,10 +135,16 @@ interface RowProps {
 }
 
 /** One labelled field: label on the left, the input with its help or error line on the right. */
-function Row({ id, label, help, error, children }: RowProps) {
+function Row({ stacked, id, label, help, error, children }: RowProps) {
     return (
-        <div className="grid grid-cols-1 items-start gap-1.5 sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-3">
-            <Label htmlFor={id} className="sm:pt-2.5 sm:text-right">
+        <div
+            className={
+                stacked
+                    ? "flex flex-col gap-1.5"
+                    : "grid grid-cols-1 items-start gap-1.5 sm:grid-cols-[150px_minmax(0,1fr)] sm:gap-3"
+            }
+        >
+            <Label htmlFor={id} className={stacked ? undefined : "sm:pt-2.5 sm:text-right"}>
                 {label}
                 <span className="text-destructive">*</span>
             </Label>

@@ -917,12 +917,15 @@ class TestExpenseRequests(FrappeTestCase):
 	# These build their OWN types, so they hold whatever the site's seeded roles and switches
 	# say about the real ones.
 
-	def _own_type(self, *, project=0, non_project=1, roles=(PM_PROFILE,), fmt=None, enabled=0):
+	def _own_type(self, *, project=0, non_project=1, roles=(PM_PROFILE,), fmt=None, enabled=0,
+	              payee_rule=None):
 		name = f"exr_test_et_{frappe.generate_hash(length=6)}"
 		d = frappe.new_doc("Expense Type")
 		d.update({"expense_name": name, "project": project, "non_project": non_project,
 		          "expense_category": "Uncategorized", "source_format": fmt,
 		          "source_format_enabled": enabled})
+		if payee_rule:
+			d.payee_rule = payee_rule
 		d.set("allowed_roles", [{"role_profile": r} for r in roles])
 		d.insert(ignore_permissions=True)
 		frappe.db.commit()
@@ -1059,6 +1062,257 @@ class TestExpenseRequests(FrappeTestCase):
 		out = approve_expense_request(res["name"])
 		desc = frappe.db.get_value("Non Project Expenses", out["created_expense"], "description")
 		self.assertEqual(desc, f"Stay for Asha. · [{res['name']}]")
+
+
+class TestExpenseRequestPayee(FrappeTestCase):
+	"""Who gets paid (spec #1420 ticket #1429, ADR-0033): the type's rule, the vendor's Payee,
+	Inactive Payees, edits, and approval carrying the Payee onto the Expense.
+
+	Builds its own expense types, Payees (`PayeeFixture`, offline IFSC) and vendors (inserted raw
+	as `TESTPYE-VEN-*`), so it holds whatever the site's real types and vendors say.
+	"""
+
+	@classmethod
+	def setUpClass(cls):
+		super().setUpClass()
+		_make_user(PM_USER, PM_PROFILE, ("Nirmaan Project Manager",))
+		p = frappe.new_doc("Projects")
+		p.project_name = f"exr_test_{frappe.generate_hash(length=6)}"
+		p.project_start_date = frappe.utils.now()[:19]
+		p.project_end_date = frappe.utils.add_to_date(frappe.utils.now()[:19], years=1)[:19]
+		p.project_scopes = {"scopes": []}
+		p.insert(ignore_permissions=True)
+		cls.project = p.name
+		frappe.db.commit()
+
+	@classmethod
+	def tearDownClass(cls):
+		frappe.set_user("Administrator")
+		for r in frappe.get_all("Expense Request", filters={"owner": PM_USER}, pluck="name"):
+			for dt in ("Project Expenses", "Non Project Expenses"):
+				for row in frappe.get_all(dt, filters={"request_id": r}, pluck="name"):
+					frappe.delete_doc(dt, row, force=True, ignore_permissions=True)
+			frappe.delete_doc("Expense Request", r, force=True, ignore_permissions=True)
+		frappe.delete_doc("Projects", cls.project, force=True, ignore_permissions=True)
+		for dt in ("Nirmaan Users", "User"):
+			if frappe.db.exists(dt, PM_USER):
+				frappe.delete_doc(dt, PM_USER, force=True, ignore_permissions=True)
+		frappe.db.commit()
+		super().tearDownClass()
+
+	def setUp(self):
+		from nirmaan_stack.api.payees.payee_fixture import PayeeFixture
+		frappe.set_user("Administrator")
+		routing.clear_cache()
+		self.payees = PayeeFixture.attach(self)
+
+	def tearDown(self):
+		routing.clear_cache()
+		frappe.set_user("Administrator")
+
+	# --- helpers -------------------------------------------------------------
+
+	_own_type = TestExpenseRequests._own_type
+
+	def _type(self, rule, *, project=False):
+		return self._own_type(project=1 if project else 0, non_project=0 if project else 1,
+		                      payee_rule=rule)
+
+	def _vendor(self, payee=None) -> str:
+		"""A vendor inserted raw, paid into `payee`; deleted after the test."""
+		name = f"TESTPYE-VEN-{frappe.generate_hash(length=8)}"
+		frappe.db.sql(
+			"""INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
+			                             vendor_name, payee)
+			   VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, %s)""",
+			(name, f"TESTPYE Vendor {name}", payee),
+		)
+		frappe.db.commit()
+
+		def _drop():
+			frappe.db.delete("Vendors", {"name": name})
+			frappe.db.commit()
+		self.addCleanup(_drop)
+		return name
+
+	def _inactive(self, payee):
+		frappe.db.set_value("Payee", payee, "status", "Inactive")
+		frappe.db.commit()
+
+	def _raise(self, expense_type, **kw):
+		frappe.set_user(PM_USER)
+		try:
+			return create_expense_request(
+				expense_type=expense_type, amount=kw.pop("amount", 4300),
+				source_data={"responses": {"detail": {"description": "payee test"}}}, **kw)
+		finally:
+			frappe.set_user("Administrator")
+
+	def _edit(self, res, expense_type, **kw):
+		frappe.set_user(PM_USER)
+		try:
+			return update_expense_request(
+				name=res["name"], expense_type=expense_type, amount=kw.pop("amount", 4300),
+				source_data={"responses": {"detail": {"description": "payee test"}}}, **kw)
+		finally:
+			frappe.set_user("Administrator")
+
+	@staticmethod
+	def _payee_of(res):
+		return frappe.db.get_value("Expense Request", res["name"], "payee")
+
+	def _count(self):
+		return frappe.db.count("Expense Request", {"owner": PM_USER})
+
+	# --- the type's rule -----------------------------------------------------
+
+	def test_a_new_expense_type_does_not_ask_who_gets_paid(self):
+		typ = self._own_type()
+		self.assertEqual(frappe.db.get_value("Expense Type", typ, "payee_rule"), "Not asked")
+
+	def test_the_rule_options_are_the_payee_modules(self):
+		from nirmaan_stack.services.payees.expense_rules import PAYEE_RULES
+		options = frappe.get_meta("Expense Type").get_field("payee_rule").options.split("\n")
+		self.assertEqual(tuple(options), PAYEE_RULES)
+
+	def test_required_type_with_no_payee_is_refused_and_nothing_is_saved(self):
+		typ = self._type("Required")
+		before = self._count()
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			self._raise(typ)
+		self.assertIn("needs a payee", str(ctx.exception))
+		self.assertEqual(self._count(), before)
+
+	def test_required_type_keeps_the_payee_picked(self):
+		payee = self.payees.payee()
+		res = self._raise(self._type("Required"), payee=payee)
+		self.assertEqual(self._payee_of(res), payee)
+
+	def test_optional_type_may_leave_the_payee_blank(self):
+		res = self._raise(self._type("Optional"))
+		self.assertFalse(self._payee_of(res))
+
+	def test_not_asked_type_ignores_a_payee_sent(self):
+		res = self._raise(self._type("Not asked"), payee=self.payees.payee())
+		self.assertFalse(self._payee_of(res))
+
+	# --- the vendor's Payee --------------------------------------------------
+
+	def test_a_vendor_fills_in_its_own_payee(self):
+		payee = self.payees.payee()
+		res = self._raise(self._type("Required", project=True), projects=self.project,
+		                  vendor=self._vendor(payee))
+		self.assertEqual(self._payee_of(res), payee)
+
+	def test_a_payee_other_than_the_vendors_is_refused(self):
+		vendor = self._vendor(self.payees.payee())
+		other = self.payees.payee()
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			self._raise(self._type("Optional", project=True), projects=self.project,
+			            vendor=vendor, payee=other)
+		self.assertIn("Others (No Vendor)", str(ctx.exception))
+
+	def test_required_type_with_a_vendor_that_has_no_bank_account_is_refused(self):
+		with self.assertRaises(frappe.ValidationError):
+			self._raise(self._type("Required", project=True), projects=self.project,
+			            vendor=self._vendor())
+
+	# --- Inactive ------------------------------------------------------------
+
+	def test_an_inactive_payee_is_refused(self):
+		payee = self.payees.payee()
+		self._inactive(payee)
+		with self.assertRaises(frappe.ValidationError) as ctx:
+			self._raise(self._type("Optional"), payee=payee)
+		self.assertIn("Inactive", str(ctx.exception))
+
+	def test_a_vendors_inactive_payee_is_refused(self):
+		payee = self.payees.payee()
+		self._inactive(payee)
+		with self.assertRaises(frappe.ValidationError):
+			self._raise(self._type("Optional", project=True), projects=self.project,
+			            vendor=self._vendor(payee))
+
+	# --- editing -------------------------------------------------------------
+
+	def test_an_edit_can_change_the_payee(self):
+		typ = self._type("Required")
+		first, second = self.payees.payee(), self.payees.payee()
+		res = self._raise(typ, payee=first)
+		self._edit(res, typ, payee=second)
+		self.assertEqual(self._payee_of(res), second)
+
+	def test_an_edit_obeys_the_same_rules(self):
+		typ = self._type("Required")
+		payee = self.payees.payee()
+		res = self._raise(typ, payee=payee)
+		with self.assertRaises(frappe.ValidationError):
+			self._edit(res, typ)
+		inactive = self.payees.payee()
+		self._inactive(inactive)
+		with self.assertRaises(frappe.ValidationError):
+			self._edit(res, typ, payee=inactive)
+		self.assertEqual(self._payee_of(res), payee)
+
+	def test_an_edit_keeps_a_payee_that_went_inactive_since(self):
+		"""Inactive stops NEW picks; a request already pointing at the Payee keeps it."""
+		typ = self._type("Required")
+		payee = self.payees.payee()
+		res = self._raise(typ, payee=payee)
+		self._inactive(payee)
+		self._edit(res, typ, payee=payee, amount=5100)
+		self.assertEqual(self._payee_of(res), payee)
+
+	def test_an_edit_to_a_not_asked_type_drops_the_payee(self):
+		payee = self.payees.payee()
+		res = self._raise(self._type("Required"), payee=payee)
+		self._edit(res, self._type("Not asked"), payee=payee)
+		self.assertFalse(self._payee_of(res))
+
+	# --- approval and review -------------------------------------------------
+
+	def test_approval_copies_the_payee_onto_the_non_project_expense(self):
+		payee = self.payees.payee()
+		res = self._raise(self._type("Required"), payee=payee)
+		out = approve_expense_request(res["name"])
+		self.assertEqual(out["created_expense_doctype"], "Non Project Expenses")
+		self.assertEqual(
+			frappe.db.get_value("Non Project Expenses", out["created_expense"], "payee"), payee)
+
+	def test_approval_copies_the_payee_onto_the_project_expense(self):
+		payee = self.payees.payee()
+		res = self._raise(self._type("Optional", project=True), projects=self.project, payee=payee)
+		out = approve_expense_request(res["name"])
+		self.assertEqual(out["created_expense_doctype"], "Project Expenses")
+		self.assertEqual(
+			frappe.db.get_value("Project Expenses", out["created_expense"], "payee"), payee)
+
+	def test_approval_of_a_request_with_no_payee_leaves_the_expense_without_one(self):
+		out = approve_expense_request(self._raise(self._type("Optional"))["name"])
+		self.assertFalse(
+			frappe.db.get_value("Non Project Expenses", out["created_expense"], "payee"))
+
+	def test_the_reviewer_sees_the_payee(self):
+		payee = self.payees.payee(holder=self.payees.holder("Ramesh"))
+		res = self._raise(self._type("Required"), payee=payee)
+		row = next(r for r in get_my_expense_requests()["requests"] if r["name"] == res["name"])
+		self.assertEqual(row["payee"], payee)
+		details = row["payee_details"]
+		self.assertEqual(details["account_name"],
+		                 frappe.db.get_value("Payee", payee, "account_name"))
+		self.assertEqual(details["ifsc"], "TEST0PYE001")
+		self.assertTrue(details["account_number"])
+
+	def test_the_catalog_says_who_gets_paid_for_each_type(self):
+		typ = self._type("Optional")
+		routing.clear_cache()
+		frappe.set_user(PM_USER)
+		try:
+			types = {t["expense_type"]: t for c in get_request_catalog()["categories"]
+			         for t in c["types"]}
+		finally:
+			frappe.set_user("Administrator")
+		self.assertEqual(types[typ]["payee_rule"], "Optional")
 
 
 class TestExpenseTypeMasters(FrappeTestCase):
@@ -1236,6 +1490,37 @@ class TestExpenseTypeMasters(FrappeTestCase):
 			update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
 			                    allowed_roles=["Not A Profile"])
 		self.assertEqual(stored(name), ["Nirmaan PMO Executive Profile"])
+
+	def test_who_gets_paid_is_set_kept_when_omitted_and_validated(self):
+		from nirmaan_stack.api.expense_requests.masters import update_expense_type
+
+		def rule(n):
+			return frappe.db.get_value("Expense Type", n, "payee_rule")
+
+		name = self._made_type()
+		self.assertEqual(rule(name), "Not asked")
+		created = self._made_type(payee_rule="Optional")
+		self.assertEqual(rule(created), "Optional")
+
+		update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
+		                    payee_rule="Required")
+		self.assertEqual(rule(name), "Required")
+		update_expense_type(name=name, non_project=1, expense_category="Uncategorized")
+		self.assertEqual(rule(name), "Required")
+		with self.assertRaises(frappe.ValidationError):
+			update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
+			                    payee_rule="Sometimes")
+		self.assertEqual(rule(name), "Required")
+
+	def test_pm_cannot_set_who_gets_paid(self):
+		from nirmaan_stack.api.expense_requests.masters import update_expense_type
+		name = self._made_type()
+		frappe.set_user(PM_USER)
+		with self.assertRaises(frappe.PermissionError):
+			update_expense_type(name=name, non_project=1, expense_category="Uncategorized",
+			                    payee_rule="Required")
+		frappe.set_user("Administrator")
+		self.assertEqual(frappe.db.get_value("Expense Type", name, "payee_rule"), "Not asked")
 
 	def test_pm_cannot_switch_a_form_set_roles_or_read_access(self):
 		from nirmaan_stack.api.expense_requests.masters import (

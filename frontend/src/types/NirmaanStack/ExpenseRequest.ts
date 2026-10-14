@@ -5,6 +5,8 @@
 // `Paid` is set by the LEDGER, through the on_update hook that fires when the expense row is
 // paid — never by a reviewer, and there is no endpoint that sets it.
 
+import type { PayeeSummary } from "./Payee";
+
 export type ExpenseRequestStatus = "Pending Approval" | "Approved" | "Rejected" | "Paid";
 
 export interface ExpenseRequest {
@@ -19,6 +21,9 @@ export interface ExpenseRequest {
   /** Optional, and PROJECT-ONLY -- `Non Project Expenses` has no vendor column, so a
    *  vendor on a non-project request would be dropped at approval. */
   vendor?: string | null;
+  /** Who gets paid (ADR-0033): a Payee ID, set per the type's `payee_rule`; with a vendor, the
+   *  vendor's own Payee. Approval copies it onto the Expense. */
+  payee?: string | null;
   comment?: string | null;
   /** Answers to the type's source_format, JSON. Null when the type declares no format. */
   source_data?: string | null;
@@ -46,6 +51,9 @@ export interface ExpenseRequest {
   /** What status the ledger row will be BORN at — server-resolved, because it depends on the
    *  amount and the threshold lives on the ledger doctypes. Never re-derive it here. */
   target_status?: "Approved" | "Requested";
+  /** The Payee's bank details, served with the row because requesters and reviewers can't read
+   *  `Payee` directly. Null when the request names no Payee. */
+  payee_details?: PayeeSummary | null;
 }
 
 export interface GetMyExpenseRequestsResponse {
@@ -64,6 +72,8 @@ export interface RequestCatalogType {
   /** True only when the type's "Enable Source" switch is ON and a format is written.
    *  False => the dialog asks the standard fields. */
   has_format: boolean;
+  /** Who gets paid: Required / Optional / Not asked (`utils/payees/expensePayee`). */
+  payee_rule: string;
 }
 
 export interface RequestCatalogCategory {

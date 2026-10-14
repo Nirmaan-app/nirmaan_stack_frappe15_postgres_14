@@ -14,6 +14,7 @@ import frappe
 from nirmaan_stack.services.expense_request_routing import (
 	allowed_roles_for_type,
 	is_requestable,
+	requestable_types,
 	reviewer_role_for_type,
 	types_reviewed_by,
 )
@@ -94,6 +95,25 @@ def guard_requestable(expense_type: str, check_visibility: bool = True) -> None:
 			f"'{expense_type}' is not available to your role.",
 			frappe.PermissionError,
 			title="Expense type not available",
+		)
+
+
+def can_raise_requests(user: str | None = None) -> bool:
+	"""May the caller raise an expense request at all: is any requestable type visible to them?"""
+	profile = caller_role_profile(user)
+	if profile == ADMIN_PROFILE:
+		return True
+	return bool(profile) and any(profile in allowed_roles_for_type(t) for t in requestable_types())
+
+
+def guard_can_raise() -> None:
+	"""Refuse a caller who can raise no expense request. Gates what only the request dialog offers,
+	such as searching and adding Payees from it (`api/expense_requests/payees`)."""
+	if not can_raise_requests():
+		frappe.throw(
+			"Only someone who can raise an expense request may do this.",
+			frappe.PermissionError,
+			title="Not a requester",
 		)
 
 
