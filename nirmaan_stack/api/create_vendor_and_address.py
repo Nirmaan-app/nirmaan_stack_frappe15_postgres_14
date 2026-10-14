@@ -35,8 +35,7 @@ def create_vendor_and_address(
             Payee by the Payee module (`services/payees/choosing.choose_payee`). Exactly one of
             `payee` / `bank` is required (spec #1420, #1425).
 
-    The vendor's bank account is its Payee (ADR-0033): the old vendor bank fields (`account_name`,
-    `account_number`, `ifsc`, `bank_name`, `bank_branch`) are never written. Who:
+    The vendor's bank account is its Payee (ADR-0033); a Vendor holds no bank fields of its own. Who:
     `role_profiles.VENDOR_PAYEE_PROFILES`.
 
     A new vendor starts with NO categories: `tasks/vendor_category_sync.py` fills them in from the

@@ -29,7 +29,13 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     `link_vendor` (Change account: an existing vendor to another Payee, by `choose_payee`, refusing
     the one it has) and `vendor_account` (the vendor page's card: its Payee and `other_vendors`).
 - **A vendor's bank account is its Payee.** Vendor creation (`api/create_vendor_and_address`) takes
-  an existing Payee or new bank details and writes none of the old vendor bank fields. Every screen
+  an existing Payee or new bank details. `Vendors` has no bank fields: #1432 deleted the five
+  (`account_name`, `account_number`, `ifsc`, `bank_name`, `bank_branch`), and with them the screen-only
+  account-number duplicate rule; the Payee uniqueness on the server replaced it. The DB columns stay
+  (migrate never drops a column) only so the #1424 patch can still read them on a site that has not run it;
+  no code reads them otherwise. A vendor the patch skipped (live: VEN-Service-0281, an account number and
+  no IFSC) keeps that number only in the orphaned column and the patch log: its page says "No bank account
+  yet", and PO / WO payment requests are blocked until someone adds bank details. Every screen
   that shows or checks a vendor's bank details (hover card, detail popover, the PO / WO
   payment-request gate, the bank file, the vendor list) reads the vendor's Payee through
   `services/payees/vendor_account.vendor_accounts`, gated by Vendors read, not Payee read. So do

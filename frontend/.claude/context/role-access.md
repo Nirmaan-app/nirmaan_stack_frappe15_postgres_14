@@ -404,7 +404,7 @@ on the server by `services/role_profiles.CHEQUE_ACCESS_PROFILES` in every `api/c
 | Delete Project Expense | Y | Y | - | - | - | - |
 | Add Project Expense | Y | Y | - | - | - | Y |
 | Export Vendor Ledger | Y | Y | - | - | - | Y |
-| Edit Vendor Bank Details | Y | Y | Y | - | Y | Y |
+| Set a vendor's Payee (Change account, Add bank details) | Y | Y | Y | - | Y | Y |
 | Request Payments (PO) | Y | Y | Y | - | Y | - |
 | Edit Design Tracker Structure | Y | Y | - | - | - | - |
 | Edit User Role Profiles | Y | Y | - | - | - | - |
