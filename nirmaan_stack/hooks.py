@@ -420,6 +420,11 @@ doc_events = {
     "Cheques": {
         "validate": "nirmaan_stack.integrations.controllers.cheques.validate",
     },
+    # Payee details + (normalized account, IFSC) uniqueness on every write path (spec #1420,
+    # ADR-0033). The Payee module (`services/payees/`) is the only code that creates a Payee.
+    "Payee": {
+        "validate": "nirmaan_stack.integrations.controllers.payee.validate",
+    },
     "Material Test Certificate": {
         "validate": "nirmaan_stack.integrations.controllers.material_test_certificate.validate",
         "on_trash": "nirmaan_stack.integrations.controllers.material_test_certificate.on_trash",

@@ -9,6 +9,7 @@
   "links_section",
   "projects",
   "vendor",
+  "payee",
   "type",
   "request_id",
   "details_section",
@@ -152,12 +153,19 @@
    "fieldtype": "Check",
    "label": "Auto Approved",
    "read_only": 1
+  },
+  {
+   "description": "The Payee (bank account) this is paid into (ADR-0033). Set through services/payees.",
+   "fieldname": "payee",
+   "fieldtype": "Link",
+   "label": "Payee",
+   "options": "Payee"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-16 10:15:08.039195",
+ "modified": "2026-10-14 13:13:57.822409",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Expenses",

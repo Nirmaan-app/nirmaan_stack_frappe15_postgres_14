@@ -319,6 +319,15 @@ queue — edit & revert" below).
 
 ---
 
+### Payees (`payees/`, spec #1420)
+
+Admin, Accountant and Accountant Lead only (`PAYEE_MANAGE_PROFILES` in `constants/roles.ts`): the `/payees`
+route guard, the sidebar link and the header's Add Payee button all read it. The server enforces the same list
+(`services/role_profiles.PAYEE_MANAGE_PROFILES`) in every `api/payees/` endpoint. Procurement adds Payees only from
+the vendor screens, and raisers only from an Expense Request (later tickets of #1420).
+
+---
+
 ### Reports (`reports/`)
 
 | Tab | Admin | PMO | Proj Lead | Proj Mgr | Procurement | Accountant |
