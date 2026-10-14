@@ -1,19 +1,22 @@
 /**
- * ReviewCheckParts -- the three pieces the review screen draws for the review flags (S4a,
- * ADR-0034): the row pill, the counter strip above the grid, and the "Needs checking" block of
- * the row detail.
+ * ReviewCheckParts -- the pieces the review screen draws for the review flags (S4a, ADR-0034):
+ * the row pill, the counter strip above the grid, and the "Needs checking" block of the row
+ * detail. S4b (ADR-0035) adds the two sheet banners and the "Suggested" tag.
  *
  * Presentation only. What to show comes from `reviewCheckFlags.ts`, which in turn reads the
  * server's `check_flags` / `check_summary`; nothing here decides whether a row is flagged.
  */
-import { CheckCircle2, Filter } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Filter, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { RowCheckFlags } from "./boqTypes";
 import {
+  CHECK_INCOMPLETE_BANNER,
   LOOKS_OK_LABEL,
   NEEDS_CHECKING_HINT,
   NEEDS_CHECKING_TITLE,
+  REPARSE_SHEET_LABEL,
+  SUGGESTED_LABEL,
   UNDO_LABEL,
   checkReasonLines,
   isCheckOpen,
@@ -162,4 +165,43 @@ export function NeedsCheckingBlock({ flags, readOnly, busy, error, onLooksOk, on
     );
   }
   return null;
+}
+
+/** S4b (U10): the small mark beside the suggested option of the Change list. No AI name. */
+export function SuggestedTag() {
+  return (
+    <span className="ml-2 rounded-full bg-orange-100 dark:bg-orange-900/60 px-1.5 py-0.5 text-[10px] font-medium leading-none text-orange-800 dark:text-orange-200">
+      {SUGGESTED_LABEL}
+    </span>
+  );
+}
+
+/** S4b (U1): the advice on a sheet where more than 40% of the rows are flagged. Blocks nothing. */
+export function HeavySheetBanner({ text }: { text: string }) {
+  return (
+    <div className="flex items-start gap-2 px-3 py-2.5 rounded-md border border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/30 text-sm">
+      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-orange-700 dark:text-orange-300" />
+      <p className="text-orange-900 dark:text-orange-100">{text}</p>
+    </div>
+  );
+}
+
+interface CheckIncompleteBannerProps {
+  /** Hands over to the hub's re-parse confirmation; withheld (no button) on a read-only sheet. */
+  onReparse?: () => void;
+}
+
+/** S4b (U2): the automatic check of this sheet did not finish. */
+export function CheckIncompleteBanner({ onReparse }: CheckIncompleteBannerProps) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 text-sm flex-wrap">
+      <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+      <p className="text-amber-900 dark:text-amber-100 flex-1 min-w-[16rem]">{CHECK_INCOMPLETE_BANNER}</p>
+      {onReparse && (
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={onReparse}>
+          <RefreshCw className="h-3.5 w-3.5" /> {REPARSE_SHEET_LABEL}
+        </Button>
+      )}
+    </div>
+  );
 }

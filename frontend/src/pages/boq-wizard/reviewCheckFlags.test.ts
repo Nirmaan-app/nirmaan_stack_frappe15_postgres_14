@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { CheckSummary, RowCheckFlags } from "./boqTypes";
 import {
@@ -6,15 +8,27 @@ import {
   CHECK_REASON_LINES,
   CHECK_RUNNING_MESSAGE,
   CHECKING_ROWS_LABEL,
+  CHECK_INCOMPLETE_BANNER,
+  REPARSE_SHEET_LABEL,
+  REVERT_FAILED_MESSAGE,
+  REVERT_HINT,
+  REVERT_LABEL,
+  SUGGESTED_LABEL,
   checkCounter,
   checkPill,
   checkReasonLines,
   finalizeBlockMessage,
+  heavyBannerText,
+  isCheckIncomplete,
   isCheckOpen,
   isCheckRunning,
   isRowFlagged,
   matchesCheckFilter,
+  orderWithSuggestion,
+  pctText,
   revertMessageLines,
+  suggestedParentLine,
+  suggestionFor,
   type CheckFilter,
 } from "./reviewCheckFlags";
 
@@ -327,5 +341,275 @@ describe("revertMessageLines", () => {
       "Row 20 reverted.",
       "Row 22 was not moved back because it was moved separately.",
     ]);
+  });
+});
+
+// ── S4b (ADR-0035) ───────────────────────────────────────────────────────────
+
+describe("checkCounter while the check runs (U12)", () => {
+  const open = summary({ flagged: 7, to_check: 7, by_kind: { type: 7, parent: 0, both: 0 } });
+
+  it("draws no strip while the check is running", () => {
+    expect(checkCounter(open, true)).toBeNull();
+  });
+
+  it("draws the strip, with the server's numbers, once the check has ended", () => {
+    expect(checkCounter(open, false)?.title).toBe("7 rows to check");
+    expect(checkCounter(open)?.title).toBe("7 rows to check");
+  });
+
+  it("hides the green all-checked strip too while a check runs", () => {
+    expect(checkCounter(summary({ flagged: 3, checked: 3 }), true)).toBeNull();
+  });
+});
+
+describe("heavyBannerText (U1)", () => {
+  it("is the approved sentence with the server's percentage", () => {
+    expect(heavyBannerText(summary({ heavy: true, flagged_pct: 63 }))).toBe(
+      "Many rows on this sheet need checking (63%). We recommend reviewing the whole sheet before finalizing.",
+    );
+  });
+
+  it("shows a percentage that is not whole with one decimal", () => {
+    expect(heavyBannerText(summary({ heavy: true, flagged_pct: 40.4 }))).toContain("(40.4%)");
+    expect(pctText(50)).toBe("50%");
+    expect(pctText(15.8)).toBe("15.8%");
+  });
+
+  it("is nothing on a sheet the server does not call heavy -- it holds no 40% rule of its own", () => {
+    expect(heavyBannerText(summary({ heavy: false, flagged_pct: 99 }))).toBeNull();
+    expect(heavyBannerText(null)).toBeNull();
+  });
+
+  it("is nothing while the check runs: the percentage is not settled", () => {
+    expect(heavyBannerText(summary({ heavy: true, flagged_pct: 63 }), true)).toBeNull();
+  });
+});
+
+describe("isCheckIncomplete (U2)", () => {
+  it("is true for a failed check with nothing running", () => {
+    expect(isCheckIncomplete(summary({ check_status: "incomplete" }))).toBe(true);
+  });
+
+  it("is false for a finished, a running and a never-run check", () => {
+    expect(isCheckIncomplete(summary({ check_status: "done" }))).toBe(false);
+    expect(isCheckIncomplete(summary({ check_status: "running", check_running: true }))).toBe(false);
+    expect(isCheckIncomplete(summary({ check_status: "not_run" }))).toBe(false);
+    expect(isCheckIncomplete(null)).toBe(false);
+  });
+
+  it("is false while a new check is running over an older failure", () => {
+    expect(isCheckIncomplete(summary({ check_status: "incomplete" }), true)).toBe(false);
+  });
+
+  it("carries the approved banner sentence and button", () => {
+    expect(CHECK_INCOMPLETE_BANNER).toBe(
+      "The automatic row check didn't finish on this sheet. Only rows with a unit or quantity that aren't Items were flagged. Re-parse the sheet to run the full check again.",
+    );
+    expect(REPARSE_SHEET_LABEL).toBe("Re-parse sheet");
+  });
+});
+
+describe("suggestionFor (U10, R31)", () => {
+  const answer = { ai_suggested_classification: "note", ai_suggested_parent: 14, ai_suggested_is_root: 0 };
+
+  it("suggests the stored type while Check type is open for a type doubt", () => {
+    expect(suggestionFor({ ...answer, check_flags: OPEN_TYPE })).toEqual({ type: "note", parent: null });
+  });
+
+  it("suggests Item for a row flagged ONLY for a unit or quantity (R31b)", () => {
+    const row = {
+      ...answer, ai_suggested_classification: null,
+      check_flags: flags({ check_type: true, reasons: ["unit_qty_not_item"], doubts: ["unit_qty_not_item"] }),
+    };
+    expect(suggestionFor(row).type).toBe("line_item");
+  });
+
+  it("with both doubts and different answers, the stored type wins (Q-b)", () => {
+    const row = {
+      ...answer,
+      check_flags: flags({
+        check_type: true, reasons: ["type_doubt", "unit_qty_not_item"], doubts: ["type_doubt", "unit_qty_not_item"],
+      }),
+    };
+    expect(suggestionFor(row).type).toBe("note");
+  });
+
+  it("suggests the stored parent while Check parent is open", () => {
+    expect(suggestionFor({ ...answer, check_flags: OPEN_PARENT })).toEqual({ type: null, parent: 14 });
+  });
+
+  it("suggests top level as -1, and row 0 as a real row", () => {
+    expect(suggestionFor({ ...answer, ai_suggested_is_root: 1, check_flags: OPEN_PARENT }).parent).toBe(-1);
+    expect(suggestionFor({ ...answer, ai_suggested_parent: 0, check_flags: OPEN_PARENT }).parent).toBe(0);
+  });
+
+  it("suggests nothing on an unflagged row, whatever answer is stored", () => {
+    expect(suggestionFor({ ...answer, check_flags: flags() })).toEqual({ type: null, parent: null });
+    expect(suggestionFor({ ...answer, check_flags: null })).toEqual({ type: null, parent: null });
+    expect(suggestionFor(null)).toEqual({ type: null, parent: null });
+  });
+
+  it("suggests nothing once the flag is answered or ticked", () => {
+    expect(suggestionFor({ ...answer, check_flags: FIXED_TYPE })).toEqual({ type: null, parent: null });
+    expect(suggestionFor({ ...answer, check_flags: TICKED })).toEqual({ type: null, parent: null });
+    expect(suggestionFor({ ...answer, check_flags: FIXED_BOTH })).toEqual({ type: null, parent: null });
+  });
+
+  it("keeps only the half that is still open on a row that was Check both", () => {
+    expect(suggestionFor({ ...answer, check_flags: BOTH_TYPE_FIXED })).toEqual({ type: null, parent: 14 });
+  });
+
+  it("suggests no parent when the stored answer names none (-1 without top level)", () => {
+    expect(suggestionFor({ ...answer, ai_suggested_parent: -1, check_flags: OPEN_PARENT }).parent).toBeNull();
+    expect(suggestionFor({ ...answer, ai_suggested_parent: null, check_flags: OPEN_PARENT }).parent).toBeNull();
+  });
+
+  it("names no AI: the mark is the one word", () => {
+    expect(SUGGESTED_LABEL).toBe("Suggested");
+  });
+});
+
+describe("orderWithSuggestion (U10)", () => {
+  const TYPES = ["line_item", "preamble", "note", "spacer"] as const;
+
+  it("puts the suggested option first and keeps every other option, in order", () => {
+    expect(orderWithSuggestion<string>(TYPES, "note")).toEqual(["note", "line_item", "preamble", "spacer"]);
+  });
+
+  it("leaves the list exactly as it was with no suggestion", () => {
+    expect(orderWithSuggestion<string>(TYPES, null)).toEqual([...TYPES]);
+  });
+
+  it("adds nothing for a suggestion the list does not offer", () => {
+    expect(orderWithSuggestion<string>(TYPES, "subtotal_marker")).toEqual([...TYPES]);
+  });
+
+  it("never drops or repeats an option", () => {
+    for (const t of TYPES) {
+      expect([...orderWithSuggestion<string>(TYPES, t)].sort()).toEqual([...TYPES].sort());
+    }
+  });
+});
+
+describe("suggestedParentLine (Q-g)", () => {
+  // 0 ── 1 ── 2 ── 3 ; 4 is another root
+  const rows = [
+    { row_index: 0, effective_parent_index: null, source_row_number: 6, description: "Section A" },
+    { row_index: 1, effective_parent_index: 0, source_row_number: 7, description: "Pipes" },
+    { row_index: 2, effective_parent_index: 1, source_row_number: 8, description: " 25 mm " },
+    { row_index: 3, effective_parent_index: 2, source_row_number: 9, description: null },
+    { row_index: 4, effective_parent_index: null, source_row_number: 10, description: "" },
+  ];
+
+  it("names the suggested row by its Excel row and description", () => {
+    expect(suggestedParentLine(3, 0, rows)).toEqual({ target: 0, text: "Suggested parent: row 6 - Section A" });
+    expect(suggestedParentLine(4, 2, rows)?.text).toBe("Suggested parent: row 8 - 25 mm");
+  });
+
+  it("says Top level for -1", () => {
+    expect(suggestedParentLine(3, -1, rows)).toEqual({ target: -1, text: "Suggested: Top level" });
+  });
+
+  it("is nothing when nothing is suggested", () => {
+    expect(suggestedParentLine(3, null, rows)).toBeNull();
+    expect(suggestedParentLine(3, undefined, rows)).toBeNull();
+  });
+
+  it("is nothing when the suggested row is the row itself", () => {
+    expect(suggestedParentLine(1, 1, rows)).toBeNull();
+  });
+
+  it("is nothing when the suggested row is a descendant of the row (a loop)", () => {
+    expect(suggestedParentLine(1, 2, rows)).toBeNull();
+    expect(suggestedParentLine(0, 3, rows)).toBeNull();
+  });
+
+  it("is nothing when the suggested row no longer exists", () => {
+    expect(suggestedParentLine(1, 99, rows)).toBeNull();
+  });
+
+  it("writes a placeholder for a row with no description", () => {
+    expect(suggestedParentLine(0, 4, rows)?.text).toBe("Suggested parent: row 10 - (no description)");
+  });
+
+  it("ends on a broken parent chain instead of looping", () => {
+    const looped = [
+      { row_index: 0, effective_parent_index: 1, source_row_number: 1, description: "a" },
+      { row_index: 1, effective_parent_index: 0, source_row_number: 2, description: "b" },
+      { row_index: 2, effective_parent_index: null, source_row_number: 3, description: "c" },
+    ];
+    expect(suggestedParentLine(2, 0, looped)?.target).toBe(0);
+  });
+});
+
+describe("revert wording (U9, U14)", () => {
+  it("is the approved button, line and fallback", () => {
+    expect(REVERT_LABEL).toBe("Revert to original");
+    expect(REVERT_HINT).toBe(
+      "Restores this row (and any moved children) to how it was after parsing. Its check flag comes back.",
+    );
+    expect(REVERT_FAILED_MESSAGE).toBe("Could not revert this row. Please try again.");
+  });
+});
+
+// The review tree is too large to mount here; these read its source for what S4b removed and
+// what it must keep. They cover ReviewTree.tsx and RestructureModal.tsx only.
+describe("review screen source (U9, U11, R31c)", () => {
+  const tree = readFileSync(join(__dirname, "ReviewTree.tsx"), "utf8");
+  const modal = readFileSync(join(__dirname, "RestructureModal.tsx"), "utf8");
+
+  it("no longer draws the three Edit blocks, their toggle or their confirm dialog", () => {
+    for (const gone of [">Edit values<", ">Edit text<", ">Edit per-area values<", "Confirm value change", "AccordionTrigger"]) {
+      expect(tree).not.toContain(gone);
+    }
+    expect(tree).not.toMatch(/^\s*Edit Row\s*$/m);
+  });
+
+  it("still saves the template quantity cells through save_review_edit", () => {
+    expect(tree).toContain("review_screen.save_review_edit");
+    expect(tree).toContain("onSaveArea={saveAreaQtyInline}");
+    expect(tree).toContain("onBlur={(e) => saveQtyInline(row, e.target.value)}");
+  });
+
+  it("keeps remarks and the history of old edits", () => {
+    expect(tree).toContain("review_screen.save_review_remark");
+    expect(tree).toContain('verb: "Edited"');
+  });
+
+  it("has no button that still says Revert to parser", () => {
+    expect(tree).not.toContain('"Revert to parser"}');
+    expect(tree).toContain("REVERT_LABEL");
+    expect(tree).not.toContain("to the parser baseline");
+  });
+
+  it("makes the revert wait for the page's lock call", () => {
+    expect(tree).toContain("afterEditIntent(onEditIntent, () => revertToParserCall(");
+  });
+
+  it("the restructure dialog still has its five options, nothing pre-selected, and the same save", () => {
+    for (const option of [
+      "Move all children up to this row's current parent",
+      "Keep all children under this row",
+      "Move all children to one new parent",
+      "Decide each child individually",
+      "Make all children top-level",
+    ]) expect(modal).toContain(option);
+    expect(modal).toContain("useState<PlacementOption | null>(null)");
+    expect(modal).toContain("review_screen.save_review_restructure");
+    expect(modal).toContain('if (rowPosition === "move" && rowParentIdx === null) return false;');
+  });
+
+  it("the dialog names no AI in the suggested line", () => {
+    expect(modal).toContain("suggestedParentLine(row.row_index, suggestedParent, rows)");
+  });
+
+  it("the suggested line sits below the Keep / Move radios, so it never takes the opening focus", () => {
+    const radios = modal.lastIndexOf('<span>Move this row under a new parent</span>');
+    const line = modal.indexOf("{suggestedLine && (");
+    const picker = modal.indexOf('{rowPosition === "move" && (');
+    expect(radios).toBeGreaterThan(0);
+    expect(line).toBeGreaterThan(radios);
+    expect(picker).toBeGreaterThan(line);
   });
 });

@@ -12,7 +12,7 @@
  *
  * Pure: no React, no fetch.
  */
-import type { CheckKindCounts, CheckSummary, RowCheckFlags } from "./boqTypes";
+import type { CheckKindCounts, CheckSummary, ReviewRow, RowCheckFlags } from "./boqTypes";
 
 // ── The row pill ─────────────────────────────────────────────────────────────
 
@@ -27,6 +27,8 @@ export interface CheckPill {
 }
 
 const REASON_PARENT_DOUBT = "parent_doubt";
+const REASON_TYPE_DOUBT = "type_doubt";
+const REASON_UNIT_QTY = "unit_qty_not_item";
 
 /** True while any flag of the row is open. */
 export function isCheckOpen(flags: RowCheckFlags | null | undefined): boolean {
@@ -145,11 +147,19 @@ function kindsLine(kinds: CheckKindCounts): string {
 }
 
 /**
- * The strip above the grid, or null on a sheet with no flagged row. Every number is the server's.
+ * The strip above the grid, or null on a sheet with no flagged row and while the check is still
+ * running. Every number is the server's.
  * While rows are left the kinds are the OPEN ones; once all are checked the kinds are those of
  * every flagged row (`flagged_by_kind`), since the open ones are then all zero.
  */
-export function checkCounter(summary: CheckSummary | null | undefined): CheckCounter | null {
+export function checkCounter(
+  summary: CheckSummary | null | undefined,
+  checkRunning = false,
+): CheckCounter | null {
+  // S4b (U12): no strip while the check runs. Until it ends the server can only report the
+  // unit / quantity flags of the raw parse, some of which the check then removes -- a number that
+  // is about to change. "Checking rows…" shows instead.
+  if (checkRunning) return null;
   if (!summary || summary.flagged <= 0) return null;
   if (summary.to_check > 0) {
     return {
@@ -261,3 +271,145 @@ export function revertMessageLines(input: RevertMessageInput): string[] | null {
   }
   return lines;
 }
+
+// ── The sheet banners (S4b) ──────────────────────────────────────────────────
+
+/** A percentage as the screen writes it: "63%", or one decimal when it is not whole ("40.4%"). */
+export function pctText(pct: number): string {
+  return `${Number.isInteger(pct) ? pct : pct.toFixed(1)}%`;
+}
+
+/**
+ * U1: the advice shown on a sheet where more than 40% of the non-blank rows are flagged, or null.
+ * `heavy` and `flagged_pct` are the server's (review_flags.summarize); nothing is counted here.
+ * Advice only -- it blocks nothing. Not shown while the check runs: the percentage is not settled.
+ */
+export function heavyBannerText(
+  summary: CheckSummary | null | undefined,
+  checkRunning = false,
+): string | null {
+  if (checkRunning || !summary?.heavy) return null;
+  return `Many rows on this sheet need checking (${pctText(summary.flagged_pct)}). We recommend reviewing the whole sheet before finalizing.`;
+}
+
+/** U2: the automatic check of this sheet's current parse failed and nothing is running. */
+export function isCheckIncomplete(
+  summary: CheckSummary | null | undefined,
+  checkRunning = false,
+): boolean {
+  return !checkRunning && summary?.check_status === "incomplete";
+}
+
+export const CHECK_INCOMPLETE_BANNER =
+  "The automatic row check didn't finish on this sheet. Only rows with a unit or quantity that aren't Items were flagged. Re-parse the sheet to run the full check again.";
+export const REPARSE_SHEET_LABEL = "Re-parse sheet";
+
+// ── The "Suggested" mark (S4b, owner ruling R31) ─────────────────────────────
+
+export const SUGGESTED_LABEL = "Suggested";
+export const SUGGESTED_TOP_LEVEL_LINE = "Suggested: Top level";
+
+export interface RowSuggestion {
+  /** The type to mark in the Change list, or null. */
+  type: string | null;
+  /** The parent to offer: a row_index, -1 for top level, or null for none. */
+  parent: number | null;
+}
+
+type SuggestionRow = Pick<
+  ReviewRow,
+  "check_flags" | "ai_suggested_classification" | "ai_suggested_parent" | "ai_suggested_is_root"
+>;
+
+/**
+ * What to mark "Suggested" on a row -- and ONLY while the server says that flag is open.
+ *
+ * - Check type open for "Row type may be wrong": the stored answer's type. When the row is also
+ *   flagged for a unit / quantity, the stored answer still wins (owner ruling Q-b).
+ * - Check type open ONLY for "Has a unit or quantity but isn't an Item": Item (R31b).
+ * - Check parent open: the stored answer's parent, or top level.
+ *
+ * Nothing on an unflagged row, and nothing once the flag is answered or ticked: `check_type` /
+ * `check_parent` are then false. Whether a flag is open is never decided here.
+ */
+export function suggestionFor(row: SuggestionRow | null | undefined): RowSuggestion {
+  const flags = row?.check_flags;
+  const out: RowSuggestion = { type: null, parent: null };
+  if (!row || !flags) return out;
+  if (flags.check_type) {
+    if (flags.reasons.includes(REASON_TYPE_DOUBT) && row.ai_suggested_classification) {
+      out.type = row.ai_suggested_classification;
+    } else if (flags.reasons.includes(REASON_UNIT_QTY)) {
+      out.type = "line_item";
+    }
+  }
+  if (flags.check_parent) {
+    if (row.ai_suggested_is_root) out.parent = -1;
+    else if (typeof row.ai_suggested_parent === "number" && row.ai_suggested_parent >= 0) {
+      out.parent = row.ai_suggested_parent;
+    }
+  }
+  return out;
+}
+
+/**
+ * The Change list's order: the suggested option first, every other option after it in its usual
+ * order. A suggestion that is not one of the options changes nothing -- no option is added,
+ * removed or pre-selected.
+ */
+export function orderWithSuggestion<T>(options: readonly T[], suggested: T | null | undefined): T[] {
+  if (suggested === null || suggested === undefined || !options.includes(suggested)) {
+    return [...options];
+  }
+  return [suggested, ...options.filter((option) => option !== suggested)];
+}
+
+type ParentLineRow = Pick<
+  ReviewRow,
+  "row_index" | "effective_parent_index" | "source_row_number" | "description"
+>;
+
+export interface SuggestedParentLine {
+  /** The parent the line offers: a row_index, or -1 for top level. */
+  target: number;
+  text: string;
+}
+
+/**
+ * The "Suggested parent" line of the restructure dialog (owner ruling Q-g), or null.
+ *
+ * No line when nothing is suggested, when the suggested row is missing, and when it is the row
+ * itself or one of its descendants -- the dialog would refuse that parent (a loop).
+ */
+export function suggestedParentLine(
+  rowIndex: number,
+  suggestedParent: number | null | undefined,
+  rows: readonly ParentLineRow[],
+): SuggestedParentLine | null {
+  if (suggestedParent === null || suggestedParent === undefined) return null;
+  if (suggestedParent < 0) return { target: -1, text: SUGGESTED_TOP_LEVEL_LINE };
+  if (suggestedParent === rowIndex) return null;
+  const byIndex = new Map(rows.map((r) => [r.row_index, r]));
+  const target = byIndex.get(suggestedParent);
+  if (!target) return null;
+  // Walk up from the suggested row; meeting the row itself means it is a descendant.
+  const seen = new Set<number>();
+  let cursor: number | null | undefined = target.effective_parent_index;
+  while (cursor !== null && cursor !== undefined && cursor >= 0 && !seen.has(cursor)) {
+    if (cursor === rowIndex) return null;
+    seen.add(cursor);
+    cursor = byIndex.get(cursor)?.effective_parent_index;
+  }
+  const description = (target.description ?? "").trim() || "(no description)";
+  return {
+    target: suggestedParent,
+    text: `Suggested parent: row ${target.source_row_number} - ${description}`,
+  };
+}
+
+// ── Revert (S4b: U9, U14) ────────────────────────────────────────────────────
+
+export const REVERT_LABEL = "Revert to original";
+export const REVERT_HINT =
+  "Restores this row (and any moved children) to how it was after parsing. Its check flag comes back.";
+export const REVERT_FAILED_MESSAGE = "Could not revert this row. Please try again.";

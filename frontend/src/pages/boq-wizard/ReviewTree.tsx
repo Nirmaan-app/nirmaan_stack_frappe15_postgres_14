@@ -106,14 +106,12 @@ import {
   reasonShortLabel,
 } from "./revisionChangeBlocks";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -193,18 +191,25 @@ import {
   CHECK_FILTERS,
   CHECK_FILTER_LABELS,
   GRID_OK_LABEL,
+  REVERT_FAILED_MESSAGE,
+  REVERT_HINT,
+  REVERT_LABEL,
   UNDO_LABEL,
   checkCounter,
   checkPill,
   isCheckOpen,
   matchesCheckFilter,
+  orderWithSuggestion,
   revertMessageLines,
+  suggestionFor,
   type CheckFilter,
 } from "./reviewCheckFlags";
+import { afterEditIntent } from "./editIntent";
 import {
   CHECK_OPEN_ROW_EDGE,
   CHECK_OPEN_ROW_TINT,
   CheckCounterStrip,
+  SuggestedTag,
   CheckPillBadge,
   NeedsCheckingBlock,
 } from "./ReviewCheckParts";
@@ -286,33 +291,6 @@ function DescriptionCellInner(
 // Exported for reuse by exportReviewCsv (Slice D2) so the CSV's data columns dedupe
 // sl_no/description identically (they are dedicated CSV columns). No behaviour change.
 export const FIXED_ROLE_DEDUPE = new Set(["sl_no", "description"]);
-
-// C-v2: the 7 flat numeric value fields editable inline (mirrors backend
-// review_screen._VALUE_FIELDS). A descriptor is editable iff value_key === null
-// (a flat singleton column, NOT a per-area cell) AND its value_field is one of
-// these. Per-area cells (value_key !== null) and text fields are read-only here.
-const EDITABLE_VALUE_FIELDS = new Set<string>([
-  "qty_total", "rate_supply", "rate_install", "rate_combined",
-  "amount_total", "amount_supply", "amount_install",
-]);
-
-// C-v2b: the 2 flat text value fields editable inline (mirrors backend
-// review_screen._TEXT_FIELDS). Same descriptor-gating as EDITABLE_VALUE_FIELDS
-// (value_key === null && this Set has value_field). Unlike numeric edits, the
-// text Apply saves DIRECTLY with no confirm dialog (silent save) and the value
-// is a string (backend stores it verbatim, no float coercion). description and
-// row_notes stay read-only -- they are NOT here.
-const EDITABLE_TEXT_FIELDS = new Set<string>(["unit", "make_model"]);
-
-// C-v2d: the 3 per-area JSON value fields editable inline (mirrors backend
-// _AREA_JSON_FIELDS). A descriptor is per-area-editable iff value_key !== null (it
-// targets one area cell) AND its value_field is one of these. qty_by_area is flat
-// one-hop; rate_by_area AND amount_by_area are nested two-hop (Slice 2b) -- the
-// descriptor carries the inner kind in the generic rate_subkey slot (for amount it is
-// the amount kind supply/install/total). These commit through the SAME confirm dialog as
-// flat numeric edits; blank -> 0.0 (the area key stays). save_review_edit takes area
-// (+ rate_subkey for the two nested fields).
-const EDITABLE_AREA_FIELDS = new Set<string>(["qty_by_area", "amount_by_area", "rate_by_area"]);
 
 // C-v2c: per-row human-only remark cap (mirrors backend _REMARK_MAX_LEN). Enforced
 // here as a live counter + Save-disable; the backend hard-guards the same value.
@@ -449,11 +427,15 @@ interface ReviewTreeProps {
   // revert) -- NOT the annotation-only paths (saveRemark, dismissFlags, the Looks OK tick). Idempotent on the page
   // side (heldVersionRef), so firing it from multiple funnels is harmless. Optional: every existing
   // caller that omits it renders exactly as before.
-  onEditIntent?: () => void;
+  // S4b (R33): it may return the lock call's promise, so an action that would otherwise fire its
+  // write in the same instant (Revert) can wait for it -- see editIntent.ts.
+  onEditIntent?: () => void | Promise<unknown>;
   // S4a (ADR-0034): the sheet's review-flag counts from get_review_rows.check_summary -- the
   // counter strip above the grid. Null/absent (an older payload, a template BoQ) -> no strip.
   // The per-row flags ride each row's `check_flags`, so they need no prop.
   checkSummary?: CheckSummary | null;
+  // S4b (U12): the automatic check is running -> the counter strip is not drawn.
+  checkRunning?: boolean;
   // Full-screen mode support: when true, the parent (SheetReviewPage) is rendering this
   // tree in an expanded/full-screen layout, so the table scroll container's max-h cap
   // should relax to reclaim the vertical space the normal page chrome would otherwise use.
@@ -494,7 +476,7 @@ interface ReviewTreeProps {
   onAffirmRow?: (rowIndex: number, affirmed: boolean) => void | Promise<void>;
 }
 
-export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, checkSummary = null, expanded = false, templateOrigin = false, selectable = false, canCreateRows = false, onSelectionChanged, revisionMeta = null, onAffirmRow }: ReviewTreeProps) {
+export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqName, sheetName, onSaved, onRemarkSaved, onRestructured, readOnly = false, onEditIntent, checkSummary = null, checkRunning = false, expanded = false, templateOrigin = false, selectable = false, canCreateRows = false, onSelectionChanged, revisionMeta = null, onAffirmRow }: ReviewTreeProps) {
   // Create-from-Template: the two new props share ONE extra fixed-anchor column. When neither
   // is on, templateControls is false and nothing new renders (byte-identical to the upload flow).
   const templateControls = selectable || canCreateRows;
@@ -520,8 +502,10 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // B2b BUILD 1: per-row inline detail panel state (single-open, Option-B with flag accordion).
   const [expandedDetailRow, setExpandedDetailRow] = useState<number | null>(null);
 
-  // C-v2: inline value-editing for the 7 flat numeric fields (save_review_edit).
-  const { call: saveCall, loading: isSaving } = useFrappePostCall<{ message: SaveReviewEditResponse }>(
+  // save_review_edit -- since S4b called only by the template quantity cells (saveQtyInline /
+  // saveAreaQtyInline). The row detail's "Edit values / text / per-area values" blocks that also
+  // used it were removed (owner ruling R19); the endpoint itself is unchanged.
+  const { call: saveCall } = useFrappePostCall<{ message: SaveReviewEditResponse }>(
     "nirmaan_stack.api.boq.wizard.review_screen.save_review_edit",
   );
   // C-v2c: per-row remark write -- a SEPARATE endpoint + separate loading flag from
@@ -544,30 +528,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // C-v2c: dedicated inline error for the remark Save block ONLY -- kept separate
   // from saveError (numeric/text edits) so the two surfaces never cross-display.
   const [remarkError, setRemarkError] = useState<string | null>(null);
-  // Editable-value inputs for the currently-expanded detail row (value_field -> string).
-  const [editInputs, setEditInputs] = useState<Record<string, string>>({});
-  // C-v2b: editable text inputs (unit / make_model) for the expanded detail row.
-  const [textInputs, setTextInputs] = useState<Record<string, string>>({});
-  // C-v2d: per-area numeric inputs for the expanded detail row, keyed by descriptor
-  // col letter (value_field repeats across areas, so col is the unique key).
-  const [areaInputs, setAreaInputs] = useState<Record<string, string>>({});
-  // Pending value edit awaiting confirmation (single-open, mirrors expandedDetailRow).
-  // C-v2d: area / rateSubkey are present only for per-area edits (undefined for flat).
-  const [pendingEdit, setPendingEdit] = useState<{
-    rowIndex: number;
-    field: string;
-    col: string;
-    role: string;
-    excelRow: number;
-    from: string;
-    to: string;
-    area?: string;
-    rateSubkey?: string;
-  } | null>(null);
-  // Optional free-text reason captured in the confirm dialog (blank -> backend None).
-  const [pendingReason, setPendingReason] = useState("");
-  // Inline save error surfaced in the still-open detail panel (no toasts -- wizard convention).
-  const [saveError, setSaveError] = useState<string | null>(null);
+  // The quantity cells' save error. Its one render site was inside the removed "Edit Row" section
+  // of the row detail, which a template BoQ never showed -- so it is set, as before, and not drawn.
+  const [, setSaveError] = useState<string | null>(null);
 
   // Slice 1b-beta: restructure (reclassify + place children) surface.
   // restructureModal -> the heavy with-children modal; childlessConfirm -> the light path.
@@ -788,15 +751,18 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   // re-fetch re-renders the row clean so the Revert button disappears). U15: when the revert
   // involved children, say which came back and which did not, by Excel row.
   const handleRevertToParser = async (row: ReviewRow) => {
-    onEditIntent?.(); // B1: revert-to-parser rewrites the row -> acquire the draft lock
     setRevertError(null);
     setRevertNotice(null);
     try {
-      const res = await revertToParserCall({
+      // B1 + S4b (R33): the revert rewrites the row, so the page takes the draft lock -- and the
+      // revert waits for that call to answer. Fired together, as they used to be, the two requests
+      // wrote the one lock row at once and the database refused the revert ("There was an error."
+      // on the first click after a page load).
+      const res = await afterEditIntent(onEditIntent, () => revertToParserCall({
         boq_name: boqName,
         sheet_name: sheetName, // VERBATIM untrimmed -- #152
         row_index: row.row_index,
-      });
+      }));
       const excelRow = (idx: number) => byIdx.get(idx)?.source_row_number ?? `#${idx}`;
       const lines = revertMessageLines({
         rowExcel: row.source_row_number ?? `#${row.row_index}`,
@@ -806,7 +772,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       if (lines) setRevertNotice({ rowIndex: row.row_index, lines });
       onRemarkSaved?.();
     } catch (e: unknown) {
-      setRevertError(getFrappeError(e) || "Could not revert this row to the parser baseline.");
+      setRevertError(getFrappeError(e) || REVERT_FAILED_MESSAGE);
     }
   };
 
@@ -871,7 +837,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   };
 
   // Descriptor processing: dedupe fixed-anchor roles, extract anchor letters, area map.
-  const { displayDescriptors, appendDescriptors, slNoLetter, descriptionLetter, descriptionDescriptors, areaColorMap, editableDescriptors, editableTextDescriptors, editableAreaDescriptors, hasPerAreaQty, areaQtyDescriptors, qtyTotalDescriptor } = useMemo(() => {
+  const { displayDescriptors, appendDescriptors, slNoLetter, descriptionLetter, descriptionDescriptors, areaColorMap, hasPerAreaQty, areaQtyDescriptors, qtyTotalDescriptor } = useMemo(() => {
     // A2: for template origin, additionally hide the pricing columns (Rate*/Amount*) -- they are
     // populated later in the pricing editor, not at template review. This predicate matches ONLY
     // rate*/amount* roles; it must NEVER match qty_total/qty/unit/make_model (qty_total must stay a
@@ -895,22 +861,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     const areas = [
       ...new Set(displayDescriptors.filter(d => d.area !== null).map(d => d.area as string)),
     ];
-    // C-v2: descriptors whose value is a flat editable numeric field. A sheet
-    // whose value columns are ALL per-area surfaces zero editable inputs -- expected.
-    const editableDescriptors = displayDescriptors.filter(
-      d => d.value_key === null && EDITABLE_VALUE_FIELDS.has(d.value_field),
-    );
-    // C-v2b: descriptors whose value is a flat editable text field (unit / make_model).
-    // Gated identically to editableDescriptors so a text input shows only when the
-    // sheet actually maps that column. Empty list -> no text inputs rendered.
-    const editableTextDescriptors = displayDescriptors.filter(
-      d => d.value_key === null && EDITABLE_TEXT_FIELDS.has(d.value_field),
-    );
-    // C-v2d: per-area editable descriptors (one per area cell the sheet maps).
-    // value_key !== null distinguishes a per-area surface from a flat column.
-    const editableAreaDescriptors = displayDescriptors.filter(
-      d => d.value_key !== null && EDITABLE_AREA_FIELDS.has(d.value_field),
-    );
     // A2-D1 (decision D5): the ordered per-area qty descriptors + the flat qty_total descriptor,
     // delegated together to <AreaQtyCells> in the multi-area template body. filter() preserves
     // displayDescriptors order (Excel-letter sort), and the backend inserts the area cols
@@ -928,9 +878,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       descriptionLetter,
       descriptionDescriptors,
       areaColorMap: buildAreaColorMap(areas),
-      editableDescriptors,
-      editableTextDescriptors,
-      editableAreaDescriptors,
       // A2 multi-area: true when this sheet has per-area qty columns. Drives the three-way cell
       // logic below (single-area edits qty_total; multi-area edits per-area cells + renders the
       // Total as a read-only sum). A pure function of the descriptors -> ref-stable per sheet.
@@ -1094,68 +1041,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     setExpandedFlagRow(null);
   };
 
-  // C-v2: open the per-edit confirm dialog for one editable value field.
-  const openValueConfirm = (row: ReviewRow, d: ColumnDescriptor, fromStr: string, toStr: string) => {
-    setPendingEdit({
-      rowIndex: row.row_index,
-      field: d.value_field,
-      col: d.col,
-      role: ROLE_LABELS[d.role] ?? d.role,
-      excelRow: row.source_row_number,
-      from: fromStr,
-      to: toStr,
-    });
-    setPendingReason("");
-    setSaveError(null);
-  };
-
-  // C-v2d: open the same confirm dialog for a per-area cell. Carries area
-  // (+ rate_subkey for rate_by_area) so confirmValueSave can target the cell.
-  const openAreaConfirm = (row: ReviewRow, d: ColumnDescriptor, fromStr: string, toStr: string) => {
-    setPendingEdit({
-      rowIndex: row.row_index,
-      field: d.value_field,
-      col: d.col,
-      role: ROLE_LABELS[d.role] ?? d.role,
-      excelRow: row.source_row_number,
-      from: fromStr,
-      to: toStr,
-      area: d.area ?? undefined,
-      rateSubkey: d.rate_subkey ?? undefined,
-    });
-    setPendingReason("");
-    setSaveError(null);
-  };
-
-  // C-v2: fire the save_review_edit POST. The dialog auto-closes on confirm
-  // (AlertDialogAction). Success advances the anchor + refreshes via onSaved;
-  // failure (the endpoint REJECTS) surfaces inline in the still-open detail panel.
-  const confirmValueSave = async () => {
-    if (!pendingEdit) return;
-    onEditIntent?.(); // B1: a value edit writes -> acquire the draft lock before the save
-    const { rowIndex, field, to, area, rateSubkey } = pendingEdit;
-    setSaveError(null);
-    try {
-      const res = await saveCall({
-        boq_name: boqName,
-        sheet_name: sheetName, // VERBATIM untrimmed -- #152 trailing-space guard
-        row_index: rowIndex,
-        field,
-        value: to,
-        reason: pendingReason, // blank/whitespace normalized to None by the backend
-        // C-v2d: present only for per-area edits; undefined keys are omitted by the SDK
-        // so the flat path is unchanged.
-        area,
-        rate_subkey: rateSubkey,
-      });
-      setPendingEdit(null);
-      onSaved?.(res.message.edited_at);
-    } catch (e: unknown) {
-      setPendingEdit(null);
-      setSaveError(getFrappeError(e) || "Save failed. Please try again.");
-    }
-  };
-
   // A2 (template origin): inline Total-Quantity edit -- SILENT save (no confirm dialog), mirrors
   // the text-field silent-save path. Fires on blur / Enter; no-op when unchanged.
   //
@@ -1214,27 +1099,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
         area: d.value_key, // descriptor value_key == the area name
         value: raw,
         reason: "",
-      });
-      onSaved?.(res.message.edited_at);
-    } catch (e: unknown) {
-      setSaveError(getFrappeError(e) || "Save failed. Please try again.");
-    }
-  };
-
-  // C-v2b: save a text field (unit / make_model) DIRECTLY -- no confirm dialog
-  // (silent save), value is a string (backend stores verbatim, no float coercion).
-  // On success advances the anchor + refreshes via onSaved (row flips to "Edited"
-  // exactly like a numeric edit); failure surfaces inline in the still-open panel.
-  const saveTextField = async (rowIndex: number, field: string, value: string) => {
-    onEditIntent?.(); // B1: a text edit writes -> acquire the draft lock before the save
-    setSaveError(null);
-    try {
-      const res = await saveCall({
-        boq_name: boqName,
-        sheet_name: sheetName, // VERBATIM untrimmed -- #152 trailing-space guard
-        row_index: rowIndex,
-        field,
-        value,
       });
       onSaved?.(res.message.edited_at);
     } catch (e: unknown) {
@@ -1412,59 +1276,20 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
     setVisibleCols(new Set([...displayDescriptors.map(d => d.col), ...extraDescColLetters]));
   }, [displayDescriptors, extraDescColLetters]);
 
-  // C-v2: seed editable-value inputs when the detail panel opens or row data
-  // changes (e.g. after a save -> mutate() refreshes rows; the inputs re-seed to
-  // the freshly stored values so the just-edited field reads non-dirty).
+  // Seed the row detail's remark box when the panel opens or the row data changes, and clear the
+  // panel's inline messages.
   useEffect(() => {
-    if (expandedDetailRow === null) {
-      setEditInputs({});
-      setTextInputs({});
-      setAreaInputs({});
-      setRemarkInput("");
-      setSaveError(null);
-      setRemarkError(null);
-      setRevertError(null);
-      setCheckError(null);
-      setRevertNotice(null);
-      return;
-    }
-    const r = byIdx.get(expandedDetailRow);
-    if (!r) {
-      setEditInputs({});
-      setTextInputs({});
-      setAreaInputs({});
-      setRemarkInput("");
-      return;
-    }
-    const seed: Record<string, string> = {};
-    for (const d of editableDescriptors) {
-      const v = (r as unknown as Record<string, unknown>)[d.value_field];
-      seed[d.value_field] = v === null || v === undefined ? "" : String(v);
-    }
-    setEditInputs(seed);
-    // C-v2b: seed text inputs from the row's stored unit / make_model.
-    const textSeed: Record<string, string> = {};
-    for (const d of editableTextDescriptors) {
-      const v = (r as unknown as Record<string, unknown>)[d.value_field];
-      textSeed[d.value_field] = v === null || v === undefined ? "" : String(v);
-    }
-    setTextInputs(textSeed);
-    // C-v2d: seed per-area inputs (keyed by col -- value_field repeats per area).
-    const areaSeed: Record<string, string> = {};
-    for (const d of editableAreaDescriptors) {
-      const v = resolveDescriptorValue(r, d);
-      areaSeed[d.col] = v === null || v === undefined ? "" : String(v);
-    }
-    setAreaInputs(areaSeed);
-    // C-v2c: seed the remark Textarea from the row's stored remark (read+edit in panel).
-    setRemarkInput(r.remarks ?? "");
+    const r = expandedDetailRow === null ? undefined : byIdx.get(expandedDetailRow);
+    // C-v2c: the remark Textarea reads the row's stored remark (read + edit in the panel).
+    setRemarkInput(r?.remarks ?? "");
+    if (expandedDetailRow !== null && !r) return;
     setSaveError(null);
     setRemarkError(null);
     setRevertError(null);
     setCheckError(null);
     // U15: the revert message belongs to the row it was about -- drop it when the panel moves.
     setRevertNotice((prev) => (prev && prev.rowIndex === expandedDetailRow ? prev : null));
-  }, [expandedDetailRow, byIdx, hasChildrenSet, editableDescriptors, editableTextDescriptors, editableAreaDescriptors]);
+  }, [expandedDetailRow, byIdx, hasChildrenSet]);
 
   // FIX 1: expand any collapsed ancestors of targetRowIdx, then scroll + highlight.
   // Uses setTimeout(50ms) to wait for React to commit the expand re-render.
@@ -1540,8 +1365,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
   const statusFilterActive = statusFilter !== "all";
   const classFilterActive = !allClassesShown;
   const checkFilterActive = checkFilter !== "all";
-  // S4a: the counter strip above the grid -- null on a sheet with no flagged row.
-  const checkCounterModel = checkCounter(checkSummary);
+  // S4a: the counter strip above the grid -- null on a sheet with no flagged row, and (S4b, U12)
+  // while the automatic check is still running.
+  const checkCounterModel = checkCounter(checkSummary, checkRunning);
   const passesFilter = (row: ReviewRow): boolean => {
     // S5b (#1103, Amendment B): revision review filter -- one early-return, narrows to the rows
     // that did NOT copy and that the human has not handled. Tests MEMBERSHIP of the summary's
@@ -2559,6 +2385,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                 // S4a: the row's review flags, as the server worked them out -- the pill, the
                 // tint and the detail block all read these and nothing else.
                 const checkFlags = row.check_flags ?? null;
+                // S4b (U10): the type to mark "Suggested" in this row's Change list -- null unless
+                // the server says its "Check type" flag is open.
+                const suggestedType = suggestionFor(row).type;
                 const checkOpen = isCheckOpen(checkFlags);
                 const rowCheckPill = checkPill(checkFlags);
 
@@ -3177,9 +3006,14 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                       </button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="start">
-                                      {ASSIGNABLE_CLASSIFICATIONS.map(c => (
+                                      {/* S4b (U10, R31): on a row whose "Check type" flag is open the
+                                        suggested type sits first, marked "Suggested". Every other type
+                                        follows in its usual order; nothing is pre-selected, and an
+                                        unflagged row's list is exactly as before. */}
+                                      {orderWithSuggestion<string>(ASSIGNABLE_CLASSIFICATIONS, suggestedType).map(c => (
                                         <DropdownMenuItem key={c} onClick={() => onPickClass(row, c)}>
                                           {CLS_LABELS[c] ?? c}
+                                          {c === suggestedType && <SuggestedTag />}
                                         </DropdownMenuItem>
                                       ))}
                                     </DropdownMenuContent>
@@ -3242,7 +3076,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                               onLooksOk={() => { void setRowLooksOk(row, true); }}
                               onUndo={() => { void setRowLooksOk(row, false); }}
                             />
-                            {/* R3a (ADR-0006): the UNIFIED "Revert to parser". Shown whenever the
+                            {/* R3a (ADR-0006): the UNIFIED revert, labelled "Revert to original" since S4b. Shown whenever the
                               row carries any standing override (has_override). It restores the row
                               + any children a restructure of it moved to the parsed baseline.
                               Disabled under readOnly (a finalized sheet freezes the affordance).
@@ -3258,7 +3092,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                     disabled={readOnly || isRevertingToParser}
                                     onClick={() => { void handleRevertToParser(row); }}
                                   >
-                                    {isRevertingToParser ? "Reverting…" : "Revert to parser"}
+                                    {isRevertingToParser ? "Reverting…" : REVERT_LABEL}
                                   </Button>
                                   {readOnly ? (
                                     <span className="text-muted-foreground italic text-xs">
@@ -3266,7 +3100,7 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                     </span>
                                   ) : (
                                     <span className="text-muted-foreground italic text-xs">
-                                      Restores this row (and any moved children) to the parser baseline.
+                                      {REVERT_HINT}
                                     </span>
                                   )}
                                 </div>
@@ -3283,187 +3117,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
                                   <p key={line} className="text-xs text-foreground leading-snug">{line}</p>
                                 ))}
                               </div>
-                            )}
-                            {/* "Edit Row" accordion -- collapses the inline edit surfaces (values,
-                              text, per-area) behind one CLOSED-by-default toggle so the detail panel
-                              opens read-first. Only rendered when the sheet is editable AND at least
-                              one editable surface exists; on a read-only/finalized sheet none of the
-                              inner blocks render, so the accordion is suppressed entirely. Remarks is
-                              a SEPARATE section below (excluded by owner request). */}
-                            {!readOnly && (editableDescriptors.length > 0 || editableTextDescriptors.length > 0 || editableAreaDescriptors.length > 0) && (
-                              <Accordion type="single" collapsible className="mb-2 border-t border-border/60 pt-1">
-                                <AccordionItem value="edit-row" className="border-none">
-                                  {/* Compact INLINE trigger: neutralize shadcn's default `flex-1 justify-between`
-                                    (which strands the chevron at the far-right edge of this wide panel) so the
-                                    label + chevron sit together, left-aligned, matching the panel's other
-                                    text-[10px] uppercase section labels. */}
-                                  <AccordionTrigger className="w-auto flex-none justify-start gap-1.5 rounded px-1.5 py-1 -ml-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground hover:no-underline hover:text-foreground">
-                                    Edit Row
-                                  </AccordionTrigger>
-                                  <AccordionContent className="pb-0">
-                                    {/* C-v2: editable value inputs -- the flat numeric fields this sheet
-                                      surfaces (per-area cells + text fields stay read-only here). Each
-                                      commits via an explicit Apply button that opens the confirm dialog.
-                                      Slice D1: the whole block is gated OUT when readOnly. */}
-                                    {!readOnly && editableDescriptors.length > 0 && (
-                                      <div className="mb-2">
-                                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit values</p>
-                                        {/* Fixed 4-per-row, content-sized, left-packed grid: the four
-                                          fixed-width (w-36) fields sit close together then wrap to the next
-                                          row of 4, with no equal-grid dead space spreading them apart. */}
-                                        <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
-                                          {editableDescriptors.map(d => {
-                                            const stored = (row as unknown as Record<string, unknown>)[d.value_field];
-                                            const storedStr = stored === null || stored === undefined ? "" : String(stored);
-                                            const current = editInputs[d.value_field] ?? storedStr;
-                                            const dirty = current !== storedStr;
-                                            const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
-                                            return (
-                                              <div key={d.value_field} className="flex flex-col gap-1">
-                                                <label
-                                                  htmlFor={`edit-${row.row_index}-${d.value_field}`}
-                                                  className="text-[10px] text-muted-foreground"
-                                                >
-                                                  {fieldLabel}
-                                                </label>
-                                                <div className="flex items-center gap-1">
-                                                  <Input
-                                                    id={`edit-${row.row_index}-${d.value_field}`}
-                                                    type="number"
-                                                    value={current}
-                                                    onChange={(e) =>
-                                                      setEditInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
-                                                    }
-                                                    className="h-7 text-xs w-36"
-                                                  />
-                                                  <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="h-7 px-2 text-xs shrink-0"
-                                                    disabled={!dirty || isSaving}
-                                                    onClick={() => openValueConfirm(row, d, storedStr, current)}
-                                                  >
-                                                    Apply
-                                                  </Button>
-                                                </div>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                    )}
-                                    {/* C-v2b: editable TEXT inputs (unit / make_model) -- a separate
-                                      block from the numeric one. Apply saves DIRECTLY (no confirm
-                                      dialog); the value is a string. Shown only when the sheet maps
-                                      the column (editableTextDescriptors gating). Slice D1: gated OUT when readOnly. */}
-                                    {!readOnly && editableTextDescriptors.length > 0 && (
-                                      <div className="mb-2">
-                                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit text</p>
-                                        {/* Fixed 4-per-row, content-sized, left-packed grid: the four
-                                          fixed-width (w-36) fields sit close together then wrap to the next
-                                          row of 4, with no equal-grid dead space spreading them apart. */}
-                                        <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
-                                          {editableTextDescriptors.map(d => {
-                                            const stored = (row as unknown as Record<string, unknown>)[d.value_field];
-                                            const storedStr = stored === null || stored === undefined ? "" : String(stored);
-                                            const current = textInputs[d.value_field] ?? storedStr;
-                                            const dirty = current !== storedStr;
-                                            const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}`;
-                                            return (
-                                              <div key={d.value_field} className="flex flex-col gap-1">
-                                                <label
-                                                  htmlFor={`edit-text-${row.row_index}-${d.value_field}`}
-                                                  className="text-[10px] text-muted-foreground"
-                                                >
-                                                  {fieldLabel}
-                                                </label>
-                                                <div className="flex items-center gap-1">
-                                                  <Input
-                                                    id={`edit-text-${row.row_index}-${d.value_field}`}
-                                                    type="text"
-                                                    value={current}
-                                                    onChange={(e) =>
-                                                      setTextInputs(prev => ({ ...prev, [d.value_field]: e.target.value }))
-                                                    }
-                                                    className="h-7 text-xs w-36"
-                                                  />
-                                                  <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="h-7 px-2 text-xs shrink-0"
-                                                    disabled={!dirty || isSaving}
-                                                    onClick={() => { void saveTextField(row.row_index, d.value_field, current); }}
-                                                  >
-                                                    Apply
-                                                  </Button>
-                                                </div>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                    )}
-                                    {/* C-v2d: editable PER-AREA values -- one input per area cell
-                                      the sheet maps (qty/amount/rate by area). Each commits via
-                                      the SAME confirm dialog as flat numeric edits (openAreaConfirm).
-                                      Blank -> 0.0 (the area key stays). Shown only when the sheet
-                                      maps per-area columns (editableAreaDescriptors gating). Slice D1: gated OUT when readOnly. */}
-                                    {!readOnly && editableAreaDescriptors.length > 0 && (
-                                      <div className="mb-2">
-                                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1">Edit per-area values</p>
-                                        {/* Fixed 4-per-row, content-sized, left-packed grid: the four
-                                          fixed-width (w-36) fields sit close together then wrap to the next
-                                          row of 4, with no equal-grid dead space spreading them apart. */}
-                                        <div className="grid grid-cols-[repeat(4,max-content)] gap-2 justify-start">
-                                          {editableAreaDescriptors.map(d => {
-                                            const storedVal = resolveDescriptorValue(row, d);
-                                            const storedStr = storedVal === null || storedVal === undefined ? "" : String(storedVal);
-                                            const current = areaInputs[d.col] ?? storedStr;
-                                            const dirty = current !== storedStr;
-                                            // Label: "E — Rate Combined (per area) · Zone A" (+ rate kind for rate).
-                                            const fieldLabel = `${d.col} — ${ROLE_LABELS[d.role] ?? d.role}${d.area ? ` · ${d.area}` : ""}`;
-                                            return (
-                                              <div key={d.col} className="flex flex-col gap-1">
-                                                <label
-                                                  htmlFor={`edit-area-${row.row_index}-${d.col}`}
-                                                  className="text-[10px] text-muted-foreground"
-                                                >
-                                                  {fieldLabel}
-                                                </label>
-                                                <div className="flex items-center gap-1">
-                                                  <Input
-                                                    id={`edit-area-${row.row_index}-${d.col}`}
-                                                    type="number"
-                                                    value={current}
-                                                    onChange={(e) =>
-                                                      setAreaInputs(prev => ({ ...prev, [d.col]: e.target.value }))
-                                                    }
-                                                    className="h-7 text-xs w-36"
-                                                  />
-                                                  <Button
-                                                    type="button"
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="h-7 px-2 text-xs shrink-0"
-                                                    disabled={!dirty || isSaving}
-                                                    onClick={() => openAreaConfirm(row, d, storedStr, current)}
-                                                  >
-                                                    Apply
-                                                  </Button>
-                                                </div>
-                                              </div>
-                                            );
-                                          })}
-                                        </div>
-                                      </div>
-                                    )}
-                                    {/* Shared inline save error (numeric + text + per-area edits) */}
-                                    {saveError && <p className="text-xs text-destructive mb-2">{saveError}</p>}
-                                  </AccordionContent>
-                                </AccordionItem>
-                              </Accordion>
                             )}
                             {/* C-v2c: per-row Remarks -- human-only annotation. SEPARATE write
                               path (save_review_remark): saving a remark does NOT mark the row
@@ -3621,39 +3274,6 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
       </div>{/* R4: close the table-card div opened above; the dialogs/modal below are siblings
               inside the outer space-y-3 wrapper. */}
 
-      {/* C-v2: per-edit confirm dialog -- lightweight one-line summary + optional
-          reason. Value edits have no structural fallout, so this is a single-line
-          confirm (not the heavy children-fate confirm). Mounted once outside the
-          table; open state derived from pendingEdit. AlertDialogAction auto-closes
-          on confirm; success/failure feedback surfaces via the anchor / inline panel. */}
-      <AlertDialog open={pendingEdit !== null} onOpenChange={(o) => { if (!o) setPendingEdit(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm value change</AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingEdit
-                ? `Row ${pendingEdit.excelRow} ${pendingEdit.col} — ${pendingEdit.role}${pendingEdit.area ? ` · ${pendingEdit.area}${pendingEdit.rateSubkey ? ` / ${pendingEdit.rateSubkey}` : ""}` : ""}: ${pendingEdit.from === "" ? "(blank)" : pendingEdit.from} → ${pendingEdit.to === "" ? "(blank)" : pendingEdit.to}. Confirm?`
-                : ""}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="py-1">
-            <Input
-              type="text"
-              value={pendingReason}
-              onChange={(e) => setPendingReason(e.target.value)}
-              placeholder="Reason (optional)"
-              className="h-8 text-xs"
-            />
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isSaving}>Cancel</AlertDialogCancel>
-            <AlertDialogAction disabled={isSaving} onClick={() => { void confirmValueSave(); }}>
-              Confirm
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       {/* Slice 1b-beta: childless reclassify -- the LIGHT path. A leaf row has no children,
           so changing its class reparents nothing (its own parent is untouched). A plain
           Button (not AlertDialogAction) is used so the dialog stays open on a backend error. */}
@@ -3732,6 +3352,9 @@ export function ReviewTree({ rows, columnDescriptors, flags, breaks = [], boqNam
           newClassification={restructureModal.newClassification}
           rows={rows}
           onRestructured={(editedAt) => { onRestructured?.(editedAt); setRestructureModal(null); }}
+          // S4b (R31c): offered only while the row's "Check parent" flag is open -- read from the
+          // LIVE row, not the snapshot the dialog was opened with.
+          suggestedParent={suggestionFor(byIdx.get(restructureModal.row.row_index) ?? restructureModal.row).parent}
         />
       )}
 

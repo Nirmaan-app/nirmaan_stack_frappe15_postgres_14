@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { FrappeConfig, FrappeContext, useFrappeGetCall, useFrappeGetDoc, useFrappePostCall } from "frappe-react-sdk";
 import { BoqPresence } from "./BoqPresence";
 import { getFrappeError } from "@/utils/frappeErrors";
@@ -40,10 +40,18 @@ import {
 } from "@/components/ui/tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import type { BOQsDoc, BoQSheetDraft, CommitBoqResponse, CommittableSheet, CommittedSheetState, ExportPricedBcsWorkbookResponse, ExportPricedWorkbookResponse, GetCommittableSheetsResponse, GetCommittedStateResponse, GetReviewRowsResponse, GetStaleSheetsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
+import type { BOQsDoc, BoQSheetDraft, CommitBoqResponse, CommittableSheet, CommittedSheetState, ExportPricedBcsWorkbookResponse, ExportPricedWorkbookResponse, GetCommittableSheetsResponse, GetCheckSummaryResponse, GetCommittedStateResponse, GetReviewRowsResponse, GetStaleSheetsResponse, ParseRunDonePayload, WorkPackageMap } from "./boqTypes";
 import type { RevisionCarryReport } from "./revisionCarryReport";
 import { summarizeRevisionCarry } from "./revisionCarryReport";
 import { ParseRunDialog } from "./ParseRunDialog";
+import {
+  SUMMARY_TO_CHECK_TITLE,
+  anyCheckRunning,
+  footerRowsToCheck,
+  parseSummary,
+  summaryReady,
+  type ParseSummary,
+} from "./hubCheckSummary";
 import { SheetCard } from "./SheetCard";
 import { ExportWorkbookDialog } from "./ExportWorkbookDialog";
 import { CommitDialog } from "./CommitDialog";
@@ -165,6 +173,19 @@ const BoqHubPage = () => {
     failed: string[];
     /** W5: null off a revision parse (nothing carried) -> the carry sub-line is not rendered. */
     carry: RevisionCarryReport | null;
+    /** S4b (U8): the automatic check's part of the summary, for the sheets this parse parsed. */
+    check: ParseSummary;
+  } | null>(null);
+  // S4b (owner ruling Q-c): a finished parse whose summary is HELD until every parsed sheet's
+  // automatic check has ended. `counts` says whether the check counts have been re-read since the
+  // parse ended: "stale" = not yet, "fresh" = yes, "failed" = the read failed (the summary then
+  // opens at once with the parse's own lines, as it did before S4b).
+  const [pendingParse, setPendingParse] = useState<{
+    parsed: string[];
+    notParsed: string[];
+    failed: string[];
+    carry: RevisionCarryReport | null;
+    counts: "stale" | "fresh" | "failed";
   } | null>(null);
   const [parseError, setParseError] = useState<{ message: string; severity: "destructive" | "neutral" } | null>(null);
 
@@ -271,6 +292,22 @@ const BoqHubPage = () => {
     boqId && isRevisionDoc ? undefined : null
   );
 
+  // S4b (ADR-0035): the automatic check's counts for every sheet of this BoQ -- S3's
+  // review_flags.get_check_summary, the function behind the review screen's counter and the
+  // finalize block. The cards, the footer and the "Parse complete" summary read ONLY this; the
+  // hub counts nothing itself. Re-read on a parse end and a check end, and polled every few
+  // seconds only while a check is running.
+  const { data: checkSummaryData, mutate: mutateCheckSummary } = useFrappeGetCall<{ message: GetCheckSummaryResponse }>(
+    "nirmaan_stack.api.boq.wizard.review_flags.get_check_summary",
+    { boq_name: boqId ?? "" },
+    boqId ? `boq-check-summary::${boqId}` : null,
+    {
+      refreshInterval: (latest?: { message: GetCheckSummaryResponse }) =>
+        anyCheckRunning(latest?.message?.sheets) ? 4000 : 0,
+    },
+  );
+  const checkSheets = checkSummaryData?.message?.sheets;
+
   // General-specs endpoint. Called in BoqHubPage because it targets the parent
   // BOQs row, not a child draft (SheetCard handles the child-row endpoints).
   const { call: callSpecs, loading: specsLoading } = useFrappePostCall(
@@ -329,14 +366,22 @@ const BoqHubPage = () => {
       if (payload.status === "success") {
         void mutate();
         void mutateStale();   // F2: a re-parse that fixed a stale config clears the indicator
-        setParseResult({
+        // S4b (Q-c): hold the summary. The worker queues each parsed sheet's automatic check
+        // BEFORE it publishes this outcome, so one fresh read of the counts already says which
+        // sheets are being checked; the effect below opens the summary when none is.
+        setPendingParse({
           parsed: payload.parsed_sheets ?? [],
           notParsed: payload.not_parsed_sheets ?? [],
           failed: payload.failed_sheets ?? [],
           // W5: fold the per-sheet carry counts into their sentence HERE (once, at the outcome
           // seam shared by socket + poll) rather than in the modal body.
           carry: summarizeRevisionCarry(payload.revision_carry),
+          counts: "stale",
         });
+        mutateCheckSummary().then(
+          () => setPendingParse((p) => (p ? { ...p, counts: "fresh" } : p)),
+          () => setPendingParse((p) => (p ? { ...p, counts: "failed" } : p)),
+        );
       } else {
         setParseError(
           PARSE_ERROR_MSGS[payload.error_code ?? ""] ?? PARSE_ERROR_FALLBACK
@@ -347,11 +392,52 @@ const BoqHubPage = () => {
     [boqId]
   );
 
+  // S4b (Q-c): open the held summary once no sheet this parse parsed is still being checked --
+  // at once when nothing is. The poll above keeps `checkSheets` moving while a check runs.
+  useEffect(() => {
+    if (!pendingParse || pendingParse.counts === "stale") return;
+    const sheets = pendingParse.counts === "fresh" ? checkSheets : undefined;
+    if (pendingParse.counts === "fresh" && !summaryReady(pendingParse.parsed, sheets)) return;
+    const { parsed, notParsed, failed, carry } = pendingParse;
+    setPendingParse(null);
+    setParseResult({ parsed, notParsed, failed, carry, check: parseSummary(parsed, sheets) });
+    void mutate(); // the per-sheet in-progress flags have cleared -- refresh the cards
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingParse, checkSheets]);
+
+  // S4b (Q-h): the review screen's "Re-parse sheet" button lands here with the sheet in the
+  // router state. Open today's re-parse dialog for that sheet -- once -- and clear the state so a
+  // reload does not reopen it. A sheet the per-card Re-parse would not offer is ignored.
+  const location = useLocation();
+  const reparseHandoverDone = useRef(false);
+  useEffect(() => {
+    const wanted = (location.state as { reparseSheet?: string } | null)?.reparseSheet;
+    if (!wanted || !boq || reparseHandoverDone.current) return;
+    reparseHandoverDone.current = true;
+    navigate(location.pathname, { replace: true, state: null });
+    const draft = boq.sheet_drafts?.find((d) => d.sheet_name === wanted); // VERBATIM (#152)
+    const status = draft?.wizard_status;
+    if (!draft || boq.origin === "template" || draft.has_prior_parse !== 1) return;
+    if (status !== "Parsed" && status !== "Finalized" && status !== "Config Done") return;
+    setParseResult(null);
+    setParseError(null);
+    setParseDialogMode("reparse");
+    setReparseRestrictSheet(wanted);
+    setParseDialogOpen(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boq, location.state]);
+
   // Fast path: realtime boq:parse_run_done socket event.
   useEffect(() => {
     if (!socket) return;
 
     const handler = (payload: ParseRunDonePayload) => applyParseOutcome(payload);
+    // S4b: a sheet's automatic check ended -> re-read the counts and the per-sheet flags.
+    const onCheckDone = (payload: { boq_name?: string }) => {
+      if (!payload || payload.boq_name !== boqId) return;
+      void mutateCheckSummary();
+      void mutate();
+    };
 
     // Reconnect self-heal (#147 option-4): re-fetch the BoQ doc on socket (re)connect
     // so the existing useEffect([boq]) recovery can sync parseInFlight from the fresh
@@ -360,9 +446,11 @@ const BoqHubPage = () => {
     const onReconnect = () => { void mutate(); };
 
     socket.on("boq:parse_run_done", handler);
+    socket.on("boq:ai_pass_done", onCheckDone);
     socket.on("connect", onReconnect);
     return () => {
       socket.off("boq:parse_run_done", handler);
+      socket.off("boq:ai_pass_done", onCheckDone);
       socket.off("connect", onReconnect);
     };
     // socket is a stable FrappeContext singleton ref; mutate is a stable SWR ref;
@@ -1074,6 +1162,8 @@ const BoqHubPage = () => {
             onOpenReview={handleOpenReview}
             onReparse={handleReparseCard}
             onExportCsv={handleExportCsv}
+            // S4b: this sheet's check counts (VERBATIM key, #152); undefined until read.
+            checkSummary={checkSheets?.[draft.sheet_name]}
             workHeaders={workPackageMap[draft.sheet_name]}
             committedState={committedMap.get(draft.sheet_name)}
             staleReason={staleMap.get(draft.sheet_name)}
@@ -1184,6 +1274,11 @@ const BoqHubPage = () => {
           {generalSpecsCount > 0 && ` · ${generalSpecsCount} general specs`}
           {skippedCount > 0 && ` · ${skippedCount} skipped`}
           {hiddenCount > 0 && ` · ${hiddenCount} hidden`}
+          {/* S4b (U6): rows still to check, summed over the Parsed sheets -- the server's numbers. */}
+          {footerRowsToCheck(
+            dataSheets.filter((d) => getEffectiveStatus(d) === "Parsed").map((d) => d.sheet_name),
+            checkSheets,
+          )}
         </p>
         {/* Footer rework: 4 visible actions (Parse / Re-parse / Commit / Tendering) at
             size="sm" + an "Export" overflow menu holding the two export actions, so the row
@@ -1536,10 +1631,23 @@ const BoqHubPage = () => {
           {/* SUCCESS: up to three sub-lines, each shown only if non-empty. */}
           {parseResult && (
             <div className="space-y-1 py-1 text-sm">
-              {parseResult.parsed.length > 0 && (
-                <p className="font-medium text-foreground">
-                  Parsed: {parseResult.parsed.join(", ")}
-                </p>
+              {/* S4b (U8): the sheets whose automatic check finished, then any parsed sheet with
+                  no check on record (the wording from before S4b). */}
+              {parseResult.check.checkedLine && (
+                <p className="font-medium text-foreground">{parseResult.check.checkedLine}</p>
+              )}
+              {parseResult.check.parsedLine && (
+                <p className="font-medium text-foreground">{parseResult.check.parsedLine}</p>
+              )}
+              {parseResult.check.toCheckLines.length > 0 && (
+                <div className="text-foreground">
+                  <p className="font-medium">{SUMMARY_TO_CHECK_TITLE}</p>
+                  <ul className="mt-1 space-y-0.5 pl-4">
+                    {parseResult.check.toCheckLines.map((line) => (
+                      <li key={line} className="list-disc">{line}</li>
+                    ))}
+                  </ul>
+                </div>
               )}
               {/* W5: revision review-carry, INFORMATIONAL -- muted, and rendered only when the
                   payload carried the counts (i.e. this was a revision parse). The per-sheet
@@ -1565,6 +1673,9 @@ const BoqHubPage = () => {
                   {parseResult.notParsed.join(", ")}
                 </p>
               )}
+              {parseResult.check.incompleteLines.map((line) => (
+                <p key={line} className="text-amber-700 dark:text-amber-400">{line}</p>
+              ))}
               {parseResult.failed.length > 0 && (
                 <div className="text-destructive">
                   <p className="font-medium">Failed to parse:</p>

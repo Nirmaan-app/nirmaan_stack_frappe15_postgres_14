@@ -52,7 +52,14 @@ import { ReviewTree } from "./ReviewTree";
 import { countSelectedLineItemsNoQty } from "./templateSelection";
 import { buildAndDownloadReviewCsv } from "./exportReviewCsv";
 import { shouldExitFullscreenOnEsc } from "./PricingGrid";
-import { CHECKING_ROWS_LABEL, finalizeBlockMessage, isCheckRunning } from "./reviewCheckFlags";
+import {
+  CHECKING_ROWS_LABEL,
+  finalizeBlockMessage,
+  heavyBannerText,
+  isCheckIncomplete,
+  isCheckRunning,
+} from "./reviewCheckFlags";
+import { CheckIncompleteBanner, HeavySheetBanner } from "./ReviewCheckParts";
 
 // B1 (ADR-0011): the DRAFT single-editor lock sentinel version + reject marker. Real committed
 // versions start at 1, so version 0 is the disjoint draft-tier identity (mirrors the backend
@@ -594,13 +601,17 @@ const SheetReviewPage = () => {
   // revert; NOT the annotation-only remark/dismiss paths). Idempotent (heldVersionRef).
   // A rejected acquire (someone else holds it fresh) flips us read-only via the takeover banner.
   // The write endpoints still enforce server-side.
-  const ensureLockAcquired = () => {
+  //
+  // S4b (R33): it RETURNS the lock call's promise (already caught -- it never rejects), so an
+  // action that fires its write in the same instant can wait for it (editIntent.afterEditIntent;
+  // Revert does). Callers that ignore the return value behave exactly as before.
+  const ensureLockAcquired = (): Promise<unknown> | void => {
     if (locksDisabledClient) return;
     if (readOnly) return; // finalized / parsing / already taken over / held by another
     if (!boqId || !sheetName) return;
     if (heldVersionRef.current === DRAFT_LOCK_VERSION) return; // already hold it
     heldVersionRef.current = DRAFT_LOCK_VERSION; // optimistic (prevents a double-fire)
-    void acquireDraftLock({ boq_name: boqId, sheet_name: sheetName }).catch((e) => {
+    return acquireDraftLock({ boq_name: boqId, sheet_name: sheetName }).catch((e) => {
       heldVersionRef.current = null; // failed -> we do NOT hold it
       if (getFrappeError(e).includes(DRAFT_MARKER)) setTakenOver(true);
     });
@@ -635,6 +646,15 @@ const SheetReviewPage = () => {
     checkRunning,
     summary: checkSummary,
   });
+
+  // S4b (U1, U2): the two sheet banners. Both read the server's check_summary; neither blocks
+  // anything. The heavy-sheet advice is about finalizing, so it shows on a Parsed sheet only.
+  const heavyBanner = sheetStatus === "Parsed" ? heavyBannerText(checkSummary, checkRunning) : null;
+  const checkIncomplete = !isParsing && isCheckIncomplete(checkSummary, checkRunning);
+  // "Re-parse sheet" hands over to the hub, which owns the re-parse confirmation and the parse
+  // run: the hub opens today's dialog for this sheet (owner ruling Q-h). VERBATIM name (#152).
+  const handleReparseFromBanner = () =>
+    navigate(`/upload-boq/hub/${boqId ?? ""}`, { state: { reparseSheet: sheetName ?? "" } });
 
   return (
     <div
@@ -805,6 +825,14 @@ const SheetReviewPage = () => {
         </div>
       )}
 
+      {/* S4b (U2): the automatic check of this sheet did not finish. The button is withheld on a
+          read-only sheet (Finalized / another editor); the sentence stays. */}
+      {checkIncomplete && (
+        <CheckIncompleteBanner onReparse={readOnly ? undefined : handleReparseFromBanner} />
+      )}
+      {/* S4b (U1): more than 40% of the rows are flagged -- advice only. */}
+      {heavyBanner && <HeavySheetBanner text={heavyBanner} />}
+
       {/* S5: a failed confirmation. Inline, not a toast -- the wizard convention. */}
       {affirmError && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-destructive/40 bg-destructive/10 text-xs text-destructive flex-wrap">
@@ -904,6 +932,8 @@ const SheetReviewPage = () => {
           // S4a (ADR-0034): the review-flag counts for the counter strip. The per-row flags ride
           // each row (check_flags).
           checkSummary={checkSummary}
+          // S4b (U12): while the check runs the counter strip is not drawn.
+          checkRunning={checkRunning}
           // A2: template-origin review customizations (hide Status/Check/Rate*/Amount*, inline qty).
           // NOT gated on !readOnly (unlike selectable/canCreateRows) -- provenance columns stay
           // hidden even on a finalized/locked template sheet.

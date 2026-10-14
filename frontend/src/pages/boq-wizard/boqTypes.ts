@@ -476,13 +476,19 @@ export interface ReviewRow {
   effective_level: number | null;
   // True when the row is NOT at its parsed baseline -- it carries a standing change (a manual
   // human_* override, or a suggestion accepted before S4a). Computed by get_review_rows. The
-  // "Revert to parser" affordance is shown whenever it is true.
+  // "Revert to original" affordance is shown whenever it is true.
   has_override?: boolean;
   // S4a (ADR-0034): the row's review flags, worked out by the server on every read
   // (review_flags.row_flags). The ONLY thing the screen reads to draw a pill, a tint, a filter
   // result or a reason line -- it holds no flag rule of its own. The AI answers behind a flag
   // still travel in this payload; nothing on the screen reads them.
   check_flags?: RowCheckFlags | null;
+  // S4b (ADR-0035): the three answer fields behind a flag. Read ONLY by reviewCheckFlags'
+  // suggestionFor, and only while the server says that flag is open -- to put a "Suggested" mark
+  // on the Change list and the parent line. Never shown as an answer, never named.
+  ai_suggested_classification?: string | null;
+  ai_suggested_parent?: number | null;
+  ai_suggested_is_root?: number | null;
 
   // ── Revised-BoQ review carry (S5a/S5b, #1102/#1103, ADR-0014 D7). ADDITIVE-ONLY. ───────────
   // Stamped by the post-parse merge (review_carry.py) ONLY on a revision sheet's matched-content
@@ -575,6 +581,12 @@ export interface CheckSummary {
   flagged_pct: number;
   heavy: boolean;
   open_rows: number[];
+}
+
+/** Response shape of review_flags.get_check_summary: one CheckSummary per sheet that has review rows,
+ *  keyed by sheet_name VERBATIM (#152). The hub and the parse summary read nothing else. */
+export interface GetCheckSummaryResponse {
+  sheets: Record<string, CheckSummary>;
 }
 
 /** Response shape of get_review_rows. */

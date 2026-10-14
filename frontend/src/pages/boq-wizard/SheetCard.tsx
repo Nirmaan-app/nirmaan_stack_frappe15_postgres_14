@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
-import type { BoQSheetDraft, CommittedSheetState } from "./boqTypes";
+import type { BoQSheetDraft, CheckSummary, CommittedSheetState } from "./boqTypes";
+import { cardCheck } from "./hubCheckSummary";
 import {
   computeSheetStages,
   type StageAccent,
@@ -182,6 +183,12 @@ interface SheetCardProps {
    * Default false/undefined => upload origin (byte-identical to the pre-existing behaviour).
    */
   isTemplateOrigin?: boolean;
+  /**
+   * S4b (ADR-0035): this sheet's automatic-check counts from review_flags.get_check_summary,
+   * keyed by sheet_name VERBATIM (#152) in the hub. undefined => not read yet, or the sheet has
+   * no review rows -> the card shows nothing about the check (exactly as before S4b).
+   */
+  checkSummary?: CheckSummary;
 }
 
 export function SheetCard({
@@ -199,6 +206,7 @@ export function SheetCard({
   staleReason,
   downstreamState,
   isTemplateOrigin,
+  checkSummary,
 }: SheetCardProps) {
   const [editingLabel, setEditingLabel] = useState(false);
   const [labelInput, setLabelInput] = useState("");
@@ -371,6 +379,11 @@ export function SheetCard({
   if (effectiveStatus === "Parsed" && draft.last_parsed_at) zone2DynamicSub = `Parsed ${formatDate(draft.last_parsed_at)}`;
   else if (effectiveStatus === "Finalized" && draft.last_parsed_at) zone2DynamicSub = `Parsed ${formatDate(draft.last_parsed_at)}`;
   else if (effectiveStatus === "Parse failed" && draft.parse_failure_at) zone2DynamicSub = fmtCommittedAt(draft.parse_failure_at);
+  // S4b (U3-U5): what the card says about the automatic row check -- wording and numbers from
+  // hubCheckSummary / the server. While the check runs the Review step reads
+  // "Parsed · check in progress" in place of the parse date.
+  const check = cardCheck(effectiveStatus, checkSummary);
+  if (check.stageSub) zone2DynamicSub = check.stageSub;
 
   // The zones actually rendered: ① always; ② unless N/A (aside skip/hidden/general-specs);
   // ③ unless hidden (uncommitted aside / general-specs). Aside cards collapse to one zone.
@@ -618,6 +631,13 @@ export function SheetCard({
               Parsing&hellip;
             </span>
           )}
+          {/* S4b (U3): the automatic row check of this sheet is running. */}
+          {check.chip && !isParsing && (
+            <span className="flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400 whitespace-nowrap">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {check.chip}
+            </span>
+          )}
           {/* Dirty indicator: Config Done sheet whose config changed since last parse.
               Template origin -> suppressed (no Parse button to act on it). */}
           {showConfig && effectiveStatus === "Config Done" && draft.has_prior_parse === 1 && (
@@ -782,6 +802,33 @@ export function SheetCard({
                       <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
                       <span className="break-words">{attnLines.find((l) => l.key === "parse")?.reason}</span>
                     </p>
+                  )}
+
+                  {/* S4b (U4, U5): rows to check / all checked / check incomplete -- under the
+                      Review step. Nothing on a sheet with no flagged row or no check on record. */}
+                  {n === 2 && (check.lines.length > 0 || check.note) && (
+                    <div className="mt-1.5 pl-[84px] text-xs">
+                      {check.lines.length > 0 && (
+                        <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          {check.lines.map((line) => (
+                            <span
+                              key={line.text}
+                              className={cn(
+                                "font-medium",
+                                line.tone === "ok"
+                                  ? "text-green-700 dark:text-green-400"
+                                  : "text-amber-700 dark:text-amber-400",
+                              )}
+                            >
+                              {line.text}
+                            </span>
+                          ))}
+                        </p>
+                      )}
+                      {check.note && (
+                        <p className="mt-0.5 break-words text-muted-foreground">{check.note}</p>
+                      )}
+                    </div>
                   )}
 
                   {/* Action row -- ONLY in the button-bearing zone. */}
