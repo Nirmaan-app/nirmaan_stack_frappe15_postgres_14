@@ -100,3 +100,46 @@ export interface PayeeChoice extends PayeeSummary {
 export interface PayeeSuggestion extends PayeeChoice {
     match: PayeeMatch;
 }
+
+/** A Vendor paid into a Payee, as the Payee page's Linked Vendors tab shows it (`links.linked_vendors`). */
+export interface PayeePageVendor {
+    name: string;
+    vendor_name: string;
+    vendor_type?: string | null;
+    vendor_city?: string | null;
+    vendor_status?: string | null;
+    /** ISO date the vendor was pointed at this Payee. */
+    linked_since: string | null;
+}
+
+/** An expense's kind on the Payee page (`links.PROJECT_KIND` / `NON_PROJECT_KIND`). */
+export const PAYEE_EXPENSE_KIND = {
+    PROJECT: "Project",
+    NON_PROJECT: "Non Project",
+} as const;
+
+export type PayeeExpenseKind = (typeof PAYEE_EXPENSE_KIND)[keyof typeof PAYEE_EXPENSE_KIND];
+
+/** A Project or Non Project Expense naming a Payee, at any status (`links.linked_expenses`). */
+export interface PayeePageExpense {
+    name: string;
+    kind: PayeeExpenseKind;
+    expense_type?: string | null;
+    project?: string | null;
+    project_name?: string | null;
+    amount: number;
+    status: string;
+    /** ISO date it paid the Payee; null until then. */
+    paid_on: string | null;
+}
+
+/** One Payee's page (`api/payees/payee_page.get_payee`). */
+export interface PayeePage extends PayeeSummary {
+    creation: string;
+    /** Paid: its account number and IFSC can't change. */
+    locked: boolean;
+    /** ISO date its holder name last changed; null when never. */
+    holder_name_changed_on: string | null;
+    linked_vendors: PayeePageVendor[];
+    linked_expenses: PayeePageExpense[];
+}
