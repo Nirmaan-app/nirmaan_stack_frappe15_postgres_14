@@ -49,7 +49,9 @@ from nirmaan_stack.services.outflow_import.parser import (
 
 __all__ = [
     "EXPENSE_TYPE",
+    "INVOICE_DOCTYPE",
     "MATCH_BASIS",
+    "ORDER_DOCTYPE",
     "OWN_IMPORT_LINE_REFUSAL",
     "PORTER_COLUMNS",
     "PorterInvoiceGroup",
@@ -72,6 +74,11 @@ __all__ = [
 
 #: The statement's columns, by Porter's own names. Every one is required by the parser adapter.
 PORTER_COLUMNS = PORTER_STATEMENT_COLUMNS
+
+#: The two Porter doctypes (ADR-0032): one Porter Invoice per invoice link (its PDF, what Gemini read, the
+#: comparison), one Porter Order per CRN (every order column). The expense owns the link to its order.
+INVOICE_DOCTYPE = "Porter Invoice"
+ORDER_DOCTYPE = "Porter Order"
 
 #: Every Porter Expense, Project or Non-Project, is typed this (owner, ADR-0032).
 EXPENSE_TYPE = "Material Transportation Charges"

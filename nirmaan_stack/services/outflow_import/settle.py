@@ -1014,8 +1014,8 @@ def create_expense_from_row(
     number, date and SHARED PDF URL go to `invoice_ref` / `invoice_date` / `invoice_attachment` (never
     `payment_attachment`, which is the statement's), and the Porter Order to the `porter_order` link.
     A URL is copied, never a `File` row made: the invoice's one File stays attached to its Porter Invoice.
-`blank_payment_by_is_actor=False` (Porter, spec #1442 story 47) leaves Paid by blank when the statement
-names nobody: Paid by is who booked the order, and the importer did not.
+    `blank_payment_by_is_actor=False` (Porter, spec #1442 story 47) leaves Paid by blank when the statement
+    names nobody: Paid by is who booked the order, and the importer did not.
 
     ⚠️ THE `payment_ref` OVERRIDE IS GONE, AND ITS REMOVAL IS THE POINT (ADR-0020 B9). It existed so
     the wallet path could pass its own transaction id, because the wallet issues no UTR -- a remedy

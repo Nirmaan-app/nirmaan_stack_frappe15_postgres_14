@@ -72,10 +72,6 @@ IMPORT_CREATED = "Created"
 #: runs the matcher, so Mismatched means only that. Settled and Skipped lines are never written.
 CREATE_LINE_STATUSES = (ROW_PENDING_MATCH, ROW_ERROR, ROW_MISMATCHED)
 
-_LINE_WAITING = ROW_PENDING_MATCH
-_LINE_SETTLED = ROW_SETTLED
-_LINE_SKIPPED = ROW_SKIPPED
-
 
 def import_state(invoice_statuses: Iterable[str], line_statuses: Iterable[str] = ()) -> str:
     """The import's state, from its Porter Invoices' statuses and (once validated) its lines'.
@@ -97,9 +93,9 @@ def import_state(invoice_statuses: Iterable[str], line_statuses: Iterable[str] =
         return IMPORT_VALIDATING
     if not statuses or not all(status == INVOICE_PASSED for status in statuses):
         return IMPORT_VALIDATION_FAILED
-    completed = [status for status in line_statuses if status != _LINE_SKIPPED]
-    if completed and all(status == _LINE_SETTLED for status in completed):
+    completed = [status for status in line_statuses if status != ROW_SKIPPED]
+    if completed and all(status == ROW_SETTLED for status in completed):
         return IMPORT_CREATED
-    if any(status != _LINE_WAITING for status in completed):
+    if any(status != ROW_PENDING_MATCH for status in completed):
         return IMPORT_CREATING
     return IMPORT_VALIDATED

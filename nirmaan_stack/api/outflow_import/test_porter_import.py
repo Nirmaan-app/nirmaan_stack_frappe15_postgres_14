@@ -481,6 +481,7 @@ class TestTheMatcherIsNeverCalled(FrappeTestCase):
         )
         from nirmaan_stack.api.outflow_import import (
             porter_create,
+            porter_matches,
             porter_records,
             porter_rectify,
             porter_review,
@@ -488,6 +489,7 @@ class TestTheMatcherIsNeverCalled(FrappeTestCase):
         )
         from nirmaan_stack.services.outflow_import import porter as porter_service
         from nirmaan_stack.services.outflow_import import (
+            porter_pdf,
             porter_placement,
             porter_state,
             porter_verdict,
@@ -496,8 +498,9 @@ class TestTheMatcherIsNeverCalled(FrappeTestCase):
 
         guard = TestItNeverSettlesAnExistingRecord
         modules = (
-            porter_api, porter_create, porter_records, porter_rectify, porter_review, porter_upload,
-            porter_service, porter_placement, porter_state, porter_verdict, porter_wording,
+            porter_api, porter_create, porter_matches, porter_records, porter_rectify, porter_review,
+            porter_upload, porter_service, porter_pdf, porter_placement, porter_state, porter_verdict,
+            porter_wording,
         )
         for module in modules:
             with self.subTest(module=module.__name__):

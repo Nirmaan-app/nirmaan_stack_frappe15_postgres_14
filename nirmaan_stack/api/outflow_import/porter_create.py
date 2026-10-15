@@ -13,7 +13,7 @@ EACH COMPLETED LINE, IN ONE TRANSACTION, COMMITTED BEFORE THE NEXT
     2. its Expense, at Paid, through `settle.create_expense_from_row`: the fare, the completion date, the
        CRN, the Porter Invoice's number / date / SHARED PDF URL, the booked-by name, the line's ledger and
        project AS THE LINE HOLDS THEM (Review edits them, #1446), never re-planned here
-    3. a Settled `Outflow Row Match` with `porter.MATCH_BASIS`, `created_by_import`
+    3. a Settled `Outflow Row Match` (`porter_matches.record_porter_match`): `porter.MATCH_BASIS`, `created_by_import`
     4. the line -> Settled
 
 ⚠️ ONLY A VALIDATED IMPORT IS CREATED. The endpoint refuses anything else, and the job asks again before
@@ -41,12 +41,10 @@ from __future__ import annotations
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.expenses import MATCH_DOCTYPE, target_snapshot
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.porter import porter_status
+from nirmaan_stack.api.outflow_import.porter_matches import record_porter_match
 from nirmaan_stack.api.outflow_import.porter_records import (
-    INVOICE_DOCTYPE,
-    ORDER_DOCTYPE,
     ROW_DOCTYPE,
     create_job_id,
     is_validated,
@@ -56,15 +54,17 @@ from nirmaan_stack.api.outflow_import.porter_records import (
 )
 from nirmaan_stack.api.outflow_import.review import StagedRow, refresh_batch_rollup
 from nirmaan_stack.api.outflow_import.unreconcile_cleanup import resync_cashflow_hold
-from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.import_comment import import_comment
 from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
-from nirmaan_stack.services.outflow_import.porter import EXPENSE_TYPE, MATCH_BASIS, statement_line
+from nirmaan_stack.services.outflow_import.porter import (
+    EXPENSE_TYPE,
+    INVOICE_DOCTYPE,
+    ORDER_DOCTYPE,
+    statement_line,
+)
 from nirmaan_stack.services.outflow_import.porter_state import (
     CREATE_LINE_STATUSES,
     IMPORT_CREATED,
-    IMPORT_VALIDATION_FAILED,
-    IMPORT_VALIDATING,
 )
 from nirmaan_stack.services.outflow_import.porter_wording import (
     booked_by as booked_by_of,
@@ -94,7 +94,7 @@ def create_porter_expenses(batch: str):
     user = require_outflow_access()
     refuse_unless_porter_import(batch)
     state = porter_import_states([batch])[batch]
-    if state in (IMPORT_VALIDATING, IMPORT_VALIDATION_FAILED):
+    if not is_validated(batch):
         frappe.throw(
             f"{batch} cannot be created: it is {state}. Create unlocks only once every Porter Invoice "
             "agrees with Porter's own PDF.",
@@ -246,32 +246,6 @@ def _create_one(name: str, batch: str, actor: str, invoices: dict[str, ExpenseIn
         update_modified=False,
     )
     return project
-
-
-def record_porter_match(row, batch: str, expense, actor: str, origin: str) -> None:
-    """The Settled `Outflow Row Match` of a Porter line and the Expense written for it: `porter.MATCH_BASIS`,
-    `created_by_import`, and the project snapshot (frozen after insert, for a later Rectify's history).
-    Create's, and Rectify's for the replacement (#1449). `row` carries `name` and `transfer_id`; `expense`
-    `doctype`, `name` and `amount`."""
-    match = frappe.new_doc(MATCH_DOCTYPE)
-    match.update(
-        {
-            "import_row": row.name,
-            "import_batch": batch,
-            "transfer_id": row.transfer_id,
-            "target_doctype": expense.doctype,
-            "target_name": expense.name,
-            "target_amount": float(expense.amount),
-            "match_kind": MATCH_SETTLED,
-            "match_basis": MATCH_BASIS,
-            "settlement_origin": origin,
-            "created_by_import": 1,
-            "matched_at": frappe.utils.now_datetime(),
-            "matched_by": actor,
-            **target_snapshot(expense.doctype, expense.name),
-        }
-    )
-    match.insert(ignore_permissions=True)
 
 
 class _LineRefused(Exception):

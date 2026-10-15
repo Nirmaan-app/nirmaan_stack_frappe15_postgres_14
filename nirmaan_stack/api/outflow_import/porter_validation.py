@@ -45,12 +45,12 @@ from nirmaan_stack.api.invoice_autofill import (
     NET_AMOUNT_KEYS,
     TOTAL_TAX_KEY,
 )
-from nirmaan_stack.api.outflow_import.porter_records import INVOICE_DOCTYPE
 from nirmaan_stack.services.extraction import extract
 from nirmaan_stack.services.extraction.base import INVOICE
 from nirmaan_stack.services.extraction.files import fetch_file_content, get_extraction_settings
 from nirmaan_stack.services.extraction.helpers import get_file_doc_by_url, normalize_date, pick_entity
 from nirmaan_stack.services.extraction.validation import derive_gst
+from nirmaan_stack.services.outflow_import.porter import INVOICE_DOCTYPE
 from nirmaan_stack.services.outflow_import.porter_state import (
     INVOICE_COMPARING,
     INVOICE_DOWNLOADING,

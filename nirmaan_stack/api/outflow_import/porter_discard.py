@@ -20,13 +20,13 @@ from frappe.utils.background_jobs import is_job_enqueued
 from nirmaan_stack.api.outflow_import.permissions import has_outflow_undo_access, require_outflow_access
 from nirmaan_stack.api.outflow_import.porter_records import (
     BATCH_DOCTYPE,
-    INVOICE_DOCTYPE,
     ROW_DOCTYPE,
     create_job_id,
     created_anything,
     refuse_unless_porter_import,
 )
 from nirmaan_stack.api.outflow_import.porter_validation import validation_job_id
+from nirmaan_stack.services.outflow_import.porter import INVOICE_DOCTYPE
 from nirmaan_stack.services.stored_files import delete_files
 
 

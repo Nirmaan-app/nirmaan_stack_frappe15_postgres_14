@@ -27,10 +27,11 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from nirmaan_stack.api.outflow_import.porter_records import INVOICE_DOCTYPE, ORDER_DOCTYPE
 from nirmaan_stack.services.extraction.files import fetch_file_content
 from nirmaan_stack.services.extraction.helpers import get_file_doc_by_url
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES, PROJECT_EXPENSE_DOCTYPE
+from nirmaan_stack.services.outflow_import.porter import INVOICE_DOCTYPE, ORDER_DOCTYPE
+from nirmaan_stack.services.outflow_import.porter_pdf import invoice_pdf_url
 
 PDF_METHOD = "nirmaan_stack.api.outflow_import.porter_expense.porter_invoice_pdf"
 
@@ -65,10 +66,7 @@ def get_porter_expense(doctype: str, name: str) -> dict | None:
         "rcm_gst": flt(order.rcm_gst),
         "invoice_number": invoice.invoice_number or "",
         "billing_entity": invoice.billing_entity or "",
-        "pdf_url": (
-            f"/api/method/{PDF_METHOD}?{urlencode({'doctype': doctype, 'name': name})}"
-            if invoice.invoice_file else ""
-        ),
+        "pdf_url": pdf_url(doctype, expense),
         "project": project,
         "project_name": project and frappe.db.get_value("Projects", project, "project_name"),
     }
@@ -88,15 +86,17 @@ def porter_invoice_pdf(doctype: str, name: str) -> None:
     frappe.local.response.type = "pdf"
 
 
-def invoice_pdf_url(porter_order: str | None) -> str | None:
-    """The shared invoice PDF behind a Porter Order: its Porter Invoice's `invoice_file`, or None."""
-    invoice = porter_order and frappe.db.get_value(ORDER_DOCTYPE, porter_order, "porter_invoice")
-    return (invoice and frappe.db.get_value(INVOICE_DOCTYPE, invoice, "invoice_file")) or None
+def pdf_url(doctype: str, expense) -> str:
+    """Where a Porter Expense's invoice opens: `porter_invoice_pdf` keyed on the expense, or "" when it
+    carries no invoice attachment.
 
-
-def is_invoice_pdf(file_url: str | None) -> bool:
-    """Whether `file_url` is a Porter Invoice's stored PDF -- the one File every expense of it shares."""
-    return bool(file_url) and bool(frappe.db.exists(INVOICE_DOCTYPE, {"invoice_file": file_url}))
+    ⚠️ THE SAME RULE AND URL AS THE LIST PAGES' `utils/porterExpense.invoiceAttachmentUrl` (F1): a Porter
+    Expense (one with a `porter_order`) WITH an `invoice_attachment`. Pinned on both sides by the same
+    literal URL (`test_porter_expense`, `porterExpense.test.ts`), and the method name by a parity test.
+    """
+    if not (expense.porter_order and expense.invoice_attachment):
+        return ""
+    return f"/api/method/{PDF_METHOD}?{urlencode({'doctype': doctype, 'name': expense.name})}"
 
 
 def _readable_expense(doctype: str, name: str):
@@ -104,7 +104,9 @@ def _readable_expense(doctype: str, name: str):
         frappe.throw(_("Not an expense ledger: {0}").format(doctype))
     if not frappe.has_permission(doctype, "read", name):
         frappe.throw(_("Not permitted"), frappe.PermissionError)
-    fields = ["name", "porter_order"] + (["projects"] if doctype == PROJECT_EXPENSE_DOCTYPE else [])
+    fields = ["name", "porter_order", "invoice_attachment"] + (
+        ["projects"] if doctype == PROJECT_EXPENSE_DOCTYPE else []
+    )
     expense = frappe.db.get_value(doctype, name, fields, as_dict=True)
     if not expense:
         raise frappe.DoesNotExistError(_("{0} {1} not found").format(doctype, name))

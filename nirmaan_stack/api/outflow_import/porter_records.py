@@ -7,7 +7,8 @@ Upload (`porter.py`, `porter_upload.py`), validation (`porter_validation.py`), R
 Create (`porter_create.py`), Rectify (`porter_rectify.py`), Discard (`porter_discard.py`) and the expense
 screens (`porter_expense.py`) each ask these, never a copy of them:
 
-  * the doctypes and the source -- one constant each;
+  * the import's doctypes and the source -- one constant each (the two Porter doctypes are
+    `services/outflow_import/porter`'s);
   * the gates: `refuse_unless_porter_import`, `is_validated`, `created_anything`, `won_refusal` /
     `refuse_unless_won` -- and `won_projects`, the only projects a Porter order can be placed on;
   * the import's DERIVED state, `porter_import_states` (never stored: `Outflow Import Batch.status` keeps
@@ -26,8 +27,6 @@ from nirmaan_stack.services.outflow_import.sources import PORTER_STATEMENT_SOURC
 
 BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
-INVOICE_DOCTYPE = "Porter Invoice"
-ORDER_DOCTYPE = "Porter Order"
 SOURCE = PORTER_STATEMENT_SOURCE
 
 # Only Won projects are suggested, reviewed onto, created on or rectified to (ADR-0032): a Tendering

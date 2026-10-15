@@ -25,8 +25,8 @@ the invoice and from the Porter Invoice itself. Two hooks keep that from happeni
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.porter_expense import is_invoice_pdf
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
+from nirmaan_stack.services.outflow_import.porter_pdf import is_invoice_pdf
 from nirmaan_stack.services.stored_files import delete_files
 
 INVOICE_PDF_COPY_REFUSAL = (
@@ -47,4 +47,8 @@ def refuse_invoice_pdf_copy(doc, method=None):
 
 def delete_attached_files(doc, method=None):
     """`after_delete` of both expense doctypes: their Files, through the shared-bytes-safe delete."""
+    # ⚠️ NOT LAST IN THE TRANSACTION, against `delete_files`' own rule, AND NO LATER THAN BEFORE: Frappe's
+    # `remove_all` trashes these same Files at this same point of `delete_doc` (right after `after_delete`),
+    # so a rollback after it already could not bring a stored object back. What changes is only that a
+    # File sharing its bytes with another (the invoice PDF) now loses just its record.
     delete_files({"attached_to_doctype": doc.doctype, "attached_to_name": doc.name})

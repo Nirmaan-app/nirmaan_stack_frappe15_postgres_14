@@ -44,7 +44,6 @@ from frappe.utils.file_manager import save_file
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.porter_records import (
     BATCH_DOCTYPE,
-    INVOICE_DOCTYPE,
     SOURCE,
     create_job_id,
     created_anything,
@@ -58,6 +57,7 @@ from nirmaan_stack.api.outflow_import.porter_upload import (
     stage,
 )
 from nirmaan_stack.api.outflow_import.porter_validation import enqueue_validation, validation_job_id
+from nirmaan_stack.services.outflow_import.porter import INVOICE_DOCTYPE
 from nirmaan_stack.services.outflow_import.porter_state import (
     CREATE_LINE_STATUSES,
     INVOICE_COMPARING,

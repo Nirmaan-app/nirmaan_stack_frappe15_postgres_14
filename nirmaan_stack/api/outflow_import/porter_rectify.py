@@ -22,7 +22,7 @@ EACH LINE, IN ONE SAVEPOINT, COMMITTED BEFORE THE NEXT
        URL and the Porter Order -- only the ledger, the project and the description change
     3. any attachment a person added to the old Expense moves to the new one
     4. the old Expense is deleted (`unreconcile_created.delete_created`: series counter kept)
-    5. a new Settled match, through Create's own `porter_create.record_porter_match`
+    5. a new Settled match, through the writer Create uses too (`porter_matches.record_porter_match`)
     6. the line's plan, pick and note follow the new Expense; a comment on the line says who, why, where
     7. the CEO-Hold cashflow gap of BOTH projects is re-evaluated
 
@@ -52,8 +52,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     live_legs,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_undo_access
-from nirmaan_stack.api.outflow_import.porter_create import record_porter_match
-from nirmaan_stack.api.outflow_import.porter_expense import invoice_pdf_url
+from nirmaan_stack.api.outflow_import.porter_matches import record_porter_match
 from nirmaan_stack.api.outflow_import.porter_records import (
     ROW_DOCTYPE,
     SOURCE,
@@ -70,6 +69,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     is_expense_doctype,
 )
 from nirmaan_stack.services.outflow_import.porter import statement_line
+from nirmaan_stack.services.outflow_import.porter_pdf import invoice_pdf_url
 from nirmaan_stack.services.outflow_import.porter_wording import (
     booked_by,
     description_hand_edited,

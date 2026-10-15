@@ -114,6 +114,20 @@ class TestThePorterSection(PorterExpenseCase):
         self.assertIn("porter_invoice_pdf", section["pdf_url"])
         self.assertIn(expense.name, section["pdf_url"])
 
+    def test_the_pdf_link_is_the_one_the_lists_build_and_only_while_the_expense_carries_its_invoice(self):
+        """One rule on both sides (`utils/porterExpense.invoiceAttachmentUrl`, F1): a Porter Expense with an
+        invoice attachment links its PDF through the expense; one whose attachment was removed links none."""
+        expense = self._expense_of("004")
+        section = porter_expense.get_porter_expense(PROJECT_EXPENSE, expense.name)
+        self.assertEqual(
+            section["pdf_url"],
+            "/api/method/nirmaan_stack.api.outflow_import.porter_expense.porter_invoice_pdf"
+            f"?doctype=Project+Expenses&name={expense.name}",
+        )
+        frappe.db.set_value(PROJECT_EXPENSE, expense.name, "invoice_attachment", None, update_modified=False)
+        frappe.db.commit()
+        self.assertEqual(porter_expense.get_porter_expense(PROJECT_EXPENSE, expense.name)["pdf_url"], "")
+
     def test_a_non_project_expense_shows_it_too_with_no_project(self):
         expense = self._expense_of("003")  # Ravi Testkumar, no remark
 

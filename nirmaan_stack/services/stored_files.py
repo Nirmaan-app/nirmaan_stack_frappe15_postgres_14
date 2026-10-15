@@ -23,7 +23,9 @@ def delete_files(filters: dict) -> int:
     its bytes. Files are taken one at a time, so two Files of the same hash in `filters` leave the bytes
     to the second, which then deletes them.
 
-    ⚠️ No rollback restores storage: call this LAST, after every other write of the transaction.
+    ⚠️ No rollback restores storage: call this LAST, after every other write of the transaction. The one
+    exception is an expense's own Files, deleted from its `after_delete` hook where Frappe's `remove_all`
+    would trash them at the same point anyway (`integrations/controllers/expense_files`).
     """
     files = frappe.get_all("File", filters=filters, fields=["name", "content_hash"], order_by="name asc")
     for file in files:

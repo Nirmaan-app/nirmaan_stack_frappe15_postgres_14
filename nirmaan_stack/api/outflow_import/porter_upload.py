@@ -20,7 +20,6 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.porter_records import (
     BATCH_DOCTYPE,
-    INVOICE_DOCTYPE,
     ROW_DOCTYPE,
     SOURCE,
     created_imports,
@@ -29,6 +28,7 @@ from nirmaan_stack.api.outflow_import.porter_records import (
 from nirmaan_stack.api.outflow_import.review import refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.parser import StatementFormatError, parse_statement
 from nirmaan_stack.services.outflow_import.porter import (
+    INVOICE_DOCTYPE,
     MATCH_BASIS,
     PorterStatement,
     PorterStatementError,
