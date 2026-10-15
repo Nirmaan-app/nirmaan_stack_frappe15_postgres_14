@@ -56,14 +56,12 @@
 {%- endfor -%}
 
 {#- "Invoice Summary (all POs)" -- vendor-wide, ignores the table filters, exactly like the
-    screen's card: Total Invoiced = every PO's amount_invoiced; Amount Due = that minus the
-    vendor's Paid PO payments. -#}
+    screen's card (utils/vendorAmountDue.ts): Total Invoiced = every PO's amount_invoiced; Amount
+    Due = that minus the stored Amount Paid of every PO but the Merged ones (ADR-0034). -#}
 {%- set inv = namespace(invoiced=0, paid=0) -%}
-{%- for r in frappe.get_all("Procurement Orders", filters={"vendor": doc.name}, fields=["amount_invoiced"]) -%}
+{%- for r in frappe.get_all("Procurement Orders", filters={"vendor": doc.name}, fields=["status", "amount_invoiced", "amount_paid"]) -%}
     {%- set inv.invoiced = inv.invoiced + (r.amount_invoiced or 0) -%}
-{%- endfor -%}
-{%- for r in frappe.get_all("Project Payments", filters={"vendor": doc.name, "document_type": "Procurement Orders", "status": "Paid"}, fields=["amount"]) -%}
-    {%- set inv.paid = inv.paid + (r.amount or 0) -%}
+    {%- if r.status != "Merged" %}{% set inv.paid = inv.paid + (r.amount_paid or 0) %}{% endif -%}
 {%- endfor -%}
 {%- set amount_due_all = inv.invoiced - inv.paid -%}
 
