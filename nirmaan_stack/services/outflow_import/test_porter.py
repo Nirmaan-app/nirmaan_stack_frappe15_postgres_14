@@ -38,11 +38,13 @@ from nirmaan_stack.services.outflow_import.porter import (
     InvoiceFigures,
     InvoiceRead,
     PorterStatementError,
+    description_hand_edited,
     expense_description,
     import_state,
     judge_invoice,
     porter_order_fields,
     read_porter_statement,
+    rectified_description,
     remark_group_key,
 )
 from nirmaan_stack.services.outflow_import.sources import PORTER_STATEMENT_SOURCE
@@ -500,6 +502,58 @@ class TestTheReviewGroupOfAnOrder(unittest.TestCase):
         for blank in ("", "   ", " - ", None):
             with self.subTest(remark=blank):
                 self.assertEqual(remark_group_key(blank, "Bangalore"), "")
+
+
+class TestTheDescriptionARectifyWrites(unittest.TestCase):
+    """Rewritten for the new placement unless someone hand-edited it (spec #1442 story 63)."""
+
+    def test_a_generated_description_is_rewritten_for_the_new_project(self):
+        self.assertEqual(
+            rectified_description(
+                "Porter Delivery raised by Arjun Pillai for Quillon Park", "Arjun Pillai", "Quillon Park", "Zephyr Tower"
+            ),
+            "Porter Delivery raised by Arjun Pillai for Zephyr Tower",
+        )
+
+    def test_moving_to_non_project_drops_the_project_and_moving_back_adds_it(self):
+        self.assertEqual(
+            rectified_description(
+                "Porter Delivery raised by Arjun Pillai for Quillon Park", "Arjun Pillai", "Quillon Park", None
+            ),
+            "Porter Delivery raised by Arjun Pillai",
+        )
+        self.assertEqual(
+            rectified_description("Porter Delivery raised by Ravi Testkumar", "Ravi Testkumar", None, "Zephyr Tower"),
+            "Porter Delivery raised by Ravi Testkumar for Zephyr Tower",
+        )
+
+    def test_surrounding_whitespace_is_not_a_hand_edit(self):
+        self.assertEqual(
+            rectified_description("  Porter Delivery raised by Ravi Testkumar \n", " Ravi Testkumar ", "", "Zephyr Tower"),
+            "Porter Delivery raised by Ravi Testkumar for Zephyr Tower",
+        )
+
+    def test_a_hand_edited_description_is_kept_word_for_word(self):
+        for edited in (
+            "Porter Delivery raised by Arjun Pillai for Quillon Park - cement bags",
+            "porter delivery raised by arjun pillai for quillon park",
+            "Shuttering material to site",
+        ):
+            with self.subTest(edited=edited):
+                self.assertEqual(
+                    rectified_description(edited, "Arjun Pillai", "Quillon Park", "Zephyr Tower"), edited
+                )
+
+    def test_the_plan_asks_the_same_rule_of_the_description_as_it_stands(self):
+        self.assertFalse(description_hand_edited(" Porter Delivery raised by Ravi Testkumar ", "Ravi Testkumar", None))
+        self.assertFalse(description_hand_edited("", "Ravi Testkumar", None))
+        self.assertTrue(description_hand_edited("Porter Delivery raised by Ravi Testkumar", "Ravi Testkumar", "Zephyr Tower"))
+
+    def test_a_blank_description_is_written_fresh(self):
+        self.assertEqual(
+            rectified_description("", "Arjun Pillai", "Quillon Park", "Zephyr Tower"),
+            "Porter Delivery raised by Arjun Pillai for Zephyr Tower",
+        )
 
 
 if __name__ == "__main__":

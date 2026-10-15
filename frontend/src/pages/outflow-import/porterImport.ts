@@ -79,6 +79,10 @@ export interface PorterStatus {
     completed: number;
     cancelled: number;
     fare_total: number;
+    /** Orders on invoices already created, left out of this upload (#1447). */
+    repeats_not_saved?: number;
+    /** Create has written nothing, so Discard is possible (#1447). Who may discard is the screen's question. */
+    discardable?: boolean;
     state: PorterImportState | string;
     invoices: PorterInvoiceStatus[];
     /** Create's progress (#1445), counted from the lines: what a run would still write, what it has. */

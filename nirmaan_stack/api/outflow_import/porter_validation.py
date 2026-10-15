@@ -79,6 +79,11 @@ class InvoiceDownloadError(Exception):
     """The invoice PDF could not be fetched, or what came back is not one. The message says why."""
 
 
+def validation_job_id(batch: str, invoice: str | None = None) -> str:
+    """The validation job's id: one per import for the upload's run, one per invoice for a Retry."""
+    return f"porter-validate-{batch}-{invoice}" if invoice else f"porter-validate-{batch}"
+
+
 def enqueue_validation(batch: str, actor: str, job_id: str | None = None) -> None:
     """Start (or re-start) the import's validation in the background, DE-DUPLICATED by `job_id`.
 
@@ -91,7 +96,7 @@ def enqueue_validation(batch: str, actor: str, job_id: str | None = None) -> Non
         timeout=3600,
         batch=batch,
         actor=actor,
-        job_id=job_id or f"porter-validate-{batch}",
+        job_id=job_id or validation_job_id(batch),
         deduplicate=True,
     )
 

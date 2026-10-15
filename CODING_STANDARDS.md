@@ -155,8 +155,8 @@ the request, so `save_file()` cannot be rolled back: parse and validate before s
 **Deleting an uploaded File (cloud storage):** the storage app's `File` `on_trash` hook
 (`frappe_gcp_attachment.controller.delete_from_cloud`) deletes the stored object keyed by `content_hash`, so
 two File docs for the same PDF share one object, and trashing either through the document layer removes the
-bytes the other still serves. Delete through a helper that removes only the File record when another File
-shares its hash (`api/tds/submit.delete_row_datasheet`), and call it last, since no rollback restores storage.
+bytes the other still serves. Delete through the helper that removes only the File record when another File
+shares its hash (`services/stored_files.delete_files`), and call it last, since no rollback restores storage.
 The local site points at the production bucket (`nirmaan-attachments-prod`) with cloud deletes switched off:
 an upload from local testing stays there for good, so seed test files as fake cloud URLs through the backend
 (`api/tds/test_submit._cloud_url`) unless the user agrees to real uploads.
