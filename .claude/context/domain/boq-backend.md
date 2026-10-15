@@ -175,6 +175,30 @@ carry, classification-freeze and BCS invariants live in `boq-pricing-editor.md`.
     `revert_to_parser` takes its own server lock; when the page's `acquire_draft_lock` ran at the same moment,
     the lock-row refresh in `pricing_lock.py` raised under REPEATABLE READ (a 500, no Error Log). The page now
     waits for its lock call before it sends the revert. Do not "fix" it by dropping the server-side lock.
+  - **The automatic check picks the parsed sheets by EXACT name (S6 F1, ADR-0036).** `ai_run_log._enqueue_after_parse`
+    reads the BoQ's drafts by parent and keeps `parsed_sheets` in Python. A Frappe `["in", [...]]` filter strips
+    every value (`frappe/model/db_query.py`), so " Rodent" and "FPS " used to get no run at all (S5 DEF-01; dev2
+    had 279 such drafts in 154 BoQs and not one run). Same rule as #152: never pass sheet names through an
+    `"in"` filter; `=` is not stripped. The S6 sweep of `api/` and `services/` found no other such filter.
+  - **`boq_ai_evaluation_exclude_boqs` is an EVALUATION list, empty in production (S6 F2).** A site-config list of
+    BoQ names that `build_guidance` adds to the look-up exclusion (`revision_family | testproject | list`). It
+    exists for a clean re-run of test copies whose originals sit in the library: a copy has no `source_boq`, so
+    its original is not in its family. Absent or `[]` changes nothing (pinned by a hash test). The library FILE is
+    never affected - exclusion happens at look-up only. Empty and remove it after an evaluation.
+  - **The review screen may set "Subtotal" (S6 F6, owner V3-2 / Q-d).** `save_review_edit` and
+    `save_review_restructure` check `_REVIEW_ASSIGNABLE_CLASSIFICATIONS` (the four types + `subtotal_marker`).
+    The shared `_ASSIGNABLE_CLASSIFICATIONS` is unchanged - the template paths import it and still refuse
+    subtotal - and `header_repeat` stays parser-only everywhere. The parser is not changed (it still reads a
+    "Total" row with a blank amount as note / spacer).
+  - **Stored history reasons keep the INTERNAL row index (S6 F13).** "parent moved: row N ..." and "reverted with
+    row N (parent restore)" are read back by the revert cascade (`_CHILD_MOVE_RE`, `_CASCADE_REVERT_RE`); the
+    screen shows the Excel row at display time. Never rewrite the stored numbers.
+  - **"Changed since its last commit" is decided on the client, from two existing times (S6 F12 / Q-f / Q-i):**
+    the draft's `last_parsed_at` (written only by the parse) later than the committed sheet's `committed_at`
+    (written only by the commit), or never committed. The commit gate, validation and writes are unchanged; a
+    sheet un-finalized, edited and re-finalized without a re-parse is NOT detected (accepted gap, Q-f).
+  - **S5's DEF-11 was not a defect (S6 F11).** The doctype is `BOQ Upload Review AI Settings` (capital BOQ); a
+    wrong-case `frappe.get_single('BoQ Upload ...')` fails on PostgreSQL with a module-import error.
   - **"Looks OK" has an Undo: `review_flags.unmark_row_looks_ok` (S4a).** One row per call, a raw column write,
     no edit history; refused on a Finalized sheet, during a parse and where no tick stands ("Row N has no Looks
     OK to undo."). The whitelist of `review_flags` is pinned to exactly `get_check_summary`,

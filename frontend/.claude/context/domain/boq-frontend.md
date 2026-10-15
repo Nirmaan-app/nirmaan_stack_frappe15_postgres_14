@@ -130,6 +130,38 @@ owner-locked invariants. The full as-built detail (component contracts, per-slic
   summary) - do not count or word it in `BoqHubPage.tsx` / `SheetCard.tsx`. `editIntent.ts` owns "wait for the
   lock, then write". `reviewCheckFlags.ts` owns every check sentence on the review screen, including the banners,
   "Suggested", "Revert to original" and its hint. `ReviewCheckParts.tsx` only draws.
+- **"Changed since its last commit" has ONE home: `hubState.ts` (S6 F12, ADR-0036).** Never committed, or the
+  draft's `last_parsed_at` later than the committed sheet's `committed_at` (`changedSinceCommit`,
+  `sheetsChangedSinceCommit`). It drives (U10) the commit dialog's pre-selection (`preselectedSheets` - only
+  changed sheets; the user may tick any other), the dialog's "re-parsed after vN" sub-label, the card's commit line
+  ("Re-parsed after vN — tendering still uses vN. Finalize and commit to update it." in place of "Ready for
+  tendering"), and the reach of "not checked" (Q-i). A re-finalize without a re-parse is not detected (Q-f). The
+  commit gate and pipeline are untouched.
+- **"Not checked" (S6 U1, owner V1 / Q-i).** A Parsed / Finalized sheet whose check never ran (`not_run`) AND that
+  changed since its last commit says so: card line `cardNotChecked`, footer `footerNotChecked` (" · N not
+  checked"), summary line "Parsed, not checked: X" (`parseSummary.notCheckedLine`) - all in `hubCheckSummary.ts` -
+  and the review banner `CheckNotRunBanner` (`isCheckNotRun` / `CHECK_NOT_RUN_BANNER` in `reviewCheckFlags.ts`).
+  `cardCheck` itself is unchanged; a committed sheet unchanged since shows nothing.
+- **Hub subtitle and footer follow the BoQ (S6 U4).** `hubState.hubSubtitle`: Map sheets before parsing / Review
+  parsed sheets / Ready to commit / Committed. Footer "{a} of {n} data sheets set up" (`setUpCount`: Config Done +
+  Parsed + Finalized, display only - `canParse` still counts Config Done) and the Finalized count is labelled
+  "finalized" (it was "checked").
+- **Mark Finalized says why it is off, as text (S6 U2).** `finalizeBlockMessage` adds the open rows (Excel rows from
+  `check_summary.open_rows`, 20 then "and N more" - the backend refusal's own sentence); `SheetReviewPage.tsx`
+  shows it beside the button. A disabled button's `title` never shows (`pointer-events-none`).
+- **"Subtotal" in the review Change list (S6 U5).** `REVIEW_TARGET_CLASSIFICATIONS` (the four + `subtotal_marker`)
+  in `ReviewTree.tsx` is used by the Change list ONLY; "Change parent" and the template Insert-row list keep the four.
+  Subtotal is not parent-capable, so a row with children goes through `RestructureModal` like a note (no modal change).
+- **Revert history and the Edited pill (S6 U6, U11, Q-g, Q-h).** `reviewHistory.describeRevertEntry`: a revert entry
+  reads "Reverted: Note → Preamble" / "Reverted parent: → row 8" (the row's parsed type / parent);
+  `reasonWithExcelRows` shows each "row N" in a stored reason as the Excel row (display only). `ReviewTree`'s own
+  `describeEditEntry` asks it first and keeps every other wording. The pill (`isReviewRowEdited`, the one home, also
+  used by the CSV export): with `has_override` on the row, edited = a standing change or any value / text edit; a
+  fully reverted row reads "Original". Without `has_override` the old rule holds.
+- **Small screen fixes (S6).** U3: `RoleRoute` (`utils/auth/ProtectedRoute.tsx`, `roleRouteState`) shows "Checking
+  access…" while `useUserData` reports role "Loading" - for every route it guards. U7: Enter in the review search =
+  the arrows (`searchEnterAction`). U8: column-map rows keep their place (`stableOrder.ts`; letter order on first
+  load only). U9: the upload-status poll sets `refreshWhenHidden`.
 - **Finalized / "Parsed Check Done" freeze:** `readOnly` HIDES every write affordance; backend
   `_guard_sheet_not_frozen` is the durable backstop. Restructure goes through `RestructureModal` (5 child-placement
   options + a batch cycle-guard). A flag dismissal / remark is NOT an edit (the row stays "Original").

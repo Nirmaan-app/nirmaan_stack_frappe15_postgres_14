@@ -46348,3 +46348,62 @@ in-process as the owner's dev2 user. Test BoQs BOQ-26-00639..00650 are kept on d
   finds but does not scroll; column-map role rows re-sort while mapping.
 - Cosmetic: hub subtitle "Map sheets before parsing" after commit and footer "0 of 2 reviewed - 2 checked"; reverted
   row keeps "Edited"; upload screen holds "Parsing BoQ..." while the tab is hidden.
+
+## Slice S6 - S5 DEFECT FIXES, CLEAN RE-RUN, SHORT SCREEN CHECK (2026-10-15, dev2) - SHIPPED
+
+Decision record: ADR-0036. Invariants: `boq-backend.md` section Parser, review tree and commit (the six S6 bullets) and
+`boq-frontend.md` section Load-bearing invariants (the six S6 bullets). Full report: Desktop `JEV Integration\s6\REPORT_s6.md`.
+
+**Fixed (11 of S5's 12 defects; DEF-02 flag noise is deferred to a review after a few weeks in production, owner V1).**
+- DEF-01: the automatic check picks parsed sheets by exact name. A Frappe "in" filter stripped " Rodent" / "FPS ";
+  dev2 had 279 such drafts in 154 BoQs and none had ever been checked.
+- U1 "not checked" (card, review banner, summary line, footer count): only for a sheet never committed or re-parsed
+  after its last commit (Q-i).
+- DEF-03: the reason Mark Finalized is off shows as text, with the open Excel rows.
+- DEF-04: RoleRoute shows "Checking access..." while the role loads.
+- DEF-05: hub subtitle and footer follow the BoQ's state.
+- DEF-06: "Subtotal" is in the review Change list. A review-only set at the two save checks; template paths and the
+  parser are unchanged.
+- DEF-07: a full revert clears "Edited" (screen and CSV), and history names the type / parent the row went back to.
+- DEF-08: Enter in review search scrolls to the match.
+- DEF-09: column-map rows stay in place.
+- DEF-10: upload status polls while the tab is hidden.
+- DEF-12: the commit row says "Re-parsed after vN"; the commit dialog pre-selects only sheets changed since their last
+  commit. The gate and pipeline are unchanged; a re-finalize without a re-parse is not detected (Q-f).
+- History reasons show the Excel row; stored reasons are unchanged.
+- DEF-11 was not a defect: a wrong-case doctype name in the S5 script.
+
+**Commits:** `fc9525845` (fix, 30 files) and this docs commit.
+- Tests after: Python 8,403 run (S4a's 6 failures + 6 errors, plus the known 00:00-05:30 IST flake
+  `test_daily_window_picks_a_wo_touched_since`); vitest 6,157 in 173 files (the known writeOffControl timeout);
+  tsc 3,170, the same set, none in a changed file.
+- Vacuity: 3/3 backend and 15/15 frontend.
+- Indexes (666), BoQ columns (788) and every pre-existing BoQ are unchanged.
+
+**Clean re-run (owner V2): 28 test sheets re-parsed through `run_parse(force_reparse=True)`.**
+- Claude's examples excluded the 10 originals, their revision families (incl. BOQ-26-00228) and the 12 test BoQs,
+  through the site-config list `boq_ai_evaluation_exclude_boqs`. The list was then emptied and removed.
+- Own-row-in-examples was 0 on all 2,322 rows.
+- Spend: 28 runs, 1,851,442 input tokens (cap 35 / 2.2 M).
+
+| First upload, same 1,994 rows | S5 (leak) | S6 clean re-run | Bar |
+|---|---|---|---|
+| Parser only, row type / parent | 95.3% / 96.1% | 95.3% / 96.1% (0 rows differ) | - |
+| Parser + Claude, row type | 97.2% | **96.9%** | 95% |
+| Parser + Claude, parent | 96.1% | **96.1%** | 90% |
+| Claude sure changes made / right | 53 / 46 | 41 / 37 | - |
+| Rows flagged | 19.5% | **23.9%** | 10 / 25 / 50% |
+| Flag catch rate / precision | 58.7% / 15.7% | 69.4% / 15.8% | - |
+| "Suggested" type right | 13 of 69 | 30 of 124 | - |
+| "Suggested" parent right | 37 of 347 | 14 of 403 | - |
+
+- The leak flattered the suggested parent above all. 00333's 15 of 15 became 1 of 26.
+- Sheets over 40% flagged: 00297 FAS 62%, 00327 60%, 00212 cabling 59%.
+- Revision rows (328): parser + Claude 99.7%; 0 copied rows flagged.
+- **Correction to S5:** S5's report said Claude made 0 sure changes and "parser + Claude = parser". That was a
+  measurement error. The script read the parser type from the review reply, which drops `parser_classification` by
+  design. The parser itself gave identical output in both runs (`s6\PARSER_DIFF_INVESTIGATION.md`).
+
+**Next: S7 = merge into the main dev environment** (owner V4: "we will merge with main dev after s6 is succesful and
+then deply to prodcution along with piping work, once piping work is also done"). The production deploy comes later,
+together with the Piping work.
