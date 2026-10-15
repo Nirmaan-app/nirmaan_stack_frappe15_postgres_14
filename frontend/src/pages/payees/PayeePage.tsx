@@ -59,8 +59,9 @@ function PayeeView({ payeeId }: { payeeId: string }) {
 
     return (
         <div className="flex max-w-[1200px] flex-col gap-4">
-            <div className="flex flex-wrap items-start gap-3">
-                <div className="min-w-0 flex-grow">
+            {/* Name, then the actions under it, whatever the status: the buttons never move. */}
+            <div className="flex flex-col gap-3">
+                <div className="min-w-0">
                     <h1 className="break-words text-2xl font-bold text-primary md:text-3xl">{payee.account_name}</h1>
                     <p className="mt-1.5 flex items-center gap-2 text-sm text-zinc-600">
                         {payee.name}
@@ -74,17 +75,19 @@ function PayeeView({ payeeId }: { payeeId: string }) {
                         </span>
                     </p>
                 </div>
-                <Button
-                    variant="outline"
-                    onClick={() => setEditingHolder(true)}
-                    className="gap-2 border-primary text-primary hover:bg-primary/5 hover:text-primary"
-                >
-                    <PencilLine className="h-4 w-4" />
-                    Edit holder name
-                </Button>
-                <Button variant="outline" onClick={() => setChangingStatus(true)}>
-                    {active ? "Mark inactive" : "Mark active"}
-                </Button>
+                <div className="flex flex-wrap gap-3">
+                    <Button
+                        variant="outline"
+                        onClick={() => setEditingHolder(true)}
+                        className="gap-2 border-primary text-primary hover:bg-primary/5 hover:text-primary"
+                    >
+                        <PencilLine className="h-4 w-4" />
+                        Edit holder name
+                    </Button>
+                    <Button variant="outline" onClick={() => setChangingStatus(true)}>
+                        {active ? "Mark inactive" : "Mark active"}
+                    </Button>
+                </div>
             </div>
 
             {!active && (
@@ -133,6 +136,10 @@ function PayeeView({ payeeId }: { payeeId: string }) {
                 onOpenChange={setChangingStatus}
                 payee={payee}
                 onSaved={() => mutate()}
+                onShowVendors={() => {
+                    setChangingStatus(false);
+                    chooseTab(PAYEE_PAGE_TABS.VENDORS);
+                }}
             />
         </div>
     );

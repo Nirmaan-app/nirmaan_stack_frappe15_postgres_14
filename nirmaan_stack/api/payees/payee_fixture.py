@@ -15,6 +15,7 @@ USAGE
     PayeeFixture.class_payee(holder, number, ifsc) # in setUpClass, with PayeeFixture.insert_vendor(...);
                                                    # call PayeeFixture.purge(vendors=[...]) in tearDownClass
     delete_each([(doctype, name), ...], raw={...})  # any other row a Payee suite planted
+    with shown_to_client() as shown: ...           # the messages a refusal sent the client (`shown`)
 
 Every Payee it makes carries `TEST_IFSC` and a `TESTPYE` holder name, and `purge` sweeps every
 Payee with either, so a test that dies before it records a name strands nothing. Links to a
@@ -32,8 +33,10 @@ first, each scope in its own try, report every failure); `purge` and `delete_eac
 ⚠️ RUNS AGAINST THE ENV DATABASE (the endpoints commit).
 """
 
+import json
 import random
-from collections.abc import Callable, Collection, Iterable
+from collections.abc import Callable, Collection, Iterable, Iterator
+from contextlib import contextmanager
 from unittest import mock
 
 import frappe
@@ -179,3 +182,17 @@ def _delete(doctype: str, name: str, raw: bool) -> None:
         frappe.db.delete(doctype, {"name": name})
     elif frappe.db.exists(doctype, name):
         frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+
+
+@contextmanager
+def shown_to_client() -> Iterator[list[str]]:
+    """Collect the messages the block sends the client (`frappe.local.message_log`, which travels as
+    `_server_messages`). A bare `raise` sends none: Desk then shows nothing at all (#1420 walk A15)."""
+    frappe.local.message_log = []
+    shown: list[str] = []
+    try:
+        yield shown
+    finally:
+        for entry in frappe.local.message_log:
+            entry = json.loads(entry) if isinstance(entry, str) else entry
+            shown.append(str(entry.get("message", "")) if isinstance(entry, dict) else str(entry))

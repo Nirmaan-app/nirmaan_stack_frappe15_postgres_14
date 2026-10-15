@@ -86,6 +86,14 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   Payee on its expense even if it went Inactive since, and a Payee that comes from the record's
   vendor is never a new pick, on requests (of any type) and expenses alike. The request dialog's
   read-only vendor-Payee box shows an "Inactive" badge, so the raiser and the reviewer see it.
+- **A vendor whose Payee is Inactive is not paid into it** (owner decision, spec #1420 walk): the
+  vendor must use Change account first. Its PO, Work Order and Credits payment requests are blocked
+  (`utils/payees/vendorAccount.vendorPayeeGateProblem`; screen-only, as no server check exists for
+  them); a new Expense Request, or one moved to that vendor, is refused on every save
+  (`expense_rules.vendor_payee_problem`, applied by `guard.check_payee_links`); the bank file leaves
+  its payment rows out (`paid_to` answers `vendor_payee_inactive`, still naming the account); "Payment
+  need to paid"'s Paid to tags the account red "Inactive"; and Mark inactive warns when vendors still
+  point at the Payee. A request already sent keeps its Payee, and approval carries it.
 - **Linked expenses** are `Project Expenses` and `Non Project Expenses` naming the Payee, at any
   status. An Expense Request is not counted until approval carries its Payee onto an expense.
 - **Who:** the Payees page and its endpoints (`api/payees/`) are Admin, Accountant and Accountant Lead
@@ -128,8 +136,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   `services/payees/paid_to.py`: a PO / WO payment into its vendor's Payee now, an expense into its own
   Payee. "Payment need to paid"'s Paid to column (the approval queue's `paid_to`), Export for Payment
   (read again at export through `api/payees/expense_payee.get_paid_to`) and Record Payment's
-  "Pay ₹X to" box (`expense_pay_to`) all read it; no screen re-derives it. A row with no Payee is left
-  out of the bank file, never sent with a blank account. Change payee in Record Payment is Accounts only
+  "Pay ₹X to" box (`expense_pay_to`) all read it; no screen re-derives it. A row with no Payee, or a
+  vendor payment whose vendor's Payee is Inactive, is left out of the bank file, never sent with a
+  blank (or Inactive) account. Change payee in Record Payment is Accounts only
   (`api/payees/expense_payee.change_expense_payee`).
 
 ## Where things are
@@ -151,7 +160,7 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | Payees page | `pages/payees/PayeesPage.tsx`, route `/payees` |
 | One Payee's page (#1423) | `pages/payees/PayeePage.tsx`, route `/payees/:payeeId`; endpoints `api/payees/payee_page.py` (`get_payee`, `edit_holder_name`, `set_payee_status`); `components/payees/EditHolderNameDialog`; rules `utils/payees/payeePage.ts` |
 | Vendor Payee endpoints | `api/payees/vendor_payee.py`: `suggest_vendor_payees`, `get_payee_choice`, `check_vendor_payee`; `get_vendor_account`, `change_vendor_payee` (#1426) |
-| A vendor's account on screens (#1428) | `api/payees/vendor_accounts.py`: `get_vendor_list`; frontend `components/payees/vendorPayeeAccount.ts` (`useVendorAccount`, `useVendorPayeeGate`). The gate blocks a PO / WO payment request until the vendor is KNOWN to have a Payee: while it loads and when the read fails too (`utils/payees/vendorAccount.vendorPayeeGateProblem`); used by the PO payment terms card, the PO / WO request dialog and the Credits page's request dialog |
+| A vendor's account on screens (#1428) | `api/payees/vendor_accounts.py`: `get_vendor_list`; frontend `components/payees/vendorPayeeAccount.ts` (`useVendorAccount`, `useVendorPayeeGate`). The gate blocks a PO / WO payment request until the vendor is KNOWN to have an Active Payee: while it loads, when the read fails, and while its Payee is Inactive (`utils/payees/vendorAccount.vendorPayeeGateProblem`); used by the PO payment terms card, the PO / WO request dialog and the Credits page's request dialog |
 | Paying: Paid to, bank file, Record Payment (#1431) | `services/payees/paid_to.py`; endpoints `api/payees/expense_payee.py` (`get_paid_to`, `get_expense_payee`, `search_payees`, `change_expense_payee`); frontend `components/payees/ExpensePayToBox`, `ChangeExpensePayeeDialog`, `expensePayeeApi`; wording `utils/payees/paidTo.ts`; file builder `pages/ProjectPayments/bankUploadFile.ts` |
 | Vendor page account card + rename prompt (#1426) | `pages/vendors/components/VendorAccountCard`, `VendorRenameFlow`; `components/payees/ChangeVendorAccountDialog`, `VendorRenamePrompt`; wording in `utils/payees/vendorAccount.ts`; test `api/payees/test_vendor_account.py` |
 | Vendor Payee step (frontend) | `components/payees/VendorPayeeSection` + `useVendorPayeeChoice`, `PayeeSuggestionsPanel`, `UsePayeeDialog`, `vendorPayeeApi`; wording in `utils/payees/payeeChoice.ts` |

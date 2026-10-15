@@ -1,6 +1,7 @@
 import { unparse } from "papaparse";
 
 import type { Payee } from "@/types/NirmaanStack/Payee";
+import { PAID_TO_MISSING, type PaidToMissing } from "@/utils/payees/paidTo";
 import { formatDate, formatDateToDDMMYYYY } from "@/utils/FormatDate";
 import { parseNumber } from "@/utils/parseNumber";
 
@@ -20,6 +21,9 @@ export interface BankFileRow {
 	/** A vendor payment's is its vendor's Payee today (ADR-0033: a PO / WO payment stores none); an
 	 *  expense's is its own. */
 	payee?: BankFilePayee;
+	/** Why the server says the row can't be paid into an account (`get_paid_to`'s `missing`), if it
+	 *  can't: an Inactive vendor Payee is named but still not paid into. */
+	missing?: PaidToMissing | null;
 }
 
 export interface BankFileOptions {
@@ -31,7 +35,7 @@ export interface BankFileOptions {
 }
 
 /** Why a ticked row is not in the bank file. */
-export type BankFileLeftOutReason = "vendor_has_no_payee" | "expense_has_no_payee";
+export type BankFileLeftOutReason = PaidToMissing;
 
 export interface BankFileLeftOut {
 	row: BankFileRow;
@@ -121,10 +125,12 @@ export function buildBankFile(rows: BankFileRow[], options: BankFileOptions): Ba
 
 // ICICI and Cashfree both accept a file holding a row with a blank account or IFSC, and reject
 // that row only after upload, so a row with no Payee is left out here, not at the bank. A Payee
-// always holds a holder name, an account number and an IFSC.
+// always holds a holder name, an account number and an IFSC. A vendor payment whose vendor's
+// Payee is Inactive is left out too: the vendor must use Change account first (owner decision).
 function leftOutReason(row: BankFileRow): BankFileLeftOutReason | null {
+	if (row.missing) return row.missing;
 	if (row.payee) return null;
-	return row.kind === "vendor_payment" ? "vendor_has_no_payee" : "expense_has_no_payee";
+	return row.kind === "vendor_payment" ? PAID_TO_MISSING.VENDOR_HAS_NO_PAYEE : PAID_TO_MISSING.EXPENSE_HAS_NO_PAYEE;
 }
 
 /**
@@ -145,6 +151,13 @@ export function describeLeftOut(leftOut: BankFileLeftOut[]): string[] {
 	const payments = named("vendor_has_no_payee");
 	if (payments.count > 0) {
 		parts.push(`${payments.count} payment${payments.count > 1 ? "s" : ""} whose vendor has no Payee (${payments.list})`);
+	}
+	const inactive = named("vendor_payee_inactive");
+	if (inactive.count > 0) {
+		parts.push(
+			`${inactive.count} payment${inactive.count > 1 ? "s" : ""} whose vendor's bank account is Inactive, ` +
+				`so use Change account on the vendor page first (${inactive.list})`,
+		);
 	}
 	return parts;
 }

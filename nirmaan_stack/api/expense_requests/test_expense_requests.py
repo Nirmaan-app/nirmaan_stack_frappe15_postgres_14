@@ -1243,14 +1243,23 @@ class TestExpenseRequestPayee(FrappeTestCase):
 			self._raise(self._type("Optional"), payee=payee)
 		self.assertIn("Inactive", str(ctx.exception))
 
-	def test_a_vendors_inactive_payee_is_carried_not_a_new_pick(self):
-		"""The vendor's Payee is who gets paid even when Inactive: the raiser picked the vendor, not
-		the Payee. The dialog shows it with an Inactive badge."""
+	def test_a_new_request_naming_a_vendor_whose_payee_is_inactive_is_refused(self):
+		"""Owner decision (walk bug 7e): the vendor must use Change account first. The dialog shows
+		the vendor's Payee with an Inactive badge and the same reason."""
 		payee = self.payees.payee()
 		self._inactive(payee)
+		with self.assertRaisesRegex(frappe.ValidationError, "bank account is Inactive"):
+			self._raise(self._type("Optional", project=True), projects=self.project,
+			            vendor=self.payees.vendor(payee))
+
+	def test_approval_carries_a_vendors_payee_that_went_inactive_after_the_request(self):
+		"""An already-sent request is not a new one: approval still pays into its Payee (review A1)."""
+		payee = self.payees.payee()
 		res = self._raise(self._type("Optional", project=True), projects=self.project,
 		                  vendor=self.payees.vendor(payee))
-		self.assertEqual(self._payee_of(res), payee)
+		self._inactive(payee)
+		out = approve_expense_request(res["name"])
+		self.assertEqual(frappe.db.get_value(out["created_expense_doctype"], out["created_expense"], "payee"), payee)
 
 	# --- editing -------------------------------------------------------------
 

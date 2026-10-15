@@ -16,6 +16,8 @@ interface PayeeSuggestionsPanelProps {
     /** False until a name or PAN has been typed. */
     asked: boolean;
     suggestions: PayeeSuggestion[];
+    /** The new vendor's PAN as typed: no PAN, no word about PAN on the cards. */
+    vendorPan?: string;
     isLoading: boolean;
     error?: unknown;
     /** The Payee the vendor is set to use now, marked on its card. */
@@ -27,6 +29,7 @@ interface PayeeSuggestionsPanelProps {
 export function PayeeSuggestionsPanel({
     asked,
     suggestions,
+    vendorPan,
     isLoading,
     error,
     chosen,
@@ -75,7 +78,7 @@ export function PayeeSuggestionsPanel({
                             </span>
                         </div>
                         <p className="text-[13px] tabular-nums text-muted-foreground">{accountLine(s)}</p>
-                        <p className="text-[13px] text-muted-foreground">{suggestionLinkLine(s)}</p>
+                        <p className="text-[13px] text-muted-foreground">{suggestionLinkLine(s, vendorPan)}</p>
                         <Button
                             type="button"
                             variant="outline"

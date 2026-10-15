@@ -3,10 +3,12 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+    accountNumberCsvCell,
     accountsMatch,
     bankLine,
     cleanAccountNumber,
     duplicateSentence,
+    ifscShapeProblem,
     linkedToLabels,
     newPayeeProblem,
     normalizeAccount,
@@ -20,6 +22,16 @@ const form = (overrides: Partial<PayeeFormValues> = {}): PayeeFormValues => ({
     confirm_account_number: "50200061234567",
     ifsc: "HDFC0000195",
     ...overrides,
+});
+
+describe("accountNumberCsvCell (#1420 walk A8)", () => {
+    it("writes the number as an Excel text formula, so leading zeros and long digits survive", () => {
+        expect(accountNumberCsvCell("080901234567890123")).toBe('="080901234567890123"');
+    });
+    it("leaves a blank blank", () => {
+        expect(accountNumberCsvCell("")).toBe("");
+        expect(accountNumberCsvCell(null)).toBe("");
+    });
 });
 
 describe("normalizeAccount", () => {
@@ -40,6 +52,24 @@ describe("accountsMatch", () => {
     });
     it("is false while both are empty", () => {
         expect(accountsMatch(form({ account_number: "", confirm_account_number: "" }))).toBe(false);
+    });
+});
+
+describe("ifscShapeProblem (#1420 walk A11: the reason shows under the IFSC box)", () => {
+    const SHAPE = /11 characters: four letters, a zero/;
+    it("says nothing while the IFSC is still being typed", () => {
+        expect(ifscShapeProblem("SBIN", { left: false })).toBeNull();
+        expect(ifscShapeProblem("", { left: true })).toBeNull();
+    });
+    it("names the shape once 11 characters are typed", () => {
+        expect(ifscShapeProblem("SBIN1234567", { left: false })).toMatch(SHAPE);
+        expect(ifscShapeProblem("SBIN0005943", { left: false })).toBeNull();
+    });
+    it("names the shape when the box is left short", () => {
+        expect(ifscShapeProblem("SBIN1234", { left: true })).toMatch(SHAPE);
+    });
+    it("uses the server's wording", () => {
+        expect(ifscShapeProblem("SBIN1234", { left: true })).toBe(payeeFormProblem(form({ ifsc: "SBIN1234" }), { bankFound: true }));
     });
 });
 

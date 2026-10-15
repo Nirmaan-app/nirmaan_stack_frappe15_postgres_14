@@ -70,7 +70,7 @@ export function ChangeVendorAccountDialog({
             }
             const payee = res.message.payee;
             toast({
-                title: "Account changed",
+                title: currentPayee ? "Account changed" : "Account added",
                 description: `${vendor.vendor_name} is now paid into ${payee.name}, ${payee.account_name}.`,
                 variant: "success",
             });
@@ -87,7 +87,8 @@ export function ChangeVendorAccountDialog({
                 <DialogHeader>
                     <DialogTitle>{title}</DialogTitle>
                     <DialogDescription>
-                        {vendor.vendor_name} ({vendor.name}). Other vendors paid into its current account keep it.
+                        {vendor.vendor_name} ({vendor.name}).
+                        {currentPayee && " Other vendors paid into its current account keep it."}
                     </DialogDescription>
                 </DialogHeader>
 

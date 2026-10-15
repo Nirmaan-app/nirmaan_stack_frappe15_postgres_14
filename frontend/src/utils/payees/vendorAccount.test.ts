@@ -74,6 +74,18 @@ describe("vendorPayeeGateProblem", () => {
         expect(problem?.description).toContain("Kaveri's bank account");
     });
 
+    it("blocks a vendor whose Payee is Inactive: Change account first (owner decision, bug 7b)", () => {
+        const problem = vendorPayeeGateProblem({
+            vendorLabel: "Kaveri",
+            payee: { ...payee, status: "Inactive" },
+            failed: false,
+        });
+        expect(problem?.title).toBe("Bank account inactive");
+        expect(problem?.description).toBe(
+            "Kaveri's bank account, PYE-0412, is Inactive. Use Change account on the vendor page first.",
+        );
+    });
+
     it("blocks a vendor with no Payee and says how to fix it", () => {
         const problem = vendorPayeeGateProblem({ vendorLabel: "Kaveri", payee: null, failed: false });
         expect(problem?.title).toBe("Bank details missing");

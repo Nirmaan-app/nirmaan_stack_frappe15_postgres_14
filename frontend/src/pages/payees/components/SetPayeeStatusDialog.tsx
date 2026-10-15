@@ -5,7 +5,7 @@
  */
 
 import { useFrappePostCall } from "frappe-react-sdk";
-import { Loader2 } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 
 import {
     AlertDialog,
@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { PAYEE_STATUS, type PayeeSummary } from "@/types/NirmaanStack/Payee";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { linkedToLabels } from "@/utils/payees/payeeForm";
+import { deactivateText, deactivateVendorWarning } from "@/utils/payees/payeePage";
 
 export const SET_PAYEE_STATUS_API = "nirmaan_stack.api.payees.payee_page.set_payee_status";
 
@@ -29,13 +29,15 @@ interface SetPayeeStatusDialogProps {
     onOpenChange: (open: boolean) => void;
     payee: Pick<PayeeSummary, "name" | "status" | "vendors" | "expenses">;
     onSaved?: () => void;
+    /** Opens the Payee's Linked Vendors, from the warning that vendors are still paid into it. */
+    onShowVendors?: () => void;
 }
 
-export function SetPayeeStatusDialog({ open, onOpenChange, payee, onSaved }: SetPayeeStatusDialogProps) {
+export function SetPayeeStatusDialog({ open, onOpenChange, payee, onSaved, onShowVendors }: SetPayeeStatusDialogProps) {
     const { call, loading } = useFrappePostCall<{ message: { payee: PayeeSummary } }>(SET_PAYEE_STATUS_API);
     const deactivating = payee.status === PAYEE_STATUS.ACTIVE;
     const next = deactivating ? PAYEE_STATUS.INACTIVE : PAYEE_STATUS.ACTIVE;
-    const links = linkedToLabels(payee);
+    const vendorWarning = deactivating ? deactivateVendorWarning(payee.vendors) : null;
 
     const save = async () => {
         try {
@@ -54,13 +56,26 @@ export function SetPayeeStatusDialog({ open, onOpenChange, payee, onSaved }: Set
                 <AlertDialogHeader>
                     <AlertDialogTitle>{deactivating ? `Mark ${payee.name} inactive?` : `Mark ${payee.name} active?`}</AlertDialogTitle>
                     <AlertDialogDescription>
-                        {deactivating
-                            ? `Nobody will be able to pick it for a vendor, an expense or an expense request. ${
-                                  links.length ? `The ${links.join(" and ")} already pointing at it keep it.` : ""
-                              }`
-                            : "It can be picked for vendors and expenses again."}
+                        {deactivating ? deactivateText(payee) : "It can be picked for vendors and expenses again."}
                     </AlertDialogDescription>
                 </AlertDialogHeader>
+                {vendorWarning && (
+                    <div role="alert" className="flex gap-2.5 rounded-md border border-amber-300 bg-amber-50 px-3.5 py-3">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
+                        <div className="text-[13px] leading-normal text-amber-900">
+                            <p>{vendorWarning}</p>
+                            {onShowVendors && (
+                                <button
+                                    type="button"
+                                    onClick={onShowVendors}
+                                    className="mt-1 font-semibold text-amber-800 hover:underline"
+                                >
+                                    See the linked vendors
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                )}
                 <AlertDialogFooter>
                     <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
                     <Button onClick={save} disabled={loading}>

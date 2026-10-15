@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useFrappeGetCall } from "frappe-react-sdk";
+import { X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,7 @@ import { payeeAccountLine, timesPaidText } from "@/utils/payees/expensePayee";
 import { bankLine } from "@/utils/payees/payeeForm";
 
 import { PayeeBankFields } from "./PayeeBankFields";
+import { PayeeInactiveBadge } from "./PayeeInactiveBadge";
 import type { PayeeChoice } from "./usePayeeChoice";
 
 const DEBOUNCE_MS = 300;
@@ -120,6 +122,15 @@ function PickPanel({ choice, disabled }: PayeePickerProps) {
     );
     const matches = (searching ? data?.message ?? [] : []).filter((p) => p.name !== picked?.name);
 
+    // A pick ends the search: its results (and "No active payee matches") would otherwise linger
+    // under the picked card.
+    const choose = (payee: PayeeOption) => {
+        pick(payee);
+        clearTimeout(timer.current);
+        setText("");
+        setQuery("");
+    };
+
     return (
         <div className="flex flex-col gap-2">
             <Label htmlFor="payee_search">Payee</Label>
@@ -131,9 +142,25 @@ function PickPanel({ choice, disabled }: PayeePickerProps) {
                 autoComplete="off"
                 disabled={disabled}
             />
-            {picked && <PayeeCard payee={picked} selected onClick={() => pick(null)} disabled={disabled} />}
+            {picked && (
+                <div className="relative">
+                    <PayeeCard payee={picked} selected onClick={() => pick(null)} disabled={disabled} />
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-1 top-1 h-7 w-7"
+                        aria-label="Clear the picked payee"
+                        title="Clear"
+                        onClick={() => pick(null)}
+                        disabled={disabled}
+                    >
+                        <X className="h-4 w-4" />
+                    </Button>
+                </div>
+            )}
             {matches.map((p) => (
-                <PayeeCard key={p.name} payee={p} onClick={() => pick(p)} disabled={disabled} />
+                <PayeeCard key={p.name} payee={p} onClick={() => choose(p)} disabled={disabled} />
             ))}
             {searching && isLoading && <p className="text-xs text-muted-foreground">Searching...</p>}
             {searching && !isLoading && matches.length === 0 && (
@@ -164,7 +191,8 @@ function PayeeCard({ payee, selected, onClick, disabled }: PayeeCardProps) {
             aria-pressed={!!selected}
             title={selected ? "Picked. Click to clear." : "Pick this payee"}
             className={cn(
-                "rounded-md border bg-background px-3 py-2.5 text-left text-[13px] leading-relaxed tabular-nums",
+                "w-full rounded-md border bg-background px-3 py-2.5 text-left text-[13px] leading-relaxed tabular-nums",
+                selected && "pr-10",
                 selected ? "border-primary ring-1 ring-primary" : "text-muted-foreground hover:border-foreground/30",
             )}
         >
@@ -185,11 +213,7 @@ export function PayeeReadOnly({ payee, note }: { payee: PayeeOption; note?: stri
         <div className="rounded-md border bg-background px-3 py-2.5 text-[13px] leading-relaxed tabular-nums">
             <span className="flex flex-wrap items-center gap-2 text-sm font-semibold">
                 {payee.account_name}
-                {payee.status === PAYEE_STATUS.INACTIVE && (
-                    <span className="rounded-md border border-zinc-300 bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-600">
-                        Inactive
-                    </span>
-                )}
+                {payee.status === PAYEE_STATUS.INACTIVE && <PayeeInactiveBadge />}
             </span>
             <span className="block">{payeeAccountLine(payee)}</span>
             {bank && <span className="block">{bank}</span>}

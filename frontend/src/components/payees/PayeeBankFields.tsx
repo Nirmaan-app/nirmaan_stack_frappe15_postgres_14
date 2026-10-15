@@ -9,7 +9,7 @@
  * the same rules hold everywhere a Payee is added.
  */
 
-import type { ClipboardEvent, ReactNode } from "react";
+import { useState, type ClipboardEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
 
@@ -17,12 +17,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
-import { accountsMatch, cleanAccountNumber, duplicateSentence } from "@/utils/payees/payeeForm";
+import { accountsMatch, cleanAccountNumber, duplicateSentence, ifscShapeProblem } from "@/utils/payees/payeeForm";
 import { payeeHref } from "@/utils/payees/payeeRoutes";
 
 import type { PayeeBankForm } from "./usePayeeBankForm";
 
 const blockPaste = (e: ClipboardEvent<HTMLInputElement>) => e.preventDefault();
+
+// Password managers offer to save or fill any `type=password` box, and their popup covered the form
+// (#1420 walk D7). So the account number is a text box drawn as dots, and tells them to keep out.
+const NOT_A_PASSWORD = {
+    autoComplete: "off",
+    "data-1p-ignore": "true",
+    "data-lpignore": "true",
+    "data-bwignore": "true",
+    "data-form-type": "other",
+} as const;
 
 type Layout = "dialog" | "form";
 
@@ -40,6 +50,7 @@ interface PayeeBankFieldsProps {
 
 export function PayeeBankFields({ payeeForm, disabled, layout = "dialog", duplicateAction }: PayeeBankFieldsProps) {
     const { form, setField, bank, lookingUp, ifscError, duplicate } = payeeForm;
+    const [leftIfsc, setLeftIfsc] = useState(false);
     const mismatch =
         !!cleanAccountNumber(form.confirm_account_number) && !accountsMatch(form) ? "The account numbers don't match." : null;
     const inForm = layout === "form";
@@ -64,14 +75,14 @@ export function PayeeBankFields({ payeeForm, disabled, layout = "dialog", duplic
             <Row layout={layout} id="payee_account_number" label="Account Number" help="Type it. Paste is turned off.">
                 <Input
                     id="payee_account_number"
-                    type="password"
                     value={form.account_number}
                     placeholder={inForm ? "Enter Account Number" : undefined}
                     onChange={(e) => setField("account_number", e.target.value)}
                     onPaste={blockPaste}
                     onDrop={(e) => e.preventDefault()}
                     disabled={disabled}
-                    autoComplete="new-password"
+                    className="[-webkit-text-security:disc]"
+                    {...NOT_A_PASSWORD}
                     inputMode="numeric"
                 />
             </Row>
@@ -98,7 +109,7 @@ export function PayeeBankFields({ payeeForm, disabled, layout = "dialog", duplic
                 layout={layout}
                 id="payee_ifsc"
                 label="IFSC Code"
-                error={ifscError}
+                error={ifscError ?? ifscShapeProblem(form.ifsc, { left: leftIfsc })}
                 help={inForm && !lookingUp ? "Bank Name and Branch fill in automatically from this code." : undefined}
             >
                 <Input
@@ -106,7 +117,11 @@ export function PayeeBankFields({ payeeForm, disabled, layout = "dialog", duplic
                     value={form.ifsc}
                     maxLength={11}
                     placeholder={inForm ? "Enter IFSC Code" : "e.g. SBIN0005943"}
-                    onChange={(e) => setField("ifsc", e.target.value)}
+                    onChange={(e) => {
+                        setLeftIfsc(false);
+                        setField("ifsc", e.target.value);
+                    }}
+                    onBlur={() => setLeftIfsc(true)}
                     disabled={disabled}
                     autoComplete="off"
                 />

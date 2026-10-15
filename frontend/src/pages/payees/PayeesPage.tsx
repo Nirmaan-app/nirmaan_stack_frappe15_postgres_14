@@ -21,7 +21,7 @@ import { getUrlStringParam, useServerDataTable } from "@/hooks/useServerDataTabl
 import { cn } from "@/lib/utils";
 import { PAYEE_DOCTYPE, PAYEE_STATUS, type PayeeSummary } from "@/types/NirmaanStack/Payee";
 import { formatDate } from "@/utils/FormatDate";
-import { bankLine, linkedToLabels } from "@/utils/payees/payeeForm";
+import { accountNumberCsvCell, bankLine, linkedToLabels } from "@/utils/payees/payeeForm";
 import { PAYEES_TAB_PARAM, PAYEES_URL_KEY, PAYEE_TABS, isPayeeTab, payeeHref, type PayeeTab } from "@/utils/payees/payeeRoutes";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -59,7 +59,7 @@ const columns: ColumnDef<PayeeSummary>[] = [
         header: ({ column }) => <DataTableColumnHeader column={column} title="Account number" />,
         cell: ({ row }) => <div className="font-medium tabular-nums tracking-wide">{row.original.account_number}</div>,
         size: 170,
-        meta: { exportHeaderName: "Account Number", exportValue: (row: PayeeSummary) => row.account_number },
+        meta: { exportHeaderName: "Account Number", exportValue: (row: PayeeSummary) => accountNumberCsvCell(row.account_number) },
     },
     {
         accessorKey: "ifsc",

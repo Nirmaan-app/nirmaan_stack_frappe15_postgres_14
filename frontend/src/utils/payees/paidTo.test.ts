@@ -19,7 +19,14 @@ describe("paidToCell", () => {
             tone: "account",
             title: "Ramesh Kumar Yadav",
             detail: "A/c 36147100982211, SBIN0003435",
+            inactive: false,
         });
+    });
+
+    it("tags an Inactive account (owner decision, walk bug 7d)", () => {
+        const inactive = { ...account, status: "Inactive" as const };
+        expect(paidToCell({ account: inactive, missing: "vendor_payee_inactive", payee_rule: null }, "").inactive).toBe(true);
+        expect(paidToCell({ account: inactive, missing: null, payee_rule: null }, "Travel").inactive).toBe(true);
     });
 
     it("says an expense with no payee needs none when its type doesn't require one", () => {
@@ -61,6 +68,9 @@ describe("paidToExportText", () => {
         expect(paidToExportText({ account: null, missing: "vendor_has_no_payee", payee_rule: null }, "")).toBe(
             "Vendor has no bank account",
         );
+        expect(
+            paidToExportText({ account: { ...account, status: "Inactive" }, missing: "vendor_payee_inactive", payee_rule: null }, ""),
+        ).toBe("Ramesh Kumar Yadav, A/c 36147100982211, SBIN0003435 (Inactive)");
     });
 });
 

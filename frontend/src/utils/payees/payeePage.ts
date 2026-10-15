@@ -6,6 +6,8 @@
 
 import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
 
+import { linkedToLabels } from "./payeeForm";
+
 /** The page's tabs; the key travels in the URL as `?tab=`. */
 export const PAYEE_PAGE_TABS = {
     OVERVIEW: "overview",
@@ -43,4 +45,27 @@ export const holderNameWarning = (vendors: number): string => {
               ? "1 vendor is paid into this account. It will show the new name, and so will past payments."
               : `${vendors} vendors are paid into this account. They will all show the new name, and so will past payments.`;
     return `${who} Change it only to fix how the bank spells it. A different person or company needs a new payee.`;
+};
+
+/** Mark inactive's text: nobody can pick it any more, and what already points at it keeps it. */
+export const deactivateText = ({ vendors, expenses }: Pick<PayeeSummary, "vendors" | "expenses">): string => {
+    const links = linkedToLabels({ vendors, expenses });
+    const keep = vendors + expenses === 1 ? "keeps" : "keep";
+    return [
+        "Nobody will be able to pick it for a vendor, an expense or an expense request.",
+        links.length ? `The ${links.join(" and ")} already pointing at it ${keep} it.` : "",
+    ].filter(Boolean).join(" ");
+};
+
+/**
+ * Mark inactive's warning when vendors are still paid into the Payee, or null: an Inactive vendor
+ * Payee blocks the vendor's PO, Work Order and Credits payment requests and new expense requests
+ * naming it, until the vendor uses Change account (owner decision, spec #1420 walk).
+ */
+export const deactivateVendorWarning = (vendors: number): string | null => {
+    if (!vendors) return null;
+    const who = vendors === 1 ? "1 vendor is" : `${vendors} vendors are`;
+    const their = vendors === 1 ? "Its" : "Their";
+    const each = vendors === 1 ? "it uses" : "each uses";
+    return `${who} still paid into this account. ${their} PO, Work Order and expense payments can't be requested until ${each} Change account on its vendor page.`;
 };

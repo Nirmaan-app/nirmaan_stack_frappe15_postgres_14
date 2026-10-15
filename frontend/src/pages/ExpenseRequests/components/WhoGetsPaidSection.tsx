@@ -56,10 +56,13 @@ export const WhoGetsPaidSection: React.FC<Props> = ({
                 vendorPayeeLoading ? (
                     <div className="flex justify-center py-2"><TailSpin height={20} width={20} color="#71717a" /></div>
                 ) : vendorPayee?.payee ? (
-                    <PayeeReadOnly
-                        payee={vendorPayee.payee}
-                        note={"This is the vendor's account. To pay someone else, set Vendor to Others (No Vendor)."}
-                    />
+                    <>
+                        <PayeeReadOnly
+                            payee={vendorPayee.payee}
+                            note={"This is the vendor's account. To pay someone else, set Vendor to Others (No Vendor)."}
+                        />
+                        {problem && <p className="text-xs text-destructive">{problem}</p>}
+                    </>
                 ) : (
                     <p className="rounded-md border bg-background px-3 py-2.5 text-[13px]">
                         {problem ?? `${vendorPayee?.vendor_name || "This vendor"} has no bank account on record yet. ` +

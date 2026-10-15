@@ -31,6 +31,8 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import { payeeAccountLine } from "@/utils/payees/expensePayee";
 import { bankLine } from "@/utils/payees/payeeForm";
 import type { ExpenseRequest } from "@/types/NirmaanStack/ExpenseRequest";
+import { PAYEE_STATUS } from "@/types/NirmaanStack/Payee";
+import { PayeeInactiveBadge } from "@/components/payees/PayeeInactiveBadge";
 
 export type ReviewAction = "approve" | "reject";
 
@@ -158,7 +160,10 @@ export const ReviewActionDialog: React.FC<Props> = ({
                         approval copies it onto the expense. */}
                     {r?.payee_details && (
                         <Row label="Who gets paid">
-                            <span className="font-medium">{r.payee_details.account_name}</span>
+                            <span className="flex flex-wrap items-center gap-2 font-medium">
+                                {r.payee_details.account_name}
+                                {r.payee_details.status === PAYEE_STATUS.INACTIVE && <PayeeInactiveBadge />}
+                            </span>
                             <span className="block text-xs tabular-nums text-muted-foreground">
                                 {payeeAccountLine(r.payee_details)}
                             </span>

@@ -201,7 +201,7 @@
   {
    "fieldname": "vendor_bank_details_section",
    "fieldtype": "Section Break",
-   "label": "Vendor Bank Details"
+   "label": "Payee"
   },
   {
    "fieldname": "invoice_balancing",
@@ -239,7 +239,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-14 15:24:30.293367",
+ "modified": "2026-10-15 09:39:27.916696",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Vendors",

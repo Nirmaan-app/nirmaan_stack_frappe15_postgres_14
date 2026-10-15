@@ -21,6 +21,7 @@ import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { useVendorHoldVendors } from "@/hooks/useVendorHoldVendors";
 import { VENDOR_LIST_API } from "@/components/payees/vendorPayeeAccount";
 import { formatDate } from "@/utils/FormatDate";
+import { accountNumberCsvCell } from "@/utils/payees/payeeForm";
 import { VENDOR_HOLD_ROW_CLASSES } from "@/utils/vendorHoldRowStyles";
 
 import {
@@ -298,7 +299,10 @@ export default function VendorsPage() {
         ),
         size: 180,
         enableSorting: false,
-        meta: { exportHeaderName: "Account Number" },
+        meta: {
+          exportHeaderName: "Account Number",
+          exportValue: (row: VendorListRow) => accountNumberCsvCell(row.payee_account_number),
+        },
       },
       {
         accessorKey: "payee_ifsc",
@@ -441,7 +445,8 @@ export default function VendorsPage() {
     defaultSort: "creation desc",
     urlSyncKey: `vendors_list`,
     enableRowSelection: false,
-    shouldCache: true,
+    // No server cache: it keeps a page for 5 minutes and nothing clears it, so a vendor just
+    // created (or a Payee just changed) was missing from the list until it expired (#1420 walk C8).
     initialState: { columnVisibility: VENDOR_HIDDEN_COLUMNS },
   });
 

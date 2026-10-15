@@ -69,10 +69,29 @@ export interface WhoGetsPaidState {
     vendorPayee: string | null;
     /** A payee is picked, or a new one is filled in. */
     hasChoice: boolean;
+    /**
+     * The picked vendor's Payee is Inactive and the request newly names that vendor (a new request,
+     * or one moved to it). A request already naming it keeps it.
+     */
+    vendorPayeeInactive?: boolean;
 }
 
+/**
+ * The server's refusal of a request newly naming a vendor whose Payee is Inactive, on any type
+ * (`expense_rules.VENDOR_PAYEE_INACTIVE_PROBLEM`; pinned by the shared cases).
+ */
+export const VENDOR_PAYEE_INACTIVE_PROBLEM =
+    "This vendor's bank account is Inactive. Use Change account on the vendor page first.";
+
 /** Why the request can't be sent yet because of who gets paid, or null. */
-export const whoGetsPaidProblem = ({ rule, vendor, vendorPayee, hasChoice }: WhoGetsPaidState): string | null => {
+export const whoGetsPaidProblem = ({
+    rule,
+    vendor,
+    vendorPayee,
+    hasChoice,
+    vendorPayeeInactive,
+}: WhoGetsPaidState): string | null => {
+    if (vendor && vendorPayeeInactive) return VENDOR_PAYEE_INACTIVE_PROBLEM;
     if (asPayeeRule(rule) !== PAYEE_RULE.REQUIRED) return null;
     if (vendor) {
         return vendorPayee
@@ -93,3 +112,11 @@ export const payeeAccountLine = (p: PayeeAccount): string => `A/c ${p.account_nu
 
 export const timesPaidText = (times: number): string =>
     times > 1 ? `Paid ${times} times before.` : times === 1 ? "Paid once before." : "Not paid before.";
+
+/**
+ * Whether clearing the vendor (to none or Others (No Vendor)) also clears the picked Payee: it does
+ * when the pick is the vendor's own Payee, which the server drops in the same case. Any other pick
+ * stays.
+ */
+export const vendorClearDropsPayee = (picked: string | null | undefined, vendorPayee: string | null | undefined): boolean =>
+    !!picked && picked === vendorPayee;

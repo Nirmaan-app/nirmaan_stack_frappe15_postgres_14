@@ -129,6 +129,17 @@ describe("buildBankFile — rows left out", () => {
 		]);
 	});
 
+	it("leaves out a vendor payment whose vendor's Payee is Inactive, though the account is known (walk bug 7c)", () => {
+		const inactive = vendorPayment({ documentName: "PO/009/26-27", missing: "vendor_payee_inactive" });
+		const file = buildBankFile([inactive, vendorPayment()], ICICI);
+
+		expect(file.rows.map((r) => r.REMARK)).toEqual(["PO/001/26-27"]);
+		expect(file.leftOut).toEqual([{ row: inactive, reason: "vendor_payee_inactive" }]);
+		expect(describeLeftOut(file.leftOut)).toEqual([
+			"1 payment whose vendor's bank account is Inactive, so use Change account on the vendor page first (PO/009/26-27)",
+		]);
+	});
+
 	it("numbers Cashfree transferIds over the rows in the file only", () => {
 		const file = buildBankFile([noPayee2, vendorPayment(), expense, vendorPayment()], CASHFREE);
 

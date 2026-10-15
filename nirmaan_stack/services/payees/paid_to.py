@@ -7,7 +7,9 @@ The one place "who to pay" is resolved for a row the accountant pays: "Payment n
 Paid to column, the ICICI / Cashfree file and Record Payment's "Pay ₹X to" box all read it here.
 
 * A **PO / WO payment** (`Project Payments`) is paid into its vendor's Payee as it is NOW: the
-  payment stores none (ADR-0033 "Not in v1"). No Payee: `VENDOR_HAS_NO_PAYEE`.
+  payment stores none (ADR-0033 "Not in v1"). No Payee: `VENDOR_HAS_NO_PAYEE`. An Inactive one is
+  still named, with `VENDOR_PAYEE_INACTIVE`: the bank file leaves the row out until the vendor uses
+  Change account (owner decision, spec #1420 walk).
 * A **Project / Non-Project Expense** is paid into its own `payee`. None: `EXPENSE_HAS_NO_PAYEE`,
   with the type's *Who gets paid* rule, so the screen can say whether the type needs one.
 
@@ -24,7 +26,7 @@ from frappe import _
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
 from nirmaan_stack.services.payees.links import payee_summary
-from nirmaan_stack.services.payees.rules import PAID_STATUSES
+from nirmaan_stack.services.payees.rules import INACTIVE, PAID_STATUSES
 from nirmaan_stack.services.payees.vendor_account import VENDOR_ACCOUNT_FIELDS, vendor_accounts
 from nirmaan_stack.services.payees.versions import last_field_change
 
@@ -32,9 +34,10 @@ PAYMENT_DOCTYPE = "Project Payments"
 #: The row kinds the accountant pays.
 PAID_TO_DOCTYPES = (PAYMENT_DOCTYPE, *EXPENSE_DOCTYPES)
 
-#: Why a row has no account to pay into.
+#: Why a row has no account to pay into (or, `VENDOR_PAYEE_INACTIVE`, one it may not be paid into).
 VENDOR_HAS_NO_PAYEE = "vendor_has_no_payee"
 EXPENSE_HAS_NO_PAYEE = "expense_has_no_payee"
+VENDOR_PAYEE_INACTIVE = "vendor_payee_inactive"
 
 #: How the Payee on an expense was named (`expense_pay_to`'s `named_by.how`).
 NAMED_ON_REQUEST = "request"
@@ -52,7 +55,8 @@ def paid_to_rows(rows: list[dict]) -> list[dict]:
     """Who each row is paid to, in order. A row carries `doctype`, `vendor`, `payee` (an expense's
     own) and `expense_type`. Each answer is `{account, missing, payee_rule}`: `account` is
     `{payee, account_name, account_number, ifsc, bank_name, bank_branch, status}` or None;
-    `missing` is None, `VENDOR_HAS_NO_PAYEE` or `EXPENSE_HAS_NO_PAYEE`; `payee_rule` is the expense
+    `missing` is None, `VENDOR_HAS_NO_PAYEE`, `VENDOR_PAYEE_INACTIVE` (the account is still given) or
+    `EXPENSE_HAS_NO_PAYEE`; `payee_rule` is the expense
     type's rule on an expense with no Payee, else None. Three queries, whatever the row count."""
     is_payment = [row.get("doctype") == PAYMENT_DOCTYPE for row in rows]
     by_vendor = vendor_accounts(list({row.get("vendor") for row, p in zip(rows, is_payment) if p} - {None, ""}))
@@ -64,8 +68,7 @@ def paid_to_rows(rows: list[dict]) -> list[dict]:
     for row, payment in zip(rows, is_payment):
         if payment:
             account = by_vendor.get(row.get("vendor"))
-            answers.append({"account": account, "missing": None if account else VENDOR_HAS_NO_PAYEE,
-                            "payee_rule": None})
+            answers.append({"account": account, "missing": _vendor_payment_missing(account), "payee_rule": None})
             continue
         account = by_payee.get(row.get("payee"))
         answers.append({
@@ -74,6 +77,13 @@ def paid_to_rows(rows: list[dict]) -> list[dict]:
             "payee_rule": None if account else rules.get(row.get("expense_type")) or NOT_ASKED,
         })
     return answers
+
+
+def _vendor_payment_missing(account: dict | None) -> str | None:
+    """Why a PO / WO payment can't be paid into its vendor's account, or None."""
+    if not account:
+        return VENDOR_HAS_NO_PAYEE
+    return VENDOR_PAYEE_INACTIVE if account.get("status") == INACTIVE else None
 
 
 def paid_to_for(keys: list[dict]) -> list[dict]:

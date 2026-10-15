@@ -43,7 +43,13 @@ import VendorSelect, { OTHERS_VENDOR_VALUE } from "@/components/custom-select/ve
 
 import { DuplicatePayeeError, usePayeeChoice } from "@/components/payees/usePayeeChoice";
 import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
-import { asksWhoGetsPaid, showsWhoGetsPaid, whoGetsPaidProblem } from "@/utils/payees/expensePayee";
+import { PAYEE_STATUS } from "@/types/NirmaanStack/Payee";
+import {
+    asksWhoGetsPaid,
+    showsWhoGetsPaid,
+    vendorClearDropsPayee,
+    whoGetsPaidProblem,
+} from "@/utils/payees/expensePayee";
 
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
@@ -238,20 +244,35 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     const { account: vendorAccount, isLoading: vendorPayeeLoading } =
         useVendorAccount(form.vendor, showsPayee && vendorChosen);
     const vendorPayee = vendorChosen ? vendorAccount ?? null : null;
-    const payeeProblem = asksPayee
+    // A request newly naming a vendor whose Payee is Inactive is refused on any type (owner
+    // decision); an edit keeping the vendor it was sent with keeps its Payee. Mirrors the server.
+    const vendorIsNew = !isEdit || form.vendor !== (editing?.vendor || OTHERS_VENDOR_VALUE);
+    const payeeProblem = showsPayee
         ? whoGetsPaidProblem({
             rule: payeeRule,
             expenseType: form.expense_type,
             vendor: vendorChosen ? (vendorPayee?.vendor_name || form.vendor) : null,
             vendorPayee: vendorPayee?.payee?.name ?? null,
             hasChoice: payeeChoice.hasChoice,
+            vendorPayeeInactive: vendorIsNew && vendorPayee?.payee?.status === PAYEE_STATUS.INACTIVE,
         })
         : null;
-    const payeeReady = !asksPayee || (
+    const payeeReady = !payeeProblem && (
         vendorChosen
-            ? !vendorPayeeLoading && !!vendorPayee && !payeeProblem
-            : !payeeProblem && !payeeChoice.problem
+            ? !vendorPayeeLoading && (!asksPayee || !!vendorPayee)
+            : !asksPayee || !payeeChoice.problem
     );
+
+    // Clearing the vendor (Others (No Vendor), or none) clears a picked Payee that was that
+    // vendor's, as the server does on save; otherwise it would show as picked and the save would
+    // be refused for a Payee the raiser never chose.
+    const handleVendorChange = useCallback((value: string) => {
+        if ((!value || value === OTHERS_VENDOR_VALUE)
+            && vendorClearDropsPayee(payeeChoice.picked?.name, vendorAccount?.payee?.name)) {
+            payeeChoice.pick(null);
+        }
+        setForm((f) => ({ ...f, vendor: value }));
+    }, [payeeChoice.picked?.name, payeeChoice.pick, vendorAccount?.payee?.name]);   // eslint-disable-line react-hooks/exhaustive-deps
 
     // STANDARD mode: the type's form is switched off (or unwritten, or unparseable), so the
     // dialog asks what a directly-entered expense needs. While a switched-on format is still
@@ -572,7 +593,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                             <VendorSelect
                                 usePortal
                                 value={form.vendor}
-                                onChange={(o) => set("vendor", o?.value ?? "")}
+                                onChange={(o) => handleVendorChange(o?.value ?? "")}
                             />
                             <p className="text-xs text-muted-foreground">
                                 {isStandard ? "" : "Optional. "}

@@ -526,7 +526,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         }
 
         // ⚠️ THE BANK FILE IS NOT THE SELECTION. `buildBankFile` leaves out every ticked row
-        // that has no Payee to pay into, and the toast names them: the accountant must
+        // that has no Payee to pay into (or a vendor's Inactive one), and the toast names them: the accountant must
         // know the file is shorter than their selection.
         const bankFile = buildBankFile(
             payments.map((payment, i): BankFileRow => {
@@ -538,6 +538,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     amount: payment.amount,
                     projectLabel: projectLabelMap.get(payment.project) ?? (payment.project || "Non Project"),
                     payee: paidTo[i]?.account ?? undefined,
+                    missing: paidTo[i]?.missing,
                 };
             }),
             { format: exportTarget, paymentMode, debitAccountNumber, now: new Date() },

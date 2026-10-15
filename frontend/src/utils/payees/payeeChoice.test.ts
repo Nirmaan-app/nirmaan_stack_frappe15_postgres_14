@@ -52,8 +52,8 @@ describe("payee suggestion lines", () => {
     });
 
     it("a strong match says the PAN agrees and names its vendors' places", () => {
-        expect(suggestionLinkLine(suggestion())).toBe(
-            "Same PAN as its linked vendors. Paid by 3 vendors: Rohtak, Gujarat, Bengaluru.",
+        expect(suggestionLinkLine(suggestion(), "AAHCK1234M")).toBe(
+            "Same PAN as its linked vendors. Linked to 3 vendors: Rohtak, Gujarat, Bengaluru.",
         );
     });
 
@@ -64,12 +64,26 @@ describe("payee suggestion lines", () => {
             expenses: 2,
             linked_vendors: [vendor("V9", "Nashik", "ZZZZZ9999Z")],
         });
-        expect(suggestionLinkLine(s)).toBe("Different PAN. Paid by 1 vendor and 2 expenses.");
+        expect(suggestionLinkLine(s, "AAHCK1234M")).toBe("Different PAN. Linked to 1 vendor and 2 expenses.");
+    });
+
+    it("says nothing about PAN until the new vendor's PAN is typed (#1420 walk C2)", () => {
+        const s = suggestion({
+            match: PAYEE_MATCH.NAME_ONLY,
+            vendors: 1,
+            linked_vendors: [vendor("V9", "Nashik", "ZZZZZ9999Z")],
+        });
+        expect(suggestionLinkLine(s, "")).toBe("Linked to 1 vendor: Nashik.");
+        expect(suggestionLinkLine(s, undefined)).toBe("Linked to 1 vendor: Nashik.");
     });
 
     it("a name-only match with no PAN to compare says nothing about PAN", () => {
         const s = suggestion({ match: PAYEE_MATCH.NAME_ONLY, vendors: 0, expenses: 0, linked_vendors: [] });
-        expect(suggestionLinkLine(s)).toBe("Not linked to anything yet.");
+        expect(suggestionLinkLine(s, "AAHCK1234M")).toBe("Not linked to anything yet.");
+    });
+
+    it("never says 'paid' for links: a linked Payee may never have been paid (#1420 walk C11)", () => {
+        expect(suggestionLinkLine(suggestion({ last_paid: null, last_payment: null }), "AAHCK1234M")).not.toMatch(/paid/i);
     });
 
     it("names each place once, falling back to the vendor name", () => {
@@ -77,7 +91,7 @@ describe("payee suggestion lines", () => {
             vendors: 3,
             linked_vendors: [vendor("V1", "Pune"), vendor("V2", "Pune"), { ...vendor("V3", null), vendor_name: "KDS" }],
         });
-        expect(suggestionLinkLine(s)).toBe("Same PAN as its linked vendors. Paid by 3 vendors: Pune, KDS.");
+        expect(suggestionLinkLine(s, "AAHCK1234M")).toBe("Same PAN as its linked vendors. Linked to 3 vendors: Pune, KDS.");
     });
 });
 

@@ -11,6 +11,8 @@ import {
     payeeAccountLine,
     timesPaidText,
     showsWhoGetsPaid,
+    VENDOR_PAYEE_INACTIVE_PROBLEM,
+    vendorClearDropsPayee,
     whoGetsPaidHelp,
     whoGetsPaidProblem,
 } from "./expensePayee";
@@ -100,6 +102,7 @@ const SHARED = JSON.parse(
     readFileSync(resolve(__dirname, "../../../../nirmaan_stack/services/payees/payee_rules_cases.json"), "utf-8"),
 ) as {
     payee_rules: string[];
+    vendor_payee_inactive_problem: string;
     requests: {
         name: string;
         rule: string;
@@ -113,6 +116,10 @@ const SHARED = JSON.parse(
 describe("parity with services/payees/expense_rules.py (shared cases)", () => {
     it("offers the server's rules, in its order", () => {
         expect(PAYEE_RULES).toEqual(SHARED.payee_rules);
+    });
+
+    it("words the Inactive vendor Payee refusal as the server does", () => {
+        expect(VENDOR_PAYEE_INACTIVE_PROBLEM).toBe(SHARED.vendor_payee_inactive_problem);
     });
 
     it.each(SHARED.requests)("$name: blocks sending exactly when the server refuses", (c) => {
@@ -142,5 +149,29 @@ describe("showsWhoGetsPaid", () => {
         expect(whoGetsPaidHelp("Not asked", "Material Purchase")).toBe(
             "Material Purchase doesn't ask who gets paid, but a vendor is paid into its own account.",
         );
+    });
+});
+
+describe("a vendor whose Payee is Inactive (owner decision, walk bug 7e)", () => {
+    const state = { expenseType: "Labour Advance", vendor: "Kaveri", vendorPayee: "PYE-0412", hasChoice: false };
+
+    it.each(["Required", "Optional", "Not asked"])("blocks a %s request newly naming it", (rule) => {
+        expect(whoGetsPaidProblem({ ...state, rule, vendorPayeeInactive: true })).toBe(VENDOR_PAYEE_INACTIVE_PROBLEM);
+    });
+
+    it("lets a request that already named it be saved", () => {
+        expect(whoGetsPaidProblem({ ...state, rule: "Optional", vendorPayeeInactive: false })).toBeNull();
+    });
+});
+
+describe("vendorClearDropsPayee (walk bug 17, the server's D2 rule)", () => {
+    it("drops the vendor's own Payee when the vendor is cleared", () => {
+        expect(vendorClearDropsPayee("PYE-0412", "PYE-0412")).toBe(true);
+    });
+
+    it("keeps any other pick, and nothing to drop is nothing", () => {
+        expect(vendorClearDropsPayee("PYE-0007", "PYE-0412")).toBe(false);
+        expect(vendorClearDropsPayee(null, "PYE-0412")).toBe(false);
+        expect(vendorClearDropsPayee("PYE-0007", null)).toBe(false);
     });
 });

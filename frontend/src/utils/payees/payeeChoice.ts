@@ -36,23 +36,25 @@ const namedList = (names: string[]): string =>
         : names.join(", ");
 
 /**
- * A suggestion card's second line: whether the PAN agrees, then what the Payee is linked to, naming
- * its vendors' places when it serves vendors only ("Paid by 3 vendors: Rohtak, Gujarat, Bengaluru.").
+ * A suggestion card's second line: whether the PAN agrees with `vendorPan` (the new vendor's, as
+ * typed; nothing is said until one is), then what the Payee is linked to, naming its vendors' places
+ * when it serves vendors only ("Linked to 3 vendors: Rohtak, Gujarat, Bengaluru."). "Linked", not
+ * "paid": a Payee may serve vendors that were never paid; `lastPaidLine` says what was paid.
  */
-export const suggestionLinkLine = (s: PayeeSuggestion): string => {
+export const suggestionLinkLine = (s: PayeeSuggestion, vendorPan: string | undefined): string => {
     const pan =
         s.match === PAYEE_MATCH.STRONG
             ? "Same PAN as its linked vendors."
-            : s.linked_vendors.some((v) => v.vendor_pan)
+            : vendorPan?.trim() && s.linked_vendors.some((v) => v.vendor_pan)
               ? "Different PAN."
               : "";
     const links = linkedToLabels(s);
     let linked = "Not linked to anything yet.";
     if (links.length && !s.expenses) {
         const places = [...new Set(s.linked_vendors.map((v) => v.vendor_city || v.vendor_name || v.name))];
-        linked = `Paid by ${links[0]}${places.length ? `: ${namedList(places)}` : ""}.`;
+        linked = `Linked to ${links[0]}${places.length ? `: ${namedList(places)}` : ""}.`;
     } else if (links.length) {
-        linked = `Paid by ${links.join(" and ")}.`;
+        linked = `Linked to ${links.join(" and ")}.`;
     }
     return [pan, linked].filter(Boolean).join(" ");
 };

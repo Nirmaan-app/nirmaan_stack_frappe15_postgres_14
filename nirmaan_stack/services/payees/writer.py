@@ -44,7 +44,7 @@ from nirmaan_stack.services.payees.rules import (
 
 class DuplicatePayeeError(frappe.ValidationError):
     """The account number + IFSC already belong to a Payee. The message names it; so does `existing`
-    on an instance raised by `assert_not_duplicate` (Frappe's `throw` raises the bare class)."""
+    on the instance `assert_not_duplicate` throws."""
 
 
 def existing_payee(details: PayeeDetails, *, exclude: str | None = None) -> str | None:
@@ -59,13 +59,15 @@ def existing_payee(details: PayeeDetails, *, exclude: str | None = None) -> str 
 
 
 def assert_not_duplicate(details: PayeeDetails, *, exclude: str | None = None) -> None:
-    """Raise `DuplicatePayeeError` naming the Payee that already holds this account + IFSC."""
+    """Throw `DuplicatePayeeError` naming the Payee that already holds this account + IFSC. Through
+    `frappe.throw`, so the message reaches every client (Desk shows nothing for a bare raise); the
+    instance carries `existing` for the screens that offer that Payee instead."""
     existing = existing_payee(details, exclude=exclude)
     if existing:
         holder = frappe.db.get_value(PAYEE_DOCTYPE, existing, "account_name")
-        error = DuplicatePayeeError(_(duplicate_problem(existing, holder)))
+        error = DuplicatePayeeError()
         error.existing = existing
-        raise error
+        frappe.throw(_(duplicate_problem(existing, holder)), error)
 
 
 def duplicate_reply(existing: str) -> dict:
@@ -85,11 +87,14 @@ def duplicate_verdict(account_number, ifsc) -> dict:
 def unless_duplicate(action):
     """On submit: run `action` (anything that may create a Payee) and return `(its result, None)`;
     when it is refused as a duplicate, roll the request's transaction back and return
-    `(None, duplicate_reply)` instead, so nothing it did is kept. The caller commits a success."""
+    `(None, duplicate_reply)` instead, so nothing it did is kept, not even the refusal's message: the
+    reply carries it. The caller commits a success."""
+    shown = len(frappe.local.message_log)
     try:
         return action(), None
     except DuplicatePayeeError as e:
         frappe.db.rollback()
+        del frappe.local.message_log[shown:]
         return None, duplicate_reply(e.existing)
 
 

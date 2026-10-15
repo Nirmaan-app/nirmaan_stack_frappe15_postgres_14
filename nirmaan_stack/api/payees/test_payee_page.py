@@ -15,10 +15,10 @@ its message, or the saved record.
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture
+from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture, shown_to_client
 from nirmaan_stack.api.payees.payee_page import edit_holder_name, get_payee, set_payee_status
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
-from nirmaan_stack.services.payees.rules import ACTIVE, INACTIVE, PAYEE_DOCTYPE
+from nirmaan_stack.services.payees.rules import ACTIVE, HOLDER_NAME_ROLE_PROBLEM, INACTIVE, PAYEE_DOCTYPE
 
 U = "Administrator"
 PROJECT_MANAGER = "Nirmaan Project Manager Profile"
@@ -165,6 +165,17 @@ class TestHolderNameEdit(PayeePageCase):
         frappe.db.rollback()
         frappe.set_user(U)
         self.assertEqual(frappe.db.get_value(PAYEE_DOCTYPE, payee, "account_name"), before)
+
+    def test_the_holder_name_refusal_tells_the_client_why(self):
+        payee = self.payees.payee()
+        frappe.set_user(self._user(PROJECT_MANAGER))
+        try:
+            with shown_to_client() as shown, self.assertRaises(frappe.PermissionError):
+                self._save_payee(payee, account_name=self.payees.holder("Desk save"))
+        finally:
+            frappe.db.rollback()
+            frappe.set_user(U)
+        self.assertIn(HOLDER_NAME_ROLE_PROBLEM, shown)
 
     def test_a_blank_holder_name_is_refused(self):
         payee = self.payees.payee()

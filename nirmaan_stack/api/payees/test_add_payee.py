@@ -14,8 +14,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.payees.add_payee import add_payee, check_payee, lookup_ifsc
-from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture
+from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture, shown_to_client
 from nirmaan_stack.services.payees.rules import ACTIVE, PAYEE_DOCTYPE, PAYEE_STATUSES
+from nirmaan_stack.services.payees.writer import DuplicatePayeeError
 
 U = "Administrator"
 PROJECT_MANAGER = "Nirmaan Project Manager Profile"
@@ -83,6 +84,19 @@ class TestAddPayee(FrappeTestCase):
         with self.assertRaisesRegex(frappe.ValidationError, existing):
             dup.insert(ignore_permissions=True)
         frappe.db.rollback()
+
+    def test_a_refused_duplicate_tells_every_client_why(self):
+        """Desk showed nothing on a duplicate save (#1420 walk A15): the refusal must carry its
+        message to the client, and still name the existing Payee for the screens that offer it."""
+        number = self.payees.account_number()
+        existing = self.payees.payee(account_number=number)
+        dup = frappe.get_doc({"doctype": PAYEE_DOCTYPE, "account_name": self.payees.holder("Desk copy"),
+                              "account_number": number, "ifsc": TEST_IFSC})
+        with shown_to_client() as shown, self.assertRaises(DuplicatePayeeError) as refused:
+            dup.insert(ignore_permissions=True)
+        frappe.db.rollback()
+        self.assertEqual(refused.exception.existing, existing)
+        self.assertTrue(any(existing in m and "already a payee" in m for m in shown), shown)
 
     def test_an_ifsc_the_lookup_cannot_find_is_refused(self):
         self.payees.fail_ifsc_lookup()

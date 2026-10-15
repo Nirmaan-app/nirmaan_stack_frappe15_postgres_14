@@ -126,6 +126,7 @@ export function VendorPayeeSection({ choice, vendorName, vendorPan, disabled, cu
                 className="min-w-0 flex-[1_1_320px]"
                 asked={suggestions.asked}
                 suggestions={suggestions.suggestions.filter((s) => s.name !== currentPayee)}
+                vendorPan={vendorPan}
                 isLoading={suggestions.isLoading}
                 error={suggestions.error}
                 chosen={mode === VENDOR_PAYEE_MODE.EXISTING ? chosen?.name : null}

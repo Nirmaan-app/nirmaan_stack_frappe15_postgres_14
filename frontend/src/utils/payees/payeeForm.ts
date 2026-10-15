@@ -24,6 +24,8 @@ export const EMPTY_PAYEE_FORM: PayeeFormValues = {
 };
 
 const IFSC_PATTERN = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+const IFSC_SHAPE_PROBLEM =
+    "An IFSC is 11 characters: four letters, a zero, then six letters or digits (e.g. SBIN0005943).";
 const ACCOUNT_CHARS = /^[A-Z0-9]+$/;
 
 /** The account number as the server stores it: no spaces or dashes, upper-cased. */
@@ -36,6 +38,13 @@ export const normalizeAccount = (value: string): string => {
 };
 
 export const cleanIfsc = (value: string): string => value.trim().toUpperCase();
+
+/**
+ * An account number for a CSV export. Excel reads a bare `0809…` as a number: it drops the leading
+ * zeros and rounds past 15 digits. `="0809…"` opens as that exact text. (Never for the bank file,
+ * which the bank reads as plain text.)
+ */
+export const accountNumberCsvCell = (value: string | null | undefined): string => (value ? `="${value}"` : "");
 
 /** True when `value` has an IFSC's shape: four letters, a zero, six letters or digits. */
 export const isIfscShaped = (value: string): boolean => IFSC_PATTERN.test(cleanIfsc(value));
@@ -56,11 +65,20 @@ export const payeeFormProblem = (form: PayeeFormValues, { bankFound }: { bankFou
     if (!ACCOUNT_CHARS.test(number)) return "An account number holds only letters and digits.";
     if (!accountsMatch(form)) return "The account numbers don't match.";
     if (!cleanIfsc(form.ifsc)) return "Enter the IFSC.";
-    if (!isIfscShaped(form.ifsc)) {
-        return "An IFSC is 11 characters: four letters, a zero, then six letters or digits (e.g. SBIN0005943).";
-    }
+    if (!isIfscShaped(form.ifsc)) return IFSC_SHAPE_PROBLEM;
     if (!bankFound) return "The IFSC was not found.";
     return null;
+};
+
+/**
+ * The IFSC box's own shape message, or null: shown once all 11 characters are typed, or when the
+ * person `left` the box with a wrong one, so the reason sits under the box rather than only on the
+ * disabled button.
+ */
+export const ifscShapeProblem = (ifsc: string, { left }: { left: boolean }): string | null => {
+    const clean = cleanIfsc(ifsc);
+    if (!clean || isIfscShaped(clean)) return null;
+    return clean.length >= 11 || left ? IFSC_SHAPE_PROBLEM : null;
 };
 
 /**

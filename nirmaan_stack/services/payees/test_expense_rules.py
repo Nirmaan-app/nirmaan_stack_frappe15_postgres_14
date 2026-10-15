@@ -10,9 +10,11 @@ from nirmaan_stack.services.payees.expense_rules import (
     OPTIONAL,
     PAYEE_RULES,
     REQUIRED,
+    VENDOR_PAYEE_INACTIVE_PROBLEM,
     follow_vendor,
     paid_expense_problem,
     request_payee,
+    vendor_payee_problem,
 )
 from nirmaan_stack.services.payees.test_rules import load_shared_cases
 
@@ -113,12 +115,24 @@ class TestPaidExpenseProblem(unittest.TestCase):
 SHARED = load_shared_cases()
 
 
+class TestVendorPayeeProblem(unittest.TestCase):
+    def test_a_vendor_whose_payee_is_inactive_is_refused(self):
+        self.assertEqual(vendor_payee_problem("Inactive"), VENDOR_PAYEE_INACTIVE_PROBLEM)
+
+    def test_an_active_payee_or_none_is_not_this_rules_call(self):
+        self.assertIsNone(vendor_payee_problem("Active"))
+        self.assertIsNone(vendor_payee_problem(None))
+
+
 class TestSharedCases(unittest.TestCase):
     """The request dialog blocks sending exactly when the server would refuse
     (`utils/payees/expensePayee.whoGetsPaidProblem`)."""
 
     def test_the_rules_are_the_ones_the_screens_offer(self):
         self.assertEqual(list(PAYEE_RULES), SHARED["payee_rules"])
+
+    def test_the_inactive_vendor_payee_refusal_is_worded_as_the_screens_say_it(self):
+        self.assertEqual(VENDOR_PAYEE_INACTIVE_PROBLEM, SHARED["vendor_payee_inactive_problem"])
 
     def test_requests(self):
         for case in SHARED["requests"]:

@@ -21,6 +21,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomAttachment";
 import { useToast } from "@/components/ui/use-toast";
+import { getFrappeError } from "@/utils/frappeErrors";
 import { cn } from "@/lib/utils";
 
 // --- Types ---
@@ -201,8 +202,9 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
             toast({ title: "Success", description: "Expense updated successfully.", variant: "success" });
             onSuccess?.();
             handleDialogClose();
-        } catch (error: any) {
-            toast({ title: "Error", description: error.message || "Failed to update expense.", variant: "destructive" });
+        } catch (error: unknown) {
+            // The server's own reason (a Payee rule, a paid expense, …), not the SDK's generic text.
+            toast({ title: "Could not update the expense", description: getFrappeError(error), variant: "destructive" });
         }
     };
 

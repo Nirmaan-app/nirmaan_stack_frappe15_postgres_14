@@ -32,6 +32,7 @@ import { ExpenseBankLinesPopover } from "../components/ExpenseBankLinesPopover";
 import { GstPaymentTag } from "../components/GstPaymentTag";
 import { partReconciled } from "../components/expenseBankLinesView";
 import { cn } from "@/lib/utils";
+import { PayeeInactiveBadge } from "@/components/payees/PayeeInactiveBadge";
 import { paidToCell, paidToExportText } from "@/utils/payees/paidTo";
 
 import {
@@ -588,15 +589,18 @@ const REGISTRY: Record<
       const cell = paidToCell(row.original.paid_to, row.original.expense_type);
       return (
         <div className="max-w-[220px]">
-          <span
-            className={cn(
-              "block truncate",
-              cell.tone === "no_payee" && "text-amber-700",
-              cell.tone === "vendor_no_payee" && "text-red-700",
-            )}
-            title={cell.title}
-          >
-            {cell.title}
+          <span className="flex items-center gap-1.5">
+            <span
+              className={cn(
+                "truncate",
+                cell.tone === "no_payee" && "text-amber-700",
+                cell.tone === "vendor_no_payee" && "text-red-700",
+              )}
+              title={cell.title}
+            >
+              {cell.title}
+            </span>
+            {cell.inactive && <PayeeInactiveBadge tone="alert" className="px-1.5 py-0 text-[11px]" />}
           </span>
           <span className="block text-xs font-normal tabular-nums text-muted-foreground" title={cell.detail}>
             {cell.detail}

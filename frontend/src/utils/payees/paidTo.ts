@@ -6,7 +6,7 @@
  * to paid" Paid to cell, its CSV column, and Record Payment's "Named by".
  */
 
-import type { PayeeStatus } from "@/types/NirmaanStack/Payee";
+import { PAYEE_STATUS, type PayeeStatus } from "@/types/NirmaanStack/Payee";
 import { formatDate } from "@/utils/FormatDate";
 
 import { PAYEE_RULE, asPayeeRule } from "./expensePayee";
@@ -22,9 +22,12 @@ export interface PaidToAccount {
     status: PayeeStatus;
 }
 
+/** Why a row can't be paid into an account (`paid_to.py`). A vendor payment whose vendor's Payee is
+ *  Inactive still names the account, so the screen can show it. */
 export const PAID_TO_MISSING = {
     VENDOR_HAS_NO_PAYEE: "vendor_has_no_payee",
     EXPENSE_HAS_NO_PAYEE: "expense_has_no_payee",
+    VENDOR_PAYEE_INACTIVE: "vendor_payee_inactive",
 } as const;
 
 export type PaidToMissing = (typeof PAID_TO_MISSING)[keyof typeof PAID_TO_MISSING];
@@ -41,13 +44,20 @@ export interface PaidToCell {
     tone: "account" | "no_payee" | "vendor_no_payee";
     title: string;
     detail: string;
+    /** The account is an Inactive Payee: the cell shows a red "Inactive" tag. */
+    inactive?: boolean;
 }
 
 /** The Paid to cell: the holder name with the account and IFSC under it, or why there is none. */
 export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string): PaidToCell => {
     const account = paidTo?.account;
     if (account) {
-        return { tone: "account", title: account.account_name, detail: `A/c ${account.account_number}, ${account.ifsc}` };
+        return {
+            tone: "account",
+            title: account.account_name,
+            detail: `A/c ${account.account_number}, ${account.ifsc}`,
+            inactive: account.status === PAYEE_STATUS.INACTIVE,
+        };
     }
     if (paidTo?.missing === PAID_TO_MISSING.VENDOR_HAS_NO_PAYEE) {
         return {
@@ -69,7 +79,7 @@ export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string): Pai
 /** The Paid to cell on one line, for the table's CSV. */
 export const paidToExportText = (paidTo: PaidTo | undefined, expenseType: string): string => {
     const cell = paidToCell(paidTo, expenseType);
-    return cell.tone === "account" ? `${cell.title}, ${cell.detail}` : cell.title;
+    return cell.tone === "account" ? `${cell.title}, ${cell.detail}${cell.inactive ? " (Inactive)" : ""}` : cell.title;
 };
 
 /** Record Payment's "Pay ₹X to" box for an expense with no Payee. */

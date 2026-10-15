@@ -317,7 +317,7 @@ def can_manage_payees(user: str) -> bool:
 def assert_payee_manager(user: str) -> None:
     """Refuse a user outside `PAYEE_MANAGE_PROFILES`. Every Payees-page endpoint starts with it."""
     if not can_manage_payees(user):
-        raise frappe.PermissionError(_("Only Accounts and Admins can manage payees here."))
+        frappe.throw(_("Only Accounts and Admins can manage payees here."), frappe.PermissionError)
 
 
 # The vendor screens' Payee step (#1425/#1426): who may create a vendor, and so pick its Payee or add
@@ -336,4 +336,4 @@ def assert_vendor_payee_access(user: str) -> None:
     endpoint starts with it, and the `Vendors` `validate` refuses a `payee` set or change by anyone
     else (`payees.guard`)."""
     if not has_role_profile(user, VENDOR_PAYEE_PROFILES):
-        raise frappe.PermissionError(_("You are not allowed to set a vendor's bank account."))
+        frappe.throw(_("You are not allowed to set a vendor's bank account."), frappe.PermissionError)

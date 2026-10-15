@@ -149,6 +149,19 @@ class TestPaidTo(FrappeTestCase):
              (None, "expense_has_no_payee", "Required")],
         )
 
+    def test_a_payment_whose_vendors_payee_is_inactive_is_shown_but_not_paid(self):
+        """Owner decision (walk bug 7c/d): Paid to still names the account, with its status, and the
+        bank file leaves the row out for this reason."""
+        payee = self.payees.payee()
+        payment = self._payment(self._vendor(payee))
+        frappe.db.set_value("Payee", payee, "status", "Inactive")
+        frappe.db.commit()
+
+        (row,) = get_paid_to([{"doctype": "Project Payments", "name": payment}])
+
+        self.assertEqual((row["account"]["payee"], row["account"]["status"], row["missing"]),
+                         (payee, "Inactive", "vendor_payee_inactive"))
+
     def test_the_queue_rows_carry_paid_to(self):
         payee = self.payees.payee()
         expense = self._expense(PE, payee=payee)

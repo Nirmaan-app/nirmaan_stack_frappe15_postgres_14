@@ -18,7 +18,9 @@ any other code meet the same refusals. The rules themselves are pure, in `rules.
     it was while the vendor changed follows the new vendor; when the vendor is cleared, the old
     vendor's Payee goes with it (any other Payee stays).
   - **Who gets paid**: an Expense Request carries what its type's rule says
-    (`expense_rules.request_payee`): a *Required* type can't be saved without one. An expense of a
+    (`expense_rules.request_payee`): a *Required* type can't be saved without one. A request can't
+    newly name a vendor (on insert, or a vendor change) whose Payee is Inactive
+    (`expense_rules.vendor_payee_problem`); one already naming it keeps it, through approval. An expense of a
     *Required* type can't have its Payee taken away; inserting one with none (approval of an older
     request, Bulk Import) is allowed.
   - **Paid**: once a record is paid (`rules.PAID_STATUSES`) its Payee is fixed
@@ -30,7 +32,8 @@ any other code meet the same refusals. The rules themselves are pure, in `rules.
     vendor with none needs no such role.
   - **Inactive**: an Inactive Payee can't be newly picked (`rules.pick_problem`). A record already
     pointing at it keeps it through any later save, and a Payee that comes from the record's vendor
-    or is carried from its request on approval is never a new pick.
+    or is carried from its request on approval is never a new pick (a new request naming that vendor
+    is refused by the request rule above instead).
 
 The wording is `rules.py`'s and `expense_rules.py`'s.
 """
@@ -48,6 +51,7 @@ from nirmaan_stack.services.payees.expense_rules import (
     REQUIRED,
     paid_expense_problem,
     request_payee,
+    vendor_payee_problem,
 )
 from nirmaan_stack.services.payees.links import is_paid
 from nirmaan_stack.services.payees.rules import (
@@ -78,7 +82,7 @@ def check_payee_save(doc, user: str) -> None:
     before = parse_details(before_doc.account_name, before_doc.account_number, before_doc.ifsc)
     after = parse_details(doc.account_name, doc.account_number, doc.ifsc)
     if before.account_name != after.account_name and not can_manage_payees(user):
-        raise frappe.PermissionError(_(HOLDER_NAME_ROLE_PROBLEM))
+        frappe.throw(_(HOLDER_NAME_ROLE_PROBLEM), frappe.PermissionError)
     problem = locked_change_problem(doc.name, before, after)
     if problem and is_paid(doc.name):
         frappe.throw(_(problem))
@@ -117,12 +121,15 @@ def _apply_request_rules(doc) -> bool:
     if not _changed(doc, "payee", "vendor", "type"):
         return False
     vendor = doc.get("vendor") or None
+    vendor_payee = payee_for_vendor(vendor) if vendor else None
+    if vendor_payee and _changed(doc, "vendor"):
+        _refuse(vendor_payee_problem(frappe.db.get_value(PAYEE_DOCTYPE, vendor_payee, "status")))
     verdict = request_payee(
         payee_rule(doc.type) if doc.get("type") else NOT_ASKED,
         expense_type=doc.get("type"),
         payee=_sent_payee(doc),
         vendor=vendor,
-        vendor_payee=payee_for_vendor(vendor) if vendor else None,
+        vendor_payee=vendor_payee,
     )
     _refuse(verdict.problem)
     doc.payee = verdict.payee
@@ -156,7 +163,7 @@ def _apply_expense_rules(doc, user: str) -> bool:
         # permission governs it. Any other Payee is Accounts' call.
         moved_by_vendor = _changed(doc, "vendor") and (doc.payee or None) == vendor_payee
         if not moved_by_vendor and not can_manage_payees(user):
-            raise frappe.PermissionError(_(EXPENSE_PAYEE_ROLE_PROBLEM))
+            frappe.throw(_(EXPENSE_PAYEE_ROLE_PROBLEM), frappe.PermissionError)
     return not vendor and not _carried_from_request(doc)
 
 

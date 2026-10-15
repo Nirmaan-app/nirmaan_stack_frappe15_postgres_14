@@ -1,4 +1,4 @@
-import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
+import { PAYEE_STATUS, type PayeeSummary } from "@/types/NirmaanStack/Payee";
 
 /**
  * The vendor page's account rules (#1426, spec #1420, approved mockup screens 7 and 8): the Account
@@ -65,7 +65,8 @@ export interface VendorPayeeGateProblem {
 /**
  * The payment-request gate's verdict. `payee` is the vendor's Payee: `undefined` while it loads (or
  * when the read failed: `failed`), `null` when the vendor has none. A request goes through only once
- * the vendor is known to have one, so a slow or failed read never lets a request out unchecked.
+ * the vendor is known to have an Active one, so a slow or failed read never lets a request out
+ * unchecked.
  */
 export const vendorPayeeGateProblem = ({
     vendorLabel,
@@ -77,6 +78,14 @@ export const vendorPayeeGateProblem = ({
     failed: boolean;
 }): VendorPayeeGateProblem | null => {
     const vendor = vendorLabel || "This vendor";
+    if (payee?.status === PAYEE_STATUS.INACTIVE) {
+        // A vendor keeps an Inactive Payee until someone moves it; paying into it would go on
+        // silently, so the request waits for Change account (owner decision, spec #1420 walk).
+        return {
+            title: "Bank account inactive",
+            description: `${vendor}'s bank account, ${payee.name}, is Inactive. Use Change account on the vendor page first.`,
+        };
+    }
     if (payee) return null;
     if (payee === null) {
         return {
