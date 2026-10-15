@@ -104,7 +104,9 @@ describe("SLICE 12d-8 / R1 -- a value the system clears stays blank and the row 
     const { r, v, block } = calculator("hvac_insulation", NR, { cladding: "26G Aluminium", pipe_size_mm: "6.35", thickness_mm: "25" }, "mts", ["pipe_size_mm"]);
     expect(v.rowPriced).toBe(true);
     expect(r.values).toEqual({ supply_rate: 466, install_rate: 238, combined_rate: 704 });
-    expect(field(block, "thickness_mm").value).toBe("13");
+    // INVERTED at 12e-5b2 (owner R5 / U2: a composed field shows the TOTAL). BEFORE: "13", the first layer's
+    expect(field(block, "thickness_mm").value).toBe("26");
+    expect(field(block, "thickness_mm").value).not.toBe("13");
     const line = "25 mm is not stocked with pipe size 6.35 -> priced as 13 + 13 mm (26 mm, +1) -- above the largest stocked size (19 mm)";
     expect(field(block, "thickness_mm").note).toBe(line);
     expect(block.working[0]).toBe(line);

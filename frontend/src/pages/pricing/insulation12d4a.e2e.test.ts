@@ -207,7 +207,9 @@ describe("every audited row through BOTH paths on v31", () => {
       expect(x.out!.priced, id).toBe(true);
       expect(x.out!.working0, id).toBe("BoQ says 25 mm thick - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only");
       // ONE user block (the composition's layers are priced items under it); the field shows the model's own "None"
-      expect(x.out!.layers, id).toEqual(["25/None"]);
+      // INVERTED at 12e-5b2 (owner R5 / U2: a composed field shows the TOTAL). BEFORE: ["25/None"], one layer's 25
+      expect(x.out!.layers, id).toEqual(["50/None"]);
+      expect(x.out!.layers, id).not.toEqual(["25/None"]);
     }
     // stated in advance from the product's own run: two 25 mm Nitrile Rubber layers, cladding No, at 53.98 / 41.28
     const f = (id: string) => [byId.get(id)!.out!.supply, byId.get(id)!.out!.install];

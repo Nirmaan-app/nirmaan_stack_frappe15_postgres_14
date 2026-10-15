@@ -80,7 +80,11 @@ describe("SLICE 12d-6 / AC1 -- a layered thickness survives option matching on t
     // AC2: displayed the way "25 mm thick - 2 Layers" already is -- the Other... box holds the stated text
     expect(thk(block).otherMode).toBe(true);
     expect(thk(block).typedValue).toBe(stated);
-    expect(thk(block).note).toBeUndefined();
+    // INVERTED at 12e-5b2 (owner R5 / U2: a composed field shows the TOTAL with the composition line). BEFORE: the
+    // note was undefined and the value the first layer's 19
+    expect(thk(block).note).toBe(`BoQ says ${stated} -> priced as two layers, 19 + 19 mm (38 mm); cladding on the outer layer only`);
+    expect(thk(block).value).toBe("38");
+    expect(thk(block).value).not.toBe("19");
   });
 
   it("(iv) \"25 mm thick - 2 Layers\" -> 1016 / 238 and (v) \"13+13\" -> 904 / 238, UNCHANGED by this slice", () => {

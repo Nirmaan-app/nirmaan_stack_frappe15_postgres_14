@@ -1374,6 +1374,23 @@ export function readNumber(text: string | number | null | undefined, reader: Num
 
   const found = numbersIn(s);
   if (found.length === 0) return { blank: `no number in '${raw}' for ${reader.name}` };
+  /**
+   * SLICE 12e-5b2 (owner R4, within "several values -> the higher"): on a reader declaring `several: "highest"`,
+   * a value written in BRACKETS after the one outside them ("6mm thk (9MM)") is a second value of the same
+   * quantity, not a qualifier -- the higher is taken. Only a bracket holding ONE number (with mm / thk at most)
+   * counts; a bracket of words ("(Class O)") is still dropped as before. ABSENT `several` => byte-identical.
+   */
+  if (reader.several === "highest" && found.length === 1) {
+    const inBrackets = [...unicodeFractions(raw).toLowerCase().matchAll(/\(\s*(\d+(?:\.\d+)?)\s*(?:mm)?\s*(?:thk|thick|thickness)?\s*\)/g)]
+      .map((m) => Number(m[1])).filter((n) => Number.isFinite(n));
+    if (inBrackets.length === 1 && inBrackets[0] !== found[0].n) {
+      const hi = Math.max(found[0].n, inBrackets[0]);
+      const v = { value: hi, note: `'${raw}' states two values -- the higher, ${hi}, is taken` };
+      return typeof reader.reject_below === "number" && hi < reader.reject_below
+        ? { blank: `${reader.name} stated as '${raw}' -- below ${reader.reject_below} ${reader.unit ?? ""}, a sheet gauge, not a thickness`.replace(/\s+,/, ",") }
+        : v;
+    }
+  }
   const scale = (f: Found): { value: number; note?: string } => {
     const after = s.slice(f.end);
     if (reader.unit === "mm") {
@@ -1418,6 +1435,13 @@ export function readNumber(text: string | number | null | undefined, reader: Num
   // slash list of ANY length ("19/ 25 / 32 mm" -> 32) -- "if the exact thickness cannot be determined, use the
   // highest value". ONLY a bare slash list: a comma list, a '+' pair (two LAYERS, T4) and a signed tolerance
   // keep refusing by name. ABSENT => the refusal below, byte-identical for every other category.
+  // SLICE 12e-5b2 (owner R4): on the same reader an "or" joins two values the same way a slash does ("6 or 9 mm")
+  const isOr = (g: string) => /^\s*(mm)?\s*or\s*$/.test(g);
+  if (reader.several === "highest" && found.length === 2 && isOr(gaps[0])) {
+    const hi = found[0].n >= found[1].n ? found[0] : found[1];
+    const sc = scale(hi);
+    return below({ value: sc.value, note: `'${raw}' states two values -- the higher, ${sc.value}, is taken` });
+  }
   if (reader.several === "highest" && found.length >= 3 && gaps.every(isAltPair)) {
     const hi = found.reduce((a, b) => (b.n > a.n ? b : a));
     const sc = scale(hi);
@@ -2587,6 +2611,28 @@ function priceOneItem(
       runSel = { ...sel, [os.attr]: od };
       wrapStep = os.girth_step;
       out.working.push(`cladding: ONE wrap over the outer surface -- pipe size ${asRead ? "as read" : "as matched (the size as read is not available)"} ${fmt(pipe)} + 2 x ${fmt(outerWrap.total)} (the total thickness) = ${fmt(od)} mm`);
+    }
+  } else if (os && !outerWrap && sel[os.pipe] !== undefined && sel[os.thickness] !== undefined) {
+    /**
+     * SLICE 12e-5b2 (owner R6: "use the original size everywhere"): a SINGLE layer's cladding is measured on the
+     * pipe size AS READ too, not on the size it was matched to -- the same `girth_step` over the same outer
+     * diameter, with the one layer's thickness. Only where a cladding is on the item (not the `outer_only`
+     * value) and the size as read differs from the matched one by more than the 0.1 mm match; everything else
+     * keeps the step it always ran, so an exact or spelling-only match is byte-identical. A catalogue row (the
+     * Derivation tab, the impact panel) carries no size as read and never reaches this branch.
+     */
+    const ps = Number(sel[os.pipe]);
+    const t = Number(sel[os.thickness]);
+    const asRead = pipeAsReadOf().pipeAsRead;
+    const oo = spec.compose?.outer_only;
+    const clad = !oo || (sel[oo.attr] !== undefined && sel[oo.attr] !== oo.value);
+    if (clad && Number.isFinite(ps) && Number.isFinite(t) && typeof asRead === "number" && Math.abs(asRead - ps) > 0.1) {
+      const od = asRead + 2 * t;
+      runSel = { ...sel, [os.attr]: od };
+      wrapStep = os.girth_step;
+      out.working.push(`cladding: measured on the pipe size as read ${fmt(asRead)} (not the ${fmt(ps)} it was priced at) + 2 x ${fmt(t)} (the thickness) = ${fmt(od)} mm`);
+    } else if (clad && Number.isFinite(ps) && asRead === undefined) {
+      out.working.push(`cladding: measured on the pipe size as matched ${fmt(ps)} (the size as read is not available)`);
     }
   }
   const wrapped = (pl: Pipeline): Pipeline => {

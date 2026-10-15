@@ -233,12 +233,16 @@ describe("AC2 composed insulation: ONE cladding over the outer surface", () => {
     const plain = girths(PLAIN, "50mm. Dia");
     expect(plain[1]).not.toBeCloseTo((3.14 * 114) / 1000, 6);
   });
-  it("NEGATIVE a one-layer row prices byte-identically with and without the keys", () => {
+  // INVERTED at 12e-5b2 (owner R6: "use the original size everywhere"). BEFORE: "NEGATIVE a one-layer row prices
+  // byte-identically with and without the keys" -- a.values equal to b.values (1,683 / 574) and the same working.
+  it("a one-layer row WITH the keys measures its cladding on the pipe as read (50, not 53.98); without them it does not", () => {
     const one: Answer[] = [{ ...ROW("50mm. Dia")[0] }, { ...ROW("50mm. Dia")[1], thickness_mm: "19mm" }];
     const a = panel(PIP, one, "Rmt.", "50mm. Dia", H162, undefined, KEYED);
     const b = panel(PIP, one, "Rmt.", "50mm. Dia", H162, undefined, PLAIN);
-    expect(a.values).toEqual(b.values);
-    expect(attached(a.v).view.items.flatMap((x) => x.working)).toEqual(attached(b.v).view.items.flatMap((x) => x.working));
+    expect(fig(a.values)).toEqual([1669, 574]);
+    expect(fig(b.values)).toEqual([1683, 574]);
+    expect(attached(a.v).view.items.flatMap((x) => x.working.map((w) => w.trim()))).toContain("cladding: measured on the pipe size as read 50 (not the 53.98 it was priced at) + 2 x 19 (the thickness) = 88 mm");
+    expect(attached(b.v).view.items.flatMap((x) => x.working).some((w) => w.trim().startsWith("cladding: measured"))).toBe(false);
   });
   it("the calculator: a typed pipe size counts as the size as read", () => {
     const st: ItemListEditState = { items: [{ base: null, family: NITRILE, attrs: { cladding: "24G Aluminium", thickness_mm: "32", pipe_size_mm: "50" } }] } as unknown as ItemListEditState;

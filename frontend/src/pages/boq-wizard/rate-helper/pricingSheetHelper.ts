@@ -2440,6 +2440,19 @@ function itemBlockView(
       const line = blockWorking.find((w) => w.startsWith(`${typedLead} -> `));
       if (!note && line) note = `${ladLead}${line.slice(typedLead.length)}`;
     }
+    /**
+     * SLICE 12e-5b2 (owner R5 / U2): a COMPOSED axis shows the TOTAL thickness of its layers ("24"), never the
+     * first layer's ("9"), and its line is the composition line the working already opens with. One layer
+     * (everything uncomposed) is untouched, and so is a field the row refused on (it stays blank and red).
+     */
+    if (layers.length > 1 && spec.compose && f.skuAttr === spec.compose.attr && !(res.state === "blank" && reasonIsMine)) {
+      const parts = layers.map((l) => Number(l.selection[f.skuAttr]));
+      if (parts.every((n) => Number.isFinite(n))) {
+        value = fmtNum(parts.reduce((a, b) => a + b, 0));
+        const line = blockWorking[0];
+        if (!note && line && /->/.test(line) && /priced as/.test(line)) note = line;
+      }
+    }
     const dropped = clearedByBlock.get(f.id);
     if (dropped !== undefined) note = `${dropped}${u} is not stocked with the other answers on this item -- choose again`;
     const ov = overrideBy.get(f.skuAttr);
