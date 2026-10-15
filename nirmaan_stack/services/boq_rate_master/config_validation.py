@@ -557,7 +557,16 @@ _PRICING_KEYS = {"kind", "unit_class_attr", "unit_classes", "unit_words", "unit_
                  # SLICE 12e-2 (owner Q10): `panel_optional` -- text item definitions the panel shows as an
                  # OPTIONAL typed box (a class / wall thickness) that NO pricing rule reads; a `read_notes` line
                  # may quote it. The `panel_readonly` shape with a box. Arrives WITH its check below.
-                 "panel_optional"}
+                 "panel_optional",
+                 # SLICE 12e-5b (owner R2, 2026-10-15): `choice_text` -- an UNANSWERED choice the BoQ names in a word
+                 # the catalogue does not stock ("26 G GI cladding", copied into a text definition as written) prices
+                 # as the stocked option of its gauge, with the amber line; an unlisted gauge refuses. Arrives WITH
+                 # `_validate_choice_text`. ABSENT => an unanswered choice is read exactly as before.
+                 "choice_text",
+                 # SLICE 12e-5b (owner R5): `material_text` -- a no-SKU family answer whose material AS WRITTEN names a
+                 # material the catalogue prices as one of its families (closed cell polyethylene -> nitrile, by unit
+                 # class). Arrives WITH `_validate_material_text`. ABSENT => the no-SKU refusal stands.
+                 "material_text"}
 _PRICING_NAMED_IN_ROW_KEYS = {"attr", "words", "refuse", "rule"}
 _PRICING_UNSTOCKED_KEYS = {"words", "from_attr", "rule"}
 _PRICING_REFUSE_UC_KEYS = {"unit_class", "families", "attr", "value_contains", "words", "refuse", "rule"}
@@ -742,7 +751,14 @@ def _note_shape_ok(v):
 # that closeness could not: "lowest insulation material cost (cost_insulation of the layers
 # summed)". Declared here so no rate name is written in frontend code; ABSENT leaves the
 # deterministic fallback deciding, exactly as every composition did before the key existed.
-_PRICING_COMPOSE_KEYS = {"attr", "tolerance", "max_layers", "outer_only", "cost_key"}
+_PRICING_COMPOSE_KEYS = {"attr", "tolerance", "max_layers", "outer_only", "cost_key", "outer_surface"}
+# SLICE 12e-5b (owner R7): the closed shapes of `compose.outer_surface`, `choice_text` and `material_text`.
+_PRICING_OUTER_SURFACE_KEYS = {"attr", "pipe", "thickness", "girth_step"}
+_PRICING_CHOICE_TEXT_KEYS = {"attr", "from_attr", "words", "gauge_pattern", "to_by_gauge", "default_to", "line",
+                             "unlisted_line", "rule"}
+_PRICING_CHOICE_TEXT_REQUIRED = _PRICING_CHOICE_TEXT_KEYS - {"gauge_pattern", "to_by_gauge"}
+_PRICING_MATERIAL_TEXT_KEYS = {"from_attr", "when_family", "map"}
+_PRICING_MATERIAL_MAP_KEYS = {"all_of", "to_by_unit_class", "line", "rule"}
 _PRICING_COMPOSE_REQUIRED = {"attr", "tolerance", "max_layers"}
 _PRICING_OUTER_ONLY_KEYS = {"attr", "value"}
 # SLICE 11 (owner ruling, 2026-09-25): a unit may BELONG to a class and still be a DIFFERENT unit of that
@@ -1032,6 +1048,159 @@ def _validate_family_text(ft, family_vals, fams, by_id=None, read_by_pricing=Non
             _vthrow(f"{loc}.from_attr: '{fa}' must be a text definition.")
 
 
+def _read_by_pricing(spec, sku_attrs, numbers):
+    """The attributes a pricing rule reads: SKU attributes, every `numbers` source and the family attribute."""
+    out = set(sku_attrs) | {src for n in numbers.values() for src in (n.get("from") or [])}
+    if spec.get("family_attribute_id"):
+        out.add(spec["family_attribute_id"])
+    return out
+
+
+def _as_written_text_attr(fa, loc, by_id, read_by_pricing):
+    """A text definition of this category that no pricing rule matches on -- the words AS WRITTEN. It MAY be listed
+    in `panel_readonly` (shown, never typed): that is the ruled shape (the `family_text.from_attr` precedent)."""
+    if not isinstance(fa, str) or not fa.strip():
+        _vthrow(f"{loc} must be an item attribute id.")
+    if fa not in by_id:
+        _vthrow(f"{loc} names '{fa}', which is not an item attribute of this category.")
+    if fa in read_by_pricing:
+        _vthrow(f"{loc}: '{fa}' is read by the pricing and cannot carry words as written.")
+    if by_id[fa].get("type") != "text":
+        _vthrow(f"{loc}: '{fa}' must be a text definition.")
+
+
+def _item_pipelines(pr, cfg):
+    """Every pipeline the item-list pricer can run for this category: each family unit's own, and the config's."""
+    out = list(((cfg or {}).get("pipelines") or {}).values())
+    for f in (pr.get("families") or {}).values():
+        for u in ((f or {}).get("units") or {}).values():
+            out.extend(((u or {}).get("pipelines") or {}).values())
+    return [p for p in out if isinstance(p, dict)]
+
+
+def _validate_outer_surface(cp, pr, cfg, by_id, numbers, sku_attrs):
+    """SLICE 12e-5b (owner R7, 2026-10-15: "the dia is 50+2*32=114 mm") -- `compose.outer_surface`: on the OUTER layer
+    of a composition the pricer hands the pipelines `attr` = the pipe size as read + 2 x the TOTAL thickness, and runs
+    them with `girth_step` in place of the scale step producing the same `result`. `attr` is a RUN-ONLY value, so it
+    must not collide with an item attribute; `girth_step` must read it, and must replace a step that exists (a
+    step replacing nothing is the "validates but never executes" failure)."""
+    loc = "list_spec.pricing.compose.outer_surface"
+    osf = cp["outer_surface"]
+    if not isinstance(osf, dict) or set(osf) != _PRICING_OUTER_SURFACE_KEYS:
+        _vthrow(f"{loc} needs exactly attr, pipe, thickness and girth_step.")
+    a = osf["attr"]
+    if not isinstance(a, str) or not a.strip():
+        _vthrow(f"{loc}.attr must be a non-empty id.")
+    if a in by_id or a in sku_attrs or a == pr.get("unit_class_attr"):
+        _vthrow(f"{loc}.attr '{a}' collides with an attribute of this category; it is a value the pricer hands the "
+                "pipelines for one run, never an item attribute.")
+    if osf["thickness"] != cp["attr"]:
+        _vthrow(f"{loc}.thickness must be the composed axis '{cp['attr']}'.")
+    if osf["pipe"] not in numbers or osf["pipe"] == cp["attr"]:
+        _vthrow(f"{loc}.pipe '{osf['pipe']}' must be a size axis of this category other than the composed one.")
+    gs = osf["girth_step"]
+    if not isinstance(gs, dict) or gs.get("step") != "scale":
+        _vthrow(f"{loc}.girth_step must be a scale step.")
+    for key in ("target", "result", "formula"):
+        if not isinstance(gs.get(key), str) or not gs.get(key):
+            _vthrow(f"{loc}.girth_step needs a string '{key}'.")
+    _validate_params(gs.get("params"), f"{loc}.girth_step")
+    reads = [v for k, v in (gs.get("params") or {}).items() if k.endswith(_FROM_ATTR_SUFFIX)]
+    if reads != [a]:
+        _vthrow(f"{loc}.girth_step must read the outer diameter through exactly one _from_attr naming '{a}'.")
+    produced = {st.get("result") for p in _item_pipelines(pr, cfg) for st in (p.get("steps") or [])
+                if isinstance(st, dict) and st.get("step") == "scale"}
+    if gs["result"] not in produced:
+        _vthrow(f"{loc}.girth_step.result '{gs['result']}' is produced by no scale step of this category's pipelines "
+                "-- it would replace nothing.")
+
+
+def _validate_choice_text(ct, by_id, choice_attrs, read_by_pricing):
+    """SLICE 12e-5b (owner R2) -- `list_spec.pricing.choice_text`: entries {attr, from_attr, words, gauge_pattern?,
+    to_by_gauge?, default_to, line, unlisted_line, rule}. `attr` a choice SKU attribute; every option named one of its
+    values; `from_attr` a text definition no pricing rule matches on; the gauge pattern compiles and captures; the
+    lines carry their placeholders."""
+    loc = "list_spec.pricing.choice_text"
+    if not isinstance(ct, list) or not ct:
+        _vthrow(f"{loc} must be a non-empty list of entries.")
+    for i, e in enumerate(ct):
+        el = f"{loc}[{i}]"
+        if not isinstance(e, dict):
+            _vthrow(f"{el} must be an object.")
+        unk = set(e) - _PRICING_CHOICE_TEXT_KEYS
+        if unk:
+            _vthrow(f"{el}: unknown key(s): {', '.join(sorted(unk))}.")
+        missing = _PRICING_CHOICE_TEXT_REQUIRED - set(e)
+        if missing:
+            _vthrow(f"{el} needs {', '.join(sorted(missing))}.")
+        if e["attr"] not in choice_attrs:
+            _vthrow(f"{el}.attr '{e['attr']}' is not a choice SKU attribute of this category.")
+        vals = by_id[e["attr"]].get("values") or []
+        _as_written_text_attr(e["from_attr"], f"{el}.from_attr", by_id, read_by_pricing)
+        w = e["words"]
+        if not isinstance(w, list) or not w or not all(isinstance(x, str) and x.strip() for x in w):
+            _vthrow(f"{el}.words must be a non-empty list of words.")
+        if e["default_to"] not in vals:
+            _vthrow(f"{el}.default_to '{e['default_to']}' is not one of '{e['attr']}'s values.")
+        if ("gauge_pattern" in e) != ("to_by_gauge" in e):
+            _vthrow(f"{el}: gauge_pattern and to_by_gauge go together.")
+        if "gauge_pattern" in e:
+            gp = e["gauge_pattern"]
+            try:
+                groups = re.compile(gp).groups if isinstance(gp, str) and gp else 0
+            except re.error:
+                groups = 0
+            if groups < 1:
+                _vthrow(f"{el}.gauge_pattern must be a pattern whose first group is the gauge as written.")
+            tg = e["to_by_gauge"]
+            if not isinstance(tg, dict) or not tg or not all(isinstance(k, str) and k for k in tg):
+                _vthrow(f"{el}.to_by_gauge must map each gauge as written to an option.")
+            for k, v in tg.items():
+                if v not in vals:
+                    _vthrow(f"{el}.to_by_gauge['{k}'] '{v}' is not one of '{e['attr']}'s values.")
+        for key, marks in (("line", ("{from}", "{to}")), ("unlisted_line", ("{from}",))):
+            v = e[key]
+            if not isinstance(v, str) or not all(m in v for m in marks):
+                _vthrow(f"{el}.{key} must be a sentence carrying {' and '.join(marks)}.")
+        if not isinstance(e["rule"], str) or not e["rule"].strip():
+            _vthrow(f"{el}.rule must be a non-empty string.")
+
+
+def _validate_material_text(mt, by_id, family_vals, fams, ucls, read_by_pricing):
+    """SLICE 12e-5b (owner R5) -- `list_spec.pricing.material_text`: {from_attr, when_family, map}. `when_family` are
+    family values; each map entry needs every `all_of` group to hit, and prices as a PRICEABLE family per unit class."""
+    loc = "list_spec.pricing.material_text"
+    if not isinstance(mt, dict) or set(mt) != _PRICING_MATERIAL_TEXT_KEYS:
+        _vthrow(f"{loc} needs exactly from_attr, when_family and map.")
+    _as_written_text_attr(mt["from_attr"], f"{loc}.from_attr", by_id, read_by_pricing)
+    wf = mt["when_family"]
+    if not isinstance(wf, list) or not wf or not all(isinstance(f, str) and f in family_vals for f in wf):
+        _vthrow(f"{loc}.when_family must list family values.")
+    mp = mt["map"]
+    if not isinstance(mp, list) or not mp:
+        _vthrow(f"{loc}.map must be a non-empty list of entries.")
+    for i, e in enumerate(mp):
+        el = f"{loc}.map[{i}]"
+        if not isinstance(e, dict) or set(e) != _PRICING_MATERIAL_MAP_KEYS:
+            _vthrow(f"{el} needs exactly all_of, to_by_unit_class, line and rule.")
+        ao = e["all_of"]
+        if (not isinstance(ao, list) or not ao or not all(
+                isinstance(g, list) and g and all(isinstance(x, str) and x.strip() for x in g) for g in ao)):
+            _vthrow(f"{el}.all_of must be a non-empty list of non-empty word lists.")
+        tu = e["to_by_unit_class"]
+        if not isinstance(tu, dict) or not tu:
+            _vthrow(f"{el}.to_by_unit_class must map unit classes to families.")
+        for uc, fam in tu.items():
+            if uc not in ucls:
+                _vthrow(f"{el}.to_by_unit_class: '{uc}' is not a unit class of this category.")
+            if fam not in fams:
+                _vthrow(f"{el}.to_by_unit_class['{uc}'] '{fam}' is not a priceable family of this category.")
+        if not isinstance(e["line"], str) or "{to}" not in e["line"]:
+            _vthrow(f"{el}.line must be a sentence carrying {{to}}.")
+        if not isinstance(e["rule"], str) or not e["rule"].strip():
+            _vthrow(f"{el}.rule must be a non-empty string.")
+
+
 def _validate_list_pricing(spec, by_id, family_vals, cfg):
     """SLICE 5: the shape of `list_spec.pricing` -- the ADP pricing rules as CONFIG. Every attribute a rule names
     is checked in the namespace it reads from: a SKU attribute (a `numbers` key, a `choice_attrs` entry or the
@@ -1215,6 +1384,8 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
             if oo["value"] not in (by_id[oo["attr"]].get("values") or []):
                 _vthrow(f"list_spec.pricing.compose.outer_only.value '{oo['value']}' is not one of "
                         f"'{oo['attr']}'s values; the inner layers would take a value no SKU carries.")
+        if "outer_surface" in cp:
+            _validate_outer_surface(cp, pr, cfg, by_id, numbers, sku_attrs)
     # SLICE 12c: which SKU attribute labels a ladder rung. A row missing it is NOT A RUNG, so this is a
     # correctness key -- it must name an attribute the SKUs actually carry, or the ladder is empty and
     # every row refuses. Checked against the ITEM definitions, not `sku_attrs`: a label is not a
@@ -1513,6 +1684,11 @@ def _validate_list_pricing(spec, by_id, family_vals, cfg):
         if spec.get("family_attribute_id"):
             read_by_pricing_ft.add(spec["family_attribute_id"])
         _validate_family_text(pr["family_text"], family_vals, fams, by_id, read_by_pricing_ft)
+    # SLICE 12e-5b (owner R2 / R5): `choice_text`, `material_text` -- PRESENCE before any `or` idiom.
+    if "choice_text" in pr:
+        _validate_choice_text(pr["choice_text"], by_id, choice_attrs, _read_by_pricing(spec, sku_attrs, numbers))
+    if "material_text" in pr:
+        _validate_material_text(pr["material_text"], by_id, family_vals, fams, ucls, _read_by_pricing(spec, sku_attrs, numbers))
     # defaults: applied only over a "None" answer, so only an allow_none choice may carry one
     dfl = pr.get("defaults") or {}
     if not isinstance(dfl, dict):

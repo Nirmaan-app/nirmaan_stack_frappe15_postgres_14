@@ -277,7 +277,9 @@ class TestSlice12e1AssetV34(FrappeTestCase):
         # 12e-4b: INVERTED again under mechanical authority -- v38 (what a Piping row is asked) is the newest.
         # BEFORE: self.assertEqual(max(ns), 37)
         self.assertNotEqual(max(ns), 37, "12e-4b: v37 is no longer the newest")
-        self.assertEqual(max(ns), 38)
+        # BEFORE: self.assertEqual(max(ns), 38)
+        self.assertNotEqual(max(ns), 38, "12e-5b: v38 is no longer the newest")
+        self.assertEqual(max(ns), 39)
         self.assertTrue(os.path.exists(_asset_path(V35)), "v35 stays on disk as the 12e-1b record")
         self.assertTrue(os.path.exists(_asset_path(V34)), "v34 stays on disk as the 12e-1 record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -696,7 +698,9 @@ class TestSlice12e2AssetV36(FrappeTestCase):
         # 12e-4b: INVERTED again under mechanical authority -- v38 (what a Piping row is asked) is the newest.
         # BEFORE: self.assertEqual(max(ns), 37)
         self.assertNotEqual(max(ns), 37, "12e-4b: v37 is no longer the newest")
-        self.assertEqual(max(ns), 38)
+        # BEFORE: self.assertEqual(max(ns), 38)
+        self.assertNotEqual(max(ns), 38, "12e-5b: v38 is no longer the newest")
+        self.assertEqual(max(ns), 39)
         self.assertTrue(os.path.exists(_asset_path(V36)))
         self.assertTrue(os.path.exists(_asset_path(V35)))
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -819,7 +823,9 @@ class TestSlice12e3aSectionsV37(FrappeTestCase):
         # 12e-4b: INVERTED under mechanical authority -- v38 is the newest; v37 stays on disk as the 12e-3a record.
         # BEFORE: self.assertEqual(max(ns), 37)
         self.assertNotEqual(max(ns), 37, "12e-4b: v37 is no longer the newest")
-        self.assertEqual(max(ns), 38)
+        # BEFORE: self.assertEqual(max(ns), 38)
+        self.assertNotEqual(max(ns), 38, "12e-5b: v38 is no longer the newest")
+        self.assertEqual(max(ns), 39)
         self.assertTrue(os.path.exists(_asset_path(V37)))
         self.assertTrue(os.path.exists(_asset_path(V36)), "v36 stays on disk as the 12e-2 record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -1423,7 +1429,9 @@ class TestSlice12e4bAssetV38(FrappeTestCase):
     def test_25_v38_is_the_newest_hvac_asset_on_disk(self):
         d = os.path.dirname(_asset_path(V38))
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
-        self.assertEqual(max(ns), 38)
+        # BEFORE: self.assertEqual(max(ns), 38)
+        self.assertNotEqual(max(ns), 38, "12e-5b: v38 is no longer the newest")
+        self.assertEqual(max(ns), 39)
         self.assertTrue(os.path.exists(_asset_path(V37)), "v37 stays on disk as the 12e-3a record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
 
@@ -1599,3 +1607,172 @@ class TestSlice12e4bAssetV38(FrappeTestCase):
         self.assertNotEqual(old["results"], AC0_STORED)
         self.assertNotIn(AS_WRITTEN, old["results"][1]["items"][0]["attributes"])
         self.assertEqual(old["results"][1]["items"][1]["section"], "insulation")     # the marker is code, not this asset
+
+
+V39 = "rate_master_hvac_all_v39.json"   # 12e-5b: v38 + the 2026-10-15 rulings (R1-R5, R7, R9) -- Piping and Insulation configs only
+CLADDING_AS_WRITTEN = "cladding_as_written"
+
+
+class TestSlice12e5bAssetV39(FrappeTestCase):
+    """SLICE 12e-5b (2026-10-15) -- HVAC v39 = v38 + the owner's rulings on the Stage A audit, Piping and Insulation ONLY.
+
+      test_29  THE DIFF: every item and every other config byte-equal; Piping differs by two notes (R1) and the
+               second opinion OFF (R9); Insulation by two notes (R3 / R4), the "Cladding as written (BoQ)" definition
+               and its `panel_readonly` entry, `choice_text` (R2), `material_text` (R5), `compose.outer_surface` (R7)
+               and `unit_refusal` (AC8b) -- taken out again, each config IS v38's, in v38's key order.
+      test_30  v39 is the newest HVAC asset on disk; v38 stays as the 12e-4b record.
+      test_31  THE VALIDATOR admits the three new keys and refuses each wrong shape by name (one refusal per mistake).
+      test_32  WHAT THE MODEL IS SENT (AC5 / AC6): Piping's request differs from v38's by its two notes alone, and its
+               second opinion is off; Insulation's by its two notes and the new definition; ADP's is byte-identical.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.v38, cls.v39 = _read(V38), _read(V39)
+        pick = lambda a, cid: next(c for c in a["category_configs"] if c["category_id"] == cid)
+        cls.pip, cls.pip38 = pick(cls.v39, CATEGORY), pick(cls.v38, CATEGORY)
+        cls.ins, cls.ins38 = pick(cls.v39, INSULATION), pick(cls.v38, INSULATION)
+        cls.cfgs39 = {("HVAC", c["category_id"]): c for c in _stored(cls.v39)}
+        cls.cfgs38 = {("HVAC", c["category_id"]): c for c in _stored(cls.v38)}
+
+    @staticmethod
+    def _notes(cfg):
+        return {d["id"]: d.get("note") for d in cfg["list_spec"]["attribute_definitions"]}
+
+    def test_29_v39_is_v38_plus_the_ruled_changes_and_nothing_else(self):
+        self.assertEqual(json.dumps(self.v39["items"]), json.dumps(self.v38["items"]), "every item unchanged, in the same order")
+        self.assertEqual([c["category_id"] for c in self.v39["category_configs"]], [c["category_id"] for c in self.v38["category_configs"]])
+        changed = [a["category_id"] for a, b in zip(self.v39["category_configs"], self.v38["category_configs"]) if a != b]
+        self.assertEqual(sorted(changed), sorted([INSULATION, CATEGORY]))
+        for k in set(self.v38) | set(self.v39):
+            if k not in ("items", "category_configs"):
+                self.assertEqual(self.v39.get(k), self.v38.get(k), "top-level key %s is unchanged" % k)
+        # Piping: two notes, the switch
+        n39, n38 = self._notes(self.pip), self._notes(self.pip38)
+        self.assertEqual([k for k in n39 if n39[k] != n38[k]], ["pipe_type", "pipe_type_as_written"])
+        self.assertIn("copper, refrigerant, VRF or VRV piping is Copper, also where the word copper is not written", n39["pipe_type"])
+        self.assertIn("chilled water piping that names no type is MS", n39["pipe_type"])
+        self.assertIn("never a type the text does not contain", n39["pipe_type_as_written"])
+        self.assertIs(self.pip["list_spec"]["second_opinion"], False)
+        back = copy.deepcopy(self.pip)
+        for d in back["list_spec"]["attribute_definitions"]:
+            d["note"] = n38[d["id"]]
+        back["list_spec"]["second_opinion"] = True
+        self.assertEqual(json.dumps(back), json.dumps(self.pip38), "with the listed changes taken out the Piping config IS v38's")
+        # Insulation
+        ls, pr = self.ins["list_spec"], self.ins["list_spec"]["pricing"]
+        self.assertEqual([d["id"] for d in ls["attribute_definitions"]],
+                         ["item", "cladding", CLADDING_AS_WRITTEN, "thickness_mm", "pipe_size_mm", "brand", "material_as_written"])
+        d = ls["attribute_definitions"][2]
+        self.assertEqual({k: d[k] for k in ("id", "label", "type")}, {"id": CLADDING_AS_WRITTEN, "label": "Cladding as written (BoQ)", "type": "text"})
+        n39, n38 = self._notes(self.ins), self._notes(self.ins38)
+        self.assertEqual([k for k in n38 if n39[k] != n38[k]], ["item", "cladding"])
+        self.assertIn("'Tubular Puf Insulation' only where PUF or polyurethane is named", n39["item"])
+        for s in ("answer 'None' - never leave it out for that reason", "'Al. foil', 'Alu foil' or aluminium foil is 'Aluminium Foil'",
+                  "LEAVE THIS OUT and copy the cladding exactly as written into 'Cladding as written (BoQ)'"):
+            self.assertIn(s, n39["cladding"])
+        self.assertIn("A GI frame, grid or framework", n39["cladding"], "the ruled GI Framework sentence stands")
+        self.assertEqual(pr["panel_readonly"], ["brand", CLADDING_AS_WRITTEN])
+        self.assertEqual(pr["choice_text"][0]["to_by_gauge"], {"24": "24G Aluminium", "26": "26G Aluminium"})
+        self.assertEqual(pr["choice_text"][0]["default_to"], "26G Aluminium")
+        self.assertEqual(pr["material_text"]["map"][0]["to_by_unit_class"],
+                         {"length": "Nitrile Rubber Insulation", "area": "Thermal Nitrile Insulation"})
+        self.assertEqual(pr["compose"]["outer_surface"]["girth_step"]["formula"], "3.14*od/1000")
+        self.assertIn("{unit}", pr["unit_refusal"])
+        back = copy.deepcopy(self.ins)
+        bl, bp = back["list_spec"], back["list_spec"]["pricing"]
+        bl["attribute_definitions"] = [x for x in bl["attribute_definitions"] if x["id"] != CLADDING_AS_WRITTEN]
+        for x in bl["attribute_definitions"]:
+            x["note"] = n38[x["id"]]
+        bp["panel_readonly"] = ["brand"]
+        for k in ("choice_text", "material_text", "unit_refusal"):
+            del bp[k]
+        del bp["compose"]["outer_surface"]
+        self.assertEqual(json.dumps(back), json.dumps(self.ins38), "with the listed changes taken out the Insulation config IS v38's")
+        # the v38 girth step is untouched: catalogue-row paths (Derivation, impact panel, cladding cost) still run it
+        self.assertEqual(json.dumps(self.ins["list_spec"]["pricing"]["families"]), json.dumps(self.ins38["list_spec"]["pricing"]["families"]))
+
+    def test_30_v39_is_the_newest_hvac_asset_on_disk(self):
+        d = os.path.dirname(_asset_path(V39))
+        ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
+        self.assertEqual(max(ns), 39)
+        self.assertTrue(os.path.exists(_asset_path(V38)), "v38 stays on disk as the 12e-4b record")
+        self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
+
+    def test_31_the_validator_admits_the_new_keys_and_refuses_each_wrong_shape_by_name(self):
+        def refused(mutate, needle):
+            cfg = copy.deepcopy(self.ins)
+            mutate(cfg["list_spec"]["pricing"])
+            with self.assertRaises(frappe.ValidationError) as cm:
+                config_validation._validate_config(loader._loaded_config(cfg, "HVAC", {}))
+            self.assertIn(needle, str(cm.exception))
+        for c in _stored(self.v39):
+            config_validation._validate_config(c)                      # every shipped config passes
+        self.assertEqual(config_validation.delegated_section_problems(_stored(self.v39), self.v39["items"]), [])
+        ct = lambda pr: pr["choice_text"][0]
+        mt = lambda pr: pr["material_text"]
+        osf = lambda pr: pr["compose"]["outer_surface"]
+        # choice_text
+        refused(lambda pr: pr.update(choice_text=[]), "choice_text must be a non-empty list")
+        refused(lambda pr: ct(pr).update(attr="brand"), "is not a choice SKU attribute")
+        refused(lambda pr: ct(pr).update(from_attr="cladding"), "is read by the pricing")
+        refused(lambda pr: ct(pr).update(from_attr="gi_word"), "which is not an item attribute of this category")
+        refused(lambda pr: ct(pr).update(default_to="GI sheet"), "default_to 'GI sheet' is not one of 'cladding's values")
+        refused(lambda pr: ct(pr)["to_by_gauge"].update({"22": "22G Aluminium"}), "to_by_gauge['22'] '22G Aluminium' is not one of")
+        refused(lambda pr: ct(pr).update(gauge_pattern="\\d{2}"), "gauge_pattern must be a pattern whose first group")
+        refused(lambda pr: ct(pr).pop("to_by_gauge"), "gauge_pattern and to_by_gauge go together")
+        refused(lambda pr: ct(pr).update(line="priced as {to}"), "line must be a sentence carrying {from} and {to}")
+        refused(lambda pr: ct(pr).update(unlisted_line="price by hand"), "unlisted_line must be a sentence carrying {from}")
+        refused(lambda pr: ct(pr).update(colour="x"), "unknown key(s): colour")
+        # material_text
+        refused(lambda pr: mt(pr).update(when_family=["polyethylene"]), "when_family must list family values")
+        refused(lambda pr: mt(pr)["map"][0]["to_by_unit_class"].update(count="Nitrile Rubber Insulation"), "'count' is not a unit class")
+        refused(lambda pr: mt(pr)["map"][0]["to_by_unit_class"].update(length="none of these"), "is not a priceable family")
+        refused(lambda pr: mt(pr)["map"][0].update(all_of=[[]]), "all_of must be a non-empty list of non-empty word lists")
+        refused(lambda pr: mt(pr)["map"][0].update(line="priced as nitrile"), "line must be a sentence carrying {to}")
+        # compose.outer_surface
+        refused(lambda pr: osf(pr).update(attr="pipe_size_mm"), "collides with an attribute of this category")
+        refused(lambda pr: osf(pr).update(thickness="pipe_size_mm"), "thickness must be the composed axis 'thickness_mm'")
+        refused(lambda pr: osf(pr)["girth_step"].update(params={"od_from_attr": "pipe_size_mm"}), "exactly one _from_attr naming 'cladding_od_mm'")
+        refused(lambda pr: osf(pr)["girth_step"].update(result="area"), "is produced by no scale step of this category's pipelines")
+        refused(lambda pr: osf(pr).pop("girth_step"), "needs exactly attr, pipe, thickness and girth_step")
+        # v38 (none of the keys) still validates: the keys are optional
+        config_validation._validate_config(loader._loaded_config(copy.deepcopy(self.ins38), "HVAC", {}))
+
+    def test_32_what_the_model_is_sent_with_v39_and_nothing_else_moves(self):
+        row = AC0_ROWS[0]
+        payload = [extraction._ai_item(row)]
+
+        def content(g):
+            return extraction.batch_prompt_content(g["prompt"], g["defs"], payload, synonyms=g["synonyms"], defaults=g["defaults"],
+                                                   none_guidance=g["none_guidance"], slot_spec=g["slot_spec"],
+                                                   resolution_rules=g["resolution_rules"], rules=g["rules"], items_spec=g.get("items_spec"))
+        g39, g38 = extraction._group_context(self.cfgs39, "HVAC", CATEGORY), extraction._group_context(self.cfgs38, "HVAC", CATEGORY)
+        self.assertIs(g39["items_spec"]["second_opinion"], False, "AC6: the second opinion is off for Piping")
+        self.assertIs(g38["items_spec"]["second_opinion"], True)
+        req39, req38 = content(g39), content(g38)
+        # AC5: put v38's words back where v39 changed them -- the requests are then byte-identical
+        swaps = []
+        for cid in (CATEGORY, INSULATION):
+            a = self._notes(self.cfgs39[("HVAC", cid)])
+            b = self._notes(self.cfgs38[("HVAC", cid)])
+            swaps += [(json.dumps(a[k], ensure_ascii=False)[1:-1], json.dumps(b[k], ensure_ascii=False)[1:-1]) for k in b if a[k] != b[k]]
+        self.assertEqual(len(swaps), 4)
+        back = req39
+        for new, old in swaps:
+            self.assertEqual(back.count(new), 1, new[:60])
+            back = back.replace(new, old)
+        ins_def = next(d for d in extraction.build_items_spec(self.cfgs39[("HVAC", INSULATION)])["attribute_definitions"] if d["id"] == CLADDING_AS_WRITTEN)
+        frag = json.dumps(ins_def, ensure_ascii=False)
+        self.assertEqual(back.count(frag), 1)
+        back = back.replace(", " + frag, "", 1) if (", " + frag) in back else back.replace(frag + ", ", "", 1)
+        back = back.replace('"second_opinion": false', '"second_opinion": true', 1)
+        self.assertEqual(back, req38, "only the four notes, the one definition and the switch differ")
+        # nothing of the new pricing keys reaches the model
+        for word in ("choice_text", "material_text", "outer_surface", "cladding_od_mm", "unit_refusal", "unlisted_line"):
+            self.assertNotIn(word, req39, word)
+        # NEGATIVE: ADP's request is byte-identical v38 -> v39
+        g, g0 = extraction._group_context(self.cfgs39, "HVAC", "hvac_adp"), extraction._group_context(self.cfgs38, "HVAC", "hvac_adp")
+        self.assertEqual(g, g0)
+        self.assertEqual(content(g), content(g0))

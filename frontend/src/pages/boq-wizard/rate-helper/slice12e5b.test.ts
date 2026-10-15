@@ -334,3 +334,40 @@ describe("AC8a a priced insulation section names its insulation", () => {
   });
 });
 
+// =====================================================================================================
+// v39 -- the asset ships exactly the keys this file prices with, and the real rows price on it
+// =====================================================================================================
+// v39's items are v38's byte for byte (test_piping_v34.test_29), so ITEMS stays the catalogue; only the configs move.
+const V39 = readJsonFixture<Asset>(new URL(`${DATA}rate_master_hvac_all_v39.json`, import.meta.url));
+const LIVE = new Map<string, RateCategoryConfig>(V39.category_configs.map((c) => [c.category_id, c]));
+
+describe("v39 (AC2 / AC3 / AC4 / AC8b) -- the shipped keys and the real rows", () => {
+  it("the Insulation config ships V39_INSULATION_KEYS exactly", () => {
+    const pr = (LIVE.get(INS) as unknown as { list_spec: { pricing: Record<string, unknown> & { compose: Record<string, unknown> } } }).list_spec.pricing;
+    expect(pr.compose.outer_surface).toEqual(V39_INSULATION_KEYS.outer_surface);
+    expect(pr.choice_text).toEqual(V39_INSULATION_KEYS.choice_text);
+    expect(pr.material_text).toEqual(V39_INSULATION_KEYS.material_text);
+  });
+  it("00162 rows 17 / 18 (AC2), 00273 row 61 (AC4) and a GI cladding (AC3) price on v39 as on the keyed v38", () => {
+    for (const [answer, unit, desc, h] of [
+      [ROW("50mm. Dia"), "Rmt.", "50mm. Dia", H162], [ROW("40mm Dia"), "Rmt.", "40mm Dia", H162],
+      [PE("6 mm thick closed cell polyethylene"), "Rmt", "20 mm dia.", H273], [GI("26 G GI cladding"), "Rmt", "", []],
+    ] as Array<[Answer[], string, string, string[]]>) {
+      const live = panel(PIP, answer, unit, desc, h, undefined, LIVE);
+      expect(live.v.rowPriced).toBe(true);
+      expect(live.values).toEqual(panel(PIP, answer, unit, desc, h, undefined, KEYED).values);
+    }
+  });
+  it("NEGATIVE v38 as shipped: 00273 row 61 refuses and 00162 row 17 prices differently", () => {
+    expect(panel(PIP, PE("6 mm thick closed cell polyethylene"), "Rmt", "20 mm dia.", H273, undefined, PLAIN).v.rowPriced).toBe(false);
+    expect(panel(PIP, ROW("50mm. Dia"), "Rmt.", "50mm. Dia", H162, undefined, LIVE).values)
+      .not.toEqual(panel(PIP, ROW("50mm. Dia"), "Rmt.", "50mm. Dia", H162, undefined, PLAIN).values);
+  });
+  it("AC8b: an insulation section on a count unit says what insulation is priced by; v38 said 'not a count, area or length unit'", () => {
+    const sentence = "unit 'Nos' is not a length or area unit - insulation is priced per metre or per sq.m";
+    const sec = (configs: Map<string, RateCategoryConfig>) => attached(panel(PIP, COPPER("12.7mm"), "Nos", "", [], undefined, configs).v).view;
+    expect(sec(LIVE).reason).toBe(sentence);
+    expect(sec(PLAIN).reason).toBe("unit 'Nos' is not a count, area or length unit");
+    expect(panel(INS, INSULATION("12.7mm"), "Nos", "", [], undefined, LIVE).v.items[0].reason).toBe(sentence);
+  });
+});
