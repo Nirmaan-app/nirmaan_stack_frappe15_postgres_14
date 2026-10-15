@@ -6527,3 +6527,84 @@ INVERTED to `…_on_a_record_another_line_skipped_on_is_no_hit`); `test_status.T
 four shapes) and the IFSC cases in `TestTheContainsQueryMirrorsThePureTokens`; `test_inflows.TestTheDuplicateGuards`
 (3: the prompt text, a branch-code-only inflow, an inflow another line accounts for).
 
+
+## Porter Statement — the fourth source (designed 2026-10-15, ⚠️ NOT BUILT YET)
+
+Decisions: **[ADR-0032](../../../docs/adr/0032-porter-statement-import.md)** (owner grilling, Q1–Q36).
+Terms: `GLOSSARY.md` § *Porter deliveries*. Replace this section with the as-built record when it ships;
+until then nothing below exists in code.
+
+**What it is.** Porter's monthly CSV, one line per delivery order. Each completed order becomes ONE
+`Project Expenses` / `Non Project Expenses` row at `Paid`. Like Cashbook, it creates and never settles, so
+it joins `NEVER_MATCHED_SOURCES`. It closes the gap `bank_exclusions.platform_porter` opened on purpose:
+that rule skips the wallet top-ups and stays unchanged.
+
+**Owner-locked rulings** (each one breaks something silently if "tidied"):
+
+1. **Expense `amount` = the Porter fare** (`invoice_order_fare`), NEVER fare + tax. Porter's GST is reverse
+   charge. The tax lives on the Porter Order as reverse-charge GST.
+2. **Two new doctypes, and the expense owns the link.** `Porter Invoice` is one per invoice link and holds
+   the PDF, what Gemini read and the comparison. `Porter Order` is one per CRN and holds every statement
+   order column. The expense points at its order through one `porter_order` Link. No marker fields on the
+   expense doctypes.
+3. **The validation gate is all or nothing, with NO override.**
+   - Checked per invoice: invoice number, Porter GSTIN, customer GSTIN, fare and tax, fare and tax
+     within ₹1.
+   - Compared against the statement's **completed** orders only. A cancelled order is a skipped row and
+     counts toward nothing.
+   - Measured on the 2026-09 file: all 10 invoices pass. The tax rounding gap was at most ₹0.18.
+4. **Steps:** Upload (sync) → Validate (background, 3 invoices at a time) → Review (editable) → Create
+   (a button, then background).
+   - **Validate:** each invoice goes Downloading → Reading → Comparing. Progress is committed per invoice
+     and read by polling. Only download or Gemini errors are retryable.
+   - **Create:** order by order, Cashbook-style, so it can resume.
+   - **What exists before Create:** only the batch, its rows, the Porter Invoices and their PDFs. A failed
+     or abandoned import is Discarded (Admin and Accountant Lead; refused once Create has started).
+   - **Re-uploads:** an uncreated import blocks a re-upload of its invoices.
+5. **Identity is the invoice number.** Already-imported invoices are left out and counted (ADR-0031
+   shape). An already-imported invoice now listing different orders BLOCKS the upload.
+6. **The invoice PDF is stored ONCE**, as a `File` attached to its Porter Invoice. Its expenses share
+   the URL. NEVER one `File` row per expense: `frappe_gcp_attachment.delete_from_cloud` deletes the
+   stored object by key, with no check for other rows sharing it. There is no URL-to-File download
+   helper in the repo yet; build it from `hod/binder._download` and `save_file`.
+7. **Project placement uses no aliases and no Gemini.**
+   - **Signals, in order:**
+     - `project_match`, Won only.
+     - Typo and initials tolerance.
+     - Site-address match. It overrides a name only when most of a remark group's orders agree.
+     - Earlier confirmed or rectified Porter Orders.
+   - **How suggestions are shown:** weak ones are marked "Check". Orders with no remark are reviewed one
+     by one. Blank means Non-Project.
+   - **Measured on the 2026-09 file:** 144 of 158 placed.
+   - ⚠️ Index **Won projects only**, as Cashbook's `_build_plan` does. Indexing every project makes the
+     Tendering duplicate "EXL KOCHI" hide the Won "EXL Kochi".
+8. **Corrections use Rectify, next to Unreconcile** (same lines, same roles).
+   - **Moves:** Non-Project → project, project → project, project → Non-Project.
+   - **How:** it REPLACES the expense and reverses the old match with a reason. It is never an in-place
+     project edit, because `Outflow Row Match` is frozen after insert.
+   - **Description:** rewritten for the new placement, unless someone has hand-edited it.
+   - **On the expense screens**, the project field is locked on Porter expenses.
+9. **Porter lines are EXCLUDED from `not_matched_totals`.** That keeps them out of *Total Unreconciled
+   Outflow* and *Still open*, which must stay equal. They are not bank lines.
+10. **What each expense gets:**
+    - `type` = `Material Transportation Charges`, which gains the Non-Project flag as a fixture change.
+    - `payment_date` = the date in `order_completion_time`.
+    - `payment_ref` = the CRN.
+    - `invoice_ref` / `invoice_date` from the invoice.
+    - `payment_by` = `customer_name`, trimmed.
+    - `vendor` left blank.
+    - Description: "Porter Delivery raised by {customer_name} for {project_name}". On a Non-Project
+      Expense it is just "Porter Delivery raised by {customer_name}".
+11. **Import period** = the first to the last order completion date (the CSV declares no period). It
+    gets its own *Porter* tab in Import History.
+
+**Every place the new source string must be added** (pinned together by test, like `ICICI Bank Statement`):
+- `parser._ADAPTERS`
+- the `Outflow Import Batch.source` Select
+- `sources.NEVER_MATCHED_SOURCES` and the frontend `outflowImportStatus.ts` mirror
+- `SOURCE_OPTIONS`
+- `SOURCE_FLOWS`
+- `ImportStatementDialog` (`SOURCES`, `SOURCE_SHAPE`, `SOURCE_REPORT`)
+- `OutflowImportBatch.source`
+- a new `Outflow Row Match.match_basis` value
+- a new `skip_kind` for "Porter order cancelled"

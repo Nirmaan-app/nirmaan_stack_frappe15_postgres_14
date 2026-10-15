@@ -138,6 +138,25 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Unskip (an imported bank line)** — bringing a skipped line back, with a typed reason; which lines may come back is decided by the **skip kind** (see *Skipped by hand*). The line goes back to matching and is checked again straight away: it may come back needing a record, matched to a record, or skipped again because its money has since been recorded. A line a bank-statement rule skipped gets no such re-check — those rules are applied when the statement is read in — so it comes back as open work, and the dialog warns that the line was read as money moving between our own accounts. (2026-09-15, [ADR-0022](docs/adr/0022-unreconcile-and-unskip.md); amended 2026-09-17 by [Amendment C](docs/adr/0022-unreconcile-and-unskip.md).)
 
+## Porter deliveries
+
+- **Porter Statement** — Porter's monthly export of every delivery booked on the company's Porter account, one line per order, each line naming the Porter Invoice that bills it. It is the record of what the Porter wallet actually spent: the bank only shows money moving *into* that wallet (a *Porter wallet top-up*, never a spend). Imported once a month; nothing from it is recorded unless every Porter Invoice it names agrees with it. (Owner, 2026-10-15.)
+  *Avoid*: Porter payout report, Porter wallet statement.
+
+- **Porter Invoice** — one tax invoice Porter issues for a month's completed orders in one city under one of its billing entities; a Porter Statement normally names several. Its total is the **Porter fare** of its completed orders only. (Owner, 2026-10-15.)
+  *Avoid*: consolidated note (Porter's own file name for it).
+
+- **Porter Order** — one delivery booked on Porter, identified by its CRN, belonging to exactly one Porter Invoice. A completed Porter Order is recorded as exactly **one** Expense — a Project Expense when it can be attributed to a project, otherwise a Non-Project Expense — and the Porter Order keeps the delivery's details (addresses, who booked it, its fare and tax). A Porter Order is **not** itself an Expense. (Owner, 2026-10-15.)
+  *Avoid*: Porter Expense, Porter transaction, trip.
+
+- **Cancelled Porter order** — a line on a Porter Statement whose order did not complete. Porter does not bill it, so it counts toward no Porter Invoice and becomes no Expense; the import keeps it only as a skipped line. (Owner, 2026-10-15.)
+
+- **Porter fare** — what Porter charges for an order, before GST; it is the amount the Porter wallet pays and therefore the **amount of the Expense**. Porter's GST is charged under **reverse charge**: the company, not Porter, pays it to the government, so it is never part of what Porter is paid and never part of the Expense's amount. It is kept on the Porter Order as the order's *reverse-charge GST*. (Owner, 2026-10-15.)
+  *Avoid*: amount incl. GST, invoice amount (for the fare alone, which is ambiguous).
+
+- **Rectify (an imported Porter order)** — moving a completed Porter Order's Expense to where it belongs after the import: from Non-Project to a project, from one project to another, or from a project to Non-Project. It **replaces** the Expense with one identical in money, date, reference and invoice, and the import's record of the old placement is kept as reversed, with the typed reason. The Porter Order itself never changes. Offered wherever an imported line can be unreconciled, to the same people. (Owner, 2026-10-15.)
+  *Avoid*: unreconcile (which takes the Expense away and leaves the line open), re-import, edit project.
+
 ## Vendor invoices & credit notes
 
 - **Vendor Invoice** — a recorded vendor bill entered against a Purchase Order or a Work Order (Service Request). Distinct from a *Project Invoice*, which bills the Customer.

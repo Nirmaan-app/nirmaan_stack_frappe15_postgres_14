@@ -706,6 +706,19 @@ silently wiped the shipped Travel (Bus) format once. Use the suite's `_set_forma
 - Plan / as-built: `.claude/plans/expense-request-plan.md`.
 - Bank-line settlement as-built: `.claude/context/domain/outflow-import.md`.
 
+## Porter expenses (designed 2026-10-15, ⚠️ NOT BUILT YET)
+
+The Porter Statement import ([ADR-0032](../../../docs/adr/0032-porter-statement-import.md); rulings in
+`outflow-import.md` § *Porter Statement — the fourth source*) will create one Project or Non-Project Expense
+per completed Porter order, at `Paid`:
+- **Amount:** the Porter fare, never the reverse-charge GST.
+- **Link:** one `porter_order` Link to a new `Porter Order` doctype.
+- **Invoice PDF:** shared with every other order on the same Porter Invoice.
+- **Expense screens:** a Porter badge and a read-only Porter section.
+- **Locked project:** the project field is locked on these expenses; corrections go through **Rectify** in
+  Bulk Import.
+- **Delete:** already refused by `expense_bank_links` rule 3, because each one has a live import match.
+
 ## Deliberate design decisions (do NOT "fix")
 
 - **No server-side lock on a Paid record, expense or payment** (owner, 2026-09-21). The owner
