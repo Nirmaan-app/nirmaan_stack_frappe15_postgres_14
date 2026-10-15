@@ -47126,3 +47126,74 @@ Findings for **12e-5b**:
 - The numbers assume the second opinion; with it off (owner ruling), Stage B is about 504 batch calls.
 
 **Dev leftovers, for the owner's approval:** BRSR-26-00449 (BOQ-26-00231, partial, inactive).
+
+## Slice 12e-5b — Piping: the twelve fixes from the Stage A audit, the free recheck, and one declared re-read — as built 2026-10-15
+
+**Commits (unpushed at the time of writing):**
+- `55a74d4d5` fix(rate-helper): AC1-AC4 code, AC8a, `slice12e5b.test.ts`; the 12e-5 parity finding inverted (AC10).
+- `9311c83a9` fix(rate-master): AC7, the never-read rows.
+- `7be6b3447` feat(rate-master): HVAC v39, the validator for its keys, the loader tests and the pin moves.
+- `8d417401f` fix(rate-master): HVAC v40, the cert-found label fix (owner: "Mint v40 now").
+- The docs commit that carries this entry.
+
+Start tip `56cbd5d95` (= origin). HVAC v40 live on dev (batch `rmbulk-145d16f3c60e`, pre-load snapshot `BRMS-26-00745`; v39 was `rmbulk-0a5a73750e8b` / `BRMS-26-00674`); Electrical v66 untouched. Five commits, not four: v40 has its own.
+
+Full report on the Desktop: `2026-10-15_12e5b_Report.md`, the ledger first. Also there: `2026-10-15_12e5b_Rows.xlsx`, `2026-10-15_12e5b_screens\` and the three suite logs.
+
+### 1. What was built
+
+| AC | Ruling | Change | Where |
+|---|---|---|---|
+| AC1 | R6 | An inch size with its mm in brackets is one size within 0.5 mm; otherwise "the size is written two different ways (X and Y) - price this row by hand", and the box shows no figure | `itemListPricing.inchWithMmEcho`; `pricingSheetHelper` (R-B match, field) |
+| AC2 | R7 | The outer layer of a composition runs its pipelines with `compose.outer_surface.girth_step` over pipe as read + 2 x the total thickness, with its working line | `itemListPricing.priceOneItem` / `priceItemList`; v39 config |
+| AC3 | R2 | "Cladding as written (BoQ)"; `choice_text` maps an unanswered GI cladding to the aluminium of its gauge with its amber line; an unlisted gauge refuses (`unlisted_line`) | `itemListPricing.choiceTextFor`; v39 config |
+| AC4 | R5 | `material_text`: "none of these" + closed cell polyethylene as written prices as Nitrile Rubber (per metre) / Thermal Nitrile (per sq.m) with its amber line | `itemListPricing.materialTextFor`; v39 config |
+| AC5 | R1, R3, R4 | Notes: Piping `pipe_type`, `pipe_type_as_written`; Insulation `item`, `cladding` | v39 |
+| AC6 | R9 | Piping `second_opinion: false` | v39 |
+| AC7 | R8 | A selected-row Suggest also reads the never-read rows; the confirmation names and counts them | `rate_master._never_read_rows`, `start_suggest`, `get_active_suggestion_run`; `PricingGrid.suggestConfirmCopy`; `SheetPricingPage` |
+| AC8a | -- | A SKU with no item name is named by its family | `pricingSheetHelper.itemBlockView` |
+| AC8b | -- | Insulation `unit_refusal`: "unit 'Nos' is not a length or area unit - insulation is priced per metre or per sq.m" | v39 |
+| AC8c | -- | The 12e-5 AC1 rule, filed as a domain invariant | `boq-rate-master.md` |
+
+**Design decisions taken in the build (declared):**
+- AC2: the v38 girth step is never edited -- the Derivation tab, the impact panel, `pricingInputExact` and `cladding_cost.py` run it over catalogue rows that carry no outer diameter. `outer_surface` carries its own `girth_step`, swapped in for the OUTER layer of a composition only.
+- AC3: an unlisted gauge ("22 G GI") refuses; falling to the "No" default would price the row without the cladding it asked for.
+- The cladding note reads "a GI cladding" as a plain GI / galvanised sheet with no frame or perforated sheet; the ruled "GI Framework with perforated Al sheet" option is unchanged.
+
+**HVAC v40 = v39 + the label "Cladding as written" and the cladding note's reference to it** (the panel renders a read-only field as "<label> (BoQ): <value>", so v39's "Cladding as written (BoQ)" showed "(BoQ) (BoQ)"; found at cert C3). **HVAC v39 = v38 + Piping and Insulation configs only** (items and the eight other configs byte-equal; sha256 `d5476bd1...`). `config_validation`: `choice_text`, `material_text`, `compose.outer_surface`, each with its checks.
+
+### 2. The free recheck (AC9, AC10, AC2 figures)
+
+- AC9 after commit 1: 17 of 13,674 rows (00119 HVAC x12, 00158 DX - Hiwall x5) refused -> priced; nothing else.
+- AC9 after commit 3 (v39 live): 8 figure rows -- 00162 / Water Side 17 2,031 / 588 -> **2,109** / 588 and 18 1,596 / 518 -> **1,683** / 518 (AC2); 00273 rows 61-64, 00137 / Security 24, 00156 / Security 25 refused -> priced (AC4) -- and 5 refusal wordings (AC8b). 0 Insulation-category rows, 0 Electrical.
+- AC2 derivation: row 17 girth 3.14 x (53.98 matched + 2 x 19) / 1000 = 0.2888 -> 3.14 x (50 + 2 x 32) / 1000 = 0.35796; cladding (450 x 1.25 + 200) x girth = 220.22 -> 272.94. Row 18: 0.2489 -> 0.32656 (104 mm), 189.82 -> 249.00.
+- AC5 (stub client, rebuilt requests): ADP and Electrical byte-identical; Insulation differs by its two notes and the new definition; Piping by its notes, Insulation's (its section) and `"second_opinion": true -> false`.
+- AC10: the 00119 / 20 parity finding inverted to "outright" (936 / 220), moved to commit 1 where AC1 breaks it.
+
+### 3. The declared re-read (AC11-AC16)
+
+- Declared: 19 sheets, 281 rows (217 Piping + 25 Insulation + 39 ADP added by AC7), 28 batch calls, 0 second opinion, cap 48. Ran 11:49-12:10 on the owner's "go": 19 runs BRSR-26-00541..00559, all complete and active; 29 calls (one retry: a reply element without `id` raised `KeyError('id')`, treated as transient); every request byte-identical to the stub build; 294,848 tokens in / 71,680 out.
+- AC7 live: BOQ-26-00231 ticked 36 + never-read 42 = 78, complete, superseding BRSR-26-00036 (which had read only the 25 Electrical rows).
+- AC13 (Piping 217): 100 unchanged, 71 NEUTRAL, **32 FIXED** (00341 cladding x19, 00162 / 75-76, 00321 / 78-81 tubular nitrile, 00231 / 127-135 no unwritten "copper" as written), **12 OWNER DECISION** (00321 rows 15-26: RPUF now read as Tubular PUF under the R3 note; 9 priced, 3 refuse on thickness 30; a 50 mm thickness prices as the smallest PUF, 80 mm), **2 NEW WRONG, both refusals** (00186 / 106 "Insulation foam" -> none of these; 00231 / 136 pipe type left out under "VRF SYSTEM").
+- AC14 (Insulation, 22 re-read): 1 FIXED (00186 / 69), 21 NEUTRAL, 0 NEW WRONG.
+- AC15: 217 rows, sent block == `payload_items` 217, replies 217, 0 parse errors; cladding never left out.
+- AC16: run documents 165 -> 184; only the 19 superseded runs changed, and only `active`; BRSR-26-00449 untouched; live == v39 / v66. **New baselines: 13,752 rows; plain `8e94bd4e0abbc6afe06379832e63530ad8c421ddf3cdfb30e3f96db9fa6a75d4`; section-aware `4311903d0411d669b7fa63dbf5cc534300d76ce5086e918b65834db78ceb1487`.**
+
+### 4. Suites and cert
+
+- Frontend: 174 files / 6,688 tests, the 1 known writeOffControl timeout (before: 173 / 6,654).
+- tsc: 3,170, identical by file and message.
+- Python (full, once): 8,082 tests, 6 failures + 2 errors = the known set exactly (before: 8,074). The v40 targeted set: 6 modules, 1,112 tests, all OK.
+- Cert (Chrome, :8080): C1 00119 / 20 priced 936, box 12.7; C2 00162 / 17 2,109 with the ONE-wrap line (girth 0.36); C3 the GI line and 9,459 -- the doubled "(BoQ)" label found here, fixed by v40 and re-seen as "Cladding as written (BoQ): 26 G GI cladding"; C4 00273 / 61 508 with the closed cell polyethylene line; C5 00269 / HVAC confirmation "... will also read 39 rows that no run has read yet (by category: ADP 23, Piping 13, Insulation 3)", "Run 40 rows", CANCELLED; C6 "Nitrile Rubber Insulation (Mts)" and the Nos sentence; C7 00341 / 33 Al. foil, 00341 / 86 None -> No, 00231 / 130 no unwritten "copper"; C8 Calculator ADP fire damper UL 600 x 600 = 7,830 / 692, Electrical 00174 / 309 = 1,884; C9 HVAC = v40 (`93bbac8f` / `a080507f`), Electrical = v66 (`784d1dbe` / `aa8d0a49`).
+- **Cert incident (owner ruled):** a toolbar shift turned a click into "BCS" on BOQ-26-00269 / HVAC, which with BCS off POSTs `set_bcs_enabled(1)` at once (BQSH-26-01320). Reported, then turned back off on the owner's word through the app's own dialog; a second stale click opened "Freeze classification?" and was cancelled (nothing frozen). After that, toolbar buttons were clicked only by exact text.
+
+### 5. Findings for the owner
+
+1. RPUF -> Tubular PUF (00321 rows 15-26): decide whether rigid PUF prices as the stocked Tubular PUF.
+2. 00186 / 106: an unnamed "insulation foam" under a heading that names nitrile is now refused.
+3. 00231 / 136: R1 did not fire on a structure-affected row whose only heading is "VRF SYSTEM".
+4. A reply element without `id` makes the batch parser raise `KeyError` (retried; a transient-path defect, not handled by name).
+5. A typed inch size followed by "dia" is refused by the 12e-4b one-size forms (unchanged).
+6. The residence baselines are stale before this slice (F2 221 vs 217, F5 120 vs 117); this slice adds 0.
+7. On a section refused by its unit (00321 / 78-81, "Nos"), the section shows "(no family)": the stored reading (Nitrile Rubber) is not displayed.
+8. The pricing toolbar shifts when a row is ticked ("Suggest rates" gains a count), and the BCS button writes on its first click when BCS is off.

@@ -1060,6 +1060,58 @@ reads its own cell (SS) or refuses with its own sentence (above the largest). BE
 bare 1 as 1 mm (191 / 14), and a pipe size the model could not read let the section price the model's own section
 cell.
 
+**A SECTION REFUSING AT ITS MIRRORED SIZE SHOWS THE 'None' DEFAULTS ITS ITEM HAD READ (owner, 2026-10-14; slice 12e-5
+AC1, filed as a domain invariant at 12e-5b AC8c).** A section that refuses over its pipe's size keeps what the AI read
+for it: a cladding answered "None" shows as "No" with its amber default line, exactly as Insulation shows it on a
+priced row; a value with no dropdown word shows as before; no figure and no "priced as" line is shown.
+
+**AN INCH SIZE WITH ITS MM IN BRACKETS IS ONE SIZE (owner R6, 2026-10-15: "we need to fix"; slice 12e-5b AC1).**
+'1/2" (12.7mm)', '1 1/8" (28.6mm)', '1/4 " dia (6.4 MM)': where the bracketed mm equals the inch value's conversion
+within 0.5 mm (`INCH_MM_ECHO_MM`), the bracket is dropped and the inch value is read exactly as an inch value always
+was -- on every Piping / Insulation size reader, model-read and typed (`inchWithMmEcho`). Where they disagree by more
+the size refuses "the size is written two different ways (X and Y) - price this row by hand", and the size box shows
+no figure (the R-B option match skips the text, and the field clears with the refusal as its note) -- the box never
+shows a value the row then refuses on. A typed inch size followed by "dia" is still refused by the 12e-4b one-size
+forms; that rule is unchanged.
+
+**A COMPOSED INSULATION CARRIES ONE CLADDING, OVER THE OUTER SURFACE (owner R7, 2026-10-15: "the dia is 50+2*32=114
+mm"; slice 12e-5b AC2).** Composition itself is unchanged: two to four stocked layers within `compose.tolerance`
+(2.0 mm), fewest layers first, the cladding on the outer layer only (`outer_only`). The outer layer's cladding girth
+is 3.14 x (the pipe size AS READ + 2 x the TOTAL thickness) / 1000; where no size was read, the matched size, said so
+in the working line ("cladding: ONE wrap over the outer surface -- pipe size as read 50 + 2 x 32 (the total
+thickness) = 114 mm"). Config, not code: `compose.outer_surface` names the run-only attribute (`cladding_od_mm`) and
+carries its own `girth_step`, which the pricer swaps in for the step producing the same result on that ONE layer.
+The config's own girth step is never edited: the Derivation tab, the impact panel, `pricingInputExact` and
+`cladding_cost.py` run it over catalogue rows, which carry no outer diameter. Every one-layer item is byte-identical.
+
+**A CLADDING THE CATALOGUE DOES NOT STOCK IS READ AS WRITTEN AND MAPPED BY CONFIG (owner R2, 2026-10-15: "should read
+as 26G GI cladding and mapped to aluminium as we dont have gi cladding. if in future we have GI cladding sku, it
+should map to it"; slice 12e-5b AC3).** The model leaves the cladding choice out and copies the words into "Cladding
+as written" (`cladding_as_written`, read-only; the panel shows it as "Cladding as written (BoQ): ...", so the label
+never carries "(BoQ)" itself -- v39 did, and showed it twice; v40 fixed the label). `list_spec.pricing.choice_text` maps an UNANSWERED choice (absent
+or "None") whose as-written words hold one of its `words` to the stocked option of its gauge (`to_by_gauge`; no gauge
+-> `default_to`) with the amber line "BoQ says 26 G GI cladding -> priced as 26G Aluminium". A gauge the table does not
+list refuses with `unlisted_line` -- never the "No" default, which would price the row without the cladding it asked
+for. An answered cladding always wins. A GI cladding SKU later is a config / catalogue change, never code. "GI
+Framework with perforated Al sheet" (a frame, or a perforated sheet) is unchanged.
+
+**CLOSED CELL POLYETHYLENE PRICES AS NITRILE, AND ONLY CLOSED CELL (owner R5, 2026-10-15: "this also prices thermal
+nitrile"; scope "option a"; slice 12e-5b AC4).** `list_spec.pricing.material_text`: a family answered as one of
+`when_family` ("none of these") whose material as written hits EVERY `all_of` group (closed / close / closed-cell AND
+polyethylene / PE, whole words) prices as `to_by_unit_class` -- Nitrile Rubber Insulation per metre (a pipe), Thermal
+Nitrile Insulation per sq.m (a duct or sheet) -- with the amber family line "BoQ says closed cell polyethylene ->
+priced as <family>". Plain polyethylene, PE foam and XLPE keep refusing by name (`unstocked_materials`).
+
+**A SELECTED-ROW SUGGEST ALSO READS THE ROWS NO RUN HAS READ, AND SAYS SO FIRST (owner R8, "option a, with an
+appropriate declaration"; slice 12e-5b AC7).** A selected-row pass carries the active run's rows forward and completes
+only when the population minus everything attempted is empty, so a row that became eligible after that run left the
+pass "partial" on rows nobody ticked (BOQ-26-00231 in 12e-5). `rate_master._never_read_rows` = today's population minus
+what the carry-source run attempted; `start_suggest` adds them to a selected-row run (never a whole-sheet run) and
+echoes `never_read_added`; `get_active_suggestion_run` returns `never_read_rows` only where the active run is complete
+on the current version. The confirmation (`PricingGrid.suggestConfirmCopy`) adds "This sheet's last run is older than
+some of its rows. This run will also read N rows that no run has read yet (by category: ...)." and its action counts
+them; with none the copy is byte-identical. Proven live on 00231: 36 ticked + 42 never-read = 78, complete, superseded.
+
 **A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
 12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
 (the smallest size)" (12e-4d AC3: below the smallest stocked size the field's line and the working both say "(the
