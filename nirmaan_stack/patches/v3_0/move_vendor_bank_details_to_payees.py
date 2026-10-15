@@ -6,7 +6,8 @@
 WHY THIS PATCH EXISTS
     A Payee is now the one record of a bank account (ADR-0033). The vendors' five bank fields stay in
     place until ticket 12 of the spec deletes them; this patch gives every vendor with an account
-    number its Payee first, and every vendor-linked expense that Payee.
+    number its Payee. Expenses are not touched: each holds its own pay-to account (#1436), which
+    the backfill patch fills; nothing links an expense to a Payee (#1438).
 
 WHAT IT MAKES
     Vendors with no Payee yet are grouped by (account number without spaces, dashes or leading zeros,
@@ -23,25 +24,22 @@ WHAT IT MAKES
     IFSC or account number) is skipped: its vendors keep no Payee and the
     log names them with the reason. Nothing is invented for them. Each group is written inside its own
     savepoint, so one refusal never stops the others.
-    Then every Expense Request and Project Expense with no Payee whose vendor has one gets that Payee.
-    Non Project Expenses name no vendor and stay as they are; so does every other past expense.
 
 THE LOG
     Counts; each merged Payee (a group of more than one vendor) with its vendors and their recorded
     holder names; each holder name taken from a vendor name; each skipped group and why.
 
 IDEMPOTENT
-    Only vendors with no Payee are read, and only expenses with no Payee are written, so a second run
-    makes and changes nothing. Skipped vendors are skipped again, with the same log lines.
+    Only vendors with no Payee are read, so a second run makes and changes nothing. Skipped vendors
+    are skipped again, with the same log lines.
 
 HOOKS
-    The Payee insert runs its `validate` (cleaning, completeness, duplicate refusal). The vendor and
-    expense `payee` links are raw UPDATEs that skip `doc_events` and leave `modified` alone, which is
-    correct: no hook on `Vendors`, `Expense Request` or `Project Expenses` reads `payee` or derives
-    anything from it, and a link moves no money figure.
+    The Payee insert runs its `validate` (cleaning, completeness, duplicate refusal). The vendor
+    `payee` link is a raw UPDATE that skips `doc_events` and leaves `modified` alone, which is correct:
+    no hook on `Vendors` derives anything from `payee`, and a link moves no money figure.
 
-The `patches.txt` line sits under [post_model_sync], after the sync that adds `Payee` and the
-`payee` links (#1422).
+The `patches.txt` line sits under [post_model_sync], after the sync that adds `Payee` and
+`Vendors.payee` (#1422).
 """
 
 from __future__ import annotations
@@ -52,8 +50,6 @@ from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE, details_problem, 
 from nirmaan_stack.services.payees.writer import backfill_payee, existing_payee
 
 PATCH = "move_vendor_bank_details_to_payees"
-#: The doctypes that name a vendor and so take its Payee.
-VENDOR_LINKED_EXPENSES = ("Expense Request", "Project Expenses")
 #: The vendors' old bank columns this reads. #1432 deleted the fields; migrate keeps the columns, but
 #: a site installed after it never had them, and then there is nothing to move.
 OLD_BANK_COLUMNS = ("account_name", "account_number", "ifsc", "bank_name", "bank_branch")
@@ -74,16 +70,15 @@ def execute():
 
 
 def move_vendor_bank_details(vendors: list[str] | None = None) -> dict:
-    """Give every vendor with an account number and no Payee its Payee, then every vendor-linked
-    expense with no Payee its vendor's -- or only for `vendors` and their expenses, which is what the
-    tests pass so they never touch a vendor they did not plant. Commits nothing.
+    """Give every vendor with an account number and no Payee its Payee -- or only `vendors`, which is
+    what the tests pass so they never touch a vendor they did not plant. Commits nothing.
 
-    Returns `{made: [payee], linked_vendors: int, linked_to_existing: int, linked_expenses: int,
+    Returns `{made: [payee], linked_vendors: int, linked_to_existing: int,
     no_account: int, merged: [group], filled_names: [group], skipped: [{vendors, account_number,
     ifsc, reason}]}`; a group is `{payee, account_name, vendors: [{name, vendor_name, account_name}]}`.
     """
     result = {
-        "made": [], "linked_vendors": 0, "linked_to_existing": 0, "linked_expenses": 0, "no_account": 0,
+        "made": [], "linked_vendors": 0, "linked_to_existing": 0, "no_account": 0,
         "merged": [], "filled_names": [], "skipped": [],
     }
     if vendors is not None and not vendors:
@@ -98,8 +93,6 @@ def move_vendor_bank_details(vendors: list[str] | None = None) -> dict:
 
     for key in sorted(groups):
         _move_group(groups[key], result)
-
-    result["linked_expenses"] = _link_expenses(vendors)
     return result
 
 
@@ -108,8 +101,7 @@ def summary(result: dict) -> list[str]:
     then each skipped group and why."""
     lines = [
         f"{len(result['made'])} Payee(s) made; {result['linked_vendors']} vendor(s) linked "
-        f"({result['linked_to_existing']} to a Payee already on record); {result['linked_expenses']} "
-        f"expense(s) / expense request(s) given their vendor's Payee; {result['no_account']} vendor(s) "
+        f"({result['linked_to_existing']} to a Payee already on record); {result['no_account']} vendor(s) "
         f"with no account number left without one; {len(result['skipped'])} group(s) skipped"
     ]
     lines += [
@@ -208,20 +200,3 @@ def _skip(result: dict, names: list[str], details, reason: str) -> None:
     result["skipped"].append({
         "vendors": names, "account_number": details.account_number, "ifsc": details.ifsc, "reason": reason,
     })
-
-
-def _link_expenses(vendors: list[str] | None) -> int:
-    """Give each vendor-linked Expense Request and Project Expense with no Payee its vendor's Payee.
-    Returns how many were written."""
-    scope = "AND x.vendor IN %(vendors)s" if vendors is not None else ""
-    written = 0
-    for doctype in VENDOR_LINKED_EXPENSES:
-        written += len(frappe.db.sql(
-            f"""UPDATE "tab{doctype}" x SET payee = v.payee
-                FROM "tabVendors" v
-                WHERE v.name = x.vendor AND COALESCE(v.payee, '') <> '' AND COALESCE(x.payee, '') = ''
-                  {scope}
-                RETURNING x.name""",
-            {"vendors": tuple(vendors or ())},
-        ))
-    return written

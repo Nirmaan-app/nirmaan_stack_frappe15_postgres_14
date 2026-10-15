@@ -5,7 +5,7 @@
 
 Drives the patch `patches/v3_0/move_vendor_bank_details_to_payees` on fixture vendors, scoped to them
 so it never touches a real vendor, and reads back what the owner sees: each vendor's Payee, the
-Payee's details, the expenses' Payee, and the patch log.
+Payee's details, the expenses left as they were, and the patch log.
 
 ⚠️ RUNS AGAINST THE ENV DATABASE (each test commits). Every vendor and expense is inserted raw with a
 TESTPYE name and deleted after the test; every Payee is purged by `PayeeFixture`.
@@ -139,20 +139,21 @@ class TestMoveVendorBankDetailsToPayees(_PatchFixture):
         self.assertIsNone(self._payee_of(blank))
         self.assertIsNone(self._payee_of(spaces))
 
-    def test_vendor_linked_expense_requests_and_project_expenses_get_the_vendors_payee(self):
+    def test_vendor_linked_expenses_are_left_as_they_are(self):
+        """An expense holds its own pay-to account, filled by the backfill patch, never a link to the
+        vendor's Payee (#1438): this patch moves vendors only."""
         vendor = self._vendor("Paid vendor", self.payees.account_number(), account_name="TESTPYE Paid")
-        bare = self._vendor("Bare vendor", None)
         request = self._expense("Expense Request", vendor)
         expense = self._expense("Project Expenses", vendor)
-        bare_expense = self._expense("Project Expenses", bare)
+        fields = ["modified", "pay_to_account_number"]
+        rows = (("Expense Request", request), ("Project Expenses", expense))
+        before = [frappe.db.get_value(d, n, fields) for d, n in rows]
 
-        self._run()
+        result = self._run()
 
-        payee = self._payee_of(vendor)
-        self.assertTrue(payee)
-        self.assertEqual(frappe.db.get_value("Expense Request", request, "payee"), payee)
-        self.assertEqual(frappe.db.get_value("Project Expenses", expense, "payee"), payee)
-        self.assertIsNone(frappe.db.get_value("Project Expenses", bare_expense, "payee"))
+        self.assertTrue(self._payee_of(vendor))
+        self.assertNotIn("linked_expenses", result)
+        self.assertEqual([frappe.db.get_value(d, n, fields) for d, n in rows], before)
 
     def test_an_account_that_is_already_a_payee_is_linked_to_it_not_copied(self):
         number = self.payees.account_number()
@@ -206,12 +207,10 @@ class TestMoveVendorBankDetailsToPayees(_PatchFixture):
         a = self._vendor("Twice A", number, account_name="TESTPYE Twice")
         b = self._vendor("Twice B", f"0{number}", account_name="TESTPYE Twice Longer")
         self._vendor("Twice no IFSC", self.payees.account_number(), ifsc="", account_name="TESTPYE Twice")
-        request = self._expense("Expense Request", a)
         self._run()
         before = (
             frappe.db.count(PAYEE_DOCTYPE),
             self._payee_of(a), self._payee_of(b),
-            frappe.db.get_value("Expense Request", request, ["payee", "modified"]),
             frappe.db.get_value(PAYEE_DOCTYPE, self._payee_of(a), "modified"),
         )
 
@@ -220,11 +219,10 @@ class TestMoveVendorBankDetailsToPayees(_PatchFixture):
         after = (
             frappe.db.count(PAYEE_DOCTYPE),
             self._payee_of(a), self._payee_of(b),
-            frappe.db.get_value("Expense Request", request, ["payee", "modified"]),
             frappe.db.get_value(PAYEE_DOCTYPE, self._payee_of(a), "modified"),
         )
         self.assertEqual(after, before)
-        self.assertEqual((second["made"], second["linked_vendors"], second["linked_expenses"]), ([], 0, 0))
+        self.assertEqual((second["made"], second["linked_vendors"]), ([], 0))
 
 
 class TestTheSiteWithoutTheOldColumns(unittest.TestCase):

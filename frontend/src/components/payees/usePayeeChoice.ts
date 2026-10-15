@@ -3,7 +3,7 @@
  * one with the same fields and rules as Add Payee. `PayeePicker` renders it.
  *
  * Reusable on purpose: the Expense Request dialog uses it, request formats' name fields give way to
- * it (#1430), and Record Payment's "Change payee" reuses it (#1431). Each screen calls `resolve()`
+ * it (#1430), and Record Payment's "Change account" reuses it (#1431, #1438). Each screen calls `resolve()`
  * when it saves: a picked Payee comes back as is; new details are added first through
  * `api/expense_requests/payees.add_request_payee` (open to anyone who can raise a request). An
  * account already on record is not added twice: its Payee shows in the duplicate block, to pick.
@@ -53,7 +53,7 @@ export interface PayeeChoice {
 }
 
 /** The endpoints a screen searches, checks and adds Payees through: the request's (anyone who can
- *  raise one) by default; Record Payment's Change payee passes the Accounts ones. */
+ *  raise one) by default; Record Payment's Change account passes the Accounts ones. */
 export interface PayeeChoiceApis {
     search: string;
     check: string;

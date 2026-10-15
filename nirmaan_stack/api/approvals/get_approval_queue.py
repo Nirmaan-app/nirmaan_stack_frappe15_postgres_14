@@ -33,6 +33,7 @@ from nirmaan_stack.services.outflow_import.expense_links import (
     remaining_balance,
 )
 from nirmaan_stack.services.payees.paid_to import paid_to_rows
+from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payment_split import load_part_reconciled_split_families
 
 from nirmaan_stack.services.approval_tiers import (
@@ -197,12 +198,11 @@ def _payments_select():
             COALESCE(p."is_gst_payment", 0) AS is_gst_payment,
             -- An expense's invoice file, for the "Upload Invoice" action on the Paid tab. A PO / WO
             -- payment's invoices are Vendor Invoices, never a field here, so it is blank.
-            -- ⚠️ POSITIONAL: last in `_expense_select` too.
+            -- ⚠️ POSITIONAL: before the pay-to columns in `_expense_select` too.
             ''::text                        AS invoice,
-            -- An expense's own Payee (ADR-0033). A PO / WO payment stores none: it is paid into its
-            -- vendor's Payee, resolved with the expense's into `paid_to` after the fetch.
-            -- ⚠️ POSITIONAL: last in `_expense_select` too.
-            ''::text                        AS payee
+            -- The payment's own pay-to account (ADR-0033, #1438), folded into `paid_to` after the
+            -- fetch. ⚠️ POSITIONAL: last in `_expense_select` too.
+            {pay_to_p}
         FROM "tabProject Payments" p
         LEFT JOIN "tabCheques" c ON c."name" = p."cheque"
         {linked_join}
@@ -211,7 +211,14 @@ def _payments_select():
         po=TYPE_PO_PAYMENT,
         sr=TYPE_SR_PAYMENT,
         linked_join=linked_totals_join("Project Payments", "p"),
+        pay_to_p=_pay_to_columns("p"),
     )
+
+
+def _pay_to_columns(alias):
+    """A row's own pay-to account (`services/payees/pay_to.PAY_TO_FIELDS`), the same columns in the same
+    order in every branch."""
+    return ",\n            ".join(f'{alias}."{f}"::text AS {f}' for f in PAY_TO_FIELDS)
 
 
 def _expense_select(table, source, project_col):
@@ -281,7 +288,7 @@ def _expense_select(table, source, project_col):
             -- Only a Work Order payment can be a GST payment.
             0                               AS is_gst_payment,
             COALESCE(e."invoice_attachment", '')::text AS invoice,
-            COALESCE(e."payee", '')::text   AS payee
+            {_pay_to_columns("e")}
         FROM "{table}" e
         {linked_join}
     """
@@ -489,11 +496,11 @@ def get_approval_queue(
         for member in family["members"]
     }
 
-    # Who each row is paid to (#1431): the vendor's Payee for a PO / WO payment, the expense's own
-    # for an expense. The Payee module resolves it; a few queries per page, never one per row.
+    # Who each row is paid to (#1431, #1438): the row's own pay-to account, folded into `paid_to` by
+    # the Payee module; at most one query per page, never one per row.
     for r, paid_to in zip(rows, paid_to_rows([
-        {"doctype": r.get("doctype"), "vendor": r.get("vendor"), "payee": r.get("payee"),
-         "expense_type": r.get("expense_type")}
+        {"doctype": r.get("doctype"), "vendor": r.get("vendor"), "expense_type": r.get("expense_type"),
+         **{f: r.pop(f, None) for f in PAY_TO_FIELDS}}
         for r in rows
     ])):
         r["paid_to"] = paid_to

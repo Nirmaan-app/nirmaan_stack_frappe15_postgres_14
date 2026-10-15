@@ -1,10 +1,12 @@
 /**
- * Record Payment's "Pay ₹X to" box (spec #1420 ticket #1431, approved mockup screen 12): the
- * expense's Payee, with Copy beside the account number and IFSC, its bank, who named it, and
- * Change payee.
+ * Record Payment's "Pay ₹X to" box (spec #1420 tickets #1431, #1438, approved mockup screen 12): the
+ * row's own pay-to account, with Copy beside the account number and IFSC, its bank, who set it, and,
+ * on an expense, Change account.
  *
- * Who to pay is the server's (`services/payees/paid_to.expense_pay_to`). Change payee shows for
- * Accounts only, and not on a Project Expense with a vendor: that one is paid into the vendor's Payee.
+ * Shown for an expense and for a PO / WO payment. Who to pay is the server's
+ * (`services/payees/paid_to.pay_to_box`); when Change account shows is a screen rule
+ * (`canChangeExpenseAccount`): Accounts, an expense, not yet paid, no vendor named. A PO / WO
+ * payment's copy is never changed: a wrong account means reject the payment and raise it again.
  */
 
 import { useState } from "react";
@@ -19,33 +21,34 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { bankLine } from "@/utils/payees/payeeForm";
-import { namedByText, noPayeeBoxText } from "@/utils/payees/paidTo";
+import { canChangeExpenseAccount, namedByText, noAccountBoxText } from "@/utils/payees/paidTo";
 
-import { ChangeExpensePayeeDialog } from "./ChangeExpensePayeeDialog";
-import { ACCOUNTS_PAYEE_APIS, EXPENSE_PAYEE_API, expensePayToKey, type ExpensePayTo } from "./expensePayeeApi";
+import { ChangeExpenseAccountDialog } from "./ChangeExpenseAccountDialog";
+import { ACCOUNTS_PAYEE_APIS, PAY_TO_BOX_API, payToBoxKey, type PayToBox as PayToBoxData, type PayToBoxDoctype } from "./paidToApi";
 import { usePayeeChoice } from "./usePayeeChoice";
 
-interface ExpensePayToBoxProps {
-    doctype: "Project Expenses" | "Non Project Expenses";
-    expenseName: string;
-    expenseType: string;
+interface PayToBoxProps {
+    doctype: PayToBoxDoctype;
+    name: string;
+    /** An expense's type, for the no-account wording. */
+    expenseType?: string;
 }
 
-export function ExpensePayToBox({ doctype, expenseName, expenseType }: ExpensePayToBoxProps) {
+export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
     const { role, user_id } = useUserData();
     const [changing, setChanging] = useState(false);
     const changeChoice = usePayeeChoice(ACCOUNTS_PAYEE_APIS);
-    const { data, isLoading, error, mutate } = useFrappeGetCall<{ message: ExpensePayTo }>(
-        EXPENSE_PAYEE_API,
-        { doctype, name: expenseName },
-        expensePayToKey(doctype, expenseName),
+    const { data, isLoading, error, mutate } = useFrappeGetCall<{ message: PayToBoxData }>(
+        PAY_TO_BOX_API,
+        { doctype, name },
+        payToBoxKey(doctype, name),
     );
-    const payTo = data?.message;
+    const box = data?.message;
 
     if (isLoading) {
         return <div className="h-28 animate-pulse rounded-lg border-2 border-green-200 bg-green-50/60" />;
     }
-    if (error || !payTo) {
+    if (error || !box) {
         return (
             <p className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
                 Couldn't load who to pay. Close and open Record Payment again.
@@ -53,12 +56,13 @@ export function ExpensePayToBox({ doctype, expenseName, expenseType }: ExpensePa
         );
     }
 
-    const payee = payTo.payee;
-    const canChange = canManagePayees(role, user_id) && !payTo.vendor_fixed && !payTo.paid;
-    const bank = payee ? bankLine(payee) : "";
-    // Each open starts from the expense's own Payee.
+    const account = box.account;
+    const isPayment = doctype === "Project Payments";
+    const canChange = canChangeExpenseAccount(doctype, box, canManagePayees(role, user_id));
+    const bank = account ? bankLine(account) : "";
+    // Each open starts from a fresh pick: the copy is not a Payee, so there is nothing to seed it with.
     const openChange = () => {
-        changeChoice.reset(payee);
+        changeChoice.reset(null);
         setChanging(true);
     };
 
@@ -67,7 +71,7 @@ export function ExpensePayToBox({ doctype, expenseName, expenseType }: ExpensePa
             aria-labelledby="pay-to-heading"
             className={cn(
                 "flex flex-col gap-3 rounded-lg border-2 p-4",
-                payee
+                account
                     ? "border-green-600 bg-green-50 dark:bg-green-950/30"
                     : "border-amber-400 bg-amber-50 dark:bg-amber-950/30",
             )}
@@ -75,52 +79,62 @@ export function ExpensePayToBox({ doctype, expenseName, expenseType }: ExpensePa
             <div className="flex items-baseline gap-2">
                 <h3
                     id="pay-to-heading"
-                    className={cn("flex-grow text-sm font-semibold", payee ? "text-green-800 dark:text-green-300" : "text-amber-900 dark:text-amber-300")}
+                    className={cn("flex-grow text-sm font-semibold", account ? "text-green-800 dark:text-green-300" : "text-amber-900 dark:text-amber-300")}
                 >
-                    Pay {formatToRoundedIndianRupee(payTo.amount)} to
+                    Pay {formatToRoundedIndianRupee(box.amount)} to
                 </h3>
                 {canChange && (
                     <Button variant="link" size="sm" className="h-auto p-0 text-[13px]" onClick={openChange}>
-                        Change payee
+                        Change account
                     </Button>
                 )}
             </div>
 
-            {payee ? (
+            {account ? (
                 <>
-                    <p className="text-xl font-bold leading-tight">{payee.account_name}</p>
+                    <p className="text-xl font-bold leading-tight">{account.account_name}</p>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <CopyValue label="Account number" value={payee.account_number} />
-                        <CopyValue label="IFSC" value={payee.ifsc} />
+                        <CopyValue label="Account number" value={account.account_number} />
+                        <CopyValue label="IFSC" value={account.ifsc} />
                         <Fact label="Bank" value={bank || "--"} />
-                        <Fact label="Named by" value={namedByText(payTo.named_by, payTo.vendor_name)} />
+                        <Fact label="Set by" value={namedByText(box.named_by, box.vendor_name)} />
                     </div>
                 </>
-            ) : payTo.vendor_fixed ? (
+            ) : isPayment ? (
                 <p className="text-sm">
-                    <span className="font-semibold">No payee.</span>{" "}
-                    {payTo.vendor_name || "The vendor"} has no bank account on record. Add one on the vendor page
-                    before paying.
+                    <span className="font-semibold">No account on this payment.</span> Pay it another way, or reject
+                    it and raise it again once {box.vendor_name || "the vendor"} has a bank account.
+                </p>
+            ) : box.vendor_fixed ? (
+                <p className="text-sm">
+                    <span className="font-semibold">No account.</span>{" "}
+                    {box.vendor_name || "The vendor"} had no bank account on record when this was raised.
                 </p>
             ) : (
                 <p className="text-sm">
-                    <span className="font-semibold">No payee.</span> {noPayeeBoxText(payTo.payee_rule, expenseType)}
+                    <span className="font-semibold">No account.</span> {noAccountBoxText(box.payee_rule, expenseType)}
                 </p>
             )}
 
-            {payTo.vendor_fixed && payee && (
+            {account && isPayment && (
                 <p className="text-xs text-muted-foreground">
-                    This is {payTo.vendor_name || "the vendor"}'s account. To change it, change the vendor's account on
-                    the vendor page.
+                    Copied from {box.vendor_name || "the vendor"}'s account when this payment was raised. A payment's
+                    account is never changed: if it is wrong, reject the payment and raise it again.
+                </p>
+            )}
+            {account && !isPayment && box.vendor_fixed && (
+                <p className="text-xs text-muted-foreground">
+                    Copied from {box.vendor_name || "the vendor"}'s account. To pay someone else, the expense's vendor
+                    has to change.
                 </p>
             )}
 
             {canChange && (
-                <ChangeExpensePayeeDialog
+                <ChangeExpenseAccountDialog
                     open={changing}
                     onOpenChange={setChanging}
                     doctype={doctype}
-                    payTo={payTo}
+                    box={box}
                     expenseType={expenseType}
                     choice={changeChoice}
                     onSaved={(next) => mutate({ message: next }, { revalidate: false })}

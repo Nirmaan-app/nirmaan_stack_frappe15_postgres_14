@@ -19,7 +19,7 @@ copy as it was.
 * `pay_to_account(row)` -- the copy in a Payee's field names, for a screen; None when blank.
 
 The server enforces no edit rule on a copy (owner, 2026-10-15): who may change it, and when, are screen
-rules. Until #1438 removes it, the old `payee` link is written alongside wherever the record has one.
+rules.
 """
 
 from __future__ import annotations
@@ -40,9 +40,6 @@ PAY_TO_FIELDS = (
 #: A Payee's account fields, in the same order.
 ACCOUNT_FIELDS = ("account_name", "account_number", "ifsc", "bank_name", "bank_branch")
 
-#: The link #1438 removes; written alongside the copy until then.
-_OLD_LINK = "payee"
-
 
 def copy_payee_account(doc, payee: str | None) -> None:
     """Copy Payee `payee`'s account into `doc`'s pay-to fields; None (or no such Payee) clears them.
@@ -50,7 +47,6 @@ def copy_payee_account(doc, payee: str | None) -> None:
     account = frappe.db.get_value("Payee", payee, list(ACCOUNT_FIELDS), as_dict=True) if payee else None
     for pay_to, field in zip(PAY_TO_FIELDS, ACCOUNT_FIELDS):
         doc.set(pay_to, (account or {}).get(field) or None)
-    _set_old_link(doc, payee if account else None)
 
 
 def copy_vendor_account(doc) -> None:
@@ -64,7 +60,6 @@ def copy_pay_to(source, target) -> None:
     payment -> its remainder)."""
     for field in PAY_TO_FIELDS:
         target.set(field, source.get(field) or None)
-    _set_old_link(target, source.get(_OLD_LINK) or None)
 
 
 def has_pay_to(doc) -> bool:
@@ -103,8 +98,3 @@ def pay_to_account(row) -> dict | None:
     if not row.get("pay_to_account_number"):
         return None
     return {field: row.get(pay_to) for pay_to, field in zip(PAY_TO_FIELDS, ACCOUNT_FIELDS)}
-
-
-def _set_old_link(doc, payee: str | None) -> None:
-    if doc.meta.has_field(_OLD_LINK):
-        doc.set(_OLD_LINK, payee)

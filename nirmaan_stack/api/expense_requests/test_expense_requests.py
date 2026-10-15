@@ -1300,9 +1300,9 @@ class TestExpenseRequestPayee(FrappeTestCase):
 		self.assertEqual(self._request_pay_to(res), raised)
 		self.assertEqual(self._pay_to(*expense), raised)
 
-		# Forced: the old `payee` link is still written alongside until #1438 removes it, and
-		# Frappe's link check would refuse the delete while it is.
-		frappe.delete_doc("Payee", payee, force=True, ignore_permissions=True)
+		# Not forced: nothing links a request or an expense to the Payee (#1438), so Frappe's link
+		# check lets the delete through.
+		frappe.delete_doc("Payee", payee, ignore_permissions=True)
 		frappe.db.commit()
 		self.assertEqual(self._request_pay_to(res), raised)
 		self.assertEqual(self._pay_to(*expense), raised)

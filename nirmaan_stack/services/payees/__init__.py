@@ -18,14 +18,15 @@ nothing paid points back at it.
   `copy_pay_to`, `fill_from_vendor`, `pay_to_account`, `PAY_TO_FIELDS`.
 * `ifsc` -- `lookup_ifsc` (refuses an IFSC it can't find), `fetch_ifsc` (the HTTP call tests patch).
 * `expense_rules` (pure) / `expense_payee` -- an expense type's Required / Optional / Not asked (screen
-  rules), `payee_rule`, `change_expense_payee`.
+  rules); `change_expense_account` (Record Payment's Change account overwrites an expense's copy).
 * `search` -- `find_payees`, for every Payee picker, by holder name.
 * `matching` (pure) -- `rank_payees`, `name_similarity`: which Payees look like a vendor.
 * `choosing` -- `suggest_for_vendor`, `payee_choices` / `payee_choice`, `choose_payee`,
   `link_vendor`: picking a vendor's Payee.
 * `vendor_account` -- THE vendor -> Payee read: `payee_for_vendor`, `vendor_account` (one vendor, with
   `other_vendors`), `vendor_accounts` (many, for screens, Bulk Import's vendor index, the autofill).
-* `paid_to` -- `paid_to_rows`, `paid_to_for`, `expense_pay_to`: who a payment or expense row is paid to.
+* `paid_to` -- `paid_to_rows`, `paid_to_for`, `pay_to_box`: who a payment or expense row is paid to,
+  always its own pay-to account (#1438).
 
 Import from the submodule (`from nirmaan_stack.services.payees.writer import create_payee`).
 Invariants: `.claude/context/domain/payees.md`.

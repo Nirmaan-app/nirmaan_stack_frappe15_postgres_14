@@ -12,7 +12,7 @@ const vendorPayment = (over: Partial<BankFileRow> = {}): BankFileRow => ({
 	documentName: "PO/001/26-27",
 	amount: 125000.5,
 	projectLabel: "Tower A",
-	payee: { account_name: "ACME TRADERS PVT LTD", account_number: "0050200012345", ifsc: "HDFC0001234" },
+	account: { account_name: "ACME TRADERS PVT LTD", account_number: "0050200012345", ifsc: "HDFC0001234" },
 	...over,
 });
 
@@ -20,7 +20,7 @@ const ICICI = { format: "icici", paymentMode: "IMPS", debitAccountNumber: "09370
 const CASHFREE = { format: "cashfree", paymentMode: "NEFT", debitAccountNumber: "093705003327", now: NOW } as const;
 
 describe("buildBankFile — ICICI", () => {
-	it("pays a vendor payment into the vendor's Payee, in today's PAB_VENDOR columns and order", () => {
+	it("pays a vendor payment into its own pay-to account, in today's PAB_VENDOR columns and order", () => {
 		const file = buildBankFile([vendorPayment()], ICICI);
 
 		expect(file.csv).toBe(
@@ -45,20 +45,20 @@ describe("buildBankFile — Cashfree", () => {
 		);
 	});
 
-	it("names the beneficiary by the Payee's holder name, never the vendor's", () => {
+	it("names the beneficiary by the pay-to account's holder name, never the vendor's", () => {
 		const file = buildBankFile(
-			[vendorPayment({ payee: { account_name: "SAFETYWALA EQUIPMENTS LLP", account_number: "50200012345", ifsc: "HDFC0001234" } })],
+			[vendorPayment({ account: { account_name: "SAFETYWALA EQUIPMENTS LLP", account_number: "50200012345", ifsc: "HDFC0001234" } })],
 			CASHFREE,
 		);
 
 		expect(file.rows[0].name).toBe("SAFETYWALA EQUIPMENTS LLP");
 	});
 
-	it("keeps the holder name as the Payee holds it, trimmed, even when it is not a name", () => {
+	it("keeps the holder name as the copy holds it, trimmed, even when it is not a name", () => {
 		const file = buildBankFile(
 			[
-				vendorPayment({ payee: { account_name: "  R. Kumar  ", account_number: "1234", ifsc: "SBIN0000001" } }),
-				vendorPayment({ payee: { account_name: " 50200012345 ", account_number: "50200012345", ifsc: "HDFC0001234" } }),
+				vendorPayment({ account: { account_name: "  R. Kumar  ", account_number: "1234", ifsc: "SBIN0000001" } }),
+				vendorPayment({ account: { account_name: " 50200012345 ", account_number: "50200012345", ifsc: "HDFC0001234" } }),
 			],
 			CASHFREE,
 		);
@@ -81,11 +81,11 @@ describe("buildBankFile — expenses", () => {
 		documentName: "PE-2026-00841",
 		amount: 25000,
 		projectLabel: "Whitefield Tower B",
-		payee: { account_name: "Ramesh Kumar Yadav", account_number: "36147100982211", ifsc: "SBIN0003435" },
+		account: { account_name: "Ramesh Kumar Yadav", account_number: "36147100982211", ifsc: "SBIN0003435" },
 		...over,
 	});
 
-	it("pays an expense with a Payee into that Payee's account, in both files", () => {
+	it("pays an expense into its own pay-to account, in both files", () => {
 		expect(buildBankFile([expense()], ICICI).csv.split("\r\n")[1]).toBe(
 			"PAB_VENDOR,IMPS,093705003327,Ramesh Kumar Yadav,36147100982211,SBIN0003435,25000,,,,,PE-2026-00841,14-10-2026,,,,,,,",
 		);
@@ -106,26 +106,26 @@ describe("buildBankFile — expenses", () => {
 });
 
 describe("buildBankFile — rows left out", () => {
-	const noPayeeExpense = (documentName: string): BankFileRow => ({
+	const noAccountExpense = (documentName: string): BankFileRow => ({
 		kind: "expense",
 		documentName,
 		amount: 900,
 		projectLabel: "Tower A",
 	});
-	const expense = noPayeeExpense("PE-2026-00900");
-	const noPayee = (documentName: string) => vendorPayment({ documentName, payee: undefined });
+	const expense = noAccountExpense("PE-2026-00900");
+	const noPayee = (documentName: string) => vendorPayment({ documentName, account: undefined });
 	const [noPayee2, noPayee3, noPayee4] = ["PO/002/26-27", "PO/003/26-27", "PO/004/26-27"].map(noPayee);
 
-	it("leaves out expenses with no Payee, and vendor payments whose vendor has none, saying why", () => {
+	it("leaves out expenses and vendor payments with no pay-to account of their own, saying why", () => {
 		const payable = vendorPayment();
 		const file = buildBankFile([expense, noPayee2, payable, noPayee3, noPayee4], ICICI);
 
 		expect(file.rows.map((r) => r.REMARK)).toEqual(["PO/001/26-27"]);
 		expect(file.leftOut).toEqual([
-			{ row: expense, reason: "expense_has_no_payee" },
-			{ row: noPayee2, reason: "vendor_has_no_payee" },
-			{ row: noPayee3, reason: "vendor_has_no_payee" },
-			{ row: noPayee4, reason: "vendor_has_no_payee" },
+			{ row: expense, reason: "expense_has_no_account" },
+			{ row: noPayee2, reason: "payment_has_no_account" },
+			{ row: noPayee3, reason: "payment_has_no_account" },
+			{ row: noPayee4, reason: "payment_has_no_account" },
 		]);
 	});
 
@@ -144,17 +144,17 @@ describe("buildBankFile — rows left out", () => {
 
 	it("names the left-out rows the way the toast says them", () => {
 		const fourNoPayee = [noPayee2, noPayee3, noPayee4, noPayee("PO/005/26-27")];
-		const expense2 = noPayeeExpense("NPE-2026-00012");
+		const expense2 = noAccountExpense("NPE-2026-00012");
 
 		expect(describeLeftOut(buildBankFile([expense], ICICI).leftOut)).toEqual([
-			"1 expense with no payee (PE-2026-00900)",
+			"1 expense with no account (PE-2026-00900)",
 		]);
 		expect(describeLeftOut(buildBankFile([noPayee2], ICICI).leftOut)).toEqual([
-			"1 payment whose vendor has no Payee (PO/002/26-27)",
+			"1 payment with no account (PO/002/26-27)",
 		]);
 		expect(describeLeftOut(buildBankFile([expense, expense2, ...fourNoPayee], ICICI).leftOut)).toEqual([
-			"2 expenses with no payee (PE-2026-00900, NPE-2026-00012)",
-			"4 payments whose vendor has no Payee (PO/002/26-27, PO/003/26-27, PO/004/26-27, …)",
+			"2 expenses with no account (PE-2026-00900, NPE-2026-00012)",
+			"4 payments with no account (PO/002/26-27, PO/003/26-27, PO/004/26-27, …)",
 		]);
 		expect(describeLeftOut([])).toEqual([]);
 	});

@@ -1,6 +1,6 @@
 import { unparse } from "papaparse";
 
-import type { Payee } from "@/types/NirmaanStack/Payee";
+import type { PayToAccount } from "@/types/NirmaanStack/Payee";
 import { formatDate, formatDateToDDMMYYYY } from "@/utils/FormatDate";
 import { parseNumber } from "@/utils/parseNumber";
 import { PAID_TO_MISSING, type PaidToMissing } from "@/utils/payees/paidTo";
@@ -8,19 +8,19 @@ import { PAID_TO_MISSING, type PaidToMissing } from "@/utils/payees/paidTo";
 /** Which bulk-transfer file to emit. ICICI's PAB_VENDOR layout and Cashfree's payout template share no columns. */
 export type BankFileFormat = "icici" | "cashfree";
 
-/** The Payee a row is paid into: its holder name, account number and IFSC. */
-export type BankFilePayee = Pick<Payee, "account_name" | "account_number" | "ifsc">;
+/** The account a row is paid into: its holder name, account number and IFSC. */
+export type BankFileAccount = Pick<PayToAccount, "account_name" | "account_number" | "ifsc">;
 
-/** One ticked row on "Payment need to paid", with the Payee it is paid into. */
+/** One ticked row on "Payment need to paid", with the account it is paid into. */
 export interface BankFileRow {
 	kind: "vendor_payment" | "expense";
 	/** PO / SR number, or the expense's ID: the ICICI remark and the tail of the Cashfree remark. */
 	documentName: string;
 	amount: number | string;
 	projectLabel: string | undefined;
-	/** A vendor payment's is its vendor's Payee today (ADR-0033: a PO / WO payment stores none); an
-	 *  expense's is its own. */
-	payee?: BankFilePayee;
+	/** The row's own pay-to account, copied when it was raised (ADR-0033, #1438): never its vendor's
+	 *  Payee as it reads now. */
+	account?: BankFileAccount;
 	/** Why the server says the row has no account to pay into (`get_paid_to`'s `missing`), if it has
 	 *  none. */
 	missing?: PaidToMissing | null;
@@ -58,7 +58,7 @@ export interface BankFile {
 }
 
 function iciciRow(row: BankFileRow, options: BankFileOptions): Record<string, BankFileCell> {
-	const payee = row.payee;
+	const payee = row.account;
 	return {
 		PYMT_PROD_TYPE_CODE: "PAB_VENDOR",
 		PYMT_MODE: options.paymentMode,
@@ -80,13 +80,13 @@ function iciciRow(row: BankFileRow, options: BankFileOptions): Record<string, Ba
 }
 
 function cashfreeRow(row: BankFileRow, idx: number, batchStamp: string, options: BankFileOptions): Record<string, BankFileCell> {
-	const payee = row.payee;
+	const payee = row.account;
 	return {
 		transferId: `${batchStamp}${String(idx + 1).padStart(2, "0")}`,
 		bankAccount: payee?.account_number || "",
 		ifsc: payee?.ifsc || "",
-		// The beneficiary is the Payee's holder name, the name the bank has on record. A holder name
-		// that is not a name is corrected on the Payee, not patched here.
+		// The beneficiary is the pay-to account's holder name, the name the bank has on record. A holder
+		// name that is not a name is corrected on the Payee (and the record re-raised), not patched here.
 		name: (payee?.account_name || "").trim(),
 		email: CASHFREE_CONTACT_EMAIL,
 		phone: CASHFREE_CONTACT_PHONE,
@@ -124,32 +124,30 @@ export function buildBankFile(rows: BankFileRow[], options: BankFileOptions): Ba
 }
 
 // ICICI and Cashfree both accept a file holding a row with a blank account or IFSC, and reject
-// that row only after upload, so a row with no Payee is left out here, not at the bank. A Payee
-// always holds a holder name, an account number and an IFSC.
+// that row only after upload, so a row with no account is left out here, not at the bank. A copy
+// always holds a holder name, an account number and an IFSC (it is a Payee's).
 function leftOutReason(row: BankFileRow): BankFileLeftOutReason | null {
 	if (row.missing) return row.missing;
-	if (row.payee) return null;
-	return row.kind === "vendor_payment" ? PAID_TO_MISSING.VENDOR_HAS_NO_PAYEE : PAID_TO_MISSING.EXPENSE_HAS_NO_PAYEE;
+	if (row.account) return null;
+	return row.kind === "vendor_payment" ? PAID_TO_MISSING.PAYMENT_HAS_NO_ACCOUNT : PAID_TO_MISSING.EXPENSE_HAS_NO_ACCOUNT;
 }
+
+/** Each left-out reason as the toast words it, for `count` rows, in the order the toast lists them. */
+const LEFT_OUT_PHRASES: Record<BankFileLeftOutReason, (count: number) => string> = {
+	[PAID_TO_MISSING.EXPENSE_HAS_NO_ACCOUNT]: (n) => `${n} expense${n > 1 ? "s" : ""} with no account`,
+	[PAID_TO_MISSING.PAYMENT_HAS_NO_ACCOUNT]: (n) => `${n} payment${n > 1 ? "s" : ""} with no account`,
+};
 
 /**
  * The left-out rows as phrases for the export toast, one per reason, naming the first three, e.g.
- * "2 expenses with no payee (PE-2026-00841, NPE-2026-00012)". The accountant must know the file is
+ * "2 expenses with no account (PE-2026-00841, NPE-2026-00012)". The accountant must know the file is
  * shorter than their selection, and which rows still need paying by hand.
  */
 export function describeLeftOut(leftOut: BankFileLeftOut[]): string[] {
-	const named = (reason: BankFileLeftOutReason) => {
+	return (Object.keys(LEFT_OUT_PHRASES) as BankFileLeftOutReason[]).flatMap((reason) => {
 		const names = leftOut.filter((l) => l.reason === reason).map((l) => l.row.documentName);
-		return { count: names.length, list: names.slice(0, 3).join(", ") + (names.length > 3 ? ", …" : "") };
-	};
-	const parts: string[] = [];
-	const expenses = named(PAID_TO_MISSING.EXPENSE_HAS_NO_PAYEE);
-	if (expenses.count > 0) {
-		parts.push(`${expenses.count} expense${expenses.count > 1 ? "s" : ""} with no payee (${expenses.list})`);
-	}
-	const payments = named(PAID_TO_MISSING.VENDOR_HAS_NO_PAYEE);
-	if (payments.count > 0) {
-		parts.push(`${payments.count} payment${payments.count > 1 ? "s" : ""} whose vendor has no Payee (${payments.list})`);
-	}
-	return parts;
+		if (names.length === 0) return [];
+		const list = names.slice(0, 3).join(", ") + (names.length > 3 ? ", …" : "");
+		return [`${LEFT_OUT_PHRASES[reason](names.length)} (${list})`];
+	});
 }

@@ -22,7 +22,7 @@ from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture, delete_each
 from nirmaan_stack.api.payees.vendor_payee import get_vendor_account
 from nirmaan_stack.services import expense_request_routing as routing
-from nirmaan_stack.services.payees.expense_payee import change_expense_payee
+from nirmaan_stack.services.payees.expense_payee import change_expense_account
 
 PM_USER = "exr_test_pyepm@example.com"
 NOBODY = "exr_test_pyenobody@example.com"
@@ -73,16 +73,14 @@ class TestRequestPayees(FrappeTestCase):
 		finally:
 			frappe.set_user("Administrator")
 
-	def _expense(self, payee=None, status="Approved", vendor=None, doctype=NPE) -> str:
-		"""An expense row inserted raw (no hooks), deleted after the test."""
+	def _expense(self, status="Approved", doctype=NPE) -> str:
+		"""An expense row with no account, inserted raw (no hooks), deleted after the test."""
 		name = f"exr-test-pye-{frappe.generate_hash(length=8)}"
-		extra = ", vendor" if vendor else ""
 		frappe.db.sql(
 			f"""INSERT INTO "tab{doctype}" (name, creation, modified, modified_by, owner, docstatus, idx,
-			                                type, amount, status, payee{extra})
-			   VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, 100, %s, %s
-			           {", %s" if vendor else ""})""",
-			(name, self.expense_type, status, payee, *((vendor,) if vendor else ())),
+			                                type, amount, status)
+			   VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, 100, %s)""",
+			(name, self.expense_type, status),
 		)
 		frappe.db.commit()
 
@@ -108,13 +106,11 @@ class TestRequestPayees(FrappeTestCase):
 		self.assertNotIn("times_paid", row)
 		self.assertNotIn("status", row)
 
-	def test_matches_come_by_holder_name_however_often_each_was_paid(self):
+	def test_matches_come_by_holder_name(self):
 		tag = frappe.generate_hash(length=6)
 		zubair = self.payees.payee(holder=f"TESTPYE {tag} Zubair Traders")
 		anil = self.payees.payee(holder=f"TESTPYE {tag} Anil Verma")
 		mehta = self.payees.payee(holder=f"TESTPYE {tag} Mehta Rentals")
-		for _ in range(3):
-			self._expense(zubair, status="Paid")
 
 		found = [r["name"] for r in self._as(PM_USER, search_payees, text=tag)]
 		self.assertEqual([n for n in found if n in (zubair, anil, mehta)], [anil, mehta, zubair])
@@ -169,14 +165,15 @@ class TestRequestPayees(FrappeTestCase):
 
 	# --- changing an Expense's account ---------------------------------------
 
-	def test_changing_an_expenses_payee_copies_its_account_paid_or_not(self):
-		"""Change payee copies the Payee's account onto the expense (#1436). Whether it may still change
-		once paid is a screen rule now, not a server refusal."""
+	def test_changing_an_expenses_account_copies_it_paid_or_not(self):
+		"""Change account copies the Payee's account onto the expense (#1436, #1438). Whether it may
+		still change once paid is a screen rule, not a server refusal."""
 		first, second = self.payees.payee(), self.payees.payee()
 		for status in ("Approved", "Paid"):
 			with self.subTest(status=status):
-				expense = self._expense(first, status=status)
-				change_expense_payee(NPE, expense, second)
+				expense = self._expense(status=status)
+				change_expense_account(NPE, expense, first)
+				change_expense_account(NPE, expense, second)
 				self.assertEqual(
 					frappe.db.get_value(NPE, expense, ["pay_to_account_name", "pay_to_account_number", "pay_to_ifsc"]),
 					frappe.db.get_value("Payee", second, ["account_name", "account_number", "ifsc"]),

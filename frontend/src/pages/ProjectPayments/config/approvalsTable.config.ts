@@ -144,10 +144,8 @@ export interface ApprovalQueueRow {
    *  invoices are Vendor Invoices. Drives the Paid tab's Upload Invoice action. */
   invoice: string;
   has_invoice: boolean;
-  /** An expense's own Payee (blank on a PO / WO payment, which stores none: ADR-0033). */
-  payee: string;
-  /** Who the row is paid to: the vendor's Payee for a PO / WO payment, the expense's own for an
-   *  expense. Resolved by the server's Payee module (`services/payees/paid_to`). */
+  /** Who the row is paid to: its own pay-to account, copied when it was raised (ADR-0033, #1438).
+   *  Read by the server's Payee module (`services/payees/paid_to`). */
   paid_to?: PaidTo;
 }
 

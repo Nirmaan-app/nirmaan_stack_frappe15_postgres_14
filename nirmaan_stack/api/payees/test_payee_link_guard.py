@@ -141,8 +141,12 @@ class TestEveryWritePathKeepsThePayeeRules(FrappeTestCase):
         payee = self.payees.payee()
         name = self._insert(self._request("Optional", vendor=self.payees.vendor(payee)))
         self.assertEqual(self._pay_to(REQUEST, name), self._account_of(payee))
-        # The old link is still written alongside until #1438 removes it.
-        self.assertEqual(frappe.db.get_value(REQUEST, name, "payee"), payee)
+
+    def test_no_request_or_expense_links_a_payee(self):
+        """The record holds a copy, never a link (#1438): editing or deleting the Payee can't reach it."""
+        for doctype in (REQUEST, PE, NPE):
+            with self.subTest(doctype=doctype):
+                self.assertFalse(frappe.get_meta(doctype).has_field("payee"))
 
     def test_a_not_asked_request_naming_a_vendor_copies_its_account(self):
         payee = self.payees.payee()
@@ -170,7 +174,6 @@ class TestEveryWritePathKeepsThePayeeRules(FrappeTestCase):
                 name = self._insert(values)
                 self._save_as(PM_USER, doctype, name, vendor=v2)
                 self.assertEqual(self._pay_to(doctype, name), self._account_of(second))
-                self.assertEqual(frappe.db.get_value(doctype, name, "payee"), second)
 
     def test_a_vendor_with_no_payee_leaves_the_account_blank(self):
         first, v1, _, _ = self._vendor_pair()
