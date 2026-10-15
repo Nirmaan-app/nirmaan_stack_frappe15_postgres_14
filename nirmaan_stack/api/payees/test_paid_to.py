@@ -37,6 +37,9 @@ from nirmaan_stack.services.payees.writer import edit_payee
 U = "Administrator"
 PM_USER = "pye_paidto_pm@example.com"
 PM_PROFILE = "Nirmaan Project Manager Profile"
+#: Reads expenses but may not write them (the doctypes' DocPerm: PMO Executive is read-only).
+PMO_USER = "pye_paidto_pmo@example.com"
+PMO_PROFILE = "Nirmaan PMO Executive Profile"
 PAYMENT = "Project Payments"
 PE = "Project Expenses"
 NPE = "Non Project Expenses"
@@ -47,6 +50,7 @@ class TestPaidTo(FrappeTestCase):
     def setUpClass(cls):
         super().setUpClass()
         _make_user(PM_USER, PM_PROFILE, ("Nirmaan Project Manager",))
+        _make_user(PMO_USER, PMO_PROFILE, ("Nirmaan PMO Executive",))
         cls.types = {}
         for rule in ("Required", "Optional", "Not asked"):
             name = f"pye_paidto_{rule.replace(' ', '_').lower()}_{frappe.generate_hash(length=5)}"
@@ -61,7 +65,8 @@ class TestPaidTo(FrappeTestCase):
     def tearDownClass(cls):
         frappe.set_user(U)
         scopes = [("Expense Type", name) for name in cls.types.values()]
-        scopes += [("Nirmaan Users", PM_USER), ("User", PM_USER)]
+        for user in (PM_USER, PMO_USER):
+            scopes += [("Nirmaan Users", user), ("User", user)]
         try:
             delete_each(scopes)
         finally:
@@ -337,13 +342,25 @@ class TestPaidTo(FrappeTestCase):
         self.assertEqual(box["missing"], "expense_has_no_account")
         self.assertIsNone(frappe.db.get_value(NPE, expense, "pay_to_account_number"))
 
-    def test_only_accounts_change_an_expenses_account(self):
+    def test_a_user_who_may_not_write_the_expense_cannot_change_its_account(self):
         first, second = self.payees.payee(), self.payees.payee()
         expense = self._expense(copy_of=first)
         with self.assertRaises(frappe.PermissionError):
-            self._as(PM_USER, change_expense_account, doctype=NPE, name=expense, payee=second)
+            self._as(PMO_USER, change_expense_account, doctype=NPE, name=expense, payee=second)
         self.assertEqual(frappe.db.get_value(NPE, expense, "pay_to_account_number"),
                          self._copy_of(first)["pay_to_account_number"])
+
+    def test_any_user_who_may_write_the_expense_changes_its_account(self):
+        # Showing Change account to Accounts only is a screen rule (spec #1420 Drops): the server asks
+        # Frappe's own write permission, which a Project Manager holds on expenses.
+        first, second = self.payees.payee(), self.payees.payee()
+        expense = self._expense(copy_of=first)
+
+        box = self._as(PM_USER, change_expense_account, doctype=NPE, name=expense, payee=second)
+
+        self.assertEqual(box["account"], self._account(second))
+        self.assertEqual(frappe.db.get_value(NPE, expense, "pay_to_account_number"),
+                         self._copy_of(second)["pay_to_account_number"])
 
     def test_the_endpoints_refuse_a_doctype_that_is_not_paid(self):
         payment = self._payment(self._vendor(), copy_of=self.payees.payee())

@@ -26,19 +26,17 @@ from __future__ import annotations
 
 import frappe
 
-from nirmaan_stack.services.payees.rules import PAID_STATUSES
+from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS, PAID_STATUSES
 from nirmaan_stack.services.payees.vendor_account import payee_for_vendor
 
-#: The five pay-to fields, in the order of a Payee's own (`ACCOUNT_FIELDS`).
-PAY_TO_FIELDS = (
-    "pay_to_account_name",
-    "pay_to_account_number",
-    "pay_to_ifsc",
-    "pay_to_bank_name",
-    "pay_to_bank_branch",
-)
-#: A Payee's account fields, in the same order.
-ACCOUNT_FIELDS = ("account_name", "account_number", "ifsc", "bank_name", "bank_branch")
+
+def pay_to_field(field: str) -> str:
+    """The pay-to field holding a Payee's `field` (`account_number` -> `pay_to_account_number`)."""
+    return f"pay_to_{field}"
+
+
+#: The five pay-to fields, in the order of a Payee's own (`rules.ACCOUNT_FIELDS`).
+PAY_TO_FIELDS = tuple(pay_to_field(field) for field in ACCOUNT_FIELDS)
 
 
 def copy_payee_account(doc, payee: str | None) -> None:
@@ -95,6 +93,6 @@ def fill_payment_from_vendor(doc) -> None:
 def pay_to_account(row) -> dict | None:
     """`row`'s pay-to account as `{account_name, account_number, ifsc, bank_name, bank_branch}`, or
     None when it has none."""
-    if not row.get("pay_to_account_number"):
+    if not has_pay_to(row):
         return None
     return {field: row.get(pay_to) for pay_to, field in zip(PAY_TO_FIELDS, ACCOUNT_FIELDS)}

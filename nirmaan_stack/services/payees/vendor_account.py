@@ -4,20 +4,23 @@
 """A vendor's bank account is its Payee (#1428, spec #1420, ADR-0033). Read-only.
 
 The one place "this vendor's bank details" is resolved: the hover card, the detail popover, the
-payment-request gate, the bank file and the vendor list, and on the server Bulk Import's vendor
-index (Tier 1, refund suggestions) and the payment autofill's holder-name check (#1427), all read it
-from here, never from the old `Vendors` bank fields and never by joining `tabPayee` themselves.
+payment-request gate and its "Will be paid into" box, and the vendor list, and on the server Bulk
+Import's vendor index (refund suggestions), the "account changed since" flag (`paid_to`) and a
+cheque's holder-name check in the payment autofill, all read it from here, never from the old
+`Vendors` bank fields and never by joining `tabPayee` themselves.
 
-A vendor is paid into the Payee it links to NOW (a PO / WO payment stores no Payee: ADR-0033
-"Not in v1"). A vendor with no Payee has no bank account.
+A vendor's account is the Payee it links to NOW. A vendor with no Payee has no bank account. Every
+PO / WO payment and expense holds its own copy of the account it was raised with (`pay_to`,
+ADR-0033 decision 9), so a vendor's account read here is never what an existing row pays into: it
+is what the next row copies, and what `paid_to` compares a PO / WO payment's copy against.
 
 * `payee_for_vendor` -- the name of the Payee one vendor is paid into (the expense rules, Change
   account).
 * `vendor_account` -- one vendor's Payee as a summary, with how many other vendors share it: the
   vendor page's Account Details card and every screen's single-vendor read, the Expense Request's
   vendor Payee among them.
-* `vendor_accounts` -- many vendors' account fields at once: the vendor list, the bank file, Bulk
-  Import's vendor index and the payment autofill.
+* `vendor_accounts` -- many vendors' account fields at once: the vendor list, Bulk Import's vendor
+  index, `paid_to`'s "account changed since" flag and the payment autofill's cheque check.
 """
 
 from __future__ import annotations
@@ -25,9 +28,10 @@ from __future__ import annotations
 import frappe
 
 from nirmaan_stack.services.payees.links import payee_summary
+from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS
 
-#: What a screen shows of a vendor's Payee.
-VENDOR_ACCOUNT_FIELDS = ("payee", "account_name", "account_number", "ifsc", "bank_name", "bank_branch")
+#: What a screen shows of a vendor's Payee: its name and its account.
+VENDOR_ACCOUNT_FIELDS = ("payee", *ACCOUNT_FIELDS)
 
 
 def vendor_accounts(vendors: list[str] | None = None) -> dict[str, dict]:
@@ -43,8 +47,7 @@ def vendor_accounts(vendors: list[str] | None = None) -> dict[str, dict]:
         where, params = "WHERE v.name IN %(vendors)s", {"vendors": tuple(vendors)}
     rows = frappe.db.sql(
         f"""
-        SELECT v.name AS vendor, p.name AS payee, p.account_name, p.account_number, p.ifsc,
-               p.bank_name, p.bank_branch
+        SELECT v.name AS vendor, p.name AS payee, {", ".join(f"p.{field}" for field in ACCOUNT_FIELDS)}
         FROM "tabVendors" v
         JOIN "tabPayee" p ON p.name = v.payee
         {where}

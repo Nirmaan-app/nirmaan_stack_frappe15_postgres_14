@@ -172,9 +172,10 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     "Mark as Paid" on "Payment need to paid" does not check the flag.
   - **Change account** (Record Payment, an expense only): copies a picked or added Payee's account
     onto the expense, overwriting its copy (`expense_payee.change_expense_account`; the save leaves a
-    Version row: who and when). The endpoint (`api/payees/paid_to.change_expense_account`) is Accounts
-    only and refuses a PO / WO payment; offering it only for an approved, unpaid expense with no
-    vendor is a screen rule (`utils/payees/paidTo.canChangeExpenseAccount`). A PO / WO payment's copy
+    Version row: who and when). The endpoint (`api/payees/paid_to.change_expense_account`) asks
+    Frappe's write permission on the expense (its save ignores permissions, so that check is the
+    boundary) and refuses a PO / WO payment; offering it to Accounts only, and only for an approved,
+    unpaid expense with no vendor, is a screen rule (`utils/payees/paidTo.canChangeExpenseAccount`). A PO / WO payment's copy
     is never changed: a wrong account means reject and raise again.
   - **Payment autofill** (`api/payment_autofill._build_vendor_match`) compares a receipt's
     beneficiary with the payment's own holder name (`pay_to_account_name`) and the vendor's name. The

@@ -19,6 +19,8 @@ depends on the screen, so this module checks no role. Nothing here commits; the 
   and branch as recorded, no IFSC lookup.
 * `edit_payee` -- a new holder name, account number or IFSC, in place (#1435). Checks no role: the
   calling endpoint does.
+* `edit_payee_reply` -- the same as a screen's reply (`{payee}` or `{duplicate, message}`): the Payees
+  page's Edit and the vendor page's Edit bank details both answer through it.
 * `delete_payee` -- delete a Payee no vendor links to (#1435).
 
 A Payee has no status and no lock (#1434): it is an address book entry, edited in place.
@@ -171,6 +173,15 @@ def edit_payee(name: str, account_name, account_number, ifsc):
     doc.ifsc = details.ifsc
     doc.save(ignore_permissions=True, ignore_version=False)
     return doc
+
+
+def edit_payee_reply(name: str, account_name, account_number, ifsc) -> dict:
+    """Edit Payee `name` in place (`edit_payee`) and answer the screen: `{payee: <summary>}`, or
+    `{duplicate: <summary>, message}` when another Payee already holds the account, with nothing kept
+    (`unless_duplicate`). Checks no role. Never commits: the caller commits (after a duplicate there
+    is nothing left to commit)."""
+    _done, duplicate = unless_duplicate(lambda: edit_payee(name, account_name, account_number, ifsc))
+    return duplicate or {"payee": payee_summary(name)}
 
 
 def delete_payee(name: str) -> None:

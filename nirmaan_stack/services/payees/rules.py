@@ -22,6 +22,12 @@ from nirmaan_stack.services.settlement import SETTLED_STATUSES
 
 PAYEE_DOCTYPE = "Payee"
 
+#: What a person types for a Payee's account: the bank and branch are looked up from the IFSC.
+ENTERED_FIELDS = ("account_name", "account_number", "ifsc")
+#: A Payee's account fields: THE list every copy (`pay_to.PAY_TO_FIELDS`) and every vendor read
+#: (`vendor_account.VENDOR_ACCOUNT_FIELDS`) is derived from.
+ACCOUNT_FIELDS = (*ENTERED_FIELDS, "bank_name", "bank_branch")
+
 #: A Project Payment or an Expense at one of these is paid: the money has left Approved. The same set
 #: as "settled" (`services/settlement.SETTLED_STATUSES`), so paid means one thing.
 PAID_STATUSES = SETTLED_STATUSES

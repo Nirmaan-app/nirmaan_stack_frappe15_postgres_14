@@ -32,8 +32,8 @@ from frappe import _
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 from nirmaan_stack.services.outflow_import.normalize import normalize_account, normalize_ifsc
 from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
-from nirmaan_stack.services.payees.pay_to import ACCOUNT_FIELDS, PAY_TO_FIELDS, has_pay_to, pay_to_account
-from nirmaan_stack.services.payees.rules import PAID_STATUSES
+from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS, has_pay_to, pay_to_account, pay_to_field
+from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS, ENTERED_FIELDS, PAID_STATUSES
 from nirmaan_stack.services.payees.vendor_account import vendor_accounts
 from nirmaan_stack.services.payees.versions import last_field_change
 
@@ -50,8 +50,8 @@ NAMED_ON_REQUEST = "request"
 NAMED_BY_CHANGE = "changed"
 NAMED_BY_VENDOR = "vendor"
 
-#: The copy's fields whose change is "the account changed" (`named_by`).
-_ACCOUNT_CHANGE_FIELDS = ("pay_to_account_name", "pay_to_account_number", "pay_to_ifsc")
+#: The copy's fields whose change is "the account changed" (`named_by`): the ones a person enters.
+_ACCOUNT_CHANGE_FIELDS = tuple(pay_to_field(field) for field in ENTERED_FIELDS)
 
 
 def assert_paid_to_doctype(doctype: str, allowed=PAID_TO_DOCTYPES) -> None:

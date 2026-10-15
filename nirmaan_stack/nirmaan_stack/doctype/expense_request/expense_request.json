@@ -1,7 +1,8 @@
 {
  "actions": [],
+ "allow_rename": 0,
  "autoname": "EXR-.YY.-.#####",
- "creation": "2026-08-18 10:00:00",
+ "creation": "2026-08-18 10:00:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -41,7 +42,6 @@
    "reqd": 1
   },
   {
-   "default": "0",
    "description": "Mirror of Expense Type.project, fetched so `depends_on` can read it -- Frappe cannot evaluate a linked doctype's field. Not user data; never edit it directly.",
    "fetch_from": "type.project",
    "fieldname": "type_allows_project",
@@ -164,94 +164,17 @@
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Expense Request",
- "naming_rule": "Expression",
+ "naming_rule": "Expression (old style)",
  "owner": "Administrator",
  "permissions": [
-  {
-   "create": 1,
-   "delete": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "System Manager",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Nirmaan Project Manager",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Nirmaan HR Executive",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Nirmaan HR Lead",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Nirmaan Accountant",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "create": 1,
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Nirmaan Accountant Lead",
-   "share": 1,
-   "write": 1
-  },
-  {
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Nirmaan PMO Executive",
-   "share": 1
-  },
-  {
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
-   "role": "Nirmaan Project Lead",
-   "share": 1
-  }
+  {"create":1,"delete":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"System Manager","share":1,"write":1},
+  {"create":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan Project Manager","share":1,"write":1},
+  {"create":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan HR Executive","share":1,"write":1},
+  {"create":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan HR Lead","share":1,"write":1},
+  {"create":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan Accountant","share":1,"write":1},
+  {"create":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan Accountant Lead","share":1,"write":1},
+  {"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan PMO Executive","share":1},
+  {"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan Project Lead","share":1}
  ],
  "row_format": "Dynamic",
  "rows_threshold_for_grid_search": 20,

@@ -7,7 +7,7 @@ Thin: check who is asking, call the Payee module (`services/payees/`), commit. T
 module's and the `validate` controller's.
 
 * `get_payee` -- the page: `services/payees/links.payee_page`.
-* `edit_payee` -- Edit: holder name, account number and IFSC (`writer.edit_payee`).
+* `edit_payee` -- Edit: holder name, account number and IFSC (`writer.edit_payee_reply`).
 * `delete_payee` -- Delete: only a Payee no vendor links to (`writer.delete_payee`).
 
 Who: `PAYEE_MANAGE_PROFILES` (Admin, Accountant, Accountant Lead), who manage Payees on this page. A
@@ -18,7 +18,7 @@ endpoint (`vendor_payee.edit_vendor_payee`).
 import frappe
 
 from nirmaan_stack.services.payees import writer
-from nirmaan_stack.services.payees.links import payee_page, payee_summary
+from nirmaan_stack.services.payees.links import payee_page
 from nirmaan_stack.services.role_profiles import assert_payee_manager
 
 
@@ -36,11 +36,9 @@ def edit_payee(name: str, account_name: str, account_number: str, ifsc: str) -> 
     `{duplicate: <summary>, message}` when another Payee already holds the account; nothing changes
     then."""
     assert_payee_manager(frappe.session.user)
-    _, duplicate = writer.unless_duplicate(lambda: writer.edit_payee(name, account_name, account_number, ifsc))
-    if duplicate:
-        return duplicate
+    reply = writer.edit_payee_reply(name, account_name, account_number, ifsc)
     frappe.db.commit()
-    return {"payee": payee_summary(name)}
+    return reply
 
 
 @frappe.whitelist(methods=["POST"])

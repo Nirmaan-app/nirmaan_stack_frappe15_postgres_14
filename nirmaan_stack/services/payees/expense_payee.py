@@ -4,8 +4,9 @@
 """Who an expense pays (spec #1420 tickets #1429, #1436, #1438, ADR-0033): the Expense payee.
 
 * `change_expense_account` -- Record Payment's Change account: copies a Payee's account onto the
-  expense's own pay-to account and saves. The calling endpoint checks the role; the server refuses
-  nothing else (#1436): which expenses may still change is a screen rule.
+  expense's own pay-to account and saves. The calling endpoint checks write permission; the server
+  refuses nothing else (#1436): who sees Change account and which expenses may still change are
+  screen rules.
 
 Approval copies the request's pay-to account onto the Expense as it is (`api/expense_requests/convert`,
 `pay_to.copy_pay_to`).

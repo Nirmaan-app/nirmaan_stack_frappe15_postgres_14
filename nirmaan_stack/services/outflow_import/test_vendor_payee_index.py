@@ -17,7 +17,7 @@ from decimal import Decimal
 
 import frappe
 
-from nirmaan_stack.api.payees.payee_fixture import PayeeFixture
+from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each
 from nirmaan_stack.services.outflow_import.candidates import load_payments_by_amount, load_vendor_index
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE, settleable_statuses
 from nirmaan_stack.services.outflow_import.matcher import TIER_ACCOUNT, TargetRef, match_row
@@ -70,13 +70,8 @@ class TestTierOneReadsThePayToAccount(unittest.TestCase):
             (name, vendor, float(AMOUNT), APPROVED, account, ifsc),
         )
         frappe.db.commit()
-        self.addCleanup(self._delete_payment, name)
+        self.addCleanup(delete_each, [(PAYMENT_DOCTYPE, name)], raw={PAYMENT_DOCTYPE})
         return name
-
-    @staticmethod
-    def _delete_payment(name: str) -> None:
-        frappe.db.sql('DELETE FROM "tabProject Payments" WHERE name = %s', (name,))
-        frappe.db.commit()
 
     def _match(self, line: _Line, planted: str):
         """The match run's tier ladder over the real pool, narrowed to the planted payment."""

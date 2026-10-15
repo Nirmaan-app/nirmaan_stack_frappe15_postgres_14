@@ -26,7 +26,7 @@ from frappe import _
 from nirmaan_stack.services.payees.choosing import link_vendor, payee_choice, suggest_for_vendor
 from nirmaan_stack.services.payees.links import payee_summary
 from nirmaan_stack.services.payees.vendor_account import payee_for_vendor, vendor_account
-from nirmaan_stack.services.payees.writer import duplicate_verdict, edit_payee, unless_duplicate
+from nirmaan_stack.services.payees.writer import duplicate_verdict, edit_payee_reply, unless_duplicate
 from nirmaan_stack.services.role_profiles import assert_vendor_payee_access
 
 
@@ -69,7 +69,7 @@ def get_vendor_account(vendor: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def edit_vendor_payee(vendor: str, account_name: str, account_number: str, ifsc: str) -> dict:
     """Edit bank details on the vendor page, and the rename prompt's "Update the holder name" (#1435):
-    the vendor's own Payee edited in place (`writer.edit_payee`), so every vendor paid into it follows.
+    the vendor's own Payee edited in place (`writer.edit_payee_reply`), so every vendor paid into it follows.
     Refused for a vendor with no Payee (Add bank details is `change_vendor_payee`).
 
     Returns `{payee: <summary>}`, or `{duplicate: <summary>, message}` when another Payee already holds
@@ -78,11 +78,9 @@ def edit_vendor_payee(vendor: str, account_name: str, account_number: str, ifsc:
     payee = payee_for_vendor(vendor)
     if not payee:
         frappe.throw(_("{0} has no bank account to edit. Add bank details instead.").format(vendor))
-    _done, duplicate = unless_duplicate(lambda: edit_payee(payee, account_name, account_number, ifsc))
-    if duplicate:
-        return duplicate
+    reply = edit_payee_reply(payee, account_name, account_number, ifsc)
     frappe.db.commit()
-    return {"payee": payee_summary(payee)}
+    return reply
 
 
 @frappe.whitelist(methods=["POST"])
