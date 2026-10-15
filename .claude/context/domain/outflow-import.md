@@ -6528,7 +6528,7 @@ four shapes) and the IFSC cases in `TestTheContainsQueryMirrorsThePureTokens`; `
 (3: the prompt text, a branch-code-only inflow, an inflow another line accounts for).
 
 
-## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, validation at #1444, review at #1446, create at #1445, the rest NOT BUILT YET)
+## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, validation at #1444, review at #1446, create at #1445, placement signals at #1448, the rest NOT BUILT YET)
 
 Decisions: **[ADR-0032](../../../docs/adr/0032-porter-statement-import.md)** (owner grilling, Q1–Q36).
 Terms: `GLOSSARY.md` § *Porter deliveries*. The design below is the target; § *As built* at the end of
@@ -6645,10 +6645,10 @@ invoice link, **named by its invoice number**, holding the statement's figures o
 only, `validation_status` `Queued`; one `Outflow Import Row` per order, in file order:
 - cancelled → `Skipped`, `skip_kind` **Porter order cancelled** (locked in `skip_origin.UNSKIP_LOCKED_KINDS`
   and its frontend mirror, checked before the Cashbook rule), `skip_origin` System;
-- completed → `Pending match run`, `suggested_doctype` / `resolved_project` from `project_match` over
-  **Won projects only, no aliases**, `suggested_expense_type` = Material Transportation Charges on both
-  ledgers, `placement_reason` `name`, `placement_strength` Strong (whole name) or Check (single unique
-  keyword), `match_basis` `porter statement`, `auto_matched` 1.
+- completed → `Pending match run`, `suggested_doctype` / `resolved_project` / `placement_reason` /
+  `placement_strength` from the placement signals over **Won projects only, no aliases** (#1448, below;
+  #1443 had the name matcher alone), `suggested_expense_type` = Material Transportation Charges on both
+  ledgers, `match_basis` `porter statement`, `auto_matched` 1.
 Every Porter row carries `porter_invoice` (Link) and `porter_line` (JSON: the 22 columns verbatim, read
 only through `porter.statement_line`). Four new `Outflow Import Row` fields; see `CODING_STANDARDS.md`
 § Don't touch. Upload then enqueues validation (#1444, below).
@@ -6896,3 +6896,69 @@ Porter Order fields); `api/expense_requests/test_fixture_completeness.py` (both 
 Invoice, which only Admin, Accountant and Accountant Lead can read: other roles who can open the expense get
 403 on the PDF (story 53, for #1450). An `Error` line cannot be re-placed in Review (it is not `Pending match
 run`) before a re-run.
+
+### As built — #1448: project suggestions from typos, initials, site addresses and earlier imports (2026-10-15)
+
+**Where it lives.** Pure: `services/outflow_import/porter_placement.py` — `build_placement_master(projects,
+sites, earlier)` and `place_orders(orders, master)`, the signals `typo_project`, `initials_project`,
+`address_project` (and the history in the master), the inputs `OrderFacts`, `SiteAddress`, `EarlierPlacement`,
+the output `Placement` (moved here from `porter.py`; `porter.suggest_placement` is gone). The vocabulary stays
+in `porter.py`: `REASON_NAME`, `REASON_TYPO`, `REASON_INITIALS`, `REASON_ADDRESS`, `REASON_CONFLICT`,
+`REASON_HISTORY`, `REASON_REVIEW`, `STRENGTH_STRONG` / `STRENGTH_CHECK`. The upload
+(`api/outflow_import/porter._placement_master`) reads the master and the history ONCE, then places every
+completed order of the file in one call (an order's suggestion depends on its remark group). **No alias table
+and no AI call** (pinned: `TestPurity` and the AST guard in `test_porter_import`).
+
+**The signals.** Each is counted over the Won master as it stands — nothing to maintain, a new project takes
+part at once (`_sole_owners`: a key claimed by two projects means neither).
+1. **Name** — `project_match` (whole name, else one word unique to a project). Ambiguous here STOPS 2–3.
+2. **Typo** — a remark word exactly one edit (change, add or drop a letter) from a keyword unique to one
+   project and **5+ letters as written** (`TYPO_MIN_WORD_LENGTH`; "telus" counts though it compares as
+   "telu"). A remark word that is a word of any project name, or a generic word, is never a typo.
+3. **Initials** — two or more single letters in a row ("v r mall", "e y", "e.y") read as one word, matched
+   to a word of one project's name ("vr") or to one project's initials, noise words aside ("ey" of Ernst &
+   Young). Letters typed together ("ey") are NOT read: too many short words are someone's initials.
+4. **Site address** — `Projects.project_address` → `Address` (`address_line1`, `address_line2`, `pincode`;
+   `city` / `state` / `country` only as words to ignore). Evidence at one address end (from or to) = words of
+   one site's address lines that no other site has (city/state/country words of every site, the order's own
+   city and generic words excluded) plus that site's pincode if no other site has it. **Two pieces of
+   evidence** name a site; the two ends naming two projects name neither.
+5. **Earlier imports** — see below. Read FIRST, though listed last: it is a person's decision, and the name
+   matcher would otherwise repeat a corrected mistake every month (story 30).
+
+**Combination** (`place_orders`), per remark group (`remark_group_key`; an order with no remark is its own):
+name = 5, else 1–3 on the remark; each order's address vote; the group majority = the one project voted by
+≥ max(2, ceil(n/2)) orders.
+- the name gives a project, and a majority votes ANOTHER project → **no suggestion**, reason `conflict`,
+  Check (Non-Project until a person places it);
+- else the name's project: **Strong** when an address agrees (the order's own vote or the majority; reason
+  `<name reason>+address`, e.g. `name+address`), else **Check** for a loose reading (one unique word, typo,
+  initials), else Strong (whole name, history);
+- history kept the remark Non-Project → Non-Project, reason `history`, Strong (a majority for a project →
+  `conflict`);
+- no name → the order's own address vote (reason `address`, Check), else blank (Non-Project, no reason).
+A single noisy address never moves a name: only a group majority can, and only to "decide it yourself".
+
+**Signal 5 reads exactly this** (for #1449 to check against): every `Porter Order`'s `remark` and `city`,
+joined to the LIVE Expense that links to it — `Project Expenses.porter_order` → its `projects`, or
+`Non Project Expenses.porter_order` → Non-Project — keyed by `remark_group_key(remark, city)`. Per key, the
+placement held by MORE than half of those orders wins; an even split says nothing; a project no longer Won is
+not counted. Every created order counts (Create after review = confirmed). A Rectify that replaces the Expense
+(same Porter Order) is therefore read as the new placement with no code of its own; an Unreconcile deletes the
+Expense, and the order drops out (pinned: `test_porter_create.TestTheNextImportRemembersThePlacement`). ⚠️ So
+from the second month most orders read `history`, Strong — including a Check suggestion that was created
+without being corrected.
+
+**Screen.** `porterReview.ts` `reasonLabel` names every reason ("Project name misspelt in the remark",
+"Project initials in the remark", "Its site address", "Kept so in an earlier Porter import", "Name and most
+addresses point to different projects") and a joined one part by part ("Project name in the remark, and its
+site address"); an unknown part is still shown as it is. A `conflict` line is Check, so it is listed first.
+
+**Tests.** `services/outflow_import/test_porter_placement.py` (pure, every signal and the combination; the
+table `TestTheSeptemberRemarkGroups` over a synthetic master mirroring the 2026-09 measured cases — telus
+name+address, cignus typo, v r mall / e y initials, a conflict, an ambiguous name falling back to address,
+no-remark orders, history kept Non-Project — and the two known misplacements, "cheque to xinergy
+innovation" → Schneider Innovation and "exl and qburst project" → QBurst, both reason `name`, Check);
+`api/outflow_import/test_porter_import.py` (`TestAnOrderIsPlacedByItsProjectsSiteAddress`: the Address join
+at upload); `test_porter_create.py` (`TestTheNextImportRemembersThePlacement`: review → Create → next upload;
+Unreconcile forgets); `frontend/.../porterReview.test.ts` (labels; every `REASON_*` parity).

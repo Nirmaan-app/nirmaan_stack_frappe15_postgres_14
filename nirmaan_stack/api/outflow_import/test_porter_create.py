@@ -293,6 +293,53 @@ class TestCreateHonoursTheReviewedPlan(PorterCreateCase):
         self.assertEqual(unplaced.description, "Porter Delivery raised by Arjun Pillai")
 
 
+class TestTheNextImportRemembersThePlacement(PorterCreateCase):
+    """Signal 5 (#1448): what a person kept in this import is suggested for the same remark and city in
+    the next one. Read off the LIVE Expense of each earlier Porter Order."""
+
+    def _next_import(self):
+        from nirmaan_stack.api.outflow_import.test_porter_import import _fresh_fixture
+
+        content, _ = _fresh_fixture()
+        batch = self._upload(content)["batch"]
+        return {
+            row.transfer_id[-3:]: row
+            for row in frappe.get_all(ROW_DOCTYPE, filters={"import_batch": batch}, fields=["*"])
+        }
+
+    def test_a_placement_kept_last_time_is_suggested_for_the_same_remark_and_city(self):
+        from nirmaan_stack.api.outflow_import.porter_review import set_porter_placement
+
+        self._validate()
+        # "quillon site" in Bangalore is moved to Zephyr Tower; "misc delivery" is kept Non-Project.
+        set_porter_placement(self.batch, json.dumps([self._lines()["002"].name]), self.zephyr)
+        self._press_create()
+        self._run_create()
+
+        lines = self._next_import()
+        moved = lines["002"]
+        self.assertEqual((moved.resolved_project, moved.suggested_doctype), (self.zephyr, PROJECT_EXPENSE))
+        self.assertEqual((moved.placement_reason, moved.placement_strength), ("history", "Strong"))
+        # The same remark in another city is another group: kept on Quillon Park, where it was created.
+        self.assertEqual((lines["006"].resolved_project, lines["006"].placement_reason), (self.quillon, "history"))
+        kept_off = lines["005"]
+        self.assertEqual((kept_off.suggested_doctype, kept_off.placement_reason), (NON_PROJECT_EXPENSE, "history"))
+        self.assertIsNone(kept_off.resolved_project)
+
+    def test_an_unreconciled_order_is_forgotten(self):
+        from nirmaan_stack.api.outflow_import.porter_review import set_porter_placement
+        from nirmaan_stack.api.outflow_import.unreconcile import unreconcile_row
+
+        self._validate()
+        set_porter_placement(self.batch, json.dumps([self._lines()["002"].name]), self.zephyr)
+        self._press_create()
+        self._run_create()
+        unreconcile_row(row=self._lines()["002"].name, legs="all", reason="placed on the wrong project")
+
+        moved = self._next_import()["002"]
+        self.assertEqual((moved.resolved_project, moved.placement_reason), (self.quillon, "name"))
+
+
 class TestAnInterruptedCreateResumes(PorterCreateCase):
     def test_a_line_that_failed_is_left_in_error_and_a_rerun_finishes_without_duplicates(self):
         self._validate()

@@ -17,8 +17,8 @@ WHAT THIS MODULE DECIDES.
 
 1. `read_porter_statement` -- the file grouped into its Porter Invoices, or a REFUSAL. Nothing is saved
    before this has accepted the whole file, because saving the CSV commits inside the request.
-2. `suggest_placement` -- the starting project suggestion for a completed order: the existing Won-only
-   name matcher (`project_match`), with its reason and strength.
+2. `REASON_*` / `STRENGTH_*` -- why each completed order is placed where it is, and how far to trust it.
+   The signals that decide it are in `porter_placement.py` (#1448); the review writes `REASON_REVIEW`.
 3. `remark_group_key` -- which review group an order is assigned with (#1446).
 4. `judge_invoice` -- whether one Porter Invoice's PDF, as Gemini read it, agrees with the statement
    (#1444); `import_state` -- the import's Validating / Validated / Validation failed, from its invoices,
@@ -40,10 +40,6 @@ from datetime import date
 from decimal import Decimal
 
 from nirmaan_stack.services.outflow_import.amounts import PORTER_INVOICE_TOLERANCE
-from nirmaan_stack.services.outflow_import.ledgers import (
-    NON_PROJECT_EXPENSE_DOCTYPE,
-    PROJECT_EXPENSE_DOCTYPE,
-)
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.parser import (
     PORTER_ORDER_COMPLETED,
@@ -51,7 +47,6 @@ from nirmaan_stack.services.outflow_import.parser import (
     ParseResult,
     RawRow,
 )
-from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, comparable_tokens
 from nirmaan_stack.services.outflow_import.status import (
     ROW_ERROR,
     ROW_MISMATCHED,
@@ -82,13 +77,17 @@ __all__ = [
     "MATCH_BASIS",
     "OWN_IMPORT_LINE_REFUSAL",
     "PORTER_COLUMNS",
-    "Placement",
     "PorterInvoiceGroup",
     "PorterLine",
     "PorterStatement",
     "PorterStatementError",
+    "REASON_ADDRESS",
+    "REASON_CONFLICT",
+    "REASON_HISTORY",
+    "REASON_INITIALS",
     "REASON_NAME",
     "REASON_REVIEW",
+    "REASON_TYPO",
     "SKIP_REASON_CANCELLED",
     "STRENGTH_CHECK",
     "STRENGTH_STRONG",
@@ -100,7 +99,6 @@ __all__ = [
     "remark_group_key",
     "rupees",
     "statement_line",
-    "suggest_placement",
 ]
 
 #: The statement's columns, by Porter's own names. Every one is required by the parser adapter.
@@ -112,9 +110,24 @@ EXPENSE_TYPE = "Material Transportation Charges"
 #: `Outflow Import Row.match_basis` on a completed Porter line: the import's own plan, never the matcher's.
 MATCH_BASIS = "porter statement"
 
-#: Why a suggestion was made. Only the name matcher exists so far; #1448 adds the others. A reader must
-#: show a reason it does not know as it is, never drop it.
+#: Why a suggestion was made (`porter_placement`). A reader must show a reason it does not know as it
+#: is, never drop it; `porterReview.ts` labels each one (pinned by `porterReview.test.ts`).
+#: The remark names the project: its whole name, or a word unique to it (`project_match`).
 REASON_NAME = "name"
+#: The remark holds a word one letter off a 5+ letter word unique to one project ("cignus" -> Cygnus).
+REASON_TYPO = "typo"
+#: The remark spells a project's initials with spaces ("v r mall" -> VR Mall Food Court, "e y" -> Ernst
+#: & Young).
+REASON_INITIALS = "initials"
+#: The order's from or to address names one project's site by two pieces of evidence (words unique to
+#: that site, or its unique pincode). Joined to a name reason when it agrees: "name+address".
+REASON_ADDRESS = "address"
+#: The remark names one project, but most of its group's orders go to another project's site: no
+#: suggestion, so a person decides.
+REASON_CONFLICT = "conflict"
+#: An earlier Porter import's order with the same remark and city was kept on this placement (its live
+#: Expense: created as reviewed, or Rectified since).
+REASON_HISTORY = "history"
 #: The Accountant chose the placement in Review (#1446): no longer a suggestion, so it has no strength.
 REASON_REVIEW = "review"
 
@@ -332,49 +345,6 @@ def statement_line(stored: object) -> dict[str, str]:
         column: "" if stored.get(column) is None else str(stored.get(column))
         for column in PORTER_COLUMNS
     }
-
-
-@dataclass(frozen=True)
-class Placement:
-    """Where a completed order's Expense would go, and why. Blank project means Non-Project."""
-
-    ledger: str
-    project: str | None
-    project_name: str
-    expense_type: str
-    reason: str
-    strength: str
-
-
-def suggest_placement(remarks: str, index: ProjectIndex) -> Placement:
-    """The starting suggestion for one completed order, from the existing name matcher.
-
-    `index` must be built over WON projects only (the caller's job, as Cashbook's `_build_plan`): indexing
-    every project lets a Tendering duplicate tie a Won project's whole name, and a tie yields nothing.
-
-    Strength: a remark holding the project's WHOLE name is Strong; a single word unique to one project
-    is the loose reading, and is marked Check.
-    """
-    project = index.sole_project(remarks)
-    if not project:
-        return Placement(
-            ledger=NON_PROJECT_EXPENSE_DOCTYPE,
-            project=None,
-            project_name="",
-            expense_type=EXPENSE_TYPE,
-            reason="",
-            strength="",
-        )
-    whole_name = index.token_sets.get(project) or frozenset()
-    strong = bool(whole_name) and whole_name <= comparable_tokens(remarks)
-    return Placement(
-        ledger=PROJECT_EXPENSE_DOCTYPE,
-        project=project,
-        project_name=index.name_of(project),
-        expense_type=EXPENSE_TYPE,
-        reason=REASON_NAME,
-        strength=STRENGTH_STRONG if strong else STRENGTH_CHECK,
-    )
 
 
 # --- review (#1446) -------------------------------------------------------------------------------
