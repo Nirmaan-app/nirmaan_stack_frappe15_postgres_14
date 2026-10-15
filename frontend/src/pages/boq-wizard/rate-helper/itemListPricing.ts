@@ -1151,7 +1151,7 @@ function partIsReadable(part: string): boolean {
 /** The axis a size part names, or null when it names none. A part is stripped of its number and unit first,
  * so "450 mm" names nothing while "400 mm High" names the depth slot and "250(D)" names it too. PURE. */
 function axisOf(part: string): number | null {
-  const tail = part.replace(/[\d.]+/g, " ").replace(/(?:mm|cm|m|mtr|mtrs|metre|meter|nos?|no)/gi, " ");
+  const tail = part.replace(/[\d.]+/g, " ").replace(/\b(?:mm|cm|m|mtr|mtrs|metre|meter|nos?|no)\b/gi, " ");
   const hit = _AXIS_PATTERNS.filter((a) => a.re.test(tail));
   return hit.length === 1 ? hit[0].axis : null;
 }
