@@ -55,11 +55,6 @@ interface ProjectOverviewTabProps {
   estimatesTotal: number
   totalPOAmountWithGST: number
   getAllSRsTotalWithGST: number
-  getTotalAmountPaid: {
-    poAmount: number;
-    srAmount: number;
-    totalAmount: number;
-  };
 }
 
 /** One person on the Assignees card — the id is what a removal needs, the name is shown. */
@@ -70,7 +65,7 @@ interface ProjectAssignee {
 
 {/* <OverviewSkeleton2 /> */ }
 
-export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectData, projectCustomer, getAllSRsTotalWithGST, totalPOAmountWithGST, getTotalAmountPaid }) => {
+export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = ({ projectData, projectCustomer, getAllSRsTotalWithGST, totalPOAmountWithGST }) => {
 
   const { role, user_id } = useUserData();
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";

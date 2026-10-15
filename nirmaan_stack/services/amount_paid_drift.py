@@ -19,7 +19,8 @@ never fixed silently.
     should not put a project on hold by itself; the project's next payment or refund re-checks it.
 
 The integrity tests use `mismatches` as their judge: each performs an action and asserts it finds nothing
-on the orders involved.
+on the orders involved. The Amount Paid Mismatch report reads and recounts through it
+(`api/reports/amount_paid_mismatch`).
 """
 
 from typing import NamedTuple
@@ -42,6 +43,9 @@ from nirmaan_stack.services.vendor_refunds import (
 ORDER_DOCTYPES = (PROCUREMENT_ORDERS, SERVICE_REQUESTS)
 #: A stored figure this far or more from its source is a mismatch; less is paisa rounding.
 THRESHOLD = 1.0
+#: The Vendor Credit Ledger entry type a PO recount writes its vendor's credit under (the Recount
+#: button of the Amount Paid Mismatch report; the 2026-10-15 patch spells the same word itself).
+RECOUNT_CREDIT_ENTRY = "Amount Paid Recount"
 
 #: The order columns each doctype's Amount Due is built from, besides `amount_paid`
 #: (`_item_billing_sync._AMOUNT_DUE_OPERANDS`), plus what decides a company-borne Work Order.

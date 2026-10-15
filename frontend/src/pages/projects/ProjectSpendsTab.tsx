@@ -18,17 +18,14 @@ interface ProjectSpendsTabProps {
     };
   };
   po_data?: ProcurementOrder[];
-  getTotalAmountPaid: {
-    poAmount: number;
-    srAmount: number;
-    totalAmount: number;
-  };
+  /** The Approved WOs' stored Amount Paid, for the "Services" row. */
+  servicesAmountPaid: number;
   workPackageTotalAmounts: { [key: string]: any }
   totalServiceOrdersAmt: number;
   projectId: string
 }
 
-export const ProjectSpendsTab: React.FC<ProjectSpendsTabProps> = ({ options, categorizedData, po_data, getTotalAmountPaid, workPackageTotalAmounts, totalServiceOrdersAmt, projectId }) => {
+export const ProjectSpendsTab: React.FC<ProjectSpendsTabProps> = ({ options, categorizedData, po_data, servicesAmountPaid, workPackageTotalAmounts, totalServiceOrdersAmt, projectId }) => {
 
   const initialTab = useMemo(() => {
     return getUrlStringParam("tab", "All");
@@ -186,7 +183,7 @@ export const ProjectSpendsTab: React.FC<ProjectSpendsTabProps> = ({ options, cat
             <TailSpin color={"red"} />{" "}
           </div>
         }>
-          <AllTab workPackageTotalAmounts={workPackageTotalAmounts} setProjectSpendsTab={setProjectSpendsTab} segregatedServiceOrderData={segregatedServiceOrderData} totalServiceOrdersAmt={totalServiceOrdersAmt} getTotalAmountPaid={getTotalAmountPaid} />
+          <AllTab workPackageTotalAmounts={workPackageTotalAmounts} setProjectSpendsTab={setProjectSpendsTab} segregatedServiceOrderData={segregatedServiceOrderData} totalServiceOrdersAmt={totalServiceOrdersAmt} servicesAmountPaid={servicesAmountPaid} />
         </Suspense>
       )}
 
