@@ -23,8 +23,10 @@ export const PORTER_URL_KEY = "porter";
 export const opensPorterDialog = (
     batch: string | undefined,
     options: readonly { name: string; source?: string | null }[],
-): boolean =>
-    Boolean(batch) && (options.find((option) => option.name === batch)?.source ?? "").trim() === PORTER_SOURCE;
+): boolean => Boolean(batch) && isPorterImport(options.find((option) => option.name === batch)?.source);
+
+/** Whether a statement of this `source` is a Porter import (the one-statement form of `opensPorterDialog`). */
+export const isPorterImport = (source: string | null | undefined): boolean => (source ?? "").trim() === PORTER_SOURCE;
 
 /** How often the dialog asks how validation is going. Polled, no socket — following Cashbook. */
 export const PORTER_STATUS_POLL_MS = 2000;

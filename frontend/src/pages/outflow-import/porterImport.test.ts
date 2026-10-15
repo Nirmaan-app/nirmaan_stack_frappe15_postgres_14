@@ -26,6 +26,7 @@ import {
     invoiceFigureRows,
     invoiceProgress,
     invoiceStateTone,
+    isPorterImport,
     opensPorterDialog,
     porterCountsLine,
     porterCreateStarted,
@@ -127,6 +128,12 @@ describe("choosing a Porter import from a list of statements", () => {
         expect(opensPorterDialog("OFI-1", [{ name: "OFI-1", source: "Cashfree" }])).toBe(false);
         expect(opensPorterDialog(undefined, [{ name: "OFI-2", source: PORTER_SOURCE }])).toBe(false);
         expect(opensPorterDialog("OFI-9", [{ name: "OFI-2", source: PORTER_SOURCE }])).toBe(false);
+    });
+
+    it("reads one statement's source the same way (Import History hands its row's source)", () => {
+        expect(isPorterImport(` ${PORTER_SOURCE} `)).toBe(true);
+        expect(isPorterImport("Cashfree")).toBe(false);
+        expect(isPorterImport(undefined)).toBe(false);
     });
 });
 

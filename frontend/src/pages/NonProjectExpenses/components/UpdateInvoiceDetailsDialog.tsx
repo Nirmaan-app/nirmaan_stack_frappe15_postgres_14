@@ -21,10 +21,11 @@ import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import SITEURL from "@/constants/siteURL";
 import { cn } from "@/lib/utils";
 import { getFrappeError } from "@/utils/frappeErrors";
+import { invoiceAttachmentUrl } from "@/utils/porterExpense";
 
 /** The invoice form is the same on both expense ledgers — one dialog serves both. */
 type ExpenseDoctype = "Project Expenses" | "Non Project Expenses";
-type InvoiceFields = "name" | "invoice_date" | "invoice_ref" | "invoice_attachment";
+type InvoiceFields = "name" | "invoice_date" | "invoice_ref" | "invoice_attachment" | "porter_order";
 
 interface UpdateInvoiceDetailsDialogProps {
     isOpen: boolean;
@@ -178,7 +179,11 @@ export const UpdateInvoiceDetailsDialog: React.FC<UpdateInvoiceDetailsDialogProp
                 <div className="flex items-center gap-2 min-w-0">
                     <Download className="h-4 w-4 text-primary flex-shrink-0" />
                     <a
-                        href={SITEURL + effectiveExistingUrl}
+                        href={
+                            SITEURL +
+                            (invoiceAttachmentUrl(doctype, { ...expense, invoice_attachment: effectiveExistingUrl }) ??
+                                effectiveExistingUrl)
+                        }
                         target="_blank"
                         rel="noopener noreferrer"
                         className="truncate hover:underline"

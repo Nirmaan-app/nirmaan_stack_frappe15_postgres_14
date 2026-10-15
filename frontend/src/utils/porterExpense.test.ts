@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
 	invoiceAttachmentUrl,
 	isPorterExpense,
+	PORTER_INVOICE_PDF_METHOD,
 	porterSectionRows,
 	projectField,
 	RECTIFY_HINT,
@@ -90,6 +93,16 @@ describe("invoiceAttachmentUrl (the list pages' invoice link)", () => {
 		expect(
 			invoiceAttachmentUrl("Non Project Expenses", { name: "NPE-1", invoice_attachment: "/files/bill.pdf" })
 		).toBe("/files/bill.pdf");
+	});
+
+	it("names the same endpoint the server's Porter section links (porter_expense.PDF_METHOD, F1)", () => {
+		const server = readFileSync(
+			fileURLToPath(new URL("../../../nirmaan_stack/api/outflow_import/porter_expense.py", import.meta.url)),
+			"utf-8"
+		);
+		expect(server.match(/^PDF_METHOD = "([^"]+)"/m)?.[1]).toBe(PORTER_INVOICE_PDF_METHOD);
+		// The same rule as `porter_expense.pdf_url`: a Porter Expense WITH an invoice attachment.
+		expect(server).toContain("if not (expense.porter_order and expense.invoice_attachment):");
 	});
 
 	it("is null when there is no attachment, Porter or not", () => {

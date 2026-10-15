@@ -3,8 +3,6 @@
 // The project picker a Porter order is placed with: in Review (#1446) and in Rectify (#1449). Both sit
 // inside a modal dialog and offer the same choices -- every Won project the server sent, and No project.
 
-import type { StylesConfig } from "react-select";
-
 import { FuzzySearchSelect, type TokenSearchConfig } from "@/components/ui/fuzzy-search-select";
 
 /** One choice: a Won project's name and its display name, or `NON_PROJECT`. */
@@ -22,22 +20,20 @@ const SEARCH: TokenSearchConfig = {
     fieldWeights: { label: 2.0, value: 1.5 },
 };
 
-/**
- * ⚠️ THE MENU IS PORTALED OUT OF THE DIALOG, AND A MODAL DIALOG SETS `pointer-events: none` ON THE BODY: without
- * `pointerEvents: "auto"` a click on an option falls through (found on the Rectify walk: it picked the wrong
- * project). The `RequestTdsItemDialog` pattern.
- */
-const PORTAL_STYLES: StylesConfig<ProjectOption, false> = {
-    menuPortal: (base) => ({ ...base, zIndex: 9999, pointerEvents: "auto" }),
-};
-
 /** No project first, then the server's Won projects in its order. */
 export const projectOptions = (projects: readonly { name: string; project_name: string }[]): ProjectOption[] => [
     NON_PROJECT,
     ...projects.map((project) => ({ value: project.name, label: project.project_name })),
 ];
 
-/** The picker. `onChange` receives the chosen option, or null when it is cleared. */
+/**
+ * The picker. `onChange` receives the chosen option, or null when it is cleared.
+ *
+ * ⚠️ THE MENU IS PORTALED TO `body` AND POSITIONED `fixed`, as every select inside a modal dialog is
+ * (frontend CODING_STANDARDS § Building a form or a select): `FuzzySearchSelect` applies the shared theme,
+ * whose portal sits above the dialog and takes clicks although the dialog sets `pointer-events: none` on
+ * the body.
+ */
 export const PorterProjectSelect = ({
     options,
     value,
@@ -63,6 +59,5 @@ export const PorterProjectSelect = ({
         isDisabled={isDisabled}
         menuPortalTarget={document.body}
         menuPosition="fixed"
-        styles={PORTAL_STYLES}
     />
 );

@@ -46,6 +46,9 @@ export const PORTER_INVOICE_PDF_METHOD = "nirmaan_stack.api.outflow_import.porte
  * and only Admin and the Accountants may read a Porter Invoice: linked as it is, anyone else who may read
  * the expense gets a 403 (spec #1442 story 53). It opens through the expense instead, which checks the
  * expense's own read permission.
+ *
+ * ⚠️ THE SAME RULE AND URL AS THE SERVER'S `porter_expense.pdf_url` (the Porter section's link), pinned by
+ * `porterExpense.test.ts` against that file and by the same literal URL in `test_porter_expense` (F1).
  */
 export const invoiceAttachmentUrl = (
 	doctype: string,

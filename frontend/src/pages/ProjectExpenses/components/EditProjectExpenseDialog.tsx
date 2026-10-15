@@ -35,7 +35,7 @@ import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys"
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import SITEURL from "@/constants/siteURL";
-import { projectField } from "@/utils/porterExpense";
+import { invoiceAttachmentUrl, projectField } from "@/utils/porterExpense";
 import { PorterSectionBlock, usePorterExpense } from "@/components/common/PorterExpense";
 
 interface EditProjectExpenseDialogProps {
@@ -308,7 +308,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                             {expenseToEdit.invoice_attachment && !newInvoiceFile && (
                                 <div className="flex items-center gap-2 p-2 bg-muted/60 rounded-md text-sm">
                                     <Download className="h-4 w-4 text-primary flex-shrink-0" />
-                                    <a href={SITEURL + expenseToEdit.invoice_attachment} target="_blank" rel="noreferrer" className="truncate hover:underline" title={`View ${expenseToEdit.invoice_attachment.split('/').pop()}`}>{expenseToEdit.invoice_attachment.split('/').pop()}</a>
+                                    <a href={SITEURL + (invoiceAttachmentUrl(DOCTYPE, expenseToEdit) ?? expenseToEdit.invoice_attachment)} target="_blank" rel="noreferrer" className="truncate hover:underline" title={`View ${expenseToEdit.invoice_attachment.split('/').pop()}`}>{expenseToEdit.invoice_attachment.split('/').pop()}</a>
                                 </div>
                             )}
                             <CustomAttachment
