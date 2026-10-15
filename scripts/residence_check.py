@@ -320,6 +320,8 @@ PAYMENT_SUM_OWNERS: dict[str, str] = {
     "nirmaan_stack/services/amount_paid_drift.py": "the mismatch service: recomputes the rule to judge the stored figure",
     "nirmaan_stack/nirmaan_stack/doctype/project_payments/project_payments.py":
         "the payment's own recount and its insert cap (payment total <= order total)",
+    # Project outflow is cash, a payment sum by definition (ADR-0034 point 5, #1456).
+    "nirmaan_stack/services/project_money.py": "project outflow / Current Liabilities / cashflow gap: the one server figure",
     # Payment caps: ignore refunds on purpose (ADR-0032).
     "nirmaan_stack/services/finance.py": "server caps: get_total_paid / _pending / _reconciliation_pending",
     "nirmaan_stack/services/payment_summary.py": "the request / approve 'left to request' cap",

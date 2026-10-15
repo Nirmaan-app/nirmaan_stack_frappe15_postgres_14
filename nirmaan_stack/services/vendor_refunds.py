@@ -168,25 +168,6 @@ def refunded_on(
     return totals
 
 
-def refunds_lowering_paid_by_project(project: str | None = None) -> dict[str, float]:
-    """The RECEIVED Vendor Refunds on each project's POs and Work Orders, by project -- on `project`
-    only when one is given (owner, 2026-10-13).
-
-    What the cashflow gap takes off "paid out": money a vendor sent back is not paid out any more. The
-    same rule as `amount_paid_of` (`LOWERS_PAID_STATUSES`), summed per project: a waiting or cancelled
-    refund lowers nothing, and a Misc. Expense refund is against no PO or Work Order.
-    """
-    filters = {
-        "document_type": ["in", list(REFUND_DOCUMENT_FIELDS)],
-        "status": ["in", list(LOWERS_PAID_STATUSES)],
-        "project": project if project else ["is", "set"],
-    }
-    totals: dict[str, float] = {}
-    for refund in frappe.get_all(VENDOR_REFUNDS, filters=filters, fields=["project", "amount"], limit_page_length=0):
-        totals[refund.project] = totals.get(refund.project, 0.0) + flt(refund.amount)
-    return totals
-
-
 def held_on(po_id: str) -> float:
     """How much of this PO's overpaid credit its waiting refunds hold (#1400, ADR-0032)."""
     return float(refunded_on(PROCUREMENT_ORDERS, [po_id], HOLDS_CREDIT_STATUSES).get(po_id, 0))

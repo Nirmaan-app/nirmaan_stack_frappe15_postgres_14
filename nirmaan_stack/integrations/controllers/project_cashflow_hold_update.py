@@ -4,7 +4,7 @@ from frappe.utils import flt
 
 from nirmaan_stack.nirmaan_stack.doctype.projects.projects import CEO_HOLD_SYSTEM_USER
 from nirmaan_stack.services.ceo_hold import core
-from nirmaan_stack.services.vendor_refunds import refunds_lowering_paid_by_project
+from nirmaan_stack.services.project_money import project_money_of
 from ..Notifications.pr_notifications import PrNotification
 
 
@@ -239,7 +239,7 @@ def trigger_check(project_id):
 
 def on_project_payment(doc, method=None):
 	"""
-	Cashflow gap counts only Paid payments (see _compute_cashflow_gap).
+	Cashflow gap counts only Paid payments (see services/project_money).
 	Skip the evaluation for any status that doesn't touch the gap
 	(Requested / CEO Pending / Approved / Rejected).
 
@@ -259,7 +259,7 @@ def on_project_payment(doc, method=None):
 
 def on_project_expense(doc, method=None):
 	"""
-	Cashflow gap counts only Paid expenses (see _compute_cashflow_gap), so — like
+	Cashflow gap counts only Paid expenses (see services/project_money), so — like
 	on_project_payment — only re-evaluate the CEO Hold when a row enters or leaves
 	Paid. Adding / editing a Requested or Approved expense does NOT touch the gap
 	and is skipped.
@@ -284,54 +284,20 @@ def on_project_inflow(doc, method=None):
 
 
 def on_procurement_order(doc, method=None):
-	# PO contributes to the gap only via po_amount_delivered + amount_paid.
-	# has_value_changed returns True when there is no prior save state
-	# (insert / trash), so this single check covers all three events:
-	# always fire on insert + trash, fire on update only when these fields
+	# PO contributes to the gap only via its liability: po_amount_delivered and
+	# amount_paid, counted only while its status is not Merged / Cancelled /
+	# Inactive (services/project_money). has_value_changed returns True when there
+	# is no prior save state (insert / trash), so this single check covers all three
+	# events: always fire on insert + trash, fire on update only when these fields
 	# actually moved.
-	if doc.has_value_changed("po_amount_delivered") or doc.has_value_changed("amount_paid"):
+	if any(doc.has_value_changed(field) for field in ("po_amount_delivered", "amount_paid", "status")):
 		trigger_check(doc.project)
 
 
 def _compute_cashflow_gap(project_id: str) -> float:
+	"""The project's cashflow gap, from the one server figure `services/project_money` (#1456, ADR-0034).
+
+	The Projects list rollup reads the same function, so the two gaps agree. Kept as the seam the
+	CEO Hold tests patch and older patches import.
 	"""
-	Mirror of the frontend formula in projects.tsx (lines 462-477):
-	    gap = (paid_payments - received_refunds + all_expenses + liabilities) - all_inflows
-	    liabilities = Σ po_amount_delivered − Σ min(amount_paid, po_amount_delivered)
-	"""
-	paid_payments = frappe.get_all(
-		"Project Payments",
-		filters=[["project", "=", project_id], ["status", "=", "Paid"]],
-		fields=["amount"],
-	)
-	expenses = frappe.get_all(
-		"Project Expenses",
-		# Only Paid expenses count as outflow (mirrors the Paid-only Project Payments
-		# filter above); Requested/Approved-but-unpaid expenses don't affect the gap.
-		filters=[["projects", "=", project_id], ["status", "=", "Paid"]],  # 'projects' (plural) is correct
-		fields=["amount"],
-	)
-	# A Received Vendor Refund on the project's POs / WOs is money back: it is no longer paid out
-	# (owner, 2026-10-13; the same rule as the PO's `amount_paid`).
-	refunded = refunds_lowering_paid_by_project(project_id).get(project_id, 0.0)
-	outflow = sum(flt(p.amount) for p in paid_payments) + sum(flt(e.amount) for e in expenses) - refunded
-
-	inflows = frappe.get_all(
-		"Project Inflows",
-		filters=[["project", "=", project_id]],
-		fields=["amount"],
-	)
-	inflow = sum(flt(i.amount) for i in inflows)
-
-	pos = frappe.get_all(
-		"Procurement Orders",
-		filters=[["project", "=", project_id]],
-		fields=["po_amount_delivered", "amount_paid"],
-	)
-	payable = sum(flt(po.po_amount_delivered) for po in pos)
-	paid_against_delivered = sum(
-		min(flt(po.amount_paid), flt(po.po_amount_delivered)) for po in pos
-	)
-	liabilities = payable - paid_against_delivered
-
-	return outflow + liabilities - inflow
+	return project_money_of(project_id).cashflow_gap

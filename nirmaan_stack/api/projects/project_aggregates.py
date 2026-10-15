@@ -4,7 +4,7 @@ from frappe.utils import flt, create_batch # Use flt for safe float conversion
 import json
 from frappe.utils.caching import redis_cache
 
-from nirmaan_stack.services.vendor_refunds import refunds_lowering_paid_by_project
+from nirmaan_stack.services.project_money import LIABILITY_EXCLUDED_PO_STATUSES, project_money
 
 
 def _calculate_sr_totals(sr_doc):
@@ -594,6 +594,7 @@ _ROLLUP_KEYS = (
     "inflow",
     "outflow",
     "liabilities",
+    "cashflow_gap",
     "total_credit_purchase",
     "total_credit_paid",
 )
@@ -610,19 +611,15 @@ def get_projects_financial_rollup():
     Global (all projects) by design — the financial columns are shown only to privileged
     roles (Admin / PMO / Accountant), and the client fetched global data too.
 
-    Byte-identical to the client math (rows fetched then summed with `flt`, mirroring the
-    frontend `parseNumber`, so NULL/blank -> 0 and mixed text/numeric storage is safe):
+    Rows are fetched then summed with `flt` (NULL/blank -> 0):
       - total_project_invoiced = Σ Project Invoices.amount
       - po_wo_amount           = Σ PO.total_amount (status NOT IN Merged,Cancelled,Inactive) + Σ SR.total_amount (status=Approved)
       - notional_gst           = Σ SR.total_amount × 0.18 (status=Approved AND gst != "true") — the GST never charged on GST-off WOs
-      - inflow                 = Σ Project Inflows.amount
-      - outflow                = Σ Project Payments.amount (status=Paid) + Σ Project Expenses.amount (status=Paid; link field 'projects')
-                                 − Σ Vendor Refunds.amount (status=Received, against a PO / WO)
-      - liabilities            = Σ po_amount_delivered − Σ min(amount_paid, po_amount_delivered)   (min is PER-PO, then summed)
+      - inflow, outflow, liabilities, cashflow_gap = `services/project_money` — the one figure CEO Hold
+                                 also reads (ADR-0034), so the list's gap and the hold's gap agree
       - total_credit_purchase  = Σ PO Payment Terms.amount (payment_type=Credit) on those POs
 
-    `cashflow_gap` (= outflow + liabilities − inflow) and `project_value_gst` stay on the
-    client (the latter is a field on the Projects doc). Returns
+    `project_value_gst` stays on the client (a field on the Projects doc). Returns
     ``{ project_name: { <_ROLLUP_KEYS> } }``.
     """
     rollup = {}
@@ -642,12 +639,12 @@ def get_projects_financial_rollup():
         if b is not None:
             b["total_project_invoiced"] += flt(r.get("amount"))
 
-    # POs — po_wo_amount + liabilities (per-PO min), and the valid-PO -> project map for credit.
+    # POs — po_wo_amount, and the valid-PO -> project map for credit.
     valid_po_project = {}
     pos = frappe.get_all(
         "Procurement Orders",
-        filters={"status": ["not in", ["Merged", "Cancelled", "Inactive"]]},
-        fields=["name", "project", "total_amount", "po_amount_delivered", "amount_paid"],
+        filters={"status": ["not in", list(LIABILITY_EXCLUDED_PO_STATUSES)]},
+        fields=["name", "project", "total_amount"],
         limit_page_length=0,
     )
     for po in pos:
@@ -655,9 +652,6 @@ def get_projects_financial_rollup():
         if b is None:
             continue
         b["po_wo_amount"] += flt(po.get("total_amount"))
-        delivered = flt(po.get("po_amount_delivered"))
-        paid = flt(po.get("amount_paid"))
-        b["liabilities"] += delivered - min(paid, delivered)
         valid_po_project[po.get("name")] = po.get("project")
 
     # SRs — po_wo_amount (Approved only), plus notional_gst over the same Approved set.
@@ -675,31 +669,9 @@ def get_projects_financial_rollup():
             if sr.get("gst") != "true":
                 b["notional_gst"] += flt(sr.get("total_amount")) * 0.18
 
-    # inflow — Project Inflows, no filter.
-    for r in frappe.get_all("Project Inflows", fields=["project", "amount"], limit_page_length=0):
-        b = bucket(r.get("project"))
-        if b is not None:
-            b["inflow"] += flt(r.get("amount"))
-
-    # outflow — Paid Payments + Paid Expenses (Expenses link field is `projects`, plural).
-    for r in frappe.get_all(
-        "Project Payments", filters={"status": "Paid"}, fields=["project", "amount"], limit_page_length=0
-    ):
-        b = bucket(r.get("project"))
-        if b is not None:
-            b["outflow"] += flt(r.get("amount"))
-    for r in frappe.get_all(
-        "Project Expenses", filters={"status": "Paid"}, fields=["projects", "amount"], limit_page_length=0
-    ):
-        b = bucket(r.get("projects"))
-        if b is not None:
-            b["outflow"] += flt(r.get("amount"))
-    # Less Received Vendor Refunds on the project's POs / WOs: money back is not paid out (owner,
-    # 2026-10-13; the same rule as `_compute_cashflow_gap` and the PO's `amount_paid`).
-    for project, refunded in refunds_lowering_paid_by_project().items():
-        b = bucket(project)
-        if b is not None:
-            b["outflow"] -= refunded
+    # inflow, outflow, liabilities and the gap — the one project money figure, every project at once.
+    for project, money in project_money().items():
+        bucket(project).update(money.as_dict())
 
     # total_credit_purchase — Credit terms on the valid (non-Merged/Inactive) POs.
     # This is a CROSS-PROJECT rollup, so valid_po_project holds EVERY non-Merged/Inactive
