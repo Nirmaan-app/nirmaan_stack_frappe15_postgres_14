@@ -953,6 +953,30 @@ class TestTheNonProjectInflow(InflowFixture):
         self.assertEqual((doc.inflow_type, doc.description), ("Others", "Vendor refund, PO 0123"))
 
 
+class TestTheNonProjectInflowDefaultDescription(InflowFixture):
+    """The dialog's Description starts EMPTY, so a description left blank is filled by the server
+    -- the payer, then the bank narration -- exactly as a created expense's is. Its own class: the
+    happy-path class above already holds the six consuming tests the fixture's credits allow."""
+
+    def _stored(self, summary):
+        return frappe.db.get_value(NON_PROJECT_INFLOW, summary["settled"]["name"], "description")
+
+    def _row_text(self, row):
+        return frappe.db.get_value(ROW_DOCTYPE, row["name"], ["beneficiary_name", "remarks"], as_dict=True)
+
+    def test_a_blank_description_gets_the_payer_and_the_narration(self):
+        for blank in (None, "   "):
+            row, summary = self._receive(inflow_type="FD Closures", description=blank)
+            text = self._row_text(row)
+            expected = " - ".join(p for p in (text.beneficiary_name, text.remarks) if (p or "").strip())
+            self.assertTrue(expected, "fixture precondition: the row carries a payer or a narration")
+            self.assertEqual(self._stored(summary), expected)
+
+    def test_a_typed_description_is_stored_as_typed(self):
+        _, summary = self._receive(inflow_type="FD Closures", description="  FD 0057 closed  ")
+        self.assertEqual(self._stored(summary), "FD 0057 closed")
+
+
 class TestTheNonProjectInflowRefusals(InflowFixture):
     """Each refusal writes NOTHING: no record, no match leg, and the row where it was."""
 

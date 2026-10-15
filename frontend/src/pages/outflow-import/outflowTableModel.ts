@@ -68,6 +68,19 @@ export function referenceValue(row: OutflowImportRow): string {
     return (row.transfer_id ?? "").trim();
 }
 
+/**
+ * The Payment reference a create or link form shows: the value the server will WRITE onto the record.
+ *
+ * ⚠️ NOT `referenceValue`. That is the table's Reference cell -- the short reference the parser pulled
+ * out of the line, which search, sort and the export key on. On an ICICI line the server writes the
+ * WHOLE narration instead (#1259), so a form showing `referenceValue` named a value the record would
+ * never carry. `settlement_reference` comes from the server's own writer, so the two cannot drift;
+ * the fallback only covers a row read without it.
+ */
+export function referenceToSave(row: OutflowImportRow): string {
+    return (row.settlement_reference ?? "").trim() || referenceValue(row);
+}
+
 /** Beyond this many characters a reference is shown by its tail. */
 export const REFERENCE_DISPLAY_MAX = 12;
 
@@ -312,6 +325,8 @@ export interface RowDecision {
         project?: string | null;
         expenseType?: string | null;
         description?: string;
+        /** Typed in the dialog; the server stores it with `Imported from <batch>` after it. */
+        comment?: string;
         vendor?: string | null;
     };
     /**
@@ -677,18 +692,6 @@ export const suggestRefundVendor = (
     return hits.size === 1 ? [...hits][0] : null;
 };
 
-/**
- * The Description a new Non-Project Inflow card starts with: the payer, then the bank remarks
- * (#1266). A dialog prefill only -- the server does not default the description. Blank parts are
- * dropped; the result may be empty, and the reviewer edits it either way.
- */
-export const nonProjectInflowDescriptionSeed = (
-    row: Pick<OutflowImportRow, "beneficiary_name" | "remarks">
-): string =>
-    [row.beneficiary_name, row.remarks]
-        .map((part) => (part ?? "").trim())
-        .filter(Boolean)
-        .join(" - ");
 
 /**
  * ⚠️ `date` IS NOT A FACET, AND IT USED TO BE (slice P1). `added_on` shipped as `filter: "facet"`,

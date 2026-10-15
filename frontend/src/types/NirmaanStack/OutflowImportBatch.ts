@@ -112,6 +112,13 @@ export interface OutflowImportRow {
     remarks?: string;
     bank_reference_no?: string;
     /**
+     * The reference a settle or create from this line WRITES -- the server's
+     * `settlement_reference_of_row`, computed on read (never the raw column): on an ICICI line the
+     * whole narration, plus the cheque number on a cheque line; on a gateway line its bank reference;
+     * on a wallet line its transaction id. What the decision dialog shows as "Payment reference".
+     */
+    settlement_reference?: string;
+    /**
      * `Debit` / `Credit` / blank — WHICH WAY THE MONEY WENT (slices B3, shipped to the screen at B6).
      *
      * ⚠️ A FIELD, NEVER A SIGN ON `amount`. `amount` is the positive magnitude the statement printed

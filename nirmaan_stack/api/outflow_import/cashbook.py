@@ -74,6 +74,7 @@ from nirmaan_stack.services.outflow_import.duplicates import (
     find_prior_sighting,
     index_prior_sightings,
 )
+from nirmaan_stack.services.outflow_import.import_comment import import_comment
 from nirmaan_stack.services.outflow_import.ledgers import (
     EXPENSE_DOCTYPES,
     PROJECT_EXPENSE_DOCTYPE,
@@ -289,7 +290,7 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
         # Description is left to `settle._default_description`, which composes the payee with the
         # remark. Deciding it here would be a second definition of the same sentence.
         description=None,
-        comment=f"Imported from {batch}",
+        comment=import_comment(None, batch),
         statement_file_url=statement_file_url,
         # ⚠️ WHO SPENT IT, from the statement's own `From` column -- not the accountant importing it.
         payment_by=(doc.get("added_by_raw") or "").strip() or None,

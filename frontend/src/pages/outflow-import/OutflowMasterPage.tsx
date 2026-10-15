@@ -711,6 +711,8 @@ export const OutflowMasterPage = () => {
                     project: form.project || undefined,
                     description: form.description || undefined,
                     vendor: form.vendor || undefined,
+                    // The server stores it with "Imported from <batch>" after it, never instead.
+                    comment: form.comment?.trim() || undefined,
                     ...anyway,
                 });
             } else if (decision.target === "inflow") {

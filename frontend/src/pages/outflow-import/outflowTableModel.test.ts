@@ -118,6 +118,7 @@ import {
     REFERENCE_DISPLAY_MAX,
     referenceValue,
     rowSettlementLinks,
+    referenceToSave,
     settledBankLineTargets,
     shortReference,
     seedDecisions,
@@ -626,6 +627,36 @@ describe("the source scope", () => {
         // badge substitutes for — and "Clear filters" must not silently widen either.
         expect(activeFilterCount({ [SOURCE_COLUMN_ID]: ["Cashbook"] })).toBe(0);
         expect(activeFilterCount({ [SOURCE_COLUMN_ID]: ["Cashbook"], row_status: ["Matched"] })).toBe(1);
+    });
+});
+
+describe("the Payment reference a create form shows: what the server will WRITE", () => {
+    it("★ an ICICI line shows its whole narration, not the short reference the parser extracted", () => {
+        // The forms showed `624419924169` while the server saved the whole line -- the screen and the
+        // record disagreed. The value comes from the server's own writer (`settlement_reference_of_row`).
+        const narration = "MMT/IMPS/624419924169/BULD77739367/Ambikak/KVBL0001284";
+        expect(
+            referenceToSave(row({ bank_reference_no: "624419924169", settlement_reference: narration })),
+        ).toBe(narration);
+    });
+
+    it("a cheque line shows its narration and cheque number, exactly as sent", () => {
+        expect(
+            referenceToSave(
+                row({ bank_reference_no: "", settlement_reference: "CLG/HASSANAMBA POWER SYSTEMS/IOB 816" }),
+            ),
+        ).toBe("CLG/HASSANAMBA POWER SYSTEMS/IOB 816");
+    });
+
+    it("falls back to the table's reference when the row was read without it", () => {
+        expect(referenceToSave(row({ bank_reference_no: "620919871893" }))).toBe("620919871893");
+        expect(referenceToSave(row({ bank_reference_no: "", transfer_id: "CF-WALLET-1", settlement_reference: "  " }))).toBe(
+            "CF-WALLET-1",
+        );
+    });
+
+    it("is empty when the row carries nothing", () => {
+        expect(referenceToSave(row({ bank_reference_no: "", transfer_id: "" }))).toBe("");
     });
 });
 
@@ -2093,25 +2124,6 @@ describe("which dispositions create a record (#1266)", () => {
             expect(model.isCreateTarget(target)).toBe(false);
         }
         expect(model.isCreateTarget(undefined)).toBe(false);
-    });
-});
-
-describe("the Non-Project Inflow description prefill (#1266)", () => {
-    it("joins the payer and the bank remarks", () => {
-        expect(
-            model.nonProjectInflowDescriptionSeed({
-                beneficiary_name: "ICICI BANK",
-                remarks: "FD 0057 CLOSURE",
-            })
-        ).toBe("ICICI BANK - FD 0057 CLOSURE");
-    });
-
-    it("drops a blank part rather than leaving a dangling separator", () => {
-        expect(model.nonProjectInflowDescriptionSeed({ beneficiary_name: "  ", remarks: "INT" })).toBe(
-            "INT"
-        );
-        expect(model.nonProjectInflowDescriptionSeed({ beneficiary_name: "ACME" })).toBe("ACME");
-        expect(model.nonProjectInflowDescriptionSeed({})).toBe("");
     });
 });
 

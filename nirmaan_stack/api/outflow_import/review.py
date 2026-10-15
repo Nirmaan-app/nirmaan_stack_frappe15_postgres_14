@@ -1600,6 +1600,12 @@ def get_batch_rows(batch: str):
                 "service_tax": float(row.get("service_tax") or 0),
                 "matches": by_row.get(row["name"], []),
                 "related_records": related.get(row["name"], []),
+                # ⚠️ THE REFERENCE A SETTLE OR CREATE WILL WRITE, not the parser's short
+                # `bank_reference_no`. The decision dialog shows it as "Payment reference", and the
+                # forms used to show the short value while the server saved the whole ICICI
+                # narration. Computed by the writers' own function, which also recomputes an ICICI
+                # row staged before #1259 whose column still holds the short value.
+                "settlement_reference": settlement_reference_of_row(row),
                 # The suggestion is a pair of scalar columns on the row, not a list, so it takes
                 # its own key rather than being stamped in place like the two lists above.
                 "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
@@ -2837,6 +2843,9 @@ def get_outflow_rows(
                -- 849 settled rows while the summary beside it reported 843 auto-matched. Caught in
                -- the browser, by nothing else: every suite was green.
                r.settlement_origin, r.source,
+               -- What the dialog's "Payment reference" shows: `settlement_reference_of_row` reads
+               -- the stored column beside `remarks`, `reference_id` and `source` (below).
+               r.settlement_reference,
                -- WHICH WAY THE MONEY WENT (slice B6). Shipped to the screen because the decision
                -- dialog offers "Create a project inflow" on a CREDIT and nothing else can tell one
                -- from a debit: `amount` is the positive magnitude on every source by design.
@@ -2928,6 +2937,8 @@ def get_outflow_rows(
                 # The row's live settlement legs (#1266), the same shape `get_batch_rows` sends.
                 "matches": by_row.get(row["name"], []),
                 "related_records": related.get(row["name"], []),
+                # The reference the writers will store -- see `get_batch_rows` for why it is computed.
+                "settlement_reference": settlement_reference_of_row(row),
                 "skip_source": sources.get(row["name"]),
                 "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
                 "confirm_by_hand": bool(row.get("confirm_by_hand")),

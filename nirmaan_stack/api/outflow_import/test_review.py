@@ -6420,3 +6420,74 @@ class TestTheLedgerAggregateOnAGenuineMultiLedgerRow(AllocationFixture):
         values = get_outflow_facet_values(column="settled_ledger", batch=batch)
         self.assertEqual(sorted(values["values"]), ["Project Expenses", "Project Payments"])
         self.assertNotIn("Project Expenses|Project Payments", values["values"])
+
+
+class TestTheRowCarriesTheReferenceItWillSave(OutflowReviewFixture):
+    """The decision dialog shows "Payment reference" from `settlement_reference` on the row it
+    reads. That must be the value a settle or create WRITES -- `settlement_reference_of_row` --
+    and not the short reference the parser extracted, which is what the forms used to show while the
+    server saved the whole narration. Both read endpoints carry it, so they cannot disagree.
+
+    The fixture is a Cashfree statement, so rows are turned into ICICI lines in place: the value
+    reads only `source`, `remarks`, `reference_id` and the stored `settlement_reference`."""
+
+    ICICI = "ICICI Bank Statement"
+
+    def _open_rows(self, count):
+        rows = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": self.batch.name, "row_status": ["!=", "Skipped"]},
+            fields=["name", "bank_reference_no", "settlement_reference"],
+            order_by="creation asc",
+            limit=count,
+        )
+        self.assertEqual(len(rows), count, "fixture precondition: enough open rows")
+        return rows
+
+    def _as_icici(self, name, **fields):
+        frappe.db.set_value(
+            ROW_DOCTYPE, name, {"source": self.ICICI, "direction": "Debit", **fields},
+            update_modified=False,
+        )
+        frappe.db.commit()
+
+    def _carried(self, name):
+        """The value each read endpoint ships for row `name`, as {endpoint: value}."""
+        outflow = get_outflow_rows(scope="all", batch=self.batch.name, limit=200)["rows"]
+        batch = get_batch_rows(self.batch.name)["rows"]
+        return {
+            "get_outflow_rows": next(r for r in outflow if r["name"] == name).get("settlement_reference"),
+            "get_batch_rows": next(r for r in batch if r["name"] == name).get("settlement_reference"),
+        }
+
+    def test_an_icici_line_carries_its_whole_narration(self):
+        (row,) = self._open_rows(1)
+        narration = "MMT/IMPS/624419924169/BULD77739367/Ambikak/KVBL0001284"
+        self._as_icici(row["name"], remarks=narration, reference_id="",
+                       bank_reference_no="624419924169", settlement_reference=narration)
+        for endpoint, value in self._carried(row["name"]).items():
+            self.assertEqual(value, narration, endpoint)
+
+    def test_a_cheque_line_carries_its_narration_and_cheque_number(self):
+        _, row = self._open_rows(2)
+        self._as_icici(row["name"], remarks="CLG/HASSANAMBA POWER SYSTEMS/IOB", reference_id="816",
+                       bank_reference_no="", settlement_reference="")
+        for endpoint, value in self._carried(row["name"]).items():
+            self.assertEqual(value, "CLG/HASSANAMBA POWER SYSTEMS/IOB 816", endpoint)
+
+    def test_an_icici_line_staged_before_1259_still_carries_the_narration(self):
+        """Its stored column holds the short reference; the save recomputes the narration, so the
+        screen must too -- reading the column would put the old short value back on the form."""
+        _, _, row = self._open_rows(3)
+        narration = "MMT/IMPS/627615688720/BULD79646100/AljoJoseA/CNRB0000720"
+        self._as_icici(row["name"], remarks=narration, reference_id="",
+                       bank_reference_no="627615688720", settlement_reference="627615688720")
+        for endpoint, value in self._carried(row["name"]).items():
+            self.assertEqual(value, narration, endpoint)
+
+    def test_a_cashfree_line_carries_its_bank_reference(self):
+        rows = self._open_rows(4)
+        row = rows[3]
+        self.assertTrue(row["bank_reference_no"], "fixture precondition: a bank reference")
+        for endpoint, value in self._carried(row["name"]).items():
+            self.assertEqual(value, row["bank_reference_no"], endpoint)

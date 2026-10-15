@@ -1268,8 +1268,12 @@ def create_non_project_inflow_from_row(
 
     ⚠️ THE TYPE RULE IS THE DOCTYPE'S OWN (`inflow_type_problem`), ASKED BEFORE ANYTHING IS BUILT so
     the refusal carries this module's error type. The doctype's `validate` asks the same function on
-    insert, so the two can never disagree about which pairs are allowed. The description is NOT
-    defaulted: a blank one on Others must refuse, and the dialog prefills it for the reviewer.
+    insert, so the two can never disagree about which pairs are allowed.
+
+    ⚠️ THE TYPE RULE READS THE TYPED DESCRIPTION; THE DEFAULT IS APPLIED ONLY AFTER IT PASSES. The
+    dialog's Description starts empty, so a blank one is filled -- the payer, then the bank
+    narration, the sentence a created expense gets (`_default_description`). Defaulting first would
+    let the generated text satisfy Others, whose whole rule is that a PERSON says what the money is.
 
     ⚠️ NO STATUS, NO APPROVAL: the record counts the moment it is saved, and the review gate is the
     bank row a person confirmed -- the same reason `create_inflow_from_row` gives (owner ruling Q8).
@@ -1296,6 +1300,11 @@ def create_non_project_inflow_from_row(
     problem = inflow_type_problem(inflow_type, description)
     if problem:
         frappe.throw(problem, InflowNotRecordableError, title="Check the inflow type")
+    description = description or _default_description(
+        NON_PROJECT_INFLOW,
+        (getattr(row, "beneficiary_name", "") or "").strip(),
+        (getattr(row, "remarks", "") or "").strip(),
+    )
 
     doc = frappe.new_doc(NON_PROJECT_INFLOW)
     doc.update(
@@ -1429,7 +1438,8 @@ def _default_description(doctype: str, beneficiary: str, remarks: str) -> str:
 
     The beneficiary name is included deliberately: `Non Project Expenses` has NO vendor column, so
     without it the record loses who was actually paid (owner ruling). On the project side it is
-    still worth keeping -- `vendor` is optional there and populated on 0.58% of live rows.
+    still worth keeping -- `vendor` is optional there and populated on 0.58% of live rows. A
+    `Non Project Inflow` left blank gets the same sentence; on a credit the beneficiary is the payer.
     """
     parts = [p for p in (beneficiary, remarks) if p]
     return " - ".join(parts) if parts else "Imported from bank statement"

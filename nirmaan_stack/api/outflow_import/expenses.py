@@ -100,6 +100,10 @@ from nirmaan_stack.services.outflow_import.partial_settle import (
     VALID_INTENTS,
     partial_eligibility,
 )
+from nirmaan_stack.services.outflow_import.import_comment import (
+    import_comment,
+    import_comment_problem,
+)
 from nirmaan_stack.services.outflow_import.settle import (
     NON_PROJECT_EXPENSE,
     PROJECT_EXPENSE,
@@ -1000,6 +1004,11 @@ def create_expense(
     # payment-out document for money that arrived.
     _guard_is_a_debit(doc)
     _guard_money_not_recorded(staged, doc, confirm_mismatch)
+    # Before anything is written: `comment` is a 140-character Data field, and the database's own
+    # refusal names neither the field nor what to do about it.
+    problem = import_comment_problem(comment, doc["import_batch"])
+    if problem:
+        frappe.throw(problem, frappe.ValidationError, title="Comment too long")
     statement_file_url = _statement_file_url(doc["import_batch"])
 
     savepoint = f"ofi_create_{frappe.generate_hash(length=10)}"
@@ -1014,8 +1023,9 @@ def create_expense(
             description=description,
             vendor=vendor,
             # Visible provenance on the expense itself. The Outflow Row Match record is the durable
-            # link, but nobody opening an expense form sees that -- this line is what tells them.
-            comment=comment or f"Imported from {doc['import_batch']}",
+            # link, but nobody opening an expense form sees that -- the note is what tells them, so
+            # a comment typed in the dialog is stored WITH it, never instead of it.
+            comment=import_comment(comment, doc["import_batch"]),
             statement_file_url=statement_file_url,
             # ⚠️ WHO SPENT IT, on a source whose statement says so (#1314, trap 4): the Cashbook job
             # writes the `From` column, and a reopened Cashbook line created here must match it.

@@ -124,6 +124,8 @@ pick one ad-hoc; ask.
 | **Is a statement still worth re-matching?** (CF/S5) | `services/outflow_import/status.py` (`batch_is_open`) — pure | re-derive "finished". ⚠️ **THIS IS THE WHOLE OF "AUTO-CLOSE" AND IT REVERSES NOTHING** — see the ruling below. THREE readers: `match_period`'s filter, `_imports_in_scope`'s `is_open` flag, and (through that flag) the caption under the Re-run button. An unknown or missing status is **OPEN**, deliberately: failing towards "still has work" costs one wasted pass, failing the other way loses the work |
 | Which batch `match_period` matches FIRST (CF/S3) | `api/outflow_import/review._match_order` | borrow this order from a reading surface. ⚠️ **IT DECIDES WHERE A CONTESTED RECORD LANDS**, so it is not presentation — see the trap recorded below |
 | The reference a row is known by (CF/S1) | `outflowTableModel.referenceValue` / `shortReference` | truncate a reference anywhere a value is STORED or COMPARED. `referenceValue` falls back to the wallet's `transfer_id`; `shortReference` is **display only** and must never reach `column.get` (which feeds sort, funnels and facet values) or `settle.py` |
+| The reference a create form SHOWS — what a settle or create will WRITE (2026-10-15) | Server: `settlement_reference.settlement_reference_of_row`, shipped as `settlement_reference` by `review.get_outflow_rows` / `get_batch_rows`. Frontend: `outflowTableModel.referenceToSave`, rendered by `DecisionDialog`'s `PaymentReferenceField` | derive it on the client (a second ladder), or show `bank_reference_no` / `referenceValue` on a create form. See invariant 17 |
+| The comment an imported expense carries (2026-10-15) | `services/outflow_import/import_comment.py` (`import_comment`, `import_comment_problem`, `COMMENT_MAX_LENGTH` — pure); read by `expenses.create_expense` and the Cashbook job. Screen cap `newExpenseSeed.NEW_EXPENSE_COMMENT_MAX`, pinned by `commentCapParity.test.ts` | spell `Imported from <batch>` anywhere else, or let a typed comment replace the note |
 | A timespan word -> two dates | `frontend/src/utils/dateFilterRange.ts` | resolve "last 30 days" at a call site. It MIRRORS Frappe's `get_timespan_date_range`, including the odd ones (`this month` ends TODAY; `last 6 months` is quarter-aligned), so the same label selects the same rows on this screen as on every DataTable screen. ⚠️ The reports' `datePresets` define the SAME WORDS differently (its "Last 30 days" is 29 days) — the two vocabularies must not be mixed |
 | The date filter CONTROL and its vocabulary | `components/data-table/dateFilterModel.ts` (pure) + `date-filter-popover.tsx` (the popover) | write a second date filter. `DataTableDateFilter` is now a thin TanStack binding over the same popover, so every screen offers one set of operators. Adding an operator or a timespan means teaching `dateFilterRange.ts` in the SAME change, or a control offers an option that silently filters nothing |
 | Seeding decisions from the match run | `outflowTableModel.ts` (`suggestedDecision`, `seedDecisions`, `decisionOrigin`) | pre-select inside a component; the dialog used to, and it could only fire once a row was already open |
@@ -882,6 +884,19 @@ needs one vocabulary rather than one per writer.
       settlement as an error and invite a retry against a record that is already Paid. It logs and
       swallows; the degraded outcome is "the attachment may 403", which is far smaller.
     - A newly created expense always takes it — a record born from a statement should carry it.
+17. **A create form shows the reference the server WRITES, and nothing else may supply it**
+    (2026-10-15). The dialog's "Payment reference" reads the row's `settlement_reference`, which both
+    read endpoints compute with `settlement_reference_of_row` — the writers' own function, so an ICICI
+    row staged before #1259 (column still short) shows the narration it will actually store. Reading
+    `bank_reference_no` or `referenceValue` there put a value on screen the record would never carry.
+    `referenceValue` stays the table's cell (search, sort, export key on it). ⚠️ The value is computed
+    on READ for the screen only; the matcher and every guard still never read `settlement_reference`.
+    - ⚠️ **A default description is applied AFTER the rule that reads the typed one.** A blank
+      Non-Project Inflow description is filled by the server, but `inflow_type_problem` judges the
+      TYPED value first; defaulting first would let generated text satisfy *Others*.
+    - ⚠️ **A typed comment is stored WITH the import note, never instead of it**, and the composed
+      text must fit the 140-character `comment` field: `create_expense` refuses an over-long one
+      before writing. The screen's cap is joined to the server's text by `commentCapParity.test.ts`.
 
 ---
 
@@ -4773,8 +4788,10 @@ description (`InflowNotRecordableError`), an already-settled row (`_load_settlea
 
 - ⚠️ **The type rule has ONE home: `services/non_project_inflows.inflow_type_problem`** (pure). The
   doctype's `validate` and the service both ask it, so the import cannot accept a pair the doctype
-  refuses. The description is NOT defaulted server-side — a blank one on Others must refuse; the dialog
-  prefills it (payer + bank remarks, `outflowTableModel.nonProjectInflowDescriptionSeed`).
+  refuses. ~~The description is NOT defaulted server-side; the dialog prefills it~~ — **superseded
+  2026-10-15**: the dialog starts it EMPTY and the server fills a blank one ("payer - narration",
+  `settle._default_description`) only AFTER the type rule has judged the TYPED value, so a blank on
+  Others still refuses. See invariant 17.
 - `Non Project Inflows` joined `ledgers.RECEIVED_LEDGER_DOCTYPES` (display order: Project Inflows,
   Non Project Inflows, Non Project Expenses), `LEDGER_NOUNS`, and `settle._STATEMENT_ATTACHMENT_FIELDS`
   (`inflow_attachment`). It is NOT in `LEDGER_DOCTYPES` / `SETTLEABLE_STATUSES` — created, never settled.
@@ -6420,3 +6437,44 @@ the same day — the ADR also has two sections headed "Amendment C", renumbering
 - **Plain-Accountant walk (same day, `Nirmaan Accountant Profile`):** Matched / Settled – Outflow — Settled lines
   have NO box, select all ticks the 2 open lines and unticks them, no hint. Not Matched – Outflow — select all ticks
   all 36, no hint. Settled – Inflow — no checkbox column at all (nothing tickable), as before #1319.
+
+## 2026-10-15 — the create forms show the reference they save; Description starts empty; a Comment box
+
+**What.** The decision dialog's create forms (Create Expense, Project Inflow, Non-Project Inflow,
+Vendor Refunds) show as "Payment reference" the value the server WRITES. Create Expense gains an
+optional Comment. Description starts empty on Create Expense and on Non-Project Inflow. **Nothing
+about what any reference field stores changed** (owner: the full ICICI narration stays, #1259).
+
+### ⚠️ The form reads `settlement_reference`, never `bank_reference_no` / `referenceValue`
+
+The forms used to show the parser's short reference (`624419924169`) while the server saved the
+whole narration: the screen and the record disagreed. `get_outflow_rows` and `get_batch_rows` now
+ship `settlement_reference` computed by `settlement_reference_of_row` (the writers' own function,
+so an ICICI row staged before #1259, whose column still holds the short value, also shows the
+narration). The frontend reads it through `referenceToSave`, rendered by `PaymentReferenceField`. `referenceValue` is unchanged: it
+is the table's Reference cell, and search, sort and the CSV export key on it.
+
+### Description and Comment
+
+- **Empty description → server default.** `settle._default_description` ("payee - narration") now
+  also fills a blank `Non Project Inflow` description. ⚠️ It is applied AFTER `inflow_type_problem`,
+  which reads the TYPED value: defaulting first would let generated text satisfy *Others*. The
+  frontend helper `nonProjectInflowDescriptionSeed` is deleted.
+- **Comment = typed + note.** `services/outflow_import/import_comment.py` (pure) composes
+  `"<typed> · Imported from <batch>"`, or the note alone; the Cashbook job uses the same function.
+  `comment` is a 140-char Data field, so `create_expense` refuses an over-long one BEFORE writing;
+  the dialog caps typed text at `NEW_EXPENSE_COMMENT_MAX` = 100, joined to the server's text by
+  `commentCapParity.test.ts` (reads `import_comment.py` and the batch autoname; shown RED at 112).
+
+### Tests
+
+`test_import_comment` (pure, 9), `test_review.TestTheRowCarriesTheReferenceItWillSave` (4, both
+endpoints), `test_expenses.TestTheTypedComment` (4), `test_inflows.TestTheNonProjectInflowDefaultDescription`
+(2); vitest `referenceToSave`, the empty seed, `commentCapParity`. Every new backend test was run RED first.
+
+**Browser walk (2026-10-15, Administrator, :8080, throwaway ICICI import staged then deleted).** The
+HTTP read carried the narration on all 200 live ICICI rows sampled. Create Expense (IMPS debit), Project
+Inflow, Non-Project Inflow and Vendor Refunds (NEFT credit) each showed the full narration as Payment
+reference; both Description boxes opened empty; the Comment box showed its "Imported from" hint.
+⚠️ Not shown: wrapping at phone width — at 420px the WHOLE dialog overflows (pre-existing, not this
+field), so the screenshot could not isolate it.
