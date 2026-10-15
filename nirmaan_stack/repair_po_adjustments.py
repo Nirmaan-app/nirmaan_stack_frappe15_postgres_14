@@ -246,38 +246,18 @@ def report_only_findings():
         print(f"      {r['name']:<26} total={flt(r['total_amount']):>13,.2f} "
               f"terms={flt(r['terms_sum']):>13,.2f} drift={d:>13,.2f}")
 
-    h2("3b. POs where amount_paid != SUM(Project Payments in status 'Paid')")
-    rows = frappe.db.sql(
-        """SELECT p.name, p.amount_paid,
-                  COALESCE((SELECT SUM(pp.amount) FROM "tabProject Payments" pp
-                     WHERE pp.document_type='Procurement Orders'
-                       AND pp.document_name=p.name AND pp.status='Paid'),0) AS paid_sum
-           FROM "tabProcurement Orders" p""",
-        as_dict=True,
-    )
-    pd = [r for r in rows if abs(flt(r["amount_paid"]) - flt(r["paid_sum"])) > 1]
-    approved_n = frappe.db.sql(
-        """SELECT COUNT(*) FROM "tabProject Payments" WHERE status='Approved'"""
-    )[0][0]
-    print(f"\n    {len(pd)} of {len(rows)} POs drift.")
-    print(f"    CAUSE: {approved_n} Project Payments sit in status 'Approved' (approved, not")
-    print("    yet bank-settled). _recalculate_amount_paid sums status='Paid' ONLY, so it")
-    print("    excludes them, while the stored amount_paid field already counts them.")
-    print("    THIS COUNT IS VOLATILE — it tracks the Approved population, which the Bulk")
-    print("    Import Outflow settle drains into 'Paid'. Measured this session at 585 and")
-    print("    at 15 on the same site. The stored amount_paid field did NOT move.")
-    print()
-    print("    DESIGN CONSEQUENCE (load-bearing for the Step 4 cap): the overpayment cap")
-    print("    MUST read the stored `amount_paid` field and MUST NOT recompute it from")
-    print("    Paid payments — a recompute is wrong on these POs and would widen the cap,")
-    print("    letting exactly the phantom liability this whole fix removes back in.")
-    print("    Owner decision: leave these rows alone. The Section 2 repair creates no")
-    print("    Project Payments row, so it cannot disturb them.\n")
-    pd.sort(key=lambda r: -abs(flt(r["amount_paid"]) - flt(r["paid_sum"])))
-    for r in pd[:5]:
-        d = flt(r["amount_paid"]) - flt(r["paid_sum"])
-        print(f"      {r['name']:<26} amount_paid={flt(r['amount_paid']):>13,.2f} "
-              f"sum_Paid={flt(r['paid_sum']):>13,.2f} drift={d:>13,.2f}")
+    h2("3b. POs whose stored amount_paid / amount_due differ from source by Rs.1 or more")
+    # The judge every screen and test uses (ADR-0034): Paid payments LESS Received Vendor Refunds,
+    # Amount Due built from it. A payments-only sum would flag every refunded PO.
+    from nirmaan_stack.services.amount_paid_drift import mismatches
+
+    pd = mismatches("Procurement Orders")
+    print(f"\n    {len(pd)} POs drift. Fix a wrong payment on the payment; recount a stale PO with")
+    print("    services/amount_paid_drift.recount. Top 5 by size:\n")
+    pd.sort(key=lambda m: -abs(m.paid_difference))
+    for m in pd[:5]:
+        print(f"      {m.name:<26} amount_paid={m.stored_paid:>13,.2f} "
+              f"source={m.correct_paid:>13,.2f} drift={-m.paid_difference:>13,.2f}")
 
     h2("3c. term_status vocabulary in live data (the field is free-text Data, no options)")
     print()

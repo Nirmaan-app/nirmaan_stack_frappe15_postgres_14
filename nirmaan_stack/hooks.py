@@ -337,8 +337,9 @@ doc_events = {
         "on_trash": [
             "nirmaan_stack.integrations.controllers.project_payments.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
-            "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_payment",
-        ]
+        ],
+        # after_delete, never on_trash: the cashflow check must read the payment gone (#1453).
+        "after_delete": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_payment",
     },
      "Project Invoices": {
         "validate": "nirmaan_stack.integrations.controllers.project_invoices.validate",
