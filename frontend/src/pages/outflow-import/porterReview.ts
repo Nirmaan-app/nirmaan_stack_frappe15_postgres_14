@@ -29,7 +29,7 @@ export interface PorterReviewLine {
     project_name: string | null;
     reason: string | null;
     strength: string | null;
-    /** Not created yet, so its placement can still change. */
+    /** Create would still write it (waiting, in Error, or reopened), so its placement can still change. */
     editable: boolean;
 }
 
@@ -57,6 +57,9 @@ export interface ReviewItem {
     needsCheck: boolean;
     /** Every distinct reason among its orders. */
     reasons: string[];
+    /** The orders a choice places: those still editable. A created order is moved with Rectify. */
+    toPlace: string[];
+    /** Any order of it can still be placed. */
     editable: boolean;
 }
 
@@ -79,7 +82,8 @@ const toItem = (key: string, kind: ReviewItem["kind"], lines: PorterReviewLine[]
         mixed,
         needsCheck: mixed || lines.some((line) => line.strength === "Check"),
         reasons: [...new Set(lines.map((line) => line.reason).filter((reason): reason is string => Boolean(reason)))],
-        editable: lines.every((line) => line.editable),
+        toPlace: lines.filter((line) => line.editable).map((line) => line.name),
+        editable: lines.some((line) => line.editable),
     };
 };
 
@@ -167,6 +171,13 @@ export const reasonLabel = (reason: string | null | undefined): string => {
 export const strengthLabel = (strength: string | null | undefined): string | null =>
     strength === "Check" ? "Check" : null;
 
-/** Review is offered only once every invoice has passed (the server refuses it otherwise too). */
-export const porterReviewOffered = (status: { state: string } | null | undefined): boolean =>
-    status?.state === "Validated";
+/**
+ * Review is offered once every invoice has passed (the server refuses it otherwise too), and again while a
+ * stopped Create still has orders to write: a line in Error, or one Unreconcile reopened, can be re-placed
+ * before Create runs again (the server accepts exactly those lines). Not while the Create job runs.
+ */
+export const porterReviewOffered = (
+    status: { state: string; to_create?: number; create_running?: boolean } | null | undefined,
+): boolean =>
+    status?.state === "Validated" ||
+    (status?.state === "Creating" && !status.create_running && (status.to_create ?? 0) > 0);

@@ -55,10 +55,12 @@ import {
     CONFIRM_STEP_NOTE,
     FINISH_LATER_NOTE,
     IMPORT_SOURCES,
+    acceptedExtensions,
     clickableStepIndex,
     confirmEmptyCopy,
     currentStepIndex,
     importSteps,
+    sourceExportPath,
 } from "../importWizard";
 import {
     PORTER_CREATE_METHOD,
@@ -102,12 +104,6 @@ const STATUS_POLL_MS = 1500;
  */
 const EMPTY_CONFIRM_SCOPE: Record<string, unknown> = {};
 
-// Mirrors the server's own limits (api/outflow_import/upload.py). Client-side is a courtesy so a
-// wrong file fails instantly; the endpoint is the boundary.
-// .xlsx joins .csv at Q10 -- the server sniffs the real format from the bytes, so a renamed export
-// still works and this list only decides what we accept by name.
-const ALLOWED_EXTENSIONS = [".csv", ".xlsx"];
-
 /**
  * WHICH Cashfree report each source is exported from.
  *
@@ -130,18 +126,13 @@ const SOURCE_REPORT: Record<string, string> = {
     // exports and only the detailed statement carries the narration this parser reads.
     "ICICI Bank Statement": "Detailed account statement",
     // Porter's monthly CSV, one line per delivery order (#1443). Not a Cashfree report: its menu path
-    // is `SOURCE_EXPORT_PATH`'s.
-    "Porter Statement": "Porter Statement",
+    // is `importWizard.sourceExportPath`'s.
+    [PORTER_SOURCE]: "Porter Statement",
 };
+// Mirrors the server's own limit (api/outflow_import/upload.py). Client-side is a courtesy so a wrong
+// file fails instantly; the endpoint is the boundary. Which extensions each source takes is
+// `importWizard.acceptedExtensions`'s.
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
-
-/**
- * Where to export each source's file from, when it is not a Cashfree report. A source without an entry
- * reads "Cashfree → Reports → {SOURCE_REPORT}", which is only true of the Cashfree reports.
- */
-const SOURCE_EXPORT_PATH: Record<string, string> = {
-    [PORTER_SOURCE]: "Porter for Business → the month's order statement, downloaded as CSV",
-};
 
 /**
  * What KIND of thing this source is importing — the dialog's heading, its opening sentence, and how
@@ -192,7 +183,7 @@ const SOURCE_SHAPE: Record<string, SourceShape> = {
     },
     // ⚠️ IT PROMISES THE GATE, BECAUSE THE GATE IS THE POINT (ADR-0032): every completed order becomes
     // an expense, but only once every Porter Invoice in the file agrees with Porter's own PDF.
-    "Porter Statement": {
+    [PORTER_SOURCE]: {
         title: "Import a Porter Statement",
         description:
             "Porter deliveries the wallet already paid for. Each completed order becomes one expense — but only after every Porter invoice in the file agrees with Porter's own PDF.",
@@ -397,8 +388,9 @@ export const ImportStatementDialog = ({
         if (!candidate) return;
 
         const lower = candidate.name.toLowerCase();
-        if (!ALLOWED_EXTENSIONS.some((ext) => lower.endsWith(ext))) {
-            setError("We support .csv and .xlsx statements.");
+        const extensions = acceptedExtensions(source);
+        if (!extensions.some((ext) => lower.endsWith(ext))) {
+            setError(`We support ${extensions.join(" and ")} statements.`);
             return;
         }
         if (candidate.size > MAX_FILE_BYTES) {
@@ -410,7 +402,7 @@ export const ImportStatementDialog = ({
             return;
         }
         setFile(candidate);
-    }, []);
+    }, [source]);
 
     /**
      * POST the statement to `url`.
@@ -625,7 +617,7 @@ export const ImportStatementDialog = ({
             // Seeded, so the invoices show at once; the poll takes over from here.
             await seedCache(`porter-status::${message.batch}`, { message }, { revalidate: false });
             onPorterBatch?.(message.batch);
-        } catch (err: any) {
+        } catch (err: unknown) {
             setError(describeFrappeError(err, "The upload failed."));
         } finally {
             setIsBusy(null);
@@ -643,7 +635,7 @@ export const ImportStatementDialog = ({
             try {
                 const response = await retryPorterInvoice({ invoice });
                 await setPorterData(response, { revalidate: false });
-            } catch (err: any) {
+            } catch (err: unknown) {
                 setError(describeFrappeError(err, "The retry could not be started."));
             } finally {
                 setRetrying(null);
@@ -663,7 +655,7 @@ export const ImportStatementDialog = ({
         try {
             const response = await startPorterCreate({ batch: porterBatch });
             await setPorterData(response, { revalidate: false });
-        } catch (err: any) {
+        } catch (err: unknown) {
             setError(describeFrappeError(err, "Create could not be started."));
         } finally {
             setStartingCreate(false);
@@ -920,7 +912,7 @@ export const ImportStatementDialog = ({
                         <input
                             ref={inputRef}
                             type="file"
-                            accept=".csv,.xlsx"
+                            accept={acceptedExtensions(source).join(",")}
                             className="hidden"
                             onChange={(e) => acceptFile(e.target.files?.[0])}
                         />
@@ -940,12 +932,12 @@ export const ImportStatementDialog = ({
                                 </p>
                                 {SOURCE_REPORT[source] && (
                                     <p className="text-xs text-muted-foreground">
-                                        {SOURCE_EXPORT_PATH[source] ??
+                                        {sourceExportPath(source) ??
                                             `Cashfree → Reports → ${SOURCE_REPORT[source]}`}
                                     </p>
                                 )}
                                 <p className="mt-0.5 text-xs text-muted-foreground">
-                                    .csv or .xlsx — or click to browse
+                                    {acceptedExtensions(source).join(" or ")} — or click to browse
                                 </p>
                             </>
                         )}

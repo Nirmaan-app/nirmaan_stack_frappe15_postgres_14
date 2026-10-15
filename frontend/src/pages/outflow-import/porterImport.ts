@@ -15,6 +15,17 @@ export const PORTER_RETRY_METHOD = "nirmaan_stack.api.outflow_import.porter.retr
 /** The URL parameter that holds the Porter import the dialog is showing, so a reload reopens it. */
 export const PORTER_URL_KEY = "porter";
 
+/**
+ * Whether choosing `batch` from a list of statements (the Import selector, Import History) opens the Porter
+ * dialog rather than pinning the table to it. A Porter import's lines are not bank lines: pinned, the
+ * table shows nothing (#1444).
+ */
+export const opensPorterDialog = (
+    batch: string | undefined,
+    options: readonly { name: string; source?: string | null }[],
+): boolean =>
+    Boolean(batch) && (options.find((option) => option.name === batch)?.source ?? "").trim() === PORTER_SOURCE;
+
 /** How often the dialog asks how validation is going. Polled, no socket — following Cashbook. */
 export const PORTER_STATUS_POLL_MS = 2000;
 

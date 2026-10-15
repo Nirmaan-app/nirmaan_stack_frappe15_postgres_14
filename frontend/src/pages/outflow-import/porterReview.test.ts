@@ -166,13 +166,35 @@ describe("which come first", () => {
     });
 });
 
+describe("what a choice places", () => {
+    it("every order of a group not created yet, and none that is", () => {
+        const created = zephyr({ editable: false });
+        const failed = zephyr({ editable: true });
+        const [group] = reviewItems([created, failed]);
+        expect(group.editable).toBe(true);
+        expect(group.toPlace).toEqual([failed.name]);
+    });
+
+    it("nothing once every order of the item is created", () => {
+        const [group] = reviewItems([zephyr({ editable: false }), zephyr({ editable: false })]);
+        expect(group.editable).toBe(false);
+        expect(group.toPlace).toEqual([]);
+    });
+});
+
 describe("when review is offered", () => {
-    it("only on a Validated import", () => {
+    it("on a Validated import, and never before every invoice passed or once all is created", () => {
         expect(porterReviewOffered({ state: "Validated" })).toBe(true);
-        for (const state of ["Validating", "Validation failed", "Creating", "Created"]) {
+        for (const state of ["Validating", "Validation failed", "Created"]) {
             expect(porterReviewOffered({ state })).toBe(false);
         }
         expect(porterReviewOffered(null)).toBe(false);
+    });
+
+    it("again on a stopped Create with orders still to create, so a line in Error can be re-placed", () => {
+        expect(porterReviewOffered({ state: "Creating", to_create: 2, create_running: false })).toBe(true);
+        expect(porterReviewOffered({ state: "Creating", to_create: 2, create_running: true })).toBe(false);
+        expect(porterReviewOffered({ state: "Creating", to_create: 0, create_running: false })).toBe(false);
     });
 
     it("moves the stepper to Review projects once every invoice passed", () => {

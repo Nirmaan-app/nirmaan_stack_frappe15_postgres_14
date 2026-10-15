@@ -6,7 +6,6 @@
 
 import { useMemo, useState } from "react";
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
-import type { StylesConfig } from "react-select";
 import { ArrowRightLeft, Ban, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -17,7 +16,6 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { FuzzySearchSelect, type TokenSearchConfig } from "@/components/ui/fuzzy-search-select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -34,29 +32,7 @@ import {
     type RectifyPlan,
     type RectifyResult,
 } from "../porterRectify";
-
-interface ProjectOption {
-    value: string;
-    label: string;
-}
-
-/** The choice that moves the orders off every project: they become Non-Project Expenses. */
-const NON_PROJECT: ProjectOption = { value: "", label: "No project (Non-Project expense)" };
-
-const SEARCH: TokenSearchConfig = {
-    searchFields: ["label", "value"],
-    partialMatch: true,
-    fieldWeights: { label: 2.0, value: 1.5 },
-};
-
-/**
- * ⚠️ THE MENU IS PORTALED OUT OF THE DIALOG, AND A MODAL DIALOG SETS `pointer-events: none` ON THE BODY: without
- * `pointerEvents: "auto"` a click on an option falls through (found on the walk: it picked the wrong project).
- * The `RequestTdsItemDialog` pattern.
- */
-const PORTAL_STYLES: StylesConfig<ProjectOption, false> = {
-    menuPortal: (base) => ({ ...base, zIndex: 9999, pointerEvents: "auto" }),
-};
+import { PorterProjectSelect, projectOptions, type ProjectOption } from "./PorterProjectSelect";
 
 /** Counts openings; each one keys its own plan fetch, so a re-opened dialog never paints a stale plan. */
 let openings = 0;
@@ -130,13 +106,7 @@ const RectifyForm = ({
     const [error, setError] = useState<string | null>(null);
     const plan = data?.message;
 
-    const options = useMemo<ProjectOption[]>(
-        () => [
-            NON_PROJECT,
-            ...(plan?.projects ?? []).map((project) => ({ value: project.name, label: project.project_name })),
-        ],
-        [plan],
-    );
+    const options = useMemo(() => projectOptions(plan?.projects ?? []), [plan]);
 
     if (isLoading) {
         return <p className="rounded-md border px-3 py-2.5 text-sm text-muted-foreground">Loading the orders…</p>;
@@ -214,16 +184,12 @@ const RectifyForm = ({
 
             <div className="space-y-1.5">
                 <Label className="text-xs">Move to</Label>
-                <FuzzySearchSelect<ProjectOption, false>
-                    allOptions={options}
-                    tokenSearchConfig={SEARCH}
+                <PorterProjectSelect
+                    options={options}
                     value={target}
-                    onChange={(option) => setTarget(option ?? null)}
+                    onChange={setTarget}
                     placeholder="Choose a Won project, or No project…"
                     isDisabled={busy}
-                    menuPortalTarget={document.body}
-                    menuPosition="fixed"
-                    styles={PORTAL_STYLES}
                 />
             </div>
 

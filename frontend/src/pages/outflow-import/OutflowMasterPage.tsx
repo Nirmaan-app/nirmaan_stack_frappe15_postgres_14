@@ -94,7 +94,7 @@ import {
     tabFromCarried,
     visibleTabs,
 } from "./outflowTableModel";
-import { PORTER_URL_KEY } from "./porterImport";
+import { PORTER_URL_KEY, opensPorterDialog } from "./porterImport";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 /**
@@ -433,6 +433,15 @@ export const OutflowMasterPage = () => {
     );
 
     const importOptions = useMemo(() => importsData?.message ?? [], [importsData]);
+
+    /** The Import selector's choice: a Porter import opens its own dialog, any other is pinned. */
+    const handlePickImport = useCallback(
+        (batch?: string) => {
+            if (batch && opensPorterDialog(batch, importOptions)) setPorterBatch(batch);
+            else handleSelectImport(batch);
+        },
+        [importOptions, setPorterBatch, handleSelectImport]
+    );
 
     /**
      * The pinned statement, as the History dialog opens on it (its tab and its month).
@@ -1273,7 +1282,7 @@ export const OutflowMasterPage = () => {
                 onSourcesChange={setSources}
                 imports={importOptions}
                 selectedImport={selectedImport}
-                onSelectImport={handleSelectImport}
+                onSelectImport={handlePickImport}
                 loading={summaryLoading}
                 matching={matching}
                 onConfirmAllMatched={() => setConfirmingAll(true)}

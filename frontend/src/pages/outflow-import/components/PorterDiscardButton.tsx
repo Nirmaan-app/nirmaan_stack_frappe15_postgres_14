@@ -48,7 +48,7 @@ export const PorterDiscardButton = ({
             await discard({ batch: status.batch });
             setAsking(false);
             await onDiscarded();
-        } catch (err: any) {
+        } catch (err: unknown) {
             setError(describeFrappeError(err, "The import could not be discarded."));
         } finally {
             setBusy(false);

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { isPorterExpense, porterSectionRows, projectField, RECTIFY_HINT } from "./porterExpense";
+import {
+	invoiceAttachmentUrl,
+	isPorterExpense,
+	porterSectionRows,
+	projectField,
+	RECTIFY_HINT,
+} from "./porterExpense";
 
 describe("isPorterExpense (the Porter badge)", () => {
 	it("is a Porter Expense when it links to a Porter Order", () => {
@@ -65,5 +71,29 @@ describe("porterSectionRows (the read-only Porter section)", () => {
 		expect(rows).toContainEqual({ label: "From → To", value: "Demo Hardware, KR Market → --" });
 		expect(rows).toContainEqual({ label: "Reverse-charge GST", value: "₹0.00" });
 		expect(rows).toContainEqual({ label: "Billing entity", value: "--" });
+	});
+});
+
+describe("invoiceAttachmentUrl (the list pages' invoice link)", () => {
+	it("serves a Porter Expense's shared invoice PDF through the expense, which its readers may read", () => {
+		const url = invoiceAttachmentUrl("Project Expenses", {
+			name: "PE-0012",
+			porter_order: "CRN1",
+			invoice_attachment: "/private/files/29SS27A0900001.pdf",
+		});
+		expect(url).toBe(
+			"/api/method/nirmaan_stack.api.outflow_import.porter_expense.porter_invoice_pdf?doctype=Project+Expenses&name=PE-0012"
+		);
+	});
+
+	it("links any other expense's attachment as it is", () => {
+		expect(
+			invoiceAttachmentUrl("Non Project Expenses", { name: "NPE-1", invoice_attachment: "/files/bill.pdf" })
+		).toBe("/files/bill.pdf");
+	});
+
+	it("is null when there is no attachment, Porter or not", () => {
+		expect(invoiceAttachmentUrl("Project Expenses", { name: "PE-1", porter_order: "CRN1" })).toBeNull();
+		expect(invoiceAttachmentUrl("Project Expenses", { name: "PE-1", invoice_attachment: "" })).toBeNull();
 	});
 });

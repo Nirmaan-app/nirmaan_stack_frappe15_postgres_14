@@ -5,11 +5,13 @@ import {
     CASHBOOK_STEPS,
     CASHFREE_STEPS,
     CONFIRM_STEP_NOTE,
+    acceptedExtensions,
     canStepBack,
     clickableStepIndex,
     confirmEmptyCopy,
     currentStepIndex,
     importSteps,
+    sourceExportPath,
     type ImportFlowState,
 } from "./importWizard";
 
@@ -223,5 +225,22 @@ describe("the confirm step's copy", () => {
         // statement. A heading implying "this import" would misdescribe what Confirm writes.
         expect(CONFIRM_STEP_NOTE).toContain("every open import");
         expect(CONFIRM_STEP_NOTE).toContain("not only the statement");
+    });
+});
+
+describe("which files each source takes", () => {
+    it("takes only Porter's own CSV for a Porter Statement, as the server does", () => {
+        expect(acceptedExtensions("Porter Statement")).toEqual([".csv"]);
+    });
+
+    it("takes a .csv or an .xlsx for every other source", () => {
+        for (const source of ["Cashfree", "Cashbook", BANK, "something new"]) {
+            expect(acceptedExtensions(source)).toEqual([".csv", ".xlsx"]);
+        }
+    });
+
+    it("names where a Porter Statement is exported from, and nothing for a Cashfree report", () => {
+        expect(sourceExportPath("Porter Statement")).toMatch(/Porter for Business/);
+        expect(sourceExportPath("Cashfree")).toBeUndefined();
     });
 });

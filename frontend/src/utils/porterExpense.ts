@@ -36,6 +36,26 @@ export const projectField = (
 ): { locked: false } | { locked: true; hint: string } =>
 	isPorterExpense(expense) ? { locked: true, hint: RECTIFY_HINT } : { locked: false };
 
+/** Serves a Porter Expense's invoice PDF (`api/outflow_import/porter_expense.porter_invoice_pdf`). */
+export const PORTER_INVOICE_PDF_METHOD = "nirmaan_stack.api.outflow_import.porter_expense.porter_invoice_pdf";
+
+/**
+ * Where an expense's invoice attachment opens, relative to the site, or null when it has none.
+ *
+ * ⚠️ A PORTER EXPENSE'S PDF IS THE PORTER INVOICE'S PRIVATE FILE, shared by every expense of the invoice,
+ * and only Admin and the Accountants may read a Porter Invoice: linked as it is, anyone else who may read
+ * the expense gets a 403 (spec #1442 story 53). It opens through the expense instead, which checks the
+ * expense's own read permission.
+ */
+export const invoiceAttachmentUrl = (
+	doctype: string,
+	expense: { name: string; porter_order?: string | null; invoice_attachment?: string | null }
+): string | null => {
+	if (!expense.invoice_attachment) return null;
+	if (!isPorterExpense(expense)) return expense.invoice_attachment;
+	return `/api/method/${PORTER_INVOICE_PDF_METHOD}?${new URLSearchParams({ doctype, name: expense.name })}`;
+};
+
 const orDash = (value: string | null | undefined) => (value || "").trim() || "--";
 
 /** The Porter section's facts, in the order the spec names them. The invoice row (a link) is the caller's. */

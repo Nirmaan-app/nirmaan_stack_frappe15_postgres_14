@@ -5,7 +5,6 @@ import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
 import { AlertTriangle, Loader2, MapPin, User } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { FuzzySearchSelect, type TokenSearchConfig } from "@/components/ui/fuzzy-search-select";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 
@@ -22,20 +21,7 @@ import {
     type PorterReviewLine,
     type ReviewItem,
 } from "../porterReview";
-
-interface ProjectOption {
-    value: string;
-    label: string;
-}
-
-/** The option that clears the project: the orders become Non-Project Expenses. */
-const NON_PROJECT: ProjectOption = { value: "", label: "No project (Non-Project expense)" };
-
-const SEARCH: TokenSearchConfig = {
-    searchFields: ["label", "value"],
-    partialMatch: true,
-    fieldWeights: { label: 2.0, value: 1.5 },
-};
+import { PorterProjectSelect, projectOptions, type ProjectOption } from "./PorterProjectSelect";
 
 /**
  * Review projects (#1446): every completed order of a Validated Porter import, by remark group (assigned
@@ -62,20 +48,14 @@ export const PorterReviewPanel = ({ batch }: { batch: string }) => {
         return ordered;
     }, [data]);
 
-    const options = useMemo<ProjectOption[]>(
-        () => [
-            NON_PROJECT,
-            ...(data?.message.projects ?? []).map((project) => ({ value: project.name, label: project.project_name })),
-        ],
-        [data],
-    );
+    const options = useMemo(() => projectOptions(data?.message.projects ?? []), [data]);
 
     const handlePlace = useCallback(
         async (item: ReviewItem, project: string) => {
             setSaving(item.key);
             setSaveError(null);
             try {
-                const response = await place({ batch, rows: item.lines.map((line) => line.name), project });
+                const response = await place({ batch, rows: item.toPlace, project });
                 await mutate(response, { revalidate: false });
             } catch (err) {
                 setSaveError(describeFrappeError(err, "The change was not saved."));
@@ -174,16 +154,13 @@ const ReviewCard = ({
                 </div>
                 <div className="flex w-full items-center gap-2 sm:w-72">
                     <div className="min-w-0 flex-1">
-                        <FuzzySearchSelect<ProjectOption, false>
-                            allOptions={options}
-                            tokenSearchConfig={SEARCH}
+                        <PorterProjectSelect
+                            options={options}
                             value={value}
                             onChange={(option) => onPlace(item, option?.value ?? "")}
                             placeholder={item.mixed ? `Choose one for all ${count}` : "Choose a project…"}
                             isClearable={Boolean(item.project)}
                             isDisabled={saving || !item.editable}
-                            menuPortalTarget={document.body}
-                            menuPosition="fixed"
                         />
                     </div>
                     {saving && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />}

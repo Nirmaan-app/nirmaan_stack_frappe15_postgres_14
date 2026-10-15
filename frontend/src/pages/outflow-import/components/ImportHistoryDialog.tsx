@@ -24,7 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { OutflowImportOption } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
-import { PORTER_SOURCE } from "../porterImport";
+import { opensPorterDialog } from "../porterImport";
 
 import {
     historyEmptyLabel,
@@ -127,7 +127,8 @@ export const ImportHistoryDialog = ({
                 screenSources={screenSources}
                 selected={selected}
                 onSelect={(batch, source) => {
-                    if (source === PORTER_SOURCE && onOpenPorterImport) onOpenPorterImport(batch);
+                    if (onOpenPorterImport && opensPorterDialog(batch, [{ name: batch, source }]))
+                        onOpenPorterImport(batch);
                     else onSelectImport(batch);
                     onOpenChange(false);
                 }}

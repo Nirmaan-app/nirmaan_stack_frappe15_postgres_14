@@ -2,6 +2,8 @@
 
 import type { WizardStep } from "@/components/ui/wizard-steps";
 
+import { PORTER_SOURCE } from "./porterImport";
+
 /**
  * The import dialog's steps (slice CF/S7, third source added at C6).
  *
@@ -38,7 +40,7 @@ export const IMPORT_SOURCES: readonly { value: string; label: string; available:
     { value: "Cashfree", label: "Cashfree", available: true },
     { value: "Cashbook", label: "Cashbook (petty cash)", available: true },
     { value: "ICICI Bank Statement", label: "ICICI bank statement", available: true },
-    { value: "Porter Statement", label: "Porter Statement (deliveries)", available: true },
+    { value: PORTER_SOURCE, label: "Porter Statement (deliveries)", available: true },
 ];
 
 export const CASHFREE_STEPS: (WizardStep & { key: CashfreeStepKey })[] = [
@@ -101,7 +103,19 @@ interface SourceFlow {
     steps: (WizardStep & { key: ImportStepKey })[];
     /** Zero-indexed into `steps`, derived from the flow state alone. */
     stepIndex: (state: ImportFlowState) => number;
+    /**
+     * The file names the picker takes, mirroring the source's endpoint. Absent: `.csv` or `.xlsx` (the
+     * server sniffs the real format from the bytes, so a renamed export still works).
+     */
+    extensions?: readonly string[];
+    /**
+     * Where to export this source's file from, when it is not a Cashfree report. Absent: the dialog
+     * reads "Cashfree → Reports → {report}", which is only true of the Cashfree reports.
+     */
+    exportPath?: string;
 }
+
+const DEFAULT_EXTENSIONS: readonly string[] = [".csv", ".xlsx"];
 
 const DEFAULT_FLOW: SourceFlow = {
     steps: CASHFREE_STEPS,
@@ -130,11 +144,14 @@ const SOURCE_FLOWS: Record<string, SourceFlow> = {
          */
         stepIndex: (state) => (state.staged ? 2 : state.previewed ? 1 : 0),
     },
-    "Porter Statement": {
+    [PORTER_SOURCE]: {
         steps: PORTER_STEPS,
         // Staged = uploaded, which lands on Validate; every invoice Passed lands on Review (#1446); once
         // Create has started (Creating / Created, #1445) it is on Create.
         stepIndex: (state) => (state.createStarted ? 3 : state.validated ? 2 : state.staged ? 1 : 0),
+        // Porter's own export, and nothing else: `porter_upload.read_upload` refuses any other file.
+        extensions: [".csv"],
+        exportPath: "Porter for Business → the month's order statement, downloaded as CSV",
     },
 };
 
@@ -145,6 +162,13 @@ const flowFor = (source: string): SourceFlow => SOURCE_FLOWS[source] ?? DEFAULT_
 
 export const importSteps = (source: string): (WizardStep & { key: ImportStepKey })[] =>
     flowFor(source).steps;
+
+/** The file extensions the picker takes for `source`, lower case, each with its dot. */
+export const acceptedExtensions = (source: string): readonly string[] =>
+    flowFor(source).extensions ?? DEFAULT_EXTENSIONS;
+
+/** Where `source`'s file is exported from, or undefined for a Cashfree report (see `SourceFlow`). */
+export const sourceExportPath = (source: string): string | undefined => flowFor(source).exportPath;
 
 /**
  * What the dialog has achieved so far. The step is DERIVED from this, never held beside it.

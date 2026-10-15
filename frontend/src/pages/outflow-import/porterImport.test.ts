@@ -26,6 +26,7 @@ import {
     invoiceFigureRows,
     invoiceProgress,
     invoiceStateTone,
+    opensPorterDialog,
     porterCountsLine,
     porterCreateStarted,
     porterPolling,
@@ -113,6 +114,19 @@ describe("the Porter tab in Import History", () => {
 
     it("opens on the Porter tab for a selected Porter import", () => {
         expect(initialHistoryTab(PORTER_SOURCE, [])).toBe(PORTER_SOURCE);
+    });
+});
+
+describe("choosing a Porter import from a list of statements", () => {
+    it("opens its own dialog, wherever it was chosen: its lines are not bank lines", () => {
+        expect(opensPorterDialog("OFI-2", [{ name: "OFI-2", source: PORTER_SOURCE }])).toBe(true);
+        expect(opensPorterDialog("OFI-2", [{ name: "OFI-2", source: ` ${PORTER_SOURCE} ` }])).toBe(true);
+    });
+
+    it("pins the table for any other statement, for All imports, and for one the list does not hold", () => {
+        expect(opensPorterDialog("OFI-1", [{ name: "OFI-1", source: "Cashfree" }])).toBe(false);
+        expect(opensPorterDialog(undefined, [{ name: "OFI-2", source: PORTER_SOURCE }])).toBe(false);
+        expect(opensPorterDialog("OFI-9", [{ name: "OFI-2", source: PORTER_SOURCE }])).toBe(false);
     });
 });
 
