@@ -6,12 +6,15 @@
  *
  *   AC4  (R4) A thickness written with two values -- "6mm thk (9MM)", "6 mm / 9 mm", "6 or 9 mm", "13/19" -- takes
  *        the higher, on the one reader that declares `several: "highest"` (Insulation's thickness, which is also the
- *        reader of a Piping row's insulation section). A typed thickness keeps the 12d-6 rule: one number only.
+ *        reader of a Piping row's insulation section). Q4 (owner 2026-10-15): ANY list joined by "or", "/" or brackets
+ *        takes the highest. A typed thickness keeps the 12d-6 rule: one number only.
  *   AC5  (R5, owner ruling in the run: "Option 2. C-R1 is the full ruleset") The composition chooser is UNCHANGED
  *        (fewest layers -> closest -> lowest material cost); a composed field shows the TOTAL ("24"), with the
  *        composition line under it, never one layer's ("9").
  *   AC6  (R6) A single layer's cladding is measured on the pipe size AS READ + 2 x its thickness, as a composition's
  *        outer layer already was; an exact match, a row without cladding and a catalogue row are unchanged.
+ *        Q1 (b) / Q2 (owner 2026-10-15): Insulation-category rows are inside AC6, EXCEPT a size written as a Nominal
+ *        Bore (NB) -- its cladding stays on the matched size (00137 CHW 39-42 back to 615 / 535 / 493 / 460).
  *
  * Priced against the v40 asset (live on dev); this slice's code needs no new config key.
  */
@@ -89,10 +92,18 @@ describe("AC4 the reader: two thickness values take the higher (several: \"highe
       expect(readNumber(t, THK)).toEqual({ value: hi, note: `'${t}' states two values -- the higher, ${hi}, is taken` });
     });
   }
-  it("NEGATIVE a bracket of words is still a qualifier; an equal bracket is one value; three 'or' values still refuse", () => {
+  it("Q4: any list joined by 'or', '/' or brackets takes the HIGHEST, with the 'several values' line", () => {
+    for (const [t, hi] of [["13 or 19 or 25", 25], ["13/19 or 25", 25], ["6 (9) (13)", 13], ["6 or 9 (13mm)", 13], ["25 or 13/19", 25]] as Array<[string, number]>) {
+      expect(readNumber(t, THK)).toEqual({ value: hi, note: `'${t}' states several values -- the highest, ${hi}, is taken` });
+    }
+    // a pure slash list keeps its own (12d-1b) path, byte-identical
+    expect(readNumber("19/ 25 / 32 mm", THK)).toEqual({ value: 32, note: "'19/ 25 / 32 mm' states several values -- the highest, 32, is taken" });
+  });
+  it("NEGATIVE a bracket of words is still a qualifier; an equal bracket is one value; a comma or '+' list still refuses / composes", () => {
     expect(readNumber("9 mm (Class O)", THK)).toEqual({ value: 9 });
     expect(readNumber("19 (19mm)", THK)).toEqual({ value: 19 });
-    expect(readNumber("13 or 19 or 25", THK)).toEqual({ blank: "several values stated for thickness ('13 or 19 or 25')" });
+    expect(readNumber("13, 19 or 25", THK)).toEqual({ blank: "several values stated for thickness ('13, 19 or 25')" });
+    expect(readNumber("13 + 13 or 25", THK)).toHaveProperty("blank");
   });
   it("NEGATIVE a reader WITHOUT several: highest is byte-identical (the bracket dropped, 'or' refused)", () => {
     const plain: NumberReader = { from: ["x"], name: "thickness", unit: "mm" } as NumberReader;
@@ -186,15 +197,23 @@ function girthOf(answer: Answer[]): number | undefined {
 }
 
 describe("AC6 a single layer's cladding: on the pipe size as read", () => {
-  it("00137 row 39 (50NB priced at 53.98): girth 3.14 x (50 + 2 x 19) / 1000, the line names 50; 604 / 224", () => {
-    expect(girthOf(R137("50NB"))).toBeCloseTo((3.14 * (50 + 2 * 19)) / 1000, 9);
-    const r = panel(INS, R137("50NB"), "RMT", "50NB");
+  it("Q2: an Insulation-category row with an OUTSIDE-diameter size (50 mm, priced at 53.98): girth 3.14 x (50 + 2 x 19) / 1000, the line names 50; 604 / 224", () => {
+    expect(girthOf(R137("50 mm"))).toBeCloseTo((3.14 * (50 + 2 * 19)) / 1000, 9);
+    const r = panel(INS, R137("50 mm"), "RMT", "50 mm");
     expect(working(r.v.items[0])).toContain("cladding: measured on the pipe size as read 50 (not the 53.98 it was priced at) + 2 x 19 (the thickness) = 88 mm");
     expect(fig(r.values)).toEqual([604, 224]);
   });
-  it("00137 row 42 (25NB priced at 28.58): 3.14 x (25 + 38) / 1000; 450 / 224", () => {
-    expect(girthOf(R137("25NB"))).toBeCloseTo((3.14 * 63) / 1000, 9);
-    expect(fig(panel(INS, R137("25NB"), "RMT", "25NB").values)).toEqual([450, 224]);
+  it("Q1 (b) NEGATIVE: 00137 rows 39-42 written as NOMINAL BORE keep the matched size, byte-identical to before: 615 / 535 / 493 / 460", () => {
+    for (const [nb, matched, supply] of [["50NB", 53.98, 615], ["40NB", 41.28, 535], ["32NB", 34.93, 493], ["25NB", 28.58, 460], ["50 N.B.", 53.98, 615], ["50 nb", 53.98, 615]] as Array<[string, number, number]>) {
+      expect(girthOf(R137(nb))).toBeCloseTo((3.14 * (matched + 2 * 19)) / 1000, 9);
+      const r = panel(INS, R137(nb), "RMT", nb);
+      expect(fig(r.values)).toEqual([supply, 224]);
+      expect(working(r.v.items[0]).some((w) => w.startsWith("cladding: measured"))).toBe(false);
+    }
+  });
+  it("Q1 (b): a composed NB row's outer wrap is on the matched size, and its line says so", () => {
+    const r = panel(INS, [{ ...R137("50NB")[0], thickness_mm: "32 mm" }], "RMT");
+    expect(r.v.items.flatMap((b) => working(b))).toContain("cladding: ONE wrap over the outer surface -- pipe size as matched (the BoQ states a nominal bore, NB) 53.98 + 2 x 32 (the total thickness) = 117.98 mm");
   });
   it("a Piping section (00341 VRV row 35, 31.8 priced at 34.93, Al. foil): the line names 31.8; 3,410 / 444", () => {
     const row: Answer[] = [
@@ -222,7 +241,7 @@ describe("AC6 a single layer's cladding: on the pipe size as read", () => {
     expect(working(r.v.items[0]).some((w) => w.startsWith("cladding: measured"))).toBe(false);
   });
   it("NEGATIVE a composition's outer layer keeps its own one-wrap line (12e-5b R7), unchanged", () => {
-    const r = panel(INS, [{ ...R137("50NB")[0], thickness_mm: "32 mm" }], "RMT");
+    const r = panel(INS, [{ ...R137("50 mm")[0], thickness_mm: "32 mm" }], "RMT");   // an OD size (Q1: NB is matched)
     const w = r.v.items.flatMap((b) => working(b));
     expect(w).toContain("cladding: ONE wrap over the outer surface -- pipe size as read 50 + 2 x 32 (the total thickness) = 114 mm");
     expect(w.some((x) => x.startsWith("cladding: measured"))).toBe(false);

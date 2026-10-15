@@ -711,6 +711,8 @@ export interface ItemPriceResult {
     /** SLICE 12e-5b (owner R7): the pipe size AS READ (before any ladder), for the outer layer's one wrap of
      * cladding. Present only where the config declares `compose.outer_surface` and the size was read. */
     pipeAsRead?: number;
+    /** SLICE 12e-5b2 (owner Q1 (b)): the pipe size was written as a NOMINAL BORE -- the wrap stays on the matched size. */
+    pipeNb?: true;
   };
   /** The family the model returned (may be an alias or "none of these"). */
   familyRaw: string | null;
@@ -1374,23 +1376,6 @@ export function readNumber(text: string | number | null | undefined, reader: Num
 
   const found = numbersIn(s);
   if (found.length === 0) return { blank: `no number in '${raw}' for ${reader.name}` };
-  /**
-   * SLICE 12e-5b2 (owner R4, within "several values -> the higher"): on a reader declaring `several: "highest"`,
-   * a value written in BRACKETS after the one outside them ("6mm thk (9MM)") is a second value of the same
-   * quantity, not a qualifier -- the higher is taken. Only a bracket holding ONE number (with mm / thk at most)
-   * counts; a bracket of words ("(Class O)") is still dropped as before. ABSENT `several` => byte-identical.
-   */
-  if (reader.several === "highest" && found.length === 1) {
-    const inBrackets = [...unicodeFractions(raw).toLowerCase().matchAll(/\(\s*(\d+(?:\.\d+)?)\s*(?:mm)?\s*(?:thk|thick|thickness)?\s*\)/g)]
-      .map((m) => Number(m[1])).filter((n) => Number.isFinite(n));
-    if (inBrackets.length === 1 && inBrackets[0] !== found[0].n) {
-      const hi = Math.max(found[0].n, inBrackets[0]);
-      const v = { value: hi, note: `'${raw}' states two values -- the higher, ${hi}, is taken` };
-      return typeof reader.reject_below === "number" && hi < reader.reject_below
-        ? { blank: `${reader.name} stated as '${raw}' -- below ${reader.reject_below} ${reader.unit ?? ""}, a sheet gauge, not a thickness`.replace(/\s+,/, ",") }
-        : v;
-    }
-  }
   const scale = (f: Found): { value: number; note?: string } => {
     const after = s.slice(f.end);
     if (reader.unit === "mm") {
@@ -1403,6 +1388,30 @@ export function readNumber(text: string | number | null | undefined, reader: Num
     typeof reader.reject_below === "number" && v.value < reader.reject_below
       ? { blank: `${reader.name} stated as '${raw}' -- below ${reader.reject_below} ${reader.unit ?? ""}, a sheet gauge, not a thickness`.replace(/\s+,/, ",") }
       : v;
+  /**
+   * SLICE 12e-5b2 (owner R4; Q4, 2026-10-15: "a thickness written as any list of values joined by 'or', '/' or
+   * brackets takes the highest"). On a reader declaring `several: "highest"` (Insulation's thickness, also a Piping
+   * section's): numbers outside brackets joined only by "/" or "or", plus every bracket holding ONE number (with
+   * mm / thk at most) -- "6mm thk (9MM)", "6 or 9 mm", "13/19 or 25", "6 (9) (13)" -- take the highest. A bracket of
+   * words ("(Class O)") is still a qualifier; a pure slash list keeps its own path below, byte-identical; a typed
+   * thickness never reaches here as a list (12d-6: one number). ABSENT `several` => byte-identical.
+   */
+  if (reader.several === "highest") {
+    const inBrackets = [...unicodeFractions(raw).toLowerCase().matchAll(/\(\s*(\d+(?:\.\d+)?)\s*(?:mm)?\s*(?:thk|thick|thickness)?\s*\)/g)]
+      .map((m) => Number(m[1])).filter((n) => Number.isFinite(n));
+    const isOr = (g: string) => /^\s*(mm)?\s*or\s*$/.test(g);
+    const between = found.slice(0, -1).map((f, i) => s.slice(f.end, found[i + 1].start));
+    const joined = between.every((g) => isAltPair(g) || isOr(g));
+    if (joined && (inBrackets.length > 0 || between.some(isOr))) {
+      const all = [...found.map((f) => scale(f).value), ...inBrackets];
+      if (new Set(all).size >= 2) {
+        const hi = Math.max(...all);
+        return below({ value: hi, note: all.length === 2
+          ? `'${raw}' states two values -- the higher, ${hi}, is taken`
+          : `'${raw}' states several values -- the highest, ${hi}, is taken` });
+      }
+    }
+  }
   if (found.length === 1) return below(scale(found[0]));
 
   // more than one number: a DIMENSION pair ("300 x 300"), a RANGE ("10-12", "10 to 12"), or SEVERAL values
@@ -1435,13 +1444,6 @@ export function readNumber(text: string | number | null | undefined, reader: Num
   // slash list of ANY length ("19/ 25 / 32 mm" -> 32) -- "if the exact thickness cannot be determined, use the
   // highest value". ONLY a bare slash list: a comma list, a '+' pair (two LAYERS, T4) and a signed tolerance
   // keep refusing by name. ABSENT => the refusal below, byte-identical for every other category.
-  // SLICE 12e-5b2 (owner R4): on the same reader an "or" joins two values the same way a slash does ("6 or 9 mm")
-  const isOr = (g: string) => /^\s*(mm)?\s*or\s*$/.test(g);
-  if (reader.several === "highest" && found.length === 2 && isOr(gaps[0])) {
-    const hi = found[0].n >= found[1].n ? found[0] : found[1];
-    const sc = scale(hi);
-    return below({ value: sc.value, note: `'${raw}' states two values -- the higher, ${sc.value}, is taken` });
-  }
   if (reader.several === "highest" && found.length >= 3 && gaps.every(isAltPair)) {
     const hi = found.reduce((a, b) => (b.n > a.n ? b : a));
     const sc = scale(hi);
@@ -1844,7 +1846,7 @@ function priceOneItem(
   ownText: string = "",
   /** SLICE 12e-5b (owner R7): the OUTER layer of a composition -- the TOTAL thickness of all its layers and the
    * pipe size AS READ (absent where it was not read). Absent on every other item. */
-  outerWrap?: { total: number; pipeAsRead?: number },
+  outerWrap?: { total: number; pipeAsRead?: number; pipeNb?: true },
 ): ItemPriceResult {
   const out: ItemPriceResult = {
     index, familyRaw: null, family: null, skuUnitClass: null, state: "blank", selection: {}, readValues: {}, defaulted: [],
@@ -1986,8 +1988,22 @@ function priceOneItem(
   const read: Record<string, string | number> = {};
   const readDefaulted: DefaultedAttr[] = [];
   // SLICE 12e-5b (owner R7): the pipe size AS READ, carried on a composition for its outer layer's one wrap
-  const pipeAsReadOf = (): { pipeAsRead?: number } => {
+  /**
+   * SLICE 12e-5b2 (owner Q1 (b), 2026-10-15: "where the size as read is a Nominal Bore (NB), the cladding stays on the
+   * matched size; copper and other outside-diameter readings keep R6"). A Nominal Bore is not the pipe's outside
+   * diameter (50 NB steel is about 60 mm), so an NB text carries no size as read for the cladding -- only the flag.
+   */
+  const pipeIsNb = (): boolean => {
     const os = spec.compose?.outer_surface;
+    if (!os) return false;
+    return (spec.numbers[os.pipe]?.from ?? [os.pipe]).some((src) => {
+      const v = rawValue(item, src);
+      return typeof v === "string" && /\d\s*n\.?\s*b\b/i.test(v);
+    });
+  };
+  const pipeAsReadOf = (): { pipeAsRead?: number; pipeNb?: true } => {
+    const os = spec.compose?.outer_surface;
+    if (pipeIsNb()) return { pipeNb: true };
     const v = os ? read[os.pipe] : undefined;
     return typeof v === "number" && Number.isFinite(v) ? { pipeAsRead: v } : {};
   };
@@ -2610,7 +2626,8 @@ function priceOneItem(
       const od = pipe + 2 * outerWrap.total;
       runSel = { ...sel, [os.attr]: od };
       wrapStep = os.girth_step;
-      out.working.push(`cladding: ONE wrap over the outer surface -- pipe size ${asRead ? "as read" : "as matched (the size as read is not available)"} ${fmt(pipe)} + 2 x ${fmt(outerWrap.total)} (the total thickness) = ${fmt(od)} mm`);
+      const how = asRead ? "as read" : outerWrap.pipeNb ? "as matched (the BoQ states a nominal bore, NB)" : "as matched (the size as read is not available)";
+      out.working.push(`cladding: ONE wrap over the outer surface -- pipe size ${how} ${fmt(pipe)} + 2 x ${fmt(outerWrap.total)} (the total thickness) = ${fmt(od)} mm`);
     }
   } else if (os && !outerWrap && sel[os.pipe] !== undefined && sel[os.thickness] !== undefined) {
     /**
@@ -2631,7 +2648,7 @@ function priceOneItem(
       runSel = { ...sel, [os.attr]: od };
       wrapStep = os.girth_step;
       out.working.push(`cladding: measured on the pipe size as read ${fmt(asRead)} (not the ${fmt(ps)} it was priced at) + 2 x ${fmt(t)} (the thickness) = ${fmt(od)} mm`);
-    } else if (clad && Number.isFinite(ps) && asRead === undefined) {
+    } else if (clad && Number.isFinite(ps) && asRead === undefined && !pipeIsNb()) {
       out.working.push(`cladding: measured on the pipe size as matched ${fmt(ps)} (the size as read is not available)`);
     }
   }
@@ -2816,7 +2833,7 @@ export function priceItemList(
         if (oo && !outer) attrs[oo.attr] = { value: oo.value };
         // SLICE 12e-5b (owner R7): the OUTER layer's cladding wraps the whole stack -- the pipe as read + 2 x the total
         const wrap = outer && spec.compose?.outer_surface
-          ? { total: c.layers.reduce((a, b) => a + b, 0), ...(c.pipeAsRead !== undefined ? { pipeAsRead: c.pipeAsRead } : {}) }
+          ? { total: c.layers.reduce((a, b) => a + b, 0), ...(c.pipeAsRead !== undefined ? { pipeAsRead: c.pipeAsRead } : {}), ...(c.pipeNb ? { pipeNb: true as const } : {}) }
           : undefined;
         const one = priceOneItem(spec, projected, cls, { ...src, attributes: attrs }, expanded.length, unitFactor, rowText, ownText, wrap);
         if (li === 0) {
