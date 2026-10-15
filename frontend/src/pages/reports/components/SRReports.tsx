@@ -29,6 +29,7 @@ import { exportToCsv } from "@/utils/exportToCsv";
 import { formatDate } from "@/utils/FormatDate";
 import { formatForReport } from "@/utils/FormatPrice";
 import SR2BReconcileReport from "./SR2BReconcileReport";
+import AmountPaidMismatchReport from "./AmountPaidMismatchReport";
 import { Info } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PENDING_UPLOAD_CREATION_FROM } from "../constants";
@@ -303,6 +304,10 @@ export default function SRReports({ pendingUploadMode = false }: SRReportsProps 
   // If 2B Reconcile Report is selected, render the dedicated component
   if (selectedReportType === '2B Reconcile Report') {
     return <SR2BReconcileReport />;
+  }
+
+  if (selectedReportType === 'Amount Paid Mismatch') {
+    return <AmountPaidMismatchReport doctype="Service Requests" />;
   }
 
   if (overallError) {
