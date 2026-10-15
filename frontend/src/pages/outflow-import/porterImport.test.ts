@@ -15,17 +15,26 @@ import {
 import { NEVER_MATCHED_SOURCES } from "./outflowImportStatus";
 import { SOURCE_OPTIONS } from "./outflowTableModel";
 import {
+    PORTER_CREATE_METHOD,
     PORTER_IMPORT_STATES,
     PORTER_INVOICE_STATES,
     PORTER_SOURCE,
+    canCreatePorter,
     canRetryInvoice,
+    createButtonLabel,
+    createProgress,
     invoiceFigureRows,
     invoiceProgress,
     invoiceStateTone,
     porterCountsLine,
+    porterCreateStarted,
+    porterPolling,
     porterStateNote,
+    porterStateTone,
     porterValidationRunning,
+    type PorterCreateProgress,
 } from "./porterImport";
+import { porterReviewOffered } from "./porterReview";
 import { unskipBlockReason } from "./unskipView";
 
 const repoFile = (relative: string) =>
@@ -69,6 +78,24 @@ describe("the Porter step flow", () => {
         expect(currentStepIndex(PORTER_SOURCE, state)).toBe(0);
         expect(currentStepIndex(PORTER_SOURCE, { ...state, staged: true })).toBe(1);
         expect(PORTER_STEPS[1].key).toBe("validate");
+    });
+
+    it("follows the import's state: Review once validated, Create once Create has started", () => {
+        const uploaded = { previewed: true, staged: true, matched: false };
+        // The dialog's flow facts, derived from the server's state exactly as the dialog derives them.
+        const step = (state: string) =>
+            PORTER_STEPS[
+                currentStepIndex(PORTER_SOURCE, {
+                    ...uploaded,
+                    validated: porterReviewOffered({ state }),
+                    createStarted: porterCreateStarted({ state }),
+                })
+            ].key;
+        expect(step("Validating")).toBe("validate");
+        expect(step("Validation failed")).toBe("validate");
+        expect(step("Validated")).toBe("review");
+        expect(step("Creating")).toBe("create");
+        expect(step("Created")).toBe("create");
     });
 });
 
@@ -139,7 +166,13 @@ describe("validating against Porter's invoices (#1444)", () => {
     it("spells the import's states as the server derives them", () => {
         const service = repoFile("nirmaan_stack/services/outflow_import/porter.py");
         for (const state of PORTER_IMPORT_STATES) expect(service).toContain(`= "${state}"`);
-        expect(PORTER_IMPORT_STATES).toEqual(["Validating", "Validated", "Validation failed"]);
+        expect(PORTER_IMPORT_STATES).toEqual([
+            "Validating",
+            "Validated",
+            "Validation failed",
+            "Creating",
+            "Created",
+        ]);
     });
 
     it("keeps polling only while the import is validating", () => {
@@ -226,5 +259,73 @@ describe("validating against Porter's invoices (#1444)", () => {
         expect(porterStateNote("Validating")).toMatch(/carries on/);
         expect(porterStateNote("Validated")).toMatch(/Every invoice agrees/);
         expect(porterStateNote("Validation failed")).toMatch(/Nothing will be created/);
+    });
+});
+
+describe("creating the expenses (#1445)", () => {
+    const status = (overrides: Partial<PorterCreateProgress> = {}): PorterCreateProgress => ({
+        state: "Validated",
+        completed: 11,
+        to_create: 11,
+        created: 0,
+        failed: 0,
+        create_running: false,
+        ...overrides,
+    });
+
+    it("pins the Create endpoint to the server's module", () => {
+        const module = repoFile("nirmaan_stack/api/outflow_import/porter_create.py");
+        expect(PORTER_CREATE_METHOD).toBe("nirmaan_stack.api.outflow_import.porter_create.create_porter_expenses");
+        expect(module).toContain("def create_porter_expenses(batch: str)");
+    });
+
+    it("offers Create only on a validated import with orders left to create, and not while it runs", () => {
+        expect(canCreatePorter(status())).toBe(true);
+        expect(canCreatePorter(status({ state: "Creating", to_create: 1, created: 10, failed: 1 }))).toBe(true);
+        expect(canCreatePorter(status({ create_running: true }))).toBe(false);
+        expect(canCreatePorter(status({ state: "Created", to_create: 0, created: 11 }))).toBe(false);
+        for (const state of ["Validating", "Validation failed"]) {
+            expect(canCreatePorter(status({ state }))).toBe(false);
+        }
+    });
+
+    it("names what the button will create", () => {
+        expect(createButtonLabel(status())).toBe("Create 11 expenses");
+        expect(createButtonLabel(status({ to_create: 1 }))).toBe("Create 1 expense");
+        expect(createButtonLabel(status({ state: "Creating", to_create: 2, created: 9 }))).toBe(
+            "Create the remaining 2",
+        );
+    });
+
+    it("polls while validating or while the Create job is queued or running", () => {
+        expect(porterPolling(status({ state: "Validating" }))).toBe(true);
+        expect(porterPolling(status({ create_running: true }))).toBe(true);
+        expect(porterPolling(status())).toBe(false);
+        expect(porterPolling(status({ state: "Created", to_create: 0, created: 11 }))).toBe(false);
+        expect(porterPolling(undefined)).toBe(false);
+    });
+
+    it("reports progress from the lines, and says what is left after a run that could not finish", () => {
+        expect(createProgress(status())).toBeNull();
+        expect(createProgress(status({ create_running: true }))).toBe("Creating… 0 of 11 created.");
+        expect(createProgress(status({ state: "Creating", create_running: true, created: 4, to_create: 7 }))).toBe(
+            "Creating… 4 of 11 created.",
+        );
+        expect(createProgress(status({ state: "Creating", created: 10, to_create: 1, failed: 1 }))).toBe(
+            "10 of 11 created. 1 could not be created: press Create again to retry it.",
+        );
+        expect(createProgress(status({ state: "Creating", created: 10, to_create: 1 }))).toBe(
+            "10 of 11 created. 1 is waiting: press Create again to create it.",
+        );
+        expect(createProgress(status({ state: "Created", created: 11, to_create: 0 }))).toBe(
+            "All 11 expenses created, at Paid.",
+        );
+    });
+
+    it("says what Creating and Created mean, and tones Created as done", () => {
+        expect(porterStateNote("Creating")).toMatch(/Creating the expenses/);
+        expect(porterStateNote("Created")).toMatch(/one expense per completed order/);
+        expect(porterStateTone("Created")).toBe("passed");
+        expect(porterStateTone("Creating")).toBe("pending");
     });
 });

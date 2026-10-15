@@ -37,7 +37,7 @@ export type PorterInvoiceState = (typeof PORTER_INVOICE_STATES)[number];
  * The import's own state, DERIVED on the server from its invoices (`porter.import_state`), never stored.
  * Pinned to the server's spelling by test.
  */
-export const PORTER_IMPORT_STATES = ["Validating", "Validated", "Validation failed"] as const;
+export const PORTER_IMPORT_STATES = ["Validating", "Validated", "Validation failed", "Creating", "Created"] as const;
 export type PorterImportState = (typeof PORTER_IMPORT_STATES)[number];
 
 /** What Gemini read off the invoice PDF; a value it could not read is null. */
@@ -81,6 +81,12 @@ export interface PorterStatus {
     fare_total: number;
     state: PorterImportState | string;
     invoices: PorterInvoiceStatus[];
+    /** Create's progress (#1445), counted from the lines: what a run would still write, what it has. */
+    to_create: number;
+    created: number;
+    failed: number;
+    /** The Create job is queued or running on the server. */
+    create_running: boolean;
 }
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
@@ -206,6 +212,10 @@ export const canRetryInvoice = (invoice: Pick<PorterInvoiceStatus, "validation_s
 
 /** What the import's state means for the accountant, in one sentence. */
 export const porterStateNote = (state: string): string => {
+    if (state === "Created")
+        return "Done: one expense per completed order, at Paid, each with its Porter invoice attached.";
+    if (state === "Creating")
+        return "Creating the expenses, one order at a time. You can close this — it carries on, and Import History reopens it.";
     if (state === "Validated")
         return "Every invoice agrees with Porter's own PDF. Nothing has been created yet.";
     if (state === "Validation failed")
@@ -215,4 +225,46 @@ export const porterStateNote = (state: string): string => {
 
 /** The tone of the import's state chip. */
 export const porterStateTone = (state: string): "passed" | "failed" | "pending" =>
-    state === "Validated" ? "passed" : state === "Validation failed" ? "failed" : "pending";
+    state === "Validated" || state === "Created" ? "passed" : state === "Validation failed" ? "failed" : "pending";
+
+// --- create (#1445) -------------------------------------------------------------------------------
+
+export const PORTER_CREATE_METHOD = "nirmaan_stack.api.outflow_import.porter_create.create_porter_expenses";
+
+export type PorterCreateProgress = Pick<
+    PorterStatus,
+    "state" | "completed" | "to_create" | "created" | "failed" | "create_running"
+>;
+
+/** Create has started on this import (Creating or Created): the stepper is on its Create step. */
+export const porterCreateStarted = (status: { state: string } | null | undefined): boolean =>
+    status?.state === "Creating" || status?.state === "Created";
+
+/** The dialog polls while the invoices are being checked, or while the Create job is queued or running. */
+export const porterPolling = (status: Pick<PorterStatus, "state" | "create_running"> | null | undefined): boolean =>
+    status?.state === "Validating" || Boolean(status?.create_running);
+
+/**
+ * Create is offered on a validated import with orders still to create — including after a run that left
+ * a line it could not create, or a line reopened by Unreconcile (the import then reads Creating) — and
+ * not while the job is queued or running. The server refuses anything else again.
+ */
+export const canCreatePorter = (status: PorterCreateProgress): boolean =>
+    (status.state === "Validated" || status.state === "Creating") && !status.create_running && status.to_create > 0;
+
+export const createButtonLabel = (status: PorterCreateProgress): string =>
+    status.state === "Creating"
+        ? `Create the remaining ${status.to_create}`
+        : `Create ${plural(status.to_create, "expense", "expenses")}`;
+
+/** Where Create stands, from the lines; null before it has started. */
+export const createProgress = (status: PorterCreateProgress): string | null => {
+    const of = `${status.created} of ${status.completed} created.`;
+    if (status.create_running) return `Creating… ${of}`;
+    if (status.state === "Created") return `All ${plural(status.created, "expense", "expenses")} created, at Paid.`;
+    if (status.state !== "Creating") return null;
+    if (status.failed > 0)
+        return `${of} ${status.failed} could not be created: press Create again to retry ${status.failed === 1 ? "it" : "them"}.`;
+    const waiting = status.to_create;
+    return `${of} ${waiting} ${waiting === 1 ? "is" : "are"} waiting: press Create again to create ${waiting === 1 ? "it" : "them"}.`;
+};

@@ -25,6 +25,8 @@ from nirmaan_stack.services.outflow_import.parser import (
 )
 from nirmaan_stack.services.outflow_import.porter import (
     EXPENSE_TYPE,
+    IMPORT_CREATED,
+    IMPORT_CREATING,
     IMPORT_VALIDATED,
     IMPORT_VALIDATING,
     IMPORT_VALIDATION_FAILED,
@@ -39,8 +41,10 @@ from nirmaan_stack.services.outflow_import.porter import (
     REASON_NAME,
     STRENGTH_CHECK,
     STRENGTH_STRONG,
+    expense_description,
     import_state,
     judge_invoice,
+    porter_order_fields,
     read_porter_statement,
     remark_group_key,
     suggest_placement,
@@ -415,6 +419,90 @@ class TestTheImportsStateComesFromItsInvoices(unittest.TestCase):
         self.assertEqual(
             INVOICE_IN_FLIGHT, frozenset({"Queued", "Downloading", "Reading", "Comparing"})
         )
+
+
+class TestTheImportStateAfterCreateStarts(unittest.TestCase):
+    """Creating / Created (#1445), from the invoices AND the import's lines."""
+
+    PASSED = ["Passed", "Passed"]
+
+    def test_a_validated_import_whose_lines_all_wait_is_still_validated(self):
+        lines = ["Pending match run", "Pending match run", "Skipped"]
+        self.assertEqual(import_state(self.PASSED, lines), IMPORT_VALIDATED)
+
+    def test_once_one_line_is_created_and_another_is_not_it_is_creating(self):
+        self.assertEqual(
+            import_state(self.PASSED, ["Settled", "Pending match run", "Skipped"]), IMPORT_CREATING
+        )
+
+    def test_a_line_that_could_not_be_created_keeps_it_creating_so_it_can_be_run_again(self):
+        self.assertEqual(import_state(self.PASSED, ["Error", "Pending match run"]), IMPORT_CREATING)
+        self.assertEqual(import_state(self.PASSED, ["Settled", "Error"]), IMPORT_CREATING)
+
+    def test_a_line_unreconciled_after_create_reopens_the_import(self):
+        self.assertEqual(import_state(self.PASSED, ["Settled", "Mismatched"]), IMPORT_CREATING)
+
+    def test_every_completed_line_created_means_created_cancelled_ones_aside(self):
+        self.assertEqual(import_state(self.PASSED, ["Settled", "Skipped", "Settled"]), IMPORT_CREATED)
+
+    def test_lines_never_outrank_the_invoices(self):
+        self.assertEqual(import_state(["Passed", "Failed"], ["Settled"]), IMPORT_VALIDATION_FAILED)
+        self.assertEqual(import_state(["Passed", "Reading"], ["Settled"]), IMPORT_VALIDATING)
+
+    def test_an_import_with_only_cancelled_orders_is_never_created(self):
+        self.assertEqual(import_state(self.PASSED, ["Skipped"]), IMPORT_VALIDATED)
+
+    def test_the_spellings(self):
+        self.assertEqual((IMPORT_CREATING, IMPORT_CREATED), ("Creating", "Created"))
+
+
+class TestWhatCreateWritesForAnOrder(unittest.TestCase):
+    def test_the_description_names_who_booked_it_and_the_project(self):
+        self.assertEqual(
+            expense_description(" Arjun Pillai ", "Quillon Park"),
+            "Porter Delivery raised by Arjun Pillai for Quillon Park",
+        )
+
+    def test_without_a_project_it_names_only_who_booked_it(self):
+        self.assertEqual(
+            expense_description("Arjun Pillai", ""), "Porter Delivery raised by Arjun Pillai"
+        )
+        self.assertEqual(
+            expense_description("Arjun Pillai", None), "Porter Delivery raised by Arjun Pillai"
+        )
+
+    def test_a_blank_booked_by_still_reads_as_a_sentence(self):
+        self.assertEqual(expense_description("  ", "Quillon Park"), "Porter Delivery for Quillon Park")
+        self.assertEqual(expense_description("", ""), "Porter Delivery")
+
+    def test_the_porter_order_holds_every_order_detail_of_the_statement_line(self):
+        line = _statement().lines[3]  # CRN ...004: a waypoint, a Tata 407
+        fields = porter_order_fields(line.statement)
+        self.assertEqual(
+            fields,
+            {
+                "crn": "CRN900000000004",
+                "vehicle_type": "Tata 407",
+                "city": "Bangalore",
+                "from_address": "Demo Warehouse  Hoskote  Karnataka 562114  India",
+                "to_address": "Zephyr Tower Site  Outer Ring Road  Bengaluru  Karnataka 560103  India",
+                "waypoint_addresses": "Demo Hardware  KR Market  Bengaluru  Karnataka 560002  India",
+                "distance_km": Decimal("12.49"),
+                "travel_duration": "46 minutes",
+                "waiting_time": "150 minutes",
+                "booked_by": "Kavya Menon",
+                "booked_by_mobile": "9000000001",
+                "booked_by_email": "kavya.menon@example.com",
+                "remark": "zephyr tower project",
+                "order_status": "completed",
+                "fare": Decimal("1616.00"),
+                "rcm_gst": Decimal("80.80"),
+            },
+        )
+
+    def test_the_booked_by_name_is_trimmed(self):
+        line = _statement().lines[1]  # "Arjun Pillai " in the file
+        self.assertEqual(porter_order_fields(line.statement)["booked_by"], "Arjun Pillai")
 
 
 class TestTheReviewGroupOfAnOrder(unittest.TestCase):

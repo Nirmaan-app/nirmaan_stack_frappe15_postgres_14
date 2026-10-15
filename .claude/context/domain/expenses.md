@@ -706,18 +706,28 @@ silently wiped the shipped Travel (Bus) format once. Use the suite's `_set_forma
 - Plan / as-built: `.claude/plans/expense-request-plan.md`.
 - Bank-line settlement as-built: `.claude/context/domain/outflow-import.md`.
 
-## Porter expenses (designed 2026-10-15, ⚠️ NOT BUILT YET)
+## Porter expenses (designed 2026-10-15; created since #1445, ⚠️ expense screens NOT BUILT YET)
 
-The Porter Statement import ([ADR-0032](../../../docs/adr/0032-porter-statement-import.md); rulings in
-`outflow-import.md` § *Porter Statement — the fourth source*) will create one Project or Non-Project Expense
-per completed Porter order, at `Paid`:
-- **Amount:** the Porter fare, never the reverse-charge GST.
-- **Link:** one `porter_order` Link to a new `Porter Order` doctype.
-- **Invoice PDF:** shared with every other order on the same Porter Invoice.
-- **Expense screens:** a Porter badge and a read-only Porter section.
-- **Locked project:** the project field is locked on these expenses; corrections go through **Rectify** in
-  Bulk Import.
-- **Delete:** already refused by `expense_bank_links` rule 3, because each one has a live import match.
+The Porter Statement import ([ADR-0032](../../../docs/adr/0032-porter-statement-import.md); rulings and
+as-built in `outflow-import.md` § *Porter Statement — the fourth source*) creates one Project or Non-Project
+Expense per completed Porter order, at `Paid` (`api/outflow_import/porter_create.py`, #1445):
+- **Amount:** the Porter fare, never the reverse-charge GST (that stays on the Porter Order as `rcm_gst`).
+- **Fields:** `payment_date` = the order's completion date; `payment_ref` = the CRN; `invoice_ref` /
+  `invoice_date` = the Porter Invoice's number and the date Gemini read; `payment_by` = the trimmed
+  booked-by name (Project side; Non-Project has no Paid by); `vendor` blank; `type` = Material
+  Transportation Charges (now flagged for both ledgers in the fixture); description "Porter Delivery raised
+  by {name} for {project}" (no " for …" on Non-Project); comment "Imported from OFI-…"; no
+  `payment_attachment`.
+- **Link:** one read-only, indexed `porter_order` Link to the `Porter Order` doctype (named by CRN). The
+  Expense owns the link; the Porter Order holds none back and survives the Expense's deletion.
+- **Invoice PDF:** `invoice_attachment` is the URL of the ONE `File` attached to the Porter Invoice, shared by
+  every order on it; no File row per expense (written raw after insert so Frappe's attach-on-update hook makes
+  none). Readable only by roles that can read `Porter Invoice` (Admin, Accountant, Accountant Lead) until #1450.
+- **CEO Hold:** a Paid Project Expense counts in the cashflow gap at once; the Create job re-evaluates each
+  project it wrote to once at the end (the insert hook's check runs once per request).
+- **Delete:** refused by `expense_bank_links` rule 3, because each one has a live Settled import match.
+- **Not built yet (#1450):** the Porter badge, the read-only Porter section, the locked project field
+  (corrections go through **Rectify** in Bulk Import, #1449).
 
 ## Deliberate design decisions (do NOT "fix")
 

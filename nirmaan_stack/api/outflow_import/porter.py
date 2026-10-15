@@ -17,7 +17,8 @@ THE STEPS, AND WHICH ONE THIS SLICE BUILT (#1443 built the first and the status 
               Error invoice. `is_validated(batch)` is the gate Review and Create ask.
     review    (#1446)  `porter_review.get_porter_review` / `set_porter_placement`: correct each
               completed order's project on a Validated import; the edit is the line's stored plan
-    create    (#1445)  one Expense per completed order, at Paid
+    create    `porter_create.create_porter_expenses` (#1445): one Porter Order and one Expense per
+              completed order, at Paid, by a background job; `get_porter_status` reports its progress
     rectify / discard  (#1449 / #1446)
 
 ⚠️ IT NEVER RUNS THE MATCHER. A Porter line creates its expense and settles nothing; `match_batch`
@@ -36,6 +37,7 @@ Unreconciled Outflow*; and every main-table action refuses them (`sources.CREATE
 import os
 
 import frappe
+from frappe.utils.background_jobs import is_job_enqueued
 from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.expenses import _refresh_batch_rollup
@@ -43,6 +45,7 @@ from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.porter_validation import enqueue_validation
 from nirmaan_stack.services.outflow_import.parser import StatementFormatError, parse_statement
 from nirmaan_stack.services.outflow_import.porter import (
+    CREATE_LINE_STATUSES,
     IMPORT_VALIDATED,
     INVOICE_COMPARING,
     INVOICE_ERROR,
@@ -64,7 +67,9 @@ from nirmaan_stack.services.outflow_import.settlement_reference import (
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_PORTER_CANCELLED
 from nirmaan_stack.services.outflow_import.sources import PORTER_STATEMENT_SOURCE
 from nirmaan_stack.services.outflow_import.status import (
+    ROW_ERROR,
     ROW_PENDING_MATCH,
+    ROW_SETTLED,
     ROW_SKIPPED,
     SKIP_ORIGIN_SYSTEM,
 )
@@ -169,27 +174,51 @@ def retry_porter_invoice(invoice: str):
 
 
 def porter_import_states(batches: list[str]) -> dict[str, str]:
-    """Each Porter import's state (Validating / Validated / Validation failed), DERIVED from its Porter
-    Invoices in one query. Never stored: `Outflow Import Batch.status` keeps its own meaning."""
-    if not batches:
-        return {}
+    """Each Porter import's state (Validating / Validated / Validation failed / Creating / Created),
+    DERIVED from its Porter Invoices and its lines, two queries for any number of imports. Never stored:
+    `Outflow Import Batch.status` keeps its own meaning."""
+    invoices = _invoice_statuses(batches)
+    lines: dict[str, set[str]] = {batch: set() for batch in batches}
+    if batches:
+        # `import_state` asks only "any" / "all" of the lines, so each import's distinct statuses do.
+        for row in frappe.db.sql(
+            """
+            SELECT DISTINCT import_batch, row_status FROM "tabOutflow Import Row"
+            WHERE import_batch IN %s
+            """,
+            (tuple(batches),),
+            as_dict=True,
+        ):
+            lines[row.import_batch].add(row.row_status)
+    return {batch: import_state(invoices[batch], lines[batch]) for batch in batches}
+
+
+def _invoice_statuses(batches: list[str]) -> dict[str, list[str]]:
     statuses: dict[str, list[str]] = {batch: [] for batch in batches}
+    if not batches:
+        return statuses
     for row in frappe.db.sql(
         """SELECT import_batch, validation_status FROM "tabPorter Invoice" WHERE import_batch IN %s""",
         (tuple(batches),),
         as_dict=True,
     ):
         statuses[row.import_batch].append(row.validation_status)
-    return {batch: import_state(found) for batch, found in statuses.items()}
+    return statuses
 
 
 def is_validated(batch: str) -> bool:
     """THE GATE for Review and Create (#1445, #1446): every Porter Invoice of the import has Passed.
 
     False while any is still being checked, and for good once one has Failed: nothing may proceed past
-    a failed invoice, and there is no override.
+    a failed invoice, and there is no override. ⚠️ It asks the INVOICES only, so it stays True once
+    Create has started (Creating / Created): a re-run of Create passes the same gate.
     """
-    return porter_import_states([batch])[batch] == IMPORT_VALIDATED
+    return import_state(_invoice_statuses([batch])[batch]) == IMPORT_VALIDATED
+
+
+def create_job_id(batch: str) -> str:
+    """The Create job's id: one per import, so pressing Create twice queues it once (#1445)."""
+    return f"porter-create-{batch}"
 
 
 @frappe.whitelist()
@@ -213,6 +242,15 @@ def porter_status(batch: str) -> dict:
         batch,
         ["name", "original_filename", "period_from", "period_to", "gross_amount"],
         as_dict=True,
+    )
+    by_status = dict(
+        frappe.db.sql(
+            """
+            SELECT row_status, COUNT(*) FROM "tabOutflow Import Row"
+            WHERE import_batch = %s GROUP BY row_status
+            """,
+            (batch,),
+        )
     )
     lines = frappe.db.sql(
         """
@@ -261,8 +299,15 @@ def porter_status(batch: str) -> dict:
         "completed": orders - cancelled,
         "cancelled": cancelled,
         "fare_total": float(meta.gross_amount or 0),
-        # Derived from the invoices below, never stored (`porter.import_state`).
-        "state": import_state([invoice.validation_status for invoice in invoices]),
+        # Derived from the invoices below and the lines, never stored (`porter.import_state`).
+        "state": import_state([invoice.validation_status for invoice in invoices], by_status),
+        # Create's progress (#1445), counted from the lines, which are the durable record. `to_create`
+        # is what a run of Create would still write (waiting, failed, or reopened by Unreconcile).
+        "to_create": sum(int(by_status.get(status) or 0) for status in CREATE_LINE_STATUSES),
+        "created": int(by_status.get(ROW_SETTLED) or 0),
+        "failed": int(by_status.get(ROW_ERROR) or 0),
+        # The Create job is queued or running: the dialog polls while it is.
+        "create_running": is_job_enqueued(create_job_id(batch)),
         "invoices": [
             {
                 "name": invoice.name,
