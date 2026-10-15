@@ -604,7 +604,7 @@ def total_tds_of(document_type: str, document_name: str, exclude_payment: str | 
 	shape is what tripped PostgreSQL's sqlparse token ceiling in production on the data-table reads,
 	and it fails only once a parent has enough payments -- i.e. never in a test.
 
-	`exclude_payment` mirrors `update_parent_amount_paid`'s `exclude_name`: during `on_trash` the
+	`exclude_payment` mirrors the one `recount_orders` / `write_amount_paid` take: during `on_trash` the
 	row is still in the database, so a total that did not exclude it would keep counting tax
 	withheld on a payment that is being deleted.
 	"""

@@ -21,6 +21,7 @@ Fixtures are raw inserts (`db_insert`, no hooks) on a scratch project, purged pe
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.permissions import add_user_permission
 from frappe.utils import flt
 
 from nirmaan_stack.api.projects.project_aggregates import (
@@ -122,3 +123,23 @@ class TestProjectPagePaid(FrappeTestCase):
                 (self.B, "HVAC", 100.0, 2.0, 18.0, False),
             ]),
         )
+
+    def test_spends_refuses_a_reader_limited_to_another_project(self):
+        """A user who may read POs but whose User Permission names another project gets no Spends rows."""
+        email = f"test-1451-spends-{frappe.generate_hash(length=6)}@example.com"
+        other = _raw("Projects", project_name="TEST-1457-OTHER", status="WIP")
+        user = frappe.get_doc({"doctype": "User", "email": email, "first_name": "Spends", "send_welcome_email": 0,
+                               "roles": [{"role": "Nirmaan Accountant"}]})
+        user.insert(ignore_permissions=True)
+        add_user_permission("Projects", other, email, ignore_permissions=True)
+        try:
+            frappe.set_user(email)
+            self.assertTrue(frappe.has_permission(PO, "read"))
+            with self.assertRaises(frappe.PermissionError):
+                get_project_pos_paid(self.P)
+        finally:
+            frappe.set_user("Administrator")
+            frappe.db.delete("User Permission", {"user": email})
+            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
+            frappe.db.delete("Projects", {"name": other})
+            frappe.db.commit()

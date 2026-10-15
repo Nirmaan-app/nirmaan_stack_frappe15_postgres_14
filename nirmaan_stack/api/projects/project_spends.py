@@ -26,6 +26,9 @@ def get_project_pos_paid(project_id: str) -> dict:
     """Every PO of the project with its Amount Paid, and every PO's items (two queries)."""
     if not frappe.has_permission("Procurement Orders", "read"):
         frappe.throw(_("Not permitted to read Procurement Orders."), frappe.PermissionError)
+    # get_all and the raw SQL below skip User Permissions, so the project itself is checked here.
+    if not frappe.has_permission("Projects", "read", doc=project_id):
+        frappe.throw(_("Not permitted to read this project."), frappe.PermissionError)
     pos = frappe.get_all(
         "Procurement Orders",
         filters={"project": project_id},
