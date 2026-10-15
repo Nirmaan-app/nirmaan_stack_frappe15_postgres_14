@@ -263,7 +263,7 @@ Every cross-surface expense calculation now filters `status = "Paid"`:
 
 | Surface | Where |
 |---|---|
-| CEO-Hold **cashflow gap** (backend) | `integrations/controllers/project_cashflow_hold_update.py` (`_compute_cashflow_gap`) |
+| CEO-Hold **cashflow gap** + Projects-list outflow (backend) | `services/project_money.py` (`project_money`), read by `_compute_cashflow_gap` and `get_projects_financial_rollup` |
 | CEO-Hold cashflow gap — **Approve-Payments CEO view** (frontend) | `pages/ProjectPayments/approve-payments/ApprovePayments.tsx` — the `projectExpenses` fetch (swr key `ProjectExpenses_CEOPending`) filters `status = "Paid"`, mirroring the backend gap + `projects.tsx`; `Requested`/`Approved`-but-unpaid no longer inflate the displayed gap. |
 | **30-day Payment dashboard** (Project + Non-Project) | `api/payments/get_project_payment_summary.py` |
 | **Outflow Report(Project)** | `pages/reports/hooks/useOutflowReportData.ts` |

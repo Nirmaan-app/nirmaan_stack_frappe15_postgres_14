@@ -71,6 +71,8 @@ export interface ProjectFinancialRollup {
   inflow: number;
   outflow: number;
   liabilities: number;
+  // outflow + liabilities − inflow, worked out on the server: the same figure CEO Hold reads.
+  cashflow_gap: number;
   total_credit_purchase: number;
   total_credit_paid: number;
 }
