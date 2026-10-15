@@ -1942,11 +1942,17 @@ export const importUploaderLabel = (option: { uploaded_by?: string }): string =>
  *
  * The tone follows the screen's existing chip vocabulary rather than inventing one: finished is
  * quiet, outstanding work is amber, exactly as the summary panel's own chips read.
+ *
+ * A Porter import reports its own state instead (#1444, `review.list_imports`): Validated reads as
+ * passed, Validation failed as refused, Validating as work still open.
  */
-export const importStatusTone = (status?: string): string =>
-    (status ?? "").trim() === "Completed"
-        ? "bg-muted text-muted-foreground"
-        : "bg-amber-50 text-amber-700";
+export const importStatusTone = (status?: string): string => {
+    const value = (status ?? "").trim();
+    if (value === "Completed") return "bg-muted text-muted-foreground";
+    if (value === "Validated") return "bg-emerald-50 text-emerald-700";
+    if (value === "Validation failed") return "bg-destructive/10 text-destructive";
+    return "bg-amber-50 text-amber-700";
+};
 
 // --- confirm all matched (slice X5) --------------------------------------------------------------
 

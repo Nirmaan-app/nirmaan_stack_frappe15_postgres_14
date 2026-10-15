@@ -25,11 +25,22 @@ from nirmaan_stack.services.outflow_import.parser import (
 )
 from nirmaan_stack.services.outflow_import.porter import (
     EXPENSE_TYPE,
+    IMPORT_VALIDATED,
+    IMPORT_VALIDATING,
+    IMPORT_VALIDATION_FAILED,
+    INVOICE_ERROR,
+    INVOICE_FAILED,
+    INVOICE_IN_FLIGHT,
+    INVOICE_PASSED,
     PORTER_COLUMNS,
+    InvoiceFigures,
+    InvoiceRead,
     PorterStatementError,
     REASON_NAME,
     STRENGTH_CHECK,
     STRENGTH_STRONG,
+    import_state,
+    judge_invoice,
     read_porter_statement,
     suggest_placement,
 )
@@ -264,6 +275,144 @@ class TestALineThePorterImportOwns(unittest.TestCase):
                 source=PORTER_STATEMENT_SOURCE,
             ),
             "Porter cancelled this order and never billed it.",
+        )
+
+
+# --- validation against Porter's own invoice (#1444) ----------------------------------------------
+
+_STATEMENT = InvoiceFigures(
+    invoice_number="29SS27A0900001",
+    porter_gstin="29AAATP0000A1Z1",
+    customer_gstin="29AAACN9999X1Z0",
+    fare=Decimal("3087.00"),
+    tax=Decimal("154.36"),
+)
+
+
+def _read(**changes) -> InvoiceRead:
+    """What Gemini read off a PDF that agrees with `_STATEMENT`, with `changes` applied."""
+    agreed = {
+        "invoice_number": "29SS27A0900001",
+        "invoice_date": date(2026, 10, 1),
+        "supplier_gstin": "29AAATP0000A1Z1",
+        "receiver_gstin": "29AAACN9999X1Z0",
+        "fare": Decimal("3087.00"),
+        "tax": Decimal("154.35"),
+    }
+    agreed.update(changes)
+    return InvoiceRead(**agreed)
+
+
+class TestComparingAnInvoiceWithTheStatement(unittest.TestCase):
+    def test_an_invoice_that_agrees_on_everything_passes(self):
+        verdict = judge_invoice(_STATEMENT, _read())
+        self.assertEqual(verdict.status, INVOICE_PASSED)
+        self.assertEqual(verdict.message, "")
+
+    def test_the_statements_row_by_row_tax_rounding_passes(self):
+        # Measured on the 2026-09 statement: up to Rs 0.18 between the rows' tax and the invoice's.
+        verdict = judge_invoice(_STATEMENT, _read(tax=Decimal("154.18")))
+        self.assertEqual(verdict.status, INVOICE_PASSED)
+
+    def test_fare_and_tax_pass_at_exactly_one_rupee_either_way(self):
+        for fare, tax in (
+            (Decimal("3088.00"), Decimal("155.36")),
+            (Decimal("3086.00"), Decimal("153.36")),
+        ):
+            with self.subTest(fare=fare, tax=tax):
+                self.assertEqual(judge_invoice(_STATEMENT, _read(fare=fare, tax=tax)).status, INVOICE_PASSED)
+
+    def test_a_tax_one_rupee_and_one_paisa_out_fails_naming_both_figures(self):
+        verdict = judge_invoice(_STATEMENT, _read(tax=Decimal("155.37")))
+        self.assertEqual(verdict.status, INVOICE_FAILED)
+        self.assertEqual(
+            verdict.message,
+            "Invoice 29SS27A0900001 disagrees with the statement. "
+            "Tax: invoice ₹155.37, statement ₹154.36.",
+        )
+
+    def test_a_fare_one_rupee_and_one_paisa_out_fails(self):
+        verdict = judge_invoice(_STATEMENT, _read(fare=Decimal("3085.99")))
+        self.assertEqual(verdict.status, INVOICE_FAILED)
+        self.assertIn("Fare: invoice ₹3,085.99, statement ₹3,087.00", verdict.message)
+
+    def test_a_different_invoice_number_fails(self):
+        verdict = judge_invoice(_STATEMENT, _read(invoice_number="29SS27A0900009"))
+        self.assertEqual(verdict.status, INVOICE_FAILED)
+        self.assertIn("Invoice number: invoice 29SS27A0900009, statement 29SS27A0900001", verdict.message)
+
+    def test_a_supplier_gstin_other_than_porters_fails(self):
+        verdict = judge_invoice(_STATEMENT, _read(supplier_gstin="29AAATP0000A1Z9"))
+        self.assertEqual(verdict.status, INVOICE_FAILED)
+        self.assertIn("Porter GSTIN: invoice 29AAATP0000A1Z9, statement 29AAATP0000A1Z1", verdict.message)
+
+    def test_a_receiver_gstin_other_than_ours_fails(self):
+        verdict = judge_invoice(_STATEMENT, _read(receiver_gstin="27AAACN9999X1Z4"))
+        self.assertEqual(verdict.status, INVOICE_FAILED)
+        self.assertIn("Customer GSTIN: invoice 27AAACN9999X1Z4, statement 29AAACN9999X1Z0", verdict.message)
+
+    def test_every_figure_that_disagrees_is_named(self):
+        verdict = judge_invoice(
+            _STATEMENT, _read(fare=Decimal("2000"), tax=Decimal("100"), receiver_gstin="27AAACN9999X1Z4")
+        )
+        self.assertEqual(verdict.status, INVOICE_FAILED)
+        self.assertEqual(
+            verdict.message,
+            "Invoice 29SS27A0900001 disagrees with the statement. "
+            "Customer GSTIN: invoice 27AAACN9999X1Z4, statement 29AAACN9999X1Z0; "
+            "Fare: invoice ₹2,000.00, statement ₹3,087.00; "
+            "Tax: invoice ₹100.00, statement ₹154.36.",
+        )
+
+    def test_spacing_and_letter_case_are_not_a_difference(self):
+        verdict = judge_invoice(
+            _STATEMENT,
+            _read(invoice_number=" 29ss27a0900001 ", supplier_gstin="29 AAATP 0000A1Z1", receiver_gstin="29aaacn9999x1z0"),
+        )
+        self.assertEqual(verdict.status, INVOICE_PASSED)
+
+    def test_a_figure_gemini_did_not_read_is_an_error_to_retry_not_a_failure(self):
+        verdict = judge_invoice(_STATEMENT, _read(tax=None, supplier_gstin=""))
+        self.assertEqual(verdict.status, INVOICE_ERROR)
+        self.assertEqual(
+            verdict.message,
+            "Invoice 29SS27A0900001: could not read the Porter GSTIN and tax off the PDF. Retry it.",
+        )
+
+    def test_a_disagreement_outweighs_a_figure_that_was_not_read(self):
+        verdict = judge_invoice(_STATEMENT, _read(tax=None, fare=Decimal("10")))
+        self.assertEqual(verdict.status, INVOICE_FAILED)
+        self.assertIn("Fare: invoice ₹10.00", verdict.message)
+
+    def test_large_amounts_are_grouped_the_indian_way(self):
+        statement = InvoiceFigures("X1", "G1", "G2", Decimal("1234567.5"), Decimal("0"))
+        verdict = judge_invoice(statement, InvoiceRead("X1", None, "G1", "G2", Decimal("87344"), Decimal("0")))
+        self.assertIn("Fare: invoice ₹87,344.00, statement ₹12,34,567.50", verdict.message)
+
+
+class TestTheImportsStateComesFromItsInvoices(unittest.TestCase):
+    def test_any_invoice_still_in_hand_means_validating(self):
+        for busy in ("Queued", "Downloading", "Reading", "Comparing"):
+            with self.subTest(busy=busy):
+                self.assertEqual(import_state(["Passed", busy, "Failed"]), IMPORT_VALIDATING)
+
+    def test_every_invoice_passed_means_validated(self):
+        self.assertEqual(import_state(["Passed", "Passed"]), IMPORT_VALIDATED)
+
+    def test_one_failed_or_errored_invoice_fails_the_whole_import(self):
+        self.assertEqual(import_state(["Passed", "Failed"]), IMPORT_VALIDATION_FAILED)
+        self.assertEqual(import_state(["Passed", "Error"]), IMPORT_VALIDATION_FAILED)
+
+    def test_an_import_with_no_invoices_is_never_validated(self):
+        self.assertEqual(import_state([]), IMPORT_VALIDATION_FAILED)
+
+    def test_the_spellings(self):
+        self.assertEqual(
+            (IMPORT_VALIDATING, IMPORT_VALIDATED, IMPORT_VALIDATION_FAILED),
+            ("Validating", "Validated", "Validation failed"),
+        )
+        self.assertEqual(
+            INVOICE_IN_FLIGHT, frozenset({"Queued", "Downloading", "Reading", "Comparing"})
         )
 
 

@@ -28,6 +28,7 @@ import type {
     OutflowImportSummary,
 } from "@/types/NirmaanStack/OutflowImportBatch";
 import { useUserData } from "@/hooks/useUserData";
+import { urlStateManager } from "@/utils/urlStateManager";
 import { canUndoOutflow } from "./outflowImportStatus";
 import { unreconcileNotice, type UnreconcileNotice, type UnreconcileResult } from "./unreconcileView";
 import { UnreconcileDialog } from "./components/UnreconcileDialog";
@@ -91,6 +92,7 @@ import {
     tabFromCarried,
     visibleTabs,
 } from "./outflowTableModel";
+import { PORTER_URL_KEY } from "./porterImport";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 /**
@@ -228,6 +230,20 @@ export const OutflowMasterPage = () => {
         { title: string; action: string; message: string; retry: () => Promise<void> } | null
     >(null);
     const [importing, setImporting] = useState(false);
+    /**
+     * The Porter import the dialog is showing (#1444), mirrored in the URL as `?porter=OFI-…`.
+     *
+     * ⚠️ IN THE URL SO A RELOAD BRINGS THE PROGRESS BACK. A Porter import validates in the background for
+     * minutes; the dialog reads its state from the server by this batch, so a reload, or a reopen from
+     * Import History, shows it exactly as it stands. Seeded once, on mount; written only with the dialog.
+     */
+    const [porterBatch, setPorterBatchState] = useState<string | null>(
+        () => urlStateManager.getParam(PORTER_URL_KEY) || null
+    );
+    const setPorterBatch = useCallback((batch: string | null) => {
+        urlStateManager.updateParam(PORTER_URL_KEY, batch);
+        setPorterBatchState(batch);
+    }, []);
     const [showingHistory, setShowingHistory] = useState(false);
     const [confirmingAll, setConfirmingAll] = useState(false);
     const [showingSkipped, setShowingSkipped] = useState(false);
@@ -1191,11 +1207,12 @@ export const OutflowMasterPage = () => {
         (open: boolean) => {
             setImporting(open);
             if (open) return;
+            setPorterBatch(null);
             const pending = pendingPinRef.current;
             pendingPinRef.current = null;
             if (pending) handleSelectImport(pending.batch, pending.tab);
         },
-        [handleSelectImport]
+        [handleSelectImport, setPorterBatch]
     );
 
     return (
@@ -1570,10 +1587,12 @@ export const OutflowMasterPage = () => {
                 also moving the period and the tab — `handleImported` does both, correctly, but only
                 once, when the statement arrives. */}
             <ImportStatementDialog
-                open={importing}
+                open={importing || Boolean(porterBatch)}
                 onOpenChange={handleImportDialogOpenChange}
                 onImported={handleImported}
                 onRefresh={refreshAll}
+                porterBatch={porterBatch}
+                onPorterBatch={setPorterBatch}
             />
 
             {/* ⚠️ IT READS `list_imports` ITSELF, A MONTH AT A TIME (owner ruling 2026-10-14) — the
@@ -1586,6 +1605,7 @@ export const OutflowMasterPage = () => {
                 screenSources={sources}
                 selected={historySelection}
                 onSelectImport={handleSelectImport}
+                onOpenPorterImport={setPorterBatch}
             />
 
             {/* ⚠️ BOTH TAKE THE PERIOD'S FILTERS, NOT A BATCH (slice P1). The confirm dialog acts on

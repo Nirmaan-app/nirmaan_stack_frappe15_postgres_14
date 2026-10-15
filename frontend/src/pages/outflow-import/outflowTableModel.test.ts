@@ -550,6 +550,12 @@ describe("the import history row", () => {
         expect(importStatusTone("In Review")).toContain("amber");
         expect(importStatusTone(undefined)).toContain("amber");
     });
+
+    it("tones a Porter import's own state: validated good, failed red, validating still open", () => {
+        expect(importStatusTone("Validated")).toContain("emerald");
+        expect(importStatusTone("Validation failed")).toContain("destructive");
+        expect(importStatusTone("Validating")).toContain("amber");
+    });
 });
 
 describe("the source scope", () => {
