@@ -21,7 +21,25 @@ import type { WizardStep } from "@/components/ui/wizard-steps";
 export type CashfreeStepKey = "upload" | "check" | "run" | "confirm";
 export type CashbookStepKey = "upload" | "review" | "create";
 export type BankStepKey = "upload" | "check" | "import";
-export type ImportStepKey = CashfreeStepKey | CashbookStepKey | BankStepKey;
+export type PorterStepKey = "upload" | "validate" | "review" | "create";
+export type ImportStepKey = CashfreeStepKey | CashbookStepKey | BankStepKey | PorterStepKey;
+
+/**
+ * The sources the Import statement dialog offers, in its order.
+ *
+ * ⚠️ THESE `value` STRINGS ARE THE PARSER'S ADAPTER KEYS AND THE DOCTYPE SELECT OPTIONS, and all three
+ * spellings are pinned together by test (`importWizard.test.ts` against `SOURCE_OPTIONS`, which is pinned
+ * against the server). Widen this list in the same change as the parser and the doctype, never on its own.
+ *
+ * ⚠️ `ICICI Bank Statement` names the BANK, not "a bank statement", deliberately: the source picks a
+ * COLUMN ADAPTER, and a second bank has different columns and a different narration grammar.
+ */
+export const IMPORT_SOURCES: readonly { value: string; label: string; available: boolean }[] = [
+    { value: "Cashfree", label: "Cashfree", available: true },
+    { value: "Cashbook", label: "Cashbook (petty cash)", available: true },
+    { value: "ICICI Bank Statement", label: "ICICI bank statement", available: true },
+    { value: "Porter Statement", label: "Porter Statement (deliveries)", available: true },
+];
 
 export const CASHFREE_STEPS: (WizardStep & { key: CashfreeStepKey })[] = [
     { key: "upload", title: "Upload", shortTitle: "Upload" },
@@ -49,6 +67,21 @@ export const BANK_STEPS: (WizardStep & { key: BankStepKey })[] = [
     { key: "upload", title: "Upload", shortTitle: "Upload" },
     { key: "check", title: "Check", shortTitle: "Check" },
     { key: "import", title: "Import", shortTitle: "Import" },
+];
+
+/**
+ * The Porter Statement's four steps (#1443, ADR-0032).
+ *
+ * ⚠️ UPLOAD WRITES, SO THERE IS NO CHECK STEP BEFORE IT. The upload reads the whole file and refuses it
+ * before anything is saved, then stages the lines and the Porter Invoices in the same request; what the
+ * accountant checks comes AFTER, against Porter's own invoices (Validate). Nothing is created until the
+ * last step, and only when every invoice has passed.
+ */
+export const PORTER_STEPS: (WizardStep & { key: PorterStepKey })[] = [
+    { key: "upload", title: "Upload", shortTitle: "Upload" },
+    { key: "validate", title: "Check invoices", shortTitle: "Validate" },
+    { key: "review", title: "Review projects", shortTitle: "Review" },
+    { key: "create", title: "Create", shortTitle: "Create" },
 ];
 
 /**
@@ -97,7 +130,16 @@ const SOURCE_FLOWS: Record<string, SourceFlow> = {
          */
         stepIndex: (state) => (state.staged ? 2 : state.previewed ? 1 : 0),
     },
+    "Porter Statement": {
+        steps: PORTER_STEPS,
+        // Staged = uploaded, which lands on Validate. The Review and Create steps are reached by the
+        // validation and create slices of spec #1442, which extend `ImportFlowState` for them.
+        stepIndex: (state) => (state.staged ? 1 : 0),
+    },
 };
+
+/** The sources that have a flow of their own. Every one must be a source the dialog offers. */
+export const SOURCES_WITH_OWN_FLOW: readonly string[] = Object.keys(SOURCE_FLOWS);
 
 const flowFor = (source: string): SourceFlow => SOURCE_FLOWS[source] ?? DEFAULT_FLOW;
 

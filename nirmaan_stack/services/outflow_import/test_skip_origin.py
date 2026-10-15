@@ -300,10 +300,17 @@ class TestUnskipRefusal(unittest.TestCase):
                         unskip_refusal(row_status=ROW_SKIPPED, skip_kind=kind, source=source)
                     )
 
-    def test_the_locked_kinds_are_exactly_the_owner_s_four(self):
+    def test_the_locked_kinds_are_exactly_the_owner_s_four_and_porter_s_cancelled_order(self):
+        # The fifth is ADR-0032's (#1443): a cancelled Porter order is never billed, so never work.
         self.assertEqual(
             set(UNSKIP_LOCKED_KINDS),
-            {"Already imported", "Repeated in same file", "No amount", "Bank refused"},
+            {
+                "Already imported",
+                "Repeated in same file",
+                "No amount",
+                "Bank refused",
+                "Porter order cancelled",
+            },
         )
         for kind, sentence in UNSKIP_LOCKED_KINDS.items():
             with self.subTest(kind=kind):
@@ -334,7 +341,8 @@ class TestUnskipRefusal(unittest.TestCase):
 
     def test_every_other_cashbook_kind_stays_locked(self):
         for kind in SKIP_KINDS:
-            if kind == "Skipped by hand":
+            # A Porter kind answers with its own locked sentence, on any source (#1443).
+            if kind in ("Skipped by hand", "Porter order cancelled"):
                 continue
             with self.subTest(kind=kind):
                 self.assertEqual(

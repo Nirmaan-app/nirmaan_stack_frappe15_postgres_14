@@ -54,13 +54,16 @@ import {
 import {
     CONFIRM_STEP_NOTE,
     FINISH_LATER_NOTE,
+    IMPORT_SOURCES,
     clickableStepIndex,
     confirmEmptyCopy,
     currentStepIndex,
     importSteps,
 } from "../importWizard";
+import { PORTER_SOURCE, PORTER_UPLOAD_URL, type PorterStatus } from "../porterImport";
 import { CashbookReviewTree } from "./CashbookReviewTree";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
+import { PorterImportSummary } from "./PorterImportSummary";
 import { SheetHeaderPicker } from "./SheetHeaderPicker";
 
 const PREVIEW_URL =
@@ -100,7 +103,7 @@ const ALLOWED_EXTENSIONS = [".csv", ".xlsx"];
  * parser then reports missing columns, which reads as "our file is broken" rather than "you took
  * the other export".
  *
- * ⚠️ KEYED BY THE SAME STRINGS AS `SOURCES` above, and a source with no entry falls back to plain
+ * ⚠️ KEYED BY THE SAME STRINGS AS `importWizard.IMPORT_SOURCES`, and a source with no entry falls back to plain
  * wording rather than rendering "undefined" — so adding a source that is NOT a Cashfree report
  * degrades honestly instead of claiming a menu path that does not exist.
  */
@@ -111,27 +114,19 @@ const SOURCE_REPORT: Record<string, string> = {
     // filled anyway because the SAME mistake exists here in a different form: a bank offers several
     // exports and only the detailed statement carries the narration this parser reads.
     "ICICI Bank Statement": "Detailed account statement",
+    // Porter's monthly CSV, one line per delivery order (#1443). Not a Cashfree report: its menu path
+    // is `SOURCE_EXPORT_PATH`'s.
+    "Porter Statement": "Porter Statement",
 };
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
 /**
- * Only sources the backend parser actually has an adapter for may be selected.
- *
- * ⚠️ THESE `value` STRINGS ARE THE PARSER'S ADAPTER KEYS AND THE DOCTYPE SELECT OPTIONS, and all
- * three spellings are pinned together by test. `upload._read_and_parse` validates the posted source
- * against `SUPPORTED_SOURCES` and `_stage_batch` writes that same string straight into the Select,
- * so a value that differs from either fails Frappe's validation on EVERY batch insert for that
- * source. Widen this list in the same change as the parser and the doctype, never on its own.
- *
- * ⚠️ `ICICI Bank Statement` names the BANK, not "a bank statement", deliberately: the source picks a
- * COLUMN ADAPTER, and a second bank has different columns and a different narration grammar. Adding
- * HDFC later is one more entry here, not a re-fit of this one.
+ * Where to export each source's file from, when it is not a Cashfree report. A source without an entry
+ * reads "Cashfree → Reports → {SOURCE_REPORT}", which is only true of the Cashfree reports.
  */
-const SOURCES = [
-    { value: "Cashfree", label: "Cashfree", available: true },
-    { value: "Cashbook", label: "Cashbook (petty cash)", available: true },
-    { value: "ICICI Bank Statement", label: "ICICI bank statement", available: true },
-];
+const SOURCE_EXPORT_PATH: Record<string, string> = {
+    [PORTER_SOURCE]: "Porter for Business → the month's order statement, downloaded as CSV",
+};
 
 /**
  * What KIND of thing this source is importing — the dialog's heading, its opening sentence, and how
@@ -178,6 +173,14 @@ const SOURCE_SHAPE: Record<string, SourceShape> = {
         // what stops the three-step wizard reading as one that stopped early.
         description:
             "Everything that moved through the account. Nothing is matched or settled by importing — the rows land in the Not-Matched list, where each one is resolved by a person.",
+        wide: true,
+    },
+    // ⚠️ IT PROMISES THE GATE, BECAUSE THE GATE IS THE POINT (ADR-0032): every completed order becomes
+    // an expense, but only once every Porter Invoice in the file agrees with Porter's own PDF.
+    "Porter Statement": {
+        title: "Import a Porter Statement",
+        description:
+            "Porter deliveries the wallet already paid for. Each completed order becomes one expense — but only after every Porter invoice in the file agrees with Porter's own PDF.",
         wide: true,
     },
 };
@@ -262,6 +265,13 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
     const [cashbookStatus, setCashbookStatus] = useState<CashbookStatus | null>(null);
 
     /**
+     * The Porter import as the server reported it after upload (#1443). Its own state, for the reason
+     * Cashbook has its own: the flows share the file picker and nothing else. Set means the lines and
+     * the Porter Invoices are IN THE DATABASE.
+     */
+    const [porterStatus, setPorterStatus] = useState<PorterStatus | null>(null);
+
+    /**
      * The Cashfree match has FINISHED, which is not the same as "not running" (slice CF/S7).
      *
      * ⚠️ IT IS WHAT SEPARATES STEP 3 FROM STEP 4, AND A FAILURE MUST NOT SET IT. `isBusy` goes back
@@ -275,6 +285,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
     const [rematchNonce, setRematchNonce] = useState(0);
 
     const isCashbook = source === "Cashbook";
+    const isPorter = source === PORTER_SOURCE;
 
     const { call: runMatch } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.review.match_batch"
@@ -307,6 +318,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
         setCashbookPreview(null);
         setCashbookBatch(null);
         setCashbookStatus(null);
+        setPorterStatus(null);
         setHeaderRow(null);
     }, [open]);
 
@@ -319,6 +331,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
         setCashbookPreview(null);
         setCashbookBatch(null);
         setCashbookStatus(null);
+        setPorterStatus(null);
         setError(null);
         // ⚠️ A ROW NUMBER FROM ANOTHER SOURCE'S SHEET IS NOT A SMALLER TRUTH, IT IS A WRONG ONE.
         // Each source has its own export layout, so 17 means the header on one and a transaction
@@ -545,6 +558,41 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
         onOpenChange(false);
     }, [cashbookBatch, cashbookPreview, onImported, onOpenChange]);
 
+    /**
+     * Upload a Porter Statement (#1443). ONE request reads, refuses or stages the whole file.
+     *
+     * ⚠️ NO PREVIEW FIRST, unlike Cashfree and Cashbook. The server refuses a wrong file before it saves
+     * anything, and the check that matters comes AFTER the upload, against Porter's own invoices — so a
+     * read-only preview would only ask the accountant to confirm a file twice.
+     */
+    const handlePorterUpload = useCallback(async () => {
+        if (!file || isBusy) return;
+        setIsBusy("upload");
+        setError(null);
+        try {
+            const message = (await post(PORTER_UPLOAD_URL, null)) as PorterStatus | undefined;
+            if (!message?.batch) {
+                setError("The server accepted the file but returned no import.");
+                return;
+            }
+            setPorterStatus(message);
+        } catch (err: any) {
+            setError(describeFrappeError(err, "The upload failed."));
+        } finally {
+            setIsBusy(null);
+        }
+    }, [file, isBusy, post]);
+
+    /**
+     * Close a Porter import. ⚠️ NOT `onImported`: its lines are not bank lines and the main table does
+     * not show them until they are created, so pinning the table to this import would show an empty
+     * screen. The screen behind is refreshed so Import History lists it.
+     */
+    const handlePorterDone = useCallback(async () => {
+        onOpenChange(false);
+        await onRefresh?.();
+    }, [onOpenChange, onRefresh]);
+
 
     const handleConfirm = useCallback(async () => {
         if (!file || isBusy) return;
@@ -644,8 +692,12 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
      * describe something that really happened.
      */
     const flow = {
-        previewed: isCashbook ? Boolean(cashbookPreview) : Boolean(preview),
-        staged: isCashbook ? Boolean(cashbookBatch) : Boolean(staged),
+        previewed: isPorter
+            ? Boolean(porterStatus)
+            : isCashbook
+              ? Boolean(cashbookPreview)
+              : Boolean(preview),
+        staged: isPorter ? Boolean(porterStatus) : isCashbook ? Boolean(cashbookBatch) : Boolean(staged),
         matched,
     };
     const steps = importSteps(source);
@@ -751,7 +803,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                {SOURCES.map((s) => (
+                                {IMPORT_SOURCES.map((s) => (
                                     <SelectItem key={s.value} value={s.value} disabled={!s.available}>
                                         {s.label}
                                     </SelectItem>
@@ -799,7 +851,8 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                                 </p>
                                 {SOURCE_REPORT[source] && (
                                     <p className="text-xs text-muted-foreground">
-                                        Cashfree → Reports → {SOURCE_REPORT[source]}
+                                        {SOURCE_EXPORT_PATH[source] ??
+                                            `Cashfree → Reports → ${SOURCE_REPORT[source]}`}
                                     </p>
                                 )}
                                 <p className="mt-0.5 text-xs text-muted-foreground">
@@ -809,12 +862,24 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                         )}
                     </div>
 
-                            <Button onClick={handlePreview} disabled={!file || isBusy !== null}>
-                                {isBusy === "preview" && (
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                )}
-                                {isBusy === "preview" ? "Reading statement…" : "Read statement"}
-                            </Button>
+                            {isPorter ? (
+                                <Button
+                                    onClick={handlePorterUpload}
+                                    disabled={!file || isBusy !== null}
+                                >
+                                    {isBusy === "upload" && (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    )}
+                                    {isBusy === "upload" ? "Uploading statement…" : "Upload statement"}
+                                </Button>
+                            ) : (
+                                <Button onClick={handlePreview} disabled={!file || isBusy !== null}>
+                                    {isBusy === "preview" && (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    )}
+                                    {isBusy === "preview" ? "Reading statement…" : "Read statement"}
+                                </Button>
+                            )}
                         </>
                     )}
 
@@ -841,8 +906,13 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                         </div>
                     )}
 
+                    {/* PORTER, FROM STEP 2 ON -- the import is IN: its orders, its invoices and where
+                        each invoice's check stands. Nothing has been created. */}
+                    {isPorter && porterStatus && <PorterImportSummary status={porterStatus} />}
+
                     {/* STEP 2 -- what importing this statement WOULD do. Nothing is written yet. */}
                     {stepIndex === 1 &&
+                        !isPorter &&
                         (isCashbook ? (
                             cashbookPreview && <CashbookReviewTree preview={cashbookPreview} />
                         ) : (
@@ -995,7 +1065,13 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                     would restructure a screen that settles money for no reason this slice needs.
                     From step 3 the body is a staged summary or an 800-row vendor tree that is MEANT
                     to be scrolled, so the way OUT has to stay put while you scroll it. */}
-                {!isCashbook && stepIndex >= 2 && (
+                {isPorter && porterStatus && (
+                    <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
+                        <Button onClick={handlePorterDone}>Done</Button>
+                    </div>
+                )}
+
+                {!isCashbook && !isPorter && stepIndex >= 2 && (
                     <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t px-6 py-3">
                         {/* ⚠️ IT SAYS THE ROWS ARE ALREADY IN. By this point closing loses nothing,
                             and a reviewer who cannot tell that will sit through an 800-row confirm
