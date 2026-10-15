@@ -3,8 +3,9 @@
  *
  * Its holder name and ID, then two tabs: Payee Overview (the bank account card and "At a glance")
  * and Linked Vendors, with its count on the label. A Payee is an address book entry (#1434): no
- * status, no lock, and no payments or expenses listed, since none points at it. Edit holder name
- * opens `EditHolderNameDialog` (mockup screen 4).
+ * status, no lock, and no payments or expenses listed, since none points at it. Edit (#1435) changes
+ * its holder name, account number and IFSC in place (`EditPayeeDialog`, naming every vendor it changes
+ * when it serves several); Delete removes one no vendor links to (`DeletePayeeDialog`).
  *
  * Everything shown comes from `api/payees/payee_page.get_payee`, which reads the Payee module
  * (`services/payees/links.payee_page`). Accountant, Accountant Lead and Admin only: the route guard
@@ -12,10 +13,11 @@
  */
 
 import { useState } from "react";
-import { PencilLine } from "lucide-react";
-import { useParams } from "react-router-dom";
+import { PencilLine, Trash2 } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
 
-import { EditHolderNameDialog } from "@/components/payees/EditHolderNameDialog";
+import { EDIT_PAYEE_API, EditPayeeDialog } from "@/components/payees/EditPayeeDialog";
+import { CHECK_PAYEE_API } from "@/components/payees/usePayeeBankForm";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { Button } from "@/components/ui/button";
 import { OverviewSkeleton2 } from "@/components/ui/skeleton";
@@ -30,6 +32,7 @@ import {
 } from "@/utils/payees/payeePage";
 import { urlStateManager } from "@/utils/urlStateManager";
 
+import { DeletePayeeDialog } from "./components/DeletePayeeDialog";
 import { PayeeLinkedVendorsTab } from "./components/PayeeLinkedVendorsTab";
 import { PayeeOverviewTab } from "./components/PayeeOverviewTab";
 import { usePayeePage } from "./hooks/usePayeePage";
@@ -40,7 +43,9 @@ function PayeeView({ payeeId }: { payeeId: string }) {
         const fromUrl = getUrlStringParam(PAYEE_PAGE_TAB_PARAM, PAYEE_PAGE_TABS.OVERVIEW);
         return isPayeePageTab(fromUrl) ? fromUrl : PAYEE_PAGE_TABS.OVERVIEW;
     });
-    const [editingHolder, setEditingHolder] = useState(false);
+    const [editing, setEditing] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+    const navigate = useNavigate();
 
     const chooseTab = (next: PayeePageTab) => {
         setTab(next);
@@ -62,11 +67,19 @@ function PayeeView({ payeeId }: { payeeId: string }) {
                 <div className="flex flex-wrap gap-3">
                     <Button
                         variant="outline"
-                        onClick={() => setEditingHolder(true)}
+                        onClick={() => setEditing(true)}
                         className="gap-2 border-primary text-primary hover:bg-primary/5 hover:text-primary"
                     >
                         <PencilLine className="h-4 w-4" />
-                        Edit holder name
+                        Edit
+                    </Button>
+                    <Button
+                        variant="outline"
+                        onClick={() => setDeleting(true)}
+                        className="gap-2 border-destructive text-destructive hover:bg-destructive/5 hover:text-destructive"
+                    >
+                        <Trash2 className="h-4 w-4" />
+                        Delete
                     </Button>
                 </div>
             </div>
@@ -99,11 +112,21 @@ function PayeeView({ payeeId }: { payeeId: string }) {
             {tab === PAYEE_PAGE_TABS.OVERVIEW && <PayeeOverviewTab payee={payee} />}
             {tab === PAYEE_PAGE_TABS.VENDORS && <PayeeLinkedVendorsTab vendors={payee.linked_vendors} />}
 
-            <EditHolderNameDialog
-                open={editingHolder}
-                onOpenChange={setEditingHolder}
+            {editing && (
+                <EditPayeeDialog
+                    payee={payee}
+                    vendors={payee.linked_vendors}
+                    endpoint={{ saveApi: EDIT_PAYEE_API, saveArgs: { name: payee.name }, checkApi: CHECK_PAYEE_API }}
+                    title="Edit Payee"
+                    onClose={() => setEditing(false)}
+                    onSaved={() => mutate()}
+                />
+            )}
+            <DeletePayeeDialog
+                open={deleting}
+                onOpenChange={setDeleting}
                 payee={payee}
-                onSaved={() => mutate()}
+                onDeleted={() => navigate("/payees")}
             />
         </div>
     );

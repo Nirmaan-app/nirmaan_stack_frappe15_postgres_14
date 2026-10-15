@@ -27,7 +27,8 @@ export const RENAME_CHOICE = {
 
 export type RenameChoice = (typeof RENAME_CHOICE)[keyof typeof RENAME_CHOICE];
 
-/** The help under "Update the holder name": who else shows the new name, and who may do it. */
+/** The help under "Update the holder name": who else shows the new name. Anyone allowed to edit the
+ *  vendor's bank details may pick it (#1435). */
 export const holderNameChoiceHelp = (otherVendors: number): string => {
     const sharing =
         otherVendors === 0
@@ -35,7 +36,7 @@ export const holderNameChoiceHelp = (otherVendors: number): string => {
             : otherVendors === 1
               ? " 1 other vendor shares this account and will show the new name too."
               : ` ${otherVendors} other vendors share this account and will show the new name too.`;
-    return `The bank now has the new name on the same account.${sharing} Only Accounts and Admins can do this.`;
+    return `The bank now has the new name on the same account.${sharing}`;
 };
 
 const sameName = (a: string, b: string): boolean =>

@@ -18,15 +18,13 @@ describe("holderNameChoiceHelp", () => {
     it("warns that the vendors sharing the account will show the new name too", () => {
         expect(holderNameChoiceHelp(2)).toBe(
             "The bank now has the new name on the same account. 2 other vendors share this account and will " +
-                "show the new name too. Only Accounts and Admins can do this.",
+                "show the new name too.",
         );
         expect(holderNameChoiceHelp(1)).toMatch(/ 1 other vendor shares this account and will show/);
     });
 
-    it("leaves the sharing out when only this vendor uses the account", () => {
-        expect(holderNameChoiceHelp(0)).toBe(
-            "The bank now has the new name on the same account. Only Accounts and Admins can do this.",
-        );
+    it("leaves the sharing out when only this vendor uses the account, and names no role (#1435)", () => {
+        expect(holderNameChoiceHelp(0)).toBe("The bank now has the new name on the same account.");
     });
 });
 

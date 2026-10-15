@@ -1,7 +1,7 @@
 /**
  * What the vendor screens' Payee step reads from the server (#1425, spec #1420):
- * `api/payees/vendor_payee`. The new-vendor form and the vendor page's Change account (#1426) use it;
- * one vendor's account is `vendorPayeeAccount.useVendorAccount`.
+ * `api/payees/vendor_payee`. The new-vendor form and the vendor page's Account Details card (#1426,
+ * #1435) use it; one vendor's account is `vendorPayeeAccount.useVendorAccount`.
  */
 
 import { useEffect, useState } from "react";
@@ -15,6 +15,8 @@ export const SUGGEST_VENDOR_PAYEES_API = `${VENDOR_PAYEE_API}.suggest_vendor_pay
 export const GET_PAYEE_WITH_LINKS_API = `${VENDOR_PAYEE_API}.get_payee_choice`;
 export const CHECK_VENDOR_PAYEE_API = `${VENDOR_PAYEE_API}.check_vendor_payee`;
 export const CHANGE_VENDOR_PAYEE_API = `${VENDOR_PAYEE_API}.change_vendor_payee`;
+/** Edit bank details / the rename prompt's "Update the holder name": the vendor's Payee edited in place. */
+export const EDIT_VENDOR_PAYEE_API = `${VENDOR_PAYEE_API}.edit_vendor_payee`;
 
 const SUGGEST_DEBOUNCE_MS = 400;
 
@@ -44,7 +46,8 @@ export function useVendorPayeeSuggestions(vendorName: string | undefined, vendor
     return { asked: ask, suggestions: data?.message.suggestions ?? [], isLoading: ask && isLoading, error };
 }
 
-/** One Payee with every linked vendor and expense and its last payment, for the confirmation. */
+/** One Payee with every linked vendor: the use-an-existing-payee confirmation, and the vendors an
+ *  Edit bank details changes (#1435). */
 export function usePayeeWithLinks(payee: string | null) {
     const { data, isLoading, error } = useFrappeGetCall<{ message: PayeeWithLinks }>(
         GET_PAYEE_WITH_LINKS_API,

@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 
 """Choosing a vendor's Payee (spec #1420, ADR-0033): the new-vendor form (#1425) and the vendor
-page's Change account (#1426) share it.
+page's Use a different payee (#1426, #1435) share it.
 
 * `suggest_for_vendor` -- "Payees that look like this vendor": Payees ranked by
   `matching.rank_payees` (same PAN of a linked vendor first, then name), each with its vendors.
@@ -10,7 +10,7 @@ page's Change account (#1426) share it.
   Payee: its summary and every vendor already linked to it (#1434: no expenses, no last payment).
 * `choose_payee` -- the vendor's Payee from the form's answer: an existing one, or new bank details
   made into a Payee by `writer.create_payee`.
-* `link_vendor` -- Change account (#1426): an existing vendor to another Payee, by `choose_payee`.
+* `link_vendor` -- Use a different payee (#1426): an existing vendor to another Payee, by `choose_payee`.
 
 Checks no role and never commits: the calling endpoint does both.
 """
@@ -96,7 +96,7 @@ def choose_payee(payee: str | None = None, bank: dict | None = None) -> str:
 
 
 def link_vendor(vendor: str, payee: str | None = None, bank: dict | None = None) -> str:
-    """Point an existing vendor at another Payee (the vendor page's Change account and Add bank
+    """Point an existing vendor at another Payee (the vendor page's Use a different payee and Add bank
     details): `choose_payee`'s two paths, refusing the Payee it already has. Saves the vendor
     through its `validate` controllers; the other vendors on its old Payee keep it. Returns the
     vendor's new Payee."""

@@ -454,7 +454,7 @@ export const NON_PROJECT_INFLOWS_DELETE: readonly string[] = [ADMIN_PROFILE];
 
 /**
  * `/payees` — every bank account the company pays into (spec #1420, ADR-0033). Admin, Accountant and
- * Accountant Lead see the page and its actions (Add Payee; #1423 holder-name edit).
+ * Accountant Lead see the page and its actions (Add Payee; #1435 Edit and Delete on a Payee's page).
  * Procurement adds Payees only from the vendor screens, raisers only from an Expense Request.
  * Mirrors `services/role_profiles.PAYEE_MANAGE_PROFILES`, which is the ENFORCEMENT boundary.
  */
@@ -470,7 +470,7 @@ export const canManagePayees = (role?: string | null, userId?: string | null): b
 
 /**
  * Who may set a vendor's bank account (its Payee) from the vendor screens (#1425/#1426): the vendor
- * page's Change account and Add bank details. Mirrors `services/role_profiles.VENDOR_PAYEE_PROFILES`,
+ * page's Edit bank details, Use a different payee and Add bank details, and the rename prompt's Update the holder name (#1435). Mirrors `services/role_profiles.VENDOR_PAYEE_PROFILES`,
  * the ENFORCEMENT boundary.
  */
 export const VENDOR_PAYEE_PROFILES: readonly string[] = [

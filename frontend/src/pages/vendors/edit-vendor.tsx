@@ -26,7 +26,7 @@ import { useParams } from "react-router-dom";
 import * as z from "zod";
 
 // The vendor's bank account is its Payee (spec #1420, ADR-0033): it changes from the vendor page's
-// Account Details card (Change account), never from this form.
+// Account Details card (Edit bank details, Use a different payee), never from this form.
 const getVendorFormSchema = (service: boolean, existingVendors: Vendors[] | undefined, pincode_data: any) => {
     return z.object({
         vendor_contact_person_name: z

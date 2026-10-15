@@ -1,6 +1,6 @@
 /**
- * The Payee page's rules (#1423, #1434, spec #1420, approved mockup screens 2 and 4), pure so they
- * test without React. The page's data comes from `api/payees/payee_page`.
+ * The Payee page's tabs (#1423, #1434, spec #1420, approved mockup screen 2), pure so they test without
+ * React. The page's data comes from `api/payees/payee_page`; Edit and Delete rules are `payeeEdit.ts`.
  */
 
 import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
@@ -31,14 +31,3 @@ export const payeePageTabs = ({ vendors }: Pick<PayeeSummary, "vendors">): Payee
     { key: PAYEE_PAGE_TABS.OVERVIEW, label: "Payee Overview" },
     { key: PAYEE_PAGE_TABS.VENDORS, label: "Linked Vendors", count: vendors },
 ];
-
-/** The Edit Holder Name dialog's "Are you sure?" text: how many vendors share the account. */
-export const holderNameWarning = (vendors: number): string => {
-    const who =
-        vendors === 0
-            ? "No vendor is paid into this account."
-            : vendors === 1
-              ? "1 vendor is paid into this account. It will show the new name."
-              : `${vendors} vendors are paid into this account. They will all show the new name.`;
-    return `${who} Change it only to fix how the bank spells it. A different person or company needs a new payee.`;
-};

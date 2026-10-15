@@ -1,11 +1,13 @@
 /**
- * The Payee page's first tab (#1423, #1434, mockup screen 2): the bank account card and the "At a
- * glance" card. No lock and no "last paid": a Payee is an address book entry, edited in place.
+ * The Payee page's first tab (#1423, #1434, #1435, mockup screen 2): the bank account card and the "At
+ * a glance" card, with when and by whom the holder name and the account last changed (from the Payee's
+ * change history). No lock and no "last paid": a Payee is an address book entry, edited in place.
  */
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { PayeePage } from "@/types/NirmaanStack/Payee";
 import { formatDate } from "@/utils/FormatDate";
+import { lastChangeLine } from "@/utils/payees/payeeEdit";
 
 const Field = ({ label, value, mono = false }: {
     label: string;
@@ -46,10 +48,8 @@ export function PayeeOverviewTab({ payee }: { payee: PayeePage }) {
                         <p className="mb-1 text-xs font-medium text-primary">Linked vendors</p>
                         <p className="text-[22px] font-bold">{payee.vendors}</p>
                     </div>
-                    <Field
-                        label="Holder name last changed"
-                        value={payee.holder_name_changed_on ? formatDate(payee.holder_name_changed_on) : "Never"}
-                    />
+                    <Field label="Holder name last changed" value={lastChangeLine(payee.holder_name_changed)} />
+                    <Field label="Account last changed" value={lastChangeLine(payee.account_changed)} />
                 </CardContent>
             </Card>
         </div>

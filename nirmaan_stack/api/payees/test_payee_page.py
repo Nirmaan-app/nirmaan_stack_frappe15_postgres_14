@@ -1,8 +1,9 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""One Payee's page (#1423, #1434, spec #1420, ADR-0033): its overview and linked vendors, the
-holder-name edit, and that a Payee is an address book entry: no lock once paid, no holder-name role.
+"""One Payee's page (#1423, #1434, #1435, spec #1420, ADR-0033): its overview and linked vendors, Edit
+(holder name, account number, IFSC, in place) and Delete, and that a Payee is an address book entry: no
+lock once paid, no holder-name role.
 
 Drives `api/payees/payee_page` the way the Payee page does, and a plain document save the way Desk,
 REST or any other code would, and reads back what the user sees: the page's figures, a refusal, or
@@ -15,8 +16,9 @@ the saved record.
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.payees.payee_fixture import PayeeFixture
-from nirmaan_stack.api.payees.payee_page import edit_holder_name, get_payee
+from nirmaan_stack.api.payees.add_payee import check_payee
+from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture
+from nirmaan_stack.api.payees.payee_page import delete_payee, edit_payee, get_payee
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE
 
@@ -110,25 +112,77 @@ class TestAPaidPayeeIsEditedInPlace(PayeePageCase):
         self.assertNotIn("locked", get_payee(payee))
 
 
-class TestHolderNameEdit(PayeePageCase):
-    def test_accounts_change_the_holder_name_and_the_page_says_when(self):
+class TestEditPayee(PayeePageCase):
+    """Edit on the Payees page (#1435): holder name, account number and IFSC, edited in place."""
+
+    def _full_name(self, user):
+        return frappe.db.get_value("User", user, "full_name") or user
+
+    def test_editing_the_account_saves_it_and_the_page_says_who_and_when(self):
         payee = self.payees.payee()
-        self.assertIsNone(get_payee(payee)["holder_name_changed_on"])
+        self.assertIsNone(get_payee(payee)["account_changed"])
+        holder = frappe.db.get_value(PAYEE_DOCTYPE, payee, "account_name")
+        new_number = self.payees.account_number()
 
-        new_name = self.payees.holder("Respelt")
-        result = edit_holder_name(payee, f"  {new_name}  ")
+        result = edit_payee(payee, holder, new_number, "test0pye002")
 
-        self.assertEqual(result["payee"]["account_name"], new_name)
-        self.assertEqual(frappe.db.get_value(PAYEE_DOCTYPE, payee, "account_name"), new_name)
-        self.assertEqual(get_payee(payee)["holder_name_changed_on"], frappe.utils.today())
+        self.assertEqual(result["payee"]["account_number"], new_number)
+        saved = frappe.db.get_value(PAYEE_DOCTYPE, payee, ["account_number", "ifsc", "bank_name"])
+        self.assertEqual(saved, (new_number, "TEST0PYE002", "Test Bank"))
+        page = get_payee(payee)
+        self.assertEqual(page["account_changed"], {"on": frappe.utils.today(), "by": self._full_name(U)})
+        self.assertIsNone(page["holder_name_changed"], "only the account changed")
 
-    def test_an_accountant_may_edit_the_holder_name(self):
+    def test_an_accountants_holder_name_edit_is_recorded_with_their_name(self):
         payee = self.payees.payee()
-        frappe.set_user(self._user(ACCOUNTANT))
+        number, ifsc = frappe.db.get_value(PAYEE_DOCTYPE, payee, ["account_number", "ifsc"])
+        accountant = self._user(ACCOUNTANT)
         new_name = self.payees.holder("By accountant")
-        edit_holder_name(payee, new_name)
-        frappe.set_user(U)
+
+        frappe.set_user(accountant)
+        try:
+            edit_payee(payee, f"  {new_name}  ", number, ifsc)
+        finally:
+            frappe.set_user(U)
+
         self.assertEqual(frappe.db.get_value(PAYEE_DOCTYPE, payee, "account_name"), new_name)
+        page = get_payee(payee)
+        self.assertEqual(page["holder_name_changed"], {"on": frappe.utils.today(), "by": self._full_name(accountant)})
+        self.assertIsNone(page["account_changed"])
+
+    def test_an_account_another_payee_has_is_refused_naming_it(self):
+        number = self.payees.account_number()
+        other = self.payees.payee(account_number=number)
+        payee = self.payees.payee()
+        before = frappe.db.get_value(PAYEE_DOCTYPE, payee, ["account_name", "account_number", "ifsc"])
+
+        result = edit_payee(payee, before[0], "00" + number, TEST_IFSC)
+
+        self.assertEqual(result["duplicate"]["name"], other)
+        self.assertIn(other, result["message"])
+        self.assertNotIn("payee", result)
+        self.assertEqual(frappe.db.get_value(PAYEE_DOCTYPE, payee, ["account_name", "account_number", "ifsc"]), before)
+
+    def test_the_duplicate_check_before_saving_does_not_flag_the_payee_being_edited(self):
+        payee = self.payees.payee()
+        number = frappe.db.get_value(PAYEE_DOCTYPE, payee, "account_number")
+        self.assertEqual(check_payee(number, TEST_IFSC)["duplicate"]["name"], payee)
+        self.assertIsNone(check_payee(number, TEST_IFSC, exclude=payee)["duplicate"])
+
+    def test_an_ifsc_the_lookup_cannot_find_is_refused(self):
+        payee = self.payees.payee()
+        holder, number = frappe.db.get_value(PAYEE_DOCTYPE, payee, ["account_name", "account_number"])
+        self.payees.fail_ifsc_lookup()
+        with self.assertRaises(frappe.ValidationError):
+            edit_payee(payee, holder, number, "TEST0PYE009")
+        frappe.db.rollback()
+        self.assertEqual(frappe.db.get_value(PAYEE_DOCTYPE, payee, "ifsc"), TEST_IFSC)
+
+    def test_a_blank_holder_name_is_refused(self):
+        payee = self.payees.payee()
+        number = frappe.db.get_value(PAYEE_DOCTYPE, payee, "account_number")
+        with self.assertRaisesRegex(frappe.ValidationError, "holder name"):
+            edit_payee(payee, "   ", number, TEST_IFSC)
 
     def test_any_role_allowed_to_save_a_payee_may_change_its_holder_name(self):
         for profile in (PROCUREMENT, PROJECT_MANAGER):
@@ -144,16 +198,37 @@ class TestHolderNameEdit(PayeePageCase):
 
     def test_the_payees_page_endpoints_stay_accounts_only(self):
         payee = self.payees.payee()
+        number = frappe.db.get_value(PAYEE_DOCTYPE, payee, "account_number")
         frappe.set_user(self._user(PROJECT_MANAGER))
         with self.assertRaises(frappe.PermissionError):
-            edit_holder_name(payee, self.payees.holder("Endpoint"))
+            edit_payee(payee, self.payees.holder("Endpoint"), number, TEST_IFSC)
+        with self.assertRaises(frappe.PermissionError):
+            delete_payee(payee)
         with self.assertRaises(frappe.PermissionError):
             get_payee(payee)
 
-    def test_a_blank_holder_name_is_refused(self):
+
+class TestDeletePayee(PayeePageCase):
+    """Delete on the Payee page (#1435): only a Payee no vendor links to."""
+
+    def test_a_payee_no_vendor_links_to_is_deleted(self):
         payee = self.payees.payee()
-        with self.assertRaisesRegex(frappe.ValidationError, "holder name"):
-            edit_holder_name(payee, "   ")
+        delete_payee(payee)
+        self.assertFalse(frappe.db.exists(PAYEE_DOCTYPE, payee))
+
+    def test_a_payee_a_vendor_links_to_is_refused_naming_every_vendor(self):
+        payee = self.payees.payee()
+        first = self._linked_vendor(payee, vendor_name="Kaveri Ductfab (Rohtak)")
+        second = self._linked_vendor(payee, vendor_name="Kaveri Ductfab (Pune)")
+
+        with self.assertRaises(frappe.LinkExistsError) as refused:
+            delete_payee(payee)
+
+        message = str(refused.exception)
+        for vendor in ("Kaveri Ductfab (Rohtak)", "Kaveri Ductfab (Pune)", first, second):
+            self.assertIn(vendor, message)
+        frappe.db.rollback()
+        self.assertTrue(frappe.db.exists(PAYEE_DOCTYPE, payee))
 
 
 class TestPayeeLinks(PayeePageCase):

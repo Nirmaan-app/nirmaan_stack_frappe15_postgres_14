@@ -5,7 +5,7 @@
  * offers that Payee instead.
  *
  * Driven by `useVendorPayeeChoice`; the form that holds it sends `choice.answer()` on save. The
- * new-vendor form renders it; the vendor page's Change account (#1426) reuses it.
+ * new-vendor form renders it; the vendor page's Use a different payee (#1426) reuses it.
  */
 
 import { useState } from "react";
@@ -27,7 +27,7 @@ interface VendorPayeeSectionProps {
     vendorName?: string;
     vendorPan?: string;
     disabled?: boolean;
-    /** The Payee the vendor is paid into today (the vendor page's Change account): left out of the
+    /** The Payee the vendor is paid into today (the vendor page's Use a different payee): left out of the
      * suggestions, since picking it changes nothing. */
     currentPayee?: string | null;
 }
