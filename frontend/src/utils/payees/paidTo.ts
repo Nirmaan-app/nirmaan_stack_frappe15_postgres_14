@@ -232,7 +232,6 @@ export const expenseTitle = (description: string | null | undefined, expenseType
 export const canRemoveExpenseAccount = (rule: string | null | undefined, hasAccount: boolean): boolean =>
     hasAccount && asPayeeRule(rule) !== PAYEE_RULE.REQUIRED;
 
-/** Change account's line on the expense type's *Who gets paid*, and whether the account may go. */
 /** How Change account names an expense type: the type, or "its type" when unknown. */
 const changeAccountTypeLabel = (expenseType: string): string => expenseType || "its type";
 
@@ -243,6 +242,7 @@ const sentenceStart = (text: string): string => text.charAt(0).toUpperCase() + t
 export const expenseTypeAside = (title: string, expenseType: string): string =>
     expenseType && title !== expenseType ? ` (${expenseType})` : "";
 
+/** Change account's line on the expense type's *Who gets paid*, and whether the account may go. */
 export const changeAccountRuleLine = (
     rule: string | null | undefined,
     expenseType: string,
