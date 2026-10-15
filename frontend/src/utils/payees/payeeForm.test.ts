@@ -15,6 +15,7 @@ import {
     payeeFormProblem,
     sameAccountDetails,
     sameHolderName,
+    squashHolderName,
     type PayeeFormValues,
 } from "./payeeForm";
 
@@ -182,8 +183,8 @@ describe("sameAccountDetails", () => {
         expect(sameAccountDetails(saved, { ...saved, account_number: "050200061234567" })).toBe(false);
     });
 
-    it("reads a holder name differing only in case as the same holder", () => {
-        expect(sameAccountDetails(saved, { ...saved, account_name: "KAVERI DUCTFAB SYSTEMS" })).toBe(true);
+    it("counts a case-only holder-name edit as a change: the bank gets the name as written", () => {
+        expect(sameAccountDetails(saved, { ...saved, account_name: "KAVERI DUCTFAB SYSTEMS" })).toBe(false);
     });
 
     it("tolerates a copy with a missing holder name, number or IFSC", () => {
@@ -193,8 +194,15 @@ describe("sameAccountDetails", () => {
     });
 });
 
+describe("squashHolderName", () => {
+    it("collapses and trims spacing, keeps case, and reads a missing name as blank", () => {
+        expect(squashHolderName("  ABC   Traders ")).toBe("ABC Traders");
+        expect(squashHolderName(null)).toBe("");
+    });
+});
+
 describe("sameHolderName", () => {
-    it("ignores spacing and case, never another name", () => {
+    it("ignores spacing and case, never another name (the vendor rename prompt)", () => {
         expect(sameHolderName(" Kaveri  Ductfab ", "kaveri ductfab")).toBe(true);
         expect(sameHolderName("Kaveri Ductfab", "Kaveri Airtech")).toBe(false);
         expect(sameHolderName(null, "")).toBe(true);

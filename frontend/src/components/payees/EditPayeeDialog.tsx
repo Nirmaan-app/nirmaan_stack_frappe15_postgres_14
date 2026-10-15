@@ -72,7 +72,7 @@ export function EditPayeeDialog({ payee, vendors, endpoint, title, holderName, o
 
     const vendorsKnown = payee.vendors <= 1 || vendors !== undefined;
     const warning = vendors ? sharedPayeeWarning(vendors) : null;
-    // Nothing to save while the form still holds the Payee's saved account (a holder name change counts).
+    // Nothing to save while the form still holds the Payee's saved account (a holder-name change counts, even in case only).
     const unchanged = sameAccountDetails(payee, form);
     const blocked = loading || lookingUp || !!problem || !!duplicate || unchanged || !vendorsKnown;
 

@@ -47,25 +47,28 @@ export interface AccountDetails {
     ifsc?: string | null;
 }
 
-/**
- * THE screens' "same holder?": spacing and case aside. A vendor renamed to its holder name in another
- * case needs no prompt, and an edit that only re-cases the holder name has nothing to save. A missing
- * name reads as blank.
- */
-export const sameHolderName = (a: string | null | undefined, b: string | null | undefined): boolean => {
-    const key = (name: string | null | undefined) => (name ?? "").replace(/\s+/g, " ").trim().toLowerCase();
-    return key(a) === key(b);
-};
+/** A holder name with its spacing collapsed and trimmed, case kept (as the server stores it,
+ *  `rules.parse_details`). A missing name reads as blank. */
+export const squashHolderName = (name: string | null | undefined): string => (name ?? "").replace(/\s+/g, " ").trim();
 
 /**
- * THE screen's "same account details?": the same holder (`sameHolderName`), account number (spaces,
- * dashes and case aside, but not leading zeros: the number is written as typed) and IFSC. Saving
- * either one over the other would change nothing: Edit has nothing to save, and Change account would
- * copy the account the expense already holds. Not the server's "is the vendor's account another
+ * The vendor rename prompt's "same name?": spacing and case aside, so a vendor renamed to its holder
+ * name in another case needs no prompt. Not for an account's details: there case counts
+ * (`sameAccountDetails`).
+ */
+export const sameHolderName = (a: string | null | undefined, b: string | null | undefined): boolean =>
+    squashHolderName(a).toLowerCase() === squashHolderName(b).toLowerCase();
+
+/**
+ * THE screen's "same account details?": the same holder name (spacing aside, case kept: the bank gets
+ * the beneficiary name as written, so "ABC TRADERS" -> "Abc Traders" is a real edit), account number
+ * (spaces, dashes and case aside, but not leading zeros: the number is written as typed) and IFSC.
+ * Saving either one over the other would change nothing: Edit has nothing to save, and Change account
+ * would copy the account the expense already holds. Not the server's "is the vendor's account another
  * account?" (`paid_to.account_changed_since`), which ignores the holder name.
  */
 export const sameAccountDetails = (a: AccountDetails, b: AccountDetails): boolean =>
-    sameHolderName(a.account_name, b.account_name) &&
+    squashHolderName(a.account_name) === squashHolderName(b.account_name) &&
     cleanAccountNumber(a.account_number ?? "") === cleanAccountNumber(b.account_number ?? "") &&
     cleanIfsc(a.ifsc ?? "") === cleanIfsc(b.ifsc ?? "");
 
