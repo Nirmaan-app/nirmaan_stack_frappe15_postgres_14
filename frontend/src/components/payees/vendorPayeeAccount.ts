@@ -65,7 +65,7 @@ export function useVendorPayeeGate(vendor: string | undefined, vendorLabel?: str
     const { account, error } = useVendorAccount(vendor);
     const problem = vendorPayeeGateProblem({
         // The read names the vendor, so a screen that knows only its ID still says who.
-        vendorLabel: vendorLabel || account?.vendor_name,
+        vendorLabel: vendorLabel?.trim() || account?.vendor_name,
         payee: account?.payee,
         failed: !!error,
     });
