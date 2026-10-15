@@ -47125,7 +47125,9 @@ Findings for **12e-5b**:
 - Route (c): 6 sheets, 75 Piping rows + 48 never-read rows, 90 calls (cap 110), about 0.50M tokens in.
 - The numbers assume the second opinion; with it off (owner ruling), Stage B is about 504 batch calls.
 
-**Dev leftovers, for the owner's approval:** BRSR-26-00449 (BOQ-26-00231, partial, inactive).
+**Dev leftovers, for the owner's approval:** BRSR-26-00449 (BOQ-26-00231, partial, inactive). Added by S7b (2026-10-15):
+the test BoQ BOQ-26-00683 and everything its upload and parse created (project Bangalore-PROJ-06283, drafts, review
+rows, run log, File, attachment, library file) -- the full list is in the S7 entry below.
 
 ## Slice 12e-5b — Piping: the twelve fixes from the Stage A audit, the free recheck, and one declared re-read — as built 2026-10-15
 
@@ -47671,3 +47673,94 @@ Decision record: ADR-0036. Invariants: `boq-backend.md` section Parser, review t
 **Next: S7 = merge into the main dev environment** (owner V4: "we will merge with main dev after s6 is succesful and
 then deply to prodcution along with piping work, once piping work is also done"). The production deploy comes later,
 together with the Piping work.
+
+---
+
+## Slice S7 - THE BoQ REVIEW WORK (S1-S6) MERGED INTO MAIN DEV (S7a recon 2026-10-15; S7b merge 2026-10-15) - DONE
+
+S7a (read-only recon, dev2) planned the merge; S7b carried it out in main dev, in a Piping pause after 12e-5b
+(owner rulings X1 Q1-Q6, Y1, Z1, Z2, X2). Reports: Desktop `JEV Integration\s7\REPORT_s7a_merge_recon.md`,
+`s7\b\REPORT_s7b_partA.md`, `s7\b\REPORT_s7b.md`.
+
+**What was merged.** dev2 `feature/boq-jev-integration` @ `d0fa68adc` (S1b-S6, 13 commits, 62 files) into main's
+`feature/boq-pricing-helper` @ `b278164ea` (12e-5b closed and pushed), on the new branch `feature/boq-jev-merge`:
+merge commit `89a59b161` (`--no-ff`, parents `b278164ea` / `d0fa68adc`).
+- One conflict, this file: both sides appended after the shared 12e-2 entry. Resolved keeping both, main's 12e
+  entries first, then dev2's S1b-S6 entries: 47,673 lines = 47,199 + 46,409 - 45,935 (the base); 2,311 headings =
+  2,298 + 2,241 - 2,228, none lost; no markers.
+- The committed tree differs from the dry-run `merge-tree` result only in this file. `nirmaan_stack/patches.txt`
+  unchanged; no CLAUDE.md changed by either side.
+
+**Backup and migrate.**
+- Backup (Q3): `pg_dump -Fc` of main's database just before the migrate, `s7\b\main_pre_s7b_migrate.dump`
+  (323,025,402 bytes, 421 table-data entries).
+- `bench --site localhost migrate`: exit 0. Snapshot before/after (every index; every column of every BoQ table;
+  a content checksum per BoQ per BoQ table): the ONLY differences are table `tabBoQ AI Run Log` (36 columns, primary
+  key, named indexes `boq_ai_run_log_boq` / `boq_ai_run_log_status`) and 4 new columns on `tabBoQ Review Row`
+  (`parser_classification`, `ai_flags_ok`, `ai_flags_ok_by`, `ai_flags_ok_at`). All 30,500 per-BoQ checksums
+  identical; indexes 663 -> 666.
+- Site config has no `boq_ai_evaluation_exclude_boqs`. `bench worker` (no `--queue`) serves every queue incl. `long`.
+  **The scheduler is disabled on main dev**, so the 5-minute `ai_run_log.heal_stale_runs_task` does not run there
+  (reported, not changed).
+
+**Pricing untouched (Z1), measured before the merge, after the migrate, after the suites and at the end:** live
+rate master HVAC v40 (items `93bbac8f`, configs `a080507f`) and Electrical v66 (`784d1dbe` / `aa8d0a49`) by content;
+the Piping replay of stored rows 13,752 rows, plain `8e94bd4e...a75d4`, section-aware `4311903d...b1487` (12e-5b's own
+replay tool, run on the merged tree); run documents 184 / 118 active, every document's hash unchanged; no model line
+added to `boq_rate_extraction_capture.jsonl` by the merge, the migrate, the browser check or the paid parse.
+
+**What the merge changes for Piping (P9, read from the code).**
+- The BoQ review check reads/writes neither the capture log nor any Suggest run, rate-master doctype or asset; it
+  logs to `logs/boq_ai.log`. A parse / re-parse starts no pricing job (classification, Suggest and extraction each
+  need their own button). The heal job touches only `BoQ AI Run Log` and the draft's `ai_in_progress` flags.
+- **"BOQ Upload Review AI Settings" is one switch shared by three paths**: the review check, Suggest / rate
+  extraction (`extraction.run_extraction`) and the classification AI voter (`ai_voter.classify_rows_ai`) - same
+  key, same model (`claude-opus-4-8` on main). Turning it off stops Suggest too. Owner: it stays ON; a separate
+  review-check switch is a possible later slice.
+
+**Tests (full suites, in-session; logs `s7\b\2026-10-15_S7b_*`).**
+
+| Suite | Before (b278164ea) | After (merged tree) |
+|---|---|---|
+| Python | 8,084 run, 6 failures + 2 errors | 8,443 run, the same 6 + 2 |
+| vitest | 174 files / 6,688, 1 failed | 182 files / 6,859, 1 failed |
+| tsc | 3,170 | 3,170, identical line for line; none in a file the merge brings |
+
+- Known failures by name: Python - test_a_project_targets_the_project_ledger_and_carries_it,
+  test_amount_is_formatted_per_target_ledger, test_the_ledger_rule_decides_the_status_not_the_approval,
+  test_every_categorised_type_points_at_a_category_that_ships, test_a_CREDIT_settlement_opens_the_received_block_and_both_still_reconcile,
+  test_lead_bulk_approve_records_nothing; errors tearDownClass (TestExpenseRequests), test_dedup_key_is_unique. vitest -
+  the writeOffControl 5 s timeout. dev2's four work-package errors are gone (main's 12e-WT fix wins).
+- Residence: the merge adds 0 (same-method readings b278164ea 88/183, d0fa68adc 88/183, merged 88/183 for F5/F2).
+- Suite noise, disclosed: each Python run re-imports two HVAC Piping SKUs (content identical), adds 2 Rate
+  Suggestion Events on BOQ-26-00001 sheet "S6-TEST", and ~89 fixture capture lines. The first suite run ROLLED the
+  capture log (old file -> `.1` with its first 993 lines intact; the oldest generation `.5` dropped by the rotation).
+
+**Paid run (Q5, owner yes after Z1/Z2): one parse on main.** "Test Project S7" created and the S5 stripped copy of
+BOQ-26-00304 uploaded through the real file picker -> BOQ-26-00683; Sheet1 skipped, Sheet2 configured as the
+original 00304 Sheet2 (D Total Quantity, E Rate (Combined), work package Electrical), Config Done, "Parse workbook".
+Run log `8qthq0nd1u`: Done, auto-after-parse, 5,616 input / 4 output tokens, library rebuilt in 60.8 s at 314.8 MiB
+peak (main had no library before), 0 flags on 3 rows (as S5). Spend: 1 run, 5,616 input tokens (cap 2 / 300,000).
+
+**Browser check (:8080, full de-stale).** Served modules carry S6's code (open-rows text, "Subtotal"); a runtime
+`import()` returned "Check the 2 flagged rows before finalizing: rows 26, 44." The parse dialog says rows are checked
+automatically; the card showed "Checking rows...", then the summary "Parsed and checked: Sheet2"; with 0 flags no
+"[N] rows to check" line exists (by design) and Mark Finalized stays enabled. The Change list offers Subtotal.
+Piping smoke, read-only, seen on screen: BOQ-26-00162 / Water Side row 17 = 2,109 / 588 with "50 + 2 x 32 (the total
+thickness) = 114 mm"; BOQ-26-00119 / HVAC row 20 = 936; Calculator ADP fire damper, UL yes, "600 x 600" = 7,830 /
+692; Electrical BOQ-26-00174 row 309 = 1,884. Nothing suggested, saved, resumed or priced; BRSR-26-00449 not opened.
+
+**Dev leftovers from S7b (for the owner's approval; nothing deleted):** project `Bangalore-PROJ-06283` "Test Project
+S7"; BOQs `BOQ-26-00683`; BoQ Sheet Draft `6874epnvks` (Sheet1, Skip) and `687h7huac3` (Sheet2, Parsed) with its
+work-package row `81vti851qe`; BoQ Review Row `BOQRR-26-182277`..`182281`; BoQ AI Run Log `8qthq0nd1u`; File
+`9ffc2fe1c7` (bucket object `attachments/2026/10/15/File/S0EU9ZSV_Electrical_1_14603fd.xlsx`); Nirmaan Attachments
+`ATT-06283-001`; the examples library `sites/localhost/private/boq_ai/examples_library_v2.pkl` (65.9 MB, used by every
+later check - keep unless the owner says otherwise); 2 Pricing Access Log rows from opening the pricing pages. The
+stale format-1 library (Q6) does not exist on main. Also: `dev2`'s bench and vite were stopped for memory (owner yes);
+restart with `dev2_scripts`.
+
+**Hand-over (X2).** The old tip `b278164ea` is tagged `pre-s7b-pricing-helper` (the one-command undo), and
+`feature/boq-pricing-helper` is fast-forwarded (`--ff-only`) to `feature/boq-jev-merge`. Nothing pushed.
+
+**Next** (owner Y1 / V4): 12e-5b2, then 12e-5c (Stage B) on the merged code; production later, "along with piping
+work, once piping work is also done". The S7b "after" logs are 12e-5c's "before".
