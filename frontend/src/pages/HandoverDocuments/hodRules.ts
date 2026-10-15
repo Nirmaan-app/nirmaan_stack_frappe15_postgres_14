@@ -3,7 +3,14 @@
 // The S.No close-up mirrors `services/hod/checklist.printable_rows` (the printed checklist and the
 // binder), so the numbers on screen are the numbers on paper.
 
-import type { HodDocumentMeta, HodRow, HodStatus } from "./types";
+import type {
+  HodDocumentMeta,
+  HodRow,
+  HodStatus,
+  InventoryEntry,
+  InventoryItem,
+  InventoryLocation,
+} from "./types";
 
 /** What a document is called on screen. A document the project FILLS is a Form, whatever its text comes
  *  from — the Recommended Tools List and the Maintenance Checklist read their items from the library but
@@ -205,6 +212,199 @@ export function inventoryTotals(
     }
   }
   return totals;
+}
+
+// ------------------------------------------------------------------------- Inventory List entry
+//
+// The list is FILLED one location at a time -- the materials found there and their count (owner
+// 2026-10-15) -- but STORED and printed as a matrix: `materials` are the columns, `locations[].qty[j]` the
+// cells (`api/hod/print_context._inventory`). The screen converts both ways, so the stored shape never
+// changed. While the dialog is open the draft carries `entries`; Mark as Done turns them back into the
+// matrix and drops them.
+
+/** The identity of a typed name -- a material or a location: case and spacing do not make a second one. */
+export function nameKey(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function tidyMaterial(name: string): string {
+  return name.trim().replace(/\s+/g, " ");
+}
+
+/** The locations as the dialog shows them: the draft's own `entries` while it is being edited, else read
+ *  out of the stored matrix. A blank cell -- or a 0, which the old grid made people type into every cell
+ *  it had -- is a material that is not at that location. */
+export function inventoryEntries(value: Record<string, unknown>): InventoryEntry[] {
+  if (Array.isArray(value.entries)) {
+    return asObjectList<Partial<InventoryEntry>>(value.entries).map((e) => ({
+      name: asString(e.name),
+      items: asObjectList<Partial<InventoryItem>>(e.items).map((i) => ({
+        material: asString(i.material),
+        qty: asString(i.qty),
+      })),
+    }));
+  }
+  const materials = asStringList(value.materials) ?? [];
+  return asObjectList<InventoryLocation>(value.locations).map((l) => ({
+    name: asString(l.name),
+    items: materials.flatMap((material, j) => {
+      const qty = asString(l.qty?.[j]).trim();
+      return qty && Number(qty) !== 0 ? [{ material, qty }] : [];
+    }),
+  }));
+}
+
+/** The matrix the entries print as. Columns are every material in use, spelled as first entered; the
+ *  `previous` (stored) order comes first so a re-save never shuffles the printed columns, and new ones
+ *  follow in the order they were added. A material a location does not have -- or one entered with no
+ *  count -- is a 0 cell (owner 2026-10-15: "empty means we show 0"); a second entry of the same material
+ *  in one location adds nothing (the dialog will not save one -- see `inventoryProblem`). A location with
+ *  no name and no material is dropped, as the old grid dropped an empty row. */
+export function inventoryMatrix(
+  entries: InventoryEntry[],
+  previous: string[],
+): { materials: string[]; locations: InventoryLocation[] } {
+  const kept = entries.filter(
+    (e) => e.name.trim() || e.items.some((i) => nameKey(i.material)),
+  );
+  const spelling = new Map<string, string>();
+  for (const e of kept) {
+    for (const i of e.items) {
+      const k = nameKey(i.material);
+      if (k && !spelling.has(k)) spelling.set(k, tidyMaterial(i.material));
+    }
+  }
+  const keys = [
+    ...new Set([
+      ...previous.map(nameKey).filter((k) => spelling.has(k)),
+      ...spelling.keys(),
+    ]),
+  ];
+  return {
+    materials: keys.map((k) => spelling.get(k) as string),
+    locations: kept.map((e) => {
+      const qty = keys.map(() => "");
+      const taken = new Set<number>();
+      for (const i of e.items) {
+        const j = keys.indexOf(nameKey(i.material));
+        if (j < 0 || taken.has(j)) continue;
+        taken.add(j);
+        qty[j] = i.qty.trim();
+      }
+      return { name: e.name.trim(), qty: qty.map((q) => q || "0") };
+    }),
+  };
+}
+
+/** What the Inventory List will store and print: the entries converted when the dialog edited them,
+ *  else the stored matrix as it is, with only its EMPTY cells made 0 (the old grid let a cell be left
+ *  blank) -- so the Preview and the PDF read 0 wherever a location has none of a material. */
+export function inventoryMatrixOf(value: Record<string, unknown>): {
+  materials: string[];
+  locations: InventoryLocation[];
+} {
+  const previous = asStringList(value.materials) ?? [];
+  if (Array.isArray(value.entries)) {
+    return inventoryMatrix(inventoryEntries(value), previous);
+  }
+  return {
+    materials: previous,
+    locations: asObjectList<InventoryLocation>(value.locations).map((l) => ({
+      ...l,
+      qty: previous.map((_, j) => {
+        const q = l.qty?.[j];
+        return q == null || asString(q).trim() === "" ? "0" : q;
+      }),
+    })),
+  };
+}
+
+/** The materials already on the list, for the picker: each once, as first spelled, with how many
+ *  locations have it. */
+export function materialUse(
+  entries: InventoryEntry[],
+): Array<{ name: string; locations: number }> {
+  const use = new Map<string, { name: string; locations: number }>();
+  for (const e of entries) {
+    const seen = new Set<string>();
+    for (const i of e.items) {
+      const k = nameKey(i.material);
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      const hit = use.get(k);
+      if (hit) hit.locations += 1;
+      else use.set(k, { name: tidyMaterial(i.material), locations: 1 });
+    }
+  }
+  return [...use.values()];
+}
+
+/** A typed material snapped to the spelling it already has on the list ("fan coil unit " -> "Fan coil
+ *  unit"), so it lands in the same printed column. `at` is the item being typed, which does not count. */
+export function canonicalMaterial(
+  entries: InventoryEntry[],
+  typed: string,
+  at: { entry: number; item: number },
+): string {
+  const k = nameKey(typed);
+  if (k) {
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = 0; j < entries[i].items.length; j++) {
+        if (i === at.entry && j === at.item) continue;
+        const other = entries[i].items[j].material;
+        if (nameKey(other) === k) return tidyMaterial(other);
+      }
+    }
+  }
+  return tidyMaterial(typed);
+}
+
+/** The items of one location that repeat a material listed above them. */
+export function duplicateItems(items: InventoryItem[]): Set<number> {
+  const seen = new Set<string>();
+  const dupes = new Set<number>();
+  items.forEach((i, j) => {
+    const k = nameKey(i.material);
+    if (!k) return;
+    if (seen.has(k)) dupes.add(j);
+    seen.add(k);
+  });
+  return dupes;
+}
+
+/** The locations whose name repeats an earlier one (case and spacing ignored), each mapped to the index
+ *  of the first. A location is one row of the printed sheet, so it is entered once (owner 2026-10-15). */
+export function duplicateLocations(entries: InventoryEntry[]): Map<number, number> {
+  const first = new Map<string, number>();
+  const dupes = new Map<number, number>();
+  entries.forEach((e, i) => {
+    const k = nameKey(e.name);
+    if (!k) return;
+    const at = first.get(k);
+    if (at === undefined) first.set(k, i);
+    else dupes.set(i, at);
+  });
+  return dupes;
+}
+
+/** Why the Inventory List cannot be marked Done yet, or "" when it can: a location entered twice, or a
+ *  material entered twice in one location (it would print one count and silently lose the other). Only
+ *  an EDITED list is checked -- unedited, the stored matrix is saved as it is. */
+export function inventoryProblem(value: Record<string, unknown>): string {
+  if (!Array.isArray(value.entries)) return "";
+  const entries = inventoryEntries(value);
+  const [repeat] = duplicateLocations(entries);
+  if (repeat) {
+    const [i, first] = repeat;
+    return `Location ${i + 1} "${entries[i].name.trim()}" is already location ${first + 1}. Each location can be entered only once.`;
+  }
+  for (let i = 0; i < entries.length; i++) {
+    const [j] = duplicateItems(entries[i].items);
+    if (j !== undefined) {
+      return `Location ${i + 1} has "${entries[i].items[j].material.trim()}" twice. Remove one of them.`;
+    }
+  }
+  return "";
 }
 
 /** Defects Liability Period end: 12 months from commissioning, minus one day (services/hod/dates.dlp_end). */
