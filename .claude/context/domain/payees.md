@@ -155,9 +155,12 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   through `api/payees/paid_to.get_paid_to`) and Record Payment's "Pay ₹X to" box (`pay_to_box`, for
   an expense and for a PO / WO payment) all read it; no screen re-derives it. An answer is
   `{account, missing, payee_rule, account_changed, current_account}`; `missing` is
-  `payment_has_no_account` or `expense_has_no_account` (with the type's rule). A row with none is left
-  out of the bank file with a reason, never sent with a blank account; the Cashfree beneficiary is the
-  copy's holder name. The box's "Set by" is the
+  `payment_has_no_account` or `expense_has_no_account`; `payee_rule` is every expense's type rule,
+  with or without an account (null on a payment). A row with none is left out of the bank file with a
+  reason, never sent with a blank account, and the export toast names a left-out expense by its
+  description and amount, never its ID; the Cashfree beneficiary is the copy's holder name. The
+  "Payment Done / Reconciliation Pending" and "Reconciliation Done" tabs show the same Paid to column,
+  read-only (spec stories 56/60): the account the money went into. The box's "Set by" is the
   latest Version change to the copy's holder name, account number or IFSC, else the request's raiser
   (when the request holds the same account), else "copied from the vendor".
   - **"Vendor's account changed since this was raised"** (#1439): a PO / WO payment with a copy is
@@ -166,7 +169,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     (`paid_to.account_changed_since`). A holder-name, bank or branch change is not flagged; a blank
     copy, an expense and a payment with no vendor never are. `current_account` is the vendor's account
     now (null when it has none), set only on a flagged row. The flag ignores status; the screens word
-    it: the Paid to cell and the "Pay ₹X to" box warn with the new account (the box drops the old
+    it: the Paid to cell (until the row is paid: a Reconciliation Pending or Paid row shows its own
+    account plainly and no advice to act, `utils/payees/paidTo.paidToCell` given the status, since
+    "reject and raise again" is wrong advice once the money has left) and the "Pay ₹X to" box warn with the new account (the box drops the old
     account's Copy buttons and, once paid, says it was marked paid to the old account), and the bank
     file leaves the row out (`bankUploadFile.ACCOUNT_CHANGED`) with "reject it and raise it again".
     "Mark as Paid" on "Payment need to paid" does not check the flag.
@@ -176,7 +181,10 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     Frappe's write permission on the expense (its save ignores permissions, so that check is the
     boundary) and refuses a PO / WO payment; offering it to Accounts only, and only for an approved,
     unpaid expense with no vendor, is a screen rule (`utils/payees/paidTo.canChangeExpenseAccount`). A PO / WO payment's copy
-    is never changed: a wrong account means reject and raise again.
+    is never changed: a wrong account means reject and raise again. The dialog names the expense by
+    its description (`pay_to_box`'s `description`, `paidTo.expenseTitle`), words its type's rule
+    (`paidTo.changeAccountRuleLine`) and offers Remove account only when the type is not *Required*
+    (`paidTo.canRemoveExpenseAccount`, a screen rule).
   - **Payment autofill** (`api/payment_autofill._build_vendor_match`) compares a receipt's
     beneficiary with the payment's own holder name (`pay_to_account_name`) and the vendor's name. The
     cheque photo check (`match_payee_to_vendor`) still reads the vendor's current Payee: a cheque has

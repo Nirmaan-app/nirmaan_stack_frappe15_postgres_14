@@ -82,8 +82,8 @@ export const buildApprovalExportColumns = (
   col("vendor", "Vendor", (r) =>
     r.vendor ? ctx.vendorLabels.get(r.vendor) || r.vendor : "",
   ),
-  // Where the money goes (#1431): the vendor's Payee or the expense's own, or why there is none.
-  col("paid_to", "Paid To", (r) => paidToExportText(r.paid_to, r.expense_type)),
+  // Where the money goes, or went (#1431, #1438): the row's own account, or why there is none.
+  col("paid_to", "Paid To", (r) => paidToExportText(r.paid_to, r.expense_type, r.status)),
   col("project", "Project", (r) =>
     r.project ? ctx.projectLabels.get(r.project) || r.project : "",
   ),

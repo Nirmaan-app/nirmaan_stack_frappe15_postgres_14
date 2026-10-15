@@ -200,6 +200,20 @@ class TestPaidTo(FrappeTestCase):
         self.assertEqual((by_name[no_account]["missing"], by_name[no_account]["payee_rule"]),
                          ("expense_has_no_account", "Not asked"))
 
+    def test_paid_rows_in_the_queue_keep_saying_where_the_money_went(self):
+        # Spec story 56/60: the Reconciliation Pending and Paid tabs show each row's account read-only.
+        raised_with, vendor_now = self.payees.payee(), self.payees.payee()
+        paid = []
+        for status in ("Reconciliation Pending", "Paid"):
+            paid += [self._payment(self._vendor(vendor_now), copy_of=raised_with, status=status),
+                     self._expense(PE, copy_of=raised_with, status=status),
+                     self._expense(NPE, copy_of=raised_with, status=status)]
+
+        result = get_approval_queue(filters=[["name", "in", paid]], limit_page_length=10)
+
+        self.assertEqual({row["name"]: row["paid_to"]["account"] for row in result["data"]},
+                         {name: self._account(raised_with) for name in paid})
+
     # -- "Vendor's account changed since this was raised" (#1439) -----------------------------------
     def _edit_account(self, payee, *, account_name=None, account_number=None):
         """Edit `payee` through the Payee module, as the Payees page and the vendor screens do."""
@@ -303,6 +317,19 @@ class TestPaidTo(FrappeTestCase):
         self.assertEqual(box["amount"], 25000)
         self.assertEqual((box["named_by"]["how"], box["named_by"]["user"]), ("request", PM_USER))
         self.assertEqual(box["named_by"]["on"], today())
+
+    def test_the_box_names_the_expense_and_its_types_rule_whether_or_not_it_has_an_account(self):
+        # Change account words its line by the type's rule and offers Remove only when the type allows it.
+        payee = self.payees.payee()
+        for rule in ("Required", "Optional", "Not asked"):
+            for copy_of in (payee, None):
+                with self.subTest(rule=rule, account=bool(copy_of)):
+                    box = get_pay_to_box(NPE, self._expense(rule=rule, copy_of=copy_of))
+                    self.assertEqual((box["payee_rule"], box["description"]),
+                                     (rule, "Advance for shuttering labour"))
+
+        payment = get_pay_to_box(PAYMENT, self._payment(self._vendor(payee), copy_of=payee))
+        self.assertEqual((payment["payee_rule"], payment["description"]), (None, None))
 
     def test_the_box_shows_a_po_payments_own_copy_from_the_vendor(self):
         raised_with, vendor_now = self.payees.payee(), self.payees.payee()

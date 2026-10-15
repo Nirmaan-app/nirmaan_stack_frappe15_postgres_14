@@ -579,20 +579,22 @@ const REGISTRY: Record<
 
   // Where the row's money goes (#1431, #1438, approved mockup screen 11): the row's own pay-to
   // account, copied when it was raised, or why there is none. A PO / WO payment whose vendor's
-  // account changed since shows the warning and the new account instead (#1439).
+  // account changed since shows the warning and the new account instead (#1439), until it is paid: a
+  // paid row shows its own account read-only, the one its money went into (`paidToCell`'s status).
   paid_to: () => ({
     id: "paid_to",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Paid to" />,
     size: 230,
     enableSorting: false,
     cell: ({ row }) => {
-      const cell = paidToCell(row.original.paid_to, row.original.expense_type);
+      const cell = paidToCell(row.original.paid_to, row.original.expense_type, row.original.status);
       return (
         <div className="max-w-[220px]">
           <span className="flex items-center gap-1.5">
             <span
               className={cn(
-                "truncate",
+                // The warning wraps so it reads whole; a holder name stays on one line.
+                cell.tone === "account_changed" ? "font-medium leading-snug" : "truncate",
                 cell.tone === "no_account" && "text-amber-700",
                 (cell.tone === "payment_no_account" || cell.tone === "account_changed") && "text-red-700",
               )}
@@ -609,7 +611,7 @@ const REGISTRY: Record<
     },
     meta: {
       exportHeaderName: "Paid To",
-      exportValue: (r: ApprovalQueueRow) => paidToExportText(r.paid_to, r.expense_type),
+      exportValue: (r: ApprovalQueueRow) => paidToExportText(r.paid_to, r.expense_type, r.status),
     },
   }),
 

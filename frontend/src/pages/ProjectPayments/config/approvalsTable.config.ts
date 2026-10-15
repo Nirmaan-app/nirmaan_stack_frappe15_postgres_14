@@ -177,9 +177,10 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
     "project", "amount", "approved_on", "raised_by",
   ],
   // "Payment Done / Reconciliation Pending" — `payment_by` earns its place here:
-  // 99.5% filled on project expenses and homeless otherwise.
+  // 99.5% filled on project expenses and homeless otherwise. Paid to (spec story 56/60): the account
+  // the money went into, read-only, beside the vendor.
   [PP_TABS.RECONCILIATION_PENDING]: [
-    "actions", "source", "against", "vendor", "project",
+    "actions", "source", "against", "vendor", "paid_to", "project",
     "amount", "paid_on", "utr_ref", "proof", "payment_by",
   ],
   // "Payment Done / Reconciliation Done" — no `select`. `actions` holds ONLY the expense
@@ -187,8 +188,9 @@ export const TAB_COLUMNS: Record<ApprovalTab, ApprovalColumnId[]> = {
   // same three roles); a Paid PO / WO payment has none (the 17 Sep removal of
   // the payment pencil stands). The screen drops the column for roles that cannot edit.
   // `reconciled_on` was removed from the table (owner, 2026-09-21); it stays in the CSV export.
+  // Paid to, read-only, as on Reconciliation Pending.
   [PP_TABS.PAYMENTS_DONE]: [
-    "actions", "source", "against", "vendor", "project", "amount", "paid_on",
+    "actions", "source", "against", "vendor", "paid_to", "project", "amount", "paid_on",
     "utr_ref", "proof", "payment_by",
   ],
   // Mixed-status tabs are the only ones that show `status`, because they are the

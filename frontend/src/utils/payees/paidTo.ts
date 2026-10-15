@@ -30,7 +30,7 @@ export interface PaidTo {
     /** The row's own pay-to account; null when it holds none. */
     account: PayToAccount | null;
     missing: PaidToMissing | null;
-    /** The expense type's *Who gets paid*, on an expense with no account. */
+    /** An expense's type's *Who gets paid*, with or without an account; null on a PO / WO payment. */
     payee_rule: string | null;
     /** A PO / WO payment whose vendor's Payee no longer holds its copy's account (normalised account
      *  number, IFSC), or whose vendor has no Payee any more (#1439). It is rejected and raised again,
@@ -71,6 +71,10 @@ export const classifyPaidTo = (paidTo: PaidTo | undefined): PaidToKind => {
         : { tone: "no_account", rule: paidTo?.payee_rule ?? null };
 };
 
+/** The statuses money has left Approved at (the server's `rules.PAID_STATUSES`). */
+const PAID_STATUSES: ReadonlySet<string> = new Set(["Reconciliation Pending", "Paid"]);
+
+
 /** Why an expense of this type has no account, by its type's *Who gets paid* (spec story 56). */
 const expenseNoAccountReason = (rule: string | null | undefined, expenseType: string): string => {
     const type = expenseType || "Its type";
@@ -92,10 +96,16 @@ export const currentAccountText = (current: PayToAccount | null): string =>
         ? `Now ${current.account_name}, A/c ${current.account_number}, ${current.ifsc}.`
         : "The vendor has no account now.";
 
-/** The Paid to cell: the holder name with the account and IFSC under it, the account-changed
- *  warning, or why there is no account. */
-export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string): PaidToCell => {
-    const kind = classifyPaidTo(paidTo);
+/**
+ * The Paid to cell: the holder name with the account and IFSC under it, the account-changed warning,
+ * or why there is no account. Given the row's `status`, a paid row (Reconciliation Pending, Paid:
+ * spec stories 56/60) reads as a record of where the money went: its own account plainly, never the
+ * "vendor's account changed since" flag, and no advice to act (reject, raise again, Change account),
+ * which is wrong once the money has left. Record Payment's box keeps its own wording (`PayToBox`).
+ */
+export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string, status?: string): PaidToCell => {
+    const paid = status !== undefined && PAID_STATUSES.has(status);
+    const kind = classifyPaidTo(paid && paidTo ? { ...paidTo, account_changed: false, current_account: null } : paidTo);
     switch (kind.tone) {
         case "account_changed":
             return {
@@ -113,14 +123,14 @@ export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string): Pai
             return {
                 tone: kind.tone,
                 title: "No account on this payment",
-                detail: "Pay it another way, or reject it and raise it again.",
+                detail: paid ? "It was paid without one on record." : "Pay it another way, or reject it and raise it again.",
             };
         case "no_account": {
             const reason = expenseNoAccountReason(kind.rule, expenseType);
             return {
                 tone: kind.tone,
                 title: "No account",
-                detail: asPayeeRule(kind.rule) === PAYEE_RULE.REQUIRED
+                detail: asPayeeRule(kind.rule) === PAYEE_RULE.REQUIRED && !paid
                     ? `${reason} Add it with Change account in Record Payment.`
                     : reason,
             };
@@ -129,8 +139,8 @@ export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string): Pai
 };
 
 /** The Paid to cell on one line, for the table's CSV. */
-export const paidToExportText = (paidTo: PaidTo | undefined, expenseType: string): string => {
-    const cell = paidToCell(paidTo, expenseType);
+export const paidToExportText = (paidTo: PaidTo | undefined, expenseType: string, status?: string): string => {
+    const cell = paidToCell(paidTo, expenseType, status);
     if (cell.tone === "account") return `${cell.title}, ${cell.detail}`;
     if (cell.tone === "account_changed" || cell.tone === "no_account") return `${cell.title}: ${cell.detail}`;
     return cell.title;
@@ -208,6 +218,38 @@ export const canChangeExpenseAccount = (
     box: { paid: boolean; vendor_fixed: boolean },
     isAccounts: boolean,
 ): boolean => isAccounts && doctype !== PAYMENT_DOCTYPE && !box.paid && !box.vendor_fixed;
+
+/** How a screen names an expense to an accountant: its description's first line (cut at `max`
+ *  characters), else its type. Never its ID, which means nothing to them. Change account and the bank
+ *  file's left-out toast use it. */
+export const expenseTitle = (description: string | null | undefined, expenseType: string, max = 60): string => {
+    const line = (description || "").split("\n")[0].trim();
+    if (!line) return expenseType || "This expense";
+    return line.length > max ? `${line.slice(0, max).trimEnd()}…` : line;
+};
+
+/** Whether Change account offers Remove account: the expense has one and its type doesn't require one
+ *  (a screen rule: a Required type always has an account). */
+export const canRemoveExpenseAccount = (rule: string | null | undefined, hasAccount: boolean): boolean =>
+    hasAccount && asPayeeRule(rule) !== PAYEE_RULE.REQUIRED;
+
+/** Change account's line on the expense type's *Who gets paid*, and whether the account may go. */
+export const changeAccountRuleLine = (
+    rule: string | null | undefined,
+    expenseType: string,
+    hasAccount: boolean,
+): string => {
+    const type = expenseType || "Its type";
+    const remove = canRemoveExpenseAccount(rule, hasAccount) ? " Remove it if this is paid by card or cash." : "";
+    switch (asPayeeRule(rule)) {
+        case PAYEE_RULE.REQUIRED:
+            return hasAccount ? `${type} requires an account: it can be changed, not removed.` : `${type} requires an account.`;
+        case PAYEE_RULE.OPTIONAL:
+            return `An account is optional for ${expenseType || "its type"}.${remove}`;
+        case PAYEE_RULE.NOT_ASKED:
+            return `${type} doesn't ask for an account.${remove}`;
+    }
+};
 
 /** Who set a row's account (`paid_to.pay_to_box`'s `named_by`). */
 export interface NamedBy {

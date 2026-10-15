@@ -1,7 +1,9 @@
 /**
  * Change account (spec #1420 tickets #1431, #1438): overwrite an expense's own pay-to account with
  * another Payee's account, new bank details, or (when its type doesn't require one) none, before
- * paying it. The expense keeps a copy, never a link: editing the Payee later changes nothing here.
+ * paying it. It names the expense by its description (`expenseTitle`), never its ID, and words its
+ * type's *Who gets paid* (`changeAccountRuleLine`): a Required type is never offered Remove account.
+ * The expense keeps a copy, never a link: editing the Payee later changes nothing here.
  *
  * Reuses the request's `PayeePicker` / `usePayeeChoice`, on the Accounts endpoints
  * (`ACCOUNTS_PAYEE_APIS`): Change account is Admin, Accountant and Accountant Lead only. The opener
@@ -24,7 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { PAYEE_RULE, asPayeeRule } from "@/utils/payees/expensePayee";
+import { canRemoveExpenseAccount, changeAccountRuleLine, expenseTitle } from "@/utils/payees/paidTo";
 import { sameAccountDetails } from "@/utils/payees/payeeForm";
 import { pickedAccount } from "@/utils/payees/payToChoice";
 
@@ -48,7 +50,8 @@ export function ChangeExpenseAccountDialog({
 }: ChangeExpenseAccountDialogProps) {
     const { call, loading } = useFrappePostCall<{ message: PayToBox }>(CHANGE_EXPENSE_ACCOUNT_API);
 
-    const required = asPayeeRule(box.payee_rule) === PAYEE_RULE.REQUIRED;
+    const title = expenseTitle(box.description, expenseType);
+    const canRemove = canRemoveExpenseAccount(box.payee_rule, !!box.account);
     const busy = loading || choice.adding;
 
     const save = async (clear: boolean) => {
@@ -60,8 +63,8 @@ export function ChangeExpenseAccountDialog({
             toast({
                 title: "Account changed",
                 description: res.message.account
-                    ? `${box.name} is now paid to ${res.message.account.account_name}.`
-                    : `${box.name} has no account now.`,
+                    ? `${title} is now paid to ${res.message.account.account_name}.`
+                    : `${title} has no account now.`,
                 variant: "success",
             });
             onSaved(res.message);
@@ -82,10 +85,10 @@ export function ChangeExpenseAccountDialog({
                 <AlertDialogHeader>
                     <AlertDialogTitle>Change account</AlertDialogTitle>
                     <AlertDialogDescription>
-                        The account {box.name} is paid into. Pick a payee or add new bank details: its account is copied
-                        onto the expense. {required
-                            ? `${expenseType || "Its type"} requires an account.`
-                            : `${expenseType || "Its type"} doesn't require one.`}
+                        The account <span className="font-medium text-foreground">{title}</span>
+                        {expenseType && title !== expenseType ? ` (${expenseType})` : ""} is paid into. Pick a payee or
+                        add new bank details: its account is copied onto the expense.{" "}
+                        {changeAccountRuleLine(box.payee_rule, expenseType, !!box.account)}
                     </AlertDialogDescription>
                 </AlertDialogHeader>
 
@@ -96,7 +99,7 @@ export function ChangeExpenseAccountDialog({
 
                 <AlertDialogFooter className="gap-2 sm:gap-0">
                     <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-                    {!required && box.account && (
+                    {canRemove && (
                         <Button variant="outline" disabled={busy} onClick={() => save(true)}>
                             Remove account
                         </Button>

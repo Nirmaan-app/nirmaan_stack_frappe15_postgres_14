@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
     canChangeExpenseAccount,
+    canRemoveExpenseAccount,
+    changeAccountRuleLine,
+    expenseTitle,
     namedByText,
     paidToCell,
     paidToExportText,
@@ -211,5 +214,73 @@ describe("canChangeExpenseAccount", () => {
         expect(canChangeExpenseAccount("Project Expenses", { ...unpaid, vendor_fixed: true }, true)).toBe(false);
         expect(canChangeExpenseAccount("Project Expenses", unpaid, false)).toBe(false);
         expect(canChangeExpenseAccount("Project Payments", unpaid, true)).toBe(false);
+    });
+});
+
+describe("Change account names the expense and words its type's rule", () => {
+    it("names an expense by its description's first line, never its ID", () => {
+        expect(expenseTitle("Advance for shuttering labour\nA/c 1234, SBIN0003435", "Labour Advance")).toBe(
+            "Advance for shuttering labour",
+        );
+    });
+
+    it("cuts a long description and falls back to the type, then to 'This expense'", () => {
+        expect(expenseTitle(`${"Hotel stay for the site team at Pune ".repeat(3)}`, "Accommodation")).toBe(
+            "Hotel stay for the site team at Pune Hotel stay for the site…",
+        );
+        expect(expenseTitle("  ", "Accommodation Deposit")).toBe("Accommodation Deposit");
+        expect(expenseTitle(null, "")).toBe("This expense");
+    });
+
+    it("says a Required type always has an account, so it can be changed, not removed", () => {
+        expect(changeAccountRuleLine("Required", "Accommodation Deposit", true)).toBe(
+            "Accommodation Deposit requires an account: it can be changed, not removed.",
+        );
+        expect(changeAccountRuleLine("Required", "Accommodation Deposit", false)).toBe(
+            "Accommodation Deposit requires an account.",
+        );
+        expect(canRemoveExpenseAccount("Required", true)).toBe(false);
+    });
+
+    it("offers removing the account of an Optional or Not asked type that has one", () => {
+        expect(changeAccountRuleLine("Optional", "Travel", true)).toBe(
+            "An account is optional for Travel. Remove it if this is paid by card or cash.",
+        );
+        expect(changeAccountRuleLine("Not asked", "Travel", true)).toBe(
+            "Travel doesn't ask for an account. Remove it if this is paid by card or cash.",
+        );
+        expect(changeAccountRuleLine("Optional", "Travel", false)).toBe("An account is optional for Travel.");
+        expect(canRemoveExpenseAccount("Optional", true)).toBe(true);
+        expect(canRemoveExpenseAccount(null, true)).toBe(true);
+        expect(canRemoveExpenseAccount("Optional", false)).toBe(false);
+    });
+});
+
+describe("Paid to on a paid row (Reconciliation Pending, Paid)", () => {
+    const flagged: PaidTo = { ...paid, account_changed: true, current_account: newAccount };
+    const PLAIN = { tone: "account", title: "Ramesh Kumar Yadav", detail: "A/c 36147100982211, SBIN0003435" };
+
+    it("keeps the account-changed flag on a row not paid yet", () => {
+        expect(paidToCell(flagged, "", "Approved").tone).toBe("account_changed");
+    });
+
+    it("shows a paid row's own account plainly: its money already went there", () => {
+        for (const status of ["Reconciliation Pending", "Paid"]) {
+            expect(paidToCell(flagged, "", status)).toEqual(PLAIN);
+        }
+        expect(paidToExportText(flagged, "", "Paid")).toBe("Ramesh Kumar Yadav, A/c 36147100982211, SBIN0003435");
+    });
+
+    it("never tells the payer to act on a paid row with no account", () => {
+        const required: PaidTo = { account: null, missing: "expense_has_no_account", payee_rule: "Required", ...UNFLAGGED };
+        const payment: PaidTo = { account: null, missing: "payment_has_no_account", payee_rule: null, ...UNFLAGGED };
+
+        expect(paidToCell(required, "Rent", "Paid")).toEqual({ tone: "no_account", title: "No account", detail: "Rent requires one." });
+        expect(paidToCell(payment, "", "Reconciliation Pending")).toEqual({
+            tone: "payment_no_account",
+            title: "No account on this payment",
+            detail: "It was paid without one on record.",
+        });
+        expect(paidToCell(required, "Rent", "Approved").detail).toBe("Rent requires one. Add it with Change account in Record Payment.");
     });
 });

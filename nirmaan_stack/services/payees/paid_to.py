@@ -12,8 +12,9 @@ a PO / WO payment (`Project Payments`) from its vendor's Payee, an expense from 
 picked or its vendor's. Never the vendor's Payee as it reads now, never a linked Payee. A PO / WO
 payment whose vendor's Payee no longer holds its copy's account is flagged `account_changed`, with
 the vendor's account now (#1439): it is rejected and raised again, never paid. A row with no
-copy says why: `PAYMENT_HAS_NO_ACCOUNT`, or `EXPENSE_HAS_NO_ACCOUNT` with the expense type's *Who gets
-paid* rule, so the screen can say whether the type needs one.
+copy says why: `PAYMENT_HAS_NO_ACCOUNT` or `EXPENSE_HAS_NO_ACCOUNT`. Every expense carries its type's *Who
+gets paid* rule, so the screen can say whether the type needs an account (and Change account whether
+it may be removed).
 
 * `paid_to_rows` -- the answer for rows already read (the approval queue).
 * `paid_to_for` -- the same for `{doctype, name}` keys, read now (the bank file).
@@ -66,7 +67,8 @@ def paid_to_rows(rows: list[dict]) -> list[dict]:
 
     * `account` -- the row's own copy (`pay_to.pay_to_account`), or None.
     * `missing` -- None, `PAYMENT_HAS_NO_ACCOUNT` or `EXPENSE_HAS_NO_ACCOUNT`.
-    * `payee_rule` -- the expense type's rule on an expense with no account, else None.
+    * `payee_rule` -- an expense's type's rule (Not asked when unset), with or without an account;
+      None on a PO / WO payment.
     * `account_changed` -- a PO / WO payment whose vendor's Payee no longer holds its copy's account
       (`account_changed_since`, #1439): the payer must not pay it, it is rejected and raised again.
       Never an expense, never a row with no copy.
@@ -74,8 +76,7 @@ def paid_to_rows(rows: list[dict]) -> list[dict]:
       no Payee any more); None on any other row.
 
     At most two queries, whatever the row count."""
-    rules = _payee_rules({row.get("expense_type") for row in rows
-                          if row.get("doctype") != PAYMENT_DOCTYPE and not has_pay_to(row)})
+    rules = _payee_rules({row.get("expense_type") for row in rows if row.get("doctype") != PAYMENT_DOCTYPE})
     accounts_now = vendor_accounts([row.get("vendor") for row in rows if _may_change(row)])
     return [_answer(row, rules, accounts_now) for row in rows]
 
@@ -84,6 +85,8 @@ def _answer(row: dict, rules: dict[str, str], accounts_now: dict[str, dict]) -> 
     account = pay_to_account(row)
     answer = {"account": account, "missing": None, "payee_rule": None,
               "account_changed": False, "current_account": None}
+    if row.get("doctype") != PAYMENT_DOCTYPE:
+        answer["payee_rule"] = rules.get(row.get("expense_type")) or NOT_ASKED
     if account:
         if _may_change(row):
             now = accounts_now.get(row["vendor"])
@@ -94,7 +97,6 @@ def _answer(row: dict, rules: dict[str, str], accounts_now: dict[str, dict]) -> 
         answer["missing"] = PAYMENT_HAS_NO_ACCOUNT
     else:
         answer["missing"] = EXPENSE_HAS_NO_ACCOUNT
-        answer["payee_rule"] = rules.get(row.get("expense_type")) or NOT_ASKED
     return answer
 
 
@@ -131,13 +133,14 @@ def paid_to_for(keys: list[dict]) -> list[dict]:
 
 def pay_to_box(doctype: str, name: str) -> dict:
     """The "Pay ₹X to" box for a payment or an expense: its `paid_to_rows` answer plus `{name,
-    amount, vendor, vendor_name, vendor_fixed, paid, named_by}`. `vendor_fixed`: an expense with a
+    description, amount, vendor, vendor_name, vendor_fixed, paid, named_by}`. `description`: an
+    expense's, so Change account names it by what it is, not its ID; None on a PO / WO payment. `vendor_fixed`: an expense with a
     vendor is paid into the vendor's account, so the screen offers no other. `paid`: money has left
     Approved (`rules.PAID_STATUSES`). `named_by` is `{how, user, full_name, on}` (`on` an ISO date) or
     None when nothing records it."""
     assert_paid_to_doctype(doctype)
-    doc = frappe.db.get_value(doctype, name, _row_fields(doctype, "amount", "status"),
-                              as_dict=True)
+    extra = ("amount", "status") if doctype == PAYMENT_DOCTYPE else ("amount", "status", "description")
+    doc = frappe.db.get_value(doctype, name, _row_fields(doctype, *extra), as_dict=True)
     if not doc:
         frappe.throw(_("{0} {1} not found.").format(doctype, name), frappe.DoesNotExistError)
     vendor = doc.get("vendor") or None
@@ -145,6 +148,7 @@ def pay_to_box(doctype: str, name: str) -> dict:
     return {
         **answer,
         "name": doc.name,
+        "description": doc.get("description") or None,
         "amount": float(doc.amount or 0),
         "vendor": vendor,
         "vendor_name": frappe.db.get_value("Vendors", vendor, "vendor_name") if vendor else None,

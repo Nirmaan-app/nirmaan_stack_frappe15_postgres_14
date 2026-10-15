@@ -35,6 +35,8 @@ export type { PaidTo };
 export interface PayToBox extends PaidTo {
     account: PayToAccount | null;
     name: string;
+    /** An expense's description: how Change account names it. Null on a PO / WO payment. */
+    description: string | null;
     amount: number;
     vendor: string | null;
     vendor_name: string | null;
