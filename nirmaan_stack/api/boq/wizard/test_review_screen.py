@@ -3408,16 +3408,37 @@ class TestSaveReviewRestructure(FrappeTestCase):
     # -- REJECT: FROM-but-not-TO (parser-only classes rejected as targets) --
 
     def test_reject_subtotal_marker_target(self):
+        """INVERTED in S6 (F6, owner V3-2 / Q-d; was: subtotal_marker rejected, nothing written).
+        The review screen may now set "Subtotal": the reclassify and its child move are written.
+        The negative half stays in test_reject_header_repeat_target below (header_repeat is still
+        refused) and in test_subtotal_stays_refused_on_the_shared_set."""
+        result = save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name,
+            row_index=1, new_classification="subtotal_marker",
+            child_moves={2: 4},
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(self._get_doc(1).human_classification, "subtotal_marker")
+        self.assertEqual(self._get_doc(2).human_parent, 4, "the child moves as the user chose")
+
+    def test_save_review_edit_accepts_subtotal_and_still_refuses_header_repeat(self):
+        """S6 F6 on the single-row path (a childless row): subtotal_marker is accepted;
+        header_repeat stays parser-only."""
+        save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=3,
+                         field="human_classification", value="subtotal_marker")
+        self.assertEqual(self._get_doc(3).human_classification, "subtotal_marker")
         with self.assertRaises(frappe.ValidationError):
-            save_review_restructure(
-                boq_name=self.boq_name, sheet_name=self.sheet_name,
-                row_index=1, new_classification="subtotal_marker",
-                child_moves={2: 4},
-            )
-        self.assertFalse(self._get_doc(1).human_classification,
-                         "a rejected reclassify must not write the target")
-        self.assertEqual(self._get_doc(2).human_parent, -1,
-                         "a rejected reclassify must not move any child")
+            save_review_edit(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=2,
+                             field="human_classification", value="header_repeat")
+        self.assertFalse(self._get_doc(2).human_classification)
+
+    def test_subtotal_stays_refused_on_the_shared_set(self):
+        """S6 F6 negative: only the REVIEW set gains subtotal; the shared set the template paths
+        import is unchanged."""
+        from nirmaan_stack.api.boq.wizard import review_screen as rs
+        self.assertNotIn("subtotal_marker", rs._ASSIGNABLE_CLASSIFICATIONS)
+        self.assertEqual(rs._REVIEW_ASSIGNABLE_CLASSIFICATIONS - rs._ASSIGNABLE_CLASSIFICATIONS,
+                         {"subtotal_marker"})
 
     def test_reject_header_repeat_target(self):
         with self.assertRaises(frappe.ValidationError):
@@ -5563,3 +5584,273 @@ class TestNoteAttachmentFollowsReparent(FrappeTestCase):
         self.assertEqual(self._blob(0), ["supply and fix cable"],
                          "and its own text joins its parent's blob")
         self.assertEqual(self._attached_to(3), 1, "the inner notes still point at it")
+
+
+# ===========================================================================
+# S3 / ADR-0033, owner ruling R20: a revert also returns the children its row moved
+# ===========================================================================
+
+class TestRevertReturnsMovedChildren(FrappeTestCase):
+    """revert_to_parser on row N puts back every child a RESTRUCTURE OF N moved, when that move is
+    still the child's latest parent change. A child the user moved himself is left where it is.
+
+    Fixture rows per test (reset by setUp). Excel row = row_index + 2.
+      Row 0 -- preamble,  root
+      Row 1 -- preamble,  parent=0     (the subject; parent of 2,3)
+      Row 2 -- line_item, parent=1
+      Row 3 -- line_item, parent=1
+      Row 4 -- preamble,  root         (a candidate new parent)
+      Row 5 -- line_item, parent=4
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.test_project = _make_project()
+        boq = frappe.new_doc("BOQs")
+        boq.project = cls.test_project.name
+        boq.boq_name = "Revert Cascade Test BoQ"
+        boq.tax_treatment = "Pre-tax"
+        boq.append("sheet_drafts", {
+            "sheet_name": "CascadeSheet", "sheet_order": 1, "wizard_status": "Parsed",
+        })
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        cls.boq_name = boq.name
+        cls.sheet_name = "CascadeSheet"
+
+    @classmethod
+    def tearDownClass(cls):
+        frappe.db.rollback()
+        frappe.db.delete("BoQ Review Row", {"boq": cls.boq_name})
+        frappe.db.commit()
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def setUp(self):
+        frappe.db.rollback()
+        frappe.db.delete("BoQ Review Row", {"boq": self.boq_name})
+        frappe.db.set_value("BOQs", self.boq_name, "origin", "upload")
+        _insert_rows(self.boq_name, [
+            _minimal_row(self.sheet_name, 0, "preamble", parent_index=None),
+            _minimal_row(self.sheet_name, 1, "preamble", parent_index=0),
+            _minimal_row(self.sheet_name, 2, "line_item", parent_index=1),
+            _minimal_row(self.sheet_name, 3, "line_item", parent_index=1),
+            _minimal_row(self.sheet_name, 4, "preamble", parent_index=None),
+            _minimal_row(self.sheet_name, 5, "line_item", parent_index=4),
+        ])
+
+    # -- helpers ------------------------------------------------------------
+
+    def _doc(self, ri):
+        frappe.db.rollback()
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": ri}, "name")
+        return frappe.get_doc("BoQ Review Row", name)
+
+    def _seed(self, ri, **fields):
+        name = frappe.db.get_value(
+            "BoQ Review Row",
+            {"boq": self.boq_name, "sheet_name": self.sheet_name, "row_index": ri}, "name")
+        frappe.db.set_value("BoQ Review Row", name, fields)
+        frappe.db.commit()
+
+    def _restructure(self, ri, new_type, child_moves=None, row_new_parent=None, **flags):
+        return save_review_restructure(
+            boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=ri,
+            new_classification=new_type, child_moves=child_moves or {},
+            row_new_parent=row_new_parent, **flags)
+
+    def _revert(self, ri):
+        return revert_to_parser(boq_name=self.boq_name, sheet_name=self.sheet_name, row_index=ri)
+
+    def _parent(self, ri):
+        return resolve_effective(self._doc(ri))["effective_parent_index"]
+
+    def _reasons(self, ri):
+        log = self._doc(ri).edit_log
+        log = json.loads(log) if isinstance(log, str) else (log or [])
+        return [e.get("reason") for e in log if e.get("field") == "human_parent"]
+
+    def _assert_at_baseline(self, ri, parent):
+        r = self._doc(ri)
+        self.assertEqual((r.human_parent, r.human_is_root), (-1, 0), f"row {ri} human parent cleared")
+        self.assertEqual(resolve_effective(r)["effective_parent_index"], parent)
+        self.assertEqual(r.chosen_source, "parser")
+        self.assertFalse(_row_has_override(r), f"row {ri} is back at its baseline")
+
+    # -- the children return ------------------------------------------------
+
+    def test_children_moved_up_return_with_the_row(self):
+        # dialog option 1: "Move all children up to this row's current parent"
+        self._restructure(1, "note", child_moves={2: 0, 3: 0})
+        self.assertEqual((self._parent(2), self._parent(3)), (0, 0))
+        res = self._revert(1)
+        self.assertEqual(res, {"ok": True, "reverted_children": [2, 3], "children_not_returned": []})
+        self.assertIsNone(self._doc(1).human_classification)
+        self._assert_at_baseline(2, 1)
+        self._assert_at_baseline(3, 1)
+        self.assertEqual(self._reasons(2), ["parent moved: row 1 reclassified to note",
+                                            "reverted with row 1 (parent restore)"])
+
+    def test_every_dialog_option_that_moves_children_is_undone(self):
+        options = {
+            "3 - all to one new parent": {2: 4, 3: 4},
+            "4 - each child individually": {2: 4, 3: -1},
+            "5 - all top-level": {2: -1, 3: -1},
+        }
+        for label, moves in options.items():
+            self.setUp()
+            self._restructure(1, "note", child_moves=moves)
+            self.assertEqual(self._revert(1)["reverted_children"], [2, 3], label)
+            self._assert_at_baseline(2, 1)
+            self._assert_at_baseline(3, 1)
+
+    def test_keeping_the_children_leaves_nothing_to_return(self):
+        # dialog option 2: "Keep all children under this row" writes nothing on the children
+        self._restructure(1, "line_item")
+        self.assertEqual(self._revert(1), {"ok": True, "reverted_children": [], "children_not_returned": []})
+        self.assertEqual(self._reasons(2), [])
+        self.assertEqual(self._parent(2), 1)
+
+    def test_a_row_with_no_moved_children_reverts_exactly_as_before(self):
+        self._restructure(5, "note", row_new_parent=0)
+        self.assertEqual(self._revert(5), {"ok": True, "reverted_children": [], "children_not_returned": []})
+        self._assert_at_baseline(5, 4)
+
+    # -- the children that do NOT return -----------------------------------
+
+    def test_a_child_the_user_moved_again_stays_where_he_put_it(self):
+        self._restructure(1, "note", child_moves={2: 0, 3: 0})
+        self._restructure(2, "line_item", row_new_parent=4)          # the user's own move
+        res = self._revert(1)
+        self.assertEqual(res["reverted_children"], [3])
+        self.assertEqual(self._doc(2).human_parent, 4, "the user's own placement is untouched")
+        self.assertEqual(self._reasons(2)[-1], "row moved: row 2 reclassified to line_item")
+        self._assert_at_baseline(3, 1)
+
+    def test_a_child_changed_independently_before_is_not_touched(self):
+        self._restructure(3, "line_item", row_new_parent=4)          # independent of row 1
+        self._restructure(1, "note", child_moves={2: 0})
+        self.assertEqual(self._revert(1)["reverted_children"], [2])
+        self.assertEqual(self._doc(3).human_parent, 4)
+
+    def test_a_child_another_row_moved_is_not_touched(self):
+        self._restructure(4, "note", child_moves={5: 0})             # row 4 moved its child
+        self._restructure(1, "note", child_moves={2: 0, 3: 0})
+        self.assertEqual(self._revert(1)["reverted_children"], [2, 3])
+        self.assertEqual(self._doc(5).human_parent, 0, "row 4's child stays until row 4 is reverted")
+        self.assertEqual(self._revert(4)["reverted_children"], [5])
+        self._assert_at_baseline(5, 4)
+
+    # -- several changes of the same row ------------------------------------
+
+    def test_every_child_move_the_row_caused_is_undone(self):
+        self._restructure(1, "line_item", child_moves={2: 0})        # first change moves row 2
+        self._restructure(1, "note", child_moves={3: 4})             # second change moves row 3
+        self.assertEqual(self._revert(1)["reverted_children"], [2, 3])
+        self._assert_at_baseline(2, 1)
+        self._assert_at_baseline(3, 1)
+
+    def test_reverting_twice_returns_nothing_the_second_time(self):
+        self._restructure(1, "note", child_moves={2: 0, 3: 0})
+        self._revert(1)
+        self._restructure(1, "line_item")
+        self.assertEqual(self._revert(1)["reverted_children"], [])
+        self.assertEqual(len(self._reasons(2)), 2, "no second 'reverted' entry on the child")
+
+    # -- back to the parent it had immediately before ----------------------
+
+    def test_a_child_returns_to_the_users_earlier_placement_not_to_the_parser(self):
+        self._restructure(5, "line_item", row_new_parent=1)          # the user put row 5 under row 1
+        self._restructure(1, "note", child_moves={2: 0, 3: 0, 5: 0})
+        self.assertEqual(self._revert(1)["reverted_children"], [2, 3, 5])
+        r5 = self._doc(5)
+        self.assertEqual(r5.human_parent, 1, "back under row 1 -- where it was before the move")
+        self.assertEqual(r5.chosen_source, "manual", "that placement is still the user's")
+        self.assertEqual(r5.parent_index, 4)
+        self._assert_at_baseline(2, 1)
+
+    # -- one save, all or nothing -------------------------------------------
+
+    def test_a_failure_on_one_child_reverts_nothing(self):
+        from unittest.mock import patch
+        from nirmaan_stack.api.boq.wizard import review_flags
+
+        self._restructure(1, "note", child_moves={2: 0, 3: 0})
+        real = review_flags._apply_and_save_row_edit
+        calls = []
+
+        def second_child_fails(doc, *args, **kwargs):
+            calls.append(doc.row_index)
+            if len(calls) == 2:
+                raise RuntimeError("boom")
+            return real(doc, *args, **kwargs)
+
+        with patch.object(review_flags, "_apply_and_save_row_edit", side_effect=second_child_fails):
+            with self.assertRaises(RuntimeError):
+                self._revert(1)
+        self.assertEqual(calls, [2, 3])
+        self.assertEqual(self._doc(1).human_classification, "note", "the row itself was not reverted")
+        self.assertEqual((self._doc(2).human_parent, self._doc(3).human_parent), (0, 0))
+
+    # -- the loop refusal (U6) ----------------------------------------------
+
+    def _move_children_then_put_the_rows_parent_under_a_child(self):
+        self._restructure(1, "note", child_moves={2: 4, 3: 4})
+        self._restructure(0, "preamble", row_new_parent=2)           # row 1's parent now sits under row 2
+
+    def test_a_revert_that_would_make_a_loop_is_refused_and_changes_nothing(self):
+        self._move_children_then_put_the_rows_parent_under_a_child()
+        with self.assertRaises(frappe.ValidationError) as ctx:
+            self._revert(1)
+        self.assertEqual(
+            str(ctx.exception),
+            "Row 3 can't be reverted yet: putting row 4 back under it would create a loop. "
+            "Move row 4 first, then revert again.",
+        )
+        self.assertEqual(self._doc(1).human_classification, "note")
+        self.assertEqual((self._doc(2).human_parent, self._doc(3).human_parent), (4, 4))
+        self.assertEqual(len(self._reasons(2)), 1, "no history was written")
+
+    def test_the_same_revert_goes_through_once_the_child_is_moved(self):
+        self._move_children_then_put_the_rows_parent_under_a_child()
+        self._revert(0)                                              # undo the move that made the loop
+        self.assertEqual(self._revert(1)["reverted_children"], [2, 3])
+        self._assert_at_baseline(2, 1)
+
+    def test_no_loop_no_refusal(self):
+        self._restructure(1, "note", child_moves={2: 4, 3: 4})
+        self._restructure(0, "preamble", row_new_parent=4)           # elsewhere: no loop
+        self.assertEqual(self._revert(1)["reverted_children"], [2, 3])
+
+    # -- Looks OK on a revision row ----------------------------------------
+
+    def test_a_returning_revision_row_loses_its_confirmation_like_a_reverted_row(self):
+        self._seed(2, revision_carry_status="Needs Review", revision_reviewed=0)
+        self._restructure(1, "note", child_moves={2: 0, 3: 0})
+        self.assertEqual(self._doc(2).revision_reviewed, 1, "the move counted as a confirmation")
+        self._revert(1)
+        r2 = self._doc(2)
+        self.assertEqual(r2.revision_reviewed, 0)
+        self.assertIsNone(r2.revision_reviewed_by)
+
+    # -- what stays as it was ------------------------------------------------
+
+    def test_children_an_ai_accept_moved_keep_todays_revert(self):
+        self._seed(1, ai_suggestion_status="Pending", ai_suggested_classification="note")
+        self._restructure(1, "note", child_moves={2: 4, 3: 4}, mark_ai_accepted=True)
+        res = self._revert(1)
+        self.assertEqual(sorted(res["reverted_children"]), [2, 3])
+        self.assertEqual(self._reasons(2), ["parent moved: row 1 reclassified to note",
+                                            "AI acceptance reverted (parent restore)"])
+        self._assert_at_baseline(2, 1)
+
+    def test_a_template_boq_keeps_todays_behaviour(self):
+        # rows are inserted and deleted there, so "row N" in the history cannot be trusted
+        self._restructure(1, "note", child_moves={2: 0, 3: 0})
+        frappe.db.set_value("BOQs", self.boq_name, "origin", "template")
+        frappe.db.commit()
+        self.assertEqual(self._revert(1), {"ok": True, "reverted_children": [], "children_not_returned": []})
+        self.assertEqual((self._doc(2).human_parent, self._doc(3).human_parent), (0, 0))

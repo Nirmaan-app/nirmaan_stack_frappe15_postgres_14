@@ -38,12 +38,13 @@ DESIGN NOTES
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 import frappe
 from frappe.utils import now_datetime
 
-from nirmaan_stack.api.boq.wizard import draft_lock
+from nirmaan_stack.api.boq.wizard import ai_run_log, draft_lock, review_flags
 from nirmaan_stack.api.boq.wizard.ai_settings import (
     get_boq_ai_api_key,
     get_boq_ai_settings,
@@ -57,7 +58,7 @@ from nirmaan_stack.api.boq.wizard.review_screen import (
     resolve_effective,
 )
 from nirmaan_stack.api.boq.wizard.update_sheet_draft import _guard_sheet_not_parsing
-from nirmaan_stack.services import boq_ai_assist
+from nirmaan_stack.services import boq_ai_assist, boq_ai_guidance
 from nirmaan_stack.services.boq_ai_assist import _NonRetryable
 
 logger = frappe.logger("boq_ai")
@@ -93,6 +94,9 @@ _AI_FETCH_FIELDS = [
     "human_classification", "human_parent", "human_is_root",
     "ai_suggestion_status", "ai_suggested_classification", "ai_suggested_parent",
     "ai_suggested_is_root",
+    # Prompt v2 (S1b): has_qty on the wire + the guidance look-up read these two. Only a
+    # true / false leaves the server -- the quantity itself is never sent.
+    "qty_total", "qty_by_area",
 ]
 
 
@@ -101,8 +105,13 @@ _AI_FETCH_FIELDS = [
 # ---------------------------------------------------------------------------
 
 def _ai_cache_key(boq_name: str, sheet_name: str, last_parsed_at: Any) -> str:
-    """Result-cache key. A re-parse bumps last_parsed_at -> a fresh (missed) key."""
-    return f"{_AI_CACHE_PREFIX}::{boq_name}::{sheet_name}::{last_parsed_at}"
+    """Result-cache key. A re-parse bumps last_parsed_at -> a fresh (missed) key. The
+    prompt version is part of the key, so a result produced by an earlier prompt is never
+    served for the current one."""
+    return (
+        f"{_AI_CACHE_PREFIX}::{boq_ai_assist.PROMPT_VERSION}::{boq_name}::{sheet_name}"
+        f"::{last_parsed_at}"
+    )
 
 
 def _ai_status_key(boq_name: str, sheet_name: str) -> str:
@@ -194,7 +203,8 @@ def _fetch_review_rows_for_ai(boq_name: str, sheet_name: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def _apply_ai_suggestions(
-    boq_name: str, sheet_name: str, rows: list[dict], suggestions: list[dict]
+    boq_name: str, sheet_name: str, rows: list[dict], suggestions: list[dict],
+    expected_last_parsed_at: Any = None,
 ) -> int:
     """Write the AI suggestions onto the matching BoQ Review Rows.
 
@@ -203,7 +213,18 @@ def _apply_ai_suggestions(
     new ones via frappe.db.set_value (scalar bypass -- no doc.save / edit_log).
 
     Returns the count of rows written. Caller commits.
+
+    SUPERSEDED REFUSAL (S2): when `expected_last_parsed_at` is given (the parse the run was
+    queued for) and the sheet has been re-parsed since, NOTHING is written and
+    ai_run_log.RunSuperseded is raised -- these answers belong to rows that no longer exist.
     """
+    if expected_last_parsed_at is not None and not ai_run_log.same_parse(
+        expected_last_parsed_at, _get_last_parsed_at(boq_name, sheet_name)
+    ):
+        raise ai_run_log.RunSuperseded(
+            f"{boq_name} / {sheet_name} was re-parsed after this run was queued"
+        )
+
     name_by_index: dict = {}
     for r in rows:
         ridx = r.get("row_index")
@@ -290,6 +311,9 @@ def run_ai_pass(boq_name: str = None, sheet_name: str = None) -> dict:
     if not frappe.db.exists("BOQs", boq_name):
         frappe.throw(f"BOQs '{boq_name}' not found.", title="Not found")
 
+    # Health check on a run start (S2): fail this sheet's stale run and clear its stuck flag.
+    ai_run_log.heal_on_read(boq_name, sheet_name)
+
     # Parsed-guard: a sheet with no review rows has not been parsed -- nothing to review.
     row_count = frappe.db.count(
         _REVIEW_ROW, {"boq": boq_name, "sheet_name": sheet_name}
@@ -329,20 +353,43 @@ def run_ai_pass(boq_name: str = None, sheet_name: str = None) -> dict:
         if cached is not None:
             rows = _fetch_review_rows_for_ai(boq_name, sheet_name)
             count = _apply_ai_suggestions(boq_name, sheet_name, rows, cached)
+            # S3: Claude's sure "preamble -> line_item" answers go into the parsed result.
+            review_flags.apply_sure_changes(boq_name, sheet_name)
+            now = now_datetime()
+            ai_run_log.create_run(
+                boq_name, sheet_name, ai_run_log.TRIGGER_MANUAL, status="Done", cached=1,
+                last_parsed_at=last_parsed_at, started_at=now, finished_at=now,
+                suggestion_count=len(cached),
+            )
             frappe.db.commit()
             return {"ok": True, "cached": True, "count": count}
 
     # Cache miss -> enqueue a fresh pass. Raw (un-namespaced) job id, mirroring run_parse.
     raw_job_id = frappe.generate_hash(length=32)
-    job = frappe.enqueue(
-        "nirmaan_stack.api.boq.wizard.ai_assist._run_ai_pass_worker",
-        queue="long",
-        timeout=600,
-        job_id=raw_job_id,
-        user=frappe.session.user,
-        boq_name=boq_name,
-        sheet_name=sheet_name,
+    # The run-log record first, committed, so the worker finds it however fast it starts.
+    run_name = ai_run_log.create_run(
+        boq_name, sheet_name, ai_run_log.TRIGGER_MANUAL,
+        job_id=raw_job_id, last_parsed_at=last_parsed_at,
     )
+    frappe.db.commit()
+    try:
+        job = frappe.enqueue(
+            "nirmaan_stack.api.boq.wizard.ai_assist._run_ai_pass_worker",
+            queue="long",
+            timeout=1200,
+            job_id=raw_job_id,
+            user=frappe.session.user,
+            boq_name=boq_name,
+            sheet_name=sheet_name,
+            run_name=run_name,
+        )
+    except Exception as exc:
+        ai_run_log.fail_run(
+            run_name, ai_run_log.CATEGORY_INTERNAL,
+            f"enqueue failed: {type(exc).__name__}: {exc}",
+        )
+        frappe.db.commit()
+        raise
 
     # SET only after a successful enqueue so a failed enqueue doesn't leave state stuck.
     _set_ai_in_progress(boq_name, sheet_name, 1)
@@ -377,6 +424,10 @@ def get_ai_pass_status(boq_name: str = None, sheet_name: str = None) -> dict:
         frappe.throw("boq_name is required.", title="Missing field: boq_name")
     if not sheet_name:
         frappe.throw("sheet_name is required.", title="Missing field: sheet_name")
+
+    # Health check on every status read (S2): the Review screen polls this while its "AI pass
+    # running" chip shows, so a dead run is failed and its flag cleared within one poll.
+    ai_run_log.heal_on_read(boq_name, sheet_name)
 
     cached = frappe.cache().get_value(_ai_status_key(boq_name, sheet_name))
     if cached:
@@ -832,13 +883,21 @@ def revert_ai_acceptance(
 # The worker
 # ---------------------------------------------------------------------------
 
-def _run_ai_pass_worker(boq_name: str, sheet_name: str, user: str = None) -> None:
+def _run_ai_pass_worker(
+    boq_name: str, sheet_name: str, user: str = None, run_name: str = None
+) -> None:
     """Background worker: fetch rows -> resolve_effective -> AI-2b service -> write-back
     -> cache -> publish. Mirrors _run_parse_worker structure.
 
     ai_in_progress is CLEARED inside _publish_ai_event (the choke-point), NOT here, so
-    every exit path clears it. On failure: log + rollback + publish error + RAISE (so
+    every exit path clears it. On failure: rollback + log + publish error + RAISE (so
     RQ marks the job failed -- matches _run_parse_worker).
+
+    RUN LOG (S2): `run_name` is this run's "BoQ AI Run Log" record (None for a caller that has
+    none -- every run-log call is then a no-op). The record carries the heartbeat, the chunk and
+    token progress, the library status and the failure reason. Two exits publish NOTHING and leave
+    the flag to its owner: a run that is SUPERSEDED (the sheet was re-parsed after it was queued)
+    and a run the health check already failed while its worker was still busy.
 
     Event published (user-targeted): 'boq:ai_pass_done'
       success: {status, boq_name, sheet_name, count}
@@ -847,6 +906,10 @@ def _run_ai_pass_worker(boq_name: str, sheet_name: str, user: str = None) -> Non
     if user:
         frappe.set_user(user)
 
+    if not ai_run_log.begin_run(run_name, boq_name, sheet_name):
+        return
+
+    api_key = None
     try:
         rows = _fetch_review_rows_for_ai(boq_name, sheet_name)
 
@@ -854,9 +917,33 @@ def _run_ai_pass_worker(boq_name: str, sheet_name: str, user: str = None) -> Non
         settings = get_boq_ai_settings()
         api_key = get_boq_ai_api_key()
 
-        suggestions = boq_ai_assist.run_ai_pass(sheet_name, rows, settings, api_key)
+        # Prompt v2 (S1b): the per-row examples + candidate parents. Never raises for a
+        # library problem -- the pass then runs without examples (boq_ai_guidance). The library
+        # is released inside build_guidance, BEFORE the first Claude call below.
+        library_info: dict = {}
+        guidance = boq_ai_guidance.build_guidance(boq_name, rows, info=library_info)
+        ai_run_log.heartbeat(run_name, **ai_run_log.library_fields(library_info))
 
-        _apply_ai_suggestions(boq_name, sheet_name, rows, suggestions)
+        ai_started = time.monotonic()
+        suggestions = boq_ai_assist.run_ai_pass(
+            sheet_name, rows, settings, api_key, guidance=guidance,
+            progress=ai_run_log.progress_recorder(run_name),
+        )
+        ai_seconds = round(time.monotonic() - ai_started, 2)
+
+        if not ai_run_log.still_running(run_name):
+            # The health check failed this run while it was still busy: it has already cleared
+            # the flag and told the page. The late answers are discarded.
+            frappe.db.rollback()
+            return
+
+        _apply_ai_suggestions(
+            boq_name, sheet_name, rows, suggestions,
+            expected_last_parsed_at=ai_run_log.expected_parse_time(run_name),
+        )
+        # S3: Claude's sure "preamble -> line_item" answers go into the parsed result. After the
+        # write-back above, so a superseded run -- which it refuses -- changes no type either.
+        review_flags.apply_sure_changes(boq_name, sheet_name)
 
         # Cache the RAW suggestions keyed on the current last_parsed_at.
         last_parsed_at = _get_last_parsed_at(boq_name, sheet_name)
@@ -870,21 +957,43 @@ def _run_ai_pass_worker(boq_name: str, sheet_name: str, user: str = None) -> Non
             except Exception:
                 pass  # caching must never fail the pass
 
+        ai_run_log.finish_run(
+            run_name, "Done", suggestion_count=len(suggestions), ai_seconds=ai_seconds
+        )
         # Commit BEFORE publish (CODING_STANDARDS.md rule: commit-before-publish avoids races).
         frappe.db.commit()
         _publish_ai_event(
             boq_name, sheet_name, "success", user=user, count=len(suggestions)
         )
 
-    except Exception as exc:
-        frappe.log_error(
-            title=f"BoQ AI pass worker: failed for {boq_name} / {sheet_name}",
-            message=frappe.get_traceback(),
-        )
+    except ai_run_log.RunSuperseded:
         try:
             frappe.db.rollback()
         except Exception:
             pass
+        ai_run_log.mark_superseded(run_name, boq_name, sheet_name)
+
+    except Exception as exc:
+        # Rollback FIRST, then log: an Error Log row inserted before the rollback is rolled back
+        # with everything else, so the failure would leave no trace (and nothing to link).
+        traceback_text = boq_ai_assist.scrub_keys(frappe.get_traceback(), [api_key])
+        try:
+            frappe.db.rollback()
+        except Exception:
+            pass
+        error_log = frappe.log_error(
+            title=f"BoQ AI pass worker: failed for {boq_name} / {sheet_name}",
+            message=traceback_text,
+        )
+        if not ai_run_log.still_running(run_name):
+            # Already failed by the health check (flag cleared, page told): keep that record.
+            frappe.db.commit()
+            raise
+        category, message = boq_ai_assist.classify_failure(exc)
+        ai_run_log.fail_run(
+            run_name, category, message,
+            error_log=getattr(error_log, "name", None), secrets=[api_key],
+        )
         error_code = "ai_failed" if isinstance(exc, _NonRetryable) else "internal"
         _publish_ai_event(boq_name, sheet_name, "error", user=user, error_code=error_code)
         raise

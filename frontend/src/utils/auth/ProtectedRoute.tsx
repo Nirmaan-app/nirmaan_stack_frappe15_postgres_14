@@ -5,6 +5,27 @@ import { TailSpin } from 'react-loader-spinner'
 import { useUserData } from '@/hooks/useUserData'
 import { canManageTendering } from '@/pages/projects/tendering/tenderingAuth'
 
+/**
+ * What RoleRoute shows (S6 F4 / U3, owner ruling Q-e). Pure.
+ *
+ * `useUserData()` reports role "Loading" while the user's record is being read. Before S6 that
+ * fell through to "Access Denied" for a moment on a direct link; now it is a loading state, and
+ * "Access Denied" shows only once the role is known and not allowed.
+ */
+export type RoleRouteState = "allow" | "loading" | "deny";
+
+export const ROLE_LOADING_TEXT = "Checking access…";
+
+export function roleRouteState(
+  role: string | null | undefined,
+  userId: string | null | undefined,
+  allowed: readonly string[],
+): RoleRouteState {
+  if (userId === "Administrator" || (!!role && allowed.includes(role))) return "allow";
+  if (role === "Loading") return "loading";
+  return "deny";
+}
+
 export const ProtectedRoute = () => {
 
     const { currentUser, isLoading } = useContext(UserContext)
@@ -244,9 +265,20 @@ export const RoleRoute = ({
     what: string
 }) => {
     const { role, user_id } = useUserData()
+    const state = roleRouteState(role, user_id, allowed)
 
-    if (user_id === "Administrator" || (!!role && allowed.includes(role))) {
+    if (state === "allow") {
         return <Outlet />
+    }
+
+    // S6 (F4 / U3): while the role is still loading, a loading state -- never "Access Denied".
+    if (state === "loading") {
+        return (
+            <div className="flex flex-col items-center justify-center gap-3 h-[50vh]">
+                <TailSpin visible={true} height="48" width="48" color="#D03B45" ariaLabel="tail-spin-loading" />
+                <p className="text-sm text-gray-600">{ROLE_LOADING_TEXT}</p>
+            </div>
+        )
     }
 
     return (

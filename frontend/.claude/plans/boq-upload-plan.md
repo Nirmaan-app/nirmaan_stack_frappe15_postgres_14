@@ -47197,3 +47197,477 @@ Full report on the Desktop: `2026-10-15_12e5b_Report.md`, the ledger first. Also
 6. The residence baselines are stale before this slice (F2 221 vs 217, F5 120 vs 117); this slice adds 0.
 7. On a section refused by its unit (00321 / 78-81, "Nos"), the section shows "(no family)": the stored reading (Nitrile Rubber) is not displayed.
 8. The pricing toolbar shifts when a row is ticked ("Suggest rates" gains a count), and the BCS button writes on its first click when BCS is off.
+
+
+## Slice S1b — THE GUIDED CLAUDE PROMPT (v2) AND THE EXAMPLES LIBRARY, IN THE APP (2026-10-12, dev2) — SHIPPED
+
+Branch `feature/boq-jev-integration`, built and certified in the dev2 environment only. Decision record: ADR-0005 Amendment A.
+Invariants: `boq-backend.md` § Parser, review tree and commit (the "guided prompt" bullet) and its Residence table.
+
+**What it is.** The Claude review pass ("Run AI pass") now sends the prompt that F1 and S1a-2 measured on 119 committed
+sheets: the six row-type definitions reworded (`meanings_v4`), a `has_qty` yes / no on every row, and a GUIDANCE block after
+the rows with, per row, up to 5 already-committed rows from other BoQs as examples and the candidate parents of shortlist
+rule v4. Nothing about how a suggestion is applied, rejected, reverted or saved changed.
+
+**Built.** Commit `feb8d7335` (feat, boq-ai), 7 files:
+- `services/boq_ai_assist.py` — the v2 template (9,276 characters; byte-equal to F1's construction applied to the previous
+  7,054-character template), `PROMPT_VERSION = "v2"`, `_row_has_qty`, `has_qty` as the 7th wire key, `_render_chunk_prompt`
+  (the one definition of the rendered prompt), the GUIDANCE block, `run_ai_pass(..., guidance=None)`.
+- `services/boq_ai_guidance.py` (new) — the examples library (build from committed data, save, load, look-up with
+  exclusions), shortlist rule v4, `build_guidance` (the worker's one entry point).
+- `api/boq/wizard/ai_assist.py` — four places: `qty_total` + `qty_by_area` in `_AI_FETCH_FIELDS`; the prompt version in
+  `_ai_cache_key`; the Claude job limit 600 -> 1200 s; the worker building the guidance and passing it on.
+- Tests: `services/test_boq_ai_assist.py` (32 -> 47), `services/test_boq_ai_guidance.py` (new, 43),
+  `api/boq/wizard/test_ai_assist.py` (50 -> 60), and the fixture `services/boq_ai_fixtures/guided_prompt_cctv.json`.
+
+**Owner rulings that shaped it.** No scheduled job — the library is rebuilt on demand only, under one lock, with a 3-minute
+wait for a rebuild already in progress (R7). The fixture pins the RENDERER on the wire rows exactly as F1 sent them. The
+capture of the real call was taken with a cert-only launcher around the dev2 worker; no product code records a prompt.
+
+**Order of work (pin first, reword second).** The four `TestGuidedPromptPins` were written and run against the old template
+first: 36 tests, the 4 new ones red, the 32 existing ones green. Then the template changed. The 7 `TestPromptParentingPins`,
+the note-under-note negative pin and the Gemini cross-engine pin were never edited and stayed green.
+
+**Proofs.** The fixture renders BOQ-26-00244 / CCTV (25 wire rows + frozen aids) to sha256
+`799d00a146294326bf4cd5fc447a3861d493c9ffdd654f68e2f04b08fdfe3423`, 43,699 characters. Fifteen mechanisms were each disabled
+in turn and each turned its tests red (has_qty on the wire; the GUIDANCE block; only-two-lists; the cache-key version; the
+1200 s limit; the worker hand-over; the quantity fetch fields; exclusion at look-up; the rebuild lock; the 24 h rule; the
+fallback; the savepoint; parser values for the shortlist; only-four-roles in the build; the fallback line's log level).
+
+**Library, measured in dev2.** 133,477 rows from 298 BoQs (899 sheets with rows): line_item 56,787, spacer 34,273, note
+23,319, preamble 16,371, subtotal_marker 2,604, header_repeat 123. Build 70.2 s; file 182.6 MB; load 2.4 s; peak memory
+587 MiB. 16 TestProject BoQs (5,918 rows) are in the file and excluded at look-up. No test-suite-created BoQ is in it.
+
+**End-to-end (the one paid call).** A real click on BOQ-26-00059 / FPS (39 rows): one call, 28,363 input tokens, 1,494
+output, 15.6 s; the job took 42.1 s; 15 Pending suggestions. The captured request starts with the product's v2 template,
+has 39 seven-key rows and a GUIDANCE block of 195 examples (5 per row); recomputing the guidance from the same library
+reproduces the captured block exactly. A p90 sheet (BOQ-26-00171 / Electrical, 408 rows) takes 35.5 s for library load plus
+look-up and would make 4 calls of about 230,000 input tokens in total (not sent).
+
+**Findings carried forward.**
+1. The `boq_ai` logger writes ERROR and above only (Frappe's default outside the dev server), so its info lines — the
+   existing "pass tokens" line and S1b's guidance timing line — are never written. S1b's "pass continues WITHOUT examples"
+   line was moved to ERROR for that reason; the info lines were left as they are.
+2. The first Claude run after the library goes stale pays about 70 s for the rebuild, and each job holds about 590 MiB.
+3. `services/boq_ai_guidance.py` is 568 lines, over the ~500-line guideline; it was kept as the one module the slice scoped.
+4. Carried to S3, not built here: "Check parent" still shows on auto-changed rows; the banner percentage excludes blank rows.
+
+### Tests (measured in-session, dev2)
+
+Before = a fresh full run at the start commit `482c1e375`: **8,044 tests**, FAILED failures 7 + errors 6 = 13 knowns (the 12
+of 12e-0c plus the daily-window flake, which fires between 00:00 and 05:30 IST). Targeted before the commit:
+`services.test_boq_ai_assist` 47, `services.test_boq_ai_guidance` 43, `services.test_boq_gemini_assist` 16,
+`api.boq.wizard.test_ai_assist` 60, `api.boq.wizard.test_gemini_assist` 36, `api.boq.wizard.test_review_screen` 275 — all
+green. Full suite after the last code commit (Desktop `2026-10-11_S1b_python_full.log`): **8,112 tests** (8,044 + 68 new),
+FAILED failures 7 + errors 6 = the same 13 tests by name. No frontend file changed, so no vitest / tsc run.
+`residence_check`: backend rules holding; F5 120 vs 117 and F2 221 vs 217, the figures 12e-1 measured — this slice adds no
+`JSON.parse` / `updateDoc`.
+
+
+## Slice S2 — AUTOMATIC CLAUDE CHECK AFTER PARSE, RUN LOG, HEALTH CHECK, COMPACT EXAMPLES LIBRARY (2026-10-12, dev2) — SHIPPED
+
+Branch `feature/boq-jev-integration`, built and certified in the dev2 environment only. Decision record: ADR-0032.
+Invariants: `boq-backend.md` § Parser, review tree and commit (the "runs AUTOMATICALLY after a parse" bullet and the
+PostgreSQL index rule) and its Residence table. No frontend file changed; the two run buttons stay until S4.
+
+**What it is.** After a parse commits, one Claude review job is queued for every sheet that ended "Parsed" — no click.
+Every run (automatic, re-parse, manual, manual cache hit) has a `BoQ AI Run Log` record with its heartbeat, tokens, timings
+and failure reason. A health check fails a dead run and clears stuck "AI pass running" flags. The examples library is held
+in a compact form and released before Claude is called.
+
+**Built.** Commit `3a229cccd` (feat, boq-ai), 16 files:
+- `api/boq/wizard/ai_run_log.py` (new, 502 lines) — run-log writes, the health check and its timed task, the after-parse
+  enqueue.
+- `api/boq/wizard/ai_assist.py` — `_apply_ai_suggestions` gains the superseded refusal (1 line changed, 13 added, nothing
+  else); the endpoint writes a run record (manual, and Done / cached on a cache hit) and heals on start; the status read
+  heals; the worker stamps heartbeats, records the library step, rolls back BEFORE it logs, classifies the failure.
+  `accept_ai_suggestion`, `reject_ai_suggestion`, `revert_ai_acceptance` and `_publish_ai_event` are byte-identical.
+- `api/boq/wizard/parse_run.py` — 8 added lines: one import, `on_parse_start`, `enqueue_after_parse`.
+- `services/boq_ai_assist.py` — failure categories, `scrub_keys`, the `progress` callback, `max_retries=0`, the job-timeout
+  re-raise. Prompt, wire rows and GUIDANCE block unchanged (fixture sha `799d00a1…fe3423`, 43,699 characters, still
+  reproduces).
+- `services/boq_ai_guidance.py` — library file format 2, release inside `build_guidance`, the `info` report.
+- `hooks.py` — ONE added scheduler entry (`*/5 * * * *`, `ai_run_log.heal_stale_runs_task`).
+- Doctype `BoQ AI Run Log` (created through Frappe in developer mode) with its controller and test.
+- Tests: `test_ai_run_log.py` (new, 69), `test_ai_assist.py` 60 -> 61, `test_parse_run.py` 110 -> 119,
+  `services/test_boq_ai_assist.py` 47 -> 59, `services/test_boq_ai_guidance.py` 43 -> 55, the doctype test (6).
+
+**Proofs.** Twelve mechanisms were each broken in turn and each turned its test red, then restored: the superseded
+refusal; the 6-minute rule; the 22-minute rule; "never clear a flag whose job is alive"; the general-specs exclusion;
+rollback-before-log; `max_retries=0`; the job-timeout re-raise; the key scrub; the compact library's unseen-word weight;
+the library release; the seam after the parse commit. Two of those tests were sharpened first because their original
+break stayed green. The auto-run test guard was deliberately not broken (it would let a test queue a real job).
+
+**Library, measured in dev2** (133,477 rows, 48,436 tokens, 10,479,594 postings): file 191.5 MB -> 65.9 MB; worker process
+542 MiB loaded / 620 MiB peak -> 224 MiB after look-up / 250 MiB peak / **147 MiB during the Claude call**; load 2.1 s ->
+0.4 s; look-up of 16,851 rows 2,065 s -> 1,904 s; build 47 s at a 322 MiB peak. The process is 129 MiB before any library,
+so the library's own share went from about 430 MiB to about 95 MiB (121 at peak). **Same examples:** 0 of 16,851 F1 rows
+differ (examples, order, scores) and the FPS GUIDANCE block is byte-identical. The 150 MiB target is met for the library's
+share and during the call, not for the whole process at its peak.
+
+**Migration (dev2).** New table `tabBoQ AI Run Log`, indexes `boq_ai_run_log_boq` and `boq_ai_run_log_status`, System
+Manager read / report / export only. **Incident, disclosed:** the doctype's first index design made the second migration run
+Frappe's nameless `DROP INDEX`, which removed `boq` on `tabBOQ Nodes` and `status` on `tabVendor Invoices` (dev2 only). Both
+were recreated exactly (checked against the ENV-1 dump's index list), the design was corrected, and a third migration ran
+clean with all 666 indexes of the database identical before and after. The same latent hazard exists in 28 doctypes
+(68 un-flagged indexed columns, 16 with a live victim today); they were not changed. See ADR-0032.
+
+**End-to-end (the one paid call).** "Re-parse Sheet" on BOQ-26-00059 / FPS (39 rows): parse done at 13:00:32 UTC, the
+Claude job started by itself in the same second, the Review page showed "AI pass running…", and the `boq:ai_pass_done`
+socket event (port 9100) arrived at 13:01:23.675 — the page re-fetched its rows 16 ms later, with no status poll completing
+between 13:00:52 and the event and no reload. Run record: trigger re-parse, Done, 28,363 input / 1,604 output tokens, 16
+suggestions, library ok, look-up 7.9 s, AI 18.1 s, memory peak 239.9 MiB. Zero-spend proofs: a fake rate-limit failure
+(Failed, "rate limit", Error Log linked, 3 fake requests); a stalled run healed by the timed task called directly, its chip
+cleared on the open page 3 s later. That same call cleared the 31 Claude and 34 Gemini flags stuck since June (queues
+empty, so no job alive): 31 / 34 -> 0 / 0.
+
+**Findings carried forward.**
+1. With the scheduler off, a dead run is healed only when someone opens the sheet, starts a run or re-parses. Production
+   needs `enable_scheduler` on for the 5-minute check.
+2. The health event for a stalled run is published to the run's owner; another user with the page open learns it from the
+   3-second poll instead (seen in the cert: Administrator's run, admins@ watching).
+3. The Review page reads `ai_in_progress` from the BOQs document it already holds: a flag set while the page is open shows
+   only after that document is fetched again. S4 owns the page.
+4. An unknown `error_code` ("stale") shows the page's generic failure text. S4.
+5. Between a Gemini job leaving the queue and entering RQ's started registry (milliseconds) the clean-up could clear its
+   flag; only the chip is affected, never the result.
+6. `BoQ AI Run Log` is never pruned. The old library file (190 MB) is left on disk, unused.
+7. The worker spends about 20 s before its first line of work (process start-up), as in S1b; the run record shows it as
+   the gap between queued and started.
+8. Carried to S3 / S4 unchanged from S1b: "Check parent" on auto-changed rows; the banner percentage; the info-level log
+   lines (now superseded by the run record for timings and tokens).
+
+### Tests (measured in-session, dev2)
+
+Before = S1b's saved full run: **8,112 tests**, 13 known failures. Targeted before the commit (15 modules, 1,125 tests): all
+green except the two knowns that live in those modules. Full suite after the commit, run twice: run 1 (16:00 IST, dev2's
+bench DOWN) 8,221 tests, 14 failing — the 12 daytime knowns plus two Snag PDF tests that need dev2's own web server
+(`wkhtmltopdf ... ConnectionRefusedError`); run 2 (17:08 - 17:37 IST, bench UP, the owner's chosen "after") **8,221 tests
+(8,112 + 109 new), failures 6 + errors 6 = 12**: the baseline 13 by name minus `test_daily_window_picks_a_wo_touched_since`,
+the 00:00 - 05:30 IST flake, absent at that hour. Nothing new. The dev2 runbook now says to start the bench before a full
+suite. No frontend file changed, so no vitest / tsc run. `residence_check`: backend rules holding; F5 120 vs 117 and F2 221
+vs 217 as before — this slice adds no `JSON.parse` / `updateDoc`.
+
+
+## Slice S3 — REVIEW FLAGS, LOOKS OK, FINALIZE BLOCK, REVERT RETURNS MOVED CHILDREN (2026-10-13, dev2) — SHIPPED (backend)
+
+Branch `feature/boq-jev-integration`, built and certified in the dev2 environment only. Decision record: ADR-0033.
+Invariants: `boq-backend.md` § Parser, review tree and commit (the "Review flags are WORKED OUT, never stored" bullet)
+and its Residence table. **No frontend file changed**: the tick, pills, counter, filter, banner and the removal of the AI
+buttons and columns are S4, and S3 must not reach production without S4 (owner, Q-g).
+
+**What it is.** Claude's automatic check (S2) now decides what the reviewer must look at. Its sure "preamble -> line_item"
+answers are written into the parsed result. Everything else it doubts, and any row with a unit or quantity that is not an
+item, becomes a flag — "Check type" or "Check parent" — worked out from the row's own facts each time. Mark Finalized is
+refused while a flag is open. A revert also returns the children its row moved (owner ruling R20).
+
+**Built.** Commit `ffffe0b83` (feat, boq-ai), 8 files:
+- `api/boq/wizard/review_flags.py` (new, 637 lines) — the rules (`row_flags`, `sheet_flag_state`, `summarize`), the sure
+  changes (`apply_sure_changes`), the "Looks OK" endpoint (`mark_row_looks_ok`), the counts endpoint
+  (`get_check_summary`), the finalize block (`guard_finalize`), the revert cascade (`plan_child_reverts`,
+  `guard_child_reverts`, `revert_moved_children`).
+- `api/boq/wizard/ai_assist.py` — two added calls to `apply_sure_changes`, right after `_apply_ai_suggestions`: in the
+  worker and in the cached-result path. `accept_ai_suggestion`, `reject_ai_suggestion`, `revert_ai_acceptance`,
+  `_publish_ai_event` and `_apply_ai_suggestions` are byte-identical.
+- `api/boq/wizard/review_screen.py` — `get_review_rows` (three fetched fields; `check_flags` per row and `check_summary`;
+  the hidden parser type is dropped from the reply), `mark_sheet_parsed_check_done` (the last check),
+  `revert_to_parser` (the cascade — the one approved change to a protected function). `_apply_and_save_row_edit`,
+  `save_review_edit` and `save_review_restructure` are byte-identical.
+- `api/boq/wizard/ai_run_log.py` — `check_state` / `check_states` (done / running / incomplete / not_run, from the run
+  records of the sheet's CURRENT parse) and `prune_old_runs` (6 months, at most once a day, called by the existing
+  5-minute task). `hooks.py` unchanged.
+- Doctype `BoQ Review Row` (through Frappe's DocType tool): `parser_classification` (hidden), `ai_flags_ok`,
+  `ai_flags_ok_by`, `ai_flags_ok_at`. No index.
+- Tests: `test_review_flags.py` (new, 102), `test_ai_run_log.py` 69 -> 85, `test_review_screen.py` +17
+  (`TestRevertReturnsMovedChildren`). 135 new tests; no existing test changed.
+
+**Proofs.** 33 mechanisms were each broken in turn and each turned its test red, then restored byte-identical: the
+sure-change conditions (5), both call sites (2), the flag rules (6), clearing (4), Looks OK (2), the finalize block (3),
+the hidden type (1), the check status (1), retention (3), the revert cascade (6).
+
+**Migration (dev2).** Exit 0. All 666 indexes of the database identical before and after; the only column change is the
+four new columns on `tabBoQ Review Row`. Frappe's tool also generated an untracked `boq_review_row.js` stub, which was
+deleted and never staged.
+
+**End-to-end (BOQ-26-00059 / FPS, 39 rows; two paid runs, 56,726 input tokens).** Re-parse from the hub; Claude ran by
+itself; 7 rows re-typed to Item (Excel rows 20, 28, 34, 37, 38, 39, 41 — shown Item / Original), 6 rows flagged = 15.8% of
+38 non-blank rows (row 31 "Check type"; rows 21, 22, 23, 24, 29 "Check parent"). Pressing Mark Finalized while the check
+ran: *"The automatic check is still running on this sheet. Try again when it finishes."* After it: *"Check the 6 flagged
+rows before finalizing: rows 21, 22, 23, 24, 29, 31."* Change type, Change parent and "Looks OK" (API) each cleared their
+flag; Revert brought it back; a type other than Claude's was accepted. Row 20 re-typed with its four children moved: the
+re-mapped children kept "Check parent". Revert of row 20 returned the children; a child moved by hand in between stayed
+where it was put. Finalized on screen, committed v1: 38 committed rows against 38 non-blank review rows, type and parent,
+0 differences. The flagged count stayed 6 throughout.
+
+The check was run twice: the first run showed that a row moved onto the parent Claude named dropped out of the flagged
+count (15.8% -> 13.2%). A parent doubt is now measured against the PARSED parent, and the flag is closed when the row
+sits on the parent Claude named; commit 1 was amended and the whole check repeated.
+
+**Findings carried forward (S4 unless said).**
+1. The old AI Rec pill still shows on a re-typed row, and rejecting a pill does not clear a flag.
+2. The parser's own "needs-review: priced_preamble_with_children" warning still shows on rows Claude re-typed.
+3. After a revert, a "Gemini suggestion" block appears on a row Gemini never answered: `gemini_suggested_parent` is 0 by
+   column default and `revert_to_parser`'s clean-up reads `>= 0` as "a suggestion exists". Older than S3; not changed.
+4. A row with only "Looks OK" cannot be reverted, so the mark cannot be taken back until S4 offers an un-tick.
+5. The finalize refusals are raised as errors because the screen has no branch for a new kind of `{ok: false}` reply; S4
+   can grey the button out from `check_summary`.
+6. A revision row can need two ticks (the revision "Looks OK" and the new one).
+7. "Edit values / Edit text / Edit per-area values": 61 edits on the 9 Oct 2026 production copy, all on 22-24 June 2026;
+   the owner ruled the three blocks are removed from the screen in S4, the endpoint and the old history stay.
+8. Two messages the owner has not worded: the API refusal "Row N has no open flag to confirm." and the guard "Row N
+   can't be reverted: the row its child was moved from no longer exists." (unreachable on an uploaded BoQ).
+9. The old 191 MB examples library file on dev2 was deleted (owner ruling R14).
+
+### Tests (measured in-session, dev2)
+
+Before = S2's saved full run: **8,221 tests**, failures 6 + errors 6. Targeted before the commit (36 modules, 2,129
+tests): all green except the three known errors of `test_update_sheet_draft.TestMigrateWorkPackageToMulti`.
+Full suite after the last code commit (03:26 - 04:01 IST, dev2's bench up): **8,356 tests (8,221 + 135 new), failures 7 + errors 6 = 13**: S2's 12 by name plus `test_daily_window_picks_a_wo_touched_since`, the 00:00 - 05:30 IST flake, present at that hour. Nothing new. No frontend file changed, so no vitest / tsc run. `residence_check`: backend rules holding; F5 120 vs 117
+and F2 221 vs 217 as before.
+
+
+## Slice S4a — THE REVIEW SCREEN: CHECK FLAGS, LOOKS OK AND UNDO, AI AND GEMINI UI REMOVED (2026-10-13, dev2) — SHIPPED
+
+Branch `feature/boq-jev-integration`, built and certified in the dev2 environment only. Decision record: ADR-0034.
+Invariants: `boq-frontend.md` § Load-bearing invariants (the "Review flags are DRAWN here, never decided here" bullet
+and the five after it) and `boq-backend.md` § Parser, review tree and commit. No doctype change, no migration. The
+banner for a failed or stalled check, the removal of the three "Edit values" blocks and the hub are S4b.
+
+**What it is.** The review screen now shows what S3 works out. A flagged row carries a pill ("Check type", "Check
+parent", "Check both", then "Checked") and an orange wash; a strip above the grid counts the rows left; the row detail
+has a "Needs checking" block with the reason and a "Looks OK" button, with "Undo" once ticked. Mark Finalized is greyed
+out, with the reason on hover, while the check runs or a flag is open. Every AI and Gemini piece is gone from the
+screen: no run button, no suggestion, no confidence, no model name.
+
+**Built.** Commit `cfc7100c3` (feat, boq-review), 12 files:
+- `frontend/src/pages/boq-wizard/reviewCheckFlags.ts` (new, pure) — every sentence of the feature and the reading of
+  `check_flags` / `check_summary`: `checkPill`, `matchesCheckFilter`, `checkCounter`, `checkReasonLines`,
+  `isCheckRunning`, `finalizeBlockMessage`, `revertMessageLines`. No flag rule lives on the client.
+- `ReviewCheckParts.tsx` (new) — draws the pill, the counter strip and the "Needs checking" block.
+- `ReviewTree.tsx` — AI Rec column, Gemini column, both accept blocks and the indigo / violet row tints removed; Check
+  column in the AI Rec column's place (anchor count stays 8), Check filter, tint, grid "OK", Undo, the revert notice.
+  Prop `geminiEnabled` replaced by `checkSummary`.
+- `SheetReviewPage.tsx` — the AI and Gemini buttons, strips and message lines removed; the "Checking rows…" chip; Mark
+  Finalized greyed through `finalizeBlockMessage`; a `boq:parse_run_done` listener; the 3-second poll stops itself.
+- `boqTypes.ts` — the check types added, the Gemini view types removed. `GeminiAcceptBlock.tsx` and
+  `GeminiSuggestionColumn.tsx` deleted.
+- `api/boq/wizard/review_flags.py` — `unmark_row_looks_ok` (whitelisted, one row per call), `children_left_behind` /
+  `children_not_returned`, `flagged_by_kind` in the summary, `no_looks_ok_message`.
+- `api/boq/wizard/review_screen.py` — `revert_to_parser` returns `children_not_returned` and re-offers a suggestion
+  only on a row that already carries a status, on the Claude and the Gemini line (both owner-approved, Q-b);
+  `_compute_advisory_flags` drops the parser's needs-review warning on a row Claude re-typed.
+- Tests: `test_review_flags.py` 102 -> 142; `reviewCheckFlags.test.ts` (new, 38). In `test_review_screen.py` four
+  whole-reply pins gained `"children_not_returned": []` and the whitelist pin gained `unmark_row_looks_ok`.
+
+**Proofs.** 25 mechanisms were each broken in turn and each turned its named tests red, then restored byte-identical
+(12 backend, 13 frontend). Protected checksums re-taken after the build: of 37 entries only `revert_to_parser` and
+the whole file `ReviewTree.tsx` differ. All 666 indexes and every BoQ table column identical before and after.
+
+**End-to-end (BOQ-26-00059 / FPS, 39 rows; two paid runs, 56,726 input tokens).** Re-parse from the hub; the chip
+showed and cleared with no reload; 6 flagged of 38 non-blank rows = 15.8% (row 31 "Check type"; rows 21, 22, 23, 24, 29
+"Check parent"); screen and server agreed at every step. Change type and Change parent struck their pills; grid "OK",
+detail "Looks OK", "Undo" and a re-tick worked; a revert of row 20 said *"Row 20 reverted, along with 3 child rows it
+had moved: rows 21, 23, 24."* and *"Row 22 was not moved back because it was moved separately."* Green strip, Mark
+Finalized, committed v2: 38 committed rows, 0 differences against the review rows and against the screen. The parser
+warning: gone on FPS rows 20 and 28 after the re-type; on HVAC row 12, 13 warnings -> 12 on a type change -> 13 after
+the revert. The first paid run was exploratory (it produced no "Check type" row); the second is the one reported.
+
+**Not seen on screen.** A flagged revision row with both ticks (owner ruling Q-i: no paid re-parse of a real-project
+copy) — tests only, deferred to S5. The "Has a unit or quantity but isn't an Item" line and "Row N has no Looks OK to
+undo." — tests only.
+
+**Findings carried forward (S4b unless said).**
+1. While the check runs the strip shows the raw parse's unit / quantity flags for about a minute, then settles.
+2. A revert as the very first action on a freshly loaded page failed once (the page's draft-lock call and the revert's
+   own collide); a second click works. Older than S4a; not changed.
+3. A failed or stalled check shows nothing on the screen until the banner exists.
+4. Moving a child onto the parent Claude named closes its flag (S3's rule), so the strip can turn green mid-way.
+5. The AI answers still travel in the review reply and the AI / Gemini endpoints are intact; nothing on the screen
+   reads them. `RestructureModal.tsx` still has an AI-preset branch that no caller reaches.
+6. A reverted row reads "Edited" (owner: unchanged in S4a).
+7. `review_flags.py` is past the 500-line guideline.
+
+### Tests (measured in-session, dev2)
+
+Before: Python = S3's saved full run, **8,356 tests**, failures 7 + errors 6; vitest **5,986 tests**, 1 failed
+(`writeOffControl.test.ts`, a 5-second timeout); tsc **3,170 errors in 300 files** (dev2's standing list, run with a
+4 GB heap; the plain run dies out of memory). Targeted before the commit (33 modules, 2,090 tests): the three known
+errors of `test_update_sheet_draft.TestMigrateWorkPackageToMulti` plus two snag-PDF tests that need the bench, which
+was down for the run.
+After the code commit: Python full suite (15:40 - 16:28 IST) **8,396 tests (8,356 + 40 new), failures 6 + errors 6 =
+12**, all in S3's list by name; the 00:00 - 05:30 IST flake `test_daily_window_picks_a_wo_touched_since` passed at
+that hour. vitest **6,024 tests (5,986 + 38 new)**, the same 1 failure. tsc **3,170 errors in 300 files**, the same
+list line for line (line numbers set aside), none in a file S4a changed. `residence_check`: backend rules holding;
+F5 120 vs 117 and F2 221 vs 217 as before.
+
+
+## Slice S4b — BANNERS, HUB AND PARSE SUMMARY, SOFT SUGGESTION, EDIT-VALUES REMOVAL, REVERT FIXES (2026-10-14, dev2) — SHIPPED
+
+Branch `feature/boq-jev-integration`, built and certified in the dev2 environment only. Decision record: ADR-0035.
+Invariants: `boq-frontend.md` § Load-bearing invariants (the five S4b bullets after "The page re-reads itself") and
+`boq-backend.md` § Parser, review tree and commit (the two S4b bullets). Frontend only: no Python file, doctype or
+migration changed.
+
+**What it is.** The review screen warns when more than 40% of a sheet's non-blank rows are flagged, and when the
+automatic check did not finish (with a "Re-parse sheet" button that opens the hub's re-parse dialog). The hub's cards,
+footer and "Parse complete" summary say what the check found. A row with an open flag shows the check's answer as a
+"Suggested" type or parent, never pre-selected. The three "Edit values / text / per-area" blocks are gone. "Revert to
+parser" is "Revert to original", and it no longer fails as the first action after a page load.
+
+**Built.** Commit `ddd9a72af` (feat, boq-review), 14 files under `frontend/src/pages/boq-wizard/`:
+- `hubCheckSummary.ts` (new, pure) — `cardCheck`, `footerRowsToCheck`, `parseSummary`, `summaryReady`,
+  `anyCheckRunning`; every number from `review_flags.get_check_summary`.
+- `editIntent.ts` (new) — `afterEditIntent`: wait for the page's draft-lock call, then write (R33).
+- `reviewCheckFlags.ts` — banner texts, `pctText`, `isCheckIncomplete`, `suggestionFor`, `orderWithSuggestion`,
+  `suggestedParentLine`, `REVERT_LABEL` / `REVERT_HINT` / `REVERT_FAILED_MESSAGE`; `checkCounter` returns null while the
+  check runs (R32).
+- `ReviewCheckParts.tsx` — `SuggestedTag`, `HeavySheetBanner`, `CheckIncompleteBanner`.
+- `ReviewTree.tsx` — the Edit Row toggle, the three blocks and the "Confirm value change" dialog removed (`saveCall` kept
+  for the template quantity cells); the Change list ordered with the suggestion; the revert waits for the lock.
+- `RestructureModal.tsx` — one optional prop and one clickable "Suggested parent: ..." line below the Keep / Move radios.
+- `SheetReviewPage.tsx`, `BoqHubPage.tsx`, `SheetCard.tsx`, `ParseRunDialog.tsx`, `boqTypes.ts` — wiring and wording.
+- Tests: `reviewCheckFlags.test.ts` 38 -> 80; `hubCheckSummary.test.ts` (new, 32); `editIntent.test.ts` (new, 6).
+
+**Proofs.** 28 mechanisms were each broken in turn and each turned its named tests red, then restored byte-identical.
+Protected checksums: of 37 entries only the whole files `ReviewTree.tsx` and `RestructureModal.tsx` differ. All 666
+indexes and all 788 BoQ table columns identical before and after; every other review row and every other BoQ's committed
+nodes unchanged by count and checksum.
+
+**End-to-end (three paid runs, 85,182 input tokens; one AI-off window at zero cost).** BOQ-26-00059 / FPS re-parsed from
+the hub: the card and summary held during the check, then "FPS 5 of 38 rows (13.2%)"; every number equal to the
+server's. Flags checked by "Looks OK", by a different type and by a different parent than the one suggested; finalized;
+committed v3: 38 rows, 0 differences against the review rows and against the screen. AI switched off on dev2 for four
+minutes: BOQ-26-00060 / FPS (7 of 38, 18.4%, check incomplete) and BOQ-26-00300 / UPS (4 of 8, 50%: the heavy banner and
+the incomplete banner together); UPS's five earlier hand changes put back, finalized with the check incomplete (D1), not
+committed. Two defects found in the first pass and fixed before commit: the Suggested parent line took the dialog's
+opening focus (moved below the radios), and the hub footer counted a sheet still being checked (now left out). Ten
+recordings of the workflow were made for the owner.
+
+**Seen and left alone (R4).** A reverted row's Status reads "Edited" and its history line "Reclassified: Note -> — —"; a
+"moved parent" reason names the internal row index; `residence_check` F5 120 vs 117 and F2 221 vs 217, unchanged since
+before S3 (S4b adds none).
+
+### Tests (measured in-session, dev2)
+
+Before: vitest **6,024 tests**, 1 failed (`writeOffControl.test.ts`, a 5-second timeout); tsc **3,170 errors in 300
+files** (4 GB heap). No Python file changed, so no Python suite. Targeted before the commit: 28 files, **1,275 tests**,
+all passed. After the code commit: vitest **6,104 tests (6,024 + 80 new)**, the same 1 failure; tsc **3,170 errors in 300
+files**, the same list file by file, none in a file S4b changed.
+
+### Feature complete (S1-S4b)
+
+After a parse, Claude checks every sheet automatically (S1-S2). Its sure answers are applied, and every row it doubts,
+or that has a unit or quantity without being an Item, is flagged (S3). The reviewer sees the flags, the reason and a
+"Suggested" answer on the review screen. They fix the row or confirm it with "Looks OK" (S4a, S4b), and cannot finalize
+a sheet until every flag is checked. The hub and the parse summary say how many rows each sheet needs checked, and a
+sheet whose check did not finish says so and can still be finalized on the parser's result. No AI or Gemini control or
+name is left on the review screen. S3, S4a and S4b ship together (R30); S5 is the end-to-end trial on real BoQs.
+
+## Slice S5 - END-TO-END TRIAL ON 10 REAL BoQs (2026-10-14, dev2) - DONE (no code change)
+
+Operational run on tip `3c0c008ae`; no code, doctype or migration changed, so no test suite ran. Full report and raw
+data: Desktop `JEV Integration\s5\REPORT_s5.md` and `s5\data\` (rows, actions, runs, set-up, blanking, confusion
+tables, screens, defects, raw review rows at three points; README per file).
+
+**What was tried.** Ten committed Sep-Oct 2026 BoQs with a clean set-up (00283, 00236, 00212, 00318, 00274, 00344,
+00327, 00333, 00304, 00297) plus two revision pairs (00212 -> 00227, 00318 -> 00337). Each original's set-up and
+committed rows were recorded as the answer key; a copy with every rate and amount blanked (formulas and text too;
+four proofs per sheet) was uploaded to "Test Project 1-10" (tendering), set up as the original, parsed (Claude checked
+it automatically), re-parsed on four sheets, reviewed with every user action, finalized and committed. 00283 and 00236
+ran fully in the browser (real file picker, set-up by hand, full cert); the rest through the same whitelisted endpoints
+in-process as the owner's dev2 user. Test BoQs BOQ-26-00639..00650 are kept on dev2.
+
+**Results.**
+
+| Measure | Clean rows (headline, Q1) | All rows | Bar |
+|---|---|---|---|
+| Row type (parser + Claude = parser; 0 sure changes) | 94.8% (324 rows) | 97.3% (2,002) | 95% |
+| Parent | 93.2% | 96.2% | 90% |
+| Rows flagged | 13.3% | 19.4% | 10 / 25 / 50% |
+| Flag catch rate / precision | 48% / 27.9% | 58.7% / 15.7% | - |
+| "Suggested" right (type / parent) | 5 of 10 / 8 of 39 | 13 of 69 / 37 of 347 | - |
+| "Suggested" taken when the row was wrong | - | 42 of 59 (71%) | - |
+
+- End to end: 12 BoQs, 29 sheet commits; committed = review screen, 0 differences everywhere; committed = answer key
+  except 23 "Sub - Total" rows, which the blanked copies parse as note/preamble/spacer and a user cannot set back
+  (Subtotal is not a choosable type). Without those rows type is 98.0% clean / 98.3% all.
+- Set-up copied with 0 unexplained differences; re-parse = fresh parse on 00304 Sheet2, 00274 CCTV, 00283 FFA, 00236
+  FAPA; finalize refused naming the rows; downstream pricing rows = committed nodes on all 29 sheets.
+- Revisions: 0 copied rows flagged on both (D5); a row needing both the revision Looks OK and a check flag shows both,
+  separately, on screen (T9).
+- Sheets over 40% flagged: 00297 FAS 63% (0 of 68 flags on a wrong row), 00212 cabling 57%, 00327 49.5%.
+- 84% of rows had their own original among Claude's five examples; every sheet would need a clean re-run once the
+  original's family is excluded from the library.
+- Spend: 31 Claude runs, 1,872,327 input tokens (cap 80 / 3,000,000); 0 failures. Every BoQ outside the test projects
+  unchanged (checksums of all 383 before and after).
+
+**Defects (recorded, not fixed; for S6).**
+- **Wrong result:** a sheet whose name starts or ends with a space (00274 " Rodent", 00236 "FPS ") never gets the
+  automatic check: `ai_run_log._enqueue_after_parse` selects sheets with a Frappe `["in", ...]` filter, which strips the
+  values. The sheet shows no flags and no "not checked" warning, and can be finalized with wrong rows.
+- Flag noise: parent flags whose Suggested parent is wrong, on rows already right (00297, 00344, 00327).
+- Confusing: Mark Finalized disabled with its reason only in an invisible tooltip; Subtotal not choosable; after a
+  re-parse of a committed sheet the card still says "Committed v1 - Ready for tendering" and the commit dialog
+  re-commits untouched sheets; deep-link review route flashes "Access Denied" before the role loads; search Enter
+  finds but does not scroll; column-map role rows re-sort while mapping.
+- Cosmetic: hub subtitle "Map sheets before parsing" after commit and footer "0 of 2 reviewed - 2 checked"; reverted
+  row keeps "Edited"; upload screen holds "Parsing BoQ..." while the tab is hidden.
+
+## Slice S6 - S5 DEFECT FIXES, CLEAN RE-RUN, SHORT SCREEN CHECK (2026-10-15, dev2) - SHIPPED
+
+Decision record: ADR-0036. Invariants: `boq-backend.md` section Parser, review tree and commit (the six S6 bullets) and
+`boq-frontend.md` section Load-bearing invariants (the six S6 bullets). Full report: Desktop `JEV Integration\s6\REPORT_s6.md`.
+
+**Fixed (11 of S5's 12 defects; DEF-02 flag noise is deferred to a review after a few weeks in production, owner V1).**
+- DEF-01: the automatic check picks parsed sheets by exact name. A Frappe "in" filter stripped " Rodent" / "FPS ";
+  dev2 had 279 such drafts in 154 BoQs and none had ever been checked.
+- U1 "not checked" (card, review banner, summary line, footer count): only for a sheet never committed or re-parsed
+  after its last commit (Q-i).
+- DEF-03: the reason Mark Finalized is off shows as text, with the open Excel rows.
+- DEF-04: RoleRoute shows "Checking access..." while the role loads.
+- DEF-05: hub subtitle and footer follow the BoQ's state.
+- DEF-06: "Subtotal" is in the review Change list. A review-only set at the two save checks; template paths and the
+  parser are unchanged.
+- DEF-07: a full revert clears "Edited" (screen and CSV), and history names the type / parent the row went back to.
+- DEF-08: Enter in review search scrolls to the match.
+- DEF-09: column-map rows stay in place.
+- DEF-10: upload status polls while the tab is hidden.
+- DEF-12: the commit row says "Re-parsed after vN"; the commit dialog pre-selects only sheets changed since their last
+  commit. The gate and pipeline are unchanged; a re-finalize without a re-parse is not detected (Q-f).
+- History reasons show the Excel row; stored reasons are unchanged.
+- DEF-11 was not a defect: a wrong-case doctype name in the S5 script.
+
+**Commits:** `fc9525845` (fix, 30 files) and this docs commit.
+- Tests after: Python 8,403 run (S4a's 6 failures + 6 errors, plus the known 00:00-05:30 IST flake
+  `test_daily_window_picks_a_wo_touched_since`); vitest 6,157 in 173 files (the known writeOffControl timeout);
+  tsc 3,170, the same set, none in a changed file.
+- Vacuity: 3/3 backend and 15/15 frontend.
+- Indexes (666), BoQ columns (788) and every pre-existing BoQ are unchanged.
+
+**Clean re-run (owner V2): 28 test sheets re-parsed through `run_parse(force_reparse=True)`.**
+- Claude's examples excluded the 10 originals, their revision families (incl. BOQ-26-00228) and the 12 test BoQs,
+  through the site-config list `boq_ai_evaluation_exclude_boqs`. The list was then emptied and removed.
+- Own-row-in-examples was 0 on all 2,322 rows.
+- Spend: 28 runs, 1,851,442 input tokens (cap 35 / 2.2 M).
+
+| First upload, same 1,994 rows | S5 (leak) | S6 clean re-run | Bar |
+|---|---|---|---|
+| Parser only, row type / parent | 95.3% / 96.1% | 95.3% / 96.1% (0 rows differ) | - |
+| Parser + Claude, row type | 97.2% | **96.9%** | 95% |
+| Parser + Claude, parent | 96.1% | **96.1%** | 90% |
+| Claude sure changes made / right | 53 / 46 | 41 / 37 | - |
+| Rows flagged | 19.5% | **23.9%** | 10 / 25 / 50% |
+| Flag catch rate / precision | 58.7% / 15.7% | 69.4% / 15.8% | - |
+| "Suggested" type right | 13 of 69 | 30 of 124 | - |
+| "Suggested" parent right | 37 of 347 | 14 of 403 | - |
+
+- The leak flattered the suggested parent above all. 00333's 15 of 15 became 1 of 26.
+- Sheets over 40% flagged: 00297 FAS 62%, 00327 60%, 00212 cabling 59%.
+- Revision rows (328): parser + Claude 99.7%; 0 copied rows flagged.
+- **Correction to S5:** S5's report said Claude made 0 sure changes and "parser + Claude = parser". That was a
+  measurement error. The script read the parser type from the review reply, which drops `parser_classification` by
+  design. The parser itself gave identical output in both runs (`s6\PARSER_DIFF_INVESTIGATION.md`).
+
+**Next: S7 = merge into the main dev environment** (owner V4: "we will merge with main dev after s6 is succesful and
+then deply to prodcution along with piping work, once piping work is also done"). The production deploy comes later,
+together with the Piping work.

@@ -2984,3 +2984,206 @@ class TestParseDoneRevisionCarryPayload(FrappeTestCase):
         payload = self._parse_and_capture(rev.name)
 
         self.assertNotIn("revision_carry", payload)
+
+
+# ---------------------------------------------------------------------------
+# S2: the automatic Claude check after a parse (the ONE seam in _run_parse_worker)
+# ---------------------------------------------------------------------------
+
+class TestAutoClaudeCheckSeam(FrappeTestCase):
+    """_run_parse_worker -> ai_run_log.on_parse_start (at the start) and
+    ai_run_log.enqueue_after_parse (after the parse commit, before the parse event).
+
+    frappe.enqueue is a mock and the AI settings are patched: NO job reaches the queue and no AI
+    call is made. Workbook: SheetA + SheetB (data) + SOW (general specs)."""
+
+    _CLAUDE_WORKER = "nirmaan_stack.api.boq.wizard.ai_assist._run_ai_pass_worker"
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        generate_all()
+        cls.test_project = _make_project()
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws1 = wb.active
+        ws1.title = "SheetA"
+        ws1.append(["SL", "Description", "Unit", "Qty", "Rate", "Amount"])
+        ws1.append([1, "Alpha Item", "nos", 2, 100.0, 200.0])
+        ws2 = wb.create_sheet("SheetB")
+        ws2.append(["SL", "Description", "Unit", "Qty", "Rate", "Amount"])
+        ws2.append([1, "Beta Item", "nos", 3, 50.0, 150.0])
+        ws_sow = wb.create_sheet("SOW")
+        ws_sow.append(["General Specifications"])
+        ws_sow.append(["1. All materials to meet IS standards."])
+        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        wb.save(tmp.name)
+        tmp.close()
+        cls._wb_path = tmp.name
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            os.unlink(cls._wb_path)
+        except OSError:
+            pass
+        _cleanup_project(cls.test_project.name)
+        super().tearDownClass()
+
+    def tearDown(self):
+        frappe.db.rollback()
+        for boq in frappe.get_all(
+            "BOQs", filters={"project": self.__class__.test_project.name}, fields=["name"]
+        ):
+            frappe.db.delete("BoQ AI Run Log", {"boq": boq.name})
+            frappe.db.delete("BoQ Review Row", {"boq": boq.name})
+            frappe.delete_doc("BOQs", boq.name, force=True, ignore_permissions=True)
+        frappe.db.commit()
+
+    def _make_boq(self, sheet_b_status="Config Done"):
+        blob = json.dumps(_PROD_BLOB_TMPL)
+        boq = frappe.new_doc("BOQs")
+        boq.project = self.__class__.test_project.name
+        boq.boq_name = f"Auto Check {frappe.generate_hash(length=6)}"
+        boq.tax_treatment = "Pre-tax"
+        boq.source_file_url = self.__class__._wb_path
+        boq.append("general_specs_sheets", {"source_sheet_name": "SOW", "preamble_text": ""})
+        boq.append("sheet_drafts", {
+            "sheet_name": "SheetA", "sheet_order": 1,
+            "wizard_status": "Config Done", "sheet_config": blob,
+        })
+        boq.append("sheet_drafts", {
+            "sheet_name": "SheetB", "sheet_order": 2, "wizard_status": sheet_b_status,
+            "sheet_config": blob if sheet_b_status == "Config Done" else None,
+        })
+        boq.append("sheet_drafts", {"sheet_name": "SOW", "sheet_order": 3, "wizard_status": "Config Done"})
+        boq.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return boq
+
+    def _parse(self, boq_name, enqueue=None, allowed=True, **worker_kwargs):
+        from unittest.mock import MagicMock, patch
+        enqueue = enqueue or MagicMock()
+        base = "nirmaan_stack.api.boq.wizard.ai_run_log."
+        with patch(base + "_auto_run_allowed", return_value=allowed), \
+             patch(base + "get_boq_ai_settings", return_value={"enabled": True}), \
+             patch(base + "get_boq_ai_api_key", return_value="test-key"), \
+             patch("frappe.enqueue", enqueue):
+            _run_parse_worker(boq_name, user="Administrator", **worker_kwargs)
+        return [c for c in enqueue.call_args_list if c.args and "boq" in str(c.args[0])]
+
+    def _runs(self, boq_name):
+        frappe.db.rollback()
+        return frappe.get_all(
+            "BoQ AI Run Log", filters={"boq": boq_name},
+            fields=["sheet_name", "trigger", "status"], order_by="creation",
+        )
+
+    def _draft(self, boq_name, sheet, field):
+        return frappe.db.get_value(
+            "BoQ Sheet Draft", {"parent": boq_name, "parenttype": "BOQs", "sheet_name": sheet}, field
+        )
+
+    def test_one_claude_job_per_parsed_sheet_and_none_for_general_specs(self):
+        boq = self._make_boq()
+        calls = self._parse(boq.name)
+        self.assertEqual([c.args[0] for c in calls], [self._CLAUDE_WORKER] * 2,
+                         "one job per parsed sheet, the Claude worker only -- Gemini is never auto-run")
+        self.assertEqual(sorted(c.kwargs["sheet_name"] for c in calls), ["SheetA", "SheetB"])
+        self.assertEqual({c.kwargs["timeout"] for c in calls}, {1200})
+        runs = self._runs(boq.name)
+        self.assertEqual(sorted((r.sheet_name, r.trigger, r.status) for r in runs),
+                         [("SheetA", "auto-after-parse", "Queued"), ("SheetB", "auto-after-parse", "Queued")])
+        self.assertEqual([int(self._draft(boq.name, s, "ai_in_progress") or 0)
+                          for s in ("SheetA", "SheetB", "SOW")], [1, 1, 0])
+
+    def test_the_job_is_queued_only_after_the_parse_is_committed(self):
+        from unittest.mock import MagicMock
+        boq = self._make_boq()
+        seen = {}
+
+        def enqueue(*args, **kwargs):
+            frappe.db.rollback()        # anything the parse has not committed is gone now
+            sheet = kwargs["sheet_name"]
+            seen[sheet] = (
+                self._draft(boq.name, sheet, "wizard_status"),
+                frappe.db.count("BoQ Review Row", {"boq": boq.name, "sheet_name": sheet}) > 0,
+                frappe.db.get_value("BoQ AI Run Log", kwargs["run_name"], "sheet_last_parsed_at")
+                == self._draft(boq.name, sheet, "last_parsed_at"),
+            )
+
+        self._parse(boq.name, enqueue=MagicMock(side_effect=enqueue))
+        self.assertEqual(seen, {"SheetA": ("Parsed", True, True), "SheetB": ("Parsed", True, True)})
+
+    def test_the_seam_runs_after_the_parse_commit(self):
+        """The seam call itself comes AFTER the commit: a rollback at the moment it is called
+        loses nothing of the parse (parsed_at is the last write before that commit)."""
+        from unittest.mock import patch
+        boq = self._make_boq()
+        seen = {}
+
+        def seam(boq_name, parsed_sheets, user=None, prior_parsed=frozenset()):
+            frappe.db.rollback()
+            seen["parsed_at"] = frappe.db.get_value("BOQs", boq_name, "parsed_at")
+            seen["status"] = self._draft(boq_name, "SheetA", "wizard_status")
+            seen["sheets"] = sorted(parsed_sheets)
+            return []
+
+        with patch("nirmaan_stack.api.boq.wizard.ai_run_log.enqueue_after_parse", side_effect=seam):
+            _run_parse_worker(boq.name, user="Administrator")
+        self.assertIsNotNone(seen["parsed_at"])
+        self.assertEqual((seen["status"], seen["sheets"]), ("Parsed", ["SheetA", "SheetB"]))
+
+    def test_a_failed_parse_queues_nothing(self):
+        from unittest.mock import patch
+        boq = self._make_boq()
+        with patch("nirmaan_stack.api.boq.wizard.parse_run.parse_boq",
+                   side_effect=RuntimeError("forced failure for test")):
+            calls = self._parse(boq.name)
+        self.assertEqual(self._draft(boq.name, "SheetA", "wizard_status"), "Parse failed")
+        self.assertEqual((calls, self._runs(boq.name)), ([], []))
+
+    def test_a_skip_or_hidden_sheet_gets_no_job(self):
+        for status in ("Skip", "Hidden"):
+            boq = self._make_boq(sheet_b_status=status)
+            calls = self._parse(boq.name)
+            self.assertEqual([c.kwargs["sheet_name"] for c in calls], ["SheetA"], status)
+            self.assertEqual(self._draft(boq.name, "SheetB", "wizard_status"), status)
+
+    def test_a_re_parse_queues_again_and_is_logged_as_re_parse(self):
+        boq = self._make_boq()
+        self._parse(boq.name)
+        calls = self._parse(boq.name, force_reparse=True)
+        self.assertEqual(sorted(c.kwargs["sheet_name"] for c in calls), ["SheetA", "SheetB"])
+        triggers = [(r.sheet_name, r.trigger) for r in self._runs(boq.name)]
+        self.assertEqual(sorted(triggers), [
+            ("SheetA", "auto-after-parse"), ("SheetA", "re-parse"),
+            ("SheetB", "auto-after-parse"), ("SheetB", "re-parse"),
+        ])
+
+    def test_a_parse_inside_a_test_run_never_queues_a_real_job(self):
+        boq = self._make_boq()
+        calls = self._parse(boq.name, allowed=not frappe.flags.in_test)
+        self.assertEqual((calls, self._runs(boq.name)), ([], []))
+        self.assertEqual(self._draft(boq.name, "SheetA", "wizard_status"), "Parsed")
+
+    def test_an_auto_run_problem_never_fails_the_parse(self):
+        from unittest.mock import patch
+        boq = self._make_boq()
+        base = "nirmaan_stack.api.boq.wizard.ai_run_log."
+        with patch(base + "_enqueue_after_parse", side_effect=RuntimeError("queue down")), \
+             patch(base + "heal_stale_runs", side_effect=RuntimeError("health check down")):
+            _run_parse_worker(boq.name, user="Administrator")
+        self.assertEqual(self._draft(boq.name, "SheetA", "wizard_status"), "Parsed")
+        self.assertEqual(int(self._draft(boq.name, "SheetA", "parse_in_progress") or 0), 0)
+
+    def test_the_seam_is_one_import_and_two_calls(self):
+        import inspect
+
+        from nirmaan_stack.api.boq.wizard import parse_run
+        source = inspect.getsource(parse_run)
+        self.assertEqual(source.count("ai_run_log."), 2)
+        self.assertEqual(source.count("ai_run_log.on_parse_start("), 1)
+        self.assertEqual(source.count("ai_run_log.enqueue_after_parse("), 1)
+        worker = inspect.getsource(parse_run._run_parse_worker)
+        self.assertLess(worker.index("ai_run_log.enqueue_after_parse("), worker.index("# Step 8: Publish"))

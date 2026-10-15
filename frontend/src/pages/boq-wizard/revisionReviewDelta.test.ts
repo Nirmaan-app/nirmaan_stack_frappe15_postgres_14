@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   computeRevisionDelta,
@@ -39,6 +41,7 @@ function row(
     edited_at: string | null;
     edit_log: unknown[] | null;
     description: string | null;
+    has_override: boolean | null;
   }> = {},
 ) {
   return {
@@ -271,5 +274,34 @@ describe("status badges", () => {
   it("makes the blocking state red and the confirmed state calm", () => {
     expect(REVISION_NEEDS_REVIEW_BADGE.className).toContain("red");
     expect(REVISION_REVIEWED_BADGE.className).not.toContain("red");
+  });
+});
+
+describe("isReviewRowEdited after a full revert (S6 F7 / U6)", () => {
+  const typeRevert = [
+    { field: "human_classification", from: "preamble", to: "note", reason: null },
+    { field: "human_classification", from: "note", to: null, reason: "reverted to parser" },
+  ];
+
+  it("no standing change and only type / parent history -> not edited ('Original' pill)", () => {
+    expect(isReviewRowEdited(row({ has_override: false, edited_at: "2026-10-14 19:40:40", edit_log: typeRevert }))).toBe(false);
+    expect(isReviewRowEdited(row({
+      has_override: false, edited_at: "2026-10-14 19:40:40",
+      edit_log: [{ field: "human_parent", from: null, to: null, reason: "reverted with row 5 (parent restore)" }],
+    }))).toBe(false);
+  });
+
+  it("negative: a standing change, or a value / text edit a revert keeps -> still edited", () => {
+    expect(isReviewRowEdited(row({ has_override: true, edit_log: typeRevert }))).toBe(true);
+    expect(isReviewRowEdited(row({ has_override: false, edit_log: [...typeRevert, { field: "qty_total", from: 1, to: 2 }] }))).toBe(true);
+  });
+
+  it("without has_override (an older caller) the rule from before holds", () => {
+    expect(isReviewRowEdited(row({ edit_log: typeRevert }))).toBe(true);
+  });
+
+  it("the CSV export uses the same rule (Q-g; source)", () => {
+    const csv = readFileSync(join(__dirname, "exportReviewCsv.ts"), "utf8");
+    expect(csv).toContain("return isReviewRowEdited(row);");
   });
 });
