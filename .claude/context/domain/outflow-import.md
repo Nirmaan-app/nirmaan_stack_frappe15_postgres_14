@@ -6726,7 +6726,7 @@ PDF is never downloaded twice**. There is no other path that moves a `Failed` in
 **The import's state is derived, never stored.** `import_state(statuses)`: `Validating` while any invoice
 is Queued / Downloading / Reading / Comparing; `Validated` only when there are invoices and all Passed;
 otherwise `Validation failed` (a Failed invoice is final, an Error one waits for its Retry).
-`porter.porter_import_states(batches)` derives it in one query; **`porter.is_validated(batch)` is the gate
+`porter_records.porter_import_states(batches)` derives it in one query; **`porter_records.is_validated(batch)` is the gate
 Review (#1446) and Create (#1445) ask.** `Outflow Import Batch.status` keeps its bank-line rollup;
 `review.list_imports` replaces it with the derived state for a Porter batch, so Import History reads
 Validating / Validated / Validation failed instead of "Partially Settled" (`importStatusTone`: Validated
@@ -6763,17 +6763,18 @@ that step, and the import reads `Validating` until it is discarded (#1447); ther
 `porter.remark_group_key(remarks, city)` and `porter.REASON_REVIEW`. Screen logic:
 `frontend/src/pages/outflow-import/porterReview.ts`; panel `components/PorterReviewPanel.tsx`.
 
-**The gate.** Both endpoints refuse an import that is not Validated (`porter.is_validated`; "every invoice
+**The gate.** Both endpoints refuse an import that is not Validated (`porter_records.is_validated`; "every invoice
 has to pass its check against Porter's own PDF first"), so review is closed while invoices are checked and
 for good once one Failed. ⚠️ `is_validated` asks the invoices only (#1445), so it stays true once Create has
 started: what stops an edit then is the per-line rule below (a line no longer `Pending match run` is
-refused). The screen offers the step only on `state == "Validated"` (`porterReviewOffered`), i.e. before
-Create starts; the stepper moves to *Review projects* through `ImportFlowState.validated`.
+refused). The screen offers the step on `state == "Validated"` (`porterReviewOffered`), and again on a
+stopped *Creating* import with orders still to create (review fixes, below); the stepper moves to *Review
+projects* through `ImportFlowState.validated`.
 
 **What it shows.** Every completed order (cancelled ones are not placed), in file order, with `crn`,
 `completed_on`, `fare`, `remarks`, `city`, `from_address`, `to_address` (from `porter_line` through
 `statement_line`), `booked_by`, its placement (`ledger`, `project`, `project_name`, `reason`, `strength`),
-`editable` (still `Pending match run`) and `group_key`; plus the Won projects, the only ones offered.
+`editable` (Create would still write it: `porter_state.CREATE_LINE_STATUSES`, review fixes) and `group_key`; plus the Won projects, the only ones offered.
 - **Group key** (server, so #1448's group-majority rule uses the same one): city + remark, case-folded,
   punctuation and spacing collapsed; **blank when the remark is blank** — such an order is reviewed on its
   own, with its addresses and who booked it.
@@ -6826,7 +6827,7 @@ Accountant Lead, like `Porter Invoice`); one read-only, indexed `porter_order` L
 `Non Project Expenses`; `porter statement` added to `Outflow Row Match.match_basis`; `Material Transportation
 Charges` carries `non_project: 1` in `fixtures/expense_type.json` (pinned by `test_fixture_completeness`).
 
-**The gate.** The endpoint refuses unless `porter.is_validated(batch)` (every Porter Invoice Passed; the
+**The gate.** The endpoint refuses unless `porter_records.is_validated(batch)` (every Porter Invoice Passed; the
 refusal names the state: Validating / Validation failed), and refuses an import already Created. ⚠️
 `is_validated` asks the INVOICES only, so it stays true while Creating: a re-run passes the same gate. The
 job asks again before it writes, so a job enqueued any other way writes nothing on an unvalidated import.
@@ -6859,8 +6860,8 @@ the link — so the re-run reuses the line's Porter Order: one Porter Order per 
 insert: Frappe's `"*"` on_update hook `file.utils.attach_files_to_document` otherwise inserts a `File` row
 for any Attach value under `/files` or `/private/files` (a local-storage site; a cloud URL is
 `/api/method/…` and skipped), one per expense, sharing the invoice's stored object. Nothing is derived from
-`invoice_attachment`. A later ordinary save of the expense on a local-storage site would still trigger that
-hook (not in production, where the URL is a cloud one).
+`invoice_attachment`. A later ordinary save is kept from minting one too by
+`integrations/controllers/expense_files` (review fixes, below).
 
 **CEO-Hold.** The insert hook's check is de-duplicated per request per project (`trigger_check`) and the whole
 job is one request, so only the first expense of a project would count. The job calls
@@ -6895,8 +6896,7 @@ Porter Order fields); `api/expense_requests/test_fixture_completeness.py` (both 
 Invoice, which only Admin, Accountant and Accountant Lead can read: other roles who can open the expense get
 403 on the raw URL (story 53). Since #1450 the expense screens open it through
 `porter_expense.porter_invoice_pdf`, keyed on the expense's own read permission (`expenses.md` § Porter
-expenses). An `Error` line cannot be re-placed in Review (it is not `Pending match
-run`) before a re-run.
+expenses). Since the review fixes an `Error` line can be re-placed in Review before a re-run.
 
 ### As built — #1448: project suggestions from typos, initials, site addresses and earlier imports (2026-10-15)
 
@@ -7030,7 +7030,7 @@ the same statement uploads again); `frontend/.../porterDiscard.test.ts`.
 **Where it lives.** `api/outflow_import/porter_rectify.py`: `get_porter_rectify_plan(rows)` (GET, reads only)
 and `rectify_porter_rows(rows, project, reason)` (POST). Both use `require_outflow_undo_access` (Admin,
 Accountant Lead). Pure, in `services/outflow_import/porter.py`: `booked_by(statement)` (Create uses it too),
-`rectified_description`, `description_hand_edited`. `porter_review` now exports `won_projects()` and
+`rectified_description`, `description_hand_edited`. `porter_records` (since the review fixes; `porter_review` before) exports `won_projects()` and
 `refuse_unless_won(project)`, shared by Review and Rectify.
 
 **One endpoint for one line and for ticked lines.** `rows` is a JSON list (at most `RECTIFY_LIMIT` = the bulk
@@ -7091,3 +7091,53 @@ new match, the line, the description rule, refusals and roles, atomicity, both p
 ticked lines with a refused one, the plan, Unreconcile on a Porter line, an added attachment that moves and is
 never cloud-deleted, the live expense behind the Porter Order); `services/outflow_import/test_porter.py`
 (description rule); the Porter AST guard in `test_porter_import` covers `porter_rectify`.
+
+### As built — the spec/1442 review fixes (2026-10-15)
+
+**Module map after the split** (no re-exports; every caller imports the owner):
+- `services/outflow_import/porter.py` — the statement: `read_porter_statement`, `statement_line`, `REASON_*`
+  / `STRENGTH_*`, `remark_group_key`, `EXPENSE_TYPE`, `MATCH_BASIS`, `OWN_IMPORT_LINE_REFUSAL`.
+  `porter_state.py` — `INVOICE_*`, `IMPORT_*`, `CREATE_LINE_STATUSES`, `import_state`. `porter_verdict.py` —
+  `judge_invoice` and its dataclasses (figures printed by `amounts.rupees(…, paise=True)`, the one rupee
+  formatter). `porter_wording.py` — `expense_description`, `booked_by`, `rectified_description`,
+  `description_hand_edited`, `porter_order_fields`. The frontend parity tests read `REASON_*` from
+  `porter.py` and the import states from `porter_state.py`.
+- `api/outflow_import/porter_records.py` — the doctypes (`BATCH_/ROW_/INVOICE_/ORDER_DOCTYPE`, `SOURCE`),
+  `WON`, `won_projects`, `won_refusal`, `refuse_unless_won`, `refuse_unless_porter_import(batch,
+  for_update=)`, `line_names`, `porter_import_states`, `is_validated`, `create_job_id`, `created_imports`,
+  `created_anything`. `porter_upload.py` — the upload's steps (`read_upload`, `read_statement`,
+  `leave_out_porter_repeats`, `held_invoices`, `placement_master`, `stage`). `porter.py` keeps the three
+  endpoints (`upload_porter_statement`, `retry_porter_invoice`, `get_porter_status`) and `porter_status`.
+  Create and Rectify write their match through `porter_create.record_porter_match`.
+- The cancelled-order sentence is `status.SKIP_REASON_PORTER_CANCELLED`, in `SYSTEM_SKIP_SENTENCES` and the
+  skip-kind back-fill.
+
+**The shared invoice PDF (story 52).** No expense ever owns a `File` for a Porter Invoice's PDF:
+`integrations/controllers/expense_files.refuse_invoice_pdf_copy` (`File` `before_insert`) refuses the copy
+Frappe's attach hook tries on every save of a local-path Attach value; that hook swallows the refusal and
+logs "Error Attaching File", and the save goes through. Every expense delete (list page, Unreconcile's
+`delete_created`, Rectify) runs the expense's own Files through `stored_files.delete_files`
+(`expense_files.delete_attached_files`, `after_delete` on both expense doctypes, so after Frappe's link
+checks and before its `remove_all`). Rectify's `_move_attachments` never carries a File whose URL is the
+invoice PDF (`porter_expense.invoice_pdf_url`). Pinned by `test_porter_rectify`
+`TestTheSharedInvoicePdfSurvivesEveryCorrection`.
+
+**Behaviour changes.**
+- Paid by: a blank booked-by name leaves Paid by blank (`create_expense_from_row(…,
+  blank_payment_by_is_actor=False)` from Create and Rectify), never the importer (story 47).
+- Create re-checks every Project line's project with `won_refusal`; a project no longer Won stops that line
+  in Error with "<name> (<id>) is <status>, not Won. Place this order again in Review, then run Create
+  again." Nothing moves it to Non-Project.
+- Review accepts every line in `CREATE_LINE_STATUSES` (waiting, Error, reopened `Mismatched`), still refusing
+  Settled and cancelled ones. The screen offers Review again on a *Creating* import that is not running and
+  has `to_create > 0`; a group's choice places only its still-editable orders (`ReviewItem.toPlace`).
+- Upload takes `.csv` only, server (`porter_upload.read_upload`) and picker (`importWizard.acceptedExtensions`;
+  the export path is `importWizard.sourceExportPath`).
+- The expense lists (and the approval detail) open a Porter Expense's invoice through
+  `porter_expense.porter_invoice_pdf` (`utils/porterExpense.invoiceAttachmentUrl`), so a reader without
+  Porter Invoice access gets the PDF, not a 403 (story 53).
+- Choosing a Porter import from the Import selector or Import History opens its Porter dialog
+  (`porterImport.opensPorterDialog`), never the pinned table.
+- Review and Rectify share one project picker, `components/PorterProjectSelect.tsx` (portaled menu with
+  `pointerEvents: "auto"`).
+
