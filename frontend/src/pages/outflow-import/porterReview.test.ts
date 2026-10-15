@@ -93,8 +93,18 @@ describe("what a suggestion says", () => {
     it("names its reason, and shows a reason it does not know as it is", () => {
         expect(reasonLabel("name")).toBe("Project name in the remark");
         expect(reasonLabel("review")).toBe("Chosen in review");
-        expect(reasonLabel("address")).toBe("address");
+        expect(reasonLabel("someday-signal")).toBe("someday-signal");
         expect(reasonLabel(null)).toBe("No project found");
+    });
+
+    it("names every signal that agreed (#1448)", () => {
+        expect(reasonLabel("name+address")).toBe("Project name in the remark, and its site address");
+        expect(reasonLabel("typo+address")).toBe("Project name misspelt in the remark, and its site address");
+        expect(reasonLabel("address")).toBe("Its site address");
+        expect(reasonLabel("history")).toBe("Kept so in an earlier Porter import");
+        expect(reasonLabel("conflict")).toBe("Name and most addresses point to different projects");
+        // A part it does not know is still shown as it is.
+        expect(reasonLabel("name+someday")).toBe("Project name in the remark, and someday");
     });
 
     it("is plain when strong, and says Check when weak", () => {
