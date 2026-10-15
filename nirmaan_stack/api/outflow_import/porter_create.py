@@ -3,8 +3,8 @@
 
 """The Porter import's Create step: one Porter Order and one Expense per completed order (#1445, ADR-0032).
 
-Part of the Porter pipeline (`api/outflow_import/porter.py` holds the upload and status endpoints; the
-pure rules are in `services/outflow_import/porter.py`). Cashbook's job is the prior art
+Part of the Porter pipeline (`api/outflow_import/porter.py` holds the upload and status endpoints,
+`porter_records.py` the records and gates; the pure rules are in `services/outflow_import/porter*.py`). Cashbook's job is the prior art
 (`cashbook._cashbook_worker` / `_write_one`): the same per-line transaction, the same writer.
 
 EACH COMPLETED LINE, IN ONE TRANSACTION, COMMITTED BEFORE THE NEXT
@@ -17,10 +17,10 @@ EACH COMPLETED LINE, IN ONE TRANSACTION, COMMITTED BEFORE THE NEXT
     4. the line -> Settled
 
 ⚠️ ONLY A VALIDATED IMPORT IS CREATED. The endpoint refuses anything else, and the job asks again before
-it writes (`porter.is_validated`): every Porter Invoice must have Passed, and there is no override.
+it writes (`porter_records.is_validated`): every Porter Invoice must have Passed, and there is no override.
 
 ⚠️ IT RESUMES, AND IT RE-CREATES WHAT WAS UNRECONCILED. The job writes every line whose status is in
-`porter.CREATE_LINE_STATUSES` -- waiting, failed on an earlier run (Error), or reopened by Unreconcile
+`porter_state.CREATE_LINE_STATUSES` -- waiting, failed on an earlier run (Error), or reopened by Unreconcile
 (Mismatched, #1449) -- and nothing else. A Settled line is never written twice: each line is re-read
 under its row lock and skipped once it is no longer one of those. A reopened line keeps its Porter Order
 (the Expense owns the link, so Unreconcile deletes only the Expense), and the re-run reuses it.
@@ -33,7 +33,7 @@ and an expense's own Files are deleted through `stored_files.delete_files`.
 
 ⚠️ THE CEO-HOLD GAP IS RE-EVALUATED ONCE PER PROJECT AT THE END. The Project Expense insert hook's check
 is de-duplicated per request (`project_cashflow_hold_update.trigger_check`), and the whole job is one
-request: only the first expense of a project would be counted. `_resync_cashflow_hold` runs for every
+request: only the first expense of a project would be counted. `resync_cashflow_hold` runs for every
 project the run wrote to, after the last line.
 """
 
@@ -41,42 +41,38 @@ from __future__ import annotations
 
 import frappe
 
-from nirmaan_stack.api.outflow_import.expenses import (
-    MATCH_DOCTYPE,
-    _refresh_batch_rollup,
-    _target_snapshot,
-)
+from nirmaan_stack.api.outflow_import.expenses import MATCH_DOCTYPE, target_snapshot
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
-from nirmaan_stack.api.outflow_import.porter import (
-    BATCH_DOCTYPE,
+from nirmaan_stack.api.outflow_import.porter import porter_status
+from nirmaan_stack.api.outflow_import.porter_records import (
     INVOICE_DOCTYPE,
+    ORDER_DOCTYPE,
     ROW_DOCTYPE,
-    SOURCE,
     create_job_id,
     is_validated,
     porter_import_states,
-    porter_status,
+    refuse_unless_porter_import,
+    won_refusal,
 )
-from nirmaan_stack.api.outflow_import.porter_review import won_refusal
-from nirmaan_stack.api.outflow_import.review import _StagedRow
-from nirmaan_stack.api.outflow_import.unreconcile_cleanup import _resync_cashflow_hold
+from nirmaan_stack.api.outflow_import.review import StagedRow, refresh_batch_rollup
+from nirmaan_stack.api.outflow_import.unreconcile_cleanup import resync_cashflow_hold
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.import_comment import import_comment
 from nirmaan_stack.services.outflow_import.ledgers import PROJECT_EXPENSE_DOCTYPE
-from nirmaan_stack.services.outflow_import.porter import (
+from nirmaan_stack.services.outflow_import.porter import EXPENSE_TYPE, MATCH_BASIS, statement_line
+from nirmaan_stack.services.outflow_import.porter_state import (
     CREATE_LINE_STATUSES,
-    EXPENSE_TYPE,
     IMPORT_CREATED,
-    MATCH_BASIS,
+    IMPORT_VALIDATION_FAILED,
+    IMPORT_VALIDATING,
+)
+from nirmaan_stack.services.outflow_import.porter_wording import (
     booked_by as booked_by_of,
     expense_description,
     porter_order_fields,
-    statement_line,
 )
 from nirmaan_stack.services.outflow_import.settle import ExpenseInvoice, create_expense_from_row
 from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED
-
-ORDER_DOCTYPE = "Porter Order"
 
 _JOB = "nirmaan_stack.api.outflow_import.porter_create.create_porter_import"
 
@@ -96,16 +92,15 @@ def create_porter_expenses(batch: str):
     again after a run that left a line in Error, or after a line was unreconciled, creates only those.
     """
     user = require_outflow_access()
-    if frappe.db.get_value(BATCH_DOCTYPE, batch, "source") != SOURCE:
-        frappe.throw(f"{batch} is not a {SOURCE} import.", title="Not a Porter import")
-    if not is_validated(batch):
-        state = porter_import_states([batch])[batch]
+    refuse_unless_porter_import(batch)
+    state = porter_import_states([batch])[batch]
+    if state in (IMPORT_VALIDATING, IMPORT_VALIDATION_FAILED):
         frappe.throw(
             f"{batch} cannot be created: it is {state}. Create unlocks only once every Porter Invoice "
             "agrees with Porter's own PDF.",
             title="Not validated",
         )
-    if porter_import_states([batch])[batch] == IMPORT_CREATED:
+    if state == IMPORT_CREATED:
         frappe.throw(f"Every order of {batch} is already created.", title="Already created")
     frappe.enqueue(
         _JOB,
@@ -177,7 +172,7 @@ def create_porter_import(batch: str, actor: str) -> None:
 
     for project in sorted(projects):
         try:
-            _resync_cashflow_hold(project)
+            resync_cashflow_hold(project)
             frappe.db.commit()
         except Exception:
             frappe.db.rollback()
@@ -186,7 +181,7 @@ def create_porter_import(batch: str, actor: str) -> None:
                 message=f"{batch} / {project}\n\n{frappe.get_traceback()}",
             )
 
-    _refresh_batch_rollup(batch)
+    refresh_batch_rollup(batch)
     frappe.db.commit()
 
 
@@ -216,7 +211,7 @@ def _create_one(name: str, batch: str, actor: str, invoices: dict[str, ExpenseIn
     # ⚠️ THE ADAPTER, NOT THE RAW ROW: the writer reads `added_on_date` and a Decimal `amount` by
     # attribute (see `cashbook._write_one`, where a raw doc cost 115 blank payment dates).
     result = create_expense_from_row(
-        _StagedRow(row),
+        StagedRow(row),
         doctype=doctype,
         expense_type=EXPENSE_TYPE,
         actor=actor,
@@ -232,26 +227,7 @@ def _create_one(name: str, batch: str, actor: str, invoices: dict[str, ExpenseIn
         porter_order=order,
     )
 
-    match = frappe.new_doc(MATCH_DOCTYPE)
-    match.update(
-        {
-            "import_row": row.name,
-            "import_batch": batch,
-            "transfer_id": row.transfer_id,
-            "target_doctype": result.doctype,
-            "target_name": result.name,
-            "target_amount": float(result.amount),
-            "match_kind": MATCH_SETTLED,
-            "match_basis": MATCH_BASIS,
-            "settlement_origin": _ORIGIN,
-            "created_by_import": 1,
-            "matched_at": frappe.utils.now_datetime(),
-            "matched_by": actor,
-            # Frozen after insert: the project this expense was created on, for a later Rectify's history.
-            **_target_snapshot(result.doctype, result.name),
-        }
-    )
-    match.insert(ignore_permissions=True)
+    record_porter_match(row, batch, result, actor, _ORIGIN)
 
     # Raw: `Outflow Import Row` has no doc_events; the batch rollup is recomputed from the rows at the end.
     frappe.db.set_value(
@@ -270,6 +246,32 @@ def _create_one(name: str, batch: str, actor: str, invoices: dict[str, ExpenseIn
         update_modified=False,
     )
     return project
+
+
+def record_porter_match(row, batch: str, expense, actor: str, origin: str) -> None:
+    """The Settled `Outflow Row Match` of a Porter line and the Expense written for it: `porter.MATCH_BASIS`,
+    `created_by_import`, and the project snapshot (frozen after insert, for a later Rectify's history).
+    Create's, and Rectify's for the replacement (#1449). `row` carries `name` and `transfer_id`; `expense`
+    `doctype`, `name` and `amount`."""
+    match = frappe.new_doc(MATCH_DOCTYPE)
+    match.update(
+        {
+            "import_row": row.name,
+            "import_batch": batch,
+            "transfer_id": row.transfer_id,
+            "target_doctype": expense.doctype,
+            "target_name": expense.name,
+            "target_amount": float(expense.amount),
+            "match_kind": MATCH_SETTLED,
+            "match_basis": MATCH_BASIS,
+            "settlement_origin": origin,
+            "created_by_import": 1,
+            "matched_at": frappe.utils.now_datetime(),
+            "matched_by": actor,
+            **target_snapshot(expense.doctype, expense.name),
+        }
+    )
+    match.insert(ignore_permissions=True)
 
 
 class _LineRefused(Exception):

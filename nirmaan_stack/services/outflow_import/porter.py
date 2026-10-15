@@ -4,9 +4,8 @@
 """The Porter Statement import's pure rules (ADR-0032, GLOSSARY § Porter deliveries).
 
 PURE MODULE -- no `frappe`, no database. `api/outflow_import/porter.py` reads the file and the project
-master, calls these, and persists what they decide. Later slices of spec #1442 (validation, placement,
-review, Create, Rectify, Discard) extend THIS module and that one; nothing Porter-shaped lives anywhere
-else.
+master, calls these, and persists what they decide. Nothing Porter-shaped lives outside the `porter*`
+modules of `services/outflow_import/` and `api/outflow_import/`.
 
 WHAT A PORTER STATEMENT IS. Porter's monthly CSV, one line per delivery order. Each line names the
 **Porter Invoice** that bills it (its `invoice_link`), and a Porter Invoice bills only its COMPLETED
@@ -17,14 +16,15 @@ WHAT THIS MODULE DECIDES.
 
 1. `read_porter_statement` -- the file grouped into its Porter Invoices, or a REFUSAL. Nothing is saved
    before this has accepted the whole file, because saving the CSV commits inside the request.
-2. `REASON_*` / `STRENGTH_*` -- why each completed order is placed where it is, and how far to trust it.
+2. `statement_line` -- the one reader of a line's stored columns.
+3. `REASON_*` / `STRENGTH_*` -- why each completed order is placed where it is, and how far to trust it.
    The signals that decide it are in `porter_placement.py` (#1448); the review writes `REASON_REVIEW`.
-3. `remark_group_key` -- which review group an order is assigned with (#1446).
-4. `judge_invoice` -- whether one Porter Invoice's PDF, as Gemini read it, agrees with the statement
-   (#1444); `import_state` -- the import's Validating / Validated / Validation failed, from its invoices,
-   then Creating / Created from its lines (#1445).
-5. `expense_description`, `porter_order_fields`, `CREATE_LINE_STATUSES` -- what Create writes for each
-   completed order, and which lines it writes (#1445).
+4. `remark_group_key` -- which review group an order is assigned with (#1446).
+
+Its siblings, each pure too: `porter_state` (the invoices' and the import's states, and the lines Create
+still writes), `porter_verdict` (does an invoice PDF agree with the statement, #1444), `porter_wording`
+(what Create and Rectify write on the Expense and the Porter Order, #1445 / #1449), `porter_placement`
+(#1448) and `porter_repeats` (#1447).
 
 ⚠️ IT NEVER CALLS THE MATCHER. A Porter line creates its expense and settles nothing (ADR-0032, like
 Cashbook's ADR-0015), so nothing here may reach `match_batch` / `match_row`; pinned by an AST test.
@@ -34,12 +34,11 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from nirmaan_stack.services.outflow_import.amounts import PORTER_INVOICE_TOLERANCE
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
 from nirmaan_stack.services.outflow_import.parser import (
     PORTER_ORDER_COMPLETED,
@@ -47,33 +46,9 @@ from nirmaan_stack.services.outflow_import.parser import (
     ParseResult,
     RawRow,
 )
-from nirmaan_stack.services.outflow_import.status import (
-    ROW_ERROR,
-    ROW_MISMATCHED,
-    ROW_PENDING_MATCH,
-    ROW_SETTLED,
-    ROW_SKIPPED,
-)
 
 __all__ = [
-    "CREATE_LINE_STATUSES",
     "EXPENSE_TYPE",
-    "IMPORT_CREATED",
-    "IMPORT_CREATING",
-    "IMPORT_VALIDATED",
-    "IMPORT_VALIDATING",
-    "IMPORT_VALIDATION_FAILED",
-    "INVOICE_COMPARING",
-    "INVOICE_DOWNLOADING",
-    "INVOICE_ERROR",
-    "INVOICE_FAILED",
-    "INVOICE_IN_FLIGHT",
-    "INVOICE_PASSED",
-    "INVOICE_QUEUED",
-    "INVOICE_READING",
-    "InvoiceFigures",
-    "InvoiceRead",
-    "InvoiceVerdict",
     "MATCH_BASIS",
     "OWN_IMPORT_LINE_REFUSAL",
     "PORTER_COLUMNS",
@@ -88,16 +63,10 @@ __all__ = [
     "REASON_NAME",
     "REASON_REVIEW",
     "REASON_TYPO",
-    "SKIP_REASON_CANCELLED",
     "STRENGTH_CHECK",
     "STRENGTH_STRONG",
-    "expense_description",
-    "import_state",
-    "judge_invoice",
-    "porter_order_fields",
     "read_porter_statement",
     "remark_group_key",
-    "rupees",
     "statement_line",
 ]
 
@@ -134,9 +103,6 @@ REASON_REVIEW = "review"
 #: How far to trust a suggestion. A weak one is marked Check and is reviewed first.
 STRENGTH_STRONG = "Strong"
 STRENGTH_CHECK = "Check"
-
-#: The skip sentence of a cancelled order, beside its locked skip kind (`skip_kinds.SKIP_KIND_PORTER_CANCELLED`).
-SKIP_REASON_CANCELLED = "Porter order cancelled. Porter does not bill it, so it becomes no expense."
 
 #: What Create, Link, Allocate and Skip say when asked to write a Porter line from the main table.
 OWN_IMPORT_LINE_REFUSAL = (
@@ -365,249 +331,3 @@ def remark_group_key(remarks: str | None, city: str | None) -> str:
 
 def _group_words(value: str | None) -> str:
     return " ".join(re.sub(r"[^0-9a-z]+", " ", (value or "").casefold()).split())
-
-
-# --- validation against Porter's own invoice (#1444) ----------------------------------------------
-#
-# Each Porter Invoice moves Queued -> Downloading -> Reading -> Comparing -> Passed / Failed / Error,
-# committed at every step so the dialog can show it. `judge_invoice` is the Comparing step; the job
-# around it lives in `api/outflow_import/porter_validation.py`.
-
-#: `Porter Invoice.validation_status`, in the order an invoice moves through them.
-INVOICE_QUEUED = "Queued"
-INVOICE_DOWNLOADING = "Downloading"
-INVOICE_READING = "Reading"
-INVOICE_COMPARING = "Comparing"
-INVOICE_PASSED = "Passed"
-#: The PDF disagrees with the statement. FINAL: no retry and no override, for anyone (ADR-0032).
-INVOICE_FAILED = "Failed"
-#: The download or the read went wrong, so nothing was decided. Retryable, for that invoice alone.
-INVOICE_ERROR = "Error"
-
-#: The invoice is still being worked on: the import is not decided yet.
-INVOICE_IN_FLIGHT = frozenset({INVOICE_QUEUED, INVOICE_DOWNLOADING, INVOICE_READING, INVOICE_COMPARING})
-
-#: The import's own state, DERIVED from its invoices (`import_state`), never stored.
-IMPORT_VALIDATING = "Validating"
-IMPORT_VALIDATED = "Validated"
-IMPORT_VALIDATION_FAILED = "Validation failed"
-#: Create has started and not every completed line is created yet (#1445): running, stopped with a line
-#: in Error, or a line reopened by Unreconcile. A re-run of Create finishes it.
-IMPORT_CREATING = "Creating"
-#: Every completed line has its Expense.
-IMPORT_CREATED = "Created"
-
-
-
-@dataclass(frozen=True)
-class InvoiceFigures:
-    """The statement's side of the comparison: one Porter Invoice over its COMPLETED orders."""
-
-    invoice_number: str
-    porter_gstin: str
-    customer_gstin: str
-    fare: Decimal
-    tax: Decimal
-
-
-@dataclass(frozen=True)
-class InvoiceRead:
-    """What Gemini read off the invoice PDF. A blank string or `None` means it read nothing there.
-
-    `tax` is the invoice's TOTAL tax: IGST, or CGST + SGST -- the split is irrelevant to the check.
-    """
-
-    invoice_number: str
-    invoice_date: date | None
-    supplier_gstin: str
-    receiver_gstin: str
-    fare: Decimal | None
-    tax: Decimal | None
-
-
-@dataclass(frozen=True)
-class InvoiceVerdict:
-    """`status` is Passed, Failed or Error; `message` names the invoice and why (blank on Passed)."""
-
-    status: str
-    message: str
-
-
-def judge_invoice(statement: InvoiceFigures, read: InvoiceRead) -> InvoiceVerdict:
-    """Compare what Gemini read with the statement's figures for one Porter Invoice.
-
-    Passes only when ALL agree: the invoice number; the supplier GSTIN is Porter's GSTIN; the receiver
-    GSTIN is the customer GSTIN; fare and tax each within `PORTER_INVOICE_TOLERANCE`. Spacing and letter case
-    in a number or a GSTIN are not a difference.
-
-    * Failed -- at least one figure disagrees. Every disagreeing figure is named, invoice first.
-    * Error -- nothing disagrees but a figure was not read. A read glitch decides nothing, so the invoice
-      can be retried; a disagreement outweighs it.
-    """
-    disagree: list[str] = []
-    unread: list[str] = []
-
-    def _identity(label: str, read_value: str, statement_value: str) -> None:
-        if not _ident(read_value):
-            unread.append(_UNREAD_NOUN.get(label, label))
-        elif _ident(read_value) != _ident(statement_value):
-            disagree.append(f"{label}: invoice {read_value.strip()}, statement {statement_value.strip()}")
-
-    def _money(label: str, read_value: Decimal | None, statement_value: Decimal) -> None:
-        if read_value is None:
-            unread.append(_UNREAD_NOUN.get(label, label))
-        elif abs(Decimal(read_value) - Decimal(statement_value)) > PORTER_INVOICE_TOLERANCE:
-            disagree.append(f"{label}: invoice {rupees(read_value)}, statement {rupees(statement_value)}")
-
-    _identity("Invoice number", read.invoice_number, statement.invoice_number)
-    _identity("Porter GSTIN", read.supplier_gstin, statement.porter_gstin)
-    _identity("Customer GSTIN", read.receiver_gstin, statement.customer_gstin)
-    _money("Fare", read.fare, statement.fare)
-    _money("Tax", read.tax, statement.tax)
-
-    number = statement.invoice_number
-    if disagree:
-        return InvoiceVerdict(
-            INVOICE_FAILED, f"Invoice {number} disagrees with the statement. {'; '.join(disagree)}."
-        )
-    if unread:
-        listed = unread[0] if len(unread) == 1 else f"{', '.join(unread[:-1])} and {unread[-1]}"
-        return InvoiceVerdict(
-            INVOICE_ERROR, f"Invoice {number}: could not read the {listed} off the PDF. Retry it."
-        )
-    return InvoiceVerdict(INVOICE_PASSED, "")
-
-
-# How a figure Gemini did not read is named mid-sentence ("could not read the invoice number and tax").
-_UNREAD_NOUN = {"Invoice number": "invoice number", "Fare": "fare", "Tax": "tax"}
-
-
-def import_state(invoice_statuses: Iterable[str], line_statuses: Iterable[str] = ()) -> str:
-    """The import's state, from its Porter Invoices' statuses and (once validated) its lines'.
-
-    Validation, from the invoices: Validating while any invoice is still in hand; Validated only when
-    there are invoices and every one Passed; otherwise Validation failed (a Failed invoice is final, an
-    Error one waits for its Retry). Nothing about the lines can outrank this.
-
-    Create (#1445), from the lines of a validated import, a cancelled (Skipped) line aside:
-      * Validated -- no line has been touched by Create yet;
-      * Created   -- there are completed lines and every one is Settled;
-      * Creating  -- anything between: Create is running, or stopped with a line in Error, or a line was
-        unreconciled after Create (#1449). Each of these is what a re-run of Create finishes.
-
-    Called with the invoices alone it answers the validation question only: `porter.is_validated`.
-    """
-    statuses = list(invoice_statuses)
-    if any(status in INVOICE_IN_FLIGHT for status in statuses):
-        return IMPORT_VALIDATING
-    if not statuses or not all(status == INVOICE_PASSED for status in statuses):
-        return IMPORT_VALIDATION_FAILED
-    completed = [status for status in line_statuses if status != _LINE_SKIPPED]
-    if completed and all(status == _LINE_SETTLED for status in completed):
-        return IMPORT_CREATED
-    if any(status != _LINE_WAITING for status in completed):
-        return IMPORT_CREATING
-    return IMPORT_VALIDATED
-
-
-# --- Create (#1445) ------------------------------------------------------------------------------
-#
-# One Expense per completed order, at Paid, through `settle.create_expense_from_row`; the job around it
-# lives in `api/outflow_import/porter_create.py`.
-
-#: The line statuses Create writes an Expense for: never touched (Pending match run), failed on an earlier
-#: run (Error), or reopened by Unreconcile after it was created (Mismatched, #1449). A Porter line never
-#: runs the matcher, so Mismatched means only that. Settled and Skipped lines are never written.
-CREATE_LINE_STATUSES = (ROW_PENDING_MATCH, ROW_ERROR, ROW_MISMATCHED)
-
-_LINE_WAITING = ROW_PENDING_MATCH
-_LINE_SETTLED = ROW_SETTLED
-_LINE_SKIPPED = ROW_SKIPPED
-
-
-def expense_description(booked_by: str | None, project_name: str | None) -> str:
-    """The owner's wording (spec #1442 story 48): "Porter Delivery raised by {name} for {project}", or
-    without " for {project}" on a Non-Project Expense. A blank name drops "raised by"."""
-    name = (booked_by or "").strip()
-    project = (project_name or "").strip()
-    text = f"Porter Delivery raised by {name}" if name else "Porter Delivery"
-    return f"{text} for {project}" if project else text
-
-
-def booked_by(statement: Mapping[str, str]) -> str:
-    """Who booked the order, as Create writes it into the description and `payment_by`: the statement
-    line's `customer_name`, trimmed. Rectify (#1449) asks the same function, so both agree."""
-    return (statement.get("customer_name") or "").strip()
-
-
-def rectified_description(
-    stored: str | None, booker: str | None, old_project_name: str | None, new_project_name: str | None
-) -> str:
-    """The description a Rectify (#1449) writes on the replacement Expense (spec #1442 story 63).
-
-    Rewritten for the new placement when the stored text is still exactly what Create generated for the
-    old one (surrounding whitespace aside), or blank. Anything else was hand-edited and is kept word for
-    word: "hand-edited" MEANS "differs from the generated text", so no Version history is read.
-    """
-    if description_hand_edited(stored, booker, old_project_name):
-        return stored
-    return expense_description(booker, new_project_name)
-
-
-def description_hand_edited(stored: str | None, booker: str | None, project_name: str | None) -> bool:
-    """Whether a Porter Expense's description differs from what Create generated for its placement (blank
-    and surrounding whitespace aside). A Rectify keeps such a description as it is."""
-    text = (stored or "").strip()
-    return bool(text) and text != expense_description(booker, project_name)
-
-
-# `Porter Order` field <- Porter's statement column. The completion time is the line's own parsed
-# `added_on`; the invoice and the line are links the caller sets.
-_ORDER_TEXT_FIELDS = (
-    ("crn", "crn"),
-    ("vehicle_type", "vehicle_type"),
-    ("city", "city"),
-    ("from_address", "from_address"),
-    ("to_address", "to_address"),
-    ("waypoint_addresses", "waypoint_addresses"),
-    ("travel_duration", "travel_duration"),
-    ("waiting_time", "waiting_time"),
-    ("booked_by", "customer_name"),
-    ("booked_by_mobile", "customer_mobile"),
-    ("booked_by_email", "customer_email"),
-    ("remark", "customer_remarks"),
-    ("order_status", "order_status"),
-)
-
-
-def porter_order_fields(statement: Mapping[str, str]) -> dict:
-    """A `Porter Order`'s order details, from one statement line's columns (`statement_line`).
-
-    Text is trimmed; `fare` is the Porter fare (the Expense amount) and `rcm_gst` the reverse-charge GST
-    the statement prints for the order, which is NEVER part of the Expense.
-    """
-    fields: dict = {field: (statement.get(column) or "").strip() for field, column in _ORDER_TEXT_FIELDS}
-    fields["distance_km"] = normalize_amount(statement.get("travel_distance_kms"))
-    fields["fare"] = normalize_amount(statement.get("invoice_order_fare"))
-    fields["rcm_gst"] = normalize_amount(statement.get("tax_amount"))
-    return fields
-
-
-def rupees(amount: Decimal | float | int) -> str:
-    """`₹12,34,567.50`: two decimals, Indian digit grouping, as a failure message prints a figure."""
-    value = Decimal(str(amount)).quantize(Decimal("0.01"))
-    sign = "-" if value < 0 else ""
-    whole, fraction = f"{abs(value):.2f}".split(".")
-    head, tail = whole[:-3], whole[-3:]
-    groups = []
-    while len(head) > 2:
-        groups.insert(0, head[-2:])
-        head = head[:-2]
-    if head:
-        groups.insert(0, head)
-    return f"{sign}₹{','.join(groups + [tail])}.{fraction}"
-
-
-def _ident(value: str | None) -> str:
-    """An invoice number or GSTIN as compared: no spaces, upper case."""
-    return "".join((value or "").split()).upper()

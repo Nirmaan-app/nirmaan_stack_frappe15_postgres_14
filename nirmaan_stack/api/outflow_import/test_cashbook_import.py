@@ -218,7 +218,7 @@ class TestTheWorker(CashbookImportCase):
 
         The first production import created 115 expenses with a BLANK `payment_date`. Every other
         figure was right and nothing raised: `create_expense_from_row` reads `added_on_date`, which
-        is DERIVED by the `_StagedRow` adapter and does not exist on a raw `Document`, so
+        is DERIVED by the `StagedRow` adapter and does not exist on a raw `Document`, so
         `getattr(row, "added_on_date", None)` returned None in silence.
 
         It survived because the fixtures asserted the fields the writer SETS and never the ones it

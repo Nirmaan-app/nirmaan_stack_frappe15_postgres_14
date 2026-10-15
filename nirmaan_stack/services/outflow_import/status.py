@@ -193,6 +193,7 @@ __all__ = [
     "SKIP_REASON_ALREADY_RECEIVED",
     "SKIP_REASON_ALREADY_LINKED",
     "SKIP_REASON_EXCLUDED_AT_INGEST",
+    "SKIP_REASON_PORTER_CANCELLED",
     "STAGED_NOTE_NO_SETTLEMENT_PATH",
     "SKIP_ORIGIN_SYSTEM",
     "SKIP_ORIGIN_MANUAL",
@@ -356,6 +357,10 @@ SKIP_REASON_EXCLUDED_AT_INGEST = (
     "Excluded by bank-statement rule '{category}'."
 )
 
+# A Porter Statement order Porter cancelled (spec #1442, ADR-0032): staged Skipped and locked at upload,
+# beside its skip kind (`skip_kinds.SKIP_KIND_PORTER_CANCELLED`). Porter's invoice never bills it.
+SKIP_REASON_PORTER_CANCELLED = "Porter order cancelled. Porter does not bill it, so it becomes no expense."
+
 # The landing note for a source that stages straight to `Mismatched` (slice B3, owner ruling Q31).
 #
 # ⚠️ IT SAYS "NO SETTLEMENT PATH", NOT "THE MATCHER NEVER RUNS", AND THE DIFFERENCE IS DELIBERATE.
@@ -384,6 +389,7 @@ SYSTEM_SKIP_SENTENCES = (
     SKIP_REASON_ALREADY_RECEIVED,
     _SKIP_REASON_ALREADY_RECORDED,
     SKIP_REASON_EXCLUDED_AT_INGEST,
+    SKIP_REASON_PORTER_CANCELLED,
 )
 
 
@@ -1259,7 +1265,7 @@ def batch_is_open(status: str | None) -> bool:
     never written, and MUST STAY THAT WAY.
 
     A batch closes ITSELF instead: `derive_batch_status` already returns `Completed` when no row is
-    open, and `_refresh_batch_rollup` runs on every settle and every skip. So there is no field to
+    open, and `refresh_batch_rollup` runs on every settle and every skip. So there is no field to
     add, no patch to write and no backfill -- a statement whose last transfer was settled a year ago
     already reads `Completed` today.
 

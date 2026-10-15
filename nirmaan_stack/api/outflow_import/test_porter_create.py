@@ -20,6 +20,7 @@ from unittest.mock import patch
 import frappe
 
 from nirmaan_stack.api.outflow_import import porter as porter_api
+from nirmaan_stack.api.outflow_import import porter_records
 from nirmaan_stack.api.outflow_import import porter_create
 from nirmaan_stack.api.outflow_import.test_porter_import import INVOICE_DOCTYPE, ROW_DOCTYPE, SOURCE
 from nirmaan_stack.api.outflow_import.test_porter_validation import PorterValidationCase
@@ -252,7 +253,7 @@ class TestAValidatedImportCreated(PorterCreateCase):
         status = porter_api.get_porter_status(self.batch)
         self.assertEqual(status["state"], "Created")
         self.assertEqual((status["to_create"], status["created"], status["failed"]), (0, 11, 0))
-        self.assertTrue(porter_api.is_validated(self.batch))
+        self.assertTrue(porter_records.is_validated(self.batch))
         from nirmaan_stack.api.outflow_import.review import list_imports
 
         listed = next(

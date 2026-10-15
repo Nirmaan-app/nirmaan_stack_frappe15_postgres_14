@@ -4975,7 +4975,7 @@ class TestABankStatementIsDuplicateGuardOnly(BankStatementFixture):
 
         name = self._bank_rows()[_BANK_PERFECT_CANDIDATE]["name"]
         staged = next(
-            R._StagedRow(r) for r in R._load_rows(self.icici_batch.name) if r["name"] == name
+            R.StagedRow(r) for r in R._load_rows(self.icici_batch.name) if r["name"] == name
         )
         pools = R._load_pools([staged], self.icici_batch.name)
         result = R.match_row(

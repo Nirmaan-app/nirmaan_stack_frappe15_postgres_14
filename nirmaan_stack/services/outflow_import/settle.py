@@ -1164,7 +1164,7 @@ def create_inflow_from_row(
     disagrees is a screen that has gone stale, and is refused rather than silently overruled.
     """
     # A DEBIT recorded as an inflow would book money that LEFT the account as money that arrived.
-    # The direction is passed in because `_StagedRow` does not carry it (`__slots__`), and it is
+    # The direction is passed in because `StagedRow` does not carry it (`__slots__`), and it is
     # checked here rather than in the endpoint so the rule sits with the write it governs.
     if direction is not None and (direction or "").strip() != DIRECTION_CREDIT:
         frappe.throw(

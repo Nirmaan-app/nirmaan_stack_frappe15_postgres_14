@@ -23,7 +23,7 @@ from decimal import Decimal
 import frappe
 
 from nirmaan_stack.api.outflow_import.expenses import (
-    _concurrent_writer_refusal_as_sentence,
+    concurrent_writer_refusal_as_sentence,
     _guard_is_a_debit,
     _guard_money_not_recorded,
     _link_statement_file_to_target,
@@ -35,8 +35,8 @@ from nirmaan_stack.api.outflow_import.expenses import (
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import (
     ROW_DOCTYPE,
-    _StagedRow,
-    _refresh_batch_rollup,
+    StagedRow,
+    refresh_batch_rollup,
     derive_batch_status,
 )
 from nirmaan_stack.services.outflow_import.expense_links import (
@@ -72,7 +72,7 @@ def link_rows_to_expense(rows, target_doctype: str, target_name: str, confirm_mi
     to every line: the screen asks once for the request, naming the server's sentence.
     """
     names = _parse_rows(rows)
-    with _concurrent_writer_refusal_as_sentence("link_rows_to_expense", names[0]):
+    with concurrent_writer_refusal_as_sentence("link_rows_to_expense", names[0]):
         done = _link_and_commit(names, target_doctype, target_name, confirm_mismatch)
     _link_statement_file_to_target(done["statement_file_url"], done["result"])
 
@@ -153,7 +153,7 @@ def _link_and_commit(names, target_doctype, target_name, confirm_mismatch):
         raise
     frappe.db.release_savepoint(savepoint)
 
-    batch_status = {batch: derive_batch_status(_refresh_batch_rollup(batch)) for batch in batches}
+    batch_status = {batch: derive_batch_status(refresh_batch_rollup(batch)) for batch in batches}
     frappe.db.commit()
     return {
         "result": result,
@@ -196,7 +196,7 @@ def _load_linkable_row(name: str):
             ExpenseSettlementError,
             title="Line not open",
         )
-    return _StagedRow(doc), doc
+    return StagedRow(doc), doc
 
 
 @frappe.whitelist()

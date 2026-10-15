@@ -25,6 +25,12 @@ from nirmaan_stack.services.outflow_import.parser import (
 )
 from nirmaan_stack.services.outflow_import.porter import (
     EXPENSE_TYPE,
+    PORTER_COLUMNS,
+    PorterStatementError,
+    read_porter_statement,
+    remark_group_key,
+)
+from nirmaan_stack.services.outflow_import.porter_state import (
     IMPORT_CREATED,
     IMPORT_CREATING,
     IMPORT_VALIDATED,
@@ -34,18 +40,14 @@ from nirmaan_stack.services.outflow_import.porter import (
     INVOICE_FAILED,
     INVOICE_IN_FLIGHT,
     INVOICE_PASSED,
-    PORTER_COLUMNS,
-    InvoiceFigures,
-    InvoiceRead,
-    PorterStatementError,
+    import_state,
+)
+from nirmaan_stack.services.outflow_import.porter_verdict import InvoiceFigures, InvoiceRead, judge_invoice
+from nirmaan_stack.services.outflow_import.porter_wording import (
     description_hand_edited,
     expense_description,
-    import_state,
-    judge_invoice,
     porter_order_fields,
-    read_porter_statement,
     rectified_description,
-    remark_group_key,
 )
 from nirmaan_stack.services.outflow_import.sources import PORTER_STATEMENT_SOURCE
 

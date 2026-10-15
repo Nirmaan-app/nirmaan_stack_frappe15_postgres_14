@@ -173,7 +173,7 @@ MATCH_DOCTYPE = "Outflow Row Match"
 _FROZEN_ROW_STATUSES = (ROW_SKIPPED, ROW_SETTLED, ROW_PARTIALLY_ALLOCATED)
 
 
-class _StagedRow:
+class StagedRow:
     """Adapts a persisted import row to the shape the pure matcher and deriver read.
 
     They read by ATTRIBUTE, never by type, so this is the whole seam between the database and the
@@ -242,7 +242,7 @@ def match_batch(batch: str):
     require_outflow_access()
     _assert_batch(batch)
 
-    rows = [_StagedRow(r) for r in _load_rows(batch)]
+    rows = [StagedRow(r) for r in _load_rows(batch)]
     matchable = [r for r in rows if r.row_status not in _FROZEN_ROW_STATUSES]
     result = _match_rows(batch, matchable)
     frappe.db.commit()
@@ -300,7 +300,7 @@ def match_line(row: str) -> dict:
             "Cashbook lines are never run through the matcher.", title="Line is not matchable"
         )
 
-    result = _match_rows(batch, [_StagedRow(doc)])
+    result = _match_rows(batch, [StagedRow(doc)])
     line = frappe.db.get_value(
         ROW_DOCTYPE,
         row,
@@ -377,7 +377,7 @@ def _match_rows(batch: str, matchable) -> dict:
         # would sweep rows the stack pass was about to pair.
         swept = _sweep_unresolved_to_mismatched(results, noted_surplus)
 
-    statuses = _refresh_batch_rollup(batch)
+    statuses = refresh_batch_rollup(batch)
     return _run_result(
         batch, len(matchable), statuses, paired=paired, released=released, picked=picked, swept=swept
     )
@@ -462,7 +462,7 @@ def _guard_duplicates_only(batch: str, matchable) -> dict:
     for row, _group, outcome, basis in _contains_guard_outcomes(batch, matchable):
         _persist_row_outcome(row, outcome, None, batch, duplicate_basis=basis)
 
-    return _run_result(batch, len(matchable), _refresh_batch_rollup(batch))
+    return _run_result(batch, len(matchable), refresh_batch_rollup(batch))
 
 
 def _contains_guard_outcomes(batch: str, matchable, carried_claims=()):
@@ -656,7 +656,7 @@ def _paid_duplicate_for(row, pools):
 
 
 def _persist_row_outcome(
-    row: _StagedRow, outcome, result, batch: str, duplicate_basis: Sequence = ()
+    row: StagedRow, outcome, result, batch: str, duplicate_basis: Sequence = ()
 ) -> None:
     """Write the derived status and note. A match run records NO `Outflow Row Match` rows.
 
@@ -1059,7 +1059,7 @@ def _resolve_stacks(matchable, pools) -> tuple[int, set[str]]:
     # pairing so the pass cannot hand out a record a 1:1 row is holding.
     claimed = {r["suggested_name"] for r in rows if (r.get("suggested_name") or "").strip()}
 
-    staged = [_StagedRow(r) for r in rows if not (r.get("suggested_name") or "").strip()]
+    staged = [StagedRow(r) for r in rows if not (r.get("suggested_name") or "").strip()]
 
     # ⚠️ CAPTURED FROM THE ONE CALL `group_into_stacks` ALREADY MAKES. It asks for a stack's records
     # exactly once, so the tier that produced them is recorded on the way past rather than by
@@ -1365,14 +1365,14 @@ def skip_row(row: str, reason: str):
       * A COMMENT on the line records who skipped it and why, beside the Version row.
     """
     # A FUNCTION-LOCAL IMPORT: `expenses.py` imports this module, so a top-level import is a cycle.
-    from nirmaan_stack.api.outflow_import.expenses import _concurrent_writer_refusal_as_sentence
+    from nirmaan_stack.api.outflow_import.expenses import concurrent_writer_refusal_as_sentence
 
     actor = require_outflow_access()
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(SKIP_REASON_REQUIRED, title="Missing reason")
 
-    with _concurrent_writer_refusal_as_sentence("skip_row", row):
+    with concurrent_writer_refusal_as_sentence("skip_row", row):
         current = frappe.db.get_value(
             ROW_DOCTYPE, row, ["name", "import_batch", "row_status"], as_dict=True, for_update=True
         )
@@ -1408,7 +1408,7 @@ def skip_row(row: str, reason: str):
         # to `Matched`/`Mismatched` -- but it may carry the `Reversed` records ADR-0020 D3 says must
         # never be deleted, and this keeps them.
         frappe.db.delete(MATCH_DOCTYPE, {"import_row": row, "match_kind": MATCH_SETTLED})
-        statuses = _refresh_batch_rollup(current.import_batch)
+        statuses = refresh_batch_rollup(current.import_batch)
         frappe.db.commit()
     return {"row": row, "status": ROW_SKIPPED, "batch_status": derive_batch_status(statuses)}
 
@@ -1445,7 +1445,7 @@ def unskip_row(row: str, reason: str):
         (`candidates.load_record_claims`), so re-opening releases it anyway; clearing the field too
         keeps a stale basis from ever being read as this line's.
 
-    ⚠️ THE ROLLUP IS REFRESHED BY THE RE-CHECK. `_match_rows` ends with `_refresh_batch_rollup`, so a
+    ⚠️ THE ROLLUP IS REFRESHED BY THE RE-CHECK. `_match_rows` ends with `refresh_batch_rollup`, so a
     Completed import with this line back open reopens without a second refresh here.
 
     ⚠️ A CASHBOOK LINE TAKES ITS OWN PATH, AND NEVER THROUGH `Pending match run` (#1314, owner Q4/Q5).
@@ -1457,14 +1457,14 @@ def unskip_row(row: str, reason: str):
     and the plan is kept, since the Create form pre-fills from it.
     """
     # A FUNCTION-LOCAL IMPORT: `expenses.py` imports this module, so a top-level import is a cycle.
-    from nirmaan_stack.api.outflow_import.expenses import _concurrent_writer_refusal_as_sentence
+    from nirmaan_stack.api.outflow_import.expenses import concurrent_writer_refusal_as_sentence
 
     actor = require_outflow_access()
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(UNSKIP_REASON_REQUIRED, title="Missing reason")
 
-    with _concurrent_writer_refusal_as_sentence("unskip_row", row):
+    with concurrent_writer_refusal_as_sentence("unskip_row", row):
         current = frappe.db.get_value(
             ROW_DOCTYPE,
             row,
@@ -1558,7 +1558,7 @@ def _unskip_cashbook_line(row: str, batch: str, actor: str, reason: str) -> dict
     doc.save(ignore_permissions=True, ignore_version=False)
     doc.add_comment("Comment", text=f"Unskipped by {actor}: {reason}")
 
-    statuses = _refresh_batch_rollup(batch)
+    statuses = refresh_batch_rollup(batch)
     frappe.db.commit()
     return {
         "row": row,
@@ -1723,7 +1723,7 @@ def _related_records(rows: list) -> dict[str, list]:
     own rather than by being excluded here.
     """
     gateway = [r for r in rows if source_has_settlement_path(r.get("source") or "")]
-    bank = [_StagedRow(r) for r in rows if not source_has_settlement_path(r.get("source") or "")]
+    bank = [StagedRow(r) for r in rows if not source_has_settlement_path(r.get("source") or "")]
 
     related: dict[str, list] = {}
     if gateway:
@@ -1879,7 +1879,7 @@ def get_row_candidates(row: str):
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
 
-    staged = _StagedRow(doc)
+    staged = StagedRow(doc)
     vendor_index = C.load_vendor_index()
     project_index = C.load_project_index()
     resolution = resolve_vendors(staged, vendor_index)
@@ -3920,7 +3920,7 @@ def list_imports(limit=60, sources=None, month=None):
     # ⚠️ A PORTER IMPORT REPORTS ITS OWN STATE (#1444): Validating / Validated / Validation failed,
     # derived from its Porter Invoices. Its stored `status` is the bank-line rollup, which reads
     # "Partially Settled" over lines that are not bank lines and wait for Create.
-    from nirmaan_stack.api.outflow_import.porter import porter_import_states
+    from nirmaan_stack.api.outflow_import.porter_records import porter_import_states
 
     porter = [row["name"] for row in imports if (row.get("source") or "").strip() == PORTER_STATEMENT_SOURCE]
     states = porter_import_states(porter)
@@ -4012,7 +4012,7 @@ def _load_rows(batch: str, row: str = None) -> list:
                row_status, skip_reason, outcome_note, settlement_origin,
                -- B9: `settlement_reference` plus the two columns its deploy-window recompute needs
                -- that were not already here. The matcher must never READ the resolved value, but
-               -- `_StagedRow` builds it for every row it adapts, and a projection that omitted
+               -- `StagedRow` builds it for every row it adapts, and a projection that omitted
                -- these would silently hand the wallet rung a blank.
                settlement_reference, source,
                -- #1257: the ICICI contains-guard scopes its ledgers by the money's direction.
@@ -4027,7 +4027,7 @@ def _load_rows(batch: str, row: str = None) -> list:
     )
 
 
-def _refresh_batch_rollup(batch: str) -> list:
+def refresh_batch_rollup(batch: str) -> list:
     """Recompute the batch's counters and status from its rows. `status.py` is the only deriver.
 
     ⚠️ THERE IS NO CLOSE ANY MORE. `closed_at` was already excluded from the status derivation when
@@ -4040,6 +4040,11 @@ def _refresh_batch_rollup(batch: str) -> list:
     values["status"] = derive_batch_status(statuses)
     frappe.db.set_value(BATCH_DOCTYPE, batch, values, update_modified=False)
     return statuses
+
+
+# The old private name, kept ONLY for `patches/v3_0/delete_stored_exact_repeats.py`, which imports it:
+# patches are append-only, so that file cannot be changed to the public name. Nothing else may use it.
+_refresh_batch_rollup = refresh_batch_rollup
 
 
 def _row_statuses(batch: str) -> list:

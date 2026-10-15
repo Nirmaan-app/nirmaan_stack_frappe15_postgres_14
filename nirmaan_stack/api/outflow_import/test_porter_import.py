@@ -76,8 +76,12 @@ def _purge_batches(filename: str) -> None:
             except Exception:
                 frappe.db.rollback()
                 print(f"porter test purge: could not delete {doctype} of {batch}")
-        frappe.db.delete(BATCH_DOCTYPE, {"name": batch})
-        frappe.db.commit()
+        try:
+            frappe.db.delete(BATCH_DOCTYPE, {"name": batch})
+            frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+            print(f"porter test purge: could not delete the batch {batch}")
 
 
 def _purge_invoice_files(batch: str) -> None:
@@ -475,12 +479,27 @@ class TestTheMatcherIsNeverCalled(FrappeTestCase):
         from nirmaan_stack.api.outflow_import.test_cashbook_import import (
             TestItNeverSettlesAnExistingRecord,
         )
-        from nirmaan_stack.api.outflow_import import porter_create, porter_rectify
+        from nirmaan_stack.api.outflow_import import (
+            porter_create,
+            porter_records,
+            porter_rectify,
+            porter_review,
+            porter_upload,
+        )
         from nirmaan_stack.services.outflow_import import porter as porter_service
-        from nirmaan_stack.services.outflow_import import porter_placement
+        from nirmaan_stack.services.outflow_import import (
+            porter_placement,
+            porter_state,
+            porter_verdict,
+            porter_wording,
+        )
 
         guard = TestItNeverSettlesAnExistingRecord
-        for module in (porter_api, porter_create, porter_rectify, porter_service, porter_placement):
+        modules = (
+            porter_api, porter_create, porter_records, porter_rectify, porter_review, porter_upload,
+            porter_service, porter_placement, porter_state, porter_verdict, porter_wording,
+        )
+        for module in modules:
             with self.subTest(module=module.__name__):
                 self.assertEqual(guard.forbidden_imports(module), [])
                 self.assertEqual(guard.forbidden_calls(module), [])

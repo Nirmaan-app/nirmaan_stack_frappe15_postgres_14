@@ -164,7 +164,7 @@ describe("validating against Porter's invoices (#1444)", () => {
     });
 
     it("spells the import's states as the server derives them", () => {
-        const service = repoFile("nirmaan_stack/services/outflow_import/porter.py");
+        const service = repoFile("nirmaan_stack/services/outflow_import/porter_state.py");
         for (const state of PORTER_IMPORT_STATES) expect(service).toContain(`= "${state}"`);
         expect(PORTER_IMPORT_STATES).toEqual([
             "Validating",

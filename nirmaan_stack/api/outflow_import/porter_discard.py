@@ -18,13 +18,13 @@ import frappe
 from frappe.utils.background_jobs import is_job_enqueued
 
 from nirmaan_stack.api.outflow_import.permissions import has_outflow_undo_access, require_outflow_access
-from nirmaan_stack.api.outflow_import.porter import (
+from nirmaan_stack.api.outflow_import.porter_records import (
     BATCH_DOCTYPE,
     INVOICE_DOCTYPE,
     ROW_DOCTYPE,
-    SOURCE,
     create_job_id,
     created_anything,
+    refuse_unless_porter_import,
 )
 from nirmaan_stack.api.outflow_import.porter_validation import validation_job_id
 from nirmaan_stack.services.stored_files import delete_files
@@ -56,13 +56,7 @@ def discard_porter_import(batch: str):
 
     # The batch row lock serialises two Discards; the line locks wait for a Create line in flight, so
     # what `created_anything` reads below is what that line committed.
-    found = frappe.db.sql(
-        """SELECT name, source FROM "tabOutflow Import Batch" WHERE name = %s FOR UPDATE""",
-        (batch,),
-        as_dict=True,
-    )
-    if not found or found[0].source != SOURCE:
-        frappe.throw(f"{batch} is not a {SOURCE} import.", title="Not a Porter import")
+    refuse_unless_porter_import(batch, for_update=True)
     rows = frappe.db.sql(
         """SELECT name FROM "tabOutflow Import Row" WHERE import_batch = %s FOR UPDATE""",
         (batch,),

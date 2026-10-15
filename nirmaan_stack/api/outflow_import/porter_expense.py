@@ -27,12 +27,11 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from nirmaan_stack.api.outflow_import.porter_records import INVOICE_DOCTYPE, ORDER_DOCTYPE
 from nirmaan_stack.services.extraction.files import fetch_file_content
 from nirmaan_stack.services.extraction.helpers import get_file_doc_by_url
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES, PROJECT_EXPENSE_DOCTYPE
 
-ORDER_DOCTYPE = "Porter Order"
-INVOICE_DOCTYPE = "Porter Invoice"
 PDF_METHOD = "nirmaan_stack.api.outflow_import.porter_expense.porter_invoice_pdf"
 
 

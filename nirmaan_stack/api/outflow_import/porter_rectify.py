@@ -16,20 +16,20 @@ Two whitelisted endpoints:
 
 EACH LINE, IN ONE SAVEPOINT, COMMITTED BEFORE THE NEXT
 -----------------------------------------------------
-    1. its Settled match -> Reversed, with the reason (`unreconcile._stamp_reversed`)
+    1. its Settled match -> Reversed, with the reason (`unreconcile.stamp_reversed`)
     2. the replacement Expense, through Create's own writer (`settle.create_expense_from_row`), from the
        OLD EXPENSE's figures: amount, payment date, reference, type, comment, invoice number / date / PDF
        URL and the Porter Order -- only the ledger, the project and the description change
     3. any attachment a person added to the old Expense moves to the new one
     4. the old Expense is deleted (`unreconcile_created.delete_created`: series counter kept)
-    5. a new Settled match, `porter.MATCH_BASIS`, `created_by_import`, its project snapshot
+    5. a new Settled match, through Create's own `porter_create.record_porter_match`
     6. the line's plan, pick and note follow the new Expense; a comment on the line says who, why, where
     7. the CEO-Hold cashflow gap of BOTH projects is re-evaluated
 
 ⚠️ ALWAYS ALLOWED -- NO "EDITED SINCE" REFUSAL. Unreconcile refuses a created record someone edited, because
 it would delete the edit. Rectify carries the Expense over (a Paid Expense's money, date and reference
 cannot change in the app), so the only edit it could lose is the description -- and a description that
-differs from the generated text is kept (`porter.rectified_description`).
+differs from the generated text is kept (`porter_wording.rectified_description`).
 
 ⚠️ STAMPED BEFORE THE DELETE, as in Unreconcile: the leg's Dynamic Link is validated on its save, and the
 bank-links rule refuses to delete an Expense a Settled match still points at.
@@ -48,29 +48,32 @@ import frappe
 from nirmaan_stack.api.outflow_import.bulk_unreconcile import BULK_UNRECONCILE_LIMIT
 from nirmaan_stack.api.outflow_import.expenses import (
     MATCH_DOCTYPE,
-    _concurrent_writer_refusal_as_sentence,
-    _live_legs,
-    _target_snapshot,
+    concurrent_writer_refusal_as_sentence,
+    live_legs,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_undo_access
+from nirmaan_stack.api.outflow_import.porter_create import record_porter_match
 from nirmaan_stack.api.outflow_import.porter_expense import invoice_pdf_url
-from nirmaan_stack.api.outflow_import.porter import ROW_DOCTYPE, SOURCE
-from nirmaan_stack.api.outflow_import.porter_review import refuse_unless_won, won_projects
-from nirmaan_stack.api.outflow_import.unreconcile import REASON_REQUIRED, _stamp_reversed
-from nirmaan_stack.api.outflow_import.unreconcile_cleanup import _resync_cashflow_hold
+from nirmaan_stack.api.outflow_import.porter_records import (
+    ROW_DOCTYPE,
+    SOURCE,
+    line_names,
+    refuse_unless_won,
+    won_projects,
+)
+from nirmaan_stack.api.outflow_import.unreconcile import REASON_REQUIRED, stamp_reversed
+from nirmaan_stack.api.outflow_import.unreconcile_cleanup import resync_cashflow_hold
 from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created
-from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
     is_expense_doctype,
 )
-from nirmaan_stack.services.outflow_import.porter import (
-    MATCH_BASIS,
+from nirmaan_stack.services.outflow_import.porter import statement_line
+from nirmaan_stack.services.outflow_import.porter_wording import (
     booked_by,
     description_hand_edited,
     rectified_description,
-    statement_line,
 )
 from nirmaan_stack.services.outflow_import.settle import ExpenseInvoice, create_expense_from_row
 from nirmaan_stack.services.outflow_import.status import ROW_SETTLED
@@ -121,7 +124,7 @@ def get_porter_rectify_plan(rows) -> dict:
     ⚠️ A PLAN, NEVER A PROMISE. The write re-reads every line under its own lock.
     """
     require_outflow_undo_access()
-    return {"lines": [_plan_of(row) for row in _line_names(rows)], "projects": won_projects()}
+    return {"lines": [_plan_of(row) for row in _ticked(rows)], "projects": won_projects()}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -143,7 +146,7 @@ def rectify_porter_rows(rows, project: str | None = None, reason: str = "") -> d
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(REASON_REQUIRED, title="Missing reason")
-    names = _line_names(rows)
+    names = _ticked(rows)
     project = (project or "").strip() or None
     if project:
         refuse_unless_won(project)
@@ -175,11 +178,11 @@ def rectify_line(row: str, project: str | None, reason: str, actor: str, *, bulk
     ⚠️ LOCK ORDER IS ROW, THEN LEG, THEN EXPENSE -- Unreconcile's, so the two queue on one line instead of
     deadlocking. A refusal throws with the locks held; the caller rolls back.
     """
-    with _concurrent_writer_refusal_as_sentence("rectify_porter_rows", row):
+    with concurrent_writer_refusal_as_sentence("rectify_porter_rows", row):
         line = frappe.db.get_value(ROW_DOCTYPE, row, _ROW_FIELDS, as_dict=True, for_update=True)
         legs = [
             frappe.db.get_value(MATCH_DOCTYPE, leg.name, _LEG_FIELDS, as_dict=True, for_update=True)
-            for leg in (_live_legs(row) if line else [])
+            for leg in (live_legs(row) if line else [])
         ]
         refusal = _refusal(line, legs)
         if refusal:
@@ -199,7 +202,7 @@ def rectify_line(row: str, project: str | None, reason: str, actor: str, *, bulk
         frappe.db.savepoint(savepoint)
         try:
             # FIRST: a Settled leg still pointing at the old Expense would refuse its delete.
-            _stamp_reversed(leg.name, actor, reason, frappe.utils.now_datetime())
+            stamp_reversed(leg.name, actor, reason, frappe.utils.now_datetime())
             new = create_expense_from_row(
                 _ExpenseAsRow(
                     amount=old.amount,
@@ -224,7 +227,7 @@ def rectify_line(row: str, project: str | None, reason: str, actor: str, *, bulk
             )
             _move_attachments(old, new.doctype, new.name)
             delete_created(old.doctype, old.name, None)
-            _record_match(line, new, actor)
+            record_porter_match(line, line.import_batch, new, actor, _ORIGIN)
             _follow_on_the_line(line.name, new, project, actor)
             _comment_on_line(
                 line.name, actor, reason, (old.doctype, old.name, old_project), (new.doctype, new.name, project),
@@ -233,7 +236,7 @@ def rectify_line(row: str, project: str | None, reason: str, actor: str, *, bulk
             # LAST: every Paid Expense of both projects is in place. The insert / delete hooks' own check
             # is de-duplicated per request, so it cannot be relied on in a bulk run.
             for touched in sorted({old_project, project} - {None}):
-                _resync_cashflow_hold(touched)
+                resync_cashflow_hold(touched)
         except Exception:
             frappe.db.rollback(save_point=savepoint)
             raise
@@ -250,7 +253,7 @@ def rectify_line(row: str, project: str | None, reason: str, actor: str, *, bulk
 def _plan_of(row: str) -> dict:
     line = frappe.db.get_value(ROW_DOCTYPE, row, _ROW_FIELDS, as_dict=True)
     legs = (
-        [frappe.db.get_value(MATCH_DOCTYPE, leg.name, _LEG_FIELDS, as_dict=True) for leg in _live_legs(row)]
+        [frappe.db.get_value(MATCH_DOCTYPE, leg.name, _LEG_FIELDS, as_dict=True) for leg in live_legs(row)]
         if line
         else []
     )
@@ -332,28 +335,6 @@ def _move_attachments(old, doctype: str, name: str) -> None:
     )
 
 
-def _record_match(line, new, actor: str) -> None:
-    match = frappe.new_doc(MATCH_DOCTYPE)
-    match.update(
-        {
-            "import_row": line.name,
-            "import_batch": line.import_batch,
-            "transfer_id": line.transfer_id,
-            "target_doctype": new.doctype,
-            "target_name": new.name,
-            "target_amount": float(new.amount),
-            "match_kind": MATCH_SETTLED,
-            "match_basis": MATCH_BASIS,
-            "settlement_origin": _ORIGIN,
-            "created_by_import": 1,
-            "matched_at": frappe.utils.now_datetime(),
-            "matched_by": actor,
-            **_target_snapshot(new.doctype, new.name),
-        }
-    )
-    match.insert(ignore_permissions=True)
-
-
 def _follow_on_the_line(row: str, new, project: str | None, actor: str) -> None:
     """The line's plan and pick follow the new Expense, so a later Unreconcile + Create re-creates it where
     it was rectified to. Its status stays Settled, so the batch rollup does not move.
@@ -389,11 +370,9 @@ def _comment_on_line(row: str, actor: str, reason: str, old: tuple, new: tuple, 
     frappe.get_doc(ROW_DOCTYPE, row).add_comment("Comment", text=text)
 
 
-def _line_names(rows) -> list[str]:
+def _ticked(rows) -> list[str]:
     """The distinct line names, in the order sent. Refuses nothing sent, and more than the cap."""
-    if isinstance(rows, str):
-        rows = frappe.parse_json(rows) if rows.strip().startswith("[") else [rows]
-    names = list(dict.fromkeys(str(r).strip() for r in (rows or []) if r and str(r).strip()))
+    names = line_names(rows)
     if not names:
         frappe.throw("Tick at least one Porter order to rectify.", title="Nothing ticked")
     if len(names) > RECTIFY_LIMIT:

@@ -3,7 +3,7 @@
 
 """Review a Porter import's projects before Create (#1446, spec #1442, ADR-0032).
 
-Once every Porter Invoice of an import has Passed (`porter.is_validated`), the Accountant checks each
+Once every Porter Invoice of an import has Passed (`porter_records.is_validated`), the Accountant checks each
 completed order's suggested project and corrects it: by remark group, or order by order where an order
 has no remark. Grouping and ordering are the screen's (`frontend/.../porterReview.ts`); this module
 reports the lines with their group key and writes the corrections.
@@ -14,7 +14,7 @@ Expense -- the moment it is made, so closing the browser loses nothing and there
 
 ⚠️ ONLY BEFORE CREATE WRITES THE LINE, ONLY ONCE VALIDATED. Both endpoints refuse an import that is not
 Validated (still being checked, or an invoice Failed). A line is editable exactly while Create would still
-write it (`porter.CREATE_LINE_STATUSES`: waiting, stopped in Error, or reopened by Unreconcile); a created
+write it (`porter_state.CREATE_LINE_STATUSES`: waiting, stopped in Error, or reopened by Unreconcile); a created
 (Settled) line is refused under its row lock, so an edit can never move an Expense that exists. Moving one
 is Rectify's (#1449).
 """
@@ -22,21 +22,26 @@ is Rectify's (#1449).
 import frappe
 
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
-from nirmaan_stack.api.outflow_import.porter import BATCH_DOCTYPE, ROW_DOCTYPE, SOURCE, is_validated
+from nirmaan_stack.api.outflow_import.porter_records import (
+    ROW_DOCTYPE,
+    is_validated,
+    line_names,
+    refuse_unless_porter_import,
+    refuse_unless_won,
+    won_projects,
+)
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
 )
 from nirmaan_stack.services.outflow_import.porter import (
-    CREATE_LINE_STATUSES,
     EXPENSE_TYPE,
     REASON_REVIEW,
     remark_group_key,
     statement_line,
 )
+from nirmaan_stack.services.outflow_import.porter_state import CREATE_LINE_STATUSES
 from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
-
-_WON = "Won"
 
 
 @frappe.whitelist()
@@ -69,7 +74,7 @@ def set_porter_placement(batch: str, rows, project: str | None = None):
     not Won; no lines; a line of another import, a cancelled order, or an order already created.
     """
     require_outflow_access()
-    names = _line_names(rows)
+    names = line_names(rows)
     if not names:
         frappe.throw("No orders were given to place.", title="No orders")
     _refuse_unless_validated(batch)
@@ -148,44 +153,14 @@ def porter_review(batch: str) -> dict:
     return {"batch": batch, "lines": lines, "projects": won_projects()}
 
 
-def won_projects() -> list[dict]:
-    """`[{name, project_name}]` of every Won project, by name: the only projects a Porter order can be
-    placed on, in Review and in Rectify (#1449)."""
-    projects = frappe.db.sql(
-        """SELECT name, project_name FROM "tabProjects" WHERE tendering_status = %s ORDER BY project_name""",
-        (_WON,),
-        as_dict=True,
-    )
-    return [{"name": p.name, "project_name": p.project_name or p.name} for p in projects]
-
-
 def _refuse_unless_validated(batch: str) -> None:
-    if frappe.db.get_value(BATCH_DOCTYPE, batch, "source") != SOURCE:
-        frappe.throw(f"{batch} is not a {SOURCE} import.", title="Not a Porter import")
+    refuse_unless_porter_import(batch)
     if not is_validated(batch):
         frappe.throw(
             f"{batch} cannot be reviewed yet: every invoice has to pass its check against Porter's own "
             "PDF first.",
             title="Not validated",
         )
-
-
-def refuse_unless_won(project: str) -> None:
-    """Refuse a project that does not exist or is not Won (Review and Rectify)."""
-    refusal = won_refusal(project)
-    if refusal:
-        frappe.throw(f"Only a Won project can be chosen. {refusal}", title="Not a Won project")
-
-
-def won_refusal(project: str) -> str | None:
-    """Why a Porter order cannot be placed on `project` -- it does not exist, or is not Won -- or None.
-    Asked by Review and Rectify when a person chooses, and by Create on every line it writes (#1445)."""
-    found = frappe.db.get_value("Projects", project, ["project_name", "tendering_status"], as_dict=True)
-    if not found:
-        return f"Project {project} does not exist."
-    if found.tendering_status != _WON:
-        return f"{found.project_name or project} ({project}) is {found.tendering_status or 'not set'}, not Won."
-    return None
 
 
 def _refuse_lines_not_open(batch: str, names: list[str], lines: list) -> None:
@@ -208,10 +183,3 @@ def _refuse_lines_not_open(batch: str, names: list[str], lines: list) -> None:
             "Rectify.",
             title="Already created",
         )
-
-
-def _line_names(rows) -> list[str]:
-    """The posted line names: a JSON list, a list, or one name."""
-    if isinstance(rows, str):
-        rows = frappe.parse_json(rows) if rows.strip().startswith("[") else [rows]
-    return list(dict.fromkeys(str(name) for name in (rows or []) if name))

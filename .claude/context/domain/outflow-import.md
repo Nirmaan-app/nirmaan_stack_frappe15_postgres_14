@@ -94,7 +94,7 @@ pick one ad-hoc; ask.
 | **Did a settlement take the machine's pick?** (Q1) | `services/outflow_import/status.py` (`settlement_origin`, `ORIGIN_*`) — pure | re-derive the accepted/overridden/no-suggestion test. THREE callers share it: the settle path, the summary aggregate, and the backfill patch. ⚠️ It is in `services/` because `api/expenses.py` imports `api/review.py`, so the reverse would be a cycle. ⚠️ NOT `auto_matched`, which means only "a suggestion existed" |
 | **Can this leg be unreconciled, and what happens?** (#1271) | `services/outflow_import/unreconcile.py` (`leg_verdict`, `first_refusal`, `LegFacts`, `VERDICT_*`) — pure, B1; the ONE writer that acts on it is `api/outflow_import/unreconcile.unreconcile_row`, which `expenses.reverse_allocation` wraps with one leg; the ONE reader of the plan is `unreconcile.get_unreconcile_plan` (#1275), sharing `_read_facts` with the write. Screen copy: `frontend/.../outflow-import/unreconcileView.ts` | decide at a call site whether a leg may be reversed, or write a reversal anywhere else. The write path reads the facts UNDER its row / leg / target locks and asks here; a plan shown earlier is never trusted. One refused leg means NOTHING is written. Refusal sentences and their ORDER are pinned by `test_unreconcile.py` (a leg wrong in several ways is told only the first). Later verdicts (`revert_expense`, `delete_created`, `unsplit_payment`, `unlink_expense_line`) are new branches here; which split child is a leg's own leftover, and whether it is untouched, is decided here too (#1279). **`unlink_expense_line` (#1300, ADR-0027 Q15/Q21) is one line off a many-line expense: NONE of the three "changed elsewhere" checks (amount, Paid, reference) apply** — linking never rewrote the amount or wrote that line's reference, and the expense is only Paid once every line is in, so each check would refuse every line but one. **Which legs are many-line is `_is_many_line_expense`, and nothing stored says it** — no flag marks a 1:1 settle — so it reads the slips: another slip shared the expense (live, or Reversed AFTER this leg was matched), or this lone line only part-fills a Reconciliation Pending expense (short by more than ₹5). ⚠️ **EVERY DOUBT IS 1:1**, which keeps the exact checks: an unknown match or reversal time is not sharing, and a 1:1 settle that was reversed and settled again by a new line is still 1:1. ⚠️ **THE SECOND SHAPE GOES PAST Q21's LETTER AND IS AWAITING OWNER RATIFICATION** (flagged at #1300): Q21 says "a single-slip undo keeps today's exact check", and a lone line that only part-fills IS single-slip — but it is the FIRST GO OF A RUN, and today's checks refuse it on all three counts (short amount, not Paid, the run's reference), so without this shape that line can never come off and the run is stuck. The cost is that a 1:1 expense whose amount was RAISED after settling (which #1302's rule 4 flips to Reconciliation Pending) reads as part-linked and reverts instead of refusing — which is the Q8 reading, a raised amount being an expense with room. A LOWERED amount still refuses, because it leaves the expense Paid and not short. The write `api/.../unreconcile._unlink_expense_line` touches NEITHER the amount, the reference nor `payment_by` (other lines still settle it) and re-derives status + date through the same `settle._derive_status_and_save` every expense settle ends in, AFTER the Reversed stamp so it reads only the lines that stay. The statement attachment — and its `File` link row, via `CarriedOut.statement_still_linked` — comes off only when no live line from the same import is left. Figures for the screen ride the plan and the response through `expense_line_fields` (`stays_linked`, `other_lines`, `expense_amount`, `stays_paid`); `unreconcileView.expenseLineConsequences` / `legAmountLabel` render them, and ⚠️ **such a leg is excluded from the notice's changed-amount line** — its figure is one line's, the expense keeps its own |
 | **Bulk Unreconcile — several Settled lines at once** (#1317; read side #1319, write #1320) | `api/outflow_import/bulk_unreconcile.py` — a thin loop (B4): `get_bulk_unreconcile_plan` calls `unreconcile.plan_of_line` per line (the SAME function `get_unreconcile_plan` wraps); the write `bulk_unreconcile_rows` calls `unreconcile.unreconcile_line(legs="all", bulk_of=N)` per line, each in its own transaction, and owns ONLY the per-line isolation (Settled re-check under the row lock, rollback + drop the queued message on a refusal). Cap `BULK_UNRECONCILE_LIMIT` = 50. Screen: `frontend/.../outflow-import/tickMode.ts` (which lines are tickable — open OR Settled, never both), `bulkUnreconcileView.ts` (the toolbar button, the check-step summary, the run's labels, the result box's `bulkResultSummary`) | describe a line in the bulk check step differently from the one-line dialog, put a decision rule in the bulk module, or write a line any way but through `unreconcile_line`. ⚠️ The tick-mode rule lives ONLY in `tickMode.tickRules`; the page and table read its answer |
-| **Which database failure means "another reviewer wrote to this transfer first"** (#1246, ADR-0020 B4) | `services/outflow_import/concurrency.py` (`is_concurrent_writer_refusal`) — pure; the ONE reader is `expenses._concurrent_writer_refusal_as_sentence`, the shared boundary `allocate_row` (#1246) and `settle_row` (#1250) both wrap their work-up-to-the-commit in, which turns it into `CONCURRENT_ALLOCATION_MESSAGE` | widen it, or catch database errors broadly anywhere in this feature. Whatever it says yes to is told to a reviewer as a harmless race, on a screen that settles money. It recognises `SerializationFailure` (SQLSTATE 40001) ONLY — `InFailedSqlTransaction` and `DeadlockDetected` are deliberately outside, each pinned by a test. ⚠️ The translation ENDS AT THE COMMIT ("nothing was saved" is false after it). ⚠️ Where both racing payments sit on ONE PO the loser still sees raw `InFailedSqlTransaction` — `update_parent_amount_paid` swallows the 40001 first; measured and recorded in ADR-0020 B4a, deliberately NOT translated. `settle_row_partial` / `create_expense` are not covered |
+| **Which database failure means "another reviewer wrote to this transfer first"** (#1246, ADR-0020 B4) | `services/outflow_import/concurrency.py` (`is_concurrent_writer_refusal`) — pure; the ONE reader is `expenses.concurrent_writer_refusal_as_sentence`, the shared boundary `allocate_row` (#1246) and `settle_row` (#1250) both wrap their work-up-to-the-commit in, which turns it into `CONCURRENT_ALLOCATION_MESSAGE` | widen it, or catch database errors broadly anywhere in this feature. Whatever it says yes to is told to a reviewer as a harmless race, on a screen that settles money. It recognises `SerializationFailure` (SQLSTATE 40001) ONLY — `InFailedSqlTransaction` and `DeadlockDetected` are deliberately outside, each pinned by a test. ⚠️ The translation ENDS AT THE COMMIT ("nothing was saved" is false after it). ⚠️ Where both racing payments sit on ONE PO the loser still sees raw `InFailedSqlTransaction` — `update_parent_amount_paid` swallows the 40001 first; measured and recorded in ADR-0020 B4a, deliberately NOT translated. `settle_row_partial` / `create_expense` are not covered |
 | **What makes two staged transfers THE SAME transfer** (D3; widened source-aware at B3) | `services/outflow_import/duplicates.py` (`row_identity`, `row_identity_of`, `WIDE_IDENTITY_SOURCES`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating | ⚠️ **THE KEY IS SOURCE-AWARE SINCE B3, and the DEFAULT is the guarantee.** `row_identity(..., source="")` — what every caller passing nothing gets — returns the old `(transfer_id, amount, date)` triple **BYTE-IDENTICALLY**, because Cashfree and Cashbook carry live settled data whose duplicate behaviour is proven in production. A source in `WIDE_IDENTITY_SOURCES` (today: `ICICI Bank Statement`) gets `+ (direction, remarks)`. **Both extra fields are load-bearing and each catches a different failure, measured on the real 1,274-row statement where the triple silently LOSES 5 REAL ROWS:** *remarks* catches four SGST/CGST pairs (same id, date, amount AND direction, differing only in narration), *direction* catches the GL transfer whose two legs carry byte-identical narration. These are bank-narration artefacts that cannot occur in a payout export — which is exactly why the widening is per-source and not global. ⚠️ `row_identity_of(row, source)` is the ADAPTER over the one rule, never a second rule: the widening added two fields that live ON the row, and forgetting `remarks` at a call site degrades ICICI silently back to the four-field key — it still works, it just loses four rows a statement and says nothing. ⚠️ It is a DIFFERENT set from `sources.BANK_STATEMENT_SOURCES` and they must not be merged "because they hold the same string today": this one answers *what makes two lines of this statement the same line?*, that one answers *what can this statement's rows DO?*. Full numbers: ADR-0016 § 4.
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
 | **Which Paid records a GATEWAY row already duplicates** (#1256) | `api/outflow_import/review._paid_duplicate_pools` (over `candidates.load_paid_payments_by_reference` + `load_paid_expenses_by_reference`) builds the pools; `services/outflow_import/status.pick_duplicate_group` (pure) picks the group | compose the already-recorded pools a second time, or concatenate them before the pick. Both readers — the gateway run and `_related_records` for gateway rows — call the one builder, so a row is never skipped on a record its link omits. ⚠️ GATEWAY-ONLY since #1257: the `has_settlement_path` flag is gone because no bank-statement caller is left. ⚠️ The pick order `payments → expenses → both` is what keeps the pre-#1256 payment skip unchanged |
@@ -427,7 +427,7 @@ for each unfrozen row:  match_row -> derive_row_outcome -> _persist_row_outcome
 2. _disambiguate_matched         (disambiguate.py)  Option B: separate several candidates
 3. _resolve_stacks               (stacks.py)        pair interchangeable sets
 4. _sweep_unresolved_to_mismatched                  leftovers read as Not-Matched
-   _refresh_batch_rollup + commit
+   refresh_batch_rollup + commit
 ```
 
 **A bank statement (ICICI) never enters that loop.** `match_batch` forks above it into
@@ -437,7 +437,7 @@ for each unfrozen row:  match_row -> derive_row_outcome -> _persist_row_outcome
 load_recorded_by_contains(unfrozen rows)                   one query, the pool
 for each unfrozen row:  find_hits -> pick_recorded_group -> derive_duplicate_guard_outcome
                         -> _persist_row_outcome            (result=None: no suggestion, ever)
-_refresh_batch_rollup + commit
+refresh_batch_rollup + commit
 ```
 
 - **All three run AFTER the loop, never inside it.** `_persist_row_outcome` CLEARS every suggestion
@@ -738,7 +738,7 @@ needs one vocabulary rather than one per writer.
       QUEUED first line hid an exact copy). Those lookups are private to `skip_sources` again. Per
       import: the count is ADDED to `repeats_not_saved`, the rows are raw-deleted (no Deleted Document
       copy; their `Version` / `Comment` go with them), then counters/status go through
-      `review._refresh_batch_rollup` and gross/charges are re-summed with `parser.stored_money`. An
+      `review.refresh_batch_rollup` and gross/charges are re-summed with `parser.stored_money`. An
       import left with NO rows is kept and marked `Completed` (the deriver's empty-import `Draft` reads
       as open work). ⚠️ **Two keeps that look like gaps are the safety:** every earlier sighting must
       sit in an import created BEFORE the row's own (so every deletion points strictly earlier and each
@@ -1579,7 +1579,7 @@ have manufactured decisions nobody made. That reasoning outlives the feature and
 
 The owner asked for finished imports to stop being re-matched. That sounds like the deleted control
 and is not: **nothing is written.** `derive_batch_status` already returns `Completed` when a batch
-has no open rows, and `_refresh_batch_rollup` runs on **every settle and every skip** — so a batch
+has no open rows, and `refresh_batch_rollup` runs on **every settle and every skip** — so a batch
 closes itself, and a statement whose last transfer was settled a year ago already reads `Completed`
 today. No field, no patch, no backfill.
 
@@ -3536,7 +3536,7 @@ now does, with the re-pointed guard as its positive control, and was confirmed R
 ### ⚠️ THE DEPLOY-WINDOW FLOOR — one function, both readers, and it keeps every rung
 
 `settlement_reference_of_row(doc)` takes the stored column and recomputes the ladder **only when it is
-blank**. Both api readers (`review._StagedRow`, `expenses.reverse_allocation`) call it. **Without it
+blank**. Both api readers (`review.StagedRow`, `expenses.reverse_allocation`) call it. **Without it
 this slice is a REGRESSION**: the backfill's `patches.txt` wiring is added by the maintainer, by this
 repo's own convention, so the code can be live while the column is still NULL on every existing row,
 and reading the column alone would settle every one of them with a BLANK.
@@ -3551,7 +3551,7 @@ transaction id — the very source B9 exists to reach. Caught by the spec review
 `test_allocate_row.test_every_leg_carries_the_RAW_bank_reference`, whose fixture builds a row the
 pre-B9 way — `_staged_row`'s default shape is deliberately NOT modernised for that reason.
 
-`review._load_rows` gained `settlement_reference` and `source`: `_StagedRow` builds the value for every
+`review._load_rows` gained `settlement_reference` and `source`: `StagedRow` builds the value for every
 row it adapts, and a projection omitting them would silently hand the wallet rung a blank.
 
 ### The backfill
@@ -4861,7 +4861,7 @@ No user-visible change. First slice of #1270 (Unreconcile, Skip and Unskip).
   row-then-payment order as `allocate_row`; before #1271 a reversal took no row lock. Verdicts are
   computed for every leg before any write; one refusal throws that leg's sentence and writes nothing.
   Writes go in one savepoint; then `_refresh_row_allocation`, the batch rollup, commit.
-- **Concurrency:** wrapped in `_concurrent_writer_refusal_as_sentence`, so a concurrent writer now gets
+- **Concurrency:** wrapped in `concurrent_writer_refusal_as_sentence`, so a concurrent writer now gets
   `CONCURRENT_ALLOCATION_MESSAGE` on a reversal too (it used to get raw database text).
 - **`reverse_allocation`** keeps its URL, arguments, response and sentences; it is a wrapper with one
   leg. It imports `unreconcile` inside the function because `unreconcile` imports `expenses`.
@@ -4957,7 +4957,7 @@ Reverses the 2026-08-10 hidden-skip ruling and ADR-0016 R6. Record: **ADR-0022**
   non-open status / Cashbook by BATCH source) → `doc.save(ignore_permissions=True, ignore_version=False)`
   setting `row_status`, `skip_origin=Manual`, `skip_reason`, **`outcome_note = reason`**, `decided_at`,
   `decided_by` → a `Comment` ("Skipped by hand by <user>: <reason>") → the scoped Settled-leg delete →
-  rollup → commit, all inside `_concurrent_writer_refusal_as_sentence`.
+  rollup → commit, all inside `concurrent_writer_refusal_as_sentence`.
   - ⚠️ **`ignore_version=False` is required.** Frappe defaults it to `frappe.flags.in_test`, so without it
     no Version row is written under the test runner and the audit goes untested (found live: 0 Versions).
   - ⚠️ Accepting an already-Skipped line was the hole: it relabelled a system skip as a hand skip, which
@@ -5005,7 +5005,7 @@ Reverses the 2026-08-10 hidden-skip ruling and ADR-0016 R6. Record: **ADR-0022**
   `doc.save(ignore_version=False)` back to `Pending match run`, clearing `skip_origin`, `skip_reason`,
   `outcome_note`, `decided_at`, `decided_by`, `settlement_origin`, `duplicate_basis` → a `Comment`
   ("Unskipped by <user>: <reason>") → **`match_line(row)`** → commit, all inside
-  `_concurrent_writer_refusal_as_sentence`. Returns `{row, status, outcome_note, suggested_doctype,
+  `concurrent_writer_refusal_as_sentence`. Returns `{row, status, outcome_note, suggested_doctype,
   suggested_name, batch_status}`.
   - ⚠️ **The re-open and the re-check are ONE transaction.** A failing re-check rolls the re-open back
     with it, so a line is never left open with no outcome.
@@ -5014,7 +5014,7 @@ Reverses the 2026-08-10 hidden-skip ruling and ADR-0016 R6. Record: **ADR-0022**
   - **The claim is released by the status, not by the field.** `candidates.load_record_claims` reads a
     basis only while the line is `Skipped`; clearing `duplicate_basis` as well keeps a stale basis from
     ever being read as this line's. Pinned: the blocked twin skips on its next run.
-  - **No second rollup refresh:** `_match_rows` ends with `_refresh_batch_rollup`, so a Completed import
+  - **No second rollup refresh:** `_match_rows` ends with `refresh_batch_rollup`, so a Completed import
     reopens through the re-check. The one-line differences written up under #1272 apply here.
 - **`expenses.SKIPPED_ROW_REFUSAL`** reworded: a hand skip is unskipped from the Skipped list (no more
   "correct it in Desk").
@@ -5362,7 +5362,7 @@ Record: **ADR-0022** § *Confirm by hand*. Closes the #1270 slice list.
 - **Table read.** `get_outflow_rows` ships `confirm_by_hand`, `unreconciled_at` and `unreconciled_targets` from
   `review._last_unreconcile_by_row` (one query, marked rows only): the latest `reversed_at` on the row's
   `Reversed` legs and the targets reversed within one second of it. `unreconcile_row` now stamps every leg
-  of one call with ONE `reversed_at` (`_stamp_reversed` takes it); the second's tolerance is for legs reversed
+  of one call with ONE `reversed_at` (`stamp_reversed` takes it); the second's tolerance is for legs reversed
   before #1280, which each took their own timestamp microseconds apart.
   `get_batch_rows` / the export do not carry these keys.
 - **Frontend.**
@@ -6836,14 +6836,14 @@ It enqueues `create_porter_import` on `long`, `job_id = porter.create_job_id(bat
 **Per line, one transaction, committed before the next** (Cashbook's `_write_one` shape): the line is
 re-read `FOR UPDATE` and skipped unless its status is in `CREATE_LINE_STATUSES`; its Porter Order is
 inserted from `porter_line` (through `statement_line` → `porter_order_fields`) or, if one exists for the
-CRN, reused; the Expense via `create_expense_from_row(_StagedRow(row), …)` with the line's
+CRN, reused; the Expense via `create_expense_from_row(StagedRow(row), …)` with the line's
 `suggested_doctype` / `resolved_project` **as the line holds them** (Review's edits, never re-planned),
 `type` = Material Transportation Charges, description `expense_description(customer_name, project_name)`,
 comment `import_comment(None, batch)`, `payment_by` = trimmed `customer_name` (Project side only),
 `statement_file_url=None` (no `payment_attachment`: the CSV holds staff contact details), the invoice's
 number / Gemini-read date / stored PDF URL, and `porter_order`; then a Settled `Outflow Row Match`
 (`match_basis` `porter statement`, `settlement_origin` Suggestion accepted, `created_by_import` 1, plus
-`target_project` / `target_vendor` from `_target_snapshot`, frozen for Rectify's history); then the line →
+`target_project` / `target_vendor` from `target_snapshot`, frozen for Rectify's history); then the line →
 `Settled` with `suggested_name`, `outcome_note`, `decided_at/by`, `confirm_by_hand` 0. A failing line rolls
 back, is marked `Error` ("Could not create this expense. Run Create again."), and the run carries on.
 Amount = `row.amount` = the Porter fare; the GST stays on the Porter Order as `rcm_gst`.
@@ -6864,7 +6864,7 @@ hook (not in production, where the URL is a cloud one).
 
 **CEO-Hold.** The insert hook's check is de-duplicated per request per project (`trigger_check`) and the whole
 job is one request, so only the first expense of a project would count. The job calls
-`unreconcile_cleanup._resync_cashflow_hold(project)` once per project it wrote to, after the last line.
+`unreconcile_cleanup.resync_cashflow_hold(project)` once per project it wrote to, after the last line.
 
 **State and progress** (derived, never stored). `import_state` over the invoices, then the lines (Skipped
 aside): no line touched → Validated; every completed line Settled → **Created**; anything between (running,
@@ -7042,7 +7042,7 @@ refusals: not a Porter line, not Settled, not exactly one live leg that the impo
 ("Unreconcile it instead"), already on that project / already Non-Project.
 
 **Per line, one savepoint, committed before the next** (lock order row → leg → expense, Unreconcile's):
-1. the Settled leg → Reversed with the reason (`unreconcile._stamp_reversed`) — FIRST, or the bank-links rule
+1. the Settled leg → Reversed with the reason (`unreconcile.stamp_reversed`) — FIRST, or the bank-links rule
    refuses the delete;
 2. the replacement through `create_expense_from_row`, built FROM THE OLD EXPENSE (`_ExpenseAsRow`: amount,
    `payment_date`, `payment_ref`) plus its `type`, `comment`, `invoice_ref` / `invoice_date` /
@@ -7058,7 +7058,7 @@ refusals: not a Porter line, not Settled, not exactly one live leg that the impo
    …", `decided_at/by`, `settlement_origin`; status stays Settled (no rollup). So a later Unreconcile + Create
    re-creates it where it was rectified to. A comment on the line: "Rectified by <user>: <reason> (<old> on A
    -> <new> on B)";
-7. `_resync_cashflow_hold` for BOTH projects (the insert / delete hooks' check is de-duplicated per request).
+7. `resync_cashflow_hold` for BOTH projects (the insert / delete hooks' check is de-duplicated per request).
 A failure anywhere rolls the whole line back to its savepoint: old expense, Settled match and line untouched.
 
 **Description rule.** Rewritten (`expense_description(booked_by, new project name)`) only when the stored text

@@ -18,8 +18,7 @@ from unittest.mock import patch
 
 import frappe
 
-from nirmaan_stack.api.outflow_import import porter as porter_api
-from nirmaan_stack.api.outflow_import import porter_rectify
+from nirmaan_stack.api.outflow_import import porter_rectify, porter_upload
 from nirmaan_stack.api.outflow_import.test_porter_create import (
     MATCH_DOCTYPE,
     NON_PROJECT_EXPENSE,
@@ -130,21 +129,21 @@ class TestNonProjectToAProject(PorterRectifyCase):
         self.assertTrue(frappe.db.exists(ORDER_DOCTYPE, crn))
 
     def test_the_next_uploads_earlier_imports_signal_reads_the_rectified_project(self):
-        """Through the real reader (#1448's `_placement_master`): what it hands the signal for this order's
+        """Through the real reader (#1448's `porter_upload.placement_master`): what it hands the signal for this order's
         remark and city moves from Non-Project to the rectified project. Counted, so earlier imports on the
         same site cannot blur it."""
         order = frappe.get_doc(ORDER_DOCTYPE, self._crn("005"))  # "misc delivery", Non-Project
 
         def _earlier():
             seen = []
-            real = porter_api.build_placement_master
+            real = porter_upload.build_placement_master
 
             def _capture(*args, **kwargs):
                 seen.extend(kwargs["earlier"])
                 return real(*args, **kwargs)
 
-            with patch.object(porter_api, "build_placement_master", side_effect=_capture):
-                porter_api._placement_master()
+            with patch.object(porter_upload, "build_placement_master", side_effect=_capture):
+                porter_upload.placement_master()
             return [(e.remark, e.city, e.project) for e in seen].count
 
         before = _earlier()
@@ -263,7 +262,7 @@ class TestItIsAllOrNothing(PorterRectifyCase):
         line_before = self._lines()["002"]
 
         # The line's very last write fails: everything before it (stamp, create, delete, match) rolls back.
-        with patch.object(porter_rectify, "_resync_cashflow_hold", side_effect=RuntimeError("hook died")):
+        with patch.object(porter_rectify, "resync_cashflow_hold", side_effect=RuntimeError("hook died")):
             [line] = self._rectify(["002"], self.zephyr)["lines"]
 
         self.assertFalse(line["rectified"])

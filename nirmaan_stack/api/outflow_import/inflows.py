@@ -79,7 +79,7 @@ from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     ROW_DOCTYPE,
-    _refresh_batch_rollup,
+    refresh_batch_rollup,
 )
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.duplicates import (
@@ -169,7 +169,7 @@ def create_inflow(
         raise
     frappe.db.release_savepoint(savepoint)
 
-    statuses = _refresh_batch_rollup(doc["import_batch"])
+    statuses = refresh_batch_rollup(doc["import_batch"])
     frappe.db.commit()
     # ⚠️ AFTER THE COMMIT, because a `File` insert wakes the cloud-attachment hook and that hook
     # commits -- inside the savepoint above it would make the rollback a silent no-op.
@@ -235,7 +235,7 @@ def create_non_project_inflow(
         raise
     frappe.db.release_savepoint(savepoint)
 
-    statuses = _refresh_batch_rollup(doc["import_batch"])
+    statuses = refresh_batch_rollup(doc["import_batch"])
     frappe.db.commit()
     # ⚠️ AFTER THE COMMIT, because a `File` insert wakes the cloud-attachment hook and that hook
     # commits -- inside the savepoint above it would make the rollback a silent no-op.
@@ -306,7 +306,7 @@ def create_vendor_refund(
         raise
     frappe.db.release_savepoint(savepoint)
 
-    statuses = _refresh_batch_rollup(doc["import_batch"])
+    statuses = refresh_batch_rollup(doc["import_batch"])
     frappe.db.commit()
     # AFTER THE COMMIT, for the reason `create_non_project_inflow` gives -- once per record, so every
     # refund can open the statement.

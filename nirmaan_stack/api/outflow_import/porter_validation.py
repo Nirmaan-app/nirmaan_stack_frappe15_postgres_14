@@ -12,7 +12,7 @@ EACH PORTER INVOICE, UP TO `VALIDATION_CONCURRENCY` AT ONCE
                             size cap, must be a PDF) and stored ONCE as a private File on the invoice
            -> Reading       the shared Gemini extraction reads number, date, both GSTINs, fare, tax;
                             what it read is stored on the invoice
-           -> Comparing     `porter.judge_invoice` against the statement's completed orders
+           -> Comparing     `porter_verdict.judge_invoice` against the statement's completed orders
            -> Passed / Failed / Error
 
 Every step is COMMITTED, so the dialog's poll (`get_porter_status`) shows where each invoice stands, and
@@ -45,23 +45,24 @@ from nirmaan_stack.api.invoice_autofill import (
     NET_AMOUNT_KEYS,
     TOTAL_TAX_KEY,
 )
+from nirmaan_stack.api.outflow_import.porter_records import INVOICE_DOCTYPE
 from nirmaan_stack.services.extraction import extract
 from nirmaan_stack.services.extraction.base import INVOICE
 from nirmaan_stack.services.extraction.files import fetch_file_content, get_extraction_settings
 from nirmaan_stack.services.extraction.helpers import get_file_doc_by_url, normalize_date, pick_entity
 from nirmaan_stack.services.extraction.validation import derive_gst
-from nirmaan_stack.services.outflow_import.porter import (
+from nirmaan_stack.services.outflow_import.porter_state import (
     INVOICE_COMPARING,
     INVOICE_DOWNLOADING,
     INVOICE_ERROR,
     INVOICE_QUEUED,
     INVOICE_READING,
+)
+from nirmaan_stack.services.outflow_import.porter_verdict import (
     InvoiceFigures,
     InvoiceRead,
     judge_invoice,
 )
-
-INVOICE_DOCTYPE = "Porter Invoice"
 
 #: How many invoices are worked on at once (spec #1442: a month's ten in minutes, not an hour).
 VALIDATION_CONCURRENCY = 3

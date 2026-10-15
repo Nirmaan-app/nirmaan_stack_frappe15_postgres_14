@@ -28,6 +28,7 @@ from unittest.mock import patch
 import frappe
 
 from nirmaan_stack.api.outflow_import import porter as porter_api
+from nirmaan_stack.api.outflow_import import porter_records
 from nirmaan_stack.api.outflow_import import porter_validation
 from nirmaan_stack.api.outflow_import.test_porter_import import (
     INVOICE_DOCTYPE,
@@ -151,7 +152,7 @@ class TestValidationStartsAtUpload(PorterValidationCase):
 
     def test_until_it_runs_the_import_is_validating_and_not_validated(self):
         self.assertEqual(self._status()["state"], "Validating")
-        self.assertFalse(porter_api.is_validated(self.batch))
+        self.assertFalse(porter_records.is_validated(self.batch))
 
 
 class TestEveryInvoiceAgrees(PorterValidationCase):
@@ -163,7 +164,7 @@ class TestEveryInvoiceAgrees(PorterValidationCase):
         status = self._status()
         self.assertEqual({i["validation_status"] for i in status["invoices"]}, {"Passed"})
         self.assertEqual(status["state"], "Validated")
-        self.assertTrue(porter_api.is_validated(self.batch))
+        self.assertTrue(porter_records.is_validated(self.batch))
 
     def test_what_gemini_read_is_stored_next_to_the_statements_figures(self):
         bangalore = self._invoice("29SS27A0900001")
@@ -226,7 +227,7 @@ class TestOneInvoiceDisagrees(PorterValidationCase):
         self.assertEqual(by_number.pop(self.hyderabad), "Failed")
         self.assertEqual(set(by_number.values()), {"Passed"})
         self.assertEqual(status["state"], "Validation failed")
-        self.assertFalse(porter_api.is_validated(self.batch))
+        self.assertFalse(porter_records.is_validated(self.batch))
 
     def test_there_is_no_way_past_a_failed_invoice(self):
         # Not even the Administrator: the only path an invoice has back is Retry, and it refuses.

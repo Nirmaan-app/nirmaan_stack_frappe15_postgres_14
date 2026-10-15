@@ -4,17 +4,18 @@
 """The Porter Statement import: its own pipeline, beside Cashbook's (ADR-0032, spec #1442).
 
 Porter's monthly CSV becomes one Expense per completed delivery order, but only after every Porter
-Invoice it names agrees with Porter's own PDF. The pure rules live in `services/outflow_import/porter.py`;
-this module reads, refuses, persists and reports.
+Invoice it names agrees with Porter's own PDF. The pure rules live in `services/outflow_import/porter*.py`;
+this module holds the upload, retry and status endpoints. The records and the shared gates are
+`porter_records`'s; the upload's steps `porter_upload`'s.
 
-THE STEPS, AND WHICH ONE THIS SLICE BUILT (#1443 built the first and the status reader)
----------------------------------------------------------------------------------------
+THE STEPS
+---------
     upload    `upload_porter_statement`   parse, group, refuse, save the CSV, stage   batch + lines +
                                                                                      Porter Invoices
     status    `get_porter_status`         the import and its Porter Invoices          reads only
     validate  (#1444)  started by upload; `porter_validation.validate_porter_import` downloads each
               invoice PDF, reads it with Gemini and compares; `retry_porter_invoice` re-queues an
-              Error invoice. `is_validated(batch)` is the gate Review and Create ask.
+              Error invoice. `porter_records.is_validated(batch)` is the gate Review and Create ask.
     review    (#1446)  `porter_review.get_porter_review` / `set_porter_placement`: correct each
               completed order's project on a Validated import; the edit is the line's stored plan
     create    `porter_create.create_porter_expenses` (#1445): one Porter Order and one Expense per
@@ -36,69 +37,38 @@ population (`review._row_filters`), so they are in no tab, not in *Still open* a
 Unreconciled Outflow*; and every main-table action refuses them (`sources.CREATE_GATED_SOURCES`).
 """
 
-import os
-
 import frappe
 from frappe.utils.background_jobs import is_job_enqueued
 from frappe.utils.file_manager import save_file
 
-from nirmaan_stack.api.outflow_import.expenses import _refresh_batch_rollup
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
+from nirmaan_stack.api.outflow_import.porter_records import (
+    BATCH_DOCTYPE,
+    INVOICE_DOCTYPE,
+    SOURCE,
+    create_job_id,
+    created_anything,
+    refuse_unless_porter_import,
+)
+from nirmaan_stack.api.outflow_import.porter_upload import (
+    leave_out_porter_repeats,
+    placement_master,
+    read_statement,
+    read_upload,
+    stage,
+)
 from nirmaan_stack.api.outflow_import.porter_validation import enqueue_validation, validation_job_id
-from nirmaan_stack.services.outflow_import.parser import StatementFormatError, parse_statement
-from nirmaan_stack.services.outflow_import.porter import (
+from nirmaan_stack.services.outflow_import.porter_state import (
     CREATE_LINE_STATUSES,
-    IMPORT_VALIDATED,
     INVOICE_COMPARING,
     INVOICE_ERROR,
     INVOICE_FAILED,
     INVOICE_PASSED,
     INVOICE_QUEUED,
-    MATCH_BASIS,
-    SKIP_REASON_CANCELLED,
-    PorterStatement,
-    PorterStatementError,
     import_state,
-    read_porter_statement,
-)
-from nirmaan_stack.services.outflow_import.porter_placement import (
-    EarlierPlacement,
-    OrderFacts,
-    PlacementMaster,
-    SiteAddress,
-    build_placement_master,
-    place_orders,
-)
-from nirmaan_stack.services.outflow_import.porter_repeats import (
-    HeldInvoice,
-    PorterRepeatRefusal,
-    RepeatJudgement,
-    leave_out_repeats,
-)
-from nirmaan_stack.services.outflow_import.settlement_reference import (
-    resolve_settlement_reference,
 )
 from nirmaan_stack.services.outflow_import.skip_kinds import SKIP_KIND_PORTER_CANCELLED
-from nirmaan_stack.services.outflow_import.sources import PORTER_STATEMENT_SOURCE
-from nirmaan_stack.services.outflow_import.status import (
-    ROW_ERROR,
-    ROW_PENDING_MATCH,
-    ROW_SETTLED,
-    ROW_SKIPPED,
-    SKIP_ORIGIN_SYSTEM,
-)
-
-BATCH_DOCTYPE = "Outflow Import Batch"
-ROW_DOCTYPE = "Outflow Import Row"
-INVOICE_DOCTYPE = "Porter Invoice"
-SOURCE = PORTER_STATEMENT_SOURCE
-
-_ALLOWED_EXTENSIONS = frozenset({".csv"})
-_MAX_FILE_BYTES = 5 * 1024 * 1024
-
-# Only Won projects are suggested (ADR-0032): a Tendering duplicate of a Won project's name would tie it
-# in the whole-name step and hide it (measured: "EXL KOCHI" vs "EXL Kochi").
-_WON = "Won"
+from nirmaan_stack.services.outflow_import.status import ROW_ERROR, ROW_SETTLED
 
 
 @frappe.whitelist(methods=["POST"])
@@ -106,6 +76,7 @@ def upload_porter_statement():
     """Read a Porter Statement and stage it. Returns the import as `get_porter_status` reports it.
 
     Multipart form: `file`, a .csv -- Porter's own export. Any other file is refused, unread.
+    The steps are `porter_upload`'s.
     URL: /api/method/nirmaan_stack.api.outflow_import.porter.upload_porter_statement
 
     Refused, with the reason, and with NOTHING saved: a file that is not a Porter Statement (a missing
@@ -122,13 +93,13 @@ def upload_porter_statement():
     Then starts the validation job, de-duplicated per import (`porter-validate-<batch>`).
     """
     user = require_outflow_access()
-    filename, content = _read_upload()
-    judged = _leave_out_repeats(_read_statement(content), filename)
-    master = _placement_master()
+    filename, content = read_upload()
+    judged = leave_out_porter_repeats(read_statement(content), filename)
+    master = placement_master()
 
     # ⚠️ THE FIRST WRITE, AND IT CANNOT BE ROLLED BACK: everything that can refuse has run above.
     saved = save_file(fname=filename, content=content, dt=None, dn=None, is_private=1)
-    batch = _stage(
+    batch = stage(
         judged.statement,
         master,
         file_url=saved.file_url,
@@ -196,54 +167,6 @@ def retry_porter_invoice(invoice: str):
     return porter_status(row.import_batch)
 
 
-def porter_import_states(batches: list[str]) -> dict[str, str]:
-    """Each Porter import's state (Validating / Validated / Validation failed / Creating / Created),
-    DERIVED from its Porter Invoices and its lines, two queries for any number of imports. Never stored:
-    `Outflow Import Batch.status` keeps its own meaning."""
-    invoices = _invoice_statuses(batches)
-    lines: dict[str, set[str]] = {batch: set() for batch in batches}
-    if batches:
-        # `import_state` asks only "any" / "all" of the lines, so each import's distinct statuses do.
-        for row in frappe.db.sql(
-            """
-            SELECT DISTINCT import_batch, row_status FROM "tabOutflow Import Row"
-            WHERE import_batch IN %s
-            """,
-            (tuple(batches),),
-            as_dict=True,
-        ):
-            lines[row.import_batch].add(row.row_status)
-    return {batch: import_state(invoices[batch], lines[batch]) for batch in batches}
-
-
-def _invoice_statuses(batches: list[str]) -> dict[str, list[str]]:
-    statuses: dict[str, list[str]] = {batch: [] for batch in batches}
-    if not batches:
-        return statuses
-    for row in frappe.db.sql(
-        """SELECT import_batch, validation_status FROM "tabPorter Invoice" WHERE import_batch IN %s""",
-        (tuple(batches),),
-        as_dict=True,
-    ):
-        statuses[row.import_batch].append(row.validation_status)
-    return statuses
-
-
-def is_validated(batch: str) -> bool:
-    """THE GATE for Review and Create (#1445, #1446): every Porter Invoice of the import has Passed.
-
-    False while any is still being checked, and for good once one has Failed: nothing may proceed past
-    a failed invoice, and there is no override. ⚠️ It asks the INVOICES only, so it stays True once
-    Create has started (Creating / Created): a re-run of Create passes the same gate.
-    """
-    return import_state(_invoice_statuses([batch])[batch]) == IMPORT_VALIDATED
-
-
-def create_job_id(batch: str) -> str:
-    """The Create job's id: one per import, so pressing Create twice queues it once (#1445)."""
-    return f"porter-create-{batch}"
-
-
 @frappe.whitelist()
 def get_porter_status(batch: str):
     """The Porter import and its Porter Invoices, for the import dialog. READS ONLY.
@@ -253,8 +176,7 @@ def get_porter_status(batch: str):
     Read from the records, which are the durable truth: a reload, or a worker restart, loses nothing.
     """
     require_outflow_access()
-    if frappe.db.get_value(BATCH_DOCTYPE, batch, "source") != SOURCE:
-        frappe.throw(f"{batch} is not a {SOURCE} import.", title="Not a Porter import")
+    refuse_unless_porter_import(batch)
     return porter_status(batch)
 
 
@@ -326,7 +248,7 @@ def porter_status(batch: str) -> dict:
         "repeats_not_saved": int(meta.repeats_not_saved or 0),
         # Discard is still possible: Create has written nothing (#1447). Who may discard is not asked here.
         "discardable": not created_anything(batch),
-        # Derived from the invoices below and the lines, never stored (`porter.import_state`).
+        # Derived from the invoices below and the lines, never stored (`porter_state.import_state`).
         "state": import_state([invoice.validation_status for invoice in invoices], by_status),
         # Create's progress (#1445), counted from the lines, which are the durable record. `to_create`
         # is what a run of Create would still write (waiting, failed, or reopened by Unreconcile).
@@ -381,271 +303,3 @@ def what_gemini_read(invoice) -> dict | None:
         "fare": _money(invoice.read_fare),
         "tax": _money(invoice.read_tax),
     }
-
-
-# --- upload, step by step -------------------------------------------------------------------------
-
-
-def _read_upload() -> tuple[str, bytes]:
-    """The posted file's name and bytes. The werkzeug stream is read exactly once."""
-    files = getattr(frappe.request, "files", None) or {}
-    if "file" not in files:
-        frappe.throw("No file uploaded.", title="Missing file")
-    uploaded = files["file"]
-    filename = uploaded.filename or ""
-    _, ext = os.path.splitext(filename)
-    if ext.lower() not in _ALLOWED_EXTENSIONS:
-        frappe.throw(
-            f"A Porter Statement is a .csv file. You uploaded a '{ext or 'file with no extension'}'.",
-            title="Unsupported file type",
-        )
-    content = uploaded.read()
-    if len(content) > _MAX_FILE_BYTES:
-        frappe.throw(
-            f"This file is {len(content) / (1024 * 1024):.1f} MB. Maximum is "
-            f"{_MAX_FILE_BYTES // (1024 * 1024)} MB.",
-            title="File too large",
-        )
-    return filename, content
-
-
-def _read_statement(content: bytes) -> PorterStatement:
-    """Parse with the Porter adapter, then group into invoices. Either step may refuse the file."""
-    try:
-        return read_porter_statement(parse_statement(content, source=SOURCE))
-    except (StatementFormatError, PorterStatementError) as exc:
-        frappe.throw(str(exc), title="Could not read this Porter Statement")
-
-
-def _leave_out_repeats(statement: PorterStatement, filename: str) -> RepeatJudgement:
-    """The invoice-level repeat rules (#1447), BEFORE `save_file`: the statement to stage, or a refusal."""
-    try:
-        return leave_out_repeats(statement, _held_invoices(statement), filename=filename)
-    except PorterRepeatRefusal as exc:
-        frappe.throw(str(exc), title="Already imported")
-
-
-def _held_invoices(statement: PorterStatement) -> dict[str, HeldInvoice]:
-    """Each invoice number of the file a Porter Invoice already holds: its import, whether that import has
-    created anything, and the orders it staged under the invoice. Three queries, whatever the file."""
-    numbers = [invoice.invoice_number for invoice in statement.invoices]
-    held = frappe.get_all(INVOICE_DOCTYPE, filters={"name": ["in", numbers]}, fields=["name", "import_batch"])
-    if not held:
-        return {}
-    created = created_imports(sorted({row.import_batch for row in held}))
-    crns: dict[str, set[str]] = {row.name: set() for row in held}
-    for row in frappe.db.sql(
-        """SELECT porter_invoice, transfer_id FROM "tabOutflow Import Row" WHERE porter_invoice IN %s""",
-        (tuple(crns),),
-        as_dict=True,
-    ):
-        crns[row.porter_invoice].add(row.transfer_id)
-    return {
-        row.name: HeldInvoice(
-            invoice_number=row.name,
-            import_batch=row.import_batch,
-            created=row.import_batch in created,
-            crns=frozenset(crns[row.name]),
-        )
-        for row in held
-    }
-
-
-def created_imports(batches: list[str]) -> set[str]:
-    """Which of these Porter imports Create has written to: any match (Settled, or Reversed by
-    Unreconcile / Rectify) or any Porter Order. Both outlive every correction, so an import that has
-    created once stays created -- past Discard (#1447), and its invoices left out of a re-upload."""
-    if not batches:
-        return set()
-    return set(
-        frappe.db.sql(
-            """
-            SELECT import_batch FROM "tabOutflow Row Match" WHERE import_batch IN %(batches)s
-            UNION
-            SELECT i.import_batch FROM "tabPorter Order" o
-            JOIN "tabPorter Invoice" i ON i.name = o.porter_invoice
-            WHERE i.import_batch IN %(batches)s
-            """,
-            {"batches": tuple(batches)},
-            pluck=True,
-        )
-    )
-
-
-def created_anything(batch: str) -> bool:
-    """Create has written to this import: Discard is refused from here on (#1447)."""
-    return batch in created_imports([batch])
-
-
-def _placement_master() -> PlacementMaster:
-    """Everything placement reads, read ONCE per upload (#1448): the WON projects with their site
-    addresses, and every earlier Porter order's current placement. No aliases, no AI (ADR-0032).
-
-    Signal 5 reads, per earlier `Porter Order`, its `remark` and `city` and the LIVE Expense that links
-    to it (`porter_order` on `Project Expenses` -> its `projects`; on `Non Project Expenses` -> no
-    project). The Expense owns the link, so a Rectify (#1449) that replaces the Expense is seen as the
-    new placement, and an Unreconcile that deletes it leaves the order out.
-    """
-    won = frappe.db.sql(
-        """
-        SELECT p.name, p.project_name, a.address_line1, a.address_line2, a.city, a.state, a.country,
-               a.pincode
-        FROM "tabProjects" p
-        LEFT JOIN "tabAddress" a ON a.name = p.project_address
-        WHERE p.tendering_status = %s
-        """,
-        (_WON,),
-        as_dict=True,
-    )
-    earlier = frappe.db.sql(
-        """
-        SELECT o.remark, o.city, e.projects AS project
-        FROM "tabPorter Order" o JOIN "tabProject Expenses" e ON e.porter_order = o.name
-        UNION ALL
-        SELECT o.remark, o.city, NULL AS project
-        FROM "tabPorter Order" o JOIN "tabNon Project Expenses" e ON e.porter_order = o.name
-        """,
-        as_dict=True,
-    )
-    return build_placement_master(
-        [(row.name, row.project_name or "") for row in won],
-        sites=[
-            SiteAddress(
-                project=row.name,
-                address_line1=row.address_line1 or "",
-                address_line2=row.address_line2 or "",
-                city=row.city or "",
-                state=row.state or "",
-                country=row.country or "",
-                pincode=row.pincode or "",
-            )
-            for row in won
-            if row.address_line1 or row.address_line2 or row.pincode
-        ],
-        earlier=[
-            EarlierPlacement(remark=row.remark or "", city=row.city or "", project=row.project or None)
-            for row in earlier
-        ],
-    )
-
-
-def _stage(
-    statement: PorterStatement,
-    master: PlacementMaster,
-    file_url: str,
-    filename: str,
-    user: str,
-    repeats_not_saved: int = 0,
-) -> str:
-    """The batch, its Porter Invoices and one line per order, in file order. Returns the batch name.
-
-    `repeats_not_saved` counts the orders of the invoices left out as already created (ADR-0031's batch
-    figure, written once here)."""
-    batch = frappe.new_doc(BATCH_DOCTYPE)
-    batch.update(
-        {
-            "source": SOURCE,
-            "source_file": file_url,
-            "original_filename": filename,
-            "period_from": statement.period_from,
-            "period_to": statement.period_to,
-            # The completed orders' Porter fare: what the wallet paid. A cancelled order moved nothing.
-            "gross_amount": float(statement.fare_total),
-            "charges_amount": 0,
-            "repeats_not_saved": repeats_not_saved,
-            "uploaded_by": user,
-            "uploaded_at": frappe.utils.now_datetime(),
-            "status": "Draft",
-        }
-    )
-    batch.insert(ignore_permissions=True)
-
-    for invoice in statement.invoices:
-        doc = frappe.new_doc(INVOICE_DOCTYPE)
-        doc.update(
-            {
-                "invoice_number": invoice.invoice_number,
-                "import_batch": batch.name,
-                "invoice_link": invoice.invoice_link,
-                "porter_gstin": invoice.porter_gstin,
-                "customer_gstin": invoice.customer_gstin,
-                "billing_entity": invoice.billing_entity,
-                "city": invoice.city,
-                "completed_orders": invoice.completed_orders,
-                "fare_total": float(invoice.fare_total),
-                "tax_total": float(invoice.tax_total),
-                "validation_status": INVOICE_QUEUED,
-            }
-        )
-        doc.insert(ignore_permissions=True)
-
-    # Placed together, not line by line: an order's suggestion depends on its remark group's.
-    placements = place_orders(
-        [
-            OrderFacts(
-                name=line.crn,
-                remarks=line.row.remarks or "",
-                city=line.statement.get("city", ""),
-                from_address=line.statement.get("from_address", ""),
-                to_address=line.statement.get("to_address", ""),
-            )
-            for line in statement.completed
-        ],
-        master,
-    )
-
-    for line in statement.lines:
-        row = line.row
-        values = {
-            "import_batch": batch.name,
-            "source": SOURCE,
-            "transfer_id": row.transfer_id,
-            "added_on": row.added_on,
-            "amount": float(row.amount),
-            "status_raw": row.status_raw,
-            "direction": row.direction or None,
-            "beneficiary_name": row.beneficiary_name,
-            "remarks": row.remarks,
-            "added_by_raw": row.added_by_raw,
-            # The CRN: a Porter order's only reference (`TRANSFER_ID_REFERENCE_SOURCES`), and what the
-            # Expense's `payment_ref` will carry -- through the one ladder, never written by hand.
-            "settlement_reference": resolve_settlement_reference(
-                bank_reference_no=row.bank_reference_no,
-                reference_id=row.reference_id,
-                transfer_id=row.transfer_id,
-                remarks=row.remarks,
-                source=SOURCE,
-            )
-            or None,
-            "porter_invoice": line.invoice_number,
-            "porter_line": dict(line.statement),
-        }
-        if line.completed:
-            placement = placements[line.crn]
-            values.update(
-                {
-                    "row_status": ROW_PENDING_MATCH,
-                    "suggested_doctype": placement.ledger,
-                    "resolved_project": placement.project,
-                    "suggested_expense_type": placement.expense_type,
-                    "placement_reason": placement.reason or None,
-                    "placement_strength": placement.strength or None,
-                    "match_basis": MATCH_BASIS,
-                    "auto_matched": 1,
-                }
-            )
-        else:
-            values.update(
-                {
-                    "row_status": ROW_SKIPPED,
-                    "skip_reason": SKIP_REASON_CANCELLED,
-                    "skip_kind": SKIP_KIND_PORTER_CANCELLED,
-                    "skip_origin": SKIP_ORIGIN_SYSTEM,
-                }
-            )
-        doc = frappe.new_doc(ROW_DOCTYPE)
-        doc.update(values)
-        doc.insert(ignore_permissions=True)
-
-    _refresh_batch_rollup(batch.name)
-    return batch.name

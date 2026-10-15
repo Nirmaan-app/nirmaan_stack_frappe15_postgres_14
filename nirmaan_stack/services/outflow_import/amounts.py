@@ -289,8 +289,11 @@ def tolerance_bounds(
     return amount - width, amount + width
 
 
-def rupees(amount) -> str:
+def rupees(amount, *, paise: bool = False) -> str:
     """`₹21,480` / `₹1,60,113.50` -- Indian grouping, paise only when there are any, for a refusal.
+
+    `paise=True` always prints them (`₹1,812.00`): where figures are compared side by side, as a Porter
+    invoice check's failure does ("Tax: invoice ₹1,709.40, statement ₹1,812.00").
 
     ⚠️ IT LIVES HERE, NOT IN THE MODULE THAT FIRST NEEDED IT. It was `settle._rupees` until #1302,
     when the expense document rules needed the same shape for their own refusals -- and `settle.py`
@@ -301,7 +304,7 @@ def rupees(amount) -> str:
     """
     value = to_decimal(amount).quantize(Decimal("0.01"))
     sign = "-" if value < 0 else ""
-    whole, _, paise = f"{abs(value):.2f}".partition(".")
+    whole, _, fraction = f"{abs(value):.2f}".partition(".")
     head, tail = whole[:-3], whole[-3:]
     groups = []
     while len(head) > 2:
@@ -310,4 +313,4 @@ def rupees(amount) -> str:
     if head:
         groups.insert(0, head)
     grouped = ",".join(groups + [tail]) if groups else tail
-    return f"{sign}₹{grouped}" + (f".{paise}" if paise != "00" else "")
+    return f"{sign}₹{grouped}" + (f".{fraction}" if paise or fraction != "00" else "")
