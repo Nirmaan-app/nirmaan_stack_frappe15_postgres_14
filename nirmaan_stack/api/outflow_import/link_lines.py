@@ -30,6 +30,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     _record_settlement,
     _refresh_row_allocation,
     _statement_file_url,
+    guard_not_an_own_import_line,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import (
@@ -185,6 +186,7 @@ def _load_linkable_row(name: str):
     doc = frappe.db.get_value(ROW_DOCTYPE, name, "*", as_dict=True, for_update=True)
     if not doc:
         frappe.throw(f"Import row '{name}' not found.", title="Not found")
+    guard_not_an_own_import_line(doc)
     status = doc.get("row_status") or ""
     if status not in OPEN_ROW_STATUSES:
         who = (doc.get("beneficiary_name") or "").strip() or name

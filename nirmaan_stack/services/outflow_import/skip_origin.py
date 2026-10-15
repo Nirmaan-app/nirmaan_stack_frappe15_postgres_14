@@ -41,10 +41,15 @@ from nirmaan_stack.services.outflow_import.skip_kinds import (
     SKIP_KIND_BY_HAND,
     SKIP_KIND_BANK_REFUSED,
     SKIP_KIND_NO_AMOUNT,
+    SKIP_KIND_PORTER_CANCELLED,
     SKIP_KIND_REPEATED_IN_FILE,
     SKIP_KINDS,
 )
-from nirmaan_stack.services.outflow_import.sources import source_runs_the_matcher
+from nirmaan_stack.services.outflow_import.porter import OWN_IMPORT_LINE_REFUSAL
+from nirmaan_stack.services.outflow_import.sources import (
+    source_runs_the_matcher,
+    source_waits_for_its_own_create,
+)
 from nirmaan_stack.services.outflow_import.status import (
     OPEN_ROW_STATUSES,
     ROW_PARTIALLY_ALLOCATED,
@@ -98,6 +103,11 @@ def manual_skip_refusal(*, row_status: str | None, source: str | None) -> str | 
         if status == ROW_SKIPPED:
             return SKIP_REFUSED_ALREADY_SKIPPED
         return SKIP_REFUSED_NOT_OPEN.format(status=status or "in no known state")
+    # ⚠️ A PORTER LINE IS NEVER SKIPPED FROM THE MAIN TABLE (#1443). It is created by its own import once
+    # Porter's invoices agree; a hand skip would let one order quietly drop out of an import whose
+    # validation is all or nothing.
+    if source_waits_for_its_own_create(source or ""):
+        return OWN_IMPORT_LINE_REFUSAL
     if not source_runs_the_matcher(source or "") and status == ROW_PENDING_MATCH:
         return SKIP_REFUSED_CASHBOOK_PENDING
     return None
@@ -119,6 +129,7 @@ UNSKIP_LOCKED_KINDS: dict[str, str] = {
     SKIP_KIND_REPEATED_IN_FILE: "The same transfer appears earlier in this statement.",
     SKIP_KIND_NO_AMOUNT: "No money moved on this line.",
     SKIP_KIND_BANK_REFUSED: "The bank never moved this money.",
+    SKIP_KIND_PORTER_CANCELLED: "Porter cancelled this order and never billed it.",
 }
 
 
@@ -145,6 +156,9 @@ def unskip_refusal(
     if (row_status or "").strip() != ROW_SKIPPED:
         return UNSKIP_REFUSED_NOT_SKIPPED
     kind = (skip_kind or "").strip()
+    # Asked before the Cashbook rule, which would otherwise answer for every never-matched source.
+    if kind == SKIP_KIND_PORTER_CANCELLED:
+        return UNSKIP_LOCKED_KINDS[kind]
     if not source_runs_the_matcher(source or "") and kind != SKIP_KIND_BY_HAND:
         return UNSKIP_REFUSED_CASHBOOK
     if kind in UNSKIP_LOCKED_KINDS:

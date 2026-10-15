@@ -1204,7 +1204,12 @@ export const SOURCE_COLUMN_ID = "source";
  * rows still appear, but the Source scope control cannot select it — so a screen filtered to a
  * source the user cannot name looks like a screen with missing rows.
  */
-export const SOURCE_OPTIONS: readonly string[] = ["Cashfree", "Cashbook", "ICICI Bank Statement"];
+export const SOURCE_OPTIONS: readonly string[] = [
+    "Cashfree",
+    "Cashbook",
+    "ICICI Bank Statement",
+    "Porter Statement",
+];
 
 /**
  * What the Source dropdown displays for a given selection.

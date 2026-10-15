@@ -6528,11 +6528,11 @@ four shapes) and the IFSC cases in `TestTheContainsQueryMirrorsThePureTokens`; `
 (3: the prompt text, a branch-code-only inflow, an inflow another line accounts for).
 
 
-## Porter Statement — the fourth source (designed 2026-10-15, ⚠️ NOT BUILT YET)
+## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, the rest NOT BUILT YET)
 
 Decisions: **[ADR-0032](../../../docs/adr/0032-porter-statement-import.md)** (owner grilling, Q1–Q36).
-Terms: `GLOSSARY.md` § *Porter deliveries*. Replace this section with the as-built record when it ships;
-until then nothing below exists in code.
+Terms: `GLOSSARY.md` § *Porter deliveries*. The design below is the target; § *As built* at the end of
+this section says which parts exist in code. Each later slice of spec #1442 moves its part there.
 
 **What it is.** Porter's monthly CSV, one line per delivery order. Each completed order becomes ONE
 `Project Expenses` / `Non Project Expenses` row at `Paid`. Like Cashbook, it creates and never settles, so
@@ -6608,3 +6608,70 @@ that rule skips the wallet top-ups and stays unchanged.
 - `OutflowImportBatch.source`
 - a new `Outflow Row Match.match_basis` value
 - a new `skip_kind` for "Porter order cancelled"
+
+### As built — #1443: upload a Porter Statement and see its invoices (2026-10-15)
+
+**Where it lives.** Pure rules: `services/outflow_import/porter.py`. Endpoints:
+`api/outflow_import/porter.py` — `upload_porter_statement` (POST, multipart `file`) and
+`get_porter_status(batch)` (reads only; the upload returns the same shape). Both use
+`require_outflow_access`. Later slices extend these two modules; nothing Porter-shaped lives elsewhere
+except the source string and the guards listed below.
+
+**The source string** `"Porter Statement"` is `sources.PORTER_STATEMENT_SOURCE`, and is in: `parser._ADAPTERS`,
+the `Outflow Import Batch.source` Select, `NEVER_MATCHED_SOURCES` (+ `outflowImportStatus.ts`),
+`TRANSFER_ID_REFERENCE_SOURCES` (the CRN is the settlement reference), the new `CREATE_GATED_SOURCES`,
+`SOURCE_OPTIONS`, `OutflowImportBatch.source`, `importWizard.IMPORT_SOURCES` (the dialog's list, moved out
+of `ImportStatementDialog`) and `SOURCE_FLOWS`, and the dialog's `SOURCE_SHAPE` / `SOURCE_REPORT`. Pinned by
+`test_sources`, `test_upload.TestSourceVocabulary`, `outflowTableModel.test.ts`, `outflowUndoAccessParity.test.ts`
+and `porterImport.test.ts`.
+
+**Parsing.** A parser adapter like every source's, plus capability 7: a column map may name a field
+`RawRow` has no slot for, kept in `RawRow.extra`. Porter maps all 22 of its columns that way (all
+REQUIRED), and the generic fields: `crn` → `transfer_id`, `order_completion_time` → `added_on`,
+`invoice_order_fare` → `amount` (Debit), `customer_name` → `added_by_raw`, `customer_remarks` → `remarks`,
+`billing_entity` → `beneficiary_name`. ⚠️ `status_raw` is `SUCCESS` for a `completed` order (derivation,
+as ICICI's) and verbatim (`cancelled`) otherwise, so every summary's success/failed split reads a cancelled
+order as money that never moved. The statement's own word stays in `porter_line["order_status"]`.
+
+**Refusals, all before `save_file`:** missing column, no rows (parser); a line with no invoice link, a
+CRN twice, a completed order with no completion time, an invoice link whose lines disagree on invoice
+number / Porter GSTIN / customer GSTIN / billing entity, one invoice number under two links
+(`read_porter_statement`); an invoice number already held by a Porter Invoice (minimal rule —
+#1446 replaces it with the invoice-level repeat rules).
+
+**What upload saves.** The CSV (private File attached to the batch); the batch (`period_from/to` = first /
+last completion date of the completed orders, `gross_amount` = their fare); one `Porter Invoice` per
+invoice link, **named by its invoice number**, holding the statement's figures over completed orders
+only, `validation_status` `Queued`; one `Outflow Import Row` per order, in file order:
+- cancelled → `Skipped`, `skip_kind` **Porter order cancelled** (locked in `skip_origin.UNSKIP_LOCKED_KINDS`
+  and its frontend mirror, checked before the Cashbook rule), `skip_origin` System;
+- completed → `Pending match run`, `suggested_doctype` / `resolved_project` from `project_match` over
+  **Won projects only, no aliases**, `suggested_expense_type` = Material Transportation Charges on both
+  ledgers, `placement_reason` `name`, `placement_strength` Strong (whole name) or Check (single unique
+  keyword), `match_basis` `porter statement`, `auto_matched` 1.
+Every Porter row carries `porter_invoice` (Link) and `porter_line` (JSON: the 22 columns verbatim, read
+only through `porter.statement_line`). Four new `Outflow Import Row` fields; see `CODING_STANDARDS.md`
+§ Don't touch. Validation is NOT enqueued yet (#1444).
+
+**Its open lines are not bank lines.** `review._row_filters` leaves out every line of a
+`CREATE_GATED_SOURCES` source that is neither `Settled` nor `Skipped`, so they are in no tab, no facet,
+not in *Still open* and not in *Total Unreconciled Outflow* — one clause, every reader. A cancelled line
+stays visible in the Skipped popup. Create / Settle / Allocate / Link refuse a Porter line in their
+loaders (`expenses.guard_not_an_own_import_line`), Skip refuses it (`skip_origin.manual_skip_refusal`), all
+with `porter.OWN_IMPORT_LINE_REFUSAL`, which points to the Porter import. The generic
+`upload_outflow_statement` refuses the Porter source.
+
+**The matcher is never called** by either Porter module: `test_porter_import.TestTheMatcherIsNeverCalled`
+runs the Cashbook AST guard (`TestItNeverSettlesAnExistingRecord.forbidden_imports/forbidden_calls`) over them.
+
+**Screen.** "Porter Statement (deliveries)" in the Import statement dialog; steps Upload → Check invoices →
+Review projects → Create (`PORTER_STEPS`); one upload request (no preview), then `PorterImportSummary`
+(orders · invoices · cancelled, period, fare, one row per invoice with its state). Done closes and
+refreshes — it does not pin the table to the import, whose lines are not shown there. Import History gets a
+Porter Statement tab through `SOURCE_OPTIONS`; the batch lists under its Statement month.
+
+**Tests.** `services/outflow_import/test_porter.py` (pure: adapter, grouping and refusals, suggestion,
+skip and unskip refusals), `api/outflow_import/test_porter_import.py` (bench, endpoint-driven, `save_file`
+stubbed), `frontend/src/pages/outflow-import/porterImport.test.ts`. Fixture
+`services/outflow_import/tests/fixtures/porter_sample.csv` is synthetic (4 invoices, 2 billing entities,
+IGST and CGST/SGST cities, 1 cancelled order, a ₹0.01 tax rounding gap).

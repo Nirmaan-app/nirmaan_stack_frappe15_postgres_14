@@ -24,6 +24,7 @@ describe("skipKinds -- mirrored from skip_kinds.py and skip_origin.py", () => {
             kinds.SKIP_KIND_OUTFLOW_RECORDED,
             kinds.SKIP_KIND_INFLOW_RECORDED,
             kinds.SKIP_KIND_BY_HAND,
+            kinds.SKIP_KIND_PORTER_CANCELLED,
             ...kinds.BANK_RULE_SKIP_KINDS,
         ]) {
             expect(skipKindsSource).toContain(`= "${label}"`);

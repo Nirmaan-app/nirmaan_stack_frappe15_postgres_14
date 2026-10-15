@@ -25,7 +25,7 @@ export interface OutflowImportBatch {
      * selects a COLUMN ADAPTER, and a second bank has different columns and a different narration
      * grammar. Adding HDFC later is one more option, not a re-fit of this one.
      */
-    source: "Cashfree" | "Cashbook" | "ICICI Bank Statement";
+    source: "Cashfree" | "Cashbook" | "ICICI Bank Statement" | "Porter Statement";
     /** The stored CSV. Attached to the BATCH and only the batch (owner ruling R3). */
     source_file?: string;
     original_filename?: string;

@@ -595,7 +595,12 @@ describe("the source scope", () => {
         // imports and its rows still render, but the Source scope control cannot name it — so the
         // screen looks like it is missing rows rather than missing an option. Exact equality is
         // what turns "somebody added a source and forgot this list" into a red test.
-        expect([...SOURCE_OPTIONS]).toEqual(["Cashfree", "Cashbook", "ICICI Bank Statement"]);
+        expect([...SOURCE_OPTIONS]).toEqual([
+            "Cashfree",
+            "Cashbook",
+            "ICICI Bank Statement",
+            "Porter Statement",
+        ]);
     });
 
     it("narrows the imports on offer to the chosen source", () => {

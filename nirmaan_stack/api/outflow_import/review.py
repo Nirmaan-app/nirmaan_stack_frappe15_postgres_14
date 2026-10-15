@@ -117,6 +117,7 @@ from nirmaan_stack.services.outflow_import.similarity import (
 )
 from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
+    CREATE_GATED_SOURCES,
     source_has_settlement_path,
     source_runs_the_matcher,
 )
@@ -2976,6 +2977,14 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
     and the facet column, both from allow-lists.
     """
     where, params = [], []
+
+    # ⚠️ A LINE WAITING FOR ITS OWN IMPORT'S CREATE IS NOT A BANK LINE (#1443, ADR-0032), so it is left
+    # out of the population EVERY reader of this builder describes: the page, its count, the tab counts,
+    # the facets, the summary panel's *Still open* and the Payments card's *Total Unreconciled Outflow*
+    # (`not_matched_totals`). One clause here keeps all of them equal to each other. A Porter line comes
+    # back once it is decided -- Settled by its Create, or Skipped as a cancelled order.
+    where.append("NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.row_status NOT IN %s)")
+    params.extend([tuple(sorted(CREATE_GATED_SOURCES)), (ROW_SETTLED, ROW_SKIPPED)])
 
     if batch:
         where.append("r.import_batch = %s")
