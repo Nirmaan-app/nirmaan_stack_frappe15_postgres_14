@@ -13,11 +13,11 @@ export type ProjectReportType = 'Cash Sheet' | 'Inflow Report' | 'Outflow Report
 export type VendorReportType = 'Vendor Ledger';
 export type CustomerReportType = 'Customer Receivable';
 // Define the specific report options for POs
-export type POReportOption = 'Pending Invoices' | 'PO with Excess Payments' | 'Dispatched for 1 days' | 'Dispatched (ITM)' | 'Payable > PO Amount' | '2B Reconcile Report' | 'PO Attachment Reconciliation Report' | 'DN > DC Quantity Report';
+export type POReportOption = 'Pending Invoices' | 'PO with Excess Payments' | 'Dispatched for 1 days' | 'Dispatched (ITM)' | 'Payable > PO Amount' | '2B Reconcile Report' | 'PO Attachment Reconciliation Report' | 'DN > DC Quantity Report' | 'Amount Paid Mismatch';
 
 // Define the specific report options for SRs (as per your request)
 // The 'value' for "Excess Payments" will be 'PO with Excess Payments'
-export type SROption = 'Pending Invoices' | 'PO with Excess Payments' | '2B Reconcile Report' | 'Payment Voucher Uploads';
+export type SROption = 'Pending Invoices' | 'PO with Excess Payments' | '2B Reconcile Report' | 'Payment Voucher Uploads' | 'Amount Paid Mismatch';
 
 export type DCMIRReportType = 'DC Report' | 'MIR Report';
 

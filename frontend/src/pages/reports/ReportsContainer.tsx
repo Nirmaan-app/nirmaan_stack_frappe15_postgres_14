@@ -9,6 +9,7 @@ import { urlStateManager } from '@/utils/urlStateManager';
 import { cn } from '@/lib/utils';
 import { paymentTabReports } from './config/paymentTab.config';
 import {
+    AMOUNT_PAID_MISMATCH_PROFILES,
     MATERIAL_PROCUREMENT_PROFILES,
     PROCUREMENT_PROFILES,
     SERVICE_PROCUREMENT_PROFILES,
@@ -58,6 +59,7 @@ const poReportOptions: { label: string; value: POReportOption }[] = [
     { label: '2B Reconcile Report', value: '2B Reconcile Report' },
     { label: 'PO Attachment Reconciliation', value: 'PO Attachment Reconciliation Report' },
     { label: 'DN > DC Quantity Report', value: 'DN > DC Quantity Report' },
+    { label: 'Amount Paid Mismatch', value: 'Amount Paid Mismatch' },
 ];
 
 const srReportOptions: { label: string; value: SROption }[] = [
@@ -65,6 +67,7 @@ const srReportOptions: { label: string; value: SROption }[] = [
     { label: 'Excess Payments (WO)', value: 'PO with Excess Payments' },
     { label: '2B Reconcile Report', value: '2B Reconcile Report' },
     { label: 'Payment Voucher Uploads', value: 'Payment Voucher Uploads' },
+    { label: 'Amount Paid Mismatch', value: 'Amount Paid Mismatch' },
 ];
 
 const dcmirReportOptions: { label: string; value: DCMIRReportType }[] = [
@@ -227,8 +230,14 @@ export default function ReportsContainer() {
 
 
 
-    // Roles that can see 2B Reconcile Report
-    const canSee2BReconcileReport = ["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role);
+    // Role-limited reports of the PO and WO tabs: 2B Reconcile (Admin + Accountants), and
+    // Amount Paid Mismatch (Admin + Accountant Lead, #1455; the server refuses anyone else).
+    const hiddenOrderReports = useMemo(() => {
+        const hidden: string[] = [];
+        if (!["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role)) hidden.push('2B Reconcile Report');
+        if (!AMOUNT_PAID_MISMATCH_PROFILES.includes(role)) hidden.push('Amount Paid Mismatch');
+        return hidden;
+    }, [role]);
 
     const currentReportOptions = useMemo(() => {
         if (activeTab === REPORTS_TABS.PROJECTS) {
@@ -258,18 +267,12 @@ export default function ReportsContainer() {
                 );
             }
             if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
-                // Filter out 2B Reconcile Report for non-Admin/Accountant roles
-                return canSee2BReconcileReport
-                    ? poReportOptions
-                    : poReportOptions.filter(option => option.value !== '2B Reconcile Report');
+                return poReportOptions.filter(option => !hiddenOrderReports.includes(option.value));
             }
             return [];
         } else if (activeTab === REPORTS_TABS.SR) {
             if (["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", ...PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile"].includes(role)) {
-                // Filter out 2B Reconcile Report for non-Admin/Accountant roles
-                return canSee2BReconcileReport
-                    ? srReportOptions
-                    : srReportOptions.filter(option => option.value !== '2B Reconcile Report');
+                return srReportOptions.filter(option => !hiddenOrderReports.includes(option.value));
             }
             return [];
         } else if (activeTab === REPORTS_TABS.DCS_MIRS) {
@@ -282,7 +285,7 @@ export default function ReportsContainer() {
             return paymentTdsReportOptions.filter(option => allowed.includes(option.value));
         }
         return [];
-    }, [activeTab, role, canSee2BReconcileReport]);
+    }, [activeTab, role, hiddenOrderReports]);
 
 
     // Effect to auto-select/validate report type when options change
