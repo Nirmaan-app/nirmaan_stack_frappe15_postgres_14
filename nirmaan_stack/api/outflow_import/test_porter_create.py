@@ -293,6 +293,52 @@ class TestCreateHonoursTheReviewedPlan(PorterCreateCase):
         self.assertEqual(unplaced.description, "Porter Delivery raised by Arjun Pillai")
 
 
+class TestAnOrderWithNoBookedByName(PorterCreateCase):
+    def test_paid_by_is_left_blank_never_the_importer(self):
+        """Story 47: Paid by is who booked the order. A blank name records nobody, not the accountant."""
+        self._validate()
+        line = self._lines()["002"]
+        statement = json.loads(line.porter_line) if isinstance(line.porter_line, str) else dict(line.porter_line)
+        statement["customer_name"] = "  "
+        frappe.db.set_value(ROW_DOCTYPE, line.name, "porter_line", json.dumps(statement), update_modified=False)
+        frappe.db.commit()
+        self._press_create()
+        self._run_create()
+        expense = self._expense_of("002")
+        self.assertFalse(expense.payment_by)
+        self.assertEqual(expense.description, "Porter Delivery for Quillon Park")
+
+
+class TestAProjectNoLongerWon(PorterCreateCase):
+    def test_its_lines_stop_in_error_naming_the_project_and_the_rest_are_created(self):
+        """A project Review placed a line on may stop being Won before Create runs: Create refuses that
+        line rather than put spend on it (or move it to Non-Project behind the reviewer's back)."""
+        self._validate()
+        self._press_create()
+        frappe.db.set_value("Projects", self.quillon, "tendering_status", "Tendering", update_modified=False)
+        frappe.db.commit()
+        self.addCleanup(self._won_again, self.quillon)
+        self._run_create()
+        on_quillon = [line for line in self._lines().values() if line.resolved_project == self.quillon]
+        self.assertTrue(on_quillon)
+        for line in on_quillon:
+            self.assertEqual(line.row_status, "Error")
+            self.assertIn("Quillon Park", line.outcome_note)
+            self.assertIn("not Won", line.outcome_note)
+        self.assertFalse(
+            frappe.get_all(PROJECT_EXPENSE, filters={"projects": self.quillon, "porter_order": ["is", "set"]})
+        )
+        status = porter_api.get_porter_status(self.batch)
+        self.assertEqual(status["failed"], len(on_quillon))
+        self.assertEqual(status["created"], 11 - len(on_quillon))
+
+    @staticmethod
+    def _won_again(project: str) -> None:
+        frappe.db.rollback()
+        frappe.db.set_value("Projects", project, "tendering_status", "Won", update_modified=False)
+        frappe.db.commit()
+
+
 class TestTheNextImportRemembersThePlacement(PorterCreateCase):
     """Signal 5 (#1448): what a person kept in this import is suggested for the same remark and city in
     the next one. Read off the LIVE Expense of each earlier Porter Order."""

@@ -191,6 +191,27 @@ class TestCorrectingAPlacement(PorterReviewCase):
         self.assertEqual((plan.suggested_doctype, plan.resolved_project), ("Project Expenses", self.zephyr))
 
 
+class TestALineCreateWillPickUpAgain(PorterReviewCase):
+    """Every line Create would still write can be re-placed before it does: one Create stopped in Error
+    (its project stopped being Won, say), and one Unreconcile reopened (Mismatched)."""
+
+    def setUp(self):
+        super().setUp()
+        self._set_invoices("Passed")
+
+    def test_a_line_in_error_or_reopened_is_editable_and_can_be_moved(self):
+        for status, suffix in (("Error", "001"), ("Mismatched", "004")):
+            with self.subTest(status=status):
+                row = self._row(suffix)
+                frappe.db.set_value(ROW_DOCTYPE, row.name, "row_status", status)
+                frappe.db.commit()
+                [line] = [line for line in self._review()["lines"] if line["name"] == row.name]
+                self.assertTrue(line["editable"])
+                self._assign([row], self.quillon)
+                moved = self._row(suffix)
+                self.assertEqual((moved.resolved_project, moved.placement_reason), (self.quillon, "review"))
+
+
 class TestWhatReviewRefuses(PorterReviewCase):
     def setUp(self):
         super().setUp()

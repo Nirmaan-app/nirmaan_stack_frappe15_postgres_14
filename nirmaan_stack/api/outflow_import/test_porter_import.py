@@ -423,6 +423,15 @@ class TestARefusedFileSavesNothing(PorterImportCase):
         content = _fresh_fixture()[0].decode().replace("porter_gstin", "gstin", 1)
         self._assert_refused(content.encode(), "porter_gstin")
 
+    def test_a_file_that_is_not_a_csv(self):
+        """Porter's statement is a CSV (spec #1442); an Excel copy of it is refused, not read."""
+        for extension in (".xlsx", ".xls", ".pdf", ""):
+            with self.subTest(extension=extension):
+                self.filename = f"porter-{frappe.generate_hash(length=8)}{extension}"
+                self.addCleanup(_purge_batches, self.filename)
+                self.saved = []
+                self._assert_refused(_fresh_fixture()[0], ".csv")
+
     def test_a_file_with_no_rows(self):
         header = _fresh_fixture()[0].decode().splitlines()[0]
         self._assert_refused((header + "\n").encode())

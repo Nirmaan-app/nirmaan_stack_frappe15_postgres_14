@@ -1002,6 +1002,7 @@ def create_expense_from_row(
     *,
     invoice: ExpenseInvoice | None = None,
     porter_order: str | None = None,
+    blank_payment_by_is_actor: bool = True,
 ) -> SettleResult:
     """Create a new expense, already `Paid`, from a bank row that matched nothing.
 
@@ -1013,6 +1014,8 @@ def create_expense_from_row(
     number, date and SHARED PDF URL go to `invoice_ref` / `invoice_date` / `invoice_attachment` (never
     `payment_attachment`, which is the statement's), and the Porter Order to the `porter_order` link.
     A URL is copied, never a `File` row made: the invoice's one File stays attached to its Porter Invoice.
+`blank_payment_by_is_actor=False` (Porter, spec #1442 story 47) leaves Paid by blank when the statement
+names nobody: Paid by is who booked the order, and the importer did not.
 
     ⚠️ THE `payment_ref` OVERRIDE IS GONE, AND ITS REMOVAL IS THE POINT (ADR-0020 B9). It existed so
     the wallet path could pass its own transaction id, because the wallet issues no UTR -- a remedy
@@ -1073,7 +1076,7 @@ def create_expense_from_row(
         # right default. A petty-cash wallet statement names the actual spender in its own `From`
         # column, and writing the importer's name over 115 rows would claim one accountant made
         # every purchase on the sheet. The caller passes it when the statement knows.
-        doc.payment_by = payment_by or actor
+        doc.payment_by = payment_by or (actor if blank_payment_by_is_actor else None)
 
     if invoice is not None:
         doc.invoice_ref = invoice.number or None

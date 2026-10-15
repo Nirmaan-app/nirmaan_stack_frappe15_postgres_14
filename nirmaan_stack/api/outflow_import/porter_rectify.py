@@ -216,6 +216,7 @@ def rectify_line(row: str, project: str | None, reason: str, actor: str, *, bulk
                 statement_file_url=None,
                 # Project side only: who booked it, kept as the old Project Expense had it.
                 payment_by=old.get("payment_by") or booker or None,
+                blank_payment_by_is_actor=False,
                 invoice=ExpenseInvoice(
                     number=old.invoice_ref, date=old.invoice_date, file_url=old.invoice_attachment
                 ),

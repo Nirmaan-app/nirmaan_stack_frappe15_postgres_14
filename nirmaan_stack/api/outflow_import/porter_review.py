@@ -12,9 +12,11 @@ reports the lines with their group key and writes the corrections.
 `suggested_expense_type` -- the same fields upload wrote and the Create job (#1445) turns into the
 Expense -- the moment it is made, so closing the browser loses nothing and there is no separate "save".
 
-⚠️ ONLY BEFORE CREATE, ONLY ONCE VALIDATED. Both endpoints refuse an import that is not Validated (still
-being checked, or an invoice Failed); a line already created (no longer `Pending match run`) is refused
-under its row lock, so an edit can never move an Expense that exists. Moving one is Rectify's (#1449).
+⚠️ ONLY BEFORE CREATE WRITES THE LINE, ONLY ONCE VALIDATED. Both endpoints refuse an import that is not
+Validated (still being checked, or an invoice Failed). A line is editable exactly while Create would still
+write it (`porter.CREATE_LINE_STATUSES`: waiting, stopped in Error, or reopened by Unreconcile); a created
+(Settled) line is refused under its row lock, so an edit can never move an Expense that exists. Moving one
+is Rectify's (#1449).
 """
 
 import frappe
@@ -26,12 +28,13 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     PROJECT_EXPENSE_DOCTYPE,
 )
 from nirmaan_stack.services.outflow_import.porter import (
+    CREATE_LINE_STATUSES,
     EXPENSE_TYPE,
     REASON_REVIEW,
     remark_group_key,
     statement_line,
 )
-from nirmaan_stack.services.outflow_import.status import ROW_PENDING_MATCH, ROW_SKIPPED
+from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
 
 _WON = "Won"
 
@@ -45,7 +48,7 @@ def get_porter_review(batch: str):
     Returns `{batch, lines: [...], projects: [{name, project_name}]}`. Each line: `name`, `crn`,
     `completed_on`, `fare`, `remarks`, `city`, `from_address`, `to_address`, `booked_by`, `group_key`
     (blank: no remark, reviewed on its own), `ledger`, `project`, `project_name`, `reason`, `strength`,
-    `editable` (not yet created).
+    `editable` (Create would still write it: waiting, in Error, or reopened by Unreconcile).
     """
     require_outflow_access()
     _refuse_unless_validated(batch)
@@ -139,7 +142,7 @@ def porter_review(batch: str) -> dict:
                 "project_name": row.project_name or None,
                 "reason": row.placement_reason or None,
                 "strength": row.placement_strength or None,
-                "editable": row.row_status == ROW_PENDING_MATCH,
+                "editable": row.row_status in CREATE_LINE_STATUSES,
             }
         )
     return {"batch": batch, "lines": lines, "projects": won_projects()}
@@ -169,19 +172,25 @@ def _refuse_unless_validated(batch: str) -> None:
 
 def refuse_unless_won(project: str) -> None:
     """Refuse a project that does not exist or is not Won (Review and Rectify)."""
+    refusal = won_refusal(project)
+    if refusal:
+        frappe.throw(f"Only a Won project can be chosen. {refusal}", title="Not a Won project")
+
+
+def won_refusal(project: str) -> str | None:
+    """Why a Porter order cannot be placed on `project` -- it does not exist, or is not Won -- or None.
+    Asked by Review and Rectify when a person chooses, and by Create on every line it writes (#1445)."""
     found = frappe.db.get_value("Projects", project, ["project_name", "tendering_status"], as_dict=True)
     if not found:
-        frappe.throw(f"Project {project} does not exist.", title="No such project")
+        return f"Project {project} does not exist."
     if found.tendering_status != _WON:
-        frappe.throw(
-            f"Only a Won project can be chosen. {found.project_name or project} ({project}) is "
-            f"{found.tendering_status or 'not Won'}.",
-            title="Not a Won project",
-        )
+        return f"{found.project_name or project} ({project}) is {found.tendering_status or 'not set'}, not Won."
+    return None
 
 
 def _refuse_lines_not_open(batch: str, names: list[str], lines: list) -> None:
-    """Every named line is a completed order of this import, not yet created -- read under the lock."""
+    """Every named line is a completed order of this import that Create would still write -- read under
+    the lock."""
     found = {line.name: line for line in lines}
     foreign = [name for name in names if name not in found or found[name].import_batch != batch]
     if foreign:
@@ -192,7 +201,7 @@ def _refuse_lines_not_open(batch: str, names: list[str], lines: list) -> None:
             f"Porter cancelled {', '.join(cancelled)}: it becomes no expense, so it has no project.",
             title="Cancelled order",
         )
-    created = [line.name for line in lines if line.row_status != ROW_PENDING_MATCH]
+    created = [line.name for line in lines if line.row_status not in CREATE_LINE_STATUSES]
     if created:
         frappe.throw(
             f"{', '.join(created)} already created (or is being created). Move a created order with "

@@ -57,6 +57,7 @@ from nirmaan_stack.api.outflow_import.porter import (
     porter_import_states,
     porter_status,
 )
+from nirmaan_stack.api.outflow_import.porter_review import won_refusal
 from nirmaan_stack.api.outflow_import.review import _StagedRow
 from nirmaan_stack.api.outflow_import.unreconcile_cleanup import _resync_cashflow_hold
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
@@ -158,6 +159,10 @@ def create_porter_import(batch: str, actor: str) -> None:
         try:
             project = _create_one(line, batch, actor, invoices)
             frappe.db.commit()
+        except _LineRefused as refused:
+            frappe.db.rollback()
+            _mark_error(line, str(refused))
+            continue
         except Exception:
             frappe.db.rollback()
             frappe.local.message_log = []
@@ -165,13 +170,7 @@ def create_porter_import(batch: str, actor: str) -> None:
                 title="Porter Create: could not create an expense",
                 message=f"{batch} / {line}\n\n{frappe.get_traceback()}",
             )
-            frappe.db.set_value(
-                ROW_DOCTYPE,
-                line,
-                {"row_status": ROW_ERROR, "outcome_note": "Could not create this expense. Run Create again."},
-                update_modified=False,
-            )
-            frappe.db.commit()
+            _mark_error(line, "Could not create this expense. Run Create again.")
             continue
         if project:
             projects.add(project)
@@ -202,11 +201,15 @@ def _create_one(name: str, batch: str, actor: str, invoices: dict[str, ExpenseIn
     if not rows or rows[0].row_status not in CREATE_LINE_STATUSES:
         return None
     row = rows[0]
-    statement = statement_line(row.porter_line)
-    order = _porter_order(row, statement)
-
     doctype = row.suggested_doctype
     project = row.resolved_project if doctype == PROJECT_EXPENSE_DOCTYPE else None
+    # The project Review left may have stopped being Won since: never spend on it, and never move the
+    # line to Non-Project behind the reviewer's back. A person re-places it in Review, then re-runs.
+    refusal = project and won_refusal(project)
+    if refusal:
+        raise _LineRefused(f"{refusal} Place this order again in Review, then run Create again.")
+    statement = statement_line(row.porter_line)
+    order = _porter_order(row, statement)
     project_name = frappe.db.get_value("Projects", project, "project_name") if project else ""
     booked_by = booked_by_of(statement)
 
@@ -224,6 +227,7 @@ def _create_one(name: str, batch: str, actor: str, invoices: dict[str, ExpenseIn
         statement_file_url=None,
         # Project side only (Non Project Expenses has no Paid by): who booked the order.
         payment_by=booked_by or None,
+        blank_payment_by_is_actor=False,
         invoice=invoices.get(row.porter_invoice),
         porter_order=order,
     )
@@ -266,6 +270,17 @@ def _create_one(name: str, batch: str, actor: str, invoices: dict[str, ExpenseIn
         update_modified=False,
     )
     return project
+
+
+class _LineRefused(Exception):
+    """A line Create will not write as it stands. The message is its outcome note, for a person."""
+
+
+def _mark_error(line: str, note: str) -> None:
+    """The line -> Error with its sentence, committed. Raw: `Outflow Import Row` has no doc_events, and the
+    batch rollup is recomputed from the rows at the end of the run."""
+    frappe.db.set_value(ROW_DOCTYPE, line, {"row_status": ROW_ERROR, "outcome_note": note}, update_modified=False)
+    frappe.db.commit()
 
 
 def _porter_order(row, statement: dict) -> str:

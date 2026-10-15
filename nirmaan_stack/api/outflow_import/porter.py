@@ -93,7 +93,7 @@ ROW_DOCTYPE = "Outflow Import Row"
 INVOICE_DOCTYPE = "Porter Invoice"
 SOURCE = PORTER_STATEMENT_SOURCE
 
-_ALLOWED_EXTENSIONS = frozenset({".csv", ".xlsx"})
+_ALLOWED_EXTENSIONS = frozenset({".csv"})
 _MAX_FILE_BYTES = 5 * 1024 * 1024
 
 # Only Won projects are suggested (ADR-0032): a Tendering duplicate of a Won project's name would tie it
@@ -105,7 +105,7 @@ _WON = "Won"
 def upload_porter_statement():
     """Read a Porter Statement and stage it. Returns the import as `get_porter_status` reports it.
 
-    Multipart form: `file` (.csv; .xlsx is read too).
+    Multipart form: `file`, a .csv -- Porter's own export. Any other file is refused, unread.
     URL: /api/method/nirmaan_stack.api.outflow_import.porter.upload_porter_statement
 
     Refused, with the reason, and with NOTHING saved: a file that is not a Porter Statement (a missing
