@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 
+import { repeatsLeftOutNote } from "../porterDiscard";
 import {
     canRetryInvoice,
     createProgress,
@@ -88,6 +89,9 @@ export const PorterImportSummary = ({
                     </Badge>
                     <p className="text-xs text-muted-foreground">{porterStateNote(status.state)}</p>
                 </div>
+                {repeatsLeftOutNote(status.repeats_not_saved) && (
+                    <p className="text-xs text-muted-foreground">{repeatsLeftOutNote(status.repeats_not_saved)}</p>
+                )}
                 {progress && (
                     <p
                         className={`text-sm tabular-nums ${status.failed > 0 && !status.create_running ? "text-destructive" : ""}`}

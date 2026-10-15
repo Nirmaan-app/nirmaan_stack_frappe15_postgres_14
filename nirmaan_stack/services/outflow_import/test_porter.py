@@ -1,8 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Porter Statement's pure half: its column adapter, its invoice grouping and refusals, and the
-starting project suggestion (#1443).
+"""The Porter Statement's pure half: its column adapter, its invoice grouping and refusals (#1443).
+Project placement is `test_porter_placement`'s (#1448).
 
     devenv.sh unit nirmaan_stack.services.outflow_import.test_porter
 
@@ -38,9 +38,6 @@ from nirmaan_stack.services.outflow_import.porter import (
     InvoiceFigures,
     InvoiceRead,
     PorterStatementError,
-    REASON_NAME,
-    STRENGTH_CHECK,
-    STRENGTH_STRONG,
     description_hand_edited,
     expense_description,
     import_state,
@@ -49,9 +46,7 @@ from nirmaan_stack.services.outflow_import.porter import (
     read_porter_statement,
     rectified_description,
     remark_group_key,
-    suggest_placement,
 )
-from nirmaan_stack.services.outflow_import.project_match import build_project_index
 from nirmaan_stack.services.outflow_import.sources import PORTER_STATEMENT_SOURCE
 
 FIXTURE = Path(__file__).parent / "tests" / "fixtures" / "porter_sample.csv"
@@ -228,33 +223,8 @@ class TestGroupingIntoInvoices(unittest.TestCase):
         )
 
 
-class TestTheStartingSuggestion(unittest.TestCase):
-    INDEX = build_project_index(
-        [("PROJ-ZEPHYR", "Zephyr Tower"), ("PROJ-QUILLON", "Quillon Park"), ("PROJ-OTHER", "Orion Mall")]
-    )
-
-    def test_a_remark_naming_a_project_in_full_is_a_strong_name_suggestion(self):
-        placed = suggest_placement("zephyr tower project ", self.INDEX)
-        self.assertEqual(placed.ledger, "Project Expenses")
-        self.assertEqual(placed.project, "PROJ-ZEPHYR")
-        self.assertEqual(placed.reason, REASON_NAME)
-        self.assertEqual(placed.strength, STRENGTH_STRONG)
-        self.assertEqual(placed.expense_type, EXPENSE_TYPE)
-
-    def test_a_single_unique_keyword_is_a_name_suggestion_to_check(self):
-        placed = suggest_placement("quillon site", self.INDEX)
-        self.assertEqual(placed.project, "PROJ-QUILLON")
-        self.assertEqual(placed.reason, REASON_NAME)
-        self.assertEqual(placed.strength, STRENGTH_CHECK)
-
-    def test_no_project_is_a_non_project_expense_with_no_reason(self):
-        for remark in ("", "misc delivery"):
-            placed = suggest_placement(remark, self.INDEX)
-            self.assertEqual(placed.ledger, "Non Project Expenses")
-            self.assertIsNone(placed.project)
-            self.assertEqual(placed.reason, "")
-            self.assertEqual(placed.strength, "")
-            self.assertEqual(placed.expense_type, EXPENSE_TYPE)
+class TestTheExpenseType(unittest.TestCase):
+    """Placement itself is `test_porter_placement`'s."""
 
     def test_every_porter_expense_is_typed_material_transportation_charges(self):
         self.assertEqual(EXPENSE_TYPE, "Material Transportation Charges")

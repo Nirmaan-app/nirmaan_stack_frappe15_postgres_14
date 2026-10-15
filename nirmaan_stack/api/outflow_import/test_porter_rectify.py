@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import frappe
 
+from nirmaan_stack.api.outflow_import import porter as porter_api
 from nirmaan_stack.api.outflow_import import porter_rectify
 from nirmaan_stack.api.outflow_import.test_porter_create import (
     MATCH_DOCTYPE,
@@ -125,6 +126,30 @@ class TestNonProjectToAProject(PorterRectifyCase):
         [live] = self._live_expenses_of_order(crn)
         self.assertEqual((live.doctype, live.projects), (PROJECT_EXPENSE, self.zephyr))
         self.assertTrue(frappe.db.exists(ORDER_DOCTYPE, crn))
+
+    def test_the_next_uploads_earlier_imports_signal_reads_the_rectified_project(self):
+        """Through the real reader (#1448's `_placement_master`): what it hands the signal for this order's
+        remark and city moves from Non-Project to the rectified project. Counted, so earlier imports on the
+        same site cannot blur it."""
+        order = frappe.get_doc(ORDER_DOCTYPE, self._crn("005"))  # "misc delivery", Non-Project
+
+        def _earlier():
+            seen = []
+            real = porter_api.build_placement_master
+
+            def _capture(*args, **kwargs):
+                seen.extend(kwargs["earlier"])
+                return real(*args, **kwargs)
+
+            with patch.object(porter_api, "build_placement_master", side_effect=_capture):
+                porter_api._placement_master()
+            return [(e.remark, e.city, e.project) for e in seen].count
+
+        before = _earlier()
+        self._rectify(["005"], self.zephyr)
+        after = _earlier()
+        self.assertEqual(after((order.remark, order.city, self.zephyr)), before((order.remark, order.city, self.zephyr)) + 1)
+        self.assertEqual(after((order.remark, order.city, None)), before((order.remark, order.city, None)) - 1)
 
 
 class TestAProjectToAnotherProject(PorterRectifyCase):

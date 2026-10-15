@@ -76,6 +76,7 @@ import {
 import { porterReviewOffered } from "../porterReview";
 import { CashbookReviewTree } from "./CashbookReviewTree";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
+import { PorterDiscardButton } from "./PorterDiscardButton";
 import { PorterImportSummary } from "./PorterImportSummary";
 import { PorterReviewPanel } from "./PorterReviewPanel";
 import { SheetHeaderPicker } from "./SheetHeaderPicker";
@@ -1167,6 +1168,8 @@ export const ImportStatementDialog = ({
                     to be scrolled, so the way OUT has to stay put while you scroll it. */}
                 {isPorter && porterStatus && (
                     <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
+                        {/* Discard (#1447): Admin / Accountant Lead, until Create has written anything. */}
+                        <PorterDiscardButton status={porterStatus} onDiscarded={handlePorterDone} />
                         {canCreatePorter(porterStatus) && (
                             <Button onClick={handlePorterCreate} disabled={startingCreate}>
                                 {startingCreate && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}

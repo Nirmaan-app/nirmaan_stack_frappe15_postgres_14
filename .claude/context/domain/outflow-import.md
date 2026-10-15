@@ -6528,7 +6528,7 @@ four shapes) and the IFSC cases in `TestTheContainsQueryMirrorsThePureTokens`; `
 (3: the prompt text, a branch-code-only inflow, an inflow another line accounts for).
 
 
-## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, validation at #1444, review at #1446, create at #1445, rectify at #1449, the rest NOT BUILT YET)
+## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, validation at #1444, review at #1446, create at #1445, re-uploads and Discard at #1447, placement signals at #1448, rectify at #1449, the rest NOT BUILT YET)
 
 Decisions: **[ADR-0032](../../../docs/adr/0032-porter-statement-import.md)** (owner grilling, Q1–Q36).
 Terms: `GLOSSARY.md` § *Porter deliveries*. The design below is the target; § *As built* at the end of
@@ -6636,8 +6636,7 @@ order as money that never moved. The statement's own word stays in `porter_line[
 **Refusals, all before `save_file`:** missing column, no rows (parser); a line with no invoice link, a
 CRN twice, a completed order with no completion time, an invoice link whose lines disagree on invoice
 number / Porter GSTIN / customer GSTIN / billing entity, one invoice number under two links
-(`read_porter_statement`); an invoice number already held by a Porter Invoice (minimal rule —
-#1446 replaces it with the invoice-level repeat rules).
+(`read_porter_statement`); the invoice-level repeat rules (`porter_repeats`, #1447 below).
 
 **What upload saves.** The CSV (private File attached to the batch); the batch (`period_from/to` = first /
 last completion date of the completed orders, `gross_amount` = their fare); one `Porter Invoice` per
@@ -6645,10 +6644,10 @@ invoice link, **named by its invoice number**, holding the statement's figures o
 only, `validation_status` `Queued`; one `Outflow Import Row` per order, in file order:
 - cancelled → `Skipped`, `skip_kind` **Porter order cancelled** (locked in `skip_origin.UNSKIP_LOCKED_KINDS`
   and its frontend mirror, checked before the Cashbook rule), `skip_origin` System;
-- completed → `Pending match run`, `suggested_doctype` / `resolved_project` from `project_match` over
-  **Won projects only, no aliases**, `suggested_expense_type` = Material Transportation Charges on both
-  ledgers, `placement_reason` `name`, `placement_strength` Strong (whole name) or Check (single unique
-  keyword), `match_basis` `porter statement`, `auto_matched` 1.
+- completed → `Pending match run`, `suggested_doctype` / `resolved_project` / `placement_reason` /
+  `placement_strength` from the placement signals over **Won projects only, no aliases** (#1448, below;
+  #1443 had the name matcher alone), `suggested_expense_type` = Material Transportation Charges on both
+  ledgers, `match_basis` `porter statement`, `auto_matched` 1.
 Every Porter row carries `porter_invoice` (Link) and `porter_line` (JSON: the 22 columns verbatim, read
 only through `porter.statement_line`). Four new `Outflow Import Row` fields; see `CODING_STANDARDS.md`
 § Don't touch. Upload then enqueues validation (#1444, below).
@@ -6896,6 +6895,133 @@ Porter Order fields); `api/expense_requests/test_fixture_completeness.py` (both 
 Invoice, which only Admin, Accountant and Accountant Lead can read: other roles who can open the expense get
 403 on the PDF (story 53, for #1450). An `Error` line cannot be re-placed in Review (it is not `Pending match
 run`) before a re-run.
+
+### As built — #1448: project suggestions from typos, initials, site addresses and earlier imports (2026-10-15)
+
+**Where it lives.** Pure: `services/outflow_import/porter_placement.py` — `build_placement_master(projects,
+sites, earlier)` and `place_orders(orders, master)`, the signals `typo_project`, `initials_project`,
+`address_project` (and the history in the master), the inputs `OrderFacts`, `SiteAddress`, `EarlierPlacement`,
+the output `Placement` (moved here from `porter.py`; `porter.suggest_placement` is gone). The vocabulary stays
+in `porter.py`: `REASON_NAME`, `REASON_TYPO`, `REASON_INITIALS`, `REASON_ADDRESS`, `REASON_CONFLICT`,
+`REASON_HISTORY`, `REASON_REVIEW`, `STRENGTH_STRONG` / `STRENGTH_CHECK`. The upload
+(`api/outflow_import/porter._placement_master`) reads the master and the history ONCE, then places every
+completed order of the file in one call (an order's suggestion depends on its remark group). **No alias table
+and no AI call** (pinned: `TestPurity` and the AST guard in `test_porter_import`).
+
+**The signals.** Each is counted over the Won master as it stands — nothing to maintain, a new project takes
+part at once (`_sole_owners`: a key claimed by two projects means neither).
+1. **Name** — `project_match` (whole name, else one word unique to a project). Ambiguous here STOPS 2–3.
+2. **Typo** — a remark word exactly one edit (change, add or drop a letter) from a keyword unique to one
+   project and **5+ letters as written** (`TYPO_MIN_WORD_LENGTH`; "telus" counts though it compares as
+   "telu"). A remark word that is a word of any project name, or a generic word, is never a typo.
+3. **Initials** — two or more single letters in a row ("v r mall", "e y", "e.y") read as one word, matched
+   to a word of one project's name ("vr") or to one project's initials, noise words aside ("ey" of Ernst &
+   Young). Letters typed together ("ey") are NOT read: too many short words are someone's initials.
+4. **Site address** — `Projects.project_address` → `Address` (`address_line1`, `address_line2`, `pincode`;
+   `city` / `state` / `country` only as words to ignore). Evidence at one address end (from or to) = words of
+   one site's address lines that no other site has (city/state/country words of every site, the order's own
+   city and generic words excluded) plus that site's pincode if no other site has it. **Two pieces of
+   evidence** name a site; the two ends naming two projects name neither.
+5. **Earlier imports** — see below. Read FIRST, though listed last: it is a person's decision, and the name
+   matcher would otherwise repeat a corrected mistake every month (story 30).
+
+**Combination** (`place_orders`), per remark group (`remark_group_key`; an order with no remark is its own):
+name = 5, else 1–3 on the remark; each order's address vote; the group majority = the one project voted by
+≥ max(2, ceil(n/2)) orders.
+- the name gives a project, and a majority votes ANOTHER project → **no suggestion**, reason `conflict`,
+  Check (Non-Project until a person places it);
+- else the name's project: **Strong** when an address agrees (the order's own vote or the majority; reason
+  `<name reason>+address`, e.g. `name+address`), else **Check** for a loose reading (one unique word, typo,
+  initials), else Strong (whole name, history);
+- history kept the remark Non-Project → Non-Project, reason `history`, Strong (a majority for a project →
+  `conflict`);
+- no name → the order's own address vote (reason `address`, Check), else blank (Non-Project, no reason).
+A single noisy address never moves a name: only a group majority can, and only to "decide it yourself".
+
+**Signal 5 reads exactly this** (for #1449 to check against): every `Porter Order`'s `remark` and `city`,
+joined to the LIVE Expense that links to it — `Project Expenses.porter_order` → its `projects`, or
+`Non Project Expenses.porter_order` → Non-Project — keyed by `remark_group_key(remark, city)`. Per key, the
+placement held by MORE than half of those orders wins; an even split says nothing; a project no longer Won is
+not counted. Every created order counts (Create after review = confirmed). A Rectify that replaces the Expense
+(same Porter Order) is therefore read as the new placement with no code of its own; an Unreconcile deletes the
+Expense, and the order drops out (pinned: `test_porter_create.TestTheNextImportRemembersThePlacement`). ⚠️ So
+from the second month most orders read `history`, Strong — including a Check suggestion that was created
+without being corrected.
+
+**Screen.** `porterReview.ts` `reasonLabel` names every reason ("Project name misspelt in the remark",
+"Project initials in the remark", "Its site address", "Kept so in an earlier Porter import", "Name and most
+addresses point to different projects") and a joined one part by part ("Project name in the remark, and its
+site address"); an unknown part is still shown as it is. A `conflict` line is Check, so it is listed first.
+
+**Tests.** `services/outflow_import/test_porter_placement.py` (pure, every signal and the combination; the
+table `TestTheSeptemberRemarkGroups` over a synthetic master mirroring the 2026-09 measured cases — telus
+name+address, cignus typo, v r mall / e y initials, a conflict, an ambiguous name falling back to address,
+no-remark orders, history kept Non-Project — and the two known misplacements, "cheque to xinergy
+innovation" → Schneider Innovation and "exl and qburst project" → QBurst, both reason `name`, Check);
+`api/outflow_import/test_porter_import.py` (`TestAnOrderIsPlacedByItsProjectsSiteAddress`: the Address join
+at upload); `test_porter_create.py` (`TestTheNextImportRemembersThePlacement`: review → Create → next upload;
+Unreconcile forgets); `frontend/.../porterReview.test.ts` (labels; every `REASON_*` parity).
+
+### As built — #1447: re-uploads and Discard (2026-10-15)
+
+**Where it lives.** Pure: `services/outflow_import/porter_repeats.py` (`leave_out_repeats`, `HeldInvoice`,
+`RepeatJudgement`, `PorterRepeatRefusal`; kept out of `porter.py` so the parallel slices do not collide).
+Upload: `api/outflow_import/porter.py` `_leave_out_repeats` / `_held_invoices`, and `created_imports(batches)`
+/ `created_anything(batch)`. Discard: `api/outflow_import/porter_discard.py` `discard_porter_import(batch)`
+(POST). The File delete: `services/stored_files.delete_files(filters)` (generalised out of
+`api/tds/submit.delete_row_datasheet`, which now calls it).
+
+**"Created" is per IMPORT** (`created_imports`): any `Outflow Row Match` of the batch (Settled, or Reversed by
+Unreconcile / Rectify) or any `Porter Order` of its invoices. Both outlive every correction, so an import
+that has created once stays created: past Discard, and its invoices left out of every later upload. An
+import between (Creating, a line in Error) is created too — its own Create re-run finishes it.
+
+**Repeat rules, at invoice level, in `upload_porter_statement` BEFORE `save_file`.** The invoice number is
+the Porter Invoice's name, so a number is held by at most one import. Per invoice of the file:
+- held by a created import, **same CRN set** (cancelled orders included) → left out: no line, no Porter
+  Invoice, never downloaded or read again; its lines counted in the batch's `repeats_not_saved` (written once
+  at staging, shown in Import History as "N already imported, not saved" and in the Porter summary). The
+  batch's period and fare are the kept invoices' alone.
+- held by a created import, **different CRNs** → refused: "Invoice X was already created in OFI-…, and this
+  file lists different orders on it (not in that import: CRN…; missing from this file: CRN…). Porter may
+  have re-issued it: check it with Porter."
+- held by an import that created nothing → refused: "Already uploaded in OFI-…: open it or discard it
+  (invoice X)." — one sentence per holding import.
+- every invoice left out → refused: "Not imported. All N invoices in '<file>' were already created in
+  OFI-…. Nothing in this file is new, so nothing was saved."
+Every blocking invoice is named in one refusal (re-issued first). Title "Already imported".
+
+**Discard.** `has_outflow_undo_access` (Admin, Accountant Lead; "Only an Admin or an Accountant Lead can
+discard a Porter import."). Locks the batch row, then every line `FOR UPDATE` (a Create line in flight
+commits first), then refuses: not a Porter import; `created_anything` ("… Correct its lines with Rectify
+or Unreconcile instead."); any job of the import queued or running — `porter.create_job_id`,
+`porter_validation.validation_job_id(batch)` and the per-invoice Retry ids (`validation_job_id(batch,
+invoice)`, now the one source of both ids), read with `is_job_enqueued` (RQ status queued or started).
+Discard is the way out of the #1444 gap (an import stuck Validating), with one wait: a job whose worker
+died still reads *started* until RQ's registry cleanup fails it (at most the job's 1-hour timeout), and a
+job queued with no worker running stays queued; the refusal says to wait. Deletes, raw (no `doc_events` on any
+of them; `frappe.delete_doc` would trash attached Files through the document layer): the lines, the Porter
+Invoices and the batch, with their `Version` and `Comment` rows; then, LAST, every File attached to its
+Porter Invoices and to the batch (the CSV) through `delete_files`, which removes only the record when
+another File shares the `content_hash`. Then commits. The statement can be uploaded again at once.
+
+**Status.** `porter_status` adds `repeats_not_saved` and `discardable` (= not `created_anything`; who may
+discard is the screen's question).
+
+**Screen.** `PorterDiscardButton` in the Porter dialog's footer (left), shown when
+`porterDiscard.canDiscardPorter`: `canUndoOutflow` and `discardable` and the Create job not running — in
+Validating too. It confirms with `discardConfirmation` ("Discard OFI-…? This deletes its 12 orders, its 4
+Porter invoices and their PDFs. …"), posts, then closes the dialog like Done. `PorterImportSummary` shows
+`repeatsLeftOutNote` ("9 orders on invoices already created were left out: they are not saved again.").
+A refused upload shows the server's sentence in the dialog's error box; "open it" means Import History →
+Porter Statement tab.
+
+**Tests.** `services/outflow_import/test_porter_repeats.py` (unit: each rule, the kept statement's totals,
+one refusal naming every block); `api/outflow_import/test_porter_reupload.py` (bench: created import →
+left out + counted + not read again, re-issued invoice blocked, nothing new refused; uncreated import
+blocked; Discard removes exactly its records and Files, keeps bytes another File shares, refused once
+created / for a plain Accountant / while its validation job runs, works on an import stuck Validating, and
+the same statement uploads again); `frontend/.../porterDiscard.test.ts`.
 
 ### As built — #1449: Rectify (and Unreconcile) a Porter expense (2026-10-15)
 

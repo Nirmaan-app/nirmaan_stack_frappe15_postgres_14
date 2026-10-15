@@ -38,6 +38,7 @@ from nirmaan_stack.services.role_profiles import (
 	PMO_EXECUTIVE_PROFILE,
 	has_role_profile,
 )
+from nirmaan_stack.services.stored_files import delete_files
 
 ROW_DOCTYPE = "Project TDS Item List"
 GROUP_DOCTYPE = "TDS Items"
@@ -472,24 +473,11 @@ def delete_row_datasheet(row_name, file_url):
 	that File belongs to the entry. Deleting a File removes its bytes from storage, which no rollback
 	undoes, so call this last, after every other write of the transaction has succeeded.
 
-	The storage app keys the stored bytes by `content_hash` (`frappe_gcp_attachment` `delete_from_cloud`),
-	so the same PDF uploaded twice is one stored object behind two File docs. When another File shares
-	the hash, only this File's record goes, with a raw delete that skips the storage hook on purpose:
-	trashing it through the document layer would delete the bytes the other File still serves."""
+	The same PDF uploaded twice is one stored object behind two File docs, so the delete goes through
+	`services.stored_files.delete_files`, which keeps the bytes while another File shares them."""
 	if not file_url:
 		return
-	for f in frappe.get_all(
-		"File",
-		filters={"attached_to_doctype": ROW_DOCTYPE, "attached_to_name": row_name, "file_url": file_url},
-		fields=["name", "content_hash"],
-	):
-		shared = f.content_hash and frappe.db.exists(
-			"File", {"content_hash": f.content_hash, "name": ["!=", f.name]}
-		)
-		if shared:
-			frappe.db.delete("File", f.name)
-		else:
-			frappe.delete_doc("File", f.name, ignore_permissions=True)
+	delete_files({"attached_to_doctype": ROW_DOCTYPE, "attached_to_name": row_name, "file_url": file_url})
 
 
 def attach_upload(file_name, row_name):
