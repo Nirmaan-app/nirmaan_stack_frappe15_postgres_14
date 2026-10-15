@@ -76,7 +76,7 @@ def paid_to_rows(rows: list[dict]) -> list[dict]:
       no Payee any more); None on any other row.
 
     At most two queries, whatever the row count."""
-    rules = _payee_rules({row.get("expense_type") for row in rows if row.get("doctype") != PAYMENT_DOCTYPE})
+    rules = _payee_rules({row.get("expense_type") for row in rows if _is_expense(row.get("doctype"))})
     accounts_now = vendor_accounts([row.get("vendor") for row in rows if _may_change(row)])
     return [_answer(row, rules, accounts_now) for row in rows]
 
@@ -85,7 +85,7 @@ def _answer(row: dict, rules: dict[str, str], accounts_now: dict[str, dict]) -> 
     account = pay_to_account(row)
     answer = {"account": account, "missing": None, "payee_rule": None,
               "account_changed": False, "current_account": None}
-    if row.get("doctype") != PAYMENT_DOCTYPE:
+    if _is_expense(row.get("doctype")):
         answer["payee_rule"] = rules.get(row.get("expense_type")) or NOT_ASKED
     if account:
         if _may_change(row):
@@ -93,16 +93,22 @@ def _answer(row: dict, rules: dict[str, str], accounts_now: dict[str, dict]) -> 
             if account_changed_since(account, now):
                 answer["account_changed"] = True
                 answer["current_account"] = {field: now[field] for field in ACCOUNT_FIELDS} if now else None
-    elif row.get("doctype") == PAYMENT_DOCTYPE:
+    elif not _is_expense(row.get("doctype")):
         answer["missing"] = PAYMENT_HAS_NO_ACCOUNT
     else:
         answer["missing"] = EXPENSE_HAS_NO_ACCOUNT
     return answer
 
 
+def _is_expense(doctype: str | None) -> bool:
+    """True for an expense row (`Project Expenses`, `Non Project Expenses`): every paid row that is not a
+    PO / WO payment."""
+    return doctype != PAYMENT_DOCTYPE
+
+
 def _may_change(row: dict) -> bool:
     """A row the "account changed since" flag reads: a PO / WO payment with a copy and a vendor."""
-    return row.get("doctype") == PAYMENT_DOCTYPE and bool(row.get("vendor")) and has_pay_to(row)
+    return not _is_expense(row.get("doctype")) and bool(row.get("vendor")) and has_pay_to(row)
 
 
 def account_changed_since(copy: dict, vendor_account_now: dict | None) -> bool:
@@ -139,7 +145,7 @@ def pay_to_box(doctype: str, name: str) -> dict:
     Approved (`rules.PAID_STATUSES`). `named_by` is `{how, user, full_name, on}` (`on` an ISO date) or
     None when nothing records it."""
     assert_paid_to_doctype(doctype)
-    extra = ("amount", "status") if doctype == PAYMENT_DOCTYPE else ("amount", "status", "description")
+    extra = ("amount", "status", "description") if _is_expense(doctype) else ("amount", "status")
     doc = frappe.db.get_value(doctype, name, _row_fields(doctype, *extra), as_dict=True)
     if not doc:
         frappe.throw(_("{0} {1} not found.").format(doctype, name), frappe.DoesNotExistError)
@@ -162,7 +168,7 @@ def _row_fields(doctype: str, *extra: str) -> list[str]:
     """What a row's answer is read from: its copy, its vendor where it has one (only `Non Project
     Expenses` has none), an expense's type and the request it came from."""
     fields = ["name", *PAY_TO_FIELDS, *extra]
-    if doctype != PAYMENT_DOCTYPE:
+    if _is_expense(doctype):
         fields += ["type", "request_id"]
     if frappe.get_meta(doctype).has_field("vendor"):
         fields.append("vendor")

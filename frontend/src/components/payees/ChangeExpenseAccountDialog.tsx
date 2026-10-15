@@ -26,7 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { canRemoveExpenseAccount, changeAccountRuleLine, expenseTitle } from "@/utils/payees/paidTo";
+import { canRemoveExpenseAccount, changeAccountRuleLine, expenseTitle, expenseTypeAside } from "@/utils/payees/paidTo";
 import { sameAccountDetails } from "@/utils/payees/payeeForm";
 import { pickedAccount } from "@/utils/payees/payToChoice";
 
@@ -86,7 +86,7 @@ export function ChangeExpenseAccountDialog({
                     <AlertDialogTitle>Change account</AlertDialogTitle>
                     <AlertDialogDescription>
                         The account <span className="font-medium text-foreground">{title}</span>
-                        {expenseType && title !== expenseType ? ` (${expenseType})` : ""} is paid into. Pick a payee or
+                        {expenseTypeAside(title, expenseType)} is paid into. Pick a payee or
                         add new bank details: its account is copied onto the expense.{" "}
                         {changeAccountRuleLine(box.payee_rule, expenseType, !!box.account)}
                     </AlertDialogDescription>

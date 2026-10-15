@@ -8,6 +8,7 @@
 
 import type { PayToAccount } from "@/types/NirmaanStack/Payee";
 import { formatDate } from "@/utils/FormatDate";
+import { SETTLED_STATUSES } from "@/utils/settlement";
 
 import { PAYEE_RULE, asPayeeRule } from "./expensePayee";
 
@@ -71,10 +72,6 @@ export const classifyPaidTo = (paidTo: PaidTo | undefined): PaidToKind => {
         : { tone: "no_account", rule: paidTo?.payee_rule ?? null };
 };
 
-/** The statuses money has left Approved at (the server's `rules.PAID_STATUSES`). */
-const PAID_STATUSES: ReadonlySet<string> = new Set(["Reconciliation Pending", "Paid"]);
-
-
 /** Why an expense of this type has no account, by its type's *Who gets paid* (spec story 56). */
 const expenseNoAccountReason = (rule: string | null | undefined, expenseType: string): string => {
     const type = expenseType || "Its type";
@@ -98,13 +95,15 @@ export const currentAccountText = (current: PayToAccount | null): string =>
 
 /**
  * The Paid to cell: the holder name with the account and IFSC under it, the account-changed warning,
- * or why there is no account. Given the row's `status`, a paid row (Reconciliation Pending, Paid:
+ * or why there is no account. By the row's `status` (required, so no caller forgets it), a paid row
+ * (Reconciliation Pending, Paid:
  * spec stories 56/60) reads as a record of where the money went: its own account plainly, never the
  * "vendor's account changed since" flag, and no advice to act (reject, raise again, Change account),
  * which is wrong once the money has left. Record Payment's box keeps its own wording (`PayToBox`).
  */
-export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string, status?: string): PaidToCell => {
-    const paid = status !== undefined && PAID_STATUSES.has(status);
+export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string, status: string): PaidToCell => {
+    // Paid means settled: the server's `rules.PAID_STATUSES` is `settlement.SETTLED_STATUSES` too.
+    const paid = (SETTLED_STATUSES as readonly string[]).includes(status);
     const kind = classifyPaidTo(paid && paidTo ? { ...paidTo, account_changed: false, current_account: null } : paidTo);
     switch (kind.tone) {
         case "account_changed":
@@ -139,7 +138,7 @@ export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string, stat
 };
 
 /** The Paid to cell on one line, for the table's CSV. */
-export const paidToExportText = (paidTo: PaidTo | undefined, expenseType: string, status?: string): string => {
+export const paidToExportText = (paidTo: PaidTo | undefined, expenseType: string, status: string): string => {
     const cell = paidToCell(paidTo, expenseType, status);
     if (cell.tone === "account") return `${cell.title}, ${cell.detail}`;
     if (cell.tone === "account_changed" || cell.tone === "no_account") return `${cell.title}: ${cell.detail}`;
@@ -234,20 +233,32 @@ export const canRemoveExpenseAccount = (rule: string | null | undefined, hasAcco
     hasAccount && asPayeeRule(rule) !== PAYEE_RULE.REQUIRED;
 
 /** Change account's line on the expense type's *Who gets paid*, and whether the account may go. */
+/** How Change account names an expense type: the type, or "its type" when unknown. */
+const changeAccountTypeLabel = (expenseType: string): string => expenseType || "its type";
+
+const sentenceStart = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** What Change account adds after the expense's title: its type in brackets, unless the title already
+ *  is the type (no description) or the type is unknown. */
+export const expenseTypeAside = (title: string, expenseType: string): string =>
+    expenseType && title !== expenseType ? ` (${expenseType})` : "";
+
 export const changeAccountRuleLine = (
     rule: string | null | undefined,
     expenseType: string,
     hasAccount: boolean,
 ): string => {
-    const type = expenseType || "Its type";
+    const type = changeAccountTypeLabel(expenseType);
     const remove = canRemoveExpenseAccount(rule, hasAccount) ? " Remove it if this is paid by card or cash." : "";
     switch (asPayeeRule(rule)) {
         case PAYEE_RULE.REQUIRED:
-            return hasAccount ? `${type} requires an account: it can be changed, not removed.` : `${type} requires an account.`;
+            return hasAccount
+                ? `${sentenceStart(type)} requires an account: it can be changed, not removed.`
+                : `${sentenceStart(type)} requires an account.`;
         case PAYEE_RULE.OPTIONAL:
-            return `An account is optional for ${expenseType || "its type"}.${remove}`;
+            return `An account is optional for ${type}.${remove}`;
         case PAYEE_RULE.NOT_ASKED:
-            return `${type} doesn't ask for an account.${remove}`;
+            return `${sentenceStart(type)} doesn't ask for an account.${remove}`;
     }
 };
 

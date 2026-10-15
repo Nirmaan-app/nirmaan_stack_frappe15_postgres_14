@@ -5,6 +5,7 @@ import {
     canRemoveExpenseAccount,
     changeAccountRuleLine,
     expenseTitle,
+    expenseTypeAside,
     namedByText,
     paidToCell,
     paidToExportText,
@@ -32,7 +33,7 @@ const newAccount = {
 
 describe("paidToCell", () => {
     it("shows the holder name with the account number and IFSC under it", () => {
-        expect(paidToCell(paid, "Labour Advance")).toEqual({
+        expect(paidToCell(paid, "Labour Advance", "Approved")).toEqual({
             tone: "account",
             title: "Ramesh Kumar Yadav",
             detail: "A/c 36147100982211, SBIN0003435",
@@ -40,7 +41,7 @@ describe("paidToCell", () => {
     });
 
     it("says an expense of a Not asked type has no account because its type doesn't ask", () => {
-        expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Not asked", ...UNFLAGGED }, "Travel")).toEqual({
+        expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Not asked", ...UNFLAGGED }, "Travel", "Approved")).toEqual({
             tone: "no_account",
             title: "No account",
             detail: "Not asked for this expense type.",
@@ -48,7 +49,7 @@ describe("paidToCell", () => {
     });
 
     it("says an expense of an Optional type was raised without one", () => {
-        expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Optional", ...UNFLAGGED }, "Travel")).toEqual({
+        expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Optional", ...UNFLAGGED }, "Travel", "Approved")).toEqual({
             tone: "no_account",
             title: "No account",
             detail: "No account given; optional for Travel.",
@@ -57,7 +58,7 @@ describe("paidToCell", () => {
 
     it("says when the type requires an account and the expense has none", () => {
         expect(
-            paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Required", ...UNFLAGGED }, "Labour Advance"),
+            paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Required", ...UNFLAGGED }, "Labour Advance", "Approved"),
         ).toEqual({
             tone: "no_account",
             title: "No account",
@@ -66,7 +67,7 @@ describe("paidToCell", () => {
     });
 
     it("says a vendor payment holds no account of its own", () => {
-        expect(paidToCell({ account: null, missing: "payment_has_no_account", payee_rule: null, ...UNFLAGGED }, "")).toEqual({
+        expect(paidToCell({ account: null, missing: "payment_has_no_account", payee_rule: null, ...UNFLAGGED }, "", "Approved")).toEqual({
             tone: "payment_no_account",
             title: "No account on this payment",
             detail: "Pay it another way, or reject it and raise it again.",
@@ -74,7 +75,7 @@ describe("paidToCell", () => {
     });
 
     it("warns that a PO payment's vendor changed account since, naming the new account", () => {
-        expect(paidToCell({ ...paid, account_changed: true, current_account: newAccount }, "")).toEqual({
+        expect(paidToCell({ ...paid, account_changed: true, current_account: newAccount }, "", "Approved")).toEqual({
             tone: "account_changed",
             title: "Vendor's account changed since this was raised",
             detail: "Now Ramesh Kumar Yadav, A/c 50100234567812, HDFC0000123. Reject it and raise it again.",
@@ -82,7 +83,7 @@ describe("paidToCell", () => {
     });
 
     it("warns when the PO payment's vendor has no account any more", () => {
-        expect(paidToCell({ ...paid, account_changed: true, current_account: null }, "")).toEqual({
+        expect(paidToCell({ ...paid, account_changed: true, current_account: null }, "", "Approved")).toEqual({
             tone: "account_changed",
             title: "Vendor's account changed since this was raised",
             detail: "The vendor has no account now. Reject it and raise it again.",
@@ -90,24 +91,24 @@ describe("paidToCell", () => {
     });
 
     it("reads a row the server sent without paid_to as having no account", () => {
-        expect(paidToCell(undefined, "").title).toBe("No account");
+        expect(paidToCell(undefined, "", "Approved").title).toBe("No account");
     });
 });
 
 describe("paidToExportText", () => {
     it("writes the account on one line, or why there is none", () => {
-        expect(paidToExportText(paid, "Labour Advance")).toBe("Ramesh Kumar Yadav, A/c 36147100982211, SBIN0003435");
-        expect(paidToExportText({ account: null, missing: "payment_has_no_account", payee_rule: null, ...UNFLAGGED }, "")).toBe(
+        expect(paidToExportText(paid, "Labour Advance", "Approved")).toBe("Ramesh Kumar Yadav, A/c 36147100982211, SBIN0003435");
+        expect(paidToExportText({ account: null, missing: "payment_has_no_account", payee_rule: null, ...UNFLAGGED }, "", "Approved")).toBe(
             "No account on this payment",
         );
-        expect(paidToExportText({ ...paid, account_changed: true, current_account: null }, "")).toBe(
+        expect(paidToExportText({ ...paid, account_changed: true, current_account: null }, "", "Approved")).toBe(
             "Vendor's account changed since this was raised: The vendor has no account now. Reject it and raise it again.",
         );
     });
 
     it("writes why an expense has no account, as the cell says it", () => {
         const noAccount = (payee_rule: string) =>
-            paidToExportText({ account: null, missing: "expense_has_no_account", payee_rule, ...UNFLAGGED }, "Travel");
+            paidToExportText({ account: null, missing: "expense_has_no_account", payee_rule, ...UNFLAGGED }, "Travel", "Approved");
         expect(noAccount("Not asked")).toBe("No account: Not asked for this expense type.");
         expect(noAccount("Optional")).toBe("No account: No account given; optional for Travel.");
         expect(noAccount("Required")).toBe("No account: Travel requires one. Add it with Change account in Record Payment.");
@@ -240,6 +241,18 @@ describe("Change account names the expense and words its type's rule", () => {
             "Accommodation Deposit requires an account.",
         );
         expect(canRemoveExpenseAccount("Required", true)).toBe(false);
+    });
+
+    it("adds the type after the title, unless the title already is the type or there is none", () => {
+        expect(expenseTypeAside("Labor Accommodation Deposit", "Accommodation Deposit")).toBe(" (Accommodation Deposit)");
+        expect(expenseTypeAside("Accommodation Deposit", "Accommodation Deposit")).toBe("");
+        expect(expenseTypeAside("This expense", "")).toBe("");
+    });
+
+    it("words an unknown type the same way in every rule", () => {
+        expect(changeAccountRuleLine("Optional", "", false)).toBe("An account is optional for its type.");
+        expect(changeAccountRuleLine("Required", "", false)).toBe("Its type requires an account.");
+        expect(changeAccountRuleLine("Not asked", "", false)).toBe("Its type doesn't ask for an account.");
     });
 
     it("offers removing the account of an Optional or Not asked type that has one", () => {
