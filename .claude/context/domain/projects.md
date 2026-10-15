@@ -91,3 +91,25 @@ which WOs they count.
 **Consistency:** one rule on every surface. The two backend figures are pinned by `TestProjectNotionalGst`
 (`api/projects/test_project_aggregates.py`); on 2026-09-11 the card total, the rollup and a direct SQL sum
 agreed on all 85 projects with Approved WOs.
+
+---
+
+## Project outflow, Current Liabilities and the cashflow gap (ADR-0034, #1456)
+
+Terms: `GLOSSARY.md` *Project outflow*, *Current Liabilities*.
+
+**Load-bearing invariant: one server figure.** `services/project_money.project_money(projects, from_date,
+to_date)` returns outflow, liabilities, inflow and `cashflow_gap` (= outflow + liabilities − inflow) per project
+in one grouped query. CEO Hold (`_compute_cashflow_gap` in `integrations/controllers/project_cashflow_hold_update.py`)
+and the Projects list (`get_projects_financial_rollup`, which now returns `cashflow_gap` too) both read it, so
+their gaps agree (pinned by `api/projects/test_project_money.py`). A screen that shows any of these figures
+reads it through `api/projects/project_money.get_project_money` (one project) or `get_projects_money` (several
+projects, one query). Both need read access to Procurement Orders and Project Payments. Never work the gap out
+again in the browser.
+
+- Outflow is cash: Paid payments on the project (whatever its order's state now), less Received Vendor Refunds
+  against a PO / WO, plus Paid expenses.
+- Liabilities: max(0, delivered − Amount Paid) per PO, over POs **not** Merged, Cancelled or Inactive.
+- Date range (optional, inclusive): each payment, refund, expense and inflow counts on its own `payment_date`
+  (falling back to its creation date); a refund counts on the refund's date, not its order's. Liabilities in
+  a range cover the POs created in it (the Cash Sheet's PO set).

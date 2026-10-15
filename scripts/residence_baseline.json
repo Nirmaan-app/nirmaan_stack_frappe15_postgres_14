@@ -25,7 +25,7 @@
     "rule": "F5"
   },
   "p1_payment_sum_copies": {
-    "count": 31,
+    "count": 26,
     "description": "Lines that add up Project Payments amounts (frontend, backend, print formats) outside the allowed owners in PAYMENT_SUM_OWNERS: the Amount Paid rule, the payment caps, the bank cash-out lists.",
     "rule": "P1"
   },
