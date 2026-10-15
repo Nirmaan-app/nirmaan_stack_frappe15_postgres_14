@@ -325,7 +325,7 @@ def assert_payee_manager(user: str) -> None:
 # page and the PR / WO vendor sheets), Admin and PMO (Admin Options > Vendors), the Project Lead (Custom
 # PR's New Vendor) and Accounts (the Vendors page). ENFORCEMENT boundary for `api/payees/vendor_payee`
 # and `api/create_vendor_and_address`, which write with `ignore_permissions`. Mirrored client-side by
-# `frontend/src/constants/roles.ts::VENDOR_PAYEE_PROFILES` for the vendor page's Change account (#1426).
+# `frontend/src/constants/roles.ts::VENDOR_PAYEE_PROFILES` for the vendor page's Edit bank details and Use a different payee (#1426, #1435).
 VENDOR_PAYEE_PROFILES = (
     (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, PROJECT_LEAD_PROFILE) + PROCUREMENT_PROFILES + PAYEE_MANAGE_PROFILES
 )

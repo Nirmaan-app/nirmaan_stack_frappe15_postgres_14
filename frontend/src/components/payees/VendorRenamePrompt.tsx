@@ -1,8 +1,7 @@
 /**
  * "The bank account is still in the old name" (#1426, spec #1420, approved mockup screen 8): asked
  * after a vendor with a Payee is renamed. Keep paying the same account, update the holder name
- * (Accounts and Admins only: the Payee module's holder-name edit refuses anyone else), or enter new
- * bank details. "Decide later" never blocks the rename, which is already saved.
+ * (anyone who may set the vendor's bank details, #1435), or enter new bank details. "Decide later" never blocks the rename, which is already saved.
  *
  * When to ask is `utils/payees/vendorAccount.renameNeedsPrompt`; the caller acts on the choice.
  */
@@ -28,7 +27,7 @@ interface VendorRenamePromptProps {
     vendorName: string;
     holderName: string;
     otherVendors: number;
-    /** Whether this user may change a holder name (`canManagePayees`); the server checks again. */
+    /** Whether this user may edit the vendor's Payee (`canSetVendorPayee`); the server checks again. */
     canEditHolderName: boolean;
     onChoose: (choice: RenameChoice) => void;
     onDecideLater: () => void;

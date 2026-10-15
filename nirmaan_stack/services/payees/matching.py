@@ -2,7 +2,7 @@
 # For license information, please see license.txt
 
 """Which Payees look like a vendor (spec #1420, ADR-0033): the ranking behind "Payees that look like
-this vendor" on the new-vendor form and the vendor page's Change account.
+this vendor" on the new-vendor form and the vendor page's Use a different payee.
 
 PURE MODULE -- no `frappe`, no database. `services/payees/choosing.suggest_for_vendor` loads the
 candidates and calls `rank_payees`.

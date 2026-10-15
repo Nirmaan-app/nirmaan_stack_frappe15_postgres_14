@@ -4,7 +4,7 @@
  * company" is ticked.
  *
  * Reads the Payee itself (`vendor_payee.get_payee_choice`), so any screen can open it with a name:
- * the new-vendor form (#1425) and the vendor page's Change account (#1426).
+ * the new-vendor form (#1425) and the vendor page's Use a different payee (#1426).
  */
 
 import { useState } from "react";

@@ -1,16 +1,20 @@
 /**
- * The vendor page's Account Details card (#1426, spec #1420, ADR-0033, approved mockup screen 7): the
- * Payee the vendor is paid into, how many other vendors share it, and Change account. A vendor with
- * no Payee shows "No bank account yet" and Add bank details. Both open `ChangeVendorAccountDialog`.
+ * The vendor page's Account Details card (#1426, #1435, spec #1420, ADR-0033, approved mockup screen 7):
+ * the Payee the vendor is paid into and how many other vendors share it. Edit bank details edits that
+ * Payee in place (`EditVendorPayeeDialog`, naming every vendor it changes when several share it); Use
+ * a different payee points this vendor at another Payee or new bank details
+ * (`ChangeVendorAccountDialog`). A vendor with no Payee shows "No bank account yet" and Add bank
+ * details (`ChangeVendorAccountDialog`).
  *
  * Nothing here writes the old vendor bank fields: the vendor's bank account is its Payee.
  */
 
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { Repeat } from "lucide-react";
+import { PencilLine, Repeat } from "lucide-react";
 
 import { ChangeVendorAccountDialog } from "@/components/payees/ChangeVendorAccountDialog";
+import { EditVendorPayeeDialog } from "@/components/payees/EditVendorPayeeDialog";
 import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,6 +32,7 @@ interface VendorAccountCardProps {
 export const VendorAccountCard: React.FC<VendorAccountCardProps> = ({ vendor }) => {
     const { role, user_id } = useUserData();
     const [changing, setChanging] = useState(false);
+    const [editing, setEditing] = useState(false);
     const { account, isLoading, error, refresh } = useVendorAccount(vendor.name);
     const payee = account?.payee ?? null;
     const mayChange = canSetVendorPayee(role, user_id);
@@ -59,8 +64,9 @@ export const VendorAccountCard: React.FC<VendorAccountCardProps> = ({ vendor }) 
                     <InfoItem label="Branch" value={payee.bank_branch} />
                 </div>
                 <p className="rounded-md bg-muted px-3 py-2.5 text-[13px] text-muted-foreground">
-                    To pay this vendor somewhere else, use Change account. You can pick another payee or enter new
-                    bank details. The account number and IFSC of a payee that has been paid can't be edited.
+                    Edit bank details when this account's holder moves banks: every vendor paid into it follows.
+                    Use a different payee to pay only this vendor into another account. Payments already raised
+                    keep the account they were raised with.
                 </p>
             </>
         );
@@ -89,15 +95,26 @@ export const VendorAccountCard: React.FC<VendorAccountCardProps> = ({ vendor }) 
                             )}
                         </div>
                         {payee && mayChange && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setChanging(true)}
-                                className="flex items-center gap-1.5 border-primary text-primary hover:bg-primary/5"
-                            >
-                                <Repeat className="h-3.5 w-3.5" aria-hidden="true" />
-                                Change account
-                            </Button>
+                            <div className="flex flex-wrap gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setEditing(true)}
+                                    className="flex items-center gap-1.5 border-primary text-primary hover:bg-primary/5"
+                                >
+                                    <PencilLine className="h-3.5 w-3.5" aria-hidden="true" />
+                                    Edit bank details
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setChanging(true)}
+                                    className="flex items-center gap-1.5 border-primary text-primary hover:bg-primary/5"
+                                >
+                                    <Repeat className="h-3.5 w-3.5" aria-hidden="true" />
+                                    Use a different payee
+                                </Button>
+                            </div>
                         )}
                     </div>
                 </CardHeader>
@@ -109,8 +126,17 @@ export const VendorAccountCard: React.FC<VendorAccountCardProps> = ({ vendor }) 
                     onOpenChange={setChanging}
                     vendor={vendor}
                     currentPayee={payee?.name}
-                    title={payee ? "Change account" : "Add bank details"}
+                    title={payee ? "Use a different payee" : "Add bank details"}
                     onChanged={() => refresh()}
+                />
+            )}
+            {mayChange && editing && payee && (
+                <EditVendorPayeeDialog
+                    vendor={vendor.name}
+                    payee={payee}
+                    title="Edit bank details"
+                    onClose={() => setEditing(false)}
+                    onSaved={() => refresh()}
                 />
             )}
         </>

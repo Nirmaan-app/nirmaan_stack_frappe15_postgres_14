@@ -1,7 +1,7 @@
 /**
- * Change account / Add bank details on the vendor page (#1426, spec #1420, approved mockup screen 7):
- * point an existing vendor at another Payee on record (through the confirmation) or at new bank
- * details. The same two paths as the new-vendor form (`VendorPayeeSection`), saved by
+ * Use a different payee / Add bank details on the vendor page (#1426, #1435, spec #1420, approved
+ * mockup screen 7): point an existing vendor at another Payee on record (through the confirmation) or
+ * at new bank details. Editing the vendor's own Payee in place is `EditPayeeDialog`. The same two paths as the new-vendor form (`VendorPayeeSection`), saved by
  * `api/payees/vendor_payee.change_vendor_payee`. The other vendors on the old Payee keep it.
  */
 
@@ -33,7 +33,7 @@ interface ChangeVendorAccountDialogProps {
     vendor: { name: string; vendor_name: string; vendor_pan?: string | null };
     /** The Payee the vendor is paid into now, if any: not offered again. */
     currentPayee?: string | null;
-    /** "Change account" for a vendor with a Payee, "Add bank details" for one without. */
+    /** "Use a different payee" for a vendor with a Payee, "Add bank details" for one without. */
     title: string;
     onChanged?: (payee: PayeeSummary) => void;
 }
