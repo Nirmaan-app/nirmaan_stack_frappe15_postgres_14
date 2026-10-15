@@ -2,6 +2,7 @@ import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } 
 import {
   FrappeConfig,
   FrappeContext,
+  useFrappeGetCall,
   useFrappeGetDocList,
   useFrappeUpdateDoc,
   useFrappePostCall,
@@ -27,8 +28,6 @@ import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
-import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
-import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import { PAYMENT_STATUS } from "@/constants/paymentStatus";
 import {
   BULK_MAX_SELECTION,
@@ -84,6 +83,14 @@ import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
+
+/** One project's figures from `api/projects/project_money.get_projects_money`. */
+interface ProjectMoney {
+  outflow: number;
+  liabilities: number;
+  inflow: number;
+  cashflow_gap: number;
+}
 const URL_SYNC_KEY_LEAD = "approve_pay";
 const URL_SYNC_KEY_CEO = "ceo_pending_pay";
 
@@ -202,47 +209,22 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   } = useFrappeGetDocList<ServiceRequests>(
     DOC_TYPES.SERVICE_REQUESTS,
     {
-      fields: ["name", "status", "gst", "total_amount"],
+      fields: ["name", "status", "gst", "total_amount", "amount_paid"],
       filters: [["status", "in", ["Approved", "Amendment"]]],
       limit: 10000,
     },
     "SRs_ApprovePay"
   );
-  // For "Amt Paid" - fetch all paid payments for relevant documents.
-  // `project` is also needed in CEO mode to compute per-project outflow for
-  // the Cashflow Gap column.
-  const {
-    data: allPaidPayments,
-    isLoading: paidPaymentsLoading,
-    error: paidPaymentsError,
-  } = useFrappeGetDocList<ProjectPayments>(
-    DOC_TYPES.PROJECT_PAYMENTS,
-    {
-      fields: ["name", "document_name", "amount", "project"],
-      filters: [["status", "=", PAYMENT_STATUS.PAID]],
-      limit: 100000,
-    },
-    "AllPaidPayments_ApprovePay"
-  );
-
-  // --- CEO-Only Fetches for Cashflow Gap ---
-  // Match the formula on the master Projects list (projects.tsx):
-  //   cashflow_gap = (paid payments + expenses) + liabilities − inflow
-  // Liabilities are derived from `purchaseOrders` (po_amount_delivered vs
-  // amount_paid). Expenses and inflows are project-wide rollups, so we fetch
-  // them here gated to CEO mode only — the regular Approve Payments tab
-  // makes zero extra requests.
-  const { data: projectExpenses } = useFrappeGetDocList<ProjectExpenses>(
-    "Project Expenses",
-    // Only Paid expenses count toward the cashflow gap (mirrors projects.tsx +
-    // the backend _compute_cashflow_gap); Requested/Approved-but-unpaid don't.
-    { fields: ["projects", "amount"], filters: [["status", "=", "Paid"]], limit: 100000 },
-    isCEOMode ? "ProjectExpenses_CEOPending" : null
-  );
-  const { data: projectInflows } = useFrappeGetDocList<ProjectInflows>(
-    "Project Inflows",
-    { fields: ["project", "amount"], limit: 100000 },
-    isCEOMode ? "ProjectInflows_CEOPending" : null
+  // --- CEO-Only: the server's cashflow gap per project (ADR-0034, #1456) ---
+  // The same figure that puts a project on CEO Hold and that the Projects list shows. One POST
+  // for every project in the list (a GET with ~300 names would pass nginx's URL limit).
+  const projectIds = useMemo(() => projects?.map((p) => p.name) ?? [], [projects]);
+  const { data: projectsMoney } = useFrappeGetCall<{ message: Record<string, ProjectMoney> }>(
+    "nirmaan_stack.api.projects.project_money.get_projects_money",
+    { projects: projectIds },
+    isCEOMode && projectIds.length ? ["ProjectsMoney_CEOPending", projectIds.join(",")] : null,
+    undefined,
+    "POST"
   );
 
   // --- Zustand Store & Memoized Lookups ---
@@ -282,21 +264,20 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     [vendorLabelMap]
   );
 
-  const getAmountPaid = useMemo(() => {
-    if (!allPaidPayments) return () => 0;
-    const paymentsMap = new Map<string, number>();
-    allPaidPayments.forEach((p) => {
-      if (p.document_name) {
-        paymentsMap.set(
-          p.document_name,
-          (paymentsMap.get(p.document_name) || 0) + parseNumber(p.amount)
-        );
-      }
-    });
-    return memoize(
-      (documentName: string) => paymentsMap.get(documentName) || 0
-    );
-  }, [allPaidPayments]);
+  // "Total Paid" is the order's stored Amount Paid (ADR-0034): Paid payments less Received refunds.
+  const getAmountPaid = useMemo(
+    () =>
+      memoize((docName: string, docType: string) => {
+        if (docType === DOC_TYPES.PROCUREMENT_ORDERS) {
+          return parseNumber(purchaseOrders?.find((po) => po.name === docName)?.amount_paid);
+        }
+        if (docType === DOC_TYPES.SERVICE_REQUESTS) {
+          return parseNumber(serviceOrders?.find((sr) => sr.name === docName)?.amount_paid);
+        }
+        return 0;
+      }, (docName: string, docType: string) => `${docName}-${docType}`),
+    [purchaseOrders, serviceOrders]
+  );
 
   const getDocumentTotal = useMemo(
     () =>
@@ -335,43 +316,10 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
       (projectId && map.get(projectId)) || 0;
   }, [projects]);
 
-  const getProjectCashflowGap = useMemo(() => {
-    if (!isCEOMode) return () => 0;
-    const outflow = new Map<string, number>();
-    const liabilities = new Map<string, number>();
-    const inflow = new Map<string, number>();
-
-    allPaidPayments?.forEach((p) => {
-      if (!p.project) return;
-      outflow.set(p.project, (outflow.get(p.project) || 0) + parseNumber(p.amount));
-    });
-    projectExpenses?.forEach((e) => {
-      const proj = (e as any).projects;
-      if (!proj) return;
-      outflow.set(proj, (outflow.get(proj) || 0) + parseNumber(e.amount));
-    });
-    purchaseOrders?.forEach((po) => {
-      const proj = (po as any).project;
-      if (!proj) return;
-      const delivered = parseNumber(po.po_amount_delivered);
-      const paid = parseNumber((po as any).amount_paid);
-      const liability = Math.max(0, delivered - Math.min(paid, delivered));
-      if (liability) liabilities.set(proj, (liabilities.get(proj) || 0) + liability);
-    });
-    projectInflows?.forEach((i) => {
-      if (!i.project) return;
-      inflow.set(i.project, (inflow.get(i.project) || 0) + parseNumber(i.amount));
-    });
-
-    return (projectId?: string) => {
-      if (!projectId) return 0;
-      return (
-        (outflow.get(projectId) || 0) +
-        (liabilities.get(projectId) || 0) -
-        (inflow.get(projectId) || 0)
-      );
-    };
-  }, [isCEOMode, allPaidPayments, projectExpenses, purchaseOrders, projectInflows]);
+  const getProjectCashflowGap = useCallback(
+    (projectId?: string) => (projectId && projectsMoney?.message?.[projectId]?.cashflow_gap) || 0,
+    [projectsMoney]
+  );
 
   // --- Callbacks ---
   const handleNewPaymentSeen = useCallback(
@@ -783,8 +731,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     vendorsLoading ||
     userListLoading ||
     poLoading ||
-    srLoading ||
-    paidPaymentsLoading;
+    srLoading;
   const hasLoadedOnce = useHasLoadedOnce(isPageLoading);
 
   const combinedError =
@@ -793,8 +740,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     userError ||
     poError ||
     srError ||
-    listError ||
-    paidPaymentsError;
+    listError;
 
   if (combinedError && !data) {
     // Show error prominently if main data fails to load

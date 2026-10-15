@@ -1,11 +1,10 @@
 import { useCallback, useMemo } from 'react';
 import { useFrappeGetCall, useFrappeGetDocList } from 'frappe-react-sdk';
-import { memoize } from 'lodash';
 import { ProjectEstimates } from '@/types/NirmaanStack/ProjectEstimates';
+import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import { po_item_data_item } from '../project';
 import { parseNumber } from '@/utils/parseNumber';
-import { useOrderTotals } from '@/hooks/useOrderTotals';
-import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
+import { orderPaymentStatus } from '@/utils/projects/projectPaid';
 import { DCMIRItemDisplay, DCMIRWiseDisplayItem, DeliveryDocumentInfo, DeliveryStatus, MaterialUsageDisplayItem, OverallItemPOStatus, POStatus, POWiseChildItem, POWiseDisplayItem } from '../components/ProjectMaterialUsageTab';
 import { determineDeliveryStatus, determineOverallItemPOStatus } from '../config/materialUsageHelpers';
 import { PODeliveryDocuments } from '@/types/NirmaanStack/PODeliveryDocuments';
@@ -27,7 +26,7 @@ const addItemDoc = (list: DeliveryDocumentInfo[], docInfo: DeliveryDocumentInfo,
   else list.push({ ...docInfo, quantity: qty });
 };
 
-export function useMaterialUsageData(projectId: string, projectPayments?: ProjectPayments[]) {
+export function useMaterialUsageData(projectId: string) {
   const {
     data: po_item_data,
     isLoading: po_item_loading,
@@ -164,32 +163,23 @@ export function useMaterialUsageData(projectId: string, projectPayments?: Projec
 
 
 
-  const { getTotalAmount } = useOrderTotals();
+  // This project's POs only, with their stored Amount Paid (refunds already off, ADR-0034).
+  const { data: projectPOs } = useFrappeGetDocList<ProcurementOrder>('Procurement Orders', {
+    fields: ['name', 'total_amount', 'amount_paid'],
+    filters: [['project', '=', projectId], ['status', 'not in', ['Cancelled', 'Merged']]],
+    limit: 0,
+  }, projectId ? `material_usage_pos_${projectId}` : null);
 
-  const getAmountPaidForPO = useMemo(() => {
-    if (!projectPayments) return () => 0;
-    const paymentsMap = new Map<string, number>();
-    projectPayments.forEach(p => {
-      if (p.document_name && p.status === "Paid") {
-        paymentsMap.set(p.document_name, (paymentsMap.get(p.document_name) || 0) + parseNumber(p.amount));
-      }
-    });
-    return memoize((poName: string) => paymentsMap.get(poName) || 0);
-  }, [projectPayments]);
+  const poByName = useMemo(
+    () => new Map((projectPOs || []).map(po => [po.name, po])),
+    [projectPOs]
+  );
 
+  // The paid badge compares the PO's Amount Paid with its total (incl. GST).
   const getIndividualPOStatus = useCallback((poName: string): POStatus => {
-    const amountPaid = getAmountPaidForPO(poName);
-    const orderTotals = getTotalAmount(poName, 'Procurement Orders');
-
-    if (!orderTotals || orderTotals.totalWithTax === 0 && amountPaid === 0) {
-      return "Unpaid";
-    }
-    const totalAmount = orderTotals.totalWithTax;
-
-    if (amountPaid <= 0) return "Unpaid";
-    if (amountPaid >= totalAmount) return "Fully Paid";
-    return "Partially Paid";
-  }, [getAmountPaidForPO, getTotalAmount]);
+    const po = poByName.get(poName);
+    return orderPaymentStatus(parseNumber(po?.amount_paid), parseNumber(po?.total_amount));
+  }, [poByName]);
 
   // Shared flat list of all PO items (regular + custom)
   const allPoItems = useMemo(() => [

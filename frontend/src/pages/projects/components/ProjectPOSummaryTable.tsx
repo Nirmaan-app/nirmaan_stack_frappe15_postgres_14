@@ -232,7 +232,7 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     useProjectPOAggregates(projectId);
 
   // --- Supporting Data (for display in columns/facets, not for main list filtering) ---
-  const { projectsResponse, projectPaymentsResponse, criticalPOTasksResponse } =
+  const { projectsResponse, criticalPOTasksResponse } =
     useProjectPOSupportingData(projectId);
   const { data: criticalPOTasks, isLoading: criticalPOTasksLoading } = criticalPOTasksResponse;
   const { data: projects, isLoading: projectsLoading } = projectsResponse;
@@ -249,12 +249,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     isLoading: userListLoading,
     error: userListError,
   } = useUsersList();
-
-  const {
-    data: projectPayments,
-    isLoading: projectPaymentsLoading,
-    error: projectPaymentsError,
-  } = projectPaymentsResponse;
 
   const { totals: creditTotals } = useProjectAllCredits(projectId);
 
@@ -279,21 +273,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     ),
     [projects]
   );
-
-  const getTotalAmountPaidForPO = useMemo(() => {
-    if (!projectPayments) return () => 0;
-    const paymentsMap = new Map<string, number>();
-    projectPayments.forEach((p) => {
-      // Assuming projectPayments is already filtered for "Paid" PO payments
-      if (p.document_name) {
-        paymentsMap.set(
-          p.document_name,
-          (paymentsMap.get(p.document_name) || 0) + parseNumber(p.amount)
-        );
-      }
-    });
-    return memoize((poName: string) => paymentsMap.get(poName) || 0);
-  }, [projectPayments]);
 
   // --- Critical PO Tasks reverse map ---
   const criticalTasksByPO = useMemo(() => {
@@ -703,7 +682,6 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     [
       getVendorName,
       criticalTasksByPO,
-      getTotalAmountPaidForPO,
       userList,
       poAmountsDict,
       calculateTotalLiabilities,
@@ -752,15 +730,13 @@ export const ProjectPOSummaryTable: React.FC<ProjectPOSummaryTableProps> = ({
     vendorsLoading ||
     userListLoading ||
     aggregatesLoading ||
-    projectPaymentsLoading ||
     criticalPOTasksLoading;
   const hasLoadedOnce = useHasLoadedOnce(isLoadingOverall);
   const combinedErrorOverall =
     vendorsError ||
     userListError ||
     listError ||
-    aggregatesError ||
-    projectPaymentsError;
+    aggregatesError;
 
   if (combinedErrorOverall && !poDataForPage?.length && !poAggregates) {
     toast({

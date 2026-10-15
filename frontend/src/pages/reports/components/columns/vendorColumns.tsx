@@ -82,12 +82,12 @@ export const getVendorColumns = (): ColumnDef<VendorReportRow>[] => {
     totalColumn(
       "totalPaid",
       "Total Paid",
-      "Total payments made to this vendor (status: Paid). When a date range is applied, only payments dated within that range are included.",
+      "What this vendor has been paid: the Amount Paid of its POs and WOs (Paid payments less refunds received). When a date range is applied, payments dated within that range less refunds received within it.",
     ),
     totalColumn(
       "currentFYPaid",
       <>Current FY Paid<br />({fy.label})</>,
-      `Total payments made to this vendor during the current financial year (${format(fy.start, "d MMM yyyy")} – ${format(fy.end, "d MMM yyyy")}). This column is not affected by the date filter.`,
+      `Payments made to this vendor less refunds received from it, each dated in the current financial year (${format(fy.start, "d MMM yyyy")} – ${format(fy.end, "d MMM yyyy")}). This column is not affected by the date filter.`,
     ),
     totalColumn(
       "balance",

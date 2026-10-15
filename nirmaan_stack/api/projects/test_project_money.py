@@ -106,14 +106,16 @@ class TestProjectMoney(FrappeTestCase):
     def test_all_time_figures(self):
         self.assertEqual(
             _rounded(get_project_money(self.P)),
-            {"outflow": 670.0, "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 570.0},
+            {"po_outflow": 600.0, "wo_outflow": 0.0, "expense_outflow": 70.0,
+             "outflow": 670.0, "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 570.0},
         )
 
     def test_a_refund_counts_on_its_own_date(self):
         # May-June: B's payment (10-May), the refund (15-Jun), the inflow; PO A was created in range.
         self.assertEqual(
             _rounded(get_project_money(self.P, from_date="2026-05-01", to_date="2026-06-30")),
-            {"outflow": 200.0, "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 100.0},
+            {"po_outflow": 200.0, "wo_outflow": 0.0, "expense_outflow": 0.0,
+             "outflow": 200.0, "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 100.0},
         )
         # April-May: both payments and the expense, but not the 15-Jun refund on the same PO.
         self.assertEqual(
@@ -126,7 +128,8 @@ class TestProjectMoney(FrappeTestCase):
         self.assertEqual(_rounded(money[self.P])["cashflow_gap"], 570.0)
         self.assertEqual(
             _rounded(money["TEST-1456-NO-SUCH-PROJECT"]),
-            {"outflow": 0.0, "liabilities": 0.0, "inflow": 0.0, "cashflow_gap": 0.0},
+            {"po_outflow": 0.0, "wo_outflow": 0.0, "expense_outflow": 0.0,
+             "outflow": 0.0, "liabilities": 0.0, "inflow": 0.0, "cashflow_gap": 0.0},
         )
 
     def test_ceo_hold_and_the_projects_list_agree(self):
