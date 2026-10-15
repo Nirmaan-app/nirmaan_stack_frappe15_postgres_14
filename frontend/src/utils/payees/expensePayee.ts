@@ -1,10 +1,11 @@
 /**
- * Who gets paid on an expense (spec #1420 ticket #1429, ADR-0033), pure so it tests without React.
+ * Who gets paid on an expense (spec #1420 tickets #1429, #1436, ADR-0033), pure so it tests without
+ * React.
  *
- * Each expense type says whether a request names a Payee: Required, Optional or Not asked (the
- * default). The server's Payee module is the enforcement boundary
- * (`services/payees/expense_rules.py`); these mirror it so the request dialog can say why it can't
- * be sent yet, and the Expense Packages screen can describe each choice.
+ * Each expense type says whether a request names who gets paid: Required, Optional or Not asked (the
+ * default). These are SCREEN rules (#1436): the server refuses none of them and only copies accounts
+ * (`services/payees/pay_to`). The request dialog blocks sending with `whoGetsPaidProblem`, and the
+ * Expense Packages screen describes each choice.
  */
 
 /** The vendor picker's "no vendor on record" choice, as `vendor-select` labels it. */
@@ -65,8 +66,8 @@ export interface WhoGetsPaidState {
     expenseType: string;
     /** The vendor's display name when one is picked (not "Others (No Vendor)"), else null. */
     vendor: string | null;
-    /** The picked vendor's Payee, or null when it has none (or none is picked). */
-    vendorPayee: string | null;
+    /** The picked vendor has an account the request is (or will be) paid into. */
+    vendorHasAccount: boolean;
     /** A payee is picked, or a new one is filled in. */
     hasChoice: boolean;
 }
@@ -75,12 +76,12 @@ export interface WhoGetsPaidState {
 export const whoGetsPaidProblem = ({
     rule,
     vendor,
-    vendorPayee,
+    vendorHasAccount,
     hasChoice,
 }: WhoGetsPaidState): string | null => {
     if (asPayeeRule(rule) !== PAYEE_RULE.REQUIRED) return null;
     if (vendor) {
-        return vendorPayee
+        return vendorHasAccount
             ? null
             : `${vendor} has no bank account on record. Add it on the vendor's page, or set Vendor to ${OTHERS_VENDOR_LABEL} and pick a payee.`;
     }
@@ -95,14 +96,3 @@ interface PayeeAccount {
 }
 
 export const payeeAccountLine = (p: PayeeAccount): string => `A/c ${p.account_number}, IFSC ${p.ifsc}`;
-
-/**
- * Whether an edit that clears the vendor (to none or Others (No Vendor)) also clears the picked
- * Payee: it does when the pick is still the Payee the request was saved with through its vendor
- * (`sentVendorPayee`, null when it was saved with no vendor), which the server drops in the same
- * case (`guard._sent_payee`). Any other pick stays.
- */
-export const vendorClearDropsPayee = (
-    picked: string | null | undefined,
-    sentVendorPayee: string | null | undefined,
-): boolean => !!picked && picked === sentVendorPayee;

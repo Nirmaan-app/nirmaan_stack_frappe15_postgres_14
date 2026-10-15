@@ -1,8 +1,7 @@
 {
  "actions": [],
- "allow_rename": 0,
  "autoname": "EXR-.YY.-.#####",
- "creation": "2026-08-18 10:00:00.000000",
+ "creation": "2026-08-18 10:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -12,6 +11,11 @@
   "projects",
   "vendor",
   "payee",
+  "pay_to_account_name",
+  "pay_to_account_number",
+  "pay_to_ifsc",
+  "pay_to_bank_name",
+  "pay_to_bank_branch",
   "amount",
   "comment",
   "form_response_section",
@@ -38,6 +42,7 @@
    "reqd": 1
   },
   {
+   "default": "0",
    "description": "Mirror of Expense Type.project, fetched so `depends_on` can read it -- Frappe cannot evaluate a linked doctype's field. Not user data; never edit it directly.",
    "fetch_from": "type.project",
    "fieldname": "type_allows_project",
@@ -127,26 +132,134 @@
    "fieldtype": "Link",
    "label": "Payee",
    "options": "Payee"
+  },
+  {
+   "description": "The account holder this is paid into: a copy of a Payee's account, taken when the record is raised (ADR-0033). Never a link, so editing or deleting the Payee leaves it. Written by services/payees/pay_to.",
+   "fieldname": "pay_to_account_name",
+   "fieldtype": "Data",
+   "label": "Pay-to Holder Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_account_number",
+   "fieldtype": "Data",
+   "label": "Pay-to Account Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_ifsc",
+   "fieldtype": "Data",
+   "label": "Pay-to IFSC",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_bank_name",
+   "fieldtype": "Data",
+   "label": "Pay-to Bank",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_bank_branch",
+   "fieldtype": "Data",
+   "label": "Pay-to Branch",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-14 13:13:57.544976",
+ "modified": "2026-10-15 11:24:23.637531",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Expense Request",
- "naming_rule": "Expression (old style)",
+ "naming_rule": "Expression",
  "owner": "Administrator",
  "permissions": [
-  {"create":1,"delete":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"System Manager","share":1,"write":1},
-  {"create":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan Project Manager","share":1,"write":1},
-  {"create":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan HR Executive","share":1,"write":1},
-  {"create":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan HR Lead","share":1,"write":1},
-  {"create":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan Accountant","share":1,"write":1},
-  {"create":1,"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan Accountant Lead","share":1,"write":1},
-  {"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan PMO Executive","share":1},
-  {"email":1,"export":1,"print":1,"read":1,"report":1,"role":"Nirmaan Project Lead","share":1}
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Executive",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan HR Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Accountant Lead",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan PMO Executive",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Nirmaan Project Lead",
+   "share": 1
+  }
  ],
  "row_format": "Dynamic",
  "rows_threshold_for_grid_search": 20,

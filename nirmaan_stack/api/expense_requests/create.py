@@ -18,6 +18,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	native_description,
 	native_invoice,
 )
+from nirmaan_stack.services.payees.pay_to import copy_payee_account
 
 
 @frappe.whitelist(methods=["POST"])
@@ -52,9 +53,11 @@ def create_expense_request(
 	every later reader (the approval dialog, the ledger description, the flatten) looks in
 	one place and none of them can disagree.
 
-	`payee` is who gets paid (ADR-0033), ruled by the type's *Who gets paid* setting and the
-	vendor's own Payee. The save applies every rule (`services/payees/guard.check_payee_links`), so
-	Desk and REST meet them too.
+	`payee` is the Payee picked (or just added) in Who gets paid (ADR-0033, #1436): its account is
+	COPIED into the request's pay-to fields, and the request keeps no reference to it. With a vendor
+	named it is ignored: the save copies the vendor's Payee instead
+	(`services/payees/pay_to.fill_from_vendor`), on every write path. Nothing is refused here: a
+	*Required* type with no account is a screen rule.
 	"""
 	guard_requestable(expense_type)
 
@@ -93,15 +96,23 @@ def create_expense_request(
 			# requester picked on screen, so it outranks one a format inferred. `None` would
 			# blank a promoted value, so it is only applied when actually given.
 			**({"vendor": vendor} if vendor else {}),
-			# As sent: the save applies who gets paid (`services/payees/guard.check_payee_links`),
-			# after the promotion, so a vendor a format inferred is paid into its Payee just the same.
-			"payee": payee or None,
 		}
 	)
+	# After the promotion, so a vendor a format inferred is paid into its Payee just the same.
+	apply_pay_to(doc, payee)
 	doc.insert()
 	frappe.db.commit()
 
 	return {"name": doc.name, "status": doc.status, "projects": doc.projects}
+
+
+def apply_pay_to(doc, payee: str | None) -> None:
+	"""Copy the Payee picked into the request's pay-to account (None clears it), unless it names a
+	vendor: then the save copies the vendor's Payee (`pay_to.fill_from_vendor`).
+
+	SHARED with `update`, like the guards below."""
+	if not doc.get("vendor"):
+		copy_payee_account(doc, payee or None)
 
 
 def guard_vendor_scope(vendor, projects) -> str | None:

@@ -1,8 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and Contributors
 # See license.txt
 
-"""The request's payee picker (spec #1420 tickets #1429, #1434, ADR-0033): search (by holder name),
-add, the vendor's Payee, and changing an Expense's Payee until it is Paid.
+"""The request's payee picker (spec #1420 tickets #1429, #1434, #1436, ADR-0033): search (by holder
+name), add, the vendor's Payee, and changing an Expense's account.
 
 Anyone who can raise an Expense Request may search Payees and add one from the request; nobody else.
 
@@ -167,31 +167,17 @@ class TestRequestPayees(FrappeTestCase):
 		self.assertEqual((out["vendor_name"], out["payee"]["name"]), ("TESTPYE Raiser Vendor", payee))
 		self.assertIsNone(self._as(PM_USER, get_vendor_account, vendor=self.payees.vendor())["payee"])
 
-	# --- changing an Expense's Payee -----------------------------------------
+	# --- changing an Expense's account ---------------------------------------
 
-	def test_an_expense_payee_can_change_until_it_is_paid(self):
+	def test_changing_an_expenses_payee_copies_its_account_paid_or_not(self):
+		"""Change payee copies the Payee's account onto the expense (#1436). Whether it may still change
+		once paid is a screen rule now, not a server refusal."""
 		first, second = self.payees.payee(), self.payees.payee()
-		approved = self._expense(first)
-		change_expense_payee(NPE, approved, second)
-		self.assertEqual(frappe.db.get_value(NPE, approved, "payee"), second)
-
-		# Paid means money has left Approved: Reconciliation Pending as much as Paid.
-		for status in ("Reconciliation Pending", "Paid"):
-			paid = self._expense(first, status=status)
-			with self.assertRaises(frappe.ValidationError):
-				change_expense_payee(NPE, paid, second)
-			self.assertEqual(frappe.db.get_value(NPE, paid, "payee"), first)
-
-	def test_an_expense_payee_change_obeys_the_request_rules(self):
-		first = self.payees.payee()
-		expense = self._expense(first)
-		# Required type: can't be left without one.
-		with self.assertRaises(frappe.ValidationError):
-			change_expense_payee(NPE, expense, None)
-		# A Project Expense with a vendor is paid into the vendor's Payee only.
-		vendor_payee = self.payees.payee()
-		project_expense = self._expense(vendor_payee, vendor=self.payees.vendor(vendor_payee),
-		                                doctype="Project Expenses")
-		with self.assertRaises(frappe.ValidationError):
-			change_expense_payee("Project Expenses", project_expense, first)
-		self.assertEqual(frappe.db.get_value(NPE, expense, "payee"), first)
+		for status in ("Approved", "Paid"):
+			with self.subTest(status=status):
+				expense = self._expense(first, status=status)
+				change_expense_payee(NPE, expense, second)
+				self.assertEqual(
+					frappe.db.get_value(NPE, expense, ["pay_to_account_name", "pay_to_account_number", "pay_to_ifsc"]),
+					frappe.db.get_value("Payee", second, ["account_name", "account_number", "ifsc"]),
+				)

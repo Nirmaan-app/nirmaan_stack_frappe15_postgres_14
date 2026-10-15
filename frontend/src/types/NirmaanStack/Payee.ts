@@ -52,6 +52,19 @@ export interface PayeeOption {
     bank_branch?: string | null;
 }
 
+/**
+ * A record's own pay-to account (#1436, ADR-0033): the account an Expense Request or Expense is paid
+ * into, copied from a Payee when it was raised and served in a Payee's field names
+ * (`services/payees/pay_to.pay_to_account`). Nothing links it back to the Payee.
+ */
+export interface PayToAccount {
+    account_name: string;
+    account_number: string;
+    ifsc: string;
+    bank_name?: string | null;
+    bank_branch?: string | null;
+}
+
 /** How a suggested Payee matches a vendor (`services/payees/matching`). */
 export const PAYEE_MATCH = {
     /** A vendor already linked to the Payee has the same PAN. */

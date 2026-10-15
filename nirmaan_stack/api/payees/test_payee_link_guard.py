@@ -1,19 +1,19 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and Contributors
 # See license.txt
 
-"""No screen or API can skip the Payee rules (spec #1420 review A3, ADR-0033).
+"""What every save of a record with a pay-to account does, on every write path (#1423, #1436, spec
+#1420, ADR-0033).
 
 Saves `Expense Request`, `Project Expenses`, `Non Project Expenses` and `Vendors` through the
 document layer, the way Desk, REST and any other code would, with no Payee endpoint in between, and
-reads back what the `validate` controller (`integrations/controllers/payee_links`) let through:
+reads back what the `validate` controller (`integrations/controllers/payee_links`) did:
 
-* a record naming a vendor is paid into that vendor's Payee (filled in when blank, any other refused);
-* a request of a *Required* type carries a Payee;
-* an expense's Payee is fixed once it is paid, and before that only Accounts change it;
+* a request or Project Expense naming a vendor copies the vendor's Payee into its pay-to account on
+  insert (when it has none), whenever the vendor changes, and on any save while it has none; never once
+  it is paid;
+* the server refuses no pay-to account (Required, a vendor disagreeing, a change after payment, a
+  non-Accounts change): those are screen rules (#1436);
 * only the people who may set a vendor's Payee (`VENDOR_PAYEE_PROFILES`) change `Vendors.payee`.
-
-Each rule is asked only when the save inserts the record or changes `payee`, `vendor` or the type, so
-a record from before still re-saves.
 
 ⚠️ RUNS AGAINST THE ENV DATABASE. Payees and vendors come from `PayeeFixture`; every other row planted
 here is deleted by the test's own clean-up.
@@ -26,9 +26,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
-from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each, shown_to_client
-from nirmaan_stack.services.payees.expense_rules import EXPENSE_PAYEE_ROLE_PROBLEM
+from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each
 from nirmaan_stack.services.payees.guard import check_payee_links
+from nirmaan_stack.services.payees.pay_to import ACCOUNT_FIELDS, PAY_TO_FIELDS
 
 U = "Administrator"
 PM_USER = "pye_guard_pm@example.com"
@@ -126,71 +126,96 @@ class TestEveryWritePathKeepsThePayeeRules(FrappeTestCase):
         finally:
             frappe.set_user(U)
 
-    # -- a vendor's Payee ------------------------------------------------------------------------
-    def test_a_request_naming_a_vendor_cannot_be_saved_with_another_payee(self):
-        vendor = self.payees.vendor(self.payees.payee())
-        with self.assertRaisesRegex(frappe.ValidationError, "is paid into payee"):
-            self._insert(self._request("Optional", vendor=vendor, payee=self.payees.payee()))
+    def _pay_to(self, doctype, name):
+        return tuple(frappe.db.get_value(doctype, name, list(PAY_TO_FIELDS)))
 
-    def test_a_request_naming_a_vendor_is_saved_with_the_vendors_payee(self):
+    def _account_of(self, payee):
+        return tuple(frappe.db.get_value("Payee", payee, list(ACCOUNT_FIELDS)))
+
+    def _vendor_pair(self):
+        first, second = self.payees.payee(), self.payees.payee()
+        return first, self.payees.vendor(first), second, self.payees.vendor(second)
+
+    # -- a vendor's Payee is copied on every write path ------------------------------------------
+    def test_a_request_naming_a_vendor_copies_its_account(self):
         payee = self.payees.payee()
         name = self._insert(self._request("Optional", vendor=self.payees.vendor(payee)))
+        self.assertEqual(self._pay_to(REQUEST, name), self._account_of(payee))
+        # The old link is still written alongside until #1438 removes it.
         self.assertEqual(frappe.db.get_value(REQUEST, name, "payee"), payee)
 
-    def test_a_not_asked_request_naming_a_vendor_carries_the_vendors_payee(self):
+    def test_a_not_asked_request_naming_a_vendor_copies_its_account(self):
         payee = self.payees.payee()
-        name = self._insert(self._request("Not asked", vendor=self.payees.vendor(payee),
-                                          payee=self.payees.payee()))
-        self.assertEqual(frappe.db.get_value(REQUEST, name, "payee"), payee)
+        name = self._insert(self._request("Not asked", vendor=self.payees.vendor(payee)))
+        self.assertEqual(self._pay_to(REQUEST, name), self._account_of(payee))
 
-    def test_a_project_expense_naming_a_vendor_takes_its_payee_and_no_other(self):
+    def test_a_project_expense_inserted_naming_a_vendor_copies_its_account(self):
+        """New expense dialogs, Bulk Import's create-expense and adjustments insert one this way."""
         payee = self.payees.payee()
-        vendor = self.payees.vendor(payee)
-        name = self._insert(self._expense(PE, vendor=vendor))
-        self.assertEqual(frappe.db.get_value(PE, name, "payee"), payee)
-        with self.assertRaisesRegex(frappe.ValidationError, "is paid into payee"):
-            self._insert(self._expense(PE, vendor=vendor, payee=self.payees.payee()))
+        name = self._insert(self._expense(PE, vendor=self.payees.vendor(payee)))
+        self.assertEqual(self._pay_to(PE, name), self._account_of(payee))
 
-    # -- Required --------------------------------------------------------------------------------
-    def test_a_required_request_cannot_be_saved_without_a_payee(self):
-        with self.assertRaisesRegex(frappe.ValidationError, "needs a payee"):
-            self._insert(self._request("Required"))
+    def test_an_expense_inserted_with_its_own_account_keeps_it(self):
+        """Approval inserts the request's copy: the vendor's Payee is not read again."""
+        first, v1, second, _ = self._vendor_pair()
+        own = dict(zip(PAY_TO_FIELDS, self._account_of(second)))
+        name = self._insert(self._expense(PE, vendor=v1, **own))
+        self.assertEqual(self._pay_to(PE, name), self._account_of(second))
 
-    def test_a_request_from_before_still_saves_when_its_payee_is_untouched(self):
+    def test_an_unpaid_record_re_copies_when_its_vendor_changes(self):
+        first, v1, second, v2 = self._vendor_pair()
+        for doctype, values in ((REQUEST, self._request("Optional", vendor=v1)),
+                                (PE, self._expense(PE, vendor=v1))):
+            with self.subTest(doctype=doctype):
+                name = self._insert(values)
+                self._save_as(PM_USER, doctype, name, vendor=v2)
+                self.assertEqual(self._pay_to(doctype, name), self._account_of(second))
+                self.assertEqual(frappe.db.get_value(doctype, name, "payee"), second)
+
+    def test_a_vendor_with_no_payee_leaves_the_account_blank(self):
+        first, v1, _, _ = self._vendor_pair()
+        name = self._insert(self._expense(PE, vendor=v1))
+        self._save_as(PM_USER, PE, name, vendor=self.payees.vendor())
+        self.assertEqual(self._pay_to(PE, name), (None,) * 5)
+
+    def test_an_unpaid_record_naming_a_vendor_with_a_blank_account_fills_on_save(self):
+        """A record from before pay-to accounts takes its vendor's on its next save."""
+        payee = self.payees.payee()
+        name = self._raw(PE, {"type": self.types["Optional"], "amount": 2500, "status": "Approved",
+                              "projects": self.project, "vendor": self.payees.vendor(payee)})
+        self._save_as(PM_USER, PE, name, comment="re-saved")
+        self.assertEqual(self._pay_to(PE, name), self._account_of(payee))
+
+    def test_a_paid_expenses_vendor_is_corrected_and_its_account_stays(self):
+        """The money already went to that account: correcting the vendor afterwards moves nothing."""
+        first, v1, _, v2 = self._vendor_pair()
+        for status in ("Reconciliation Pending", "Paid"):
+            with self.subTest(status=status):
+                own = dict(zip(PAY_TO_FIELDS, self._account_of(first)))
+                name = self._raw(PE, {"type": self.types["Optional"], "amount": 2500, "status": status,
+                                      "projects": self.project, "vendor": v1, **own})
+                self._save_as(PM_USER, PE, name, vendor=v2)
+                self.assertEqual(frappe.db.get_value(PE, name, "vendor"), v2)
+                self.assertEqual(self._pay_to(PE, name), self._account_of(first))
+
+    # -- no server refusals (screen rules, #1436) ------------------------------------------------
+    def test_a_required_request_is_saved_without_an_account(self):
+        name = self._insert(self._request("Required"))
+        self.assertEqual(self._pay_to(REQUEST, name), (None,) * 5)
+
+    def test_anyone_who_may_save_an_expense_changes_its_account_paid_or_not(self):
+        """Accounts-only and fixed-once-paid are screen rules now: the server refuses neither."""
+        account = dict(zip(PAY_TO_FIELDS, self._account_of(self.payees.payee())))
+        for status in ("Approved", "Paid"):
+            with self.subTest(status=status):
+                name = self._raw(NPE, {"type": self.types["Optional"], "amount": 2500, "status": status})
+                self._save_as(PM_USER, NPE, name, **account)
+                self.assertEqual(self._pay_to(NPE, name), tuple(account.values()))
+
+    def test_a_record_from_before_still_saves(self):
         old = self._raw(REQUEST, {"type": self.types["Required"], "amount": 4300, "status": "Pending Approval"})
         self._save_as(U, REQUEST, old, comment="re-saved")
         self.assertEqual(frappe.db.get_value(REQUEST, old, "comment"), "re-saved")
-
-    # -- an expense's Payee ----------------------------------------------------------------------
-    def test_a_paid_expense_keeps_its_payee_on_every_save(self):
-        first, second = self.payees.payee(), self.payees.payee()
-        for status in ("Reconciliation Pending", "Paid"):
-            with self.subTest(status=status):
-                name = self._raw(NPE, {"type": self.types["Optional"], "amount": 2500, "status": status,
-                                       "payee": first})
-                with self.assertRaisesRegex(frappe.ValidationError, "already paid"):
-                    self._save_as(U, NPE, name, payee=second)
-                frappe.db.rollback()
-                self.assertEqual(frappe.db.get_value(NPE, name, "payee"), first)
-
-    def test_only_accounts_change_an_expenses_payee_on_save(self):
-        first, second = self.payees.payee(), self.payees.payee()
-        name = self._raw(NPE, {"type": self.types["Optional"], "amount": 2500, "status": "Approved",
-                               "payee": first})
-        with self.assertRaisesRegex(frappe.PermissionError, "change who an expense is paid to"):
-            self._save_as(PM_USER, NPE, name, payee=second)
-        frappe.db.rollback()
-        self.assertEqual(frappe.db.get_value(NPE, name, "payee"), first)
-
-        self._save_as(U, NPE, name, payee=second)
-        self.assertEqual(frappe.db.get_value(NPE, name, "payee"), second)
-
-    def test_anyone_who_may_edit_an_expense_still_saves_it_when_its_payee_is_untouched(self):
-        payee = self.payees.payee()
-        name = self._raw(NPE, {"type": self.types["Optional"], "amount": 2500, "status": "Approved",
-                               "payee": payee})
-        self._save_as(PM_USER, NPE, name, comment="re-saved")
-        self.assertEqual(frappe.db.get_value(NPE, name, "comment"), "re-saved")
 
     # -- a vendor's Payee, set on the vendor -----------------------------------------------------
     def test_only_vendor_payee_profiles_change_a_vendors_payee_on_save(self):
@@ -217,71 +242,3 @@ class TestEveryWritePathKeepsThePayeeRules(FrappeTestCase):
         vendor.payee = self.payees.payee()
         with self.assertRaisesRegex(frappe.PermissionError, "set a vendor's bank account"):
             check_payee_links(vendor, PM_USER)
-
-    # -- correcting the vendor ------------------------------------------------------------------
-    def _vendor_pair(self):
-        first, second = self.payees.payee(), self.payees.payee()
-        return first, self.payees.vendor(first), second, self.payees.vendor(second)
-
-    def test_a_paid_expenses_vendor_is_corrected_and_its_payee_stays(self):
-        """The money already went to the old Payee: correcting the vendor afterwards moves nothing."""
-        first, v1, _, v2 = self._vendor_pair()
-        for status in ("Reconciliation Pending", "Paid"):
-            with self.subTest(status=status):
-                name = self._raw(PE, {"type": self.types["Optional"], "amount": 2500, "status": status,
-                                      "projects": self.project, "vendor": v1, "payee": first})
-                self._save_as(PM_USER, PE, name, vendor=v2)
-                self.assertEqual(tuple(frappe.db.get_value(PE, name, ["vendor", "payee"])), (v2, first))
-
-    def test_an_unpaid_expense_follows_its_new_vendors_payee(self):
-        first, v1, second, v2 = self._vendor_pair()
-        name = self._raw(PE, {"type": self.types["Optional"], "amount": 2500, "status": "Approved",
-                              "projects": self.project, "vendor": v1, "payee": first})
-        self._save_as(PM_USER, PE, name, vendor=v2)
-        self.assertEqual(frappe.db.get_value(PE, name, "payee"), second)
-
-    def test_clearing_the_vendor_clears_its_payee_until_paid(self):
-        first, v1, _, _ = self._vendor_pair()
-        request = self._raw(REQUEST, {"type": self.types["Optional"], "amount": 4300,
-                                      "status": "Pending Approval", "projects": self.project,
-                                      "vendor": v1, "payee": first})
-        self._save_as(U, REQUEST, request, vendor=None)
-        self.assertIsNone(frappe.db.get_value(REQUEST, request, "payee"))
-
-        unpaid = self._raw(PE, {"type": self.types["Optional"], "amount": 2500, "status": "Approved",
-                                "projects": self.project, "vendor": v1, "payee": first})
-        self._save_as(PM_USER, PE, unpaid, vendor=None)
-        self.assertIsNone(frappe.db.get_value(PE, unpaid, "payee"))
-
-        paid = self._raw(PE, {"type": self.types["Optional"], "amount": 2500, "status": "Paid",
-                              "projects": self.project, "vendor": v1, "payee": first})
-        self._save_as(PM_USER, PE, paid, vendor=None)
-        self.assertEqual(frappe.db.get_value(PE, paid, "payee"), first)
-
-    def test_the_expense_payee_role_refusal_tells_the_client_why(self):
-        name = self._raw(NPE, {"type": self.types["Optional"], "amount": 2500, "status": "Approved"})
-        with shown_to_client() as shown, self.assertRaises(frappe.PermissionError):
-            self._save_as(PM_USER, NPE, name, payee=self.payees.payee())
-        frappe.db.rollback()
-        self.assertIn(EXPENSE_PAYEE_ROLE_PROBLEM, shown)
-
-    def test_clearing_the_vendor_is_no_door_to_another_payee(self):
-        """Only the vendor's own Payee moves with a vendor edit; naming another stays Accounts' call."""
-        first, v1, _, _ = self._vendor_pair()
-        name = self._raw(PE, {"type": self.types["Optional"], "amount": 2500, "status": "Approved",
-                              "projects": self.project, "vendor": v1, "payee": first})
-        with self.assertRaisesRegex(frappe.PermissionError, "change who an expense is paid to"):
-            self._save_as(PM_USER, PE, name, vendor=None, payee=self.payees.payee())
-
-    # -- Required, on a change -----------------------------------------------------------------
-    def test_a_required_expense_cannot_be_left_without_its_payee(self):
-        payee = self.payees.payee()
-        name = self._raw(NPE, {"type": self.types["Required"], "amount": 2500, "status": "Approved",
-                               "payee": payee})
-        with self.assertRaisesRegex(frappe.ValidationError, "needs a payee"):
-            self._save_as(U, NPE, name, payee=None)
-
-    def test_a_required_expense_is_still_inserted_without_a_payee(self):
-        """Approval of a request from before payees, and Bulk Import, insert one with none."""
-        name = self._insert(self._expense(NPE, type=self.types["Required"]))
-        self.assertIsNone(frappe.db.get_value(NPE, name, "payee"))

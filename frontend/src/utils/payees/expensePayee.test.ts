@@ -10,7 +10,6 @@ import {
     countAskingWhoGetsPaid,
     payeeAccountLine,
     showsWhoGetsPaid,
-    vendorClearDropsPayee,
     whoGetsPaidHelp,
     whoGetsPaidProblem,
 } from "./expensePayee";
@@ -52,7 +51,7 @@ describe("whoGetsPaidHelp", () => {
 });
 
 describe("whoGetsPaidProblem", () => {
-    const base = { rule: "Required", expenseType: "Labour Advance", vendor: null, vendorPayee: null, hasChoice: false };
+    const base = { rule: "Required", expenseType: "Labour Advance", vendor: null, vendorHasAccount: false, hasChoice: false };
 
     it("blocks a Required type with no payee", () => {
         expect(whoGetsPaidProblem(base)).toBe("Pick who gets paid, or add a new payee.");
@@ -64,8 +63,8 @@ describe("whoGetsPaidProblem", () => {
         expect(whoGetsPaidProblem({ ...base, rule: "Not asked" })).toBeNull();
     });
 
-    it("a vendor's own payee satisfies the rule; a vendor without one blocks only Required", () => {
-        expect(whoGetsPaidProblem({ ...base, vendor: "Shree Balaji", vendorPayee: "PYE-0007" })).toBeNull();
+    it("a vendor's own account satisfies the rule; a vendor without one blocks only Required", () => {
+        expect(whoGetsPaidProblem({ ...base, vendor: "Shree Balaji", vendorHasAccount: true })).toBeNull();
         expect(whoGetsPaidProblem({ ...base, vendor: "Shree Balaji" })).toBe(
             "Shree Balaji has no bank account on record. Add it on the vendor's page, or set Vendor to Others (No Vendor) and pick a payee.",
         );
@@ -89,35 +88,40 @@ describe("payee lines", () => {
     });
 });
 
-/** Shared with the server's suite (`services/payees/test_expense_rules.py`): one set of cases (F1). */
+/** The server pins the same options (`services/payees/test_expense_rules.py`): one list (F1). */
 const SHARED = JSON.parse(
     readFileSync(resolve(__dirname, "../../../../nirmaan_stack/services/payees/payee_rules_cases.json"), "utf-8"),
-) as {
-    payee_rules: string[];
-    requests: {
-        name: string;
-        rule: string;
-        vendor: string | null;
-        vendor_payee: string | null;
-        payee: string | null;
-        refused: boolean;
-    }[];
-};
+) as { payee_rules: string[] };
 
 describe("parity with services/payees/expense_rules.py (shared cases)", () => {
     it("offers the server's rules, in its order", () => {
         expect(PAYEE_RULES).toEqual(SHARED.payee_rules);
     });
+});
 
-    it.each(SHARED.requests)("$name: blocks sending exactly when the server refuses", (c) => {
+/** When the request dialog can't send (a screen rule since #1436: the server accepts all of these). */
+const BLOCKS = [
+    { name: "Required, no vendor, nobody picked", rule: "Required", vendor: null, account: false, picked: false, blocked: true },
+    { name: "Required, no vendor, a payee picked", rule: "Required", vendor: null, account: false, picked: true, blocked: false },
+    { name: "Optional, nobody picked", rule: "Optional", vendor: null, account: false, picked: false, blocked: false },
+    { name: "Not asked, nobody picked", rule: "Not asked", vendor: null, account: false, picked: false, blocked: false },
+    { name: "Required, a vendor with an account", rule: "Required", vendor: "VEN-1", account: true, picked: false, blocked: false },
+    { name: "Required, a vendor with no account", rule: "Required", vendor: "VEN-1", account: false, picked: false, blocked: true },
+    { name: "Optional, a vendor with no account", rule: "Optional", vendor: "VEN-1", account: false, picked: false, blocked: false },
+    { name: "Not asked, a vendor with no account", rule: "Not asked", vendor: "VEN-1", account: false, picked: false, blocked: false },
+    { name: "Not asked, a vendor with an account", rule: "Not asked", vendor: "VEN-1", account: true, picked: false, blocked: false },
+];
+
+describe("whoGetsPaidProblem cases", () => {
+    it.each(BLOCKS)("$name", (c) => {
         const problem = whoGetsPaidProblem({
             rule: c.rule,
             expenseType: "Rent Expenses",
             vendor: c.vendor,
-            vendorPayee: c.vendor_payee,
-            hasChoice: !!c.payee,
+            vendorHasAccount: c.account,
+            hasChoice: c.picked,
         });
-        expect(problem !== null).toBe(c.refused);
+        expect(problem !== null).toBe(c.blocked);
     });
 });
 
@@ -136,17 +140,5 @@ describe("showsWhoGetsPaid", () => {
         expect(whoGetsPaidHelp("Not asked", "Material Purchase")).toBe(
             "Material Purchase doesn't ask who gets paid, but a vendor is paid into its own account.",
         );
-    });
-});
-
-describe("vendorClearDropsPayee (walk bug 17, the server's D2 rule)", () => {
-    it("drops the Payee the request was saved with through its vendor", () => {
-        expect(vendorClearDropsPayee("PYE-0412", "PYE-0412")).toBe(true);
-    });
-
-    it("keeps any other pick, and nothing to drop is nothing", () => {
-        expect(vendorClearDropsPayee("PYE-0007", "PYE-0412")).toBe(false);
-        expect(vendorClearDropsPayee(null, "PYE-0412")).toBe(false);
-        expect(vendorClearDropsPayee("PYE-0007", null)).toBe(false);
     });
 });

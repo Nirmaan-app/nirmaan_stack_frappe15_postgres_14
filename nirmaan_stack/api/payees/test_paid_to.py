@@ -185,26 +185,6 @@ class TestPaidTo(FrappeTestCase):
                          ("changed", U, today()))
         self.assertEqual(get_expense_payee(NPE, expense)["named_by"]["how"], "changed")
 
-    def test_change_payee_keeps_ticket_9s_rules(self):
-        first, other = self.payees.payee(), self.payees.payee()
-        required = self._expense(rule="Required", payee=first)
-        with self.assertRaisesRegex(frappe.ValidationError, "needs a payee"):
-            change_expense_payee(NPE, required, None)
-
-        vendor = self._vendor(first)
-        with_vendor = self._expense(PE, payee=first, vendor=vendor)
-        with self.assertRaisesRegex(frappe.ValidationError, "is paid into payee"):
-            change_expense_payee(PE, with_vendor, other)
-        self.assertTrue(get_expense_payee(PE, with_vendor)["vendor_fixed"])
-
-        paid = self._expense(payee=first, status="Paid")
-        with self.assertRaisesRegex(frappe.ValidationError, "already paid"):
-            change_expense_payee(NPE, paid, other)
-
-        frappe.db.rollback()
-        self.assertEqual(frappe.db.get_value(NPE, required, "payee"), first)
-        self.assertEqual(frappe.db.get_value(NPE, paid, "payee"), first)
-
     def test_the_box_says_paid_once_money_has_left_approved(self):
         """Paid means one thing: the box closes Change payee at the statuses the server refuses it."""
         payee = self.payees.payee()

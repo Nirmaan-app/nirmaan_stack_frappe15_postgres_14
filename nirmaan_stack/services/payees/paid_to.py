@@ -111,7 +111,7 @@ def expense_pay_to(doctype: str, name: str) -> dict:
         "vendor": vendor,
         "vendor_name": frappe.db.get_value("Vendors", vendor, "vendor_name") if vendor else None,
         "vendor_fixed": bool(vendor),
-        # Paid as Change payee reads it (`expense_rules.paid_expense_problem`): money has left Approved.
+        # Paid: money has left Approved (`rules.PAID_STATUSES`); the box closes Change payee then.
         "paid": doc.status in PAID_STATUSES,
         "named_by": _named_by(doctype, doc, vendor) if doc.payee else None,
     }

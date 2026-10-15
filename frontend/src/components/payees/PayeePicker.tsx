@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import type { PayeeOption } from "@/types/NirmaanStack/Payee";
+import type { PayeeOption, PayToAccount } from "@/types/NirmaanStack/Payee";
 import { payeeAccountLine } from "@/utils/payees/expensePayee";
 import { bankLine } from "@/utils/payees/payeeForm";
 
@@ -201,8 +201,8 @@ function PayeeCard({ payee, selected, onClick, disabled }: PayeeCardProps) {
     );
 }
 
-/** A Payee shown read-only (the vendor's own, on the request; the payee on a review). */
-export function PayeeReadOnly({ payee, note }: { payee: PayeeOption; note?: string }) {
+/** An account shown read-only: the vendor's own Payee, or a request's own pay-to account (#1436). */
+export function PayeeReadOnly({ payee, note }: { payee: PayToAccount; note?: string }) {
     const bank = bankLine(payee);
     return (
         <div className="rounded-md border bg-background px-3 py-2.5 text-[13px] leading-relaxed tabular-nums">

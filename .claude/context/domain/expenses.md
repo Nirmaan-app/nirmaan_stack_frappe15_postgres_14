@@ -614,23 +614,38 @@ save an invalid template**.
 - **A format NEVER declares a field named after a native column** (`comment`,
   `amount`, `type`, `projects`). Those are real columns the ledger row is built from; a format
   field of the same name would record the value twice and let the two disagree.
-- **A request names who gets paid: a Payee** ([ADR-0033](../../../docs/adr/0033-payee-is-one-bank-account.md)
+- **A request names who gets paid: its own pay-to account** ([ADR-0033](../../../docs/adr/0033-payee-is-one-bank-account.md)
   is the source; it retired the 2026-08-18 rule that a request asks for no payee bank details).
-  Built by #1429 (spec #1420):
+  Built by #1429, reworked by #1436 (spec #1420):
   - `Expense Type.payee_rule` (*Who gets paid*): *Required*, *Optional* or *Not asked* (the
     default). Set in Expense Packages' Edit dialog (`masters.update_expense_type`). ⚠️ It is a
     fixture field like the rest of the type, so a value set in the app is reset by the next migrate
     unless the fixture is re-exported.
-  - The request's `payee` is applied by `services/payees/expense_payee.request_payee_for` on create
-    AND edit (rules pure in `services/payees/expense_rules.py`): *Required* refuses none; *Not
-    asked* stores none whatever was sent; a request with a vendor is paid into that vendor's Payee
-    (filled in; any other refused). A Payee has no status (#1434), so any Payee may be picked.
-  - Approval (`convert.create_ledger_row`) copies `payee` onto the Project or Non-Project Expense.
-    The reviewer sees it: `get_my_expense_requests` rows carry `payee_details`.
+  - **The pay-to account** (#1436): `Expense Request`, `Project Expenses` and `Non Project Expenses`
+    each hold `pay_to_account_name`, `pay_to_account_number`, `pay_to_ifsc`, `pay_to_bank_name`,
+    `pay_to_bank_branch`, a COPY of a Payee's account taken when the record is raised; nothing links
+    back to the Payee, so editing or deleting it changes no copy. The one copy function is
+    `services/payees/pay_to.copy_payee_account`. The old `payee` link is still written alongside
+    until #1438 removes it.
+  - **Raising** (`create_expense_request`): the `payee` sent (picked, or just added through
+    `api/expense_requests/payees.add_request_payee`) is copied in, unless the request names a vendor.
+    **Editing** (`update_expense_request`): `keep_pay_to=1` leaves the copy as it is; otherwise the
+    `payee` sent is copied (none clears it). Both through `create.apply_pay_to`.
+  - **A vendor named** (request or Project Expense, every write path): the save hook copies the
+    vendor's Payee when the record has no copy and whenever the vendor changes, until the record is
+    paid (`pay_to.fill_from_vendor`, from `guard.check_payee_links`). New expense dialogs, Bulk
+    Import's create-expense and adjustments get it this way. Clearing the vendor leaves the copy.
+  - **No server refusal** (#1436, owner 2026-10-15): *Required* with no account, a vendor and an
+    account that disagree, a change after payment, a change outside Accounts are all accepted. They
+    are screen rules: the request dialog blocks sending a *Required* type with no account
+    (`utils/payees/expensePayee.whoGetsPaidProblem`) and shows a vendor's account read-only.
+  - Approval (`convert.create_ledger_row`) copies the request's pay-to account onto the Project or
+    Non-Project Expense AS IT IS (`pay_to.copy_pay_to`): the vendor's Payee is not read again. The
+    reviewer sees it: `get_my_expense_requests` rows carry `pay_to` (`pay_to.pay_to_account`).
   - The dialog's picker (search, add new, the vendor's Payee) calls `api/expense_requests/payees`,
     gated on `access.can_raise_requests`, never the Accounts-only `api/payees/` endpoints.
-  - An Expense's Payee changes until it is *Paid* through `expense_payee.change_expense_payee`
-    (no endpoint yet; Record Payment's "Change payee" is #1431).
+  - Record Payment's Change payee (`expense_payee.change_expense_payee`, #1431) copies the Payee's
+    account onto the expense; #1438 makes it Change account.
   - **No format asks for bank details or who gets paid as free text** (#1430): the Payroll,
     Accommodation Deposit and Staff Accommodation Rent "Payee Bank Details" sections, and the
     fields that only named the payee (Rent's landlord, the Deposit's landlord / PG, Payroll's

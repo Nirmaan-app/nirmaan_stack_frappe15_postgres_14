@@ -33,6 +33,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	undeclared_pairs,
 )
 from nirmaan_stack.services.outflow_import.settle import format_amount_for
+from nirmaan_stack.services.payees.pay_to import copy_pay_to
 from nirmaan_stack.services.approval_raiser import raiser_level
 from nirmaan_stack.services.approval_tiers import TIER_L2_ABOVE_EXPENSES, initial_status_for_raiser
 
@@ -184,10 +185,6 @@ def create_ledger_row(req):
 		"amount": format_amount_for(doctype, Decimal(str(flt(req.amount)))),
 		"description": compose_description(req, source_format),
 		"comment": req.comment or None,
-		# Who gets paid (ADR-0033), on BOTH ledgers: the accountant pays this account without
-		# re-entering it. Copied as-is: the request's rules were applied when it was raised or
-		# edited, and approval carries the link.
-		"payee": req.get("payee") or None,
 	}
 
 	# Declared mapping, not convention: a format slot carrying
@@ -206,11 +203,12 @@ def create_ledger_row(req):
 		values["projects"] = req.projects
 		if req.get("vendor"):
 			values["vendor"] = req.vendor
-			# Paid into the vendor's Payee as it is NOW: the save fills it in from the vendor
-			# (`services/payees/guard`), so a vendor that changed account since is followed.
-			values["payee"] = None
 
 	row = frappe.new_doc(doctype)
 	row.update(values)
+	# Who gets paid (ADR-0033, #1436), on BOTH ledgers: the request's pay-to account, exactly as the
+	# reviewer saw it. The vendor's Payee is NOT read again; the save copies it only when the request
+	# carried none (`services/payees/pay_to.fill_from_vendor`).
+	copy_pay_to(req, row)
 	row.insert(ignore_permissions=True)
 	return row
