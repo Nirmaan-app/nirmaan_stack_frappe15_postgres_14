@@ -9,7 +9,9 @@
 - One open audit at a time; never twice for a month; not again after handover when the asset was already
   audited for that month (the month it was for, not the day sent); a leftover row or a waiting return is
   never audited.
-- Only the holder sends it (condition + photo); the photo must be their own unattached upload.
+- Only the holder sends it (answers + photo); the photo must be their own unattached upload. The answers (the
+  Project or IT questions) are saved on the assignment (latest only) and on the history row; the asset's condition
+  is left alone (the answers show any issue).
 - The holder can't return while an audit is Pending; Admin / HR unassign always.
 - Only Admin switches a category; unticking keeps open audits.
 - PMO and procurement read the audit rows from the history, nothing else there.
@@ -20,6 +22,7 @@ People are bare User + Nirmaan Users rows (plus a Role where a DocPerm is exerci
 Run: bench --site localhost run-tests --module nirmaan_stack.api.assets.test_audits
 """
 
+import json
 from contextlib import ExitStack
 from unittest.mock import patch
 
@@ -45,6 +48,22 @@ from nirmaan_stack.tasks import asset_audit as audit_tasks
 from nirmaan_stack.tasks.asset_audit import close_last_month_audits, open_next_month_audits
 
 PM = "Nirmaan Project Manager Profile"
+
+# The dialog's questions (they live in frontend/src/utils/assetAuditQuestions.ts) with the answer that isn't red.
+DIALOG_ANSWERS = {
+    "Project": (
+        ("where", "Where is this item right now?", "With me, at the project site"),
+        ("works", "Does it work properly when you use it?", "Yes, it works fine"),
+        ("damage", "Is it damaged anywhere?", "No damage"),
+        ("parts", "Are all its parts and accessories with it?", "Yes, everything is there"),
+    ),
+    "IT": (
+        ("who", "Who is using this device?", "Only me, for work"),
+        ("works", "Does it work properly?", "Yes, it works fine"),
+        ("damage", "Is it damaged anywhere?", "No damage"),
+        ("charger", "Do you have its charger and cables?", "Yes, I have them"),
+    ),
+}
 
 
 class TestMonthlyAssetAudit(FrappeTestCase):
@@ -154,7 +173,8 @@ class TestMonthlyAssetAudit(FrappeTestCase):
 
     def _row(self, assignment):
         return frappe.db.get_value(
-            "Asset Management", assignment, ["audit_status", "audit_month", "last_audit_on", "audit_proof", "audit_overdue_since"],
+            "Asset Management", assignment,
+            ["audit_status", "audit_month", "last_audit_on", "audit_proof", "audit_overdue_since", "audit_answers"],
             as_dict=True,
         )
 
@@ -163,12 +183,29 @@ class TestMonthlyAssetAudit(FrappeTestCase):
         if event:
             filters["event"] = event
         return frappe.get_all(
-            "Asset History", filters=filters, fields=["event", "reason", "declaration", "done_by"], order_by="idx"
+            "Asset History", filters=filters, fields=["event", "reason", "declaration", "done_by", "audit_answers"],
+            order_by="idx"
         )
 
-    def _submit(self, assignment, condition="Good", remarks=None, photo=None, user=None):
+    def _good(self, assignment, **red):
+        """Answers as the dialog sends them for the asset's type, all fine except `red={id: (red choice, note)}`."""
+        category = frappe.db.get_value("Asset Master", self._row_asset(assignment), "asset_category")
+        kind = frappe.db.get_value("Asset Category", category, "category_type")
+        answers = []
+        for qid, question, fine in DIALOG_ANSWERS[kind]:
+            if qid in red:
+                choice, text = red[qid]
+                answers.append({"id": qid, "q": question, "a": choice, "flag": 1, "text": text})
+            else:
+                answers.append({"id": qid, "q": question, "a": fine})
+        return json.dumps(answers)
+
+    def _submit(self, assignment, remarks=None, photo=None, user=None, answers=None):
         frappe.set_user(user or self.holder)
-        return audits_api.submit_audit(assignment, condition, photo or self._photo(user or self.holder), remarks)
+        return audits_api.submit_audit(
+            assignment, photo or self._photo(user or self.holder), remarks,
+            answers if answers is not None else self._good(assignment),
+        )
 
     def _scoped(self):
         """Keep the real selection queries; drop every row that isn't this test's (the live DB)."""
@@ -283,7 +320,7 @@ class TestMonthlyAssetAudit(FrappeTestCase):
         row = self._row(assignment)
         self.assertEqual((row.audit_month, row.audit_overdue_since), (audit_month_label(month_after), self.month))
         self.assertEqual([r.reason for r in self._history(asset, "Audit Missed")], [self.month, self.next_month])
-        self._submit(assignment, "Fair")
+        self._submit(assignment)
         row = self._row(assignment)
         self.assertEqual((row.audit_status, row.audit_overdue_since), ("Fulfilled", None))
         self.assertEqual(len(self._history(asset, "Audit Missed")), 2)  # the history keeps them
@@ -382,22 +419,29 @@ class TestMonthlyAssetAudit(FrappeTestCase):
 
     # -- sending --------------------------------------------------------------------------------
 
-    def test_the_holder_sends_condition_and_photo(self):
+    def test_the_holder_sends_answers_and_photo_and_the_condition_is_left_alone(self):
         asset, assignment = self._assign()
         photo = self._photo()
-        result = self._submit(assignment, "Damaged", "Screen cracked at the corner", photo=photo)
-        self.assertEqual(result["audit_status"], "Fulfilled")
+        answers = self._good(assignment, damage=("Badly damaged: cracked or broken", "Screen cracked"))
+        result = self._submit(assignment, "Screen cracked at the corner", photo=photo, answers=answers)
+        self.assertEqual(result, {"assignment": assignment, "audit_status": "Fulfilled"})
         row = self._row(assignment)
         self.assertEqual((row.audit_status, str(row.last_audit_on), row.audit_proof), ("Fulfilled", today(), photo))
-        self.assertEqual(frappe.db.get_value("Asset Master", asset, "asset_condition"), "Damaged")
+        self.assertEqual(frappe.db.get_value("Asset Master", asset, "asset_condition"), "Good")  # "Badly damaged" or not
         fulfilled = self._history(asset, "Audit Fulfilled")
         self.assertEqual(len(fulfilled), 1)
-        self.assertEqual(fulfilled[0].reason, f"Damaged · was Good · for {self.month} · Screen cracked at the corner")
+        self.assertEqual(fulfilled[0].reason, f"for {self.month} · Screen cracked at the corner")
         self.assertEqual((fulfilled[0].declaration, fulfilled[0].done_by), (photo, self.holder))
         file = frappe.db.get_value(
             "File", {"file_url": photo}, ["attached_to_doctype", "attached_to_name", "attached_to_field"], as_dict=True
         )
         self.assertEqual(tuple(file.values()), ("Asset Management", assignment, "audit_proof"))
+
+    def test_remarks_are_optional_whatever_the_answers_say(self):
+        asset, assignment = self._assign()
+        self._submit(assignment, answers=self._good(assignment, works=("It doesn't work at all", "")))
+        self.assertEqual(frappe.db.get_value("Asset Master", asset, "asset_condition"), "Good")
+        self.assertEqual(self._history(asset, "Audit Fulfilled")[0].reason, f"for {self.month}")
 
     def test_only_the_holder_can_send_it(self):
         _, assignment = self._assign()
@@ -409,17 +453,11 @@ class TestMonthlyAssetAudit(FrappeTestCase):
     def test_refused_submits_change_nothing(self):
         _, open_row = self._assign()
         _, no_audit = self._assign("chair")
-        cases = [
-            (no_audit, "Good", None, "no audit waiting"),
-            (open_row, "Poor", None, "at least 10"),
-            (open_row, "New", None, "Choose the asset's condition"),
-        ]
-        for assignment, condition, remarks, message in cases:
-            with self.assertRaisesRegex(frappe.ValidationError, message):
-                self._submit(assignment, condition, remarks)
+        with self.assertRaisesRegex(frappe.ValidationError, "no audit waiting"):
+            self._submit(no_audit)
         frappe.set_user(self.holder)
         with self.assertRaisesRegex(frappe.ValidationError, "Add a photo"):
-            audits_api.submit_audit(open_row, "Good", "  ")
+            audits_api.submit_audit(open_row, "  ", None, self._good(open_row))
         self.assertEqual(self._row(open_row).audit_status, "Pending")
         self._submit(open_row)
         with self.assertRaisesRegex(frappe.ValidationError, "already submitted"):
@@ -430,13 +468,82 @@ class TestMonthlyAssetAudit(FrappeTestCase):
         frappe.set_user(self.holder)
         others = self._photo(owner=self.stranger)
         attached = self._photo(attached_to=("Asset Master", asset))
+        answers = self._good(assignment)
         with self.assertRaisesRegex(frappe.ValidationError, "wasn't found"):
-            audits_api.submit_audit(assignment, "Good", others)
+            audits_api.submit_audit(assignment, others, answers=answers)
         with self.assertRaisesRegex(frappe.ValidationError, "wasn't found"):
-            audits_api.submit_audit(assignment, "Good", attached)
+            audits_api.submit_audit(assignment, attached, answers=answers)
         with self.assertRaisesRegex(frappe.ValidationError, "must be a photo"):
-            audits_api.submit_audit(assignment, "Good", self._photo(file_name="proof.pdf"))
+            audits_api.submit_audit(assignment, self._photo(file_name="proof.pdf"), answers=answers)
         self.assertEqual(self._row(assignment).audit_status, "Pending")
+
+    # -- the questions ---------------------------------------------------------------------------
+
+    def test_the_answers_are_saved_on_the_assignment_and_on_the_history_row(self):
+        asset, assignment = self._assign("it")
+        answers = self._good(
+            assignment, damage=("Small damage: scratches or dents", "  Scratch on the lid  "), charger=("No, they're missing", "")
+        )
+        self._submit(assignment, answers=answers)
+        expected = [
+            {"id": "who", "q": "Who is using this device?", "a": "Only me, for work"},
+            {"id": "works", "q": "Does it work properly?", "a": "Yes, it works fine"},
+            {"id": "damage", "q": "Is it damaged anywhere?", "a": "Small damage: scratches or dents", "flag": 1,
+             "text": "Scratch on the lid"},
+            {"id": "charger", "q": "Do you have its charger and cables?", "a": "No, they're missing", "flag": 1},
+        ]
+        self.assertEqual(frappe.parse_json(self._row(assignment).audit_answers), {"answers": expected})
+        fulfilled = self._history(asset, "Audit Fulfilled")
+        self.assertEqual(frappe.parse_json(fulfilled[0].audit_answers), {"answers": expected})
+        self.assertEqual(self._history(asset, "Audit Requested")[0].audit_answers, None)  # only on Fulfilled rows
+        frappe.set_user(self.pmo)  # the Fulfilled list reads them through the history API
+        rows = get_asset_history(event="Audit Fulfilled", asset=asset)["rows"]
+        self.assertEqual(frappe.parse_json(rows[0].audit_answers), {"answers": expected})
+
+    def test_missing_or_broken_answers_change_nothing(self):
+        asset, assignment = self._assign()
+        photo = self._photo()
+        good = json.loads(self._good(assignment))
+        cases = [
+            (None, "Answer the questions"),
+            ("[]", "Answer the questions"),
+            ("not json", "Answer the questions"),
+            (json.dumps(good[:3] + [{"id": "parts", "q": "Are all its parts and accessories with it?", "a": ""}]), "missing"),
+            (json.dumps(good + [good[0]]), "answered twice"),
+        ]
+        frappe.set_user(self.holder)
+        for answers, message in cases:
+            with self.assertRaisesRegex(frappe.ValidationError, message):
+                audits_api.submit_audit(assignment, photo, None, answers)
+        row = self._row(assignment)
+        self.assertEqual((row.audit_status, row.audit_answers), ("Pending", None))
+        self.assertFalse(frappe.db.get_value("File", {"file_url": photo}, "attached_to_name"))  # photo not claimed
+        self.assertEqual(self._history(asset, "Audit Fulfilled"), [])
+
+    def test_the_assignment_and_the_asset_still_save_after_an_audit_with_answers(self):
+        """A JSON column comes back as Python; the next save of either document must accept it."""
+        asset, assignment = self._assign()
+        self._submit(assignment, answers=self._good(assignment, damage=("Small damage: scratches or dents", "Dent")))
+        frappe.set_user("Administrator")
+        frappe.get_doc("Asset Management", assignment).save(ignore_permissions=True)
+        doc = frappe.get_doc("Asset Master", asset)
+        doc.asset_description = "edited after an audit"
+        doc.save(ignore_permissions=True)
+        frappe.set_user(self.holder)
+        self.assertEqual(request_return(assignment)["assignment"], assignment)
+
+    def test_the_next_audit_replaces_the_latest_answers_and_the_history_keeps_both(self):
+        asset, assignment = self._assign()
+        self._submit(assignment, answers=self._good(assignment, works=("It works, but has a problem", "Display flickers")))
+        frappe.set_user("Administrator")
+        with self._scoped():
+            self.assertEqual(open_next_month_audits(day=self.the_28th)["opened"], [assignment])
+        self._submit(assignment)  # next month's, all fine
+        latest = frappe.parse_json(self._row(assignment).audit_answers)["answers"]
+        self.assertEqual(latest[1]["a"], "Yes, it works fine")
+        months = [frappe.parse_json(r.audit_answers)["answers"][1] for r in self._history(asset, "Audit Fulfilled")]
+        self.assertEqual([m["a"] for m in months], ["It works, but has a problem", "Yes, it works fine"])
+        self.assertEqual(months[0]["text"], "Display flickers")
 
     # -- returns and unassign -------------------------------------------------------------------
 
@@ -536,9 +643,9 @@ class TestMonthlyAssetAudit(FrappeTestCase):
             self.assertEqual(close_last_month_audits(day=self.the_7th)["missed"], [assignment])
         row = self._row(assignment)
         self.assertEqual((row.audit_status, row.audit_month, row.audit_overdue_since), ("Pending", self.month, last_month))
-        self._submit(assignment, "Fair", photo=None)
+        self._submit(assignment)
         frappe.set_user("Administrator")
-        self.assertEqual(self._history(asset, "Audit Fulfilled")[-1].reason, f"Fair · was Good · for {self.month}")
+        self.assertEqual(self._history(asset, "Audit Fulfilled")[-1].reason, f"for {self.month}")
         self.assertIsNone(self._row(assignment).audit_overdue_since)
         with self._scoped():
             self.assertEqual(close_last_month_audits(day=self.the_7th), {"missed": [], "moved": [], "closed": [], "opened": []})

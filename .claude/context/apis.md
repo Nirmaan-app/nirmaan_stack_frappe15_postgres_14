@@ -69,6 +69,18 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `edit_request.edit_tds_request(doc_name, row)` - Admin only, POST. Saves an edit of one waiting New Make or Project Custom row (`row` is the submit cart-row shape) and can switch it between the two: to Project Custom it needs a name, Work Package and a Category under it, gets the project's `PCUS-` id for that name and is stored Pending; to New Make it needs an existing TDS Item, drops the `PCUS-` id and is stored New. Same checks as submit, under the same project lock; the request id is kept. From Repository rows are refused (they keep the browser's Edit TDS Item save)
 - `approve.approve_tds_items(doc_names, datasheet_choices=None)` - Admin only, POST. Project Custom rows are only marked Approved (no TDS Repository write); a New Make adds a Verified Repository Entry; a `New` row with no existing TDS Item is refused. A New Make whose entry already exists needs `datasheet_choices[row] = "repository"` (row borrows the entry's sheet) or `"request"` (the uploaded sheet becomes the entry's; the old File is kept), else that row is refused
 
+### Assets (`api/assets/`)
+Rules and who may call what: [domain/assets.md](domain/assets.md).
+- `assign.assign_asset` / `unassign_asset` - POST. Assign or unassign in one request (Admin / HR Executive / PMO any asset; Procurement Project assets only); unassign needs a reason
+- `declaration.sign_declaration` - POST, the holder only. Renders the declaration PDF with the drawn signature and attaches it
+- `returns.request_return` (holder; refused while the audit is Pending), `approve_return` (the normal Unassign), `reject_return`
+- `audits.submit_audit(assignment, photo, remarks, answers)` - POST, the holder only. Answers are `[{id, q, a, flag?, text?}]` from `frontend/src/utils/assetAuditQuestions.ts`; the server checks their shape (`services/asset_audit.clean_answers`) and saves them on the assignment and the history row
+- `audits.set_category_audit(category, required)` - POST, Admin only. Switches a category's monthly audit; on opens the month's audits at once
+- `history.get_asset_history` - named filters (event / department / person / asset / dates / category type); Admin + HR, audit events also for the Asset Audit tab's viewers
+- `history.get_asset_history_table` / `get_asset_history_facets` - the History tab's server data table (`useServerDataTable` `apiEndpoint`) and its header-filter counts; Admin + HR only
+- `mine.get_my_assets` - the caller's own assets, whatever project they are booked against
+- `projects.get_won_projects` - the Assign dialog's project picker
+
 ### Other Domains
 - `invoices/` - Invoice data APIs (PO-wise, SR-wise)
 - `payments/` - Payment processing

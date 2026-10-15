@@ -347,3 +347,37 @@ The catalogue is three levels deep: an **Items SKU** belongs to a **TDS Item** (
 deleted straight through the standard document API with no server check, and every Nirmaan role holds
 write and delete on them — so any role can delete any row, *Approved* included, through the REST API.
 Approval is checked only inside the approve endpoint. Closing either gap needs a server-side check.
+
+## Assets
+
+- **Holder** — the one person an asset is assigned to right now. Only the holder signs its declaration, asks to
+  return it and sends its monthly audit. *Avoid*: owner, user (both mean other things here).
+
+- **Declaration** — the form the holder signs to say they have received the asset and will look after it. Signed
+  in the app, or (Admin only) uploaded as a scan. An asset with no declaration yet is **Pending Declaration**.
+
+- **Return Request** — the holder saying "I've given this back". The asset stays assigned until a manager
+  approves (it becomes unassigned) or rejects (the holder keeps it). *Avoid*: return by.
+
+- **Monthly audit** — once a month, the holder of an asset whose category needs it answers a few questions and
+  sends a photo, to show the asset still exists and how it is. Only assigned assets with a signed declaration
+  owe one.
+
+- **Audit month** — the month an audit is FOR, written `MM/YYYY`. From the 28th, a new audit is for the next
+  month; an audit sent late is still for the month it belonged to.
+
+- **Grace days** — the 28th to the 7th of the next month: an audit still unsent from the month just ended can be
+  sent without counting as missed.
+
+- **Audit Requested / Audit Fulfilled / Audit Missed** — the three audit entries in an asset's history: an audit
+  was opened, sent, or not sent by the 7th after its month.
+
+- **Overdue (audit)** — the holder has missed at least one month in a row; shown as "overdue since" the first
+  missed month, and cleared when an audit is sent. There is deliberately no count of missed months.
+
+- **Red answer / issue** — an audit answer that points to a problem (not with me, not working, damaged, missing
+  parts). It may carry a short note. "2 issues" means two red answers. The audit never changes the asset's
+  condition; people read the answers.
+
+- **Asset history** — the permanent, append-only record of everything that happened to an asset. Seen by Admin
+  and HR only.

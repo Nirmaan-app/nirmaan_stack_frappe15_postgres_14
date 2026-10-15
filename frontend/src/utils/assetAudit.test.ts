@@ -2,19 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import {
   AUDIT_CONDITIONS,
+  assetCardTone,
   auditCycleRanges,
   auditBadge,
-  auditFormProblem,
   auditMonthLabel,
   auditsToSubmit,
   canSubmitAudit,
-  conditionGotWorse,
   countAuditsToSubmit,
   cycleMonth,
   isAuditOverdue,
   overdueMonths,
   parseFulfilledText,
-  remarksRequired,
   sentLate,
 } from "./assetAudit";
 
@@ -43,24 +41,9 @@ describe("the cycle", () => {
   });
 });
 
-describe("the Submit audit form", () => {
-  it("offers the same four conditions as the server", () => {
+describe("the conditions", () => {
+  it("are the server's four, best to worst", () => {
     expect([...AUDIT_CONDITIONS]).toEqual(["Good", "Fair", "Poor", "Damaged"]);
-  });
-
-  it("needs a condition and a photo", () => {
-    expect(auditFormProblem("", true, "")).toMatch(/condition/);
-    expect(auditFormProblem("New", true, "")).toMatch(/condition/);
-    expect(auditFormProblem("Good", false, "")).toMatch(/photo/);
-    expect(auditFormProblem("Good", true, "")).toBeNull();
-  });
-
-  it("needs ten characters of remarks for Poor and Damaged only", () => {
-    expect(remarksRequired("Poor")).toBe(true);
-    expect(remarksRequired("Fair")).toBe(false);
-    expect(auditFormProblem("Damaged", true, "  cracked  ")).toMatch(/at least 10/);
-    expect(auditFormProblem("Damaged", true, "Screen cracked at the corner")).toBeNull();
-    expect(auditFormProblem("Fair", true, "")).toBeNull();
   });
 });
 
@@ -114,6 +97,32 @@ describe("the audit badge", () => {
   it("says no audit yet, or that the category isn't audited", () => {
     expect(auditBadge({}, true, "Laptop")).toEqual({ tone: "none", text: "No audit yet" });
     expect(auditBadge({ audit_status: "" }, false, "Chair")).toEqual({ tone: "off", text: "Not audited: Chair" });
+  });
+});
+
+describe("the profile card's tint", () => {
+  const pending = auditBadge({ audit_status: "Pending", audit_month: "11/2026" }, true, "Laptop");
+  const overdue = auditBadge({ audit_status: "Pending", audit_month: "11/2026", audit_overdue_since: "09/2026" }, true, "Laptop");
+  const done = auditBadge({ audit_status: "Fulfilled", last_audit_on: "2026-10-08" }, true, "Laptop");
+
+  it("is red while the audit is overdue, even with the declaration pending too", () => {
+    expect(assetCardTone(false, overdue)).toBe("overdue");
+    expect(assetCardTone(true, overdue)).toBe("overdue");
+  });
+
+  it("is yellow while the declaration or the audit is pending -- the grace days too", () => {
+    expect(assetCardTone(false, pending)).toBe("pending");
+    expect(assetCardTone(true, done)).toBe("pending");
+    expect(assetCardTone(true, null)).toBe("pending");
+    // last month's, still open on the 3rd: yellow, not red, until the 7th records it Missed
+    expect(assetCardTone(false, auditBadge({ audit_status: "Pending", audit_month: "10/2026" }, true, "Laptop"))).toBe("pending");
+  });
+
+  it("is plain with the declaration on file and nothing pending", () => {
+    expect(assetCardTone(false, done)).toBeNull();
+    expect(assetCardTone(false, null)).toBeNull();
+    expect(assetCardTone(false, auditBadge({}, true, "Laptop"))).toBeNull();
+    expect(assetCardTone(false, auditBadge({}, false, "Chair"))).toBeNull();
   });
 });
 
@@ -187,25 +196,22 @@ describe("an overdue audit (the red sidebar icon)", () => {
 });
 
 describe("reading an Audit Fulfilled row", () => {
-  it("splits the condition, the old one, the month and the remarks", () => {
-    expect(parseFulfilledText("Damaged · was Fair · for 11/2026 · Screen cracked · left side")).toEqual({
-      condition: "Damaged",
-      previous: "Fair",
+  it("reads the month and the remarks", () => {
+    expect(parseFulfilledText("for 11/2026 · Kept in the site store · rack 2")).toEqual({
       forMonth: "11/2026",
-      remarks: "Screen cracked · left side",
+      remarks: "Kept in the site store · rack 2",
     });
-    expect(parseFulfilledText("Good · for 10/2026")).toEqual({ condition: "Good", previous: null, forMonth: "10/2026", remarks: null });
-    expect(parseFulfilledText("Fair · keys worn")).toEqual({ condition: "Fair", previous: null, forMonth: null, remarks: "keys worn" });
+    expect(parseFulfilledText("for 10/2026")).toEqual({ forMonth: "10/2026", remarks: null });
+    expect(parseFulfilledText(null)).toEqual({ forMonth: null, remarks: null });
+  });
+
+  it("skips the condition a row sent before 2026-10-15 starts with", () => {
+    expect(parseFulfilledText("Damaged · was Fair · for 11/2026 · Screen cracked")).toEqual({ forMonth: "11/2026", remarks: "Screen cracked" });
+    expect(parseFulfilledText("Good · for 10/2026")).toEqual({ forMonth: "10/2026", remarks: null });
+    expect(parseFulfilledText("Fair · keys worn")).toEqual({ forMonth: null, remarks: "keys worn" });
     expect(parseFulfilledText("Poor · for the third time cracked").forMonth).toBeNull();
   });
 
-  it("knows when the condition got worse", () => {
-    expect(conditionGotWorse("Fair", "Damaged")).toBe(true);
-    expect(conditionGotWorse("New", "Fair")).toBe(true);
-    expect(conditionGotWorse("Damaged", "Good")).toBe(false);
-    expect(conditionGotWorse(null, "Damaged")).toBe(false);
-    expect(conditionGotWorse("Good", "Good")).toBe(false);
-  });
 });
 
 describe("the month split shown when a category's audit is turned on", () => {

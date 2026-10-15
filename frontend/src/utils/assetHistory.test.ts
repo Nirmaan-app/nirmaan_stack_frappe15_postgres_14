@@ -97,7 +97,8 @@ describe("monthly audit rows", () => {
     expect(missed.title).toBe("Audit Missed by Bhavani");
     expect(missed.auditKind).toBe("missed");
     expect(missed.by).toBe("System");
-    expect(missed.reason).toBe("10/2026");
+    expect(missed.reason).toBeNull(); // the stored text is shown as a short line instead
+    expect(missed.auditLine).toBe("October 2026 was not sent");
     expect(missed.tone).toBe("audit");
   });
 
@@ -107,12 +108,15 @@ describe("monthly audit rows", () => {
     expect(created.by).toBe("System");
     expect(created.tone).toBe("audit");
     expect(created.photoUrl).toBeNull();
+    expect(created.auditLine).toBe("For October 2026 · opened by the monthly run");
   });
 
   it("shows the condition and links the photo, not a declaration", () => {
-    expect(fulfilled.title).toBe("Audit Fulfilled by Bhavani · Damaged");
+    expect(fulfilled.title).toBe("Audit Fulfilled by Bhavani"); // no condition any more
     expect(fulfilled.auditKind).toBe("fulfilled");
-    expect(fulfilled.reason).toBe("Damaged · was Fair · Screen cracked");
+    // An old row ("Damaged · was Fair · Screen cracked"): the condition is skipped, the remarks stay.
+    expect(fulfilled.reason).toBe("Screen cracked");
+    expect(fulfilled.auditLine).toBeNull();
     expect(fulfilled.photoUrl).toBe("/api/method/x?key=photo.jpg");
     expect(fulfilled.declarationUrl).toBeNull();
     expect(fulfilled.declarationMissing).toBe(false);

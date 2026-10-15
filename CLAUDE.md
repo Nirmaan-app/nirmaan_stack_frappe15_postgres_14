@@ -109,6 +109,7 @@ The BoQ docs are too large to read whole: `frontend/.claude/plans/boq-upload-pla
 | **Material Test Certificates (MTC)**: the doctype, the PO-page card, the MTC list page, PO merge/cancel effects | `material-test-certificates.md` § Load-bearing invariants |
 | **Projects**, CEO Hold | `projects.md` |
 | **Users**, the Administrator account | `users.md` |
+| **Assets**: assignments, declarations, returns, the monthly audit, asset history | `assets.md` § Load-bearing invariants |
 | **Service Requests** | `service-requests.md` |
 | **Internal Transfer Memos** | `internal-transfer-memos.md` |
 | **Expenses** | `expenses.md` |

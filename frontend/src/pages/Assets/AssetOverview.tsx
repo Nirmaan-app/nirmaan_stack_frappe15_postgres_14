@@ -74,7 +74,7 @@ import { useDepartmentOptions } from '@/hooks/useDepartmentOptions';
 import { AssetHistoryCard } from './components/AssetHistoryCard';
 import { AuditStatusRow } from './components/AuditStatusRow';
 import { useAuditedCategories } from './hooks/useAuditPending';
-import { auditBadge } from '@/utils/assetAudit';
+import { auditBadge, parseAuditAnswers } from '@/utils/assetAudit';
 import { DepartmentBadge } from './utils/departmentColumn';
 import { AssignAssetDialog } from './components/AssignAssetDialog';
 import { UnassignAssetDialog } from './components/UnassignAssetDialog';
@@ -131,6 +131,8 @@ interface AssetAssignment {
     last_audit_on?: string | null;
     audit_overdue_since?: string | null;
     audit_proof?: string | null;
+    /** The latest audit's questions and answers (owner, 2026-10-15); read through parseAuditAnswers. */
+    audit_answers?: unknown;
 }
 
 interface NirmaanUser {
@@ -271,6 +273,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
             fields: [
                 'name', 'asset', 'asset_assigned_to', 'asset_assigned_on', 'asset_declaration_attachment',
                 'received_on', 'audit_status', 'audit_month', 'last_audit_on', 'audit_proof', 'audit_overdue_since',
+                'audit_answers',
             ],
             filters: [['asset', '=', assetId]],
             orderBy: { field: 'asset_assigned_on', order: 'desc' },
@@ -1044,6 +1047,8 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                         asset.asset_category
                                     )}
                                     proofUrl={currentAssignment.audit_proof}
+                                    answers={parseAuditAnswers(currentAssignment.audit_answers)}
+                                    answersTitle={`${asset.asset_name} · audit for ${currentAssignment.audit_month ?? ''}`}
                                 />
                             )}
                         </CardContent>

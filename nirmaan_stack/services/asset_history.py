@@ -31,7 +31,7 @@ AUDIT_REQUESTED = "Audit Requested"  # the month's audit asked of the holder (se
 AUDIT_FULFILLED = "Audit Fulfilled"  # the holder sent condition + photo (api/assets/audits.submit_audit)
 AUDIT_MISSED = "Audit Missed"  # the month ended with the audit unsent (tasks/asset_audit, owner 2026-10-14)
 
-ROW_FIELDS = ("assigned_to", "declaration", "from_department", "to_department", "reason")
+ROW_FIELDS = ("assigned_to", "declaration", "from_department", "to_department", "reason", "audit_answers")
 
 
 def add_history(asset: str, event: str, **fields) -> str:

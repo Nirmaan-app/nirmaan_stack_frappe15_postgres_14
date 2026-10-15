@@ -1,4 +1,5 @@
-"""Tests for the cross-asset history read (`api/assets/history.get_asset_history`).
+"""Tests for the cross-asset history reads (`api/assets/history.get_asset_history`, the History table's
+`get_asset_history_table` and its filter counts `get_asset_history_facets`).
 
 Reuses the people/asset helpers and the purge of the departments suite (one purge per suite family,
 CODING_STANDARDS.md § Writing tests). Nothing here commits; every row rolls back with the class.
@@ -6,11 +7,13 @@ CODING_STANDARDS.md § Writing tests). Nothing here commits; every row rolls bac
 Run: bench --site localhost run-tests --module nirmaan_stack.api.assets.test_history
 """
 
+import json
+
 import frappe
 from frappe.model.delete_doc import get_linked_docs
 from frappe.tests.utils import FrappeTestCase
 
-from nirmaan_stack.api.assets.history import get_asset_history
+from nirmaan_stack.api.assets.history import get_asset_history, get_asset_history_facets, get_asset_history_table
 from nirmaan_stack.nirmaan_stack.doctype.asset_management.test_asset_management import (
     ACCOUNTANT,
     CATEGORY_PREFIX,
@@ -23,7 +26,9 @@ from nirmaan_stack.nirmaan_stack.doctype.asset_management.test_asset_management 
 from nirmaan_stack.services.asset_history import DECLARATION_SIGNED, add_history, rename_person
 
 
-class TestAssetHistoryRead(FrappeTestCase):
+class _HistoryFixture(FrappeTestCase):
+    """One laptop, Added and Assigned today (to the accountant, Projects -> Accounts); no tests of its own."""
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -63,6 +68,8 @@ class TestAssetHistoryRead(FrappeTestCase):
         """The history of this suite's asset only (the live site has other assets' history too)."""
         return get_asset_history(asset=self.asset, **filters)
 
+
+class TestAssetHistoryRead(_HistoryFixture):
     def test_only_admin_and_hr_can_read(self):
         frappe.set_user(self.pm)
         with self.assertRaises(frappe.PermissionError):
@@ -92,6 +99,135 @@ class TestAssetHistoryRead(FrappeTestCase):
         page = self._mine(start=1, page_length=1)
         self.assertEqual(page["total"], 2)
         self.assertEqual([r.event for r in page["rows"]], ["Asset Added"])
+
+
+class TestAssetHistoryTable(_HistoryFixture):
+    """The History tab's data table: filters from the column headers, sorting, paging, export (owner, 2026-10-15).
+
+    Same fixture as the read above: this suite's laptop was Added and Assigned (to the accountant, Projects ->
+    Accounts) today, both by Administrator. `search_term` keeps every call to that laptop.
+    """
+
+    def _table(self, filters=None, **kwargs):
+        frappe.set_user(self.hr)
+        return get_asset_history_table(
+            filters=json.dumps(filters or []), search_term=self.asset, **kwargs
+        )
+
+    def _count(self, *filters):
+        return self._table(list(filters))["total_count"]
+
+    def test_only_admin_and_hr_can_read_the_table(self):
+        frappe.set_user(self.pm)
+        with self.assertRaises(frappe.PermissionError):
+            get_asset_history_table()
+        result = self._table()
+        self.assertEqual(result["total_count"], 2)
+        self.assertEqual([r.event for r in result["data"]], ["Assigned", "Asset Added"])  # newest first
+
+    def test_the_header_facets(self):
+        self.assertEqual(self._count(["event", "in", ["Assigned"]]), 1)
+        self.assertEqual(self._count(["event", "in", ["Assigned", "Asset Added"]]), 2)
+        self.assertEqual(self._count(["event", "in", ["Unassigned"]]), 0)
+        self.assertEqual(self._count(["assigned_to", "in", [self.accountant]]), 1)
+        self.assertEqual(self._count(["done_by", "in", ["Administrator"]]), 2)
+        self.assertEqual(self._count(["department", "in", ["projects"]]), 2)  # moved from Projects; added in it
+        self.assertEqual(self._count(["department", "in", ["HR"]]), 0)
+        # two filters narrow together
+        self.assertEqual(self._count(["event", "in", ["Assigned"]], ["department", "in", ["Accounts"]]), 1)
+
+    def test_the_date_filter(self):
+        today = frappe.utils.today()
+        yesterday, tomorrow = frappe.utils.add_days(today, -1), frappe.utils.add_days(today, 1)
+        cases = [
+            (["done_on", "Between", [today, today]], 2),
+            (["done_on", "Between", [yesterday, yesterday]], 0),
+            (["done_on", ">=", today], 2),
+            (["done_on", ">=", tomorrow], 0),
+            (["done_on", "<=", today], 2),  # the whole last day counts
+            (["done_on", "<=", yesterday], 0),
+            (["done_on", "Is", today], 2),
+            (["done_on", "IsNot", today], 0),
+            (["done_on", "Timespan", "today"], 2),
+            (["done_on", "Timespan", "yesterday"], 0),
+        ]
+        for date_filter, expected in cases:
+            self.assertEqual(self._count(date_filter), expected, date_filter)
+
+    def test_search_on_the_asset_id_or_name(self):
+        frappe.set_user(self.hr)
+        self.assertEqual(get_asset_history_table(search_term="history test LAPTOP")["total_count"], 2)
+
+    def test_sorting_on_a_known_column_only(self):
+        self.assertEqual([r.event for r in self._table(order_by="event asc")["data"]], ["Asset Added", "Assigned"])
+        self.assertEqual([r.event for r in self._table(order_by="event desc")["data"]], ["Assigned", "Asset Added"])
+        # anything else falls back to newest first
+        for order_by in ("reason asc", "event; drop table x", "event sideways", None):
+            self.assertEqual([r.event for r in self._table(order_by=order_by)["data"]], ["Assigned", "Asset Added"], order_by)
+
+    def test_paging_and_export(self):
+        page = self._table(limit_start=1, limit_page_length=1)
+        self.assertEqual((page["total_count"], [r.event for r in page["data"]]), (2, ["Asset Added"]))
+        self.assertEqual(len(self._table(limit_page_length=0, for_export=1)["data"]), 2)  # export: every row
+
+    def test_a_filter_the_table_does_not_send_is_refused(self):
+        for bad in (
+            [["reason", "in", ["x"]]],  # a column without a header filter
+            [["event", "=", "Assigned"]],  # facets are "in" a list
+            [["event", "in", []]],
+            [["done_on", "Timespan", "the age of dinosaurs"]],
+            [["done_on", "Between", ["2026-10-01"]]],
+            [["event", "in"]],
+            "not json",
+        ):
+            frappe.set_user(self.hr)
+            with self.assertRaises(frappe.ValidationError, msg=bad):
+                get_asset_history_table(filters=bad if isinstance(bad, str) else json.dumps(bad), search_term=self.asset)
+
+
+class TestAssetHistoryFacets(_HistoryFixture):
+    """The counts beside the History table's header filter choices (owner, 2026-10-15). Same laptop as above
+    (Added, then Assigned to the accountant, Projects -> Accounts); `search_term` keeps every call to it."""
+
+    FIELDS = ("event", "assigned_to", "done_by", "department")
+
+    def _facets(self, field, filters=None):
+        frappe.set_user(self.hr)
+        values = get_asset_history_facets(field, filters=json.dumps(filters or []), search_term=self.asset)["values"]
+        return {v["value"]: v["count"] for v in values}
+
+    def _count(self, *filters):
+        frappe.set_user(self.hr)
+        return get_asset_history_table(filters=json.dumps(list(filters)), search_term=self.asset)["total_count"]
+
+    def test_only_admin_and_hr_and_only_the_header_filters(self):
+        frappe.set_user(self.pm)
+        with self.assertRaises(frappe.PermissionError):
+            get_asset_history_facets("event")
+        frappe.set_user(self.hr)
+        for field in ("reason", "h.event", "event; drop table x"):
+            with self.assertRaises(frappe.ValidationError, msg=field):
+                get_asset_history_facets(field)
+
+    def test_the_counts(self):
+        self.assertEqual(self._facets("event"), {"Assigned": 1, "Asset Added": 1})
+        self.assertEqual(self._facets("done_by"), {"Administrator": 2})
+        self.assertEqual(self._facets("assigned_to").get(self.accountant), 1)
+        # A row counts once under each department it touches: the move from Projects and the asset's Accounts now.
+        self.assertEqual(self._facets("department"), {"Projects": 2, "Accounts": 2})
+
+    def test_every_count_is_the_rows_its_filter_shows(self):
+        for field in self.FIELDS:
+            for value, count in self._facets(field).items():
+                self.assertEqual(self._count([field, "in", [value]]), count, (field, value))
+
+    def test_the_other_filters_narrow_the_counts_but_its_own_does_not(self):
+        picked = [["event", "in", ["Assigned"]]]
+        self.assertEqual(self._facets("event", picked), {"Assigned": 1, "Asset Added": 1})  # its own: still both
+        self.assertEqual(self._facets("department", picked), {"Projects": 1, "Accounts": 1})
+        self.assertEqual(self._facets("event", [["department", "in", ["HR"]]]), {})
+        today = frappe.utils.today()
+        self.assertEqual(self._facets("event", [["done_on", "Is", frappe.utils.add_days(today, -1)]]), {})
 
 
 class TestHistoryNamesPeopleAsText(FrappeTestCase):

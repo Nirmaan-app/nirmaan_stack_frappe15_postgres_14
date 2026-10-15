@@ -350,6 +350,33 @@ queue — edit & revert" below).
 
 ---
 
+### Assets (`Assets/`)
+
+The rules and the monthly audit: `../../../.claude/context/domain/assets.md`.
+
+| Feature | Admin | PMO | HR Exec | HR Lead | Procurement | Others |
+|---------|:-----:|:---:|:-------:|:-------:|:-----------:|:------:|
+| Open `/asset-management` | Y | Y | Y | - | Y | - |
+| Add Asset | Y | Y | Y | - | Y | - |
+| Add / Edit / Delete Category; Edit / Delete Asset | Y | Y | Y | - | - | - |
+| Assign / Unassign; approve or reject a return | Y | Y | Y | - | Project assets only | - |
+| Upload a scanned declaration | Y | - | - | - | - | - |
+| Switch a category's "Monthly audit required" | Y | - | - | - | - | - |
+| Asset Audit tab (Pending / Fulfilled) | Y | Y | Y | - | Y | - |
+| History tab + history card on an asset | Y | - | Y | (server allows) | - | - |
+| Own assets: sign declaration, Return, Submit audit | holder | holder | holder | holder | holder | holder |
+
+- "Admin" includes the `Administrator` user. HR Lead is allowed the history by the server
+  (`ASSET_HISTORY_PROFILES`) but cannot open the Assets page (`canViewAssets`), so it reaches no history screen.
+- The server enforces assign, history, the audit switch and every holder action; the declaration upload is a UI rule.
+
+**Key files:**
+- `pages/Assets/utils/permissions.ts` (`getAssetPermissions`; mirrors `services/role_profiles.py`)
+- `pages/Assets/AssetsRoute.tsx` (route guard)
+- `pages/users/components/UserAssetsTab.tsx` (holder actions)
+
+---
+
 ### Projects/Users/Items/Vendors
 
 | Page | Feature | Admin | PMO | HR Exec | Proj Lead | Others |

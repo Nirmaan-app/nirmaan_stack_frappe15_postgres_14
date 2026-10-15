@@ -1,6 +1,6 @@
 import { useFrappeGetCall, useFrappeGetDocList, useSWRConfig } from "frappe-react-sdk";
 
-import { ASSET_MANAGEMENT_AUDIT_FIELDS, ASSET_MANAGEMENT_DOCTYPE } from "@/pages/Assets/assets.constants";
+import { ASSET_MANAGEMENT_AUDIT_ANSWER_FIELDS, ASSET_MANAGEMENT_DOCTYPE } from "@/pages/Assets/assets.constants";
 import { useUserData } from "@/hooks/useUserData";
 import { auditsToSubmit, isAuditOverdue } from "@/utils/assetAudit";
 import { countDeclarationsToSign } from "@/utils/assetDeclaration";
@@ -25,6 +25,8 @@ export interface UserAssignment {
   last_audit_on?: string | null;
   audit_proof?: string | null;
   audit_overdue_since?: string | null;
+  /** The latest audit's questions and answers (owner, 2026-10-15); read through parseAuditAnswers. */
+  audit_answers?: unknown;
 }
 
 /**
@@ -72,7 +74,7 @@ export function useUserAssignments(userId: string | undefined, enabled = true) {
     {
       // With the receive / return and audit fields: the profile card shows Received, Returned, Return
       // and the audit row; the sidebar badge counts open audits.
-      fields: [...ASSET_MANAGEMENT_AUDIT_FIELDS],
+      fields: [...ASSET_MANAGEMENT_AUDIT_ANSWER_FIELDS],
       filters: [["asset_assigned_to", "=", userId ?? ""]],
       limit: 1000,
       orderBy: { field: "creation", order: "desc" },

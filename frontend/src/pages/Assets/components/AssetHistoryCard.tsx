@@ -1,8 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { ArrowRightLeft, ClipboardCheck, ClipboardList, ClipboardX, ExternalLink, FileCheck, History, PackagePlus, Undo2, UserMinus, UserPlus } from 'lucide-react';
+import { ArrowRightLeft, ChevronDown, ClipboardCheck, ClipboardList, ClipboardX, ExternalLink, FileCheck, History, PackagePlus, Undo2, UserMinus, UserPlus } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { AssetHistoryRow, AuditKind, HistoryTone, describeHistory } from '@/utils/assetHistory';
+import { cn } from '@/lib/utils';
+import { countAuditIssues } from '@/utils/assetAudit';
+import { AssetHistoryRow, AuditKind, HistoryEntry, HistoryTone, describeHistory } from '@/utils/assetHistory';
+import { AuditAnswersList } from './AuditAnswers';
 import { useAssetHistoryPeople } from '../hooks/useAssetHistoryPeople';
 
 const TONE_STYLE: Record<HistoryTone, { icon: React.ReactNode; dot: string }> = {
@@ -103,13 +106,14 @@ export const AssetHistoryCard: React.FC<AssetHistoryCardProps> = ({ rows }) => {
                                             <span className="text-xs tabular-nums text-gray-500">{entry.when}</span>
                                         )}
                                     </div>
-                                    <p className="text-xs text-gray-500">by {entry.by}</p>
+                                    {/* An audit entry is kept to three lines (owner, 2026-10-15). */}
+                                    {entry.auditKind ? <AuditEntryDetails entry={entry} /> : <p className="text-xs text-gray-500">by {entry.by}</p>}
                                     {entry.department && (
                                         <p className="inline-flex rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
                                             {entry.department}
                                         </p>
                                     )}
-                                    {entry.reason && (
+                                    {entry.reason && !entry.auditKind && (
                                         <p className="text-sm italic text-gray-700">“{entry.reason}”</p>
                                     )}
                                     {entry.declarationUrl && (
@@ -123,17 +127,6 @@ export const AssetHistoryCard: React.FC<AssetHistoryCardProps> = ({ rows }) => {
                                             <ExternalLink className="h-3 w-3" />
                                         </a>
                                     )}
-                                    {entry.photoUrl && (
-                                        <a
-                                            href={entry.photoUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="inline-flex items-center gap-1 text-xs font-medium text-teal-700 hover:underline"
-                                        >
-                                            View photo
-                                            <ExternalLink className="h-3 w-3" />
-                                        </a>
-                                    )}
                                     {entry.declarationMissing && (
                                         <p className="text-xs italic text-gray-400">Declaration file no longer available</p>
                                     )}
@@ -144,5 +137,65 @@ export const AssetHistoryCard: React.FC<AssetHistoryCardProps> = ({ rows }) => {
                 )}
             </CardContent>
         </Card>
+    );
+};
+
+/**
+ * An audit entry under its title, in at most two more lines (owner, 2026-10-15): the month and, for the runs,
+ * who opened it -- then View photo and "4 answers · 1 issue" on the same line -- and the holder's remarks. The
+ * answers open below only when asked for.
+ */
+const AuditEntryDetails: React.FC<{ entry: HistoryEntry }> = ({ entry }) => {
+    const [open, setOpen] = useState(false);
+    const issues = countAuditIssues(entry.answers);
+    const parts: React.ReactNode[] = [];
+    if (entry.auditLine) parts.push(<span key="line">{entry.auditLine}</span>);
+    // A sent audit names its holder in the title; the others say who opened or recorded them.
+    if (entry.auditKind !== 'fulfilled') parts.push(<span key="by">by {entry.by}</span>);
+    if (entry.photoUrl) {
+        parts.push(
+            <a
+                key="photo"
+                href={entry.photoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-teal-700 hover:underline"
+            >
+                View photo
+                <ExternalLink className="h-3 w-3" />
+            </a>
+        );
+    }
+    if (entry.answers.length > 0) {
+        parts.push(
+            <button
+                key="answers"
+                type="button"
+                aria-expanded={open}
+                onClick={() => setOpen((value) => !value)}
+                className={cn('inline-flex items-center gap-1 font-medium hover:underline', issues ? 'text-red-700' : 'text-teal-700')}
+            >
+                {entry.answers.length} answers{issues ? ` · ${issues} ${issues === 1 ? 'issue' : 'issues'}` : ' · all OK'}
+                <ChevronDown className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
+            </button>
+        );
+    }
+    return (
+        <>
+            <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-gray-500">
+                {parts.map((part, index) => (
+                    <React.Fragment key={index}>
+                        {index > 0 && <span aria-hidden>·</span>}
+                        {part}
+                    </React.Fragment>
+                ))}
+            </p>
+            {entry.reason && (
+                <p className="truncate text-xs italic text-gray-600" title={entry.reason}>
+                    “{entry.reason}”
+                </p>
+            )}
+            {open && <AuditAnswersList answers={entry.answers} className="bg-white" />}
+        </>
     );
 };

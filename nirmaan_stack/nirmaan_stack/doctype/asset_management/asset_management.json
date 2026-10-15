@@ -14,12 +14,13 @@
   "received_on",
   "returned",
   "returned_on",
-  "audit_section",
+  "audit_column",
   "audit_status",
   "audit_month",
   "last_audit_on",
   "audit_proof",
-  "audit_overdue_since"
+  "audit_overdue_since",
+  "audit_answers"
  ],
  "fields": [
   {
@@ -82,8 +83,8 @@
    "read_only": 1
   },
   {
-   "fieldname": "audit_section",
-   "fieldtype": "Section Break",
+   "fieldname": "audit_column",
+   "fieldtype": "Column Break",
    "label": "Audit"
   },
   {
@@ -120,12 +121,19 @@
    "fieldtype": "Data",
    "label": "Overdue Since",
    "read_only": 1
+  },
+  {
+   "description": "The latest audit's questions and the holder's answers (each with the question and choice text as asked, and the optional text under a red answer). Replaced by each audit sent; every month's stays on its Audit Fulfilled history row. Written only by the server (api/assets/audits.submit_audit).",
+   "fieldname": "audit_answers",
+   "fieldtype": "JSON",
+   "label": "Audit Answers",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-14 18:00:00.000000",
+ "modified": "2026-10-15 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Asset Management",

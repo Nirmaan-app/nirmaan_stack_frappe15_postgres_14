@@ -39,7 +39,16 @@ import {
 import { cn } from "@/lib/utils";
 import { useUserData } from "@/hooks/useUserData";
 import { assetTabToOpen, canSignDeclaration } from "@/utils/assetDeclaration";
-import { AUDIT_PENDING, AuditBadge, auditBadge, canSubmitAudit, isAuditOverdue } from "@/utils/assetAudit";
+import {
+  AUDIT_PENDING,
+  AssetCardTone,
+  AuditBadge,
+  assetCardTone,
+  auditBadge,
+  canSubmitAudit,
+  isAuditOverdue,
+  parseAuditAnswers,
+} from "@/utils/assetAudit";
 import { PendingDeclarationTooltip, pendingAssetActionsLabel } from "@/components/helpers/PendingDeclarationIcon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AssignAssetToUserDialog } from "./AssignAssetToUserDialog";
@@ -71,6 +80,8 @@ interface AssetManagementRecord {
   audit_month?: string | null;
   last_audit_on?: string | null;
   audit_proof?: string | null;
+  /** The latest audit's questions and answers (owner, 2026-10-15); read through parseAuditAnswers. */
+  audit_answers?: unknown;
 }
 
 interface AssetMasterRecord {
@@ -129,6 +140,13 @@ interface UserAssetsTabProps {
   onMutate: () => void;
 }
 
+// The card's tint (owner, 2026-10-15): light red while its audit is overdue, light yellow while the
+// declaration or the audit is pending.
+const CARD_TONE_CLASS: Record<NonNullable<AssetCardTone>, string> = {
+  overdue: "bg-red-50 border-red-200",
+  pending: "bg-amber-50 border-amber-200",
+};
+
 // Asset Card Component
 function AssetCard({
   assignment,
@@ -171,9 +189,15 @@ function AssetCard({
   onAudit?: () => void;
 }) {
   const isPendingDeclaration = !assignment.asset_declaration_attachment;
+  const tone = assetCardTone(isPendingDeclaration, audit);
 
   return (
-    <Card className="group relative overflow-hidden transition-all duration-300 hover:shadow-md hover:border-primary/20">
+    <Card
+      className={cn(
+        "group relative overflow-hidden transition-all duration-300 hover:shadow-md",
+        tone ? CARD_TONE_CLASS[tone] : "hover:border-primary/20"
+      )}
+    >
       <CardContent className="p-4 space-y-3">
         {/* Header with Asset Name */}
         <div className="flex items-start justify-between gap-2">
@@ -314,9 +338,17 @@ function AssetCard({
           </div>
         </div>
 
-        {/* Monthly audit (owner, 2026-10-14): pending with Submit audit for the holder, or done with the photo */}
+        {/* Monthly audit (owner, 2026-10-14): pending with Submit audit for the holder, or done with the photo
+            and the answers (owner, 2026-10-15) */}
         {audit && (
-          <AuditStatusRow badge={audit} proofUrl={assignment.audit_proof} canSubmit={canAudit} onSubmit={onAudit} />
+          <AuditStatusRow
+            badge={audit}
+            proofUrl={assignment.audit_proof}
+            canSubmit={canAudit}
+            onSubmit={onAudit}
+            answers={parseAuditAnswers(assignment.audit_answers)}
+            answersTitle={`${asset?.asset_name || assignment.asset} · audit for ${assignment.audit_month ?? ""}`}
+          />
         )}
 
         {/* Returned, waiting for approval (owner, 2026-10-13) */}
@@ -573,7 +605,7 @@ export function UserAssetsTab({
             </span>
           )}
           {pendingAuditCount > 0 && (
-            <span className="inline-flex items-center gap-1 text-amber-700">
+            <span className="inline-flex items-center gap-1 text-red-600">
               <AlertTriangle className="h-3.5 w-3.5" />
               <span className="tabular-nums">{pendingAuditCount}</span> Audit Pending
             </span>
@@ -754,7 +786,7 @@ export function UserAssetsTab({
           assignmentId={auditingAssignment.name}
           assetName={getAssetDetails(auditingAssignment.asset)?.asset_name || auditingAssignment.asset}
           auditMonth={auditingAssignment.audit_month}
-          currentCondition={getAssetDetails(auditingAssignment.asset)?.asset_condition}
+          categoryType={getAssignmentType(auditingAssignment)}
           onSubmitted={onMutate}
         />
       )}

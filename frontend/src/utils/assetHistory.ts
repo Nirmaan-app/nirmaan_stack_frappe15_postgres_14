@@ -5,7 +5,7 @@
 
 import { format } from "date-fns";
 
-import { parseFulfilledText } from "@/utils/assetAudit";
+import { type AuditAnswer, auditHistorySummary, parseAuditAnswers } from "@/utils/assetAudit";
 
 /** One `Asset History` child row as the asset document returns it. */
 export interface AssetHistoryRow {
@@ -19,6 +19,8 @@ export interface AssetHistoryRow {
   from_department?: string | null;
   to_department?: string | null;
   reason?: string | null;
+  /** Audit Fulfilled rows: the questions and the holder's answers (owner, 2026-10-15). */
+  audit_answers?: unknown;
 }
 
 export type HistoryTone = "added" | "assigned" | "declaration" | "unassigned" | "department" | "return" | "audit";
@@ -39,6 +41,13 @@ export interface HistoryEntry {
   photoUrl: string | null;
   /** Which audit event, for its own icon and colour; the "Audits" filter still groups them by `tone`. */
   auditKind: AuditKind | null;
+  /** The audit's questions and answers on an "Audit Fulfilled" row; [] for every other row. */
+  answers: AuditAnswer[];
+  /**
+   * An audit row's one short line ("For November 2026", "October 2026 was not sent"); null for every other row.
+   * On an audit row `reason` holds only what the holder typed (the remarks), never the stored text.
+   */
+  auditLine: string | null;
 }
 
 export type AuditKind = "requested" | "fulfilled" | "missed";
@@ -93,10 +102,8 @@ function titleFor(row: AssetHistoryRow, nameOf: (id?: string | null) => string):
       return `Audit Requested for ${nameOf(row.assigned_to)}`;
     case "Audit Missed":
       return `Audit Missed by ${nameOf(row.assigned_to)}`;
-    case "Audit Fulfilled": {
-      const { condition } = parseFulfilledText(row.reason);
-      return `Audit Fulfilled by ${nameOf(row.done_by)}${condition ? ` · ${condition}` : ""}`;
-    }
+    case "Audit Fulfilled":
+      return `Audit Fulfilled by ${nameOf(row.done_by)}`;
     default:
       return row.event;
   }
@@ -111,6 +118,7 @@ export function describeHistory(rows: AssetHistoryRow[], nameOf: (id?: string | 
     .sort((a, b) => (b.idx ?? 0) - (a.idx ?? 0) || (b.done_on ?? "").localeCompare(a.done_on ?? ""))
     .map((row) => {
       const isDeclaration = row.event === "Declaration Signed" || row.event === "Declaration Uploaded";
+      const audit = AUDIT_KINDS[row.event] ? auditHistorySummary(row.event, row.reason) : null;
       const department =
         row.from_department && row.to_department
           ? `${row.from_department} → ${row.to_department}`
@@ -127,11 +135,14 @@ export function describeHistory(rows: AssetHistoryRow[], nameOf: (id?: string | 
           : nameOf(row.done_by),
         when: formatHistoryTime(row.done_on),
         department,
-        reason: row.reason || null,
+        // An audit row's stored text is for the screens to read back: people get `auditLine` + the remarks.
+        reason: audit ? audit.remarks : row.reason || null,
         declarationUrl: isDeclaration ? row.declaration || null : null,
         declarationMissing: isDeclaration && !row.declaration,
         photoUrl: row.event === "Audit Fulfilled" ? row.declaration || null : null,
         auditKind: AUDIT_KINDS[row.event] ?? null,
+        answers: row.event === "Audit Fulfilled" ? parseAuditAnswers(row.audit_answers) : [],
+        auditLine: audit?.line || null,
       };
     });
 }

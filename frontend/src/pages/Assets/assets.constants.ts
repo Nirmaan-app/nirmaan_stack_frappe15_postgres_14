@@ -78,6 +78,15 @@ export const ASSET_MANAGEMENT_AUDIT_FIELDS = [
     'audit_overdue_since',
 ] as const;
 
+/**
+ * The audit fields plus the latest audit's answers (owner, 2026-10-15) -- for the screens that show "View
+ * answers" (the profile cards). Kept apart so the data tables don't fetch the JSON for every row.
+ */
+export const ASSET_MANAGEMENT_AUDIT_ANSWER_FIELDS = [
+    ...ASSET_MANAGEMENT_AUDIT_FIELDS,
+    'audit_answers',
+] as const;
+
 // Searchable fields for Asset Master
 export const ASSET_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "asset_name", label: "Asset Name", placeholder: "Search by asset name...", default: true },

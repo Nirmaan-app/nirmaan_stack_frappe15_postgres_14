@@ -1,21 +1,25 @@
 """Monthly asset audit -- the rules (owner, 2026-10-14). Pure: no database, no request.
 
 An assigned asset whose category has "Monthly audit required" ticked owes one audit a month: the holder
-sends its condition and a photo from their profile. The open audit lives on the holder's Asset Management
-row (`audit_status`, `audit_month`, `last_audit_on`, `audit_proof`, `audit_overdue_since`) and every audit is
-kept in the asset's history ("Audit Requested", "Audit Fulfilled", "Audit Missed"). Which assignments owe one is decided in one query,
+answers a few questions (they live in the dialog, `frontend/src/utils/assetAuditQuestions.ts`, one set per
+category type; each answer arrives with its question text and is checked by `clean_answers`) and sends a photo from
+their profile. The
+audit leaves the asset's condition alone: the answers show any issue, and managers read them (owner,
+2026-10-15). The open audit lives on the holder's Asset Management row (`audit_status`, `audit_month`,
+`last_audit_on`, `audit_proof`, `audit_overdue_since`, `audit_answers`) and every audit is kept in the asset's
+history ("Audit Requested", "Audit Fulfilled", "Audit Missed"). Which assignments owe one is decided in one query,
 `services/asset_audit_open.py`; sending one is `api/assets/audits.submit_audit`.
 """
 
 from datetime import date
+from typing import Any
 
 AUDIT_PENDING = "Pending"
 AUDIT_FULFILLED = "Fulfilled"
 
-# What the holder can say about the asset. Mirrored in `frontend/src/utils/assetAudit.ts` -- change both.
+# The conditions audits sent before 2026-10-15 started their history text with ("Poor · was Good · for 11/2026").
+# Audits no longer set a condition; this is only for reading those rows. Mirrored in `frontend/src/utils/assetAudit.ts`.
 AUDIT_CONDITIONS = ("Good", "Fair", "Poor", "Damaged")
-CONDITIONS_NEEDING_REMARKS = ("Poor", "Damaged")
-MIN_REMARKS_LENGTH = 10
 
 # The cycle (owner, 2026-10-14): from the 28th an audit belongs to the next month -- the 28th run opens next
 # month's audit for everyone up to date; those still behind get grace until the 7th, when the month is
@@ -27,6 +31,13 @@ GRACE_LAST_DAY = 7
 NOTE_HANDOVER = "handover"
 NOTE_CATEGORY_ON = "category audit switched on"
 NOTE_RETURN_REJECTED = "return rejected"
+
+# The audit questions live in the dialog only (owner, 2026-10-15): `frontend/src/utils/assetAuditQuestions.ts`. Each
+# answer arrives with the question and the choice as the holder saw them; the server checks their shape
+# (`clean_answers`) and keeps them as sent, so rewording a question never changes an old audit.
+MAX_AUDIT_ANSWERS = 10
+MAX_ANSWER_LABEL_LENGTH = 300  # a question or a choice
+MAX_ANSWER_TEXT_LENGTH = 200
 
 
 def audit_month_label(day: date) -> str:
@@ -56,12 +67,14 @@ def cycle_month(day: date) -> date:
 
 
 def for_month_pattern(month_label: str) -> str:
-    """A regex matching an "Audit Fulfilled" text (`fulfilled_text`) sent for `month_label`.
+    """A regex matching an "Audit Fulfilled" text sent for `month_label`.
 
-    Anchored on the month's place -- after the condition and any "was <old>" -- so remarks that happen to say
-    "for 11/2026" never count. The same pattern works in Python and in PostgreSQL (`~`).
+    Today's text starts with the month ("for 11/2026 · remarks", `fulfilled_text`); a row sent before
+    2026-10-15 starts with a condition ("Poor · was Good · for 11/2026"). Anchored on the month's place in either,
+    so remarks that happen to say "for 11/2026" never count. The same pattern works in Python and in PostgreSQL (`~`).
     """
-    return rf"^[^·]+( · was [^·]+)? · for {month_label}( · |$)"
+    conditions = "|".join(AUDIT_CONDITIONS)
+    return rf"^(({conditions}) · (was [^·]+ · )?)?for {month_label}( · |$)"
 
 
 def created_text(day: date, note: str | None = None) -> str:
@@ -70,34 +83,64 @@ def created_text(day: date, note: str | None = None) -> str:
     return f"{label} · {note}" if note else label
 
 
-def submit_refusal(audit_status: str | None, condition: str | None, has_photo: bool, remarks: str | None) -> str | None:
-    """The message refusing a submitted audit, or None when it can be accepted."""
+def submit_refusal(audit_status: str | None, has_photo: bool) -> str | None:
+    """The message refusing a submitted audit, or None when it can be accepted (the answers: `check_answers`)."""
     if audit_status != AUDIT_PENDING:
         if audit_status == AUDIT_FULFILLED:
             return "This audit was already submitted. Reload the page."
         return "This asset has no audit waiting. Reload the page."
-    if condition not in AUDIT_CONDITIONS:
-        return "Choose the asset's condition: Good, Fair, Poor or Damaged."
     if not has_photo:
         return "Add a photo of the asset."
-    if condition in CONDITIONS_NEEDING_REMARKS and len((remarks or "").strip()) < MIN_REMARKS_LENGTH:
-        return f"Say what is wrong with the asset (at least {MIN_REMARKS_LENGTH} characters) when it is {condition}."
     return None
 
 
-def fulfilled_text(condition: str, previous_condition: str | None, audit_month: str | None, remarks: str | None) -> str:
-    """The "Audit Fulfilled" history text: "Damaged · was Fair · for 09/2026 · screen cracked".
+def fulfilled_text(audit_month: str | None, remarks: str | None) -> str:
+    """The "Audit Fulfilled" history text: "for 09/2026", or "for 09/2026 · Kept in the site store".
 
-    Starts with the condition (the history can be filtered by condition with a prefix match), then the old
-    condition when it changed, then the month the audit was for -- so the Fulfilled list, which picks rows
-    by the day they were sent, can show "For 09/2026" and mark one sent late (owner, 2026-10-14). Read
-    back by `parseFulfilledText` in `frontend/src/utils/assetAudit.ts`.
+    The month the audit was for -- the Fulfilled list picks rows by the day they were sent, so it shows "For
+    09/2026" from here and marks one sent late (owner, 2026-10-14) -- then the remarks. No condition (owner,
+    2026-10-15): the answers say what is wrong. Read back by `parseFulfilledText` in
+    `frontend/src/utils/assetAudit.ts`, which also reads the older condition-first rows.
     """
-    parts = [condition]
-    if previous_condition and previous_condition != condition:
-        parts.append(f"was {previous_condition}")
-    if audit_month:
-        parts.append(f"for {audit_month}")
+    parts = [f"for {audit_month}"] if audit_month else []
     if remarks and remarks.strip():
         parts.append(remarks.strip())
     return " · ".join(parts)
+
+
+def clean_answers(answers: Any) -> tuple[list[dict] | None, str | None]:
+    """Check the answers the dialog sent and shape them for saving.
+
+    The questions live in the dialog, so this checks the shape, not the choices: at least one answer and at most
+    `MAX_AUDIT_ANSWERS`, each with an id, the question (`q`) and the choice (`a`) as text, no id twice; a red answer
+    (`flag`) may carry a note (`text`, trimmed, at most `MAX_ANSWER_TEXT_LENGTH`), any other answer never does.
+
+    Args:
+        answers: [{"id", "q", "a", "flag"?, "text"?}] from the Submit audit dialog.
+
+    Returns:
+        (saved, None) -- [{"id", "q", "a"} + {"flag": 1, "text"?} on a red answer], in the order sent -- or
+        (None, message).
+    """
+    if not isinstance(answers, list) or not answers or not all(isinstance(a, dict) for a in answers):
+        return None, "Answer the questions, then submit. Reload the page if they don't show."
+    if len(answers) > MAX_AUDIT_ANSWERS:
+        return None, "Too many answers. Reload the page and answer again."
+    saved, seen = [], set()
+    for answer in answers:
+        qid, question, choice = (str(answer.get(key) or "").strip() for key in ("id", "q", "a"))
+        if not (qid and question and choice) or max(len(qid), len(question), len(choice)) > MAX_ANSWER_LABEL_LENGTH:
+            return None, "An answer is missing. Reload the page and answer again."
+        if qid in seen:
+            return None, "A question was answered twice. Reload the page and answer again."
+        seen.add(qid)
+        row = {"id": qid, "q": question, "a": choice}
+        if answer.get("flag"):
+            row["flag"] = 1
+            text = str(answer.get("text") or "").strip()
+            if len(text) > MAX_ANSWER_TEXT_LENGTH:
+                return None, f"Keep each note under {MAX_ANSWER_TEXT_LENGTH} characters."
+            if text:
+                row["text"] = text
+        saved.append(row)
+    return saved, None

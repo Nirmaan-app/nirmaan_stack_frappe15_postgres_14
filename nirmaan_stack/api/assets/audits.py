@@ -1,8 +1,12 @@
 """Monthly asset audit -- the holder sends it, a category is switched (owner, 2026-10-14).
 
-- Submit: the person who holds the asset sends its condition and a photo from their profile. The open audit
-  on their Asset Management row becomes Fulfilled, the photo goes into `audit_proof`, the asset's
-  `asset_condition` takes the new condition, and an "Audit Fulfilled" history row keeps both.
+- Questions: the holder first answers the questions for the asset's category type (Project / IT). They live in
+  the dialog only (`frontend/src/utils/assetAuditQuestions.ts`, owner 2026-10-15); each answer arrives with its
+  question text, and `services/asset_audit.clean_answers` checks the shape.
+- Submit: the person who holds the asset sends the answers and a photo from their profile. The open audit on
+  their Asset Management row becomes Fulfilled, the photo goes into `audit_proof`, the answers into
+  `audit_answers` (the latest audit only), and an "Audit Fulfilled" history row keeps them for good. The audit
+  doesn't touch the asset's condition: the answers show any issue (owner, 2026-10-15).
 - Category switch: ticking a category's "Monthly audit required" opens the cycle month's audits of its assets
   at once (the Asset Category hook); unticking leaves open audits to be sent and stops new ones.
 
@@ -12,11 +16,18 @@ The holder only reads Asset Management, so the checks here are the authorisation
 permissions.
 """
 
+import json
+
 import frappe
 from frappe.utils import cint, today
 
 from nirmaan_stack.integrations.controllers.asset_management import notify_asset_changed
-from nirmaan_stack.services.asset_audit import AUDIT_FULFILLED, fulfilled_text, submit_refusal
+from nirmaan_stack.services.asset_audit import (
+    AUDIT_FULFILLED,
+    clean_answers,
+    fulfilled_text,
+    submit_refusal,
+)
 from nirmaan_stack.services.asset_audit_access import check_may_switch_category_audit
 from nirmaan_stack.services.asset_audit_open import is_serialization_failure
 from nirmaan_stack.services.asset_history import AUDIT_FULFILLED as AUDIT_FULFILLED_EVENT
@@ -26,11 +37,12 @@ ASSET_MASTER_DOCTYPE = "Asset Master"
 ASSET_MANAGEMENT_DOCTYPE = "Asset Management"
 ASSET_CATEGORY_DOCTYPE = "Asset Category"
 PROOF_FIELD = "audit_proof"
+ANSWERS_FIELD = "audit_answers"
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif")
 
 
 @frappe.whitelist(methods=["POST"])
-def submit_audit(assignment: str, condition: str, photo: str, remarks: str | None = None) -> dict:
+def submit_audit(assignment: str, photo: str, remarks: str | None = None, answers: str | list | None = None) -> dict:
     """Send the audit for an asset the signed-in person holds.
 
     The photo is uploaded first as a private file attached to nothing (the holder can't write Asset
@@ -39,17 +51,21 @@ def submit_audit(assignment: str, condition: str, photo: str, remarks: str | Non
 
     Args:
         assignment: the Asset Management row with the open audit.
-        condition: one of services/asset_audit.AUDIT_CONDITIONS.
         photo: the uploaded photo's file_url.
-        remarks: what is wrong; required (at least 10 characters) for Poor and Damaged.
+        remarks: anything else the holder wants to say; optional.
+        answers: [{"id", "q": <the question>, "a": <the choice>, "flag": <1 on a red answer>, "text": <optional
+            note, red answers>}], one per question the dialog asked; a JSON string or a list. Saved as
+            {"answers": [...]} on the assignment and the history row (`services/asset_audit.clean_answers`).
 
     Returns:
-        {"assignment": <name>, "audit_status": "Fulfilled", "condition": <condition>}
+        {"assignment": <name>, "audit_status": "Fulfilled"}
 
     Example:
         POST /api/method/nirmaan_stack.api.assets.audits.submit_audit
-        {"assignment": "k72sevcfkp", "condition": "Damaged", "photo": "/private/files/tab.jpg",
-         "remarks": "Screen cracked at the left corner"}
+        {"assignment": "k72sevcfkp", "photo": "/private/files/tab.jpg", "remarks": "Kept in the site office",
+         "answers": [{"id": "who", "q": "Who is using this device?", "a": "Only me, for work"},
+                     {"id": "damage", "q": "Is it damaged anywhere?", "a": "Badly damaged: cracked or broken",
+                      "flag": 1, "text": "Screen cracked"}]}
     """
     user = frappe.session.user
     if not frappe.db.exists(ASSET_MANAGEMENT_DOCTYPE, assignment):
@@ -63,37 +79,49 @@ def submit_audit(assignment: str, condition: str, photo: str, remarks: str | Non
             frappe.throw("This audit was just submitted in another window. Reload the page.")
         raise
 
-    holder = frappe.db.get_value(ASSET_MASTER_DOCTYPE, row.asset, "current_assignee")
-    if row.asset_assigned_to != user or holder != user:
-        frappe.throw("Only the person who holds this asset can submit its audit.", frappe.PermissionError)
+    _check_holder(row.asset, row.asset_assigned_to)
 
     photo = (photo or "").strip()
-    refusal = submit_refusal(row.audit_status, condition, bool(photo), remarks)
+    refusal = submit_refusal(row.audit_status, bool(photo))
     if refusal:
         frappe.throw(refusal)
+    try:
+        submitted = frappe.parse_json(answers) if answers else []
+    except ValueError:
+        submitted = None  # not JSON: clean_answers refuses it
+    saved_answers, refusal = clean_answers(submitted)
+    if refusal:
+        frappe.throw(refusal)
+    # Stored as {"answers": [...]}: Frappe reads a JSON column back as Python, and refuses a *list* in a JSON
+    # field on the row's next save (a Return, an Edit) -- an object saves fine.
+    answers_json = json.dumps({"answers": saved_answers}, ensure_ascii=False)
     _claim_photo(photo, user, row.name)
 
-    previous_condition = frappe.db.get_value(ASSET_MASTER_DOCTYPE, row.asset, "asset_condition")
-    # set_value skips the Asset Management hooks (holder + declaration history: unchanged here) and Asset
-    # Master's validate (department + history guards: untouched here). Nothing is derived from these
-    # fields, so no recompute is skipped.
+    # set_value skips the Asset Management hooks (holder + declaration history: unchanged here). Nothing is
+    # derived from these fields, so no recompute is skipped.
     frappe.db.set_value(
         ASSET_MANAGEMENT_DOCTYPE,
         row.name,
         # Sent: no longer overdue -- the missed months stay in the history as "Audit Missed" rows.
-        {"audit_status": AUDIT_FULFILLED, "last_audit_on": today(), PROOF_FIELD: photo, "audit_overdue_since": None},
+        {
+            "audit_status": AUDIT_FULFILLED,
+            "last_audit_on": today(),
+            PROOF_FIELD: photo,
+            ANSWERS_FIELD: answers_json,  # the latest audit's; every month's stays on its history row
+            "audit_overdue_since": None,
+        },
     )
-    frappe.db.set_value(ASSET_MASTER_DOCTYPE, row.asset, "asset_condition", condition)
     add_history(
         row.asset,
         AUDIT_FULFILLED_EVENT,
         assigned_to=user,
         declaration=photo,  # the history row's file field; the event says it is the audit proof
-        reason=fulfilled_text(condition, previous_condition, row.audit_month, remarks),
+        reason=fulfilled_text(row.audit_month, remarks),
+        audit_answers=answers_json,
     )
     notify_asset_changed(row.asset)
     frappe.db.commit()
-    return {"assignment": row.name, "audit_status": AUDIT_FULFILLED, "condition": condition}
+    return {"assignment": row.name, "audit_status": AUDIT_FULFILLED}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -119,6 +147,14 @@ def set_category_audit(category: str, required: int | str) -> dict:
     doc.save(ignore_permissions=True)  # the profile was checked above
     frappe.db.commit()
     return {"category": doc.name, "audit_required": required, "opened": len(doc.flags.audits_opened or [])}
+
+
+def _check_holder(asset: str, assigned_to: str) -> None:
+    """Refuse (PermissionError) unless the session user holds `asset` through this assignment."""
+    user = frappe.session.user
+    holder = frappe.db.get_value(ASSET_MASTER_DOCTYPE, asset, "current_assignee")
+    if assigned_to != user or holder != user:
+        frappe.throw("Only the person who holds this asset can submit its audit.", frappe.PermissionError)
 
 
 def _claim_photo(file_url: str, user: str, assignment: str) -> None:
