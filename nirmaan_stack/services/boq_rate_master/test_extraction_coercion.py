@@ -3515,7 +3515,8 @@ class TestSlice12d4cModelCall(FrappeTestCase):
         assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v36.json"   # 12e-3a: moved again (BEFORE: == v36)
         assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v37.json"   # 12e-4b: moved again (BEFORE: == v37, 12e-3a)
         assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v38.json"   # 12e-5b: moved again (BEFORE: == v38, 12e-4b)
-        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v39.json"   # 12e-5b: v39
+        assert CURRENT_HVAC_ASSET != "rate_master_hvac_all_v39.json"   # 12e-5b C3: moved again (BEFORE: == v39, 12e-5b)
+        assert CURRENT_HVAC_ASSET == "rate_master_hvac_all_v40.json"   # 12e-5b C3: v40
         # 12e-4b: v38 (+ what a Piping row is asked, + Insulation's one key)
         # 12e-5b: v39 re-worded Insulation's item / cladding notes and added "Cladding as written (BoQ)" (owner R2-R4).
         # This class is the record of the v32 -> v33 mint, so on the NEW side Insulation is read from v38 -- the last
