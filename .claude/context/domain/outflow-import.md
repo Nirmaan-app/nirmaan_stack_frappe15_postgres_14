@@ -236,7 +236,8 @@ v2 → v3: `Reconciled` → `Skipped`/`Matched` · `Amount mismatch` → `Mismat
                inside the narration, paid within 15 days
                                               amounts differ          -> Mismatched
 3. TIER 0     normalised UTR equal                     (finds fan-out; payments)
-4. TIER 1     beneficiary account AND IFSC = a vendor's Payee's, amount +-Re 1 (payments)
+4. TIER 1     beneficiary account AND IFSC = the payment's pay-to copy (none: its vendor's Payee's),
+              amount +-Re 1 (payments)
 5. TIER 2     amount +-Rs 5 AND the remark names the record's project  (payments + Project Expenses)
 6. OUTCOME    >=1 approved candidate -> Matched     else -> Mismatched
 ```
@@ -252,12 +253,18 @@ of the vendor name. ⚠️ **Only the `ifsc_matches` candidates admit anything t
 scoring still runs and is still persisted as the row's resolved vendor, but it no longer MATCHES
 anything. A name is a scoring form, never an identity.
 
-**A vendor's account is its CURRENT Payee's** (#1427, [ADR-0033](../../../docs/adr/0033-payee-is-one-bank-account.md)).
-`candidates.load_vendor_index` reads account, IFSC and holder name through
-`services/payees/vendor_account.vendor_accounts`: a vendor has no bank fields of its own (#1432 deleted them). A Payee shared by several vendors
-admits a payment of ANY of them at tier 1 (the shared-account rule above, unchanged). A line paid to a
-vendor's PREVIOUS Payee reaches no tier 1 and is matched by hand: v1 keeps no Payee history (ADR-0033
-"Not in v1"). Refund suggestions read the same index. Tests: `services/outflow_import/test_vendor_payee_index.py`.
+**Tier 1 compares the line with the payment's OWN pay-to account** (#1440, [ADR-0033](../../../docs/adr/0033-payee-is-one-bank-account.md)
+decision 9). `candidates._payment_target` carries `pay_to_account_number` / `pay_to_ifsc` from
+`Project Payments`; `matcher._paid_to_line` admits a payment holding a copy only when the line's
+normalised account (`normalize_account`) AND IFSC equal it, so a line paid to a vendor's PREVIOUS
+account still matches the payment raised to it, and a payment raised to another account is not
+admitted through its vendor's current Payee. **A payment with no copy falls back to its vendor's CURRENT
+Payee**: `candidates.load_vendor_index` reads account, IFSC and holder name through
+`services/payees/vendor_account.vendor_accounts` (a vendor has no bank fields of its own; #1432
+deleted them), and a Payee shared by several vendors admits a payment of ANY of them (the
+shared-account rule above). Refund suggestions keep the vendor-Payee index only (a refund has no
+pay-to record). Tests: `services/outflow_import/test_matcher.py`
+(`TestTier1ReadsThePaymentsOwnPayToAccount`), `services/outflow_import/test_vendor_payee_index.py` (DB).
 
 **Project corroboration** (`project_match.py`): a remark names a project if it contains the project's
 whole name (longest nested name wins — `Fujitsu Chennai` over `Fujitsu`), else a keyword unique to

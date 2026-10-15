@@ -634,6 +634,9 @@ save an invalid template**.
     vendor's Payee when the record has no copy and whenever the vendor changes, until the record is
     paid (`pay_to.fill_from_vendor`, from `guard.check_payee_links`). New expense dialogs, Bulk
     Import's create-expense and adjustments get it this way. Clearing the vendor leaves the copy.
+  - **Records raised before the pay-to account** were filled by `patches/v3_0/backfill_pay_to_accounts`
+    (#1441): unpaid ones from the vendor's Payee, paid ones from their settled bank line, the rest
+    blank. Rules: `payees.md`.
   - **No server refusal** (#1436, owner 2026-10-15): *Required* with no account, a vendor and an
     account that disagree, a change after payment, a change outside Accounts are all accepted. They
     are screen rules: the request dialog blocks sending a *Required* type with no account

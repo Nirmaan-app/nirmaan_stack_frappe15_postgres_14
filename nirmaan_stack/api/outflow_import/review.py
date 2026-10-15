@@ -531,11 +531,11 @@ def _load_pools(rows, batch: str) -> dict:
     paid_duplicates = _paid_duplicate_pools(references)
 
     # Tier 1 + tier 2 pool: APPROVED payments at these amounts, scoped by NOTHING ELSE. The matcher
-    # narrows it per tier -- by vendor account at tier 1, by project at tier 2 -- so a pool scoped by
+    # narrows it per tier -- by pay-to account at tier 1, by project at tier 2 -- so a pool scoped by
     # either axis here would be narrower than one of the tiers and would hide matches silently.
     by_amount = C.load_payments_by_amount([r.amount for r in rows])
 
-    # The union is correct for every tier: tier 0 filters it by reference, tier 1 by vendor account
+    # The union is correct for every tier: tier 0 filters it by reference, tier 1 by pay-to account
     # and the strict window, tier 2 by project.
     payments = {t.name: t for t in (*by_reference, *by_amount)}
 

@@ -174,3 +174,4 @@ nirmaan_stack.patches.v3_0.set_vendor_refunds_received
 nirmaan_stack.patches.v3_0.convert_adjustment_vendor_refunds
 nirmaan_stack.patches.v3_0.backfill_cheques_from_cheque_payments
 nirmaan_stack.patches.v3_0.move_vendor_bank_details_to_payees
+nirmaan_stack.patches.v3_0.backfill_pay_to_accounts
