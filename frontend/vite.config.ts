@@ -26,6 +26,10 @@ export default defineConfig({
   //     "chunk-VWGPU4LS.js?v=161aa362",
   //   ],
   // },
+  // A dev env's worktree links the master checkout's node_modules, so the default cache
+  // (node_modules/.vite) would be shared with the main vite on :8080. Two vites optimising into
+  // one folder load two copies of React. devenv.sh `serve` sets VITE_CACHE_DIR per env.
+  cacheDir: process.env.VITE_CACHE_DIR || "node_modules/.vite",
   server: {
     port: 8080,
     proxy: proxyOptions,

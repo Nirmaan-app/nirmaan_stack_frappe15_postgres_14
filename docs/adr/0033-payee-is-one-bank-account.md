@@ -1,10 +1,13 @@
-# 33. A Payee is one bank account; Vendors and Expenses point at a Payee
+# 33. A Payee is one bank account; payments and Expenses carry their own pay-to account
 
 Date: 2026-10-14
 
 ## Status
 
-**Proposed** 2026-10-14 (owner grilling session). Not built yet.
+**Proposed** 2026-10-14 (owner grilling session). **Revised 2026-10-15** (second grilling session):
+Payees became an address book, and every payment and Expense now holds its own copy of the account
+(decisions 4, 5 and 9; the Inactive status, the lock and the Linked Expenses list are gone). The first
+version was built on the unmerged branch `spec/1420` (#1420–#1432); the revision is reworked there.
 
 ## Context
 
@@ -32,17 +35,18 @@ upload files always skipped expenses as "(no vendor)".
    longest holder name, and it lists those 8 Payees for the owner to check.
 3. **A Payee with no Vendor is paid only through Expenses.** Payees have no kind (Employee,
    Business, …) in v1. The Payees page shows what each Payee is linked to instead.
-4. **Changing banks means a new Payee.** The old one is marked *Inactive* and cannot be picked
-   again. Once anything has been paid to a Payee, its account number and IFSC are locked. Its
-   holder name can still be corrected by Accountant, Accountant Lead or Admin, with a
-   confirmation step. Renaming a Vendor asks whether its Payee's holder name should follow, or a
-   new Payee is needed.
-5. **Expenses name a Payee.** Each expense type says whether its payee is *Required*, *Optional* or
-   *Not asked*. The person raising the Expense Request picks an existing Payee or adds a new one,
-   and approval carries it onto the Expense. An Accountant may change it before paying. Expense
-   Request and Project Expense keep their optional `vendor` field. Picking a vendor fills in its
-   Payee, and the two must agree. A vendor can't be read back from a Payee, because one Payee can
-   serve several vendors.
+4. **A Payee is edited in place.** When its holder moves banks, the account number and IFSC are
+   edited; there is no *Inactive* status and no lock. Whoever may edit a vendor's bank details may
+   edit them, and the holder name follows the same rule. Every edit is recorded (`track_changes`).
+   Editing a Payee that serves several vendors first names them all. A Payee no vendor links to may
+   be deleted by Accountant, Accountant Lead or Admin. Renaming a Vendor asks whether its Payee's
+   holder name should follow.
+5. **Expenses name whoever is paid through their pay-to account.** Each expense type says whether
+   it is *Required*, *Optional* or *Not asked*. The person raising the Expense Request picks an
+   existing Payee or adds a new one, which fills in the request's pay-to account, and approval
+   copies it onto the Expense. Expense Request and Project Expense keep their optional `vendor`
+   field: naming a vendor copies the vendor's Payee, and the raiser cannot type another account
+   while a vendor is named.
    Every Payee has an account number and IFSC. Someone paid by cash or cheque with no account on
    record is not a Payee. Their name stays in the expense description, and a Cheque keeps a typed
    name for them. Expense types paid that way are set to *Optional* or *Not asked*.
@@ -51,7 +55,22 @@ upload files always skipped expenses as "(no vendor)".
 7. **The account number is typed twice** (number + confirm), and paste is disabled on both fields.
 8. **A Payees page lists every Payee.** Accountant, Accountant Lead and Admin manage Payees there.
    Procurement keeps editing a vendor's bank details from the vendor screens, which now save to
-   its Payee.
+   its Payee. A Payee's page shows its overview and the vendors linked to it; it does not list
+   payments or Expenses, since none points at it.
+9. **Every PO / Work Order payment, Expense Request and Expense holds its own pay-to account**
+   (holder name, account number, IFSC, bank, branch), and none links to a Payee. It is copied when
+   the record is raised, so the raiser sees where the money goes before submitting: a PO / WO
+   payment from its vendor's Payee, an expense from the Payee picked. On an Expense Request or
+   Expense the raiser may change it until approval; after that Accountant, Accountant Lead or Admin,
+   until it is paid. A PO / WO payment's is never edited, keeping the rule that a PO / WO payment is
+   not editable in the app: if its vendor's Payee has changed since the copy, the payer is warned,
+   and the payment is rejected and raised again. From *Reconciliation Pending* or *Paid* the screens
+   no longer let it change; this is a screen rule only, and the server enforces none of these
+   edit rules (owner, 2026-10-15), like the other edit-by-status rules. Every change is
+   recorded (`track_changes`). An account number typed by hand anywhere is typed twice, paste
+   disabled. The bank upload files and Bulk Import Tier 1 read the record's own pay-to account.
+   Existing records: unpaid ones are copied from today's Payee; paid ones are filled from their
+   matched bank line where it holds an account number, and otherwise left blank, never guessed.
 
 This replaces the 2026-08-18 rule in `.claude/context/domain/expenses.md` that a request asks for no
 payee bank details.
@@ -60,6 +79,11 @@ payee bank details.
 
 - **Keep bank details on Vendor and add Payee only for non-vendors.** Rejected: that leaves two
   places to look for an account, forever.
+- **Records link to a Payee and the Payee is locked once paid** (this ADR's first version,
+  2026-10-14). Dropped on review: PO / WO payments stored nothing, so their history moved with the
+  vendor; the lock needed an *Inactive* status, a new Payee per bank change and a Linked Expenses
+  list just to know whether a Payee had been paid. Copying the account onto each record keeps
+  history true with none of that.
 - **A Payee is a person who holds many bank accounts, with one default.** First chosen, then
   dropped in the same session. "Which of this vendor's accounts?" is guesswork for whoever raises
   or pays a PO payment. It also forces either duplicate accounts or one Payee per company for the
@@ -73,8 +97,10 @@ These were weighed and deliberately left out of v1. They are gaps, not oversight
 ### No verification of bank accounts
 
 v1 trusts what was typed. Typing the number twice with paste disabled catches typos only. It does
-not prove the account belongs to the payee, and anyone raising an expense can add a new Payee. The
-risk is money sent to a wrong or fraudulent account.
+not prove the account belongs to the payee, anyone raising an expense can add a new Payee, and
+anyone who may edit a vendor's bank details may change its Payee's account (decision 4). The pay-to
+account copy keeps the past true but does not protect the next payment. The risk is money sent to a
+wrong or fraudulent account; the payer's "account changed" warning is the only check in v1.
 
 Options considered for later:
 
@@ -88,42 +114,7 @@ Options considered for later:
   name. It is stronger but costs per check and adds a new outside service. Today the only bank
   service the app calls is the Razorpay IFSC lookup (`api/bank_details.py`).
 
-### PO and Work Order payments do not record which Payee they paid
-
-v1 pays a vendor's PO or Work Order to **the Payee the vendor links to at the time**. It stores no
-Payee on `Project Payments`. Expenses do store their Payee (decision 5), so the two kinds of payment
-are deliberately uneven.
-
-What this loses:
-
-- **History can lie.** Once a vendor is moved to a new Payee, every old payment looks as if it was
-  paid to the new account. In a "we paid you / no you didn't" dispute, the app cannot show which
-  account was paid.
-- **No one-off accounts.** "Pay this one into my other account" can only be done by moving the
-  vendor to another Payee, which changes how all of its old payments read.
-
-What softens it: once a payment is matched in Bulk Import, the bank line (`Outflow Import Row`)
-holds the account number that was really paid. That does not cover ICICI lines, which carry no
-account number, or payments that are approved but not yet matched.
-
-The fix for later is a link from `Project Payments` to the Payee, filled with the vendor's Payee
-when the payment is created. Payments made before that link exists will have no Payee stored, so
-adding it sooner leaves a smaller gap.
-
-### Bulk Import matches a vendor's current Payee only
-
-Tier 1 matches a bank line's account + IFSC against the Payee the vendor links to *now*. Suppose a
-vendor is paid from Payee P1, and is then moved to Payee P2 before the statement is imported. That
-line will not reach Tier 1, so it is matched by hand. The owner chose this over keeping a history
-of each vendor's past Payees. If late lines become common, add that history and match against
-every Payee the vendor has had.
-
 ### No name-only payees
 
 Cash and cheque payees with no bank account are not Payees, so expenses paid to them carry the
 payee only as text. That text cannot be searched for or matched.
-
-### No link between a person's old and new Payee
-
-Each Payee is one account, so "Ramesh's old SBI account" and "Ramesh's new HDFC account" are two
-unrelated Payees. Reports by person, and merging duplicate Payees, are out of v1.
