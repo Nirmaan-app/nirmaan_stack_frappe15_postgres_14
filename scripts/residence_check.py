@@ -322,6 +322,8 @@ PAYMENT_SUM_OWNERS: dict[str, str] = {
         "the payment's own recount and its insert cap (payment total <= order total)",
     # Project outflow is cash, a payment sum by definition (ADR-0034 point 5, #1456).
     "nirmaan_stack/services/project_money.py": "project outflow / Current Liabilities / cashflow gap: the one server figure",
+    # Amount Paid carries no date; a vendor's paid figure for a period applies the same rule to dated rows (#1461).
+    "nirmaan_stack/services/vendor_paid.py": "Vendor report's dated paid figures: payments less Received refunds, each on its own date",
     # Payment caps: ignore refunds on purpose (ADR-0032).
     "nirmaan_stack/services/finance.py": "server caps: get_total_paid / _pending / _reconciliation_pending",
     "nirmaan_stack/services/payment_summary.py": "the request / approve 'left to request' cap",

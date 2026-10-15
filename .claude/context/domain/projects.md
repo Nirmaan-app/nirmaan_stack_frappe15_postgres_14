@@ -105,7 +105,8 @@ and the Projects list (`get_projects_financial_rollup`, which now returns `cashf
 their gaps agree (pinned by `api/projects/test_project_money.py`). A screen that shows any of these figures
 reads it through `api/projects/project_money.get_project_money` (one project) or `get_projects_money` (several
 projects, one query). Both need read access to Procurement Orders and Project Payments. Never work the gap out
-again in the browser.
+again in the browser. The Cash Sheet report reads Inflow, Outflow, Current Liability and Cashflow Gap from
+`get_projects_money` for its chosen dates.
 
 - Outflow is cash: Paid payments on the project (whatever its order's state now), less Received Vendor Refunds
   against a PO / WO, plus Paid expenses.
