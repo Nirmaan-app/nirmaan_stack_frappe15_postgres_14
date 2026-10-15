@@ -78,9 +78,10 @@ import frappe; frappe.init(site='localhost'); frappe.connect()
 frappe.destroy()
 EOF
 docker cp /tmp/q.py frappe_docker_devcontainer-frappe-1:/tmp/q.py
-docker exec -w /workspace/development/frappe-bench frappe_docker_devcontainer-frappe-1 env/bin/python /tmp/q.py
+docker exec -w /workspace/development/frappe-bench frappe_docker_devcontainer-frappe-1 env/bin/python -I /tmp/q.py
 ```
-`os.chdir` to `sites/` is required before `frappe.init()`. On Windows Git Bash, prefix `MSYS_NO_PATHCONV=1` on
+`-I` is required: the container's `/tmp` holds stray `.py` files (`profile.py`, `os.py`, …), and without it
+Python imports them ahead of the standard library. `os.chdir` to `sites/` is required before `frappe.init()`. On Windows Git Bash, prefix `MSYS_NO_PATHCONV=1` on
 every `docker exec` / `docker cp` that passes a UNIX path, or `/tmp/...` becomes `C:/Users/.../Temp/...` (handover §9 #93, §11 #33).
 
 **BoQ dev environment** (setup, clean bench restart, the CSRF clear-site-data login fix, :8080 live vs :8000
