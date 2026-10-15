@@ -5,11 +5,12 @@ nothing paid points back at it.
 
 * `rules` (pure) -- `parse_details`, `details_problem`, `duplicate_problem`, `PAID_STATUSES`
   (= `settlement.SETTLED_STATUSES`).
-* `writer` -- `create_payee` (the only creator), `edit_holder_name`, `existing_payee`,
+* `writer` -- `create_payee` (the only creator), `edit_payee` (holder name, account number, IFSC, in
+  place, #1435), `delete_payee` (only while no vendor links to it), `existing_payee`,
   `assert_not_duplicate`, `DuplicatePayeeError`; a duplicate as data for a screen
   (`duplicate_verdict`, `unless_duplicate`).
 * `links` -- `payee_summaries` / `payee_summary` (with the vendor count), `PAYEES_WITH_LINKS_SQL`,
-  `payee_page` (`linked_vendors`, `holder_name_changed_on`).
+  `payee_page` (`linked_vendors`, `last_changed`: when and by whom the holder name / account changed).
 * `versions` -- the Version rows read as history: `last_field_change`, `changed_field_pattern`.
 * `guard` -- what `validate` controllers do on every write path: `check_payee_links` (a record naming
   a vendor copies the vendor's Payee into its pay-to account; who sets a vendor's Payee).

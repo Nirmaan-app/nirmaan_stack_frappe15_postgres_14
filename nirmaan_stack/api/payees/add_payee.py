@@ -42,10 +42,11 @@ def add_payee(account_name: str, account_number: str, ifsc: str) -> dict:
 
 
 @frappe.whitelist()
-def check_payee(account_number: str, ifsc: str) -> dict:
-    """The Payee already holding this account number + IFSC: `{duplicate: <summary> | None, message}`."""
+def check_payee(account_number: str, ifsc: str, exclude: str | None = None) -> dict:
+    """The Payee already holding this account number + IFSC: `{duplicate: <summary> | None, message}`.
+    `exclude` is the Payee being edited (#1435), which keeps its own account."""
     assert_payee_manager(frappe.session.user)
-    return duplicate_verdict(account_number, ifsc)
+    return duplicate_verdict(account_number, ifsc, exclude=exclude or None)
 
 
 @frappe.whitelist()

@@ -10,8 +10,8 @@ the account, not a link, so a Payee has no "linked expenses", "last paid" or "ti
 `PAYEES_WITH_LINKS_SQL` is the one query behind the vendor count: the Payees list (`api/payees/
 list_payees`) filters and sorts over it, and `payee_summaries` reads single Payees from it.
 
-One Payee's page (#1423) reads `payee_page`: the summary, when the holder name last changed, and the
-vendors behind the count (`linked_vendors`).
+One Payee's page (#1423, #1435) reads `payee_page`: the summary, when and by whom its holder name and
+its account last changed (`last_changed`), and the vendors behind the count (`linked_vendors`).
 
 A vendor's Payee is `vendor_account`'s, not this module's.
 """
@@ -92,21 +92,27 @@ def linked_vendors(name: str) -> list[dict]:
     return [{**row, "linked_since": str(row.linked_since) if row.linked_since else None} for row in rows]
 
 
-def holder_name_changed_on(name: str) -> str | None:
-    """The ISO date Payee `name`'s holder name last changed, from its Version history, or None."""
-    changed = last_field_change(PAYEE_DOCTYPE, name, "account_name")
-    return str(changed.creation.date()) if changed else None
+def last_changed(name: str, *fields: str) -> dict | None:
+    """When and by whom any of `fields` of Payee `name` last changed, from its Version history:
+    `{on: ISO date, by: full name}`, or None when none ever did (#1435)."""
+    changes = [c for c in (last_field_change(PAYEE_DOCTYPE, name, f) for f in fields) if c]
+    if not changes:
+        return None
+    latest = max(changes, key=lambda c: c.creation)
+    return {"on": str(latest.creation.date()), "by": frappe.utils.get_fullname(latest.owner)}
 
 
 def payee_page(name: str) -> dict:
     """Everything one Payee's page shows: `payee_summary`'s fields plus `creation`,
-    `holder_name_changed_on` and `linked_vendors`. Refuses a name with no Payee."""
+    `holder_name_changed` and `account_changed` (`last_changed`: the account is its number or IFSC)
+    and `linked_vendors`. Refuses a name with no Payee."""
     summary = payee_summary(name)
     if not summary:
         frappe.throw(frappe._("Payee {0} not found.").format(name), frappe.DoesNotExistError)
     return {
         **summary,
         "creation": str(frappe.db.get_value(PAYEE_DOCTYPE, name, "creation")),
-        "holder_name_changed_on": holder_name_changed_on(name),
+        "holder_name_changed": last_changed(name, "account_name"),
+        "account_changed": last_changed(name, "account_number", "ifsc"),
         "linked_vendors": linked_vendors(name),
     }

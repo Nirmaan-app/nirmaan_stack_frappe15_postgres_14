@@ -107,10 +107,20 @@ export interface PayeePageVendor {
     linked_since: string | null;
 }
 
+/** When and by whom a Payee field last changed, from its change history (`links.last_changed`). */
+export interface PayeeChange {
+    /** ISO date. */
+    on: string;
+    /** Full name of who saved it. */
+    by: string;
+}
+
 /** One Payee's page (`api/payees/payee_page.get_payee`). */
 export interface PayeePage extends PayeeSummary {
     creation: string;
-    /** ISO date its holder name last changed; null when never. */
-    holder_name_changed_on: string | null;
+    /** When and by whom its holder name last changed; null when never (#1435). */
+    holder_name_changed: PayeeChange | null;
+    /** When and by whom its account number or IFSC last changed; null when never (#1435). */
+    account_changed: PayeeChange | null;
     linked_vendors: PayeePageVendor[];
 }

@@ -15,12 +15,17 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   - `writer.py`: `create_payee` is the only code that creates a Payee. It checks no role: each
     calling endpoint checks who may add a Payee from that screen. The one other creator is
     `backfill_payee`, for the #1424 patch only: bank and branch as recorded on the vendor, no lookup.
-    `edit_holder_name` is the only edit so far. A duplicate reaches a
+    `edit_payee` is the only edit (#1435): holder name, account number and IFSC, in place, the
+    duplicate rule applied with the Payee itself left out, the IFSC looked up again only when it
+    changes. `delete_payee` refuses while any vendor links to it, naming every one
+    (`rules.payee_in_use_problem`, `frappe.LinkExistsError`). A duplicate reaches a
     screen as data through `duplicate_verdict` (before submit) and `unless_duplicate` (on submit,
-    rolling back); every endpoint that adds a Payee answers through them.
+    rolling back); every endpoint that adds or edits a Payee answers through them (`duplicate_verdict` takes
+    `exclude`, the Payee being edited).
   - `links.py`: the vendors a Payee serves (`PAYEES_WITH_LINKS_SQL`, `payee_summaries`: its fields
     and `vendors`, the count), and one Payee's page (`payee_page`: `linked_vendors`,
-    `holder_name_changed_on`). A Payee has no linked expenses, "last paid" or "times paid" (#1434).
+    `holder_name_changed` and `account_changed`, each `{on, by}` from `last_changed`: when and by
+    whom, the account being its number or IFSC). A Payee has no linked expenses, "last paid" or "times paid" (#1434).
   - `vendor_account.py`: THE vendor -> Payee read (`payee_for_vendor`, `vendor_account` for one vendor
     with `other_vendors`, `vendor_accounts` for many). Nothing else reads `Vendors.payee` to find a
     vendor's account.
@@ -41,7 +46,7 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     Payee has the same PAN; *Name only*: no PAN agrees but the names read alike. Strong first.
   - `choosing.py`: a vendor's Payee. `suggest_for_vendor`, `payee_choices` (its linked vendors, for
     the confirmation), `choose_payee` (an existing Payee, refused when there is no such Payee, or new
-    details through `create_payee`) and `link_vendor` (Change account: an existing vendor to another Payee, by `choose_payee`,
+    details through `create_payee`) and `link_vendor` (Use a different payee: an existing vendor to another Payee, by `choose_payee`,
     refusing the one it has).
 - **A vendor's bank account is its Payee.** Vendor creation (`api/create_vendor_and_address`) takes
   an existing Payee or new bank details. `Vendors` has no bank fields: #1432 deleted the five
@@ -57,15 +62,17 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   Bulk Import's vendor index (Tier 1, refund suggestions) and the payment autofill's holder-name check
   (#1427): a line paid to a vendor's previous Payee reaches no Tier 1 (ADR-0033). On the
   vendor page (#1426) the Account Details card shows the vendor's Payee and how many other vendors
-  share it (`vendor_account.vendor_account`); Change account / Add bank details go through
+  share it (`vendor_account.vendor_account`). Edit bank details (#1435) edits the vendor's own Payee
+  in place through `api/payees/vendor_payee.edit_vendor_payee` (`writer.edit_payee`), so every vendor
+  on it follows; Use a different payee / Add bank details go through
   `api/payees/vendor_payee.change_vendor_payee` (`choosing.link_vendor`), and the other vendors on
   the old Payee keep it. One vendor's account is ONE SWR key on the screens
   (`vendorPayeeAccount.vendorAccountKey`, over `get_vendor_account`): the card, the rename prompt,
   the hover card, the detail popover and the payment-request gate all read it, so revalidating it
-  after Change account updates every one. The edit-vendor form has no bank fields. Renaming a vendor
+  after Edit bank details or Use a different payee updates every one. The edit-vendor form has no bank fields. Renaming a vendor
   with a Payee asks keep / update the holder name / new bank details / decide later; "update the
-  holder name" is the Payees-page holder-name edit, whose endpoint is Accounts only. The Payee itself
-  carries no holder-name role rule (#1434).
+  holder name" is Edit bank details started with the new name (`edit_vendor_payee`), open to anyone
+  in `VENDOR_PAYEE_PROFILES` (#1435). The Payee itself carries no holder-name role rule (#1434).
 - **No two Payees share an account number + IFSC**, compared on `normalized_account`: the account
   number without spaces, dashes or leading zeros, exactly as Bulk Import compares a bank line
   (`services/outflow_import/normalize.normalize_account` owns that rule). The `validate` controller
@@ -73,7 +80,7 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   Payee; a unique constraint on `(normalized_account, ifsc)` backs it up.
 - **Every Payee has a holder name, an account number and an IFSC.** Bank and branch come from the IFSC
   lookup when the Payee is created, never from the caller, and a lookup that finds nothing refuses the
-  Payee. The lookup does not run on later saves.
+  Payee. It runs again only when `writer.edit_payee` changes the IFSC; a plain save never looks up.
 - **Paid** means money has left *Approved*: a record at *Reconciliation Pending* or *Paid*
   (`rules.PAID_STATUSES`, which is `services/settlement.SETTLED_STATUSES`). It says "paid" in Record
   Payment's box. It never locks a Payee.
@@ -81,8 +88,12 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   once paid, and no role rule on its holder name. The Payee `validate` controller refuses only
   incomplete details and a duplicate; anyone allowed to save the Payee may change its holder name,
   account number or IFSC, paid or not. Every edit leaves a Version row (`track_changes`;
-  `edit_holder_name` saves with `ignore_version=False`): "Holder name last changed" reads it. Who may
-  reach an edit is decided by each screen's endpoint (the Payees page's are Accounts only).
+  `edit_payee` saves with `ignore_version=False`): the Payee page's "Holder name last changed" and
+  "Account last changed" (when and by whom) read it. Who may reach an edit is decided by each
+  screen's endpoint: the Payees page's Edit and Delete are Accounts only, the vendor screens' Edit
+  bank details is `VENDOR_PAYEE_PROFILES`. Editing a Payee several vendors share first names them all
+  on screen (`utils/payees/payeeEdit.sharedPayeeWarning`). A Payee no vendor links to may be deleted
+  (Payees page only); records already raised keep their own copy of the account.
 - **A Payee is linked to vendors only.** The Payees list counts its vendors and its tabs are *All* and
   *No vendor* (no vendor links to it: used only for expenses, or not at all). The Payee page shows
   Payee Overview and Linked Vendors; the vendor "use an existing payee" confirmation lists the vendors
@@ -140,9 +151,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | Frontend picker | `components/payees/PayeePicker.tsx` + `usePayeeChoice.ts` (pick or add new; reused by Change payee) |
 | Frontend rules | `utils/payees/payeeForm.ts` (form rules, `newPayeeProblem`, `bankLine`), `utils/payees/expensePayee.ts`, `utils/payees/payeeRoutes.ts` (`payeeHref`); pinned to the server's by the shared cases `services/payees/payee_rules_cases.json` (F1: `test_rules.py` / `test_expense_rules.py` and `payeeForm.test.ts` / `expensePayee.test.ts` run the same cases) |
 | Payees page | `pages/payees/PayeesPage.tsx`, route `/payees` |
-| One Payee's page (#1423) | `pages/payees/PayeePage.tsx`, route `/payees/:payeeId`; endpoints `api/payees/payee_page.py` (`get_payee`, `edit_holder_name`); `components/payees/EditHolderNameDialog`; rules `utils/payees/payeePage.ts` |
-| Vendor Payee endpoints | `api/payees/vendor_payee.py`: `suggest_vendor_payees`, `get_payee_choice`, `check_vendor_payee`; `get_vendor_account`, `change_vendor_payee` (#1426) |
+| One Payee's page (#1423, #1435) | `pages/payees/PayeePage.tsx`, route `/payees/:payeeId`; endpoints `api/payees/payee_page.py` (`get_payee`, `edit_payee`, `delete_payee`); `components/payees/EditPayeeDialog` (shared with the vendor screens' `EditVendorPayeeDialog`), `pages/payees/components/DeletePayeeDialog`; rules `utils/payees/payeePage.ts` (tabs), `utils/payees/payeeEdit.ts` (edit form, shared-Payee warning, delete block, last-changed line) |
+| Vendor Payee endpoints | `api/payees/vendor_payee.py`: `suggest_vendor_payees`, `get_payee_choice`, `check_vendor_payee`; `get_vendor_account`, `change_vendor_payee` (#1426); `edit_vendor_payee` (#1435) |
 | A vendor's account on screens (#1428) | `api/payees/vendor_accounts.py`: `get_vendor_list`; frontend `components/payees/vendorPayeeAccount.ts` (`useVendorAccount`, `useVendorPayeeGate`). The gate blocks a PO / WO payment request until the vendor is KNOWN to have a Payee: while it loads and when the read fails (`utils/payees/vendorAccount.vendorPayeeGateProblem`); used by the PO payment terms card, the PO / WO request dialog and the Credits page's request dialog |
 | Paying: Paid to, bank file, Record Payment (#1431) | `services/payees/paid_to.py`; endpoints `api/payees/expense_payee.py` (`get_paid_to`, `get_expense_payee`, `search_payees`, `change_expense_payee`); frontend `components/payees/ExpensePayToBox`, `ChangeExpensePayeeDialog`, `expensePayeeApi`; wording `utils/payees/paidTo.ts`; file builder `pages/ProjectPayments/bankUploadFile.ts` |
-| Vendor page account card + rename prompt (#1426) | `pages/vendors/components/VendorAccountCard`, `VendorRenameFlow`; `components/payees/ChangeVendorAccountDialog`, `VendorRenamePrompt`; wording in `utils/payees/vendorAccount.ts`; test `api/payees/test_vendor_account.py` |
+| Vendor page account card + rename prompt (#1426, #1435) | `pages/vendors/components/VendorAccountCard`, `VendorRenameFlow`; `components/payees/ChangeVendorAccountDialog` (Use a different payee), `EditVendorPayeeDialog` (Edit bank details, Update the holder name), `VendorRenamePrompt`; wording in `utils/payees/vendorAccount.ts`; test `api/payees/test_vendor_account.py` |
 | Vendor Payee step (frontend) | `components/payees/VendorPayeeSection` + `useVendorPayeeChoice`, `PayeeSuggestionsPanel`, `UsePayeeDialog`, `vendorPayeeApi`; wording in `utils/payees/payeeChoice.ts` |

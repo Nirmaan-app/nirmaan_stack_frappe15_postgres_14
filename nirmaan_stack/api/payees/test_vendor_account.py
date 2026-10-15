@@ -1,12 +1,13 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The vendor page's Account Details card and Change account (#1426, spec #1420, ADR-0033).
+"""The vendor page's Account Details card (#1426, #1435, spec #1420, ADR-0033).
 
 Drives `api/payees/vendor_payee` the way the vendor page does: `get_vendor_account` for the card,
-`change_vendor_payee` for Change account and Add bank details (an existing Payee through the
-confirmation, or new bank details). Reads back what the user sees: the card's Payee and how many
-other vendors share it, the vendor's Payee after the change, the refusal.
+`edit_vendor_payee` for Edit bank details and the rename prompt's "Update the holder name" (the
+vendor's Payee edited in place), `change_vendor_payee` for Use a different payee and Add bank details
+(an existing Payee through the confirmation, or new bank details). Reads back what the user sees: the
+card's Payee and how many other vendors share it, the vendor's Payee after the change, the refusal.
 
 ⚠️ RUNS AGAINST THE ENV DATABASE (the endpoints commit). Vendors planted by `TaxedWorkOrderFixture`,
 Payees by `PayeeFixture`; both purge after each test.
@@ -16,7 +17,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture
-from nirmaan_stack.api.payees.vendor_payee import change_vendor_payee, get_vendor_account
+from nirmaan_stack.api.payees.vendor_payee import change_vendor_payee, edit_vendor_payee, get_vendor_account
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE
 
@@ -69,7 +70,65 @@ class TestVendorAccount(FrappeTestCase):
         account = get_vendor_account(self._vendor())
         self.assertEqual((account["payee"], account["other_vendors"]), (None, 0))
 
-    # -- Change account -------------------------------------------------------------------------
+    # -- Edit bank details (#1435) -----------------------------------------------------------------
+    def _account_of(self, payee):
+        return frappe.db.get_value(PAYEE_DOCTYPE, payee, ["account_name", "account_number", "ifsc"])
+
+    def test_edit_bank_details_edits_the_vendors_payee_in_place_for_every_vendor_on_it(self):
+        payee = self.payees.payee()
+        vendor = self._vendor(payee)
+        sibling = self._vendor(payee)
+        holder = self.payees.holder("Moved banks")
+        number = self.payees.account_number()
+
+        result = edit_vendor_payee(vendor, holder, number, "TEST0PYE002")
+
+        self.assertEqual(result["payee"]["name"], payee)
+        self.assertEqual((self._payee_of(vendor), self._payee_of(sibling)), (payee, payee))
+        self.assertEqual(self._account_of(payee), (holder, number, "TEST0PYE002"))
+        self.assertEqual(get_vendor_account(sibling)["payee"]["account_number"], number)
+
+    def test_a_procurement_user_may_update_the_holder_name_from_the_rename_prompt(self):
+        payee = self.payees.payee()
+        vendor = self._vendor(payee)
+        _, number, ifsc = self._account_of(payee)
+        holder = self.payees.holder("Kaveri Airtech")
+        frappe.set_user(self._user(PROCUREMENT_EXECUTIVE))
+        try:
+            edit_vendor_payee(vendor, holder, number, ifsc)
+        finally:
+            frappe.set_user(U)
+        self.assertEqual(self._account_of(payee), (holder, number, ifsc))
+
+    def test_editing_to_another_payees_account_is_refused_naming_it(self):
+        payee = self.payees.payee()
+        vendor = self._vendor(payee)
+        number = self.payees.account_number()
+        other = self.payees.payee(account_number=number)
+        before = self._account_of(payee)
+
+        result = edit_vendor_payee(vendor, before[0], number, TEST_IFSC)
+
+        self.assertEqual(result["duplicate"]["name"], other)
+        self.assertIn(other, result["message"])
+        self.assertEqual(self._account_of(payee), before)
+
+    def test_a_vendor_with_no_payee_has_no_bank_details_to_edit(self):
+        vendor = self._vendor()
+        with self.assertRaisesRegex(frappe.ValidationError, "no bank account"):
+            edit_vendor_payee(vendor, self.payees.holder(), self.payees.account_number(), TEST_IFSC)
+
+    def test_only_the_vendor_screens_roles_may_edit_bank_details(self):
+        payee = self.payees.payee()
+        vendor = self._vendor(payee)
+        before = self._account_of(payee)
+        frappe.set_user(self._user(PROJECT_MANAGER))
+        with self.assertRaises(frappe.PermissionError):
+            edit_vendor_payee(vendor, self.payees.holder(), self.payees.account_number(), TEST_IFSC)
+        frappe.set_user(U)
+        self.assertEqual(self._account_of(payee), before)
+
+    # -- Use a different payee ----------------------------------------------------------------------
     def test_change_account_to_an_existing_payee_links_the_vendor_and_writes_no_old_bank_fields(self):
         old = self.payees.payee()
         vendor = self._vendor(old)

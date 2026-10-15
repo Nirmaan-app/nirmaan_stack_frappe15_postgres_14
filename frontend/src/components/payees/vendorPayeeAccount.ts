@@ -2,7 +2,7 @@
  * A vendor's bank account is its Payee (#1428, #1426, spec #1420, ADR-0033). Every screen that shows
  * or checks ONE vendor's bank details reads it here, under one SWR key (`vendorAccountKey`): the
  * vendor page's Account Details card, the rename prompt, the hover card, the detail popover and the
- * payment-request gate. Revalidating that key after Change account updates all of them. The vendor
+ * payment-request gate. Revalidating that key after Edit bank details or Use a different payee updates all of them. The vendor
  * list reads every row's account through `VENDOR_LIST_API`.
  *
  * Server: `api/payees/vendor_payee.get_vendor_account` and `api/payees/vendor_accounts`, over
@@ -37,7 +37,7 @@ export const vendorAccountKey = (vendor: string) => `vendor-account:${vendor}`;
 /**
  * One vendor's account. `account` is `undefined` while loading, when not asked or when the read
  * failed (then `error` is set). `enabled: false` asks nothing (a popover that is still closed).
- * `refresh` after Change account or a holder-name edit: every screen reading this vendor follows.
+ * `refresh` after Use a different payee or an edit of the vendor's Payee: every screen reading this vendor follows.
  */
 export function useVendorAccount(vendor: string | undefined, enabled = true) {
     const ask = !!vendor && enabled;

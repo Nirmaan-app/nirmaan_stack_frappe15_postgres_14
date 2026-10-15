@@ -80,6 +80,16 @@ def duplicate_problem(existing: str, existing_account_name: str | None) -> str:
     )
 
 
+def payee_in_use_problem(payee: str, vendors: list[tuple[str, str | None]]) -> str:
+    """The refusal to delete Payee `payee` while `vendors` (`(name, vendor_name)`) are paid into it."""
+    named = "; ".join(f"{vendor_name} ({name})" if vendor_name else name for name, vendor_name in vendors)
+    one = len(vendors) == 1
+    return (
+        f"{payee} can't be deleted: {len(vendors)} vendor{'' if one else 's'} {'is' if one else 'are'} "
+        f"paid into it ({named}). Point {'it' if one else 'them'} at another payee first."
+    )
+
+
 def already_linked_problem(vendor: str, payee: str) -> str:
-    """The refusal when Change account picks the Payee vendor `vendor` is already paid into."""
+    """The refusal when Use a different payee picks the Payee vendor `vendor` is already paid into."""
     return f"{vendor} is already paid into {payee}. Pick another payee, or enter new bank details."

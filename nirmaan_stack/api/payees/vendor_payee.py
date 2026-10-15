@@ -12,7 +12,9 @@ the endpoint that saves it (`api/create_vendor_and_address`); an existing one by
 * `get_payee_choice` -- what the confirmation lists before a vendor is pointed at a Payee.
 * `check_vendor_payee` -- the duplicate block before submit, as `add_payee.check_payee` gives it.
 * `get_vendor_account` -- the vendor page's Account Details card (#1426).
-* `change_vendor_payee` -- its Change account and Add bank details (#1426).
+* `edit_vendor_payee` -- its Edit bank details and the rename prompt's "Update the holder name": the
+  vendor's Payee edited in place (#1435).
+* `change_vendor_payee` -- its Use a different payee and Add bank details (#1426, #1435).
 
 Who: `services/role_profiles.VENDOR_PAYEE_PROFILES` (the people who may create a vendor), except
 `get_vendor_account`, which anyone who may read the vendor may call.
@@ -23,8 +25,8 @@ from frappe import _
 
 from nirmaan_stack.services.payees.choosing import link_vendor, payee_choice, suggest_for_vendor
 from nirmaan_stack.services.payees.links import payee_summary
-from nirmaan_stack.services.payees.vendor_account import vendor_account
-from nirmaan_stack.services.payees.writer import duplicate_verdict, unless_duplicate
+from nirmaan_stack.services.payees.vendor_account import payee_for_vendor, vendor_account
+from nirmaan_stack.services.payees.writer import duplicate_verdict, edit_payee, unless_duplicate
 from nirmaan_stack.services.role_profiles import assert_vendor_payee_access
 
 
@@ -48,10 +50,11 @@ def get_payee_choice(payee: str) -> dict:
 
 
 @frappe.whitelist()
-def check_vendor_payee(account_number: str, ifsc: str) -> dict:
-    """The Payee already holding this account number + IFSC: `{duplicate: <summary> | None, message}`."""
+def check_vendor_payee(account_number: str, ifsc: str, exclude: str | None = None) -> dict:
+    """The Payee already holding this account number + IFSC: `{duplicate: <summary> | None, message}`.
+    `exclude` is the Payee being edited (#1435), which keeps its own account."""
     assert_vendor_payee_access(frappe.session.user)
-    return duplicate_verdict(account_number, ifsc)
+    return duplicate_verdict(account_number, ifsc, exclude=exclude or None)
 
 
 @frappe.whitelist()
@@ -64,8 +67,27 @@ def get_vendor_account(vendor: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
+def edit_vendor_payee(vendor: str, account_name: str, account_number: str, ifsc: str) -> dict:
+    """Edit bank details on the vendor page, and the rename prompt's "Update the holder name" (#1435):
+    the vendor's own Payee edited in place (`writer.edit_payee`), so every vendor paid into it follows.
+    Refused for a vendor with no Payee (Add bank details is `change_vendor_payee`).
+
+    Returns `{payee: <summary>}`, or `{duplicate: <summary>, message}` when another Payee already holds
+    the account; nothing changes then."""
+    assert_vendor_payee_access(frappe.session.user)
+    payee = payee_for_vendor(vendor)
+    if not payee:
+        frappe.throw(_("{0} has no bank account to edit. Add bank details instead.").format(vendor))
+    _done, duplicate = unless_duplicate(lambda: edit_payee(payee, account_name, account_number, ifsc))
+    if duplicate:
+        return duplicate
+    frappe.db.commit()
+    return {"payee": payee_summary(payee)}
+
+
+@frappe.whitelist(methods=["POST"])
 def change_vendor_payee(vendor: str, payee: str | None = None, bank: dict | None = None) -> dict:
-    """Change account / Add bank details on the vendor page (#1426): point `vendor` at `payee` (an
+    """Use a different payee / Add bank details on the vendor page (#1426, #1435): point `vendor` at `payee` (an
     existing Payee, through the confirmation) or at new `bank` details (`{account_name, account_number,
     ifsc}`) made into a Payee (`choosing.link_vendor`). The other vendors on its old Payee keep it.
 

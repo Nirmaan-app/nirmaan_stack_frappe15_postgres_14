@@ -1,8 +1,9 @@
 /**
  * After a vendor is renamed on the edit screen (#1426, spec #1420, approved mockup screen 8): ask what
  * happens to its bank account, then do it. Keep paying the same account closes; Update the holder
- * name opens the Payee module's holder-name edit (`EditHolderNameDialog`, Accounts and Admins only),
- * started with the new name; Enter new bank details opens Change account. Decide later closes.
+ * name edits the vendor's Payee in place (`EditVendorPayeeDialog`, #1435: anyone who may set the
+ * vendor's bank details), started with the new name; Enter new bank details opens Use a different
+ * payee. Decide later closes.
  *
  * Mounted only when `renameNeedsPrompt` says to ask (the vendor has a Payee whose holder name is not the
  * new name): the page decides that in its rename handler.
@@ -11,10 +12,10 @@
 import { useState } from "react";
 
 import { ChangeVendorAccountDialog } from "@/components/payees/ChangeVendorAccountDialog";
-import { EditHolderNameDialog } from "@/components/payees/EditHolderNameDialog";
+import { EditVendorPayeeDialog } from "@/components/payees/EditVendorPayeeDialog";
 import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
 import { VendorRenamePrompt } from "@/components/payees/VendorRenamePrompt";
-import { canManagePayees } from "@/constants/roles";
+import { canSetVendorPayee } from "@/constants/roles";
 import { useUserData } from "@/hooks/useUserData";
 import { RENAME_CHOICE, type RenameChoice } from "@/utils/payees/vendorAccount";
 
@@ -54,17 +55,20 @@ export function VendorRenameFlow({ vendor, rename, onDone }: VendorRenameFlowPro
                 vendorName={rename.after}
                 holderName={payee.account_name}
                 otherVendors={account?.other_vendors ?? 0}
-                canEditHolderName={canManagePayees(role, user_id)}
+                canEditHolderName={canSetVendorPayee(role, user_id)}
                 onChoose={choose}
                 onDecideLater={onDone}
             />
-            <EditHolderNameDialog
-                open={step === RENAME_CHOICE.HOLDER_NAME}
-                onOpenChange={finish}
-                payee={payee}
-                initialName={rename.after}
-                onSaved={() => refresh()}
-            />
+            {step === RENAME_CHOICE.HOLDER_NAME && (
+                <EditVendorPayeeDialog
+                    vendor={vendor.name}
+                    payee={payee}
+                    title="Update the holder name"
+                    holderName={rename.after}
+                    onClose={onDone}
+                    onSaved={() => refresh()}
+                />
+            )}
             <ChangeVendorAccountDialog
                 open={step === RENAME_CHOICE.NEW_BANK}
                 onOpenChange={finish}

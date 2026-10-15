@@ -3,7 +3,7 @@
  * from the suggestions through the confirmation) or new bank details (`usePayeeBankForm`, checked
  * against the vendor screens' own endpoint). The rules are pure, in `utils/payees/payeeChoice.ts`.
  *
- * Rendered by `VendorPayeeSection`. The new-vendor form uses it; the vendor page's Change account
+ * Rendered by `VendorPayeeSection`. The new-vendor form uses it; the vendor page's Use a different payee
  * (#1426) reuses both.
  */
 
