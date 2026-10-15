@@ -8,11 +8,14 @@ and closes them. Rules: `services/asset_audit_open.py`.
 
 from nirmaan_stack.services.asset_audit import NOTE_CATEGORY_ON
 from nirmaan_stack.services.asset_audit_open import open_due_audits
+from nirmaan_stack.services.asset_history import touch_assets_at_the_end
 
 
 def on_update(doc, method):
     """Open the month's audits when the category's audit is switched on."""
     if doc.flags.in_insert or not doc.audit_required or not doc.has_value_changed("audit_required"):
         return  # a new category has no assets yet
-    # Read by api/assets/audits.set_category_audit to say how many opened.
-    doc.flags.audits_opened = open_due_audits(category=doc.name, note=NOTE_CATEGORY_ON)
+    # Read by api/assets/audits.set_category_audit to say how many opened. Many assets at once: their
+    # `modified` moves once, at the end (services/asset_history.touch_assets_at_the_end).
+    with touch_assets_at_the_end():
+        doc.flags.audits_opened = open_due_audits(category=doc.name, note=NOTE_CATEGORY_ON)

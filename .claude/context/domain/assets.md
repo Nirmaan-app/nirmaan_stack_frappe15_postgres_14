@@ -18,6 +18,10 @@ The detailed rules live in the code's own docstrings, cited below; this page is 
   `Asset History` child table (owner, 2026-10-14). Every schema addition here was ruled field by field and is
   listed in root `CODING_STANDARDS.md` § Don't touch (the sanctioned doctype-JSON exceptions).
 - **The asset history is append-only and written in one place:** `services/asset_history.add_history`.
+  - Each new row moves the asset's `modified` (review #11, 2026-10-15), so a Desk form opened before it gets
+    Frappe's "changed after you opened it" instead of the history guard. Batch runs (the 28th / 7th jobs, a
+    category's audit switched on) wrap their work in `touch_assets_at_the_end()` so the dates move in one
+    statement right before the commit and no asset row is held while they work; a clash skips the date only.
   - `Asset History.assigned_to` / `done_by` are **Data, not Link**, so the history never blocks deleting a
     person. A rename does not follow them on its own: `services/asset_history.rename_person` (called from
     `api/users.rename_user_email`) moves them.

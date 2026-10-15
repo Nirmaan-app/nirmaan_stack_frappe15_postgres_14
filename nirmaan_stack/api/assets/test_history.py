@@ -24,7 +24,13 @@ from nirmaan_stack.nirmaan_stack.doctype.asset_management.test_asset_management 
     _purge,
     ensure_departments,
 )
-from nirmaan_stack.services.asset_history import DECLARATION_SIGNED, add_history, rename_person
+from nirmaan_stack.services.asset_history import (
+    AUDIT_REQUESTED,
+    DECLARATION_SIGNED,
+    add_history,
+    rename_person,
+    touch_assets_at_the_end,
+)
 
 
 class _HistoryFixture(FrappeTestCase):
@@ -311,3 +317,59 @@ class TestHistoryNamesPeopleAsText(FrappeTestCase):
         self.assertEqual(self._rows("done_by", renamed), 1)
         self.assertEqual(self._rows("assigned_to", self.former) + self._rows("done_by", self.former), 0)
         self.assertEqual(self._rows("assigned_to", self.holder), 1)  # someone else's row is left alone
+
+
+class _SerializationFailure(Exception):
+    pgcode = "40001"  # PostgreSQL: the row changed after this transaction's snapshot
+
+
+class TestNewHistoryRowMovesModified(_HistoryFixture):
+    """A new history row moves the asset's `modified` (owner, 2026-10-15, review #11): a form loaded before it
+    gets Frappe's "changed after you opened it" instead of failing the history guard. Batch runs move it once."""
+
+    def _modified(self):
+        return frappe.db.get_value("Asset Master", self.asset, ["modified", "modified_by"], as_dict=True)
+
+    def test_a_new_row_moves_the_assets_modified(self):
+        before = self._modified().modified
+        frappe.set_user(self.hr)
+        add_history(self.asset, AUDIT_REQUESTED, reason="11/2026")
+        frappe.set_user("Administrator")
+        after = self._modified()
+        self.assertGreater(after.modified, before)
+        self.assertEqual(after.modified_by, self.hr)
+
+    def test_a_form_loaded_before_the_row_gets_the_reload_message(self):
+        stale = frappe.get_doc("Asset Master", self.asset)  # e.g. a Desk form already open
+        add_history(self.asset, AUDIT_REQUESTED, reason="11/2026")
+        stale.asset_description = "edited in an old form"
+        with self.assertRaises(frappe.TimestampMismatchError):  # not "Asset history can't be edited"
+            stale.save(ignore_permissions=True)
+        fresh = frappe.get_doc("Asset Master", self.asset)
+        fresh.asset_description = "edited after reloading"
+        fresh.save(ignore_permissions=True)  # a fresh load saves as before
+        self.assertEqual(frappe.db.get_value("Asset Master", self.asset, "asset_description"), "edited after reloading")
+
+    def test_a_batch_moves_modified_once_at_the_end(self):
+        before = self._modified().modified
+        with touch_assets_at_the_end():
+            add_history(self.asset, AUDIT_REQUESTED, reason="11/2026")
+            add_history(self.asset, AUDIT_REQUESTED, reason="12/2026")
+            self.assertEqual(self._modified().modified, before)  # nothing held while the run works
+        self.assertGreater(self._modified().modified, before)
+
+    def test_a_clash_on_the_date_keeps_the_history_row(self):
+        """Someone saved the asset meanwhile: the date update is skipped, the row stays, nothing fails."""
+        real = frappe.db.sql
+
+        def clash(query, *args, **kwargs):
+            if isinstance(query, str) and query.startswith('update "tabAsset Master" set modified'):
+                raise _SerializationFailure()
+            return real(query, *args, **kwargs)
+
+        before = self._modified().modified
+        with patch.object(frappe.db, "sql", side_effect=clash):
+            row = add_history(self.asset, AUDIT_REQUESTED, reason="11/2026")
+        self.assertTrue(frappe.db.exists("Asset History", row))
+        self.assertEqual(self._modified().modified, before)
+

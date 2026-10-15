@@ -14,6 +14,7 @@ Run by hand (testing), acting as if it were that day:
 import frappe
 
 from nirmaan_stack.services.asset_audit_open import open_due_audits, roll_missed_audits
+from nirmaan_stack.services.asset_history import touch_assets_at_the_end
 
 
 def open_next_month_audits(day: str | None = None) -> dict:
@@ -25,7 +26,9 @@ def open_next_month_audits(day: str | None = None) -> dict:
     Returns:
         {"opened": [<Asset Management name>, ...]}
     """
-    result = {"opened": open_due_audits(day=day)}
+    # The assets' `modified` moves once, at the end: the run holds no asset row while it works (review #11).
+    with touch_assets_at_the_end():
+        result = {"opened": open_due_audits(day=day)}
     frappe.db.commit()
     frappe.logger("asset_audit").info("Asset audit, the 28th: %s opened" % len(result["opened"]))
     return result
@@ -41,8 +44,9 @@ def close_last_month_audits(day: str | None = None) -> dict:
     Returns:
         {"missed": [...], "moved": [...], "closed": [...], "opened": [...]} (Asset Management names)
     """
-    result = roll_missed_audits(day=day)
-    result["opened"] = open_due_audits(day=day)
+    with touch_assets_at_the_end():  # see open_next_month_audits
+        result = roll_missed_audits(day=day)
+        result["opened"] = open_due_audits(day=day)
     frappe.db.commit()
     frappe.logger("asset_audit").info(
         "Asset audit, the 7th: %s missed (%s moved, %s closed), %s opened"
