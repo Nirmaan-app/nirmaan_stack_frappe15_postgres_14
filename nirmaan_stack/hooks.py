@@ -359,7 +359,11 @@ doc_events = {
         ],
         # Deleting the expense deletes the request it came from. after_delete, not on_trash --
         # the row must be GONE before the request it links to can be deleted.
-        "after_delete": "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
+        "after_delete": [
+            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
+            # Its Files through the shared-bytes-safe delete, before Frappe's own `remove_all` (#1442).
+            "nirmaan_stack.integrations.controllers.expense_files.delete_attached_files",
+        ],
     },
     "Project Expenses": {
         "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
@@ -383,7 +387,13 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
             # Deleting the expense deletes the request it came from.
             "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
+            # Its Files through the shared-bytes-safe delete, before Frappe's own `remove_all` (#1442).
+            "nirmaan_stack.integrations.controllers.expense_files.delete_attached_files",
         ],
+    },
+    # No expense ever owns a File for a Porter invoice PDF: that one File is its Porter Invoice's (#1442).
+    "File": {
+        "before_insert": "nirmaan_stack.integrations.controllers.expense_files.refuse_invoice_pdf_copy",
     },
     "Project Inflows": {
         "validate": "nirmaan_stack.integrations.controllers.project_inflows.validate",

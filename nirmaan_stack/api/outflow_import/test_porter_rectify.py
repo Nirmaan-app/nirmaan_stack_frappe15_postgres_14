@@ -27,6 +27,8 @@ from nirmaan_stack.api.outflow_import.test_porter_create import (
     PROJECT_EXPENSE,
     PorterCreateCase,
 )
+from nirmaan_stack.api.outflow_import.test_porter_import import INVOICE_DOCTYPE
+from nirmaan_stack.api.outflow_import.test_porter_validation import _no_bucket_upload
 from nirmaan_stack.api.outflow_import.test_skip_row import ACCOUNTANT, ACCOUNTANT_LEAD, _Users
 from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import _compute_cashflow_gap
 from nirmaan_stack.services.ceo_hold import core as ceo_hold
@@ -390,6 +392,101 @@ class TestAPersonsAttachmentMovesWithTheExpense(PorterRectifyCase):
             tuple(frappe.db.get_value("File", file_name, ["attached_to_doctype", "attached_to_name"])),
             (NON_PROJECT_EXPENSE, new.name),
         )
+
+
+class TestTheSharedInvoicePdfSurvivesEveryCorrection(PorterRectifyCase):
+    """Story 52: the invoice PDF is one File, attached to its Porter Invoice, whatever happens to one of the
+    invoice's expenses afterwards: an ordinary save, a Rectify, an Unreconcile."""
+
+    def test_an_edited_expense_rectified_then_unreconciled_leaves_the_pdf_to_its_invoice_and_the_others(self):
+        from nirmaan_stack.api.outflow_import.unreconcile import unreconcile_row
+
+        number = self.numbers["29SS27A0900001"]
+        pdf = frappe.db.get_value(INVOICE_DOCTYPE, number, "invoice_file")
+        pdf_file = frappe.db.get_value(
+            "File", {"file_url": pdf, "attached_to_doctype": INVOICE_DOCTYPE, "attached_to_name": number}
+        )
+        self.assertTrue(pdf_file)
+
+        def cloud_delete(doc, method):
+            raise AssertionError(f"cloud delete reached for File {doc.name} ({doc.file_url})")
+
+        with _no_bucket_upload(), patch(
+            "frappe_gcp_attachment.controller.delete_from_cloud", cloud_delete
+        ), patch("frappe_s3_attachment.controller.delete_from_cloud", cloud_delete):
+            # An ordinary later save, as the edit dialog makes one.
+            expense = self._expense_of("002")
+            # The attach hook records the refused copy as an Error Log on the expense.
+            self.addCleanup(_delete_error_logs, expense.doctype, expense.name)
+            expense.description = "Porter Delivery for the Quillon site visit"
+            expense.save(ignore_permissions=True)
+            frappe.db.commit()
+            self.assertEqual(_files_of_expenses_for(pdf), [])
+
+            [line] = self._rectify(["002"], None)["lines"]
+            self.assertTrue(line["rectified"], line)
+            unreconcile_row(row=self._lines()["002"].name, legs="all", reason="wrong import")
+
+        self.assertEqual(_files_of_expenses_for(pdf), [])
+        self.assertTrue(frappe.db.exists("File", pdf_file))
+        self.assertTrue(frappe.get_doc("File", pdf_file).exists_on_disk())
+        others = [e for e in self._expenses() if e.invoice_ref == number]
+        self.assertEqual(len(others), 4)
+        self.assertEqual({e.invoice_attachment for e in others}, {pdf})
+
+    def test_a_copy_an_older_save_left_on_an_expense_goes_with_it_and_the_pdf_stays(self):
+        from nirmaan_stack.api.outflow_import.unreconcile import unreconcile_row
+
+        number = self.numbers["29SS27A0900001"]
+        original = frappe.db.get_value(
+            "File",
+            {"attached_to_doctype": INVOICE_DOCTYPE, "attached_to_name": number},
+            ["name", "file_url", "content_hash"],
+            as_dict=True,
+        )
+        expense = self._expense_of("001")
+        copy = f"TEST-PORTER-PDF-COPY-{frappe.generate_hash(length=10)}"
+        frappe.db.sql(
+            """INSERT INTO "tabFile" (name, creation, modified, modified_by, owner, docstatus, idx,
+                   file_name, file_url, attached_to_doctype, attached_to_name, attached_to_field,
+                   content_hash, is_private, is_folder)
+               VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0,
+                   'invoice.pdf', %s, %s, %s, 'invoice_attachment', %s, 1, 0)""",
+            (copy, original.file_url, expense.doctype, expense.name, original.content_hash),
+        )
+        frappe.db.commit()
+        self.addCleanup(_delete_file, copy)
+
+        def cloud_delete(doc, method):
+            raise AssertionError(f"cloud delete reached for File {doc.name} ({doc.file_url})")
+
+        with patch("frappe_gcp_attachment.controller.delete_from_cloud", cloud_delete), patch(
+            "frappe_s3_attachment.controller.delete_from_cloud", cloud_delete
+        ):
+            unreconcile_row(row=self._lines()["001"].name, legs="all", reason="wrong import")
+
+        self.assertFalse(frappe.db.exists(expense.doctype, expense.name))
+        self.assertFalse(frappe.db.exists("File", copy))
+        self.assertTrue(frappe.get_doc("File", original.name).exists_on_disk())
+
+
+def _files_of_expenses_for(file_url: str) -> list:
+    """Every File row an expense owns for `file_url`."""
+    return frappe.get_all(
+        "File",
+        filters={"file_url": file_url, "attached_to_doctype": ["in", [PROJECT_EXPENSE, NON_PROJECT_EXPENSE]]},
+        pluck="name",
+    )
+
+
+def _delete_error_logs(doctype: str, name: str) -> None:
+    frappe.db.rollback()
+    try:
+        frappe.db.delete("Error Log", {"reference_doctype": doctype, "reference_name": name})
+        frappe.db.commit()
+    except Exception:
+        frappe.db.rollback()
+        print(f"porter rectify test purge: could not delete the Error Logs of {doctype} {name}")
 
 
 def _purge_history(batch: str) -> None:

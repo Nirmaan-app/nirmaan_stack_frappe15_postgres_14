@@ -8,8 +8,8 @@ The storage app keys a stored object by `content_hash` (`frappe_gcp_attachment` 
 object behind two File rows, and trashing either through the document layer removes the bytes the other
 still serves. CODING_STANDARDS § Deleting an uploaded File.
 
-Used by the TDS datasheet delete (`api/tds/submit.delete_row_datasheet`) and the Porter import's Discard
-(`api/outflow_import/porter_discard`).
+Used by the TDS datasheet delete (`api/tds/submit.delete_row_datasheet`), the Porter import's Discard
+(`api/outflow_import/porter_discard`) and every expense delete (`integrations/controllers/expense_files`).
 """
 
 import frappe

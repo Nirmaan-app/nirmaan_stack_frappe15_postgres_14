@@ -53,6 +53,7 @@ from nirmaan_stack.api.outflow_import.expenses import (
     _target_snapshot,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_undo_access
+from nirmaan_stack.api.outflow_import.porter_expense import invoice_pdf_url
 from nirmaan_stack.api.outflow_import.porter import ROW_DOCTYPE, SOURCE
 from nirmaan_stack.api.outflow_import.porter_review import refuse_unless_won, won_projects
 from nirmaan_stack.api.outflow_import.unreconcile import REASON_REQUIRED, _stamp_reversed
@@ -315,13 +316,18 @@ def _move_attachments(old, doctype: str, name: str) -> None:
     fixed at insert); `File` has no hook on these fields. The `payment_attachment` value is written after
     the insert for the reason `create_expense_from_row` writes `invoice_attachment` so: a save would make a
     second `File` row for it. Nothing is derived from either.
+
+    ⚠️ NEVER A ROW FOR THE SHARED INVOICE PDF. That PDF's one File is its Porter Invoice's
+    (`integrations/controllers/expense_files`); a copy an older save left on the old Expense stays there
+    and goes with it, through the shared-bytes-safe delete, which leaves the PDF in place.
     """
     if old.get("payment_attachment"):
         frappe.db.set_value(doctype, name, "payment_attachment", old.payment_attachment, update_modified=False)
     frappe.db.sql(
         """UPDATE "tabFile" SET attached_to_doctype = %s, attached_to_name = %s
-           WHERE attached_to_doctype = %s AND attached_to_name = %s""",
-        (doctype, name, old.doctype, old.name),
+           WHERE attached_to_doctype = %s AND attached_to_name = %s
+             AND file_url IS DISTINCT FROM %s""",
+        (doctype, name, old.doctype, old.name, invoice_pdf_url(old.porter_order)),
     )
 
 

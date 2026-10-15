@@ -28,6 +28,8 @@ under its row lock and skipped once it is no longer one of those. A reopened lin
 ⚠️ NO FILE ROW PER EXPENSE. The invoice PDF is one File, attached to its Porter Invoice; every Expense of
 that invoice carries its URL in `invoice_attachment`. The storage app deletes a stored object by key
 with no check for other rows sharing it, so a second File row would let one delete take every copy.
+`integrations/controllers/expense_files` keeps it so after Create too: no later save may attach a copy,
+and an expense's own Files are deleted through `stored_files.delete_files`.
 
 ⚠️ THE CEO-HOLD GAP IS RE-EVALUATED ONCE PER PROJECT AT THE END. The Project Expense insert hook's check
 is de-duplicated per request (`project_cashflow_hold_update.trigger_check`), and the whole job is one

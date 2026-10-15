@@ -79,15 +79,25 @@ def get_porter_expense(doctype: str, name: str) -> dict | None:
 def porter_invoice_pdf(doctype: str, name: str) -> None:
     """Serve the expense's Porter Invoice PDF inline, to anyone who may read the expense."""
     expense = _readable_expense(doctype, name)
-    invoice = expense.porter_order and frappe.db.get_value(ORDER_DOCTYPE, expense.porter_order, "porter_invoice")
-    file_url = invoice and frappe.db.get_value(INVOICE_DOCTYPE, invoice, "invoice_file")
+    file_url = invoice_pdf_url(expense.porter_order)
     file_doc = file_url and get_file_doc_by_url(file_url)
     content = file_doc and fetch_file_content(file_doc, file_doc.name)
     if not content:
         raise frappe.DoesNotExistError(_("{0} has no Porter invoice PDF.").format(name))
-    frappe.local.response.filename = file_doc.file_name or f"{invoice}.pdf"
+    frappe.local.response.filename = file_doc.file_name or f"{expense.porter_order}.pdf"
     frappe.local.response.filecontent = content
     frappe.local.response.type = "pdf"
+
+
+def invoice_pdf_url(porter_order: str | None) -> str | None:
+    """The shared invoice PDF behind a Porter Order: its Porter Invoice's `invoice_file`, or None."""
+    invoice = porter_order and frappe.db.get_value(ORDER_DOCTYPE, porter_order, "porter_invoice")
+    return (invoice and frappe.db.get_value(INVOICE_DOCTYPE, invoice, "invoice_file")) or None
+
+
+def is_invoice_pdf(file_url: str | None) -> bool:
+    """Whether `file_url` is a Porter Invoice's stored PDF -- the one File every expense of it shares."""
+    return bool(file_url) and bool(frappe.db.exists(INVOICE_DOCTYPE, {"invoice_file": file_url}))
 
 
 def _readable_expense(doctype: str, name: str):
