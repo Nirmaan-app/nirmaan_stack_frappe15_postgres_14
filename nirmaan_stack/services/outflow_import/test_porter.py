@@ -42,6 +42,7 @@ from nirmaan_stack.services.outflow_import.porter import (
     import_state,
     judge_invoice,
     read_porter_statement,
+    remark_group_key,
     suggest_placement,
 )
 from nirmaan_stack.services.outflow_import.project_match import build_project_index
@@ -414,6 +415,33 @@ class TestTheImportsStateComesFromItsInvoices(unittest.TestCase):
         self.assertEqual(
             INVOICE_IN_FLIGHT, frozenset({"Queued", "Downloading", "Reading", "Comparing"})
         )
+
+
+class TestTheReviewGroupOfAnOrder(unittest.TestCase):
+    """Orders with the same remark in the same city are reviewed, and assigned, as one group (#1446)."""
+
+    def test_spacing_case_and_punctuation_do_not_split_a_remark(self):
+        self.assertEqual(
+            remark_group_key("zephyr tower project ", "Bangalore"),
+            remark_group_key("Zephyr  Tower, Project.", "bangalore "),
+        )
+
+    def test_the_same_remark_in_another_city_is_another_group(self):
+        self.assertNotEqual(
+            remark_group_key("quillon site", "Bangalore"),
+            remark_group_key("quillon site", "Hyderabad"),
+        )
+
+    def test_different_remarks_are_different_groups(self):
+        self.assertNotEqual(
+            remark_group_key("zephyr tower", "Bangalore"),
+            remark_group_key("zephyr tower project", "Bangalore"),
+        )
+
+    def test_an_order_with_no_remark_is_in_no_group(self):
+        for blank in ("", "   ", " - ", None):
+            with self.subTest(remark=blank):
+                self.assertEqual(remark_group_key(blank, "Bangalore"), "")
 
 
 if __name__ == "__main__":

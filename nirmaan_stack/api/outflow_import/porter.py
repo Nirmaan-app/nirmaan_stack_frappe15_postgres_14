@@ -15,7 +15,8 @@ THE STEPS, AND WHICH ONE THIS SLICE BUILT (#1443 built the first and the status 
     validate  (#1444)  started by upload; `porter_validation.validate_porter_import` downloads each
               invoice PDF, reads it with Gemini and compares; `retry_porter_invoice` re-queues an
               Error invoice. `is_validated(batch)` is the gate Review and Create ask.
-    review    (#1447 / #1448)  correct each completed order's project
+    review    (#1446)  `porter_review.get_porter_review` / `set_porter_placement`: correct each
+              completed order's project on a Validated import; the edit is the line's stored plan
     create    (#1445)  one Expense per completed order, at Paid
     rectify / discard  (#1449 / #1446)
 

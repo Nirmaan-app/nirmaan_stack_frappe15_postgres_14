@@ -19,7 +19,8 @@ WHAT THIS MODULE DECIDES.
    before this has accepted the whole file, because saving the CSV commits inside the request.
 2. `suggest_placement` -- the starting project suggestion for a completed order: the existing Won-only
    name matcher (`project_match`), with its reason and strength.
-3. `judge_invoice` -- whether one Porter Invoice's PDF, as Gemini read it, agrees with the statement
+3. `remark_group_key` -- which review group an order is assigned with (#1446).
+4. `judge_invoice` -- whether one Porter Invoice's PDF, as Gemini read it, agrees with the statement
    (#1444); `import_state` -- the import's Validating / Validated / Validation failed, from its invoices.
 
 ⚠️ IT NEVER CALLS THE MATCHER. A Porter line creates its expense and settles nothing (ADR-0032, like
@@ -29,6 +30,7 @@ Cashbook's ADR-0015), so nothing here may reach `match_batch` / `match_row`; pin
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -73,12 +75,14 @@ __all__ = [
     "PorterStatement",
     "PorterStatementError",
     "REASON_NAME",
+    "REASON_REVIEW",
     "SKIP_REASON_CANCELLED",
     "STRENGTH_CHECK",
     "STRENGTH_STRONG",
     "import_state",
     "judge_invoice",
     "read_porter_statement",
+    "remark_group_key",
     "rupees",
     "statement_line",
     "suggest_placement",
@@ -93,8 +97,11 @@ EXPENSE_TYPE = "Material Transportation Charges"
 #: `Outflow Import Row.match_basis` on a completed Porter line: the import's own plan, never the matcher's.
 MATCH_BASIS = "porter statement"
 
-#: Why a suggestion was made. Only the name matcher exists in this slice; #1447 adds the others.
+#: Why a suggestion was made. Only the name matcher exists so far; #1448 adds the others. A reader must
+#: show a reason it does not know as it is, never drop it.
 REASON_NAME = "name"
+#: The Accountant chose the placement in Review (#1446): no longer a suggestion, so it has no strength.
+REASON_REVIEW = "review"
 
 #: How far to trust a suggestion. A weak one is marked Check and is reviewed first.
 STRENGTH_STRONG = "Strong"
@@ -353,6 +360,26 @@ def suggest_placement(remarks: str, index: ProjectIndex) -> Placement:
         reason=REASON_NAME,
         strength=STRENGTH_STRONG if strong else STRENGTH_CHECK,
     )
+
+
+# --- review (#1446) -------------------------------------------------------------------------------
+
+
+def remark_group_key(remarks: str | None, city: str | None) -> str:
+    """The review group an order belongs to: its normalised remark and city. Blank: in no group.
+
+    Orders that share a remark in one city are assigned once, together ("telus project", 8 orders).
+    Letter case, spacing and punctuation do not split a group. An order with no remark is reviewed on
+    its own: unrelated orders must not be forced onto one project.
+    """
+    remark = _group_words(remarks)
+    if not remark:
+        return ""
+    return f"{_group_words(city)}|{remark}"
+
+
+def _group_words(value: str | None) -> str:
+    return " ".join(re.sub(r"[^0-9a-z]+", " ", (value or "").casefold()).split())
 
 
 # --- validation against Porter's own invoice (#1444) ----------------------------------------------
