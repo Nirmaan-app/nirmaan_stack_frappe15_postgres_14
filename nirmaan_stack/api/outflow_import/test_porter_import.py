@@ -19,6 +19,7 @@ projects the class created.
 
 import io
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -67,6 +68,7 @@ def _purge_batches(filename: str) -> None:
     """Roll back first (a refused upload may have aborted the transaction), then delete by scope."""
     frappe.db.rollback()
     for batch in frappe.get_all(BATCH_DOCTYPE, filters={"original_filename": filename}, pluck="name"):
+        _purge_invoice_files(batch)
         for doctype, field in ((ROW_DOCTYPE, "import_batch"), (INVOICE_DOCTYPE, "import_batch")):
             try:
                 frappe.db.delete(doctype, {field: batch})
@@ -76,6 +78,30 @@ def _purge_batches(filename: str) -> None:
                 print(f"porter test purge: could not delete {doctype} of {batch}")
         frappe.db.delete(BATCH_DOCTYPE, {"name": batch})
         frappe.db.commit()
+
+
+def _purge_invoice_files(batch: str) -> None:
+    """The invoice PDFs validation stored (#1444): their File rows, raw, and their bytes on local disk.
+
+    Raw, so no storage hook runs: a test env keeps uploads on local disk, and the bytes go with them."""
+    invoices = frappe.get_all(INVOICE_DOCTYPE, filters={"import_batch": batch}, pluck="name")
+    if not invoices:
+        return
+    try:
+        files = frappe.get_all(
+            "File",
+            filters={"attached_to_doctype": INVOICE_DOCTYPE, "attached_to_name": ["in", invoices]},
+            fields=["name", "file_url"],
+        )
+        for file in files:
+            path = frappe.get_site_path(*(file.file_url or "").lstrip("/").split("/"))
+            if (file.file_url or "").startswith("/private/files/") and os.path.exists(path):
+                os.remove(path)
+            frappe.db.delete("File", {"name": file.name})
+        frappe.db.commit()
+    except Exception:
+        frappe.db.rollback()
+        print(f"porter test purge: could not delete the invoice files of {batch}")
 
 
 class PorterImportCase(FrappeTestCase):
@@ -118,6 +144,7 @@ class PorterImportCase(FrappeTestCase):
         super().setUp()
         self.filename = f"porter-{frappe.generate_hash(length=8)}.csv"
         self.saved = []
+        self.enqueued = []
         self.addCleanup(_purge_batches, self.filename)
 
     def _upload(self, content: bytes):
@@ -133,8 +160,12 @@ class PorterImportCase(FrappeTestCase):
         previous_request = getattr(frappe.local, "request", None)
         frappe.set_user("Administrator")
         frappe.local.request = _Request()
+        # ⚠️ THE QUEUE IS SHARED WITH THE MAIN BENCH: a real enqueue would hand this test's import to a
+        # live worker. The job is recorded here, and the validation tests run it directly.
         try:
-            with patch.object(porter_api, "save_file", side_effect=_save_file):
+            with patch.object(porter_api, "save_file", side_effect=_save_file), patch.object(
+                frappe, "enqueue", side_effect=lambda *args, **kwargs: self.enqueued.append(kwargs)
+            ):
                 return porter_api.upload_porter_statement()
         finally:
             frappe.local.request = previous_request

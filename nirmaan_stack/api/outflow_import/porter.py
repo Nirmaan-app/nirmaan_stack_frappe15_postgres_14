@@ -12,7 +12,9 @@ THE STEPS, AND WHICH ONE THIS SLICE BUILT (#1443 built the first and the status 
     upload    `upload_porter_statement`   parse, group, refuse, save the CSV, stage   batch + lines +
                                                                                      Porter Invoices
     status    `get_porter_status`         the import and its Porter Invoices          reads only
-    validate  (#1444)  download each invoice PDF, read it with Gemini, compare
+    validate  (#1444)  started by upload; `porter_validation.validate_porter_import` downloads each
+              invoice PDF, reads it with Gemini and compares; `retry_porter_invoice` re-queues an
+              Error invoice. `is_validated(batch)` is the gate Review and Create ask.
     review    (#1447 / #1448)  correct each completed order's project
     create    (#1445)  one Expense per completed order, at Paid
     rectify / discard  (#1449 / #1446)
@@ -37,12 +39,20 @@ from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.expenses import _refresh_batch_rollup
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
+from nirmaan_stack.api.outflow_import.porter_validation import enqueue_validation
 from nirmaan_stack.services.outflow_import.parser import StatementFormatError, parse_statement
 from nirmaan_stack.services.outflow_import.porter import (
+    IMPORT_VALIDATED,
+    INVOICE_COMPARING,
+    INVOICE_ERROR,
+    INVOICE_FAILED,
+    INVOICE_PASSED,
+    INVOICE_QUEUED,
     MATCH_BASIS,
     SKIP_REASON_CANCELLED,
     PorterStatement,
     PorterStatementError,
+    import_state,
     read_porter_statement,
     suggest_placement,
 )
@@ -62,9 +72,6 @@ BATCH_DOCTYPE = "Outflow Import Batch"
 ROW_DOCTYPE = "Outflow Import Row"
 INVOICE_DOCTYPE = "Porter Invoice"
 SOURCE = PORTER_STATEMENT_SOURCE
-
-#: A Porter Invoice's state before validation has looked at it (#1444 moves it on).
-INVOICE_QUEUED = "Queued"
 
 _ALLOWED_EXTENSIONS = frozenset({".csv", ".xlsx"})
 _MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -88,6 +95,8 @@ def upload_porter_statement():
     Saves: the CSV (private, attached to the batch); the batch, its period the first to the last order
     completion date; one line per order -- a cancelled order skipped and locked, a completed one pending
     with its starting project suggestion; and one Porter Invoice per invoice link, `Queued`.
+
+    Then starts the validation job, de-duplicated per import (`porter-validate-<batch>`).
     """
     user = require_outflow_access()
     filename, content = _read_upload()
@@ -109,7 +118,77 @@ def upload_porter_statement():
         update_modified=False,
     )
     frappe.db.commit()
+    enqueue_validation(batch, user)
     return porter_status(batch)
+
+
+@frappe.whitelist(methods=["POST"])
+def retry_porter_invoice(invoice: str):
+    """Validate one Porter Invoice again after an *Error* (a download or Gemini failure). Returns the import.
+
+    URL: /api/method/nirmaan_stack.api.outflow_import.porter.retry_porter_invoice  (POST `invoice`)
+
+    ⚠️ ONLY AN ERROR IS RETRIED. A *Failed* invoice disagrees with the statement, and that is final for
+    this import -- there is no override, for anyone (ADR-0032); a Passed or in-hand one has nothing to
+    retry. The status is read again under the row lock, so two clicks queue it once.
+
+    The PDF already stored is reused: the job reads it again without downloading.
+    """
+    user = require_outflow_access()
+    rows = frappe.db.sql(
+        """SELECT name, import_batch, validation_status FROM "tabPorter Invoice" WHERE name = %s FOR UPDATE""",
+        (invoice,),
+        as_dict=True,
+    )
+    if not rows:
+        frappe.throw(f"Porter Invoice {invoice} does not exist.", title="Not found")
+    row = rows[0]
+    if row.validation_status != INVOICE_ERROR:
+        if row.validation_status == INVOICE_FAILED:
+            reason = (
+                f"Invoice {invoice} Failed: its PDF disagrees with the statement. A Failed invoice is "
+                "final and cannot be retried or overridden."
+            )
+        else:
+            reason = (
+                f"Invoice {invoice} is {row.validation_status}. Only an invoice that hit an Error can "
+                "be retried."
+            )
+        frappe.throw(reason, title="Cannot retry")
+    # Raw: `Porter Invoice` has no doc_events, and its status is read, never derived from.
+    frappe.db.set_value(
+        INVOICE_DOCTYPE,
+        invoice,
+        {"validation_status": INVOICE_QUEUED, "validation_message": None},
+        update_modified=False,
+    )
+    frappe.db.commit()
+    enqueue_validation(row.import_batch, user, job_id=f"porter-validate-{row.import_batch}-{invoice}")
+    return porter_status(row.import_batch)
+
+
+def porter_import_states(batches: list[str]) -> dict[str, str]:
+    """Each Porter import's state (Validating / Validated / Validation failed), DERIVED from its Porter
+    Invoices in one query. Never stored: `Outflow Import Batch.status` keeps its own meaning."""
+    if not batches:
+        return {}
+    statuses: dict[str, list[str]] = {batch: [] for batch in batches}
+    for row in frappe.db.sql(
+        """SELECT import_batch, validation_status FROM "tabPorter Invoice" WHERE import_batch IN %s""",
+        (tuple(batches),),
+        as_dict=True,
+    ):
+        statuses[row.import_batch].append(row.validation_status)
+    return {batch: import_state(found) for batch, found in statuses.items()}
+
+
+def is_validated(batch: str) -> bool:
+    """THE GATE for Review and Create (#1445, #1446): every Porter Invoice of the import has Passed.
+
+    False while any is still being checked, and for good once one has Failed: nothing may proceed past
+    a failed invoice, and there is no override.
+    """
+    return porter_import_states([batch])[batch] == IMPORT_VALIDATED
 
 
 @frappe.whitelist()
@@ -157,6 +236,15 @@ def porter_status(batch: str) -> dict:
             "tax_total",
             "validation_status",
             "validation_message",
+            "invoice_file",
+            "read_invoice_number",
+            "read_invoice_date",
+            "read_supplier_gstin",
+            "read_receiver_gstin",
+            "read_fare",
+            "read_tax",
+            "porter_gstin",
+            "customer_gstin",
         ],
         order_by="creation asc, name asc",
     )
@@ -172,6 +260,8 @@ def porter_status(batch: str) -> dict:
         "completed": orders - cancelled,
         "cancelled": cancelled,
         "fare_total": float(meta.gross_amount or 0),
+        # Derived from the invoices below, never stored (`porter.import_state`).
+        "state": import_state([invoice.validation_status for invoice in invoices]),
         "invoices": [
             {
                 "name": invoice.name,
@@ -183,9 +273,40 @@ def porter_status(batch: str) -> dict:
                 "tax_total": float(invoice.tax_total or 0),
                 "validation_status": invoice.validation_status,
                 "validation_message": invoice.validation_message,
+                "porter_gstin": invoice.porter_gstin,
+                "customer_gstin": invoice.customer_gstin,
+                "can_retry": invoice.validation_status == INVOICE_ERROR,
+                "has_pdf": bool(invoice.invoice_file),
+                # What Gemini read, beside the statement's figures above (None until it has read).
+                "read": what_gemini_read(invoice),
             }
             for invoice in invoices
         ],
+    }
+
+
+def what_gemini_read(invoice) -> dict | None:
+    """THE ONE READER of a Porter Invoice's `read_*` fields. None until Gemini has read the PDF.
+
+    It has read once the invoice reached Comparing (or decided after it), or an Error kept something it
+    read (a figure it could not read is an Error, not a Failure). ⚠️ `read_fare` / `read_tax` are NOT
+    NULL columns, written 0 for a figure not read: a Porter invoice always bills a fare and its GST, so
+    0 reads back as "not read".
+    """
+    texts = (invoice.read_invoice_number, invoice.read_supplier_gstin, invoice.read_receiver_gstin)
+    if invoice.validation_status not in (INVOICE_COMPARING, INVOICE_PASSED, INVOICE_FAILED) and not any(texts):
+        return None
+
+    def _money(value):
+        return float(value) if value else None
+
+    return {
+        "invoice_number": invoice.read_invoice_number,
+        "invoice_date": str(invoice.read_invoice_date) if invoice.read_invoice_date else None,
+        "supplier_gstin": invoice.read_supplier_gstin,
+        "receiver_gstin": invoice.read_receiver_gstin,
+        "fare": _money(invoice.read_fare),
+        "tax": _money(invoice.read_tax),
     }
 
 

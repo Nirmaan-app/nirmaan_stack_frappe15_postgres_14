@@ -19,6 +19,8 @@ WHAT THIS MODULE DECIDES.
    before this has accepted the whole file, because saving the CSV commits inside the request.
 2. `suggest_placement` -- the starting project suggestion for a completed order: the existing Won-only
    name matcher (`project_match`), with its reason and strength.
+3. `judge_invoice` -- whether one Porter Invoice's PDF, as Gemini read it, agrees with the statement
+   (#1444); `import_state` -- the import's Validating / Validated / Validation failed, from its invoices.
 
 ⚠️ IT NEVER CALLS THE MATCHER. A Porter line creates its expense and settles nothing (ADR-0032, like
 Cashbook's ADR-0015), so nothing here may reach `match_batch` / `match_row`; pinned by an AST test.
@@ -27,7 +29,7 @@ Cashbook's ADR-0015), so nothing here may reach `match_batch` / `match_row`; pin
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -46,7 +48,22 @@ from nirmaan_stack.services.outflow_import.parser import (
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, comparable_tokens
 
 __all__ = [
+    "COMPARE_TOLERANCE",
     "EXPENSE_TYPE",
+    "IMPORT_VALIDATED",
+    "IMPORT_VALIDATING",
+    "IMPORT_VALIDATION_FAILED",
+    "INVOICE_COMPARING",
+    "INVOICE_DOWNLOADING",
+    "INVOICE_ERROR",
+    "INVOICE_FAILED",
+    "INVOICE_IN_FLIGHT",
+    "INVOICE_PASSED",
+    "INVOICE_QUEUED",
+    "INVOICE_READING",
+    "InvoiceFigures",
+    "InvoiceRead",
+    "InvoiceVerdict",
     "MATCH_BASIS",
     "OWN_IMPORT_LINE_REFUSAL",
     "PORTER_COLUMNS",
@@ -59,7 +76,10 @@ __all__ = [
     "SKIP_REASON_CANCELLED",
     "STRENGTH_CHECK",
     "STRENGTH_STRONG",
+    "import_state",
+    "judge_invoice",
     "read_porter_statement",
+    "rupees",
     "statement_line",
     "suggest_placement",
 ]
@@ -333,3 +353,150 @@ def suggest_placement(remarks: str, index: ProjectIndex) -> Placement:
         reason=REASON_NAME,
         strength=STRENGTH_STRONG if strong else STRENGTH_CHECK,
     )
+
+
+# --- validation against Porter's own invoice (#1444) ----------------------------------------------
+#
+# Each Porter Invoice moves Queued -> Downloading -> Reading -> Comparing -> Passed / Failed / Error,
+# committed at every step so the dialog can show it. `judge_invoice` is the Comparing step; the job
+# around it lives in `api/outflow_import/porter_validation.py`.
+
+#: `Porter Invoice.validation_status`, in the order an invoice moves through them.
+INVOICE_QUEUED = "Queued"
+INVOICE_DOWNLOADING = "Downloading"
+INVOICE_READING = "Reading"
+INVOICE_COMPARING = "Comparing"
+INVOICE_PASSED = "Passed"
+#: The PDF disagrees with the statement. FINAL: no retry and no override, for anyone (ADR-0032).
+INVOICE_FAILED = "Failed"
+#: The download or the read went wrong, so nothing was decided. Retryable, for that invoice alone.
+INVOICE_ERROR = "Error"
+
+#: The invoice is still being worked on: the import is not decided yet.
+INVOICE_IN_FLIGHT = frozenset({INVOICE_QUEUED, INVOICE_DOWNLOADING, INVOICE_READING, INVOICE_COMPARING})
+
+#: The import's own state, DERIVED from its invoices (`import_state`), never stored.
+IMPORT_VALIDATING = "Validating"
+IMPORT_VALIDATED = "Validated"
+IMPORT_VALIDATION_FAILED = "Validation failed"
+
+#: Fare and tax may each differ from the statement by up to this, inclusive. The statement rounds tax
+#: row by row (measured up to Rs 0.18 on the 2026-09 file); Rs 1.01 is a real difference.
+COMPARE_TOLERANCE = Decimal("1.00")
+
+
+@dataclass(frozen=True)
+class InvoiceFigures:
+    """The statement's side of the comparison: one Porter Invoice over its COMPLETED orders."""
+
+    invoice_number: str
+    porter_gstin: str
+    customer_gstin: str
+    fare: Decimal
+    tax: Decimal
+
+
+@dataclass(frozen=True)
+class InvoiceRead:
+    """What Gemini read off the invoice PDF. A blank string or `None` means it read nothing there.
+
+    `tax` is the invoice's TOTAL tax: IGST, or CGST + SGST -- the split is irrelevant to the check.
+    """
+
+    invoice_number: str
+    invoice_date: date | None
+    supplier_gstin: str
+    receiver_gstin: str
+    fare: Decimal | None
+    tax: Decimal | None
+
+
+@dataclass(frozen=True)
+class InvoiceVerdict:
+    """`status` is Passed, Failed or Error; `message` names the invoice and why (blank on Passed)."""
+
+    status: str
+    message: str
+
+
+def judge_invoice(statement: InvoiceFigures, read: InvoiceRead) -> InvoiceVerdict:
+    """Compare what Gemini read with the statement's figures for one Porter Invoice.
+
+    Passes only when ALL agree: the invoice number; the supplier GSTIN is Porter's GSTIN; the receiver
+    GSTIN is the customer GSTIN; fare and tax each within `COMPARE_TOLERANCE`. Spacing and letter case
+    in a number or a GSTIN are not a difference.
+
+    * Failed -- at least one figure disagrees. Every disagreeing figure is named, invoice first.
+    * Error -- nothing disagrees but a figure was not read. A read glitch decides nothing, so the invoice
+      can be retried; a disagreement outweighs it.
+    """
+    disagree: list[str] = []
+    unread: list[str] = []
+
+    def _identity(label: str, read_value: str, statement_value: str) -> None:
+        if not _ident(read_value):
+            unread.append(_UNREAD_NOUN.get(label, label))
+        elif _ident(read_value) != _ident(statement_value):
+            disagree.append(f"{label}: invoice {read_value.strip()}, statement {statement_value.strip()}")
+
+    def _money(label: str, read_value: Decimal | None, statement_value: Decimal) -> None:
+        if read_value is None:
+            unread.append(_UNREAD_NOUN.get(label, label))
+        elif abs(Decimal(read_value) - Decimal(statement_value)) > COMPARE_TOLERANCE:
+            disagree.append(f"{label}: invoice {rupees(read_value)}, statement {rupees(statement_value)}")
+
+    _identity("Invoice number", read.invoice_number, statement.invoice_number)
+    _identity("Porter GSTIN", read.supplier_gstin, statement.porter_gstin)
+    _identity("Customer GSTIN", read.receiver_gstin, statement.customer_gstin)
+    _money("Fare", read.fare, statement.fare)
+    _money("Tax", read.tax, statement.tax)
+
+    number = statement.invoice_number
+    if disagree:
+        return InvoiceVerdict(
+            INVOICE_FAILED, f"Invoice {number} disagrees with the statement. {'; '.join(disagree)}."
+        )
+    if unread:
+        listed = unread[0] if len(unread) == 1 else f"{', '.join(unread[:-1])} and {unread[-1]}"
+        return InvoiceVerdict(
+            INVOICE_ERROR, f"Invoice {number}: could not read the {listed} off the PDF. Retry it."
+        )
+    return InvoiceVerdict(INVOICE_PASSED, "")
+
+
+# How a figure Gemini did not read is named mid-sentence ("could not read the invoice number and tax").
+_UNREAD_NOUN = {"Invoice number": "invoice number", "Fare": "fare", "Tax": "tax"}
+
+
+def import_state(invoice_statuses: Iterable[str]) -> str:
+    """The import's validation state, from its Porter Invoices' statuses.
+
+    Validating while any invoice is still in hand; Validated only when there are invoices and every one
+    Passed; otherwise Validation failed (a Failed invoice is final, an Error one waits for its Retry).
+    """
+    statuses = list(invoice_statuses)
+    if any(status in INVOICE_IN_FLIGHT for status in statuses):
+        return IMPORT_VALIDATING
+    if statuses and all(status == INVOICE_PASSED for status in statuses):
+        return IMPORT_VALIDATED
+    return IMPORT_VALIDATION_FAILED
+
+
+def rupees(amount: Decimal | float | int) -> str:
+    """`₹12,34,567.50`: two decimals, Indian digit grouping, as a failure message prints a figure."""
+    value = Decimal(str(amount)).quantize(Decimal("0.01"))
+    sign = "-" if value < 0 else ""
+    whole, fraction = f"{abs(value):.2f}".split(".")
+    head, tail = whole[:-3], whole[-3:]
+    groups = []
+    while len(head) > 2:
+        groups.insert(0, head[-2:])
+        head = head[:-2]
+    if head:
+        groups.insert(0, head)
+    return f"{sign}₹{','.join(groups + [tail])}.{fraction}"
+
+
+def _ident(value: str | None) -> str:
+    """An invoice number or GSTIN as compared: no spaces, upper case."""
+    return "".join((value or "").split()).upper()

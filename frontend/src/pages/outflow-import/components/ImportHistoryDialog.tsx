@@ -24,6 +24,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { OutflowImportOption } from "@/types/NirmaanStack/OutflowImportBatch";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
+import { PORTER_SOURCE } from "../porterImport";
+
 import {
     historyEmptyLabel,
     historySubtitle,
@@ -76,6 +78,11 @@ interface Props {
     selected?: HistorySelection;
     /** Select a statement. The dialog closes itself; the caller navigates. */
     onSelectImport: (batch: string) => void;
+    /**
+     * Open a Porter import's own dialog instead (#1444). Its lines are not bank lines, so pinning the
+     * table to it would show nothing; its invoices' check is what a reader comes back for.
+     */
+    onOpenPorterImport?: (batch: string) => void;
 }
 
 /**
@@ -108,6 +115,7 @@ export const ImportHistoryDialog = ({
     screenSources,
     selected,
     onSelectImport,
+    onOpenPorterImport,
 }: Props) => (
     <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-2xl">
@@ -118,8 +126,9 @@ export const ImportHistoryDialog = ({
             <HistoryBody
                 screenSources={screenSources}
                 selected={selected}
-                onSelect={(batch) => {
-                    onSelectImport(batch);
+                onSelect={(batch, source) => {
+                    if (source === PORTER_SOURCE && onOpenPorterImport) onOpenPorterImport(batch);
+                    else onSelectImport(batch);
                     onOpenChange(false);
                 }}
             />
@@ -134,7 +143,7 @@ const HistoryBody = ({
 }: {
     screenSources: readonly string[];
     selected?: HistorySelection;
-    onSelect: (batch: string) => void;
+    onSelect: (batch: string, source?: string) => void;
 }) => {
     const [tab, setTab] = useState(() => initialHistoryTab(selected?.source, screenSources));
     const [month, setMonth] = useState<MonthKey>(() => initialHistoryMonth(selected, new Date()));
@@ -275,7 +284,7 @@ const HistoryList = ({
     search: string;
     loading: boolean;
     selectedImport?: string;
-    onSelect: (batch: string) => void;
+    onSelect: (batch: string, source?: string) => void;
 }) => {
     const shown = useMemo(
         () =>
@@ -313,7 +322,7 @@ const HistoryList = ({
                     key={option.name}
                     option={option}
                     current={option.name === selectedImport}
-                    onSelect={() => onSelect(option.name)}
+                    onSelect={() => onSelect(option.name, option.source)}
                 />
             ))}
         </ul>

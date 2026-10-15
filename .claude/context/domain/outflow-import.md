@@ -6528,7 +6528,7 @@ four shapes) and the IFSC cases in `TestTheContainsQueryMirrorsThePureTokens`; `
 (3: the prompt text, a branch-code-only inflow, an inflow another line accounts for).
 
 
-## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, the rest NOT BUILT YET)
+## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, validation at #1444, the rest NOT BUILT YET)
 
 Decisions: **[ADR-0032](../../../docs/adr/0032-porter-statement-import.md)** (owner grilling, Q1–Q36).
 Terms: `GLOSSARY.md` § *Porter deliveries*. The design below is the target; § *As built* at the end of
@@ -6651,7 +6651,7 @@ only, `validation_status` `Queued`; one `Outflow Import Row` per order, in file 
   keyword), `match_basis` `porter statement`, `auto_matched` 1.
 Every Porter row carries `porter_invoice` (Link) and `porter_line` (JSON: the 22 columns verbatim, read
 only through `porter.statement_line`). Four new `Outflow Import Row` fields; see `CODING_STANDARDS.md`
-§ Don't touch. Validation is NOT enqueued yet (#1444).
+§ Don't touch. Upload then enqueues validation (#1444, below).
 
 **Its open lines are not bank lines.** `review._row_filters` leaves out every line of a
 `CREATE_GATED_SOURCES` source that is neither `Settled` nor `Skipped`, so they are in no tab, no facet,
@@ -6675,3 +6675,84 @@ skip and unskip refusals), `api/outflow_import/test_porter_import.py` (bench, en
 stubbed), `frontend/src/pages/outflow-import/porterImport.test.ts`. Fixture
 `services/outflow_import/tests/fixtures/porter_sample.csv` is synthetic (4 invoices, 2 billing entities,
 IGST and CGST/SGST cities, 1 cancelled order, a ₹0.01 tax rounding gap).
+
+### As built — #1444: validate a Porter import against Porter's invoices (2026-10-15)
+
+**Where it lives.** The job and the download helper: `api/outflow_import/porter_validation.py`
+(`validate_porter_import(batch, actor)`, `validate_invoice`, `fetch_invoice_pdf`, `enqueue_validation`).
+The endpoints stay in `api/outflow_import/porter.py`: `upload_porter_statement` now enqueues the job,
+`retry_porter_invoice(invoice)` (POST) is new, `get_porter_status` reports the import's state and what was
+read. The pure rules are in `services/outflow_import/porter.py`: `judge_invoice`, `import_state`,
+`rupees`, the `INVOICE_*` / `IMPORT_*` constants, `InvoiceFigures` / `InvoiceRead` / `InvoiceVerdict`.
+
+**The job.** Upload commits, then `frappe.enqueue(..., queue="long", job_id="porter-validate-<batch>",
+deduplicate=True)`. The job takes every `Queued` Porter Invoice of the import and runs up to
+`VALIDATION_CONCURRENCY` (3) at once in threads, **each thread on its own frappe connection**
+(`frappe.init` + `connect`, as a second worker would; Gemini takes 30 s to minutes per invoice). Invoices
+queued while it runs (a Retry) are picked up before it ends; each invoice is attempted once per run.
+- **Claim first.** `_claim` reads the invoice `FOR UPDATE` and moves on only a `Queued` one, so the
+  upload's job and a Retry's job may overlap without reading one invoice twice, and a re-run never
+  touches a decided invoice. The claim also clears the `read_*` fields of an earlier attempt.
+- **Each step commits** (`Downloading` → `Reading` → `Comparing` → `Passed` / `Failed` / `Error`), so the
+  dialog's poll shows it. Raw `set_value` throughout: `Porter Invoice` has no `doc_events`, and nothing is
+  derived from these fields except on read.
+- **Download** (`fetch_invoice_pdf`, the seam tests fake): `https://` only, `stream=True` with a
+  `MAX_INVOICE_PDF_BYTES` (10 MB) cap and a `(10, 60)` s timeout, and the bytes must start `%PDF-`.
+  Refusals raise `InvoiceDownloadError`. The PDF is stored ONCE by `save_file(dt="Porter Invoice",
+  dn=<invoice>, df="invoice_file", is_private=1)`, attached at insert (the storage key is derived from the
+  attachment), and its URL written to `invoice_file`. Frappe's `File` parses a PDF on insert (a JavaScript
+  check), so a canned test PDF must be a real one.
+- **Read**: the shared `extract(content, "pdf", settings, doc_kind="invoice")` with the shared Document AI
+  Settings model; the invoice-autofill pick keys (`INVOICE_NO_KEYS`, `NET_AMOUNT_KEYS` for the fare, the GST
+  components through `derive_gst` for the total tax — the IGST / CGST+SGST split is irrelevant). Stored on
+  the invoice as `read_*`. ⚠️ `read_fare` / `read_tax` are NOT NULL Currency columns, so a figure not read is
+  stored 0; `porter.what_gemini_read`, the one reader, reads 0 back as "not read" (a Porter invoice always
+  bills a fare and its GST) and returns None until the invoice has been read.
+- **Compare** (`judge_invoice`, pure): invoice number; supplier GSTIN = Porter GSTIN; receiver GSTIN =
+  customer GSTIN (spacing and case ignored); fare and tax each within `COMPARE_TOLERANCE` = ₹1.00
+  inclusive (₹1.00 passes, ₹1.01 fails). **Failed** names every figure that disagrees, invoice first:
+  "Invoice 36SM… disagrees with the statement. Tax: invoice ₹31.66, statement ₹30.65." A figure Gemini did
+  not read, with nothing disagreeing, is **Error** ("could not read the tax off the PDF. Retry it."): a
+  read glitch decides nothing. A disagreement outweighs an unread figure.
+- **Errors.** A download refusal, a stored PDF that cannot be read back, a Gemini failure (its
+  `frappe.throw` is caught; the message log is cleared) or an exception of any kind rolls back and marks
+  the invoice `Error` with a sentence naming the invoice and the step; the stored PDF is kept.
+
+**Retry** (`retry_porter_invoice`, `require_outflow_access`): re-reads the invoice under its row lock,
+refuses anything but `Error` (a `Failed` invoice: "…is final and cannot be retried or overridden"), sets
+it `Queued` and enqueues the job with a per-invoice id (`porter-validate-<batch>-<invoice>`, so an upload
+job still running cannot swallow it). The job then goes straight to Reading on the stored PDF: **a stored
+PDF is never downloaded twice**. There is no other path that moves a `Failed` invoice: **no override.**
+
+**The import's state is derived, never stored.** `import_state(statuses)`: `Validating` while any invoice
+is Queued / Downloading / Reading / Comparing; `Validated` only when there are invoices and all Passed;
+otherwise `Validation failed` (a Failed invoice is final, an Error one waits for its Retry).
+`porter.porter_import_states(batches)` derives it in one query; **`porter.is_validated(batch)` is the gate
+Review (#1446) and Create (#1445) ask.** `Outflow Import Batch.status` keeps its bank-line rollup;
+`review.list_imports` replaces it with the derived state for a Porter batch, so Import History reads
+Validating / Validated / Validation failed instead of "Partially Settled" (`importStatusTone`: Validated
+emerald, Validation failed red). #1445 extends `import_state` with Creating / Created.
+
+**Screen.** `get_porter_status` returns `state` and, per invoice, `can_retry`, `has_pdf`, `porter_gstin`,
+`customer_gstin` and `read` (None until read). The dialog reads it through SWR by batch and polls every
+`PORTER_STATUS_POLL_MS` (2 s) while `Validating` — no socket, following Cashbook. `PorterImportSummary`
+shows the import's state with one sentence (`porterStateNote`), then one card per invoice: Downloading →
+Reading → Comparing → outcome (`invoiceProgress`; an Error marks the step it broke in, read off what the
+invoice holds — no PDF: download; PDF, nothing read: Gemini; read: the comparison), the message, Retry on
+an Error only (`canRetryInvoice`), and the statement's figures beside what was read
+(`invoiceFigureRows`; a differing read is highlighted, the verdict stays the server's). **Resume:** the
+page holds the batch in the URL as `?porter=OFI-…` (`PORTER_URL_KEY`, written through `urlStateManager`
+like the period and source params), so a reload reopens the dialog on it; closing clears it; clicking a
+Porter import in Import History opens the dialog on it instead of pinning the table.
+
+**Tests.** `services/outflow_import/test_porter.py` (pure: every mismatch kind, the ₹1 edges, unread vs
+disagreeing, Indian grouping, `import_state`); `api/outflow_import/test_porter_validation.py` (bench: the
+job called directly; fakes only Gemini — `GeminiExtractor._build_client`, replying by which PDF it was
+handed — and `fetch_invoice_pdf`; the helper's own refusals against a canned HTTP response; 3-at-a-time
+measured with a slowed download; the storage apps' `File.after_insert` uploads are stubbed so no test file
+reaches a bucket); `frontend/src/pages/outflow-import/porterImport.test.ts` (states pinned to the doctype
+and the server, progress, figures, Retry). `test_porter_import._upload` now records `frappe.enqueue`: the
+Redis queue is shared with the main bench.
+
+**Known limits.** An invoice whose worker is killed mid-step (RQ timeout, a container restart) stays in
+that step, and the import reads `Validating` until it is discarded (#1447); there is no stale-claim sweep.

@@ -9,7 +9,7 @@ import {
     RefreshCw,
     Upload,
 } from "lucide-react";
-import { useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -60,7 +60,15 @@ import {
     currentStepIndex,
     importSteps,
 } from "../importWizard";
-import { PORTER_SOURCE, PORTER_UPLOAD_URL, type PorterStatus } from "../porterImport";
+import {
+    PORTER_RETRY_METHOD,
+    PORTER_SOURCE,
+    PORTER_STATUS_METHOD,
+    PORTER_STATUS_POLL_MS,
+    PORTER_UPLOAD_URL,
+    porterValidationRunning,
+    type PorterStatus,
+} from "../porterImport";
 import { CashbookReviewTree } from "./CashbookReviewTree";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
 import { PorterImportSummary } from "./PorterImportSummary";
@@ -214,6 +222,13 @@ interface Props {
      * would yank the tab out from under somebody mid-review.
      */
     onRefresh?: () => Promise<void> | void;
+    /**
+     * The Porter import on screen (#1444), held by the page in the URL so a reload reopens it. Set, the
+     * dialog shows that import whatever source was picked; the page also sets it from Import History.
+     */
+    porterBatch?: string | null;
+    /** The upload staged a Porter import: the page holds its batch from here on. */
+    onPorterBatch?: (batch: string) => void;
 }
 
 /**
@@ -231,10 +246,19 @@ interface Props {
  * batch back, rather than reporting a failure that would send somebody to re-upload a statement
  * that is already in.
  */
-export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefresh }: Props) => {
+export const ImportStatementDialog = ({
+    open,
+    onOpenChange,
+    onImported,
+    onRefresh,
+    porterBatch = null,
+    onPorterBatch,
+}: Props) => {
     const inputRef = useRef<HTMLInputElement>(null);
 
-    const [source, setSource] = useState("Cashfree");
+    const [chosenSource, setSource] = useState("Cashfree");
+    // A Porter import on screen (a reload, or Import History) IS the source: there is nothing to pick.
+    const source = porterBatch ? PORTER_SOURCE : chosenSource;
     const [file, setFile] = useState<File | null>(null);
     const [isBusy, setIsBusy] = useState<"preview" | "upload" | "match" | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -265,11 +289,25 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
     const [cashbookStatus, setCashbookStatus] = useState<CashbookStatus | null>(null);
 
     /**
-     * The Porter import as the server reported it after upload (#1443). Its own state, for the reason
-     * Cashbook has its own: the flows share the file picker and nothing else. Set means the lines and
-     * the Porter Invoices are IN THE DATABASE.
+     * The Porter import as the server reports it (#1443, #1444): its invoices and where each one's check
+     * stands. Set means the lines and the Porter Invoices are IN THE DATABASE.
+     *
+     * ⚠️ READ FROM THE SERVER BY BATCH, NEVER HELD AS LOCAL STATE. Validation runs in the background for
+     * minutes; the records are the truth, so a reload or a reopen shows exactly where it stands. Polled
+     * while the import is Validating, and not after (no socket, following Cashbook).
      */
-    const [porterStatus, setPorterStatus] = useState<PorterStatus | null>(null);
+    const porterKey = porterBatch ? `porter-status::${porterBatch}` : null;
+    const { data: porterData, mutate: setPorterData } = useFrappeGetCall<{ message: PorterStatus }>(
+        PORTER_STATUS_METHOD,
+        { batch: porterBatch },
+        porterKey,
+        { refreshInterval: (latest) => (porterValidationRunning(latest?.message) ? PORTER_STATUS_POLL_MS : 0) }
+    );
+    const porterStatus = porterBatch ? porterData?.message ?? null : null;
+    const { mutate: seedCache } = useSWRConfig();
+    const { call: retryPorterInvoice } = useFrappePostCall<{ message: PorterStatus }>(PORTER_RETRY_METHOD);
+    /** The invoice whose Retry is in flight, so its button can say so. */
+    const [retrying, setRetrying] = useState<string | null>(null);
 
     /**
      * The Cashfree match has FINISHED, which is not the same as "not running" (slice CF/S7).
@@ -318,7 +356,6 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
         setCashbookPreview(null);
         setCashbookBatch(null);
         setCashbookStatus(null);
-        setPorterStatus(null);
         setHeaderRow(null);
     }, [open]);
 
@@ -331,7 +368,6 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
         setCashbookPreview(null);
         setCashbookBatch(null);
         setCashbookStatus(null);
-        setPorterStatus(null);
         setError(null);
         // ⚠️ A ROW NUMBER FROM ANOTHER SOURCE'S SHEET IS NOT A SMALLER TRUTH, IT IS A WRONG ONE.
         // Each source has its own export layout, so 17 means the header on one and a transaction
@@ -575,13 +611,35 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                 setError("The server accepted the file but returned no import.");
                 return;
             }
-            setPorterStatus(message);
+            // Seeded, so the invoices show at once; the poll takes over from here.
+            await seedCache(`porter-status::${message.batch}`, { message }, { revalidate: false });
+            onPorterBatch?.(message.batch);
         } catch (err: any) {
             setError(describeFrappeError(err, "The upload failed."));
         } finally {
             setIsBusy(null);
         }
-    }, [file, isBusy, post]);
+    }, [file, isBusy, post, seedCache, onPorterBatch]);
+
+    /**
+     * Retry one Porter Invoice that hit an Error (#1444). The server refuses anything else -- a Failed
+     * invoice is final -- and answers with the import, which restarts the poll.
+     */
+    const handlePorterRetry = useCallback(
+        async (invoice: string) => {
+            setRetrying(invoice);
+            setError(null);
+            try {
+                const response = await retryPorterInvoice({ invoice });
+                await setPorterData(response, { revalidate: false });
+            } catch (err: any) {
+                setError(describeFrappeError(err, "The retry could not be started."));
+            } finally {
+                setRetrying(null);
+            }
+        },
+        [retryPorterInvoice, setPorterData]
+    );
 
     /**
      * Close a Porter import. ⚠️ NOT `onImported`: its lines are not bank lines and the main table does
@@ -908,7 +966,13 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
 
                     {/* PORTER, FROM STEP 2 ON -- the import is IN: its orders, its invoices and where
                         each invoice's check stands. Nothing has been created. */}
-                    {isPorter && porterStatus && <PorterImportSummary status={porterStatus} />}
+                    {isPorter && porterStatus && (
+                        <PorterImportSummary
+                            status={porterStatus}
+                            onRetry={handlePorterRetry}
+                            retrying={retrying}
+                        />
+                    )}
 
                     {/* STEP 2 -- what importing this statement WOULD do. Nothing is written yet. */}
                     {stepIndex === 1 &&

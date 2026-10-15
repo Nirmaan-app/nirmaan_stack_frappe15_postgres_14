@@ -14,7 +14,18 @@ import {
 } from "./importWizard";
 import { NEVER_MATCHED_SOURCES } from "./outflowImportStatus";
 import { SOURCE_OPTIONS } from "./outflowTableModel";
-import { PORTER_SOURCE, invoiceStateTone, porterCountsLine } from "./porterImport";
+import {
+    PORTER_IMPORT_STATES,
+    PORTER_INVOICE_STATES,
+    PORTER_SOURCE,
+    canRetryInvoice,
+    invoiceFigureRows,
+    invoiceProgress,
+    invoiceStateTone,
+    porterCountsLine,
+    porterStateNote,
+    porterValidationRunning,
+} from "./porterImport";
 import { unskipBlockReason } from "./unskipView";
 
 const repoFile = (relative: string) =>
@@ -115,5 +126,105 @@ describe("what the upload reports", () => {
         for (const state of ["Queued", "Downloading", "Reading", "Comparing"]) {
             expect(invoiceStateTone(state)).toBe("pending");
         }
+    });
+});
+
+describe("validating against Porter's invoices (#1444)", () => {
+    it("spells every invoice state as the Porter Invoice doctype does, in its order", () => {
+        const doctype = repoFile("nirmaan_stack/nirmaan_stack/doctype/porter_invoice/porter_invoice.json");
+        const options = doctype.match(/"fieldname": "validation_status",[\s\S]*?"options": "([^"]*)"/)?.[1] ?? "";
+        expect(options.split("\\n")).toEqual([...PORTER_INVOICE_STATES]);
+    });
+
+    it("spells the import's states as the server derives them", () => {
+        const service = repoFile("nirmaan_stack/services/outflow_import/porter.py");
+        for (const state of PORTER_IMPORT_STATES) expect(service).toContain(`= "${state}"`);
+        expect(PORTER_IMPORT_STATES).toEqual(["Validating", "Validated", "Validation failed"]);
+    });
+
+    it("keeps polling only while the import is validating", () => {
+        expect(porterValidationRunning({ state: "Validating" })).toBe(true);
+        expect(porterValidationRunning({ state: "Validated" })).toBe(false);
+        expect(porterValidationRunning({ state: "Validation failed" })).toBe(false);
+        expect(porterValidationRunning(undefined)).toBe(false);
+    });
+
+    it("shows each invoice's progress as Downloading, Reading, Comparing, then its outcome", () => {
+        const progress = (validation_status: string, has_pdf = true, read: object | null = {}) =>
+            invoiceProgress({ validation_status, has_pdf, read: read as never });
+        expect(progress("Queued", false, null)).toEqual([
+            { label: "Downloading", mark: "todo" },
+            { label: "Reading", mark: "todo" },
+            { label: "Comparing", mark: "todo" },
+            { label: "Result", mark: "todo" },
+        ]);
+        expect(progress("Reading", true, null).map((step) => step.mark)).toEqual(["done", "current", "todo", "todo"]);
+        expect(progress("Passed")[3]).toEqual({ label: "Passed", mark: "passed" });
+        expect(progress("Failed")[3]).toEqual({ label: "Failed", mark: "failed" });
+        expect(progress("Passed").slice(0, 3).every((step) => step.mark === "done")).toBe(true);
+    });
+
+    it("marks the step an Error broke in, from what the invoice holds", () => {
+        const marks = (has_pdf: boolean, read: object | null) =>
+            invoiceProgress({ validation_status: "Error", has_pdf, read: read as never }).map((step) => step.mark);
+        // No PDF stored: the download broke.
+        expect(marks(false, null)).toEqual(["failed", "todo", "todo", "failed"]);
+        // A PDF but nothing read: Gemini broke.
+        expect(marks(true, null)).toEqual(["done", "failed", "todo", "failed"]);
+        // Read, but a figure missing: the comparison could not decide.
+        expect(marks(true, {})).toEqual(["done", "done", "failed", "failed"]);
+        expect(invoiceProgress({ validation_status: "Error", has_pdf: false, read: null })[3].label).toBe("Error");
+    });
+
+    it("sets what Gemini read beside the statement's figures, flagging only a read that differs", () => {
+        const rows = invoiceFigureRows({
+            invoice_number: "29SS27A0900001",
+            porter_gstin: "29AAATP0000A1Z1",
+            customer_gstin: "29AAACN9999X1Z0",
+            fare_total: 3087,
+            tax_total: 154.36,
+            read: {
+                invoice_number: "29SS27A0900001",
+                invoice_date: "2026-10-01",
+                supplier_gstin: "29aaatp0000a1z1",
+                receiver_gstin: "27AAACN9999X1Z4",
+                fare: 3087,
+                tax: 155.37,
+            },
+        });
+        expect(rows.map((row) => [row.label, row.differs])).toEqual([
+            ["Invoice number", false],
+            ["Porter GSTIN", false],
+            ["Customer GSTIN", true],
+            ["Fare", false],
+            ["Tax", true],
+        ]);
+        const tax = rows.find((row) => row.label === "Tax");
+        expect(tax?.statement).toBe(154.36);
+        expect(tax?.read).toBe(155.37);
+    });
+
+    it("flags nothing before Gemini has read the invoice", () => {
+        const rows = invoiceFigureRows({
+            invoice_number: "X",
+            porter_gstin: "G1",
+            customer_gstin: "G2",
+            fare_total: 1,
+            tax_total: 1,
+        });
+        expect(rows.every((row) => !row.differs && row.read === null)).toBe(true);
+    });
+
+    it("offers Retry only on an invoice that hit an Error", () => {
+        expect(canRetryInvoice({ validation_status: "Error" })).toBe(true);
+        for (const state of ["Failed", "Passed", "Queued", "Reading"]) {
+            expect(canRetryInvoice({ validation_status: state })).toBe(false);
+        }
+    });
+
+    it("says what each import state means for Create", () => {
+        expect(porterStateNote("Validating")).toMatch(/carries on/);
+        expect(porterStateNote("Validated")).toMatch(/Every invoice agrees/);
+        expect(porterStateNote("Validation failed")).toMatch(/Nothing will be created/);
     });
 });

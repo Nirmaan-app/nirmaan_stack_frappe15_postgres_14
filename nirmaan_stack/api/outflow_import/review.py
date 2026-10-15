@@ -118,6 +118,7 @@ from nirmaan_stack.services.outflow_import.similarity import (
 from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
     CREATE_GATED_SOURCES,
+    PORTER_STATEMENT_SOURCE,
     source_has_settlement_path,
     source_runs_the_matcher,
 )
@@ -3896,7 +3897,7 @@ def list_imports(limit=60, sources=None, month=None):
     if not window:
         limit_clause = "LIMIT %s"
         params.append(max(1, min(int(limit or 60), 200)))
-    return frappe.db.sql(
+    imports = frappe.db.sql(
         f"""
         SELECT b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
                b.total_rows, b.repeats_not_saved, b.gross_amount, b.uploaded_at, b.uploaded_by,
@@ -3916,6 +3917,17 @@ def list_imports(limit=60, sources=None, month=None):
         tuple(params),
         as_dict=True,
     )
+    # ⚠️ A PORTER IMPORT REPORTS ITS OWN STATE (#1444): Validating / Validated / Validation failed,
+    # derived from its Porter Invoices. Its stored `status` is the bank-line rollup, which reads
+    # "Partially Settled" over lines that are not bank lines and wait for Create.
+    from nirmaan_stack.api.outflow_import.porter import porter_import_states
+
+    porter = [row["name"] for row in imports if (row.get("source") or "").strip() == PORTER_STATEMENT_SOURCE]
+    states = porter_import_states(porter)
+    for row in imports:
+        if row["name"] in states:
+            row["status"] = states[row["name"]]
+    return imports
 
 
 # The first and last day a statement covers, for the Statement month (GLOSSARY). A batch whose
