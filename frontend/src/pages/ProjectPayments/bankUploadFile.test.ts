@@ -106,11 +106,14 @@ describe("buildBankFile — expenses", () => {
 });
 
 describe("buildBankFile — rows left out", () => {
-	const noAccountExpense = (documentName: string): BankFileRow => ({
+	const noAccountExpense = (documentName: string, over: Partial<BankFileRow> = {}): BankFileRow => ({
 		kind: "expense",
 		documentName,
 		amount: 900,
 		projectLabel: "Tower A",
+		description: "Hotel stay for site team\nA/c 1234",
+		expenseType: "Accommodation",
+		...over,
 	});
 	const expense = noAccountExpense("PE-2026-00900");
 	const noPayee = (documentName: string) => vendorPayment({ documentName, account: undefined });
@@ -153,20 +156,29 @@ describe("buildBankFile — rows left out", () => {
 		expect(file.leftOut).toHaveLength(2);
 	});
 
-	it("names the left-out rows the way the toast says them", () => {
+	it("names the left-out rows the way the toast says them: a payment by its PO / SR, an expense by what it is", () => {
 		const fourNoPayee = [noPayee2, noPayee3, noPayee4, noPayee("PO/005/26-27")];
-		const expense2 = noAccountExpense("NPE-2026-00012");
+		const expense2 = noAccountExpense("NPE-2026-00012", { description: "", expenseType: "Travel", amount: 12500 });
 
 		expect(describeLeftOut(buildBankFile([expense], ICICI).leftOut)).toEqual([
-			"1 expense with no account (PE-2026-00900)",
+			"1 expense with no account (Hotel stay for site team ₹900)",
 		]);
 		expect(describeLeftOut(buildBankFile([noPayee2], ICICI).leftOut)).toEqual([
 			"1 payment with no account (PO/002/26-27)",
 		]);
 		expect(describeLeftOut(buildBankFile([expense, expense2, ...fourNoPayee], ICICI).leftOut)).toEqual([
-			"2 expenses with no account (PE-2026-00900, NPE-2026-00012)",
-			"4 payments with no account (PO/002/26-27, PO/003/26-27, PO/004/26-27, …)",
+			"2 expenses with no account (Hotel stay for site team ₹900; Travel ₹12,500)",
+			"4 payments with no account (PO/002/26-27; PO/003/26-27; PO/004/26-27; …)",
 		]);
 		expect(describeLeftOut([])).toEqual([]);
+	});
+
+	it("never names a left-out expense by its ID, and keeps a long description short", () => {
+		const long = noAccountExpense("0ni7ufc29r", { description: "Advance to the shuttering contractor for the third floor slab" });
+		const bare = noAccountExpense("mpc0t7hd08", { description: undefined, expenseType: undefined });
+
+		expect(describeLeftOut(buildBankFile([long, bare], ICICI).leftOut)).toEqual([
+			"2 expenses with no account (Advance to the shuttering cont… ₹900; Expense ₹900)",
+		]);
 	});
 });

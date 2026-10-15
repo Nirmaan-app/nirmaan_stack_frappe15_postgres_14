@@ -2,8 +2,9 @@ import { unparse } from "papaparse";
 
 import type { PayToAccount } from "@/types/NirmaanStack/Payee";
 import { formatDate, formatDateToDDMMYYYY } from "@/utils/FormatDate";
+import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
-import { PAID_TO_MISSING, type PaidToMissing } from "@/utils/payees/paidTo";
+import { PAID_TO_MISSING, expenseTitle, type PaidToMissing } from "@/utils/payees/paidTo";
 
 /** Which bulk-transfer file to emit. ICICI's PAB_VENDOR layout and Cashfree's payout template share no columns. */
 export type BankFileFormat = "icici" | "cashfree";
@@ -18,6 +19,10 @@ export interface BankFileRow {
 	documentName: string;
 	amount: number | string;
 	projectLabel: string | undefined;
+	/** An expense's description and type: how the toast names it when it is left out, since its ID
+	 *  means nothing to an accountant. Unused on a PO / WO payment, named by its PO / SR. */
+	description?: string;
+	expenseType?: string;
 	/** The row's own pay-to account, copied when it was raised (ADR-0033, #1438): never its vendor's
 	 *  Payee as it reads now. */
 	account?: BankFileAccount;
@@ -153,16 +158,24 @@ const LEFT_OUT_ACTION: Partial<Record<BankFileLeftOutReason, (count: number) => 
 	[ACCOUNT_CHANGED]: (n) => (n > 1 ? ": reject them and raise them again" : ": reject it and raise it again"),
 };
 
+/** How the toast names a left-out row: a PO / WO payment by its PO / SR, an expense by its
+ *  description (or type) and amount, short enough for three in a toast. */
+const LEFT_OUT_NAME_MAX = 30;
+const leftOutName = (row: BankFileRow): string =>
+	row.kind === "expense"
+		? `${expenseTitle(row.description, row.expenseType || "Expense", LEFT_OUT_NAME_MAX)} ${formatToRoundedIndianRupee(row.amount)}`
+		: row.documentName;
+
 /**
  * The left-out rows as phrases for the export toast, one per reason, naming the first three, e.g.
- * "2 expenses with no account (PE-2026-00841, NPE-2026-00012)". The accountant must know the file is
- * shorter than their selection, and which rows still need paying by hand.
+ * "2 expenses with no account (Hotel stay for site team ₹900; Travel ₹12,500)". The accountant must
+ * know the file is shorter than their selection, and which rows still need paying by hand.
  */
 export function describeLeftOut(leftOut: BankFileLeftOut[]): string[] {
 	return (Object.keys(LEFT_OUT_PHRASES) as BankFileLeftOutReason[]).flatMap((reason) => {
-		const names = leftOut.filter((l) => l.reason === reason).map((l) => l.row.documentName);
+		const names = leftOut.filter((l) => l.reason === reason).map((l) => leftOutName(l.row));
 		if (names.length === 0) return [];
-		const list = names.slice(0, 3).join(", ") + (names.length > 3 ? ", …" : "");
+		const list = names.slice(0, 3).join("; ") + (names.length > 3 ? "; …" : "");
 		const action = LEFT_OUT_ACTION[reason]?.(names.length) ?? "";
 		return [`${LEFT_OUT_PHRASES[reason](names.length)} (${list})${action}`];
 	});

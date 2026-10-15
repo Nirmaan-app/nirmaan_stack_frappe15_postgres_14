@@ -49,6 +49,8 @@ export interface PayeeBankForm {
     setDuplicate: (dup: PayeeSummary | null) => void;
     /** Why the form can't be submitted yet, or null. */
     problem: string | null;
+    /** True when the form edits a Payee (#1435) rather than adding one: the duplicate block words it so. */
+    editing: boolean;
     reset: () => void;
 }
 
@@ -174,6 +176,7 @@ export function usePayeeBankForm({
         duplicate,
         setDuplicate,
         problem: payeeFormProblem(form, { bankFound: !!bank || payeeEditKeepsIfsc(editing, form.ifsc) }),
+        editing: !!editing,
         reset,
     };
 }

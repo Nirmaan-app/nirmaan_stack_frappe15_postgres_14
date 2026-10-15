@@ -23,7 +23,7 @@ import { getFrappeError } from "@/utils/frappeErrors";
 
 import { useVendorPayeeChoice } from "./useVendorPayeeChoice";
 import { VendorPayeeSection } from "./VendorPayeeSection";
-import { CHANGE_VENDOR_PAYEE_API } from "./vendorPayeeApi";
+import { CHANGE_VENDOR_PAYEE_API, useForgetPayeeReads } from "./vendorPayeeApi";
 
 type ChangeReply = { payee: PayeeSummary } | { duplicate: PayeeSummary; message: string };
 
@@ -48,6 +48,7 @@ export function ChangeVendorAccountDialog({
 }: ChangeVendorAccountDialogProps) {
     const choice = useVendorPayeeChoice();
     const { call, loading } = useFrappePostCall<{ message: ChangeReply }>(CHANGE_VENDOR_PAYEE_API);
+    const forgetPayeeReads = useForgetPayeeReads();
 
     // Closing drops what was typed, so the next open starts clean.
     const change = (next: boolean) => {
@@ -74,6 +75,8 @@ export function ChangeVendorAccountDialog({
                 description: `${vendor.vendor_name} is now paid into ${payee.name}, ${payee.account_name}.`,
                 variant: "success",
             });
+            // The Payees' linked vendors changed (the old one lost this vendor, the new one gained it).
+            void forgetPayeeReads();
             onChanged?.(payee);
             change(false);
         } catch (e) {

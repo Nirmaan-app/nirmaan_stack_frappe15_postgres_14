@@ -34,11 +34,19 @@ const namedList = (names: string[]): string =>
         ? `${names.slice(0, MAX_NAMED).join(", ")} and ${names.length - MAX_NAMED} more`
         : names.join(", ");
 
+/** A linked vendor as a card names it: its name, with its city for context ("Kaveri Ductfab (VALSAD)")
+ *  unless the name already says it. */
+const linkedVendorName = (v: PayeeWithLinks["linked_vendors"][number]): string => {
+    const name = v.vendor_name || v.name;
+    const city = v.vendor_city?.trim();
+    return city && !name.toLowerCase().includes(city.toLowerCase()) ? `${name} (${city})` : name;
+};
+
 /**
  * A suggestion card's second line: whether the PAN agrees with `vendorPan` (the new vendor's, as
- * typed; nothing is said until one is), then the vendors linked to the Payee, naming their places
- * ("Linked to 3 vendors: Rohtak, Gujarat, Bengaluru."). "Linked", not "paid": a Payee may serve
- * vendors that were never paid.
+ * typed; nothing is said until one is), then the vendors linked to the Payee by name, with their
+ * cities (spec story 26: "Linked to 2 vendors: Kaveri Ductfab (Rohtak), KDS (Gujarat)."). "Linked",
+ * not "paid": a Payee may serve vendors that were never paid.
  */
 export const suggestionLinkLine = (s: PayeeSuggestion, vendorPan: string | undefined): string => {
     const pan =
@@ -50,8 +58,8 @@ export const suggestionLinkLine = (s: PayeeSuggestion, vendorPan: string | undef
     const label = linkedVendorsLabel(s.vendors);
     let linked = NO_VENDOR_LINKED;
     if (label) {
-        const places = [...new Set(s.linked_vendors.map((v) => v.vendor_city || v.vendor_name || v.name))];
-        linked = `Linked to ${label}${places.length ? `: ${namedList(places)}` : ""}.`;
+        const names = [...new Set(s.linked_vendors.map(linkedVendorName))];
+        linked = `Linked to ${label}${names.length ? `: ${namedList(names)}` : ""}.`;
     }
     return [pan, linked].filter(Boolean).join(" ");
 };

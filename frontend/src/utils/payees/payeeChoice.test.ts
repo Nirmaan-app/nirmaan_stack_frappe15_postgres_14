@@ -11,9 +11,9 @@ import {
     vendorPayeeProblem,
 } from "./payeeChoice";
 
-const vendor = (name: string, city: string | null, pan: string | null = "AAHCK1234M") => ({
+const vendor = (name: string, city: string | null, pan: string | null = "AAHCK1234M", vendorName = "Kaveri Ductfab") => ({
     name,
-    vendor_name: `Kaveri Ductfab (${city})`,
+    vendor_name: vendorName,
     vendor_city: city,
     vendor_pan: pan,
 });
@@ -44,19 +44,19 @@ describe("payee suggestion lines", () => {
         );
     });
 
-    it("a strong match says the PAN agrees and names its vendors' places", () => {
+    it("a strong match says the PAN agrees and names its vendors, with their places (spec story 26)", () => {
         expect(suggestionLinkLine(suggestion(), "AAHCK1234M")).toBe(
-            "Same PAN as its linked vendors. Linked to 3 vendors: Rohtak, Gujarat, Bengaluru.",
+            "Same PAN as its linked vendors. Linked to 3 vendors: Kaveri Ductfab (Rohtak), Kaveri Ductfab (Gujarat), Kaveri Ductfab (Bengaluru).",
         );
     });
 
-    it("a name-only match says the PAN differs and names its vendors' places", () => {
+    it("a name-only match says the PAN differs and names its vendors", () => {
         const s = suggestion({
             match: PAYEE_MATCH.NAME_ONLY,
             vendors: 1,
             linked_vendors: [vendor("V9", "Nashik", "ZZZZZ9999Z")],
         });
-        expect(suggestionLinkLine(s, "AAHCK1234M")).toBe("Different PAN. Linked to 1 vendor: Nashik.");
+        expect(suggestionLinkLine(s, "AAHCK1234M")).toBe("Different PAN. Linked to 1 vendor: Kaveri Ductfab (Nashik).");
     });
 
     it("says nothing about PAN until the new vendor's PAN is typed (#1420 walk C2)", () => {
@@ -65,8 +65,8 @@ describe("payee suggestion lines", () => {
             vendors: 1,
             linked_vendors: [vendor("V9", "Nashik", "ZZZZZ9999Z")],
         });
-        expect(suggestionLinkLine(s, "")).toBe("Linked to 1 vendor: Nashik.");
-        expect(suggestionLinkLine(s, undefined)).toBe("Linked to 1 vendor: Nashik.");
+        expect(suggestionLinkLine(s, "")).toBe("Linked to 1 vendor: Kaveri Ductfab (Nashik).");
+        expect(suggestionLinkLine(s, undefined)).toBe("Linked to 1 vendor: Kaveri Ductfab (Nashik).");
     });
 
     it("a name-only match with no PAN to compare says nothing about PAN", () => {
@@ -78,12 +78,26 @@ describe("payee suggestion lines", () => {
         expect(suggestionLinkLine(suggestion(), "AAHCK1234M")).not.toMatch(/paid/i);
     });
 
-    it("names each place once, falling back to the vendor name", () => {
+    it("leaves the city out when the vendor's name already says it", () => {
+        const s = suggestion({
+            vendors: 1,
+            linked_vendors: [vendor("V1", "ROHTAK", "AAHCK1234M", "D.S. Ductofab Systems Pvt. Ltd. (Rohtak)")],
+        });
+        expect(suggestionLinkLine(s, "")).toBe("Same PAN as its linked vendors. Linked to 1 vendor: D.S. Ductofab Systems Pvt. Ltd. (Rohtak).");
+    });
+
+    it("names a vendor with no city by its name alone, and one with no name by its ID", () => {
         const s = suggestion({
             vendors: 3,
-            linked_vendors: [vendor("V1", "Pune"), vendor("V2", "Pune"), { ...vendor("V3", null), vendor_name: "KDS" }],
+            linked_vendors: [
+                vendor("V1", "VALSAD", "AAHCK1234M", "Kaveri Ductfab Systems"),
+                vendor("V2", null, "AAHCK1234M", "KDS"),
+                { ...vendor("VEN-Material-0175", null), vendor_name: null },
+            ],
         });
-        expect(suggestionLinkLine(s, "AAHCK1234M")).toBe("Same PAN as its linked vendors. Linked to 3 vendors: Pune, KDS.");
+        expect(suggestionLinkLine(s, "AAHCK1234M")).toBe(
+            "Same PAN as its linked vendors. Linked to 3 vendors: Kaveri Ductfab Systems (VALSAD), KDS, VEN-Material-0175.",
+        );
     });
 });
 

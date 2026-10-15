@@ -146,9 +146,15 @@ export const linkedVendorsLabel = (vendors: number): string | null =>
 /** What a Payee with no vendor says it is linked to. */
 export const NO_VENDOR_LINKED = "No vendor is linked to it yet.";
 
-/** The duplicate block's sentence: which Payee already holds the account, and the vendors on it. */
-export const duplicateSentence = (dup: Pick<PayeeSummary, "name" | "account_name" | "vendors">): string => {
+/** The duplicate block's sentence: which Payee already holds the account, the vendors on it, and what
+ *  to do. Adding: pick that Payee. Editing a Payee (`editing`): there is nothing to pick, so use a
+ *  different account, or open that Payee. */
+export const duplicateSentence = (
+    dup: Pick<PayeeSummary, "name" | "account_name" | "vendors">,
+    { editing = false }: { editing?: boolean } = {},
+): string => {
     const label = linkedVendorsLabel(dup.vendors);
     const linked = label ? `It is linked to ${label}.` : NO_VENDOR_LINKED;
-    return `${dup.name}, ${dup.account_name}, has the same account number and IFSC. ${linked} Pick that payee instead of adding a new one.`;
+    const action = editing ? "Use a different account, or open that payee." : "Pick that payee instead of adding a new one.";
+    return `${dup.name}, ${dup.account_name}, has the same account number and IFSC. ${linked} ${action}`;
 };

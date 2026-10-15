@@ -536,6 +536,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     // An expense has no PO / SR: its own ID is the remark.
                     documentName: isVendorPayment ? payment.document_name : payment.name,
                     amount: payment.amount,
+                    description: payment.against_full,
+                    expenseType: payment.expense_type,
                     projectLabel: projectLabelMap.get(payment.project) ?? (payment.project || "Non Project"),
                     account: paidTo[i]?.account ?? undefined,
                     missing: paidTo[i]?.missing,

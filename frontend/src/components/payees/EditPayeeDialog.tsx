@@ -34,6 +34,7 @@ import { cleanIfsc, sameAccountDetails } from "@/utils/payees/payeeForm";
 
 import { PayeeBankFields } from "./PayeeBankFields";
 import { usePayeeBankForm } from "./usePayeeBankForm";
+import { useForgetPayeeReads } from "./vendorPayeeApi";
 
 const PAYEE_PAGE_API = "nirmaan_stack.api.payees.payee_page";
 /** The Payees page's Edit (Accounts only). Takes `name`. */
@@ -68,6 +69,7 @@ export function EditPayeeDialog({ payee, vendors, endpoint, title, holderName, o
     const payeeForm = usePayeeBankForm({ checkApi: endpoint.checkApi, editing: payee, holderName });
     const { call, loading } = useFrappePostCall<{ message: EditReply }>(endpoint.saveApi);
     const [confirming, setConfirming] = useState(false);
+    const forgetPayeeReads = useForgetPayeeReads();
     const { form, problem, duplicate, lookingUp } = payeeForm;
 
     const vendorsKnown = payee.vendors <= 1 || vendors !== undefined;
@@ -96,6 +98,7 @@ export function EditPayeeDialog({ payee, vendors, endpoint, title, holderName, o
                 description: `${reply.payee.name}, ${reply.payee.account_name}.`,
                 variant: "success",
             });
+            void forgetPayeeReads();
             onSaved?.(reply.payee);
             onClose();
         } catch (e) {

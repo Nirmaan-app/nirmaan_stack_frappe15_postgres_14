@@ -111,6 +111,14 @@ describe("duplicateSentence", () => {
             "No vendor is linked to it yet.",
         );
     });
+
+    it("on an edit, says to use a different account rather than pick that payee", () => {
+        expect(
+            duplicateSentence({ name: "PYE-0412", account_name: "Kaveri Ductfab Systems Pvt. Ltd.", vendors: 3 }, { editing: true }),
+        ).toBe(
+            "PYE-0412, Kaveri Ductfab Systems Pvt. Ltd., has the same account number and IFSC. It is linked to 3 vendors. Use a different account, or open that payee.",
+        );
+    });
 });
 
 /** Shared with the server's suite (`services/payees/test_rules.py`): one set of cases, two twins (F1). */

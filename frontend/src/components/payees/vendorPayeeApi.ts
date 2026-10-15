@@ -4,8 +4,8 @@
  * #1435) use it; one vendor's account is `vendorPayeeAccount.useVendorAccount`.
  */
 
-import { useEffect, useState } from "react";
-import { useFrappeGetCall } from "frappe-react-sdk";
+import { useCallback, useEffect, useState } from "react";
+import { useFrappeGetCall, useSWRConfig } from "frappe-react-sdk";
 
 import type { PayeeSuggestion, PayeeWithLinks } from "@/types/NirmaanStack/Payee";
 
@@ -19,6 +19,12 @@ export const CHANGE_VENDOR_PAYEE_API = `${VENDOR_PAYEE_API}.change_vendor_payee`
 export const EDIT_VENDOR_PAYEE_API = `${VENDOR_PAYEE_API}.edit_vendor_payee`;
 
 const SUGGEST_DEBOUNCE_MS = 400;
+
+/** The SWR keys of the Payee reads below: every suggestion list and every Payee with its links. */
+const SUGGESTIONS_KEY = "vendor-payee-suggestions:";
+const PAYEE_WITH_LINKS_KEY = "payee-with-links:";
+const isPayeeReadKey = (key: unknown): boolean =>
+    typeof key === "string" && (key.startsWith(SUGGESTIONS_KEY) || key.startsWith(PAYEE_WITH_LINKS_KEY));
 
 /** `value`, once it has stopped changing for `ms`. */
 function useSettled<T>(value: T, ms: number): T {
@@ -41,7 +47,7 @@ export function useVendorPayeeSuggestions(vendorName: string | undefined, vendor
     const { data, isLoading, error } = useFrappeGetCall<{ message: { suggestions: PayeeSuggestion[] } }>(
         SUGGEST_VENDOR_PAYEES_API,
         { vendor_name: name, vendor_pan: pan },
-        ask ? `vendor-payee-suggestions:${name}|${pan}` : null,
+        ask ? `${SUGGESTIONS_KEY}${name}|${pan}` : null,
     );
     return { asked: ask, suggestions: data?.message.suggestions ?? [], isLoading: ask && isLoading, error };
 }
@@ -52,7 +58,19 @@ export function usePayeeWithLinks(payee: string | null) {
     const { data, isLoading, error } = useFrappeGetCall<{ message: PayeeWithLinks }>(
         GET_PAYEE_WITH_LINKS_API,
         { payee },
-        payee ? `payee-with-links:${payee}` : null,
+        payee ? `${PAYEE_WITH_LINKS_KEY}${payee}` : null,
     );
     return { choice: data?.message ?? null, isLoading, error };
+}
+
+/**
+ * Forget every cached Payee read above (the suggestion cards, the "Use an existing payee"
+ * confirmation, the vendors an edit names) and refetch the ones on screen. Call it after a Payee is
+ * edited or a vendor is pointed at another Payee: a cached read kept showing the old holder name and
+ * vendor list until it revalidated (#1420 walk). Cleared, not just revalidated, so the next open
+ * waits for the new data instead of showing the old.
+ */
+export function useForgetPayeeReads() {
+    const { mutate } = useSWRConfig();
+    return useCallback(() => mutate(isPayeeReadKey, undefined, { revalidate: true }), [mutate]);
 }

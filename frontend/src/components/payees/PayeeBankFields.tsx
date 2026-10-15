@@ -49,7 +49,7 @@ interface PayeeBankFieldsProps {
 }
 
 export function PayeeBankFields({ payeeForm, disabled, layout = "dialog", duplicateAction }: PayeeBankFieldsProps) {
-    const { form, setField, bank, lookingUp, ifscError, duplicate } = payeeForm;
+    const { form, setField, bank, lookingUp, ifscError, duplicate, editing } = payeeForm;
     const [leftIfsc, setLeftIfsc] = useState(false);
     const mismatch =
         !!cleanAccountNumber(form.confirm_account_number) && !accountsMatch(form) ? "The account numbers don't match." : null;
@@ -145,7 +145,7 @@ export function PayeeBankFields({ payeeForm, disabled, layout = "dialog", duplic
                     <AlertCircle className="mt-0.5 h-[18px] w-[18px] shrink-0 text-red-600" aria-hidden="true" />
                     <div className="text-[13px] leading-normal text-red-900">
                         <p className="font-semibold">This account is already a payee</p>
-                        <p className="mt-0.5">{duplicateSentence(duplicate)}</p>
+                        <p className="mt-0.5">{duplicateSentence(duplicate, { editing })}</p>
                         <div className="mt-1.5">
                             {duplicateAction ? (
                                 duplicateAction(duplicate)

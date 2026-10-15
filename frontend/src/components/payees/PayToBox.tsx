@@ -114,8 +114,8 @@ export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
                         <p>
                             {box.vendor_name || "The vendor"} is now paid into{" "}
                             <span className="font-semibold">{box.current_account.account_name}</span>, A/c{" "}
-                            <span className="font-semibold tabular-nums">{box.current_account.account_number}</span>,{" "}
-                            {box.current_account.ifsc}
+                            <span className="whitespace-nowrap font-semibold tabular-nums">{box.current_account.account_number}</span>,{" "}
+                            <span className="whitespace-nowrap">{box.current_account.ifsc}</span>
                             {bankLine(box.current_account) ? ` (${bankLine(box.current_account)})` : ""}.
                         </p>
                     ) : (
@@ -133,9 +133,10 @@ export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
                 <>
                     {changed && <p className="text-xs text-muted-foreground">Account on this payment (old)</p>}
                     <p className="text-xl font-bold leading-tight">{account.account_name}</p>
+                    {/* The account number and IFSC each get a full row, so neither wraps mid-value beside its Copy button. */}
+                    <AccountValue label="Account number" value={account.account_number} />
+                    <AccountValue label="IFSC" value={account.ifsc} />
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <AccountValue label="Account number" value={account.account_number} />
-                        <AccountValue label="IFSC" value={account.ifsc} />
                         <Fact label="Bank" value={bank || "--"} />
                         <Fact label="Set by" value={namedByText(box.named_by, box.vendor_name)} />
                     </div>
@@ -174,7 +175,7 @@ function Fact({ label, value }: { label: string; value: string }) {
     );
 }
 
-/** A value to paste into the bank portal, with a Copy button that copies exactly it. */
+/** A value to paste into the bank portal, on one line, with a Copy button that copies exactly it. */
 function CopyValue({ label, value }: { label: string; value: string }) {
     const [copied, setCopied] = useState(false);
     const copy = async () => {
@@ -189,7 +190,7 @@ function CopyValue({ label, value }: { label: string; value: string }) {
         <div className="flex items-end gap-2">
             <div className="min-w-0 flex-grow">
                 <p className="text-xs text-muted-foreground">{label}</p>
-                <p className="mt-0.5 break-all text-[15px] font-semibold tabular-nums tracking-wide">{value}</p>
+                <p className="mt-0.5 whitespace-nowrap text-[15px] font-semibold tabular-nums tracking-wide">{value}</p>
             </div>
             <Button
                 type="button"
