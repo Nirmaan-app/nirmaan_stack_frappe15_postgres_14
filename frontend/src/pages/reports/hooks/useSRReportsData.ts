@@ -2,14 +2,12 @@
 import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from 'frappe-react-sdk';
 import { useMemo } from 'react';
 import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
-import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { Projects } from '@/types/NirmaanStack/Projects';
 import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { parseNumber } from '@/utils/parseNumber';
 import {
     queryKeys,
     getSRReportListOptions,
-    getPaymentReportListOptions,
 } from '@/config/queryKeys';
 
 export interface SRReportRowData {
@@ -30,7 +28,6 @@ interface UseSRReportsDataResult {
     isLoading: boolean;
     error: Error | null;
     mutateSRs: () => Promise<any>;
-    mutatePayments: () => Promise<any>;
 }
 
 const getAllProjectsMinimalOptions = (): GetDocListArgs<FrappeDoc<Projects>> => ({
@@ -46,13 +43,7 @@ const getAllVendorsMinimalOptions = (): GetDocListArgs<FrappeDoc<Vendors>> => ({
 
 export const useSRReportsData = (): UseSRReportsDataResult => {
     const srOptions = getSRReportListOptions();
-    // Fetch payments only for Service Requests
-    const paymentOptions = getPaymentReportListOptions(['Service Requests']);
-
     const srQueryKey = queryKeys.serviceRequests.list(srOptions);
-    // Use a unique key suffix for SR-specific payments
-    const paymentQueryKey = ["Project Payments", "SR-Reports", JSON.stringify(paymentOptions)];
-
 
     const {
         data: serviceRequests,
@@ -60,13 +51,6 @@ export const useSRReportsData = (): UseSRReportsDataResult => {
         error: srError,
         mutate: mutateSRs,
     } = useFrappeGetDocList<ServiceRequests>(srQueryKey[0], srOptions as GetDocListArgs<FrappeDoc<ServiceRequests>>, srQueryKey);
-
-    const {
-        data: payments,
-        isLoading: paymentsLoading,
-        error: paymentsError,
-        mutate: mutatePayments,
-    } = useFrappeGetDocList<ProjectPayments>(paymentQueryKey[0], paymentOptions as GetDocListArgs<FrappeDoc<ProjectPayments>>, paymentQueryKey);
 
     const allProjectsOptions = getAllProjectsMinimalOptions();
     const allVendorsOptions = getAllVendorsMinimalOptions();
@@ -96,63 +80,47 @@ export const useSRReportsData = (): UseSRReportsDataResult => {
         }, {} as Record<string, string>) ?? {};
     }, [vendors]);
 
-    const paymentsMap = useMemo(() => {
-        return payments?.reduce((acc, payment) => {
-            if (payment.document_name) {
-                const currentTotal = acc[payment.document_name] || 0;
-                acc[payment.document_name] = currentTotal + parseNumber(payment.amount);
-            }
-            return acc;
-        }, {} as Record<string, number>) ?? {};
-    }, [payments]);
-
     const reportData = useMemo<SRReportRowData[] | null>(() => {
-        if (srLoading || paymentsLoading || projectsLoading || vendorsLoading) {
+        if (srLoading || projectsLoading || vendorsLoading) {
             return null;
         }
         if (!serviceRequests) {
             return [];
         }
 
-        const srData: SRReportRowData[] = [];
-
-        (serviceRequests || []).forEach(sr => {
+        // Every Approved WO is a candidate, and each report's own condition on Amount Paid decides whether
+        // it shows. There is no separate "has been paid" filter: one on Amount Paid dropped a WO whose
+        // Amount Paid a refund took to zero before its condition was even asked (ADR-0034, #1461).
+        const srData: SRReportRowData[] = serviceRequests.map(sr => ({
+            name: sr.name,
+            creation: sr.creation,
+            project: sr.project,
+            projectName: projectMap[sr.project] || sr.project,
+            vendor: sr.vendor,
+            vendorName: vendorMap[sr.vendor] || sr.vendor,
             // total_amount on parent is fresh on every save (validate) and
             // already includes GST when sr.gst === "true".
-            const totalWithTax = parseNumber(sr.total_amount);
-            if(sr.amount_paid){
-                srData.push({
-                    name: sr.name,
-                    creation: sr.creation,
-                    project: sr.project,
-                    projectName: projectMap[sr.project] || sr.project,
-                    vendor: sr.vendor,
-                    vendorName: vendorMap[sr.vendor] || sr.vendor,
-                    totalAmount: parseNumber(totalWithTax),
-                    invoiceAmount: parseNumber(sr.amount_invoiced),
-                    amountPaid: paymentsMap[sr.name] || 0,
-                    originalDoc: sr,
-                });
-            }
-        });
+            totalAmount: parseNumber(sr.total_amount),
+            invoiceAmount: parseNumber(sr.amount_invoiced),
+            // The stored Amount Paid: Paid payments less Received refunds; TDS withheld is not part of it.
+            amountPaid: parseNumber(sr.amount_paid),
+            originalDoc: sr,
+        }));
 
         srData.sort((a, b) => new Date(b.creation).getTime() - new Date(a.creation).getTime());
         return srData;
 
     }, [
-        serviceRequests, payments, projects, vendors,
-        srLoading, paymentsLoading, projectsLoading, vendorsLoading,
-        projectMap, vendorMap, paymentsMap,
+        serviceRequests, srLoading, projectsLoading, vendorsLoading, projectMap, vendorMap,
     ]);
 
-    const isLoading = srLoading || paymentsLoading || projectsLoading || vendorsLoading;
-    const error = srError || paymentsError || projectsError || vendorsError;
+    const isLoading = srLoading || projectsLoading || vendorsLoading;
+    const error = srError || projectsError || vendorsError;
 
     return {
         reportData,
         isLoading,
         error: error instanceof Error ? error : null,
         mutateSRs,
-        mutatePayments,
     };
 };
