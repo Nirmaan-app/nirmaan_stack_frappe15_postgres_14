@@ -69,9 +69,11 @@ import {
     porterValidationRunning,
     type PorterStatus,
 } from "../porterImport";
+import { porterReviewOffered } from "../porterReview";
 import { CashbookReviewTree } from "./CashbookReviewTree";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
 import { PorterImportSummary } from "./PorterImportSummary";
+import { PorterReviewPanel } from "./PorterReviewPanel";
 import { SheetHeaderPicker } from "./SheetHeaderPicker";
 
 const PREVIEW_URL =
@@ -757,6 +759,7 @@ export const ImportStatementDialog = ({
               : Boolean(preview),
         staged: isPorter ? Boolean(porterStatus) : isCashbook ? Boolean(cashbookBatch) : Boolean(staged),
         matched,
+        validated: isPorter && porterReviewOffered(porterStatus),
     };
     const steps = importSteps(source);
     const stepIndex = currentStepIndex(source, flow);
@@ -971,7 +974,13 @@ export const ImportStatementDialog = ({
                             status={porterStatus}
                             onRetry={handlePorterRetry}
                             retrying={retrying}
+                            collapseInvoices={porterReviewOffered(porterStatus)}
                         />
+                    )}
+
+                    {/* PORTER, STEP 3 -- every invoice passed: place each order before Create (#1446). */}
+                    {isPorter && porterStatus && porterReviewOffered(porterStatus) && (
+                        <PorterReviewPanel batch={porterStatus.batch} />
                     )}
 
                     {/* STEP 2 -- what importing this statement WOULD do. Nothing is written yet. */}

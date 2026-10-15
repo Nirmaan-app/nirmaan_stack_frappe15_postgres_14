@@ -37,10 +37,13 @@ export const PorterImportSummary = ({
     status,
     onRetry,
     retrying,
+    collapseInvoices = false,
 }: {
     status: PorterStatus;
     onRetry?: (invoice: string) => void;
     retrying?: string | null;
+    /** Once every invoice passed, the cards fold away under one line so the review leads (#1446). */
+    collapseInvoices?: boolean;
 }) => {
     const period =
         status.period_from && status.period_to && status.period_to !== status.period_from
@@ -48,6 +51,18 @@ export const PorterImportSummary = ({
             : status.period_from
               ? formatDate(status.period_from)
               : "not dated";
+    const invoiceCards = (
+        <ul className="space-y-3">
+            {status.invoices.map((invoice) => (
+                <InvoiceCard
+                    key={invoice.name}
+                    invoice={invoice}
+                    onRetry={onRetry}
+                    retrying={retrying === invoice.name}
+                />
+            ))}
+        </ul>
+    );
     return (
         <div className="space-y-4">
             <div className="space-y-2 rounded-md border bg-muted/30 p-4">
@@ -70,16 +85,16 @@ export const PorterImportSummary = ({
                 </div>
             </div>
 
-            <ul className="space-y-3">
-                {status.invoices.map((invoice) => (
-                    <InvoiceCard
-                        key={invoice.name}
-                        invoice={invoice}
-                        onRetry={onRetry}
-                        retrying={retrying === invoice.name}
-                    />
-                ))}
-            </ul>
+            {collapseInvoices ? (
+                <details>
+                    <summary className="cursor-pointer text-xs text-muted-foreground">
+                        Show the {status.invoices.length} invoice{status.invoices.length === 1 ? "" : "s"} checked
+                    </summary>
+                    <div className="mt-2">{invoiceCards}</div>
+                </details>
+            ) : (
+                invoiceCards
+            )}
         </div>
     );
 };

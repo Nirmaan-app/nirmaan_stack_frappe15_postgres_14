@@ -6528,7 +6528,7 @@ four shapes) and the IFSC cases in `TestTheContainsQueryMirrorsThePureTokens`; `
 (3: the prompt text, a branch-code-only inflow, an inflow another line accounts for).
 
 
-## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, validation at #1444, the rest NOT BUILT YET)
+## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, validation at #1444, review at #1446, the rest NOT BUILT YET)
 
 Decisions: **[ADR-0032](../../../docs/adr/0032-porter-statement-import.md)** (owner grilling, Q1–Q36).
 Terms: `GLOSSARY.md` § *Porter deliveries*. The design below is the target; § *As built* at the end of
@@ -6756,3 +6756,55 @@ Redis queue is shared with the main bench.
 
 **Known limits.** An invoice whose worker is killed mid-step (RQ timeout, a container restart) stays in
 that step, and the import reads `Validating` until it is discarded (#1447); there is no stale-claim sweep.
+
+### As built — #1446: review and correct projects before Create (2026-10-15)
+
+**Where it lives.** Endpoints: `api/outflow_import/porter_review.py` — `get_porter_review(batch)` (GET) and
+`set_porter_placement(batch, rows, project)` (POST), both `require_outflow_access`. Pure: the group key
+`porter.remark_group_key(remarks, city)` and `porter.REASON_REVIEW`. Screen logic:
+`frontend/src/pages/outflow-import/porterReview.ts`; panel `components/PorterReviewPanel.tsx`.
+
+**The gate.** Both endpoints refuse an import that is not Validated (`porter.is_validated`; "every invoice
+has to pass its check against Porter's own PDF first"), so review is closed while invoices are checked, for
+good once one Failed, and — once #1445 derives Creating / Created — once Create has started. The screen
+offers the step only on `state == "Validated"` (`porterReviewOffered`); the stepper moves to *Review
+projects* through `ImportFlowState.validated`.
+
+**What it shows.** Every completed order (cancelled ones are not placed), in file order, with `crn`,
+`completed_on`, `fare`, `remarks`, `city`, `from_address`, `to_address` (from `porter_line` through
+`statement_line`), `booked_by`, its placement (`ledger`, `project`, `project_name`, `reason`, `strength`),
+`editable` (still `Pending match run`) and `group_key`; plus the Won projects, the only ones offered.
+- **Group key** (server, so #1448's group-majority rule uses the same one): city + remark, case-folded,
+  punctuation and spacing collapsed; **blank when the remark is blank** — such an order is reviewed on its
+  own, with its addresses and who booked it.
+- **Order** (`reviewItems`, screen): *Check* first (a weak suggestion, or a group whose orders are placed
+  differently), then items with no project found (they would become Non-Project), then the rest; within a
+  tier, bigger groups, then the earlier order. `keepShownOrder` keeps an item where it was after an edit
+  changes its tier, until the dialog is reopened.
+- **Reason / strength** are shown as stored. `reasonLabel` names `name` and `review`; ⚠️ a reason it does
+  not know is shown verbatim, never hidden (#1448 adds reasons; `porterReview.test.ts` reads every
+  `REASON_*` in `porter.py` and fails until each has a label). Strength: plain when Strong, a *Check* badge
+  when weak.
+
+**Editing writes the plan Create reads.** `set_porter_placement` takes a group's line names (or one), reads
+them `FOR UPDATE`, refuses a line of another import, a cancelled order or one no longer `Pending match run`
+("already created … Move a created order with Rectify"), refuses a project that does not exist or is not
+Won, then writes on every line `suggested_doctype` (Project Expenses with a project, Non Project Expenses
+without), `resolved_project`, `suggested_expense_type` (Material Transportation Charges) — the fields the
+Create job reads — and `placement_reason` `review` with no `placement_strength` (a person decided it), and
+commits. Raw `set_value`: `Outflow Import Row` has no doc_events and the row status does not move. It
+returns the review, which the panel puts in its SWR cache. Saved per choice: there is no Save button and a
+reload shows the edit. Clearing the project (the clear button, or *No project (Non-Project expense)*) makes
+the orders Non-Project.
+
+**Screen.** Step 3 of the Porter dialog, below the import summary, whose invoice cards fold under one line
+once Validated. One card per group (“remark” · city · N orders · fare, its placement and reason, a
+searchable project select, the orders behind a disclosure) or per order without a remark (CRN, date, booked
+by, fare, from → to).
+
+**Tests.** `api/outflow_import/test_porter_review.py` (bench: the gate while Validating and after a Failed
+invoice; what the review lists; a group assigned at once and read back; clearing; refusals; access);
+`services/outflow_import/test_porter.py` (`remark_group_key`); `frontend/.../porterReview.test.ts`
+(grouping, labels, ordering, keeping the shown order, the gate, the stepper, reason parity).
+"Create honours review edits" is proved here by the lines holding the edit; the end-to-end check comes
+with #1445.
