@@ -13,7 +13,7 @@ export interface VendorPoMoney {
  * again. A Merged PO's payments moved to its master PO, so its paid figure is left out, as in the
  * "Amount Paid" card beside it. The print format "Vendor Material Orders" mirrors this; keep the two in step.
  */
-export const vendorInvoiceSummary = (pos: VendorPoMoney[]) => {
+export const vendorAmountDue = (pos: VendorPoMoney[]) => {
   let totalInvoiced = 0;
   let amountPaid = 0;
   for (const po of pos) {

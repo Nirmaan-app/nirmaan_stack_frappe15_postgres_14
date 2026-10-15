@@ -61,7 +61,5 @@ class ServiceRequests(Document):
 		# `self.total_amount`, so by the time the hooked handler runs, the in-memory value
 		# still equals the pre-save one and any "did it change?" comparison reads False --
 		# on exactly the two saves that move it, a GST flip and the approval transition.
-		from nirmaan_stack.api.invoices._item_billing_sync import (
-			recompute_document_amount_due,
-		)
+		from nirmaan_stack.services.amount_paid import recompute_document_amount_due
 		recompute_document_amount_due("Service Requests", self.name)

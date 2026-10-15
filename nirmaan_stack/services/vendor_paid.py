@@ -17,6 +17,7 @@ Only PO and Work Order money counts, as for Amount Paid; a payment or refund is 
 import frappe
 from frappe.utils import flt
 
+from nirmaan_stack.services.money_dates import ON_PAYMENT_DATE, date_range_clauses
 from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, REFUND_DOCUMENT_FIELDS
 
 
@@ -32,12 +33,11 @@ def vendors_paid(from_date=None, to_date=None) -> dict[str, float]:
         "from_date": from_date,
         "to_date": to_date,
     }
-    on_date = "COALESCE(payment_date, creation::date)"
-    scope = ["COALESCE(vendor, '') <> ''", "document_type IN %(order_doctypes)s"]
-    if from_date:
-        scope.append(f"{on_date} >= %(from_date)s")
-    if to_date:
-        scope.append(f"{on_date} <= %(to_date)s")
+    scope = [
+        "COALESCE(vendor, '') <> ''",
+        "document_type IN %(order_doctypes)s",
+        *date_range_clauses(ON_PAYMENT_DATE, from_date, to_date),
+    ]
     where = " AND ".join(scope)
 
     rows = frappe.db.sql(

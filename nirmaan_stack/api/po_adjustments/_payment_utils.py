@@ -6,8 +6,9 @@ import frappe
 from frappe import _
 from frappe.utils import flt, nowdate
 
+from nirmaan_stack.services.amount_paid import write_amount_paid
 from nirmaan_stack.services.po_credit import usable_credit
-from nirmaan_stack.services.vendor_refunds import held_on, write_amount_paid
+from nirmaan_stack.services.vendor_refunds import held_on
 
 
 def usable_po_credit(po_id, for_update=False):
@@ -70,7 +71,7 @@ def _recalculate_amount_paid(po_id):
     """
     Recount a Procurement Order's amount_paid (its 'Paid' Project Payments less its Received
     Vendor Refunds) and the amount_due built on it, through the one writer
-    (`services/vendor_refunds.write_amount_paid`).
+    (`services/amount_paid.write_amount_paid`).
     Called after creating payments with from_adjustment=True flag, since the normal
     project_payments hooks are skipped -- including the one that would have done it.
     """

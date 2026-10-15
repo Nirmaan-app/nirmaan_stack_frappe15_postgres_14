@@ -3,7 +3,7 @@
 
 """Keep `amount_paid` on the PO / Work Order a Vendor Refund is against true (owner, 2026-09-17).
 
-The stored figure is the document's Paid payments LESS its refunds (`services/vendor_refunds.amount_paid_of`).
+The stored figure is the document's Paid payments LESS its refunds (`services/amount_paid.amount_paid_of`).
 Wired to the Vendor Refunds doctype itself (`doc_events` in hooks.py), so every way a refund appears,
 changes or disappears recomputes it: the bank-statement import, its Undo (`frappe.delete_doc`), and a
 Desk edit or delete. A raw-SQL delete runs no hook -- such a caller must recompute itself.
@@ -24,13 +24,13 @@ from frappe.utils import flt
 
 from nirmaan_stack.api.po_adjustments.refund_links import sync_po_refund_links, unlink_refund
 from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import trigger_check
+from nirmaan_stack.services.amount_paid import write_amount_paid
 from nirmaan_stack.services.vendor_refunds import (
     LOWERS_PAID_STATUSES,
     PROCUREMENT_ORDERS,
     REFUND_DOCUMENT_FIELDS,
     creator_and_accountant,
     money_edit_problem,
-    write_amount_paid,
 )
 
 #: The `Vendor Credit Ledger` entry each kind of refund event writes.

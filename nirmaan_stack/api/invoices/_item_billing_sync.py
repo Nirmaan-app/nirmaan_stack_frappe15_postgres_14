@@ -42,6 +42,8 @@ event (create / approve / reject / delete / edit), BEFORE the commit.
 import frappe
 from frappe.utils import flt
 
+from nirmaan_stack.services.amount_paid import recompute_document_amount_due
+
 # Invoice statuses that represent real billing exposure (mirror get_po_item_billing).
 _COUNTED_STATUSES = ("Pending", "Approved")
 _TOL = 1.0   # Rs rounding cushion: a few Rs under the PO total still counts as "fully invoiced".
@@ -218,85 +220,5 @@ def recompute_document_amount_invoiced(document_type: str, document_name: str) -
     # matches zero rows here — a silent no-op, not an error.
     frappe.db.set_value(document_type, document_name, values)
 
-    # amount_due is derived from this value, so it moves with it.
+    # amount_due is derived from this value, so it moves with it (`services/amount_paid`).
     recompute_document_amount_due(document_type, document_name)
-
-# ---------------------------------------------------------------------------
-# `Procurement Orders` / `Service Requests` .amount_due
-# ---------------------------------------------------------------------------
-
-# The two doctypes use DELIBERATELY DIFFERENT formulas (owner decision 2026-08-19):
-#   Procurement Orders   amount_invoiced - amount_paid   -> billed to us, not yet paid
-#   Service Requests     total_amount    - amount_paid   -> ordered value, not yet paid
-# The SR screens have always shown ordered-minus-paid and say so in their own footnote
-# ("Amount Due = Total WO Value - Amt Paid"); switching them to invoiced-minus-paid
-# would move 761 of 862 rows (measured 2026-08-19). Do NOT "harmonise" the two.
-_AMOUNT_DUE_OPERANDS = {
-    "Procurement Orders": ("amount_invoiced", ("amount_paid",)),
-    "Service Requests": ("total_amount", ("amount_paid", "total_tds")),
-}
-
-
-def recompute_document_amount_due(document_type: str, document_name: str) -> None:
-    """Re-derive `amount_due` on ONE Procurement Order / Service Request.
-
-    Called from every place that writes one of its operands — there is no single
-    owner, because the operands are maintained by different subsystems:
-
-        amount_invoiced  <- recompute_document_amount_invoiced (this module)
-        total_amount     <- the Service Request's own save
-        amount_paid      <- Project Payments' update_parent_amount_paid
-
-    A Postgres GENERATED column was tried first and REJECTED: `bench migrate`
-    re-asserts the type of every Currency column, and Postgres refuses to alter a
-    column that a generated column depends on, so every migrate would fail.
-    A `validate` hook was rejected too — both operands are written with
-    `db.set_value`, which bypasses the document lifecycle, so such a field would be
-    stale on arrival.
-
-    Reads the operands straight back from the row (same transaction, so it sees the
-    write that triggered it) and lets `set_value` stamp `modified` / `modified_by`,
-    matching `amount_invoiced` above and `amount_paid` elsewhere. Does NOT commit.
-    """
-    operands = _AMOUNT_DUE_OPERANDS.get(document_type)
-    if not operands or not document_name:
-        return
-    minuend, subtrahends = operands
-
-    from nirmaan_stack.services import payment_tds
-
-    # Column and table names come from the constant above, never from a caller.
-    projected = ", ".join('COALESCE("{0}", 0) AS "{0}"'.format(col) for col in (minuend, *subtrahends))
-    row = frappe.db.sql(
-        'SELECT {0} FROM "tab{1}" WHERE name = %(n)s'.format(projected, document_type),
-        {"n": document_name}, as_dict=True,
-    )
-    if not row:
-        return
-    frappe.db.set_value(
-        document_type, document_name, "amount_due",
-        amount_due_from(document_type, row[0], payment_tds.is_company_borne(document_type, document_name)),
-    )
-
-
-def amount_due_from(document_type: str, values, company_borne: bool) -> float:
-    """THE Amount Due of one PO / Work Order from its operands (`values` maps each column named in
-    `_AMOUNT_DUE_OPERANDS` to its figure). Pure: the writer above and the Amount Paid mismatch judge
-    (`services/amount_paid_drift`, which passes the CORRECT paid figure) share it.
-
-    ⚠️ A LIST OF SUBTRAHENDS RATHER THAN ONE, BECAUSE A SERVICE REQUEST HAS TWO.
-    `Project Payments.amount` on an SR is stored NET of tax withheld (services/payment_tds.py),
-    so `total_amount - amount_paid` alone would report the withheld tax as still owed on every
-    settled SR. Subtracting `total_tds` as well is the other half of that change and is not
-    optional -- see the module docstring in `services/payment_tds.py`. Procurement Orders keep a
-    single subtrahend and have no `total_tds` column to read.
-
-    ⚠️ A COMPANY-BORNE WORK ORDER (Miscellaneous / Transportation only) KEEPS ITS PAYMENTS GROSS
-    -- the tax is paid on top, not taken out -- so `amount_paid` already covers the whole order
-    and subtracting `total_tds` as well would read it overpaid by its own tax (Rs 800 order,
-    Rs 800 paid, Rs 16 TDS -> -16). The rule lives in `services/payment_tds.is_company_borne`.
-    """
-    minuend, subtrahends = _AMOUNT_DUE_OPERANDS[document_type]
-    if company_borne:
-        subtrahends = tuple(col for col in subtrahends if col != "total_tds")
-    return flt(values.get(minuend)) - sum(flt(values.get(col)) for col in subtrahends)

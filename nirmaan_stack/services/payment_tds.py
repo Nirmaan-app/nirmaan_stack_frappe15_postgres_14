@@ -34,7 +34,7 @@ amount becomes **Rs 37,779.00**. The gross figure is not lost -- it is kept on t
 payment `amount`s. Left alone, storing the net figure would leave every fully-settled SR reading the
 withheld tax as permanently outstanding -- a Rs 38,550 SR paid net-37,779 showing Rs 771 still due
 with nothing left to pay it. Measured 2026-09-10 under the old arrangement: **700 SRs satisfy
-`amount_paid == total_amount`**. So `_AMOUNT_DUE_OPERANDS["Service Requests"]` now subtracts BOTH
+`amount_paid == total_amount`**. So `amount_paid.AMOUNT_DUE_OPERANDS["Service Requests"]` now subtracts BOTH
 `amount_paid` AND `total_tds`. Neither half of this is correct without the other.
 
 ⚠️ THOSE 700 ARE NOT DISTURBED, AND THE REASON IS WHAT MAKES THIS SAFE TO SHIP BEFORE THE BACKFILL:
@@ -424,7 +424,7 @@ def restate_deduction_on_amount_change(doc) -> str | None:
 	# And the parent's running total, which counts PAID payments -- this may well be one -- and the
 	# amount due built on it (#1453): the payment save recounted both BEFORE this restate ran.
 	sync_total_tds(doc.get("document_type"), doc.get("document_name"))
-	from nirmaan_stack.api.invoices._item_billing_sync import recompute_document_amount_due
+	from nirmaan_stack.services.amount_paid import recompute_document_amount_due
 
 	recompute_document_amount_due(doc.get("document_type"), doc.get("document_name"))
 	return name

@@ -23,6 +23,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services.amount_paid import write_amount_paid
 
 TDS_DOCTYPE = "Payment TDS Deduction"
 PAYMENT = "Project Payments"
@@ -493,7 +494,7 @@ class TestPaymentTDS(FrappeTestCase):
 	def test_amount_paid_recompute_moves_total_tds_with_it(self):
 		"""The two totals are written in one pass, so they can never describe different sets.
 
-		⚠️ IT DRIVES `update_parent_amount_paid` DIRECTLY RATHER THAN SAVING INTO `Paid`, AND THAT
+		⚠️ IT DRIVES THE RECOUNT (`write_amount_paid`) DIRECTLY RATHER THAN SAVING INTO `Paid`, AND THAT
 		IS NOT A SHORTCUT. The Approved -> Paid transition fires a "Payment Fulfilled" push, and
 		unlike the accountant notification on the Approved transition that one is NOT project-
 		scoped — it reaches admins and the CEO. An earlier revision of this test used `doc.save()`
@@ -505,7 +506,7 @@ class TestPaymentTDS(FrappeTestCase):
 		frappe.db.set_value(PAYMENT, doc.name, "status", "Paid")
 		frappe.db.commit()
 
-		frappe.get_doc(PAYMENT, doc.name).update_parent_amount_paid()
+		write_amount_paid(SR, self.sr)
 		frappe.db.commit()
 		# amount_paid is the NET sum now; amount_due closes only because total_tds is subtracted too.
 		self.assertEqual(frappe.db.get_value(SR, self.sr, "amount_paid"), 3920)
@@ -591,7 +592,7 @@ class TestPaymentTDS(FrappeTestCase):
 		frappe.db.set_value(PAYMENT, doc.name, "status", "Paid")
 		frappe.db.commit()
 
-		frappe.get_doc(PAYMENT, doc.name).update_parent_amount_paid()
+		write_amount_paid(SR, self.sr_misc)
 		frappe.db.commit()
 		self.assertEqual(frappe.db.get_value(SR, self.sr_misc, "amount_paid"), 800)
 		# The tax is still recorded against the order -- it just is not part of settling it.

@@ -23,7 +23,7 @@ export function sumAmountPaid(orders: ReadonlyArray<{ amount_paid?: number | str
   return orders.reduce((total, order) => total + parseNumber(order.amount_paid), 0);
 }
 
-/** A PO line as the project's PO summary returns it (`generate_po_summary`). */
+/** A PO line as `get_project_pos_paid` (and the PO summary, `generate_po_summary`) returns it. */
 export interface POItemForPaid {
   po_number: string;
   work_package: string;
@@ -33,13 +33,19 @@ export interface POItemForPaid {
   isCustom?: boolean;
 }
 
+/** Where a PO with no items at all counts, so that no Amount Paid is left out. */
+export const NO_WORK_PACKAGE = "Custom";
+
 /**
- * The POs' Amount Paid grouped by work package, for the Spends tab.
+ * The POs' Amount Paid grouped by work package, for the Spends tab. Pass EVERY PO of the project and
+ * every PO's items (`api/projects/project_spends.get_project_pos_paid`), whatever the PO's status (spec
+ * #1451 story 14): a Merged, Cancelled or Inactive PO's Amount Paid is real money out, so the total is
+ * the PO part of the project outflow.
  *
- * A PO's work package comes from its items, keyed as the Spends tab keys them ("Custom" for a custom
- * PO's items). A PO whose items span several packages shares its Amount Paid among them in proportion
- * to each package's item value incl. GST (evenly by item count when every item is priced at zero). A
- * PO with no items in `items` (Merged, Inactive) is left out.
+ * A PO's work package comes from its items, keyed as the Spends tab keys them ("Custom" for a custom PO's
+ * items). A PO whose items span several packages shares its Amount Paid among them in proportion to each
+ * package's item value incl. GST (evenly by item count when every item is priced at zero). A PO with no
+ * items counts under `NO_WORK_PACKAGE`.
  */
 export function amountPaidByWorkPackage(
   pos: ReadonlyArray<{ name: string; amount_paid?: number | string | null }>,
@@ -60,13 +66,17 @@ export function amountPaidByWorkPackage(
 
   const paid: Record<string, number> = {};
   for (const po of pos) {
+    const amountPaid = parseNumber(po.amount_paid);
     const values = valueByPO.get(po.name);
-    if (!values) continue;
+    if (!values) {
+      paid[NO_WORK_PACKAGE] = (paid[NO_WORK_PACKAGE] || 0) + amountPaid;
+      continue;
+    }
     const totalValue = [...values.values()].reduce((sum, value) => sum + value, 0);
     const weights = totalValue > 0 ? values : countByPO.get(po.name)!;
     const totalWeight = [...weights.values()].reduce((sum, weight) => sum + weight, 0);
     for (const [workPackage, weight] of weights) {
-      paid[workPackage] = (paid[workPackage] || 0) + (parseNumber(po.amount_paid) * weight) / totalWeight;
+      paid[workPackage] = (paid[workPackage] || 0) + (amountPaid * weight) / totalWeight;
     }
   }
   return paid;

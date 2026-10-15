@@ -18,7 +18,7 @@ interface ProjectSpendsTabProps {
     };
   };
   po_data?: ProcurementOrder[];
-  /** The Approved WOs' stored Amount Paid, for the "Services" row. */
+  /** Every WO's stored Amount Paid (whatever its status), for the "Services" row. */
   servicesAmountPaid: number;
   workPackageTotalAmounts: { [key: string]: any }
   totalServiceOrdersAmt: number;

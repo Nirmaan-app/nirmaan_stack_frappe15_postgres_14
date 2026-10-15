@@ -13,6 +13,7 @@ import {
     getProjectInvoiceReportListOptions,
 } from '@/config/queryKeys';
 import { ProjectInvoice } from '@/types/NirmaanStack/ProjectInvoice';
+import { ProjectMoney } from '@/types/NirmaanStack/ProjectMoney';
 import { useProjectAllCredits } from '@/pages/projects/hooks/useProjectAllCredits';
 import { format } from 'date-fns';
 import { isDateInPeriod } from './useVendorLedgerCalculations';
@@ -22,14 +23,6 @@ interface ProjectReportParams {
     projectIds: string[];
     startDate?: Date | null;
     endDate?: Date | null;
-}
-
-/** One project's figures from `api/projects/project_money.get_projects_money` (ADR-0034, #1456). */
-interface ProjectMoney {
-    outflow: number;
-    liabilities: number;
-    inflow: number;
-    cashflow_gap: number;
 }
 
 // Define the structure for the calculated fields
@@ -56,13 +49,15 @@ export interface UseProjectReportCalculationsResult {
     isLoadingGlobalDeps: boolean; // Indicates if the underlying data for calculations is loading
     globalDepsError: Error | null;
     // Mutators for cache invalidation if needed from the component using this hook
-    mutatePOs: () => Promise<any>;
-    mutateSRs: () => Promise<any>;
-    mutateProjectInvoice: () => Promise<any>;
-    mutateProjectMoney: () => Promise<any>;
+    mutatePOs: () => Promise<unknown>;
+    mutateSRs: () => Promise<unknown>;
+    mutateProjectInvoice: () => Promise<unknown>;
+    mutateProjectMoney: () => Promise<unknown>;
 }
 
-const NO_MONEY: ProjectMoney = { outflow: 0, liabilities: 0, inflow: 0, cashflow_gap: 0 };
+const NO_MONEY: ProjectMoney = {
+    po_outflow: 0, wo_outflow: 0, expense_outflow: 0, outflow: 0, liabilities: 0, inflow: 0, cashflow_gap: 0,
+};
 
 
 export const useProjectReportCalculations = (params: ProjectReportParams): UseProjectReportCalculationsResult => {

@@ -29,10 +29,8 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt, nowdate
 
-from nirmaan_stack.api.invoices._item_billing_sync import (
-    recompute_document_amount_due,
-    recompute_document_amount_invoiced,
-)
+from nirmaan_stack.api.invoices._item_billing_sync import recompute_document_amount_invoiced
+from nirmaan_stack.services.amount_paid import recompute_document_amount_due
 
 POISON = -987654.32
 
@@ -472,7 +470,7 @@ class TestAmountPaidKeepsAmountDueTrue(FrappeTestCase):
 
     # ---------------------------------------------------------------- WATCHED FIELDS
     # A Paid payment edited or re-pointed recounts the order(s) it leaves and joins (#1453;
-    # `services/vendor_refunds.orders_moved_by`). These were expectedFailure while the payment
+    # `services/amount_paid.orders_moved_by`). These were expectedFailure while the payment
     # controller fired only on a transition into / out of 'Paid'.
 
     def test_editing_a_paid_payment_amount_updates_amount_paid(self):

@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { convertTanstackFiltersToFrappe } from "@/lib/frappeTypeUtils";
 import { downloadPrintFormatPdf } from "@/utils/downloadPrintFormatPdf";
-import { vendorInvoiceSummary } from "../utils/vendorAmountDue";
+import { vendorAmountDue } from "../utils/vendorAmountDue";
 
 interface VendorMaterialOrdersTableProps {
   vendorId: string;
@@ -119,7 +119,7 @@ export const VendorMaterialOrdersTable: React.FC<
     `VendorPOInvoiceSummary-${vendorId}`
   );
 
-  const { totalInvoiced, amountDue } = useMemo(() => vendorInvoiceSummary(vendorPoMoney ?? []), [vendorPoMoney]);
+  const { totalInvoiced, amountDue } = useMemo(() => vendorAmountDue(vendorPoMoney ?? []), [vendorPoMoney]);
 
   // const getCategoriesFromOrderList = useCallback((orderListJson?: { list: PurchaseOrderItem[] } | string) => {
   //     let items: PurchaseOrderItem[] = [];

@@ -99,7 +99,7 @@ figure — the company pays the tax on top:
   split's approved half, auto-approve at insert, bulk approve post-commit) → `write_deduction(reduce_payment=False)`.
   `write_deduction` defaults to reducing, so the historical backfills are unchanged.
 - **Every reader that rebuilds the gross branches on the same rule:** `amount_due` skips `total_tds`
-  (`_item_billing_sync.recompute_document_amount_due`); an amount edit taxes the new figure directly
+  (`services/amount_paid.recompute_document_amount_due`); an amount edit taxes the new figure directly
   (`tds = amount × rate`, no inversion); the WO page's Amount Paid / request cap don't add the tax;
   the approve + bulk-confirm previews show "Vendor receives" at the full amount.
 - ⚠️ **DERIVED FROM THE CATEGORIES EVERY TIME, NOT STORED** (owner chose no new field). So the rule

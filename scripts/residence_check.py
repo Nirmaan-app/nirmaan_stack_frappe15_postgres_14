@@ -79,6 +79,8 @@ PURE_MODULES = [
     "nirmaan_stack/services/refund_links.py",
     # The waiting-refund suggestion rule (#1402): which waiting Vendor Refund a bank credit line may be.
     "nirmaan_stack/services/outflow_import/refund_suggestion.py",
+    # The date a money row counts on, and its range clauses (#1451 review): project money and vendor paid.
+    "nirmaan_stack/services/money_dates.py",
 ]
 
 
@@ -316,10 +318,8 @@ def payment_sum_lines_py(src: str) -> list[int]:
 # paid figure must read the order's stored `amount_paid` / `amount_due` instead.
 PAYMENT_SUM_OWNERS: dict[str, str] = {
     # The Amount Paid rule itself and its judge.
-    "nirmaan_stack/services/vendor_refunds.py": "amount_paid_of: THE rule (Paid payments less Received refunds)",
+    "nirmaan_stack/services/amount_paid.py": "amount_paid_of: THE rule (Paid payments less Received refunds)",
     "nirmaan_stack/services/amount_paid_drift.py": "the mismatch service: recomputes the rule to judge the stored figure",
-    "nirmaan_stack/nirmaan_stack/doctype/project_payments/project_payments.py":
-        "the payment's own recount and its insert cap (payment total <= order total)",
     # Project outflow is cash, a payment sum by definition (ADR-0034 point 5, #1456).
     "nirmaan_stack/services/project_money.py": "project outflow / Current Liabilities / cashflow gap: the one server figure",
     # Amount Paid carries no date; a vendor's paid figure for a period applies the same rule to dated rows (#1461).
@@ -328,6 +328,8 @@ PAYMENT_SUM_OWNERS: dict[str, str] = {
     "nirmaan_stack/services/finance.py": "server caps: get_total_paid / _pending / _reconciliation_pending",
     "nirmaan_stack/services/payment_summary.py": "the request / approve 'left to request' cap",
     "nirmaan_stack/services/order_payments.py": "the Work Order payment limit",
+    "nirmaan_stack/nirmaan_stack/doctype/project_payments/project_payments.py":
+        "the payment's insert cap (payment total <= order total)",
     # Bank cash-out lists: list payments, never a paid figure of an order.
     "nirmaan_stack/api/payments/get_project_payment_summary.py": "payments dashboard, incl. the 30-day outflow card",
     "frontend/src/pages/reports/hooks/useOutflowReportData.ts": "the Outflow report",

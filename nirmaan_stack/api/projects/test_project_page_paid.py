@@ -28,6 +28,7 @@ from nirmaan_stack.api.projects.project_aggregates import (
     get_project_sr_summary_aggregates,
 )
 from nirmaan_stack.api.projects.project_money import get_project_money
+from nirmaan_stack.api.projects.project_spends import get_project_pos_paid
 
 PO = "Procurement Orders"
 WO = "Service Requests"
@@ -60,12 +61,17 @@ class TestProjectPagePaid(FrappeTestCase):
             _raw("Vendor Refunds", project=cls.P, document_type=doctype, document_name=order, amount=amount,
                  status="Received", payment_date="2026-06-15")
         _raw("Project Expenses", projects=cls.P, amount=70, status="Paid", payment_date="2026-04-20")
+        for order, package, idx in ((cls.A, "Electrical", 1), (cls.A, "Plumbing", 2), (cls.B, "HVAC", 1)):
+            _raw("Purchase Order Item", parent=order, parenttype=PO, parentfield="items", idx=idx,
+                 procurement_package=package, quote=100, quantity=2, tax=18)
         frappe.db.commit()
 
     @classmethod
     def tearDownClass(cls):
         frappe.db.rollback()
         failures = []
+        frappe.db.delete("Purchase Order Item", {"parent": ["in", [cls.A, cls.B]]})
+        frappe.db.commit()
         for doctype, field in (
             ("Project Payments", "project"),
             ("Vendor Refunds", "project"),
@@ -97,4 +103,22 @@ class TestProjectPagePaid(FrappeTestCase):
         self.assertEqual(
             (money["po_outflow"], money["wo_outflow"], money["expense_outflow"], money["outflow"]),
             (350.0, 249.0, 70.0, 669.0),
+        )
+
+    def test_spends_reads_every_po_with_its_items_whatever_its_status(self):
+        """Spends counts every PO's Amount Paid (spec #1451 story 14): the Inactive PO B is in, with the
+        items that key its paid figure by work package, though the PO summary leaves it out."""
+        paid = get_project_pos_paid(self.P)
+        self.assertEqual(
+            sorted((po["name"], flt(po["amount_paid"], 2)) for po in paid["pos"]),
+            sorted([(self.A, 300.0), (self.B, 50.0)]),
+        )
+        self.assertEqual(
+            sorted((item["po_number"], item["work_package"], flt(item["quote"]), flt(item["quantity"]),
+                    flt(item["tax"]), item["isCustom"]) for item in paid["items"]),
+            sorted([
+                (self.A, "Electrical", 100.0, 2.0, 18.0, False),
+                (self.A, "Plumbing", 100.0, 2.0, 18.0, False),
+                (self.B, "HVAC", 100.0, 2.0, 18.0, False),
+            ]),
         )

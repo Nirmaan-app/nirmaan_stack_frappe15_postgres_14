@@ -14,7 +14,7 @@ import frappe
 from nirmaan_stack.api.po_adjustments._payment_utils import _recalculate_amount_paid
 from nirmaan_stack.services.test_amount_paid_drift import PO, WO
 from nirmaan_stack.services.test_amount_paid_integrity import PaidPaymentFixture
-from nirmaan_stack.services.vendor_refunds import write_amount_paid
+from nirmaan_stack.services.amount_paid import write_amount_paid
 
 
 class AmountPaidIsReadOnlyInDesk(PaidPaymentFixture):

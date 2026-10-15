@@ -452,6 +452,13 @@ export const NON_PROJECT_INFLOWS_EDIT: readonly string[] = [
 ];
 export const NON_PROJECT_INFLOWS_DELETE: readonly string[] = [ADMIN_PROFILE];
 
+/** Reports > PO and Reports > WO: the "2B Reconcile Report". Admin and the Accountants. UI gate only. */
+export const RECONCILE_2B_REPORT_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
 /**
  * Reports > PO and Reports > WO: the "Amount Paid Mismatch" report and its Recount button (#1455,
  * ADR-0034). Admin and Accountant Lead only -- narrower than the 2B Reconcile report (no Accountant).

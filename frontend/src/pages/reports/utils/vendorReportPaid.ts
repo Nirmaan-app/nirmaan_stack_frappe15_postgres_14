@@ -5,6 +5,7 @@
 // from the server (`api/vendor/vendor_paid.get_vendors_paid`), which applies the same rule to the rows
 // themselves, a refund on its own date. Nothing here adds up payments.
 import { parseNumber } from "@/utils/parseNumber";
+import { sumAmountPaid } from "@/utils/projects/projectPaid";
 
 /** `{vendor: paid}` maps from `get_vendors_paid`; a vendor with nothing in the range is missing (0). */
 export interface VendorPaidSources {
@@ -36,7 +37,7 @@ export const vendorPaidFigures = (
 ): VendorPaidFigures => {
   const totalPaid = sources.periodPaid
     ? parseNumber(sources.periodPaid[vendorId])
-    : orders.reduce((sum, order) => sum + parseNumber(order.amount_paid), 0);
+    : sumAmountPaid(orders);
   const paidSinceLedgerStart = parseNumber(sources.paidSinceLedgerStart[vendorId]);
   return {
     totalPaid,

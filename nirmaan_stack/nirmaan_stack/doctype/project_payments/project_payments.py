@@ -95,71 +95,10 @@ class ProjectPayments(Document):
 				title=_("Payment Amount Exceeds Total")
 			)
 
-	
-	def on_update(self):
-		"""Recount the order(s) whose Amount Paid this save moved: the one a Paid payment leaves and the
-		one it joins, when it enters or leaves Paid, or when a Paid payment's amount or order changes
-		(`services/vendor_refunds.orders_moved_by` names the watched fields, #1453)."""
-		# Skip all hook logic when created by PO Revision / PO Adjustment -- that flow recounts itself
-		if self.flags.from_adjustment:
-			return
+	def update_parent_amount_paid(self):
+		"""Recount this payment's order. Kept only for the append-only patch
+		`patches/v3_0/backfill_sr_payment_tds_deductions`, which calls it by name; the lifecycle recount
+		lives in `integrations/controllers/project_payments.recount_orders`."""
+		from nirmaan_stack.integrations.controllers.project_payments import recount_orders
 
-		from nirmaan_stack.services.vendor_refunds import orders_moved_by
-
-		for document_type, document_name in orders_moved_by(self.get_doc_before_save(), self):
-			self.update_parent_amount_paid(order=(document_type, document_name))
-
-	def on_trash(self):
-		"""
-        Triggered when a document is 'Cancelled' (deleted).
-        We only need to recalculate if the deleted payment was 'Paid'.
-        During on_trash the record still exists in DB, so exclude it from the sum.
-        """
-		if self.status == "Paid":
-			self.update_parent_amount_paid(exclude_name=self.name)
-
-	def update_parent_amount_paid(self, exclude_name=None, order=None):
-		"""
-        Recount `amount_paid` (with the TDS withheld and amount due built on it) on `order`
-        (`(document_type, document_name)`; this payment's own order when not given), through the one
-        writer `services/vendor_refunds.write_amount_paid`: Paid payments LESS Received Vendor Refunds.
-
-        Args:
-            exclude_name: If provided, exclude this payment record from the sum.
-                Used during on_trash when the record still exists in DB.
-        """
-		document_type, document_name = order or (self.document_type, self.document_name)
-		if not document_type or not document_name:
-			return
-
-		from nirmaan_stack.services.vendor_refunds import write_amount_paid
-
-		try:
-			write_amount_paid(document_type, document_name, exclude_payment=exclude_name)
-
-			# ⚠️ THE COMMIT IS SKIPPED FOR THE OUTFLOW IMPORT, AND ONLY FOR IT.
-			#
-			# Committing INSIDE a save destroys any savepoint the caller is holding. Bulk Import
-			# Outflow settles a bank statement row by row, each row inside its own savepoint so
-			# that row 3 failing leaves rows 1-2 written and rows 4+ still attempted -- "Confirm 8"
-			# must never leave four written and four not. This commit would end that isolation on
-			# the first row.
-			#
-			# The recompute itself still runs, so `amount_paid` is written exactly once and lands
-			# in the SAME transaction as the payment, the match record and the import row -- which
-			# is stronger than the normal path, not weaker: if the settlement rolls back, so does
-			# the total. The import's endpoint commits all of it together.
-			#
-			# Every other caller is byte-identical to before. Same shape as `from_adjustment`
-			# above, which exists because PO Revision hit this exact problem.
-			#
-			# ⚠️ AND FOR A SPLIT OR UN-SPLIT (`services/payment_split`), for the same reason: its flags
-			# mean "inside my savepoint". Un-splitting a Paid part payment changes its amount while it
-			# stays Paid, which recounts since #1453; a commit here broke the un-split's savepoint.
-			if not any(self.flags.get(flag) for flag in ("from_outflow_import", "split_approval", "split_child")):
-				frappe.db.commit()
-		except Exception as e:
-			frappe.log_error(
-                message=f"Failed to update amount_paid for {document_type} {document_name}. Error: {str(e)}",
-                title="Project Payment Sync Error"
-            )
+		recount_orders(self, [(self.document_type, self.document_name)])

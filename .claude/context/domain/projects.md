@@ -120,8 +120,11 @@ again in the browser. The Cash Sheet report reads Inflow, Outflow, Current Liabi
 **The project page reads the stored figures (#1457).** It fetches no payments. Financials "Total OutFlow" and
 "Current Liabilities" read `get_project_money`. The PO / WO Summary "Total Amt Paid" and the WO Summary "Total
 Amt Payable" are the orders' summed `amount_paid` / `amount_due` (`get_project_po_summary_aggregates`,
-`get_project_sr_summary_aggregates`). Spends sums the live POs' `amount_paid` per work package, and its
-Services row sums the Approved WOs' `amount_paid`. A PO's work package comes from its items, not its PR:
-PR `work_package` holds "Normal" / "Custom" today, which matches no row. A PO whose items span several
+`get_project_sr_summary_aggregates`). Spends sums EVERY PO's `amount_paid` per work package, whatever its
+status (Merged, Cancelled, Inactive included: their Amount Paid is real money out), so its PO total is the PO
+part of the project outflow; its Services row sums every WO's `amount_paid` (#1451 review). The POs and all
+their items come from `api/projects/project_spends.get_project_pos_paid`, because the PO summary leaves
+Merged / Inactive POs' items out. A PO's work package comes from its items, not its PR:
+PR `work_package` holds "Normal" / "Custom" today, which matches no row; a PO with no items counts under Custom. A PO whose items span several
 packages shares its `amount_paid` among them in proportion to item value incl. GST. The Material Usage paid badge compares a PO's `amount_paid`
 with its `total_amount`. The pure rules live in `frontend/src/utils/projects/projectPaid.ts`.

@@ -16,6 +16,7 @@ import { Customers } from "@/types/NirmaanStack/Customers";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { ProjectEstimates as ProjectEstimatesType } from "@/types/NirmaanStack/ProjectEstimates";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
+import { POItemForPaid } from "@/utils/projects/projectPaid";
 
 
 export interface ProjectPOItemDataItem {
@@ -50,6 +51,7 @@ export const projectRootKeys = {
   commissionMasterData: () => ["project-root", "commissionMasterData"] as const,
   procurementOrders: (projectId: string) => ["project-root", "procurementOrders", projectId] as const,
   approvedServiceRequests: (projectId: string) => ["project-root", "approvedServiceRequests", projectId] as const,
+  ordersPaid: (doctype: string, projectId: string) => ["project-root", "ordersPaid", doctype, projectId] as const,
   projectsListInvoices: () => ["project-root", "projectsListInvoices"] as const,
 };
 
@@ -353,8 +355,7 @@ export const useProjectViewFinancialData = (projectId: string) => {
   );
 
   // No payments or expenses are fetched here: paid figures read the orders' stored Amount Paid, and
-  // the project's outflow is the server's (useProjectMoney), ADR-0034. Spends groups a PO's Amount
-  // Paid by its items' work package, so no PR list is fetched either.
+  // the project's outflow is the server's (useProjectMoney), ADR-0034.
   const procurementOrdersResponse = useFrappeGetDocList<ProcurementOrdersType>(
     "Procurement Orders",
     {
@@ -381,7 +382,7 @@ export const useProjectViewFinancialData = (projectId: string) => {
   const approvedServiceRequestsResponse = useFrappeGetDocList<ServiceRequests>(
     "Service Requests",
     {
-      fields: ["name", "gst", "total_amount", "amount_paid"],
+      fields: ["name", "gst", "total_amount"],
       filters: [
         ["status", "=", "Approved"],
         ["project", "=", projectId],
@@ -417,4 +418,50 @@ export const useProjectViewFinancialData = (projectId: string) => {
     procurementOrdersResponse,
     approvedServiceRequestsResponse,
   };
+};
+
+/** `api/projects/project_spends.get_project_pos_paid`: every PO of the project and every PO's items. */
+export interface ProjectPOsPaid {
+  pos: { name: string; amount_paid: number }[];
+  items: POItemForPaid[];
+}
+
+/**
+ * The Spends tab's paid figures: EVERY PO and WO of the project with its stored Amount Paid, whatever its
+ * status (spec #1451 stories 14-15). A Merged, Cancelled or Inactive order's Amount Paid is real money
+ * out, so these add up to the PO and WO parts of the project outflow. The POs come with every PO's items,
+ * which key a PO's paid figure by work package (the PO summary leaves Merged and Inactive POs' items out).
+ */
+export const useProjectOrdersPaid = (projectId: string) => {
+  const posResponse = useFrappeGetCall<{ message: ProjectPOsPaid }>(
+    "nirmaan_stack.api.projects.project_spends.get_project_pos_paid",
+    { project_id: projectId },
+    projectId ? projectRootKeys.ordersPaid("Procurement Orders", projectId) : null
+  );
+
+  const wosResponse = useFrappeGetDocList<ServiceRequests>(
+    "Service Requests",
+    {
+      fields: ["name", "amount_paid"],
+      filters: [["project", "=", projectId]],
+      limit: 0,
+    },
+    projectId ? projectRootKeys.ordersPaid("Service Requests", projectId) : null
+  );
+
+  useApiErrorLogger(posResponse.error, {
+    hook: "useProjectOrdersPaid",
+    api: "get_project_pos_paid",
+    feature: "project-root",
+    entity_id: projectId,
+  });
+
+  useApiErrorLogger(wosResponse.error, {
+    hook: "useProjectOrdersPaid",
+    api: "Service Requests List",
+    feature: "project-root",
+    entity_id: projectId,
+  });
+
+  return { posResponse, wosResponse };
 };

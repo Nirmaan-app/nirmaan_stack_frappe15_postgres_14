@@ -111,6 +111,7 @@ import {
   useProjectDocRealtime,
   useProjectPOSummaryCall,
   useProjectViewFinancialData,
+  useProjectOrdersPaid,
   useProjectViewMeta,
   useProjectViewMutations,
 } from "./data/root/useProjectRootApi";
@@ -1021,8 +1022,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   //   value: ven.vendor_name,
   // })), [vendorsList]);
 
-  // Spends "Services" row: the Approved WOs' stored Amount Paid (refunds already off, ADR-0034).
-  const servicesAmountPaid = useMemo(() => sumAmountPaid(approvedServiceRequestsData || []), [approvedServiceRequestsData]);
+  // Spends reads EVERY PO and WO of the project, whatever its status (spec #1451 stories 14-15).
+  const { posResponse: projectPOsPaidResponse, wosResponse: projectWOsPaidResponse } = useProjectOrdersPaid(projectId);
+  const projectPOsPaid = projectPOsPaidResponse.data?.message;
+
+  // Spends "Services" row: every WO's stored Amount Paid (refunds already off, ADR-0034); a WO with no
+  // payments has 0.
+  const servicesAmountPaid = useMemo(() => sumAmountPaid(projectWOsPaidResponse.data || []), [projectWOsPaidResponse.data]);
 
   const totalPosRaised = useMemo(() => {
     // 1. Guard Clause: This part is correct and should be kept.
@@ -1169,14 +1175,17 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   }, [items]);
 
   useEffect(() => {
-    if (!po_item_data || !project_estimates || !po_data) return;
+    if (!po_item_data || !project_estimates || !projectPOsPaid) return;
 
     const { totals } = groupItemsByWorkPackageAndCategory(po_item_data);
 
-    // The live POs' stored Amount Paid per work package (ADR-0034), under the same item work packages
-    // as the rows. Merged and Inactive POs have no items here, so their payments no longer land in a
-    // hidden bucket.
-    const totalAmountPaidWPWise = amountPaidByWorkPackage(po_data, po_item_data);
+    // EVERY PO's stored Amount Paid per work package (ADR-0034), keyed by its own items, so the Spends PO
+    // total is the PO part of the project outflow. A package only a Merged or Inactive PO carries gets a
+    // row of its own.
+    const totalAmountPaidWPWise = amountPaidByWorkPackage(projectPOsPaid.pos, projectPOsPaid.items);
+    Object.keys(totalAmountPaidWPWise).forEach((key) => {
+      totals[key] ??= { amountWithTax: 0, amountWithoutTax: 0 };
+    });
 
     Object.keys(totals || {}).forEach((key) => {
       const estimates = project_estimates?.filter((i) => i?.work_package === key) || [];
@@ -1190,7 +1199,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     });
 
     setWorkPackageTotalAmounts(totals);
-  }, [po_item_data, project_estimates, po_data]);
+  }, [po_item_data, project_estimates, projectPOsPaid]);
 
   const { groupedData: categorizedData } =
     groupItemsByWorkPackageAndCategory(po_item_data);

@@ -29,6 +29,7 @@ from dataclasses import asdict, dataclass
 import frappe
 from frappe.utils import flt
 
+from nirmaan_stack.services.money_dates import ON_PAYMENT_DATE, date_range_clauses
 from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, REFUND_DOCUMENT_FIELDS
 
 #: POs whose delivered value is not a liability: it is counted on the PO that replaced them.
@@ -89,11 +90,7 @@ def project_money(projects=None, from_date=None, to_date=None) -> dict[str, Proj
         clauses = [f"COALESCE({project_col}, '') <> ''"]
         if projects is not None:
             clauses.append(f"{project_col} IN %(projects)s")
-        if from_date:
-            clauses.append(f"{date_expr} >= %(from_date)s")
-        if to_date:
-            clauses.append(f"{date_expr} <= %(to_date)s")
-        return " AND ".join(clauses)
+        return " AND ".join(clauses + date_range_clauses(date_expr, from_date, to_date))
 
     def order_cash(amount: str) -> str:
         """An order payment's or refund's cash, as its PO-part and Work-Order-part columns."""
@@ -102,7 +99,6 @@ def project_money(projects=None, from_date=None, to_date=None) -> dict[str, Proj
             f"CASE WHEN document_type = %(work_order)s THEN {amount} ELSE 0 END AS wo_outflow"
         )
 
-    on_payment_date = "COALESCE(payment_date, creation::date)"
     rows = frappe.db.sql(
         f"""
         SELECT project, SUM(po_outflow) AS po_outflow, SUM(wo_outflow) AS wo_outflow,
@@ -110,20 +106,20 @@ def project_money(projects=None, from_date=None, to_date=None) -> dict[str, Proj
         FROM (
             SELECT project, {order_cash("amount")}, 0 AS expense_outflow, 0 AS liabilities, 0 AS inflow
             FROM "tabProject Payments"
-            WHERE status = 'Paid' AND {scope("project", on_payment_date)}
+            WHERE status = 'Paid' AND {scope("project", ON_PAYMENT_DATE)}
             UNION ALL
             SELECT project, {order_cash("-amount")}, 0, 0, 0
             FROM "tabVendor Refunds"
             WHERE status IN %(refund_statuses)s AND document_type IN %(refund_doctypes)s
-              AND {scope("project", on_payment_date)}
+              AND {scope("project", ON_PAYMENT_DATE)}
             UNION ALL
             SELECT projects, 0, 0, amount, 0, 0
             FROM "tabProject Expenses"
-            WHERE status = 'Paid' AND {scope("projects", on_payment_date)}
+            WHERE status = 'Paid' AND {scope("projects", ON_PAYMENT_DATE)}
             UNION ALL
             SELECT project, 0, 0, 0, 0, amount
             FROM "tabProject Inflows"
-            WHERE {scope("project", on_payment_date)}
+            WHERE {scope("project", ON_PAYMENT_DATE)}
             UNION ALL
             SELECT project, 0, 0, 0, GREATEST(0, COALESCE(po_amount_delivered, 0) - COALESCE(amount_paid, 0)), 0
             FROM "tabProcurement Orders"

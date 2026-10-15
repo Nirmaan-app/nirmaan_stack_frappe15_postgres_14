@@ -5,7 +5,7 @@ from frappe.utils import flt
 from nirmaan_stack.nirmaan_stack.doctype.projects.projects import CEO_HOLD_SYSTEM_USER
 from nirmaan_stack.services.ceo_hold import core
 from nirmaan_stack.services.project_money import project_money_of
-from nirmaan_stack.services.vendor_refunds import paid_money
+from nirmaan_stack.services.amount_paid import paid_money
 from ..Notifications.pr_notifications import PrNotification
 
 
@@ -251,7 +251,7 @@ def on_project_payment(doc, method=None):
 	"""
 	Cashflow gap counts only Paid payments (see services/project_money), and its liabilities read the
 	POs' stored Amount Paid. So it is re-evaluated only when the payment's paid money moved
-	(`services/vendor_refunds.paid_money`: into or out of Paid, or a Paid payment's amount or
+	(`services/amount_paid.paid_money`: into or out of Paid, or a Paid payment's amount or
 	order changed), on the project it leaves and the one it joins, and when a Paid row is deleted.
 
 	⚠️ AFTER THE RECOUNT, NEVER BEFORE (#1453). Bound to on_update, which Frappe runs after the

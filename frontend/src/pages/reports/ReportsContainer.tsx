@@ -12,6 +12,7 @@ import {
     AMOUNT_PAID_MISMATCH_PROFILES,
     MATERIAL_PROCUREMENT_PROFILES,
     PROCUREMENT_PROFILES,
+    RECONCILE_2B_REPORT_PROFILES,
     SERVICE_PROCUREMENT_PROFILES,
     isProcurementProfile,
 } from "@/constants/roles";
@@ -234,7 +235,7 @@ export default function ReportsContainer() {
     // Amount Paid Mismatch (Admin + Accountant Lead, #1455; the server refuses anyone else).
     const hiddenOrderReports = useMemo(() => {
         const hidden: string[] = [];
-        if (!["Nirmaan Admin Profile", "Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile"].includes(role)) hidden.push('2B Reconcile Report');
+        if (!RECONCILE_2B_REPORT_PROFILES.includes(role)) hidden.push('2B Reconcile Report');
         if (!AMOUNT_PAID_MISMATCH_PROFILES.includes(role)) hidden.push('Amount Paid Mismatch');
         return hidden;
     }, [role]);

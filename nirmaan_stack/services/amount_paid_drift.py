@@ -4,8 +4,8 @@
 """THE JUDGE of "is this order's stored Amount Paid right" (ADR-0034), and its recount.
 
 An order is a PO or a Work Order. Its source is THE rule every writer shares: Paid Project Payments less
-Received Vendor Refunds (`services/vendor_refunds.amount_paid_of`); its Amount Due is built from that with
-the order's own formula (`_item_billing_sync.amount_due_from`: PO invoiced - paid, WO total - paid - TDS
+Received Vendor Refunds (`services/amount_paid.amount_paid_of`); its Amount Due is built from that with
+the order's own formula (`services/amount_paid.amount_due_from`: PO invoiced - paid, WO total - paid - TDS
 withheld). An order is a MISMATCH when its stored `amount_paid` or `amount_due` is ₹1 or more off
 (paisa rounding is not a mismatch). A mismatch means some path skipped the recount; it is reported,
 never fixed silently.
@@ -15,7 +15,7 @@ never fixed silently.
   * `recount(doctype, name, credit_entry_type)` -- set one order from source. A PO goes through the
     refund sync step (`api/po_adjustments/refund_links.sync_po_refund_links`: paid, due, refund links,
     and its vendor's credit under `credit_entry_type`); a Work Order through the one writer
-    (`services/vendor_refunds.write_amount_paid`: paid, TDS withheld, due). No CEO Hold re-check: a repair
+    (`services/amount_paid.write_amount_paid`: paid, TDS withheld, due). No CEO Hold re-check: a repair
     should not put a project on hold by itself; the project's next payment or refund re-checks it.
 
 The integrity tests use `mismatches` as their judge: each performs an action and asserts it finds nothing
@@ -29,15 +29,10 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from nirmaan_stack.api.invoices._item_billing_sync import amount_due_from
 from nirmaan_stack.api.po_adjustments.refund_links import sync_po_refund_links
+from nirmaan_stack.services.amount_paid import amount_due_columns, amount_due_from, write_amount_paid
 from nirmaan_stack.services.payment_tds import DEDUCTIBLE_PARENTS, categories_are_company_borne
-from nirmaan_stack.services.vendor_refunds import (
-    LOWERS_PAID_STATUSES,
-    PROCUREMENT_ORDERS,
-    SERVICE_REQUESTS,
-    write_amount_paid,
-)
+from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, PROCUREMENT_ORDERS, SERVICE_REQUESTS
 
 #: The orders that store an Amount Paid.
 ORDER_DOCTYPES = (PROCUREMENT_ORDERS, SERVICE_REQUESTS)
@@ -47,12 +42,9 @@ THRESHOLD = 1.0
 #: button of the Amount Paid Mismatch report; the 2026-10-15 patch spells the same word itself).
 RECOUNT_CREDIT_ENTRY = "Amount Paid Recount"
 
-#: The order columns each doctype's Amount Due is built from, besides `amount_paid`
-#: (`_item_billing_sync._AMOUNT_DUE_OPERANDS`), plus what decides a company-borne Work Order.
-_DUE_COLUMNS = {
-    PROCUREMENT_ORDERS: ("amount_invoiced",),
-    SERVICE_REQUESTS: ("total_amount", "total_tds", "service_category_list"),
-}
+#: What decides a company-borne Work Order (`payment_tds.categories_are_company_borne`), read beside
+#: the Amount Due operands (`amount_paid.amount_due_columns`).
+_COMPANY_BORNE_COLUMN = "service_category_list"
 
 
 class Mismatch(NamedTuple):
@@ -79,7 +71,8 @@ def mismatches(doctype: str, names=None) -> list[Mismatch]:
     names = None if names is None else sorted({n for n in names if n})
     if names == []:
         return []
-    due_columns = ", ".join(f'o."{col}"' for col in _DUE_COLUMNS[doctype])
+    columns = amount_due_columns(doctype) + ((_COMPANY_BORNE_COLUMN,) if doctype in DEDUCTIBLE_PARENTS else ())
+    due_columns = ", ".join(f'o."{col}"' for col in columns)
     # Table and column names come from the constants above, never from a caller.
     rows = frappe.db.sql(
         f"""
@@ -107,7 +100,7 @@ def mismatches(doctype: str, names=None) -> list[Mismatch]:
     )
     found = []
     for row in rows:
-        company_borne = doctype in DEDUCTIBLE_PARENTS and categories_are_company_borne(row.service_category_list)
+        company_borne = doctype in DEDUCTIBLE_PARENTS and categories_are_company_borne(row.get(_COMPANY_BORNE_COLUMN))
         correct_paid = flt(row.correct_paid, 2)
         correct_due = flt(amount_due_from(doctype, {**row, "amount_paid": correct_paid}, company_borne), 2)
         stored_paid, stored_due = flt(row.stored_paid, 2), flt(row.stored_due, 2)

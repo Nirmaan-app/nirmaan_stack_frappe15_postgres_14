@@ -11,7 +11,7 @@ from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_hold import validate_hold
-from nirmaan_stack.services.vendor_refunds import orders_moved_by
+from nirmaan_stack.services.amount_paid import orders_moved_by, write_amount_paid
 from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of
 from nirmaan_stack.services.cheques.detach import DELETED
 from nirmaan_stack.services.cheques.rules import PAYMENT_REJECTED
@@ -22,6 +22,40 @@ from .procurement_requests import get_user_name
 
 #: The `Vendor Credit Ledger` entry for a Paid payment whose amount or order changed (#1453).
 PAYMENT_CHANGED_ENTRY = "Payment Changed"
+
+#: A payment saved with one of these flags is saved INSIDE ITS CALLER'S SAVEPOINT, so the recount must
+#: not commit: a commit inside a save ends every savepoint the caller holds.
+#:   from_outflow_import -- Bulk Import Outflow settles a bank statement row by row, each in its own
+#:       savepoint, so that row 3 failing leaves rows 1-2 written and rows 4+ still attempted ("Confirm 8"
+#:       must never leave four written and four not). The recount still runs, in the SAME transaction as
+#:       the payment, the match record and the import row; the import's endpoint commits all of it.
+#:   split_approval, split_child -- a split or un-split (`services/payment_split`). Un-splitting a Paid
+#:       part payment changes its amount while it stays Paid, which recounts since #1453.
+#: Same shape as `from_adjustment`, which skips the recount altogether (that flow recounts itself).
+INSIDE_CALLER_SAVEPOINT_FLAGS = ("from_outflow_import", "split_approval", "split_child")
+
+
+def recount_orders(doc, orders, exclude_payment=None):
+    """Recount `amount_paid` (with the TDS withheld and Amount Due built on it) on each of `orders`
+    (`(document_type, document_name)` pairs) through the one writer `services/amount_paid.write_amount_paid`,
+    committing after each unless `doc` carries an `INSIDE_CALLER_SAVEPOINT_FLAGS` flag.
+
+    `exclude_payment` is a payment being trashed: still in the table while `on_trash` runs. A failure is
+    logged, not raised, so a payment save never fails on its order's recount (the Amount Paid Mismatch
+    report shows the order instead).
+    """
+    for document_type, document_name in orders:
+        if not document_type or not document_name:
+            continue
+        try:
+            write_amount_paid(document_type, document_name, exclude_payment=exclude_payment)
+            if not any(doc.flags.get(flag) for flag in INSIDE_CALLER_SAVEPOINT_FLAGS):
+                frappe.db.commit()
+        except Exception as e:
+            frappe.log_error(
+                message=f"Failed to update amount_paid for {document_type} {document_name}. Error: {str(e)}",
+                title="Project Payment Sync Error",
+            )
 
 # --- HELPER FUNCTION FOR HOOKS ---
 # PO term status mirrors Project Payment status 1:1 (Requested / CEO Pending /
@@ -350,6 +384,12 @@ def on_update(doc, method):
 
     old_doc = doc.get_doc_before_save()
 
+    # Recount the order(s) whose Amount Paid this save moved, FIRST: everything below and the CEO Hold
+    # check after this hook read the recounted figure. The order a Paid payment leaves and the one it
+    # joins, when it enters or leaves Paid, or when a Paid payment's amount or order changes
+    # (`services/amount_paid.orders_moved_by` names the watched fields, #1453).
+    recount_orders(doc, orders_moved_by(old_doc, doc))
+
     # SR tax already withheld — restate it when the AMOUNT is edited.
     #
     # ⚠️ IT MUST SIT ABOVE THE STATUS GUARD BELOW, WHICH RETURNS. An amount edit changes no status,
@@ -512,6 +552,11 @@ def on_trash(doc, method):
     On deletion, find the related PO term by searching and revert its status to Created.
     Also handles cleanup of notifications and comments.
     """
+    # A Paid payment leaving recounts its order first, without itself (still in the table here), so
+    # the vendor credit below reads the recounted figure.
+    if doc.status == "Paid":
+        recount_orders(doc, [(doc.document_type, doc.document_name)], exclude_payment=doc.name)
+
     # Always revert to "Created" - frontend will determine eligibility based on due_date
     _find_and_update_po_term(doc, "Created", clear_link=True)
 

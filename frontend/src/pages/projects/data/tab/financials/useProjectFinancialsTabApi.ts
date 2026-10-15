@@ -1,6 +1,7 @@
 import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
+import { ProjectMoney } from "@/types/NirmaanStack/ProjectMoney";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 
 const financialsTabKeys = {
@@ -8,21 +9,6 @@ const financialsTabKeys = {
   invoices: (projectName: string) => ["project-tab", "financials", "invoices", projectName] as const,
   money: (projectName: string) => ["project-tab", "financials", "money", projectName] as const,
 };
-
-/**
- * A project's money, worked out on the server (`services/project_money`, ADR-0034): the figures CEO
- * Hold and the Projects list also read. `outflow` is cash (Paid payments less Received Vendor Refunds,
- * plus Paid expenses) and is the sum of its three parts.
- */
-export interface ProjectMoney {
-  po_outflow: number;
-  wo_outflow: number;
-  expense_outflow: number;
-  outflow: number;
-  liabilities: number;
-  inflow: number;
-  cashflow_gap: number;
-}
 
 export const useProjectMoney = (projectName?: string) => {
   const response = useFrappeGetCall<{ message: ProjectMoney }>(

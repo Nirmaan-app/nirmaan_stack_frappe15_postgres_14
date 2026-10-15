@@ -53,10 +53,26 @@ describe("amountPaidByWorkPackage", () => {
     expect(amountPaidByWorkPackage([{ name: "PO-1", amount_paid: 840 }], items)).toEqual({ Electrical: 590, HVAC: 250 });
   });
 
-  it("puts a custom PO's items under Custom, and leaves out a PO with no items", () => {
+  it("puts a custom PO's items under Custom", () => {
     const items = [{ po_number: "PO-1", work_package: "Electrical", quote: 10, quantity: 1, tax: 0, isCustom: true }];
-    const pos = [{ name: "PO-1", amount_paid: 70 }, { name: "PO-9", amount_paid: 999 }];
-    expect(amountPaidByWorkPackage(pos, items)).toEqual({ Custom: 70 });
+    expect(amountPaidByWorkPackage([{ name: "PO-1", amount_paid: 70 }], items)).toEqual({ Custom: 70 });
+  });
+
+  it("counts every PO, whatever its status, so the total is the PO part of the project outflow", () => {
+    // Spec #1451 story 14: payments on an Inactive PO no longer fall into a hidden bucket. The Inactive PO
+    // counts under its own items' package; a PO with no items at all under Custom. 300 + 120 + 30.
+    const items = [
+      { po_number: "PO-1", work_package: "Electrical", quote: 100, quantity: 5, tax: 18 },
+      { po_number: "PO-INACTIVE", work_package: "HVAC", quote: 40, quantity: 3, tax: 18 },
+    ];
+    const pos = [
+      { name: "PO-1", amount_paid: 300 },
+      { name: "PO-INACTIVE", amount_paid: 120 },
+      { name: "PO-NO-ITEMS", amount_paid: 30 },
+    ];
+    const paid = amountPaidByWorkPackage(pos, items);
+    expect(paid).toEqual({ Electrical: 300, HVAC: 120, Custom: 30 });
+    expect(Object.values(paid).reduce((total, amount) => total + amount, 0)).toBe(450);
   });
 
   it("splits evenly by item count when every item of the PO is priced at zero", () => {

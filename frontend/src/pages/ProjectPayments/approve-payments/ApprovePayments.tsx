@@ -28,6 +28,7 @@ import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
+import { ProjectMoney } from "@/types/NirmaanStack/ProjectMoney";
 import { PAYMENT_STATUS } from "@/constants/paymentStatus";
 import {
   BULK_MAX_SELECTION,
@@ -84,13 +85,8 @@ import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
 
-/** One project's figures from `api/projects/project_money.get_projects_money`. */
-interface ProjectMoney {
-  outflow: number;
-  liabilities: number;
-  inflow: number;
-  cashflow_gap: number;
-}
+/** A Work Order's value counts on this screen only at these statuses (`serviceOrders`). */
+const WO_STATUSES_WITH_VALUE = ["Approved", "Amendment"];
 const URL_SYNC_KEY_LEAD = "approve_pay";
 const URL_SYNC_KEY_CEO = "ceo_pending_pay";
 
@@ -202,18 +198,23 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
     },
     "POs_ApprovePay"
   );
+  // EVERY WO, whatever its status: "Total Paid" is the Amount Paid of whatever WO the row names
+  // (spec #1451). The WO value reads only the Approved / Amendment ones (`serviceOrders`), as before.
   const {
-    data: serviceOrders,
+    data: allServiceOrders,
     isLoading: srLoading,
     error: srError,
   } = useFrappeGetDocList<ServiceRequests>(
     DOC_TYPES.SERVICE_REQUESTS,
     {
       fields: ["name", "status", "gst", "total_amount", "amount_paid"],
-      filters: [["status", "in", ["Approved", "Amendment"]]],
-      limit: 10000,
+      limit: 0,
     },
     "SRs_ApprovePay"
+  );
+  const serviceOrders = useMemo(
+    () => allServiceOrders?.filter((sr) => WO_STATUSES_WITH_VALUE.includes(sr.status)),
+    [allServiceOrders]
   );
   // --- CEO-Only: the server's cashflow gap per project (ADR-0034, #1456) ---
   // The same figure that puts a project on CEO Hold and that the Projects list shows. One POST
@@ -272,11 +273,11 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           return parseNumber(purchaseOrders?.find((po) => po.name === docName)?.amount_paid);
         }
         if (docType === DOC_TYPES.SERVICE_REQUESTS) {
-          return parseNumber(serviceOrders?.find((sr) => sr.name === docName)?.amount_paid);
+          return parseNumber(allServiceOrders?.find((sr) => sr.name === docName)?.amount_paid);
         }
         return 0;
       }, (docName: string, docType: string) => `${docName}-${docType}`),
-    [purchaseOrders, serviceOrders]
+    [purchaseOrders, allServiceOrders]
   );
 
   const getDocumentTotal = useMemo(
