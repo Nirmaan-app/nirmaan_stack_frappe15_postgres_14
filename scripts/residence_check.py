@@ -213,6 +213,21 @@ CHECKS: list[Check] = [
             re.compile(r"JSON\.parse"),
         ),
     ),
+    # Not an ADR-0010 residence rule: a test-data rule that rides this ratchet because it is the
+    # repo's one counting check. `get_value(doctype, {})` returns the most recently MODIFIED row,
+    # so any unrelated write (a recount touching every Vendor) changes which record a test gets.
+    Check(
+        id="t1_tests_pick_any_row",
+        rule="T1",
+        description="Lines in test_*.py fetching a row with empty filters (get_value(doctype, {}...)): "
+                    "the record depends on whatever was modified last.",
+        route_hint="put the property the test needs in the filters (e.g. {\"vendor_nickname\": [\"is\", \"set\"]}) "
+                   "or create the record in the test's setUp.",
+        measure=lambda: count_lines(
+            [p for p in iter_files("nirmaan_stack", (".py",)) if p.name.startswith("test_")],
+            re.compile(r"""get_value\(\s*["'][^"']+["']\s*,\s*\{\s*\}"""),
+        ),
+    ),
 ]
 
 
