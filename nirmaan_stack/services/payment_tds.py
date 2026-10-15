@@ -169,6 +169,7 @@ __all__ = [
 	"DEDUCTIBLE_PARENTS",
 	"is_approval_from_an_earlier_step",
 	"is_company_borne",
+	"categories_are_company_borne",
 	"is_deductible",
 	"is_gst_payment",
 	"existing_deduction",
@@ -246,7 +247,14 @@ def is_company_borne(document_type: str | None, document_name: str | None) -> bo
 	if (document_type or "").strip() not in DEDUCTIBLE_PARENTS or not document_name:
 		return False
 
-	raw = frappe.db.get_value(SERVICE_REQUEST_DOCTYPE, document_name, "service_category_list")
+	return categories_are_company_borne(
+		frappe.db.get_value(SERVICE_REQUEST_DOCTYPE, document_name, "service_category_list")
+	)
+
+
+def categories_are_company_borne(raw) -> bool:
+	"""`is_company_borne` on a Work Order's `service_category_list` as read: for a reader that loads
+	many Work Orders in one query (the Amount Paid mismatch judge). Pure."""
 	# A Postgres `json` column can arrive already decoded or as text, depending on the driver path.
 	try:
 		parsed = frappe.parse_json(raw) if isinstance(raw, str) else raw
@@ -413,8 +421,12 @@ def restate_deduction_on_amount_change(doc) -> str | None:
 	if challan:
 		recompute_challan_reconciled(challan)
 
-	# And the parent's running total, which counts PAID payments -- this may well be one.
+	# And the parent's running total, which counts PAID payments -- this may well be one -- and the
+	# amount due built on it (#1453): the payment save recounted both BEFORE this restate ran.
 	sync_total_tds(doc.get("document_type"), doc.get("document_name"))
+	from nirmaan_stack.api.invoices._item_billing_sync import recompute_document_amount_due
+
+	recompute_document_amount_due(doc.get("document_type"), doc.get("document_name"))
 	return name
 
 

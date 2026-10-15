@@ -5,6 +5,7 @@ from frappe.utils import flt
 from nirmaan_stack.nirmaan_stack.doctype.projects.projects import CEO_HOLD_SYSTEM_USER
 from nirmaan_stack.services.ceo_hold import core
 from nirmaan_stack.services.project_money import project_money_of
+from nirmaan_stack.services.vendor_refunds import paid_money
 from ..Notifications.pr_notifications import PrNotification
 
 
@@ -237,24 +238,39 @@ def trigger_check(project_id):
 		frappe.log_error(frappe.get_traceback(), f"CEO Hold evaluation failed for {project_id}")
 
 
+def recheck_after_recount(project_id):
+	"""Re-evaluate one project's cashflow hold AFTER its orders' Amount Paid was recounted, even when
+	this request already checked it (#1453): that earlier check may have read the stale figure. For a
+	flow that writes payments with the hooks skipped and recounts at the end (PO Adjustments)."""
+	if project_id:
+		frappe.flags.pop(f"ceo_hold_checked:{project_id}", None)
+		trigger_check(project_id)
+
+
 def on_project_payment(doc, method=None):
 	"""
-	Cashflow gap counts only Paid payments (see services/project_money).
-	Skip the evaluation for any status that doesn't touch the gap
-	(Requested / CEO Pending / Approved / Rejected).
+	Cashflow gap counts only Paid payments (see services/project_money), and its liabilities read the
+	POs' stored Amount Paid. So it is re-evaluated only when the payment's paid money moved
+	(`services/vendor_refunds.paid_money`: into or out of Paid, or a Paid payment's amount or
+	order changed), on the project it leaves and the one it joins, and when a Paid row is deleted.
 
-	Fires only when:
-	  * a row enters Paid (status flipped to 'Paid')
-	  * a row leaves  Paid (status flipped away from 'Paid')
-	  * a Paid row is trashed
+	⚠️ AFTER THE RECOUNT, NEVER BEFORE (#1453). Bound to on_update, which Frappe runs after the
+	payment's own `on_update` has recounted its orders, and to `after_delete` (never `on_trash`), so the
+	deleted payment has left both the payment sum and its order's Amount Paid. A payment written by a
+	PO Adjustment (`from_adjustment`) skips the recount, so it is skipped here too: the adjustment
+	recounts at the end and then calls `recheck_after_recount`.
 	"""
-
-	if not doc.has_value_changed("status"):
+	if doc.flags.get("from_adjustment"):
+		return
+	if method == "after_delete":
+		if doc.status == "Paid":
+			trigger_check(doc.project)
 		return
 
-	prev_status = (doc.get_doc_before_save() or {}).get("status") if not doc.is_new() else None
-	if doc.status == "Paid" or prev_status == "Paid":
-		trigger_check(doc.project)
+	before = doc.get_doc_before_save()
+	if paid_money(before) != paid_money(doc):
+		for project in sorted({p for p in (doc.get("project"), before and before.get("project")) if p}):
+			trigger_check(project)
 
 
 def on_project_expense(doc, method=None):

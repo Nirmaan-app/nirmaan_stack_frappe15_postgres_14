@@ -97,32 +97,17 @@ class ProjectPayments(Document):
 
 	
 	def on_update(self):
-		"""
-        Triggered after a document is saved.
-        We check if the status has just changed to 'Paid'.
-        """
-		# Skip all hook logic when created by PO Revision — revision_logic.py handles amount_paid itself
+		"""Recount the order(s) whose Amount Paid this save moved: the one a Paid payment leaves and the
+		one it joins, when it enters or leaves Paid, or when a Paid payment's amount or order changes
+		(`services/vendor_refunds.orders_moved_by` names the watched fields, #1453)."""
+		# Skip all hook logic when created by PO Revision / PO Adjustment -- that flow recounts itself
 		if self.flags.from_adjustment:
-			print(f"DEBUG_HOOK: project_payments.on_update skipped for {self.document_name} due to from_adjustment flag")
-			
 			return
 
-		old_doc = self.get_doc_before_save()
-		if not old_doc:
-			if self.status == "Paid":
-				self.update_parent_amount_paid()
-				return
-			else:
-				return
+		from nirmaan_stack.services.vendor_refunds import orders_moved_by
 
-        # Trigger recalculation only when status changes TO 'Paid'
-		if old_doc.status != "Paid" and self.status == "Paid":
-			self.update_parent_amount_paid()
-
-        # Also trigger if a 'Paid' payment is changed to something else (e.g., 'Rejected')
-		if old_doc.status == "Paid" and self.status != "Paid":
-			self.update_parent_amount_paid()
-			
+		for document_type, document_name in orders_moved_by(self.get_doc_before_save(), self):
+			self.update_parent_amount_paid(order=(document_type, document_name))
 
 	def on_trash(self):
 		"""
@@ -133,49 +118,24 @@ class ProjectPayments(Document):
 		if self.status == "Paid":
 			self.update_parent_amount_paid(exclude_name=self.name)
 
-	def update_parent_amount_paid(self, exclude_name=None):
+	def update_parent_amount_paid(self, exclude_name=None, order=None):
 		"""
-        Calculates and updates the 'amount_paid' on the parent document using
-        the recommended ORM method (frappe.get_all).
+        Recount `amount_paid` (with the TDS withheld and amount due built on it) on `order`
+        (`(document_type, document_name)`; this payment's own order when not given), through the one
+        writer `services/vendor_refunds.write_amount_paid`: Paid payments LESS Received Vendor Refunds.
 
         Args:
             exclude_name: If provided, exclude this payment record from the sum.
                 Used during on_trash when the record still exists in DB.
         """
-		if not self.document_type or not self.document_name:
+		document_type, document_name = order or (self.document_type, self.document_name)
+		if not document_type or not document_name:
 			return
 
-        # --- 1-2. The parent's Paid payments LESS its Vendor Refunds ---
-        # The rule has one home (`services/vendor_refunds.amount_paid_of`), shared with the refund hook
-        # and the PO Adjustment recompute, so settling a payment never writes a refund back out.
-		from nirmaan_stack.services.vendor_refunds import amount_paid_of
+		from nirmaan_stack.services.vendor_refunds import write_amount_paid
 
-		total_paid = amount_paid_of(self.document_type, self.document_name, exclude_payment=exclude_name)
-
-        # --- 3. Update the parent document ---
 		try:
-			frappe.db.set_value(self.document_type, self.document_name, "amount_paid", total_paid)
-
-			# `total_tds` rides THIS recompute rather than having its own trigger, and the
-			# co-location is the design: both totals are sums over the SAME population (this
-			# parent's Paid payments), so computing them in one pass is what makes it impossible
-			# for a Service Request to report tax withheld on money it has not paid. It no-ops
-			# for any parent outside `payment_tds.DEDUCTIBLE_PARENTS` — a Procurement Order has
-			# no `total_tds` field to write to.
-			from nirmaan_stack.services import payment_tds
-
-			payment_tds.sync_total_tds(
-				self.document_type, self.document_name, exclude_payment=exclude_name
-			)
-
-			# `amount_due` on the parent is derived from `amount_paid`, so it moves with it.
-			# PO: amount_invoiced - amount_paid | SR: total_amount - amount_paid -- deliberately
-			# different formulas; the helper owns that split.
-			from nirmaan_stack.api.invoices._item_billing_sync import (
-				recompute_document_amount_due,
-			)
-			recompute_document_amount_due(self.document_type, self.document_name)
-			# print(f"DEBUGGPS: Updated amount_paid for {self.document_type} {self.document_name} to {total_paid}")
+			write_amount_paid(document_type, document_name, exclude_payment=exclude_name)
 
 			# ⚠️ THE COMMIT IS SKIPPED FOR THE OUTFLOW IMPORT, AND ONLY FOR IT.
 			#
@@ -192,10 +152,14 @@ class ProjectPayments(Document):
 			#
 			# Every other caller is byte-identical to before. Same shape as `from_adjustment`
 			# above, which exists because PO Revision hit this exact problem.
-			if not self.flags.get("from_outflow_import"):
+			#
+			# ⚠️ AND FOR A SPLIT OR UN-SPLIT (`services/payment_split`), for the same reason: its flags
+			# mean "inside my savepoint". Un-splitting a Paid part payment changes its amount while it
+			# stays Paid, which recounts since #1453; a commit here broke the un-split's savepoint.
+			if not any(self.flags.get(flag) for flag in ("from_outflow_import", "split_approval", "split_child")):
 				frappe.db.commit()
 		except Exception as e:
 			frappe.log_error(
-                message=f"Failed to update amount_paid for {self.document_type} {self.document_name}. Error: {str(e)}",
+                message=f"Failed to update amount_paid for {document_type} {document_name}. Error: {str(e)}",
                 title="Project Payment Sync Error"
             )
