@@ -39,6 +39,25 @@ export const normalizeAccount = (value: string): string => {
 
 export const cleanIfsc = (value: string): string => value.trim().toUpperCase();
 
+/** What a person enters for an account: the holder name, the number and the IFSC. */
+export interface AccountDetails {
+    account_name: string;
+    account_number: string;
+    ifsc: string;
+}
+
+/**
+ * THE screen's "same account details?": the same holder name (spacing aside), account number (spaces,
+ * dashes and case aside, but not leading zeros: the number is written as typed) and IFSC. Saving
+ * either one over the other would change nothing: Edit has nothing to save, and Change account would
+ * copy the account the expense already holds. Not the server's "is the vendor's account another
+ * account?" (`paid_to.account_changed_since`), which ignores the holder name.
+ */
+export const sameAccountDetails = (a: AccountDetails, b: AccountDetails): boolean =>
+    a.account_name.replace(/\s+/g, " ").trim() === b.account_name.replace(/\s+/g, " ").trim() &&
+    cleanAccountNumber(a.account_number) === cleanAccountNumber(b.account_number) &&
+    cleanIfsc(a.ifsc) === cleanIfsc(b.ifsc);
+
 /**
  * An account number for a CSV export. Excel reads a bare `0809…` as a number: it drops the leading
  * zeros and rounds past 15 digits. `="0809…"` opens as that exact text. (Never for the bank file,

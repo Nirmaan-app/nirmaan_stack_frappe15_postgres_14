@@ -11,6 +11,12 @@ import { formatDate } from "@/utils/FormatDate";
 
 import { PAYEE_RULE, asPayeeRule } from "./expensePayee";
 
+/** A PO / Work Order payment (`paid_to.PAYMENT_DOCTYPE`); every other row the accountant pays is an expense. */
+export const PAYMENT_DOCTYPE = "Project Payments";
+
+/** The rows Record Payment shows the "Pay ₹X to" box for (`paid_to.PAID_TO_DOCTYPES`). */
+export type PayToBoxDoctype = typeof PAYMENT_DOCTYPE | "Project Expenses" | "Non Project Expenses";
+
 /** Why a row has no account to pay into (`paid_to.py`). */
 export const PAID_TO_MISSING = {
     PAYMENT_HAS_NO_ACCOUNT: "payment_has_no_account",
@@ -34,11 +40,49 @@ export interface PaidTo {
     current_account: PayToAccount | null;
 }
 
+/** Which answer a row has, with what each answer needs: its account; its account with the vendor's
+ *  changed since (#1439); no account on a PO / WO payment; no account on an expense, with its type's
+ *  rule. */
+export type PaidToKind =
+    | { tone: "account"; account: PayToAccount }
+    | { tone: "account_changed"; account: PayToAccount; current: PayToAccount | null }
+    | { tone: "payment_no_account" }
+    | { tone: "no_account"; rule: string | null };
+
+export type PaidToTone = PaidToKind["tone"];
+
 export interface PaidToCell {
-    tone: "account" | "account_changed" | "no_account" | "payment_no_account";
+    tone: PaidToTone;
     title: string;
     detail: string;
 }
+
+/** THE classifier every Paid to wording starts from (the cell, its CSV, the "Pay ₹X to" box). A row
+ *  the server sent without paid_to has no account. */
+export const classifyPaidTo = (paidTo: PaidTo | undefined): PaidToKind => {
+    const account = paidTo?.account;
+    if (account) {
+        return paidTo.account_changed
+            ? { tone: "account_changed", account, current: paidTo.current_account }
+            : { tone: "account", account };
+    }
+    return paidTo?.missing === PAID_TO_MISSING.PAYMENT_HAS_NO_ACCOUNT
+        ? { tone: "payment_no_account" }
+        : { tone: "no_account", rule: paidTo?.payee_rule ?? null };
+};
+
+/** Why an expense of this type has no account, by its type's *Who gets paid* (spec story 56). */
+const expenseNoAccountReason = (rule: string | null | undefined, expenseType: string): string => {
+    const type = expenseType || "Its type";
+    switch (asPayeeRule(rule)) {
+        case PAYEE_RULE.REQUIRED:
+            return `${type} requires one.`;
+        case PAYEE_RULE.OPTIONAL:
+            return `No account given; optional for ${expenseType || "its type"}.`;
+        case PAYEE_RULE.NOT_ASKED:
+            return "Not asked for this expense type.";
+    }
+};
 
 export const ACCOUNT_CHANGED_TITLE = "Vendor's account changed since this was raised";
 
@@ -51,36 +95,37 @@ export const currentAccountText = (current: PayToAccount | null): string =>
 /** The Paid to cell: the holder name with the account and IFSC under it, the account-changed
  *  warning, or why there is no account. */
 export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string): PaidToCell => {
-    const account = paidTo?.account;
-    if (account && paidTo.account_changed) {
-        return {
-            tone: "account_changed",
-            title: ACCOUNT_CHANGED_TITLE,
-            detail: `${currentAccountText(paidTo.current_account)} Reject it and raise it again.`,
-        };
+    const kind = classifyPaidTo(paidTo);
+    switch (kind.tone) {
+        case "account_changed":
+            return {
+                tone: kind.tone,
+                title: ACCOUNT_CHANGED_TITLE,
+                detail: `${currentAccountText(kind.current)} Reject it and raise it again.`,
+            };
+        case "account":
+            return {
+                tone: kind.tone,
+                title: kind.account.account_name,
+                detail: `A/c ${kind.account.account_number}, ${kind.account.ifsc}`,
+            };
+        case "payment_no_account":
+            return {
+                tone: kind.tone,
+                title: "No account on this payment",
+                detail: "Pay it another way, or reject it and raise it again.",
+            };
+        case "no_account": {
+            const reason = expenseNoAccountReason(kind.rule, expenseType);
+            return {
+                tone: kind.tone,
+                title: "No account",
+                detail: asPayeeRule(kind.rule) === PAYEE_RULE.REQUIRED
+                    ? `${reason} Add it with Change account in Record Payment.`
+                    : reason,
+            };
+        }
     }
-    if (account) {
-        return {
-            tone: "account",
-            title: account.account_name,
-            detail: `A/c ${account.account_number}, ${account.ifsc}`,
-        };
-    }
-    if (paidTo?.missing === PAID_TO_MISSING.PAYMENT_HAS_NO_ACCOUNT) {
-        return {
-            tone: "payment_no_account",
-            title: "No account on this payment",
-            detail: "Pay it another way, or reject it and raise it again.",
-        };
-    }
-    const type = expenseType || "Its type";
-    return {
-        tone: "no_account",
-        title: "No account",
-        detail: asPayeeRule(paidTo?.payee_rule) === PAYEE_RULE.REQUIRED
-            ? `${type} requires one. Add it with Change account in Record Payment.`
-            : `${type} doesn't require one. Paid by card or cash.`,
-    };
 };
 
 /** The Paid to cell on one line, for the table's CSV. */
@@ -91,12 +136,66 @@ export const paidToExportText = (paidTo: PaidTo | undefined, expenseType: string
     return cell.title;
 };
 
-/** Record Payment's "Pay ₹X to" box for an expense with no account. */
-export const noAccountBoxText = (rule: string | null | undefined, expenseType: string): string => {
-    const type = expenseType || "Its type";
-    return asPayeeRule(rule) === PAYEE_RULE.REQUIRED
-        ? `${type} requires an account. Use Change account to set one before paying.`
-        : `${type} doesn't require one. Pay by card or cash, or use Change account to set one.`;
+/** Record Payment's "Pay ₹X to" box for an expense with no account and no vendor. */
+export const noAccountBoxText = (rule: string | null | undefined, expenseType: string): string =>
+    asPayeeRule(rule) === PAYEE_RULE.REQUIRED
+        ? `${expenseType || "Its type"} requires an account. Use Change account to set one before paying.`
+        : `${expenseNoAccountReason(rule, expenseType)} Pay by card or cash, or use Change account to set one.`;
+
+/** What the "Pay ₹X to" box reads of `paid_to.pay_to_box` to decide what it shows. */
+export interface PayToBoxFacts extends PaidTo {
+    vendor_fixed: boolean;
+    vendor_name: string | null;
+}
+
+/** What Record Payment's "Pay ₹X to" box shows besides the account itself, decided once. */
+export interface PayToBoxView {
+    /** The box's colour: red when the vendor's account changed since, green with an account, amber
+     *  with none. */
+    tone: "account_changed" | "account" | "no_account";
+    /** Why there is no account: a bold title and a line. Null when there is one. */
+    noAccount: { title: string; detail: string } | null;
+    /** The small print under an account, saying where it was copied from. Null when none. */
+    note: string | null;
+}
+
+export const payToBoxView = (doctype: PayToBoxDoctype, box: PayToBoxFacts, expenseType: string): PayToBoxView => {
+    const vendor = box.vendor_name || "the vendor";
+    switch (classifyPaidTo(box).tone) {
+        case "account_changed":
+            return { tone: "account_changed", noAccount: null, note: null };
+        case "account": {
+            let note: string | null = null;
+            if (doctype === PAYMENT_DOCTYPE) {
+                note =
+                    `Copied from ${vendor}'s account when this payment was raised. A payment's account is never ` +
+                    "changed: if it is wrong, reject the payment and raise it again.";
+            } else if (box.vendor_fixed) {
+                note = `Copied from ${vendor}'s account. To pay someone else, the expense's vendor has to change.`;
+            }
+            return { tone: "account", noAccount: null, note };
+        }
+        case "payment_no_account":
+            return {
+                tone: "no_account",
+                noAccount: {
+                    title: "No account on this payment.",
+                    detail: `Pay it another way, or reject it and raise it again once ${vendor} has a bank account.`,
+                },
+                note: null,
+            };
+        case "no_account":
+            return {
+                tone: "no_account",
+                noAccount: {
+                    title: "No account.",
+                    detail: box.vendor_fixed
+                        ? `${box.vendor_name || "The vendor"} had no bank account on record when this was raised.`
+                        : noAccountBoxText(box.payee_rule, expenseType),
+                },
+                note: null,
+            };
+    }
 };
 
 /**
@@ -105,10 +204,10 @@ export const noAccountBoxText = (rule: string | null | undefined, expenseType: s
  * copy is never changed: a wrong one means reject and raise again.
  */
 export const canChangeExpenseAccount = (
-    doctype: string,
+    doctype: PayToBoxDoctype,
     box: { paid: boolean; vendor_fixed: boolean },
     isAccounts: boolean,
-): boolean => isAccounts && doctype !== "Project Payments" && !box.paid && !box.vendor_fixed;
+): boolean => isAccounts && doctype !== PAYMENT_DOCTYPE && !box.paid && !box.vendor_fixed;
 
 /** Who set a row's account (`paid_to.pay_to_box`'s `named_by`). */
 export interface NamedBy {

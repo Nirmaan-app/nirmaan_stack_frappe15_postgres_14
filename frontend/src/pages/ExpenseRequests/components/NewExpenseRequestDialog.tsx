@@ -44,12 +44,13 @@ import VendorSelect, { OTHERS_VENDOR_VALUE } from "@/components/custom-select/ve
 
 import { DuplicatePayeeError, usePayeeChoice } from "@/components/payees/usePayeeChoice";
 import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
-import type { PayeeOption, PayToAccount } from "@/types/NirmaanStack/Payee";
+import type { PayToAccount } from "@/types/NirmaanStack/Payee";
 import {
     asksWhoGetsPaid,
     showsWhoGetsPaid,
     whoGetsPaidProblem,
 } from "@/utils/payees/expensePayee";
+import { payToSave } from "@/utils/payees/payToChoice";
 
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
@@ -140,11 +141,10 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     const [submitting, setSubmitting] = useState(false);
     // Edit-only: the requester has asked to swap the project, so hand them the picker.
     const [changingProject, setChangingProject] = useState(false);
-    // Who gets paid when no vendor is picked: an existing Payee, or a new one added on send.
+    // Who gets paid when no vendor is picked: an existing Payee, or a new one added on send. On an
+    // edit (no vendor) the request's own account is seeded as the pick; while it stays picked the save
+    // keeps it as it is (`utils/payees/payToChoice`), so a Payee edited since moves nothing.
     const payeeChoice = usePayeeChoice();
-    // The request's own account, seeded into the picker on an edit (no vendor). While it stays picked
-    // the save keeps the account as it is (`keep_pay_to`), so a Payee edited since moves nothing.
-    const seededPayTo = useRef<PayeeOption | null>(null);
 
     const isEdit = !!editing;
     // The catalog lists only the types the caller's role may see. An EDIT also asks for the
@@ -337,7 +337,6 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         setAnswers({});
         setFiles({});
         setInvoiceFile(null);
-        seededPayTo.current = null;
         payeeChoice.reset();
         setNewExpenseRequestDialog(false);
         onEditingChange?.(null);
@@ -372,8 +371,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         setChangingProject(false);
         // The request's own account (`pay_to`), seeded as the pick when it was picked rather than
         // copied from a vendor. A vendor's copy is not seeded: clearing the vendor then asks anew.
-        seededPayTo.current = editing.pay_to && !editing.vendor ? { name: "", ...editing.pay_to } : null;
-        payeeChoice.reset(seededPayTo.current);
+        payeeChoice.reset(editing.pay_to && !editing.vendor ? { kind: "own", account: editing.pay_to } : null);
         skipNextSeed.current = true;
         setAnswers(answersFromSourceData(editing.source_data));
         setFiles({});
@@ -388,12 +386,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             // here, before any upload, with the Payee to pick shown in the section). With a vendor
             // nothing is sent: the server copies the vendor's Payee. An edit that leaves the
             // request's own account picked keeps it as it is.
-            let payTo: { payee?: string; keep_pay_to?: boolean } = {};
-            if (asksPayee && !vendorChosen) {
-                const keeps = isEdit && payeeChoice.mode === "pick" && !!seededPayTo.current
-                    && payeeChoice.picked === seededPayTo.current;
-                payTo = keeps ? { keep_pay_to: true } : { payee: (await payeeChoice.resolve())?.name };
-            }
+            const payTo = asksPayee && !vendorChosen ? payToSave(await payeeChoice.resolve()) : {};
 
             // Upload now, so nothing is orphaned by a cancelled dialog. The file is stored as
             // a URL inside `source_data.attachments`, keyed by SLOT -- which is what lets the
@@ -505,7 +498,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     }, [canSubmit, createRequest, updateRequest, isEdit, editing, upload, files, form,
         amountValue, showProject, showVendor, isStandard, invoiceFile,
         parsedFormat, answers, toast, close, onSuccess,
-        asksPayee, vendorChosen, payeeChoice.resolve, payeeChoice.mode, payeeChoice.picked]);
+        asksPayee, vendorChosen, payeeChoice.resolve]);
 
     return (
         <AlertDialog

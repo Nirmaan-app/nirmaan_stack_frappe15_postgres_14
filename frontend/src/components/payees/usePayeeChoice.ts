@@ -4,7 +4,8 @@
  *
  * Reusable on purpose: the Expense Request dialog uses it, request formats' name fields give way to
  * it (#1430), and Record Payment's "Change account" reuses it (#1431, #1438). Each screen calls `resolve()`
- * when it saves: a picked Payee comes back as is; new details are added first through
+ * when it saves: a pick comes back as is (a Payee, or an edited request's own account kept,
+ * `utils/payees/payToChoice`); new details are added first through
  * `api/expense_requests/payees.add_request_payee` (open to anyone who can raise a request). An
  * account already on record is not added twice: its Payee shows in the duplicate block, to pick.
  */
@@ -14,6 +15,7 @@ import { useFrappePostCall } from "frappe-react-sdk";
 
 import type { PayeeOption, PayeeSummary } from "@/types/NirmaanStack/Payee";
 import { cleanIfsc, newPayeeProblem } from "@/utils/payees/payeeForm";
+import type { PickedPayTo } from "@/utils/payees/payToChoice";
 
 import { usePayeeBankForm, type PayeeBankForm } from "./usePayeeBankForm";
 
@@ -33,8 +35,8 @@ export class DuplicatePayeeError extends Error {}
 export interface PayeeChoice {
     mode: PayeeChoiceMode;
     setMode: (mode: PayeeChoiceMode) => void;
-    /** The Payee picked (pick mode). */
-    picked: PayeeOption | null;
+    /** What is picked (pick mode): a Payee, or an edited request's own account kept. */
+    picked: PickedPayTo | null;
     /** Pick a Payee (or clear with null); switches to pick mode. */
     pick: (payee: PayeeOption | null) => void;
     bankForm: PayeeBankForm;
@@ -44,10 +46,10 @@ export interface PayeeChoice {
     problem: string | null;
     /** The new Payee is being added. */
     adding: boolean;
-    /** The Payee to save: the picked one, or the new one, added now. None chosen: null. */
-    resolve: () => Promise<PayeeOption | null>;
-    /** Start again, picking `seed` (a request's own Payee when editing it). */
-    reset: (seed?: PayeeOption | null) => void;
+    /** What to save: the pick, or the new Payee, added now. None chosen: null. */
+    resolve: () => Promise<PickedPayTo | null>;
+    /** Start again, picking `seed` (a request's own account when editing it). */
+    reset: (seed?: PickedPayTo | null) => void;
     /** Where the picker searches Payees. */
     searchApi: string;
 }
@@ -68,7 +70,7 @@ const REQUEST_APIS: PayeeChoiceApis = {
 
 export function usePayeeChoice(apis: PayeeChoiceApis = REQUEST_APIS): PayeeChoice {
     const [mode, setMode] = useState<PayeeChoiceMode>("pick");
-    const [picked, setPicked] = useState<PayeeOption | null>(null);
+    const [picked, setPicked] = useState<PickedPayTo | null>(null);
     const bankForm = usePayeeBankForm({ checkApi: apis.check });
     const { call: callAdd, loading: adding } = useFrappePostCall<{ message: AddReply }>(apis.add);
 
@@ -80,11 +82,11 @@ export function usePayeeChoice(apis: PayeeChoiceApis = REQUEST_APIS): PayeeChoic
     const problem = mode === "new" ? newProblem : null;
 
     const pick = useCallback((payee: PayeeOption | null) => {
-        setPicked(payee);
+        setPicked(payee ? { kind: "payee", payee } : null);
         setMode("pick");
     }, []);
 
-    const resolve = useCallback(async (): Promise<PayeeOption | null> => {
+    const resolve = useCallback(async (): Promise<PickedPayTo | null> => {
         if (mode === "pick") return picked;
         if (!typedAnything) return null;
         const res = await callAdd({
@@ -98,14 +100,15 @@ export function usePayeeChoice(apis: PayeeChoiceApis = REQUEST_APIS): PayeeChoic
             throw new DuplicatePayeeError(reply.message);
         }
         // Added: from now on it is the picked Payee, so a failed save after this re-uses it.
+        const added: PickedPayTo = { kind: "payee", payee: reply.payee };
         resetBank();
-        setPicked(reply.payee);
+        setPicked(added);
         setMode("pick");
-        return reply.payee;
+        return added;
     }, [mode, picked, typedAnything, callAdd, form, setDuplicate, resetBank]);
 
     const reset = useCallback(
-        (seed: PayeeOption | null = null) => {
+        (seed: PickedPayTo | null = null) => {
             resetBank();
             setPicked(seed);
             setMode("pick");

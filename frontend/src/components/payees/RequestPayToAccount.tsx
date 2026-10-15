@@ -11,9 +11,9 @@
 
 import type { ReactNode } from "react";
 
+import { AccountDetailsGrid } from "@/components/payees/AccountDetailsGrid";
 import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
 import { cn } from "@/lib/utils";
-import { bankLine } from "@/utils/payees/payeeForm";
 
 interface RequestPayToAccountProps {
     /** The vendor the payment is for; nothing is read while it is unknown. */
@@ -40,14 +40,7 @@ export function RequestPayToAccount({ vendor, vendorLabel, className }: RequestP
             </p>
         );
     } else {
-        body = (
-            <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
-                <InfoItem label="Account Holder Name" value={payee.account_name} />
-                <InfoItem label="Account Number" value={payee.account_number} />
-                <InfoItem label="IFSC Code" value={payee.ifsc} />
-                <InfoItem label="Bank" value={bankLine(payee)} />
-            </div>
-        );
+        body = <AccountDetailsGrid account={payee} />;
     }
 
     return (
@@ -69,14 +62,5 @@ export function RequestPayToAccount({ vendor, vendorLabel, className }: RequestP
                 </p>
             )}
         </section>
-    );
-}
-
-function InfoItem({ label, value }: { label: string; value?: string | null }) {
-    return (
-        <div>
-            <p className="text-xs font-medium text-primary">{label}</p>
-            <p className="break-words text-sm font-medium tabular-nums text-foreground">{value || "N/A"}</p>
-        </div>
     );
 }

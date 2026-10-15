@@ -5,7 +5,6 @@ import {
     payeeDeleteBlock,
     payeeEditForm,
     payeeEditKeepsIfsc,
-    payeeEditUnchanged,
     sharedPayeeWarning,
 } from "./payeeEdit";
 
@@ -34,19 +33,6 @@ describe("payeeEditForm", () => {
 
     it("starts the holder name from the rename prompt's new vendor name when given", () => {
         expect(payeeEditForm(payee, "Kaveri Airtech").account_name).toBe("Kaveri Airtech");
-    });
-});
-
-describe("payeeEditUnchanged", () => {
-    it("is true while the form still holds the Payee's account, spacing and case aside", () => {
-        expect(payeeEditUnchanged(payee, { ...payeeEditForm(payee), account_name: " Kaveri  Ductfab Systems " })).toBe(true);
-        expect(payeeEditUnchanged(payee, { ...payeeEditForm(payee), ifsc: "hdfc0000195" })).toBe(true);
-    });
-
-    it("is false once the holder name, number or IFSC changes", () => {
-        expect(payeeEditUnchanged(payee, { ...payeeEditForm(payee), account_name: "Kaveri Airtech" })).toBe(false);
-        expect(payeeEditUnchanged(payee, { ...payeeEditForm(payee), account_number: "50200061234568" })).toBe(false);
-        expect(payeeEditUnchanged(payee, { ...payeeEditForm(payee), ifsc: "HDFC0000196" })).toBe(false);
     });
 });
 

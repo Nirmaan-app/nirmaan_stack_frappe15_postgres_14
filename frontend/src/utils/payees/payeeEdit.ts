@@ -10,7 +10,7 @@
 import type { PayeeChange, PayeeSummary } from "@/types/NirmaanStack/Payee";
 import { formatDate } from "@/utils/FormatDate";
 
-import { cleanAccountNumber, cleanIfsc, type PayeeFormValues } from "./payeeForm";
+import { cleanIfsc, type PayeeFormValues } from "./payeeForm";
 
 type PayeeAccount = Pick<PayeeSummary, "name" | "account_name" | "account_number" | "ifsc">;
 
@@ -19,8 +19,6 @@ export interface PayeeVendorName {
     name: string;
     vendor_name?: string | null;
 }
-
-const squash = (value: string): string => value.replace(/\s+/g, " ").trim();
 
 const vendorLabel = (v: PayeeVendorName): string => (v.vendor_name ? `${v.vendor_name} (${v.name})` : v.name);
 
@@ -35,12 +33,6 @@ export const payeeEditForm = (payee: PayeeAccount, holderName?: string): PayeeFo
     confirm_account_number: payee.account_number,
     ifsc: payee.ifsc,
 });
-
-/** True while the form still holds the Payee's saved account: nothing to save. */
-export const payeeEditUnchanged = (payee: PayeeAccount, form: PayeeFormValues): boolean =>
-    squash(form.account_name) === squash(payee.account_name) &&
-    cleanAccountNumber(form.account_number) === cleanAccountNumber(payee.account_number) &&
-    cleanIfsc(form.ifsc) === cleanIfsc(payee.ifsc);
 
 /**
  * True when an edit keeps the Payee's own IFSC: its bank and branch stand as saved and the server

@@ -4,9 +4,10 @@
  * on an expense, Change account.
  *
  * Shown for an expense and for a PO / WO payment. Who to pay is the server's
- * (`services/payees/paid_to.pay_to_box`); when Change account shows is a screen rule
- * (`canChangeExpenseAccount`): Accounts, an expense, not yet paid, no vendor named. A PO / WO
- * payment's copy is never changed: a wrong account means reject the payment and raise it again.
+ * (`services/payees/paid_to.pay_to_box`); what the box says about it is `utils/payees/paidTo.payToBoxView`;
+ * when Change account shows is a screen rule (`canChangeExpenseAccount`): Accounts, an expense, not
+ * yet paid, no vendor named. A PO / WO payment's copy is never changed: a wrong account means reject
+ * the payment and raise it again.
  *
  * A PO / WO payment whose vendor's account changed since it was raised (#1439) turns red: the
  * warning names the vendor's account now and, until it is paid, says to reject and raise again; the
@@ -31,12 +32,20 @@ import {
     ACCOUNT_CHANGED_TITLE,
     canChangeExpenseAccount,
     namedByText,
-    noAccountBoxText,
+    payToBoxView,
+    type PayToBoxDoctype,
+    type PayToBoxView,
 } from "@/utils/payees/paidTo";
 
 import { ChangeExpenseAccountDialog } from "./ChangeExpenseAccountDialog";
-import { ACCOUNTS_PAYEE_APIS, PAY_TO_BOX_API, payToBoxKey, type PayToBox as PayToBoxData, type PayToBoxDoctype } from "./paidToApi";
+import { ACCOUNTS_PAYEE_APIS, PAY_TO_BOX_API, payToBoxKey, type PayToBox as PayToBoxData } from "./paidToApi";
 import { usePayeeChoice } from "./usePayeeChoice";
+
+const TONE_CLASSES: Record<PayToBoxView["tone"], { box: string; heading: string }> = {
+    account_changed: { box: "border-red-500 bg-red-50 dark:bg-red-950/30", heading: "text-red-800 dark:text-red-300" },
+    account: { box: "border-green-600 bg-green-50 dark:bg-green-950/30", heading: "text-green-800 dark:text-green-300" },
+    no_account: { box: "border-amber-400 bg-amber-50 dark:bg-amber-950/30", heading: "text-amber-900 dark:text-amber-300" },
+};
 
 interface PayToBoxProps {
     doctype: PayToBoxDoctype;
@@ -68,8 +77,8 @@ export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
     }
 
     const account = box.account;
-    const isPayment = doctype === "Project Payments";
-    const changed = isPayment && box.account_changed;
+    const view = payToBoxView(doctype, box, expenseType);
+    const changed = view.tone === "account_changed";
     const AccountValue = changed ? Fact : CopyValue;
     const canChange = canChangeExpenseAccount(doctype, box, canManagePayees(role, user_id));
     const bank = account ? bankLine(account) : "";
@@ -82,26 +91,12 @@ export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
     return (
         <section
             aria-labelledby="pay-to-heading"
-            className={cn(
-                "flex flex-col gap-3 rounded-lg border-2 p-4",
-                changed
-                    ? "border-red-500 bg-red-50 dark:bg-red-950/30"
-                    : account
-                      ? "border-green-600 bg-green-50 dark:bg-green-950/30"
-                      : "border-amber-400 bg-amber-50 dark:bg-amber-950/30",
-            )}
+            className={cn("flex flex-col gap-3 rounded-lg border-2 p-4", TONE_CLASSES[view.tone].box)}
         >
             <div className="flex items-baseline gap-2">
                 <h3
                     id="pay-to-heading"
-                    className={cn(
-                        "flex-grow text-sm font-semibold",
-                        changed
-                            ? "text-red-800 dark:text-red-300"
-                            : account
-                              ? "text-green-800 dark:text-green-300"
-                              : "text-amber-900 dark:text-amber-300",
-                    )}
+                    className={cn("flex-grow text-sm font-semibold", TONE_CLASSES[view.tone].heading)}
                 >
                     Pay {formatToRoundedIndianRupee(box.amount)} to
                 </h3>
@@ -145,34 +140,15 @@ export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
                         <Fact label="Set by" value={namedByText(box.named_by, box.vendor_name)} />
                     </div>
                 </>
-            ) : isPayment ? (
-                <p className="text-sm">
-                    <span className="font-semibold">No account on this payment.</span> Pay it another way, or reject
-                    it and raise it again once {box.vendor_name || "the vendor"} has a bank account.
-                </p>
-            ) : box.vendor_fixed ? (
-                <p className="text-sm">
-                    <span className="font-semibold">No account.</span>{" "}
-                    {box.vendor_name || "The vendor"} had no bank account on record when this was raised.
-                </p>
             ) : (
-                <p className="text-sm">
-                    <span className="font-semibold">No account.</span> {noAccountBoxText(box.payee_rule, expenseType)}
-                </p>
+                view.noAccount && (
+                    <p className="text-sm">
+                        <span className="font-semibold">{view.noAccount.title}</span> {view.noAccount.detail}
+                    </p>
+                )
             )}
 
-            {account && isPayment && !changed && (
-                <p className="text-xs text-muted-foreground">
-                    Copied from {box.vendor_name || "the vendor"}'s account when this payment was raised. A payment's
-                    account is never changed: if it is wrong, reject the payment and raise it again.
-                </p>
-            )}
-            {account && !isPayment && box.vendor_fixed && (
-                <p className="text-xs text-muted-foreground">
-                    Copied from {box.vendor_name || "the vendor"}'s account. To pay someone else, the expense's vendor
-                    has to change.
-                </p>
-            )}
+            {view.note && <p className="text-xs text-muted-foreground">{view.note}</p>}
 
             {canChange && (
                 <ChangeExpenseAccountDialog

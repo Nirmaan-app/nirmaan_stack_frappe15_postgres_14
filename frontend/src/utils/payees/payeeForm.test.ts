@@ -13,6 +13,7 @@ import {
     newPayeeProblem,
     normalizeAccount,
     payeeFormProblem,
+    sameAccountDetails,
     type PayeeFormValues,
 } from "./payeeForm";
 
@@ -158,5 +159,25 @@ describe("bankLine", () => {
         expect(bankLine({ bank_name: "HDFC Bank", bank_branch: "Rohtak" })).toBe("HDFC Bank, Rohtak");
         expect(bankLine({ bank_name: "HDFC Bank", bank_branch: null })).toBe("HDFC Bank");
         expect(bankLine({})).toBe("");
+    });
+});
+
+describe("sameAccountDetails", () => {
+    const saved = { account_name: "Kaveri Ductfab Systems", account_number: "50200061234567", ifsc: "HDFC0000195" };
+
+    it("is true for the same holder, number and IFSC, spacing, dashes and case aside", () => {
+        expect(sameAccountDetails(saved, { ...saved, account_name: " Kaveri  Ductfab Systems " })).toBe(true);
+        expect(sameAccountDetails(saved, { ...saved, account_number: "5020 0061-234567" })).toBe(true);
+        expect(sameAccountDetails(saved, { ...saved, ifsc: "hdfc0000195 " })).toBe(true);
+    });
+
+    it("is false once the holder name, number or IFSC differs", () => {
+        expect(sameAccountDetails(saved, { ...saved, account_name: "Kaveri Airtech" })).toBe(false);
+        expect(sameAccountDetails(saved, { ...saved, account_number: "50200061234568" })).toBe(false);
+        expect(sameAccountDetails(saved, { ...saved, ifsc: "HDFC0000196" })).toBe(false);
+    });
+
+    it("counts a leading zero: what is copied or saved is the number as written", () => {
+        expect(sameAccountDetails(saved, { ...saved, account_number: "050200061234567" })).toBe(false);
     });
 });

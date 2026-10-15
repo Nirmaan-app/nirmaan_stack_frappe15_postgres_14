@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { canChangeExpenseAccount, namedByText, noAccountBoxText, paidToCell, paidToExportText, type PaidTo } from "./paidTo";
+import {
+    canChangeExpenseAccount,
+    namedByText,
+    noAccountBoxText,
+    paidToCell,
+    paidToExportText,
+    payToBoxView,
+    type PaidTo,
+} from "./paidTo";
 
 const account = {
     account_name: "Ramesh Kumar Yadav",
@@ -29,14 +37,20 @@ describe("paidToCell", () => {
         });
     });
 
-    it("says an expense with no account needs none when its type doesn't require one", () => {
-        for (const rule of ["Optional", "Not asked"] as const) {
-            expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: rule, ...UNFLAGGED }, "Travel")).toEqual({
-                tone: "no_account",
-                title: "No account",
-                detail: "Travel doesn't require one. Paid by card or cash.",
-            });
-        }
+    it("says an expense of a Not asked type has no account because its type doesn't ask", () => {
+        expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Not asked", ...UNFLAGGED }, "Travel")).toEqual({
+            tone: "no_account",
+            title: "No account",
+            detail: "Not asked for this expense type.",
+        });
+    });
+
+    it("says an expense of an Optional type was raised without one", () => {
+        expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Optional", ...UNFLAGGED }, "Travel")).toEqual({
+            tone: "no_account",
+            title: "No account",
+            detail: "No account given; optional for Travel.",
+        });
     });
 
     it("says when the type requires an account and the expense has none", () => {
@@ -95,9 +109,68 @@ describe("noAccountBoxText", () => {
         expect(noAccountBoxText("Required", "Labour Advance")).toBe(
             "Labour Advance requires an account. Use Change account to set one before paying.",
         );
-        expect(noAccountBoxText("Not asked", "Travel")).toBe(
-            "Travel doesn't require one. Pay by card or cash, or use Change account to set one.",
+        expect(noAccountBoxText("Optional", "Travel")).toBe(
+            "No account given; optional for Travel. Pay by card or cash, or use Change account to set one.",
         );
+        expect(noAccountBoxText("Not asked", "Travel")).toBe(
+            "Not asked for this expense type. Pay by card or cash, or use Change account to set one.",
+        );
+    });
+});
+
+describe("payToBoxView", () => {
+    const facts = { ...paid, vendor_fixed: false, vendor_name: "Kaveri Ductfab" };
+    const none = { ...facts, account: null };
+
+    it("turns red with no small print when a PO payment's vendor changed account since", () => {
+        expect(payToBoxView("Project Payments", { ...facts, account_changed: true, current_account: newAccount }, "")).toEqual({
+            tone: "account_changed",
+            noAccount: null,
+            note: null,
+        });
+    });
+
+    it("says a PO payment's account was copied from its vendor and is never changed", () => {
+        expect(payToBoxView("Project Payments", facts, "")).toEqual({
+            tone: "account",
+            noAccount: null,
+            note:
+                "Copied from Kaveri Ductfab's account when this payment was raised. A payment's account is never " +
+                "changed: if it is wrong, reject the payment and raise it again.",
+        });
+    });
+
+    it("says an expense naming a vendor is paid into the vendor's account", () => {
+        expect(payToBoxView("Project Expenses", { ...facts, vendor_fixed: true }, "").note).toBe(
+            "Copied from Kaveri Ductfab's account. To pay someone else, the expense's vendor has to change.",
+        );
+        expect(payToBoxView("Non Project Expenses", facts, "")).toEqual({ tone: "account", noAccount: null, note: null });
+    });
+
+    it("says why a PO payment has no account", () => {
+        expect(payToBoxView("Project Payments", { ...none, missing: "payment_has_no_account" }, "")).toEqual({
+            tone: "no_account",
+            noAccount: {
+                title: "No account on this payment.",
+                detail: "Pay it another way, or reject it and raise it again once Kaveri Ductfab has a bank account.",
+            },
+            note: null,
+        });
+    });
+
+    it("says an expense naming a vendor had no vendor account when it was raised", () => {
+        expect(payToBoxView("Project Expenses", { ...none, missing: "expense_has_no_account", vendor_fixed: true }, "").noAccount)
+            .toEqual({ title: "No account.", detail: "Kaveri Ductfab had no bank account on record when this was raised." });
+    });
+
+    it("says an expense with no vendor and no account why, by its type's rule", () => {
+        expect(
+            payToBoxView("Non Project Expenses", { ...none, missing: "expense_has_no_account", payee_rule: "Not asked" }, "Travel"),
+        ).toEqual({
+            tone: "no_account",
+            noAccount: { title: "No account.", detail: noAccountBoxText("Not asked", "Travel") },
+            note: null,
+        });
     });
 });
 

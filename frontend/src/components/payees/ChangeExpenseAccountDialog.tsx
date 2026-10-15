@@ -25,6 +25,8 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { PAYEE_RULE, asPayeeRule } from "@/utils/payees/expensePayee";
+import { sameAccountDetails } from "@/utils/payees/payeeForm";
+import { pickedAccount } from "@/utils/payees/payToChoice";
 
 import { CHANGE_EXPENSE_ACCOUNT_API, type PayToBox } from "./paidToApi";
 import { PayeePicker } from "./PayeePicker";
@@ -51,9 +53,10 @@ export function ChangeExpenseAccountDialog({
 
     const save = async (clear: boolean) => {
         try {
-            const payee = clear ? null : await choice.resolve();
-            if (!clear && !payee) return;
-            const res = await call({ doctype, name: box.name, payee: payee?.name ?? null });
+            const picked = clear ? null : await choice.resolve();
+            // Only a Payee is copied: this dialog never seeds the expense's own account as the pick.
+            if (!clear && picked?.kind !== "payee") return;
+            const res = await call({ doctype, name: box.name, payee: picked?.kind === "payee" ? picked.payee.name : null });
             toast({
                 title: "Account changed",
                 description: res.message.account
@@ -70,8 +73,8 @@ export function ChangeExpenseAccountDialog({
     };
 
     // Picking the account the expense already holds changes nothing.
-    const unchanged = choice.mode === "pick" && !!box.account && choice.picked?.account_number === box.account.account_number
-        && choice.picked?.ifsc === box.account.ifsc && choice.picked?.account_name === box.account.account_name;
+    const unchanged = choice.mode === "pick" && !!box.account && !!choice.picked
+        && sameAccountDetails(pickedAccount(choice.picked), box.account);
 
     return (
         <AlertDialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>

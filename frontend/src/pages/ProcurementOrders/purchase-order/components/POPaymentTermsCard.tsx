@@ -715,6 +715,19 @@ const EditGstNotesDialog = ({
   );
 };
 
+interface RequestPaymentDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  term: PaymentTerm | null;
+  onConfirm: (mode?: PaymentModeArgs) => void;
+  isLoading: boolean;
+  isLocked?: boolean;
+  poName: string | undefined;
+  poVendor: string | undefined;
+  /** The vendor's name, for the "Will be paid into" box's no-account line. */
+  poVendorName: string | undefined;
+}
+
 const RequestPaymentDialog = ({
   isOpen,
   onClose,
@@ -725,7 +738,7 @@ const RequestPaymentDialog = ({
   poName,
   poVendor,
   poVendorName,
-}) => {
+}: RequestPaymentDialogProps) => {
   const [payMode, setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
   const duplicateOf = useDuplicateChequeOf(payMode);
   // Where this PO's money already stands, before the term is requested (owner, 2026-09-21).

@@ -14,7 +14,7 @@ const API = "nirmaan_stack.api.payees.paid_to";
 export const PAID_TO_API = `${API}.get_paid_to`;
 /** Record Payment's "Pay ₹X to" box, for an expense or a PO / WO payment. */
 export const PAY_TO_BOX_API = `${API}.get_pay_to_box`;
-/** Change account on an expense: Accounts only. */
+/** Change account on an expense: the server asks write permission; the screen offers it to Accounts. */
 export const CHANGE_EXPENSE_ACCOUNT_API = `${API}.change_expense_account`;
 export const ACCOUNTS_SEARCH_PAYEES_API = `${API}.search_payees`;
 /** New bank details in Change account go through the Payees page's own endpoints (Accounts only). */
@@ -30,9 +30,6 @@ export const ACCOUNTS_PAYEE_APIS: PayeeChoiceApis = {
 
 export type PaidToKey = { doctype: string; name: string };
 export type { PaidTo };
-
-/** The doctypes Record Payment shows the box for. */
-export type PayToBoxDoctype = "Project Payments" | "Project Expenses" | "Non Project Expenses";
 
 /** `paid_to.pay_to_box`: the "Pay ₹X to" box for one row: its Paid to answer, plus the facts around it. */
 export interface PayToBox extends PaidTo {

@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import type { PayeeOption, PayToAccount } from "@/types/NirmaanStack/Payee";
 import { payeeAccountLine } from "@/utils/payees/expensePayee";
 import { bankLine } from "@/utils/payees/payeeForm";
+import { pickedAccount } from "@/utils/payees/payToChoice";
 
 import { PayeeBankFields } from "./PayeeBankFields";
 import type { PayeeChoice } from "./usePayeeChoice";
@@ -119,7 +120,8 @@ function PickPanel({ choice, disabled }: PayeePickerProps) {
         { text: query },
         searching ? `payee_search_${choice.searchApi}_${query}` : null,
     );
-    const matches = (searching ? data?.message ?? [] : []).filter((p) => p.name !== picked?.name);
+    const pickedPayee = picked?.kind === "payee" ? picked.payee.name : null;
+    const matches = (searching ? data?.message ?? [] : []).filter((p) => p.name !== pickedPayee);
 
     // A pick ends the search: its results (and "No payee matches") would otherwise linger
     // under the picked card.
@@ -143,7 +145,7 @@ function PickPanel({ choice, disabled }: PayeePickerProps) {
             />
             {picked && (
                 <div className="relative">
-                    <PayeeCard payee={picked} selected onClick={() => pick(null)} disabled={disabled} />
+                    <PayeeCard payee={pickedAccount(picked)} selected onClick={() => pick(null)} disabled={disabled} />
                     <Button
                         type="button"
                         variant="ghost"
@@ -171,7 +173,7 @@ function PickPanel({ choice, disabled }: PayeePickerProps) {
 }
 
 interface PayeeCardProps {
-    payee: PayeeOption;
+    payee: PayToAccount;
     selected?: boolean;
     onClick: () => void;
     disabled?: boolean;

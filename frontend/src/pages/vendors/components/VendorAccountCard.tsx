@@ -13,6 +13,7 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { PencilLine, Repeat } from "lucide-react";
 
+import { AccountDetailsGrid } from "@/components/payees/AccountDetailsGrid";
 import { ChangeVendorAccountDialog } from "@/components/payees/ChangeVendorAccountDialog";
 import { EditVendorPayeeDialog } from "@/components/payees/EditVendorPayeeDialog";
 import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
@@ -56,13 +57,7 @@ export const VendorAccountCard: React.FC<VendorAccountCardProps> = ({ vendor }) 
     } else {
         body = (
             <>
-                <div className="grid grid-cols-1 gap-x-8 gap-y-4 md:grid-cols-2">
-                    <InfoItem label="Account Holder Name" value={payee.account_name} />
-                    <InfoItem label="Account Number" value={payee.account_number} />
-                    <InfoItem label="IFSC Code" value={payee.ifsc} />
-                    <InfoItem label="Bank Name" value={payee.bank_name} />
-                    <InfoItem label="Branch" value={payee.bank_branch} />
-                </div>
+                <AccountDetailsGrid account={payee} className="gap-x-8 gap-y-4" />
                 <p className="rounded-md bg-muted px-3 py-2.5 text-[13px] text-muted-foreground">
                     Edit bank details when this account's holder moves banks: every vendor paid into it follows.
                     Use a different payee to pay only this vendor into another account. Payments already raised
@@ -142,12 +137,5 @@ export const VendorAccountCard: React.FC<VendorAccountCardProps> = ({ vendor }) 
         </>
     );
 };
-
-const InfoItem: React.FC<{ label: string; value?: string | null }> = ({ label, value }) => (
-    <div>
-        <p className="text-xs font-medium text-primary">{label}</p>
-        <p className="text-sm font-medium tabular-nums text-foreground">{value || "N/A"}</p>
-    </div>
-);
 
 export default VendorAccountCard;

@@ -29,8 +29,8 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { payeeEditUnchanged, sharedPayeeWarning, type PayeeVendorName } from "@/utils/payees/payeeEdit";
-import { cleanIfsc } from "@/utils/payees/payeeForm";
+import { sharedPayeeWarning, type PayeeVendorName } from "@/utils/payees/payeeEdit";
+import { cleanIfsc, sameAccountDetails } from "@/utils/payees/payeeForm";
 
 import { PayeeBankFields } from "./PayeeBankFields";
 import { usePayeeBankForm } from "./usePayeeBankForm";
@@ -72,7 +72,8 @@ export function EditPayeeDialog({ payee, vendors, endpoint, title, holderName, o
 
     const vendorsKnown = payee.vendors <= 1 || vendors !== undefined;
     const warning = vendors ? sharedPayeeWarning(vendors) : null;
-    const unchanged = payeeEditUnchanged(payee, form);
+    // Nothing to save while the form still holds the Payee's saved account (a holder name change counts).
+    const unchanged = sameAccountDetails(payee, form);
     const blocked = loading || lookingUp || !!problem || !!duplicate || unchanged || !vendorsKnown;
 
     const save = async () => {
