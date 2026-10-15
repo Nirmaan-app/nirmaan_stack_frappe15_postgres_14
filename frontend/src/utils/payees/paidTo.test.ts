@@ -9,7 +9,16 @@ const account = {
     bank_name: "State Bank of India",
     bank_branch: "Bhiwandi",
 };
-const paid: PaidTo = { account, missing: null, payee_rule: null };
+/** A row the "account changed since" flag passed (every expense, every unchanged payment). */
+const UNFLAGGED = { account_changed: false, current_account: null } as const;
+const paid: PaidTo = { account, missing: null, payee_rule: null, ...UNFLAGGED };
+const newAccount = {
+    account_name: "Ramesh Kumar Yadav",
+    account_number: "50100234567812",
+    ifsc: "HDFC0000123",
+    bank_name: "HDFC Bank",
+    bank_branch: "Thane",
+};
 
 describe("paidToCell", () => {
     it("shows the holder name with the account number and IFSC under it", () => {
@@ -22,7 +31,7 @@ describe("paidToCell", () => {
 
     it("says an expense with no account needs none when its type doesn't require one", () => {
         for (const rule of ["Optional", "Not asked"] as const) {
-            expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: rule }, "Travel")).toEqual({
+            expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: rule, ...UNFLAGGED }, "Travel")).toEqual({
                 tone: "no_account",
                 title: "No account",
                 detail: "Travel doesn't require one. Paid by card or cash.",
@@ -32,7 +41,7 @@ describe("paidToCell", () => {
 
     it("says when the type requires an account and the expense has none", () => {
         expect(
-            paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Required" }, "Labour Advance"),
+            paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Required", ...UNFLAGGED }, "Labour Advance"),
         ).toEqual({
             tone: "no_account",
             title: "No account",
@@ -41,10 +50,26 @@ describe("paidToCell", () => {
     });
 
     it("says a vendor payment holds no account of its own", () => {
-        expect(paidToCell({ account: null, missing: "payment_has_no_account", payee_rule: null }, "")).toEqual({
+        expect(paidToCell({ account: null, missing: "payment_has_no_account", payee_rule: null, ...UNFLAGGED }, "")).toEqual({
             tone: "payment_no_account",
             title: "No account on this payment",
             detail: "Pay it another way, or reject it and raise it again.",
+        });
+    });
+
+    it("warns that a PO payment's vendor changed account since, naming the new account", () => {
+        expect(paidToCell({ ...paid, account_changed: true, current_account: newAccount }, "")).toEqual({
+            tone: "account_changed",
+            title: "Vendor's account changed since this was raised",
+            detail: "Now Ramesh Kumar Yadav, A/c 50100234567812, HDFC0000123. Reject it and raise it again.",
+        });
+    });
+
+    it("warns when the PO payment's vendor has no account any more", () => {
+        expect(paidToCell({ ...paid, account_changed: true, current_account: null }, "")).toEqual({
+            tone: "account_changed",
+            title: "Vendor's account changed since this was raised",
+            detail: "The vendor has no account now. Reject it and raise it again.",
         });
     });
 
@@ -56,8 +81,11 @@ describe("paidToCell", () => {
 describe("paidToExportText", () => {
     it("writes the account on one line, or why there is none", () => {
         expect(paidToExportText(paid, "Labour Advance")).toBe("Ramesh Kumar Yadav, A/c 36147100982211, SBIN0003435");
-        expect(paidToExportText({ account: null, missing: "payment_has_no_account", payee_rule: null }, "")).toBe(
+        expect(paidToExportText({ account: null, missing: "payment_has_no_account", payee_rule: null, ...UNFLAGGED }, "")).toBe(
             "No account on this payment",
+        );
+        expect(paidToExportText({ ...paid, account_changed: true, current_account: null }, "")).toBe(
+            "Vendor's account changed since this was raised: The vendor has no account now. Reject it and raise it again.",
         );
     });
 });

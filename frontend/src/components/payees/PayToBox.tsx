@@ -7,6 +7,12 @@
  * (`services/payees/paid_to.pay_to_box`); when Change account shows is a screen rule
  * (`canChangeExpenseAccount`): Accounts, an expense, not yet paid, no vendor named. A PO / WO
  * payment's copy is never changed: a wrong account means reject the payment and raise it again.
+ *
+ * A PO / WO payment whose vendor's account changed since it was raised (#1439) turns red: the
+ * warning names the vendor's account now and, until it is paid, says to reject and raise again; the
+ * old account below loses its Copy buttons, so nobody pastes it into the bank portal. Record Payment
+ * opens on Reconciliation Pending, after "Mark as Paid": there the warning says the payment was
+ * marked paid to the old account instead.
  */
 
 import { useState } from "react";
@@ -21,7 +27,12 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { bankLine } from "@/utils/payees/payeeForm";
-import { canChangeExpenseAccount, namedByText, noAccountBoxText } from "@/utils/payees/paidTo";
+import {
+    ACCOUNT_CHANGED_TITLE,
+    canChangeExpenseAccount,
+    namedByText,
+    noAccountBoxText,
+} from "@/utils/payees/paidTo";
 
 import { ChangeExpenseAccountDialog } from "./ChangeExpenseAccountDialog";
 import { ACCOUNTS_PAYEE_APIS, PAY_TO_BOX_API, payToBoxKey, type PayToBox as PayToBoxData, type PayToBoxDoctype } from "./paidToApi";
@@ -58,6 +69,8 @@ export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
 
     const account = box.account;
     const isPayment = doctype === "Project Payments";
+    const changed = isPayment && box.account_changed;
+    const AccountValue = changed ? Fact : CopyValue;
     const canChange = canChangeExpenseAccount(doctype, box, canManagePayees(role, user_id));
     const bank = account ? bankLine(account) : "";
     // Each open starts from a fresh pick: the copy is not a Payee, so there is nothing to seed it with.
@@ -71,15 +84,24 @@ export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
             aria-labelledby="pay-to-heading"
             className={cn(
                 "flex flex-col gap-3 rounded-lg border-2 p-4",
-                account
-                    ? "border-green-600 bg-green-50 dark:bg-green-950/30"
-                    : "border-amber-400 bg-amber-50 dark:bg-amber-950/30",
+                changed
+                    ? "border-red-500 bg-red-50 dark:bg-red-950/30"
+                    : account
+                      ? "border-green-600 bg-green-50 dark:bg-green-950/30"
+                      : "border-amber-400 bg-amber-50 dark:bg-amber-950/30",
             )}
         >
             <div className="flex items-baseline gap-2">
                 <h3
                     id="pay-to-heading"
-                    className={cn("flex-grow text-sm font-semibold", account ? "text-green-800 dark:text-green-300" : "text-amber-900 dark:text-amber-300")}
+                    className={cn(
+                        "flex-grow text-sm font-semibold",
+                        changed
+                            ? "text-red-800 dark:text-red-300"
+                            : account
+                              ? "text-green-800 dark:text-green-300"
+                              : "text-amber-900 dark:text-amber-300",
+                    )}
                 >
                     Pay {formatToRoundedIndianRupee(box.amount)} to
                 </h3>
@@ -90,12 +112,35 @@ export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
                 )}
             </div>
 
+            {changed && (
+                <div role="alert" className="flex flex-col gap-1 rounded-md border border-red-300 bg-background px-3 py-2 text-sm">
+                    <p className="font-semibold text-red-800 dark:text-red-300">{ACCOUNT_CHANGED_TITLE}</p>
+                    {box.current_account ? (
+                        <p>
+                            {box.vendor_name || "The vendor"} is now paid into{" "}
+                            <span className="font-semibold">{box.current_account.account_name}</span>, A/c{" "}
+                            <span className="font-semibold tabular-nums">{box.current_account.account_number}</span>,{" "}
+                            {box.current_account.ifsc}
+                            {bankLine(box.current_account) ? ` (${bankLine(box.current_account)})` : ""}.
+                        </p>
+                    ) : (
+                        <p>{box.vendor_name || "The vendor"} has no bank account now.</p>
+                    )}
+                    <p>
+                        {box.paid
+                            ? "It was marked paid to the old account below, the one it was raised with."
+                            : "Don't pay the old account below. Reject this payment and raise it again."}
+                    </p>
+                </div>
+            )}
+
             {account ? (
                 <>
+                    {changed && <p className="text-xs text-muted-foreground">Account on this payment (old)</p>}
                     <p className="text-xl font-bold leading-tight">{account.account_name}</p>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <CopyValue label="Account number" value={account.account_number} />
-                        <CopyValue label="IFSC" value={account.ifsc} />
+                        <AccountValue label="Account number" value={account.account_number} />
+                        <AccountValue label="IFSC" value={account.ifsc} />
                         <Fact label="Bank" value={bank || "--"} />
                         <Fact label="Set by" value={namedByText(box.named_by, box.vendor_name)} />
                     </div>
@@ -116,7 +161,7 @@ export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
                 </p>
             )}
 
-            {account && isPayment && (
+            {account && isPayment && !changed && (
                 <p className="text-xs text-muted-foreground">
                     Copied from {box.vendor_name || "the vendor"}'s account when this payment was raised. A payment's
                     account is never changed: if it is wrong, reject the payment and raise it again.

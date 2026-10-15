@@ -65,6 +65,7 @@ from nirmaan_stack.services.outflow_import.normalize import (
     NAME_NOISE_TOKENS,
     name_tokens,
     normalize_account,
+    normalize_ifsc,
     normalize_name,
     normalize_reference,
 )
@@ -401,13 +402,13 @@ def resolve_vendors(
     account = getattr(row, "normalized_account", "") or normalize_account(
         getattr(row, "bank_account", "")
     )
-    row_ifsc = _normalize_ifsc(getattr(row, "ifsc", ""))
+    row_ifsc = normalize_ifsc(getattr(row, "ifsc", ""))
     beneficiary = getattr(row, "beneficiary_name", "") or ""
 
     scored: dict[str, VendorCandidate] = {}
 
     for vendor in index.by_account.get(account, ()) if account else ():
-        ifsc_matches = bool(row_ifsc) and _normalize_ifsc(vendor.ifsc) == row_ifsc
+        ifsc_matches = bool(row_ifsc) and normalize_ifsc(vendor.ifsc) == row_ifsc
         reasons = ["bank account matches"]
         if ifsc_matches:
             reasons.append("IFSC matches")
@@ -562,7 +563,7 @@ def match_payments(
     line_account = getattr(row, "normalized_account", "") or normalize_account(
         getattr(row, "bank_account", "")
     )
-    line_ifsc = _normalize_ifsc(getattr(row, "ifsc", ""))
+    line_ifsc = normalize_ifsc(getattr(row, "ifsc", ""))
     vendor_names = account_ifsc_vendors(vendor)
     tier1 = [
         PaymentGroup(targets=(t,), basis=BASIS_ACCOUNT_IFSC, score=0.9)
@@ -616,12 +617,8 @@ def _paid_to_line(
     return (
         bool(line_account and line_ifsc)
         and copy_account == line_account
-        and _normalize_ifsc(target.pay_to_ifsc) == line_ifsc
+        and normalize_ifsc(target.pay_to_ifsc) == line_ifsc
     )
-
-
-def _normalize_ifsc(value: object) -> str:
-    return str(value or "").strip().upper()
 
 
 def match_expenses(

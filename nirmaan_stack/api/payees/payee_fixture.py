@@ -18,9 +18,9 @@ USAGE
     with shown_to_client() as shown: ...           # the messages a refusal sent the client (`shown`)
 
 Every Payee it makes carries `TEST_IFSC` and a `TESTPYE` holder name, and `purge` sweeps every
-Payee with either, so a test that dies before it records a name strands nothing. Links to a
-purged Payee (`Vendors`, `Expense Request`, `Project Expenses`, `Non Project Expenses`) are cleared
-first, raw: `payee` is a plain link no hook reads.
+Payee with either, so a test that dies before it records a name strands nothing. A vendor's
+link to a purged Payee is cleared first, raw: `payee` is a plain link no hook reads. Nothing else
+links to a Payee (ADR-0033: records hold their own copy).
 
 ⚠️ `purge` ROLLS BACK FIRST, so a test's own delete must come AFTER it (or be committed before it):
 an uncommitted delete made before the purge is undone by it. That is how #1427's class fixtures
@@ -48,7 +48,7 @@ TEST_IFSC = "TEST0PYE001"
 HOLDER_PREFIX = "TESTPYE"
 VENDOR_PREFIX = "TESTPYE-VEN-"
 BANK = {"BANK": "Test Bank", "BRANCH": "Test Branch"}
-LINKING_DOCTYPES = ("Vendors", "Expense Request", "Project Expenses", "Non Project Expenses")
+LINKING_DOCTYPES = ("Vendors",)
 
 
 class PayeeFixture:

@@ -578,7 +578,8 @@ const REGISTRY: Record<
   }),
 
   // Where the row's money goes (#1431, #1438, approved mockup screen 11): the row's own pay-to
-  // account, copied when it was raised, or why there is none.
+  // account, copied when it was raised, or why there is none. A PO / WO payment whose vendor's
+  // account changed since shows the warning and the new account instead (#1439).
   paid_to: () => ({
     id: "paid_to",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Paid to" />,
@@ -593,7 +594,7 @@ const REGISTRY: Record<
               className={cn(
                 "truncate",
                 cell.tone === "no_account" && "text-amber-700",
-                cell.tone === "payment_no_account" && "text-red-700",
+                (cell.tone === "payment_no_account" || cell.tone === "account_changed") && "text-red-700",
               )}
               title={cell.title}
             >
