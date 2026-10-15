@@ -139,7 +139,19 @@ class TestProjectPagePaid(FrappeTestCase):
                 get_project_pos_paid(self.P)
         finally:
             frappe.set_user("Administrator")
-            frappe.db.delete("User Permission", {"user": email})
-            frappe.delete_doc("User", email, force=True, ignore_permissions=True)
-            frappe.db.delete("Projects", {"name": other})
-            frappe.db.commit()
+            frappe.db.rollback()
+            failures = []
+            for doctype, filters in (
+                ("User Permission", {"user": email}),
+                ("Contact", {"email_id": email}),
+                ("User", {"name": email}),
+                ("Projects", {"name": other}),
+            ):
+                try:
+                    frappe.db.delete(doctype, filters)
+                    frappe.db.commit()
+                except Exception as error:  # noqa: BLE001 - report every scope, strand none silently
+                    frappe.db.rollback()
+                    failures.append(f"{doctype}: {error}")
+            if failures:
+                raise AssertionError(f"test_spends_refuses_a_reader_limited_to_another_project left rows: {failures}")
