@@ -19,7 +19,8 @@ THE STEPS, AND WHICH ONE THIS SLICE BUILT (#1443 built the first and the status 
               completed order's project on a Validated import; the edit is the line's stored plan
     create    `porter_create.create_porter_expenses` (#1445): one Porter Order and one Expense per
               completed order, at Paid, by a background job; `get_porter_status` reports its progress
-    rectify / discard  (#1449 / #1446)
+    rectify   (#1449)
+    discard   `porter_discard.discard_porter_import` (#1447): an import Create has not written to
 
 ⚠️ IT NEVER RUNS THE MATCHER. A Porter line creates its expense and settles nothing; `match_batch`
 and every other settlement entry point are out of reach (`NEVER_MATCHED_SOURCES`, and an AST test).
@@ -27,7 +28,7 @@ The generic Cashfree/ICICI upload is not reused either: it assumes matching, and
 
 ⚠️ NOTHING IS SAVED BEFORE THE WHOLE FILE IS READ. `save_file` commits inside the request (the cloud
 attachment hook), so every refusal -- a missing column, no rows, an invoice whose lines disagree, an
-invoice already uploaded -- happens before it.
+invoice-level repeat (`porter_repeats`) -- happens before it.
 
 ⚠️ ITS OPEN LINES ARE NOT BANK LINES. Until Create settles them they are outside the main table's
 population (`review._row_filters`), so they are in no tab, not in *Still open* and not in *Total
@@ -42,7 +43,7 @@ from frappe.utils.file_manager import save_file
 
 from nirmaan_stack.api.outflow_import.expenses import _refresh_batch_rollup
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
-from nirmaan_stack.api.outflow_import.porter_validation import enqueue_validation
+from nirmaan_stack.api.outflow_import.porter_validation import enqueue_validation, validation_job_id
 from nirmaan_stack.services.outflow_import.parser import StatementFormatError, parse_statement
 from nirmaan_stack.services.outflow_import.porter import (
     CREATE_LINE_STATUSES,
@@ -59,6 +60,12 @@ from nirmaan_stack.services.outflow_import.porter import (
     import_state,
     read_porter_statement,
     suggest_placement,
+)
+from nirmaan_stack.services.outflow_import.porter_repeats import (
+    HeldInvoice,
+    PorterRepeatRefusal,
+    RepeatJudgement,
+    leave_out_repeats,
 )
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
 from nirmaan_stack.services.outflow_import.settlement_reference import (
@@ -96,7 +103,10 @@ def upload_porter_statement():
 
     Refused, with the reason, and with NOTHING saved: a file that is not a Porter Statement (a missing
     column, no rows), an invoice link whose lines disagree on invoice number / Porter GSTIN / customer
-    GSTIN / billing entity, and an invoice already held by another import.
+    GSTIN / billing entity, and the invoice-level repeats `porter_repeats.leave_out_repeats` blocks (a
+    created invoice listing different orders; an invoice held by an import never created; a file with
+    nothing new). An invoice already created is LEFT OUT, never downloaded again, and its orders are
+    counted in the batch's `repeats_not_saved` (#1447).
 
     Saves: the CSV (private, attached to the batch); the batch, its period the first to the last order
     completion date; one line per order -- a cancelled order skipped and locked, a completed one pending
@@ -106,13 +116,19 @@ def upload_porter_statement():
     """
     user = require_outflow_access()
     filename, content = _read_upload()
-    statement = _read_statement(content)
-    _refuse_invoices_already_uploaded(statement)
+    judged = _leave_out_repeats(_read_statement(content), filename)
     index = _won_project_index()
 
     # ⚠️ THE FIRST WRITE, AND IT CANNOT BE ROLLED BACK: everything that can refuse has run above.
     saved = save_file(fname=filename, content=content, dt=None, dn=None, is_private=1)
-    batch = _stage(statement, index, file_url=saved.file_url, filename=filename, user=user)
+    batch = _stage(
+        judged.statement,
+        index,
+        file_url=saved.file_url,
+        filename=filename,
+        user=user,
+        repeats_not_saved=judged.repeats_not_saved,
+    )
     frappe.db.set_value(
         "File",
         saved.name,
@@ -169,7 +185,7 @@ def retry_porter_invoice(invoice: str):
         update_modified=False,
     )
     frappe.db.commit()
-    enqueue_validation(row.import_batch, user, job_id=f"porter-validate-{row.import_batch}-{invoice}")
+    enqueue_validation(row.import_batch, user, job_id=validation_job_id(row.import_batch, invoice))
     return porter_status(row.import_batch)
 
 
@@ -240,7 +256,7 @@ def porter_status(batch: str) -> dict:
     meta = frappe.db.get_value(
         BATCH_DOCTYPE,
         batch,
-        ["name", "original_filename", "period_from", "period_to", "gross_amount"],
+        ["name", "original_filename", "period_from", "period_to", "gross_amount", "repeats_not_saved"],
         as_dict=True,
     )
     by_status = dict(
@@ -299,6 +315,10 @@ def porter_status(batch: str) -> dict:
         "completed": orders - cancelled,
         "cancelled": cancelled,
         "fare_total": float(meta.gross_amount or 0),
+        # Orders on invoices already created, left out of this upload (#1447).
+        "repeats_not_saved": int(meta.repeats_not_saved or 0),
+        # Discard is still possible: Create has written nothing (#1447). Who may discard is not asked here.
+        "discardable": not created_anything(batch),
         # Derived from the invoices below and the lines, never stored (`porter.import_state`).
         "state": import_state([invoice.validation_status for invoice in invoices], by_status),
         # Create's progress (#1445), counted from the lines, which are the durable record. `to_create`
@@ -390,26 +410,64 @@ def _read_statement(content: bytes) -> PorterStatement:
         frappe.throw(str(exc), title="Could not read this Porter Statement")
 
 
-def _refuse_invoices_already_uploaded(statement: PorterStatement) -> None:
-    """An invoice number is a Porter Invoice's identity: one already held by an import refuses the file.
+def _leave_out_repeats(statement: PorterStatement, filename: str) -> RepeatJudgement:
+    """The invoice-level repeat rules (#1447), BEFORE `save_file`: the statement to stage, or a refusal."""
+    try:
+        return leave_out_repeats(statement, _held_invoices(statement), filename=filename)
+    except PorterRepeatRefusal as exc:
+        frappe.throw(str(exc), title="Already imported")
 
-    ⚠️ THE MINIMAL RULE, BEFORE `save_file`. #1446 replaces it with the full invoice-level repeat rules
-    (an already-created invoice left out and counted, a changed one blocked, an uncreated import's
-    "open it or discard it").
-    """
+
+def _held_invoices(statement: PorterStatement) -> dict[str, HeldInvoice]:
+    """Each invoice number of the file a Porter Invoice already holds: its import, whether that import has
+    created anything, and the orders it staged under the invoice. Three queries, whatever the file."""
     numbers = [invoice.invoice_number for invoice in statement.invoices]
-    held = frappe.get_all(
-        INVOICE_DOCTYPE,
-        filters={"name": ["in", numbers]},
-        fields=["name", "import_batch"],
-        order_by="name asc",
-    )
-    if held:
-        named = ", ".join(f"{row.name} ({row.import_batch})" for row in held)
-        frappe.throw(
-            f"Already uploaded in {held[0].import_batch}: Porter Invoice {named}.",
-            title="Already uploaded",
+    held = frappe.get_all(INVOICE_DOCTYPE, filters={"name": ["in", numbers]}, fields=["name", "import_batch"])
+    if not held:
+        return {}
+    created = created_imports(sorted({row.import_batch for row in held}))
+    crns: dict[str, set[str]] = {row.name: set() for row in held}
+    for row in frappe.db.sql(
+        """SELECT porter_invoice, transfer_id FROM "tabOutflow Import Row" WHERE porter_invoice IN %s""",
+        (tuple(crns),),
+        as_dict=True,
+    ):
+        crns[row.porter_invoice].add(row.transfer_id)
+    return {
+        row.name: HeldInvoice(
+            invoice_number=row.name,
+            import_batch=row.import_batch,
+            created=row.import_batch in created,
+            crns=frozenset(crns[row.name]),
         )
+        for row in held
+    }
+
+
+def created_imports(batches: list[str]) -> set[str]:
+    """Which of these Porter imports Create has written to: any match (Settled, or Reversed by
+    Unreconcile / Rectify) or any Porter Order. Both outlive every correction, so an import that has
+    created once stays created -- past Discard (#1447), and its invoices left out of a re-upload."""
+    if not batches:
+        return set()
+    return set(
+        frappe.db.sql(
+            """
+            SELECT import_batch FROM "tabOutflow Row Match" WHERE import_batch IN %(batches)s
+            UNION
+            SELECT i.import_batch FROM "tabPorter Order" o
+            JOIN "tabPorter Invoice" i ON i.name = o.porter_invoice
+            WHERE i.import_batch IN %(batches)s
+            """,
+            {"batches": tuple(batches)},
+            pluck=True,
+        )
+    )
+
+
+def created_anything(batch: str) -> bool:
+    """Create has written to this import: Discard is refused from here on (#1447)."""
+    return batch in created_imports([batch])
 
 
 def _won_project_index() -> ProjectIndex:
@@ -423,9 +481,17 @@ def _won_project_index() -> ProjectIndex:
 
 
 def _stage(
-    statement: PorterStatement, index: ProjectIndex, file_url: str, filename: str, user: str
+    statement: PorterStatement,
+    index: ProjectIndex,
+    file_url: str,
+    filename: str,
+    user: str,
+    repeats_not_saved: int = 0,
 ) -> str:
-    """The batch, its Porter Invoices and one line per order, in file order. Returns the batch name."""
+    """The batch, its Porter Invoices and one line per order, in file order. Returns the batch name.
+
+    `repeats_not_saved` counts the orders of the invoices left out as already created (ADR-0031's batch
+    figure, written once here)."""
     batch = frappe.new_doc(BATCH_DOCTYPE)
     batch.update(
         {
@@ -437,7 +503,7 @@ def _stage(
             # The completed orders' Porter fare: what the wallet paid. A cancelled order moved nothing.
             "gross_amount": float(statement.fare_total),
             "charges_amount": 0,
-            "repeats_not_saved": 0,
+            "repeats_not_saved": repeats_not_saved,
             "uploaded_by": user,
             "uploaded_at": frappe.utils.now_datetime(),
             "status": "Draft",

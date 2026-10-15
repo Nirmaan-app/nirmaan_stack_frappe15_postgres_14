@@ -6528,7 +6528,7 @@ four shapes) and the IFSC cases in `TestTheContainsQueryMirrorsThePureTokens`; `
 (3: the prompt text, a branch-code-only inflow, an inflow another line accounts for).
 
 
-## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, validation at #1444, review at #1446, create at #1445, the rest NOT BUILT YET)
+## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, validation at #1444, review at #1446, create at #1445, re-uploads and Discard at #1447, the rest NOT BUILT YET)
 
 Decisions: **[ADR-0032](../../../docs/adr/0032-porter-statement-import.md)** (owner grilling, Q1–Q36).
 Terms: `GLOSSARY.md` § *Porter deliveries*. The design below is the target; § *As built* at the end of
@@ -6636,8 +6636,7 @@ order as money that never moved. The statement's own word stays in `porter_line[
 **Refusals, all before `save_file`:** missing column, no rows (parser); a line with no invoice link, a
 CRN twice, a completed order with no completion time, an invoice link whose lines disagree on invoice
 number / Porter GSTIN / customer GSTIN / billing entity, one invoice number under two links
-(`read_porter_statement`); an invoice number already held by a Porter Invoice (minimal rule —
-#1446 replaces it with the invoice-level repeat rules).
+(`read_porter_statement`); the invoice-level repeat rules (`porter_repeats`, #1447 below).
 
 **What upload saves.** The CSV (private File attached to the batch); the batch (`period_from/to` = first /
 last completion date of the completed orders, `gross_amount` = their fare); one `Porter Invoice` per
@@ -6896,3 +6895,64 @@ Porter Order fields); `api/expense_requests/test_fixture_completeness.py` (both 
 Invoice, which only Admin, Accountant and Accountant Lead can read: other roles who can open the expense get
 403 on the PDF (story 53, for #1450). An `Error` line cannot be re-placed in Review (it is not `Pending match
 run`) before a re-run.
+
+### As built — #1447: re-uploads and Discard (2026-10-15)
+
+**Where it lives.** Pure: `services/outflow_import/porter_repeats.py` (`leave_out_repeats`, `HeldInvoice`,
+`RepeatJudgement`, `PorterRepeatRefusal`; kept out of `porter.py` so the parallel slices do not collide).
+Upload: `api/outflow_import/porter.py` `_leave_out_repeats` / `_held_invoices`, and `created_imports(batches)`
+/ `created_anything(batch)`. Discard: `api/outflow_import/porter_discard.py` `discard_porter_import(batch)`
+(POST). The File delete: `services/stored_files.delete_files(filters)` (generalised out of
+`api/tds/submit.delete_row_datasheet`, which now calls it).
+
+**"Created" is per IMPORT** (`created_imports`): any `Outflow Row Match` of the batch (Settled, or Reversed by
+Unreconcile / Rectify) or any `Porter Order` of its invoices. Both outlive every correction, so an import
+that has created once stays created: past Discard, and its invoices left out of every later upload. An
+import between (Creating, a line in Error) is created too — its own Create re-run finishes it.
+
+**Repeat rules, at invoice level, in `upload_porter_statement` BEFORE `save_file`.** The invoice number is
+the Porter Invoice's name, so a number is held by at most one import. Per invoice of the file:
+- held by a created import, **same CRN set** (cancelled orders included) → left out: no line, no Porter
+  Invoice, never downloaded or read again; its lines counted in the batch's `repeats_not_saved` (written once
+  at staging, shown in Import History as "N already imported, not saved" and in the Porter summary). The
+  batch's period and fare are the kept invoices' alone.
+- held by a created import, **different CRNs** → refused: "Invoice X was already created in OFI-…, and this
+  file lists different orders on it (not in that import: CRN…; missing from this file: CRN…). Porter may
+  have re-issued it: check it with Porter."
+- held by an import that created nothing → refused: "Already uploaded in OFI-…: open it or discard it
+  (invoice X)." — one sentence per holding import.
+- every invoice left out → refused: "Not imported. All N invoices in '<file>' were already created in
+  OFI-…. Nothing in this file is new, so nothing was saved."
+Every blocking invoice is named in one refusal (re-issued first). Title "Already imported".
+
+**Discard.** `has_outflow_undo_access` (Admin, Accountant Lead; "Only an Admin or an Accountant Lead can
+discard a Porter import."). Locks the batch row, then every line `FOR UPDATE` (a Create line in flight
+commits first), then refuses: not a Porter import; `created_anything` ("… Correct its lines with Rectify
+or Unreconcile instead."); any job of the import queued or running — `porter.create_job_id`,
+`porter_validation.validation_job_id(batch)` and the per-invoice Retry ids (`validation_job_id(batch,
+invoice)`, now the one source of both ids), read with `is_job_enqueued` (RQ status queued or started).
+Discard is the way out of the #1444 gap (an import stuck Validating), with one wait: a job whose worker
+died still reads *started* until RQ's registry cleanup fails it (at most the job's 1-hour timeout), and a
+job queued with no worker running stays queued; the refusal says to wait. Deletes, raw (no `doc_events` on any
+of them; `frappe.delete_doc` would trash attached Files through the document layer): the lines, the Porter
+Invoices and the batch, with their `Version` and `Comment` rows; then, LAST, every File attached to its
+Porter Invoices and to the batch (the CSV) through `delete_files`, which removes only the record when
+another File shares the `content_hash`. Then commits. The statement can be uploaded again at once.
+
+**Status.** `porter_status` adds `repeats_not_saved` and `discardable` (= not `created_anything`; who may
+discard is the screen's question).
+
+**Screen.** `PorterDiscardButton` in the Porter dialog's footer (left), shown when
+`porterDiscard.canDiscardPorter`: `canUndoOutflow` and `discardable` and the Create job not running — in
+Validating too. It confirms with `discardConfirmation` ("Discard OFI-…? This deletes its 12 orders, its 4
+Porter invoices and their PDFs. …"), posts, then closes the dialog like Done. `PorterImportSummary` shows
+`repeatsLeftOutNote` ("9 orders on invoices already created were left out: they are not saved again.").
+A refused upload shows the server's sentence in the dialog's error box; "open it" means Import History →
+Porter Statement tab.
+
+**Tests.** `services/outflow_import/test_porter_repeats.py` (unit: each rule, the kept statement's totals,
+one refusal naming every block); `api/outflow_import/test_porter_reupload.py` (bench: created import →
+left out + counted + not read again, re-issued invoice blocked, nothing new refused; uncreated import
+blocked; Discard removes exactly its records and Files, keeps bytes another File shares, refused once
+created / for a plain Accountant / while its validation job runs, works on an import stuck Validating, and
+the same statement uploads again); `frontend/.../porterDiscard.test.ts`.
