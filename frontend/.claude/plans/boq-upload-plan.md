@@ -47764,3 +47764,79 @@ restart with `dev2_scripts`.
 
 **Next** (owner Y1 / V4): 12e-5b2, then 12e-5c (Stage B) on the merged code; production later, "along with piping
 work, once piping work is also done". The S7b "after" logs are 12e-5c's "before".
+
+## Slice 12e-5b2 - Piping: seven small fixes from the 12e-5b review, the free recheck, one small declared re-read (on the merged code) - as built 2026-10-15
+
+**Commits (unpushed at the time of writing):**
+- `5ebe872ec` fix(rate-helper): AC4, AC5, AC6; `slice12e5b2.test.ts`; pins inverted by mechanical authority.
+- `8012bf4b1` fix(rate-master): AC3, a reply element without a row id; `test_reply_row_id_12e5b2.py`.
+- `d7bff212c` feat(rate-master): HVAC v41 (four notes), the pin moves, `TestSlice12e5b2AssetV41`.
+- `55f336855` fix(rate-helper): the owner's in-run rulings Q1 (b) / Q2 / Q4 (an NB size keeps its cladding on the matched
+  size; any or / slash / bracket thickness list takes the highest).
+- The docs commit that carries this entry.
+
+Five commits, not the declared four: Q1 / Q4 were ruled after the free recheck (interim report
+`2026-10-15_12e5b2_Interim_for_Ruling.md`) and have their own commit. Start tip `f069c3cdb` (= origin). HVAC v41 live on dev
+(batch `rmbulk-7fd34536f208`, pre-load snapshot `BRMS-26-00886`; content: items `93bbac8f...`, configs `84749a56...`);
+Electrical v66 untouched (`784d1dbe...` / `aa8d0a49...`). Full report on the Desktop: `2026-10-15_12e5b2_Report.md` (the ledger
+first); also `2026-10-15_12e5b2_Rows_full.xlsx`, `2026-10-15_12e5b2_screens\` and the three suite logs.
+
+### 1. What was built
+
+| AC | Ruling | Change | Where |
+|---|---|---|---|
+| AC1 | R1 | Note: a generic "insulation" / "insulation foam" takes the material its heading names | v41 Insulation `item` |
+| AC2 | R2 | Notes: VRF / refrigerant = Copper on every row under such a heading (a nearer type wins: a uPVC drain stays uPVC); as written takes the TYPE word ("COPPER") before the service word | v41 Piping `pipe_type`, `pipe_type_as_written` |
+| AC3 | R3 | A reply element with no usable id -> `drops["items_no_id"]`, the batch kept, no retry | `extraction._reply_row_id`, `_extract_batch` |
+| AC4 | R4 + Q4 | On the `several: "highest"` reader: any list joined by "or", "/" or brackets takes the highest; typed stays one number | `itemListPricing.readNumber` |
+| AC5 | R5 (ruled: C-R1 stands) | The chooser is unchanged; a composed field shows the TOTAL with the composition line | `pricingSheetHelper.itemBlockView` |
+| AC6 | R6 + Q1 (b) / Q2 | A single layer's cladding on the pipe size as read (sections and Insulation rows); an NB size keeps the matched size (single and composition) | `itemListPricing.priceOneItem` |
+| AC7 | R7 | Note: a heading's cladding applies to a row that names none; the conditional ruling stands | v41 Insulation `cladding` |
+
+**Premise corrections:** the composition chooser lives in `ladderResolution.ts` (outside the files in scope; owner: unchanged);
+an unknown reply id was ALREADY dropped by name (`ids_not_in_batch`, kept; no `items_unknown_id`); capture-log `.5` exists.
+
+### 2. The free recheck (AC9) and the re-read (AC12-AC16)
+
+AC9, baseline 13,752 rows (`8e94bd4e...` / `4311903d...`) -> all code (`f6c06941...` / `4f8dccff...`): 13 plain / 15
+section-aware rows. AC4: 00186 / 74 (line only, 383 / 154). AC5 (field only): 00231 / 325 (9 -> 24), 00162 / 17-18
+(13 -> 32), 00137 CHW 32-37 (38; rows refuse). AC6: 00341 VRV 35 / 37 / 38 / 63 (3,418 -> 3,410; 2,898 -> 2,891; 2,623 ->
+2,614; 3,296 -> 3,294), 00162 / 19 (1,223 -> 1,214). 00137 CHW 39-42 (NB) moved under AC6 as first built and returned to
+615 / 535 / 493 / 460 under Q1 (b). v41's notes moved 0 rows. 0 Electrical, 0 ADP.
+
+Re-read: 8 sheets, 47 rows (22 Piping + the 25 Insulation rows of 12e-5b's sample), runs BRSR-26-00685..00692 superseding
+00541 / 00542 / 00543 / 00545 / 00556 / 00557 / 00558 / 00559; 11 calls (cap 21), 0 second opinion, 11 / 11 byte-identical
+to the stub build; 87,724 in / 10,638 out; no parse (Run Log 1). AC13 FIXED: 00186 / 106 Nitrile 339 / 42; 00231 / 136
+Copper 4,193 / 220; the eight Security rows as written COPPER; 00186 / 70 the heading's cladding 1,371 / 154 -> 2,187 / 364;
+00186 / 74 9; control 00073 / 60 not Copper (type left out, uPVC -> PVC, 358 / 42). 0 NEW WRONG; AC14 25 Insulation rows 0
+NEW WRONG. AC15: 47 / 47 payloads byte-equal, EA-7 47 / 47 PASS, 0 completeness exceptions. New replay baselines: **13,752
+rows; plain `50627186493afd82b67e5db9a4f7e7301a6bbdf362a7321cc17eae0969dd3fc6`; section-aware
+`9299982c81960807722ef4bf15ac4dc008f5b22d71220d9667e1fdda1b990994`**.
+
+### 3. Suites (at the final code tip `55f336855`) and cert
+
+vitest 183 files / 6,885 (1 known: writeOffControl 5 s timeout); tsc 3,170 (the S7b set; the first run aborted out of
+memory and was re-run with a 4 GB heap); Python Ran 8,451 (6 F / 2 E = the known set; +8 = this slice's tests). Logs:
+`2026-10-15_12e5b2_frontend_full.log`, `_tsc_full.log`, `_python_full.log` (12e-5c's "before").
+
+Cert (2026-10-15, :8080, after a full de-stale; PROOF 1 served code strings, PROOF 2 the live module's `readNumber`):
+C1 00186 / 74 "BoQ says 6mm thk ... (9MM) -> 9 mm (states two values -- the higher, 9, is taken)", 383; C2 00231 / 325
+"BoQ says 25 mm -> priced as 9 + 15 mm (24 mm, -1)", 2,330 (the select shows "Other..." with the BoQ's "25 mm" in its box,
+the total in the line); C3 00341 VRV / 35 "cladding: measured on the pipe size as read 31.8 (not the 34.93 it was priced at)
++ 2 x 19 (the thickness) = 69.8 mm", girth 0.22, 3,410 / 444; C4 00186 / 106 Nitrile Rubber Insulation, 339; 00231 / 136
+Copper, as written VRF, 4,193; 00186 / 70 "Cladding as written (BoQ): 26 G of Al. perforated sheet", GI Framework, 2,187;
+Security 00137 / 17 Copper, 1,514 -- its as-written line is NOT shown: under 12e-4b D-3 (b) the family as written shows only
+where it differs from the family priced, so "COPPER" beside Copper is hidden (12e-5b's "Refrigerant" showed); the stored
+COPPER is in run BRSR-26-00687; C5 00162 / 17 the 114 mm line, 2,109 / 588; C6 calculator ADP fire damper UL yes "600 x 600"
+7,830 / 692, Electrical 00174 / 309 1,884; C7 HVAC v41 / Electrical v66 by content, Run Log 1, runs 192 (118 active), BCS-on
+sheets 59; the cert wrote nothing. Screens: `2026-10-15_12e5b2_screens\`.
+
+### 4. Findings for 12e-5c
+
+- The model elides words with "..." inside as-written cells ("6mm thk ... (9MM)", "22G GI grid work ... 24 G aluminium
+  perforated sheet"): the value is not the BoQ's own words.
+- Two literal backspace characters inside a regex in `itemListPricing.ts` (`/\x08(?:mm|cm|...)\x08/gi`, where `\b` was
+  meant); present since before this slice, not touched.
+- 00186 / 108: pipe size "1" without a unit refuses (F-3, unchanged).
+- 00231 / 325: the cladding select reads "- select -" (the stored answer "None" is not an option); unchanged from the
+  baseline.

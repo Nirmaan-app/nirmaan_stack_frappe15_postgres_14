@@ -1082,7 +1082,8 @@ in the working line ("cladding: ONE wrap over the outer surface -- pipe size as 
 thickness) = 114 mm"). Config, not code: `compose.outer_surface` names the run-only attribute (`cladding_od_mm`) and
 carries its own `girth_step`, which the pricer swaps in for the step producing the same result on that ONE layer.
 The config's own girth step is never edited: the Derivation tab, the impact panel, `pricingInputExact` and
-`cladding_cost.py` run it over catalogue rows, which carry no outer diameter. Every one-layer item is byte-identical.
+`cladding_cost.py` run it over catalogue rows, which carry no outer diameter. A one-layer item now runs the same step too
+(12e-5b2 R6, below).
 
 **A CLADDING THE CATALOGUE DOES NOT STOCK IS READ AS WRITTEN AND MAPPED BY CONFIG (owner R2, 2026-10-15: "should read
 as 26G GI cladding and mapped to aluminium as we dont have gi cladding. if in future we have GI cladding sku, it
@@ -1111,6 +1112,39 @@ echoes `never_read_added`; `get_active_suggestion_run` returns `never_read_rows`
 on the current version. The confirmation (`PricingGrid.suggestConfirmCopy`) adds "This sheet's last run is older than
 some of its rows. This run will also read N rows that no run has read yet (by category: ...)." and its action counts
 them; with none the copy is byte-identical. Proven live on 00231: 36 ticked + 42 never-read = 78, complete, superseded.
+
+**A THICKNESS WRITTEN AS SEVERAL VALUES TAKES THE HIGHEST (owner R4, 2026-10-15, within "several values -> the
+higher"; Q4: "a thickness written as any list of values joined by 'or', '/' or brackets takes the highest"; slice
+12e-5b2 AC4).** On the reader that declares `several: "highest"` (Insulation's thickness, which is also the reader
+of a Piping row's insulation section): numbers joined only by "/" or "or", plus every bracket holding ONE number
+(with mm / thk at most) -- "6mm thk (9MM)", "6 or 9 mm", "13/19 or 25", "6 (9) (13)" -- read as their highest, with
+the line "states two values -- the higher, 9, is taken" (three or more: "several values -- the highest"). A bracket
+of words ("(Class O)") is still a qualifier; a comma list and a "+" list are unchanged (refusal / layers); a pure
+slash list keeps the 12d-1b path. A TYPED thickness stays one number (12d-6 U4). Every other reader is byte-identical.
+
+**A COMPOSED FIELD SHOWS ITS TOTAL; THE CHOOSER IS C-R1 (owner R5, ruled in the 12e-5b2 run: "C-R1 (2026-10-04) is
+the full ruleset ... Leave ladderResolution.ts out of scope and unchanged"; slice 12e-5b2 AC5).** The composition is
+chosen by `composeSize` / `betterThan`: two to four stocked layers within +-2.0 mm, FEWEST layers -> CLOSEST to the
+stated thickness -> lowest MATERIAL cost (`compose.cost_key`, `cost_insulation`) -> fewest distinct sizes ->
+lexicographic. The thickness field of a composed block shows the TOTAL of its layers ("24" for 9 + 15), with the
+composition line as its note -- never the first layer's ("9"); a field the row refused on stays blank and red.
+
+**CLADDING IS MEASURED ON THE PIPE SIZE AS READ, EXCEPT A NOMINAL BORE (owner R6, 2026-10-15: "use the original size
+everywhere"; Q1 (b) / Q2, 2026-10-15; slice 12e-5b2 AC6).** A single layer's cladding girth is 3.14 x (the pipe size
+AS READ + 2 x its thickness) / 1000, as a composition's outer layer already was (12e-5b R7) -- on a Piping section
+and an Insulation-category row alike -- wherever the size as read differs from the matched size by more than 0.1 mm;
+the working line names both ("cladding: measured on the pipe size as read 31.8 (not the 34.93 it was priced at) + 2
+x 19 (the thickness) = 69.8 mm"). It runs the config's `compose.outer_surface.girth_step` (no new key). WHERE THE
+SIZE IS WRITTEN AS A NOMINAL BORE ("50NB", "50 N.B."), the cladding stays on the MATCHED size, single layer and
+composition alike: an NB is not the pipe's outside diameter (50 NB steel is about 60 mm), and the insulation was
+already matched up under the "50 NB keeps 53.98" ruling (option B). An exact match, a spelling-only match, a row
+without cladding and every catalogue-row computation (Derivation tab, impact panel, `pricingInputExact`,
+`cladding_cost.py`) are byte-identical.
+
+**A REPLY ELEMENT WITHOUT A ROW ID IS DROPPED BY NAME (owner R3, 2026-10-15: "ok"; slice 12e-5b2 AC3).**
+`extraction._reply_row_id` reads the id as `int(el["id"])` always did, or None (absent, null, not a whole number);
+such an element is recorded in `drops["items_no_id"]` and skipped, the rest of the batch kept -- no KeyError, no
+transient retry. An id not sent stays in `ids_not_in_batch`. `_TRANSIENT_MARKERS` is untouched.
 
 **A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
 12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
