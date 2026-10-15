@@ -278,7 +278,10 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         [projectPaymentsMutate, tdsDeductionsMutate]
     );
 
-    const getAmountPaid = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
+    // The page shows the stored `amount_paid`; refunds do not raise this limit (an overpayment is
+    // settled through PO Adjustment, ADR-0032).
+    // ADR-0034 payment cap: the Paid payments feed the Request Payment limit only.
+    const paidPaymentsForCap = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
 
     // ADR-0034 payment cap: what is still open feeds the Request Payment limit only.
     const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => OPEN_REQUEST_STATUSES.includes(i?.status))), [projectPayments]);
@@ -297,10 +300,10 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             .filter(i => statuses.includes(i?.status))
             .reduce((acc, i) => acc + parseNumber(tdsByPayment[i.name]?.tds_amount), 0);
         return {
-            paid: getAmountPaid + tdsFor(["Paid"]),
+            paid: paidPaymentsForCap + tdsFor(["Paid"]),
             pending: amountPending + tdsFor(OPEN_REQUEST_STATUSES),
         };
-    }, [projectPayments, tdsByPayment, getAmountPaid, amountPending, companyBorneTds]);
+    }, [projectPayments, tdsByPayment, paidPaymentsForCap, amountPending, companyBorneTds]);
 
     useEffect(() => {
         if (service_request) {
@@ -558,7 +561,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                 vendor={service_vendor}
                 gstEnabled={gstEnabled}
                 getTotal={getTotal}
-                amountPaid={getAmountPaid}
                 // isRestrictedRole removed, using specific flags below
                 hideActions={isEstimatesExecutive}
                 hideAmounts={isPMUser}
@@ -685,7 +687,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 )}
                                                 <div className="flex items-center justify-between">
                                                     <Label className=" text-red-700">Amt Paid Till Now:</Label>
-                                                    <span className="">{getAmountPaid ? formatToRoundedIndianRupee(getAmountPaid) : "--"}</span>
+                                                    <span className="">{parseNumber(orderData?.amount_paid) ? formatToRoundedIndianRupee(orderData?.amount_paid) : "--"}</span>
                                                 </div>
                                                 {paidEntryCap && !gstWorkOrder && (
                                                     <div className="flex items-center justify-between">
