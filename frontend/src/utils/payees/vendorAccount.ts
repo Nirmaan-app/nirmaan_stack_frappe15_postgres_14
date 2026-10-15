@@ -77,7 +77,8 @@ export const vendorPayeeGateProblem = ({
     payee: PayeeSummary | null | undefined;
     failed: boolean;
 }): VendorPayeeGateProblem | null => {
-    const vendor = vendorLabel || "This vendor";
+    const named = vendorLabel?.trim();
+    const vendor = named || "This vendor";
     if (payee?.status === PAYEE_STATUS.INACTIVE) {
         // A vendor keeps an Inactive Payee until someone moves it; paying into it would go on
         // silently, so the request waits for Change account (owner decision, spec #1420 walk).
@@ -96,7 +97,7 @@ export const vendorPayeeGateProblem = ({
     if (failed) {
         return {
             title: "Couldn't check the bank account",
-            description: `Couldn't read ${vendorLabel || "the vendor"}'s bank account, so the payment can't be requested yet. Check your connection and try again.`,
+            description: `Couldn't read ${named || "the vendor"}'s bank account, so the payment can't be requested yet. Check your connection and try again.`,
         };
     }
     return {

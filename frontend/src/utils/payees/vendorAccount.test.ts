@@ -86,6 +86,16 @@ describe("vendorPayeeGateProblem", () => {
         );
     });
 
+    it("names the vendor without the stray spaces some vendor names carry (walk: 'ROYAL TRADERS 's')", () => {
+        const problem = vendorPayeeGateProblem({
+            vendorLabel: "ROYAL TRADERS ",
+            payee: { ...payee, status: "Inactive" },
+            failed: false,
+        });
+        expect(problem?.description).toMatch(/^ROYAL TRADERS's bank account/);
+        expect(vendorPayeeGateProblem({ vendorLabel: " ", payee: null, failed: false })?.description).toMatch(/^This vendor has/);
+    });
+
     it("blocks a vendor with no Payee and says how to fix it", () => {
         const problem = vendorPayeeGateProblem({ vendorLabel: "Kaveri", payee: null, failed: false });
         expect(problem?.title).toBe("Bank details missing");
