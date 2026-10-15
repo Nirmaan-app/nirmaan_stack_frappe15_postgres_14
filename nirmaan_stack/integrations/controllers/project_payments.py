@@ -3,6 +3,7 @@
 import frappe
 from frappe import _
 from frappe.utils import cint, flt, nowdate
+from nirmaan_stack.api.outflow_import.vendor_credit_refresh import recompute_vendor_credit
 from nirmaan_stack.api.vendor_credit import recalculate_vendor_credit
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.api.projects._tendering_guard import validate_won
@@ -10,6 +11,7 @@ from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_hold import validate_hold
+from nirmaan_stack.services.vendor_refunds import orders_moved_by
 from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of
 from nirmaan_stack.services.cheques.detach import DELETED
 from nirmaan_stack.services.cheques.rules import PAYMENT_REJECTED
@@ -17,6 +19,9 @@ from nirmaan_stack.services.cheques.rules import PAYMENT_REJECTED
 # Imports for notification system
 from ..Notifications.pr_notifications import PrNotification, get_allowed_lead_users, get_admin_users, get_allowed_accountants, get_allowed_manager_users, get_allowed_procurement_users
 from .procurement_requests import get_user_name
+
+#: The `Vendor Credit Ledger` entry for a Paid payment whose amount or order changed (#1453).
+PAYMENT_CHANGED_ENTRY = "Payment Changed"
 
 # --- HELPER FUNCTION FOR HOOKS ---
 # PO term status mirrors Project Payment status 1:1 (Requested / CEO Pending /
@@ -364,6 +369,16 @@ def on_update(doc, method):
         and not any(doc.flags.get(flag) for flag in payment_tds.NO_RESTATE_FLAGS)
     ):
         payment_tds.restate_deduction_on_amount_change(doc)
+
+    # A Paid payment whose amount or order changed while it stayed Paid (#1453): the payment save has
+    # just recounted the order(s) it left and joined, so the credit read from their `amount_paid`
+    # moves too, under one entry per vendor. Entering and leaving Paid have their own credit paths
+    # (Approved -> Paid below, `on_trash`, the outflow import's settle and unreconcile).
+    # Above the status guard below, which returns.
+    if old_doc and old_doc.status == doc.status == "Paid":
+        moved_pos = [name for doctype, name in orders_moved_by(old_doc, doc) if doctype == "Procurement Orders"]
+        if moved_pos:
+            recompute_vendor_credit(moved_pos, PAYMENT_CHANGED_ENTRY)
 
     if not old_doc or old_doc.status == doc.status:
         return # Do nothing if status hasn't changed
