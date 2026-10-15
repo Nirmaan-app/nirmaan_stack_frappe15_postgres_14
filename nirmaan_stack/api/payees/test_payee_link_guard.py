@@ -27,10 +27,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
 from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each, shown_to_client
-from nirmaan_stack.services.payees.expense_rules import (
-    EXPENSE_PAYEE_ROLE_PROBLEM,
-    VENDOR_PAYEE_INACTIVE_PROBLEM,
-)
+from nirmaan_stack.services.payees.expense_rules import EXPENSE_PAYEE_ROLE_PROBLEM
 from nirmaan_stack.services.payees.guard import check_payee_links
 
 U = "Administrator"
@@ -275,39 +272,6 @@ class TestEveryWritePathKeepsThePayeeRules(FrappeTestCase):
                               "projects": self.project, "vendor": v1, "payee": first})
         with self.assertRaisesRegex(frappe.PermissionError, "change who an expense is paid to"):
             self._save_as(PM_USER, PE, name, vendor=None, payee=self.payees.payee())
-
-    # -- a vendor's Inactive Payee -------------------------------------------------------------
-    def _inactive_vendor(self) -> tuple[str, str]:
-        payee = self.payees.payee()
-        vendor = self.payees.vendor(payee)
-        PayeeFixture.mark_inactive(payee)
-        return payee, vendor
-
-    def test_a_new_request_naming_a_vendor_whose_payee_is_inactive_is_refused(self):
-        """Owner decision (walk bug 7e): the money would go on into an account marked Inactive."""
-        _, vendor = self._inactive_vendor()
-        for rule in ("Required", "Optional", "Not asked"):
-            with self.subTest(rule=rule), shown_to_client() as shown:
-                with self.assertRaisesRegex(frappe.ValidationError, "bank account is Inactive"):
-                    self._insert(self._request(rule, vendor=vendor))
-                frappe.db.rollback()
-            self.assertIn(VENDOR_PAYEE_INACTIVE_PROBLEM, shown)
-
-    def test_moving_a_request_to_a_vendor_whose_payee_is_inactive_is_refused(self):
-        name = self._insert(self._request("Optional"))
-        _, vendor = self._inactive_vendor()
-        with self.assertRaisesRegex(frappe.ValidationError, "bank account is Inactive"):
-            self._save_as(U, REQUEST, name, vendor=vendor)
-        frappe.db.rollback()
-
-    def test_a_vendors_inactive_payee_already_on_a_record_is_carried_and_never_a_new_pick(self):
-        payee, vendor = self._inactive_vendor()
-        sent = self._raw(REQUEST, {"type": self.types["Optional"], "amount": 4300, "status": "Pending Approval",
-                                   "projects": self.project, "vendor": vendor, "payee": payee})
-        self._save_as(U, REQUEST, sent, comment="re-saved")
-        self.assertEqual(frappe.db.get_value(REQUEST, sent, ["comment", "payee"]), ("re-saved", payee))
-        expense = self._insert(self._expense(PE, vendor=vendor))
-        self.assertEqual(frappe.db.get_value(PE, expense, "payee"), payee)
 
     # -- Required, on a change -----------------------------------------------------------------
     def test_a_required_expense_cannot_be_left_without_its_payee(self):

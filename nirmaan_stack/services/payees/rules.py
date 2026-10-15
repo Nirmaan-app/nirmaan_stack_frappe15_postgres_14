@@ -22,14 +22,8 @@ from nirmaan_stack.services.settlement import SETTLED_STATUSES
 
 PAYEE_DOCTYPE = "Payee"
 
-ACTIVE = "Active"
-INACTIVE = "Inactive"
-#: Pinned to the doctype's `status` options by test.
-PAYEE_STATUSES = (ACTIVE, INACTIVE)
-
-#: A Project Payment or an Expense at one of these has paid its Payee: the money has left Approved.
-#: The same set as "settled" (`services/settlement.SETTLED_STATUSES`), so paid means one thing: a
-#: Payee is Locked, an expense's Payee is fixed and "last paid" is read at exactly these statuses.
+#: A Project Payment or an Expense at one of these is paid: the money has left Approved. The same set
+#: as "settled" (`services/settlement.SETTLED_STATUSES`), so paid means one thing.
 PAID_STATUSES = SETTLED_STATUSES
 
 _SEPARATORS = re.compile(r"[\s\-]+")
@@ -84,50 +78,6 @@ def duplicate_problem(existing: str, existing_account_name: str | None) -> str:
         f"This account is already a payee: {existing}{holder} has the same account number and IFSC. "
         "Pick that payee instead of adding a new one."
     )
-
-
-def locked_change_problem(name: str, before: PayeeDetails, after: PayeeDetails) -> str | None:
-    """The refusal when a save would change a Locked Payee's account number or IFSC, or None.
-
-    Only asked of a Payee that has been paid (`links.is_paid`): once money has gone to an account,
-    the record of where it went never changes. The holder name is not locked.
-    """
-    if (before.account_number, before.ifsc) == (after.account_number, after.ifsc):
-        return None
-    return (
-        f"{name}'s account number and IFSC are locked because money has been paid to it. "
-        "If the holder has moved banks, add a new payee and mark this one inactive."
-    )
-
-
-#: The holder-name edit is Accounts' (`role_profiles.PAYEE_MANAGE_PROFILES`).
-HOLDER_NAME_ROLE_PROBLEM = "Only Accounts and Admins can change a payee's holder name."
-
-
-def status_change_problem(name: str, current: str, wanted: str) -> str | None:
-    """Why Payee `name` can't move from `current` to `wanted`, or None."""
-    if wanted not in PAYEE_STATUSES:
-        return f"A payee is Active or Inactive, not {wanted}."
-    if current == wanted:
-        return f"{name} is already {wanted}."
-    return None
-
-
-def inactive_pick_problem(name: str) -> str:
-    """The refusal when a vendor, an expense or an expense request newly picks Inactive Payee `name`."""
-    return f"{name} is Inactive, so it can't be picked any more. Pick an active payee, or add a new one."
-
-
-def pick_problem(name: str, status: str | None) -> str | None:
-    """Why Payee `name`, at `status` (None: no such Payee), can't be newly picked, or None. Only an
-    Active Payee can be; a record already pointing at an Inactive one keeps it (the callers ask this
-    of a new pick only). One predicate for the screens' early refusal (`choosing.assert_pickable`)
-    and the every-save one (`guard.check_payee_pick`)."""
-    if status is None:
-        return f"Payee {name} does not exist."
-    if status != ACTIVE:
-        return inactive_pick_problem(name)
-    return None
 
 
 def already_linked_problem(vendor: str, payee: str) -> str:

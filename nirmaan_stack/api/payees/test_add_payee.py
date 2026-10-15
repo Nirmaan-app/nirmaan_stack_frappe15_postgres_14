@@ -15,7 +15,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.payees.add_payee import add_payee, check_payee, lookup_ifsc
 from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture, shown_to_client
-from nirmaan_stack.services.payees.rules import ACTIVE, PAYEE_DOCTYPE, PAYEE_STATUSES
+from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE
 from nirmaan_stack.services.payees.writer import DuplicatePayeeError
 
 U = "Administrator"
@@ -36,7 +36,7 @@ class TestAddPayee(FrappeTestCase):
                 return user
         self.skipTest(f"no user with {profile} on this site")
 
-    def test_adds_an_active_payee_with_the_bank_and_branch_from_the_ifsc(self):
+    def test_adds_a_payee_with_the_bank_and_branch_from_the_ifsc(self):
         holder = self.payees.holder("Kaveri Ductfab")
         result = add_payee(holder, "5020 0061-234567", "test0pye001")
 
@@ -44,8 +44,8 @@ class TestAddPayee(FrappeTestCase):
         self.assertRegex(payee["name"], r"^PYE-\d{4,}$")
         doc = frappe.get_doc(PAYEE_DOCTYPE, payee["name"])
         self.assertEqual(
-            (doc.account_name, doc.account_number, doc.ifsc, doc.bank_name, doc.bank_branch, doc.status),
-            (holder, "50200061234567", TEST_IFSC, "Test Bank", "Test Branch", ACTIVE),
+            (doc.account_name, doc.account_number, doc.ifsc, doc.bank_name, doc.bank_branch),
+            (holder, "50200061234567", TEST_IFSC, "Test Bank", "Test Branch"),
         )
 
     def test_the_same_account_and_ifsc_is_refused_and_names_the_existing_payee(self):
@@ -123,6 +123,5 @@ class TestAddPayee(FrappeTestCase):
         frappe.set_user(U)
         frappe.db.rollback()
 
-    def test_status_options_match_the_doctype(self):
-        options = frappe.get_meta(PAYEE_DOCTYPE).get_field("status").options.split("\n")
-        self.assertEqual(tuple(options), PAYEE_STATUSES)
+    def test_a_payee_has_no_status(self):
+        self.assertIsNone(frappe.get_meta(PAYEE_DOCTYPE).get_field("status"))

@@ -1,17 +1,11 @@
 /**
  * Payee (spec #1420, ADR-0033): one bank account the company pays into, with its holder's name.
  * No two Payees share an account number + IFSC (spaces, dashes and leading zeros ignored).
+ * An address book entry (#1434): no status, no lock, and nothing paid points back at it.
  * Written only by the server's Payee module (`nirmaan_stack/services/payees/`).
  */
 
 export const PAYEE_DOCTYPE = "Payee";
-
-export const PAYEE_STATUS = {
-    ACTIVE: "Active",
-    INACTIVE: "Inactive",
-} as const;
-
-export type PayeeStatus = (typeof PAYEE_STATUS)[keyof typeof PAYEE_STATUS];
 
 /** The `Payee` doctype. */
 export interface Payee {
@@ -26,7 +20,6 @@ export interface Payee {
     ifsc: string;
     bank_name?: string;
     bank_branch?: string;
-    status: PayeeStatus;
     /** The account number without leading zeros either; unique with `ifsc`. Server-written. */
     normalized_account: string;
 }
@@ -42,18 +35,13 @@ export interface PayeeSummary {
     ifsc: string;
     bank_name?: string | null;
     bank_branch?: string | null;
-    status: PayeeStatus;
     /** Vendors paid into this account. */
     vendors: number;
-    /** Project and Non Project Expenses naming this Payee, at any status. */
-    expenses: number;
-    /** ISO date of the latest payment that left Approved for it; null when never paid. */
-    last_paid: string | null;
 }
 
 /**
- * A Payee as a picker shows it (#1429): a search row from `api/expense_requests/payees.search_payees`
- * (with `times_paid`), or a `PayeeSummary` (the vendor's Payee, one just added, a request's own).
+ * A Payee as a picker shows it (#1429): a search row from `api/expense_requests/payees.search_payees`,
+ * or a `PayeeSummary` (the vendor's Payee, one just added, a request's own).
  */
 export interface PayeeOption {
     name: string;
@@ -62,9 +50,6 @@ export interface PayeeOption {
     ifsc: string;
     bank_name?: string | null;
     bank_branch?: string | null;
-    status: PayeeStatus;
-    /** How many payments have left Approved for it; only search rows carry it. */
-    times_paid?: number;
 }
 
 /** How a suggested Payee matches a vendor (`services/payees/matching`). */
@@ -87,13 +72,10 @@ export interface PayeeLinkedVendor {
 
 /**
  * A Payee as the vendor screens show it before linking a vendor to it
- * (`services/payees/choosing.payee_choices`): its summary, every linked vendor and expense, and
- * the latest payment that left Approved for it.
+ * (`services/payees/choosing.payee_choices`): its summary and every vendor already linked to it.
  */
 export interface PayeeWithLinks extends PayeeSummary {
     linked_vendors: PayeeLinkedVendor[];
-    linked_expenses: { name: string; doctype: "Project Expenses" | "Non Project Expenses" }[];
-    last_payment: { date: string; document: string } | null;
 }
 
 /** One "Payees that look like this vendor" entry (`api/payees/vendor_payee.suggest_vendor_payees`). */
@@ -112,34 +94,10 @@ export interface PayeePageVendor {
     linked_since: string | null;
 }
 
-/** An expense's kind on the Payee page (`links.PROJECT_KIND` / `NON_PROJECT_KIND`). */
-export const PAYEE_EXPENSE_KIND = {
-    PROJECT: "Project",
-    NON_PROJECT: "Non Project",
-} as const;
-
-export type PayeeExpenseKind = (typeof PAYEE_EXPENSE_KIND)[keyof typeof PAYEE_EXPENSE_KIND];
-
-/** A Project or Non Project Expense naming a Payee, at any status (`links.linked_expenses`). */
-export interface PayeePageExpense {
-    name: string;
-    kind: PayeeExpenseKind;
-    expense_type?: string | null;
-    project?: string | null;
-    project_name?: string | null;
-    amount: number;
-    status: string;
-    /** ISO date it paid the Payee; null until then. */
-    paid_on: string | null;
-}
-
 /** One Payee's page (`api/payees/payee_page.get_payee`). */
 export interface PayeePage extends PayeeSummary {
     creation: string;
-    /** Paid: its account number and IFSC can't change. */
-    locked: boolean;
     /** ISO date its holder name last changed; null when never. */
     holder_name_changed_on: string | null;
     linked_vendors: PayeePageVendor[];
-    linked_expenses: PayeePageExpense[];
 }

@@ -1,7 +1,6 @@
 /**
  * "Use an existing payee for this vendor?" (spec #1420, approved mockup screen 6): before a vendor is
- * pointed at a Payee, list every vendor and expense already linked to it and when it was last paid.
- * The button stays disabled until "I checked that this vendor and this account belong to the same
+ * pointed at a Payee, list every vendor already linked to it. The button stays disabled until "I checked that this vendor and this account belong to the same
  * company" is ticked.
  *
  * Reads the Payee itself (`vendor_payee.get_payee_choice`), so any screen can open it with a name:
@@ -23,9 +22,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { PAYEE_STATUS, type PayeeWithLinks } from "@/types/NirmaanStack/Payee";
+import type { PayeeWithLinks } from "@/types/NirmaanStack/Payee";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { expensesLine, lastPaidLine } from "@/utils/payees/payeeChoice";
 import { bankLine } from "@/utils/payees/payeeForm";
 
 import { usePayeeWithLinks } from "./vendorPayeeApi";
@@ -49,7 +47,6 @@ export function UsePayeeDialog({ payee, vendorLabel, onCancel, onConfirm }: UseP
 function ConfirmDialog({ payee, vendorLabel, onCancel, onConfirm }: UsePayeeDialogProps & { payee: string }) {
     const [checked, setChecked] = useState(false);
     const { choice, isLoading, error } = usePayeeWithLinks(payee);
-    const inactive = choice?.status === PAYEE_STATUS.INACTIVE;
 
     return (
         <AlertDialog open onOpenChange={(open) => !open && onCancel()}>
@@ -70,25 +67,19 @@ function ConfirmDialog({ payee, vendorLabel, onCancel, onConfirm }: UsePayeeDial
                 {error && <p className="text-sm text-destructive">{getFrappeError(error)}</p>}
                 {choice && <ChoiceDetails choice={choice} />}
 
-                {inactive ? (
-                    <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-900">
-                        {choice.name} is Inactive: it can't be picked for a vendor.
-                    </p>
-                ) : (
-                    <label className="flex items-start gap-2.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
-                        <Checkbox
-                            className="mt-0.5"
-                            checked={checked}
-                            onCheckedChange={(value) => setChecked(value === true)}
-                            disabled={!choice}
-                        />
-                        <span>I checked that this vendor and this account belong to the same company.</span>
-                    </label>
-                )}
+                <label className="flex items-start gap-2.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+                    <Checkbox
+                        className="mt-0.5"
+                        checked={checked}
+                        onCheckedChange={(value) => setChecked(value === true)}
+                        disabled={!choice}
+                    />
+                    <span>I checked that this vendor and this account belong to the same company.</span>
+                </label>
 
                 <AlertDialogFooter>
                     <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <Button disabled={!choice || inactive || !checked} onClick={() => choice && onConfirm(choice)}>
+                    <Button disabled={!choice || !checked} onClick={() => choice && onConfirm(choice)}>
                         Yes, use {payee}
                     </Button>
                 </AlertDialogFooter>
@@ -97,9 +88,8 @@ function ConfirmDialog({ payee, vendorLabel, onCancel, onConfirm }: UsePayeeDial
     );
 }
 
-/** The Payee's account, then everything already linked to it and its last payment. */
+/** The Payee's account, then every vendor already linked to it. */
 function ChoiceDetails({ choice }: { choice: PayeeWithLinks }) {
-    const expenses = expensesLine(choice);
     const bank = bankLine(choice);
     return (
         <>
@@ -124,16 +114,9 @@ function ChoiceDetails({ choice }: { choice: PayeeWithLinks }) {
                         <span className="text-right">{v.vendor_name}</span>
                     </div>
                 ))}
-                {expenses && (
-                    <div className="flex justify-between gap-3 border-b border-muted py-2 text-[13px]">
-                        <span>Expenses</span>
-                        <span className="text-right">{expenses}</span>
-                    </div>
+                {!choice.linked_vendors.length && (
+                    <p className="py-2 text-[13px] text-muted-foreground">No vendor yet.</p>
                 )}
-                {!choice.linked_vendors.length && !expenses && (
-                    <p className="py-2 text-[13px] text-muted-foreground">Nothing yet.</p>
-                )}
-                <p className="mt-2 text-[13px] text-muted-foreground">{lastPaidLine(choice)}</p>
             </div>
         </>
     );

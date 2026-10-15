@@ -9,10 +9,7 @@ import {
     asksWhoGetsPaid,
     countAskingWhoGetsPaid,
     payeeAccountLine,
-    timesPaidText,
     showsWhoGetsPaid,
-    VENDOR_PAYEE_INACTIVE_PROBLEM,
-    newlyNamesVendor,
     vendorClearDropsPayee,
     whoGetsPaidHelp,
     whoGetsPaidProblem,
@@ -90,12 +87,6 @@ describe("payee lines", () => {
         expect(bankLine({ ...payee, bank_branch: null })).toBe("HDFC Bank");
         expect(bankLine({ ...payee, bank_name: null, bank_branch: null })).toBe("");
     });
-
-    it("says how often a payee has been paid", () => {
-        expect(timesPaidText(14)).toBe("Paid 14 times before.");
-        expect(timesPaidText(1)).toBe("Paid once before.");
-        expect(timesPaidText(0)).toBe("Not paid before.");
-    });
 });
 
 /** Shared with the server's suite (`services/payees/test_expense_rules.py`): one set of cases (F1). */
@@ -103,7 +94,6 @@ const SHARED = JSON.parse(
     readFileSync(resolve(__dirname, "../../../../nirmaan_stack/services/payees/payee_rules_cases.json"), "utf-8"),
 ) as {
     payee_rules: string[];
-    vendor_payee_inactive_problem: string;
     requests: {
         name: string;
         rule: string;
@@ -117,10 +107,6 @@ const SHARED = JSON.parse(
 describe("parity with services/payees/expense_rules.py (shared cases)", () => {
     it("offers the server's rules, in its order", () => {
         expect(PAYEE_RULES).toEqual(SHARED.payee_rules);
-    });
-
-    it("words the Inactive vendor Payee refusal as the server does", () => {
-        expect(VENDOR_PAYEE_INACTIVE_PROBLEM).toBe(SHARED.vendor_payee_inactive_problem);
     });
 
     it.each(SHARED.requests)("$name: blocks sending exactly when the server refuses", (c) => {
@@ -150,31 +136,6 @@ describe("showsWhoGetsPaid", () => {
         expect(whoGetsPaidHelp("Not asked", "Material Purchase")).toBe(
             "Material Purchase doesn't ask who gets paid, but a vendor is paid into its own account.",
         );
-    });
-});
-
-describe("a vendor whose Payee is Inactive (owner decision, walk bug 7e)", () => {
-    const state = { expenseType: "Labour Advance", vendor: "Kaveri", vendorPayee: "PYE-0412", hasChoice: false };
-
-    it.each(["Required", "Optional", "Not asked"])("blocks a %s request newly naming it", (rule) => {
-        expect(whoGetsPaidProblem({ ...state, rule, vendorPayeeInactive: true })).toBe(VENDOR_PAYEE_INACTIVE_PROBLEM);
-    });
-
-    it("lets a request that already named it be saved", () => {
-        expect(whoGetsPaidProblem({ ...state, rule: "Optional", vendorPayeeInactive: false })).toBeNull();
-    });
-});
-
-describe("newlyNamesVendor (when the Inactive vendor Payee rule applies)", () => {
-    it("a new request names its vendor anew", () => {
-        expect(newlyNamesVendor("VEN-1", undefined)).toBe(true);
-        expect(newlyNamesVendor("VEN-1", null)).toBe(true);
-    });
-
-    it("an edit names a vendor anew only when it moves to another", () => {
-        expect(newlyNamesVendor("VEN-1", "VEN-1")).toBe(false);
-        expect(newlyNamesVendor("VEN-2", "VEN-1")).toBe(true);
-        expect(newlyNamesVendor("VEN-1", "")).toBe(true);
     });
 });
 

@@ -8,11 +8,10 @@ Shared by the Payee suites. Not a `test_` module, so the runner never collects i
 USAGE
 -----
     self.payees = PayeeFixture.attach(self)        # IFSC lookups answered offline; purge after the test
-    name = self.payees.payee()                     # a fresh Active Payee, made by `writer.create_payee`
+    name = self.payees.payee()                     # a fresh Payee, made by `writer.create_payee`
     vendor = self.payees.vendor(name)              # a vendor inserted raw, paid into it; purged too
     number = self.payees.account_number()          # a fresh account number nobody holds
     self.payees.fail_ifsc_lookup()                 # the next lookups find nothing
-    PayeeFixture.mark_inactive(name)               # as the Payees page's Mark inactive does
     PayeeFixture.class_payee(holder, number, ifsc) # in setUpClass, with PayeeFixture.insert_vendor(...);
                                                    # call PayeeFixture.purge(vendors=[...]) in tearDownClass
     delete_each([(doctype, name), ...], raw={...})  # any other row a Payee suite planted
@@ -42,8 +41,8 @@ from unittest import mock
 
 import frappe
 
-from nirmaan_stack.services.payees.rules import INACTIVE, PAYEE_DOCTYPE, parse_details
-from nirmaan_stack.services.payees.writer import create_payee, existing_payee, set_status
+from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE, parse_details
+from nirmaan_stack.services.payees.writer import create_payee, existing_payee
 
 TEST_IFSC = "TEST0PYE001"
 HOLDER_PREFIX = "TESTPYE"
@@ -82,17 +81,10 @@ class PayeeFixture:
         return f"{HOLDER_PREFIX} {name} {frappe.generate_hash(length=5)}"
 
     def payee(self, holder: str | None = None, account_number: str | None = None, ifsc: str = TEST_IFSC) -> str:
-        """A fresh Active Payee made through the Payee module, committed. Returns its name."""
+        """A fresh Payee made through the Payee module, committed. Returns its name."""
         doc = create_payee(holder or self.holder(), account_number or self.account_number(), ifsc)
         frappe.db.commit()
         return doc.name
-
-    @staticmethod
-    def mark_inactive(payee: str) -> None:
-        """Mark `payee` Inactive the way the Payees page does (`writer.set_status`, hooks and all),
-        committed."""
-        set_status(payee, INACTIVE)
-        frappe.db.commit()
 
     def vendor(self, payee: str | None = None, *, vendor_name: str | None = None) -> str:
         """A vendor inserted raw (`insert_vendor`), paid into `payee`; purged after the test."""

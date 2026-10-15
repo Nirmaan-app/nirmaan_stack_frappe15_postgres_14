@@ -18,7 +18,6 @@
     {"typed": "000", "clean": "000", "normalized": "0"}
   ],
   "payee_rules": ["Required", "Optional", "Not asked"],
-  "vendor_payee_inactive_problem": "This vendor's bank account is Inactive. Use Change account on the vendor page first.",
   "requests": [
     {"name": "Required, no vendor, nobody picked", "rule": "Required", "vendor": null, "vendor_payee": null, "payee": null, "refused": true},
     {"name": "Required, no vendor, a payee picked", "rule": "Required", "vendor": null, "vendor_payee": null, "payee": "PYE-0001", "refused": false},

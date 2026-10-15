@@ -6,7 +6,7 @@
  * (`ACCOUNTS_PAYEE_APIS`): Change payee is Admin, Accountant and Accountant Lead only. The opener holds
  * the choice and resets it to the expense's own Payee in the handler that opens this dialog. Ticket 9's rules are the server's
  * (`services/payees/expense_payee.change_expense_payee`): a Required type can't be left without one,
- * an Inactive Payee can't be newly picked, a Paid expense keeps its Payee.
+ * a Paid expense keeps its Payee.
  */
 
 import { useFrappePostCall } from "frappe-react-sdk";

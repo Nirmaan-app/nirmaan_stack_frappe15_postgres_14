@@ -27,12 +27,12 @@ import frappe
 from nirmaan_stack.services.payees.links import payee_summary
 
 #: What a screen shows of a vendor's Payee.
-VENDOR_ACCOUNT_FIELDS = ("payee", "account_name", "account_number", "ifsc", "bank_name", "bank_branch", "status")
+VENDOR_ACCOUNT_FIELDS = ("payee", "account_name", "account_number", "ifsc", "bank_name", "bank_branch")
 
 
 def vendor_accounts(vendors: list[str] | None = None) -> dict[str, dict]:
     """Each named vendor's Payee: `{vendor: {payee, account_name, account_number, ifsc, bank_name,
-    bank_branch, status}}`; every vendor that has one when `vendors` is None. A vendor with no Payee
+    bank_branch}}`; every vendor that has one when `vendors` is None. A vendor with no Payee
     (or no such vendor) is left out. A Payee shared by several vendors appears under each of them; a
     vendor's previous Payees never appear."""
     where, params = "", {}
@@ -44,7 +44,7 @@ def vendor_accounts(vendors: list[str] | None = None) -> dict[str, dict]:
     rows = frappe.db.sql(
         f"""
         SELECT v.name AS vendor, p.name AS payee, p.account_name, p.account_number, p.ifsc,
-               p.bank_name, p.bank_branch, p.status
+               p.bank_name, p.bank_branch
         FROM "tabVendors" v
         JOIN "tabPayee" p ON p.name = v.payee
         {where}

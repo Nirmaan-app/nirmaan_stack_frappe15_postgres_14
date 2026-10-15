@@ -9,7 +9,6 @@ const account = {
     ifsc: "SBIN0003435",
     bank_name: "State Bank of India",
     bank_branch: "Bhiwandi",
-    status: "Active" as const,
 };
 const paid: PaidTo = { account, missing: null, payee_rule: null };
 
@@ -19,18 +18,7 @@ describe("paidToCell", () => {
             tone: "account",
             title: "Ramesh Kumar Yadav",
             detail: "A/c 36147100982211, SBIN0003435",
-            inactive: false,
-            blocked: false,
         });
-    });
-
-    it("tags an Inactive account (owner decision, walk bug 7d)", () => {
-        const inactive = { ...account, status: "Inactive" as const };
-        const vendorRow = paidToCell({ account: inactive, missing: "vendor_payee_inactive", payee_rule: null }, "");
-        expect([vendorRow.inactive, vendorRow.blocked]).toEqual([true, true]);
-        // An expense carrying a Payee that went Inactive is still paid: tagged, not blocked.
-        const expenseRow = paidToCell({ account: inactive, missing: null, payee_rule: null }, "Travel");
-        expect([expenseRow.inactive, expenseRow.blocked]).toEqual([true, false]);
     });
 
     it("says an expense with no payee needs none when its type doesn't require one", () => {
@@ -72,9 +60,6 @@ describe("paidToExportText", () => {
         expect(paidToExportText({ account: null, missing: "vendor_has_no_payee", payee_rule: null }, "")).toBe(
             "Vendor has no bank account",
         );
-        expect(
-            paidToExportText({ account: { ...account, status: "Inactive" }, missing: "vendor_payee_inactive", payee_rule: null }, ""),
-        ).toBe("Ramesh Kumar Yadav, A/c 36147100982211, SBIN0003435 (Inactive)");
     });
 });
 

@@ -30,7 +30,7 @@ from nirmaan_stack.services.role_profiles import assert_vendor_payee_access
 
 @frappe.whitelist()
 def suggest_vendor_payees(vendor_name: str | None = None, vendor_pan: str | None = None) -> dict:
-    """`{suggestions: [choice + match]}`: Active Payees that look like a vendor with this name and
+    """`{suggestions: [choice + match]}`: Payees that look like a vendor with this name and
     PAN, best first (`choosing.suggest_for_vendor`). `match` is `strong` (a linked vendor has the same
     PAN) or `name_only`."""
     assert_vendor_payee_access(frappe.session.user)
@@ -39,7 +39,7 @@ def suggest_vendor_payees(vendor_name: str | None = None, vendor_pan: str | None
 
 @frappe.whitelist()
 def get_payee_choice(payee: str) -> dict:
-    """One Payee with every linked vendor and expense and its last payment (`choosing.payee_choice`)."""
+    """One Payee with every vendor already linked to it (`choosing.payee_choice`)."""
     assert_vendor_payee_access(frappe.session.user)
     choice = payee_choice(payee)
     if choice is None:
@@ -66,7 +66,7 @@ def get_vendor_account(vendor: str) -> dict:
 @frappe.whitelist(methods=["POST"])
 def change_vendor_payee(vendor: str, payee: str | None = None, bank: dict | None = None) -> dict:
     """Change account / Add bank details on the vendor page (#1426): point `vendor` at `payee` (an
-    Active Payee, through the confirmation) or at new `bank` details (`{account_name, account_number,
+    existing Payee, through the confirmation) or at new `bank` details (`{account_name, account_number,
     ifsc}`) made into a Payee (`choosing.link_vendor`). The other vendors on its old Payee keep it.
 
     Returns `{payee: <summary>}`, or `{duplicate: <summary>, message}` when the bank details belong to

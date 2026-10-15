@@ -13,7 +13,6 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { cn } from "@/lib/utils";
-import { PAYEE_STATUS } from "@/types/NirmaanStack/Payee";
 import { accountLine, VENDOR_PAYEE_MODE, type VendorPayeeMode } from "@/utils/payees/payeeChoice";
 
 import { PayeeBankFields } from "./PayeeBankFields";
@@ -101,23 +100,17 @@ export function VendorPayeeSection({ choice, vendorName, vendorPan, disabled, cu
                         payeeForm={payeeForm}
                         disabled={disabled}
                         layout="form"
-                        duplicateAction={(dup) =>
-                            dup.status === PAYEE_STATUS.ACTIVE ? (
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="border-red-300 text-red-700 hover:text-red-800"
-                                    onClick={() => setConfirming(dup.name)}
-                                >
-                                    Use {dup.name} instead
-                                </Button>
-                            ) : (
-                                <span className="font-semibold">
-                                    It is Inactive, so it can't be used: ask Accounts which account to pay.
-                                </span>
-                            )
-                        }
+                        duplicateAction={(dup) => (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="border-red-300 text-red-700 hover:text-red-800"
+                                onClick={() => setConfirming(dup.name)}
+                            >
+                                Use {dup.name} instead
+                            </Button>
+                        )}
                     />
                 )}
             </div>

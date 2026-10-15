@@ -16,7 +16,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { canManagePayees, canSetVendorPayee } from "@/constants/roles";
 import { useUserData } from "@/hooks/useUserData";
-import { PAYEE_STATUS } from "@/types/NirmaanStack/Payee";
 import type { Vendors } from "@/types/NirmaanStack/Vendors";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { payeeHref } from "@/utils/payees/payeeRoutes";
@@ -84,7 +83,7 @@ export const VendorAccountCard: React.FC<VendorAccountCardProps> = ({ vendor }) 
                                     ) : (
                                         payee.name
                                     )}
-                                    {payee.status === PAYEE_STATUS.INACTIVE && " (Inactive)"}.{" "}
+                                    .{" "}
                                     {sharedAccountLine(account?.other_vendors ?? 0)}
                                 </p>
                             )}

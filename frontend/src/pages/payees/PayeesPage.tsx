@@ -1,9 +1,9 @@
 /**
  * `/payees` (spec #1420, approved mockup screen 1): every bank account the company pays into.
  *
- * One row per Payee, with what it is linked to and when it was last paid; Active / Inactive /
- * "Not linked to anything" pills with counts; search by holder name, account number, linked vendor or
- * ID; Export. The header's Add Payee button opens `AddPayeeDialog` (through `useDialogStore`).
+ * One row per Payee, with how many vendors link to it; All / "No vendor" pills with counts; search
+ * by holder name, account number, linked vendor or ID; Export. A Payee is an address book entry
+ * (#1434): no status, no lock, no "last paid". The header's Add Payee button opens `AddPayeeDialog` (through `useDialogStore`).
  *
  * Accountant, Accountant Lead and Admin only (`PAYEE_MANAGE_PROFILES`): the route guard, the sidebar
  * link and the header button read that list, and the server enforces it on every endpoint.
@@ -19,9 +19,8 @@ import { DataTable } from "@/components/data-table/new-data-table";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { getUrlStringParam, useServerDataTable } from "@/hooks/useServerDataTable";
 import { cn } from "@/lib/utils";
-import { PAYEE_DOCTYPE, PAYEE_STATUS, type PayeeSummary } from "@/types/NirmaanStack/Payee";
-import { formatDate } from "@/utils/FormatDate";
-import { accountNumberCsvCell, bankLine, linkedToLabels } from "@/utils/payees/payeeForm";
+import { PAYEE_DOCTYPE, type PayeeSummary } from "@/types/NirmaanStack/Payee";
+import { accountNumberCsvCell, bankLine, linkedVendorsLabel } from "@/utils/payees/payeeForm";
 import { PAYEES_TAB_PARAM, PAYEES_URL_KEY, PAYEE_TABS, isPayeeTab, payeeHref, type PayeeTab } from "@/utils/payees/payeeRoutes";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { useDialogStore } from "@/zustand/useDialogStore";
@@ -76,73 +75,29 @@ const columns: ColumnDef<PayeeSummary>[] = [
         meta: { exportHeaderName: "Bank and Branch", exportValue: (row: PayeeSummary) => bankLine(row) },
     },
     {
-        id: "linked_to",
-        header: "Linked to",
+        accessorKey: "vendors",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Linked vendors" />,
         cell: ({ row }) => {
-            const { vendors, expenses } = row.original;
-            if (!vendors && !expenses) return <span className="text-[13px] font-medium text-yellow-700">Not linked yet</span>;
-            return (
-                <div className="flex flex-wrap gap-1">
-                    {vendors > 0 && (
-                        <span className="rounded-md bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">
-                            {linkedToLabels({ vendors, expenses: 0 })}
-                        </span>
-                    )}
-                    {expenses > 0 && (
-                        <span className="rounded-md bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-800">
-                            {linkedToLabels({ vendors: 0, expenses })}
-                        </span>
-                    )}
-                </div>
+            const label = linkedVendorsLabel(row.original.vendors);
+            return label ? (
+                <span className="rounded-md bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800">{label}</span>
+            ) : (
+                <span className="text-[13px] font-medium text-yellow-700">No vendor</span>
             );
         },
-        enableSorting: false,
-        size: 190,
+        size: 150,
         meta: {
-            exportHeaderName: "Linked To",
-            exportValue: (row: PayeeSummary) => linkedToLabels(row).join(", ") || "Not linked yet",
+            exportHeaderName: "Linked Vendors",
+            exportValue: (row: PayeeSummary) => String(row.vendors),
         },
-    },
-    {
-        accessorKey: "last_paid",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Last paid" />,
-        cell: ({ row }) =>
-            row.original.last_paid ? (
-                <div className="whitespace-nowrap">{formatDate(row.original.last_paid)}</div>
-            ) : (
-                <span className="text-muted-foreground">Never</span>
-            ),
-        size: 120,
-        meta: {
-            exportHeaderName: "Last Paid",
-            exportValue: (row: PayeeSummary) => (row.last_paid ? formatDate(row.last_paid) : "Never"),
-        },
-    },
-    {
-        accessorKey: "status",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
-        cell: ({ row }) => (
-            <span
-                className={cn(
-                    "rounded-md border px-2 py-0.5 text-xs font-semibold",
-                    row.original.status === PAYEE_STATUS.ACTIVE
-                        ? "border-green-300 bg-green-50 text-green-700"
-                        : "border-zinc-300 bg-zinc-100 text-zinc-600",
-                )}
-            >
-                {row.original.status}
-            </span>
-        ),
-        size: 100,
-        meta: { exportHeaderName: "Status", exportValue: (row: PayeeSummary) => row.status },
     },
 ];
 
 export default function PayeesPage() {
     const { newPayeeDialog, setNewPayeeDialog } = useDialogStore();
     const [tab, setTab] = useState<PayeeTab>(() => {
-        const fromUrl = getUrlStringParam(PAYEES_TAB_PARAM, PAYEE_TABS.ACTIVE);
-        return isPayeeTab(fromUrl) ? fromUrl : PAYEE_TABS.ACTIVE;
+        const fromUrl = getUrlStringParam(PAYEES_TAB_PARAM, PAYEE_TABS.ALL);
+        return isPayeeTab(fromUrl) ? fromUrl : PAYEE_TABS.ALL;
     });
     const tabFilter = useMemo(() => [["tab", "=", tab]], [tab]);
 
@@ -203,10 +158,10 @@ export default function PayeesPage() {
                 summaryCard={
                     <div className="flex flex-col gap-4">
                         <p className="max-w-[72ch] text-sm text-zinc-600">
-                            Every bank account the company pays into. Vendors and expenses point to one of these. A payee's
-                            account number and IFSC can't change once money has gone to it.
+                            Every bank account the company pays into. A vendor is paid into one of these, and an expense
+                            copies one when it is raised. "No vendor" lists the payees used only for expenses.
                         </p>
-                        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Payee status">
+                        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Payees">
                             {PAYEE_TAB_PILLS.map((pill) => (
                                 <button
                                     key={pill.tab}

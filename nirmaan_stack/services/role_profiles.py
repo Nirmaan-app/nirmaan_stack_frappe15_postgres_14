@@ -301,7 +301,7 @@ def assert_cheque_form_access(user: str) -> None:
 
 
 # Payees (spec #1420, ADR-0033). Admin, Accountant and Accountant Lead manage Payees on the Payees page:
-# list them, add one, and (#1423) edit a holder name or mark one Inactive. Procurement adds Payees only
+# list them, add one, and (#1423) edit a holder name. Procurement adds Payees only
 # through the vendor screens, and anyone raising an Expense Request only through the request; those
 # endpoints carry their own checks and call the same Payee module (`services/payees/`). ENFORCEMENT
 # boundary for every endpoint in `api/payees/`, which write with `ignore_permissions`. Mirrored

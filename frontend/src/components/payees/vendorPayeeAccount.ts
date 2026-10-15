@@ -57,8 +57,8 @@ export function useVendorAccount(vendor: string | undefined, enabled = true) {
  * file, which is paid into the vendor's Payee. A request for a vendor with no Payee only defers the
  * failure to the accountant, so it is refused at the source, with the remedy in the message.
  *
- * `payeeBlocked` stays true until the vendor is KNOWN to have an Active Payee: while the read is in
- * flight, when it failed, and while its Payee is Inactive, each with its own reason
+ * `payeeBlocked` stays true until the vendor is KNOWN to have a Payee: while the read is in flight
+ * and when it failed, each with its own reason
  * (`utils/payees/vendorAccount.vendorPayeeGateProblem`).
  */
 export function useVendorPayeeGate(vendor: string | undefined, vendorLabel?: string) {

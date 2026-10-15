@@ -7,11 +7,11 @@
 export const PAYEES_URL_KEY = "payees";
 export const PAYEES_TAB_PARAM = `${PAYEES_URL_KEY}_tab`;
 
-/** The Payees page's tabs, as `api/payees/list_payees.TABS` names them. */
+/** The Payees page's tabs, as `api/payees/list_payees.TABS` names them: every Payee, and those no
+ *  vendor links to (used only for expenses, or not at all). */
 export const PAYEE_TABS = {
-    ACTIVE: "active",
-    INACTIVE: "inactive",
-    UNLINKED: "unlinked",
+    ALL: "all",
+    NO_VENDOR: "no_vendor",
 } as const;
 
 export type PayeeTab = (typeof PAYEE_TABS)[keyof typeof PAYEE_TABS];

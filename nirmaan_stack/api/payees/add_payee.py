@@ -27,12 +27,11 @@ from nirmaan_stack.services.role_profiles import assert_payee_manager
 
 @frappe.whitelist(methods=["POST"])
 def add_payee(account_name: str, account_number: str, ifsc: str) -> dict:
-    """Create an Active Payee for this bank account; bank and branch come from the IFSC lookup.
+    """Create a Payee for this bank account; bank and branch come from the IFSC lookup.
 
     Returns `{payee: <summary>}`, or `{duplicate: <summary>, message}` when another Payee already holds
     the account number + IFSC (spaces, dashes and leading zeros ignored); nothing is created then.
-    A summary is `services/payees/links.payee_summary`: the Payee's fields, `vendors`, `expenses`
-    and `last_paid`. Refuses incomplete details and an IFSC the lookup can't find.
+    A summary is `services/payees/links.payee_summary`: the Payee's fields and `vendors`. Refuses incomplete details and an IFSC the lookup can't find.
     """
     assert_payee_manager(frappe.session.user)
     doc, duplicate = unless_duplicate(lambda: create_payee(account_name, account_number, ifsc))

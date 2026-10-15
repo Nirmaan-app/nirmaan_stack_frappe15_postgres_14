@@ -4,14 +4,12 @@
 """Choosing a vendor's Payee (spec #1420, ADR-0033): the new-vendor form (#1425) and the vendor
 page's Change account (#1426) share it.
 
-* `suggest_for_vendor` -- "Payees that look like this vendor": Active Payees ranked by
-  `matching.rank_payees` (same PAN of a linked vendor first, then name), each with its links.
+* `suggest_for_vendor` -- "Payees that look like this vendor": Payees ranked by
+  `matching.rank_payees` (same PAN of a linked vendor first, then name), each with its vendors.
 * `payee_choices` / `payee_choice` -- what the confirmation shows before a vendor is pointed at a
-  Payee: its summary, every linked vendor and expense, and its last payment.
-* `assert_pickable` -- an Inactive Payee (or none) can't be newly picked: the form's early refusal,
-  in `rules.inactive_pick_problem`'s words. `guard.check_payee_pick` refuses it on every save.
-* `choose_payee` -- the vendor's Payee from the form's answer: an existing one (pickable), or new
-  bank details made into a Payee by `writer.create_payee`.
+  Payee: its summary and every vendor already linked to it (#1434: no expenses, no last payment).
+* `choose_payee` -- the vendor's Payee from the form's answer: an existing one, or new bank details
+  made into a Payee by `writer.create_payee`.
 * `link_vendor` -- Change account (#1426): an existing vendor to another Payee, by `choose_payee`.
 
 Checks no role and never commits: the calling endpoint does both.
@@ -22,20 +20,15 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
-from nirmaan_stack.services.payees.links import PAID_ROWS_SQL, payee_summaries
+from nirmaan_stack.services.payees.links import payee_summaries
 from nirmaan_stack.services.payees.matching import Candidate, LinkedVendor, rank_payees
-from nirmaan_stack.services.payees.rules import (
-    ACTIVE,
-    PAYEE_DOCTYPE,
-    already_linked_problem,
-    pick_problem,
-)
+from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE, already_linked_problem
 from nirmaan_stack.services.payees.vendor_account import payee_for_vendor
 from nirmaan_stack.services.payees.writer import create_payee
 
 
 def suggest_for_vendor(vendor_name: str | None, vendor_pan: str | None, *, limit: int = 5) -> list[dict]:
-    """The Active Payees that look like a vendor with this name and PAN, best first. Each is a
+    """The Payees that look like a vendor with this name and PAN, best first. Each is a
     `payee_choices` entry plus `match` (`matching.STRONG` | `matching.NAME_ONLY`)."""
     if not (vendor_name or "").strip() and not (vendor_pan or "").strip():
         return []
@@ -43,9 +36,7 @@ def suggest_for_vendor(vendor_name: str | None, vendor_pan: str | None, *, limit
         """
         SELECT p.name, p.account_name, v.vendor_name, v.vendor_pan
         FROM "tabPayee" p LEFT JOIN "tabVendors" v ON v.payee = p.name
-        WHERE p.status = %(active)s
         """,
-        {"active": ACTIVE},
         as_dict=True,
     )
     candidates: dict[str, dict] = {}
@@ -65,52 +56,22 @@ def suggest_for_vendor(vendor_name: str | None, vendor_pan: str | None, *, limit
 
 def payee_choices(names: list[str]) -> dict[str, dict]:
     """`{name: choice}` for each named Payee. A choice is `links.payee_summaries`' summary plus
-    `linked_vendors` (`[{name, vendor_name, vendor_city, vendor_pan}]`), `linked_expenses`
-    (`[{name, doctype}]`) and `last_payment` (`{date, document}` of the latest payment that left
-    Approved for it, or None). A name with no Payee is left out."""
+    `linked_vendors` (`[{name, vendor_name, vendor_city, vendor_pan}]`). A name with no Payee is left
+    out."""
     summaries = payee_summaries(names)
     if not summaries:
         return {}
-    params = {"names": tuple(summaries)}
     vendors = frappe.db.sql(
         """SELECT payee, name, vendor_name, vendor_city, vendor_pan FROM "tabVendors"
            WHERE payee IN %(names)s ORDER BY vendor_name, name""",
-        params,
+        {"names": tuple(summaries)},
         as_dict=True,
     )
-    expenses = frappe.db.sql(
-        """SELECT payee, name, 'Project Expenses' AS doctype, creation FROM "tabProject Expenses"
-               WHERE payee IN %(names)s
-           UNION ALL
-           SELECT payee, name, 'Non Project Expenses' AS doctype, creation FROM "tabNon Project Expenses"
-               WHERE payee IN %(names)s
-           ORDER BY creation DESC""",
-        params,
-        as_dict=True,
-    )
-    # The latest paid row per Payee: a Project Payment of a vendor linked to it now, or a linked expense.
-    last = frappe.db.sql(
-        f"""
-        SELECT DISTINCT ON (payee) payee, paid_on, document
-        FROM ({PAID_ROWS_SQL}) paid
-        WHERE payee IN %(names)s
-        ORDER BY payee, paid_on DESC, document
-        """,
-        params,
-        as_dict=True,
-    )
-    choices = {
-        name: {**summary, "linked_vendors": [], "linked_expenses": [], "last_payment": None}
-        for name, summary in summaries.items()
-    }
+    choices = {name: {**summary, "linked_vendors": []} for name, summary in summaries.items()}
     for v in vendors:
         choices[v.payee]["linked_vendors"].append(
             {"name": v.name, "vendor_name": v.vendor_name, "vendor_city": v.vendor_city, "vendor_pan": v.vendor_pan}
         )
-    for e in expenses:
-        choices[e.payee]["linked_expenses"].append({"name": e.name, "doctype": e.doctype})
-    for row in last:
-        choices[row.payee]["last_payment"] = {"date": str(row.paid_on), "document": row.document}
     return choices
 
 
@@ -119,22 +80,15 @@ def payee_choice(name: str) -> dict | None:
     return payee_choices([name]).get(name)
 
 
-def assert_pickable(name: str) -> None:
-    """Refuse a Payee that doesn't exist or is Inactive: neither can be newly picked
-    (`rules.pick_problem`)."""
-    problem = pick_problem(name, frappe.db.get_value(PAYEE_DOCTYPE, name, "status"))
-    if problem:
-        frappe.throw(_(problem))
-
-
 def choose_payee(payee: str | None = None, bank: dict | None = None) -> str:
     """The Payee a vendor is to be paid into, from the form's answer: `payee`, an existing Payee
-    (refused when Inactive), or `bank` (`{account_name, account_number, ifsc}`), new details that
+    (refused when there is no such Payee), or `bank` (`{account_name, account_number, ifsc}`), new details that
     `writer.create_payee` makes a Payee (refusing a duplicate with `DuplicatePayeeError`)."""
     if payee and bank:
         frappe.throw(_("Pick a payee on record or enter new bank details, not both."))
     if payee:
-        assert_pickable(payee)
+        if not frappe.db.exists(PAYEE_DOCTYPE, payee):
+            frappe.throw(_("Payee {0} does not exist.").format(payee), frappe.DoesNotExistError)
         return payee
     if bank:
         return create_payee(bank.get("account_name"), bank.get("account_number"), bank.get("ifsc")).name

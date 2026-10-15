@@ -55,7 +55,7 @@ describe("renameNeedsPrompt", () => {
 describe("vendorPayeeGateProblem", () => {
     const payee: PayeeSummary = {
         name: "PYE-0412", account_name: "Kaveri Ductfab", account_number: "50200061234567", ifsc: "HDFC0000195",
-        status: "Active", vendors: 1, expenses: 0, last_paid: null,
+        vendors: 1,
     };
 
     it("lets the request through once the vendor is known to have a Payee", () => {
@@ -74,24 +74,8 @@ describe("vendorPayeeGateProblem", () => {
         expect(problem?.description).toContain("Kaveri's bank account");
     });
 
-    it("blocks a vendor whose Payee is Inactive: Change account first (owner decision, bug 7b)", () => {
-        const problem = vendorPayeeGateProblem({
-            vendorLabel: "Kaveri",
-            payee: { ...payee, status: "Inactive" },
-            failed: false,
-        });
-        expect(problem?.title).toBe("Bank account inactive");
-        expect(problem?.description).toBe(
-            "Kaveri's bank account, PYE-0412, is Inactive. Use Change account on the vendor page first.",
-        );
-    });
-
     it("names the vendor without the stray spaces some vendor names carry (walk: 'ROYAL TRADERS 's')", () => {
-        const problem = vendorPayeeGateProblem({
-            vendorLabel: "ROYAL TRADERS ",
-            payee: { ...payee, status: "Inactive" },
-            failed: false,
-        });
+        const problem = vendorPayeeGateProblem({ vendorLabel: "ROYAL TRADERS ", payee: undefined, failed: false });
         expect(problem?.description).toMatch(/^ROYAL TRADERS's bank account/);
         expect(vendorPayeeGateProblem({ vendorLabel: " ", payee: null, failed: false })?.description).toMatch(/^This vendor has/);
     });

@@ -11,16 +11,16 @@ WHY THIS PATCH EXISTS
 WHAT IT MAKES
     Vendors with no Payee yet are grouped by (account number without spaces, dashes or leading zeros,
     IFSC): the Payee module's identity rule (`services/payees/rules.parse_details`). Each group
-    becomes one Active Payee (`writer.backfill_payee`), and every vendor in it links to that Payee:
+    becomes one Payee (`writer.backfill_payee`; a Payee has no status, #1434), and every vendor in it links to that Payee:
     * holder name: the longest in the group. A group where no vendor has one takes the longest vendor
       name instead, and the log lists it for the owner to check (two live vendors at spec time);
     * account number: the longest form in the group, so leading zeros a vendor recorded are kept;
     * bank and branch: as recorded on the vendor whose holder name was kept (else the first vendor that
       has one). The IFSC lookup is NOT asked: the patch copies what is on record.
-    A group whose account + IFSC is already an Active Payee (added on the Payees page before this ran)
-    links to it and leaves it unchanged.
+    A group whose account + IFSC is already a Payee (added on the Payees page before this ran) links
+    to it and leaves it unchanged.
     A vendor with no account number gets no Payee. A group the Payee rules refuse (no IFSC, a malformed
-    IFSC or account number), or whose Payee is Inactive, is skipped: its vendors keep no Payee and the
+    IFSC or account number) is skipped: its vendors keep no Payee and the
     log names them with the reason. Nothing is invented for them. Each group is written inside its own
     savepoint, so one refusal never stops the others.
     Then every Expense Request and Project Expense with no Payee whose vendor has one gets that Payee.
@@ -48,12 +48,7 @@ from __future__ import annotations
 
 import frappe
 
-from nirmaan_stack.services.payees.rules import (
-    INACTIVE,
-    PAYEE_DOCTYPE,
-    details_problem,
-    parse_details,
-)
+from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE, details_problem, parse_details
 from nirmaan_stack.services.payees.writer import backfill_payee, existing_payee
 
 PATCH = "move_vendor_bank_details_to_payees"
@@ -170,8 +165,6 @@ def _move_group(group: list[dict], result: dict) -> None:
 
     problem = details_problem(details)
     existing = None if problem else existing_payee(details)
-    if existing and frappe.db.get_value(PAYEE_DOCTYPE, existing, "status") == INACTIVE:
-        problem = f"its account and IFSC are Payee {existing}, which is Inactive."
     if problem:
         _skip(result, names, details, problem)
         return

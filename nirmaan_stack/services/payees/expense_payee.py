@@ -30,7 +30,7 @@ def change_expense_payee(doctype: str, name: str, payee: str | None):
     """Point a Project Expense or Non-Project Expense at another Payee (or none): Record Payment's
     Change payee. Saved through the document, so the save hook (`guard.check_payee_links`) applies
     every rule as on any other path: fixed once paid, Accounts only, a vendor's own Payee, a
-    *Required* type not left without one, an Inactive Payee not newly picked. A *Not asked* type may
+    *Required* type not left without one. A *Not asked* type may
     still be given one: whoever pays it is naming the account, not the raiser. The row is locked
     first, so the paid check reads the status a concurrent payment just wrote. The save leaves the
     Version row Record Payment's "Named by" reads (`paid_to.expense_pay_to`): `ignore_version=False`,

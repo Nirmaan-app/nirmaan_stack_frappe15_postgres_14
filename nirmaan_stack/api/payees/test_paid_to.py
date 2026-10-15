@@ -26,8 +26,6 @@ from nirmaan_stack.api.payees.expense_payee import (
     get_paid_to,
 )
 from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each
-from nirmaan_stack.services.payees.paid_to import VENDOR_PAYEE_INACTIVE
-from nirmaan_stack.services.payees.rules import INACTIVE
 
 U = "Administrator"
 PM_USER = "pye_paidto_pm@example.com"
@@ -150,18 +148,6 @@ class TestPaidTo(FrappeTestCase):
              (None, "expense_has_no_payee", "Optional"),
              (None, "expense_has_no_payee", "Required")],
         )
-
-    def test_a_payment_whose_vendors_payee_is_inactive_is_shown_but_not_paid(self):
-        """Owner decision (walk bug 7c/d): Paid to still names the account, with its status, and the
-        bank file leaves the row out for this reason."""
-        payee = self.payees.payee()
-        payment = self._payment(self._vendor(payee))
-        PayeeFixture.mark_inactive(payee)
-
-        (row,) = get_paid_to([{"doctype": "Project Payments", "name": payment}])
-
-        self.assertEqual((row["account"]["payee"], row["account"]["status"], row["missing"]),
-                         (payee, INACTIVE, VENDOR_PAYEE_INACTIVE))
 
     def test_the_queue_rows_carry_paid_to(self):
         payee = self.payees.payee()

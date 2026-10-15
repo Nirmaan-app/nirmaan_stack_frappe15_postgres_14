@@ -8,16 +8,10 @@ import os
 import unittest
 
 from nirmaan_stack.services.payees.rules import (
-    ACTIVE,
-    INACTIVE,
     PAID_STATUSES,
     details_problem,
     duplicate_problem,
-    inactive_pick_problem,
-    locked_change_problem,
     parse_details,
-    pick_problem,
-    status_change_problem,
 )
 from nirmaan_stack.services.settlement import SETTLED_STATUSES
 
@@ -70,57 +64,6 @@ class TestDuplicateProblem(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class TestLockedChangeProblem(unittest.TestCase):
-    """A paid Payee's account number and IFSC never change; its holder name may (#1423)."""
-
-    before = parse_details("Kaveri Ductfab", "50200061234567", "HDFC0000195")
-
-    def test_a_new_account_number_or_ifsc_is_refused_and_says_why(self):
-        for after in (parse_details("Kaveri Ductfab", "50200061234568", "HDFC0000195"),
-                      parse_details("Kaveri Ductfab", "50200061234567", "HDFC0000196")):
-            with self.subTest(after=after):
-                problem = locked_change_problem("PYE-0412", self.before, after)
-                self.assertIn("PYE-0412", problem)
-                self.assertIn("locked", problem)
-                self.assertIn("new payee", problem)
-
-    def test_a_holder_name_fix_is_not_a_locked_change(self):
-        after = parse_details("Kaveri Ductfab Systems Pvt. Ltd.", "5020 0061-234567", "hdfc0000195")
-        self.assertIsNone(locked_change_problem("PYE-0412", self.before, after))
-
-
-class TestStatusChangeProblem(unittest.TestCase):
-    def test_active_and_inactive_swap_freely(self):
-        self.assertIsNone(status_change_problem("PYE-1", ACTIVE, INACTIVE))
-        self.assertIsNone(status_change_problem("PYE-1", INACTIVE, ACTIVE))
-
-    def test_the_status_it_already_has_is_refused_naming_it(self):
-        self.assertEqual(status_change_problem("PYE-1", INACTIVE, INACTIVE), "PYE-1 is already Inactive.")
-
-    def test_an_unknown_status_is_refused(self):
-        self.assertIn("Active or Inactive", status_change_problem("PYE-1", ACTIVE, "Closed"))
-
-
-class TestInactivePickProblem(unittest.TestCase):
-    def test_it_names_the_payee_and_what_to_do_instead(self):
-        problem = inactive_pick_problem("PYE-0212")
-        self.assertIn("PYE-0212 is Inactive", problem)
-        self.assertIn("active payee", problem)
-
-
-class TestPickProblem(unittest.TestCase):
-    """One predicate for "can this Payee be newly picked": the screens' and every save's."""
-
-    def test_an_active_payee_can_be_picked(self):
-        self.assertIsNone(pick_problem("PYE-0212", ACTIVE))
-
-    def test_an_inactive_payee_cannot(self):
-        self.assertEqual(pick_problem("PYE-0212", INACTIVE), inactive_pick_problem("PYE-0212"))
-
-    def test_a_payee_that_does_not_exist_cannot(self):
-        self.assertIn("does not exist", pick_problem("PYE-9999", None))
 
 
 class TestPaidMeansOneThing(unittest.TestCase):

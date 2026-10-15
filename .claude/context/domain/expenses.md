@@ -624,8 +624,7 @@ save an invalid template**.
   - The request's `payee` is applied by `services/payees/expense_payee.request_payee_for` on create
     AND edit (rules pure in `services/payees/expense_rules.py`): *Required* refuses none; *Not
     asked* stores none whatever was sent; a request with a vendor is paid into that vendor's Payee
-    (filled in; any other refused); a newly picked Inactive Payee is refused, but an edit may keep
-    the one it already holds.
+    (filled in; any other refused). A Payee has no status (#1434), so any Payee may be picked.
   - Approval (`convert.create_ledger_row`) copies `payee` onto the Project or Non-Project Expense.
     The reviewer sees it: `get_my_expense_requests` rows carry `payee_details`.
   - The dialog's picker (search, add new, the vendor's Payee) calls `api/expense_requests/payees`,

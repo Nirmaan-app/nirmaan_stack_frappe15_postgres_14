@@ -16,10 +16,9 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from nirmaan_stack.api.payees.payee_fixture import TEST_IFSC, PayeeFixture
-from nirmaan_stack.api.payees.payee_page import edit_holder_name
 from nirmaan_stack.api.payees.vendor_payee import change_vendor_payee, get_vendor_account
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
-from nirmaan_stack.services.payees.rules import INACTIVE, PAYEE_DOCTYPE
+from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE
 
 U = "Administrator"
 PROJECT_MANAGER = "Nirmaan Project Manager Profile"
@@ -113,13 +112,11 @@ class TestVendorAccount(FrappeTestCase):
         self.assertNotIn("payee", result)
         self.assertEqual(self._payee_of(vendor), old)
 
-    def test_an_inactive_payee_cannot_be_picked(self):
+    def test_a_payee_that_does_not_exist_cannot_be_picked(self):
         vendor = self._vendor()
-        moved = self.payees.payee()
-        frappe.db.set_value(PAYEE_DOCTYPE, moved, "status", INACTIVE)
-        frappe.db.commit()
-        with self.assertRaisesRegex(frappe.ValidationError, "Inactive"):
-            change_vendor_payee(vendor, payee=moved)
+        with self.assertRaisesRegex(frappe.DoesNotExistError, "PYE-NOPE"):
+            change_vendor_payee(vendor, payee="PYE-NOPE")
+        frappe.db.rollback()
         self.assertIsNone(self._payee_of(vendor))
 
     def test_the_payee_the_vendor_already_has_is_refused(self):
@@ -137,14 +134,12 @@ class TestVendorAccount(FrappeTestCase):
         frappe.set_user(U)
         self.assertIsNone(self._payee_of(vendor))
 
-    # -- the rename prompt's "Update the holder name" -------------------------------------------
-    def test_procurement_may_change_the_account_but_not_the_holder_name(self):
+    def test_procurement_may_change_the_account(self):
         payee = self.payees.payee()
         vendor = self._vendor()
         frappe.set_user(self._user(PROCUREMENT_EXECUTIVE))
-        change_vendor_payee(vendor, payee=payee)
-        with self.assertRaises(frappe.PermissionError):
-            edit_holder_name(payee, self.payees.holder("Renamed"))
-        frappe.set_user(U)
+        try:
+            change_vendor_payee(vendor, payee=payee)
+        finally:
+            frappe.set_user(U)
         self.assertEqual(self._payee_of(vendor), payee)
-        self.assertNotIn("Renamed", frappe.db.get_value(PAYEE_DOCTYPE, payee, "account_name"))

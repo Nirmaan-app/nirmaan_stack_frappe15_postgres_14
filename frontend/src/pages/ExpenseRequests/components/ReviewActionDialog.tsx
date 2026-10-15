@@ -23,7 +23,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/components/ui/use-toast";
-import { PayeeInactiveBadge } from "@/components/payees/PayeeInactiveBadge";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import SITEURL from "@/constants/siteURL";
@@ -32,7 +31,6 @@ import { getFrappeError } from "@/utils/frappeErrors";
 import { payeeAccountLine } from "@/utils/payees/expensePayee";
 import { bankLine } from "@/utils/payees/payeeForm";
 import type { ExpenseRequest } from "@/types/NirmaanStack/ExpenseRequest";
-import { PAYEE_STATUS } from "@/types/NirmaanStack/Payee";
 
 export type ReviewAction = "approve" | "reject";
 
@@ -160,10 +158,7 @@ export const ReviewActionDialog: React.FC<Props> = ({
                         approval copies it onto the expense. */}
                     {r?.payee_details && (
                         <Row label="Who gets paid">
-                            <span className="flex flex-wrap items-center gap-2 font-medium">
-                                {r.payee_details.account_name}
-                                {r.payee_details.status === PAYEE_STATUS.INACTIVE && <PayeeInactiveBadge />}
-                            </span>
+                            <span className="block font-medium">{r.payee_details.account_name}</span>
                             <span className="block text-xs tabular-nums text-muted-foreground">
                                 {payeeAccountLine(r.payee_details)}
                             </span>

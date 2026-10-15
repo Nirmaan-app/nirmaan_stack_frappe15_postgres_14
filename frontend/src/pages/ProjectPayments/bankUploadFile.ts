@@ -21,8 +21,8 @@ export interface BankFileRow {
 	/** A vendor payment's is its vendor's Payee today (ADR-0033: a PO / WO payment stores none); an
 	 *  expense's is its own. */
 	payee?: BankFilePayee;
-	/** Why the server says the row can't be paid into an account (`get_paid_to`'s `missing`), if it
-	 *  can't: an Inactive vendor Payee is named but still not paid into. */
+	/** Why the server says the row has no account to pay into (`get_paid_to`'s `missing`), if it has
+	 *  none. */
 	missing?: PaidToMissing | null;
 }
 
@@ -125,8 +125,7 @@ export function buildBankFile(rows: BankFileRow[], options: BankFileOptions): Ba
 
 // ICICI and Cashfree both accept a file holding a row with a blank account or IFSC, and reject
 // that row only after upload, so a row with no Payee is left out here, not at the bank. A Payee
-// always holds a holder name, an account number and an IFSC. A vendor payment whose vendor's
-// Payee is Inactive is left out too: the vendor must use Change account first (owner decision).
+// always holds a holder name, an account number and an IFSC.
 function leftOutReason(row: BankFileRow): BankFileLeftOutReason | null {
 	if (row.missing) return row.missing;
 	if (row.payee) return null;
@@ -151,13 +150,6 @@ export function describeLeftOut(leftOut: BankFileLeftOut[]): string[] {
 	const payments = named(PAID_TO_MISSING.VENDOR_HAS_NO_PAYEE);
 	if (payments.count > 0) {
 		parts.push(`${payments.count} payment${payments.count > 1 ? "s" : ""} whose vendor has no Payee (${payments.list})`);
-	}
-	const inactive = named(PAID_TO_MISSING.VENDOR_PAYEE_INACTIVE);
-	if (inactive.count > 0) {
-		parts.push(
-			`${inactive.count} payment${inactive.count > 1 ? "s" : ""} whose vendor's bank account is Inactive, ` +
-				`so use Change account on the vendor page first (${inactive.list})`,
-		);
 	}
 	return parts;
 }

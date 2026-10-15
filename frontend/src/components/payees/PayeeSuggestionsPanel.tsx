@@ -1,7 +1,7 @@
 /**
- * "Payees that look like this vendor" (spec #1420, approved mockup screen 5): the Active Payees the
+ * "Payees that look like this vendor" (spec #1420, approved mockup screen 5): the Payees the
  * server ranks for the vendor's name and PAN (`services/payees/matching.py`), each labelled Strong
- * match or Name only, with its account and links, and a "Use this payee" button.
+ * match or Name only, with its account and linked vendors, and a "Use this payee" button.
  */
 
 import { Loader2 } from "lucide-react";

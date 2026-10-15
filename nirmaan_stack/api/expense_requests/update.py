@@ -113,9 +113,7 @@ def update_expense_request(
 			"vendor": None,
 			**promoted,
 			**({"vendor": vendor} if vendor else {}),
-			# Same rules as `create`, applied by the save. The Payee the request already holds may be
-			# kept even if it has gone Inactive since: Inactive stops new picks, not records already
-			# pointing at it.
+			# Same rules as `create`, applied by the save.
 			"payee": payee or None,
 		}
 	)

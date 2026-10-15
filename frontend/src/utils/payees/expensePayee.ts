@@ -69,19 +69,7 @@ export interface WhoGetsPaidState {
     vendorPayee: string | null;
     /** A payee is picked, or a new one is filled in. */
     hasChoice: boolean;
-    /**
-     * The picked vendor's Payee is Inactive and the request newly names that vendor (a new request,
-     * or one moved to it). A request already naming it keeps it.
-     */
-    vendorPayeeInactive?: boolean;
 }
-
-/**
- * The server's refusal of a request newly naming a vendor whose Payee is Inactive, on any type
- * (`expense_rules.VENDOR_PAYEE_INACTIVE_PROBLEM`; pinned by the shared cases).
- */
-export const VENDOR_PAYEE_INACTIVE_PROBLEM =
-    "This vendor's bank account is Inactive. Use Change account on the vendor page first.";
 
 /** Why the request can't be sent yet because of who gets paid, or null. */
 export const whoGetsPaidProblem = ({
@@ -89,9 +77,7 @@ export const whoGetsPaidProblem = ({
     vendor,
     vendorPayee,
     hasChoice,
-    vendorPayeeInactive,
 }: WhoGetsPaidState): string | null => {
-    if (vendor && vendorPayeeInactive) return VENDOR_PAYEE_INACTIVE_PROBLEM;
     if (asPayeeRule(rule) !== PAYEE_RULE.REQUIRED) return null;
     if (vendor) {
         return vendorPayee
@@ -109,18 +95,6 @@ interface PayeeAccount {
 }
 
 export const payeeAccountLine = (p: PayeeAccount): string => `A/c ${p.account_number}, IFSC ${p.ifsc}`;
-
-export const timesPaidText = (times: number): string =>
-    times > 1 ? `Paid ${times} times before.` : times === 1 ? "Paid once before." : "Not paid before.";
-
-/**
- * Whether a request's save newly names `vendor` (a real vendor on screen): a new request names it
- * anew, an edit only when it differs from `sentVendor`, the vendor the request was saved with. The
- * server asks the same (`guard._changed(doc, "vendor")`) before refusing a vendor whose Payee is
- * Inactive.
- */
-export const newlyNamesVendor = (vendor: string, sentVendor: string | null | undefined): boolean =>
-    vendor !== (sentVendor || "");
 
 /**
  * Whether an edit that clears the vendor (to none or Others (No Vendor)) also clears the picked

@@ -1,25 +1,26 @@
 """The Payee module (spec #1420, ADR-0033): the one place that owns Payee rules.
 
-* `rules` (pure) -- `parse_details`, `details_problem`, `duplicate_problem`, `locked_change_problem`,
-  `status_change_problem`, `pick_problem` (Inactive can't be newly picked), `PAYEE_STATUSES`,
-  `PAID_STATUSES` (= `settlement.SETTLED_STATUSES`).
-* `writer` -- `create_payee` (the only creator), `edit_holder_name`, `set_status`, `existing_payee`,
+A Payee is an address book entry (#1434): no status, no lock once paid, no holder-name role, and
+nothing paid points back at it.
+
+* `rules` (pure) -- `parse_details`, `details_problem`, `duplicate_problem`, `PAID_STATUSES`
+  (= `settlement.SETTLED_STATUSES`).
+* `writer` -- `create_payee` (the only creator), `edit_holder_name`, `existing_payee`,
   `assert_not_duplicate`, `DuplicatePayeeError`; a duplicate as data for a screen
   (`duplicate_verdict`, `unless_duplicate`).
-* `links` -- `payee_summaries` / `payee_summary`, `is_paid`, `PAID_ROWS_SQL` (the one "paid" union),
-  `PAYEES_WITH_LINKS_SQL`, `payee_page` (`linked_vendors`, `linked_expenses`, `holder_name_changed_on`).
+* `links` -- `payee_summaries` / `payee_summary` (with the vendor count), `PAYEES_WITH_LINKS_SQL`,
+  `payee_page` (`linked_vendors`, `holder_name_changed_on`).
 * `versions` -- the Version rows read as history: `last_field_change`, `changed_field_pattern`.
-* `guard` -- what `validate` controllers refuse on every write path: `check_payee_save` (Locked, the
-  holder-name role), `check_payee_links` (a vendor's Payee, an expense type's Who gets paid, an
-  expense's Payee fixed once paid and changed only by Accounts, who sets a vendor's Payee, Inactive
-  can't be newly picked).
+* `guard` -- what `validate` controllers refuse on every write path: `check_payee_links` (a vendor's
+  Payee, an expense type's Who gets paid, an expense's Payee fixed once paid and changed only by
+  Accounts, who sets a vendor's Payee).
 * `ifsc` -- `lookup_ifsc` (refuses an IFSC it can't find), `fetch_ifsc` (the HTTP call tests patch).
 * `expense_rules` (pure) / `expense_payee` -- the Expense payee: an expense type's Required / Optional
   / Not asked, the vendor's Payee (`follow_vendor`), paid (`payee_rule`, `change_expense_payee`).
-* `search` -- `search_active_payees`, for the Expense Request's picker.
+* `search` -- `find_payees`, for every Payee picker, by holder name.
 * `matching` (pure) -- `rank_payees`, `name_similarity`: which Payees look like a vendor.
-* `choosing` -- `suggest_for_vendor`, `payee_choices` / `payee_choice`, `assert_pickable`,
-  `choose_payee`, `link_vendor`: picking a vendor's Payee.
+* `choosing` -- `suggest_for_vendor`, `payee_choices` / `payee_choice`, `choose_payee`,
+  `link_vendor`: picking a vendor's Payee.
 * `vendor_account` -- THE vendor -> Payee read: `payee_for_vendor`, `vendor_account` (one vendor, with
   `other_vendors`), `vendor_accounts` (many, for screens, Bulk Import's vendor index, the autofill).
 * `paid_to` -- `paid_to_rows`, `paid_to_for`, `expense_pay_to`: who a payment or expense row is paid to.

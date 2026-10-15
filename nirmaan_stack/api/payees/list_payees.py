@@ -1,18 +1,18 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Payees page's list: one row per Payee, with what it is linked to and when it was last paid
-(#1422, spec #1420, ADR-0033).
+"""The Payees page's list: one row per Payee, with how many vendors link to it (#1422, #1434, spec
+#1420, ADR-0033).
 
 Matches the data-table contract (`useServerDataTable`'s `apiEndpoint`, prior art
 `api/cheques/list_cheques.py`): it takes the hook's `filters`, `order_by`, paging and search arguments
 and returns `{data, total_count, aggregates, group_by_result}`.
 
 Rows come from `services/payees/links.PAYEES_WITH_LINKS_SQL`, the Payee module's one definition of
-links and last paid. The page's tab comes as the filter `["tab", "=", <key>]` (the hook refetches on a
-filter change, not on a custom parameter): `active`, `inactive` or `unlinked` ("Not linked to anything": no vendor
-and no expense, at any status). `aggregates` holds each tab's count over the same search and filters
-(`active_count`, `inactive_count`, `unlinked_count`), so the pills always agree with the rows.
+a Payee's links. The page's tab comes as the filter `["tab", "=", <key>]` (the hook refetches on a
+filter change, not on a custom parameter): `all`, or `no_vendor` (no vendor links to it: used only for
+expenses, or not at all). `aggregates` holds each tab's count over the same search and filters
+(`all_count`, `no_vendor_count`), so the pills always agree with the rows.
 
 Search: holder name, account number (also matched with spaces, dashes and leading zeros ignored),
 IFSC, Payee ID, or the name or ID of a linked vendor.
@@ -28,7 +28,6 @@ from frappe.utils import cint
 
 from nirmaan_stack.services.outflow_import.normalize import normalize_account
 from nirmaan_stack.services.payees.links import PAYEES_WITH_LINKS_SQL, summary_row
-from nirmaan_stack.services.payees.rules import ACTIVE, INACTIVE
 from nirmaan_stack.services.role_profiles import assert_payee_manager
 
 MAX_PAGE_LENGTH = 500
@@ -37,15 +36,13 @@ EXPORT_MAX_PAGE_LENGTH = 100_000
 
 #: Each tab's condition over a `PAYEES_WITH_LINKS_SQL` row `q`.
 TABS = {
-    "active": f"q.status = '{ACTIVE}'",
-    "inactive": f"q.status = '{INACTIVE}'",
-    "unlinked": "q.vendors = 0 AND q.expenses = 0",
+    "all": "TRUE",
+    "no_vendor": "q.vendors = 0",
 }
 
-FILTERABLE = {"name", "status"}
+FILTERABLE = {"name"}
 SEARCHABLE = {"account_name", "account_number", "ifsc", "name", "vendor_name"}
-SORTABLE = {"name", "creation", "account_name", "account_number", "ifsc", "bank_name", "status", "vendors",
-            "expenses", "last_paid"}
+SORTABLE = {"name", "creation", "account_name", "account_number", "ifsc", "bank_name", "vendors"}
 
 
 def _coerce(value):
@@ -59,8 +56,8 @@ def _coerce(value):
 
 def _filter_clauses(filters) -> tuple[str | None, list[str], list]:
     """`(tab, clauses, params)` from the table's filters. The page sends its tab as the filter
-    `["tab", "=", <key>]` (the hook refetches on a filter change). The column filters are only `name`
-    and `status`, with `=`, `!=`, `in` or `not in`; anything else is refused rather than ignored, which
+    `["tab", "=", <key>]` (the hook refetches on a filter change). The column filter is only `name`,
+    with `=`, `!=`, `in` or `not in`; anything else is refused rather than ignored, which
     would show more rows than asked for."""
     filters = _coerce(filters) or []
     if isinstance(filters, dict):
@@ -147,12 +144,12 @@ def get_payees(
     for_export=False,
     **kwargs,
 ):
-    """One page of Payees in the tab `filters` names (`["tab", "=", "active" | "inactive" |
-    "unlinked"]`; no tab means every Payee).
+    """One page of Payees in the tab `filters` names (`["tab", "=", "all" | "no_vendor"]`; no tab
+    means every Payee).
 
     `doctype`, `fields` and the hook's other arguments are accepted and ignored: the row shape is
-    fixed here, as `services/payees/links.summary_row`. `aggregates` holds `count` (every tab) and
-    `<active|inactive|unlinked>_count`, over the search and filters but not the tab.
+    fixed here, as `services/payees/links.summary_row`. `aggregates` holds `count` (every Payee) and
+    `<all|no_vendor>_count`, over the search and filters but not the tab.
     """
     assert_payee_manager(frappe.session.user)
 

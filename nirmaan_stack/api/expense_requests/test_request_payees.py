@@ -1,8 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and Contributors
 # See license.txt
 
-"""The request's payee picker (spec #1420 ticket #1429, ADR-0033): search, add, the vendor's Payee,
-and changing an Expense's Payee until it is Paid.
+"""The request's payee picker (spec #1420 tickets #1429, #1434, ADR-0033): search (by holder name),
+add, the vendor's Payee, and changing an Expense's Payee until it is Paid.
 
 Anyone who can raise an Expense Request may search Payees and add one from the request; nobody else.
 
@@ -94,12 +94,9 @@ class TestRequestPayees(FrappeTestCase):
 
 	# --- search --------------------------------------------------------------
 
-	def test_a_raiser_finds_a_payee_by_holder_name_with_how_often_it_was_paid(self):
+	def test_a_raiser_finds_a_payee_by_holder_name(self):
 		holder = self.payees.holder("Ramesh Yadav")
 		payee = self.payees.payee(holder=holder)
-		self._expense(payee, status="Paid")
-		self._expense(payee, status="Paid")
-		self._expense(payee, status="Approved")  # not paid yet: not counted
 
 		found = self._search(holder.split(" ", 1)[1].lower())
 		self.assertIn(payee, found)
@@ -107,19 +104,25 @@ class TestRequestPayees(FrappeTestCase):
 		self.assertEqual(row["account_name"], holder)
 		self.assertEqual(row["ifsc"], TEST_IFSC)
 		self.assertEqual(row["bank_name"], "Test Bank")
-		self.assertEqual(row["times_paid"], 2)
+		# An address book entry: no status, and nothing paid counts (#1434).
+		self.assertNotIn("times_paid", row)
+		self.assertNotIn("status", row)
+
+	def test_matches_come_by_holder_name_however_often_each_was_paid(self):
+		tag = frappe.generate_hash(length=6)
+		zubair = self.payees.payee(holder=f"TESTPYE {tag} Zubair Traders")
+		anil = self.payees.payee(holder=f"TESTPYE {tag} Anil Verma")
+		mehta = self.payees.payee(holder=f"TESTPYE {tag} Mehta Rentals")
+		for _ in range(3):
+			self._expense(zubair, status="Paid")
+
+		found = [r["name"] for r in self._as(PM_USER, search_payees, text=tag)]
+		self.assertEqual([n for n in found if n in (zubair, anil, mehta)], [anil, mehta, zubair])
 
 	def test_a_raiser_finds_a_payee_by_account_number_ignoring_spaces_and_leading_zeros(self):
 		number = self.payees.account_number()
 		payee = self.payees.payee(account_number=number)
 		self.assertIn(payee, self._search(f"00{number[:5]} {number[5:]}"))
-
-	def test_an_inactive_payee_is_not_offered(self):
-		holder = self.payees.holder("Gone")
-		payee = self.payees.payee(holder=holder)
-		frappe.db.set_value("Payee", payee, "status", "Inactive")
-		frappe.db.commit()
-		self.assertNotIn(payee, self._search(holder))
 
 	def test_someone_who_can_raise_no_request_cannot_search_or_add(self):
 		with self.assertRaises(frappe.PermissionError):
@@ -138,7 +141,7 @@ class TestRequestPayees(FrappeTestCase):
 		               account_number=self.payees.account_number(), ifsc=TEST_IFSC)
 		created = out["payee"]
 		self.assertEqual(frappe.db.get_value("Payee", created["name"], "account_name"), holder)
-		self.assertEqual(created["status"], "Active")
+		self.assertEqual(created["account_name"], holder)
 
 	def test_adding_an_account_already_on_record_points_at_that_payee(self):
 		number = self.payees.account_number()
@@ -185,11 +188,6 @@ class TestRequestPayees(FrappeTestCase):
 		# Required type: can't be left without one.
 		with self.assertRaises(frappe.ValidationError):
 			change_expense_payee(NPE, expense, None)
-		# Inactive: can't be newly picked.
-		inactive = self.payees.payee()
-		frappe.db.set_value("Payee", inactive, "status", "Inactive")
-		with self.assertRaises(frappe.ValidationError):
-			change_expense_payee(NPE, expense, inactive)
 		# A Project Expense with a vendor is paid into the vendor's Payee only.
 		vendor_payee = self.payees.payee()
 		project_expense = self._expense(vendor_payee, vendor=self.payees.vendor(vendor_payee),
