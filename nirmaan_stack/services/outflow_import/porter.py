@@ -21,7 +21,10 @@ WHAT THIS MODULE DECIDES.
    name matcher (`project_match`), with its reason and strength.
 3. `remark_group_key` -- which review group an order is assigned with (#1446).
 4. `judge_invoice` -- whether one Porter Invoice's PDF, as Gemini read it, agrees with the statement
-   (#1444); `import_state` -- the import's Validating / Validated / Validation failed, from its invoices.
+   (#1444); `import_state` -- the import's Validating / Validated / Validation failed, from its invoices,
+   then Creating / Created from its lines (#1445).
+5. `expense_description`, `porter_order_fields`, `CREATE_LINE_STATUSES` -- what Create writes for each
+   completed order, and which lines it writes (#1445).
 
 ⚠️ IT NEVER CALLS THE MATCHER. A Porter line creates its expense and settles nothing (ADR-0032, like
 Cashbook's ADR-0015), so nothing here may reach `match_batch` / `match_row`; pinned by an AST test.
@@ -49,9 +52,19 @@ from nirmaan_stack.services.outflow_import.parser import (
     RawRow,
 )
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, comparable_tokens
+from nirmaan_stack.services.outflow_import.status import (
+    ROW_ERROR,
+    ROW_MISMATCHED,
+    ROW_PENDING_MATCH,
+    ROW_SETTLED,
+    ROW_SKIPPED,
+)
 
 __all__ = [
+    "CREATE_LINE_STATUSES",
     "EXPENSE_TYPE",
+    "IMPORT_CREATED",
+    "IMPORT_CREATING",
     "IMPORT_VALIDATED",
     "IMPORT_VALIDATING",
     "IMPORT_VALIDATION_FAILED",
@@ -79,8 +92,10 @@ __all__ = [
     "SKIP_REASON_CANCELLED",
     "STRENGTH_CHECK",
     "STRENGTH_STRONG",
+    "expense_description",
     "import_state",
     "judge_invoice",
+    "porter_order_fields",
     "read_porter_statement",
     "remark_group_key",
     "rupees",
@@ -406,6 +421,11 @@ INVOICE_IN_FLIGHT = frozenset({INVOICE_QUEUED, INVOICE_DOWNLOADING, INVOICE_READ
 IMPORT_VALIDATING = "Validating"
 IMPORT_VALIDATED = "Validated"
 IMPORT_VALIDATION_FAILED = "Validation failed"
+#: Create has started and not every completed line is created yet (#1445): running, stopped with a line
+#: in Error, or a line reopened by Unreconcile. A re-run of Create finishes it.
+IMPORT_CREATING = "Creating"
+#: Every completed line has its Expense.
+IMPORT_CREATED = "Created"
 
 
 
@@ -492,18 +512,88 @@ def judge_invoice(statement: InvoiceFigures, read: InvoiceRead) -> InvoiceVerdic
 _UNREAD_NOUN = {"Invoice number": "invoice number", "Fare": "fare", "Tax": "tax"}
 
 
-def import_state(invoice_statuses: Iterable[str]) -> str:
-    """The import's validation state, from its Porter Invoices' statuses.
+def import_state(invoice_statuses: Iterable[str], line_statuses: Iterable[str] = ()) -> str:
+    """The import's state, from its Porter Invoices' statuses and (once validated) its lines'.
 
-    Validating while any invoice is still in hand; Validated only when there are invoices and every one
-    Passed; otherwise Validation failed (a Failed invoice is final, an Error one waits for its Retry).
+    Validation, from the invoices: Validating while any invoice is still in hand; Validated only when
+    there are invoices and every one Passed; otherwise Validation failed (a Failed invoice is final, an
+    Error one waits for its Retry). Nothing about the lines can outrank this.
+
+    Create (#1445), from the lines of a validated import, a cancelled (Skipped) line aside:
+      * Validated -- no line has been touched by Create yet;
+      * Created   -- there are completed lines and every one is Settled;
+      * Creating  -- anything between: Create is running, or stopped with a line in Error, or a line was
+        unreconciled after Create (#1449). Each of these is what a re-run of Create finishes.
+
+    Called with the invoices alone it answers the validation question only: `porter.is_validated`.
     """
     statuses = list(invoice_statuses)
     if any(status in INVOICE_IN_FLIGHT for status in statuses):
         return IMPORT_VALIDATING
-    if statuses and all(status == INVOICE_PASSED for status in statuses):
-        return IMPORT_VALIDATED
-    return IMPORT_VALIDATION_FAILED
+    if not statuses or not all(status == INVOICE_PASSED for status in statuses):
+        return IMPORT_VALIDATION_FAILED
+    completed = [status for status in line_statuses if status != _LINE_SKIPPED]
+    if completed and all(status == _LINE_SETTLED for status in completed):
+        return IMPORT_CREATED
+    if any(status != _LINE_WAITING for status in completed):
+        return IMPORT_CREATING
+    return IMPORT_VALIDATED
+
+
+# --- Create (#1445) ------------------------------------------------------------------------------
+#
+# One Expense per completed order, at Paid, through `settle.create_expense_from_row`; the job around it
+# lives in `api/outflow_import/porter_create.py`.
+
+#: The line statuses Create writes an Expense for: never touched (Pending match run), failed on an earlier
+#: run (Error), or reopened by Unreconcile after it was created (Mismatched, #1449). A Porter line never
+#: runs the matcher, so Mismatched means only that. Settled and Skipped lines are never written.
+CREATE_LINE_STATUSES = (ROW_PENDING_MATCH, ROW_ERROR, ROW_MISMATCHED)
+
+_LINE_WAITING = ROW_PENDING_MATCH
+_LINE_SETTLED = ROW_SETTLED
+_LINE_SKIPPED = ROW_SKIPPED
+
+
+def expense_description(booked_by: str | None, project_name: str | None) -> str:
+    """The owner's wording (spec #1442 story 48): "Porter Delivery raised by {name} for {project}", or
+    without " for {project}" on a Non-Project Expense. A blank name drops "raised by"."""
+    name = (booked_by or "").strip()
+    project = (project_name or "").strip()
+    text = f"Porter Delivery raised by {name}" if name else "Porter Delivery"
+    return f"{text} for {project}" if project else text
+
+
+# `Porter Order` field <- Porter's statement column. The completion time is the line's own parsed
+# `added_on`; the invoice and the line are links the caller sets.
+_ORDER_TEXT_FIELDS = (
+    ("crn", "crn"),
+    ("vehicle_type", "vehicle_type"),
+    ("city", "city"),
+    ("from_address", "from_address"),
+    ("to_address", "to_address"),
+    ("waypoint_addresses", "waypoint_addresses"),
+    ("travel_duration", "travel_duration"),
+    ("waiting_time", "waiting_time"),
+    ("booked_by", "customer_name"),
+    ("booked_by_mobile", "customer_mobile"),
+    ("booked_by_email", "customer_email"),
+    ("remark", "customer_remarks"),
+    ("order_status", "order_status"),
+)
+
+
+def porter_order_fields(statement: Mapping[str, str]) -> dict:
+    """A `Porter Order`'s order details, from one statement line's columns (`statement_line`).
+
+    Text is trimmed; `fare` is the Porter fare (the Expense amount) and `rcm_gst` the reverse-charge GST
+    the statement prints for the order, which is NEVER part of the Expense.
+    """
+    fields: dict = {field: (statement.get(column) or "").strip() for field, column in _ORDER_TEXT_FIELDS}
+    fields["distance_km"] = normalize_amount(statement.get("travel_distance_kms"))
+    fields["fare"] = normalize_amount(statement.get("invoice_order_fare"))
+    fields["rcm_gst"] = normalize_amount(statement.get("tax_amount"))
+    return fields
 
 
 def rupees(amount: Decimal | float | int) -> str:

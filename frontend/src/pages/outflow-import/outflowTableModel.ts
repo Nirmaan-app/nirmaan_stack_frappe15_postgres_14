@@ -1944,11 +1944,12 @@ export const importUploaderLabel = (option: { uploaded_by?: string }): string =>
  * quiet, outstanding work is amber, exactly as the summary panel's own chips read.
  *
  * A Porter import reports its own state instead (#1444, `review.list_imports`): Validated reads as
- * passed, Validation failed as refused, Validating as work still open.
+ * passed, Validation failed as refused, Validating as work still open; Created (#1445) is finished like
+ * Completed, and Creating is work still open.
  */
 export const importStatusTone = (status?: string): string => {
     const value = (status ?? "").trim();
-    if (value === "Completed") return "bg-muted text-muted-foreground";
+    if (value === "Completed" || value === "Created") return "bg-muted text-muted-foreground";
     if (value === "Validated") return "bg-emerald-50 text-emerald-700";
     if (value === "Validation failed") return "bg-destructive/10 text-destructive";
     return "bg-amber-50 text-amber-700";

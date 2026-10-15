@@ -61,12 +61,16 @@ import {
     importSteps,
 } from "../importWizard";
 import {
+    PORTER_CREATE_METHOD,
     PORTER_RETRY_METHOD,
     PORTER_SOURCE,
     PORTER_STATUS_METHOD,
     PORTER_STATUS_POLL_MS,
     PORTER_UPLOAD_URL,
-    porterValidationRunning,
+    canCreatePorter,
+    createButtonLabel,
+    porterCreateStarted,
+    porterPolling,
     type PorterStatus,
 } from "../porterImport";
 import { porterReviewOffered } from "../porterReview";
@@ -303,13 +307,17 @@ export const ImportStatementDialog = ({
         PORTER_STATUS_METHOD,
         { batch: porterBatch },
         porterKey,
-        { refreshInterval: (latest) => (porterValidationRunning(latest?.message) ? PORTER_STATUS_POLL_MS : 0) }
+        // Polled while the invoices are being checked, and while the Create job is queued or running (#1445).
+        { refreshInterval: (latest) => (porterPolling(latest?.message) ? PORTER_STATUS_POLL_MS : 0) }
     );
     const porterStatus = porterBatch ? porterData?.message ?? null : null;
     const { mutate: seedCache } = useSWRConfig();
     const { call: retryPorterInvoice } = useFrappePostCall<{ message: PorterStatus }>(PORTER_RETRY_METHOD);
     /** The invoice whose Retry is in flight, so its button can say so. */
     const [retrying, setRetrying] = useState<string | null>(null);
+    const { call: startPorterCreate } = useFrappePostCall<{ message: PorterStatus }>(PORTER_CREATE_METHOD);
+    /** The Create request is in flight (the job itself runs on the server; the poll follows it). */
+    const [startingCreate, setStartingCreate] = useState(false);
 
     /**
      * The Cashfree match has FINISHED, which is not the same as "not running" (slice CF/S7).
@@ -644,6 +652,24 @@ export const ImportStatementDialog = ({
     );
 
     /**
+     * Create the import's expenses (#1445). The server refuses an import that is not validated, enqueues
+     * the job once per import, and answers with the import -- whose `create_running` restarts the poll.
+     */
+    const handlePorterCreate = useCallback(async () => {
+        if (!porterBatch) return;
+        setStartingCreate(true);
+        setError(null);
+        try {
+            const response = await startPorterCreate({ batch: porterBatch });
+            await setPorterData(response, { revalidate: false });
+        } catch (err: any) {
+            setError(describeFrappeError(err, "Create could not be started."));
+        } finally {
+            setStartingCreate(false);
+        }
+    }, [porterBatch, startPorterCreate, setPorterData]);
+
+    /**
      * Close a Porter import. ⚠️ NOT `onImported`: its lines are not bank lines and the main table does
      * not show them until they are created, so pinning the table to this import would show an empty
      * screen. The screen behind is refreshed so Import History lists it.
@@ -760,6 +786,7 @@ export const ImportStatementDialog = ({
         staged: isPorter ? Boolean(porterStatus) : isCashbook ? Boolean(cashbookBatch) : Boolean(staged),
         matched,
         validated: isPorter && porterReviewOffered(porterStatus),
+        createStarted: isPorter && porterCreateStarted(porterStatus),
     };
     const steps = importSteps(source);
     const stepIndex = currentStepIndex(source, flow);
@@ -1140,7 +1167,18 @@ export const ImportStatementDialog = ({
                     to be scrolled, so the way OUT has to stay put while you scroll it. */}
                 {isPorter && porterStatus && (
                     <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
-                        <Button onClick={handlePorterDone}>Done</Button>
+                        {canCreatePorter(porterStatus) && (
+                            <Button onClick={handlePorterCreate} disabled={startingCreate}>
+                                {startingCreate && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                                {createButtonLabel(porterStatus)}
+                            </Button>
+                        )}
+                        <Button
+                            variant={canCreatePorter(porterStatus) ? "outline" : "default"}
+                            onClick={handlePorterDone}
+                        >
+                            Done
+                        </Button>
                     </div>
                 )}
 

@@ -132,9 +132,9 @@ const SOURCE_FLOWS: Record<string, SourceFlow> = {
     },
     "Porter Statement": {
         steps: PORTER_STEPS,
-        // Staged = uploaded, which lands on Validate; every invoice Passed lands on Review (#1446). The
-        // Create step is reached by the create slice of spec #1442, which extends `ImportFlowState`.
-        stepIndex: (state) => (state.validated ? 2 : state.staged ? 1 : 0),
+        // Staged = uploaded, which lands on Validate; every invoice Passed lands on Review (#1446); once
+        // Create has started (Creating / Created, #1445) it is on Create.
+        stepIndex: (state) => (state.createStarted ? 3 : state.validated ? 2 : state.staged ? 1 : 0),
     },
 };
 
@@ -163,6 +163,8 @@ export interface ImportFlowState {
     matched: boolean;
     /** Porter only: every Porter Invoice of the import Passed (the server's derived `Validated`). */
     validated?: boolean;
+    /** Porter only: Create has started (the server's derived `Creating` / `Created`, #1445). */
+    createStarted?: boolean;
 }
 
 /**

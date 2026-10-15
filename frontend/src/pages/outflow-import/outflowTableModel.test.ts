@@ -556,6 +556,11 @@ describe("the import history row", () => {
         expect(importStatusTone("Validation failed")).toContain("destructive");
         expect(importStatusTone("Validating")).toContain("amber");
     });
+
+    it("tones a Created Porter import as finished, and one still Creating as open work (#1445)", () => {
+        expect(importStatusTone("Created")).toContain("muted");
+        expect(importStatusTone("Creating")).toContain("amber");
+    });
 });
 
 describe("the source scope", () => {

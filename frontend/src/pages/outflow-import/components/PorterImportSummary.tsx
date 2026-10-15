@@ -9,6 +9,7 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 
 import {
     canRetryInvoice,
+    createProgress,
     invoiceFigureRows,
     invoiceProgress,
     invoiceStateTone,
@@ -31,7 +32,8 @@ const TONE_CLASS: Record<ReturnType<typeof invoiceStateTone>, string> = {
  * A Porter import once it is in (#1443), and its check against Porter's own invoices (#1444): what the
  * file held, the import's state, and one card per Porter Invoice showing Downloading → Reading →
  * Comparing → Passed / Failed / Error, the statement's figures beside what Gemini read, and Retry on
- * an Error. Rendered by `ImportStatementDialog`, which polls the status while it is Validating.
+ * an Error; then Create's progress (#1445). Rendered by `ImportStatementDialog`, which polls the status while
+ * it is Validating or the Create job runs, and holds the Create button in its footer.
  */
 export const PorterImportSummary = ({
     status,
@@ -51,6 +53,7 @@ export const PorterImportSummary = ({
             : status.period_from
               ? formatDate(status.period_from)
               : "not dated";
+    const progress = createProgress(status);
     const invoiceCards = (
         <ul className="space-y-3">
             {status.invoices.map((invoice) => (
@@ -78,11 +81,20 @@ export const PorterImportSummary = ({
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="outline" className={TONE_CLASS[porterStateTone(status.state)]}>
-                        {status.state === "Validating" && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                        {(status.state === "Validating" || status.create_running) && (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        )}
                         {status.state}
                     </Badge>
                     <p className="text-xs text-muted-foreground">{porterStateNote(status.state)}</p>
                 </div>
+                {progress && (
+                    <p
+                        className={`text-sm tabular-nums ${status.failed > 0 && !status.create_running ? "text-destructive" : ""}`}
+                    >
+                        {progress}
+                    </p>
+                )}
             </div>
 
             {collapseInvoices ? (

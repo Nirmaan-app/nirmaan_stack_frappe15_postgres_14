@@ -9,6 +9,7 @@
   "details_section",
   "type",
   "request_id",
+  "porter_order",
   "status",
   "approval_date",
   "ceo_approval_date",
@@ -43,6 +44,15 @@
    "fieldtype": "Link",
    "label": "Request ID",
    "options": "Expense Request",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The Porter Order this expense was created from, by the Porter Statement import (ADR-0032). Written once at Create; blank on every other expense. The expense owns the link: the Porter Order holds none back.",
+   "fieldname": "porter_order",
+   "fieldtype": "Link",
+   "label": "Porter Order",
+   "options": "Porter Order",
    "read_only": 1,
    "search_index": 1
   },
@@ -131,7 +141,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-15 15:47:51.072596",
+ "modified": "2026-10-15 21:30:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Non Project Expenses",

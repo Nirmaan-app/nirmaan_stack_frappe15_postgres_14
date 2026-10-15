@@ -6528,7 +6528,7 @@ four shapes) and the IFSC cases in `TestTheContainsQueryMirrorsThePureTokens`; `
 (3: the prompt text, a branch-code-only inflow, an inflow another line accounts for).
 
 
-## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, validation at #1444, review at #1446, the rest NOT BUILT YET)
+## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, validation at #1444, review at #1446, create at #1445, the rest NOT BUILT YET)
 
 Decisions: **[ADR-0032](../../../docs/adr/0032-porter-statement-import.md)** (owner grilling, Q1–Q36).
 Terms: `GLOSSARY.md` § *Porter deliveries*. The design below is the target; § *As built* at the end of
@@ -6731,7 +6731,7 @@ otherwise `Validation failed` (a Failed invoice is final, an Error one waits for
 Review (#1446) and Create (#1445) ask.** `Outflow Import Batch.status` keeps its bank-line rollup;
 `review.list_imports` replaces it with the derived state for a Porter batch, so Import History reads
 Validating / Validated / Validation failed instead of "Partially Settled" (`importStatusTone`: Validated
-emerald, Validation failed red). #1445 extends `import_state` with Creating / Created.
+emerald, Validation failed red). #1445 extended `import_state` with Creating / Created (below).
 
 **Screen.** `get_porter_status` returns `state` and, per invoice, `can_retry`, `has_pdf`, `porter_gstin`,
 `customer_gstin` and `read` (None until read). The dialog reads it through SWR by batch and polls every
@@ -6765,10 +6765,11 @@ that step, and the import reads `Validating` until it is discarded (#1447); ther
 `frontend/src/pages/outflow-import/porterReview.ts`; panel `components/PorterReviewPanel.tsx`.
 
 **The gate.** Both endpoints refuse an import that is not Validated (`porter.is_validated`; "every invoice
-has to pass its check against Porter's own PDF first"), so review is closed while invoices are checked, for
-good once one Failed, and — once #1445 derives Creating / Created — once Create has started. The screen
-offers the step only on `state == "Validated"` (`porterReviewOffered`); the stepper moves to *Review
-projects* through `ImportFlowState.validated`.
+has to pass its check against Porter's own PDF first"), so review is closed while invoices are checked and
+for good once one Failed. ⚠️ `is_validated` asks the invoices only (#1445), so it stays true once Create has
+started: what stops an edit then is the per-line rule below (a line no longer `Pending match run` is
+refused). The screen offers the step only on `state == "Validated"` (`porterReviewOffered`), i.e. before
+Create starts; the stepper moves to *Review projects* through `ImportFlowState.validated`.
 
 **What it shows.** Every completed order (cancelled ones are not placed), in file order, with `crn`,
 `completed_on`, `fare`, `remarks`, `city`, `from_address`, `to_address` (from `porter_line` through
@@ -6806,5 +6807,92 @@ by, fare, from → to).
 invoice; what the review lists; a group assigned at once and read back; clearing; refusals; access);
 `services/outflow_import/test_porter.py` (`remark_group_key`); `frontend/.../porterReview.test.ts`
 (grouping, labels, ordering, keeping the shown order, the gate, the stepper, reason parity).
-"Create honours review edits" is proved here by the lines holding the edit; the end-to-end check comes
-with #1445.
+"Create honours review edits" is proved here by the lines holding the edit; the end-to-end check is
+`test_porter_create.TestCreateHonoursTheReviewedPlan` (#1445).
+
+### As built — #1445: create Porter expenses from a validated import (2026-10-15)
+
+**Where it lives.** `api/outflow_import/porter_create.py`: the endpoint `create_porter_expenses(batch)`
+(POST, `require_outflow_access`) and the job `create_porter_import(batch, actor)`. Pure, in
+`services/outflow_import/porter.py`: `import_state(invoice_statuses, line_statuses)` (Creating / Created),
+`CREATE_LINE_STATUSES`, `expense_description`, `porter_order_fields`. The writer is the shared
+`settle.create_expense_from_row`, extended with keyword-only `invoice: ExpenseInvoice` (number, date, file
+URL → `invoice_ref` / `invoice_date` / `invoice_attachment`) and `porter_order`.
+
+**Schema** (see `CODING_STANDARDS.md` § Don't touch): the new `Porter Order` doctype (named by `crn`,
+unique; links `porter_invoice` and `import_row`; `completed_at`, `vehicle_type`, `city`, `from_address` /
+`to_address` / `waypoint_addresses`, `distance_km`, `travel_duration`, `waiting_time`, `booked_by` (+
+`_mobile`, `_email`), `remark`, `order_status`, `fare`, `rcm_gst`; all read-only; System Manager, Accountant,
+Accountant Lead, like `Porter Invoice`); one read-only, indexed `porter_order` Link on `Project Expenses` and
+`Non Project Expenses`; `porter statement` added to `Outflow Row Match.match_basis`; `Material Transportation
+Charges` carries `non_project: 1` in `fixtures/expense_type.json` (pinned by `test_fixture_completeness`).
+
+**The gate.** The endpoint refuses unless `porter.is_validated(batch)` (every Porter Invoice Passed; the
+refusal names the state: Validating / Validation failed), and refuses an import already Created. ⚠️
+`is_validated` asks the INVOICES only, so it stays true while Creating: a re-run passes the same gate. The
+job asks again before it writes, so a job enqueued any other way writes nothing on an unvalidated import.
+It enqueues `create_porter_import` on `long`, `job_id = porter.create_job_id(batch)`
+(`porter-create-<batch>`), `deduplicate=True`, and returns `porter_status(batch)`.
+
+**Per line, one transaction, committed before the next** (Cashbook's `_write_one` shape): the line is
+re-read `FOR UPDATE` and skipped unless its status is in `CREATE_LINE_STATUSES`; its Porter Order is
+inserted from `porter_line` (through `statement_line` → `porter_order_fields`) or, if one exists for the
+CRN, reused; the Expense via `create_expense_from_row(_StagedRow(row), …)` with the line's
+`suggested_doctype` / `resolved_project` **as the line holds them** (Review's edits, never re-planned),
+`type` = Material Transportation Charges, description `expense_description(customer_name, project_name)`,
+comment `import_comment(None, batch)`, `payment_by` = trimmed `customer_name` (Project side only),
+`statement_file_url=None` (no `payment_attachment`: the CSV holds staff contact details), the invoice's
+number / Gemini-read date / stored PDF URL, and `porter_order`; then a Settled `Outflow Row Match`
+(`match_basis` `porter statement`, `settlement_origin` Suggestion accepted, `created_by_import` 1, plus
+`target_project` / `target_vendor` from `_target_snapshot`, frozen for Rectify's history); then the line →
+`Settled` with `suggested_name`, `outcome_note`, `decided_at/by`, `confirm_by_hand` 0. A failing line rolls
+back, is marked `Error` ("Could not create this expense. Run Create again."), and the run carries on.
+Amount = `row.amount` = the Porter fare; the GST stays on the Porter Order as `rcm_gst`.
+
+**Re-runs and Unreconcile (#1449).** `CREATE_LINE_STATUSES` = Pending match run, Error, Mismatched: a re-run
+creates exactly the lines not yet created — a line a dead or failed run left behind, and a line
+Unreconcile reopened (a Porter line never runs the matcher, so `Mismatched` means only that). A Settled line
+is never written twice (row lock + status re-check). Unreconcile deletes only the Expense — the Expense owns
+the link — so the re-run reuses the line's Porter Order: one Porter Order per CRN for good. Pinned by
+`TestAnUnreconciledLineIsCreatedAgain` through the real `unreconcile_row`.
+
+**No File row per expense.** ⚠️ The PDF URL is written to `invoice_attachment` by a raw `set_value` AFTER the
+insert: Frappe's `"*"` on_update hook `file.utils.attach_files_to_document` otherwise inserts a `File` row
+for any Attach value under `/files` or `/private/files` (a local-storage site; a cloud URL is
+`/api/method/…` and skipped), one per expense, sharing the invoice's stored object. Nothing is derived from
+`invoice_attachment`. A later ordinary save of the expense on a local-storage site would still trigger that
+hook (not in production, where the URL is a cloud one).
+
+**CEO-Hold.** The insert hook's check is de-duplicated per request per project (`trigger_check`) and the whole
+job is one request, so only the first expense of a project would count. The job calls
+`unreconcile_cleanup._resync_cashflow_hold(project)` once per project it wrote to, after the last line.
+
+**State and progress** (derived, never stored). `import_state` over the invoices, then the lines (Skipped
+aside): no line touched → Validated; every completed line Settled → **Created**; anything between (running,
+a line in Error, a line reopened) → **Creating**. `porter_import_states` adds one `SELECT DISTINCT
+import_batch, row_status` query, so Import History reads Creating / Created (`importStatusTone`: Created
+muted like Completed, Creating amber). `get_porter_status` adds `to_create` (lines in
+`CREATE_LINE_STATUSES`), `created`, `failed` and `create_running` (`frappe.utils.background_jobs.is_job_enqueued`
+on the job id).
+
+**Screen.** The Porter dialog's footer shows **Create N expenses** (or *Create the remaining N*) when
+`canCreatePorter`: state Validated or Creating, something to create, the job not running. It posts, seeds
+the status, and polls (`porterPolling`: Validating, or `create_running`). The summary shows
+`createProgress` ("Creating… 4 of 11 created.", "10 of 11 created. 1 could not be created: press Create
+again to retry it.", "All 11 expenses created, at Paid.") and the state note for Creating / Created. The
+stepper reaches *Create* through `ImportFlowState.createStarted` (`porterCreateStarted`).
+
+**Tests.** `api/outflow_import/test_porter_create.py` (bench: upload → validation job with Gemini and the
+download faked → Create endpoint → job called directly; the gate; the full record set — one Porter Order and
+one Expense per completed order, none for the cancelled one, every expense field, shared PDF and no new
+File row, Settled matches with the Porter basis; review edits through `set_porter_placement`; an interrupted
+run resumed without duplicates; an unreconciled line re-created on the same Porter Order; the cashflow gap
+and its hold after the run); `services/outflow_import/test_porter.py` (Creating / Created, description,
+Porter Order fields); `api/expense_requests/test_fixture_completeness.py` (both flags, file and DB);
+`frontend/.../porterImport.test.ts` (Create offer, label, polling, progress, stepper), `outflowTableModel.test.ts`
+(tones). The AST guard in `test_porter_import` covers `porter_create` too.
+
+**Known limits / left for later.** A Porter Expense's invoice PDF is a private File attached to its Porter
+Invoice, which only Admin, Accountant and Accountant Lead can read: other roles who can open the expense get
+403 on the PDF (story 53, for #1450). An `Error` line cannot be re-placed in Review (it is not `Pending match
+run`) before a re-run.
