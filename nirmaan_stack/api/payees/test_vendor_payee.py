@@ -25,8 +25,8 @@ from nirmaan_stack.api.payees.vendor_payee import check_vendor_payee, get_payee_
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.services.payees.choosing import suggest_for_vendor
 from nirmaan_stack.services.payees.matching import NAME_ONLY, STRONG
-from nirmaan_stack.services.payees.pay_to import ACCOUNT_FIELDS, PAY_TO_FIELDS
-from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE
+from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
+from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS, PAYEE_DOCTYPE
 
 U = "Administrator"
 PROJECT_MANAGER = "Nirmaan Project Manager Profile"

@@ -132,12 +132,12 @@ export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string): Pai
 export const paidToExportText = (paidTo: PaidTo | undefined, expenseType: string): string => {
     const cell = paidToCell(paidTo, expenseType);
     if (cell.tone === "account") return `${cell.title}, ${cell.detail}`;
-    if (cell.tone === "account_changed") return `${cell.title}: ${cell.detail}`;
+    if (cell.tone === "account_changed" || cell.tone === "no_account") return `${cell.title}: ${cell.detail}`;
     return cell.title;
 };
 
 /** Record Payment's "Pay ₹X to" box for an expense with no account and no vendor. */
-export const noAccountBoxText = (rule: string | null | undefined, expenseType: string): string =>
+const noAccountBoxText = (rule: string | null | undefined, expenseType: string): string =>
     asPayeeRule(rule) === PAYEE_RULE.REQUIRED
         ? `${expenseType || "Its type"} requires an account. Use Change account to set one before paying.`
         : `${expenseNoAccountReason(rule, expenseType)} Pay by card or cash, or use Change account to set one.`;

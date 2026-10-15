@@ -35,7 +35,8 @@ from nirmaan_stack.api.payments.project_payments import (
 )
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.api.po_adjustments._payment_utils import _create_project_payment
-from nirmaan_stack.services.payees.pay_to import ACCOUNT_FIELDS, PAY_TO_FIELDS
+from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
+from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS
 from nirmaan_stack.services.payees.writer import edit_payee
 from nirmaan_stack.services.payment_split import split_payment
 

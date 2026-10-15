@@ -39,24 +39,35 @@ export const normalizeAccount = (value: string): string => {
 
 export const cleanIfsc = (value: string): string => value.trim().toUpperCase();
 
-/** What a person enters for an account: the holder name, the number and the IFSC. */
+/** What a person enters for an account: the holder name, the number and the IFSC. A record's copy
+ *  may lack any of them. */
 export interface AccountDetails {
-    account_name: string;
-    account_number: string;
-    ifsc: string;
+    account_name?: string | null;
+    account_number?: string | null;
+    ifsc?: string | null;
 }
 
 /**
- * THE screen's "same account details?": the same holder name (spacing aside), account number (spaces,
+ * THE screens' "same holder?": spacing and case aside. A vendor renamed to its holder name in another
+ * case needs no prompt, and an edit that only re-cases the holder name has nothing to save. A missing
+ * name reads as blank.
+ */
+export const sameHolderName = (a: string | null | undefined, b: string | null | undefined): boolean => {
+    const key = (name: string | null | undefined) => (name ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+    return key(a) === key(b);
+};
+
+/**
+ * THE screen's "same account details?": the same holder (`sameHolderName`), account number (spaces,
  * dashes and case aside, but not leading zeros: the number is written as typed) and IFSC. Saving
  * either one over the other would change nothing: Edit has nothing to save, and Change account would
  * copy the account the expense already holds. Not the server's "is the vendor's account another
  * account?" (`paid_to.account_changed_since`), which ignores the holder name.
  */
 export const sameAccountDetails = (a: AccountDetails, b: AccountDetails): boolean =>
-    a.account_name.replace(/\s+/g, " ").trim() === b.account_name.replace(/\s+/g, " ").trim() &&
-    cleanAccountNumber(a.account_number) === cleanAccountNumber(b.account_number) &&
-    cleanIfsc(a.ifsc) === cleanIfsc(b.ifsc);
+    sameHolderName(a.account_name, b.account_name) &&
+    cleanAccountNumber(a.account_number ?? "") === cleanAccountNumber(b.account_number ?? "") &&
+    cleanIfsc(a.ifsc ?? "") === cleanIfsc(b.ifsc ?? "");
 
 /**
  * An account number for a CSV export. Excel reads a bare `0809…` as a number: it drops the leading

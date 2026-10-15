@@ -31,7 +31,8 @@ from nirmaan_stack.api.payees.paid_to import change_expense_account, get_paid_to
 from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each
 from nirmaan_stack.api.test_cheque_photo_reader import _SETTINGS, _FakeModels
 from nirmaan_stack.services.extraction.gemini import GeminiExtractor
-from nirmaan_stack.services.payees.pay_to import ACCOUNT_FIELDS, PAY_TO_FIELDS
+from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
+from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS
 from nirmaan_stack.services.payees.writer import edit_payee
 
 U = "Administrator"

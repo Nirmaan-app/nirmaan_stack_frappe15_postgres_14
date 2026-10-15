@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
     canChangeExpenseAccount,
     namedByText,
-    noAccountBoxText,
     paidToCell,
     paidToExportText,
     payToBoxView,
@@ -102,19 +101,13 @@ describe("paidToExportText", () => {
             "Vendor's account changed since this was raised: The vendor has no account now. Reject it and raise it again.",
         );
     });
-});
 
-describe("noAccountBoxText", () => {
-    it("tells the accountant whether the expense's type needs an account before paying", () => {
-        expect(noAccountBoxText("Required", "Labour Advance")).toBe(
-            "Labour Advance requires an account. Use Change account to set one before paying.",
-        );
-        expect(noAccountBoxText("Optional", "Travel")).toBe(
-            "No account given; optional for Travel. Pay by card or cash, or use Change account to set one.",
-        );
-        expect(noAccountBoxText("Not asked", "Travel")).toBe(
-            "Not asked for this expense type. Pay by card or cash, or use Change account to set one.",
-        );
+    it("writes why an expense has no account, as the cell says it", () => {
+        const noAccount = (payee_rule: string) =>
+            paidToExportText({ account: null, missing: "expense_has_no_account", payee_rule, ...UNFLAGGED }, "Travel");
+        expect(noAccount("Not asked")).toBe("No account: Not asked for this expense type.");
+        expect(noAccount("Optional")).toBe("No account: No account given; optional for Travel.");
+        expect(noAccount("Required")).toBe("No account: Travel requires one. Add it with Change account in Record Payment.");
     });
 });
 
@@ -164,13 +157,22 @@ describe("payToBoxView", () => {
     });
 
     it("says an expense with no vendor and no account why, by its type's rule", () => {
-        expect(
-            payToBoxView("Non Project Expenses", { ...none, missing: "expense_has_no_account", payee_rule: "Not asked" }, "Travel"),
-        ).toEqual({
+        const box = (payee_rule: string, type: string) =>
+            payToBoxView("Non Project Expenses", { ...none, missing: "expense_has_no_account", payee_rule }, type);
+        expect(box("Not asked", "Travel")).toEqual({
             tone: "no_account",
-            noAccount: { title: "No account.", detail: noAccountBoxText("Not asked", "Travel") },
+            noAccount: {
+                title: "No account.",
+                detail: "Not asked for this expense type. Pay by card or cash, or use Change account to set one.",
+            },
             note: null,
         });
+        expect(box("Optional", "Travel").noAccount?.detail).toBe(
+            "No account given; optional for Travel. Pay by card or cash, or use Change account to set one.",
+        );
+        expect(box("Required", "Labour Advance").noAccount?.detail).toBe(
+            "Labour Advance requires an account. Use Change account to set one before paying.",
+        );
     });
 });
 

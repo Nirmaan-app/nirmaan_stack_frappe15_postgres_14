@@ -1,5 +1,7 @@
 import type { PayeeSummary } from "@/types/NirmaanStack/Payee";
 
+import { sameHolderName } from "./payeeForm";
+
 /**
  * The vendor page's account rules (#1426, spec #1420, approved mockup screens 7 and 8): the Account
  * Details card's wording and when renaming a vendor asks what happens to its bank account. Pure, so
@@ -39,9 +41,6 @@ export const holderNameChoiceHelp = (otherVendors: number): string => {
     return `The bank now has the new name on the same account.${sharing}`;
 };
 
-const sameName = (a: string, b: string): boolean =>
-    a.replace(/\s+/g, " ").trim().toLowerCase() === b.replace(/\s+/g, " ").trim().toLowerCase();
-
 /**
  * Whether saving a vendor asks what happens to its bank account: the vendor was renamed, it has a
  * Payee (`holder` is that Payee's holder name, null without one), and the new name is not already
@@ -55,7 +54,7 @@ export const renameNeedsPrompt = ({
     before: string;
     after: string;
     holder: string | null;
-}): boolean => holder !== null && !sameName(before, after) && !sameName(after, holder);
+}): boolean => holder !== null && !sameHolderName(before, after) && !sameHolderName(after, holder);
 
 /** Why a PO / Work Order payment can't be requested yet because of the vendor's bank account, or null. */
 export interface VendorPayeeGateProblem {

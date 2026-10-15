@@ -93,7 +93,8 @@ def unless_duplicate(action):
     """On submit: run `action` (anything that may create a Payee) and return `(its result, None)`;
     when it is refused as a duplicate, roll the request's transaction back and return
     `(None, duplicate_reply)` instead, so nothing it did is kept, not even the refusal's message: the
-    reply carries it. The caller commits a success."""
+    reply carries it. The caller commits: a success, or nothing left after a duplicate's rollback
+    (`edit_payee_reply`'s callers commit either way)."""
     shown = len(frappe.local.message_log)
     try:
         return action(), None

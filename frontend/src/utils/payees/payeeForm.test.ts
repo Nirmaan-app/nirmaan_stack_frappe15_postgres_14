@@ -14,6 +14,7 @@ import {
     normalizeAccount,
     payeeFormProblem,
     sameAccountDetails,
+    sameHolderName,
     type PayeeFormValues,
 } from "./payeeForm";
 
@@ -179,5 +180,23 @@ describe("sameAccountDetails", () => {
 
     it("counts a leading zero: what is copied or saved is the number as written", () => {
         expect(sameAccountDetails(saved, { ...saved, account_number: "050200061234567" })).toBe(false);
+    });
+
+    it("reads a holder name differing only in case as the same holder", () => {
+        expect(sameAccountDetails(saved, { ...saved, account_name: "KAVERI DUCTFAB SYSTEMS" })).toBe(true);
+    });
+
+    it("tolerates a copy with a missing holder name, number or IFSC", () => {
+        expect(sameAccountDetails(saved, { ...saved, account_name: null })).toBe(false);
+        expect(sameAccountDetails({ ...saved, account_name: null }, { ...saved, account_name: undefined })).toBe(true);
+        expect(sameAccountDetails(saved, { ...saved, account_number: null, ifsc: undefined })).toBe(false);
+    });
+});
+
+describe("sameHolderName", () => {
+    it("ignores spacing and case, never another name", () => {
+        expect(sameHolderName(" Kaveri  Ductfab ", "kaveri ductfab")).toBe(true);
+        expect(sameHolderName("Kaveri Ductfab", "Kaveri Airtech")).toBe(false);
+        expect(sameHolderName(null, "")).toBe(true);
     });
 });
