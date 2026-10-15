@@ -29,7 +29,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { cn } from "@/lib/utils";
-import { ExpensePayToBox } from "@/components/payees/ExpensePayToBox";
+import { PayToBox } from "@/components/payees/PayToBox";
 
 interface UpdatePaymentDetailsDialogProps {
     isOpen: boolean;
@@ -301,7 +301,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
 
                 {/* Who to pay, before anything else (#1431): the account to type into the bank portal. */}
                 {markAsPaid && (
-                    <ExpensePayToBox doctype={DOCTYPE} expenseName={expense.name} expenseType={expense.expense_type_name || expense.type || ""} />
+                    <PayToBox doctype={DOCTYPE} name={expense.name} expenseType={expense.expense_type_name || expense.type || ""} />
                 )}
 
                 {/* Expense details, so the accountant has full context before paying */}

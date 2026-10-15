@@ -10,7 +10,7 @@ REST or any other code would, and reads back what the user sees: the page's figu
 the saved record.
 
 ⚠️ RUNS AGAINST THE ENV DATABASE. Vendors and payments come from `TaxedWorkOrderFixture`, Payees from
-`PayeeFixture`; the expenses planted here are deleted by the test's own cleanup.
+`PayeeFixture`.
 """
 
 import frappe
@@ -33,8 +33,6 @@ class PayeePageCase(FrappeTestCase):
         frappe.set_user(U)
         self.fx = TaxedWorkOrderFixture.attach(self)
         self.payees = PayeeFixture.attach(self)
-        self.expenses: list[tuple[str, str]] = []
-        self.addCleanup(self._purge_expenses)
 
     def tearDown(self):
         frappe.set_user(U)
@@ -64,24 +62,6 @@ class PayeePageCase(FrappeTestCase):
         frappe.db.commit()
         return name
 
-    def _expense(self, doctype, status, *, payee=None, payment_date=None):
-        name = f"TEST-PYE-EXP-{frappe.generate_hash(length=10)}"
-        frappe.db.sql(
-            f"""INSERT INTO "tab{doctype}" (name, creation, modified, modified_by, owner, docstatus, idx,
-                    amount, status, payment_date, payee)
-                VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, 500, %s, %s, %s)""",
-            (name, U, U, status, payment_date, payee),
-        )
-        self.expenses.append((doctype, name))
-        frappe.db.commit()
-        return name
-
-    def _purge_expenses(self):
-        frappe.db.rollback()
-        for doctype, name in self.expenses:
-            frappe.db.delete(doctype, {"name": name})
-        frappe.db.commit()
-
     def _save_payee(self, name, **changes):
         """Change a Payee through a plain document save: the path every screen's endpoint, Desk and
         REST take."""
@@ -97,7 +77,6 @@ class TestAPaidPayeeIsEditedInPlace(PayeePageCase):
         payee = self.payees.payee()
         vendor = self._linked_vendor(payee)
         self._payment(vendor, "Paid", "2026-10-08")
-        self._expense("Non Project Expenses", "Paid", payee=payee, payment_date="2026-10-11")
 
         new_number = self.payees.account_number()
         self._save_payee(payee, account_number=new_number, ifsc="TEST0PYE002")
@@ -254,7 +233,6 @@ class TestPayeeLinks(PayeePageCase):
 
     def test_the_page_carries_no_status_expenses_or_last_paid(self):
         payee = self.payees.payee()
-        self._expense("Project Expenses", "Paid", payee=payee, payment_date="2026-09-22")
         page = get_payee(payee)
         for gone in ("status", "expenses", "last_paid", "linked_expenses"):
             with self.subTest(field=gone):

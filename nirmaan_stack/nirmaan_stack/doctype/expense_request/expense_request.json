@@ -10,7 +10,6 @@
   "type_allows_project",
   "projects",
   "vendor",
-  "payee",
   "pay_to_account_name",
   "pay_to_account_number",
   "pay_to_ifsc",
@@ -127,13 +126,6 @@
    "label": "Review Comment"
   },
   {
-   "description": "The Payee (bank account) this is paid into (ADR-0033). Set through services/payees.",
-   "fieldname": "payee",
-   "fieldtype": "Link",
-   "label": "Payee",
-   "options": "Payee"
-  },
-  {
    "description": "The account holder this is paid into: a copy of a Payee's account, taken when the record is raised (ADR-0033). Never a link, so editing or deleting the Payee leaves it. Written by services/payees/pay_to.",
    "fieldname": "pay_to_account_name",
    "fieldtype": "Data",
@@ -168,7 +160,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-15 11:24:23.637531",
+ "modified": "2026-10-15 12:48:44.686978",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Expense Request",

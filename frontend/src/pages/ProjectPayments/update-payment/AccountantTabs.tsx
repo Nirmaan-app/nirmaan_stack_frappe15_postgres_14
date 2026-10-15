@@ -72,7 +72,7 @@ import { canEditQueueRow, canHoldQueueRow, canWorkQueueRows, isHeldQueueRow } fr
 import { PAYMENT_HOLD_ROW_CLASSES, PaymentHoldNotice } from "../components/PaymentHoldNotice"
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 import { buildBankFile, describeLeftOut, type BankFileRow } from "../bankUploadFile";
-import { PAID_TO_API, type PaidTo, type PaidToKey } from "@/components/payees/expensePayeeApi";
+import { PAID_TO_API, type PaidTo, type PaidToKey } from "@/components/payees/paidToApi";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -511,9 +511,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             return;
         }
 
-        // Each row is paid into its Payee as it is NOW: a vendor payment into its vendor's (ADR-0033:
-        // the payment stores none), an expense into its own. So the accounts are read at export, not
-        // from the list loaded earlier. The server's Payee module resolves both.
+        // Each row is paid into its own pay-to account (ADR-0033, #1438), read at export rather than
+        // from the list loaded earlier, so a Change account made since is in the file.
         const payments = rowsToExport.map(({ original }) => original);
         let paidTo: PaidTo[];
         try {
@@ -526,7 +525,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         }
 
         // ⚠️ THE BANK FILE IS NOT THE SELECTION. `buildBankFile` leaves out every ticked row
-        // that has no Payee to pay into, and the toast names them: the accountant must
+        // that has no account to pay into, and the toast names them: the accountant must
         // know the file is shorter than their selection.
         const bankFile = buildBankFile(
             payments.map((payment, i): BankFileRow => {
@@ -537,7 +536,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     documentName: isVendorPayment ? payment.document_name : payment.name,
                     amount: payment.amount,
                     projectLabel: projectLabelMap.get(payment.project) ?? (payment.project || "Non Project"),
-                    payee: paidTo[i]?.account ?? undefined,
+                    account: paidTo[i]?.account ?? undefined,
                     missing: paidTo[i]?.missing,
                 };
             }),
@@ -548,7 +547,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         if (bankFile.rows.length === 0) {
             toast({
                 title: "Nothing to export",
-                description: `No selected row has a payee to pay into: ${skippedParts.join("; ")}. Pay these by hand, or give them a payee first.`,
+                description: `No selected row has an account to pay into: ${skippedParts.join("; ")}. Pay these by hand, or give them an account first.`,
                 variant: "destructive",
             });
             setIsExportDialogOpen(false);

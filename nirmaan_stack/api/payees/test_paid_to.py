@@ -1,11 +1,14 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and Contributors
 # See license.txt
 
-"""Paying an expense shows who to pay (spec #1420 ticket #1431, ADR-0033).
+"""Paying reads each record's own pay-to account (spec #1420 tickets #1431, #1438, ADR-0033).
 
-Drives `api/payees/expense_payee` and the approval queue the way "Payment need to paid", Export for
-Payment and Record Payment do, and reads back what the accountant sees: each row's Paid to, the
-"Pay ₹X to" box, and Change payee's refusals.
+Drives `api/payees/paid_to` and the approval queue the way "Payment need to paid", Export for Payment
+and Record Payment do, and reads back what the accountant sees: each row's Paid to, the "Pay ₹X to"
+box for an expense and for a PO payment, and Change account.
+
+Every row is paid into its own copy (`pay_to_*`), never into its vendor's Payee as it reads now: the
+vendors here are pointed at a different Payee than the rows' copies to prove it.
 
 ⚠️ RUNS AGAINST THE ENV DATABASE. Payees come from `PayeeFixture`; every vendor, payment, expense,
 request and expense type planted here is deleted by the test's own cleanup.
@@ -14,22 +17,26 @@ Run:
   devenv.sh test --module nirmaan_stack.api.payees.test_paid_to
 """
 
+from types import SimpleNamespace
+from unittest.mock import patch
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import today
 
+from nirmaan_stack.api import payment_autofill
 from nirmaan_stack.api.approvals.get_approval_queue import get_approval_queue
 from nirmaan_stack.api.expense_requests.test_expense_requests import _make_user
-from nirmaan_stack.api.payees.expense_payee import (
-    change_expense_payee,
-    get_expense_payee,
-    get_paid_to,
-)
+from nirmaan_stack.api.payees.paid_to import change_expense_account, get_paid_to, get_pay_to_box
 from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each
+from nirmaan_stack.api.test_cheque_photo_reader import _SETTINGS, _FakeModels
+from nirmaan_stack.services.extraction.gemini import GeminiExtractor
+from nirmaan_stack.services.payees.pay_to import ACCOUNT_FIELDS, PAY_TO_FIELDS
 
 U = "Administrator"
 PM_USER = "pye_paidto_pm@example.com"
 PM_PROFILE = "Nirmaan Project Manager Profile"
+PAYMENT = "Project Payments"
 PE = "Project Expenses"
 NPE = "Non Project Expenses"
 
@@ -86,26 +93,52 @@ class TestPaidTo(FrappeTestCase):
         frappe.db.commit()
         return name
 
+    def _copy_of(self, payee):
+        """A pay-to copy of `payee`'s account, as the record's own fields."""
+        if not payee:
+            return {field: None for field in PAY_TO_FIELDS}
+        values = frappe.db.get_value("Payee", payee, list(ACCOUNT_FIELDS))
+        return dict(zip(PAY_TO_FIELDS, values))
+
+    def _account(self, payee):
+        """`payee`'s account as the paid-to reader answers it."""
+        return dict(zip(ACCOUNT_FIELDS, frappe.db.get_value("Payee", payee, list(ACCOUNT_FIELDS))))
+
     def _vendor(self, payee=None):
         return self._insert("Vendors", {"vendor_name": f"TESTPYE Vendor {frappe.generate_hash(length=5)}",
                                         "payee": payee})
 
-    def _payment(self, vendor):
-        return self._insert("Project Payments", {"vendor": vendor, "amount": 78000, "status": "Approved",
-                                                 "document_type": "Procurement Orders",
-                                                 "document_name": "PO/TEST/PAIDTO"})
+    def _payment(self, vendor, copy_of=None, status="Approved"):
+        return self._insert(PAYMENT, {"vendor": vendor, "amount": 78000, "status": status,
+                                      "document_type": "Procurement Orders",
+                                      "document_name": "PO/TEST/PAIDTO", **self._copy_of(copy_of)})
 
-    def _expense(self, doctype=NPE, *, rule="Optional", payee=None, vendor=None, request_id=None,
+    def _expense(self, doctype=NPE, *, rule="Optional", copy_of=None, vendor=None, request_id=None,
                  status="Approved"):
-        values = {"type": self.types[rule], "amount": 25000, "status": status, "payee": payee,
-                  "request_id": request_id, "description": "Advance for shuttering labour"}
+        values = {"type": self.types[rule], "amount": 25000, "status": status,
+                  "request_id": request_id, "description": "Advance for shuttering labour",
+                  **self._copy_of(copy_of)}
         if vendor:
             values["vendor"] = vendor
         return self._insert(doctype, values)
 
-    def _request(self, payee, owner=PM_USER):
+    def _request(self, copy_of, owner=PM_USER):
         return self._insert("Expense Request", {"type": self.types["Required"], "amount": 25000,
-                                                "payee": payee, "status": "Approved"}, owner=owner)
+                                                "status": "Approved", **self._copy_of(copy_of)},
+                            owner=owner)
+
+    def _receipt_match(self, payment, beneficiary):
+        """Read a receipt attached to `payment` whose beneficiary is `beneficiary`, as Record Payment's
+        autofill does, and return its soft name check."""
+        receipt = SimpleNamespace(name="FILE-RCPT", file_name="receipt.pdf",
+                                  attached_to_doctype=PAYMENT, attached_to_name=payment)
+        client = SimpleNamespace(models=_FakeModels({"utr": "UTR12345678", "beneficiary_name": beneficiary}))
+        with patch.object(payment_autofill, "get_file_doc_by_url", return_value=receipt), \
+                patch.object(payment_autofill, "get_extraction_settings", return_value=_SETTINGS), \
+                patch.object(payment_autofill, "fetch_file_content", return_value=b"%PDF-canned"), \
+                patch.object(GeminiExtractor, "_build_client", return_value=client):
+            out = payment_autofill.extract_payment_fields("/private/files/receipt.pdf")
+        return out["validation"]["vendor_match"]
 
     def _as(self, user, fn, **kw):
         frappe.set_user(user)
@@ -115,102 +148,129 @@ class TestPaidTo(FrappeTestCase):
             frappe.set_user(U)
 
     # -- Paid to on "Payment need to paid" and in the bank file -----------------------------------
-    def test_each_row_is_paid_to_its_vendors_payee_or_its_own(self):
-        vendor_payee = self.payees.payee(self.payees.holder("Kaveri Ductfab"))
-        expense_payee = self.payees.payee(self.payees.holder("Ramesh Kumar Yadav"))
-        payment = self._payment(self._vendor(vendor_payee))
-        expense = self._expense(payee=expense_payee)
+    def test_each_row_is_paid_to_its_own_copy_not_its_vendors_payee_now(self):
+        raised_with = self.payees.payee(self.payees.holder("Kaveri Ductfab"))
+        vendor_now = self.payees.payee(self.payees.holder("Kaveri Ductfab New Bank"))
+        expense_copy = self.payees.payee(self.payees.holder("Ramesh Kumar Yadav"))
+        payment = self._payment(self._vendor(vendor_now), copy_of=raised_with)
+        expense = self._expense(PE, copy_of=expense_copy, vendor=self._vendor(vendor_now))
 
-        paid_to = get_paid_to([{"doctype": "Project Payments", "name": payment},
-                               {"doctype": NPE, "name": expense}])
+        paid_to = get_paid_to([{"doctype": PAYMENT, "name": payment}, {"doctype": PE, "name": expense}])
 
-        self.assertEqual([row["account"]["payee"] for row in paid_to], [vendor_payee, expense_payee])
+        self.assertEqual([row["account"] for row in paid_to],
+                         [self._account(raised_with), self._account(expense_copy)])
         self.assertEqual([row["missing"] for row in paid_to], [None, None])
-        holder, number, ifsc = frappe.db.get_value("Payee", expense_payee,
-                                                   ["account_name", "account_number", "ifsc"])
-        self.assertEqual(
-            {k: paid_to[1]["account"][k] for k in ("account_name", "account_number", "ifsc")},
-            {"account_name": holder, "account_number": number, "ifsc": ifsc},
-        )
 
-    def test_a_row_with_no_payee_says_why(self):
-        payment = self._payment(self._vendor(payee=None))
+    def test_a_row_with_no_account_says_why(self):
+        # The vendor has a Payee, but the payment holds no copy: it is not paid into the vendor's.
+        payment = self._payment(self._vendor(self.payees.payee()))
         optional = self._expense(rule="Optional")
         required = self._expense(rule="Required")
 
-        paid_to = get_paid_to([{"doctype": "Project Payments", "name": payment},
+        paid_to = get_paid_to([{"doctype": PAYMENT, "name": payment},
                                {"doctype": NPE, "name": optional},
                                {"doctype": NPE, "name": required}])
 
         self.assertEqual(
-            [(row["account"], row["missing"], row.get("payee_rule")) for row in paid_to],
-            [(None, "vendor_has_no_payee", None),
-             (None, "expense_has_no_payee", "Optional"),
-             (None, "expense_has_no_payee", "Required")],
+            [(row["account"], row["missing"], row["payee_rule"]) for row in paid_to],
+            [(None, "payment_has_no_account", None),
+             (None, "expense_has_no_account", "Optional"),
+             (None, "expense_has_no_account", "Required")],
         )
 
-    def test_the_queue_rows_carry_paid_to(self):
-        payee = self.payees.payee()
-        expense = self._expense(PE, payee=payee)
-        no_payee = self._expense(PE, rule="Not asked")
+    def test_the_queue_rows_carry_their_own_copy(self):
+        raised_with, vendor_now = self.payees.payee(), self.payees.payee()
+        payment = self._payment(self._vendor(vendor_now), copy_of=raised_with)
+        expense = self._expense(PE, copy_of=raised_with)
+        no_account = self._expense(PE, rule="Not asked")
 
-        result = get_approval_queue(filters=[["name", "in", [expense, no_payee]]], limit_page_length=10)
+        result = get_approval_queue(filters=[["name", "in", [payment, expense, no_account]]],
+                                    limit_page_length=10)
 
         by_name = {row["name"]: row["paid_to"] for row in result["data"]}
-        self.assertEqual(by_name[expense]["account"]["payee"], payee)
-        self.assertEqual((by_name[no_payee]["missing"], by_name[no_payee]["payee_rule"]),
-                         ("expense_has_no_payee", "Not asked"))
+        self.assertEqual(by_name[payment]["account"], self._account(raised_with))
+        self.assertEqual(by_name[expense]["account"], self._account(raised_with))
+        self.assertEqual((by_name[no_account]["missing"], by_name[no_account]["payee_rule"]),
+                         ("expense_has_no_account", "Not asked"))
+
+    # -- payment autofill's name check ------------------------------------------------------------
+    def test_a_receipt_is_checked_against_the_payments_own_holder_name(self):
+        raised_with = self.payees.payee(holder="KRISHNA METALS")
+        vendor_now = self.payees.payee(holder="SHARMA STEEL NEWBANK")
+        payment = self._payment(self._vendor(vendor_now), copy_of=raised_with)
+
+        paid_into_copy = self._receipt_match(payment, "Krishna Metals")
+        paid_into_vendor_now = self._receipt_match(payment, "Sharma Steel Newbank")
+
+        self.assertEqual((paid_into_copy["match"], paid_into_copy["by"]), (True, "account_name"))
+        self.assertEqual(paid_into_copy["expected_account_name"], "KRISHNA METALS")
+        self.assertIs(paid_into_vendor_now["match"], False)
 
     # -- the "Pay ₹X to" box -----------------------------------------------------------------------
-    def test_the_pay_to_box_names_the_raiser_who_named_the_payee_on_the_request(self):
+    def test_the_box_names_the_raiser_who_set_the_account_on_the_request(self):
         payee = self.payees.payee()
-        expense = self._expense(payee=payee, request_id=self._request(payee))
+        expense = self._expense(copy_of=payee, request_id=self._request(payee))
 
-        box = get_expense_payee(NPE, expense)
+        box = get_pay_to_box(NPE, expense)
 
-        self.assertEqual(box["payee"]["name"], payee)
-        self.assertEqual(box["payee"]["bank_name"], "Test Bank")
+        self.assertEqual(box["account"], self._account(payee))
+        self.assertEqual(box["account"]["bank_name"], "Test Bank")
+        self.assertEqual(box["amount"], 25000)
         self.assertEqual((box["named_by"]["how"], box["named_by"]["user"]), ("request", PM_USER))
         self.assertEqual(box["named_by"]["on"], today())
 
-    def test_change_payee_points_the_expense_at_another_payee_and_names_who_changed_it(self):
+    def test_the_box_shows_a_po_payments_own_copy_from_the_vendor(self):
+        raised_with, vendor_now = self.payees.payee(), self.payees.payee()
+        payment = self._payment(self._vendor(vendor_now), copy_of=raised_with)
+
+        box = get_pay_to_box(PAYMENT, payment)
+
+        self.assertEqual(box["account"], self._account(raised_with))
+        self.assertEqual(box["amount"], 78000)
+        self.assertEqual(box["named_by"]["how"], "vendor")
+        self.assertFalse(box["paid"])
+
+    def test_change_account_overwrites_the_copy_and_records_who_and_when(self):
         first, second = self.payees.payee(), self.payees.payee()
-        expense = self._expense(rule="Required", payee=first, request_id=self._request(first))
+        expense = self._expense(rule="Required", copy_of=first, request_id=self._request(first))
 
-        box = change_expense_payee(NPE, expense, second)
+        box = change_expense_account(NPE, expense, second)
 
-        self.assertEqual(frappe.db.get_value(NPE, expense, "payee"), second)
-        self.assertEqual(box["payee"]["name"], second)
+        self.assertEqual(frappe.db.get_value(NPE, expense, list(PAY_TO_FIELDS), as_dict=True),
+                         self._copy_of(second))
+        self.assertEqual(box["account"], self._account(second))
         self.assertEqual((box["named_by"]["how"], box["named_by"]["user"], box["named_by"]["on"]),
                          ("changed", U, today()))
-        self.assertEqual(get_expense_payee(NPE, expense)["named_by"]["how"], "changed")
+        self.assertEqual(get_pay_to_box(NPE, expense)["named_by"]["how"], "changed")
 
     def test_the_box_says_paid_once_money_has_left_approved(self):
-        """Paid means one thing: the box closes Change payee at the statuses the server refuses it."""
         payee = self.payees.payee()
         for status, paid in (("Approved", False), ("Reconciliation Pending", True), ("Paid", True)):
             with self.subTest(status=status):
-                self.assertEqual(get_expense_payee(NPE, self._expense(payee=payee, status=status))["paid"], paid)
+                self.assertEqual(get_pay_to_box(NPE, self._expense(copy_of=payee, status=status))["paid"], paid)
 
-    def test_an_optional_expense_can_be_left_without_a_payee(self):
-        payee = self.payees.payee()
-        expense = self._expense(rule="Optional", payee=payee)
+    def test_an_expense_can_be_left_without_an_account(self):
+        expense = self._expense(rule="Optional", copy_of=self.payees.payee())
 
-        box = change_expense_payee(NPE, expense, None)
+        box = change_expense_account(NPE, expense, None)
 
-        self.assertIsNone(box["payee"])
-        self.assertIsNone(frappe.db.get_value(NPE, expense, "payee"))
+        self.assertIsNone(box["account"])
+        self.assertEqual(box["missing"], "expense_has_no_account")
+        self.assertIsNone(frappe.db.get_value(NPE, expense, "pay_to_account_number"))
 
-    def test_only_accounts_change_an_expenses_payee(self):
+    def test_only_accounts_change_an_expenses_account(self):
         first, second = self.payees.payee(), self.payees.payee()
-        expense = self._expense(payee=first)
+        expense = self._expense(copy_of=first)
         with self.assertRaises(frappe.PermissionError):
-            self._as(PM_USER, change_expense_payee, doctype=NPE, name=expense, payee=second)
-        self.assertEqual(frappe.db.get_value(NPE, expense, "payee"), first)
+            self._as(PM_USER, change_expense_account, doctype=NPE, name=expense, payee=second)
+        self.assertEqual(frappe.db.get_value(NPE, expense, "pay_to_account_number"),
+                         self._copy_of(first)["pay_to_account_number"])
 
-    def test_the_endpoints_refuse_a_doctype_that_is_not_an_expense(self):
-        payment = self._payment(self._vendor(self.payees.payee()))
+    def test_the_endpoints_refuse_a_doctype_that_is_not_paid(self):
+        payment = self._payment(self._vendor(), copy_of=self.payees.payee())
         with self.assertRaises(frappe.ValidationError):
-            get_expense_payee("Project Payments", payment)
+            change_expense_account(PAYMENT, payment, self.payees.payee())
+        with self.assertRaises(frappe.ValidationError):
+            get_pay_to_box("Vendors", "x")
         with self.assertRaises(frappe.ValidationError):
             get_paid_to([{"doctype": "Vendors", "name": "x"}])

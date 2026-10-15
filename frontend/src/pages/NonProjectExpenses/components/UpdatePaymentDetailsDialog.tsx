@@ -21,7 +21,7 @@ import SITEURL from "@/constants/siteURL";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { cn } from "@/lib/utils";
-import { ExpensePayToBox } from "@/components/payees/ExpensePayToBox";
+import { PayToBox } from "@/components/payees/PayToBox";
 
 interface UpdatePaymentDetailsDialogProps {
     isOpen: boolean;
@@ -284,7 +284,7 @@ export const UpdatePaymentDetailsDialog: React.FC<UpdatePaymentDetailsDialogProp
 
                 {/* Who to pay, before anything else (#1431): the account to type into the bank portal. */}
                 {markAsPaid && (
-                    <ExpensePayToBox doctype="Non Project Expenses" expenseName={expense.name} expenseType={expense.type || ""} />
+                    <PayToBox doctype="Non Project Expenses" name={expense.name} expenseType={expense.type || ""} />
                 )}
 
                 {/* Expense details, so the accountant has full context before paying */}

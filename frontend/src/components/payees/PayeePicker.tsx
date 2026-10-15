@@ -4,7 +4,7 @@
  * IFSC and bank) or **Add new payee** (the Add Payee fields and rules, inline).
  *
  * Driven by `usePayeeChoice`, which the saving screen calls `resolve()` on. Reused by the request
- * formats (#1430) and Record Payment's "Change payee" (#1431).
+ * formats (#1430) and Record Payment's "Change account" (#1431, #1438).
  */
 
 import { useEffect, useRef, useState } from "react";

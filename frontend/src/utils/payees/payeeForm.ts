@@ -84,7 +84,7 @@ export const ifscShapeProblem = (ifsc: string, { left }: { left: boolean }): str
 /**
  * Why new bank details on screen can't be saved yet, or null: the IFSC lookup is still running, the
  * form has a problem (`payeeFormProblem`), or a Payee already holds the account. One rule for every
- * screen that adds a Payee (the vendor screens' Payee step, the request's and Change payee's picker).
+ * screen that adds a Payee (the vendor screens' Payee step, the request's and Change account's picker).
  */
 export const newPayeeProblem = ({
     formProblem,

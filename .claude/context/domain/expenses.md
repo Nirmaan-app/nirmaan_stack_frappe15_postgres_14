@@ -625,8 +625,7 @@ save an invalid template**.
     each hold `pay_to_account_name`, `pay_to_account_number`, `pay_to_ifsc`, `pay_to_bank_name`,
     `pay_to_bank_branch`, a COPY of a Payee's account taken when the record is raised; nothing links
     back to the Payee, so editing or deleting it changes no copy. The one copy function is
-    `services/payees/pay_to.copy_payee_account`. The old `payee` link is still written alongside
-    until #1438 removes it.
+    `services/payees/pay_to.copy_payee_account`. The three doctypes have no `payee` link (#1438).
   - **Raising** (`create_expense_request`): the `payee` sent (picked, or just added through
     `api/expense_requests/payees.add_request_payee`) is copied in, unless the request names a vendor.
     **Editing** (`update_expense_request`): `keep_pay_to=1` leaves the copy as it is; otherwise the
@@ -644,8 +643,10 @@ save an invalid template**.
     reviewer sees it: `get_my_expense_requests` rows carry `pay_to` (`pay_to.pay_to_account`).
   - The dialog's picker (search, add new, the vendor's Payee) calls `api/expense_requests/payees`,
     gated on `access.can_raise_requests`, never the Accounts-only `api/payees/` endpoints.
-  - Record Payment's Change payee (`expense_payee.change_expense_payee`, #1431) copies the Payee's
-    account onto the expense; #1438 makes it Change account.
+  - Record Payment's "Pay ₹X to" box reads the expense's own copy; its Change account
+    (`expense_payee.change_expense_account`, #1438; Accounts, an approved, unpaid expense with no
+    vendor, a screen rule) overwrites the copy with a picked or added Payee's account, recorded with
+    who and when (`.claude/context/domain/payees.md` § Paid to).
   - **No format asks for bank details or who gets paid as free text** (#1430): the Payroll,
     Accommodation Deposit and Staff Accommodation Rent "Payee Bank Details" sections, and the
     fields that only named the payee (Rent's landlord, the Deposit's landlord / PG, Payroll's

@@ -1,12 +1,12 @@
 /**
- * Change payee (spec #1420 ticket #1431): point an expense at another Payee, new bank details, or
- * (when its type doesn't require one) none, before paying it.
+ * Change account (spec #1420 tickets #1431, #1438): overwrite an expense's own pay-to account with
+ * another Payee's account, new bank details, or (when its type doesn't require one) none, before
+ * paying it. The expense keeps a copy, never a link: editing the Payee later changes nothing here.
  *
  * Reuses the request's `PayeePicker` / `usePayeeChoice`, on the Accounts endpoints
- * (`ACCOUNTS_PAYEE_APIS`): Change payee is Admin, Accountant and Accountant Lead only. The opener holds
- * the choice and resets it to the expense's own Payee in the handler that opens this dialog. Ticket 9's rules are the server's
- * (`services/payees/expense_payee.change_expense_payee`): a Required type can't be left without one,
- * a Paid expense keeps its Payee.
+ * (`ACCOUNTS_PAYEE_APIS`): Change account is Admin, Accountant and Accountant Lead only. The opener
+ * holds the choice and resets it in the handler that opens this dialog. Which expenses may change is
+ * a screen rule (`canChangeExpenseAccount`); the save records who changed it and when.
  */
 
 import { useFrappePostCall } from "frappe-react-sdk";
@@ -26,59 +26,62 @@ import { toast } from "@/components/ui/use-toast";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { PAYEE_RULE, asPayeeRule } from "@/utils/payees/expensePayee";
 
-import { CHANGE_EXPENSE_PAYEE_API, type ExpensePayTo } from "./expensePayeeApi";
+import { CHANGE_EXPENSE_ACCOUNT_API, type PayToBox } from "./paidToApi";
 import { PayeePicker } from "./PayeePicker";
 import { DuplicatePayeeError, type PayeeChoice } from "./usePayeeChoice";
 
-interface ChangeExpensePayeeDialogProps {
+interface ChangeExpenseAccountDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     doctype: string;
-    payTo: ExpensePayTo;
+    box: PayToBox;
     expenseType: string;
-    /** `usePayeeChoice(ACCOUNTS_PAYEE_APIS)`, reset to `payTo.payee` by whoever opens the dialog. */
+    /** `usePayeeChoice(ACCOUNTS_PAYEE_APIS)`, reset by whoever opens the dialog. */
     choice: PayeeChoice;
-    onSaved: (payTo: ExpensePayTo) => void;
+    onSaved: (box: PayToBox) => void;
 }
 
-export function ChangeExpensePayeeDialog({
-    open, onOpenChange, doctype, payTo, expenseType, choice, onSaved,
-}: ChangeExpensePayeeDialogProps) {
-    const { call, loading } = useFrappePostCall<{ message: ExpensePayTo }>(CHANGE_EXPENSE_PAYEE_API);
+export function ChangeExpenseAccountDialog({
+    open, onOpenChange, doctype, box, expenseType, choice, onSaved,
+}: ChangeExpenseAccountDialogProps) {
+    const { call, loading } = useFrappePostCall<{ message: PayToBox }>(CHANGE_EXPENSE_ACCOUNT_API);
 
-    const required = asPayeeRule(payTo.payee_rule) === PAYEE_RULE.REQUIRED;
+    const required = asPayeeRule(box.payee_rule) === PAYEE_RULE.REQUIRED;
     const busy = loading || choice.adding;
 
     const save = async (clear: boolean) => {
         try {
             const payee = clear ? null : await choice.resolve();
             if (!clear && !payee) return;
-            const res = await call({ doctype, name: payTo.name, payee: payee?.name ?? null });
+            const res = await call({ doctype, name: box.name, payee: payee?.name ?? null });
             toast({
-                title: "Payee changed",
-                description: res.message.payee
-                    ? `${payTo.name} is now paid to ${res.message.payee.account_name}.`
-                    : `${payTo.name} has no payee now.`,
+                title: "Account changed",
+                description: res.message.account
+                    ? `${box.name} is now paid to ${res.message.account.account_name}.`
+                    : `${box.name} has no account now.`,
                 variant: "success",
             });
             onSaved(res.message);
             onOpenChange(false);
         } catch (e) {
             const description = e instanceof DuplicatePayeeError ? e.message : getFrappeError(e);
-            toast({ title: "Could not change the payee", description, variant: "destructive" });
+            toast({ title: "Could not change the account", description, variant: "destructive" });
         }
     };
 
-    const unchanged = choice.mode === "pick" && choice.picked?.name === payTo.payee?.name;
+    // Picking the account the expense already holds changes nothing.
+    const unchanged = choice.mode === "pick" && !!box.account && choice.picked?.account_number === box.account.account_number
+        && choice.picked?.ifsc === box.account.ifsc && choice.picked?.account_name === box.account.account_name;
 
     return (
         <AlertDialog open={open} onOpenChange={(next) => !busy && onOpenChange(next)}>
             <AlertDialogContent className="sm:max-w-lg">
                 <AlertDialogHeader>
-                    <AlertDialogTitle>Change payee</AlertDialogTitle>
+                    <AlertDialogTitle>Change account</AlertDialogTitle>
                     <AlertDialogDescription>
-                        Who {payTo.name} is paid to. {required
-                            ? `${expenseType || "Its type"} requires a payee.`
+                        The account {box.name} is paid into. Pick a payee or add new bank details: its account is copied
+                        onto the expense. {required
+                            ? `${expenseType || "Its type"} requires an account.`
                             : `${expenseType || "Its type"} doesn't require one.`}
                     </AlertDialogDescription>
                 </AlertDialogHeader>
@@ -90,14 +93,14 @@ export function ChangeExpensePayeeDialog({
 
                 <AlertDialogFooter className="gap-2 sm:gap-0">
                     <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-                    {!required && payTo.payee && (
+                    {!required && box.account && (
                         <Button variant="outline" disabled={busy} onClick={() => save(true)}>
-                            Remove payee
+                            Remove account
                         </Button>
                     )}
                     <Button disabled={busy || !choice.hasChoice || unchanged} onClick={() => save(false)}>
                         {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Save payee
+                        Save account
                     </Button>
                 </AlertDialogFooter>
             </AlertDialogContent>

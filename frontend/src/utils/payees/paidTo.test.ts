@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { namedByText, noPayeeBoxText, paidToCell, paidToExportText, type PaidTo } from "./paidTo";
+import { canChangeExpenseAccount, namedByText, noAccountBoxText, paidToCell, paidToExportText, type PaidTo } from "./paidTo";
 
 const account = {
-    payee: "PYE-0690",
     account_name: "Ramesh Kumar Yadav",
     account_number: "36147100982211",
     ifsc: "SBIN0003435",
@@ -21,61 +20,61 @@ describe("paidToCell", () => {
         });
     });
 
-    it("says an expense with no payee needs none when its type doesn't require one", () => {
+    it("says an expense with no account needs none when its type doesn't require one", () => {
         for (const rule of ["Optional", "Not asked"] as const) {
-            expect(paidToCell({ account: null, missing: "expense_has_no_payee", payee_rule: rule }, "Travel")).toEqual({
-                tone: "no_payee",
-                title: "No payee",
+            expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: rule }, "Travel")).toEqual({
+                tone: "no_account",
+                title: "No account",
                 detail: "Travel doesn't require one. Paid by card or cash.",
             });
         }
     });
 
-    it("says when the type requires a payee and the expense has none", () => {
+    it("says when the type requires an account and the expense has none", () => {
         expect(
-            paidToCell({ account: null, missing: "expense_has_no_payee", payee_rule: "Required" }, "Labour Advance"),
+            paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Required" }, "Labour Advance"),
         ).toEqual({
-            tone: "no_payee",
-            title: "No payee",
-            detail: "Labour Advance requires one. Add it with Change payee in Record Payment.",
+            tone: "no_account",
+            title: "No account",
+            detail: "Labour Advance requires one. Add it with Change account in Record Payment.",
         });
     });
 
-    it("says a vendor payment's vendor has no bank account", () => {
-        expect(paidToCell({ account: null, missing: "vendor_has_no_payee", payee_rule: null }, "")).toEqual({
-            tone: "vendor_no_payee",
-            title: "Vendor has no bank account",
-            detail: "Add one on the vendor page before paying.",
+    it("says a vendor payment holds no account of its own", () => {
+        expect(paidToCell({ account: null, missing: "payment_has_no_account", payee_rule: null }, "")).toEqual({
+            tone: "payment_no_account",
+            title: "No account on this payment",
+            detail: "Pay it another way, or reject it and raise it again.",
         });
     });
 
     it("reads a row the server sent without paid_to as having no account", () => {
-        expect(paidToCell(undefined, "").title).toBe("No payee");
+        expect(paidToCell(undefined, "").title).toBe("No account");
     });
 });
 
 describe("paidToExportText", () => {
     it("writes the account on one line, or why there is none", () => {
         expect(paidToExportText(paid, "Labour Advance")).toBe("Ramesh Kumar Yadav, A/c 36147100982211, SBIN0003435");
-        expect(paidToExportText({ account: null, missing: "vendor_has_no_payee", payee_rule: null }, "")).toBe(
-            "Vendor has no bank account",
+        expect(paidToExportText({ account: null, missing: "payment_has_no_account", payee_rule: null }, "")).toBe(
+            "No account on this payment",
         );
     });
 });
 
-describe("noPayeeBoxText", () => {
-    it("tells the accountant whether the expense's type needs a payee before paying", () => {
-        expect(noPayeeBoxText("Required", "Labour Advance")).toBe(
-            "Labour Advance requires a payee. Use Change payee to name one before paying.",
+describe("noAccountBoxText", () => {
+    it("tells the accountant whether the expense's type needs an account before paying", () => {
+        expect(noAccountBoxText("Required", "Labour Advance")).toBe(
+            "Labour Advance requires an account. Use Change account to set one before paying.",
         );
-        expect(noPayeeBoxText("Not asked", "Travel")).toBe(
-            "Travel doesn't require one. Pay by card or cash, or use Change payee to name one.",
+        expect(noAccountBoxText("Not asked", "Travel")).toBe(
+            "Travel doesn't require one. Pay by card or cash, or use Change account to set one.",
         );
     });
 });
 
 describe("namedByText", () => {
-    it("names the raiser and the day the request named the payee", () => {
+    it("names the raiser and the day the request set the account", () => {
         expect(namedByText({ how: "request", user: "priya@nirmaan.app", full_name: "Priya S.", on: "2026-10-13" }, null))
             .toMatch(/^Priya S\. on the request, 13-.+-2026$/);
     });
@@ -85,13 +84,29 @@ describe("namedByText", () => {
             .toMatch(/^Changed by Anil K\., 14-.+-2026$/);
     });
 
-    it("says a vendor-linked expense is paid into the vendor's account", () => {
+    it("says the account was copied from the vendor's", () => {
         expect(namedByText({ how: "vendor", user: null, full_name: null, on: null }, "Kaveri Ductfab")).toBe(
-            "Kaveri Ductfab's account (the expense's vendor)",
+            "Copied from Kaveri Ductfab's account",
         );
     });
 
-    it("says when nothing records who named it", () => {
+    it("says when nothing records who set it", () => {
         expect(namedByText(null, null)).toBe("Not recorded");
+    });
+});
+
+describe("canChangeExpenseAccount", () => {
+    const unpaid = { paid: false, vendor_fixed: false };
+
+    it("lets Accounts change an approved, unpaid expense with no vendor", () => {
+        expect(canChangeExpenseAccount("Non Project Expenses", unpaid, true)).toBe(true);
+        expect(canChangeExpenseAccount("Project Expenses", unpaid, true)).toBe(true);
+    });
+
+    it("keeps the account read-only once paid, with a vendor named, outside Accounts, and on a PO payment", () => {
+        expect(canChangeExpenseAccount("Project Expenses", { ...unpaid, paid: true }, true)).toBe(false);
+        expect(canChangeExpenseAccount("Project Expenses", { ...unpaid, vendor_fixed: true }, true)).toBe(false);
+        expect(canChangeExpenseAccount("Project Expenses", unpaid, false)).toBe(false);
+        expect(canChangeExpenseAccount("Project Payments", unpaid, true)).toBe(false);
     });
 });
