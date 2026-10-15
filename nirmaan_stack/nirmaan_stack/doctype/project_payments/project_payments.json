@@ -11,6 +11,11 @@
   "document_name",
   "project",
   "vendor",
+  "pay_to_account_name",
+  "pay_to_account_number",
+  "pay_to_ifsc",
+  "pay_to_bank_name",
+  "pay_to_bank_branch",
   "payment_details_section",
   "utr",
   "payment_attachment",
@@ -178,12 +183,43 @@
    "label": "Cheque",
    "options": "Cheques",
    "read_only": 1
+  },
+  {
+   "description": "The account holder this payment is paid into: a copy of the vendor's Payee, taken when the payment is first saved (ADR-0033). Never a link and never re-copied, so editing the vendor's Payee leaves it. Written by services/payees/pay_to.",
+   "fieldname": "pay_to_account_name",
+   "fieldtype": "Data",
+   "label": "Pay-to Holder Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_account_number",
+   "fieldtype": "Data",
+   "label": "Pay-to Account Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_ifsc",
+   "fieldtype": "Data",
+   "label": "Pay-to IFSC",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_bank_name",
+   "fieldtype": "Data",
+   "label": "Pay-to Bank",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pay_to_bank_branch",
+   "fieldtype": "Data",
+   "label": "Pay-to Branch",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-14 02:01:53.877625",
+ "modified": "2026-10-15 12:26:41.160593",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Project Payments",

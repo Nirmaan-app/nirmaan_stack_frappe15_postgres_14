@@ -10,6 +10,7 @@ from nirmaan_stack.services import payment_tds
 from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.order_payments import assert_within_work_order_limit
 from nirmaan_stack.services.payment_hold import validate_hold
+from nirmaan_stack.services.payees.pay_to import fill_payment_from_vendor
 from nirmaan_stack.integrations.controllers.cheques import drop_off_cheques_of
 from nirmaan_stack.services.cheques.detach import DELETED
 from nirmaan_stack.services.cheques.rules import PAYMENT_REJECTED
@@ -205,10 +206,15 @@ def validate(doc, method):
 
     Also the payment hold: a held payment cannot leave Approved, and only the
     settle roles may change the flag (`services/payment_hold.py`).
+
+    And the pay-to account (#1437, ADR-0033): a new payment with none copies its
+    vendor's Payee, on every creation path, and is never re-copied
+    (`services/payees/pay_to.fill_payment_from_vendor`).
     """
     if doc.is_new():
         validate_won(doc.project, "Project Payment")
         _validate_work_order_limit(doc)
+        fill_payment_from_vendor(doc)
     validate_hold(doc)
 
 

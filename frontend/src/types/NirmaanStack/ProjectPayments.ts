@@ -18,6 +18,17 @@ export interface ProjectPayments{
 	project: string
 	/**	Vendor : Link - Vendors	*/
 	vendor?: string
+	/**
+	 * Pay-to account (read-only, #1437, ADR-0033): the account this payment is paid into, a copy of
+	 * the vendor's Payee taken when the payment was first saved (a split balance carries its
+	 * parent's). Never re-copied or edited: a changed account means reject and raise again. Blank on a
+	 * payment from before it, or when the vendor had no Payee.
+	 */
+	pay_to_account_name?: string | null
+	pay_to_account_number?: string | null
+	pay_to_ifsc?: string | null
+	pay_to_bank_name?: string | null
+	pay_to_bank_branch?: string | null
 	/**	UTR : Data	*/
 	utr?: string
 	/**	Payment Attachment : Attach	*/
