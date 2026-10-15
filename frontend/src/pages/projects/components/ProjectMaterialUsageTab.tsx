@@ -6,7 +6,6 @@ import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import { VirtualizedMaterialTable } from './VirtualizedMaterialTable';
 import { POWiseMaterialTable, POWiseMaterialTableHandle } from './POWiseMaterialTable';
 import { DCMIRWiseMaterialTable, DCMIRWiseMaterialTableHandle } from './DCMIRWiseMaterialTable';
-import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import {
   useMaterialUsageRemainingQuantities,
 } from '@/pages/projects/data/tab/material-usage/useProjectMaterialUsageApi';
@@ -151,7 +150,6 @@ export interface DCMIRWiseDisplayItem {
 
 export interface ProjectMaterialUsageTabProps {
   projectId: string;
-  projectPayments?: ProjectPayments[];
 }
 
 // =================================================================================
@@ -160,7 +158,6 @@ export interface ProjectMaterialUsageTabProps {
 
 export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = ({
   projectId,
-  projectPayments
 }) => {
   
   // --- A. DATA FETCHING ---
@@ -176,7 +173,7 @@ export const ProjectMaterialUsageTab: React.FC<ProjectMaterialUsageTabProps> = (
     billingCategoryOptions,
     deliveryStatusOptions,
     poStatusOptions
-  } = useMaterialUsageData(projectId, projectPayments);
+  } = useMaterialUsageData(projectId);
 
   // --- Remaining Quantities Data ---
   const { data: remainingData } = useMaterialUsageRemainingQuantities(projectId);

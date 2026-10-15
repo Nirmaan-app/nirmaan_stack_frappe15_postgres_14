@@ -1,6 +1,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import SITEURL from "@/constants/siteURL";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -10,7 +11,10 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { useMemo } from "react";
 import { TruncatedText } from "@/components/common/TruncatedText";
+import { NoBankProofBadge } from "@/components/vendor-refunds/NoBankProofBadge";
+import { useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
 import { GstPaymentTag } from "./components/GstPaymentTag";
+import { paymentsDialogRows } from "./paymentsDialogRows";
 
 interface PaymentsDataDialogProps {
   open: boolean;
@@ -44,6 +48,13 @@ export const PaymentsDataDialog = ({
     open && data?.name ? `PaymentsDialog-${data.name}` : null
   );
 
+  // The order's refunds, fetched only while open (a blank name disables the read). Its Received ones are
+  // listed as minus rows, so the list adds up to the Amount Paid that was clicked (#1460, ADR-0034).
+  const { refunds } = useVendorRefunds({
+    documentType: isPO ? "Procurement Orders" : "Service Requests",
+    documentName: open ? data?.name ?? "" : "",
+  });
+
   const dataAttributes = useMemo(() => {
           let project = ""
           let vendor = ""
@@ -60,8 +71,7 @@ export const PaymentsDataDialog = ({
           return { project, vendor, document_name: data?.name, gst }
   }, [projects, vendors, data])
 
-  // The fetch already scopes to document_name + status="Paid", so no further filtering needed.
-  const paymentsData = useMemo(() => fetchedPayments ?? [], [fetchedPayments])
+  const { rows, total } = useMemo(() => paymentsDialogRows(fetchedPayments, refunds), [fetchedPayments, refunds])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -99,25 +109,41 @@ export const PaymentsDataDialog = ({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(paymentsData || []).length > 0 ? (
-                  paymentsData?.map((payment) => (
-                    <TableRow key={payment?.name}>
+                {rows.length > 0 ? (
+                  rows.map((row) => row.kind === "refund" ? (
+                    <TableRow key={row.name} className="text-red-600">
                       <TableCell className="font-medium">
-                        {formatDate(payment.payment_date || payment.creation)}
+                        {formatDate(row.refund.payment_date || row.refund.creation)}
                       </TableCell>
                       <TableCell>
-                        {formatToRoundedIndianRupee(payment?.amount)}
-                        <GstPaymentTag payment={payment} />
+                        <span className="flex flex-col items-start gap-1">
+                          <span>-{formatToRoundedIndianRupee(row.refund.amount)}</span>
+                          <Badge variant="outline" className="border-red-500 px-1 py-0 text-[9px] leading-3 text-red-600">
+                            Refund {row.name}
+                          </Badge>
+                          <NoBankProofBadge refund={row.refund} />
+                        </span>
                       </TableCell>
-                      {payment?.payment_attachment ? (
+                      <TableCell className="font-semibold overflow-hidden truncate max-w-28"><TruncatedText text={row.refund.utr} fallback="--" className="max-w-28" /></TableCell>
+                    </TableRow>
+                  ) : (
+                    <TableRow key={row.name}>
+                      <TableCell className="font-medium">
+                        {formatDate(row.payment.payment_date || row.payment.creation)}
+                      </TableCell>
+                      <TableCell>
+                        {formatToRoundedIndianRupee(row.payment.amount)}
+                        <GstPaymentTag payment={row.payment} />
+                      </TableCell>
+                      {row.payment.payment_attachment ? (
                           <TableCell className="font-semibold text-blue-500 underline overflow-hidden truncate max-w-28">
-                              <a href={`${SITEURL}${payment?.payment_attachment}`} target="_blank" rel="noreferrer"
+                              <a href={`${SITEURL}${row.payment.payment_attachment}`} target="_blank" rel="noreferrer"
                               >
-                                  <TruncatedText text={payment?.utr} fallback="" className="max-w-28" />
+                                  <TruncatedText text={row.payment.utr} fallback="" className="max-w-28" />
                               </a>
                       </TableCell>
                       ) : (
-                          <TableCell className="font-semibold overflow-hidden truncate max-w-28"><TruncatedText text={payment?.utr} className="max-w-28" /></TableCell>
+                          <TableCell className="font-semibold overflow-hidden truncate max-w-28"><TruncatedText text={row.payment.utr} className="max-w-28" /></TableCell>
                       )}
                     </TableRow>
                   ))
@@ -129,6 +155,14 @@ export const PaymentsDataDialog = ({
                   </TableRow>
                 )}
               </TableBody>
+              {rows.length > 0 && (
+                <TableFooter>
+                  <TableRow>
+                    <TableCell className="font-semibold">Total</TableCell>
+                    <TableCell className="font-semibold" colSpan={2}>{formatToRoundedIndianRupee(total)}</TableCell>
+                  </TableRow>
+                </TableFooter>
+              )}
             </Table>
           </div>
         </DialogHeader>

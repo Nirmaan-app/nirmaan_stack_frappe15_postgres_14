@@ -453,6 +453,19 @@ export const NON_PROJECT_INFLOWS_EDIT: readonly string[] = [
 export const NON_PROJECT_INFLOWS_DELETE: readonly string[] = [ADMIN_PROFILE];
 
 /**
+ * Reports > PO and Reports > WO: the "Amount Paid Mismatch" report and its Recount button (#1455,
+ * ADR-0034). Admin and Accountant Lead only -- narrower than the 2B Reconcile report (no Accountant).
+ *
+ * UI gate only. The server is the enforcement boundary: both endpoints in
+ * `api/reports/amount_paid_mismatch` refuse anyone outside
+ * `services/role_profiles.AMOUNT_PAID_MISMATCH_PROFILES`. Change the two together.
+ */
+export const AMOUNT_PAID_MISMATCH_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
+/**
  * Handover Documents -- the profiles that WORK a handover, and the ONLY ones that see it:
  * the `/hod-tracker` sidebar entry + route guard, and the project page's "Handover
  * Documents" tab (owner, 2026-10-07: "sidebar access", then "make those four profile only").

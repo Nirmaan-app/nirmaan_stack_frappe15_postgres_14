@@ -9,7 +9,6 @@ import { DataTableColumnHeader } from "@/components/data-table/data-table-column
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
 import { Badge } from "@/components/ui/badge";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
@@ -30,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { convertTanstackFiltersToFrappe } from "@/lib/frappeTypeUtils";
 import { downloadPrintFormatPdf } from "@/utils/downloadPrintFormatPdf";
+import { vendorInvoiceSummary } from "../utils/vendorAmountDue";
 
 interface VendorMaterialOrdersTableProps {
   vendorId: string;
@@ -105,47 +105,21 @@ export const VendorMaterialOrdersTable: React.FC<
   // Per-row Total Invoiced comes straight off the PO now (`amount_invoiced`, kept
   // current by the Vendor Invoices doc events), so the whole-invoice-table fetch is gone.
   //
-  // The tile below still needs a VENDOR-GLOBAL total. The table's aggregates ride the
-  // same payload as its filters, so they shrink as the user filters - hence this
-  // separate one-field read over every PO of the vendor, which is what keeps the
-  // "(all POs)" label honest. Proven equal to the old invoice-keyed sum on all 1,104
-  // vendors before the switch.
-  const { data: vendorPoInvoiceTotals } = useFrappeGetDocList<ProcurementOrder>(
+  // The "Invoice Summary (all POs)" tiles need VENDOR-GLOBAL totals. The table's aggregates
+  // ride the same payload as its filters, so they shrink as the user filters - hence this
+  // separate read over every PO of the vendor, which is what keeps the "(all POs)" label
+  // honest. Amount Due is Total Invoiced less the POs' stored Amount Paid (#1460, ADR-0034).
+  const { data: vendorPoMoney } = useFrappeGetDocList<ProcurementOrder>(
     "Procurement Orders",
     {
       filters: [["vendor", "=", vendorId]],
-      fields: ["name", "amount_invoiced"],
+      fields: ["name", "status", "amount_invoiced", "amount_paid"],
       limit: 0,
     } as GetDocListArgs<FrappeDoc<ProcurementOrder>>,
-    `VendorPOInvoiceTotals-${vendorId}`
+    `VendorPOInvoiceSummary-${vendorId}`
   );
 
-  const totalInvoiced = useMemo(
-    () => (vendorPoInvoiceTotals ?? []).reduce((sum, po) => sum + parseNumber(po.amount_invoiced), 0),
-    [vendorPoInvoiceTotals]
-  );
-
-  // Fetch Project Payments for this vendor (for payments dialog)
-  const { data: projectPayments } = useFrappeGetDocList<ProjectPayments>(
-    "Project Payments",
-    {
-      filters: [["vendor", "=", vendorId]],
-      fields: [
-        "name", "document_name", "document_type", "status", "amount",
-        "payment_date", "creation", "utr", "payment_attachment",
-      ],
-      limit: 0,
-    } as GetDocListArgs<FrappeDoc<ProjectPayments>>,
-    `ProjectPayments-vendor-${vendorId}`
-  );
-
-  // Total paid for POs (vendor-global, not filter-reactive — matches totalInvoiced scope)
-  const totalPaidForPOs = useMemo(() => {
-    if (!projectPayments) return 0;
-    return projectPayments
-      .filter((p) => p.document_type === "Procurement Orders" && p.status === "Paid")
-      .reduce((sum, p) => sum + parseNumber(p.amount), 0);
-  }, [projectPayments]);
+  const { totalInvoiced, amountDue } = useMemo(() => vendorInvoiceSummary(vendorPoMoney ?? []), [vendorPoMoney]);
 
   // const getCategoriesFromOrderList = useCallback((orderListJson?: { list: PurchaseOrderItem[] } | string) => {
   //     let items: PurchaseOrderItem[] = [];
@@ -543,8 +517,6 @@ export const VendorMaterialOrdersTable: React.FC<
   };
 
   if (tableError) return <AlertDestructive error={tableError} />;
-
-  const amountDue = totalInvoiced - totalPaidForPOs;
 
   // Drives the red-tint legend. Read off the rendered rows rather than a separate
   // count query: the list is server-paginated, so "is anything red right now" is the

@@ -4,19 +4,20 @@
 """Read a project's outflow, Current Liabilities, inflow and cashflow gap (#1456, ADR-0034).
 
 Thin doors onto `services/project_money`, the one figure CEO Hold and the Projects list also read.
-Each returns `{outflow, liabilities, inflow, cashflow_gap}` per project. Dates are optional and
+Each returns `{outflow, liabilities, inflow, cashflow_gap}` per project, plus the outflow's three parts
+(`po_outflow`, `wo_outflow`, `expense_outflow`), which add up to `outflow`. Dates are optional and
 inclusive (`YYYY-MM-DD`); in a range each payment, refund, expense and inflow counts on its own date.
 
     nirmaan_stack.api.projects.project_money.get_project_money
         project="PROJ-0001", from_date="2026-04-01", to_date="2027-03-31"
-        -> {"outflow": 670.0, "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 570.0}
+        -> {"po_outflow": 600.0, "wo_outflow": 0.0, "expense_outflow": 70.0, "outflow": 670.0,
+            "liabilities": 700.0, "inflow": 800.0, "cashflow_gap": 570.0}
 
     nirmaan_stack.api.projects.project_money.get_projects_money
         projects=["PROJ-0001", "PROJ-0002"]   (a JSON list from the browser)
         -> {"PROJ-0001": {...}, "PROJ-0002": {...}}   one query for all of them
 
-Readers need read access to Procurement Orders and Project Payments, as the project's PO summary
-(`project_aggregates.get_project_po_summary_aggregates`) asks.
+Readers need read access to Procurement Orders and Project Payments.
 """
 
 import frappe

@@ -672,7 +672,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 data={currentPaymentsDialog}
                 projects={projects}
                 vendors={vendors}
-                isPO={currentPaymentsDialog?.document_type === "Purchase Order"}
+                isPO={currentPaymentsDialog?.type === "Purchase Order"}
             />
             {
                 (poLoading || srLoading || projectsLoading || vendorsLoading) ? (
