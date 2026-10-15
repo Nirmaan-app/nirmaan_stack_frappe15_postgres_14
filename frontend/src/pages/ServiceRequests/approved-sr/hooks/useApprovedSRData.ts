@@ -116,7 +116,7 @@ export const useApprovedSRData = (srId: string): ApprovedSRData => {
     [paymentsList]);
 
     const amountPendingForRequest = useMemo(() =>
-        getTotalAmountPaid(paymentsList?.filter(p => ["Requested", "Approved"].includes(p.status)) || []),
+        getTotalAmountPaid(paymentsList?.filter(p => ["Requested", "Approved"].includes(p.status)) || []), // ADR-0034 payment cap
     [paymentsList]);
 
 

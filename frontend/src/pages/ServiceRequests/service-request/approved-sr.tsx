@@ -280,7 +280,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
 
     const getAmountPaid = useMemo(() => getTotalAmountPaid(projectPayments?.filter(i => i?.status === "Paid") || []), [projectPayments]);
 
-
+    // ADR-0034 payment cap: what is still open feeds the Request Payment limit only.
     const amountPending = useMemo(() => getTotalAmountPaid((projectPayments || []).filter(i => OPEN_REQUEST_STATUSES.includes(i?.status))), [projectPayments]);
 
     // `amount` is rewritten to the NET figure once TDS is withheld, but the withheld tax was still
