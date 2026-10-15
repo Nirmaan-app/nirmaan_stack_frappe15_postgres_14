@@ -44,6 +44,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import { isProcurementProfile } from "@/constants/roles";
+import { PorterBadge } from "@/components/common/PorterExpense";
 
 export interface GetProjectExpenseColumnsOptions {
   statusTab: string;
@@ -172,9 +173,11 @@ export const getProjectExpenseColumns = ({
     accessorKey: "description",
     header: "Description",
     size: 200,
+    // The Porter badge sits before the text so a truncated description never hides it.
     cell: ({ row }) => (
-      <div className="truncate" title={row.original.description}>
-        {row.original.description || "--"}
+      <div className="flex min-w-0 items-center" title={row.original.description}>
+        <PorterBadge expense={row.original} />
+        <span className="truncate">{row.original.description || "--"}</span>
       </div>
     ),
   };

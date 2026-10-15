@@ -40,6 +40,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
+import { PorterSection } from "@/components/common/PorterExpense";
 
 import type { ApprovalQueueRow } from "../config/approvalsTable.config";
 
@@ -229,6 +230,9 @@ const ExpenseBankLinesCard: React.FC<
         description={description || card?.details?.description}
         comment={comment || card?.details?.comment}
       />
+
+      {/* A Porter Expense's delivery facts and invoice PDF, read-only (#1450). */}
+      {card?.details?.porter_order && <PorterSection doctype={doctype} name={name} />}
 
       {isLoading && (
         <div className="space-y-1.5 border-t pt-2">

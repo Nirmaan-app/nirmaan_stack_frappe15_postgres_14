@@ -22,6 +22,8 @@ export interface ExpenseApprovalDetail {
   invoice_date: string | null;
   invoice_attachment: string;
   payment_by: string;
+  /** Set on a Porter Expense (blank otherwise): the dialog then shows its Porter section. */
+  porter_order: string;
   /** The REQUEST's owner when there is one -- never the reviewer who inserted the row. */
   raised_by: string | null;
   raised_on: string | null;

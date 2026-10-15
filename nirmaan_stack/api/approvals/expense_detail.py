@@ -69,6 +69,8 @@ def get_expense_approval_detail(doctype: str, name: str) -> dict:
 		"invoice_date": doc.get("invoice_date"),
 		"invoice_attachment": doc.get("invoice_attachment") or "",
 		"payment_by": doc.get("payment_by") or "",
+		# Set on a Porter Expense: the dialog then shows its read-only Porter section (#1450).
+		"porter_order": doc.get("porter_order") or "",
 		"raised_by": raised_by,
 		"raised_on": (request or {}).get("creation") or doc.creation,
 		"approval_date": doc.get("approval_date"),

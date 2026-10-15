@@ -50,6 +50,7 @@ import { cn } from "@/lib/utils";
 import SITEURL from "@/constants/siteURL";
 import { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
 import { isProcurementProfile } from "@/constants/roles";
+import { PorterBadge } from "@/components/common/PorterExpense";
 
 export interface GetNonProjectExpenseColumnsOptions {
   statusTab: string;
@@ -172,9 +173,11 @@ export const getNonProjectExpenseColumns = ({
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Description" />
     ),
+    // The Porter badge sits before the text so a truncated description never hides it.
     cell: ({ row }) => (
-      <div className="truncate" title={row.original.description}>
-        {row.original.description || "--"}
+      <div className="flex min-w-0 items-center" title={row.original.description}>
+        <PorterBadge expense={row.original} />
+        <span className="truncate">{row.original.description || "--"}</span>
       </div>
     ),
     meta: {

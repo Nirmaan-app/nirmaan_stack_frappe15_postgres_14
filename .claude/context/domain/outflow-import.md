@@ -6894,7 +6894,9 @@ Porter Order fields); `api/expense_requests/test_fixture_completeness.py` (both 
 
 **Known limits / left for later.** A Porter Expense's invoice PDF is a private File attached to its Porter
 Invoice, which only Admin, Accountant and Accountant Lead can read: other roles who can open the expense get
-403 on the PDF (story 53, for #1450). An `Error` line cannot be re-placed in Review (it is not `Pending match
+403 on the raw URL (story 53). Since #1450 the expense screens open it through
+`porter_expense.porter_invoice_pdf`, keyed on the expense's own read permission (`expenses.md` § Porter
+expenses). An `Error` line cannot be re-placed in Review (it is not `Pending match
 run`) before a re-run.
 
 ### As built — #1448: project suggestions from typos, initials, site addresses and earlier imports (2026-10-15)

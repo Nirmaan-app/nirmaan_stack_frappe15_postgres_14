@@ -44,6 +44,7 @@ import { ProjectExpenseSummaryCard } from "./components/ProjectExpenseSummaryCar
 // UI Components
 import { DataTable } from "@/components/data-table/new-data-table";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { getFrappeError } from "@/utils/frappeErrors";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -249,7 +250,9 @@ export const ProjectExpensesList: React.FC<ProjectExpensesListProps> = ({
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to delete expense.",
+        // The server's reason (e.g. "linked bank lines: take them off with Unreconcile"), not the
+        // SDK's generic "There was an error while deleting the document." (#1450).
+        description: getFrappeError(error) || "Failed to delete expense.",
         variant: "destructive",
       });
     } finally {
