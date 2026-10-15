@@ -61,7 +61,8 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   payment-request gate, the bank file, the vendor list) reads the vendor's Payee through
   `services/payees/vendor_account.vendor_accounts`, gated by Vendors read, not Payee read. So do
   Bulk Import's vendor index (Tier 1, refund suggestions) and the payment autofill's holder-name check
-  (#1427): a line paid to a vendor's previous Payee reaches no Tier 1 (ADR-0033). On the
+  (#1427). Tier 1 reads that index only for a payment with no pay-to copy; a payment with one is
+  matched on its copy, so a line paid to a vendor's previous account still reaches it (#1440). On the
   vendor page (#1426) the Account Details card shows the vendor's Payee and how many other vendors
   share it (`vendor_account.vendor_account`). Edit bank details (#1435) edits the vendor's own Payee
   in place through `api/payees/vendor_payee.edit_vendor_payee` (`writer.edit_payee`), so every vendor
