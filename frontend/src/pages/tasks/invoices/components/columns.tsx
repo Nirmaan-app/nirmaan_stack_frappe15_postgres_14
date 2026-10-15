@@ -423,7 +423,8 @@ const AutoApproveReasonCell: React.FC<{
 const getCommonColumns = (
     attachmentsMap?: Record<string, string>,
     getTotalAmount?: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
-    getAmount?: (orderId: string, statuses: string[]) => number,
+    // The order's stored Amount Paid (ADR-0034), never a sum of its payments.
+    getAmountPaid?: (orderId: string, type: string) => number,
     getDeliveredAmount?: (orderId: string, type: string) => number,
     getVendorName?: (orderId: string, type: string) => string,
     // Returns sum of `invoice_amount` for all Vendor Invoices with same parent
@@ -572,13 +573,13 @@ const getCommonColumns = (
             id: "amount_paid",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Amt Paid (incl. GST)" />,
             cell: ({ row }) => {
-                return <div>{formatToRoundedIndianRupee(parseNumber(getAmount?.(row.original.document_name, ["Paid"])))}</div>;
+                return <div>{formatToRoundedIndianRupee(parseNumber(getAmountPaid?.(row.original.document_name, row.original.document_type)))}</div>;
             },
             size: 150,
             sortingFn: 'alphanumeric',
             meta: {
                 exportHeaderName: "Amt Paid (incl. GST)",
-                exportValue: (row: VendorInvoice) => getAmount?.(row.document_name, ["Paid"])
+                exportValue: (row: VendorInvoice) => getAmountPaid?.(row.document_name, row.document_type)
             }
         },
         {
@@ -728,14 +729,15 @@ export const getPendingTaskColumns = (
     isProcessing: boolean,
     attachmentsMap?: Record<string, string>,
     getTotalAmount?: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
-    getAmount?: (orderId: string, statuses: string[]) => number,
+    // The order's stored Amount Paid (ADR-0034), never a sum of its payments.
+    getAmountPaid?: (orderId: string, type: string) => number,
     getDeliveredAmount?: (orderId: string, type: string) => number,
     getVendorName?: (orderId: string, type: string) => string,
     getTotalInvoiced?: (docName: string, docType: string) => number,
     getUserName?: (id: string | undefined) => string,
     onRecheckInvoice?: (invoice: VendorInvoice) => void
 ): ColumnDef<VendorInvoice>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced, getUserName, onRecheckInvoice),
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmountPaid, getDeliveredAmount, getVendorName, getTotalInvoiced, getUserName, onRecheckInvoice),
         {
             id: "actions",
             header: () => <div className="">Actions</div>,
@@ -798,11 +800,12 @@ export const getTaskHistoryColumns = (
     attachmentsMap?: Record<string, string>,
     getTotalAmount?: (orderId: string, type: string) => { total: number, totalWithTax: number, totalGst: number },
     getDeliveredAmount?: (orderId: string, type: string) => number,
-    getAmount?: (orderId: string, statuses: string[]) => number,
+    // The order's stored Amount Paid (ADR-0034), never a sum of its payments.
+    getAmountPaid?: (orderId: string, type: string) => number,
     getVendorName?: (orderId: string, type: string) => string,
     getTotalInvoiced?: (docName: string, docType: string) => number
 ): ColumnDef<VendorInvoice>[] => [
-        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmount, getDeliveredAmount, getVendorName, getTotalInvoiced, getUserName),
+        ...getCommonColumns(attachmentsMap, getTotalAmount, getAmountPaid, getDeliveredAmount, getVendorName, getTotalInvoiced, getUserName),
         {
             accessorKey: "status",
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
