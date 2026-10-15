@@ -534,6 +534,33 @@ def expense_description(booked_by: str | None, project_name: str | None) -> str:
     return f"{text} for {project}" if project else text
 
 
+def booked_by(statement: Mapping[str, str]) -> str:
+    """Who booked the order, as Create writes it into the description and `payment_by`: the statement
+    line's `customer_name`, trimmed. Rectify (#1449) asks the same function, so both agree."""
+    return (statement.get("customer_name") or "").strip()
+
+
+def rectified_description(
+    stored: str | None, booker: str | None, old_project_name: str | None, new_project_name: str | None
+) -> str:
+    """The description a Rectify (#1449) writes on the replacement Expense (spec #1442 story 63).
+
+    Rewritten for the new placement when the stored text is still exactly what Create generated for the
+    old one (surrounding whitespace aside), or blank. Anything else was hand-edited and is kept word for
+    word: "hand-edited" MEANS "differs from the generated text", so no Version history is read.
+    """
+    if description_hand_edited(stored, booker, old_project_name):
+        return stored
+    return expense_description(booker, new_project_name)
+
+
+def description_hand_edited(stored: str | None, booker: str | None, project_name: str | None) -> bool:
+    """Whether a Porter Expense's description differs from what Create generated for its placement (blank
+    and surrounding whitespace aside). A Rectify keeps such a description as it is."""
+    text = (stored or "").strip()
+    return bool(text) and text != expense_description(booker, project_name)
+
+
 # `Porter Order` field <- Porter's statement column. The completion time is the line's own parsed
 # `added_on`; the invoice and the line are links the caller sets.
 _ORDER_TEXT_FIELDS = (

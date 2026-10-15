@@ -72,7 +72,7 @@ def set_porter_placement(batch: str, rows, project: str | None = None):
     _refuse_unless_validated(batch)
     project = (project or "").strip() or None
     if project:
-        _refuse_unless_won(project)
+        refuse_unless_won(project)
 
     lines = frappe.db.sql(
         """
@@ -142,16 +142,18 @@ def porter_review(batch: str) -> dict:
                 "editable": row.row_status == ROW_PENDING_MATCH,
             }
         )
+    return {"batch": batch, "lines": lines, "projects": won_projects()}
+
+
+def won_projects() -> list[dict]:
+    """`[{name, project_name}]` of every Won project, by name: the only projects a Porter order can be
+    placed on, in Review and in Rectify (#1449)."""
     projects = frappe.db.sql(
         """SELECT name, project_name FROM "tabProjects" WHERE tendering_status = %s ORDER BY project_name""",
         (_WON,),
         as_dict=True,
     )
-    return {
-        "batch": batch,
-        "lines": lines,
-        "projects": [{"name": p.name, "project_name": p.project_name or p.name} for p in projects],
-    }
+    return [{"name": p.name, "project_name": p.project_name or p.name} for p in projects]
 
 
 def _refuse_unless_validated(batch: str) -> None:
@@ -165,7 +167,8 @@ def _refuse_unless_validated(batch: str) -> None:
         )
 
 
-def _refuse_unless_won(project: str) -> None:
+def refuse_unless_won(project: str) -> None:
+    """Refuse a project that does not exist or is not Won (Review and Rectify)."""
     found = frappe.db.get_value("Projects", project, ["project_name", "tendering_status"], as_dict=True)
     if not found:
         frappe.throw(f"Project {project} does not exist.", title="No such project")
