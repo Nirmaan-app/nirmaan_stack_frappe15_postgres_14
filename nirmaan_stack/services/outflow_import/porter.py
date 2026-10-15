@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
+from nirmaan_stack.services.outflow_import.amounts import PORTER_INVOICE_TOLERANCE
 from nirmaan_stack.services.outflow_import.ledgers import (
     NON_PROJECT_EXPENSE_DOCTYPE,
     PROJECT_EXPENSE_DOCTYPE,
@@ -48,7 +49,6 @@ from nirmaan_stack.services.outflow_import.parser import (
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, comparable_tokens
 
 __all__ = [
-    "COMPARE_TOLERANCE",
     "EXPENSE_TYPE",
     "IMPORT_VALIDATED",
     "IMPORT_VALIDATING",
@@ -380,9 +380,6 @@ IMPORT_VALIDATING = "Validating"
 IMPORT_VALIDATED = "Validated"
 IMPORT_VALIDATION_FAILED = "Validation failed"
 
-#: Fare and tax may each differ from the statement by up to this, inclusive. The statement rounds tax
-#: row by row (measured up to Rs 0.18 on the 2026-09 file); Rs 1.01 is a real difference.
-COMPARE_TOLERANCE = Decimal("1.00")
 
 
 @dataclass(frozen=True)
@@ -423,7 +420,7 @@ def judge_invoice(statement: InvoiceFigures, read: InvoiceRead) -> InvoiceVerdic
     """Compare what Gemini read with the statement's figures for one Porter Invoice.
 
     Passes only when ALL agree: the invoice number; the supplier GSTIN is Porter's GSTIN; the receiver
-    GSTIN is the customer GSTIN; fare and tax each within `COMPARE_TOLERANCE`. Spacing and letter case
+    GSTIN is the customer GSTIN; fare and tax each within `PORTER_INVOICE_TOLERANCE`. Spacing and letter case
     in a number or a GSTIN are not a difference.
 
     * Failed -- at least one figure disagrees. Every disagreeing figure is named, invoice first.
@@ -442,7 +439,7 @@ def judge_invoice(statement: InvoiceFigures, read: InvoiceRead) -> InvoiceVerdic
     def _money(label: str, read_value: Decimal | None, statement_value: Decimal) -> None:
         if read_value is None:
             unread.append(_UNREAD_NOUN.get(label, label))
-        elif abs(Decimal(read_value) - Decimal(statement_value)) > COMPARE_TOLERANCE:
+        elif abs(Decimal(read_value) - Decimal(statement_value)) > PORTER_INVOICE_TOLERANCE:
             disagree.append(f"{label}: invoice {rupees(read_value)}, statement {rupees(statement_value)}")
 
     _identity("Invoice number", read.invoice_number, statement.invoice_number)

@@ -191,6 +191,7 @@ from decimal import Decimal, InvalidOperation
 __all__ = [
     "AMOUNT_TOLERANCE",
     "TIER1_TOLERANCE",
+    "PORTER_INVOICE_TOLERANCE",
     "amounts_match",
     "amount_difference",
     "tolerance_bounds",
@@ -207,6 +208,12 @@ AMOUNT_TOLERANCE = Decimal("5")
 # THE TIER 1 WINDOW. One caller: `matcher`'s account+IFSC tier, which can afford to be strict
 # because it has a second strong axis. MUST stay <= AMOUNT_TOLERANCE -- see the docstring.
 TIER1_TOLERANCE = Decimal("1")
+
+# THE PORTER INVOICE WINDOW. Not a matching window: it is how far a Porter Invoice's fare or tax
+# may differ from the Porter Statement's completed-order totals and still pass validation (spec
+# #1442; the statement rounds tax row by row, measured up to Rs 0.18 on the 2026-09 file). Inclusive.
+# Independent of the two windows above: changing either of them must not move this one.
+PORTER_INVOICE_TOLERANCE = Decimal("1.00")
 
 
 def to_decimal(value) -> Decimal:

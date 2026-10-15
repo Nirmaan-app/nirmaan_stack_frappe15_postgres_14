@@ -6709,7 +6709,7 @@ queued while it runs (a Retry) are picked up before it ends; each invoice is att
   stored 0; `porter.what_gemini_read`, the one reader, reads 0 back as "not read" (a Porter invoice always
   bills a fare and its GST) and returns None until the invoice has been read.
 - **Compare** (`judge_invoice`, pure): invoice number; supplier GSTIN = Porter GSTIN; receiver GSTIN =
-  customer GSTIN (spacing and case ignored); fare and tax each within `COMPARE_TOLERANCE` = ₹1.00
+  customer GSTIN (spacing and case ignored); fare and tax each within `amounts.PORTER_INVOICE_TOLERANCE` = ₹1.00
   inclusive (₹1.00 passes, ₹1.01 fails). **Failed** names every figure that disagrees, invoice first:
   "Invoice 36SM… disagrees with the statement. Tax: invoice ₹31.66, statement ₹30.65." A figure Gemini did
   not read, with nothing disagreeing, is **Error** ("could not read the tax off the PDF. Retry it."): a

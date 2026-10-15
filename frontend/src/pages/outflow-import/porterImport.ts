@@ -149,7 +149,7 @@ export const invoiceProgress = (
 /** An invoice number or GSTIN as the server compares it: no spaces, upper case (`porter._ident`). */
 const ident = (value: string | null | undefined) => (value ?? "").replace(/\s+/g, "").toUpperCase();
 
-/** The server's ±₹1 on fare and tax (`porter.COMPARE_TOLERANCE`). */
+/** The server's ±₹1 on fare and tax (`amounts.PORTER_INVOICE_TOLERANCE`). */
 const COMPARE_TOLERANCE = 1;
 
 export interface InvoiceFigureRow {
