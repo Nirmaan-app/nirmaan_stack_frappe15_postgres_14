@@ -21,7 +21,6 @@ import { useFrappeUpdateDoc, useFrappeDeleteDoc, useFrappePostCall } from 'frapp
 import { useUpdatePaymentRequest } from "../hooks/useUpdatePaymentRequests";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { GstPaymentTag } from "../components/GstPaymentTag";
-import { SETTLED_STATUSES } from '@/utils/settlement';
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import {
     APPROVAL_QUEUE_API,
@@ -58,7 +57,6 @@ import {
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 
 import PaymentSummaryCards from "../PaymentSummaryCards"
@@ -104,8 +102,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     // --- CEO Hold Highlighting ---
     const { ceoHoldProjectIds } = useCEOHoldProjects();
 
-    const { getAmount: getTotalAmountPaidForPO } = useOrderPayments()
-    const { getTotalAmount, getDeliveredAmount } = useOrderTotals()
+    const { getTotalAmount, getDeliveredAmount, getAmountPaid } = useOrderTotals()
 
     // "Mark as Paid" — a plain confirmation, NOT the payment-details dialog.
     // ONE dialog for both entry points: the row button confirms `[row]`, the bulk
@@ -239,15 +236,12 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         projectLabels: projectLabelMap,
         vendorLabels: vendorLabelMap,
         userLabels: userLabelMap,
-        // Adapters: these three helpers have this screen's own shapes.
+        // Adapters: these helpers have this screen's own shapes.
         getDocumentTotal: (docName, docType) => getTotalAmount(docName, docType).totalWithTax,
         getPoAmountDelivered: (docName, docType) => parseNumber(getDeliveredAmount(docName, docType)),
-        // ⚠️ A SETTLED-SPEND SITE (audit D1), done here because the call had to be
-        // written anyway. It read `['Paid']`; settled spend is now Paid AND
-        // Reconciliation Pending. Provably a no-op TODAY — zero rows carry the new
-        // status — so the audit's DIFF = 0 proof is unaffected; without it this
-        // figure would silently under-report the moment the fulfil path switches over.
-        getAmountPaid: (docName) => getTotalAmountPaidForPO(docName, [...SETTLED_STATUSES]),
+        // "Total Paid" is the order's stored Amount Paid (ADR-0034): Paid payments less Received
+        // refunds. Reconciliation Pending is not paid yet, so it no longer counts here.
+        getAmountPaid,
         onRecordPayment: (row) => setConfirmPaidRows([row]),
         onDelete: setDeleteRow,
         onEdit: canWork ? setEditRow : undefined,
@@ -262,7 +256,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         ),
     }), [
         tab, projectLabelMap, vendorLabelMap, userLabelMap, getTotalAmount, getDeliveredAmount,
-        getTotalAmountPaidForPO, notifications, handleNewPaymentSeen, canWork, role,
+        getAmountPaid, notifications, handleNewPaymentSeen, canWork, role,
     ]);
 
     const columns = useMemo(
