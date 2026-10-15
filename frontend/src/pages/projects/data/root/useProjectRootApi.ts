@@ -14,10 +14,7 @@ import { ProjectQueryKeys } from "@/pages/projects/queries";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { Customers } from "@/types/NirmaanStack/Customers";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
-import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import { ProjectEstimates as ProjectEstimatesType } from "@/types/NirmaanStack/ProjectEstimates";
-import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 
 
@@ -51,9 +48,6 @@ export const projectRootKeys = {
   designTrackerList: (projectId: string) => ["project-root", "designTrackerList", projectId] as const,
   commissionReportList: (projectId: string) => ["project-root", "commissionReportList", projectId] as const,
   commissionMasterData: () => ["project-root", "commissionMasterData"] as const,
-  projectPayments: (projectId: string) => ["project-root", "projectPayments", projectId] as const,
-  projectExpenses: (projectId: string) => ["project-root", "projectExpenses", projectId] as const,
-  procurementRequests: (projectId: string) => ["project-root", "procurementRequests", projectId] as const,
   procurementOrders: (projectId: string) => ["project-root", "procurementOrders", projectId] as const,
   approvedServiceRequests: (projectId: string) => ["project-root", "approvedServiceRequests", projectId] as const,
   projectsListInvoices: () => ["project-root", "projectsListInvoices"] as const,
@@ -358,38 +352,9 @@ export const useProjectViewFinancialData = (projectId: string) => {
       : null
   );
 
-  const projectPaymentsResponse = useFrappeGetDocList<ProjectPayments>(
-    "Project Payments",
-    {
-      fields: ["document_type", "amount", "document_name", "status", "name"],
-      filters: [["project", "=", projectId], ["status", "=", "Paid"]],
-      limit: 0,
-    },
-    projectId ? projectRootKeys.projectPayments(projectId) : null
-  );
-
-  const projectExpensesResponse = useFrappeGetDocList<ProjectExpenses>(
-    "Project Expenses",
-    {
-      fields: ["name", "amount"],
-      // Only Paid expenses count toward the project's financial total (mirrors the
-      // Paid-only Project Payments filter above).
-      filters: [["projects", "=", projectId], ["status", "=", "Paid"]],
-      limit: 0,
-    },
-    projectId ? projectRootKeys.projectExpenses(projectId) : null
-  );
-
-  const procurementRequestsResponse = useFrappeGetDocList<ProcurementRequest>(
-    "Procurement Requests",
-    {
-      fields: ["name", "work_package"],
-      filters: [["project", "=", `${projectId}`]],
-      limit: 0,
-    },
-    projectId ? projectRootKeys.procurementRequests(projectId) : null
-  );
-
+  // No payments or expenses are fetched here: paid figures read the orders' stored Amount Paid, and
+  // the project's outflow is the server's (useProjectMoney), ADR-0034. Spends groups a PO's Amount
+  // Paid by its items' work package, so no PR list is fetched either.
   const procurementOrdersResponse = useFrappeGetDocList<ProcurementOrdersType>(
     "Procurement Orders",
     {
@@ -416,7 +381,7 @@ export const useProjectViewFinancialData = (projectId: string) => {
   const approvedServiceRequestsResponse = useFrappeGetDocList<ServiceRequests>(
     "Service Requests",
     {
-      fields: ["name", "gst", "total_amount"],
+      fields: ["name", "gst", "total_amount", "amount_paid"],
       filters: [
         ["status", "=", "Approved"],
         ["project", "=", projectId],
@@ -429,27 +394,6 @@ export const useProjectViewFinancialData = (projectId: string) => {
   useApiErrorLogger(projectEstimatesResponse.error, {
     hook: "useProjectViewFinancialData",
     api: "Project Estimates List",
-    feature: "project-root",
-    entity_id: projectId,
-  });
-
-  useApiErrorLogger(projectPaymentsResponse.error, {
-    hook: "useProjectViewFinancialData",
-    api: "Project Payments List",
-    feature: "project-root",
-    entity_id: projectId,
-  });
-
-  useApiErrorLogger(projectExpensesResponse.error, {
-    hook: "useProjectViewFinancialData",
-    api: "Project Expenses List",
-    feature: "project-root",
-    entity_id: projectId,
-  });
-
-  useApiErrorLogger(procurementRequestsResponse.error, {
-    hook: "useProjectViewFinancialData",
-    api: "Procurement Requests List",
     feature: "project-root",
     entity_id: projectId,
   });
@@ -470,9 +414,6 @@ export const useProjectViewFinancialData = (projectId: string) => {
 
   return {
     projectEstimatesResponse,
-    projectPaymentsResponse,
-    projectExpensesResponse,
-    procurementRequestsResponse,
     procurementOrdersResponse,
     approvedServiceRequestsResponse,
   };

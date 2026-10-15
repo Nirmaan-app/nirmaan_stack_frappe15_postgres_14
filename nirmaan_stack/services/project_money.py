@@ -6,7 +6,9 @@
 The terms are `GLOSSARY.md` *Project outflow* and *Current Liabilities*:
 
   * outflow -- cash, not orders: every Paid Project Payment on the project (whatever state its order is
-    in now), less its Received Vendor Refunds against a PO / Work Order, plus its Paid Expenses.
+    in now), less its Received Vendor Refunds against a PO / Work Order, plus its Paid Expenses. It is
+    kept as its three parts (PO payments, Work Order payments, expenses; each refund comes off its own
+    order kind), which the project's Financials shows as the outflow breakdown; `outflow` is their sum.
   * liabilities -- max(0, delivered - Amount Paid) per PO, summed over the project's POs except Merged,
     Cancelled and Inactive (what they delivered is counted on the PO that replaced them).
   * inflow -- every Project Inflow.
@@ -31,22 +33,32 @@ from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, REFUND_D
 
 #: POs whose delivered value is not a liability: it is counted on the PO that replaced them.
 LIABILITY_EXCLUDED_PO_STATUSES = ("Merged", "Cancelled", "Inactive")
+#: Payments and refunds on this order kind make the Work Order part of the outflow; every other order
+#: kind's make the PO part, so no payment can fall out of the outflow.
+WORK_ORDER_DOCTYPE = "Service Requests"
 
 
 @dataclass(frozen=True)
 class ProjectMoney:
-    """One project's money figures. `cashflow_gap` is derived, so it cannot disagree with its parts."""
+    """One project's money figures. `outflow` and `cashflow_gap` are derived, so neither can disagree
+    with its parts."""
 
-    outflow: float = 0.0
+    po_outflow: float = 0.0
+    wo_outflow: float = 0.0
+    expense_outflow: float = 0.0
     liabilities: float = 0.0
     inflow: float = 0.0
+
+    @property
+    def outflow(self) -> float:
+        return self.po_outflow + self.wo_outflow + self.expense_outflow
 
     @property
     def cashflow_gap(self) -> float:
         return self.outflow + self.liabilities - self.inflow
 
     def as_dict(self) -> dict:
-        return {**asdict(self), "cashflow_gap": self.cashflow_gap}
+        return {**asdict(self), "outflow": self.outflow, "cashflow_gap": self.cashflow_gap}
 
 
 def project_money_of(project: str, from_date=None, to_date=None) -> ProjectMoney:
@@ -67,6 +79,7 @@ def project_money(projects=None, from_date=None, to_date=None) -> dict[str, Proj
         "refund_statuses": tuple(LOWERS_PAID_STATUSES),
         "refund_doctypes": tuple(REFUND_DOCUMENT_FIELDS),
         "excluded_po_statuses": LIABILITY_EXCLUDED_PO_STATUSES,
+        "work_order": WORK_ORDER_DOCTYPE,
         "projects": tuple(projects or ()),
         "from_date": from_date,
         "to_date": to_date,
@@ -82,29 +95,37 @@ def project_money(projects=None, from_date=None, to_date=None) -> dict[str, Proj
             clauses.append(f"{date_expr} <= %(to_date)s")
         return " AND ".join(clauses)
 
+    def order_cash(amount: str) -> str:
+        """An order payment's or refund's cash, as its PO-part and Work-Order-part columns."""
+        return (
+            f"CASE WHEN document_type = %(work_order)s THEN 0 ELSE {amount} END AS po_outflow, "
+            f"CASE WHEN document_type = %(work_order)s THEN {amount} ELSE 0 END AS wo_outflow"
+        )
+
     on_payment_date = "COALESCE(payment_date, creation::date)"
     rows = frappe.db.sql(
         f"""
-        SELECT project, SUM(outflow) AS outflow, SUM(liabilities) AS liabilities, SUM(inflow) AS inflow
+        SELECT project, SUM(po_outflow) AS po_outflow, SUM(wo_outflow) AS wo_outflow,
+            SUM(expense_outflow) AS expense_outflow, SUM(liabilities) AS liabilities, SUM(inflow) AS inflow
         FROM (
-            SELECT project, amount AS outflow, 0 AS liabilities, 0 AS inflow
+            SELECT project, {order_cash("amount")}, 0 AS expense_outflow, 0 AS liabilities, 0 AS inflow
             FROM "tabProject Payments"
             WHERE status = 'Paid' AND {scope("project", on_payment_date)}
             UNION ALL
-            SELECT project, -amount, 0, 0
+            SELECT project, {order_cash("-amount")}, 0, 0, 0
             FROM "tabVendor Refunds"
             WHERE status IN %(refund_statuses)s AND document_type IN %(refund_doctypes)s
               AND {scope("project", on_payment_date)}
             UNION ALL
-            SELECT projects, amount, 0, 0
+            SELECT projects, 0, 0, amount, 0, 0
             FROM "tabProject Expenses"
             WHERE status = 'Paid' AND {scope("projects", on_payment_date)}
             UNION ALL
-            SELECT project, 0, 0, amount
+            SELECT project, 0, 0, 0, 0, amount
             FROM "tabProject Inflows"
             WHERE {scope("project", on_payment_date)}
             UNION ALL
-            SELECT project, 0, GREATEST(0, COALESCE(po_amount_delivered, 0) - COALESCE(amount_paid, 0)), 0
+            SELECT project, 0, 0, 0, GREATEST(0, COALESCE(po_amount_delivered, 0) - COALESCE(amount_paid, 0)), 0
             FROM "tabProcurement Orders"
             WHERE status NOT IN %(excluded_po_statuses)s AND {scope("project", "creation::date")}
         ) AS money
@@ -115,7 +136,11 @@ def project_money(projects=None, from_date=None, to_date=None) -> dict[str, Proj
     )
     return {
         row.project: ProjectMoney(
-            outflow=flt(row.outflow), liabilities=flt(row.liabilities), inflow=flt(row.inflow)
+            po_outflow=flt(row.po_outflow),
+            wo_outflow=flt(row.wo_outflow),
+            expense_outflow=flt(row.expense_outflow),
+            liabilities=flt(row.liabilities),
+            inflow=flt(row.inflow),
         )
         for row in rows
     }
