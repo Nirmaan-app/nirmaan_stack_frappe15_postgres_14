@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { usePOValidation } from "@/hooks/usePOValidation";
+import { RequestPayToAccount } from "@/components/payees/RequestPayToAccount";
 import { useVendorPayeeGate } from "@/components/payees/vendorPayeeAccount";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
@@ -723,6 +724,7 @@ const RequestPaymentDialog = ({
   isLocked,
   poName,
   poVendor,
+  poVendorName,
 }) => {
   const [payMode, setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
   const duplicateOf = useDuplicateChequeOf(payMode);
@@ -774,6 +776,7 @@ const RequestPaymentDialog = ({
             return note ? <p className="text-xs text-sky-700 dark:text-sky-400">{note}</p> : null;
           })()}
         </div>
+        <RequestPayToAccount vendor={poVendor} vendorLabel={poVendorName} className="mb-4" />
         <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} vendor={poVendor} />
         <div className="flex justify-end gap-3 mt-4">
           <Button type="button" variant="outline" onClick={onClose}>
@@ -1296,6 +1299,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
         isLocked={isLocked}
         poName={PO?.name}
         poVendor={PO?.vendor}
+        poVendorName={PO?.vendor_name}
       />
     </>
   );

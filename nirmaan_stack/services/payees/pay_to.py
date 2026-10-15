@@ -1,19 +1,21 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""A record's own pay-to account (#1436, spec #1420, ADR-0033 decision 9).
+"""A record's own pay-to account (#1436, #1437, spec #1420, ADR-0033 decision 9).
 
-An Expense Request, a Project Expense, a Non-Project Expense (and, from #1437, a PO / Work Order
-payment) holds the account it is paid into in five fields of its own (`PAY_TO_FIELDS`), copied from a
+An Expense Request, a Project Expense, a Non-Project Expense and a PO / Work Order payment holds the account it is paid into in five fields of its own (`PAY_TO_FIELDS`), copied from a
 Payee when the record is raised. Nothing points back at the Payee: editing or deleting it leaves every
 copy as it was.
 
 * `copy_payee_account(doc, payee)` -- THE copy: a Payee's account into `doc`'s pay-to fields (None
   clears them). Every copier calls it.
 * `copy_vendor_account(doc)` -- the same, from `doc.vendor`'s Payee.
-* `copy_pay_to(source, target)` -- one record's copy onto another as it is (approval).
-* `fill_from_vendor(doc)` -- the save hook's rule for a record naming a vendor
+* `copy_pay_to(source, target)` -- one record's copy onto another as it is (approval; a split
+  payment's remainder).
+* `fill_from_vendor(doc)` -- the save hook's rule for a request or Project Expense naming a vendor
   (`guard.check_payee_links`).
+* `fill_payment_from_vendor(doc)` -- the save hook's rule for a PO / Work Order payment: its vendor's
+  Payee, copied on insert only (`integrations/controllers/project_payments.validate`).
 * `pay_to_account(row)` -- the copy in a Payee's field names, for a screen; None when blank.
 
 The server enforces no edit rule on a copy (owner, 2026-10-15): who may change it, and when, are screen
@@ -58,7 +60,8 @@ def copy_vendor_account(doc) -> None:
 
 
 def copy_pay_to(source, target) -> None:
-    """Carry `source`'s pay-to account onto `target` as it is (approval: request -> Expense)."""
+    """Carry `source`'s pay-to account onto `target` as it is (approval: request -> Expense; a split
+    payment -> its remainder)."""
     for field in PAY_TO_FIELDS:
         target.set(field, source.get(field) or None)
     _set_old_link(target, source.get(_OLD_LINK) or None)
@@ -81,6 +84,16 @@ def fill_from_vendor(doc) -> None:
         return
     vendor_changed = before is not None and (before.get("vendor") or None) != doc.get("vendor")
     if vendor_changed or not has_pay_to(doc):
+        copy_vendor_account(doc)
+
+
+def fill_payment_from_vendor(doc) -> None:
+    """The save rule of a PO / Work Order payment (`Project Payments`, #1437): inserted with no copy,
+    it copies its vendor's Payee. Only on insert, so whichever path creates the payment (term
+    request, Work Order request, credits, adjustments, a payment recorded directly) gets one, and it
+    is never re-copied: editing the vendor's Payee leaves every payment already raised as it was. A
+    split remainder arrives with its parent's copy (`copy_pay_to`) and keeps it."""
+    if doc.is_new() and not has_pay_to(doc):
         copy_vendor_account(doc)
 
 

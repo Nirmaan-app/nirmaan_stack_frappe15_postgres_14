@@ -36,11 +36,12 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     `Vendors`, `Expense Request` and `Project Expenses`): fill a record's pay-to account from its
     vendor, and refuse a vendor's Payee set by the wrong role. A Payee's own save has nothing beyond
     completeness and the duplicate refusal (#1434).
-  - `pay_to.py` (#1436): a record's own **pay-to account**. `copy_payee_account(doc, payee)` is THE
-    copy of a Payee's account into a record's five `pay_to_*` fields; every copier calls it
-    (`copy_vendor_account`, Change payee, the request endpoints, #1437's payments). `copy_pay_to`
-    carries one record's copy onto another as it is (approval); `fill_from_vendor` is the save rule;
-    `pay_to_account` serves a copy to a screen.
+  - `pay_to.py` (#1436, #1437): a record's own **pay-to account**. `copy_payee_account(doc, payee)` is
+    THE copy of a Payee's account into a record's five `pay_to_*` fields; every copier calls it
+    (`copy_vendor_account`, Change payee, the request endpoints, the payments' save rule). `copy_pay_to`
+    carries one record's copy onto another as it is (approval; a split payment's remainder);
+    `fill_from_vendor` is the request / Project Expense save rule, `fill_payment_from_vendor` the
+    `Project Payments` one; `pay_to_account` serves a copy to a screen.
   - `ifsc.py`: the IFSC lookup (Razorpay), the app's only outside bank service.
   - `matching.py` (pure): which Payees look like a vendor. *Strong match*: a vendor linked to the
     Payee has the same PAN; *Name only*: no PAN agrees but the names read alike. Strong first.
@@ -125,6 +126,18 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   - **Not refused on the server** (#1436, owner 2026-10-15): a *Required* type with no account, a
     vendor and an account that disagree, a change after payment, a change by someone outside
     Accounts. Who may change a copy, and until when, are screen rules (ADR-0033 decision 9).
+- **A PO / Work Order payment's pay-to account** (#1437): `Project Payments` holds the same five
+  `pay_to_*` fields. Its `validate` (`integrations/controllers/project_payments`) copies the vendor's
+  Payee when a payment is INSERTED with no copy (`pay_to.fill_payment_from_vendor`), so every creator
+  gets one: the PO term and Credits requests (`create_project_payment`), the Work Order request
+  (`create_payment_request_for_service`), PO Adjustment payments (`_payment_utils._create_project_payment`,
+  whose `from_adjustment` flag skips only the doctype class's hooks, not this one) and a payment
+  recorded directly (`createDoc`). A split remainder (`services/payment_split.split_payment`: CEO
+  part-approval, partial settlement) is inserted carrying its parent's copy (`copy_pay_to`). A copy is
+  never re-copied: editing the vendor's Payee, or saving the payment again, leaves it. A vendor with no
+  Payee leaves it blank (no refusal; the request dialogs' gate blocks that case). The request dialogs
+  (PO terms, Work Order, Credits) show the vendor's account read-only before submit
+  (`components/payees/RequestPayToAccount`, same SWR key as the gate).
 - **Paid to** (#1431): who a row the accountant pays is paid to is resolved in one place,
   `services/payees/paid_to.py`: a PO / WO payment into its vendor's Payee now, an expense into its own
   Payee. "Payment need to paid"'s Paid to column (the approval queue's `paid_to`), Export for Payment
@@ -139,7 +152,7 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 |---|---|
 | Doctype `Payee` (`PYE-####`) | `nirmaan_stack/doctype/payee/` |
 | Payee links | `payee` (Link to Payee) on `Vendors`; on `Expense Request`, `Project Expenses`, `Non Project Expenses` written alongside the pay-to account until #1438 removes it |
-| Pay-to account (#1436) | `pay_to_account_name`, `pay_to_account_number`, `pay_to_ifsc`, `pay_to_bank_name`, `pay_to_bank_branch` on `Expense Request`, `Project Expenses`, `Non Project Expenses`; `services/payees/pay_to.py`; tests `api/payees/test_payee_link_guard.py`, `api/expense_requests/test_expense_requests.py` (`TestExpenseRequestPayee`) |
+| Pay-to account (#1436, #1437) | `pay_to_account_name`, `pay_to_account_number`, `pay_to_ifsc`, `pay_to_bank_name`, `pay_to_bank_branch` on `Expense Request`, `Project Expenses`, `Non Project Expenses`, `Project Payments`; `services/payees/pay_to.py`; tests `api/payees/test_payee_link_guard.py`, `api/expense_requests/test_expense_requests.py` (`TestExpenseRequestPayee`), `api/payees/test_payment_pay_to.py` (every payment creator, split remainder, Payee edit) |
 | Add Payee endpoints | `api/payees/add_payee.py`: `add_payee`, `check_payee`, `lookup_ifsc` |
 | Payees list endpoint | `api/payees/list_payees.get_payees` (data-table contract; the tab is the filter `["tab", "=", "all" \| "no_vendor"]`) |
 | Test fixture | `api/payees/payee_fixture.PayeeFixture`: offline IFSC lookups, purges every test Payee; `class_payee` for a `setUpClass` |
