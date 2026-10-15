@@ -146,6 +146,18 @@ def _is_transient(exc):
     return True  # unrecognised -> retry, exactly as before SR-1
 
 
+def _reply_row_id(el):
+    """SLICE 12e-5b2 (owner R3): the row id a reply element names, read exactly as `int(el["id"])` always read it --
+    or None where the element carries no usable id (not an object, no "id", null, or not a whole number). The
+    caller drops such an element BY NAME (`items_no_id`) instead of letting a KeyError fail the whole batch."""
+    if not isinstance(el, dict) or el.get("id") is None:
+        return None
+    try:
+        return int(el["id"])
+    except (TypeError, ValueError):
+        return None
+
+
 def _halt_reason_for(exc):
     """Plain-language halt reason for a NON-retryable error, for the pricer -- never the opaque
     'suggest_failed'. Keeps the provider's own words in the detail for the log."""
@@ -2927,9 +2939,17 @@ def _extract_batch(client, model, prompt_text, attr_defs, rows_batch, synonyms=N
                 "second_opinion_verdicts": {},
                 "second_opinion_failed": [],
                 "second_opinion_usage": {"calls": 0, "input": 0, "output": 0},
+                # SLICE 12e-5b2 (owner R3, "ok"): [{raw}] -- a reply element with NO usable row id (absent, null,
+                # not a whole number, or not an object). It is dropped BY NAME and the rest of the batch is kept;
+                # before this, `int(el["id"])` raised KeyError('id') and the whole batch was retried as transient.
+                # An id that IS a number but was not sent stays in `ids_not_in_batch`, as it always has.
+                "items_no_id": [],
             }
             for el in _extract_json_array(text):
-                rid = int(el["id"])
+                rid = _reply_row_id(el)
+                if rid is None:
+                    drops["items_no_id"].append({"raw": json.dumps(el, default=str)[:300]})
+                    continue
                 if rid not in batch_ids:
                     drops["ids_not_in_batch"].append(rid)
                     continue  # ignore any id the model echoed that is not in THIS batch
