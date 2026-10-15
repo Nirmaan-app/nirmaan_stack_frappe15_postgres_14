@@ -154,17 +154,18 @@ export const ReviewActionDialog: React.FC<Props> = ({
                                 )}</>
                             : <span className="text-muted-foreground">-- non-project --</span>}
                     </Row>
-                    {/* Who gets paid (ADR-0033): the reviewer can catch a wrong account before
-                        approval copies it onto the expense. */}
-                    {r?.payee_details && (
+                    {/* Who gets paid (ADR-0033, #1436): the request's own pay-to account, which
+                        approval copies onto the expense as it is. The reviewer can catch a wrong
+                        account before then. */}
+                    {r?.pay_to && (
                         <Row label="Who gets paid">
-                            <span className="block font-medium">{r.payee_details.account_name}</span>
+                            <span className="block font-medium">{r.pay_to.account_name}</span>
                             <span className="block text-xs tabular-nums text-muted-foreground">
-                                {payeeAccountLine(r.payee_details)}
+                                {payeeAccountLine(r.pay_to)}
                             </span>
-                            {bankLine(r.payee_details) && (
+                            {bankLine(r.pay_to) && (
                                 <span className="block text-xs text-muted-foreground">
-                                    {bankLine(r.payee_details)}
+                                    {bankLine(r.pay_to)}
                                 </span>
                             )}
                         </Row>

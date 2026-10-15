@@ -28,6 +28,7 @@ from nirmaan_stack.api.expense_requests.review import (
 	reject_expense_request,
 )
 from nirmaan_stack.services import expense_request_routing as routing
+from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 
 PM_USER = "exr_test_pm@example.com"
 PM2_USER = "exr_test_pm2@example.com"
@@ -1099,8 +1100,9 @@ class TestExpenseRequests(FrappeTestCase):
 
 
 class TestExpenseRequestPayee(FrappeTestCase):
-	"""Who gets paid (spec #1420 ticket #1429, ADR-0033): the type's rule, the vendor's Payee,
-	edits, and approval carrying the Payee onto the Expense.
+	"""Who gets paid (spec #1420 tickets #1429, #1436, ADR-0033): the request's own pay-to account,
+	copied from a picked Payee or the vendor's, kept or changed by an edit, and carried onto the
+	Expense by approval as it is.
 
 	Builds its own expense types, Payees (`PayeeFixture`, offline IFSC) and vendors (inserted raw
 	as `TESTPYE-VEN-*`), so it holds whatever the site's real types and vendors say.
@@ -1171,8 +1173,18 @@ class TestExpenseRequestPayee(FrappeTestCase):
 			frappe.set_user("Administrator")
 
 	@staticmethod
-	def _payee_of(res):
-		return frappe.db.get_value("Expense Request", res["name"], "payee")
+	def _pay_to(doctype, name):
+		"""A record's pay-to account: (holder name, account number, IFSC, bank, branch)."""
+		return tuple(frappe.db.get_value(doctype, name, list(PAY_TO_FIELDS)) or ())
+
+	def _request_pay_to(self, res):
+		return self._pay_to("Expense Request", res["name"])
+
+	@staticmethod
+	def _account_of(payee):
+		"""What a Payee's account reads as a pay-to account, straight from the Payee."""
+		return tuple(frappe.db.get_value(
+			"Payee", payee, ["account_name", "account_number", "ifsc", "bank_name", "bank_branch"]))
 
 	def _count(self):
 		return frappe.db.count("Expense Request", {"owner": PM_USER})
@@ -1188,122 +1200,159 @@ class TestExpenseRequestPayee(FrappeTestCase):
 		options = frappe.get_meta("Expense Type").get_field("payee_rule").options.split("\n")
 		self.assertEqual(tuple(options), PAYEE_RULES)
 
-	def test_required_type_with_no_payee_is_refused_and_nothing_is_saved(self):
-		typ = self._type("Required")
-		before = self._count()
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			self._raise(typ)
-		self.assertIn("needs a payee", str(ctx.exception))
-		self.assertEqual(self._count(), before)
+	def test_a_required_type_with_no_account_is_accepted(self):
+		"""Required is a screen rule (#1436): the dialog blocks sending, the server does not."""
+		res = self._raise(self._type("Required"))
+		self.assertEqual(self._request_pay_to(res), (None,) * 5)
 
-	def test_required_type_keeps_the_payee_picked(self):
-		payee = self.payees.payee()
+	# --- picking a Payee -----------------------------------------------------
+
+	def test_a_picked_payee_is_copied_into_the_request(self):
+		payee = self.payees.payee(holder=self.payees.holder("Ramesh"))
 		res = self._raise(self._type("Required"), payee=payee)
-		self.assertEqual(self._payee_of(res), payee)
+		self.assertEqual(self._request_pay_to(res), self._account_of(payee))
+		self.assertEqual(self._request_pay_to(res)[2:4], ("TEST0PYE001", "Test Bank"))
 
-	def test_optional_type_may_leave_the_payee_blank(self):
+	def test_a_payee_added_from_the_request_is_copied_like_a_picked_one(self):
+		from nirmaan_stack.api.expense_requests.payees import add_request_payee
+		frappe.set_user(PM_USER)
+		try:
+			added = add_request_payee(account_name=self.payees.holder("New"),
+			                          account_number=self.payees.account_number(), ifsc="TEST0PYE001")
+		finally:
+			frappe.set_user("Administrator")
+		res = self._raise(self._type("Optional"), payee=added["payee"]["name"])
+		self.assertEqual(self._request_pay_to(res), self._account_of(added["payee"]["name"]))
+
+	def test_optional_type_may_leave_the_account_blank(self):
 		res = self._raise(self._type("Optional"))
-		self.assertFalse(self._payee_of(res))
-
-	def test_not_asked_type_ignores_a_payee_sent(self):
-		res = self._raise(self._type("Not asked"), payee=self.payees.payee())
-		self.assertFalse(self._payee_of(res))
+		self.assertEqual(self._request_pay_to(res), (None,) * 5)
 
 	# --- the vendor's Payee --------------------------------------------------
 
-	def test_a_vendor_fills_in_its_own_payee(self):
+	def test_a_vendor_copies_its_payees_account(self):
 		payee = self.payees.payee()
 		res = self._raise(self._type("Required", project=True), projects=self.project,
 		                  vendor=self.payees.vendor(payee))
-		self.assertEqual(self._payee_of(res), payee)
+		self.assertEqual(self._request_pay_to(res), self._account_of(payee))
 
-	def test_a_payee_other_than_the_vendors_is_refused(self):
-		vendor = self.payees.vendor(self.payees.payee())
-		other = self.payees.payee()
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			self._raise(self._type("Optional", project=True), projects=self.project,
-			            vendor=vendor, payee=other)
-		self.assertIn("Others (No Vendor)", str(ctx.exception))
+	def test_a_vendor_named_outranks_a_payee_sent(self):
+		"""With a vendor named the account is the vendor's: a Payee sent alongside is not copied
+		(a fill, not a refusal)."""
+		payee = self.payees.payee()
+		res = self._raise(self._type("Optional", project=True), projects=self.project,
+		                  vendor=self.payees.vendor(payee), payee=self.payees.payee())
+		self.assertEqual(self._request_pay_to(res), self._account_of(payee))
 
-	def test_required_type_with_a_vendor_that_has_no_bank_account_is_refused(self):
-		with self.assertRaises(frappe.ValidationError):
-			self._raise(self._type("Required", project=True), projects=self.project,
-			            vendor=self.payees.vendor())
+	def test_changing_the_vendor_re_copies(self):
+		typ = self._type("Optional", project=True)
+		first, second = self.payees.payee(), self.payees.payee()
+		res = self._raise(typ, projects=self.project, vendor=self.payees.vendor(first))
+		self._edit(res, typ, projects=self.project, vendor=self.payees.vendor(second))
+		self.assertEqual(self._request_pay_to(res), self._account_of(second))
+
+	def test_a_vendor_with_no_account_leaves_a_required_request_blank_and_saved(self):
+		res = self._raise(self._type("Required", project=True), projects=self.project,
+		                  vendor=self.payees.vendor())
+		self.assertEqual(self._request_pay_to(res), (None,) * 5)
 
 	# --- editing -------------------------------------------------------------
 
-	def test_an_edit_can_change_the_payee(self):
+	def test_an_edit_can_change_the_account(self):
 		typ = self._type("Required")
 		first, second = self.payees.payee(), self.payees.payee()
 		res = self._raise(typ, payee=first)
 		self._edit(res, typ, payee=second)
-		self.assertEqual(self._payee_of(res), second)
+		self.assertEqual(self._request_pay_to(res), self._account_of(second))
 
-	def test_an_edit_obeys_the_same_rules(self):
+	def test_an_edit_that_keeps_the_account_leaves_the_copy_as_it_was(self):
+		"""The raiser saved other changes: the copy stays, even though its Payee has moved banks."""
 		typ = self._type("Required")
 		payee = self.payees.payee()
 		res = self._raise(typ, payee=payee)
-		with self.assertRaises(frappe.ValidationError):
-			self._edit(res, typ)
-		self.assertEqual(self._payee_of(res), payee)
+		raised = self._request_pay_to(res)
+		frappe.db.set_value("Payee", payee, "account_number", self.payees.account_number())
+		frappe.db.commit()
+		self._edit(res, typ, amount=5100, keep_pay_to=1)
+		self.assertEqual(self._request_pay_to(res), raised)
+		self.assertEqual(frappe.db.get_value("Expense Request", res["name"], "amount"), 5100)
 
-	def test_an_edit_to_a_not_asked_type_drops_the_payee(self):
+	def test_an_edit_that_clears_the_account_leaves_it_blank(self):
+		typ = self._type("Optional")
+		res = self._raise(typ, payee=self.payees.payee())
+		self._edit(res, typ)
+		self.assertEqual(self._request_pay_to(res), (None,) * 5)
+
+	# --- the copy is the record's own ----------------------------------------
+
+	def test_editing_or_deleting_the_payee_leaves_the_copies_unchanged(self):
 		payee = self.payees.payee()
-		res = self._raise(self._type("Required"), payee=payee)
-		self._edit(res, self._type("Not asked"), payee=payee)
-		self.assertFalse(self._payee_of(res))
+		res = self._raise(self._type("Optional"), payee=payee)
+		raised = self._request_pay_to(res)
+		out = approve_expense_request(res["name"])
+		expense = ("Non Project Expenses", out["created_expense"])
+
+		doc = frappe.get_doc("Payee", payee)
+		doc.account_name = self.payees.holder("Renamed")
+		doc.account_number = self.payees.account_number()
+		doc.save(ignore_permissions=True)
+		frappe.db.commit()
+		self.assertEqual(self._request_pay_to(res), raised)
+		self.assertEqual(self._pay_to(*expense), raised)
+
+		# Forced: the old `payee` link is still written alongside until #1438 removes it, and
+		# Frappe's link check would refuse the delete while it is.
+		frappe.delete_doc("Payee", payee, force=True, ignore_permissions=True)
+		frappe.db.commit()
+		self.assertEqual(self._request_pay_to(res), raised)
+		self.assertEqual(self._pay_to(*expense), raised)
 
 	# --- approval and review -------------------------------------------------
 
-	def test_approval_copies_the_payee_onto_the_non_project_expense(self):
+	def test_approval_copies_the_account_onto_the_non_project_expense(self):
 		payee = self.payees.payee()
 		res = self._raise(self._type("Required"), payee=payee)
 		out = approve_expense_request(res["name"])
 		self.assertEqual(out["created_expense_doctype"], "Non Project Expenses")
-		self.assertEqual(
-			frappe.db.get_value("Non Project Expenses", out["created_expense"], "payee"), payee)
+		self.assertEqual(self._pay_to("Non Project Expenses", out["created_expense"]),
+		                 self._account_of(payee))
 
-	def test_approval_copies_the_payee_onto_the_project_expense(self):
+	def test_approval_copies_the_account_onto_the_project_expense(self):
 		payee = self.payees.payee()
 		res = self._raise(self._type("Optional", project=True), projects=self.project, payee=payee)
 		out = approve_expense_request(res["name"])
 		self.assertEqual(out["created_expense_doctype"], "Project Expenses")
-		self.assertEqual(
-			frappe.db.get_value("Project Expenses", out["created_expense"], "payee"), payee)
+		self.assertEqual(self._pay_to("Project Expenses", out["created_expense"]), self._account_of(payee))
 
-	def test_a_not_asked_request_with_a_vendor_carries_the_vendors_payee_onto_the_expense(self):
-		payee = self.payees.payee()
-		res = self._raise(self._type("Not asked", project=True), projects=self.project,
-		                  vendor=self.payees.vendor(payee), payee=self.payees.payee())
-		self.assertEqual(self._payee_of(res), payee)
-		out = approve_expense_request(res["name"])
-		self.assertEqual(frappe.db.get_value("Project Expenses", out["created_expense"], "payee"), payee)
-
-	def test_approval_pays_a_vendor_request_into_the_vendors_payee_as_it_is_now(self):
-		"""The vendor changed account between the request and its approval: the expense follows it."""
+	def test_approval_copies_the_requests_account_even_after_the_vendors_payee_changed(self):
+		"""The vendor moved to another Payee between the request and its approval: the expense is
+		paid where the request said, as the reviewer saw it."""
 		first, second = self.payees.payee(), self.payees.payee()
 		vendor = self.payees.vendor(first)
 		res = self._raise(self._type("Optional", project=True), projects=self.project, vendor=vendor)
 		frappe.db.set_value("Vendors", vendor, "payee", second, update_modified=False)
 		frappe.db.commit()
 		out = approve_expense_request(res["name"])
-		self.assertEqual(frappe.db.get_value("Project Expenses", out["created_expense"], "payee"), second)
+		self.assertEqual(self._pay_to("Project Expenses", out["created_expense"]), self._account_of(first))
 
-	def test_approval_of_a_request_with_no_payee_leaves_the_expense_without_one(self):
+	def test_approval_of_a_request_with_no_account_leaves_the_expense_without_one(self):
 		out = approve_expense_request(self._raise(self._type("Optional"))["name"])
-		self.assertFalse(
-			frappe.db.get_value("Non Project Expenses", out["created_expense"], "payee"))
+		self.assertEqual(self._pay_to("Non Project Expenses", out["created_expense"]), (None,) * 5)
 
-	def test_the_reviewer_sees_the_payee(self):
+	def test_the_reviewer_sees_the_requests_pay_to_account(self):
 		payee = self.payees.payee(holder=self.payees.holder("Ramesh"))
 		res = self._raise(self._type("Required"), payee=payee)
 		row = next(r for r in get_my_expense_requests()["requests"] if r["name"] == res["name"])
-		self.assertEqual(row["payee"], payee)
-		details = row["payee_details"]
-		self.assertEqual(details["account_name"],
-		                 frappe.db.get_value("Payee", payee, "account_name"))
-		self.assertEqual(details["ifsc"], "TEST0PYE001")
-		self.assertTrue(details["account_number"])
+		account_name, account_number, ifsc, bank_name, bank_branch = self._account_of(payee)
+		self.assertEqual(row["pay_to"], {
+			"account_name": account_name, "account_number": account_number, "ifsc": ifsc,
+			"bank_name": bank_name, "bank_branch": bank_branch,
+		})
+
+	def test_a_request_with_no_account_shows_none(self):
+		res = self._raise(self._type("Optional"))
+		row = next(r for r in get_my_expense_requests()["requests"] if r["name"] == res["name"])
+		self.assertIsNone(row["pay_to"])
 
 	def test_the_catalog_says_who_gets_paid_for_each_type(self):
 		typ = self._type("Optional")

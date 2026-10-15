@@ -32,10 +32,12 @@ rather than trusted from the first submission.
 import json
 
 import frappe
+from frappe.utils import sbool
 
 from nirmaan_stack.api.expense_requests.access import PENDING, guard_requestable, is_admin
 from nirmaan_stack.api.expense_requests.create import (
 	_promote_mapped,
+	apply_pay_to,
 	guard_request_form,
 	guard_vendor_scope,
 )
@@ -63,8 +65,13 @@ def update_expense_request(
 	vendor: str | None = None,
 	source_data=None,
 	payee: str | None = None,
+	keep_pay_to=False,
 ):
 	"""Rewrite a pending request in place.
+
+	Its pay-to account (#1436): `keep_pay_to` leaves it as it is (the raiser changed something else);
+	otherwise `payee` is copied in as on `create`, and no `payee` clears it. With a vendor named
+	neither applies: the save copies the vendor's Payee when the vendor changes.
 
 	IN PLACE, not supersede-and-replace: the request has no downstream reader yet -- no ledger
 	row, no notification -- so there is nothing for a new id to keep consistent, and a fresh
@@ -113,10 +120,10 @@ def update_expense_request(
 			"vendor": None,
 			**promoted,
 			**({"vendor": vendor} if vendor else {}),
-			# Same rules as `create`, applied by the save.
-			"payee": payee or None,
 		}
 	)
+	if not sbool(keep_pay_to):
+		apply_pay_to(req, payee)
 	req.save()
 	frappe.db.commit()
 

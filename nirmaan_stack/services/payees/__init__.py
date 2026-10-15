@@ -11,12 +11,13 @@ nothing paid points back at it.
 * `links` -- `payee_summaries` / `payee_summary` (with the vendor count), `PAYEES_WITH_LINKS_SQL`,
   `payee_page` (`linked_vendors`, `holder_name_changed_on`).
 * `versions` -- the Version rows read as history: `last_field_change`, `changed_field_pattern`.
-* `guard` -- what `validate` controllers refuse on every write path: `check_payee_links` (a vendor's
-  Payee, an expense type's Who gets paid, an expense's Payee fixed once paid and changed only by
-  Accounts, who sets a vendor's Payee).
+* `guard` -- what `validate` controllers do on every write path: `check_payee_links` (a record naming
+  a vendor copies the vendor's Payee into its pay-to account; who sets a vendor's Payee).
+* `pay_to` -- a record's own pay-to account: `copy_payee_account` (THE copy), `copy_vendor_account`,
+  `copy_pay_to`, `fill_from_vendor`, `pay_to_account`, `PAY_TO_FIELDS`.
 * `ifsc` -- `lookup_ifsc` (refuses an IFSC it can't find), `fetch_ifsc` (the HTTP call tests patch).
-* `expense_rules` (pure) / `expense_payee` -- the Expense payee: an expense type's Required / Optional
-  / Not asked, the vendor's Payee (`follow_vendor`), paid (`payee_rule`, `change_expense_payee`).
+* `expense_rules` (pure) / `expense_payee` -- an expense type's Required / Optional / Not asked (screen
+  rules), `payee_rule`, `change_expense_payee`.
 * `search` -- `find_payees`, for every Payee picker, by holder name.
 * `matching` (pure) -- `rank_payees`, `name_similarity`: which Payees look like a vendor.
 * `choosing` -- `suggest_for_vendor`, `payee_choices` / `payee_choice`, `choose_payee`,

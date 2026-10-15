@@ -31,7 +31,7 @@ from nirmaan_stack.services.expense_request_routing import (
 	reviewer_role_for_type,
 )
 from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
-from nirmaan_stack.services.payees.links import payee_summaries
+from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS, pay_to_account
 
 FIELDS = [
 	"name", "type", "projects", "amount", "comment",
@@ -39,9 +39,9 @@ FIELDS = [
 	# not merely hide the vendor -- the dialog would seed blank and the save would CLEAR a
 	# vendor the requester had picked, silently.
 	"vendor",
-	# Who gets paid. The reviewer reads it (with `payee_details`) before deciding, and the edit
-	# dialog seeds from it, so leaving it out would clear the Payee on the next save.
-	"payee",
+	# Who gets paid: the request's own pay-to account (#1436), served as `pay_to`. The reviewer
+	# reads it before deciding, and the edit dialog shows it.
+	*PAY_TO_FIELDS,
 	"source_data", "status", "reviewed_by", "reviewed_on", "review_comment",
 	"owner", "creation", "modified",
 ]
@@ -93,10 +93,6 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		                        filters={"source_format": ["is", "set"]})
 	}
 
-	# The Payees' bank details, read once for the page. Requesters and reviewers can't read
-	# `Payee` directly (its DocPerms are Accounts and Procurement), so they come with the row.
-	payees = payee_summaries(list({r["payee"] for r in rows if r.get("payee")}))
-
 	# Category and reviewer are DERIVED, never stored — a routing change re-resolves history
 	# consistently instead of leaving rows stamped with a retired branch.
 	for r in rows:
@@ -132,7 +128,7 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		# server-side so the dialog states the outcome rather than re-deriving the rule.
 		# The status is amount-dependent since 2026-08-20, and the threshold lives on the
 		# ledger doctypes; a TypeScript copy of it would be free to disagree with `validate`.
-		r["payee_details"] = payees.get(r.get("payee")) if r.get("payee") else None
+		r["pay_to"] = pay_to_account(r)
 		r["target_doctype"] = target_doctype(frappe._dict(r))
 		r["target_status"] = target_status(frappe._dict(r))
 
