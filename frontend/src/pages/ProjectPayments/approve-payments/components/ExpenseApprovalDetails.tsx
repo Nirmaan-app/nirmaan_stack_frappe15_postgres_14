@@ -10,6 +10,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, Paperclip } from "lucide-react
 import { TailSpin } from "react-loader-spinner";
 
 import SITEURL from "@/constants/siteURL";
+import { PorterSection } from "@/components/common/PorterExpense";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import {
@@ -122,6 +123,8 @@ export const ExpenseApprovalDetails: React.FC<Props> = ({ doctype, name, isOpen,
           </Row>
         )}
       </div>
+
+      {d.porter_order && <PorterSection doctype={d.doctype} name={d.name} />}
 
       {d.request && (
         <div className="rounded-md border px-3 py-2 divide-y">

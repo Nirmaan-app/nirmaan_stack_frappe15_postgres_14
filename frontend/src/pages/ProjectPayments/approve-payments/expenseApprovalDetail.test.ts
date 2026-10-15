@@ -23,6 +23,7 @@ const base = (over: Partial<ExpenseApprovalDetail> = {}): ExpenseApprovalDetail 
   invoice_date: null,
   invoice_attachment: "",
   payment_by: "",
+  porter_order: "",
   raised_by: null,
   raised_on: null,
   request: null,

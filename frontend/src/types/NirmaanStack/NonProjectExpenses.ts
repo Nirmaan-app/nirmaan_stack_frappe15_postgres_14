@@ -24,5 +24,8 @@ export interface NonProjectExpenses {
     invoice_ref?: string;
     invoice_attachment?: string; // URL of the invoice attachment
 
+    // Set only by the Porter Statement import (#1445): the Porter Order this expense pays for.
+    porter_order?: string | null;
+
     // Standard Frappe fields like name, creation, modified, owner are implicitly available
 }
