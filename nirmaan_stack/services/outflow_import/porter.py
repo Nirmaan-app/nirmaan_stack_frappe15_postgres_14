@@ -24,7 +24,8 @@ WHAT THIS MODULE DECIDES.
 Its siblings, each pure too: `porter_state` (the invoices' and the import's states, and the lines Create
 still writes), `porter_verdict` (does an invoice PDF agree with the statement, #1444), `porter_wording`
 (what Create and Rectify write on the Expense and the Porter Order, #1445 / #1449), `porter_placement`
-(#1448) and `porter_repeats` (#1447).
+(#1448) and `porter_repeats` (#1447). `porter_pdf` is the one sibling that is NOT pure: it reads the
+database to build a Porter Expense's invoice PDF link.
 
 ⚠️ IT NEVER CALLS THE MATCHER. A Porter line creates its expense and settles nothing (ADR-0032, like
 Cashbook's ADR-0015), so nothing here may reach `match_batch` / `match_row`; pinned by an AST test.

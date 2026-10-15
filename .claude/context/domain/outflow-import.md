@@ -7139,7 +7139,7 @@ invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
   `porter_expense.porter_invoice_pdf` (`utils/porterExpense.invoiceAttachmentUrl`), so a reader without
   Porter Invoice access gets the PDF, not a 403 (story 53).
 - Choosing a Porter import from the Import selector or Import History opens its Porter dialog
-  (`porterImport.opensPorterDialog`), never the pinned table.
+  (`porterImport.isPorterImport`), never the pinned table.
 - Review and Rectify share one project picker, `components/PorterProjectSelect.tsx`: its menu is portaled to
   `body` with `menuPosition="fixed"`, and `FuzzySearchSelect`'s shared theme (`getSelectStyles`) gives the
   portal `zIndex` 9999 and `pointerEvents: "auto"` (no styles of its own). Walked on both: the option clicked

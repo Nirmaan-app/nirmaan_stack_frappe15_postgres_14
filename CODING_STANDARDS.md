@@ -157,9 +157,12 @@ the request, so `save_file()` cannot be rolled back: parse and validate before s
 two File docs for the same PDF share one object, and trashing either through the document layer removes the
 bytes the other still serves. Delete through the helper that removes only the File record when another File
 shares its hash (`services/stored_files.delete_files`), and call it last, since no rollback restores storage.
-The one sanctioned exception is a document's own Files deleted with the document: there `delete_files` runs
-from `after_delete` (`integrations/controllers/expense_files.delete_attached_files`), the point at which
-Frappe's own `remove_all` would trash them anyway, so it is no earlier than before and only safer.
+The one sanctioned exception is a Project or Non-Project Expense's own Files, deleted with the expense: there
+`delete_files` runs from `after_delete` (`integrations/controllers/expense_files.delete_attached_files`, which
+must stay the last `after_delete` handler on both expense doctypes), the point at which Frappe's own
+`remove_all` would trash them anyway, so it is no earlier than before. It differs from `remove_all` in one way:
+it always keeps a Deleted Document row, even when the caller asked for `delete_permanently`. No other doctype
+may call it mid-transaction.
 The local site points at the production bucket (`nirmaan-attachments-prod`) with cloud deletes switched off:
 an upload from local testing stays there for good, so seed test files as fake cloud URLs through the backend
 (`api/tds/test_submit._cloud_url`) unless the user agrees to real uploads.

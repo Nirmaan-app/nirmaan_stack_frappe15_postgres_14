@@ -51,7 +51,7 @@ def get_porter_expense(doctype: str, name: str) -> dict | None:
     invoice = frappe.db.get_value(
         INVOICE_DOCTYPE,
         order.porter_invoice,
-        ["invoice_number", "billing_entity", "city", "invoice_file"],
+        ["invoice_number", "billing_entity", "city"],
         as_dict=True,
     ) if order.porter_invoice else None
     invoice = invoice or frappe._dict()
