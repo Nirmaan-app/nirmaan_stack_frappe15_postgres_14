@@ -133,10 +133,11 @@ ASSET_HISTORY_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
 
 # Assign and unassign assets (owner, 2026-10-13): Admin, HR and PMO handle every asset; procurement
 # handles Project assets only. Nobody else, whatever Roles their profile bundles (System Manager on
-# Project Lead / Design Lead / Estimates carries Asset Management create + delete). HR Lead is not in
-# the Assets module yet. `services/asset_assign_access.py` enforces it; mirrored client-side by
-# `canAssignAssetType` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep the two in sync.
-ASSET_ASSIGN_ALL_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, PMO_EXECUTIVE_PROFILE)
+# Project Lead / Design Lead / Estimates carries Asset Management create + delete). HR Lead has every
+# asset permission HR Executive has (owner, 2026-10-15). `services/asset_assign_access.py` enforces it;
+# mirrored client-side by `canAssignAssetType` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep
+# the two in sync.
+ASSET_ASSIGN_ALL_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE)
 ASSET_ASSIGN_PROJECT_PROFILES = PROCUREMENT_PROFILES
 
 # Monthly asset audit (owner, 2026-10-14). Switching a category's "Monthly audit required": Admin only (the
@@ -144,7 +145,7 @@ ASSET_ASSIGN_PROJECT_PROFILES = PROCUREMENT_PROFILES
 # Asset Audit tab's Fulfilled list -- everyone who sees the Assets lists (`canViewAssets`), on top of
 # ASSET_HISTORY_PROFILES. Mirrored in `frontend/src/pages/Assets/utils/permissions.ts` -- keep in sync.
 ASSET_CATEGORY_AUDIT_PROFILES = (ADMIN_PROFILE,)
-ASSET_AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE) + PROCUREMENT_PROFILES
+ASSET_AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE) + PROCUREMENT_PROFILES
 
 
 # ─────────────────────────────────────────────────────────────────────────────

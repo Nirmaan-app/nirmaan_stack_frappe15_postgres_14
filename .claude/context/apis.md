@@ -73,6 +73,7 @@ Backend API endpoints in `nirmaan_stack/api/`.
 Rules and who may call what: [domain/assets.md](domain/assets.md).
 - `assign.assign_asset` / `unassign_asset` - POST. Assign or unassign in one request (Admin / HR Executive / PMO any asset; Procurement Project assets only); unassign needs a reason
 - `declaration.sign_declaration` - POST, the holder only. Renders the declaration PDF with the drawn signature and attaches it
+- `declaration.read_declaration_form` - GET, the holder only. The blank form as a PDF to read before signing, whatever project the asset is booked to (Frappe's own print download refuses a project-scoped holder)
 - `returns.request_return` (holder; refused while the audit is Pending), `approve_return` (the normal Unassign), `reject_return`
 - `audits.submit_audit(assignment, photo, remarks, answers)` - POST, the holder only. Answers are `[{id, q, a, flag?, text?}]` from `frontend/src/utils/assetAuditQuestions.ts`; the server checks their shape (`services/asset_audit.clean_answers`) and saves them on the assignment and the history row
 - `audits.set_category_audit(category, required)` - POST, Admin only. Switches a category's monthly audit; on opens the month's audits at once

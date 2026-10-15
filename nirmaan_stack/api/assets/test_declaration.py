@@ -324,6 +324,49 @@ class TestSignDeclarationEndpoint(FrappeTestCase):
         result, _, _ = self._sign()  # once the other tab is done, signing works again
         self.assertEqual(result, {"file_url": self.url})
 
+    # -- reading the form before signing (owner, 2026-10-15: every holder, whatever the project) ----------
+
+    def _read(self, as_user=None):
+        """Call `read_declaration_form` as `as_user` with the render mocked; returns (response, render_mock)."""
+        frappe.set_user(as_user or self.assignee)
+        frappe.local.response = frappe._dict()
+        with patch.object(declaration, "_render_declaration_pdf", return_value=FAKE_PDF) as render:
+            declaration.read_declaration_form(self.row.name)
+        frappe.set_user("Administrator")
+        return frappe.local.response, render
+
+    def test_the_holder_reads_the_blank_form(self):
+        response, render = self._read()
+        self.assertEqual((response.type, response.filecontent), ("pdf", FAKE_PDF))
+        self.assertEqual(response.filename, "E-sign test laptop_Declaration_Form.pdf")
+        rendered_asset = render.call_args.args[0]
+        self.assertEqual(rendered_asset.name, self.asset)
+        self.assertFalse(rendered_asset.get("declaration"))  # unsigned: the blank form
+
+    def test_the_holder_can_still_read_it_after_signing(self):
+        self._sign()
+        response, _ = self._read()
+        self.assertEqual(response.type, "pdf")
+
+    def test_someone_else_cant_read_the_form(self):
+        frappe.local.response = frappe._dict()
+        frappe.set_user(self.other)
+        with patch.object(declaration, "_render_declaration_pdf", return_value=FAKE_PDF) as render:
+            with self.assertRaisesRegex(frappe.PermissionError, "read its declaration form"):
+                declaration.read_declaration_form(self.row.name)
+        frappe.set_user("Administrator")
+        render.assert_not_called()
+
+    def test_a_holder_mismatch_cant_read_the_form(self):
+        frappe.db.set_value("Asset Master", self.asset, "current_assignee", self.other)
+        frappe.db.commit()
+        frappe.set_user(self.assignee)
+        with patch.object(declaration, "_render_declaration_pdf", return_value=FAKE_PDF) as render:
+            with self.assertRaises(frappe.ValidationError):
+                declaration.read_declaration_form(self.row.name)
+        frappe.set_user("Administrator")
+        render.assert_not_called()
+
 
 class TestDeclarationRender(FrappeTestCase):
     """The PDF renders for the holder even when they can't read the Asset Master (2026-10-14).

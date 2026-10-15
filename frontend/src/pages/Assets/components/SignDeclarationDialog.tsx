@@ -14,15 +14,15 @@ import {
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/use-toast';
-import { downloadPrintFormatPdf } from '@/utils/downloadPrintFormatPdf';
+import { downloadPdfFrom } from '@/utils/downloadPrintFormatPdf';
 import { formatDate } from '@/utils/FormatDate';
 import { getFrappeError } from '@/utils/frappeErrors';
 
-import { ASSET_MASTER_DOCTYPE } from '../assets.constants';
 import { SignaturePad, SignaturePadHandle, prefersTouchInput } from './SignaturePad';
 
 const SIGN_DECLARATION_METHOD = 'nirmaan_stack.api.assets.declaration.sign_declaration';
-const DECLARATION_FORMAT = 'Asset Master Form';
+// The blank "Asset Master Form" for the holder (api/assets/declaration.read_declaration_form).
+const READ_FORM_METHOD = 'nirmaan_stack.api.assets.declaration.read_declaration_form';
 
 // The four terms of the Asset Allocation Form that matter most, in plain words.
 const KEY_TERMS = [
@@ -116,12 +116,12 @@ export const SignDeclarationDialog: React.FC<SignDeclarationDialogProps> = ({
     const handleReadForm = async () => {
         setIsDownloading(true);
         try {
-            await downloadPrintFormatPdf({
-                doctype: ASSET_MASTER_DOCTYPE,
-                name: assetId,
-                format: DECLARATION_FORMAT,
-                fileName: `${assetName || assetId}_Declaration_Form.pdf`,
-            });
+            // Through the app's endpoint, not Frappe's print download: that one refuses a holder whose asset is
+            // booked to a project they aren't on, and every holder must read what they sign (owner, 2026-10-15).
+            await downloadPdfFrom(
+                `/api/method/${READ_FORM_METHOD}?${new URLSearchParams({ assignment: assignmentId })}`,
+                `${assetName || assetId}_Declaration_Form.pdf`
+            );
         } catch (error) {
             toast({
                 title: 'Could not open the form',

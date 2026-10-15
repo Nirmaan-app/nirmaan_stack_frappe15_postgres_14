@@ -103,10 +103,10 @@ def _print_report(report: dict, dry_run: bool) -> None:
     for row in report["removed"]:
         declaration = "with declaration (kept on the asset)" if row.declaration else "no declaration"
         holder = row.current_assignee or "(free)"
-        print(f"  {row.asset:16} row {row.name:12} {row.asset_assigned_to:36} holder {holder}  {declaration}")
+        print(f"  {row.asset:16} row {row.name:12} {row.asset_assigned_to or '-':36} holder {holder}  {declaration}")
     print(f"\nLeft alone, for a person to check -- row for someone else, holder has no row ({len(report['unclear_rows'])}):")
     for row in report["unclear_rows"]:
-        print(f"  {row.asset:16} row {row.name:12} {row.asset_assigned_to:36} holder {row.current_assignee}")
+        print(f"  {row.asset:16} row {row.name:12} {row.asset_assigned_to or '-':36} holder {row.current_assignee}")
     print(f"\nLeft alone, for a person to check -- holders with no assignment row ({len(report['holders_without_row'])}):")
     for row in report["holders_without_row"]:
         print(f"  {row.asset:16} holder {row.current_assignee}")

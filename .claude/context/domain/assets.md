@@ -25,13 +25,25 @@ The detailed rules live in the code's own docstrings, cited below; this page is 
     through `api/assets/history.py`, never the generic list API.
 - **Who sees the history:** Admin, HR Executive, HR Lead (`role_profiles.ASSET_HISTORY_PROFILES`, mirrored in
   `frontend/src/pages/Assets/utils/permissions.ts`). The audit events alone are also readable by the Asset Audit
-  tab's viewers (`ASSET_AUDIT_VIEW_PROFILES`: Admin, PMO, HR Executive, Procurement) for its Fulfilled list.
-- **Who assigns:** Admin, HR Executive and PMO assign and unassign every asset; Procurement only Project assets
+  tab's viewers (`ASSET_AUDIT_VIEW_PROFILES`: Admin, PMO, HR Executive, HR Lead, Procurement) for its Fulfilled list.
+- **Who assigns:** Admin, HR Executive, HR Lead and PMO assign and unassign every asset; Procurement only Project assets
   (`ASSET_ASSIGN_ALL_PROFILES` / `ASSET_ASSIGN_PROJECT_PROFILES`, checked by `services/asset_assign_access`). One
   holder per asset (`AssetManagement.validate`). Unassign asks a reason (`services/asset_unassign`).
-- **Declarations:** the holder signs in the app (`api/assets/declaration.sign_declaration`); the screens offer
-  uploading a scanned declaration to Admin only (`canUploadDeclaration`; a UI rule, no server guard). A declaration
-  arriving ticks `received` and opens the month's audit if one is due.
+- **HR Lead = HR Executive in assets** (owner, 2026-10-15): every asset permission, frontend
+  (`ASSET_HR_ROLES` in `permissions.ts`, the sidebar's Assets link) and server (`ASSET_ASSIGN_ALL_PROFILES`,
+  `ASSET_AUDIT_VIEW_PROFILES`). Not the Users page.
+- **A project only on a Project asset, and only a Won one** (owner, 2026-10-15): `services/asset_project.check_asset_project`,
+  checked by `assign_asset` before it writes and by `AssetMaster.validate` when the project changes (an asset booked
+  earlier to a project no longer Won still saves). The dialogs already list only Won projects.
+- **No move into an inactive department:** assigning refuses with "The X department is inactive. Report it to the
+  admin." (`AssetManagement.decide_department_move`). Departments are never switched off in practice.
+- **Two people at once get a plain message:** every row lock (assign, Return, Reject return, the category audit switch,
+  submit audit) catches PostgreSQL's serialization failure (`asset_audit_open.is_serialization_failure`) and says
+  "just changed ... Reload the page", never a database error.
+- **Declarations:** every holder signs their own in the app, Admin included
+  (`api/assets/declaration.sign_declaration`). No screen offers a scanned-declaration upload (owner, 2026-10-15);
+  older "Declaration Uploaded" history rows stay. A declaration arriving ticks `received` and opens the month's
+  audit if one is due.
 - **Returns:** the holder asks (`returned`), a manager approves (the normal Unassign, which deletes the
   assignment) or rejects. The holder's Return is refused while the asset's audit is Pending; an Admin/HR
   unassign is never blocked by an audit.
@@ -87,7 +99,7 @@ text order.
 | Where | What |
 |---|---|
 | `api/assets/assign.py` | `assign_asset`, `unassign_asset` |
-| `api/assets/declaration.py` | `sign_declaration` (holder; Redis lock while the PDF renders) |
+| `api/assets/declaration.py` | `sign_declaration` (holder; Redis lock while the PDF renders), `read_declaration_form` (holder; the blank form, whatever the project) |
 | `api/assets/returns.py` | `request_return` (holder), `approve_return`, `reject_return` |
 | `api/assets/audits.py` | `submit_audit` (holder), `set_category_audit` (Admin) |
 | `api/assets/history.py` | `get_asset_history` (named filters; the Fulfilled list), `get_asset_history_table` + `get_asset_history_facets` (the History tab's data table and its filter counts; share `_table_conditions`) |

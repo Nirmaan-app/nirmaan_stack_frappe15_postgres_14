@@ -545,6 +545,55 @@ class TestMonthlyAssetAudit(FrappeTestCase):
         self.assertEqual([m["a"] for m in months], ["It works, but has a problem", "Yes, it works fine"])
         self.assertEqual(months[0]["text"], "Display flickers")
 
+    # -- a direct save of the assignment (REST / Desk), not the dialog -------------------------------
+
+    def _save_audit(self, assignment, **fields):
+        """Save the assignment the way `PUT /api/resource/Asset Management/<name>` does, with these fields."""
+        frappe.set_user("Administrator")
+        doc = frappe.get_doc("Asset Management", assignment)
+        doc.update(fields)
+        doc.save(ignore_permissions=True)
+
+    def test_a_direct_save_cant_mark_an_audit_fulfilled_without_a_photo_and_answers(self):
+        asset, assignment = self._assign()
+        photo = self._photo()
+        good = {"answers": json.loads(self._good(assignment))}
+        cases = [
+            ({}, "photo"),  # the status alone
+            ({"audit_answers": good}, "photo"),
+            ({"audit_proof": "/files/not-uploaded.jpg", "audit_answers": good}, "photo"),  # no such file
+            ({"audit_proof": self._photo(file_name="proof.pdf"), "audit_answers": good}, "photo"),  # not a photo
+            ({"audit_proof": photo}, "answers"),
+            ({"audit_proof": photo, "audit_answers": {"answers": []}}, "answers"),
+            ({"audit_proof": photo, "audit_answers": json.dumps(good["answers"])}, "answers"),  # a bare list
+            ({"audit_proof": photo, "audit_answers": {"answers": good["answers"] + [good["answers"][0]]}}, "answers"),
+        ]
+        for fields, message in cases:
+            with self.assertRaisesRegex(frappe.ValidationError, message, msg=fields):
+                self._save_audit(assignment, audit_status="Fulfilled", **fields)
+        row = self._row(assignment)
+        self.assertEqual((row.audit_status, row.audit_proof, row.audit_answers), ("Pending", None, None))
+        self.assertEqual(self._history(asset, "Audit Fulfilled"), [])
+
+    def test_a_direct_save_with_a_photo_and_answers_is_allowed(self):
+        _, assignment = self._assign()
+        photo = self._photo()
+        answers = {"answers": json.loads(self._good(assignment))}
+        self._save_audit(assignment, audit_status="Fulfilled", audit_proof=photo, audit_answers=answers)
+        self.assertEqual(self._row(assignment).audit_status, "Fulfilled")
+
+    def test_an_audit_sent_before_the_questions_still_saves_until_its_audit_fields_change(self):
+        """Older Fulfilled rows have a photo but no answers: a return or a declaration saves them as before."""
+        _, assignment = self._assign()
+        photo = self._photo()
+        frappe.db.set_value("Asset Management", assignment, {"audit_status": "Fulfilled", "audit_proof": photo})
+        self._save_audit(assignment)  # nothing about the audit changes
+        frappe.set_user(self.holder)
+        self.assertEqual(request_return(assignment)["assignment"], assignment)
+        with self.assertRaisesRegex(frappe.ValidationError, "photo"):
+            self._save_audit(assignment, audit_proof="")
+        self.assertEqual(self._row(assignment).audit_proof, photo)
+
     # -- returns and unassign -------------------------------------------------------------------
 
     def test_return_is_blocked_while_the_audit_is_pending(self):
@@ -618,6 +667,26 @@ class TestMonthlyAssetAudit(FrappeTestCase):
             on = audits_api.set_category_audit(self.categories["chair"], 1)["audit_required"]
             self.assertEqual(on, 1, user)
             audits_api.set_category_audit(self.categories["chair"], 0)
+
+    def test_a_second_simultaneous_switch_gets_a_plain_message(self):
+        """Two admins switching a category at once: the second lock fails on PostgreSQL (#6, owner 2026-10-15)."""
+
+        class SerializationFailure(Exception):
+            pgcode = "40001"
+
+        real = frappe.get_doc
+
+        def lock_fails(*args, **kwargs):
+            if kwargs.get("for_update"):
+                raise SerializationFailure()
+            return real(*args, **kwargs)
+
+        frappe.set_user(self.admin)
+        with patch.object(frappe, "get_doc", side_effect=lock_fails):
+            with self.assertRaisesRegex(frappe.ValidationError, "just changed by someone else"):
+                audits_api.set_category_audit(self.categories["chair"], 1)
+        frappe.set_user("Administrator")
+        self.assertEqual(frappe.db.get_value("Asset Category", self.categories["chair"], "audit_required"), 0)
 
     # -- the runs ---------------------------------------------------------------------------------
 

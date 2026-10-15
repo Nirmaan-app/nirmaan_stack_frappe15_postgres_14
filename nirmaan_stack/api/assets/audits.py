@@ -24,6 +24,7 @@ from frappe.utils import cint, today
 from nirmaan_stack.integrations.controllers.asset_management import notify_asset_changed
 from nirmaan_stack.services.asset_audit import (
     AUDIT_FULFILLED,
+    AUDIT_PHOTO_EXTENSIONS,
     clean_answers,
     fulfilled_text,
     submit_refusal,
@@ -38,7 +39,6 @@ ASSET_MANAGEMENT_DOCTYPE = "Asset Management"
 ASSET_CATEGORY_DOCTYPE = "Asset Category"
 PROOF_FIELD = "audit_proof"
 ANSWERS_FIELD = "audit_answers"
-IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif")
 
 
 @frappe.whitelist(methods=["POST"])
@@ -140,7 +140,13 @@ def set_category_audit(category: str, required: int | str) -> dict:
     """
     check_may_switch_category_audit()
     required = 1 if cint(required) else 0
-    doc = frappe.get_doc(ASSET_CATEGORY_DOCTYPE, category, for_update=True)
+    try:
+        doc = frappe.get_doc(ASSET_CATEGORY_DOCTYPE, category, for_update=True)
+    except Exception as exc:
+        # Someone switched it at the same moment: on PostgreSQL this lock then fails instead of waiting.
+        if is_serialization_failure(exc):
+            frappe.throw("This category was just changed by someone else. Reload the page and try again.")
+        raise
     if cint(doc.audit_required) == required:
         return {"category": doc.name, "audit_required": required, "opened": 0}
     doc.audit_required = required
@@ -178,7 +184,7 @@ def _claim_photo(file_url: str, user: str, assignment: str) -> None:
     if not claimable:
         frappe.throw("The photo wasn't found. Add it again, then submit.")
     file = claimable[0]
-    if not (file.file_name or "").lower().endswith(IMAGE_EXTENSIONS):
+    if not (file.file_name or "").lower().endswith(AUDIT_PHOTO_EXTENSIONS):
         frappe.throw("The proof must be a photo (JPG, PNG, WEBP or HEIC).")
     frappe.db.set_value(
         "File",

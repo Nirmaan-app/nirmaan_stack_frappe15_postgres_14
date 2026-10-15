@@ -128,7 +128,6 @@ const AssetSubTabsView: React.FC<AssetSubTabsViewProps> = ({ assetType, refreshK
                     <PendingActionsList
                         key={`${assetType}-pending-${refreshKey}`}
                         assetType={assetType}
-                        onUploaded={onAssetChange}
                     />
                 )}
                 {subTab === 'returns' && (

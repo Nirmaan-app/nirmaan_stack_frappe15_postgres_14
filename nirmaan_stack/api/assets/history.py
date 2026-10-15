@@ -17,11 +17,10 @@ import frappe
 from frappe.utils import add_days, cint, getdate
 from frappe.utils.data import get_timespan_date_range
 
+from nirmaan_stack.api.data_table.constants import EXPORT_MAX_PAGE_LENGTH, MAX_PAGE_LENGTH
 from nirmaan_stack.services.asset_history import AUDIT_REQUESTED, AUDIT_FULFILLED, AUDIT_MISSED
 from nirmaan_stack.services.role_profiles import ASSET_AUDIT_VIEW_PROFILES, ASSET_HISTORY_PROFILES, get_role_profile
 
-MAX_PAGE_LENGTH = 200
-MAX_EXPORT_ROWS = 10000
 AUDIT_EVENTS = (AUDIT_REQUESTED, AUDIT_FULFILLED, AUDIT_MISSED)
 
 _BASE_CONDITIONS = ("h.parenttype = 'Asset Master'", "h.parentfield = 'asset_history'")
@@ -76,7 +75,7 @@ def get_asset_history(
         asset: part of the asset ID or name.
         from_date / to_date: YYYY-MM-DD, inclusive.
         category_type: "Project" or "IT" -- rows of assets whose category is of that kind.
-        start / page_length: paging (page_length at most 200).
+        start / page_length: paging (page_length at most the data tables' `MAX_PAGE_LENGTH`).
 
     Returns:
         {"rows": [...], "total": <rows matching the filters>}
@@ -137,7 +136,7 @@ def get_asset_history_table(
     Speaks the table's request (`useServerDataTable` with `apiEndpoint`): `filters` from the column headers as
     [[column, operator, value]] -- `event` / `assigned_to` / `done_by` / `department` "in" a list, `done_on`
     "Between" / ">=" / "<=" / "Is" / "IsNot" / "Timespan" -- `order_by` "<column> asc|desc", `search_term` on the
-    asset ID or name, and paging (`limit_page_length` 0 with `for_export`: every row, at most `MAX_EXPORT_ROWS`).
+    asset ID or name, and paging (`limit_page_length` 0 with `for_export`: every row, at most `EXPORT_MAX_PAGE_LENGTH`).
     Any other column or operator is refused, so a filter never silently matches everything. `doctype`, `fields`
     and the table's other keys are ignored: the row shape is fixed.
 
@@ -155,9 +154,10 @@ def get_asset_history_table(
     conditions, values = _table_conditions(filters, search_term)
 
     if cint(for_export) and not cint(limit_page_length):
-        start, page_length = 0, MAX_EXPORT_ROWS
+        start, page_length = 0, EXPORT_MAX_PAGE_LENGTH
     else:
         start = max(cint(limit_start), 0)
+        # The data tables' cap, which covers every pager size: a smaller cap than asked makes the table skip rows.
         page_length = min(max(cint(limit_page_length) or 50, 1), MAX_PAGE_LENGTH)
     rows, total = _history_rows(conditions, values, _table_order(order_by), start, page_length)
     return {"data": rows, "total_count": total}

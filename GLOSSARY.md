@@ -353,8 +353,8 @@ Approval is checked only inside the approve endpoint. Closing either gap needs a
 - **Holder** — the one person an asset is assigned to right now. Only the holder signs its declaration, asks to
   return it and sends its monthly audit. *Avoid*: owner, user (both mean other things here).
 
-- **Declaration** — the form the holder signs to say they have received the asset and will look after it. Signed
-  in the app, or (Admin only) uploaded as a scan. An asset with no declaration yet is **Pending Declaration**.
+- **Declaration** — the form the holder signs to say they have received the asset and will look after it. Every
+  holder signs their own in the app, Admin included. An asset with no declaration yet is **Pending Declaration**.
 
 - **Return Request** — the holder saying "I've given this back". The asset stays assigned until a manager
   approves (it becomes unassigned) or rejects (the holder keeps it). *Avoid*: return by.

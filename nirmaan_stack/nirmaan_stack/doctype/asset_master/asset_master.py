@@ -7,6 +7,7 @@ from frappe.model.naming import make_autoname
 from frappe.utils import get_datetime
 
 from nirmaan_stack.services.asset_department import can_edit_asset_department
+from nirmaan_stack.services.asset_project import check_asset_project
 from nirmaan_stack.services.departments import assert_active_department
 
 HISTORY_COMPARED_FIELDS = (
@@ -17,8 +18,15 @@ HISTORY_COMPARED_FIELDS = (
 class AssetMaster(Document):
 	def validate(self):
 		self.clear_location_when_project_removed()
+		self.check_project()
 		self.check_department()
 		self.keep_history_unchanged()
+
+	def check_project(self):
+		"""A Won project, on a Project asset only (owner, 2026-10-15; `services/asset_project`). Only when the
+		project changes, so an asset booked earlier to a project that is no longer Won still saves."""
+		if self.is_new() or self.has_value_changed("project"):
+			check_asset_project(self.asset_category, self.project)
 
 	def check_department(self):
 		"""A new asset needs a department; afterwards Edit may only fill or fix it, never clear it

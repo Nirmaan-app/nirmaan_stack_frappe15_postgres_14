@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { useFrappeUpdateDoc, useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappePostCall } from "frappe-react-sdk";
 import {
   Dialog,
   DialogClose,
@@ -17,7 +17,6 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TailSpin } from "react-loader-spinner";
 import { useToast } from "@/components/ui/use-toast";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
-import { CustomAttachment } from "@/components/helpers/CustomAttachment";
 import { formatDate } from "@/utils/FormatDate";
 import {
   CirclePlus,
@@ -30,8 +29,6 @@ import {
   Hash,
   AlertTriangle,
   FileCheck,
-  Upload,
-  FileText,
   Briefcase,
   Laptop,
   PenLine,
@@ -55,11 +52,9 @@ import { AssignAssetToUserDialog } from "./AssignAssetToUserDialog";
 import { SignDeclarationDialog } from "@/pages/Assets/components/SignDeclarationDialog";
 import { SubmitAuditDialog } from "@/pages/Assets/components/SubmitAuditDialog";
 import { AuditStatusRow } from "@/pages/Assets/components/AuditStatusRow";
-import { getAssetPermissions } from "@/pages/Assets/utils/permissions";
 import { UnassignReasonFields } from "@/pages/Assets/components/UnassignReasonFields";
 import { isUnassignReasonValid } from "@/utils/assetUnassign";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { ASSET_MANAGEMENT_DOCTYPE } from "@/pages/Assets/assets.constants";
 
 // Types for asset data
 interface AssetManagementRecord {
@@ -152,7 +147,6 @@ function AssetCard({
   assignment,
   asset,
   isAdmin,
-  canUploadDeclaration,
   canSign,
   canReturn = false,
   returnBlockedByAudit = false,
@@ -160,7 +154,6 @@ function AssetCard({
   audit = null,
   canAudit = false,
   onUnassign,
-  onUploadDeclaration,
   onSign,
   onReturn,
   onAudit,
@@ -170,9 +163,8 @@ function AssetCard({
   isAdmin: boolean;
   /** False when the viewer can't open the asset's page: the name is shown without a link. */
   hasPage?: boolean;
-  /** Uploading a scanned declaration is Admin only; the employee signs in the app instead. */
-  canUploadDeclaration: boolean;
-  /** The viewer is the assignee and the declaration is still pending. */
+  /** The viewer is the assignee and the declaration is still pending. Everyone signs their own, Admin too:
+   * there is no scanned-declaration upload (owner, 2026-10-15). */
   canSign: boolean;
   /** The viewer holds it, the declaration is on file and no return is waiting: show Return. */
   canReturn?: boolean;
@@ -183,7 +175,6 @@ function AssetCard({
   /** The viewer holds it and its audit is open: show Submit audit. */
   canAudit?: boolean;
   onUnassign: () => void;
-  onUploadDeclaration: () => void;
   onSign: () => void;
   onReturn?: () => void;
   onAudit?: () => void;
@@ -313,17 +304,6 @@ function AssetCard({
                 Sign
               </Button>
             )}
-            {isPendingDeclaration && canUploadDeclaration && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onUploadDeclaration}
-                className="h-7 px-2 text-xs gap-1 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                Upload
-              </Button>
-            )}
             {isAdmin && (
               <Button
                 variant="outline"
@@ -375,22 +355,16 @@ export function UserAssetsTab({
 }: UserAssetsTabProps) {
   const { toast } = useToast();
   const userData = useUserData();
-  const { canUploadDeclaration } = getAssetPermissions(userData?.user_id, userData?.role);
-  const { updateDoc } = useFrappeUpdateDoc();
   // One request: the reason is checked, the assignment removed and the reason kept on the asset's
   // "Unassigned" history row (api/assets/assign.py).
   const { call: unassignAsset } = useFrappePostCall("nirmaan_stack.api.assets.assign.unassign_asset");
-  const { upload } = useFrappeFileUpload();
 
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [unassignDialogOpen, setUnassignDialogOpen] = useState(false);
-  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectedAssignment, setSelectedAssignment] = useState<AssetManagementRecord | null>(null);
   const [isUnassigning, setIsUnassigning] = useState(false);
   const [unassignReason, setUnassignReason] = useState("");
   const [unassignDetails, setUnassignDetails] = useState("");
-  const [isUploading, setIsUploading] = useState(false);
-  const [declarationFile, setDeclarationFile] = useState<File | null>(null);
   const [subTab, setSubTab] = useState<AssetSubTab>("Project");
   // The dialog holds the row's name; the live row is read from the refetched list.
   const [signingAssignmentName, setSigningAssignmentName] = useState<string | null>(null);
@@ -540,46 +514,6 @@ export function UserAssetsTab({
     }
   };
 
-  const handleUploadDeclaration = async () => {
-    if (!selectedAssignment || !declarationFile) return;
-
-    setIsUploading(true);
-    try {
-      // Upload the file
-      const fileArgs = {
-        doctype: ASSET_MANAGEMENT_DOCTYPE,
-        docname: selectedAssignment.name,
-        fieldname: "asset_declaration_attachment",
-        isPrivate: true,
-      };
-      const uploadedFile = await upload(declarationFile, fileArgs);
-
-      // Update the Asset Management record with the file URL
-      await updateDoc(ASSET_MANAGEMENT_DOCTYPE, selectedAssignment.name, {
-        asset_declaration_attachment: uploadedFile.file_url,
-      });
-
-      toast({
-        title: "Declaration Uploaded",
-        description: "The declaration document has been uploaded successfully.",
-        variant: "success",
-      });
-
-      setUploadDialogOpen(false);
-      setSelectedAssignment(null);
-      setDeclarationFile(null);
-      onMutate();
-    } catch (error: any) {
-      toast({
-        title: "Upload Failed",
-        description: error?.message || "Failed to upload declaration.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Summary header */}
@@ -703,7 +637,6 @@ export function UserAssetsTab({
                 asset={asset}
                 hasPage={!assetsWithoutPage?.has(assignment.asset)}
                 isAdmin={isAdmin}
-                canUploadDeclaration={canUploadDeclaration}
                 canSign={
                   isOwnProfile &&
                   canSignDeclaration({
@@ -718,10 +651,6 @@ export function UserAssetsTab({
                   setUnassignReason("");
                   setUnassignDetails("");
                   setUnassignDialogOpen(true);
-                }}
-                onUploadDeclaration={() => {
-                  setSelectedAssignment(assignment);
-                  setUploadDialogOpen(true);
                 }}
                 onSign={() => setSigningAssignmentName(assignment.name)}
                 canReturn={returnable && assignment.audit_status !== AUDIT_PENDING}
@@ -754,7 +683,6 @@ export function UserAssetsTab({
         unassignedAssets={unassignedAssets}
         categoryList={categoryList}
         initialAssetType={subTab}
-        canUploadDeclaration={canUploadDeclaration}
         onAssigned={onMutate}
       />
 
@@ -878,66 +806,6 @@ export function UserAssetsTab({
                 >
                   <UserMinus className="h-4 w-4" />
                   Unassign
-                </Button>
-              </>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Upload Declaration Dialog */}
-      <Dialog open={uploadDialogOpen} onOpenChange={(open) => {
-        setUploadDialogOpen(open);
-        if (!open) {
-          setDeclarationFile(null);
-        }
-      }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
-              <FileText className="h-6 w-6 text-amber-600" />
-            </div>
-            <DialogTitle className="text-center">Upload Declaration</DialogTitle>
-            <DialogDescription className="text-center">
-              Upload declaration document for{" "}
-              <span className="font-medium text-foreground">
-                {getAssetDetails(selectedAssignment?.asset || "")?.asset_name || selectedAssignment?.asset}
-              </span>
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="py-4">
-            <CustomAttachment
-              selectedFile={declarationFile}
-              onFileSelect={setDeclarationFile}
-              acceptedTypes={["image/*", "application/pdf"]}
-              label="Upload Declaration Document"
-              maxFileSize={10 * 1024 * 1024}
-              onError={(err) =>
-                toast({
-                  title: "File Error",
-                  description: err.message,
-                  variant: "destructive",
-                })
-              }
-            />
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            {isUploading ? (
-              <TailSpin color="hsl(var(--primary))" height={40} width={40} />
-            ) : (
-              <>
-                <DialogClose asChild>
-                  <Button variant="outline">Cancel</Button>
-                </DialogClose>
-                <Button
-                  onClick={handleUploadDeclaration}
-                  disabled={!declarationFile}
-                  className="gap-1 bg-amber-600 hover:bg-amber-700"
-                >
-                  <Upload className="h-4 w-4" />
-                  Upload
                 </Button>
               </>
             )}

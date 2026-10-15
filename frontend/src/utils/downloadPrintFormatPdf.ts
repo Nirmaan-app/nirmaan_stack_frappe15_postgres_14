@@ -38,7 +38,12 @@ export async function downloadPrintFormatPdf({ doctype, name, format, fileName, 
     if (value) query.append(key, value);
   });
 
-  const response = await fetch(`/api/method/frappe.utils.print_format.download_pdf?${query.toString()}`);
+  await downloadPdfFrom(`/api/method/frappe.utils.print_format.download_pdf?${query.toString()}`, fileName);
+}
+
+/** Download the PDF a URL answers with (e.g. an app endpoint that renders one) as `fileName`. */
+export async function downloadPdfFrom(pdfUrl: string, fileName: string) {
+  const response = await fetch(pdfUrl);
   await assertPdfResponse(response);
 
   const url = window.URL.createObjectURL(await response.blob());

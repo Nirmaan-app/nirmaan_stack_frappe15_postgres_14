@@ -91,6 +91,38 @@ def sign_declaration(assignment: str, signature: str) -> dict:
     return {"file_url": row.get(DECLARATION_FIELD)}
 
 
+@frappe.whitelist(methods=["GET"])
+def read_declaration_form(assignment: str) -> None:
+    """The declaration form of an asset the signed-in person holds, as a PDF to read before signing.
+
+    Frappe's own print download refuses anyone who can't read the asset, so a project-scoped holder (a PM
+    whose asset is booked to a project they aren't on) could sign but not read what they sign. Every holder
+    may read their form, whatever the project (owner, 2026-10-15): the same holder rule as signing
+    (`sign_refusal`, whether or not it is signed yet), then the same render.
+
+    Example:
+        GET /api/method/nirmaan_stack.api.assets.declaration.read_declaration_form?assignment=k72sevcfkp
+    """
+    if not frappe.db.exists(ASSET_MANAGEMENT_DOCTYPE, assignment):
+        frappe.throw("This asset is no longer assigned to you. Reload the page.")
+    row = frappe.get_doc(ASSET_MANAGEMENT_DOCTYPE, assignment)
+    refusal = sign_refusal(
+        signer=frappe.session.user,
+        assigned_to=row.asset_assigned_to,
+        current_assignee=frappe.db.get_value(ASSET_MASTER_DOCTYPE, row.asset, "current_assignee"),
+        has_declaration=False,
+    )
+    if refusal == NOT_ASSIGNEE:
+        frappe.throw("Only the person this asset is assigned to can read its declaration form.", frappe.PermissionError)
+    if refusal:
+        frappe.throw(REFUSAL_MESSAGES[refusal])
+
+    asset = frappe.get_doc(ASSET_MASTER_DOCTYPE, row.asset)
+    frappe.local.response.filename = f"{asset.asset_name or asset.name}_Declaration_Form.pdf"
+    frappe.local.response.filecontent = _render_declaration_pdf(asset)
+    frappe.local.response.type = "pdf"
+
+
 def signing_lock(assignment: str):
     """The Redis lock that lets one signing of `assignment` run at a time, on this site."""
     return frappe.cache.lock(
@@ -123,9 +155,10 @@ def _render_declaration_pdf(asset) -> bytes:
 
     Frappe's print view refuses anyone who can't read the Asset Master, and a project-scoped person (a PM)
     can't read an asset booked to a project outside their project User Permissions -- ASSET-ANE-002 on
-    GURGAON-PROJ-00037 for a PM on four other projects. The signer was already checked as the asset's
-    holder (`_assert_can_sign`), and an asset assigned to a person always shows for them (owner,
-    2026-10-13), so print permissions are skipped for this one render and restored after.
+    GURGAON-PROJ-00037 for a PM on four other projects. The caller was already checked as the asset's
+    holder (`_assert_can_sign` to sign, `sign_refusal` in `read_declaration_form` to read), and an asset
+    assigned to a person always shows for them (owner, 2026-10-13), so print permissions are skipped for
+    this one render and restored after. Unsigned (no `asset.declaration`), it is the blank form.
     """
     previous = frappe.flags.ignore_print_permissions
     frappe.flags.ignore_print_permissions = True

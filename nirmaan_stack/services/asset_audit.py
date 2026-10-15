@@ -39,6 +39,9 @@ MAX_AUDIT_ANSWERS = 10
 MAX_ANSWER_LABEL_LENGTH = 300  # a question or a choice
 MAX_ANSWER_TEXT_LENGTH = 200
 
+# The file types an audit photo may be (`api/assets/audits.submit_audit` and the Asset Management validate).
+AUDIT_PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif")
+
 
 def audit_month_label(day: date) -> str:
     """The month an audit is for, as `audit_month` stores it: "09/2026", always two digits.

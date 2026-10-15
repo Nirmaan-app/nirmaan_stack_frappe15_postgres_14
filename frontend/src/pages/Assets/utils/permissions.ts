@@ -14,8 +14,9 @@ export const ASSET_ADMIN_ROLES = [
     'Nirmaan PMO Executive Profile',
 ] as const;
 
-// Roles that can manage assets (add, edit, assign) but not all admin functions
-export const ASSET_HR_ROLE = 'Nirmaan HR Executive Profile' as const;
+// Roles that can manage assets (add, edit, assign) but not all admin functions. HR Lead has every asset
+// permission HR Executive has (owner, 2026-10-15).
+export const ASSET_HR_ROLES: readonly string[] = [HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
 
 // Roles that have limited asset management capabilities (add assets, assign/unassign)
 export const ASSET_PROCUREMENT_ROLES = PROCUREMENT_PROFILES;
@@ -32,14 +33,14 @@ export const ASSET_HISTORY_ROLES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTI
  * Mirrors `ASSET_ASSIGN_ALL_PROFILES` / `ASSET_ASSIGN_PROJECT_PROFILES` in
  * `nirmaan_stack/services/role_profiles.py`, which the server enforces -- keep the two in sync.
  */
-export const ASSET_ASSIGN_ALL_ROLES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, PMO_EXECUTIVE_PROFILE];
+export const ASSET_ASSIGN_ALL_ROLES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE];
 
 // Combined list of all roles that can access assets module
-export const ASSET_ACCESS_ROLES = [
+export const ASSET_ACCESS_ROLES: readonly string[] = [
     ...ASSET_ADMIN_ROLES,
-    ASSET_HR_ROLE,
+    ...ASSET_HR_ROLES,
     ...ASSET_PROCUREMENT_ROLES,
-] as const;
+];
 
 export interface AssetPermissions {
     /** Can view the Assets module and all lists */
@@ -64,8 +65,6 @@ export interface AssetPermissions {
     canManageCategories: boolean;
     /** Can see the asset history (Admin and HR only) */
     canViewHistory: boolean;
-    /** Can upload a signed declaration scan, anywhere it is offered (Admin only) */
-    canUploadDeclaration: boolean;
     /**
      * Can see and switch a category's "Monthly audit required" (owner, 2026-10-14): Admin only (Admin
      * profile + Administrator). Mirrors `ASSET_CATEGORY_AUDIT_PROFILES` in services/role_profiles.py.
@@ -77,6 +76,8 @@ export interface AssetPermissions {
  * Get granular asset permissions for a user based on their role
  *
  * Permission matrix:
+ * HR = HR Executive and HR Lead.
+ *
  * | Capability        | Admin/PMO | HR | Procurement |
  * |-------------------|-----------|----| ------------|
  * | View Assets       | ✓         | ✓  | ✓           |
@@ -93,7 +94,7 @@ export function getAssetPermissions(
 ): AssetPermissions {
     const isAdmin = userId === 'Administrator';
     const isAdminRole = ASSET_ADMIN_ROLES.includes(role as typeof ASSET_ADMIN_ROLES[number]);
-    const isHRRole = role === ASSET_HR_ROLE;
+    const isHRRole = ASSET_HR_ROLES.includes(role ?? '');
     const isProcurementRole = isProcurementProfile(role);
 
     // Full admin access: Administrator user or Admin/PMO roles
@@ -136,9 +137,7 @@ export function getAssetPermissions(
         // Asset history: Admin and HR (Executive + Lead) only -- not PMO, not Procurement
         canViewHistory: isAdmin || ASSET_HISTORY_ROLES.includes(role ?? ''),
 
-        // Every declaration upload -- Pending Declaration list, asset page, user page card and Assign
-        // dialog: Admin only (owner, 2026-10-12); employees sign in the app.
-        canUploadDeclaration: isAdmin || role === ADMIN_PROFILE,
+        // No declaration upload for anyone (owner, 2026-10-15): everyone signs their own in the app, Admin too.
 
         // Monthly asset audit (owner, 2026-10-14)
         canSwitchCategoryAudit: isAdmin || role === ADMIN_PROFILE,

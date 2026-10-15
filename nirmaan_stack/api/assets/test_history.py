@@ -8,6 +8,7 @@ Run: bench --site localhost run-tests --module nirmaan_stack.api.assets.test_his
 """
 
 import json
+from unittest.mock import patch
 
 import frappe
 from frappe.model.delete_doc import get_linked_docs
@@ -169,6 +170,17 @@ class TestAssetHistoryTable(_HistoryFixture):
         page = self._table(limit_start=1, limit_page_length=1)
         self.assertEqual((page["total_count"], [r.event for r in page["data"]]), (2, ["Asset Added"]))
         self.assertEqual(len(self._table(limit_page_length=0, for_export=1)["data"]), 2)  # export: every row
+
+    def test_the_page_size_the_pager_asks_for_is_read(self):
+        # A cap below the pager's sizes made the table skip rows (500 per page: rows 201-500 on no page).
+        for asked, read in ((500, 500), (1000, 1000), (10000, 10000), (20000, 10000)):
+            with patch("nirmaan_stack.api.assets.history._history_rows", return_value=([], 0)) as rows:
+                self._table(limit_start=asked, limit_page_length=asked)
+            self.assertEqual(rows.call_args.args[3:], (asked, read), asked)
+        # Export reads every row, up to the data tables' export cap.
+        with patch("nirmaan_stack.api.assets.history._history_rows", return_value=([], 0)) as rows:
+            self._table(limit_page_length=0, for_export=1)
+        self.assertEqual(rows.call_args.args[3:], (0, 100_000))
 
     def test_a_filter_the_table_does_not_send_is_refused(self):
         for bad in (

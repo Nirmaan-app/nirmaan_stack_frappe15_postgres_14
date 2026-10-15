@@ -35,7 +35,7 @@ import {
 import { useAssetDataRefresh } from '../hooks/useAssetDataRefresh';
 import { useAssetMasterNamesByType } from '../hooks/useAssetMasterNamesByType';
 import { useAssetProjectOptions } from '../hooks/useAssetProjectOptions';
-import { assignmentDepartmentColumn } from '../utils/departmentColumn';
+import { assignmentDepartmentColumn, departmentFacetOptions, matchesDepartmentFilter } from '../utils/departmentColumn';
 import { getAssetPermissions } from '../utils/permissions';
 import { AssetLookupFacetFilter } from './AssetLookupFacetFilter';
 
@@ -153,20 +153,25 @@ const ReturnRequestsTable: React.FC<ReturnRequestsListProps & { masterNames: str
             asset: toOptions(count(rows.map((row) => row.asset)), (id) => assetsMap[id]?.asset_name || id),
             returnedBy: toOptions(count(rows.map((row) => row.asset_assigned_to)), (id) => usersMap[id] || id),
             category: toOptions(count(rows.map((row) => assetsMap[row.asset]?.asset_category || '')), (c) => c),
+            department: departmentFacetOptions(rows.map((row) => assetsMap[row.asset]?.department)),
         };
     }, [facetSource, assetsMap, usersMap]);
 
-    // Category lives on the Asset Master, so its funnel holds the selection here and narrows `asset`.
+    // Category and Department live on the Asset Master, so their funnels hold the selection here and narrow
+    // `asset`. Neither column sorts: it isn't a field of these rows (owner, 2026-10-15: filters, not sorting).
     const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
+    const [departmentFilter, setDepartmentFilter] = useState<string[]>([]);
     const additionalFilters = useMemo(() => {
-        const names = categoryFilter.length
-            ? masterNames.filter((name) => categoryFilter.includes(assetsMap[name]?.asset_category || ''))
-            : masterNames;
+        const names = masterNames.filter(
+            (name) =>
+                (!categoryFilter.length || categoryFilter.includes(assetsMap[name]?.asset_category || '')) &&
+                (!departmentFilter.length || matchesDepartmentFilter(assetsMap[name]?.department, departmentFilter))
+        );
         return [
             ['returned', '=', 1],
             ['asset', 'in', names.length ? names : ['__none__']],
         ];
-    }, [masterNames, categoryFilter, assetsMap]);
+    }, [masterNames, categoryFilter, departmentFilter, assetsMap]);
 
     // Approve / Reject
     const userData = useUserData();
@@ -266,7 +271,10 @@ const ReturnRequestsTable: React.FC<ReturnRequestsListProps & { masterNames: str
             ),
             size: 110,
         },
-        assignmentDepartmentColumn<ReturnRow>((assetId) => assetsMap[assetId]?.department),
+        assignmentDepartmentColumn<ReturnRow>((assetId) => assetsMap[assetId]?.department, {
+            options: facets.department,
+            onChange: setDepartmentFilter,
+        }),
         ...(isProjectTab
             ? ([
                   {

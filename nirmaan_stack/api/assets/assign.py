@@ -14,6 +14,7 @@ import frappe
 from nirmaan_stack.integrations.controllers.asset_management import free_asset, notify_asset_changed
 from nirmaan_stack.services.asset_assign_access import check_may_assign
 from nirmaan_stack.services.asset_history import UNASSIGNED, add_history
+from nirmaan_stack.services.asset_project import check_asset_project
 from nirmaan_stack.services.asset_unassign import unassign_reason_refusal, unassign_reason_text
 
 ASSET_MASTER_DOCTYPE = "Asset Master"
@@ -50,6 +51,8 @@ def assign_asset(
     """
     if not frappe.has_permission(ASSET_MANAGEMENT_DOCTYPE, "create"):
         frappe.throw("You don't have permission to assign assets.", frappe.PermissionError)
+    # A Won project, on a Project asset only (owner, 2026-10-15) -- checked before anything is written.
+    check_asset_project(frappe.db.get_value(ASSET_MASTER_DOCTYPE, asset, "asset_category"), project)
 
     assignment = frappe.get_doc({
         "doctype": ASSET_MANAGEMENT_DOCTYPE,

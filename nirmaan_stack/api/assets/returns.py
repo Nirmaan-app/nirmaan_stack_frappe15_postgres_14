@@ -20,7 +20,7 @@ from frappe.utils import formatdate, today
 from nirmaan_stack.api.assets.assign import unassign_asset
 from nirmaan_stack.services.asset_assign_access import check_may_assign
 from nirmaan_stack.services.asset_audit import AUDIT_PENDING, NOTE_RETURN_REJECTED
-from nirmaan_stack.services.asset_audit_open import open_due_audits
+from nirmaan_stack.services.asset_audit_open import is_serialization_failure, open_due_audits
 from nirmaan_stack.services.asset_history import RETURN_REJECTED, RETURN_REQUESTED, add_history
 
 ASSET_MASTER_DOCTYPE = "Asset Master"
@@ -111,7 +111,17 @@ def reject_return(assignment: str) -> dict:
 
 
 def _assignment(name: str, for_update: bool = False):
-    """The assignment, or a plain message when someone already approved its return in another window."""
+    """The assignment, or a plain message when someone already approved its return in another window.
+
+    With `for_update`, a second request on the same row (a double-click on Return, two managers rejecting
+    at once) fails its lock on PostgreSQL once the first commits; it gets a "reload" message instead of a
+    database error.
+    """
     if not frappe.db.exists(ASSET_MANAGEMENT_DOCTYPE, name):
         frappe.throw("This asset is no longer assigned -- its return was already approved. Reload the page.")
-    return frappe.get_doc(ASSET_MANAGEMENT_DOCTYPE, name, for_update=for_update)
+    try:
+        return frappe.get_doc(ASSET_MANAGEMENT_DOCTYPE, name, for_update=for_update)
+    except Exception as exc:
+        if is_serialization_failure(exc):
+            frappe.throw("This asset was just changed in another window. Reload the page.")
+        raise

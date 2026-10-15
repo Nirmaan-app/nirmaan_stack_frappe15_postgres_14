@@ -192,19 +192,16 @@ class TestAssetDepartmentsAndHistory(FrappeTestCase):
 
     # -- the assign endpoint --------------------------------------------------------------------
 
-    def test_assign_endpoint_moves_department_sets_project_and_logs_reason(self):
-        project = frappe.db.get_value("Projects", {"project_city": ["is", "set"]}, ["name", "project_city", "project_state"], as_dict=True)
+    def test_assign_endpoint_moves_department_and_logs_reason(self):
+        # This suite's asset is an IT asset, which takes no project (owner, 2026-10-15): booking a Won project
+        # on a Project asset is tested in api/assets/test_assign_access.
         with patch("frappe.db.commit"):  # keep everything inside this test's rollback
             result = assign_asset(
                 self.asset, self.accountant, frappe.utils.today(),
-                project=project.name if project else None,
                 department_change_reason="Moved to the accounts team",
             )
         self.assertEqual(result["department"], "Accounts")
         self.assertEqual(self._asset("current_assignee"), self.accountant)
-        if project:
-            self.assertEqual(self._asset("project"), project.name)
-            self.assertEqual(self._asset("asset_city"), project.project_city)
         row = self._history()[-1]
         self.assertEqual((row.event, row.from_department, row.to_department, row.reason),
                          ("Assigned", "Projects", "Accounts", "Moved to the accounts team"))

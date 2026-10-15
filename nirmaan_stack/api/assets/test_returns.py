@@ -247,3 +247,32 @@ class TestReceiveAndReturn(FrappeTestCase):
         approve_return(assignment)
         with self.assertRaisesRegex(frappe.ValidationError, "already approved"):
             approve_return(assignment)
+
+    # -- two people at once (#6, owner 2026-10-15) ---------------------------------------------------
+
+    def test_a_second_simultaneous_return_or_reject_gets_a_plain_message(self):
+        """A double-click on Return, or two managers rejecting at once: the second lock fails on PostgreSQL."""
+
+        class SerializationFailure(Exception):
+            pgcode = "40001"
+
+        real = frappe.get_doc
+
+        def lock_fails(*args, **kwargs):
+            if kwargs.get("for_update"):
+                raise SerializationFailure()
+            return real(*args, **kwargs)
+
+        _, assignment = self._assign()
+        frappe.set_user(self.holder)
+        with patch.object(frappe, "get_doc", side_effect=lock_fails):
+            with self.assertRaisesRegex(frappe.ValidationError, "just changed in another window"):
+                request_return(assignment)
+        self.assertEqual(self._row(assignment).returned, 0)
+
+        _, returned = self._returned()
+        frappe.set_user(self.pmo)
+        with patch.object(frappe, "get_doc", side_effect=lock_fails):
+            with self.assertRaisesRegex(frappe.ValidationError, "just changed in another window"):
+                reject_return(returned)
+        self.assertEqual(self._row(returned).returned, 1)

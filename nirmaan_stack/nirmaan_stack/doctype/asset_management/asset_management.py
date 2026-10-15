@@ -1,12 +1,17 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
+import json
+
 import frappe
 from frappe.model.document import Document
 from frappe.utils import today
 
 from nirmaan_stack.services.asset_assign_access import check_may_assign
+from nirmaan_stack.services.asset_audit import AUDIT_FULFILLED, AUDIT_PHOTO_EXTENSIONS, clean_answers
+from nirmaan_stack.services.asset_audit_open import is_serialization_failure
 from nirmaan_stack.services.asset_department import department_move, reason_refusal
+from nirmaan_stack.services.departments import DEPARTMENT_DOCTYPE
 
 
 class AssetManagement(Document):
@@ -22,6 +27,33 @@ class AssetManagement(Document):
 		else:
 			self.keep_asset_and_person()
 		self.mark_received()
+		self.check_fulfilled_audit()
+
+	def check_fulfilled_audit(self):
+		"""An audit is Fulfilled only with a photo and the answers to its questions (owner, 2026-10-15).
+
+		The Submit audit dialog sends both through `api/assets/audits.submit_audit`, which checks them and writes
+		with `set_value` (no validate). This is the same rule on the record, for every other save -- the REST API,
+		Desk -- so an audit can't be marked done by setting `audit_status` alone. A save that leaves the audit as
+		it was (a return, a declaration) isn't checked: audits sent before the questions existed have no answers.
+		"""
+		if self.audit_status != AUDIT_FULFILLED:
+			return
+		before = None if self.is_new() else self.get_doc_before_save()
+		if (
+			before
+			and before.audit_status == self.audit_status
+			and (before.audit_proof or None) == (self.audit_proof or None)
+			and _answers_of(before.audit_answers) == _answers_of(self.audit_answers)
+		):
+			return
+		if not _is_photo_file(self.audit_proof):
+			frappe.throw("An audit can be marked Fulfilled only with a photo of the asset. Send it from Submit audit.")
+		_, refusal = clean_answers(_answers_of(self.audit_answers))
+		if refusal:
+			frappe.throw(
+				"An audit can be marked Fulfilled only with the answers to its questions. Send it from Submit audit."
+			)
 
 	def mark_received(self):
 		"""A declaration arriving -- signed in the app or a signed scan uploaded -- means the person has the
@@ -54,11 +86,18 @@ class AssetManagement(Document):
 	def check_not_already_assigned(self):
 		"""One holder per asset: the asset's current holder decides, not any assignment row.
 
-		Reading the holder with a row lock makes two people assigning the same asset at once take
-		turns, so the second one sees the holder the first one set and is refused. An old leftover row
-		for someone else (ASSET-LAP-029 had one) must not block a free asset, so the rows aren't asked.
+		The holder is read with a row lock, so two people assigning the same asset at once can't both win.
+		On PostgreSQL (REPEATABLE READ) the second one's lock fails with a serialization error once the
+		first commits, so it gets a plain "reload" message here rather than a database error. An old
+		leftover row for someone else (ASSET-LAP-029 had one) must not block a free asset, so the rows
+		aren't asked.
 		"""
-		holder = frappe.db.get_value("Asset Master", self.asset, "current_assignee", for_update=True)
+		try:
+			holder = frappe.db.get_value("Asset Master", self.asset, "current_assignee", for_update=True)
+		except Exception as exc:
+			if is_serialization_failure(exc):
+				frappe.throw(f"{self.asset} was just assigned or changed by someone else. Reload the page and try again.")
+			raise
 		if holder:
 			holder_name = frappe.db.get_value("Nirmaan Users", holder, "full_name") or holder
 			frappe.throw(f"{self.asset} is already assigned to {holder_name}. Unassign it first.")
@@ -75,6 +114,10 @@ class AssetManagement(Document):
 		asset_department = frappe.db.get_value("Asset Master", self.asset, "department")
 		person_department = frappe.db.get_value("Nirmaan Users", self.asset_assigned_to, "department")
 		move = department_move(asset_department, person_department)
+		# Departments are never switched off in practice (owner, 2026-10-15). If the person's one is, the asset
+		# would land in a department nobody can pick: refuse, and let the admin fix the department.
+		if move and not frappe.db.get_value(DEPARTMENT_DOCTYPE, move[1], "is_active"):
+			frappe.throw(f"The {move[1]} department is inactive. Report it to the admin.")
 
 		reason = self.flags.department_change_reason
 		refusal = reason_refusal(move, reason)
@@ -83,3 +126,22 @@ class AssetManagement(Document):
 
 		self.flags.department_move = move
 		self.flags.department_reason = (reason or "").strip() if move and move[0] else None
+
+
+def _answers_of(value):
+	"""The answers list of an `audit_answers` value: `{"answers": [...]}` as the database returns it, or as a JSON
+	string from a client. None for anything else (a bare list, broken JSON, empty)."""
+	if isinstance(value, str):
+		try:
+			value = json.loads(value)
+		except ValueError:
+			return None
+	return value.get("answers") if isinstance(value, dict) else None
+
+
+def _is_photo_file(file_url) -> bool:
+	"""An uploaded file with this URL whose name is a photo's (`AUDIT_PHOTO_EXTENSIONS`)."""
+	if not file_url:
+		return False
+	names = frappe.get_all("File", filters={"file_url": file_url}, pluck="file_name")
+	return any((name or "").lower().endswith(AUDIT_PHOTO_EXTENSIONS) for name in names)
