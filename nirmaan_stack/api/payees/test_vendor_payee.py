@@ -25,6 +25,7 @@ from nirmaan_stack.api.payees.vendor_payee import check_vendor_payee, get_payee_
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.services.payees.choosing import suggest_for_vendor
 from nirmaan_stack.services.payees.matching import NAME_ONLY, STRONG
+from nirmaan_stack.services.payees.pay_to import ACCOUNT_FIELDS, PAY_TO_FIELDS
 from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE
 
 U = "Administrator"
@@ -73,12 +74,15 @@ class TestVendorPayee(FrappeTestCase):
         self.fx.payments.append(name)
 
     def _expense(self, doctype, payee, status="Approved", payment_date=None):
+        """An expense paid into `payee`'s account: its own pay-to copy (an expense has no payee link, #1438)."""
         name = f"TEST-PYE-EXP-{frappe.generate_hash(length=10)}"
+        account = frappe.db.get_value(PAYEE_DOCTYPE, payee, list(ACCOUNT_FIELDS))
+        columns = ", ".join(PAY_TO_FIELDS)
         frappe.db.sql(
             f"""INSERT INTO "tab{doctype}" (name, creation, modified, modified_by, owner, docstatus, idx,
-                    amount, status, payee, payment_date)
-                VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, 500, %s, %s, %s)""",
-            (name, U, U, status, payee, payment_date),
+                    amount, status, payment_date, {columns})
+                VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, 500, %s, %s, {", ".join(["%s"] * len(PAY_TO_FIELDS))})""",
+            (name, U, U, status, payment_date, *account),
         )
         self.expenses.append((doctype, name))
         return name
