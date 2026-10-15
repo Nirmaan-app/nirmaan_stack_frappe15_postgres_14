@@ -426,11 +426,11 @@ class TestTheMatcherIsNeverCalled(FrappeTestCase):
         from nirmaan_stack.api.outflow_import.test_cashbook_import import (
             TestItNeverSettlesAnExistingRecord,
         )
-        from nirmaan_stack.api.outflow_import import porter_create
+        from nirmaan_stack.api.outflow_import import porter_create, porter_rectify
         from nirmaan_stack.services.outflow_import import porter as porter_service
 
         guard = TestItNeverSettlesAnExistingRecord
-        for module in (porter_api, porter_create, porter_service):
+        for module in (porter_api, porter_create, porter_rectify, porter_service):
             with self.subTest(module=module.__name__):
                 self.assertEqual(guard.forbidden_imports(module), [])
                 self.assertEqual(guard.forbidden_calls(module), [])

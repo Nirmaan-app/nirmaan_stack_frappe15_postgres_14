@@ -3,7 +3,7 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowUp, ChevronRight, CornerUpLeft, ExternalLink, Filter, Landmark, List, X } from "lucide-react";
+import { ArrowDown, ArrowRightLeft, ArrowUp, ChevronRight, CornerUpLeft, ExternalLink, Filter, Landmark, List, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,7 @@ import {
     confirmByHandNote,
     unreconcileAffordance,
 } from "../unreconcileView";
+import { rectifyAffordance } from "../porterRectify";
 
 interface Props {
     rows: OutflowImportRow[];
@@ -122,6 +123,13 @@ interface Props {
      * ⚠️ PASS A STABLE CALLBACK (`useCallback`). Every memoized row receives it.
      */
     onUnreconcile?: (row: OutflowImportRow) => void;
+    /**
+     * Open the Rectify dialog for a Settled Porter line (#1449). Presence is the gate, as for
+     * `onUnreconcile` (the same roles); the button shows only on a Porter line (`rectifyAffordance`).
+     *
+     * ⚠️ PASS A STABLE CALLBACK (`useCallback`). Every memoized row receives it.
+     */
+    onRectify?: (row: OutflowImportRow) => void;
 }
 
 export interface TableActionColumn {
@@ -161,6 +169,7 @@ export const OutflowRowsTable = ({
     onOpenDecision,
     actionColumn,
     onUnreconcile,
+    onRectify,
     columns: columnSet = OUTFLOW_COLUMNS,
 }: Props) => {
     const columns = useMemo(
@@ -245,6 +254,7 @@ export const OutflowRowsTable = ({
                             onOpenDecision={onOpenDecision}
                             actionColumn={actionColumn}
                             onUnreconcile={onUnreconcile}
+                            onRectify={onRectify}
                         />
                     ))}
                 </tbody>
@@ -526,6 +536,7 @@ interface RowProps {
     onOpenDecision: (row: OutflowImportRow) => void;
     actionColumn?: TableActionColumn;
     onUnreconcile?: (row: OutflowImportRow) => void;
+    onRectify?: (row: OutflowImportRow) => void;
 }
 
 const Row = memo(function Row({
@@ -542,6 +553,7 @@ const Row = memo(function Row({
     onOpenDecision,
     actionColumn,
     onUnreconcile,
+    onRectify,
 }: RowProps) {
     return (
         <tr className={`border-t ${selected ? "bg-primary/5" : "hover:bg-muted/40"}`}>
@@ -583,6 +595,7 @@ const Row = memo(function Row({
                         origin={origin}
                         onOpenDecision={onOpenDecision}
                         onUnreconcile={onUnreconcile}
+                        onRectify={onRectify}
                     />
                 </td>
             ))}
@@ -599,6 +612,7 @@ const Cell = ({
     origin,
     onOpenDecision,
     onUnreconcile,
+    onRectify,
 }: {
     row: OutflowImportRow;
     column: OutflowColumn;
@@ -607,6 +621,7 @@ const Cell = ({
     origin: DecisionOrigin;
     onOpenDecision: (row: OutflowImportRow) => void;
     onUnreconcile?: (row: OutflowImportRow) => void;
+    onRectify?: (row: OutflowImportRow) => void;
 }) => {
     switch (column.id) {
         case "added_on":
@@ -715,6 +730,7 @@ const Cell = ({
                     origin={origin}
                     onOpenDecision={onOpenDecision}
                     onUnreconcile={onUnreconcile}
+                    onRectify={onRectify}
                 />
             );
 
@@ -764,12 +780,14 @@ const OutcomeButton = ({
     origin,
     onOpenDecision,
     onUnreconcile,
+    onRectify,
 }: {
     row: OutflowImportRow;
     decided: boolean;
     origin: DecisionOrigin;
     onOpenDecision: (row: OutflowImportRow) => void;
     onUnreconcile?: (row: OutflowImportRow) => void;
+    onRectify?: (row: OutflowImportRow) => void;
 }) => {
     // ⚠️ READ THE SET, never re-spell it. This was two string literals, the one place in the
     // client that duplicated the terminal vocabulary -- so a change to the module could not reach
@@ -786,6 +804,8 @@ const OutcomeButton = ({
         const byHand = skippedByHandLine(row);
         // #1275: a Settled line gets Unreconcile below its record links -- any source since #1314.
         const undo = unreconcileAffordance(row, Boolean(onUnreconcile));
+        // #1449: beside it on a Porter line, for the same roles (presence of the prop is the gate).
+        const rectify = rectifyAffordance(row, Boolean(onRectify));
         return (
             <div className={`${OUTCOME_CELL_WIDTH} space-y-1`}>
                 <span className="block truncate text-xs text-muted-foreground" title={note}>
@@ -804,17 +824,34 @@ const OutcomeButton = ({
                           <SettledRecordLine key={`${target.doctype}-${target.name}`} target={target} />
                       ))
                     : links.map((link) => <RecordLink key={`${link.href}-${link.label}`} link={link} />)}
-                {undo === "button" && onUnreconcile && (
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-7 gap-1 px-2 text-xs"
-                        onClick={() => onUnreconcile(row)}
-                    >
-                        <CornerUpLeft className="h-3.5 w-3.5 shrink-0" />
-                        Unreconcile
-                    </Button>
+                {(undo === "button" || rectify) && (
+                    <div className="flex flex-wrap gap-1">
+                        {undo === "button" && onUnreconcile && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 gap-1 px-2 text-xs"
+                                onClick={() => onUnreconcile(row)}
+                            >
+                                <CornerUpLeft className="h-3.5 w-3.5 shrink-0" />
+                                Unreconcile
+                            </Button>
+                        )}
+                        {/* #1449: a created Porter order moves to another project with Rectify. */}
+                        {rectify && onRectify && (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 gap-1 px-2 text-xs"
+                                onClick={() => onRectify(row)}
+                            >
+                                <ArrowRightLeft className="h-3.5 w-3.5 shrink-0" />
+                                Rectify
+                            </Button>
+                        )}
+                    </div>
                 )}
             </div>
         );

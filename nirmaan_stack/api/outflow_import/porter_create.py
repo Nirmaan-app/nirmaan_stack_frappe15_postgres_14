@@ -65,6 +65,7 @@ from nirmaan_stack.services.outflow_import.porter import (
     EXPENSE_TYPE,
     IMPORT_CREATED,
     MATCH_BASIS,
+    booked_by as booked_by_of,
     expense_description,
     porter_order_fields,
     statement_line,
@@ -205,7 +206,7 @@ def _create_one(name: str, batch: str, actor: str, invoices: dict[str, ExpenseIn
     doctype = row.suggested_doctype
     project = row.resolved_project if doctype == PROJECT_EXPENSE_DOCTYPE else None
     project_name = frappe.db.get_value("Projects", project, "project_name") if project else ""
-    booked_by = (statement.get("customer_name") or "").strip()
+    booked_by = booked_by_of(statement)
 
     # ⚠️ THE ADAPTER, NOT THE RAW ROW: the writer reads `added_on_date` and a Decimal `amount` by
     # attribute (see `cashbook._write_one`, where a raw doc cost 115 blank payment dates).

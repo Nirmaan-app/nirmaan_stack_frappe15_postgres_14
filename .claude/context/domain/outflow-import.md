@@ -6528,7 +6528,7 @@ four shapes) and the IFSC cases in `TestTheContainsQueryMirrorsThePureTokens`; `
 (3: the prompt text, a branch-code-only inflow, an inflow another line accounts for).
 
 
-## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, validation at #1444, review at #1446, create at #1445, the rest NOT BUILT YET)
+## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, validation at #1444, review at #1446, create at #1445, rectify at #1449, the rest NOT BUILT YET)
 
 Decisions: **[ADR-0032](../../../docs/adr/0032-porter-statement-import.md)** (owner grilling, Q1–Q36).
 Terms: `GLOSSARY.md` § *Porter deliveries*. The design below is the target; § *As built* at the end of
@@ -6896,3 +6896,70 @@ Porter Order fields); `api/expense_requests/test_fixture_completeness.py` (both 
 Invoice, which only Admin, Accountant and Accountant Lead can read: other roles who can open the expense get
 403 on the PDF (story 53, for #1450). An `Error` line cannot be re-placed in Review (it is not `Pending match
 run`) before a re-run.
+
+### As built — #1449: Rectify (and Unreconcile) a Porter expense (2026-10-15)
+
+**Where it lives.** `api/outflow_import/porter_rectify.py`: `get_porter_rectify_plan(rows)` (GET, reads only)
+and `rectify_porter_rows(rows, project, reason)` (POST). Both use `require_outflow_undo_access` (Admin,
+Accountant Lead). Pure, in `services/outflow_import/porter.py`: `booked_by(statement)` (Create uses it too),
+`rectified_description`, `description_hand_edited`. `porter_review` now exports `won_projects()` and
+`refuse_unless_won(project)`, shared by Review and Rectify.
+
+**One endpoint for one line and for ticked lines.** `rows` is a JSON list (at most `RECTIFY_LIMIT` = the bulk
+Unreconcile cap, 50); every line goes to the ONE placement chosen (`project` blank = Non-Project). Refused
+outright, writing nothing: no reason, no lines / too many, a project that does not exist or is not Won.
+Per line it returns `{row, rectified: True, from, to, description_kept}` or `{row, rectified: False,
+reason}`: a refused line never stops the others and pops no message (the bulk Unreconcile shape). Line
+refusals: not a Porter line, not Settled, not exactly one live leg that the import created on an expense
+("Unreconcile it instead"), already on that project / already Non-Project.
+
+**Per line, one savepoint, committed before the next** (lock order row → leg → expense, Unreconcile's):
+1. the Settled leg → Reversed with the reason (`unreconcile._stamp_reversed`) — FIRST, or the bank-links rule
+   refuses the delete;
+2. the replacement through `create_expense_from_row`, built FROM THE OLD EXPENSE (`_ExpenseAsRow`: amount,
+   `payment_date`, `payment_ref`) plus its `type`, `comment`, `invoice_ref` / `invoice_date` /
+   `invoice_attachment` (`ExpenseInvoice`), `porter_order`, and `payment_by` (kept; on a move from
+   Non-Project, the booked-by name), `vendor` kept on Project → Project;
+3. any attachment a person added moves with it: `payment_attachment` copied raw after the insert, and every
+   `File` row attached to the old expense re-pointed raw to the new one — otherwise `delete_doc` would trash
+   it and the storage app would delete the stored object;
+4. the old expense deleted through `unreconcile_created.delete_created` (series counter kept);
+5. a new Settled match: `match_basis` `porter statement`, `created_by_import` 1, `settlement_origin`
+   Suggestion overridden, `target_project` snapshot;
+6. the line follows: `suggested_doctype`, `resolved_project`, `suggested_name`, `outcome_note` "Rectified to
+   …", `decided_at/by`, `settlement_origin`; status stays Settled (no rollup). So a later Unreconcile + Create
+   re-creates it where it was rectified to. A comment on the line: "Rectified by <user>: <reason> (<old> on A
+   -> <new> on B)";
+7. `_resync_cashflow_hold` for BOTH projects (the insert / delete hooks' check is de-duplicated per request).
+A failure anywhere rolls the whole line back to its savepoint: old expense, Settled match and line untouched.
+
+**Description rule.** Rewritten (`expense_description(booked_by, new project name)`) only when the stored text
+is still exactly what Create generated for the old placement (whitespace aside) or blank; anything else is a
+hand edit and is kept word for word. No Version history is read. A project renamed since Create makes the
+stored text differ, so it is kept (safe direction).
+
+**Always allowed.** No "edited since" refusal: a Paid expense's money, date and reference cannot change in
+the app, and the one editable thing Rectify rewrites (the description) follows the rule above.
+
+**The Porter Order never changes**, and the replacement links the same one, so the earlier-imports placement
+signal (#1448: the live expense behind a Porter Order) reads the rectified project from then on.
+
+**Unreconcile on a Porter line** needed no code: it deletes the created expense (unless edited since, the
+Cashbook rule), keeps the Porter Order (the expense owns the link), and reopens the line `Mismatched`, which
+Create re-creates (#1445).
+
+**Screen.** `porterRectify.ts` (pure, `porterRectify.test.ts`): `rectifyAffordance` (Settled + Porter
+Statement + undo roles), `rectifyButtonState` ("Rectify N" beside "Unreconcile N" in the Settled toolbar,
+shown once a Porter line is ticked, off while a non-Porter line or an off-page line is ticked),
+`placementText`, `linesToMove` / `staysNote` (refused or already there), `rectifyOutcome`. The Outcome cell
+shows **Rectify** beside **Unreconcile** on a Settled Porter line (`OutflowRowsTable` `onRectify`, passed only
+for `canUndo`). `components/RectifyDialog.tsx`: each line's current placement, a hand-edited-description
+note, a Won-project picker (with "No project"), a required reason, then the result box. ⚠️ Its picker's menu
+is portaled to `body` with `pointerEvents: "auto"`: a modal dialog sets `pointer-events: none` on the body,
+and without it a click picked the wrong project on the walk.
+
+**Tests.** `api/outflow_import/test_porter_rectify.py` (bench: the three moves, every kept field, reversed +
+new match, the line, the description rule, refusals and roles, atomicity, both projects' CEO-Hold reasons,
+ticked lines with a refused one, the plan, Unreconcile on a Porter line, an added attachment that moves and is
+never cloud-deleted, the live expense behind the Porter Order); `services/outflow_import/test_porter.py`
+(description rule); the Porter AST guard in `test_porter_import` covers `porter_rectify`.

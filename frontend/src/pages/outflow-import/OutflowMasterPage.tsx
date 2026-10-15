@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { Columns3, History, Info, Link2, Search, Undo2, Upload, Wallet, X } from "lucide-react";
+import { ArrowRightLeft, Columns3, History, Info, Link2, Search, Undo2, Upload, Wallet, X } from "lucide-react";
 import { useFrappeGetCall, useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
@@ -34,6 +34,8 @@ import { unreconcileNotice, type UnreconcileNotice, type UnreconcileResult } fro
 import { UnreconcileDialog } from "./components/UnreconcileDialog";
 import { BulkUnreconcileDialog } from "./components/BulkUnreconcileDialog";
 import { unreconcileButtonState } from "./bulkUnreconcileView";
+import { RectifyDialog } from "./components/RectifyDialog";
+import { rectifyButtonState } from "./porterRectify";
 import { selectionMode, settledTicksAllowed, tickKindOf, tickRules, type TickKind } from "./tickMode";
 import { LinkLinesDialog, type LinkLinesResult } from "./components/LinkLinesDialog";
 import { linkButtonState, linkedNotice, selectedMoneyIn } from "./linkLinesView";
@@ -284,6 +286,8 @@ export const OutflowMasterPage = () => {
     const [unreconcilingRow, setUnreconcilingRow] = useState<OutflowImportRow | null>(null);
     /** The ticked Settled lines the bulk Unreconcile check step is open on (#1319), or `null`. A snapshot. */
     const [bulkUnreconcileRows, setBulkUnreconcileRows] = useState<string[] | null>(null);
+    /** The Settled Porter lines the Rectify dialog is open on (#1449) -- one, or the ticked ones -- or `null`. */
+    const [rectifyRows, setRectifyRows] = useState<string[] | null>(null);
     const { role, user_id } = useUserData();
     const canUndo = canUndoOutflow(role, user_id);
     /**
@@ -565,6 +569,10 @@ export const OutflowMasterPage = () => {
     );
     const unreconcileState = useMemo(
         () => unreconcileButtonState(rows, selected, tickedOnPageRef.current, table.page),
+        [rows, selected, table.page]
+    );
+    const rectifyState = useMemo(
+        () => rectifyButtonState(rows, selected, tickedOnPageRef.current, table.page),
         [rows, selected, table.page]
     );
     // The toolbar's off-page chip and amber note follow whichever action the mode offers.
@@ -864,6 +872,19 @@ export const OutflowMasterPage = () => {
         setReverseNotice(null);
         setUnreconcilingRow(row);
     }, []);
+
+    /** Reference-stable: every memoized table row receives it (#1449). */
+    const handleOpenRectify = useCallback((row: OutflowImportRow) => {
+        setReverseNotice(null);
+        setRectifyRows([row.name]);
+    }, []);
+
+    /** A Rectify run's result box closed: the moved lines stay Settled, so the ticks go and the page refetches. */
+    const handleRectified = useCallback(async () => {
+        setRectifyRows(null);
+        setSelected(new Set());
+        await refreshAll();
+    }, [refreshAll]);
 
     const confirmOne = useCallback(async (confirmMismatch: boolean) => {
         if (!openRow) return;
@@ -1446,6 +1467,7 @@ export const OutflowMasterPage = () => {
                                 off-page note sits under the toolbar, from the pure
                                 `unreconcileButtonState`. Link and Confirm only work on open lines. */}
                             {settledMode ? (
+                                <>
                                 <Button
                                     variant="outline"
                                     size="sm"
@@ -1461,6 +1483,25 @@ export const OutflowMasterPage = () => {
                                     <Undo2 className="mr-1.5 h-3.5 w-3.5" />
                                     Unreconcile {unreconcileState.count}
                                 </Button>
+                                {/* #1449: ticked Porter orders move together with Rectify. */}
+                                {rectifyState.visible && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8"
+                                        disabled={!rectifyState.enabled || busy}
+                                        title={rectifyState.note ?? undefined}
+                                        onClick={() =>
+                                            setRectifyRows(
+                                                rows.filter((row) => selected.has(row.name)).map((row) => row.name)
+                                            )
+                                        }
+                                    >
+                                        <ArrowRightLeft className="mr-1.5 h-3.5 w-3.5" />
+                                        Rectify {rectifyState.count}
+                                    </Button>
+                                )}
+                                </>
                             ) : (
                             <>
                             {/* #1298: many lines -> one expense. Its off-state note sits under the
@@ -1562,6 +1603,8 @@ export const OutflowMasterPage = () => {
                         onToggleAll={toggleAll}
                         // #1275: presence is the gate -- a plain Accountant gets no Unreconcile.
                         onUnreconcile={canUndo ? handleOpenUnreconcile : undefined}
+                        // #1449: the same gate; the button shows only on a Settled Porter line.
+                        onRectify={canUndo ? handleOpenRectify : undefined}
                         // ⚠️ THE NOTICE IS CLEARED HERE, NOT ON A TIMER (review F9). Opening the
                         // next row is the moment the previous reversal stops being what the
                         // reviewer is looking at, so a sentence about it must not still be on
@@ -1644,6 +1687,15 @@ export const OutflowMasterPage = () => {
                     onClose={() => setBulkUnreconcileRows(null)}
                     onFinished={handleBulkUnreconciled}
                     onRefresh={refreshAll}
+                />
+            )}
+
+            {/* #1449: only the undo roles reach it; both endpoints refuse anyone else. */}
+            {canUndo && (
+                <RectifyDialog
+                    rows={rectifyRows}
+                    onClose={() => setRectifyRows(null)}
+                    onDone={handleRectified}
                 />
             )}
 

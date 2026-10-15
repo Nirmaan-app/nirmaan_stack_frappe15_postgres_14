@@ -19,7 +19,9 @@ THE STEPS, AND WHICH ONE THIS SLICE BUILT (#1443 built the first and the status 
               completed order's project on a Validated import; the edit is the line's stored plan
     create    `porter_create.create_porter_expenses` (#1445): one Porter Order and one Expense per
               completed order, at Paid, by a background job; `get_porter_status` reports its progress
-    rectify / discard  (#1449 / #1446)
+    rectify   `porter_rectify.rectify_porter_rows` (#1449): move a created order's Expense to another
+              project or ledger, by replacing it; Admin and Accountant Lead
+    discard   (#1447)
 
 ⚠️ IT NEVER RUNS THE MATCHER. A Porter line creates its expense and settles nothing; `match_batch`
 and every other settlement entry point are out of reach (`NEVER_MATCHED_SOURCES`, and an AST test).
