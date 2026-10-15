@@ -65,7 +65,8 @@ Three structural facts separate it from both existing sources:
 **The part of the directive that matters is untouched: nothing here creates a `Project Payment`.**
 Money leaving the bank against an approved payment is still Cashfree's job; money arriving that
 would have to become a negative `Project Payments` row is a **Vendor Refund**, which is deliberately
-deferred (see *Deferred*). `settle.create_expense_from_row` still hard-guards
+deferred (see *Deferred*). *Superseded by [ADR-0032](0032-vendor-refund-is-the-only-refund-record.md):
+a vendor refund is now its own `Vendor Refunds` record, never a negative Project Payment.* `settle.create_expense_from_row` still hard-guards
 `is_expense_doctype`, and the inflow path is a **new function beside it, never a widened one**.
 
 ### 2. Credits create because there is nothing to settle — and debits create for the same reason
@@ -273,7 +274,9 @@ import. Any figure presented as total spend has to add them back.
   minted inside a `PO Adjustments` doc, plus a negative `RA Vendor` payment term. It needs a PO and
   an existing adjustment with remaining impact, so it cannot be created from a bank row without
   picking that PO. 15 rows, ₹3.5 L. **This is the only route by which an import could ever create a
-  `Project Payment`, and it is not built.**
+  `Project Payment`, and it is not built.** *Superseded by
+  [ADR-0032](0032-vendor-refund-is-the-only-refund-record.md): the import now creates a `Vendor
+  Refunds` record from a bank credit, or matches a waiting one; no Project Payment is created.*
 - **Matching credits against unpaid `Project Invoices`.** Real value — 120 of 158 credits are client
   receipts — but it is a new candidate pool, a new ranking and a new meaning of "match". Addable
   later without changing anything built for v1; the payer name is already extracted.
@@ -349,7 +352,9 @@ narrowed later (Q11).
 - **AR1 — vendor refunds are booked as *Others* until they get their own workflow (Q3, Q10).** The
   original *Deferred* note stands: a real vendor refund belongs inside a `PO Adjustments` doc. A
   refund recorded as a Non-Project Inflow does **not** reduce any PO's or vendor's paid amount.
-  Labour advance returns go to *Others* too.
+  Labour advance returns go to *Others* too. *Superseded for vendor refunds by
+  [ADR-0032](0032-vendor-refund-is-the-only-refund-record.md): they are `Vendor Refunds` records, and a
+  Received one lowers its order's paid amount. Labour advance returns still go to *Others*.*
 - **AR2 — two shapes of non-project money-in coexist.** Old and hand-entered negative Non-Project
   Expenses (A-D3) sit beside new Non-Project Inflows. Any "total non-project received" figure must
   read both until the Q7 follow-up.
