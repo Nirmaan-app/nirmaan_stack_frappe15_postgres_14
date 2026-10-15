@@ -263,37 +263,40 @@ def recompute_document_amount_due(document_type: str, document_name: str) -> Non
         return
     minuend, subtrahends = operands
 
-    # ⚠️ A COMPANY-BORNE WORK ORDER (Miscellaneous / Transportation only) KEEPS ITS PAYMENTS GROSS
-    # -- the tax is paid on top, not taken out -- so `amount_paid` already covers the whole order
-    # and subtracting `total_tds` as well would read it overpaid by its own tax (Rs 800 order,
-    # Rs 800 paid, Rs 16 TDS -> -16). The rule lives in `services/payment_tds.is_company_borne`.
     from nirmaan_stack.services import payment_tds
 
-    if payment_tds.is_company_borne(document_type, document_name):
-        subtrahends = tuple(col for col in subtrahends if col != "total_tds")
-
     # Column and table names come from the constant above, never from a caller.
-    projected = ", ".join(
-        'COALESCE("{0}", 0) AS s{1}'.format(col, i) for i, col in enumerate(subtrahends)
-    )
+    projected = ", ".join('COALESCE("{0}", 0) AS "{0}"'.format(col) for col in (minuend, *subtrahends))
     row = frappe.db.sql(
-        'SELECT COALESCE("{0}", 0) AS a, {1} '
-        'FROM "tab{2}" WHERE name = %(n)s'.format(minuend, projected, document_type),
+        'SELECT {0} FROM "tab{1}" WHERE name = %(n)s'.format(projected, document_type),
         {"n": document_name}, as_dict=True,
     )
     if not row:
         return
-
-    # ⚠️ A LIST OF SUBTRAHENDS RATHER THAN ONE, BECAUSE A SERVICE REQUEST NOW HAS TWO.
-    # `Project Payments.amount` on an SR is stored NET of tax withheld (services/payment_tds.py),
-    # so `total_amount - amount_paid` alone would report the withheld tax as still owed on every
-    # settled SR. Subtracting `total_tds` as well is the other half of that change and is not
-    # optional -- see the module docstring in `services/payment_tds.py`.
-    #
-    # It is arithmetically inert on historical data: no Service Request has a `Payment TDS
-    # Deduction` row yet, so `total_tds` is 0 and this subtracts nothing. Procurement Orders keep
-    # a single subtrahend and have no `total_tds` column to read.
     frappe.db.set_value(
         document_type, document_name, "amount_due",
-        flt(row[0].a) - sum(flt(row[0]["s{0}".format(i)]) for i in range(len(subtrahends))),
+        amount_due_from(document_type, row[0], payment_tds.is_company_borne(document_type, document_name)),
     )
+
+
+def amount_due_from(document_type: str, values, company_borne: bool) -> float:
+    """THE Amount Due of one PO / Work Order from its operands (`values` maps each column named in
+    `_AMOUNT_DUE_OPERANDS` to its figure). Pure: the writer above and the Amount Paid mismatch judge
+    (`services/amount_paid_drift`, which passes the CORRECT paid figure) share it.
+
+    ⚠️ A LIST OF SUBTRAHENDS RATHER THAN ONE, BECAUSE A SERVICE REQUEST HAS TWO.
+    `Project Payments.amount` on an SR is stored NET of tax withheld (services/payment_tds.py),
+    so `total_amount - amount_paid` alone would report the withheld tax as still owed on every
+    settled SR. Subtracting `total_tds` as well is the other half of that change and is not
+    optional -- see the module docstring in `services/payment_tds.py`. Procurement Orders keep a
+    single subtrahend and have no `total_tds` column to read.
+
+    ⚠️ A COMPANY-BORNE WORK ORDER (Miscellaneous / Transportation only) KEEPS ITS PAYMENTS GROSS
+    -- the tax is paid on top, not taken out -- so `amount_paid` already covers the whole order
+    and subtracting `total_tds` as well would read it overpaid by its own tax (Rs 800 order,
+    Rs 800 paid, Rs 16 TDS -> -16). The rule lives in `services/payment_tds.is_company_borne`.
+    """
+    minuend, subtrahends = _AMOUNT_DUE_OPERANDS[document_type]
+    if company_borne:
+        subtrahends = tuple(col for col in subtrahends if col != "total_tds")
+    return flt(values.get(minuend)) - sum(flt(values.get(col)) for col in subtrahends)

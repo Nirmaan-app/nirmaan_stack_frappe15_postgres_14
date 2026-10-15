@@ -15,13 +15,11 @@ import { toast } from "@/components/ui/use-toast";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { useUserData } from "@/hooks/useUserData";
 import { ProcurementOrder } from "@/types/NirmaanStack/ProcurementOrders";
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { getTotalAmountPaid } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
 import { Filter, FrappeConfig, FrappeContext, FrappeDoc, useFrappeCreateDoc, useFrappeDocTypeEventListener, useFrappeFileUpload, useFrappeGetDocList, useFrappePostCall } from "frappe-react-sdk";
@@ -34,6 +32,7 @@ import { exportToCsv } from "@/utils/exportToCsv";
 import { InvoiceDataDialog } from "../ProcurementOrders/purchase-order/components/InvoiceDataDialog";
 import { PaymentsDataDialog } from "./PaymentsDataDialog";
 import PaymentSummaryCards from "./PaymentSummaryCards";
+import { paymentOverAmountWarning } from "./paymentOverAmount";
 
 type ProjectFilter = Filter<FrappeDoc<Projects>>;
 export const projectPaymentsQueryKeys = {
@@ -136,12 +135,6 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
         limit: 0,
     }, 'Vendors');
 
-    const { data: projectPayments, isLoading: projectPaymentsLoading, mutate: projectPaymentsMutate } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-        fields: ["*"],
-        filters: [["status", "=", "Paid"]],
-        limit: 0
-    })
-
     // Total Invoice Amt comes straight off the PO / SR row (`amount_invoiced`, kept
     // current by the Vendor Invoices doc events). Both parent fetches above already use
     // `fields: ["*"]`, so it arrives with no query change — and the whole-invoice-table
@@ -199,11 +192,13 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
 
     const { getTotalAmount } = useOrderTotals()
 
-    const getAmountPaid = useMemo(
-        () => memoize((id: string) => {
-            const payments = projectPayments?.filter((payment) => payment.document_name === id) || [];
-            return getTotalAmountPaid(payments);
-        }, (id: string) => id), [projectPayments])
+    // An order's paid figure is its stored Amount Paid (ADR-0034): Paid payments less Received
+    // refunds. Both order fetches above use `fields: ["*"]`, so it arrives on the row.
+    const findOrder = useCallback((doctype: string, docname: string) =>
+        doctype === "Procurement Orders"
+            ? purchaseOrders?.find((i) => i?.name === docname)
+            : serviceOrders?.find((i) => i?.name === docname),
+        [purchaseOrders, serviceOrders])
 
     const combinedData = useMemo(() => [
         ...(purchaseOrders?.map((order) => ({ ...order, type: "Purchase Order" })) || []),
@@ -267,7 +262,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 });
             }
 
-            await projectPaymentsMutate()
+            await Promise.all([poMutate(), srMutate()])
 
             toggleNewPaymentDialog()
 
@@ -303,38 +298,12 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
 
     const validateAmount = useCallback(
         debounce((amount: string) => {
-            const order =
-                newPayment?.doctype === "Procurement Orders"
-                    ? purchaseOrders?.find((i) => i?.name === newPayment?.docname)
-                    : serviceOrders?.find((i) => i?.name === newPayment?.docname);
-
-            if (!order) {
-                setWarning(""); // Clear warning if no order is found
-                return;
-            }
-
-            const { total, totalWithTax } = getTotalAmount(order?.name,
-                newPayment.doctype
-            );
-
-            const totalAmountPaid = getAmountPaid(order?.name)
-
-            const compareAmount =
-                newPayment?.doctype === "Procurement Orders"
-                    ? (totalWithTax - totalAmountPaid) // Always compare with totalWithTax for Purchase Orders
-                    : order?.gst === "true" // Check GST field for Service Orders
-                        ? (totalWithTax - totalAmountPaid)
-                        : (total - totalAmountPaid);
-
-            if (parseNumber(amount) > compareAmount) {
-                setWarning(
-                    `Entered amount exceeds the total ${totalAmountPaid ? "remaining" : ""} amount ${newPayment?.doctype === "Procurement Orders" ? "including" : order.gst === "true" ? "including" : "excluding"
-                    } GST: ${formatToRoundedIndianRupee(compareAmount)}`
-                );
-            } else {
-                setWarning(""); // Clear warning if within the limit
-            }
-        }, 300), [newPayment])
+            const order = findOrder(newPayment.doctype, newPayment.docname);
+            // No order found: nothing to compare against, so no warning.
+            setWarning(order
+                ? paymentOverAmountWarning(amount, newPayment.doctype, order, getTotalAmount(order.name, newPayment.doctype))
+                : "");
+        }, 300), [newPayment, findOrder, getTotalAmount])
 
     const getVendorName = useMemo(() => memoize((id: string | undefined) => {
         const vendorName = vendorValues.find((vend) => vend.value === id)?.label || id;
@@ -504,14 +473,14 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 header: "Amt Paid",
                 cell: ({ row }) => {
                     const data = row.original
-                    const amountPaid = getAmountPaid(data?.name);
+                    const amountPaid = parseNumber(data?.amount_paid);
                     return <div onClick={() => amountPaid && setCurrentPaymentsDialog(data)} className={`font-medium ${amountPaid ? "cursor-pointer underline" : ""}`}>
                         {formatToRoundedIndianRupee(amountPaid || "N/A")}
                     </div>
                 },
                 meta: {
                     exportHeaderName: "Amt Paid",
-                    exportValue: (row: any) => getAmountPaid(row.name)
+                    exportValue: (row: any) => parseNumber(row.amount_paid)
                 }
             },
             {
@@ -571,7 +540,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
             //         }
             //     ]),
         ],
-        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectPayments, projectId, getTotalAmount, customerId]
+        [notifications, purchaseOrders, serviceOrders, projectValues, vendorValues, projectId, getTotalAmount, customerId]
     );
 
     // --- CEO Hold Row Highlighting ---
@@ -624,7 +593,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                         )}
                         <div className="flex items-center justify-between">
                             <Label className=" text-red-700">Amt Paid Till Now:</Label>
-                            <span className="">{formatToRoundedIndianRupee(getAmountPaid(newPayment?.docname))}</span>
+                            <span className="">{formatToRoundedIndianRupee(findOrder(newPayment.doctype, newPayment.docname)?.amount_paid)}</span>
                         </div>
 
                         <div className="flex flex-col gap-4 pt-4">
@@ -706,7 +675,7 @@ export const ProjectPaymentsList: React.FC<{ projectId?: string, customerId?: st
                 isPO={currentPaymentsDialog?.document_type === "Purchase Order"}
             />
             {
-                (poLoading || srLoading || projectsLoading || vendorsLoading || projectPaymentsLoading) ? (
+                (poLoading || srLoading || projectsLoading || vendorsLoading) ? (
                     <TableSkeleton />
                 ) : (
                     <DataTable 

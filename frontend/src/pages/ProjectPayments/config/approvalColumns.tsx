@@ -62,7 +62,8 @@ export interface ApprovalColumnCtx {
   userLabels?: Map<string, string>;
   /** PO/SR figures behind the Amount hover — payments only, absent on expenses. */
   getDocumentTotal?: (docName: string, docType: string) => number;
-  getAmountPaid?: (docName: string) => number;
+  /** The order's stored Amount Paid (ADR-0034), never a sum of its payments. */
+  getAmountPaid?: (docName: string, docType: string) => number;
   getPoAmountDelivered?: (docName: string, docType: string) => number;
   /** CEO-tab figures, looked up per project. */
   getProjectValue?: (projectId?: string) => number;
@@ -631,7 +632,7 @@ const REGISTRY: Record<
       const isPayment = r.source === "Vendor Payment";
       if (!isPayment || !r.document_name || !ctx.getDocumentTotal) return figure;
       const total = ctx.getDocumentTotal(r.document_name, r.document_type);
-      const paid = ctx.getAmountPaid?.(r.document_name) ?? 0;
+      const paid = ctx.getAmountPaid?.(r.document_name, r.document_type) ?? 0;
       const delivered = ctx.getPoAmountDelivered?.(r.document_name, r.document_type) ?? 0;
       const isPO = r.document_type === "Procurement Orders";
       return (

@@ -22,16 +22,15 @@ This is the ONE place a refund save recounts credit.
 import frappe
 from frappe.utils import flt
 
-from nirmaan_stack.api.invoices._item_billing_sync import recompute_document_amount_due
 from nirmaan_stack.api.po_adjustments.refund_links import sync_po_refund_links, unlink_refund
 from nirmaan_stack.integrations.controllers.project_cashflow_hold_update import trigger_check
 from nirmaan_stack.services.vendor_refunds import (
     LOWERS_PAID_STATUSES,
     PROCUREMENT_ORDERS,
     REFUND_DOCUMENT_FIELDS,
-    amount_paid_of,
     creator_and_accountant,
     money_edit_problem,
+    write_amount_paid,
 )
 
 #: The `Vendor Credit Ledger` entry each kind of refund event writes.
@@ -64,11 +63,8 @@ def recompute_document_amount_paid(doc, method=None):
             continue
         if not document_name:
             continue
-        # `set_value`, like the payment-side recompute: saving the PO / WO would fire its own hooks.
-        frappe.db.set_value(
-            document_type, document_name, "amount_paid", amount_paid_of(document_type, document_name)
-        )
-        recompute_document_amount_due(document_type, document_name)
+        # The one writer (`set_value`, like the payment side): saving the WO would fire its own hooks.
+        write_amount_paid(document_type, document_name)
 
     # Paid amount, links and credit, from source; folded so a re-point writes one credit entry.
     pos = [name for document_type, name in targets if document_type == PROCUREMENT_ORDERS and name]

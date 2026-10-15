@@ -12,7 +12,7 @@ export const useOrderTotals = () => {
   const { data: purchaseOrders, isLoading: poLoading, error: poError } = useFrappeGetDocList<ProcurementOrder>(
     'Procurement Orders',
     {
-      fields: ['name', "amount","vendor","total_amount", "tax_amount", "po_amount_delivered"],
+      fields: ['name', "amount","vendor","total_amount", "tax_amount", "po_amount_delivered", "amount_paid"],
       filters: [['status', 'not in', ['Cancelled', 'Merged']]],
       limit: 0,
       orderBy: { field: 'modified', order: 'desc' },
@@ -23,7 +23,7 @@ export const useOrderTotals = () => {
   const { data: serviceOrdersRaw, isLoading: srLoading, error: srError } = useFrappeGetDocList<ServiceRequests>(
     'Service Requests',
     {
-      fields: ['name', 'total_amount', 'gst', 'vendor'],
+      fields: ['name', 'total_amount', 'gst', 'vendor', 'amount_paid'],
       limit: 0,
       orderBy: { field: 'modified', order: 'desc' },
     },
@@ -132,6 +132,22 @@ export const useOrderTotals = () => {
     [purchaseOrders]
   );
 
+  // What the order has been paid: its stored Amount Paid, Paid payments less Received refunds
+  // (ADR-0034). Never add up payments here.
+  const getAmountPaid = useMemo(
+    () => memoize((orderId: string, type: string): number => {
+      if (['Procurement Orders', 'Purchase Order'].includes(type)) {
+        return parseNumber(purchaseOrders?.find(i => i?.name === orderId)?.amount_paid);
+      }
+      if (['Service Requests', 'Service Order'].includes(type)) {
+        return parseNumber(serviceOrders?.find(i => i?.name === orderId)?.amount_paid);
+      }
+      return 0;
+    },
+      (orderId: string, type: string) => `${orderId}-${type}-paid`),
+    [purchaseOrders, serviceOrders]
+  );
+
   const getVendorName = useMemo(
     () => memoize((orderId: string, type: string): string => {
         let vendorId: string | undefined;
@@ -212,6 +228,7 @@ export const useOrderTotals = () => {
     srError,
     getTotalAmount,
     getDeliveredAmount, // --- (THE FIX) Expose the new function ---
+    getAmountPaid,
     //--For Getting Vendor Name ----
     getVendorName,
     vendorsLoading,
