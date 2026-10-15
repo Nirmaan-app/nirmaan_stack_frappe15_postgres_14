@@ -7102,13 +7102,15 @@ never cloud-deleted, the live expense behind the Porter Order); `services/outflo
   formatter). `porter_wording.py` — `expense_description`, `booked_by`, `rectified_description`,
   `description_hand_edited`, `porter_order_fields`. The frontend parity tests read `REASON_*` from
   `porter.py` and the import states from `porter_state.py`.
-- `api/outflow_import/porter_records.py` — the doctypes (`BATCH_/ROW_/INVOICE_/ORDER_DOCTYPE`, `SOURCE`),
+- `api/outflow_import/porter_records.py` — the import doctypes (`BATCH_DOCTYPE`, `ROW_DOCTYPE`, `SOURCE`),
   `WON`, `won_projects`, `won_refusal`, `refuse_unless_won`, `refuse_unless_porter_import(batch,
   for_update=)`, `line_names`, `porter_import_states`, `is_validated`, `create_job_id`, `created_imports`,
   `created_anything`. `porter_upload.py` — the upload's steps (`read_upload`, `read_statement`,
   `leave_out_porter_repeats`, `held_invoices`, `placement_master`, `stage`). `porter.py` keeps the three
   endpoints (`upload_porter_statement`, `retry_porter_invoice`, `get_porter_status`) and `porter_status`.
-  Create and Rectify write their match through `porter_create.record_porter_match`.
+  Create and Rectify write their match through `porter_matches.record_porter_match`. The two Porter
+  doctype constants live in `services/outflow_import/porter.py`; the PDF reads (`invoice_pdf_url`,
+  `is_invoice_pdf`) in `services/outflow_import/porter_pdf.py`.
 - The cancelled-order sentence is `status.SKIP_REASON_PORTER_CANCELLED`, in `SYSTEM_SKIP_SENTENCES` and the
   skip-kind back-fill.
 
@@ -7119,7 +7121,7 @@ logs "Error Attaching File", and the save goes through. Every expense delete (li
 `delete_created`, Rectify) runs the expense's own Files through `stored_files.delete_files`
 (`expense_files.delete_attached_files`, `after_delete` on both expense doctypes, so after Frappe's link
 checks and before its `remove_all`). Rectify's `_move_attachments` never carries a File whose URL is the
-invoice PDF (`porter_expense.invoice_pdf_url`). Pinned by `test_porter_rectify`
+invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
 `TestTheSharedInvoicePdfSurvivesEveryCorrection`.
 
 **Behaviour changes.**
@@ -7133,11 +7135,13 @@ invoice PDF (`porter_expense.invoice_pdf_url`). Pinned by `test_porter_rectify`
   has `to_create > 0`; a group's choice places only its still-editable orders (`ReviewItem.toPlace`).
 - Upload takes `.csv` only, server (`porter_upload.read_upload`) and picker (`importWizard.acceptedExtensions`;
   the export path is `importWizard.sourceExportPath`).
-- The expense lists (and the approval detail) open a Porter Expense's invoice through
+- The expense lists, both edit dialogs and the approval detail open a Porter Expense's invoice through
   `porter_expense.porter_invoice_pdf` (`utils/porterExpense.invoiceAttachmentUrl`), so a reader without
   Porter Invoice access gets the PDF, not a 403 (story 53).
 - Choosing a Porter import from the Import selector or Import History opens its Porter dialog
   (`porterImport.opensPorterDialog`), never the pinned table.
-- Review and Rectify share one project picker, `components/PorterProjectSelect.tsx` (portaled menu with
-  `pointerEvents: "auto"`).
+- Review and Rectify share one project picker, `components/PorterProjectSelect.tsx`: its menu is portaled to
+  `body` with `menuPosition="fixed"`, and `FuzzySearchSelect`'s shared theme (`getSelectStyles`) gives the
+  portal `zIndex` 9999 and `pointerEvents: "auto"` (no styles of its own). Walked on both: the option clicked
+  is the project saved.
 

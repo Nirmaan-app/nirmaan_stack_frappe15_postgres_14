@@ -281,6 +281,11 @@ List-page **summary cards stay tab-scoped** (they reflect the active status tab)
   `on_trash` *before* the row is deleted, so the gap query would still count the row);
   `after_delete` runs after the delete, so removing a `Paid` expense correctly lowers the
   gap / can release a hold. `generate_versions` stays on `on_trash`.
+- **An expense's own Files go through `stored_files.delete_files`** (`expense_files.delete_attached_files`,
+  the LAST `after_delete` handler on both expense doctypes, spec #1442): a File sharing its stored bytes
+  with another (a Porter invoice PDF) loses only its record. It runs mid-transaction, against
+  `delete_files`' "call it last" rule, and no later than before: Frappe's own `remove_all` trashed the same
+  Files at this same point of `delete_doc`, so a rollback after it could not restore a stored object either.
 
 ### PO adjustment
 - The ad-hoc adjustment expense is created directly as **`Paid`** (money has already moved)
@@ -558,7 +563,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   2026-08-18) — and it MUST be `after_delete`, never `on_trash`: `on_trash` fires BEFORE the
   row leaves the database, so the expense still points at the request and Frappe refuses
   (`LinkExistsError`). The cashflow recompute on the same doctype moved to `after_delete` for
-  the same class of reason. **It clears the request's notifications FIRST, and that is not
+  the same class of reason, and so does the Files delete (`expense_files.delete_attached_files`, after the
+  link checks: a refused delete deletes no bytes). **It clears the request's notifications FIRST, and that is not
   tidiness — it is what makes the delete possible**: `Nirmaan Notifications.docname` is a
   **Dynamic Link**, and Frappe's delete guard walks dynamic links, so any rejected or paid
   request carries a notification that would block it. `ignore_links=True` is the WRONG fix —
@@ -722,9 +728,15 @@ Expense per completed Porter order, at `Paid` (`api/outflow_import/porter_create
   Expense owns the link; the Porter Order holds none back and survives the Expense's deletion.
 - **Invoice PDF:** `invoice_attachment` is the URL of the ONE `File` attached to the Porter Invoice, shared by
   every order on it; no File row per expense (written raw after insert so Frappe's attach-on-update hook makes
-  none). The File itself is readable only by roles that can read `Porter Invoice` (Admin, Accountant,
-  Accountant Lead) on a local-disk site, so the screens open it through `porter_invoice_pdf` (below), never
-  the raw URL. (In production the stored URL is the storage app's `generate_file`, which checks nothing.)
+  none, and a `File` `before_insert` hook, `expense_files.refuse_invoice_pdf_copy`, refuses the copy that hook
+  tries on every later save of a local-path value; it logs "Error Attaching File" and the save goes through).
+  Deleting the expense runs its own Files through `stored_files.delete_files`, so the PDF is never deleted
+  with it. The File itself is readable only by roles that can read `Porter Invoice` (Admin, Accountant,
+  Accountant Lead) on a local-disk site, so every screen (both lists, both edit dialogs, the approval detail,
+  the Porter section) opens it through `porter_invoice_pdf` (below), never the raw URL: one rule, a Porter
+  Expense WITH an invoice attachment, in `porter_expense.pdf_url` and `utils/porterExpense.invoiceAttachmentUrl`,
+  pinned to each other. (In production the stored URL is the storage app's `generate_file`, which checks
+  nothing.)
 - **CEO Hold:** a Paid Project Expense counts in the cashflow gap at once; the Create job re-evaluates each
   project it wrote to once at the end (the insert hook's check runs once per request).
 - **Delete:** refused by `expense_bank_links` rule 3, because each one has a live Settled import match
@@ -763,8 +775,8 @@ Components: `frontend/src/components/common/PorterExpense.tsx` — `PorterBadge`
 - **Project lock (UI only, like every Paid lock — no server rule):** the Project edit dialog, which has no
   project field for any other expense, shows a disabled Project row (the project's name) with the hint; the
   Non-Project dialog shows a disabled "Non-Project" row with the same hint. Description and comment stay
-  editable and save (walked on both ledgers). On a local-disk site that save adds one `File` row for the
-  shared PDF (Frappe's attach-on-update hook; known since #1445).
+  editable and save (walked on both ledgers). On a local-disk site that save no longer adds a `File` row for
+  the shared PDF (the review fixes' `File` `before_insert` refusal; it logs "Error Attaching File").
 
 ## Deliberate design decisions (do NOT "fix")
 
