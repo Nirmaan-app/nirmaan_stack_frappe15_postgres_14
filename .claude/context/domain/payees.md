@@ -139,6 +139,14 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   Payee leaves it blank (no refusal; the request dialogs' gate blocks that case). The request dialogs
   (PO terms, Work Order, Credits) show the vendor's account read-only before submit
   (`components/payees/RequestPayToAccount`, same SWR key as the gate).
+- **Records raised before the pay-to account** (#1441): `patches/v3_0/backfill_pay_to_accounts`, after
+  the vendor-move patch, fills blank copies only (safe to re-run). An unpaid (not *Reconciliation
+  Pending* / *Paid*) PO / Work Order payment or Project Expense naming a vendor, and a *Pending
+  Approval* request naming one, take the vendor's Payee (`pay_to.copy_vendor_account`). A paid payment
+  or expense takes the account number, IFSC and beneficiary name of the latest (`added_on`) *Settled*
+  `Outflow Row Match` line that holds an account number; bank and branch stay blank (no IFSC lookup).
+  Everything else stays blank: a paid record is never filled from its vendor. The writes are raw (no
+  hook re-copies, no Version row), so "who set the account" reads the raiser, else the vendor.
 - **Paid to** (#1431): who a row the accountant pays is paid to is resolved in one place,
   `services/payees/paid_to.py`: a PO / WO payment into its vendor's Payee now, an expense into its own
   Payee. "Payment need to paid"'s Paid to column (the approval queue's `paid_to`), Export for Payment
@@ -159,6 +167,7 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | Test fixture | `api/payees/payee_fixture.PayeeFixture`: offline IFSC lookups, purges every test Payee; `class_payee` for a `setUpClass` |
 | A vendor's account (Bulk Import, autofill) | `services/payees/vendor_account.vendor_accounts()` (no argument: every vendor with a Payee) (#1427) |
 | Vendor bank details → Payees (#1424) | `patches/v3_0/move_vendor_bank_details_to_payees.py` (re-runnable; its docstring holds the grouping, fallback and skip rules); test `api/payees/test_vendor_payees_patch.py` |
+| Pay-to backfill (#1441) | `patches/v3_0/backfill_pay_to_accounts.py` (re-runnable; its docstring holds the sources and hook reasoning); test `api/payees/test_pay_to_backfill_patch.py` |
 | Frontend fields + dialog | `components/payees/` (`PayeeBankFields`, `usePayeeBankForm`, `AddPayeeDialog`) |
 | Expense payee rules (#1429, #1436) | `services/payees/expense_rules.py` (pure: the Required / Optional / Not asked options; the rules are the screen's), `services/payees/expense_payee.py` (`payee_rule`, `change_expense_payee`), `services/payees/search.py` (`find_payees`, by holder name) |
 | Expense Request picker endpoints | `api/expense_requests/payees.py` (`search_payees`, `check_request_payee`, `add_request_payee`), gated on `access.can_raise_requests`; the picked vendor's Payee is `useVendorAccount` (`get_vendor_account`, Vendors read) |

@@ -635,15 +635,9 @@ save an invalid template**.
     vendor's Payee when the record has no copy and whenever the vendor changes, until the record is
     paid (`pay_to.fill_from_vendor`, from `guard.check_payee_links`). New expense dialogs, Bulk
     Import's create-expense and adjustments get it this way. Clearing the vendor leaves the copy.
-  - **Records raised before the pay-to account** (#1441, `patches/v3_0/backfill_pay_to_accounts`,
-    after the vendor-move patch; fills blank copies only, safe to re-run): an unpaid PO / Work Order
-    payment or Project Expense naming a vendor, and a *Pending Approval* request naming one, take the
-    vendor's Payee (`pay_to.copy_vendor_account`). A *Reconciliation Pending* / *Paid* payment or
-    expense takes the account number, IFSC and beneficiary name of the latest *Settled*
-    `Outflow Row Match` line that holds an account number; bank and branch stay blank (no IFSC
-    lookup). Every other record stays blank: a paid record is never filled from its vendor. The
-    writes are raw (no hook re-copies, no Version row), so "who set the account" reads the raiser,
-    else the vendor.
+  - **Records raised before the pay-to account** were filled by `patches/v3_0/backfill_pay_to_accounts`
+    (#1441): unpaid ones from the vendor's Payee, paid ones from their settled bank line, the rest
+    blank. Rules: `payees.md`.
   - **No server refusal** (#1436, owner 2026-10-15): *Required* with no account, a vendor and an
     account that disagree, a change after payment, a change outside Accounts are all accepted. They
     are screen rules: the request dialog blocks sending a *Required* type with no account
