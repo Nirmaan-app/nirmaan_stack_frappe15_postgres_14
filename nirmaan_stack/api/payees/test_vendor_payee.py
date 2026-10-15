@@ -25,7 +25,7 @@ from nirmaan_stack.api.payees.vendor_payee import check_vendor_payee, get_payee_
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.services.payees.choosing import suggest_for_vendor
 from nirmaan_stack.services.payees.matching import NAME_ONLY, STRONG
-from nirmaan_stack.services.payees.rules import INACTIVE, PAYEE_DOCTYPE
+from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE
 
 U = "Administrator"
 PROJECT_MANAGER = "Nirmaan Project Manager Profile"
@@ -140,34 +140,26 @@ class TestVendorPayee(FrappeTestCase):
         )
         self.assertEqual(suggestions[0]["name"], same_pan)
 
-    def test_an_inactive_payee_is_never_suggested(self):
-        moved = self.payees.payee(holder=self.payees.holder(f"{self.firm} Ductfab"))
-        self._vendor(f"{self.firm} Ductfab", pan=self.pan, payee=moved)
-        frappe.db.set_value(PAYEE_DOCTYPE, moved, "status", INACTIVE)
-        frappe.db.commit()
-        self.assertNotIn(moved, [s["name"] for s in suggest_for_vendor(f"{self.firm} Ductfab", self.pan)])
-
-    def test_a_suggestion_and_the_confirmation_list_every_link_and_the_last_payment(self):
+    def test_a_suggestion_and_the_confirmation_list_every_linked_vendor_and_nothing_paid(self):
         payee = self.payees.payee(holder=self.payees.holder(f"{self.firm} Ductfab"))
         rohtak = self._vendor(f"{self.firm} Ductfab (Rohtak)", pan=self.pan, payee=payee, city="Rohtak")
         gujarat = self._vendor(f"{self.firm} Ductfab (Gujarat)", pan=self.pan, payee=payee, city="Vadodara")
         self._payment(rohtak, "Paid", "2026-10-08", "PO/005/00107/26-27")
         self._payment(gujarat, "Paid", "2026-09-01", "PO/005/00090/26-27")
         self._payment(gujarat, "Approved", "2026-10-12", "PO/005/00111/26-27")
-        pe = self._expense("Project Expenses", payee)
-        npe = self._expense("Non Project Expenses", payee, status="Paid", payment_date="2026-09-15")
+        self._expense("Project Expenses", payee)
+        self._expense("Non Project Expenses", payee, status="Paid", payment_date="2026-09-15")
         frappe.db.commit()
 
         choice = get_payee_choice(payee)
         self.assertEqual(
             {(v["name"], v["vendor_city"]) for v in choice["linked_vendors"]}, {(rohtak, "Rohtak"), (gujarat, "Vadodara")}
         )
-        self.assertEqual(
-            {(e["name"], e["doctype"]) for e in choice["linked_expenses"]},
-            {(pe, "Project Expenses"), (npe, "Non Project Expenses")},
-        )
-        self.assertEqual(choice["last_payment"], {"date": "2026-10-08", "document": "PO/005/00107/26-27"})
-        self.assertEqual((choice["vendors"], choice["expenses"]), (2, 2))
+        self.assertEqual(choice["vendors"], 2)
+        # An address book entry: nothing paid points back at it (#1434).
+        for gone in ("linked_expenses", "last_payment", "expenses", "last_paid", "status"):
+            with self.subTest(field=gone):
+                self.assertNotIn(gone, choice)
 
         [suggestion] = suggest_vendor_payees(f"{self.firm} Ductfab (Pune)", self.pan)["suggestions"]
         self.assertEqual((suggestion["name"], suggestion["match"]), (payee, STRONG))
@@ -220,13 +212,10 @@ class TestVendorPayee(FrappeTestCase):
         self.assertIn(existing, result["error"])
         self.assertEqual(check_vendor_payee(number, TEST_IFSC)["duplicate"]["name"], existing)
 
-    def test_an_inactive_payee_cannot_be_picked(self):
-        moved = self.payees.payee()
-        frappe.db.set_value(PAYEE_DOCTYPE, moved, "status", INACTIVE)
-        frappe.db.commit()
-        result, vendor = self._create(payee=moved)
+    def test_a_payee_that_does_not_exist_cannot_be_picked(self):
+        result, vendor = self._create(payee="PYE-NOPE")
         self.assertIsNone(vendor)
-        self.assertIn("Inactive", result["error"])
+        self.assertIn("PYE-NOPE", result["error"])
 
     def test_a_vendor_needs_a_payee_or_bank_details(self):
         result, vendor = self._create()

@@ -8,7 +8,7 @@ commit.
 
 * `get_paid_to` -- who each ticked row is paid to, read now: Export for Payment's ICICI / Cashfree file.
 * `get_expense_payee` -- Record Payment's "Pay ₹X to" box.
-* `search_payees` -- Change payee's picker: Active Payees by holder name or account number.
+* `search_payees` -- Change payee's picker: Payees by holder name or account number.
 * `change_expense_payee` -- Change payee. Ticket 9's rules are the module's (`change_expense_payee`).
 
 Who: reading follows the ledger (whoever may read the payment or expense sees who it pays, as the
@@ -23,7 +23,7 @@ import frappe
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 from nirmaan_stack.services.payees import expense_payee
 from nirmaan_stack.services.payees.paid_to import assert_paid_to_doctype, expense_pay_to, paid_to_for
-from nirmaan_stack.services.payees.search import search_active_payees
+from nirmaan_stack.services.payees.search import find_payees
 from nirmaan_stack.services.role_profiles import assert_payee_manager
 
 
@@ -52,9 +52,9 @@ def get_expense_payee(doctype: str, name: str) -> dict:
 
 @frappe.whitelist()
 def search_payees(text: str | None = None, limit: int = 8) -> list[dict]:
-    """Active Payees matching `text`, most-paid first (`services/payees/search.search_active_payees`)."""
+    """Payees matching `text`, by holder name (`services/payees/search.find_payees`)."""
     assert_payee_manager(frappe.session.user)
-    return search_active_payees(text, limit=limit)
+    return find_payees(text, limit=limit)
 
 
 @frappe.whitelist(methods=["POST"])

@@ -2,14 +2,14 @@
  * Edit Holder Name (#1423, spec #1420, approved mockup screen 4): fix how the bank spells a Payee's
  * holder name, after an "Are you sure?" that says how many vendors share the account.
  *
- * The account number and IFSC show read-only with a lock: they never change here. The server
- * (`api/payees/payee_page.edit_holder_name`, the Payee `validate` controller) allows the edit to
- * Accountant, Accountant Lead and Admin only.
+ * The account number and IFSC show read-only: this dialog changes only the holder name. Its endpoint
+ * (`api/payees/payee_page.edit_holder_name`) is the Payees page's, Accountant, Accountant Lead and
+ * Admin only; a Payee itself carries no holder-name role rule (#1434).
  */
 
 import { useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
-import { Loader2, Lock } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import {
     AlertDialog,
@@ -40,9 +40,8 @@ interface EditHolderNameDialogProps {
     initialName?: string;
 }
 
-const LockedValue = ({ value }: { value: string }) => (
-    <div className="flex h-9 items-center gap-2 rounded-md bg-muted px-3 text-sm tabular-nums text-muted-foreground">
-        <Lock className="h-3.5 w-3.5" role="img" aria-label="Locked" />
+const ReadOnlyValue = ({ value }: { value: string }) => (
+    <div className="flex h-9 items-center rounded-md bg-muted px-3 text-sm tabular-nums text-muted-foreground">
         {value}
     </div>
 );
@@ -93,11 +92,11 @@ export function EditHolderNameDialog({ open, onOpenChange, payee, onSaved, initi
                     </div>
                     <div className="grid grid-cols-[150px_minmax(0,1fr)] items-center gap-3">
                         <span className="text-right text-sm font-medium">Account Number</span>
-                        <LockedValue value={payee.account_number} />
+                        <ReadOnlyValue value={payee.account_number} />
                     </div>
                     <div className="grid grid-cols-[150px_minmax(0,1fr)] items-center gap-3">
                         <span className="text-right text-sm font-medium">IFSC Code</span>
-                        <LockedValue value={payee.ifsc} />
+                        <ReadOnlyValue value={payee.ifsc} />
                     </div>
 
                     <div className="rounded-md border border-amber-200 bg-amber-50 px-3.5 py-3 text-[13px] leading-relaxed text-amber-900">

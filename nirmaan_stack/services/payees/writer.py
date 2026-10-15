@@ -8,7 +8,7 @@ Request) calls `create_payee` from its own endpoint, after its own role check: w
 depends on the screen, so this module checks no role. Nothing here commits; the caller does.
 
 * `create_payee` -- validate, refuse a duplicate (naming the existing Payee), look up the IFSC
-  (refusing one the lookup can't find), insert at Active.
+  (refusing one the lookup can't find), insert.
 * `existing_payee` -- the Payee already holding an account number + IFSC, if any. A screen asks it
   before submit to show the duplicate block; the Payee `validate` controller asks it on every save.
 * `assert_not_duplicate` -- the refusal itself, shared by `create_payee` and the controller.
@@ -17,10 +17,11 @@ depends on the screen, so this module checks no role. Nothing here commits; the 
   that adds a Payee (the Payees page, the Expense Request, the vendor screens) answers through them.
 * `backfill_payee` -- the patch's Payee for a vendor's bank details already on record (#1424): bank
   and branch as recorded, no IFSC lookup.
-* `edit_holder_name` -- a new holder name (Accounts and Admins only: the controller checks, #1423).
-* `set_status` -- mark a Payee Active or Inactive (#1423).
+* `edit_holder_name` -- a new holder name (#1423). Checks no role: the calling endpoint does.
 
-The rules themselves are pure, in `services/payees/rules.py`; links and "paid" are in
+A Payee has no status and no lock (#1434): it is an address book entry, edited in place.
+
+The rules themselves are pure, in `services/payees/rules.py`; links are in
 `services/payees/links.py`; the IFSC lookup is `services/payees/ifsc.py`.
 """
 
@@ -32,13 +33,11 @@ from frappe import _
 from nirmaan_stack.services.payees.ifsc import lookup_ifsc
 from nirmaan_stack.services.payees.links import payee_summary
 from nirmaan_stack.services.payees.rules import (
-    ACTIVE,
     PAYEE_DOCTYPE,
     PayeeDetails,
     details_problem,
     duplicate_problem,
     parse_details,
-    status_change_problem,
 )
 
 
@@ -49,7 +48,7 @@ class DuplicatePayeeError(frappe.ValidationError):
 
 def existing_payee(details: PayeeDetails, *, exclude: str | None = None) -> str | None:
     """The name of the Payee holding the same account (spaces, dashes and leading zeros ignored) at
-    the same IFSC, at any status, or None."""
+    the same IFSC, or None."""
     if not details.account_number or not details.ifsc:
         return None
     filters = {"normalized_account": details.normalized_account, "ifsc": details.ifsc}
@@ -99,7 +98,7 @@ def unless_duplicate(action):
 
 
 def create_payee(account_name, account_number, ifsc):
-    """Insert a new Active Payee for this bank account and return it.
+    """Insert a new Payee for this bank account and return it.
 
     Refuses incomplete or malformed details, an account + IFSC another Payee holds
     (`DuplicatePayeeError`, carrying `existing`), and an IFSC the lookup can't find
@@ -119,14 +118,13 @@ def create_payee(account_name, account_number, ifsc):
         "ifsc": details.ifsc,
         "bank_name": branch.bank_name,
         "bank_branch": branch.bank_branch,
-        "status": ACTIVE,
     })
     doc.insert(ignore_permissions=True)
     return doc
 
 
 def backfill_payee(details: PayeeDetails, bank_name: str | None, bank_branch: str | None):
-    """Insert an Active Payee for bank details already on record (#1424's patch moves the vendors'
+    """Insert a Payee for bank details already on record (#1424's patch moves the vendors'
     details here) and return it.
 
     Unlike `create_payee`, bank and branch are the ones on record and the IFSC lookup is not asked:
@@ -141,31 +139,16 @@ def backfill_payee(details: PayeeDetails, bank_name: str | None, bank_branch: st
         "ifsc": details.ifsc,
         "bank_name": (bank_name or "").strip() or None,
         "bank_branch": (bank_branch or "").strip() or None,
-        "status": ACTIVE,
     })
     doc.insert(ignore_permissions=True)
     return doc
 
 
 def edit_holder_name(name: str, account_name: str):
-    """Save a new holder name on Payee `name` and return it. Only Accounts and Admins may: the Payee
-    `validate` controller (`guard.check_payee_save`) refuses anyone else as the session user, on this
-    and every other write path. Leaves a Version row, which the Payee page's "Holder name last
-    changed" reads. Never commits."""
+    """Save a new holder name on Payee `name` and return it. Checks no role: whoever may save the
+    Payee may change its holder name (#1434). Leaves a Version row, which the Payee page's "Holder
+    name last changed" reads. Never commits."""
     doc = frappe.get_doc(PAYEE_DOCTYPE, name, for_update=True)
     doc.account_name = account_name
-    doc.save(ignore_permissions=True, ignore_version=False)
-    return doc
-
-
-def set_status(name: str, status: str):
-    """Mark Payee `name` Active or Inactive and return it. An Inactive Payee can't be newly picked;
-    records already pointing at it keep it (`guard.check_payee_pick`). Refuses the status it already
-    has, read inside the row lock. Checks no role; never commits."""
-    doc = frappe.get_doc(PAYEE_DOCTYPE, name, for_update=True)
-    problem = status_change_problem(name, doc.status, status)
-    if problem:
-        frappe.throw(_(problem))
-    doc.status = status
     doc.save(ignore_permissions=True, ignore_version=False)
     return doc

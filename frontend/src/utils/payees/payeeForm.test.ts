@@ -9,7 +9,7 @@ import {
     cleanAccountNumber,
     duplicateSentence,
     ifscShapeProblem,
-    linkedToLabels,
+    linkedVendorsLabel,
     newPayeeProblem,
     normalizeAccount,
     payeeFormProblem,
@@ -89,24 +89,23 @@ describe("payeeFormProblem", () => {
     });
 });
 
-describe("linkedToLabels", () => {
-    it("counts vendors and expenses, singular and plural", () => {
-        expect(linkedToLabels({ vendors: 3, expenses: 2 })).toEqual(["3 vendors", "2 expenses"]);
-        expect(linkedToLabels({ vendors: 1, expenses: 0 })).toEqual(["1 vendor"]);
-        expect(linkedToLabels({ vendors: 0, expenses: 1 })).toEqual(["1 expense"]);
-        expect(linkedToLabels({ vendors: 0, expenses: 0 })).toEqual([]);
+describe("linkedVendorsLabel", () => {
+    it("counts the vendors linked to a payee, singular and plural; none is null", () => {
+        expect(linkedVendorsLabel(3)).toBe("3 vendors");
+        expect(linkedVendorsLabel(1)).toBe("1 vendor");
+        expect(linkedVendorsLabel(0)).toBeNull();
     });
 });
 
 describe("duplicateSentence", () => {
     it("names the existing payee and what it is linked to", () => {
         expect(
-            duplicateSentence({ name: "PYE-0412", account_name: "Kaveri Ductfab Systems Pvt. Ltd.", vendors: 3, expenses: 0 }),
+            duplicateSentence({ name: "PYE-0412", account_name: "Kaveri Ductfab Systems Pvt. Ltd.", vendors: 3 }),
         ).toBe(
             "PYE-0412, Kaveri Ductfab Systems Pvt. Ltd., has the same account number and IFSC. It is linked to 3 vendors. Pick that payee instead of adding a new one.",
         );
-        expect(duplicateSentence({ name: "PYE-0405", account_name: "Mahalaxmi Hardware", vendors: 0, expenses: 0 })).toContain(
-            "It is not linked to anything yet.",
+        expect(duplicateSentence({ name: "PYE-0405", account_name: "Mahalaxmi Hardware", vendors: 0 })).toContain(
+            "No vendor is linked to it yet.",
         );
     });
 });

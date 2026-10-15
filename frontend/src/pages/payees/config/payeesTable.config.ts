@@ -27,9 +27,8 @@ export interface PayeeTabPill {
 }
 
 export const PAYEE_TAB_PILLS: PayeeTabPill[] = [
-    { tab: PAYEE_TABS.ACTIVE, label: "Active", countKey: "active_count" },
-    { tab: PAYEE_TABS.INACTIVE, label: "Inactive", countKey: "inactive_count" },
-    { tab: PAYEE_TABS.UNLINKED, label: "Not linked to anything", countKey: "unlinked_count" },
+    { tab: PAYEE_TABS.ALL, label: "All", countKey: "all_count" },
+    { tab: PAYEE_TABS.NO_VENDOR, label: "No vendor", countKey: "no_vendor_count" },
 ];
 
 /** A pill's count from the list call's `aggregates`; 0 until it arrives. */

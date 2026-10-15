@@ -43,10 +43,8 @@ import VendorSelect, { OTHERS_VENDOR_VALUE } from "@/components/custom-select/ve
 
 import { DuplicatePayeeError, usePayeeChoice } from "@/components/payees/usePayeeChoice";
 import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
-import { PAYEE_STATUS } from "@/types/NirmaanStack/Payee";
 import {
     asksWhoGetsPaid,
-    newlyNamesVendor,
     showsWhoGetsPaid,
     vendorClearDropsPayee,
     whoGetsPaidProblem,
@@ -245,9 +243,6 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     const { account: vendorAccount, isLoading: vendorPayeeLoading } =
         useVendorAccount(form.vendor, showsPayee && vendorChosen);
     const vendorPayee = vendorChosen ? vendorAccount ?? null : null;
-    // A request newly naming a vendor whose Payee is Inactive is refused on any type (owner
-    // decision); an edit keeping the vendor it was sent with keeps its Payee. Mirrors the server.
-    const vendorIsNew = vendorChosen && newlyNamesVendor(form.vendor, editing?.vendor);
     const payeeProblem = showsPayee
         ? whoGetsPaidProblem({
             rule: payeeRule,
@@ -255,7 +250,6 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             vendor: vendorChosen ? (vendorPayee?.vendor_name || form.vendor) : null,
             vendorPayee: vendorPayee?.payee?.name ?? null,
             hasChoice: payeeChoice.hasChoice,
-            vendorPayeeInactive: vendorIsNew && vendorPayee?.payee?.status === PAYEE_STATUS.INACTIVE,
         })
         : null;
     const payeeReady = !payeeProblem && (
@@ -381,7 +375,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         });
         setChangingProject(false);
         // The request's own Payee, served with the row (`payee_details`): requesters can't read
-        // `Payee` directly. Kept on save even if it has gone Inactive since.
+        // `Payee` directly.
         payeeChoice.reset(editing.payee_details ?? null);
         skipNextSeed.current = true;
         setAnswers(answersFromSourceData(editing.source_data));

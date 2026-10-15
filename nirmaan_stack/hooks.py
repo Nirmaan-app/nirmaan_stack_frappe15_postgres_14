@@ -216,8 +216,8 @@ doc_events = {
         "on_update": "nirmaan_stack.integrations.controllers.project_progress_reports.relink_attachment_files"
     },
     "Vendors": {
-        # An Inactive Payee can't be newly picked (#1423, spec #1420); the same controller runs on
-        # every doctype that links a Payee.
+        # Only the vendor screens' roles set a vendor's Payee (#1423, spec #1420); the same
+        # controller runs on every doctype that links a Payee.
         "validate": "nirmaan_stack.integrations.controllers.payee_links.validate",
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.generate_vendor_category",
         # IMPLEMENT ON_UPDATE

@@ -31,7 +31,7 @@ from nirmaan_stack.patches.v3_0.move_vendor_bank_details_to_payees import (
     move_vendor_bank_details,
     summary,
 )
-from nirmaan_stack.services.payees.rules import ACTIVE, PAYEE_DOCTYPE
+from nirmaan_stack.services.payees.rules import PAYEE_DOCTYPE
 
 U = "Administrator"
 
@@ -126,8 +126,8 @@ class TestMoveVendorBankDetailsToPayees(_PatchFixture):
         self.assertNotIn(self._payee_of(alone), (None, shared))
         doc = frappe.get_doc(PAYEE_DOCTYPE, shared)
         self.assertEqual(
-            (doc.account_name, doc.account_number, doc.ifsc, doc.bank_name, doc.bank_branch, doc.status),
-            ("TESTPYE Kaveri Ductfab Pvt Ltd", f"00{number}", TEST_IFSC, "Fixture Bank", "Fixture Branch", ACTIVE),
+            (doc.account_name, doc.account_number, doc.ifsc, doc.bank_name, doc.bank_branch),
+            ("TESTPYE Kaveri Ductfab Pvt Ltd", f"00{number}", TEST_IFSC, "Fixture Bank", "Fixture Branch"),
         )
 
     def test_a_vendor_with_no_account_number_gets_no_payee(self):

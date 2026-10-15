@@ -4,15 +4,14 @@
  * it tests without React. The ranking itself is the server's (`services/payees/matching.py`).
  */
 
-import { format, parseISO } from "date-fns";
-
 import { PAYEE_MATCH, type PayeeWithLinks, type PayeeMatch, type PayeeSuggestion } from "@/types/NirmaanStack/Payee";
 
 import {
     bankLine,
     cleanAccountNumber,
     cleanIfsc,
-    linkedToLabels,
+    linkedVendorsLabel,
+    NO_VENDOR_LINKED,
     newPayeeProblem,
     type PayeeFormValues,
 } from "./payeeForm";
@@ -37,9 +36,9 @@ const namedList = (names: string[]): string =>
 
 /**
  * A suggestion card's second line: whether the PAN agrees with `vendorPan` (the new vendor's, as
- * typed; nothing is said until one is), then what the Payee is linked to, naming its vendors' places
- * when it serves vendors only ("Linked to 3 vendors: Rohtak, Gujarat, Bengaluru."). "Linked", not
- * "paid": a Payee may serve vendors that were never paid; `lastPaidLine` says what was paid.
+ * typed; nothing is said until one is), then the vendors linked to the Payee, naming their places
+ * ("Linked to 3 vendors: Rohtak, Gujarat, Bengaluru."). "Linked", not "paid": a Payee may serve
+ * vendors that were never paid.
  */
 export const suggestionLinkLine = (s: PayeeSuggestion, vendorPan: string | undefined): string => {
     const pan =
@@ -48,22 +47,14 @@ export const suggestionLinkLine = (s: PayeeSuggestion, vendorPan: string | undef
             : vendorPan?.trim() && s.linked_vendors.some((v) => v.vendor_pan)
               ? "Different PAN."
               : "";
-    const links = linkedToLabels(s);
-    let linked = "Not linked to anything yet.";
-    if (links.length && !s.expenses) {
+    const label = linkedVendorsLabel(s.vendors);
+    let linked = NO_VENDOR_LINKED;
+    if (label) {
         const places = [...new Set(s.linked_vendors.map((v) => v.vendor_city || v.vendor_name || v.name))];
-        linked = `Linked to ${links[0]}${places.length ? `: ${namedList(places)}` : ""}.`;
-    } else if (links.length) {
-        linked = `Linked to ${links.join(" and ")}.`;
+        linked = `Linked to ${label}${places.length ? `: ${namedList(places)}` : ""}.`;
     }
     return [pan, linked].filter(Boolean).join(" ");
 };
-
-/** "Last paid 08-Oct-2026, on PO/005/00107/26-27." */
-export const lastPaidLine = (c: Pick<PayeeWithLinks, "last_payment">): string =>
-    c.last_payment
-        ? `Last paid ${format(parseISO(c.last_payment.date), "dd-MMM-yyyy")}, on ${c.last_payment.document}.`
-        : "Never paid yet.";
 
 /** "Where do we pay this vendor?": a Payee already on record, or new bank details. */
 export const VENDOR_PAYEE_MODE = {
@@ -120,9 +111,3 @@ export const vendorPayeeProblem = ({
     }
     return newPayeeProblem({ formProblem, duplicate, lookingUp });
 };
-
-/** "2 (PE-2026-00712, NPE-2026-00093)", or null when no expense names the Payee. */
-export const expensesLine = (c: Pick<PayeeWithLinks, "linked_expenses">): string | null =>
-    c.linked_expenses.length
-        ? `${c.linked_expenses.length} (${namedList(c.linked_expenses.map((e) => e.name))})`
-        : null;

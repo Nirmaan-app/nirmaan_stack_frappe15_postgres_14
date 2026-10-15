@@ -186,8 +186,7 @@ def create_ledger_row(req):
 		"comment": req.comment or None,
 		# Who gets paid (ADR-0033), on BOTH ledgers: the accountant pays this account without
 		# re-entering it. Copied as-is: the request's rules were applied when it was raised or
-		# edited, and approval carries the link, so a Payee gone Inactive since stays on it
-		# (`services/payees/guard`: not a new pick).
+		# edited, and approval carries the link.
 		"payee": req.get("payee") or None,
 	}
 

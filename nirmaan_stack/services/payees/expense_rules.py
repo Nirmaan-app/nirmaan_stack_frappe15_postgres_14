@@ -4,7 +4,7 @@
 """The Expense payee rules that need no database (spec #1420 ticket #1429, ADR-0033).
 
 PURE MODULE -- no `frappe`, no database. `services/payees/expense_payee.py` reads the facts (the
-type's rule, the vendor's Payee, a Payee's status) and asks these; nothing else re-states them.
+type's rule, the vendor's Payee) and asks these; nothing else re-states them.
 
 Each **expense type** says whether a request names who gets paid (`Expense Type.payee_rule`):
 
@@ -18,8 +18,7 @@ obeys too). On a *Not asked* type the vendor's Payee is still carried, so the ac
 pay; only a Payee the raiser typed is ignored. A vendor can't be read back from a Payee, because one
 Payee may serve several vendors.
 
-A request can't newly name a vendor whose Payee is Inactive (`vendor_payee_problem`): the vendor
-moves to its new account first. An expense's Payee is fixed once it is paid (`paid_expense_problem`),
+An expense's Payee is fixed once it is paid (`paid_expense_problem`),
 and before that only Accounts change it (`EXPENSE_PAYEE_ROLE_PROBLEM`).
 """
 
@@ -27,7 +26,7 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from nirmaan_stack.services.payees.rules import INACTIVE, PAID_STATUSES
+from nirmaan_stack.services.payees.rules import PAID_STATUSES
 
 REQUIRED = "Required"
 OPTIONAL = "Optional"
@@ -88,20 +87,6 @@ def request_payee(rule, *, expense_type, payee, vendor, vendor_payee) -> PayeeVe
     if not payee and rule == REQUIRED:
         return PayeeVerdict(None, f"{expense_type} needs a payee. Pick who gets paid, or add a new payee.")
     return PayeeVerdict(payee, None)
-
-
-#: The refusal of a new request, or a request moved to a vendor, whose vendor's Payee is Inactive
-#: (owner decision, spec #1420 walk): the vendor must move to its new account first. A request
-#: already sent keeps its Payee through approval.
-VENDOR_PAYEE_INACTIVE_PROBLEM = (
-    "This vendor's bank account is Inactive. Use Change account on the vendor page first."
-)
-
-
-def vendor_payee_problem(vendor_payee_status: str | None) -> str | None:
-    """Why a request can't newly name a vendor whose Payee is at `vendor_payee_status` (None: the
-    vendor has none, which the type's rule decides), or None."""
-    return VENDOR_PAYEE_INACTIVE_PROBLEM if vendor_payee_status == INACTIVE else None
 
 
 #: The refusal when anyone but Accounts or an Admin changes an existing expense's Payee.

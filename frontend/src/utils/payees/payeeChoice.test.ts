@@ -4,8 +4,6 @@ import { PAYEE_MATCH, type PayeeSuggestion } from "@/types/NirmaanStack/Payee";
 
 import {
     accountLine,
-    expensesLine,
-    lastPaidLine,
     MATCH_LABEL,
     suggestionLinkLine,
     VENDOR_PAYEE_MODE,
@@ -27,13 +25,8 @@ const suggestion = (over: Partial<PayeeSuggestion> = {}): PayeeSuggestion => ({
     ifsc: "HDFC0000195",
     bank_name: "HDFC Bank",
     bank_branch: "Rohtak",
-    status: "Active",
     vendors: 3,
-    expenses: 0,
-    last_paid: "2026-10-08",
     linked_vendors: [vendor("V1", "Rohtak"), vendor("V2", "Gujarat"), vendor("V3", "Bengaluru")],
-    linked_expenses: [],
-    last_payment: { date: "2026-10-08", document: "PO/005/00107/26-27" },
     match: PAYEE_MATCH.STRONG,
     ...over,
 });
@@ -57,14 +50,13 @@ describe("payee suggestion lines", () => {
         );
     });
 
-    it("a name-only match says the PAN differs and counts vendors and expenses", () => {
+    it("a name-only match says the PAN differs and names its vendors' places", () => {
         const s = suggestion({
             match: PAYEE_MATCH.NAME_ONLY,
             vendors: 1,
-            expenses: 2,
             linked_vendors: [vendor("V9", "Nashik", "ZZZZZ9999Z")],
         });
-        expect(suggestionLinkLine(s, "AAHCK1234M")).toBe("Different PAN. Linked to 1 vendor and 2 expenses.");
+        expect(suggestionLinkLine(s, "AAHCK1234M")).toBe("Different PAN. Linked to 1 vendor: Nashik.");
     });
 
     it("says nothing about PAN until the new vendor's PAN is typed (#1420 walk C2)", () => {
@@ -78,12 +70,12 @@ describe("payee suggestion lines", () => {
     });
 
     it("a name-only match with no PAN to compare says nothing about PAN", () => {
-        const s = suggestion({ match: PAYEE_MATCH.NAME_ONLY, vendors: 0, expenses: 0, linked_vendors: [] });
-        expect(suggestionLinkLine(s, "AAHCK1234M")).toBe("Not linked to anything yet.");
+        const s = suggestion({ match: PAYEE_MATCH.NAME_ONLY, vendors: 0, linked_vendors: [] });
+        expect(suggestionLinkLine(s, "AAHCK1234M")).toBe("No vendor is linked to it yet.");
     });
 
     it("never says 'paid' for links: a linked Payee may never have been paid (#1420 walk C11)", () => {
-        expect(suggestionLinkLine(suggestion({ last_paid: null, last_payment: null }), "AAHCK1234M")).not.toMatch(/paid/i);
+        expect(suggestionLinkLine(suggestion(), "AAHCK1234M")).not.toMatch(/paid/i);
     });
 
     it("names each place once, falling back to the vendor name", () => {
@@ -131,28 +123,5 @@ describe("the vendor's answer to 'Where do we pay this vendor?'", () => {
         );
         expect(vendorPayeeProblem({ ...base, lookingUp: true })).toBe("Wait for the IFSC lookup.");
         expect(vendorPayeeProblem(base)).toBeNull();
-    });
-});
-
-describe("the confirmation's lines", () => {
-    it("says when and on what the payee was last paid", () => {
-        expect(lastPaidLine(suggestion())).toBe("Last paid 08-Oct-2026, on PO/005/00107/26-27.");
-        expect(lastPaidLine(suggestion({ last_payment: null }))).toBe("Never paid yet.");
-    });
-
-    it("counts the linked expenses and names them", () => {
-        const s = suggestion({
-            linked_expenses: [
-                { name: "PE-2026-00712", doctype: "Project Expenses" },
-                { name: "NPE-2026-00093", doctype: "Non Project Expenses" },
-            ],
-        });
-        expect(expensesLine(s)).toBe("2 (PE-2026-00712, NPE-2026-00093)");
-        expect(expensesLine(suggestion())).toBeNull();
-    });
-
-    it("names at most five expenses", () => {
-        const linked = Array.from({ length: 7 }, (_, i) => ({ name: `PE-${i}`, doctype: "Project Expenses" as const }));
-        expect(expensesLine(suggestion({ linked_expenses: linked }))).toBe("7 (PE-0, PE-1, PE-2, PE-3, PE-4 and 2 more)");
     });
 });

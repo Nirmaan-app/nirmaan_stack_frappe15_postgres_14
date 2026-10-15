@@ -95,11 +95,6 @@ export function ExpensePayToBox({ doctype, expenseName, expenseType }: ExpensePa
                         <Fact label="Bank" value={bank || "--"} />
                         <Fact label="Named by" value={namedByText(payTo.named_by, payTo.vendor_name)} />
                     </div>
-                    {payee.status === "Inactive" && (
-                        <p className="text-xs text-amber-800">
-                            This payee is Inactive: it stays on this expense, but can't be picked for new ones.
-                        </p>
-                    )}
                 </>
             ) : payTo.vendor_fixed ? (
                 <p className="text-sm">

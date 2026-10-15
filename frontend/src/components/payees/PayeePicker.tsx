@@ -1,7 +1,7 @@
 /**
  * Choose who gets paid (spec #1420 ticket #1429, approved mockup screen 10): **Pick a payee**
- * (search Active Payees by name or account number; each match shows its account, IFSC, bank and how
- * often it has been paid) or **Add new payee** (the Add Payee fields and rules, inline).
+ * (search Payees by name or account number, listed by holder name; each match shows its account,
+ * IFSC and bank) or **Add new payee** (the Add Payee fields and rules, inline).
  *
  * Driven by `usePayeeChoice`, which the saving screen calls `resolve()` on. Reused by the request
  * formats (#1430) and Record Payment's "Change payee" (#1431).
@@ -15,12 +15,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { PAYEE_STATUS, type PayeeOption } from "@/types/NirmaanStack/Payee";
-import { payeeAccountLine, timesPaidText } from "@/utils/payees/expensePayee";
+import type { PayeeOption } from "@/types/NirmaanStack/Payee";
+import { payeeAccountLine } from "@/utils/payees/expensePayee";
 import { bankLine } from "@/utils/payees/payeeForm";
 
 import { PayeeBankFields } from "./PayeeBankFields";
-import { PayeeInactiveBadge } from "./PayeeInactiveBadge";
 import type { PayeeChoice } from "./usePayeeChoice";
 
 const DEBOUNCE_MS = 300;
@@ -122,7 +121,7 @@ function PickPanel({ choice, disabled }: PayeePickerProps) {
     );
     const matches = (searching ? data?.message ?? [] : []).filter((p) => p.name !== picked?.name);
 
-    // A pick ends the search: its results (and "No active payee matches") would otherwise linger
+    // A pick ends the search: its results (and "No payee matches") would otherwise linger
     // under the picked card.
     const choose = (payee: PayeeOption) => {
         pick(payee);
@@ -164,7 +163,7 @@ function PickPanel({ choice, disabled }: PayeePickerProps) {
             ))}
             {searching && isLoading && <p className="text-xs text-muted-foreground">Searching...</p>}
             {searching && !isLoading && matches.length === 0 && (
-                <p className="text-xs text-muted-foreground">No active payee matches “{query}”.</p>
+                <p className="text-xs text-muted-foreground">No payee matches “{query}”.</p>
             )}
             <p className="text-xs text-muted-foreground">Not here? Use Add new payee.</p>
         </div>
@@ -178,11 +177,10 @@ interface PayeeCardProps {
     disabled?: boolean;
 }
 
-/** One Payee as a button: holder name, account and IFSC, bank and branch, how often paid. Clicking
- *  the selected one clears it. */
+/** One Payee as a button: holder name, account and IFSC, bank and branch. Clicking the selected one
+ *  clears it. */
 function PayeeCard({ payee, selected, onClick, disabled }: PayeeCardProps) {
     const bank = bankLine(payee);
-    const paid = payee.times_paid === undefined ? "" : timesPaidText(payee.times_paid);
     return (
         <button
             type="button"
@@ -198,23 +196,17 @@ function PayeeCard({ payee, selected, onClick, disabled }: PayeeCardProps) {
         >
             <span className="block text-sm font-semibold text-foreground">{payee.account_name}</span>
             <span className="block">{payeeAccountLine(payee)}</span>
-            {(bank || paid) && <span className="block">{[bank, paid].filter(Boolean).join(". ")}</span>}
+            {bank && <span className="block">{bank}</span>}
         </button>
     );
 }
 
-/**
- * A Payee shown read-only (the vendor's own, on the request; the payee on a review). An Inactive one
- * says so: a vendor's Payee is carried even when Inactive, so whoever reviews the request sees it.
- */
+/** A Payee shown read-only (the vendor's own, on the request; the payee on a review). */
 export function PayeeReadOnly({ payee, note }: { payee: PayeeOption; note?: string }) {
     const bank = bankLine(payee);
     return (
         <div className="rounded-md border bg-background px-3 py-2.5 text-[13px] leading-relaxed tabular-nums">
-            <span className="flex flex-wrap items-center gap-2 text-sm font-semibold">
-                {payee.account_name}
-                {payee.status === PAYEE_STATUS.INACTIVE && <PayeeInactiveBadge />}
-            </span>
+            <span className="block text-sm font-semibold">{payee.account_name}</span>
             <span className="block">{payeeAccountLine(payee)}</span>
             {bank && <span className="block">{bank}</span>}
             {note && <p className="mt-1.5 text-xs text-muted-foreground">{note}</p>}

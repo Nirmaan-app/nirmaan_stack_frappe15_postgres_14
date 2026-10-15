@@ -105,19 +105,17 @@ export const newPayeeProblem = ({
 export const bankLine = (p: { bank_name?: string | null; bank_branch?: string | null }): string =>
     [p.bank_name, p.bank_branch].filter(Boolean).join(", ");
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+/** "3 vendors", "1 vendor": how many vendors link to a Payee; null when none does. A Payee is linked
+ *  to vendors only: nothing paid points back at it (#1434). */
+export const linkedVendorsLabel = (vendors: number): string | null =>
+    vendors ? `${vendors} vendor${vendors === 1 ? "" : "s"}` : null;
 
-/** "3 vendors", "2 expenses": what a Payee is linked to; empty when nothing. */
-export const linkedToLabels = ({ vendors, expenses }: Pick<PayeeSummary, "vendors" | "expenses">): string[] => [
-    ...(vendors ? [plural(vendors, "vendor")] : []),
-    ...(expenses ? [plural(expenses, "expense")] : []),
-];
+/** What a Payee with no vendor says it is linked to. */
+export const NO_VENDOR_LINKED = "No vendor is linked to it yet.";
 
-/** The duplicate block's sentence: which Payee already holds the account, and what it is linked to. */
-export const duplicateSentence = (
-    dup: Pick<PayeeSummary, "name" | "account_name" | "vendors" | "expenses">,
-): string => {
-    const links = linkedToLabels(dup);
-    const linked = links.length ? `It is linked to ${links.join(" and ")}.` : "It is not linked to anything yet.";
+/** The duplicate block's sentence: which Payee already holds the account, and the vendors on it. */
+export const duplicateSentence = (dup: Pick<PayeeSummary, "name" | "account_name" | "vendors">): string => {
+    const label = linkedVendorsLabel(dup.vendors);
+    const linked = label ? `It is linked to ${label}.` : NO_VENDOR_LINKED;
     return `${dup.name}, ${dup.account_name}, has the same account number and IFSC. ${linked} Pick that payee instead of adding a new one.`;
 };

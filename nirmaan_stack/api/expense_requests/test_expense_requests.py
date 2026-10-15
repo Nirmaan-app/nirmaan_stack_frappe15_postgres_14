@@ -1100,7 +1100,7 @@ class TestExpenseRequests(FrappeTestCase):
 
 class TestExpenseRequestPayee(FrappeTestCase):
 	"""Who gets paid (spec #1420 ticket #1429, ADR-0033): the type's rule, the vendor's Payee,
-	Inactive Payees, edits, and approval carrying the Payee onto the Expense.
+	edits, and approval carrying the Payee onto the Expense.
 
 	Builds its own expense types, Payees (`PayeeFixture`, offline IFSC) and vendors (inserted raw
 	as `TESTPYE-VEN-*`), so it holds whatever the site's real types and vendors say.
@@ -1151,9 +1151,6 @@ class TestExpenseRequestPayee(FrappeTestCase):
 	def _type(self, rule, *, project=False):
 		return self._own_type(project=1 if project else 0, non_project=0 if project else 1,
 		                      payee_rule=rule)
-
-	def _inactive(self, payee):
-		self.payees.mark_inactive(payee)
 
 	def _raise(self, expense_type, **kw):
 		frappe.set_user(PM_USER)
@@ -1233,33 +1230,6 @@ class TestExpenseRequestPayee(FrappeTestCase):
 			self._raise(self._type("Required", project=True), projects=self.project,
 			            vendor=self.payees.vendor())
 
-	# --- Inactive ------------------------------------------------------------
-
-	def test_an_inactive_payee_is_refused(self):
-		payee = self.payees.payee()
-		self._inactive(payee)
-		with self.assertRaises(frappe.ValidationError) as ctx:
-			self._raise(self._type("Optional"), payee=payee)
-		self.assertIn("Inactive", str(ctx.exception))
-
-	def test_a_new_request_naming_a_vendor_whose_payee_is_inactive_is_refused(self):
-		"""Owner decision (walk bug 7e): the vendor must use Change account first. The dialog shows
-		the vendor's Payee with an Inactive badge and the same reason."""
-		payee = self.payees.payee()
-		self._inactive(payee)
-		with self.assertRaisesRegex(frappe.ValidationError, "bank account is Inactive"):
-			self._raise(self._type("Optional", project=True), projects=self.project,
-			            vendor=self.payees.vendor(payee))
-
-	def test_approval_carries_a_vendors_payee_that_went_inactive_after_the_request(self):
-		"""An already-sent request is not a new one: approval still pays into its Payee (review A1)."""
-		payee = self.payees.payee()
-		res = self._raise(self._type("Optional", project=True), projects=self.project,
-		                  vendor=self.payees.vendor(payee))
-		self._inactive(payee)
-		out = approve_expense_request(res["name"])
-		self.assertEqual(frappe.db.get_value(out["created_expense_doctype"], out["created_expense"], "payee"), payee)
-
 	# --- editing -------------------------------------------------------------
 
 	def test_an_edit_can_change_the_payee(self):
@@ -1275,19 +1245,6 @@ class TestExpenseRequestPayee(FrappeTestCase):
 		res = self._raise(typ, payee=payee)
 		with self.assertRaises(frappe.ValidationError):
 			self._edit(res, typ)
-		inactive = self.payees.payee()
-		self._inactive(inactive)
-		with self.assertRaises(frappe.ValidationError):
-			self._edit(res, typ, payee=inactive)
-		self.assertEqual(self._payee_of(res), payee)
-
-	def test_an_edit_keeps_a_payee_that_went_inactive_since(self):
-		"""Inactive stops NEW picks; a request already pointing at the Payee keeps it."""
-		typ = self._type("Required")
-		payee = self.payees.payee()
-		res = self._raise(typ, payee=payee)
-		self._inactive(payee)
-		self._edit(res, typ, payee=payee, amount=5100)
 		self.assertEqual(self._payee_of(res), payee)
 
 	def test_an_edit_to_a_not_asked_type_drops_the_payee(self):
@@ -1313,15 +1270,6 @@ class TestExpenseRequestPayee(FrappeTestCase):
 		self.assertEqual(out["created_expense_doctype"], "Project Expenses")
 		self.assertEqual(
 			frappe.db.get_value("Project Expenses", out["created_expense"], "payee"), payee)
-
-	def test_approval_carries_a_payee_that_went_inactive_since(self):
-		"""Approval carries the link the request already holds: not a new pick, so Inactive can't stop it."""
-		payee = self.payees.payee()
-		res = self._raise(self._type("Required"), payee=payee)
-		self._inactive(payee)
-		out = approve_expense_request(res["name"])
-		self.assertEqual(
-			frappe.db.get_value("Non Project Expenses", out["created_expense"], "payee"), payee)
 
 	def test_a_not_asked_request_with_a_vendor_carries_the_vendors_payee_onto_the_expense(self):
 		payee = self.payees.payee()

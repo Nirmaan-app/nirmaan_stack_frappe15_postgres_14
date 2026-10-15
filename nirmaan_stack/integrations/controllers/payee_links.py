@@ -6,8 +6,7 @@ and `Non Project Expenses` (#1423, spec #1420, ADR-0033).
 
 The Payee rules no screen or API can skip live in the Payee module
 (`services/payees/guard.check_payee_links`): a vendor's Payee, an expense type's *Who gets paid*,
-an expense's Payee fixed once paid and changed only by Accounts, who may set a vendor's Payee, and
-Inactive Payees not newly picked.
+an expense's Payee fixed once paid and changed only by Accounts, and who may set a vendor's Payee.
 """
 
 import frappe

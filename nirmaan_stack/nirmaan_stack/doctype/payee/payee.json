@@ -12,7 +12,6 @@
   "column_break_bank",
   "bank_name",
   "bank_branch",
-  "status",
   "normalized_account"
  ],
  "fields": [
@@ -58,17 +57,6 @@
    "read_only": 1
   },
   {
-   "default": "Active",
-   "description": "An Inactive Payee can't be newly picked; records already pointing at it keep it.",
-   "fieldname": "status",
-   "fieldtype": "Select",
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "label": "Status",
-   "options": "Active\nInactive",
-   "reqd": 1
-  },
-  {
    "description": "The account number without spaces, dashes or leading zeros (services/outflow_import/normalize.normalize_account). Normalized Account + IFSC is unique; written by the Payee validate controller only.",
    "fieldname": "normalized_account",
    "fieldtype": "Data",
@@ -80,7 +68,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-14 13:14:51.716900",
+ "modified": "2026-10-15 10:57:44.633699",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Payee",

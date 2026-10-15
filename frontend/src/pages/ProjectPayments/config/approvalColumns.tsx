@@ -22,7 +22,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import SITEURL from "@/constants/siteURL";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { ChequeChip } from "@/components/cheques/ChequeChip";
-import { PayeeInactiveBadge } from "@/components/payees/PayeeInactiveBadge";
 import { showsChequeChip, utrOrChequeText } from "@/utils/cheques/chequeChip";
 import {
   DocumentDetailPopover,
@@ -600,9 +599,6 @@ const REGISTRY: Record<
             >
               {cell.title}
             </span>
-            {cell.inactive && (
-              <PayeeInactiveBadge tone={cell.blocked ? "alert" : "muted"} className="px-1.5 py-0 text-[11px]" />
-            )}
           </span>
           <span className="block text-xs font-normal tabular-nums text-muted-foreground" title={cell.detail}>
             {cell.detail}
