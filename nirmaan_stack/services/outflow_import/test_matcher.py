@@ -374,6 +374,84 @@ class TestTier1AccountAndIfsc(unittest.TestCase):
         self.assertEqual(match_payments(row, targets, self._vendor()).tier, TIER_ACCOUNT)
 
 
+class TestTier1ReadsThePaymentsOwnPayToAccount(unittest.TestCase):
+    """#1440, ADR-0033 decision 9: a payment holds the account it was raised to, and tier 1 compares
+    the line with THAT copy. Only a payment with no copy falls back to its vendor's current Payee."""
+
+    PREVIOUS_ACCOUNT, PREVIOUS_IFSC = "99999999991", "TEST0000099"
+
+    def _payment(self, account="", ifsc="", vendor="VEN-0001", amount="5000"):
+        return TargetRef(
+            "Project Payments", "PAY-1", Decimal(amount), "Approved", vendor, "junk",
+            pay_to_account_number=account, pay_to_ifsc=ifsc,
+        )
+
+    def _line(self, account=PREVIOUS_ACCOUNT, ifsc=PREVIOUS_IFSC, amount="5000"):
+        row = _Row(amount=amount, bank_account=account, ifsc=ifsc)
+        return row, resolve_vendors(row, INDEX)
+
+    def test_a_line_to_a_vendors_previous_account_matches_the_payment_raised_to_it(self):
+        # The vendor's current Payee (VEN-0001: 11111111111) is not the account on the line, so the
+        # vendor index resolves nobody; the payment's own copy is what matches.
+        row, vendor = self._line()
+        self.assertEqual(vendor.candidates, ())
+        result = match_payments(row, [self._payment(self.PREVIOUS_ACCOUNT, self.PREVIOUS_IFSC)], vendor)
+        self.assertEqual(result.tier, TIER_ACCOUNT)
+        self.assertEqual(result.groups[0].basis, BASIS_ACCOUNT_IFSC)
+        self.assertEqual([g.targets[0].name for g in result.groups], ["PAY-1"])
+
+    def test_the_copy_is_compared_in_its_normalised_form(self):
+        # Leading zeros, spaces and a lower-case IFSC are the same account.
+        row, vendor = self._line()
+        payment = self._payment("00 9999-9999 991 ", " test0000099 ")
+        self.assertEqual(match_payments(row, [payment], vendor).tier, TIER_ACCOUNT)
+
+    def test_the_ifsc_on_the_copy_must_agree_too(self):
+        row, vendor = self._line()
+        payment = self._payment(self.PREVIOUS_ACCOUNT, "TEST0000098")
+        self.assertEqual(match_payments(row, [payment], vendor).groups, ())
+
+    def test_a_line_with_no_ifsc_never_matches_a_copy(self):
+        row, vendor = self._line(ifsc="")
+        payment = self._payment(self.PREVIOUS_ACCOUNT, self.PREVIOUS_IFSC)
+        self.assertEqual(match_payments(row, [payment], vendor).groups, ())
+
+    def test_a_copy_still_needs_the_strict_amount_window(self):
+        row, vendor = self._line()
+        payment = self._payment(self.PREVIOUS_ACCOUNT, self.PREVIOUS_IFSC, amount="4996")
+        self.assertEqual(match_payments(row, [payment], vendor).groups, ())
+
+    def test_a_payment_raised_to_another_account_is_not_matched_through_its_vendors_payee(self):
+        # The line goes to VEN-0001's current Payee, but this payment was raised to the previous
+        # account: the money for it was meant elsewhere, so the vendor index does not admit it.
+        row, vendor = self._line("11111111111", "TEST0000001")
+        self.assertEqual([c.vendor.name for c in vendor.candidates], ["VEN-0001"])
+        payment = self._payment(self.PREVIOUS_ACCOUNT, self.PREVIOUS_IFSC)
+        self.assertEqual(match_payments(row, [payment], vendor).groups, ())
+
+    def test_a_payment_with_no_copy_falls_back_to_its_vendors_current_payee(self):
+        row, vendor = self._line("11111111111", "TEST0000001")
+        result = match_payments(row, [self._payment()], vendor)
+        self.assertEqual(result.tier, TIER_ACCOUNT)
+
+    def test_a_copy_and_a_fallback_payment_are_both_offered(self):
+        row, vendor = self._line("11111111111", "TEST0000001")
+        with_copy = TargetRef(
+            "Project Payments", "PAY-A", Decimal("5000"), "Approved", "VEN-9999", "junk",
+            pay_to_account_number="11111111111", pay_to_ifsc="TEST0000001",
+        )
+        without = TargetRef("Project Payments", "PAY-B", Decimal("5000"), "Approved", "VEN-0001", "junk")
+        result = match_payments(row, [with_copy, without], vendor)
+        self.assertEqual([g.targets[0].name for g in result.groups], ["PAY-A", "PAY-B"])
+
+    def test_a_shared_payee_matches_a_payment_of_either_vendor_by_its_copy(self):
+        row, vendor = self._line("44444444444", "TEST0000004")
+        for name in ("VEN-0004", "VEN-0005"):
+            with self.subTest(vendor=name):
+                payment = self._payment("44444444444", "TEST0000004", vendor=name)
+                self.assertEqual(match_payments(row, [payment], vendor).tier, TIER_ACCOUNT)
+
+
 class TestTier2ProjectInTheRemark(unittest.TestCase):
     """The corroborated tier: the amount agrees AND the remark names the record's project."""
 

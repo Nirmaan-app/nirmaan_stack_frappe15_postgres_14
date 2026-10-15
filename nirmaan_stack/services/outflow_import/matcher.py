@@ -24,10 +24,12 @@ TIER 0 -- bank reference. `normalize_reference(bank_reference_no) == normalize_r
     settled value, the largest a single Rs 7,289,432 IMPS across 7 payments and 6 projects.
     Grouping is by shared reference, which is why this tier groups and no other one does.
 
-TIER 1 -- the beneficiary's bank account AND IFSC both match a vendor on file, and the amount agrees
-    within `TIER1_TOLERANCE` (Re 1). This is the nearly-certain tier: the money demonstrably went to
-    an account this company holds for that vendor, so the tight amount window costs nothing and the
-    date is not consulted at all. Payments only -- an expense has no beneficiary account to compare.
+TIER 1 -- the beneficiary's bank account AND IFSC both match the account the payment was raised to,
+    and the amount agrees within `TIER1_TOLERANCE` (Re 1). That account is the payment's own pay-to
+    copy (#1440, ADR-0033 decision 9); a payment with no copy falls back to its vendor's current
+    Payee. This is the nearly-certain tier: the money demonstrably went to the account the payment
+    was meant for, so the tight amount window costs nothing and the date is not consulted at all.
+    Payments only -- an expense has no beneficiary account to compare.
 
 TIER 2 -- the amount agrees within `AMOUNT_TOLERANCE` (Rs 5) AND the transfer's remark names the
     record's project. Payments AND Project Expenses. The amount alone is a weak signal, so the
@@ -125,7 +127,8 @@ class VendorRef:
     """A vendor as the matcher needs to see it. Raw values -- normalisation happens here.
 
     `account_name`, `account_number` and `ifsc` are the vendor's CURRENT Payee's (ADR-0033); blank
-    when it has none. `candidates.load_vendor_index` fills them.
+    when it has none. `candidates.load_vendor_index` fills them. Tier 1 reads them only for a payment
+    with no pay-to copy of its own (`TargetRef.pay_to_account_number`).
     """
 
     name: str
@@ -184,6 +187,14 @@ class TargetRef:
     for them.
     """
 
+    pay_to_account_number: str = ""
+    pay_to_ifsc: str = ""
+    """A payment's OWN pay-to account: the account it was raised to (#1440, ADR-0033 decision 9).
+
+    Raw, as stored on `Project Payments`; `match_payments` normalises them. Blank on an expense and on
+    a payment with no copy, which tier 1 then admits through its vendor's current Payee instead.
+    """
+
     @property
     def normalized_reference(self) -> str:
         return normalize_reference(self.reference)
@@ -212,7 +223,7 @@ class VendorCandidate:
     reasons: tuple[str, ...] = ()
 
     ifsc_matches: bool = False
-    """Both the bank account AND the IFSC agreed. THE TIER 1 GATE.
+    """Both the bank account AND the IFSC agreed. THE TIER 1 GATE for a payment with no pay-to copy.
 
     ⚠️ A FIELD, NOT A STRING SEARCH THROUGH `reasons`. Tier 1 is the tier that auto-suggests on the
     strongest evidence in this feature, and gating it on prose that exists to be read by a human
@@ -390,13 +401,13 @@ def resolve_vendors(
     account = getattr(row, "normalized_account", "") or normalize_account(
         getattr(row, "bank_account", "")
     )
-    row_ifsc = (getattr(row, "ifsc", "") or "").strip().upper()
+    row_ifsc = _normalize_ifsc(getattr(row, "ifsc", ""))
     beneficiary = getattr(row, "beneficiary_name", "") or ""
 
     scored: dict[str, VendorCandidate] = {}
 
     for vendor in index.by_account.get(account, ()) if account else ():
-        ifsc_matches = bool(row_ifsc) and (vendor.ifsc or "").strip().upper() == row_ifsc
+        ifsc_matches = bool(row_ifsc) and _normalize_ifsc(vendor.ifsc) == row_ifsc
         reasons = ["bank account matches"]
         if ifsc_matches:
             reasons.append("IFSC matches")
@@ -483,7 +494,8 @@ def _name_score(
 
 
 def account_ifsc_vendors(vendor: VendorResolution | None) -> frozenset[str]:
-    """The vendors whose bank account AND IFSC both matched. THE TIER 1 POPULATION.
+    """The vendors whose bank account AND IFSC both matched: tier 1's population for a payment with
+    no pay-to copy of its own, and the refund suggestion's (a refund has no pay-to record).
 
     ⚠️ NARROWER THAN `vendor.candidates`, DELIBERATELY. A resolution also carries name-scored
     candidates and account-only ones, and tier 1 must see neither: a name is a scoring form, never
@@ -546,27 +558,26 @@ def match_payments(
 
     amount = getattr(row, "amount", Decimal("0"))
 
-    # --- TIER 1: the money went to a bank account we hold for this vendor. SINGLE TARGET ONLY. ---
+    # --- TIER 1: the money went to the account this payment was raised to. SINGLE TARGET ONLY. ---
+    line_account = getattr(row, "normalized_account", "") or normalize_account(
+        getattr(row, "bank_account", "")
+    )
+    line_ifsc = _normalize_ifsc(getattr(row, "ifsc", ""))
     vendor_names = account_ifsc_vendors(vendor)
-    if vendor_names:
-        tier1 = [
-            PaymentGroup(targets=(t,), basis=BASIS_ACCOUNT_IFSC, score=0.9)
-            for t in targets
-            # ⚠️ THE STRICT WINDOW, NOT THE SETTLE WINDOW. Tier 1 claims a rounding, and a rounding
-            # cannot move a figure by more than a rupee. A Rs 4 gap is a real difference and belongs
-            # to tier 2, where the project has to corroborate it.
-            if amounts_match(t.amount, amount, TIER1_TOLERANCE)
-            # A target with NO vendor of its own can never satisfy a vendor correspondence either.
-            # (Payments are born from PO terms and always carry one, so this is a guard rather than
-            # a live case -- but "matches because it has no vendor to disagree with" is the wrong
-            # reason to offer anything.)
-            and t.vendor in vendor_names
-        ]
-        if tier1:
-            return PaymentMatch(
-                groups=tuple(sorted(tier1, key=lambda g: g.targets[0].name)),
-                tier=TIER_ACCOUNT,
-            )
+    tier1 = [
+        PaymentGroup(targets=(t,), basis=BASIS_ACCOUNT_IFSC, score=0.9)
+        for t in targets
+        # ⚠️ THE STRICT WINDOW, NOT THE SETTLE WINDOW. Tier 1 claims a rounding, and a rounding
+        # cannot move a figure by more than a rupee. A Rs 4 gap is a real difference and belongs
+        # to tier 2, where the project has to corroborate it.
+        if amounts_match(t.amount, amount, TIER1_TOLERANCE)
+        and _paid_to_line(t, line_account, line_ifsc, vendor_names)
+    ]
+    if tier1:
+        return PaymentMatch(
+            groups=tuple(sorted(tier1, key=lambda g: g.targets[0].name)),
+            tier=TIER_ACCOUNT,
+        )
 
     # --- TIER 2: the amount agrees and the remark names this payment's project. ---
     if not project:
@@ -582,6 +593,35 @@ def match_payments(
     return PaymentMatch(
         groups=tuple(sorted(tier2, key=lambda g: g.targets[0].name)), tier=TIER_PROJECT
     )
+
+
+def _paid_to_line(
+    target: TargetRef, line_account: str, line_ifsc: str, vendor_names: frozenset[str]
+) -> bool:
+    """Tier 1's account test for one payment (#1440, ADR-0033 decision 9).
+
+    A payment holding its own pay-to account is admitted when the line's account AND IFSC equal that
+    copy, both normalised -- and only then: a payment raised to another account is not admitted
+    through its vendor's current Payee. A payment with no copy falls back to that Payee
+    (`vendor_names`, from `account_ifsc_vendors`), which also keeps a Payee shared by several vendors
+    matching a payment of any of them.
+
+    A target with NO vendor of its own can never satisfy the fallback. (Payments are born from PO
+    terms and always carry one, so this is a guard rather than a live case -- but "matches because it
+    has no vendor to disagree with" is the wrong reason to offer anything.)
+    """
+    copy_account = normalize_account(target.pay_to_account_number)
+    if not copy_account:
+        return target.vendor in vendor_names
+    return (
+        bool(line_account and line_ifsc)
+        and copy_account == line_account
+        and _normalize_ifsc(target.pay_to_ifsc) == line_ifsc
+    )
+
+
+def _normalize_ifsc(value: object) -> str:
+    return str(value or "").strip().upper()
 
 
 def match_expenses(
