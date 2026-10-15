@@ -360,6 +360,46 @@ class TestUploadingAStatement(PorterImportCase):
         self.assertEqual(self._batches(), [self.batch])
 
 
+class TestAnOrderIsPlacedByItsProjectsSiteAddress(PorterImportCase):
+    """Signal 4 (#1448) reads `Projects.project_address` -> `Address` of each Won project at upload."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        address = frappe.get_doc(
+            {
+                "doctype": "Address",
+                "address_title": f"Porter test site {frappe.generate_hash(length=6)}",
+                "address_type": "Shipping",
+                "address_line1": "Demo Site Office, Kondapur",
+                "city": "Hyderabad",
+                "state": "Telangana",
+                "country": "India",
+                "pincode": "500084",
+            }
+        ).insert(ignore_permissions=True)
+        cls.address = address.name
+        cls.site = cls._project("Deccan Demo Works", "Won")
+        frappe.db.set_value("Projects", cls.site, "project_address", address.name)
+        frappe.db.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        frappe.db.delete("Address", {"name": cls.address})
+        frappe.db.commit()
+
+    def test_an_order_with_no_remark_going_to_a_site_is_suggested_there_to_check(self):
+        batch = self._upload(_fresh_fixture()[0])["batch"]
+        row = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": batch, "transfer_id": ["like", "%012"]},
+            fields=["resolved_project", "suggested_doctype", "placement_reason", "placement_strength"],
+        )[0]
+        self.assertEqual((row.resolved_project, row.suggested_doctype), (self.site, "Project Expenses"))
+        self.assertEqual((row.placement_reason, row.placement_strength), ("address", "Check"))
+
+
 class TestThePorterLinesAreNotBankLines(PorterImportCase):
     def test_total_unreconciled_outflow_does_not_move_on_upload(self):
         from nirmaan_stack.api.outflow_import.review import not_matched_totals
@@ -428,9 +468,10 @@ class TestTheMatcherIsNeverCalled(FrappeTestCase):
         )
         from nirmaan_stack.api.outflow_import import porter_create
         from nirmaan_stack.services.outflow_import import porter as porter_service
+        from nirmaan_stack.services.outflow_import import porter_placement
 
         guard = TestItNeverSettlesAnExistingRecord
-        for module in (porter_api, porter_create, porter_service):
+        for module in (porter_api, porter_create, porter_service, porter_placement):
             with self.subTest(module=module.__name__):
                 self.assertEqual(guard.forbidden_imports(module), [])
                 self.assertEqual(guard.forbidden_calls(module), [])

@@ -141,15 +141,27 @@ export const placementLabel = (item: ReviewItem): string => {
     return `Mixed: ${[...counts].map(([name, count]) => `${count} ${name}`).join(", ")}`;
 };
 
-// Why a placement was made, as `Outflow Import Row.placement_reason` spells it (`porter.REASON_*`).
+// Why a placement was made, as `Outflow Import Row.placement_reason` spells it (`porter.REASON_*`). Signals
+// that agreed are joined by "+" (`porter_placement.REASONS_JOINED_BY`): "name+address".
 const REASON_LABELS: Record<string, string> = {
     name: "Project name in the remark",
+    typo: "Project name misspelt in the remark",
+    initials: "Project initials in the remark",
+    address: "Its site address",
+    history: "Kept so in an earlier Porter import",
+    conflict: "Name and most addresses point to different projects",
     review: "Chosen in review",
 };
 
+// How a signal reads after the first one: "…, and its site address".
+const AGREEING_LABELS: Record<string, string> = { address: "its site address" };
+
 /** The reason in words. ⚠️ A reason this screen does not know yet is shown as it is, never hidden. */
-export const reasonLabel = (reason: string | null | undefined): string =>
-    !reason ? "No project found" : REASON_LABELS[reason] ?? reason;
+export const reasonLabel = (reason: string | null | undefined): string => {
+    if (!reason) return "No project found";
+    const [first, ...agreeing] = reason.split("+");
+    return [REASON_LABELS[first] ?? first, ...agreeing.map((part) => AGREEING_LABELS[part] ?? part)].join(", and ");
+};
 
 /** A strong suggestion is shown plain; a weak one says "Check". */
 export const strengthLabel = (strength: string | null | undefined): string | null =>

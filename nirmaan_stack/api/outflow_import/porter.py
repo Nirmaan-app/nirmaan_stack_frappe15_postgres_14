@@ -59,7 +59,14 @@ from nirmaan_stack.services.outflow_import.porter import (
     PorterStatementError,
     import_state,
     read_porter_statement,
-    suggest_placement,
+)
+from nirmaan_stack.services.outflow_import.porter_placement import (
+    EarlierPlacement,
+    OrderFacts,
+    PlacementMaster,
+    SiteAddress,
+    build_placement_master,
+    place_orders,
 )
 from nirmaan_stack.services.outflow_import.porter_repeats import (
     HeldInvoice,
@@ -67,7 +74,6 @@ from nirmaan_stack.services.outflow_import.porter_repeats import (
     RepeatJudgement,
     leave_out_repeats,
 )
-from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
 from nirmaan_stack.services.outflow_import.settlement_reference import (
     resolve_settlement_reference,
 )
@@ -117,13 +123,13 @@ def upload_porter_statement():
     user = require_outflow_access()
     filename, content = _read_upload()
     judged = _leave_out_repeats(_read_statement(content), filename)
-    index = _won_project_index()
+    master = _placement_master()
 
     # ⚠️ THE FIRST WRITE, AND IT CANNOT BE ROLLED BACK: everything that can refuse has run above.
     saved = save_file(fname=filename, content=content, dt=None, dn=None, is_private=1)
     batch = _stage(
         judged.statement,
-        index,
+        master,
         file_url=saved.file_url,
         filename=filename,
         user=user,
@@ -470,19 +476,61 @@ def created_anything(batch: str) -> bool:
     return batch in created_imports([batch])
 
 
-def _won_project_index() -> ProjectIndex:
-    """The existing name matcher's index over WON projects only, and no aliases (ADR-0032)."""
+def _placement_master() -> PlacementMaster:
+    """Everything placement reads, read ONCE per upload (#1448): the WON projects with their site
+    addresses, and every earlier Porter order's current placement. No aliases, no AI (ADR-0032).
+
+    Signal 5 reads, per earlier `Porter Order`, its `remark` and `city` and the LIVE Expense that links
+    to it (`porter_order` on `Project Expenses` -> its `projects`; on `Non Project Expenses` -> no
+    project). The Expense owns the link, so a Rectify (#1449) that replaces the Expense is seen as the
+    new placement, and an Unreconcile that deletes it leaves the order out.
+    """
     won = frappe.db.sql(
-        """SELECT name, project_name FROM "tabProjects" WHERE tendering_status = %s""",
+        """
+        SELECT p.name, p.project_name, a.address_line1, a.address_line2, a.city, a.state, a.country,
+               a.pincode
+        FROM "tabProjects" p
+        LEFT JOIN "tabAddress" a ON a.name = p.project_address
+        WHERE p.tendering_status = %s
+        """,
         (_WON,),
         as_dict=True,
     )
-    return build_project_index([(row["name"], row.get("project_name") or "") for row in won])
+    earlier = frappe.db.sql(
+        """
+        SELECT o.remark, o.city, e.projects AS project
+        FROM "tabPorter Order" o JOIN "tabProject Expenses" e ON e.porter_order = o.name
+        UNION ALL
+        SELECT o.remark, o.city, NULL AS project
+        FROM "tabPorter Order" o JOIN "tabNon Project Expenses" e ON e.porter_order = o.name
+        """,
+        as_dict=True,
+    )
+    return build_placement_master(
+        [(row.name, row.project_name or "") for row in won],
+        sites=[
+            SiteAddress(
+                project=row.name,
+                address_line1=row.address_line1 or "",
+                address_line2=row.address_line2 or "",
+                city=row.city or "",
+                state=row.state or "",
+                country=row.country or "",
+                pincode=row.pincode or "",
+            )
+            for row in won
+            if row.address_line1 or row.address_line2 or row.pincode
+        ],
+        earlier=[
+            EarlierPlacement(remark=row.remark or "", city=row.city or "", project=row.project or None)
+            for row in earlier
+        ],
+    )
 
 
 def _stage(
     statement: PorterStatement,
-    index: ProjectIndex,
+    master: PlacementMaster,
     file_url: str,
     filename: str,
     user: str,
@@ -530,6 +578,21 @@ def _stage(
         )
         doc.insert(ignore_permissions=True)
 
+    # Placed together, not line by line: an order's suggestion depends on its remark group's.
+    placements = place_orders(
+        [
+            OrderFacts(
+                name=line.crn,
+                remarks=line.row.remarks or "",
+                city=line.statement.get("city", ""),
+                from_address=line.statement.get("from_address", ""),
+                to_address=line.statement.get("to_address", ""),
+            )
+            for line in statement.completed
+        ],
+        master,
+    )
+
     for line in statement.lines:
         row = line.row
         values = {
@@ -557,7 +620,7 @@ def _stage(
             "porter_line": dict(line.statement),
         }
         if line.completed:
-            placement = suggest_placement(row.remarks, index)
+            placement = placements[line.crn]
             values.update(
                 {
                     "row_status": ROW_PENDING_MATCH,
