@@ -120,6 +120,8 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_PARTIALLY_ALLOCATED,
     ROW_SETTLED,
     ROW_SKIPPED,
+    RECORDED_ACTION_CREATE,
+    RECORDED_ACTION_LINK,
     RECORDED_DUPLICATE,
     derive_recorded_money_verdict,
     # ⚠️ THE ONE DEFINITION OF THE DIRECTION AXIS, REUSED RATHER THAN RE-SPELLED (ADR-0010 B1).
@@ -298,7 +300,8 @@ def _settle_and_commit(
     # OUT carries it.
     _guard_is_a_debit(doc)
     _guard_money_not_recorded(
-        staged, doc, confirm_mismatch, writing=[(target_doctype, target_name)]
+        staged, doc, confirm_mismatch, writing=[(target_doctype, target_name)],
+        action=RECORDED_ACTION_LINK,
     )
     statement_file_url = _statement_file_url(doc["import_batch"])
 
@@ -452,6 +455,7 @@ def _allocate_and_commit(row: str, targets, confirm_mismatch=False) -> _Committe
         doc,
         confirm_mismatch,
         writing=[(PAYMENT_DOCTYPE, t["target_name"]) for t in targets],
+        action=RECORDED_ACTION_LINK,
     )
     statement_file_url = _statement_file_url(doc["import_batch"])
 
@@ -860,7 +864,8 @@ def _guard_partial_preconditions(row: str, target_name: str, confirm_mismatch):
     # an expense could otherwise be part-settled onto a larger Approved payment from the same dialog,
     # and `settle_payment`'s UTR guard sees only references on OTHER PAYMENTS.
     _guard_money_not_recorded(
-        staged, doc, confirm_mismatch, writing=[(PAYMENT_DOCTYPE, target_name)]
+        staged, doc, confirm_mismatch, writing=[(PAYMENT_DOCTYPE, target_name)],
+        action=RECORDED_ACTION_LINK,
     )
     return staged, doc
 
@@ -1003,7 +1008,7 @@ def create_expense(
     # `Paid` expense out of the bank row alone, so an unguarded credit would mint a brand-new
     # payment-out document for money that arrived.
     _guard_is_a_debit(doc)
-    _guard_money_not_recorded(staged, doc, confirm_mismatch)
+    _guard_money_not_recorded(staged, doc, confirm_mismatch, action=RECORDED_ACTION_CREATE)
     # Before anything is written: `comment` is a 140-character Data field, and the database's own
     # refusal names neither the field nor what to do about it.
     problem = import_comment_problem(comment, doc["import_batch"])
@@ -1219,7 +1224,7 @@ def _guard_is_a_debit(doc) -> None:
     )
 
 
-def _guard_money_not_recorded(staged, doc, confirm_mismatch=False, writing=()) -> None:
+def _guard_money_not_recorded(staged, doc, confirm_mismatch=False, writing=(), *, action: str) -> None:
     """Refuse a line whose money is already recorded, BEFORE anything is written (#1260).
 
     Shared by every endpoint that records money from a line: `settle_row` (and its `settle_expense`
@@ -1233,9 +1238,13 @@ def _guard_money_not_recorded(staged, doc, confirm_mismatch=False, writing=()) -
         unless `confirm_mismatch` -- the screen's "... anyway?" answer;
       * otherwise it returns and the write proceeds exactly as before.
 
-    The refusal carries the run's own note, so it names every record and its ledger. `writing` are the
-    `(doctype, name)` records this call is about to settle; see `review._recorded_money_group` for why
-    they are never the duplicate.
+    A duplicate refusal carries the run's own note, so it names every record and its ledger. The
+    confirmation carries `verdict.prompt` instead (2026-10-15): the same records, said for the moment
+    a person records money, with what recording again would do -- the run's note ("Not skipped",
+    "statement line") made no sense on a button. `action` is `RECORDED_ACTION_CREATE` or
+    `RECORDED_ACTION_LINK`, keyword-only and required so no caller can forget which it is.
+    `writing` are the `(doctype, name)` records this call is about to settle; see
+    `review._recorded_money_group` for why they are never the duplicate.
 
     ⚠️ IT RUNS BEFORE THE SAVEPOINT AND READS ONLY, so a refusal leaves nothing behind. Only
     `allocate_row` holds a row lock, and the guard runs under it. The others take none, and a
@@ -1249,7 +1258,7 @@ def _guard_money_not_recorded(staged, doc, confirm_mismatch=False, writing=()) -
     forgotten: do not add a per-row lock here believing it fixes this.
     """
     verdict = derive_recorded_money_verdict(
-        staged, _recorded_money_group(staged, doc["import_batch"], writing)
+        staged, _recorded_money_group(staged, doc["import_batch"], writing), action
     )
     if verdict is None:
         return
@@ -1262,7 +1271,7 @@ def _guard_money_not_recorded(staged, doc, confirm_mismatch=False, writing=()) -
     if frappe.utils.sbool(confirm_mismatch):
         return
     frappe.throw(
-        f"{verdict.note} Nothing has been recorded yet -- confirm to record it anyway.",
+        verdict.prompt,
         RecordedMoneyNeedsConfirmationError,
         title="Check before recording",
     )

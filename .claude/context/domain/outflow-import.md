@@ -98,14 +98,14 @@ pick one ad-hoc; ask.
 | **What makes two staged transfers THE SAME transfer** (D3; widened source-aware at B3) | `services/outflow_import/duplicates.py` (`row_identity`, `row_identity_of`, `WIDE_IDENTITY_SOURCES`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating | ⚠️ **THE KEY IS SOURCE-AWARE SINCE B3, and the DEFAULT is the guarantee.** `row_identity(..., source="")` — what every caller passing nothing gets — returns the old `(transfer_id, amount, date)` triple **BYTE-IDENTICALLY**, because Cashfree and Cashbook carry live settled data whose duplicate behaviour is proven in production. A source in `WIDE_IDENTITY_SOURCES` (today: `ICICI Bank Statement`) gets `+ (direction, remarks)`. **Both extra fields are load-bearing and each catches a different failure, measured on the real 1,274-row statement where the triple silently LOSES 5 REAL ROWS:** *remarks* catches four SGST/CGST pairs (same id, date, amount AND direction, differing only in narration), *direction* catches the GL transfer whose two legs carry byte-identical narration. These are bank-narration artefacts that cannot occur in a payout export — which is exactly why the widening is per-source and not global. ⚠️ `row_identity_of(row, source)` is the ADAPTER over the one rule, never a second rule: the widening added two fields that live ON the row, and forgetting `remarks` at a call site degrades ICICI silently back to the four-field key — it still works, it just loses four rows a statement and says nothing. ⚠️ It is a DIFFERENT set from `sources.BANK_STATEMENT_SOURCES` and they must not be merged "because they hold the same string today": this one answers *what makes two lines of this statement the same line?*, that one answers *what can this statement's rows DO?*. Full numbers: ADR-0016 § 4.
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
 | **Which Paid records a GATEWAY row already duplicates** (#1256) | `api/outflow_import/review._paid_duplicate_pools` (over `candidates.load_paid_payments_by_reference` + `load_paid_expenses_by_reference`) builds the pools; `services/outflow_import/status.pick_duplicate_group` (pure) picks the group | compose the already-recorded pools a second time, or concatenate them before the pick. Both readers — the gateway run and `_related_records` for gateway rows — call the one builder, so a row is never skipped on a record its link omits. ⚠️ GATEWAY-ONLY since #1257: the `has_settlement_path` flag is gone because no bank-statement caller is left. ⚠️ The pick order `payments → expenses → both` is what keeps the pre-#1256 payment skip unchanged |
-| **Whether an ICICI line's money is already recorded** (#1257, the contains-guard) | `services/outflow_import/contains_guard.py` (pure: `reference_tokens`, `match_surface`, `ledgers_for_direction`, `find_hits`, `pick_recorded_group`, `CONTAINS_GUARD_WINDOW_DAYS`); its ONE query `candidates.load_recorded_by_contains`; both the ICICI run and `_related_records` call `review._recorded_group_for`. **Since #1301 (ADR-0027 R3) a `Reconciliation Pending` expense with live `Settled` slips enters ONCE PER SLIP** — `TargetRef.import_row` set, that slip's amount, that line's narration as the reference — and such a candidate is exempt from one-record-one-line (`is_slip_candidate`), is exempt from `_recorded_money_group`'s `writing` mute, and reads `SKIP_REASON_ALREADY_LINKED` rather than being called Paid | tokenise a reference, build a match surface, map a direction to ledgers or apply the 15-day window anywhere else. ⚠️ **`match_surface` is the one function for the searched text AND (from #1259) the text a settle stores** — two builders would write a reference the guard cannot find again. ⚠️ The query's SQL tokenising MIRRORS `reference_tokens` and may never be NARROWER than it; the pure module re-applies every rule. ⚠️ Never port these rules to the Cashfree guards and never widen `matcher.match_by_reference` — the heuristic skip is an owner ruling for ICICI only |
+| **Whether an ICICI line's money is already recorded** (#1257, the contains-guard) | `services/outflow_import/contains_guard.py` (pure: `reference_tokens`, `match_surface`, `ledgers_for_direction`, `find_hits`, `pick_recorded_group`, `CONTAINS_GUARD_WINDOW_DAYS`); its ONE query `candidates.load_recorded_by_contains`; both the ICICI run and `_related_records` call `review._recorded_group_for`. **Since #1301 (ADR-0027 R3) a `Reconciliation Pending` expense with live `Settled` slips enters ONCE PER SLIP** — `TargetRef.import_row` set, that slip's amount, that line's narration as the reference — and such a candidate is exempt from one-record-one-line (`is_slip_candidate`), is exempt from `_recorded_money_group`'s `writing` mute, and reads `SKIP_REASON_ALREADY_LINKED` rather than being called Paid | tokenise a reference, build a match surface, map a direction to ledgers, apply the 15-day window, or decide that other lines account for a record in full (`_fully_accounted`, 2026-10-15) anywhere else. ⚠️ **`match_surface` is the one function for the searched text AND (from #1259) the text a settle stores** — two builders would write a reference the guard cannot find again. ⚠️ The query's SQL tokenising MIRRORS `reference_tokens` and may never be NARROWER than it; the pure module re-applies every rule. ⚠️ Never port these rules to the Cashfree guards and never widen `matcher.match_by_reference` — the heuristic skip is an owner ruling for ICICI only |
 | **What reference a settlement WRITES** (B9; the ICICI rung at #1259) | `services/outflow_import/settlement_reference.py` (`resolve_settlement_reference` at ingest, `settlement_reference_of_row` at settle, `settlement_references_of_row` for the reversal) + `sources.source_writes_its_match_surface` | decide per write site what goes into `utr` / `payment_ref`. ⚠️ For a bank passbook it is `contains_guard.match_surface` and nothing else. ⚠️ **ORDERING RULE: the full-narration write may never ship ahead of the contains-match** -- every exact guard is blind to a stored narration |
 | **Where a settled/matched record's link GOES** (E3; inflows at #1253) | `frontend/.../outflow-import/outflowTableModel.ts` (`settlementLink`, `orderPaymentsHref`) + `review._payment_order_names` / `_with_order_names` server-side; an inflow's URL is `inflow-payments/config/inflowPaymentsTable.config.ts` (`inflowHref`, over the ONE key builder `buildInflowUrlSyncKey` the inflow page also reads) | build a payments URL at a render site, or render one through a raw `<a href>`. A payment links to its ORDER (`/project-payments/<id>` with `/` escaped as `&=`) because that is what the app's other twelve call sites do; `paymentHref`'s search-param scheme is the FALLBACK only. ⚠️ The router carries a `basename` (`VITE_BASE_NAME`: `""` dev, `'frontend'` prod), so an anchor resolves to the SERVER ROOT and 404s in production while working in dev |
 | **How a duplicate note names the records behind it** (#1253) | `services/outflow_import/status.py` (`_record_sentence`, `_records_phrase`, `SKIP_REASON_ALREADY_PAID` / `_RECEIVED`) — pure; ledger nouns from `ledgers.LEDGER_NOUNS`; the link data is `review._related_records` (`related_records`) | print a bare expense id (a random hash), call an inflow "Paid", or offer the TDS hint on a group with no Project Payment. `_related_records` must read the SAME source as the duplicate guard, or a skipped row names a record it cannot link |
 | **The record's date, and which date it IS** (E2) | `frontend/.../outflow-import/outflowTableModel.ts` (`recordDateParts`, `RECORD_DATE_LABELS`) | render an approval/updated distinction inline. `recordSortDate` merges the two for ORDERING only -- an ordering claims nothing about meaning; a LABEL does |
 | **Why a picked record cannot be settled** (D1) | `frontend/.../outflow-import/outflowTableModel.ts` (`settleBlocker`, `settleBlockText`, `SettleBlockReason`) | write the refusal prose at a render site. The dialog used ONE fixed paragraph for every blocked pick and three of its claims went stale without anything failing — the worst told the reviewer to settle a TDS deduction "in the payments screen" after slice TD made that route live here |
 | Browsable approved records (hand-linking) | `api/outflow_import/review.search_settleable_records` (+ `_search_one_ledger`, `_rank_browse_records`, `_browse_cap`) | reuse `get_row_candidates` for browsing — that is the MATCHER's output, and when the matcher finds nothing it is empty, which is exactly when hand-linking is needed. Since N1 it returns the WHOLE approved pool by default and `limit` is a safety ceiling, not a page size |
-| **Whether a WRITE may record a line's money** (#1260) | `status.derive_recorded_money_verdict` (pure; reads `_already_recorded_outcome`, the branch the match run reads) over `review._recorded_money_group` (the match run's per-source fork); enforced by `expenses._guard_money_not_recorded` | refuse a duplicate on one write endpoint with its own lookup. SIX callers: the five #1260 names (`settle_row`, `allocate_row`, `create_expense`, `inflows.create_inflow`, `inflows.create_non_project_inflow` -- which replaced `create_non_project_receipt` at #1266) plus `settle_row_partial`. A second lookup would let a button disagree with the row's note about the same line |
+| **Whether a WRITE may record a line's money** (#1260) | `status.derive_recorded_money_verdict` (pure; reads `_already_recorded_outcome`, the branch the match run reads) over `review._recorded_money_group` (the match run's per-source fork); enforced by `expenses._guard_money_not_recorded` | refuse a duplicate on one write endpoint with its own lookup. EIGHT callers, each passing a required `action`: CREATE -- `create_expense`, `inflows.create_inflow`, `inflows.create_non_project_inflow` (which replaced `create_non_project_receipt` at #1266), `inflows.create_vendor_refund`; LINK -- `settle_row`, `allocate_row`, `settle_row_partial`, `link_lines.link_rows_to_expense`. A second lookup would let a button disagree with the row's note about the same line. ⚠️ The confirmation's text is `verdict.prompt` (2026-10-15), the row's is `verdict.note` -- two sentences from ONE group |
 | What counts as "decided" on the screen | `frontend/src/pages/outflow-import/outflowTableModel.ts` (`isConfirmable`) | gate a confirm button on its own predicate — the dialog and the bulk bar both read this one |
 | Which rows the master table shows (X3) | `api/outflow_import/review.get_outflow_rows` (+ `_row_filters`, `_scope_clause`, `get_outflow_facet_values`) | filter, sort or search rows in the browser. ⚠️ `_row_filters` is ONE builder shared by the page query, its count, the tab counts, the facet values **and — since P1 — the summary, the confirmable list and `match_period`** — a count computed under different filters than the page it labels is a lie that looks like a paging bug. ⚠️ Its two date clauses carry `OR r.added_on IS NULL` on purpose: an unparseable bank date would otherwise match no period and vanish from every surface at once |
 | What the screen ASKS for (X3) | `outflowTableModel.serverQuery` | build endpoint params at a call site. It owns the MEANING of a filter; SQL owns the application |
@@ -4282,9 +4282,10 @@ docstring of `services/outflow_import/contains_guard.py`.
    Non Project Expenses. Deposit (`Credit`) → every Project Inflow (no status). Never crossed. A line
    with NO direction reaches nothing (the parser leaves it blank only when it refuses to guess).
 2. **Eligible tokens.** A stored reference is split on non-alphanumerics; the whole string (upper-cased,
-   all whitespace removed) is kept too. A token counts if it is ≥ 6 characters, has a digit and is not
-   a `BULD`+digits batch id; a reference starting `DUMMY-` gives no token at all. So `ICICI`, `refund`,
-   `Cashbook`, `TDS Receivable` and `0003` never hit.
+   all whitespace removed) is kept too. A token counts if it is ≥ 6 characters, has a digit, is not
+   a `BULD`+digits batch id and (since 2026-10-15) is not a bank branch code `^[A-Z]{4}0[A-Z0-9]{0,6}$`;
+   a reference starting `DUMMY-` gives no token at all. So `ICICI`, `refund`, `Cashbook`,
+   `TDS Receivable`, `0003`, `HDFC0000240` and `HDFC00000` never hit.
 3. **Hit** = a token EQUALS the line's transfer id, or APPEARS INSIDE its match surface.
 4. **Match surface** (`match_surface`) = the narration; when the narration has no run of 6+ digits and
    the cheque column is filled, narration + cheque number — so two identical-looking cheque lines stay
@@ -4549,8 +4550,9 @@ first cheque's number. But a payee PIECE that is itself an eligible token (6+ ch
 
 **What.** The five buttons that record money from a line -- **Link** (`settle_row`), **Allocate**
 (`allocate_row`), **Create expense** (`create_expense`), **Create inflow** (`create_inflow`) and **Create
-non-project receipt** (`create_non_project_receipt`) -- now ask the match run's own question before they
-write, even if no match run ever ran:
+non-project receipt** (`create_non_project_receipt`, since replaced by `create_non_project_inflow` at #1266;
+`create_vendor_refund` and `link_lines.link_rows_to_expense` joined later) -- now ask the match run's own
+question before they write, even if no match run ever ran:
 
 | The match run would… | The endpoint… |
 |---|---|
@@ -6478,3 +6480,50 @@ Inflow, Non-Project Inflow and Vendor Refunds (NEFT credit) each showed the full
 reference; both Description boxes opened empty; the Comment box showed its "Imported from" hint.
 ⚠️ Not shown: wrapping at phone width — at 420px the WHOLE dialog overflows (pre-existing, not this
 field), so the screenshot could not isolate it.
+
+## 2026-10-15 — the false "Create anyway?" warnings: bank branch codes, and records other lines account for
+
+**The defect.** Creating a Project Inflow from an ICICI credit asked *"Check before recording"* with the
+match run's note: *"The bank received 1441114.00 MORE than the recorded total of 28886.00 … Already recorded
+as received on Vendor Refund VRF-26-00004."* Replayed read-only over the 51 local ICICI credit lines: the
+guard's 26 duplicate verdicts were all right (the line's own UTR, exact amount and date); its 7
+needs-confirmation verdicts were ALL false. Every one hit through a token #1259 made possible -- a record
+made from an ICICI line stores the whole narration, which ends in the payer's IFSC -- and every one named a
+record another line had created (`created_by_import = 1`, a Settled leg on a different row). Two owner
+rulings and a wording change, all in the SHARED verdict (match run, #1261 preview, row links and every
+button change together), both directions:
+
+1. **A bank branch code is never a token** (`contains_guard._BANK_BRANCH_CODE`, `^[A-Z]{4}0[A-Z0-9]{0,6}$`
+   over the upper-cased token, so a cut-short `HDFC00000` matches too; mirrored in the
+   `load_recorded_by_contains` SQL). Measured: removes all four codes behind the false hits
+   (`HDFC0000240`, `HDFC0000001`, `HDFC00000`, `JAKA0ARAKHO`) and none of the 26 references behind
+   genuine duplicates (`HDFCR5…`, `HDFCH0…`, `YESB…`, `S84610896`, `M3163210` -- the fifth character is
+   never `0`). ⚠️ It also narrows `reference_is_inside`, so the typed-UTR guard (`reference_guard`) no
+   longer refuses a UTR that is only a branch code. Account numbers still count (owner, Q9).
+2. **A record other lines account for in full is never "recorded differently"** (rule 7 of the
+   `contains_guard` docstring; `_fully_accounted`). Only on the AMOUNT-OFF branch of
+   `pick_recorded_group`: hits whose claims from OTHER lines are a skip basis, or settled legs adding up to
+   the record's amount (`amounts_match`, or past it), are dropped and the group re-picked from the rest;
+   nothing left → `None`. `RecordClaim.amount` carries the leg's `target_amount` (`None` for a skip basis,
+   which claims the whole record) from `load_record_claims`. ⚠️ A record other lines pay only IN PART stays
+   (a salary run four lines in -- the next line may be more of it), as does every unclaimed record (the
+   person-entered fan-in `PAYIN-00076-03`, the one real case this branch exists for). Slip candidates are
+   never claimed, so they always stay. The agreeing-but-used branch (#1258 "Not skipped") is unchanged.
+3. **The button speaks the moment of recording** (`status._record_anyway_prompt` → `RecordedMoneyVerdict.prompt`;
+   `_guard_money_not_recorded(..., action=)` keyword-only and required, `RECORDED_ACTION_CREATE` /
+   `RECORDED_ACTION_LINK`): *"Project Inflow PAYIN-00076-03 (₹4,21,606, 12-Sep-2026) has this credit's
+   reference, but its amount is ₹1,40,000 more. If it already includes this money, a new inflow counts the
+   money two times. Open it to check, or create anyway."*; the used case names the other bank line and its
+   batch. The row's `outcome_note` is unchanged. No frontend change: the dialog renders the server text.
+
+Not done: no patch -- open lines' stale notes are rewritten on the next match run; the 7 lines already
+created with "Create anyway" were all separate money. The Cashfree/Cashbook exact guards are untouched
+(the contains-guard is ICICI-only).
+
+Tests (every new one shown RED on the old code first): `test_contains_guard.TestABankBranchCodeNeverHits`
+(5), `TestAFullyAccountedRecordIsNotRecordedDifferently` (8; `test_an_amount_off_hit_reads_the_delta_note_…`
+INVERTED to `…_on_a_record_another_line_skipped_on_is_no_hit`); `test_status.TestTheRecordAnywayPrompt` (9);
+`test_review.TestOnlyARecordNoLineAccountsForIsRecordedDifferently` (4, a synthetic statement replaying the
+four shapes) and the IFSC cases in `TestTheContainsQueryMirrorsThePureTokens`; `test_inflows.TestTheDuplicateGuards`
+(3: the prompt text, a branch-code-only inflow, an inflow another line accounts for).
+

@@ -2450,7 +2450,7 @@ export const recordAnywayWording = (
 
 /**
  * What a BULK confirm adds to such a refusal. It has no dialog, so it cannot ask; it points at the
- * one place that can, rather than leaving "confirm to record it anyway" unanswerable.
+ * one place that can, rather than leaving the server's "... or create / link anyway." unanswerable.
  */
 export const bulkRecordAnywayHint = (err: unknown): string =>
     needsRecordAnywayConfirmation(err) ? " Open the transfer to record it anyway." : "";

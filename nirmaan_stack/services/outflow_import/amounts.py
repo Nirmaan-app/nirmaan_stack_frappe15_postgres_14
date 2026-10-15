@@ -107,6 +107,11 @@ amount), which neither can reach and neither may be stretched to reach. A TDS pa
                                                amount predicate, so an amount-off hit still reads
                                                `Mismatched` naming the record. Never stretched to
                                                reach TDS (owner ruling on #1252).
+  * `contains_guard._fully_accounted` (2026-10-15) -- SETTLE window: do other lines' settled
+                                               legs add up to a record's amount? A record they
+                                               account for in full is left out of an amount-off
+                                               line's group. The verdict's window, so "fully
+                                               accounted" can never mean short by more than it.
   * `similarity._amount_score`             -- the browse list's RANKING axis, SETTLE window
                                                (slice N1). ⚠️ THE ONE SITE THAT DECIDES NOTHING:
                                                it shapes the ORDER of a list a person reads, and

@@ -5879,6 +5879,97 @@ class TestOneRecordJustifiesOneLineAcrossImports(OutflowReviewFixture):
         self.assertEqual(self._rows(self.second.name), self.after_second)
 
 
+class TestOnlyARecordNoLineAccountsForIsRecordedDifferently(OutflowReviewFixture):
+    """2026-10-15: the two rules that ended the false "Create anyway?" warnings, on a match run.
+
+    Each line replays one shape measured on the local statements. `ifsc` and `whole` were false
+    warnings and must now find nothing; `part` and `open` were right and must still hold the line,
+    naming the record. Random references and a far-future date keep the live ledger out of it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.refs = {key: _random_reference() for key in ("ifsc", "other", "whole", "part", "open")}
+        cls.tid_prefix = f"T1015{frappe.generate_hash(length=6).upper()}"
+        super().setUpClass()
+
+    @classmethod
+    def _line(cls, key, narration, amount):
+        return {
+            "key": key, "tid": f"{cls.tid_prefix}{key.upper()}", "narration": narration,
+            "amount": amount, "credit": False, "cheque": "", "day": _GUARD_DAY,
+        }
+
+    @classmethod
+    def _plant_targets(cls):
+        r, d = cls.refs, _GUARD_DAY.date()
+        cls.statement = _stage_icici_statement(
+            [
+                # The payer's branch code is the only thing this line shares with the record.
+                cls._line("ifsc", f"NEFT-{r['ifsc']}-INDRA HOTELS PVT LTD-HDFC0000240", 1470000),
+                cls._line("whole", f"MMT/IMPS/{r['whole']}/ACME TRADERS", 50000),
+                cls._line("part", f"MMT/IMPS/{r['part']}/SALARY RUN", 125000),
+                cls._line("open", f"MMT/IMPS/{r['open']}/NEEDLE AND THREAD", 140000),
+            ],
+            f"test-1015-icici-{cls.tid_prefix}.csv",
+        )
+        cls.batches.append(cls.statement.name)
+
+        cls.rec_ifsc = cls._insert_payment_row(
+            amount=28886, status="Paid", utr=f"NEFT-{r['other']}-SUNRISE HVAC-HDFC00002", payment_date=d,
+        )
+        cls.rec_whole = cls._insert_payment_row(amount=28000, status="Paid", utr=r["whole"], payment_date=d)
+        cls.rec_part = cls._insert_payment_row(amount=500000, status="Paid", utr=r["part"], payment_date=d)
+        cls.rec_open = cls._insert_payment_row(amount=421606, status="Paid", utr=r["open"], payment_date=d)
+
+        # Another line's legs: all of `whole`, only part of `part` (the fixture's Cashfree rows).
+        settlers = frappe.get_all(
+            ROW_DOCTYPE, filters={"import_batch": cls.batch.name}, fields=["name", "transfer_id"], limit=2,
+        )
+        for settler, target, part in ((settlers[0], cls.rec_whole, 28000), (settlers[1], cls.rec_part, 200000)):
+            frappe.get_doc({
+                "doctype": MATCH_DOCTYPE, "import_row": settler["name"], "import_batch": cls.batch.name,
+                "transfer_id": settler["transfer_id"], "target_doctype": "Project Payments",
+                "target_name": target, "target_amount": part, "match_kind": MATCH_SETTLED,
+                "match_basis": "Manual",
+            }).insert(ignore_permissions=True)
+        frappe.db.commit()
+
+        match_batch(cls.statement.name)
+        rows = frappe.get_all(
+            ROW_DOCTYPE, filters={"import_batch": cls.statement.name},
+            fields=["transfer_id", "row_status", "outcome_note"],
+        )
+        cls.after = {r["transfer_id"][len(cls.tid_prefix):].lower(): r for r in rows}
+        cls.links = {
+            r["transfer_id"][len(cls.tid_prefix):].lower(): {e["target_name"] for e in r["related_records"]}
+            for r in get_batch_rows(cls.statement.name)["rows"]
+        }
+
+    def test_a_record_sharing_only_a_bank_branch_code_is_no_hit(self):
+        row = self.after["ifsc"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertEqual(row["outcome_note"], STAGED_NOTE_NO_SETTLEMENT_PATH)
+        self.assertNotIn(self.rec_ifsc, self.links["ifsc"])
+
+    def test_an_amount_off_record_another_line_accounts_for_in_full_is_no_hit(self):
+        row = self.after["whole"]
+        self.assertEqual(row["outcome_note"], STAGED_NOTE_NO_SETTLEMENT_PATH)
+        self.assertNotIn(self.rec_whole, self.links["whole"])
+
+    def test_a_record_another_line_pays_only_in_part_still_holds_the_line(self):
+        row = self.after["part"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertIn(self.rec_part, row["outcome_note"])
+        self.assertIn(self.rec_part, self.links["part"])
+
+    def test_a_record_no_line_accounts_for_still_holds_the_line(self):
+        row = self.after["open"]
+        self.assertEqual(row["row_status"], ROW_MISMATCHED)
+        self.assertIn(self.rec_open, row["outcome_note"])
+        self.assertIn(self.rec_open, self.links["open"])
+
+
 class TestAnICICISettleIsFoundAgainWhenItsMoneyReappears(OutflowReviewFixture):
     """#1259: an ICICI settle stores the line's whole match surface, so a LATER statement carrying the
     same money is recognised by the contains-match -- and two cheques that only differ by number stay
@@ -6088,6 +6179,11 @@ class TestTheContainsQueryMirrorsThePureTokens(unittest.TestCase):
         "BATCH": "BULD67453750",
         "BATCH_NEIGHBOUR": "043572728741/BULD67453750",
         "TRANSFER_ID": "s1257tid9",
+        # A bank branch code never counts, whole or cut short (2026-10-15) -- nor as the only piece
+        # a stored narration shares with the line.
+        "IFSC": "HDFC0000240",
+        "IFSC_CUT": "hdfc00002",
+        "IFSC_IN_NARRATION": "NEFT-XYZ-ACME LTD-HDFC0000240",
     }
 
     def test_the_query_returns_exactly_what_the_pure_guard_hits(self):
@@ -6104,7 +6200,7 @@ class TestTheContainsQueryMirrorsThePureTokens(unittest.TestCase):
         frappe.db.commit()
 
         line = _StagedRowLike(
-            narration="NEFT/600219693408/UTIBR72025010600221243/043572728741/000734/BULD67453750 ICICI refund",
+            narration="NEFT/600219693408/UTIBR72025010600221243/043572728741/000734/BULD67453750 ICICI refund/HDFC0000240",
             direction="Credit",
             transfer_id="S1257TID9",
             reference_id="000734",

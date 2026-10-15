@@ -28,7 +28,8 @@ THE RULES, IN THE ORDER A LINE MEETS THEM
      would be the crossing the ruling forbids.
   2. ELIGIBLE TOKENS. A stored reference is split on non-alphanumerics into pieces, and the whole
      string (upper-cased, whitespace removed) is kept too. A token counts only if it is at least 6
-     characters, holds a digit, and is not a `BULD` batch id; a reference beginning `DUMMY-` yields
+     characters, holds a digit, is not a `BULD` batch id and is not a BANK BRANCH CODE (an IFSC,
+     or one the bank cut short: `HDFC0000240`, `HDFC00000`); a reference beginning `DUMMY-` yields
      no token at all. So `ICICI`, `Cashbook`, `refund`, `TDS Receivable` and short codes never hit.
   3. A HIT is an eligible token that EQUALS the line's transfer id, or APPEARS INSIDE the line's
      match surface (both normalised the same way).
@@ -51,6 +52,19 @@ THE RULES, IN THE ORDER A LINE MEETS THEM
      narration to that counterparty, so without this last month's record would silently hide next
      month's genuine payment of the same amount. It applies to THIS guard only -- the exact guards
      keep their behaviour -- and re-importing the same statement line is still caught at upload.
+  7. A RECORD OTHER LINES ACCOUNT FOR IN FULL IS NEVER RECORDED DIFFERENTLY (owner ruling,
+     2026-10-15). When nothing agrees, the hits a line is held `Mismatched` on leave out every
+     record other lines already account for in full -- a skip basis, or settled legs adding up to
+     the record's amount. That record is those lines' money, whole, so it cannot be this line's
+     money recorded with a different figure. A record other lines pay only in PART stays, and so
+     does every record no line accounts for (one a person entered). Rule 6 is untouched: a record
+     whose amount AGREES still holds the line, used or not.
+
+     Why rules 2 and 7 exist: since #1259 a record made from an ICICI line stores the whole
+     narration, which carries the payer's IFSC and account number. Measured 2026-10-15, every one of
+     the seven "Create anyway?" warnings on the local statements named such a record through such a
+     token -- an unrelated ₹28,886 refund held a ₹14,70,000 credit because both payers bank at an
+     HDFC branch starting `HDFC00000`.
 """
 
 from __future__ import annotations
@@ -62,7 +76,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Iterable, Sequence
 
-from nirmaan_stack.services.outflow_import.amounts import amounts_match
+from nirmaan_stack.services.outflow_import.amounts import amounts_match, to_decimal
 from nirmaan_stack.services.outflow_import.ledgers import (
     INFLOW_DOCTYPES,
     NON_PROJECT_EXPENSE_DOCTYPE,
@@ -120,6 +134,10 @@ _LEDGER_ORDER = {d: i for i, d in enumerate(
 _PIECE_SPLIT = re.compile(r"[^A-Za-z0-9]+")
 _HAS_DIGIT = re.compile(r"\d")
 _BATCH_ID = re.compile(r"^BULD\d+$")
+# A bank branch code -- 4 letters, `0`, then up to 6 letters or digits, so a code the narration cut
+# short matches too. ⚠️ `candidates.load_recorded_by_contains` spells the same pattern in SQL;
+# `test_review.TestTheContainsQueryMirrorsThePureTokens` holds the two equal.
+_BANK_BRANCH_CODE = re.compile(r"^[A-Z]{4}0[A-Z0-9]{0,6}$")
 _DUMMY_PREFIX = "DUMMY-"
 _LONG_NUMBER = re.compile(r"\d{6,}")
 
@@ -131,6 +149,10 @@ class RecordClaim:
     `settled` is False for the basis of a duplicate skip (read from `Outflow Import Row.
     duplicate_basis`) and True for a record an import row settled or created (a `Settled`
     `Outflow Row Match`). `import_row` is what lets a line ignore its own claim.
+
+    `amount` is how much of the record the claiming line accounts for: a settled leg's
+    `target_amount`, or `None` for a skip basis -- a skipped line agreed with its record, so it
+    accounts for the whole of it. `pick_recorded_group` adds these up (2026-10-15).
     """
 
     doctype: str
@@ -138,6 +160,7 @@ class RecordClaim:
     import_row: str
     import_batch: str
     settled: bool = False
+    amount: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -222,6 +245,7 @@ def _is_eligible(token: str) -> bool:
         len(token) >= MIN_TOKEN_LENGTH
         and bool(_HAS_DIGIT.search(token))
         and not _BATCH_ID.match(token)
+        and not _BANK_BRANCH_CODE.match(token.upper())
     )
 
 
@@ -266,7 +290,9 @@ def pick_recorded_group(
     blocks the skip it already made. The precedence above runs over the UNCLAIMED hits first. Only
     if that finds nothing agreeing, and the same precedence over EVERY hit would agree, is the group
     returned carrying `used_by` -- the claims on its records -- which reads as `Mismatched`.
-    An amount-off hit is unaffected: whether or not its record is used, it would not skip.
+    An amount-off hit never skips. Since 2026-10-15 (rule 7 of the module docstring) the group an
+    amount-off line is held on leaves out every record OTHER lines account for in full
+    (`_fully_accounted`), and with nothing left the answer is `None`.
 
     ⚠️ A SLIP CANDIDATE IS NEVER CLAIMED (ADR-0027 R3). A part-linked expense enters the pool once
     per live `Settled` slip (`TargetRef.import_row`), matched on THAT LINE'S TRANSFER ID -- an
@@ -300,11 +326,24 @@ def pick_recorded_group(
         if _agrees(row, group):
             return group
 
+    def _judged(group: RecordedGroup) -> RecordedGroup:
+        blocking = [c for t in group.targets for c in _claims_on(t)]
+        if blocking and _agrees(row, group):
+            return RecordedGroup(
+                targets=group.targets, used_by=tuple(sorted(set(blocking), key=_claim_order))
+            )
+        return group
+
     group = _pick(row, hits)
-    blocking = [c for t in group.targets for c in _claims_on(t)]
-    if blocking and _agrees(row, group):
-        return RecordedGroup(targets=group.targets, used_by=tuple(sorted(set(blocking), key=_claim_order)))
-    return group
+    if _agrees(row, group):
+        return _judged(group)
+
+    open_hits = tuple(h for h in hits if not _fully_accounted(h, _claims_on(h)))
+    if not open_hits:
+        return None
+    if len(open_hits) == len(hits):
+        return group
+    return _judged(_pick(row, open_hits))
 
 
 def claims_of_skip(row, batch: str, group: RecordedGroup) -> tuple[RecordClaim, ...]:
@@ -386,6 +425,25 @@ def _pick(row, hits: Sequence) -> RecordedGroup:
             return group
 
     return RecordedGroup(targets=tuple(hits))
+
+
+def _fully_accounted(target, claims: Sequence[RecordClaim]) -> bool:
+    """Do other lines' claims account for the WHOLE of this record? (rule 7, 2026-10-15)
+
+    A skip basis does (`amount` is None): the skipped line agreed with the record. Settled legs do
+    when their parts add up to the record's amount -- or past it -- within the settle window. A slip
+    candidate is never claimed, so it never reaches here with any claim.
+
+    ⚠️ AN AMOUNT-WINDOW SITE, listed in `amounts.py`: "add up to" uses `amounts_match`, the window
+    the verdict judges with, so "fully accounted" can never mean "short by more than the window".
+    """
+    if not claims:
+        return False
+    if any(c.amount is None for c in claims):
+        return True
+    accounted = sum((to_decimal(c.amount) for c in claims), Decimal("0"))
+    record_amount = to_decimal(target.amount)
+    return accounted > record_amount or amounts_match(accounted, record_amount)
 
 
 def _agrees(row, group: RecordedGroup) -> bool:

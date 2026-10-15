@@ -79,6 +79,8 @@ from nirmaan_stack.services.outflow_import.status import (
     STAGED_NOTE_NO_SETTLEMENT_PATH,
     RECORDED_DUPLICATE,
     RECORDED_NEEDS_CONFIRMATION,
+    RECORDED_ACTION_CREATE,
+    RECORDED_ACTION_LINK,
     derive_duplicate_guard_outcome,
     derive_guard_verdict,
     derive_recorded_money_verdict,
@@ -674,6 +676,108 @@ class TestRecordedMoneyVerdict(unittest.TestCase):
                 verdict = derive_recorded_money_verdict(_Row("5000"), group)
                 self.assertEqual(verdict.kind, expected[outcome.status])
                 self.assertEqual(verdict.note, outcome.note)
+
+
+class TestTheRecordAnywayPrompt(unittest.TestCase):
+    """The sentence a Create / Link button asks "... anyway?" with (owner ruling, 2026-10-15).
+
+    The row's note stays the match run's sentence; the BUTTON speaks the language of the moment a
+    person records money: what the record is, how far its amount is off, and what recording again
+    would do. Both are built from the one verdict, so they can never describe different records.
+    """
+
+    @staticmethod
+    def _credit(amount):
+        row = _Row(amount)
+        row.direction = ROW_DIRECTION_CREDIT
+        return row
+
+    @staticmethod
+    def _fan_in(amount="421606"):
+        return TargetRef("Project Inflows", "PAYIN-00076-03", Decimal(amount), "", None, "",
+                         date(2026, 9, 12))
+
+    def test_an_amount_off_inflow_reads_what_creating_again_would_do(self):
+        verdict = derive_recorded_money_verdict(
+            self._credit("281606"), _group([self._fan_in()]), RECORDED_ACTION_CREATE
+        )
+        self.assertEqual(
+            verdict.prompt,
+            "Project Inflow PAYIN-00076-03 (₹4,21,606, 12-Sep-2026) has this credit's reference, "
+            "but its amount is ₹1,40,000 more. If it already includes this money, a new inflow "
+            "counts the money two times. Open it to check, or create anyway.",
+        )
+
+    def test_the_note_is_still_the_match_run_s_sentence(self):
+        row, group = self._credit("281606"), _group([self._fan_in()])
+        verdict = derive_recorded_money_verdict(row, group, RECORDED_ACTION_CREATE)
+        self.assertEqual(verdict.note, derive_duplicate_guard_outcome(row, group).note)
+        self.assertNotEqual(verdict.prompt, verdict.note)
+
+    def test_a_short_record_reads_less(self):
+        verdict = derive_recorded_money_verdict(
+            self._credit("500000"), _group([self._fan_in()]), RECORDED_ACTION_CREATE
+        )
+        self.assertIn("its amount is ₹78,394 less.", verdict.prompt)
+
+    def test_a_debit_line_reads_debit_and_a_new_expense(self):
+        verdict = derive_recorded_money_verdict(
+            _Row("5000"), _group([_paid_expense(amount="7000")]), RECORDED_ACTION_CREATE
+        )
+        self.assertEqual(
+            verdict.prompt,
+            'Project Expense "Site accommodation for the electrical team" (₹7,000, 12-Sep-2026) '
+            "has this debit's reference, but its amount is ₹2,000 more. If it already includes "
+            "this money, a new expense counts the money two times. Open it to check, or create "
+            "anyway.",
+        )
+
+    def test_a_link_reads_linking_and_link_anyway(self):
+        verdict = derive_recorded_money_verdict(
+            _Row("5000"), _group([_payment("PAY-A", "9000", "Paid")]), RECORDED_ACTION_LINK
+        )
+        self.assertTrue(verdict.prompt.startswith("Project Payment PAY-A (₹9,000) has this debit's"))
+        self.assertIn("linking this line counts the money two times", verdict.prompt)
+        self.assertTrue(verdict.prompt.endswith("Open it to check, or link anyway."))
+
+    def test_several_records_read_their_total(self):
+        group = _group([
+            _paid_expense(amount="2935"), _payment("PAY-B", "4000", "Paid"),
+        ])
+        verdict = derive_recorded_money_verdict(_Row("5000"), group, RECORDED_ACTION_CREATE)
+        self.assertIn("Project Payment PAY-B (₹4,000) and Project Expense", verdict.prompt)
+        self.assertIn("have this debit's reference, but their total is ₹1,935 more.", verdict.prompt)
+        self.assertIn("If they already include this money", verdict.prompt)
+        self.assertTrue(verdict.prompt.endswith("Open them to check, or create anyway."))
+
+    def test_a_record_another_line_used_names_that_line(self):
+        npi = TargetRef("Non Project Inflows", "NPI-26-00009", Decimal("1905"), "", None, "",
+                        date(2026, 8, 18))
+        claim = RecordClaim("Non Project Inflows", "NPI-26-00009", "OFR-26-003400", "OFI-26-00106",
+                            settled=True, amount=Decimal("1905"))
+        group = RecordedGroup(targets=(npi,), used_by=(claim,))
+        verdict = derive_recorded_money_verdict(self._credit("1905"), group, RECORDED_ACTION_CREATE)
+        self.assertEqual(verdict.kind, RECORDED_NEEDS_CONFIRMATION)
+        self.assertEqual(
+            verdict.prompt,
+            "Non Project Inflow NPI-26-00009 (₹1,905, 18-Aug-2026) has this credit's reference and "
+            "the same amount, but bank line OFR-26-003400 (batch OFI-26-00106) already accounts "
+            "for it. If this is a second, real receipt, create anyway.",
+        )
+
+    def test_a_record_another_line_was_skipped_on_says_so(self):
+        claim = RecordClaim("Project Payments", "PAY-A", "OFR-9", "OFI-9")
+        group = RecordedGroup(targets=(_payment("PAY-A", "5000", "Paid"),), used_by=(claim,))
+        verdict = derive_recorded_money_verdict(_Row("5000"), group, RECORDED_ACTION_LINK)
+        self.assertIn("but bank line OFR-9 (batch OFI-9) was skipped as this money.", verdict.prompt)
+        self.assertTrue(verdict.prompt.endswith("If this is a second, real payment, link anyway."))
+
+    def test_a_duplicate_has_no_prompt(self):
+        verdict = derive_recorded_money_verdict(
+            _Row("5000"), _group([_payment("PAY-A", "5000", "Paid")]), RECORDED_ACTION_CREATE
+        )
+        self.assertEqual(verdict.kind, RECORDED_DUPLICATE)
+        self.assertEqual(verdict.prompt, "")
 
 
 class TestTheAmountOffNoteReadsAsMoney(unittest.TestCase):

@@ -95,6 +95,7 @@ from nirmaan_stack.services.outflow_import.settle import (
     create_vendor_refund_from_row,
 )
 from nirmaan_stack.services.outflow_import.ledgers import INFLOW_DOCTYPES
+from nirmaan_stack.services.outflow_import.status import RECORDED_ACTION_CREATE
 from nirmaan_stack.services.vendor_refunds import refund_documents
 
 __all__ = [
@@ -130,7 +131,7 @@ def create_inflow(
     staged, doc = _load_settleable_row(row)
     _guard_is_a_credit(doc)
     _guard_not_already_recorded(staged, doc)
-    _guard_money_not_recorded(staged, doc, confirm_mismatch)
+    _guard_money_not_recorded(staged, doc, confirm_mismatch, action=RECORDED_ACTION_CREATE)
     statement_file_url = _statement_file_url(doc["import_batch"])
 
     savepoint = f"ofi_inflow_{frappe.generate_hash(length=10)}"
@@ -208,7 +209,7 @@ def create_non_project_inflow(
     # the service re-checks the value it is handed, because it is a service anything may call.
     _guard_is_a_credit(doc)
     _guard_not_already_recorded(staged, doc)
-    _guard_money_not_recorded(staged, doc, confirm_mismatch)
+    _guard_money_not_recorded(staged, doc, confirm_mismatch, action=RECORDED_ACTION_CREATE)
     statement_file_url = _statement_file_url(doc["import_batch"])
 
     savepoint = f"ofi_np_inflow_{frappe.generate_hash(length=10)}"
@@ -279,7 +280,7 @@ def create_vendor_refund(
     staged, doc = _load_settleable_row(row)
     _guard_is_a_credit(doc)
     _guard_not_already_recorded(staged, doc)
-    _guard_money_not_recorded(staged, doc, confirm_mismatch)
+    _guard_money_not_recorded(staged, doc, confirm_mismatch, action=RECORDED_ACTION_CREATE)
     statement_file_url = _statement_file_url(doc["import_batch"])
 
     savepoint = f"ofi_vendor_refund_{frappe.generate_hash(length=10)}"

@@ -54,7 +54,7 @@ from nirmaan_stack.services.outflow_import.settle import (
     ExpenseSettlementError,
     link_lines_to_expense,
 )
-from nirmaan_stack.services.outflow_import.status import OPEN_ROW_STATUSES
+from nirmaan_stack.services.outflow_import.status import OPEN_ROW_STATUSES, RECORDED_ACTION_LINK
 
 
 @frappe.whitelist(methods=["POST"])
@@ -114,7 +114,8 @@ def _link_and_commit(names, target_doctype, target_name, confirm_mismatch):
     # the write. Before the savepoint and read-only, so a refusal leaves nothing behind.
     for staged, doc in loaded:
         _guard_money_not_recorded(
-            staged, doc, confirm_mismatch, writing=[(target_doctype, target_name)]
+            staged, doc, confirm_mismatch, writing=[(target_doctype, target_name)],
+            action=RECORDED_ACTION_LINK,
         )
 
     docs_by_row = {staged.name: doc for staged, doc in loaded}
