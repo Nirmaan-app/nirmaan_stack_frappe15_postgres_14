@@ -37,7 +37,6 @@ import {
 // --- Types ---
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Projects } from "@/types/NirmaanStack/Projects";
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 
 // --- Helper Components ---
 import { ItemsHoverCard } from "@/components/helpers/ItemsHoverCard";
@@ -113,15 +112,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     isLoading: userListLoading,
     error: userError,
   } = useUsersList(); // For owner display
-  const {
-    data: projectPayments,
-    isLoading: projectPaymentsLoading,
-    error: projectPaymentsError,
-  } = useFrappeGetDocList<ProjectPayments>("Project Payments", {
-    fields: ["name", "document_name", "status", "amount"],
-    limit: 100000,
-  });
-
   const { notifications, mark_seen_notification } = useNotificationStore();
 
   // --- Memoized Options & Calculations ---
@@ -153,21 +143,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
     }),
     [vendorsList]
   );
-
-  const getAmountPaidForSR = useMemo(() => {
-    if (!projectPayments) return () => 0;
-    const paymentsMap = new Map<string, number>();
-    projectPayments.forEach((p) => {
-      if (p.document_name && p.status === "Paid") {
-        const currentTotal = paymentsMap.get(p.document_name) || 0;
-        paymentsMap.set(p.document_name, currentTotal + parseNumber(p.amount));
-      }
-    });
-    return memoize(
-      (id: string) => paymentsMap.get(id) || 0,
-      (id: string) => id
-    );
-  }, [projectPayments]);
 
   // --- Notification Handling ---
   const handleNewSRSeen = useCallback(
@@ -524,20 +499,6 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
         size: 100,
         enableSorting: false,
       },
-      // {
-      //     id: "amount_paid_sr", header: ({ column }) => <DataTableColumnHeader column={column} title="Amt Paid" />,
-      //     cell: ({ row }) => {
-      //         const amountPaid = getAmountPaidForSR(row.original.name);
-      //         return <div className="font-medium pr-2">{formatToRoundedIndianRupee(amountPaid || 0)}</div>;
-      //     }, size: 150, enableSorting: false,
-      //     meta: {
-      //         exportHeaderName: "Amt Paid",
-      //         exportValue: (row) => {
-      //             const amountPaid = getAmountPaidForSR(row.name);
-      //             return formatForReport(amountPaid || 0);
-      //         }
-      //     }
-      // },
     ],
     [
       notifications,
@@ -548,7 +509,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
       getVendorName,
       for_vendor,
     ]
-  ); //, getTotalAmount, getAmountPaidForSR,
+  ); //, getTotalAmount,
 
   // --- (MOVED UP) Use the Server Data Table Hook ---
   const {
@@ -605,13 +566,11 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
   const isLoading =
     projectsLoading ||
     vendorsLoading ||
-    userListLoading ||
-    projectPaymentsLoading;
+    userListLoading;
   const combinedError =
     projectsError ||
     vendorsError ||
     userError ||
-    projectPaymentsError ||
     listError;
 
   // --- CEO Hold Row Highlighting ---

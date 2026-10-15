@@ -7,6 +7,7 @@ import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
 import { toast } from '@/components/ui/use-toast';
 import { getSRTotal, getTotalAmountPaid } from '@/utils/getAmounts';
+import { parseNumber } from '@/utils/parseNumber';
 
 // Helper to parse JSON fields safely
 const parseJsonField = <T, K extends keyof T>(doc: T, fieldName: K, defaultValue: any = { list: [] }): T[K] extends { list: Array<any> } ? T[K] : { list: [] } => {
@@ -111,9 +112,8 @@ export const useApprovedSRData = (srId: string): ApprovedSRData => {
         return serviceRequestWithParsedJSON.gst === "true" ? totalExclusiveGST * 1.18 : totalExclusiveGST;
     }, [totalExclusiveGST, serviceRequestWithParsedJSON?.gst]);
 
-    const amountPaid = useMemo(() =>
-        getTotalAmountPaid(paymentsList?.filter(p => p.status === "Paid" && p.docstatus === 1) || []),
-    [paymentsList]);
+    // The WO's stored Amount Paid (ADR-0034): Paid payments less Received refunds, never re-added here.
+    const amountPaid = parseNumber(srDoc?.amount_paid);
 
     const amountPendingForRequest = useMemo(() =>
         getTotalAmountPaid(paymentsList?.filter(p => ["Requested", "Approved"].includes(p.status)) || []), // ADR-0034 payment cap
