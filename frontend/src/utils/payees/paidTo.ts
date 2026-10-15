@@ -1,5 +1,5 @@
 /**
- * Who a payment row is paid to (spec #1420 tickets #1431, #1438, ADR-0033), as the screens say it. Pure.
+ * Who a payment row is paid to (spec #1420 tickets #1431, #1438, #1439, ADR-0033), as the screens say it. Pure.
  *
  * The server's Payee module resolves it (`services/payees/paid_to.py`): every PO / WO payment and
  * expense is paid into its OWN pay-to account, copied when it was raised. These only word the answer:
@@ -26,17 +26,39 @@ export interface PaidTo {
     missing: PaidToMissing | null;
     /** The expense type's *Who gets paid*, on an expense with no account. */
     payee_rule: string | null;
+    /** A PO / WO payment whose vendor's Payee no longer holds its copy's account (normalised account
+     *  number, IFSC), or whose vendor has no Payee any more (#1439). It is rejected and raised again,
+     *  never paid. Never set on an expense or a row with no account. */
+    account_changed: boolean;
+    /** On a flagged payment, its vendor's account now; null when the vendor has none. */
+    current_account: PayToAccount | null;
 }
 
 export interface PaidToCell {
-    tone: "account" | "no_account" | "payment_no_account";
+    tone: "account" | "account_changed" | "no_account" | "payment_no_account";
     title: string;
     detail: string;
 }
 
-/** The Paid to cell: the holder name with the account and IFSC under it, or why there is none. */
+export const ACCOUNT_CHANGED_TITLE = "Vendor's account changed since this was raised";
+
+/** Where a flagged payment's vendor is paid now, on one line. */
+export const currentAccountText = (current: PayToAccount | null): string =>
+    current
+        ? `Now ${current.account_name}, A/c ${current.account_number}, ${current.ifsc}.`
+        : "The vendor has no account now.";
+
+/** The Paid to cell: the holder name with the account and IFSC under it, the account-changed
+ *  warning, or why there is no account. */
 export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string): PaidToCell => {
     const account = paidTo?.account;
+    if (account && paidTo.account_changed) {
+        return {
+            tone: "account_changed",
+            title: ACCOUNT_CHANGED_TITLE,
+            detail: `${currentAccountText(paidTo.current_account)} Reject it and raise it again.`,
+        };
+    }
     if (account) {
         return {
             tone: "account",
@@ -64,7 +86,9 @@ export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string): Pai
 /** The Paid to cell on one line, for the table's CSV. */
 export const paidToExportText = (paidTo: PaidTo | undefined, expenseType: string): string => {
     const cell = paidToCell(paidTo, expenseType);
-    return cell.tone === "account" ? `${cell.title}, ${cell.detail}` : cell.title;
+    if (cell.tone === "account") return `${cell.title}, ${cell.detail}`;
+    if (cell.tone === "account_changed") return `${cell.title}: ${cell.detail}`;
+    return cell.title;
 };
 
 /** Record Payment's "Pay ₹X to" box for an expense with no account. */

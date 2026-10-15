@@ -525,7 +525,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         }
 
         // ⚠️ THE BANK FILE IS NOT THE SELECTION. `buildBankFile` leaves out every ticked row
-        // that has no account to pay into, and the toast names them: the accountant must
+        // that has no account to pay into, and every PO / WO payment whose vendor's account
+        // changed since it was raised (#1439), and the toast names them: the accountant must
         // know the file is shorter than their selection.
         const bankFile = buildBankFile(
             payments.map((payment, i): BankFileRow => {
@@ -538,6 +539,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     projectLabel: projectLabelMap.get(payment.project) ?? (payment.project || "Non Project"),
                     account: paidTo[i]?.account ?? undefined,
                     missing: paidTo[i]?.missing,
+                    accountChanged: paidTo[i]?.account_changed,
                 };
             }),
             { format: exportTarget, paymentMode, debitAccountNumber, now: new Date() },
@@ -547,7 +549,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         if (bankFile.rows.length === 0) {
             toast({
                 title: "Nothing to export",
-                description: `No selected row has an account to pay into: ${skippedParts.join("; ")}. Pay these by hand, or give them an account first.`,
+                description: `No selected row can go in the bank file: ${skippedParts.join("; ")}.`,
                 variant: "destructive",
             });
             setIsExportDialogOpen(false);
@@ -567,7 +569,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         toast({
             title: "Export Successful",
             description: skippedParts.length > 0
-                ? `${bankFile.rows.length} payments exported. Left out, to pay by hand: ${skippedParts.join("; ")}.`
+                ? `${bankFile.rows.length} payments exported. Left out: ${skippedParts.join("; ")}.`
                 : `${bankFile.rows.length} payments exported.`,
             variant: bankFile.leftOut.length > 0 ? "default" : "success",
         });

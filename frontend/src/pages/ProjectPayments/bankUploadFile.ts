@@ -24,6 +24,9 @@ export interface BankFileRow {
 	/** Why the server says the row has no account to pay into (`get_paid_to`'s `missing`), if it has
 	 *  none. */
 	missing?: PaidToMissing | null;
+	/** A PO / WO payment whose vendor's account changed since it was raised (`get_paid_to`'s
+	 *  `account_changed`, #1439): its copy is the old account, so it is never put in the file. */
+	accountChanged?: boolean;
 }
 
 export interface BankFileOptions {
@@ -34,8 +37,11 @@ export interface BankFileOptions {
 	now: Date;
 }
 
+/** A PO / WO payment left out because its vendor's account changed since it was raised. */
+export const ACCOUNT_CHANGED = "account_changed";
+
 /** Why a ticked row is not in the bank file. */
-export type BankFileLeftOutReason = PaidToMissing;
+export type BankFileLeftOutReason = PaidToMissing | typeof ACCOUNT_CHANGED;
 
 export interface BankFileLeftOut {
 	row: BankFileRow;
@@ -125,9 +131,11 @@ export function buildBankFile(rows: BankFileRow[], options: BankFileOptions): Ba
 
 // ICICI and Cashfree both accept a file holding a row with a blank account or IFSC, and reject
 // that row only after upload, so a row with no account is left out here, not at the bank. A copy
-// always holds a holder name, an account number and an IFSC (it is a Payee's).
+// always holds a holder name, an account number and an IFSC (it is a Payee's). A payment whose
+// vendor's account changed since holds the OLD account: paying it would pay the wrong one.
 function leftOutReason(row: BankFileRow): BankFileLeftOutReason | null {
 	if (row.missing) return row.missing;
+	if (row.accountChanged) return ACCOUNT_CHANGED;
 	if (row.account) return null;
 	return row.kind === "vendor_payment" ? PAID_TO_MISSING.PAYMENT_HAS_NO_ACCOUNT : PAID_TO_MISSING.EXPENSE_HAS_NO_ACCOUNT;
 }
@@ -136,6 +144,13 @@ function leftOutReason(row: BankFileRow): BankFileLeftOutReason | null {
 const LEFT_OUT_PHRASES: Record<BankFileLeftOutReason, (count: number) => string> = {
 	[PAID_TO_MISSING.EXPENSE_HAS_NO_ACCOUNT]: (n) => `${n} expense${n > 1 ? "s" : ""} with no account`,
 	[PAID_TO_MISSING.PAYMENT_HAS_NO_ACCOUNT]: (n) => `${n} payment${n > 1 ? "s" : ""} with no account`,
+	[ACCOUNT_CHANGED]: (n) =>
+		`${n} payment${n > 1 ? "s" : ""} whose vendor's account changed since ${n > 1 ? "they were" : "it was"} raised`,
+};
+
+/** What the accountant does about a left-out row, after its names; nothing when it is paid by hand. */
+const LEFT_OUT_ACTION: Partial<Record<BankFileLeftOutReason, (count: number) => string>> = {
+	[ACCOUNT_CHANGED]: (n) => (n > 1 ? ": reject them and raise them again" : ": reject it and raise it again"),
 };
 
 /**
@@ -148,6 +163,7 @@ export function describeLeftOut(leftOut: BankFileLeftOut[]): string[] {
 		const names = leftOut.filter((l) => l.reason === reason).map((l) => l.row.documentName);
 		if (names.length === 0) return [];
 		const list = names.slice(0, 3).join(", ") + (names.length > 3 ? ", …" : "");
-		return [`${LEFT_OUT_PHRASES[reason](names.length)} (${list})`];
+		const action = LEFT_OUT_ACTION[reason]?.(names.length) ?? "";
+		return [`${LEFT_OUT_PHRASES[reason](names.length)} (${list})${action}`];
 	});
 }

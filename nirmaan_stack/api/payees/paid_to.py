@@ -32,7 +32,8 @@ from nirmaan_stack.services.role_profiles import assert_payee_manager
 @frappe.whitelist()
 def get_paid_to(rows: str | list[dict]) -> list[dict]:
     """Who each row is paid to, in the order sent. `rows` is `[{doctype, name}]` (`Project Payments`,
-    `Project Expenses`, `Non Project Expenses`). Each answer is `{account, missing, payee_rule}`
+    `Project Expenses`, `Non Project Expenses`). Each answer is `{account, missing, payee_rule,
+    account_changed, current_account}`
     (`services/payees/paid_to.paid_to_rows`)."""
     if isinstance(rows, str):
         rows = json.loads(rows)

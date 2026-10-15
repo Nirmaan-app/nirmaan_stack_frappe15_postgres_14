@@ -154,11 +154,22 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   queue's `paid_to`, from the `pay_to_*` columns it selects), Export for Payment (read again at export
   through `api/payees/paid_to.get_paid_to`) and Record Payment's "Pay ₹X to" box (`pay_to_box`, for
   an expense and for a PO / WO payment) all read it; no screen re-derives it. An answer is
-  `{account, missing, payee_rule}`; `missing` is `payment_has_no_account` or `expense_has_no_account`
-  (with the type's rule). A row with none is left out of the bank file with a reason, never sent with
-  a blank account; the Cashfree beneficiary is the copy's holder name. The box's "Set by" is the
+  `{account, missing, payee_rule, account_changed, current_account}`; `missing` is
+  `payment_has_no_account` or `expense_has_no_account` (with the type's rule). A row with none is left
+  out of the bank file with a reason, never sent with a blank account; the Cashfree beneficiary is the
+  copy's holder name. The box's "Set by" is the
   latest Version change to the copy's holder name, account number or IFSC, else the request's raiser
   (when the request holds the same account), else "copied from the vendor".
+  - **"Vendor's account changed since this was raised"** (#1439): a PO / WO payment with a copy is
+    flagged `account_changed` when its vendor's Payee now holds another account, compared as
+    (`normalize.normalize_account`, `normalize.normalize_ifsc`), or the vendor has no Payee any more
+    (`paid_to.account_changed_since`). A holder-name, bank or branch change is not flagged; a blank
+    copy, an expense and a payment with no vendor never are. `current_account` is the vendor's account
+    now (null when it has none), set only on a flagged row. The flag ignores status; the screens word
+    it: the Paid to cell and the "Pay ₹X to" box warn with the new account (the box drops the old
+    account's Copy buttons and, once paid, says it was marked paid to the old account), and the bank
+    file leaves the row out (`bankUploadFile.ACCOUNT_CHANGED`) with "reject it and raise it again".
+    "Mark as Paid" on "Payment need to paid" does not check the flag.
   - **Change account** (Record Payment, an expense only): copies a picked or added Payee's account
     onto the expense, overwriting its copy (`expense_payee.change_expense_account`; the save leaves a
     Version row: who and when). The endpoint (`api/payees/paid_to.change_expense_account`) is Accounts

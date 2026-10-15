@@ -32,6 +32,7 @@ from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each
 from nirmaan_stack.api.test_cheque_photo_reader import _SETTINGS, _FakeModels
 from nirmaan_stack.services.extraction.gemini import GeminiExtractor
 from nirmaan_stack.services.payees.pay_to import ACCOUNT_FIELDS, PAY_TO_FIELDS
+from nirmaan_stack.services.payees.writer import edit_payee
 
 U = "Administrator"
 PM_USER = "pye_paidto_pm@example.com"
@@ -192,6 +193,84 @@ class TestPaidTo(FrappeTestCase):
         self.assertEqual(by_name[expense]["account"], self._account(raised_with))
         self.assertEqual((by_name[no_account]["missing"], by_name[no_account]["payee_rule"]),
                          ("expense_has_no_account", "Not asked"))
+
+    # -- "Vendor's account changed since this was raised" (#1439) -----------------------------------
+    def _edit_account(self, payee, *, account_name=None, account_number=None):
+        """Edit `payee` through the Payee module, as the Payees page and the vendor screens do."""
+        current = frappe.db.get_value("Payee", payee, ["account_name", "account_number", "ifsc"], as_dict=True)
+        edit_payee(payee, account_name or current.account_name, account_number or current.account_number,
+                   current.ifsc)
+        frappe.db.commit()
+
+    def _every_reader(self, doctype, name):
+        """What the bank file, the approval queue and the Pay box each answer for one row."""
+        queue = get_approval_queue(filters=[["name", "in", [name]]], limit_page_length=10)["data"]
+        return {
+            "bank file": get_paid_to([{"doctype": doctype, "name": name}])[0],
+            "queue": queue[0]["paid_to"],
+            "box": get_pay_to_box(doctype, name),
+        }
+
+    def test_a_payment_whose_vendors_account_was_edited_since_is_flagged_with_the_new_account(self):
+        payee = self.payees.payee()
+        payment = self._payment(self._vendor(payee), copy_of=payee)
+        raised_with = self._account(payee)
+        new_number = self.payees.account_number()
+
+        self._edit_account(payee, account_number=new_number)
+
+        for reader, answer in self._every_reader(PAYMENT, payment).items():
+            with self.subTest(reader=reader):
+                self.assertIs(answer["account_changed"], True)
+                self.assertEqual(answer["account"], raised_with)
+                self.assertEqual(answer["current_account"]["account_number"], new_number)
+                self.assertEqual(answer["current_account"], self._account(payee))
+
+    def test_a_payment_whose_vendor_has_no_payee_any_more_is_flagged(self):
+        payee = self.payees.payee()
+        vendor = self._vendor(payee)
+        payment = self._payment(vendor, copy_of=payee)
+
+        frappe.db.set_value("Vendors", vendor, "payee", None, update_modified=False)
+        frappe.db.commit()
+
+        for reader, answer in self._every_reader(PAYMENT, payment).items():
+            with self.subTest(reader=reader):
+                self.assertIs(answer["account_changed"], True)
+                self.assertIsNone(answer["current_account"])
+                self.assertEqual(answer["account"], self._account(payee))
+
+    def test_a_payment_whose_vendor_keeps_the_same_account_is_not_flagged(self):
+        renamed = self.payees.payee(holder=self.payees.holder("Kaveri Ductfab"))
+        unchanged = self.payees.payee()
+        renamed_payment = self._payment(self._vendor(renamed), copy_of=renamed)
+        # The same account written another way: leading zeros, spaces and a lower-case IFSC.
+        unchanged_payment = self._payment(self._vendor(unchanged))
+        number, ifsc = frappe.db.get_value("Payee", unchanged, ["account_number", "ifsc"])
+        frappe.db.set_value(PAYMENT, unchanged_payment, {
+            "pay_to_account_name": "someone", "pay_to_account_number": f"00{number[:4]} {number[4:]}",
+            "pay_to_ifsc": f" {ifsc.lower()} "}, update_modified=False)
+        frappe.db.commit()
+
+        self._edit_account(renamed, account_name=self.payees.holder("Kaveri Ductfab Pvt Ltd"))
+
+        for payment in (renamed_payment, unchanged_payment):
+            for reader, answer in self._every_reader(PAYMENT, payment).items():
+                with self.subTest(payment=payment, reader=reader):
+                    self.assertIs(answer["account_changed"], False)
+
+    def test_a_blank_copy_and_an_expense_are_never_flagged(self):
+        payee, vendor_now = self.payees.payee(), self.payees.payee()
+        blank = self._payment(self._vendor(vendor_now))
+        expense = self._expense(PE, copy_of=payee, vendor=self._vendor(vendor_now))
+        vendorless = self._expense(NPE, copy_of=payee)
+
+        answers = get_paid_to([{"doctype": PAYMENT, "name": blank}, {"doctype": PE, "name": expense},
+                               {"doctype": NPE, "name": vendorless}])
+
+        self.assertEqual([(a["account_changed"], a["current_account"]) for a in answers],
+                         [(False, None)] * 3)
+        self.assertIs(get_pay_to_box(PE, expense)["account_changed"], False)
 
     # -- payment autofill's name check ------------------------------------------------------------
     def test_a_receipt_is_checked_against_the_payments_own_holder_name(self):

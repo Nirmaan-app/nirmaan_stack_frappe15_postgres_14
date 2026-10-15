@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Who a payment row is paid to (spec #1420 tickets #1431, #1438, ADR-0033). Read-only.
+"""Who a payment row is paid to (spec #1420 tickets #1431, #1438, #1439, ADR-0033). Read-only.
 
 The one place "who to pay" is resolved for a row the accountant pays: "Payment need to paid"'s
 Paid to column, the approval queue, the ICICI / Cashfree file and Record Payment's "Pay ₹X to" box
@@ -9,7 +9,9 @@ all read it here.
 
 Every row is paid into its OWN pay-to account (`pay_to.PAY_TO_FIELDS`), copied when it was raised:
 a PO / WO payment (`Project Payments`) from its vendor's Payee, an expense from the Payee its raiser
-picked or its vendor's. Never the vendor's Payee as it reads now, never a linked Payee. A row with no
+picked or its vendor's. Never the vendor's Payee as it reads now, never a linked Payee. A PO / WO
+payment whose vendor's Payee no longer holds its copy's account is flagged `account_changed`, with
+the vendor's account now (#1439): it is rejected and raised again, never paid. A row with no
 copy says why: `PAYMENT_HAS_NO_ACCOUNT`, or `EXPENSE_HAS_NO_ACCOUNT` with the expense type's *Who gets
 paid* rule, so the screen can say whether the type needs one.
 
@@ -28,9 +30,11 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
+from nirmaan_stack.services.outflow_import.normalize import normalize_account, normalize_ifsc
 from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
-from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS, has_pay_to, pay_to_account
+from nirmaan_stack.services.payees.pay_to import ACCOUNT_FIELDS, PAY_TO_FIELDS, has_pay_to, pay_to_account
 from nirmaan_stack.services.payees.rules import PAID_STATUSES
+from nirmaan_stack.services.payees.vendor_account import vendor_accounts
 from nirmaan_stack.services.payees.versions import last_field_change
 
 PAYMENT_DOCTYPE = "Project Payments"
@@ -58,23 +62,57 @@ def assert_paid_to_doctype(doctype: str, allowed=PAID_TO_DOCTYPES) -> None:
 
 def paid_to_rows(rows: list[dict]) -> list[dict]:
     """Who each row is paid to, in order. A row carries `doctype`, `vendor`, `expense_type` and its
-    pay-to fields. Each answer is `{account, missing, payee_rule}`: `account` is the row's own copy
-    (`pay_to.pay_to_account`) or None; `missing` is None, `PAYMENT_HAS_NO_ACCOUNT` or
-    `EXPENSE_HAS_NO_ACCOUNT`; `payee_rule` is the expense type's rule on an expense with no account,
-    else None. At most one query, whatever the row count."""
+    pay-to fields. Each answer is `{account, missing, payee_rule, account_changed, current_account}`:
+
+    * `account` -- the row's own copy (`pay_to.pay_to_account`), or None.
+    * `missing` -- None, `PAYMENT_HAS_NO_ACCOUNT` or `EXPENSE_HAS_NO_ACCOUNT`.
+    * `payee_rule` -- the expense type's rule on an expense with no account, else None.
+    * `account_changed` -- a PO / WO payment whose vendor's Payee no longer holds its copy's account
+      (`account_changed_since`, #1439): the payer must not pay it, it is rejected and raised again.
+      Never an expense, never a row with no copy.
+    * `current_account` -- on a flagged payment, its vendor's account now (None when the vendor has
+      no Payee any more); None on any other row.
+
+    At most two queries, whatever the row count."""
     rules = _payee_rules({row.get("expense_type") for row in rows
                           if row.get("doctype") != PAYMENT_DOCTYPE and not has_pay_to(row)})
-    return [_answer(row, rules) for row in rows]
+    accounts_now = vendor_accounts([row.get("vendor") for row in rows if _may_change(row)])
+    return [_answer(row, rules, accounts_now) for row in rows]
 
 
-def _answer(row: dict, rules: dict[str, str]) -> dict:
+def _answer(row: dict, rules: dict[str, str], accounts_now: dict[str, dict]) -> dict:
     account = pay_to_account(row)
+    answer = {"account": account, "missing": None, "payee_rule": None,
+              "account_changed": False, "current_account": None}
     if account:
-        return {"account": account, "missing": None, "payee_rule": None}
-    if row.get("doctype") == PAYMENT_DOCTYPE:
-        return {"account": None, "missing": PAYMENT_HAS_NO_ACCOUNT, "payee_rule": None}
-    return {"account": None, "missing": EXPENSE_HAS_NO_ACCOUNT,
-            "payee_rule": rules.get(row.get("expense_type")) or NOT_ASKED}
+        if _may_change(row):
+            now = accounts_now.get(row["vendor"])
+            if account_changed_since(account, now):
+                answer["account_changed"] = True
+                answer["current_account"] = {field: now[field] for field in ACCOUNT_FIELDS} if now else None
+    elif row.get("doctype") == PAYMENT_DOCTYPE:
+        answer["missing"] = PAYMENT_HAS_NO_ACCOUNT
+    else:
+        answer["missing"] = EXPENSE_HAS_NO_ACCOUNT
+        answer["payee_rule"] = rules.get(row.get("expense_type")) or NOT_ASKED
+    return answer
+
+
+def _may_change(row: dict) -> bool:
+    """A row the "account changed since" flag reads: a PO / WO payment with a copy and a vendor."""
+    return row.get("doctype") == PAYMENT_DOCTYPE and bool(row.get("vendor")) and has_pay_to(row)
+
+
+def account_changed_since(copy: dict, vendor_account_now: dict | None) -> bool:
+    """True when the vendor's account now is not the copy's: no account at all, or another
+    (normalised account number, IFSC). The holder name, bank and branch don't count: a renamed holder
+    is still the same account. Both are in a Payee's field names (`ACCOUNT_FIELDS`)."""
+    if not vendor_account_now:
+        return True
+    return (
+        normalize_account(copy.get("account_number")) != normalize_account(vendor_account_now.get("account_number"))
+        or normalize_ifsc(copy.get("ifsc")) != normalize_ifsc(vendor_account_now.get("ifsc"))
+    )
 
 
 def paid_to_for(keys: list[dict]) -> list[dict]:

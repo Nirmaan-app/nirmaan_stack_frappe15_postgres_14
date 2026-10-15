@@ -129,6 +129,17 @@ describe("buildBankFile — rows left out", () => {
 		]);
 	});
 
+	it("leaves out a PO payment whose vendor's account changed since it was raised, saying why", () => {
+		const changed = vendorPayment({ documentName: "PO/009/26-27", accountChanged: true });
+		const file = buildBankFile([changed, vendorPayment()], CASHFREE);
+
+		expect(file.rows.map((r) => r.remarks)).toEqual(["Tower A - PO/001/26-27"]);
+		expect(file.leftOut).toEqual([{ row: changed, reason: "account_changed" }]);
+		expect(describeLeftOut(file.leftOut)).toEqual([
+			"1 payment whose vendor's account changed since it was raised (PO/009/26-27): reject it and raise it again",
+		]);
+	});
+
 	it("numbers Cashfree transferIds over the rows in the file only", () => {
 		const file = buildBankFile([noPayee2, vendorPayment(), expense, vendorPayment()], CASHFREE);
 
