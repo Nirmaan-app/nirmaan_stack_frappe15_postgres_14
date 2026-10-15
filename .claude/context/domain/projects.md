@@ -108,8 +108,19 @@ projects, one query). Both need read access to Procurement Orders and Project Pa
 again in the browser.
 
 - Outflow is cash: Paid payments on the project (whatever its order's state now), less Received Vendor Refunds
-  against a PO / WO, plus Paid expenses.
+  against a PO / WO, plus Paid expenses. It is stored as three parts, `po_outflow`, `wo_outflow` and
+  `expense_outflow` (each refund off its own order kind), and `outflow` is their sum; Financials shows the
+  parts as the Total OutFlow breakdown.
 - Liabilities: max(0, delivered − Amount Paid) per PO, over POs **not** Merged, Cancelled or Inactive.
 - Date range (optional, inclusive): each payment, refund, expense and inflow counts on its own `payment_date`
   (falling back to its creation date); a refund counts on the refund's date, not its order's. Liabilities in
   a range cover the POs created in it (the Cash Sheet's PO set).
+
+**The project page reads the stored figures (#1457).** It fetches no payments. Financials "Total OutFlow" and
+"Current Liabilities" read `get_project_money`. The PO / WO Summary "Total Amt Paid" and the WO Summary "Total
+Amt Payable" are the orders' summed `amount_paid` / `amount_due` (`get_project_po_summary_aggregates`,
+`get_project_sr_summary_aggregates`). Spends sums the live POs' `amount_paid` per work package, and its
+Services row sums the Approved WOs' `amount_paid`. A PO's work package comes from its items, not its PR:
+PR `work_package` holds "Normal" / "Custom" today, which matches no row. A PO whose items span several
+packages shares its `amount_paid` among them in proportion to item value incl. GST. The Material Usage paid badge compares a PO's `amount_paid`
+with its `total_amount`. The pure rules live in `frontend/src/utils/projects/projectPaid.ts`.

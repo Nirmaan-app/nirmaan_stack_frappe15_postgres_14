@@ -31,7 +31,9 @@ def get_project_sr_summary_aggregates(project_id: str):
         dict: Aggregated values:
               - total_sr_value_inc_gst
               - total_sr_value_excl_gst
-              - total_amount_paid_for_srs
+              - total_amount_paid_for_srs (sum of the WOs' Amount Paid)
+              - total_amount_due_for_srs (sum of the WOs' Amount Due)
+              - total_notional_gst
     """
     if not project_id:
         frappe.throw(_("Project ID is required."))
@@ -49,11 +51,16 @@ def get_project_sr_summary_aggregates(project_id: str):
     service_requests = frappe.get_all(
         "Service Requests",
         filters=sr_filters,
-        fields=["name", "gst", "total_amount"]
+        fields=["name", "gst", "total_amount", "amount_paid", "amount_due"]
     )
 
     total_sr_value_inc_gst = total_sr_value_excl_gst = total_notional_gst = 0.0
+    total_amount_paid_for_srs = total_amount_due_for_srs = 0.0
     for sr in service_requests:
+        # The WOs' stored Amount Paid / Amount Due (ADR-0034): refunds are already taken off, TDS
+        # withheld is in Amount Due. Never add up the WOs' payments again.
+        total_amount_paid_for_srs += flt(sr.get("amount_paid"))
+        total_amount_due_for_srs += flt(sr.get("amount_due"))
         totals = _calculate_sr_totals(frappe._dict(sr))
         total_sr_value_inc_gst += totals.get("total_incl_gst", 0.0)
         total_sr_value_excl_gst += totals.get("total_excl_gst", 0.0)
@@ -62,35 +69,11 @@ def get_project_sr_summary_aggregates(project_id: str):
         if sr.get("gst") != "true":
             total_notional_gst += flt(sr.get("total_amount")) * 0.18
 
-    # Fetch "Paid" Project Payments linked to these Service Requests
-    # This requires knowing which payments are for SRs and for this project
-    # Option 1: If SR name is directly in ProjectPayments.document_name
-    sr_names = [sr.get("name") for sr in service_requests]
-    total_amount_paid_for_srs = 0
-    if sr_names:
-        sum_field = "sum(CAST(amount as numeric)) as total_paid"
-        # Chunk the `document_name IN (...)` list so the generated query never exceeds sqlparse's
-        # 10,000-token cap (a project can have thousands of approved SRs). SUM is associative, so adding
-        # the per-chunk partial sums is byte-identical to one big IN query.
-        for chunk in create_batch(sr_names, 500):
-            paid_payments_for_srs = frappe.get_all(
-                "Project Payments",
-                filters=[
-                    ["status", "=", "Paid"],
-                    ["document_type", "=", "Service Requests"],
-                    ["document_name", "in", list(chunk)]
-                ],
-                fields=[sum_field]
-            )
-            if paid_payments_for_srs and paid_payments_for_srs[0] and paid_payments_for_srs[0].total_paid is not None:
-                total_amount_paid_for_srs += flt(paid_payments_for_srs[0].total_paid)
-
-    print(f"DEBUG: Returning SR Aggregates: GST Total={total_sr_value_inc_gst}, Paid Total={total_amount_paid_for_srs}")
-
     result = {
         "total_sr_value_inc_gst": round(total_sr_value_inc_gst, 2),
         "total_sr_value_excl_gst": round(total_sr_value_excl_gst, 2),
         "total_amount_paid_for_srs": round(total_amount_paid_for_srs, 2),
+        "total_amount_due_for_srs": round(total_amount_due_for_srs, 2),
         "total_notional_gst": round(total_notional_gst, 2),
     }
 
@@ -487,10 +470,6 @@ def get_project_po_summary_aggregates(project_id: str):
 
     if not frappe.has_permission("Procurement Orders", "read"):
         frappe.throw(_("Not permitted to read Procurement Orders."), frappe.PermissionError)
-    if not frappe.has_permission("Project Payments", "read"):
-        frappe.throw(_("Not permitted to read Project Payments."), frappe.PermissionError)
-
-    print(f"DEBUG (get_project_po_summary_aggregates): Cache MISS for project_id: {project_id}. Calculating fresh.")
 
     # Relevant POs for this project (excluding Cancelled/Merged)
     po_filters = [
@@ -501,7 +480,7 @@ def get_project_po_summary_aggregates(project_id: str):
     purchase_orders_data = frappe.get_all(
         "Procurement Orders",
         filters=po_filters,
-        fields=["name", "total_amount","amount","tax_amount", "loading_charges", "freight_charges"] # Fields needed for total calculation
+        fields=["name", "total_amount", "amount", "tax_amount", "amount_paid"],
     )
 
     total_po_value_inc_gst = 0.0
@@ -526,27 +505,9 @@ def get_project_po_summary_aggregates(project_id: str):
         total_gst_on_items += po_data_item.get("tax_amount", 0.0)
         final_total_gst += po_data_item.get("tax_amount", 0.0)
 
-    po_names = list(po_amounts_dict.keys())
-    total_amount_paid_for_pos = 0.0
-    if po_names:
-        # sum_field = "sum(CAST(COALESCE(amount, 0) AS numeric)) as total_paid"
-        sum_field = "sum(CAST(amount as numeric)) as total_paid"
+    # The POs' stored Amount Paid (ADR-0034): Received refunds are already taken off.
+    total_amount_paid_for_pos = sum(flt(po.get("amount_paid")) for po in purchase_orders_data)
 
-        # Chunk the `document_name IN (...)` list (a project can have thousands of POs) to stay under
-        # sqlparse's 10,000-token cap. SUM is associative -> per-chunk partial sums add up byte-identically.
-        for chunk in create_batch(po_names, 500):
-            paid_payments_for_pos = frappe.get_all(
-                "Project Payments",
-                filters=[
-                    ["status", "=", "Paid"],
-                    ["document_type", "=", "Procurement Orders"],
-                    ["document_name", "in", list(chunk)]
-                ],
-                fields=[sum_field]
-            )
-            if paid_payments_for_pos and paid_payments_for_pos[0] and paid_payments_for_pos[0].total_paid is not None:
-                total_amount_paid_for_pos += flt(paid_payments_for_pos[0].total_paid)
-            
     result = {
         "total_po_value_inc_gst": round(total_po_value_inc_gst, 2),
         "total_po_value_excl_gst": round(total_po_value_excl_gst, 2),
@@ -555,7 +516,6 @@ def get_project_po_summary_aggregates(project_id: str):
         "final_total_gst": round(final_total_gst, 2),
         "po_amounts_dict": po_amounts_dict
     }
-    print(f"DEBUG: Returning PO Aggregates (freshly calculated): {result}")
     return result
 
 
@@ -671,7 +631,12 @@ def get_projects_financial_rollup():
 
     # inflow, outflow, liabilities and the gap — the one project money figure, every project at once.
     for project, money in project_money().items():
-        bucket(project).update(money.as_dict())
+        bucket(project).update(
+            inflow=money.inflow,
+            outflow=money.outflow,
+            liabilities=money.liabilities,
+            cashflow_gap=money.cashflow_gap,
+        )
 
     # total_credit_purchase — Credit terms on the valid (non-Merged/Inactive) POs.
     # This is a CROSS-PROJECT rollup, so valid_po_project holds EVERY non-Merged/Inactive
