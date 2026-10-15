@@ -44,8 +44,10 @@ export interface PaidToCell {
     tone: "account" | "no_payee" | "vendor_no_payee";
     title: string;
     detail: string;
-    /** The account is an Inactive Payee: the cell shows a red "Inactive" tag. */
+    /** The account is an Inactive Payee: the cell shows an "Inactive" tag. */
     inactive?: boolean;
+    /** It is a vendor's Inactive Payee, so the row is not paid until Change account: the tag is red. */
+    blocked?: boolean;
 }
 
 /** The Paid to cell: the holder name with the account and IFSC under it, or why there is none. */
@@ -57,6 +59,7 @@ export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string): Pai
             title: account.account_name,
             detail: `A/c ${account.account_number}, ${account.ifsc}`,
             inactive: account.status === PAYEE_STATUS.INACTIVE,
+            blocked: paidTo?.missing === PAID_TO_MISSING.VENDOR_PAYEE_INACTIVE,
         };
     }
     if (paidTo?.missing === PAID_TO_MISSING.VENDOR_HAS_NO_PAYEE) {

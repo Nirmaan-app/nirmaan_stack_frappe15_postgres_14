@@ -280,8 +280,7 @@ class TestEveryWritePathKeepsThePayeeRules(FrappeTestCase):
     def _inactive_vendor(self) -> tuple[str, str]:
         payee = self.payees.payee()
         vendor = self.payees.vendor(payee)
-        frappe.db.set_value("Payee", payee, "status", "Inactive")
-        frappe.db.commit()
+        PayeeFixture.mark_inactive(payee)
         return payee, vendor
 
     def test_a_new_request_naming_a_vendor_whose_payee_is_inactive_is_refused(self):

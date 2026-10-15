@@ -26,6 +26,8 @@ from nirmaan_stack.api.payees.expense_payee import (
     get_paid_to,
 )
 from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each
+from nirmaan_stack.services.payees.paid_to import VENDOR_PAYEE_INACTIVE
+from nirmaan_stack.services.payees.rules import INACTIVE
 
 U = "Administrator"
 PM_USER = "pye_paidto_pm@example.com"
@@ -154,13 +156,12 @@ class TestPaidTo(FrappeTestCase):
         bank file leaves the row out for this reason."""
         payee = self.payees.payee()
         payment = self._payment(self._vendor(payee))
-        frappe.db.set_value("Payee", payee, "status", "Inactive")
-        frappe.db.commit()
+        PayeeFixture.mark_inactive(payee)
 
         (row,) = get_paid_to([{"doctype": "Project Payments", "name": payment}])
 
         self.assertEqual((row["account"]["payee"], row["account"]["status"], row["missing"]),
-                         (payee, "Inactive", "vendor_payee_inactive"))
+                         (payee, INACTIVE, VENDOR_PAYEE_INACTIVE))
 
     def test_the_queue_rows_carry_paid_to(self):
         payee = self.payees.payee()

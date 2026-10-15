@@ -22,6 +22,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import SITEURL from "@/constants/siteURL";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { ChequeChip } from "@/components/cheques/ChequeChip";
+import { PayeeInactiveBadge } from "@/components/payees/PayeeInactiveBadge";
 import { showsChequeChip, utrOrChequeText } from "@/utils/cheques/chequeChip";
 import {
   DocumentDetailPopover,
@@ -32,7 +33,6 @@ import { ExpenseBankLinesPopover } from "../components/ExpenseBankLinesPopover";
 import { GstPaymentTag } from "../components/GstPaymentTag";
 import { partReconciled } from "../components/expenseBankLinesView";
 import { cn } from "@/lib/utils";
-import { PayeeInactiveBadge } from "@/components/payees/PayeeInactiveBadge";
 import { paidToCell, paidToExportText } from "@/utils/payees/paidTo";
 
 import {
@@ -600,7 +600,9 @@ const REGISTRY: Record<
             >
               {cell.title}
             </span>
-            {cell.inactive && <PayeeInactiveBadge tone="alert" className="px-1.5 py-0 text-[11px]" />}
+            {cell.inactive && (
+              <PayeeInactiveBadge tone={cell.blocked ? "alert" : "muted"} className="px-1.5 py-0 text-[11px]" />
+            )}
           </span>
           <span className="block text-xs font-normal tabular-nums text-muted-foreground" title={cell.detail}>
             {cell.detail}

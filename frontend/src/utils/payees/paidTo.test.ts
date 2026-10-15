@@ -20,13 +20,17 @@ describe("paidToCell", () => {
             title: "Ramesh Kumar Yadav",
             detail: "A/c 36147100982211, SBIN0003435",
             inactive: false,
+            blocked: false,
         });
     });
 
     it("tags an Inactive account (owner decision, walk bug 7d)", () => {
         const inactive = { ...account, status: "Inactive" as const };
-        expect(paidToCell({ account: inactive, missing: "vendor_payee_inactive", payee_rule: null }, "").inactive).toBe(true);
-        expect(paidToCell({ account: inactive, missing: null, payee_rule: null }, "Travel").inactive).toBe(true);
+        const vendorRow = paidToCell({ account: inactive, missing: "vendor_payee_inactive", payee_rule: null }, "");
+        expect([vendorRow.inactive, vendorRow.blocked]).toEqual([true, true]);
+        // An expense carrying a Payee that went Inactive is still paid: tagged, not blocked.
+        const expenseRow = paidToCell({ account: inactive, missing: null, payee_rule: null }, "Travel");
+        expect([expenseRow.inactive, expenseRow.blocked]).toEqual([true, false]);
     });
 
     it("says an expense with no payee needs none when its type doesn't require one", () => {

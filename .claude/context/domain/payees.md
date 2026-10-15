@@ -89,10 +89,11 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 - **A vendor whose Payee is Inactive is not paid into it** (owner decision, spec #1420 walk): the
   vendor must use Change account first. Its PO, Work Order and Credits payment requests are blocked
   (`utils/payees/vendorAccount.vendorPayeeGateProblem`; screen-only, as no server check exists for
-  them); a new Expense Request, or one moved to that vendor, is refused on every save
-  (`expense_rules.vendor_payee_problem`, applied by `guard.check_payee_links`); the bank file leaves
+  them); a new Expense Request, or one moved to that vendor, is refused on every write path, at
+  insert or the vendor change (`expense_rules.vendor_payee_problem`, applied by `guard.check_payee_links`); the bank file leaves
   its payment rows out (`paid_to` answers `vendor_payee_inactive`, still naming the account); "Payment
-  need to paid"'s Paid to tags the account red "Inactive"; and Mark inactive warns when vendors still
+  need to paid"'s Paid to tags the account red "Inactive" (grey on an expense still carrying an
+  Inactive Payee, which is paid); and Mark inactive warns when vendors still
   point at the Payee. A request already sent keeps its Payee, and approval carries it.
 - **Linked expenses** are `Project Expenses` and `Non Project Expenses` naming the Payee, at any
   status. An Expense Request is not counted until approval carries its Payee onto an expense.

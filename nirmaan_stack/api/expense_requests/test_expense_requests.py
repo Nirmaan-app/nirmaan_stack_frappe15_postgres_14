@@ -1153,8 +1153,7 @@ class TestExpenseRequestPayee(FrappeTestCase):
 		                      payee_rule=rule)
 
 	def _inactive(self, payee):
-		frappe.db.set_value("Payee", payee, "status", "Inactive")
-		frappe.db.commit()
+		self.payees.mark_inactive(payee)
 
 	def _raise(self, expense_type, **kw):
 		frappe.set_user(PM_USER)

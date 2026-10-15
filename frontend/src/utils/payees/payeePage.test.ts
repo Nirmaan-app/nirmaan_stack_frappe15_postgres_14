@@ -66,10 +66,10 @@ describe("deactivateText (Mark inactive)", () => {
 describe("deactivateVendorWarning (owner decision, bug 7a)", () => {
     it("warns that the vendors still paid into it can't be paid until they change account", () => {
         expect(deactivateVendorWarning(1)).toBe(
-            "1 vendor is still paid into this account. Its PO, Work Order and expense payments can't be " +
-                "requested until it uses Change account on its vendor page.",
+            "1 vendor is still paid into this account. Until it uses Change account on its vendor page, no PO, " +
+                "Work Order or Credits payment can be requested for it, and no new expense request can name it.",
         );
-        expect(deactivateVendorWarning(3)).toMatch(/^3 vendors are still paid into this account\. Their PO, Work Order/);
+        expect(deactivateVendorWarning(3)).toMatch(/^3 vendors are still paid into this account\. Until each uses/);
     });
 
     it("is null with no vendor on it", () => {

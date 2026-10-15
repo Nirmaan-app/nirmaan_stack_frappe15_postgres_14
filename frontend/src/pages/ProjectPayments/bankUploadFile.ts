@@ -1,9 +1,9 @@
 import { unparse } from "papaparse";
 
 import type { Payee } from "@/types/NirmaanStack/Payee";
-import { PAID_TO_MISSING, type PaidToMissing } from "@/utils/payees/paidTo";
 import { formatDate, formatDateToDDMMYYYY } from "@/utils/FormatDate";
 import { parseNumber } from "@/utils/parseNumber";
+import { PAID_TO_MISSING, type PaidToMissing } from "@/utils/payees/paidTo";
 
 /** Which bulk-transfer file to emit. ICICI's PAB_VENDOR layout and Cashfree's payout template share no columns. */
 export type BankFileFormat = "icici" | "cashfree";
@@ -144,15 +144,15 @@ export function describeLeftOut(leftOut: BankFileLeftOut[]): string[] {
 		return { count: names.length, list: names.slice(0, 3).join(", ") + (names.length > 3 ? ", …" : "") };
 	};
 	const parts: string[] = [];
-	const expenses = named("expense_has_no_payee");
+	const expenses = named(PAID_TO_MISSING.EXPENSE_HAS_NO_PAYEE);
 	if (expenses.count > 0) {
 		parts.push(`${expenses.count} expense${expenses.count > 1 ? "s" : ""} with no payee (${expenses.list})`);
 	}
-	const payments = named("vendor_has_no_payee");
+	const payments = named(PAID_TO_MISSING.VENDOR_HAS_NO_PAYEE);
 	if (payments.count > 0) {
 		parts.push(`${payments.count} payment${payments.count > 1 ? "s" : ""} whose vendor has no Payee (${payments.list})`);
 	}
-	const inactive = named("vendor_payee_inactive");
+	const inactive = named(PAID_TO_MISSING.VENDOR_PAYEE_INACTIVE);
 	if (inactive.count > 0) {
 		parts.push(
 			`${inactive.count} payment${inactive.count > 1 ? "s" : ""} whose vendor's bank account is Inactive, ` +

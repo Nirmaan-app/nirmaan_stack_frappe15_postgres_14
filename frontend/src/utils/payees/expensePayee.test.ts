@@ -12,6 +12,7 @@ import {
     timesPaidText,
     showsWhoGetsPaid,
     VENDOR_PAYEE_INACTIVE_PROBLEM,
+    newlyNamesVendor,
     vendorClearDropsPayee,
     whoGetsPaidHelp,
     whoGetsPaidProblem,
@@ -164,8 +165,21 @@ describe("a vendor whose Payee is Inactive (owner decision, walk bug 7e)", () =>
     });
 });
 
+describe("newlyNamesVendor (when the Inactive vendor Payee rule applies)", () => {
+    it("a new request names its vendor anew", () => {
+        expect(newlyNamesVendor("VEN-1", undefined)).toBe(true);
+        expect(newlyNamesVendor("VEN-1", null)).toBe(true);
+    });
+
+    it("an edit names a vendor anew only when it moves to another", () => {
+        expect(newlyNamesVendor("VEN-1", "VEN-1")).toBe(false);
+        expect(newlyNamesVendor("VEN-2", "VEN-1")).toBe(true);
+        expect(newlyNamesVendor("VEN-1", "")).toBe(true);
+    });
+});
+
 describe("vendorClearDropsPayee (walk bug 17, the server's D2 rule)", () => {
-    it("drops the vendor's own Payee when the vendor is cleared", () => {
+    it("drops the Payee the request was saved with through its vendor", () => {
         expect(vendorClearDropsPayee("PYE-0412", "PYE-0412")).toBe(true);
     });
 

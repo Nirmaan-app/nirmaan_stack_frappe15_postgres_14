@@ -65,7 +65,6 @@ export const deactivateText = ({ vendors, expenses }: Pick<PayeeSummary, "vendor
 export const deactivateVendorWarning = (vendors: number): string | null => {
     if (!vendors) return null;
     const who = vendors === 1 ? "1 vendor is" : `${vendors} vendors are`;
-    const their = vendors === 1 ? "Its" : "Their";
     const each = vendors === 1 ? "it uses" : "each uses";
-    return `${who} still paid into this account. ${their} PO, Work Order and expense payments can't be requested until ${each} Change account on its vendor page.`;
+    return `${who} still paid into this account. Until ${each} Change account on its vendor page, no PO, Work Order or Credits payment can be requested for ${vendors === 1 ? "it" : "them"}, and no new expense request can name ${vendors === 1 ? "it" : "them"}.`;
 };

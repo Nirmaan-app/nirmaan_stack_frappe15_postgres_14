@@ -6,6 +6,7 @@
 
 import { cn } from "@/lib/utils";
 
+/** The "Inactive" tag: `alert` (red) where the row is not paid until Change account, else `muted`. */
 export function PayeeInactiveBadge({ tone = "muted", className }: { tone?: "muted" | "alert"; className?: string }) {
     return (
         <span

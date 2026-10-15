@@ -114,9 +114,21 @@ export const timesPaidText = (times: number): string =>
     times > 1 ? `Paid ${times} times before.` : times === 1 ? "Paid once before." : "Not paid before.";
 
 /**
- * Whether clearing the vendor (to none or Others (No Vendor)) also clears the picked Payee: it does
- * when the pick is the vendor's own Payee, which the server drops in the same case. Any other pick
- * stays.
+ * Whether a request's save newly names `vendor` (a real vendor on screen): a new request names it
+ * anew, an edit only when it differs from `sentVendor`, the vendor the request was saved with. The
+ * server asks the same (`guard._changed(doc, "vendor")`) before refusing a vendor whose Payee is
+ * Inactive.
  */
-export const vendorClearDropsPayee = (picked: string | null | undefined, vendorPayee: string | null | undefined): boolean =>
-    !!picked && picked === vendorPayee;
+export const newlyNamesVendor = (vendor: string, sentVendor: string | null | undefined): boolean =>
+    vendor !== (sentVendor || "");
+
+/**
+ * Whether an edit that clears the vendor (to none or Others (No Vendor)) also clears the picked
+ * Payee: it does when the pick is still the Payee the request was saved with through its vendor
+ * (`sentVendorPayee`, null when it was saved with no vendor), which the server drops in the same
+ * case (`guard._sent_payee`). Any other pick stays.
+ */
+export const vendorClearDropsPayee = (
+    picked: string | null | undefined,
+    sentVendorPayee: string | null | undefined,
+): boolean => !!picked && picked === sentVendorPayee;

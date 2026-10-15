@@ -46,6 +46,7 @@ import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
 import { PAYEE_STATUS } from "@/types/NirmaanStack/Payee";
 import {
     asksWhoGetsPaid,
+    newlyNamesVendor,
     showsWhoGetsPaid,
     vendorClearDropsPayee,
     whoGetsPaidProblem,
@@ -246,7 +247,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     const vendorPayee = vendorChosen ? vendorAccount ?? null : null;
     // A request newly naming a vendor whose Payee is Inactive is refused on any type (owner
     // decision); an edit keeping the vendor it was sent with keeps its Payee. Mirrors the server.
-    const vendorIsNew = !isEdit || form.vendor !== (editing?.vendor || OTHERS_VENDOR_VALUE);
+    const vendorIsNew = vendorChosen && newlyNamesVendor(form.vendor, editing?.vendor);
     const payeeProblem = showsPayee
         ? whoGetsPaidProblem({
             rule: payeeRule,
@@ -263,16 +264,20 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             : !asksPayee || !payeeChoice.problem
     );
 
-    // Clearing the vendor (Others (No Vendor), or none) clears a picked Payee that was that
-    // vendor's, as the server does on save; otherwise it would show as picked and the save would
-    // be refused for a Payee the raiser never chose.
-    const handleVendorChange = useCallback((value: string) => {
-        if ((!value || value === OTHERS_VENDOR_VALUE)
-            && vendorClearDropsPayee(payeeChoice.picked?.name, vendorAccount?.payee?.name)) {
+    // An edit that clears the vendor (Others (No Vendor), none, or a project / type change that
+    // takes the vendor with it) drops the Payee the request was saved with through that vendor,
+    // as the server does on save; otherwise it would show as picked and the save would be refused
+    // for a Payee the raiser never chose. Called by every handler that clears the vendor.
+    const dropSentVendorPayee = () => {
+        if (editing?.vendor && vendorClearDropsPayee(payeeChoice.picked?.name, editing.payee)) {
             payeeChoice.pick(null);
         }
+    };
+
+    const handleVendorChange = (value: string) => {
+        if (!value || value === OTHERS_VENDOR_VALUE) dropSentVendorPayee();
         setForm((f) => ({ ...f, vendor: value }));
-    }, [payeeChoice.picked?.name, payeeChoice.pick, vendorAccount?.payee?.name]);   // eslint-disable-line react-hooks/exhaustive-deps
+    };
 
     // STANDARD mode: the type's form is switched off (or unwritten, or unparseable), so the
     // dialog asks what a directly-entered expense needs. While a switched-on format is still
@@ -288,7 +293,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
 
     // Answers belong to the type that was on screen when they were typed. Carrying them to
     // a different type would silently file one type's answers under another's format.
-    const handleTypeChange = useCallback((value: string) => {
+    const handleTypeChange = (value: string) => {
         setAnswers({});
         setFiles({});
         setInvoiceFile(null);
@@ -296,15 +301,18 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         // refused by the server, which reads as the form ignoring what was typed. The vendor
         // hangs off the project, so it goes with it -- a vendor left behind on a now
         // non-project type is exactly the value the server refuses.
+        dropSentVendorPayee();
         setForm((f) => ({ ...f, expense_type: value, projects: "", vendor: "" }));
-    }, []);
+    };
 
     // Clearing or switching the project clears the vendor with it. Without this a vendor
     // picked under one project would silently ride along to another, or sit invisible on a
     // request with no project at all.
-    const handleProjectChange = useCallback((projectId: string) => {
-        setForm((f) => (f.projects === projectId ? f : { ...f, projects: projectId, vendor: "" }));
-    }, []);
+    const handleProjectChange = (projectId: string) => {
+        if (form.projects === projectId) return;
+        dropSentVendorPayee();
+        setForm((f) => ({ ...f, projects: projectId, vendor: "" }));
+    };
 
     const amountValue = parseNumber(form.amount);
     const missingFormatAnswers = useMemo(

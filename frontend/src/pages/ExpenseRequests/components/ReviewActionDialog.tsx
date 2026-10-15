@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/components/ui/use-toast";
+import { PayeeInactiveBadge } from "@/components/payees/PayeeInactiveBadge";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import SITEURL from "@/constants/siteURL";
@@ -32,7 +33,6 @@ import { payeeAccountLine } from "@/utils/payees/expensePayee";
 import { bankLine } from "@/utils/payees/payeeForm";
 import type { ExpenseRequest } from "@/types/NirmaanStack/ExpenseRequest";
 import { PAYEE_STATUS } from "@/types/NirmaanStack/Payee";
-import { PayeeInactiveBadge } from "@/components/payees/PayeeInactiveBadge";
 
 export type ReviewAction = "approve" | "reject";
 
