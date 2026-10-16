@@ -198,7 +198,7 @@ class TestPaymentChequeActions(FrappeTestCase):
         payment = self._plant("Approved")
         self._refused(
             f"Cheque {number} \\(ICICI Bank\\) already exists. This makes a new cheque for the payment. "
-            f"To put this payment on {number}, add it to the cheque in Reports, Cheque Payments.",
+            f"To put this payment on {number}, add it to the cheque in the Cheque Tracker.",
             self._new_cheque, payment, cheque_no=number, exc=DuplicateChequeError,
         )
         self.assertEqual(self._payment(payment).status, "Approved")

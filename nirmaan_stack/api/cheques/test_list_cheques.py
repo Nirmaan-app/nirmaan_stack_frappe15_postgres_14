@@ -13,7 +13,7 @@ import json
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import nowdate
+from frappe.utils import add_days, nowdate
 
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.cheques.cheque_status import change_cheque_status
@@ -232,6 +232,7 @@ class TestChequeReportFiltersAndSummary(FrappeTestCase):
                 "issued_count": 1, "issued_amount": 25000,
                 "cleared_count": 1, "cleared_amount": 10000,
                 "cancelled_count": 1, "cancelled_amount": 5000,
+                "stale_count": 0, "stale_amount": 0,
             },
         )
 
@@ -346,3 +347,75 @@ class TestChequeTypeAndDates(FrappeTestCase):
 
         self.assertEqual((summary["pending_count"], summary["pending_amount"]), (1, 10000))
         self.assertEqual((summary["issued_count"], summary["count"]), (1, 2))
+
+
+class TestTheChequeTrackerTabs(FrappeTestCase):
+    """#1483: the Cheque Tracker's tabs are filters on this list. Cheque Issued – Reconciliation Pending sends
+    `status = Issued` and `cheque_type = Payment` (`frontend/src/utils/cheques/chequeTabs.ts`), and its strip
+    reads the stale figures: Issued cheques issued more than 90 days ago."""
+
+    def setUp(self):
+        frappe.set_user(U)
+        self.fx = TaxedWorkOrderFixture.attach(self)
+        self.cheques = ChequeFixture.attach(self)
+        self.vendor = self.fx.vendor()
+        frappe.db.commit()
+
+    def tearDown(self):
+        frappe.set_user(U)
+
+    def _cheque(self, amount=25000, **values):
+        """A Cheque saved through the report, then put in the state a test needs (raw: the writers that set
+        status and dates by the new rules come with other tickets of spec #1477)."""
+        result = save_cheque(bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
+                             amount=amount, vendor=self.vendor, description="Advance", attachment=PHOTO)
+        name = self.cheques.track(result["cheque"])
+        frappe.db.set_value("Cheques", name, {"status": "Issued", "cheque_type": "Payment", **values},
+                            update_modified=False)
+        frappe.db.commit()
+        return name
+
+    def _issued_tab(self, **kwargs):
+        return get_cheques(
+            filters=json.dumps([["vendor", "=", self.vendor], ["status", "=", "Issued"], ["cheque_type", "=", "Payment"]]),
+            **kwargs,
+        )
+
+    def test_the_issued_tab_lists_only_issued_payment_cheques(self):
+        issued = self._cheque(issue_date=nowdate())
+        self._cheque(status="Pending")
+        self._cheque(status="Cleared", clearance_date=nowdate())
+        self._cheque(status="Cancelled")
+        self._cheque(cheque_type="Security Deposit", issue_date=nowdate())
+
+        result = self._issued_tab()
+
+        self.assertEqual([r["name"] for r in result["data"]], [issued])
+        self.assertEqual((result["total_count"], result["aggregates"]["total_amount"]), (1, 25000))
+
+    def test_stale_counts_issued_cheques_issued_more_than_90_days_ago(self):
+        self._cheque(10000, issue_date=add_days(nowdate(), -91))
+        self._cheque(20000, issue_date=add_days(nowdate(), -90))  # on the line: not yet stale
+        # An old cheque made before issue dates counts from its cheque date.
+        self._cheque(40000, issue_date=None, cheque_date=add_days(nowdate(), -120))
+        self._cheque(80000, status="Cleared", issue_date=add_days(nowdate(), -200))
+
+        aggregates = get_cheques(filters=json.dumps([["vendor", "=", self.vendor]]))["aggregates"]
+
+        self.assertEqual((aggregates["stale_count"], aggregates["stale_amount"]), (2, 50000))
+        tab = self._issued_tab()["aggregates"]
+        self.assertEqual((tab["count"], tab["stale_count"], tab["stale_amount"]), (3, 2, 50000))
+
+    def test_the_issued_tab_sorts_by_issue_date_oldest_first(self):
+        newer = self._cheque(issue_date=add_days(nowdate(), -5))
+        older = self._cheque(issue_date=add_days(nowdate(), -40))
+
+        rows = self._issued_tab(order_by="issue_date asc")["data"]
+
+        self.assertEqual([r["name"] for r in rows], [older, newer])
+
+    def test_a_project_manager_cannot_read_the_issued_tab(self):
+        pm = TestListCheques._user(self, (PROJECT_MANAGER,))
+        frappe.set_user(pm)
+        with self.assertRaises(frappe.PermissionError):
+            self._issued_tab()

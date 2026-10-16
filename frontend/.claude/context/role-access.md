@@ -338,6 +338,17 @@ the vendor screens, and raisers only from an Expense Request (later tickets of #
 
 ---
 
+### Cheque Tracker (`cheque-tracker/`, spec #1477)
+
+Admin, Accountant, Accountant Lead and Procurement (`CHEQUE_ACCESS_PROFILES` in `constants/roles.ts`); Project
+Managers are not in it. The `/cheque-tracker` route guard and the sidebar link read it, and the server enforces the
+same list (`services/role_profiles.CHEQUE_ACCESS_PROFILES`) in every `api/cheques/` endpoint. Row buttons come from
+`utils/cheques/chequeRowActions.ts`: Clear and Cancel for Admin, Accountant and Accountant Lead only; Edit as
+`canEditCheque` allows. It was Reports › Payment › Cheque Payment until #1483; `/reports?report=Cheque Payment`
+links redirect to it (`pages/reports/ReportsIndex.tsx`).
+
+---
+
 ### Reports (`reports/`)
 
 | Tab | Admin | PMO | Proj Lead | Proj Mgr | Procurement | Accountant |
@@ -347,13 +358,11 @@ the vendor screens, and raisers only from an Expense Request (later tickets of #
 | PO | Y | Y | Y | Limited* | Y | Y |
 | WO (SR) | Y | Y | Y | - | Y | Y |
 | Payment › TDS Deduction | Y | - | - | - | - | Y |
-| Payment › Cheque Payment | Y | - | - | - | Y | Y |
 
 *Project Manager only sees "Dispatched for 1+ days" report
 
-The Payment tab's two reports are gated by `pages/reports/config/paymentTab.config.ts` (`PAYMENT_TDS_ACCESS`
-for TDS Deduction; `CHEQUE_ACCESS_PROFILES` for Cheque Payment, spec #1407). The Cheque Payment gate is enforced
-on the server by `services/role_profiles.CHEQUE_ACCESS_PROFILES` in every `api/cheques/` endpoint.
+The Payment tab is gated by `pages/reports/config/paymentTab.config.ts` (`PAYMENT_TDS_ACCESS` for TDS Deduction).
+Cheques are on their own page, the Cheque Tracker (above).
 
 **Key files:** `ReportsContainer.tsx:49,130,136,144,150,183,185`
 

@@ -36,6 +36,7 @@ from nirmaan_stack.services.payees.paid_to import paid_to_rows
 from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS
 from nirmaan_stack.services.payment_split import load_part_reconciled_split_families
 
+from nirmaan_stack.services.cheques.rules import ISSUED
 from nirmaan_stack.services.approval_tiers import (
     TIER_L2_ABOVE,
     TIER_L2_ABOVE_EXPENSES,
@@ -96,7 +97,14 @@ SORTABLE = {
 # the other two are DATEs, so every comparison casts to ::date -- otherwise
 # "Is 06-Apr-2026" matches nothing, because a timestamp is never equal to a date.
 DATE_FIELDS = {"creation", "approved_on", "paid_on"}
-FILTERABLE = SORTABLE | {"doctype"}
+# `cheque_status`: Project Payments' Reconciliation Pending tab sends `cheque_status != Issued` (#1483,
+# spec #1477). A payment on an Issued cheque waits in the Cheque Tracker's Issued tab instead; an Online
+# payment or an expense has a blank `cheque_status`, so it stays.
+FILTERABLE = SORTABLE | {"doctype", "cheque_status"}
+
+# The status a Cheque Tracker payment waits at, and its cheque's status: such a payment is counted under
+# `cheque_tracker`, not under Reconciliation Pending (`get_approval_queue_counts`).
+RECONCILIATION_PENDING = "Reconciliation Pending"
 SEARCHABLE = {
     "name", "against_primary", "against_secondary", "vendor", "project",
     "raised_by", "utr_ref", "cheque_no",
@@ -543,19 +551,31 @@ def get_approval_queue(
 
 @frappe.whitelist(allow_guest=False)
 def get_approval_queue_counts():
-    """Per-tab counts for the tab strip, in one query per readable ledger."""
+    """Per-tab counts for the tab strip, in one query per readable ledger.
+
+    Reconciliation Pending leaves out the payments on an Issued cheque, as its tab does (#1483): they are
+    reported as `cheque_tracker` (`payments` and their `cheques`) for the tab's note pointing to the Cheque
+    Tracker. "All" still counts them.
+    """
     branches = _readable_branches()
     if not branches:
         frappe.throw(_("Not permitted"), frappe.PermissionError)
     union = " UNION ALL ".join(branches)
+    # COALESCE: a row with no status must stay counted under "" (NOT (NULL AND ...) would drop it).
+    in_tracker = 'COALESCE(q."status", \'\') = %(rp)s AND q."cheque_status" = %(issued)s'
+    marks = {"rp": RECONCILIATION_PENDING, "issued": ISSUED}
     rows = frappe.db.sql(
         f'SELECT q."status" AS status, COUNT(*) AS cnt, COALESCE(SUM(q."amount"), 0) AS amt '
-        f"FROM ({union}) q GROUP BY q.\"status\"",
+        f"FROM ({union}) q WHERE NOT ({in_tracker}) GROUP BY q.\"status\"",
+        marks,
         as_dict=True,
     )
     counts = {r["status"] or "": cint(r["cnt"]) for r in rows}
     amounts = {r["status"] or "": flt(r["amt"]) for r in rows}
-    counts["All"] = sum(counts.values())
+    tracker = frappe.db.sql(
+        f'SELECT COUNT(*), COUNT(DISTINCT q."cheque") FROM ({union}) q WHERE {in_tracker}', marks
+    )[0]
+    counts["All"] = sum(counts.values()) + cint(tracker[0])
     # "Payment By Me" badge: every status, rows the logged-in user created -- for EVERY
     # caller, Admin included, matching what that tab now lists. Its own key, not inside
     # `counts`, which is keyed by status.
@@ -563,7 +583,12 @@ def get_approval_queue_counts():
         f'SELECT COUNT(*) FROM ({union}) q WHERE q."raised_by" = %s',
         (frappe.session.user,),
     )[0][0]
-    return {"counts": counts, "amounts": amounts, "by_me": cint(by_me)}
+    return {
+        "counts": counts,
+        "amounts": amounts,
+        "by_me": cint(by_me),
+        "cheque_tracker": {"payments": cint(tracker[0]), "cheques": cint(tracker[1])},
+    }
 
 
 # Facet fields the queue offers. `tier` is absent on purpose: it is derived in

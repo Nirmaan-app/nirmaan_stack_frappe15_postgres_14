@@ -331,12 +331,12 @@ _TAKEN_NUMBER_WORDING = {
 def payment_duplicate_problem(header: ChequeHeader, *, made_from: str) -> str:
     """The refusal when a payment's new Cheque names a bank + cheque number already recorded.
     `made_from` is NEW_CHEQUE_FROM_REQUEST or NEW_CHEQUE_FROM_PAYMENT. Either way a new Cheque is
-    made; joining an existing one is done from the report."""
+    made; joining an existing one is done from the Cheque Tracker."""
     label = bank_label(header.bank or "", header.bank_name)
     what, how = _TAKEN_NUMBER_WORDING[made_from]
     return (
         f"Cheque {header.cheque_no} ({label}) already exists. {what} To put this payment on "
-        f"{header.cheque_no}, {how} to the cheque in Reports, Cheque Payments."
+        f"{header.cheque_no}, {how} to the cheque in the Cheque Tracker."
     )
 
 

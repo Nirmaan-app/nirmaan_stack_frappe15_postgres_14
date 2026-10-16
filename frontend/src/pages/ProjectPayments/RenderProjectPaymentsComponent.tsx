@@ -21,6 +21,7 @@ import {
 // PP_TABS below, so deep links still resolve. Re-import + .map(renderTabButton) to restore.
 import { CEO_AUTHORIZED_USER } from "@/constants/ceoHold";
 import { HR_EXECUTIVE_PROFILE, PMO_EXECUTIVE_PROFILE } from "@/constants/roles";
+import { ChequeTrackerNote } from "./components/ChequeTrackerNote";
 
 /** The tabs HR Executive may open on this page -- all view-only for HR. */
 const HR_TABS = [
@@ -51,7 +52,13 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     // `countValue` wins over `countKey` in renderTabButton, so overriding here
     // leaves the sidebar store — shared with other screens — completely untouched.
     const { data: queueCounts, mutate: mutateQueueCounts } = useFrappeGetCall<{
-        message: { counts: Record<string, number>; amounts: Record<string, number>; by_me?: number };
+        message: {
+            counts: Record<string, number>;
+            amounts: Record<string, number>;
+            by_me?: number;
+            /** The payments Reconciliation Pending leaves out: they wait in the Cheque Tracker (#1483). */
+            cheque_tracker?: { payments: number; cheques: number };
+        };
     }>(APPROVAL_COUNTS_API, undefined, APPROVAL_COUNTS_SWR_KEY);
 
     // ── Keep the badges live ──────────────────────────────────────────────────
@@ -340,7 +347,12 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                             (
                                 <AccountantTabs />
                             ) : [PP_TABS.PAYMENTS_PENDING, PP_TABS.PAYMENTS_DONE, PP_TABS.ALL_PAYMENTS, PP_TABS.RECONCILIATION_PENDING, PP_TABS.PAYMENT_BY_ME].includes(tab as any) ? (
-                                <AllPayments tab={tab} />
+                                <>
+                                    {tab === PP_TABS.RECONCILIATION_PENDING && (
+                                        <ChequeTrackerNote role={role} waiting={queueCounts?.message?.cheque_tracker} />
+                                    )}
+                                    <AllPayments tab={tab} />
+                                </>
                             )
                                 : (
                                     <ProjectPaymentsList />

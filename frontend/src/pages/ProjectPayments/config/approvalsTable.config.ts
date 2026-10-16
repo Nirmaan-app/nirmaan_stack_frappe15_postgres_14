@@ -8,6 +8,7 @@
 
 import { SearchFieldOption } from "@/components/data-table/new-data-table";
 import type { ChequeStatus } from "@/types/NirmaanStack/Cheques";
+import { RECONCILIATION_PENDING_LEAVES_OUT } from "@/utils/cheques/chequeTabs";
 import type { PaidTo } from "@/utils/payees/paidTo";
 import { PP_TABS, PPTabValue } from "./ppTabs.constants";
 
@@ -285,7 +286,8 @@ export const getApprovalsStaticFilters = (
     case PP_TABS.NEW_PAYMENTS:
       return [["status", "=", APPROVAL_STATUS.APPROVED]];
     case PP_TABS.RECONCILIATION_PENDING:
-      return [["status", "=", APPROVAL_STATUS.RECONCILIATION_PENDING]];
+      // A payment on an Issued cheque waits in the Cheque Tracker instead (#1483).
+      return [["status", "=", APPROVAL_STATUS.RECONCILIATION_PENDING], RECONCILIATION_PENDING_LEAVES_OUT];
     case PP_TABS.PAYMENTS_DONE:
       return [["status", "=", APPROVAL_STATUS.PAID]];
     case PP_TABS.PAYMENTS_PENDING:

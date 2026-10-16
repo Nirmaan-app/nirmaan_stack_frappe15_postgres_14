@@ -4,12 +4,14 @@ import {
     chequeSummary,
     chequeTypeLabel,
     clearanceText,
-    daysOutstanding,
+    daysSinceIssue,
     firstWithMore,
     hasNoPhoto,
     isStale,
+    issuedChequeFigures,
     linesGap,
     payeeOf,
+    paymentCount,
     statusChangeText,
     type ChequeRowLine,
 } from "./chequePaymentTable.config";
@@ -128,27 +130,53 @@ describe("linesGap", () => {
     });
 });
 
-describe("daysOutstanding and isStale", () => {
+describe("daysSinceIssue and isStale", () => {
     const today = new Date(2026, 9, 14); // 14 Oct 2026
 
-    it("counts the days since the cheque date while the cheque is Issued", () => {
-        expect(daysOutstanding({ status: "Issued", cheque_date: "2026-10-04" }, today)).toBe(10);
+    it("counts the days since the issue date while the cheque is Issued", () => {
+        expect(daysSinceIssue({ status: "Issued", issue_date: "2026-10-04", cheque_date: "2026-09-01" }, today)).toBe(10);
     });
 
-    it("is nothing once the cheque is Cleared or Cancelled", () => {
-        expect(daysOutstanding({ status: "Cleared", cheque_date: "2026-01-01" }, today)).toBeNull();
-        expect(daysOutstanding({ status: "Cancelled", cheque_date: "2026-01-01" }, today)).toBeNull();
+    it("falls back to the cheque date for an old cheque that has no issue date", () => {
+        expect(daysSinceIssue({ status: "Issued", issue_date: null, cheque_date: "2026-10-04" }, today)).toBe(10);
     });
 
-    it("flags an Issued cheque older than 90 days as stale, and only that", () => {
-        expect(isStale({ status: "Issued", cheque_date: "2026-07-16" }, today)).toBe(false); // 90 days
-        expect(isStale({ status: "Issued", cheque_date: "2026-07-15" }, today)).toBe(true); // 91 days
-        expect(isStale({ status: "Cleared", cheque_date: "2026-01-01" }, today)).toBe(false);
+    it("is nothing while Pending and once the cheque is Cleared or Cancelled", () => {
+        expect(daysSinceIssue({ status: "Pending", cheque_date: "2026-01-01" }, today)).toBeNull();
+        expect(daysSinceIssue({ status: "Cleared", issue_date: "2026-01-01", cheque_date: "2026-01-01" }, today)).toBeNull();
+        expect(daysSinceIssue({ status: "Cancelled", issue_date: "2026-01-01", cheque_date: "2026-01-01" }, today)).toBeNull();
     });
 
-    it("is negative for a post-dated cheque, which is never stale", () => {
-        expect(daysOutstanding({ status: "Issued", cheque_date: "2026-10-20" }, today)).toBe(-6);
+    it("flags an Issued cheque issued more than 90 days ago as stale, and only that", () => {
+        expect(isStale({ status: "Issued", issue_date: "2026-07-16", cheque_date: "2026-10-01" }, today)).toBe(false); // 90 days
+        expect(isStale({ status: "Issued", issue_date: "2026-07-15", cheque_date: "2026-10-01" }, today)).toBe(true); // 91 days
+        expect(isStale({ status: "Cleared", issue_date: "2026-01-01", cheque_date: "2026-01-01" }, today)).toBe(false);
+    });
+
+    it("is negative for a post-dated old cheque, which is never stale", () => {
+        expect(daysSinceIssue({ status: "Issued", cheque_date: "2026-10-20" }, today)).toBe(-6);
         expect(isStale({ status: "Issued", cheque_date: "2026-10-20" }, today)).toBe(false);
+    });
+});
+
+describe("issuedChequeFigures", () => {
+    it("reads what waits for the bank and its stale part from the list's aggregates", () => {
+        expect(
+            issuedChequeFigures({ count: 3, total_amount: 680482, stale_count: 1, stale_amount: 210000, issued_count: 3 }),
+        ).toEqual({ waiting: { count: 3, amount: 680482 }, stale: { count: 1, amount: 210000 } });
+    });
+
+    it("reads missing figures as zero while the first page loads", () => {
+        expect(issuedChequeFigures(null)).toEqual({ waiting: { count: 0, amount: 0 }, stale: { count: 0, amount: 0 } });
+    });
+});
+
+describe("paymentCount", () => {
+    it("counts the lines that name a payment", () => {
+        expect(
+            paymentCount({ lines: [line({ payment_name: "PAY-1" }), line({ payment_name: null }), line({ payment_name: "PAY-2" })] }),
+        ).toBe(2);
+        expect(paymentCount({ lines: [] })).toBe(0);
     });
 });
 

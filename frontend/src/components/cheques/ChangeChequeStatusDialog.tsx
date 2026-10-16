@@ -28,6 +28,8 @@ interface ChangeChequeStatusDialogProps {
     cheques: string[];
     /** Their status when they all share one; undefined for a mixed selection. */
     currentStatus?: ChequeStatus;
+    /** The target it opens on (the tracker's Clear and Cancel buttons, #1483); the first one otherwise. */
+    initialTarget?: ChequeStatus;
     onClose: () => void;
     /** Called after a change was written. */
     onDone: () => void;
@@ -42,9 +44,11 @@ interface ChangeChequeStatusDialogProps {
  * Mount it only while open, keyed on the selection: each opening starts at the first target with no note.
  * The preview is keyed on the selection and the target, so picking a target fetches its own.
  */
-export const ChangeChequeStatusDialog = ({ cheques, currentStatus, onClose, onDone }: ChangeChequeStatusDialogProps) => {
+export const ChangeChequeStatusDialog = ({ cheques, currentStatus, initialTarget, onClose, onDone }: ChangeChequeStatusDialogProps) => {
     const targets = statusTargets(currentStatus);
-    const [target, setTarget] = useState<ChequeStatus>(targets[0]);
+    const [target, setTarget] = useState<ChequeStatus>(
+        initialTarget && targets.includes(initialTarget) ? initialTarget : targets[0],
+    );
     const [note, setNote] = useState("");
     const { call: callPreview } = useFrappePostCall<{ message: ChequeStatusesResult }>(CHEQUE_STATUSES_API);
     const { call: changeMany, loading: changingMany } = useFrappePostCall<{ message: ChequeStatusesResult }>(CHEQUE_STATUSES_API);
