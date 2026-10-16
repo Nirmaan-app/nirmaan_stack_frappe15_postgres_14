@@ -3,10 +3,11 @@
  * on "Payment need to paid" and on the Project / Non-Project Expenses pages. Accountant, Accountant
  * Lead and Admin set an Approved, unpaid expense's account there, as Record Payment's Change account
  * does: pick a Payee, add a new one, or (when its type doesn't require one) remove the account.
- * `editDialogPayTo` decides whether the section shows and what it offers.
+ * The raiser of a Direct Expense does the same while it is Requested (#1472; their pencil is on
+ * "Payment Raised By Me"). `editDialogPayTo` decides whether the section shows and what it offers.
  *
- * It is Change account inside the edit, not a second picker: `PayeePicker` / `usePayeeChoice` on the
- * Accounts endpoints, the type's rule worded by `changeAccountRuleLine`, and the save through
+ * It is Change account inside the edit, not a second picker: `PayeePicker` / `usePayeeChoice` (on the
+ * Accounts endpoints, or for a raiser outside Accounts the request's), the type's rule worded by `changeAccountRuleLine`, and the save through
  * `useChangeExpenseAccount`. The dialog saves it with its own Save Changes, in two steps around its
  * own update: `resolve()` first (a new Payee is added now; a duplicate stops the save before anything
  * is written), then `apply()` after the update, which copies the Payee onto the expense and records
@@ -30,6 +31,7 @@ import {
     changeAccountRuleLine,
     editDialogPayTo,
     type EditDialogPayTo,
+    type ExpenseRaise,
 } from "@/utils/payees/paidTo";
 import { sameAccountDetails } from "@/utils/payees/payeeForm";
 import { pickedAccount } from "@/utils/payees/payToChoice";
@@ -45,8 +47,8 @@ const OTHERS_NOTE = "To pay someone else, set Vendor to Others (No Vendor).";
 interface ExpenseEditPayToArgs {
     doctype: "Project Expenses" | "Non Project Expenses";
     name: string;
-    /** The stored expense's status. */
-    status: string | null | undefined;
+    /** The stored expense: its status, its raiser and the Expense Request behind it, if any. */
+    expense: ExpenseRaise;
     /** The form's expense type's *Who gets paid* (Required / Optional / Not asked); undefined while
      *  the types are loading, when the stored type's rule stands. */
     rule: string | null | undefined;
@@ -77,10 +79,13 @@ export interface ExpenseEditPayTo {
     reset: () => void;
 }
 
-export function useExpenseEditPayTo({ doctype, name, status, rule: formRule, vendorNamed }: ExpenseEditPayToArgs): ExpenseEditPayTo {
+export function useExpenseEditPayTo({ doctype, name, expense, rule: formRule, vendorNamed }: ExpenseEditPayToArgs): ExpenseEditPayTo {
     const { role, user_id } = useUserData();
-    const offers = editDialogPayTo(status, canManagePayees(role, user_id), vendorNamed);
-    const choice = usePayeeChoice(ACCOUNTS_PAYEE_APIS);
+    const isAccounts = canManagePayees(role, user_id);
+    const offers = editDialogPayTo(expense, { user: user_id, isAccounts }, vendorNamed);
+    // A raiser outside Accounts picks and adds Payees through the request's endpoints, as they do
+    // when raising (open to whoever can raise an expense).
+    const choice = usePayeeChoice(isAccounts ? ACCOUNTS_PAYEE_APIS : undefined);
     const [removing, setRemoving] = useState(false);
     const { change, loading } = useChangeExpenseAccount();
     const { data, error, mutate } = useFrappeGetCall<{ message: PayToBox }>(

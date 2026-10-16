@@ -343,20 +343,60 @@ describe("canChangeExpenseAccount", () => {
 });
 
 describe("editDialogPayTo: Who gets paid in the expense Edit dialog", () => {
+    const RAISER = "raiser@nirmaan.app";
+    const OTHER = "someone.else@nirmaan.app";
+    /** A Direct Expense RAISER recorded: no Expense Request behind it. */
+    const direct = (status: string) => ({ status, owner: RAISER, request_id: null });
+    /** An expense an Expense Request's approval created: its raiser changes the account on the request. */
+    const fromRequest = (status: string) => ({ status, owner: RAISER, request_id: "EXR-0042" });
+    const accounts = { user: "accountant@nirmaan.app", isAccounts: true };
+    const raiser = { user: RAISER, isAccounts: false };
+    const other = { user: OTHER, isAccounts: false };
+
     it("offers Accounts Change account's picker on an approved expense with no vendor", () => {
-        expect(editDialogPayTo("Approved", true, false)).toBe("change");
+        expect(editDialogPayTo(direct("Approved"), accounts, false)).toBe("change");
+        expect(editDialogPayTo(fromRequest("Approved"), accounts, false)).toBe("change");
     });
 
     it("shows the vendor's account read-only while a vendor is named", () => {
-        expect(editDialogPayTo("Approved", true, true)).toBe("vendor");
+        expect(editDialogPayTo(direct("Approved"), accounts, true)).toBe("vendor");
     });
 
-    it("shows nothing before approval, once paid, or to anyone outside Accounts", () => {
-        for (const status of ["Requested", "CEO Pending", "Reconciliation Pending", "Paid", "Rejected"]) {
-            expect(editDialogPayTo(status, true, false)).toBe("none");
+    it("lets the raiser of a Direct Expense change its account while it is Requested", () => {
+        expect(editDialogPayTo(direct("Requested"), raiser, false)).toBe("change");
+        expect(editDialogPayTo(direct(" Requested "), raiser, false)).toBe("change");
+    });
+
+    it("shows the raiser the vendor's account read-only while a vendor is named", () => {
+        expect(editDialogPayTo(direct("Requested"), raiser, true)).toBe("vendor");
+    });
+
+    it("gives the raiser nothing once the expense is past Requested", () => {
+        for (const status of ["CEO Pending", "Approved", "Reconciliation Pending", "Paid", "Rejected"]) {
+            expect(editDialogPayTo(direct(status), raiser, false)).toBe("none");
         }
-        expect(editDialogPayTo("Approved", false, false)).toBe("none");
-        expect(editDialogPayTo("Approved", false, true)).toBe("none");
+    });
+
+    it("gives someone who did not raise it nothing while it is Requested", () => {
+        expect(editDialogPayTo(direct("Requested"), other, false)).toBe("none");
+        expect(editDialogPayTo(direct("Requested"), { user: null, isAccounts: false }, false)).toBe("none");
+        expect(editDialogPayTo({ status: "Requested", owner: null, request_id: null }, { user: null, isAccounts: false }, false)).toBe("none");
+    });
+
+    it("gives an expense from an Expense Request nothing while it is Requested, even to its raiser", () => {
+        expect(editDialogPayTo(fromRequest("Requested"), raiser, false)).toBe("none");
+    });
+
+    it("gives Accounts nothing before approval on an expense they did not raise, once paid, or to anyone outside Accounts", () => {
+        for (const status of ["Requested", "CEO Pending", "Reconciliation Pending", "Paid", "Rejected"]) {
+            expect(editDialogPayTo(direct(status), accounts, false)).toBe("none");
+        }
+        expect(editDialogPayTo(direct("Approved"), other, false)).toBe("none");
+        expect(editDialogPayTo(direct("Approved"), other, true)).toBe("none");
+    });
+
+    it("lets Accounts who raised a Direct Expense change it while it is Requested, as any raiser can", () => {
+        expect(editDialogPayTo({ status: "Requested", owner: accounts.user, request_id: "" }, accounts, false)).toBe("change");
     });
 });
 
