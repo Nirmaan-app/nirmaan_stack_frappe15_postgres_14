@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { useFrappeGetDocList } from "frappe-react-sdk";
 import { Link } from "react-router-dom";
@@ -8,6 +8,10 @@ import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { TruncatedText } from "@/components/common/TruncatedText";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { RefundAttachmentLink } from "@/components/vendor-refunds/RefundAttachmentLink";
+import { NoBankProofBadge } from "@/components/vendor-refunds/NoBankProofBadge";
+import { RefundStatusBadge } from "@/components/vendor-refunds/RefundStatusBadge";
+import { overdueWaitingFilters, WAITING_REFUND_OVERDUE_DAYS } from "@/components/vendor-refunds/waitingRefundExits";
+import { Button } from "@/components/ui/button";
 import type { VendorRefundRow } from "@/components/vendor-refunds/useVendorRefunds";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -52,7 +56,16 @@ export const VendorRefundsTab: React.FC<VendorRefundsTabProps> = ({ vendorId, ve
         return map;
     }, [projectsData]);
 
-    const staticFilters = useMemo(() => (vendorId ? [["vendor", "=", vendorId]] : []), [vendorId]);
+    // "Waiting more than 15 days" (#1403): waiting refunds recorded before the cutoff, taken when it is
+    // switched on, so the list does not refetch every render.
+    const [overdueOnly, setOverdueOnly] = useState(false);
+    const staticFilters = useMemo(
+        () => [
+            ...(vendorId ? [["vendor", "=", vendorId]] : []),
+            ...(overdueOnly ? overdueWaitingFilters() : []),
+        ],
+        [vendorId, overdueOnly]
+    );
 
     const fetchFields = useMemo(
         () => [
@@ -62,6 +75,11 @@ export const VendorRefundsTab: React.FC<VendorRefundsTabProps> = ({ vendorId, ve
             "document_type",
             "document_name",
             "amount",
+            "status",
+            "no_bank_line",
+            "no_bank_line_by",
+            "no_bank_line_at",
+            "no_bank_line_reason",
             "utr",
             "payment_date",
             "description",
@@ -187,6 +205,22 @@ export const VendorRefundsTab: React.FC<VendorRefundsTabProps> = ({ vendorId, ve
                 size: 150,
             },
             {
+                accessorKey: "status",
+                header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+                cell: ({ row }) => (
+                    <span className="flex flex-col items-start gap-1">
+                        <RefundStatusBadge status={row.original.status} />
+                        <NoBankProofBadge refund={row.original} />
+                    </span>
+                ),
+                meta: {
+                    facet: { field: "status", title: "Status" } satisfies FacetDeclaration,
+                    exportHeaderName: "Status",
+                    exportValue: (row: VendorRefundRow) => row.status || "",
+                },
+                size: 160,
+            },
+            {
                 accessorKey: "amount",
                 header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" />,
                 cell: ({ row }) => (
@@ -240,11 +274,23 @@ export const VendorRefundsTab: React.FC<VendorRefundsTabProps> = ({ vendorId, ve
             searchTerm={searchTerm}
             onSearchTermChange={setSearchTerm}
             dateFilterColumns={["payment_date"]}
+            toolbarActions={
+                <Button
+                    variant={overdueOnly ? "default" : "outline"}
+                    size="sm"
+                    className="h-9 whitespace-nowrap"
+                    aria-pressed={overdueOnly}
+                    onClick={() => setOverdueOnly((on) => !on)}
+                >
+                    Waiting more than {WAITING_REFUND_OVERDUE_DAYS} days
+                </Button>
+            }
             facetDoctype="Vendor Refunds"
             facetOverrides={{
                 document_type: { additionalFilters: staticFilters },
                 document_name: { additionalFilters: staticFilters },
                 project: { additionalFilters: staticFilters },
+                status: { additionalFilters: staticFilters },
             }}
             showExportButton={true}
             onExport={"default"}

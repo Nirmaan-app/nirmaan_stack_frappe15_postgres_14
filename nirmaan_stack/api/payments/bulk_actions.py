@@ -345,14 +345,12 @@ def _bulk_action(payment_ids, action: str, rejection_reason: str | None, config:
             # group; one whose in-group move failed is still `Approved` and is retried here.)
             # Each move is its own transaction; one that fails stays at `Approved`, where "Mark
             # as Paid" finishes it.
-            from nirmaan_stack.api.payments.project_payments import _move_cheque_to_reconciliation
-
             for pid in frappe.get_all(
                 "Project Payments",
                 filters={"name": ["in", settled_now], "mode_of_payment": cheque_payments.MODE_CHEQUE},
                 pluck="name",
             ):
-                _move_cheque_to_reconciliation(pid)
+                cheque_payments.commit_move_to_reconciliation(pid)
 
     # Best-effort: rejection-reason comments. A failure here does not unwind the
     # approvals — the comment is purely auditing.

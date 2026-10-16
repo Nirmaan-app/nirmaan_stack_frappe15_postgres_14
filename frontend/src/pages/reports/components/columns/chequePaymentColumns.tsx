@@ -1,396 +1,296 @@
 import { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { Download, Info } from "lucide-react";
-import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
-import { FacetDeclaration } from "@/components/data-table/facetConfig";
-import { Badge } from "@/components/ui/badge";
+import { AlertTriangle, ChevronDown, ChevronRight, Info } from "lucide-react";
+
+import { ChequePhotoLink } from "@/components/cheques/ChequePhotoLink";
+import { ChequeStatusBadge } from "@/components/cheques/ChequeStatusBadge";
 import { TruncatedText } from "@/components/common/TruncatedText";
+import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
+import { Button } from "@/components/ui/button";
 import SITEURL from "@/constants/siteURL";
-import { OrderDetailLink } from "@/pages/ProjectPayments/components/OrderDetailLink";
-import { ReconciliationPendingBadge } from "@/pages/ProjectPayments/components/ReconciliationPendingBadge";
-import { formatDate } from "@/utils/FormatDate";
+import { chequeDateText } from "@/utils/cheques/chequeChip";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
-import { CHEQUE_VALIDITY_DAYS, daysOutstanding } from "../../config/chequePaymentTable.config";
-import { ChequeExtras, ChequePaymentRow } from "../../utils/chequePaymentExtras";
 
-interface ChequePaymentColumnArgs {
-    /** The row's PO / WO figures, TDS and cheque count; undefined until loaded. */
-    extrasOf: (row: ChequePaymentRow) => ChequeExtras | undefined;
-    userName: (id?: string) => string;
-}
+import {
+    ChequeRow,
+    daysOutstanding,
+    firstWithMore,
+    hasNoPhoto,
+    isStale,
+    linesGap,
+    payeeOf,
+    statusChangeText,
+} from "../../config/chequePaymentTable.config";
 
-/** Lets a sortable header's title break onto a second line, so columns stay narrow enough to
- *  fit the screen without a horizontal scrollbar. */
+/** Lets a sortable header's title break onto a second line, so columns stay narrow. */
 const WRAP_HEADER = "[&_button]:whitespace-normal text-left";
 
-const dateText = (v?: string) => (v ? formatDate(v) : "");
-const money = (v: number | undefined) => (v === undefined ? "--" : formatToRoundedIndianRupee(v));
-const exportMoney = (v: number | undefined) => (v === undefined ? "" : formatForReport(v));
+const projectsOf = (r: ChequeRow) => r.lines.map((l) => l.project_name || l.project);
+const recordsOf = (r: ChequeRow) => r.lines.map((l) => l.record_name);
 
-const DateCell = ({ value }: { value?: string }) => (
-    <div className="whitespace-nowrap">{value ? formatDate(value) : "--"}</div>
-);
-
-const MoneyCell = ({ value, strong }: { value: number | undefined; strong?: boolean }) => (
-    <div className={`whitespace-nowrap ${strong ? "font-medium" : ""}`}>{money(value)}</div>
-);
-
-/** Name + an info icon that opens the record (same pattern as the other report tables). */
-const LinkedName = ({ text, to, title }: { text: string; to: string; title: string }) => (
-    <div className="flex items-center gap-1 min-w-0">
-        <TruncatedText text={text} fallback="--" className="max-w-full" />
-        <Link to={to} title={title} className="shrink-0">
-            <Info className="text-blue-500 h-3 w-3" />
-        </Link>
-    </div>
-);
-
-/** Same colours as the PO page's payment table. */
-const PaymentStatusBadge = ({ status }: { status: string }) => {
-    switch (status) {
-        case "Requested":
-            return <Badge variant="outline" className="border-orange-500 text-orange-600">Requested</Badge>;
-        case "CEO Pending":
-            return <Badge variant="outline" className="border-blue-500 text-blue-600">CEO Pending</Badge>;
-        case "Approved":
-            return <Badge variant="outline" className="border-amber-500 text-amber-600">Approved</Badge>;
-        case "Reconciliation Pending":
-            return <ReconciliationPendingBadge />;
-        case "Paid":
-            return <Badge variant="green">Paid</Badge>;
-        case "Rejected":
-            return <Badge variant="outline" className="border-red-500 text-red-600">Rejected</Badge>;
-        default:
-            return <Badge variant="outline">{status || "--"}</Badge>;
-    }
+const firstWithMoreText = (values: (string | null | undefined)[]) => {
+    const { first, more } = firstWithMore(values);
+    return first ? `${first}${more ? ` +${more}` : ""}` : "";
 };
 
-/** Gross is only meaningful where TDS was withheld (a WO); a PO payment has nothing to add back. */
-const grossOf = (row: ChequePaymentRow, extras?: ChequeExtras) =>
-    extras && extras.tds > 0 ? Number(row.amount || 0) + extras.tds : undefined;
+/** "PO-001 +2": the first line's value, and a muted count of the others. */
+const FirstWithMore = ({ values }: { values: (string | null | undefined)[] }) => {
+    const { first, more } = firstWithMore(values);
+    if (!first) return <span className="text-muted-foreground">--</span>;
+    return (
+        <div className="flex min-w-0 items-center gap-1">
+            <TruncatedText text={first} className="max-w-full" />
+            {more > 0 && (
+                <span className="shrink-0 rounded bg-muted px-1 text-[11px] text-muted-foreground">+{more}</span>
+            )}
+        </div>
+    );
+};
 
-const approvedOn = (row: ChequePaymentRow) => row.ceo_approval_date || row.approval_date || "";
+/** What the ⚠ beside the amount says. */
+const gapText = (gap: number) =>
+    `The lines are ${formatToRoundedIndianRupee(Math.abs(gap))} ${gap > 0 ? "short of" : "more than"} the cheque amount.`;
 
-const balanceOf = (extras?: ChequeExtras) =>
-    extras?.order ? extras.order.total_amount - extras.order.amount_paid : undefined;
+const daysText = (r: ChequeRow) => {
+    const days = daysOutstanding(r);
+    if (days === null) return "";
+    return days < 0 ? "Post-dated" : `${days} ${days === 1 ? "day" : "days"}`;
+};
 
-export const getChequePaymentColumns = ({
-    extrasOf,
-    userName,
-}: ChequePaymentColumnArgs): ColumnDef<ChequePaymentRow>[] => [
-    // ---- Cheque ----
+interface ChequeColumnActions {
+    /** Opens the Cheque detail view. */
+    onOpen: (cheque: string) => void;
+    /** Opens Change status for one Cheque; absent for a user who may not change status. */
+    onChangeStatus?: (row: ChequeRow) => void;
+    /** Opens Edit for one Cheque (#1418), shown on the rows `canEdit` allows. */
+    onEdit?: (row: ChequeRow) => void;
+    canEdit?: (row: ChequeRow) => boolean;
+}
+
+/**
+ * The Cheque Payments report's columns (spec #1407): one row per Cheque. The cheque number and
+ * "View Cheque Details" open the detail view; "Change Cheque Status" opens Change status (#1412);
+ * "Edit Cheque Details" opens the Edit dialog (#1418); the actions stack one under the other. The
+ * chevron beside the number expands the row into its lines (#1417; the page passes
+ * `renderExpandedRow` to DataTable).
+ *
+ * The facet columns' ids (`status`, `bank_label`, `vendor`, `project`, `record_name`) are the
+ * endpoint's filter fields.
+ */
+export const getChequePaymentColumns = ({ onOpen, onChangeStatus, onEdit, canEdit }: ChequeColumnActions): ColumnDef<ChequeRow>[] => [
     {
         accessorKey: "cheque_no",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Cheque No" className={WRAP_HEADER} />,
-        cell: ({ row }) => <div className="font-medium whitespace-nowrap">{row.original.cheque_no || "--"}</div>,
-        size: 95,
-        meta: { exportHeaderName: "Cheque No", exportValue: (r: ChequePaymentRow) => r.cheque_no || "" },
+        cell: ({ row }) => (
+            <div className="flex items-center gap-1">
+                {row.original.lines.length > 0 ? (
+                    <button
+                        type="button"
+                        onClick={() => row.toggleExpanded()}
+                        className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted"
+                        aria-label={row.getIsExpanded() ? "Hide the lines" : "Show the lines"}
+                        aria-expanded={row.getIsExpanded()}
+                    >
+                        {row.getIsExpanded() ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    </button>
+                ) : (
+                    <span className="w-5 shrink-0" />
+                )}
+                <button
+                    type="button"
+                    onClick={() => onOpen(row.original.name)}
+                    className="font-medium whitespace-nowrap text-blue-600 hover:underline"
+                    title="Open the cheque"
+                >
+                    {row.original.cheque_no}
+                </button>
+            </div>
+        ),
+        size: 125,
+        meta: { exportHeaderName: "Cheque No", exportValue: (r: ChequeRow) => r.cheque_no },
+    },
+    {
+        accessorKey: "bank_label",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Bank" className={WRAP_HEADER} />,
+        cell: ({ row }) => <TruncatedText text={row.original.bank_label} className="max-w-full" />,
+        size: 120,
+        meta: { exportHeaderName: "Bank", exportValue: (r: ChequeRow) => r.bank_label },
     },
     {
         accessorKey: "cheque_date",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Cheque Date" className={WRAP_HEADER} />,
-        cell: ({ row }) => <DateCell value={row.original.cheque_date} />,
-        size: 120,
-        meta: { exportHeaderName: "Cheque Date", exportValue: (r: ChequePaymentRow) => dateText(r.cheque_date) },
-    },
-    {
-        id: "cheque_payment_count",
-        accessorFn: (r) => extrasOf(r)?.chequePaymentCount,
-        header: "Payments on this cheque",
-        cell: ({ row }) => {
-            const n = extrasOf(row.original)?.chequePaymentCount;
-            if (!n || row.original.status === "Rejected") return <span>--</span>;
-            return <span className={n > 1 ? "font-medium text-blue-700" : ""}>{n}</span>;
-        },
-        size: 95,
-        enableSorting: false,
-        meta: {
-            exportHeaderName: "Payments on this cheque",
-            exportValue: (r: ChequePaymentRow) => {
-                const n = extrasOf(r)?.chequePaymentCount;
-                return n && r.status !== "Rejected" ? String(n) : "";
-            },
-        },
-    },
-    {
-        id: "days_outstanding",
-        accessorFn: (r) => daysOutstanding(r),
-        header: "Days outstanding",
-        cell: ({ row }) => {
-            const days = daysOutstanding(row.original);
-            if (days === null) return <span>--</span>;
-            const stale = days > CHEQUE_VALIDITY_DAYS;
-            return (
-                <span
-                    className={stale ? "font-medium text-red-600" : ""}
-                    title={stale ? "A cheque is only valid for 3 months from its date" : undefined}
-                >
-                    {days}
-                </span>
-            );
-        },
-        size: 100,
-        enableSorting: false,
-        meta: {
-            exportHeaderName: "Days outstanding",
-            exportValue: (r: ChequePaymentRow) => {
-                const days = daysOutstanding(r);
-                return days === null ? "" : String(days);
-            },
-        },
-    },
-    // ---- Payment ----
-    {
-        accessorKey: "name",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Payment ID" className={WRAP_HEADER} />,
-        cell: ({ row }) => <div className="whitespace-nowrap">{row.original.name}</div>,
+        cell: ({ row }) => <div className="whitespace-nowrap">{chequeDateText(row.original.cheque_date) || "--"}</div>,
         size: 115,
-        meta: { exportHeaderName: "Payment ID", exportValue: (r: ChequePaymentRow) => r.name },
+        meta: { exportHeaderName: "Cheque Date", exportValue: (r: ChequeRow) => chequeDateText(r.cheque_date) },
     },
     {
         accessorKey: "status",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Status" className={WRAP_HEADER} />,
-        cell: ({ row }) => <PaymentStatusBadge status={row.original.status} />,
-        size: 120,
+        cell: ({ row }) => {
+            const changed = statusChangeText(row.original);
+            return (
+                <div className="flex flex-col items-start gap-0.5">
+                    <ChequeStatusBadge status={row.original.status} />
+                    {changed && <span className="text-[11px] leading-tight text-muted-foreground">{changed}</span>}
+                </div>
+            );
+        },
+        size: 150,
         meta: {
             exportHeaderName: "Status",
-            exportValue: (r: ChequePaymentRow) => r.status || "",
-            facet: { field: "status", title: "Status" } satisfies FacetDeclaration,
+            exportValue: (r: ChequeRow) => [r.status, statusChangeText(r)].filter(Boolean).join(" "),
         },
     },
     {
         accessorKey: "amount",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Cheque Amount" className={WRAP_HEADER} />,
-        cell: ({ row }) => <MoneyCell value={Number(row.original.amount || 0)} strong />,
-        size: 100,
-        meta: {
-            isNumeric: true,
-            exportHeaderName: "Cheque Amount",
-            exportValue: (r: ChequePaymentRow) => formatForReport(r.amount),
-        },
-    },
-    {
-        id: "tds",
-        accessorFn: (r) => extrasOf(r)?.tds,
-        header: "TDS",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Amount" className={WRAP_HEADER} />,
         cell: ({ row }) => {
-            const tds = extrasOf(row.original)?.tds;
-            return <div className="whitespace-nowrap">{tds ? formatToRoundedIndianRupee(tds) : "--"}</div>;
-        },
-        size: 75,
-        enableSorting: false,
-        meta: {
-            isNumeric: true,
-            exportHeaderName: "TDS",
-            exportValue: (r: ChequePaymentRow) => {
-                const tds = extrasOf(r)?.tds;
-                return tds ? formatForReport(tds) : "";
-            },
-        },
-    },
-    {
-        id: "gross",
-        accessorFn: (r) => grossOf(r, extrasOf(r)),
-        header: "Gross",
-        cell: ({ row }) => <MoneyCell value={grossOf(row.original, extrasOf(row.original))} />,
-        size: 90,
-        enableSorting: false,
-        meta: {
-            isNumeric: true,
-            exportHeaderName: "Gross",
-            exportValue: (r: ChequePaymentRow) => exportMoney(grossOf(r, extrasOf(r))),
-        },
-    },
-    {
-        id: "approved_on",
-        accessorFn: (r) => approvedOn(r),
-        header: "Approved On",
-        cell: ({ row }) => <DateCell value={approvedOn(row.original)} />,
-        size: 100,
-        enableSorting: false,
-        meta: { exportHeaderName: "Approved On", exportValue: (r: ChequePaymentRow) => dateText(approvedOn(r)) },
-    },
-    {
-        accessorKey: "payment_date",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Payment Date" className={WRAP_HEADER} />,
-        cell: ({ row }) => <DateCell value={row.original.payment_date} />,
-        size: 130,
-        meta: { exportHeaderName: "Payment Date", exportValue: (r: ChequePaymentRow) => dateText(r.payment_date) },
-    },
-    {
-        accessorKey: "utr",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="UTR / Ref" className={WRAP_HEADER} />,
-        cell: ({ row }) => <TruncatedText text={row.original.utr} fallback="--" className="max-w-full" />,
-        size: 120,
-        meta: { exportHeaderName: "UTR / Ref", exportValue: (r: ChequePaymentRow) => r.utr || "" },
-    },
-    {
-        accessorKey: "on_hold",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="On Hold" className={WRAP_HEADER} />,
-        cell: ({ row }) =>
-            Number(row.original.on_hold) === 1 ? (
-                <Badge variant="outline" className="border-amber-500 text-amber-700">On hold</Badge>
-            ) : (
-                <span>--</span>
-            ),
-        size: 85,
-        meta: {
-            exportHeaderName: "On Hold",
-            exportValue: (r: ChequePaymentRow) => (Number(r.on_hold) === 1 ? "Yes" : ""),
-        },
-    },
-    {
-        accessorKey: "payment_attachment",
-        header: "Attachment",
-        cell: ({ row }) => {
-            const url = row.original.payment_attachment;
-            return url ? (
-                <a
-                    href={SITEURL + url}
-                    target="_blank"
-                    rel="noreferrer"
-                    title="Payment attachment"
-                    className="inline-flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-700 hover:underline"
-                >
-                    <Download className="h-3.5 w-3.5" /> View
-                </a>
-            ) : (
-                <span className="text-xs text-muted-foreground">--</span>
-            );
-        },
-        size: 95,
-        enableSorting: false,
-        meta: { exportHeaderName: "Attachment", excludeFromExport: true },
-    },
-    // ---- PO / WO ----
-    {
-        accessorKey: "document_name",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="PO / WO No" className={WRAP_HEADER} />,
-        cell: ({ row }) => {
-            const doc = row.original.document_name;
-            if (!doc) return <span>--</span>;
+            const gap = linesGap(row.original);
             return (
-                <div className="flex items-center gap-1 min-w-0">
-                    <span className="break-all">{doc}</span>
-                    <OrderDetailLink docName={doc} title="Open PO / WO">
-                        <Info className="text-blue-500 h-3 w-3" />
-                    </OrderDetailLink>
+                <div className="flex items-center gap-1 whitespace-nowrap font-medium">
+                    {formatToRoundedIndianRupee(row.original.amount)}
+                    {gap !== null && (
+                        <span title={gapText(gap)} aria-label={gapText(gap)}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                        </span>
+                    )}
                 </div>
             );
         },
-        size: 160,
-        meta: { exportHeaderName: "PO / WO No", exportValue: (r: ChequePaymentRow) => r.document_name || "" },
+        size: 120,
+        meta: { isNumeric: true, exportHeaderName: "Amount", exportValue: (r: ChequeRow) => formatForReport(r.amount) },
     },
     {
-        id: "order_total",
-        accessorFn: (r) => extrasOf(r)?.order?.total_amount,
-        header: "PO/WO Total (incl. GST)",
-        cell: ({ row }) => <MoneyCell value={extrasOf(row.original)?.order?.total_amount} />,
+        id: "record_name",
+        accessorFn: (r) => firstWithMoreText(recordsOf(r)),
+        header: "PO / WO",
+        cell: ({ row }) => <FirstWithMore values={recordsOf(row.original)} />,
+        size: 150,
+        enableSorting: false,
+        meta: { exportHeaderName: "PO / WO", exportValue: (r: ChequeRow) => firstWithMoreText(recordsOf(r)) },
+    },
+    {
+        accessorKey: "description",
+        header: "Description",
+        cell: ({ row }) => <TruncatedText text={row.original.description} className="max-w-full" />,
+        size: 180,
+        enableSorting: false,
+        meta: { exportHeaderName: "Description", exportValue: (r: ChequeRow) => r.description || "" },
+    },
+    {
+        id: "project",
+        accessorFn: (r) => firstWithMoreText(projectsOf(r)),
+        header: "Project",
+        cell: ({ row }) => <FirstWithMore values={projectsOf(row.original)} />,
+        size: 160,
+        enableSorting: false,
+        meta: { exportHeaderName: "Project", exportValue: (r: ChequeRow) => firstWithMoreText(projectsOf(r)) },
+    },
+    {
+        id: "vendor",
+        accessorFn: (r) => payeeOf(r).label,
+        header: "Vendor / Payee",
+        cell: ({ row }) => {
+            const payee = payeeOf(row.original);
+            if (!payee.vendor) return <TruncatedText text={payee.label} className="max-w-full" />;
+            return (
+                <div className="flex min-w-0 items-center gap-1">
+                    <TruncatedText text={payee.label} className="max-w-full" />
+                    <Link to={`/vendors/${payee.vendor}`} title="Open Vendor" className="shrink-0">
+                        <Info className="h-3 w-3 text-blue-500" />
+                    </Link>
+                </div>
+            );
+        },
+        size: 170,
+        enableSorting: false,
+        meta: { exportHeaderName: "Vendor / Payee", exportValue: (r: ChequeRow) => payeeOf(r).label },
+    },
+    {
+        id: "days_outstanding",
+        accessorFn: (r) => daysOutstanding(r),
+        header: "Days Outstanding",
+        cell: ({ row }) => {
+            const text = daysText(row.original);
+            if (!text) return <span className="text-muted-foreground">--</span>;
+            return (
+                <div className="flex flex-col items-start gap-0.5">
+                    <span className="whitespace-nowrap">{text}</span>
+                    {isStale(row.original) && (
+                        <span
+                            className="rounded bg-red-100 px-1 text-[11px] font-medium text-red-700"
+                            title="Issued more than 90 days ago: a cheque is good for 3 months from its date."
+                        >
+                            Stale
+                        </span>
+                    )}
+                </div>
+            );
+        },
         size: 105,
         enableSorting: false,
         meta: {
-            isNumeric: true,
-            exportHeaderName: "PO/WO Total (incl. GST)",
-            exportValue: (r: ChequePaymentRow) => exportMoney(extrasOf(r)?.order?.total_amount),
+            exportHeaderName: "Days Outstanding",
+            exportValue: (r: ChequeRow) => [daysText(r), isStale(r) ? "Stale" : ""].filter(Boolean).join(" "),
         },
-    },
-    {
-        accessorKey: "project",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Project" className={WRAP_HEADER} />,
-        cell: ({ row }) => (
-            <LinkedName
-                text={row.original.project_name || row.original.project}
-                to={`/projects/${row.original.project}`}
-                title="Open Project"
-            />
-        ),
-        size: 160,
-        meta: {
-            exportHeaderName: "Project",
-            exportValue: (r: ChequePaymentRow) => r.project_name || r.project || "",
-            facet: { field: "project", title: "Project" } satisfies FacetDeclaration,
-        },
-    },
-    {
-        accessorKey: "vendor",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Vendor" className={WRAP_HEADER} />,
-        cell: ({ row }) => {
-            const v = row.original.vendor || "";
-            if (!v) return <span>--</span>;
-            return <LinkedName text={row.original.vendor_name || v} to={`/vendors/${v}`} title="Open Vendor" />;
-        },
-        size: 160,
-        meta: {
-            exportHeaderName: "Vendor",
-            exportValue: (r: ChequePaymentRow) => r.vendor_name || r.vendor || "",
-            facet: { field: "vendor", title: "Vendor" } satisfies FacetDeclaration,
-        },
-    },
-    {
-        id: "order_status",
-        accessorFn: (r) => extrasOf(r)?.order?.status,
-        header: "PO/WO Status",
-        cell: ({ row }) => <span className="whitespace-nowrap">{extrasOf(row.original)?.order?.status || "--"}</span>,
-        size: 100,
-        enableSorting: false,
-        meta: {
-            exportHeaderName: "PO/WO Status",
-            exportValue: (r: ChequePaymentRow) => extrasOf(r)?.order?.status || "",
-        },
-    },
-    {
-        id: "order_amount_paid",
-        accessorFn: (r) => extrasOf(r)?.order?.amount_paid,
-        header: "Total Paid",
-        cell: ({ row }) => <MoneyCell value={extrasOf(row.original)?.order?.amount_paid} />,
-        size: 100,
-        enableSorting: false,
-        meta: {
-            isNumeric: true,
-            exportHeaderName: "Total Paid",
-            exportValue: (r: ChequePaymentRow) => exportMoney(extrasOf(r)?.order?.amount_paid),
-        },
-    },
-    {
-        id: "order_amount_invoiced",
-        accessorFn: (r) => extrasOf(r)?.order?.amount_invoiced,
-        header: "Invoiced",
-        cell: ({ row }) => <MoneyCell value={extrasOf(row.original)?.order?.amount_invoiced} />,
-        size: 100,
-        enableSorting: false,
-        meta: {
-            isNumeric: true,
-            exportHeaderName: "Invoiced",
-            exportValue: (r: ChequePaymentRow) => exportMoney(extrasOf(r)?.order?.amount_invoiced),
-        },
-    },
-    {
-        id: "order_balance",
-        accessorFn: (r) => balanceOf(extrasOf(r)),
-        header: "Balance",
-        // Total - Paid on both PO and WO. NOT the stored `amount_due`: that is invoiced - paid on a
-        // PO but total - paid on a WO, so one column would mix two different figures.
-        cell: ({ row }) => <MoneyCell value={balanceOf(extrasOf(row.original))} />,
-        size: 100,
-        enableSorting: false,
-        meta: {
-            isNumeric: true,
-            exportHeaderName: "Balance (Total - Paid)",
-            exportValue: (r: ChequePaymentRow) => exportMoney(balanceOf(extrasOf(r))),
-        },
-    },
-    {
-        accessorKey: "creation",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Requested On" className={WRAP_HEADER} />,
-        cell: ({ row }) => <DateCell value={row.original.creation} />,
-        size: 145,
-        meta: { exportHeaderName: "Requested On", exportValue: (r: ChequePaymentRow) => dateText(r.creation) },
     },
     {
         accessorKey: "owner",
-        header: ({ column }) => <DataTableColumnHeader column={column} title="Requested By" className={WRAP_HEADER} />,
-        cell: ({ row }) => <TruncatedText text={userName(row.original.owner)} fallback="--" className="max-w-full" />,
-        size: 125,
-        meta: { exportHeaderName: "Requested By", exportValue: (r: ChequePaymentRow) => userName(r.owner) },
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Created By" className={WRAP_HEADER} />,
+        cell: ({ row }) => (
+            <div className="flex flex-col">
+                <TruncatedText text={row.original.owner_name || row.original.owner} className="max-w-full" />
+                <span className="text-[11px] text-muted-foreground">{chequeDateText(row.original.creation)}</span>
+            </div>
+        ),
+        size: 135,
+        enableSorting: false,
+        meta: {
+            exportHeaderName: "Created By",
+            exportValue: (r: ChequeRow) => `${r.owner_name || r.owner} ${chequeDateText(r.creation)}`.trim(),
+        },
+    },
+    {
+        accessorKey: "attachment",
+        header: "Photo",
+        cell: ({ row }) =>
+            hasNoPhoto(row.original) ? (
+                <span className="whitespace-nowrap rounded bg-amber-100 px-1 text-[11px] font-medium text-amber-800">
+                    No photo
+                </span>
+            ) : (
+                <ChequePhotoLink url={row.original.attachment} chequeNo={row.original.cheque_no} />
+            ),
+        size: 80,
+        enableSorting: false,
+        meta: {
+            exportHeaderName: "Photo",
+            exportValue: (r: ChequeRow) => (r.attachment ? `${SITEURL}${r.attachment}` : "No photo"),
+        },
+    },
+    {
+        id: "actions",
+        header: "Actions",
+        cell: ({ row }) => (
+            <div className="flex flex-col items-stretch gap-1">
+                <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => onOpen(row.original.name)}>
+                    View Cheque Details
+                </Button>
+                {onEdit && canEdit?.(row.original) && (
+                    <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => onEdit(row.original)}>
+                        Edit Cheque Details
+                    </Button>
+                )}
+                {onChangeStatus && (
+                    <Button size="sm" variant="outline" className="h-7 px-2" onClick={() => onChangeStatus(row.original)}>
+                        Change Cheque Status
+                    </Button>
+                )}
+            </div>
+        ),
+        size: 190,
+        enableSorting: false,
+        enableHiding: false,
+        meta: { excludeFromExport: true },
     },
 ];

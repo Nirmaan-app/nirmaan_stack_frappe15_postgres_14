@@ -16,9 +16,12 @@ import { useUserData } from "@/hooks/useUserData";
 import { VendorHoldBanner } from "@/components/ui/vendor-hold-banner";
 import { VendorCreditManagementCard } from "./components/VendorCreditManagementCard";
 import { VendorGstHoldCard } from "./components/VendorGstHoldCard";
+import { VendorRenameFlow, type VendorRename } from "./components/VendorRenameFlow";
+import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
+import { renameNeedsPrompt } from "@/utils/payees/vendorAccount";
 
 const VendorOverviewCard = React.lazy(() => import("./components/VendorOverviewCard"));
-const VendorBankDetailsCard = React.lazy(() => import("./components/VendorBankDetailsCard"));
+const VendorAccountCard = React.lazy(() => import("./components/VendorAccountCard"));
 const VendorMaterialOrdersTable = React.lazy(() => import("./components/VendorMaterialOrdersTable"));
 const VendorDeliveryNotesTable = React.lazy(() => import("./components/VendorDeliveryNotesTable"));
 const VendorPaymentsTable = React.lazy(() => import("./components/VendorPaymentsTable"));
@@ -49,6 +52,18 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
     const [currentTab, setCurrentTab] = useState(initialTab);
     const [editSheetOpen, setEditSheetOpen] = useState(false);
     const toggleEditSheet = useCallback(() => setEditSheetOpen(prev => !prev), []);
+    // A rename just saved on the edit sheet asks what happens to the vendor's bank account (#1426),
+    // decided here, in the handler, from the account the Account Details card reads too.
+    const [rename, setRename] = useState<VendorRename | null>(null);
+    const endRename = useCallback(() => setRename(null), []);
+    const { account: vendorAccount } = useVendorAccount(vendorId);
+    const holder = vendorAccount?.payee?.account_name ?? null;
+    const handleRenamed = useCallback(
+        (r: VendorRename) => {
+            if (renameNeedsPrompt({ ...r, holder })) setRename(r);
+        },
+        [holder],
+    );
     const [serviceOrderTab, setServiceOrderTab] = useState<"all" | "approved" | "finalized">("all");
 
     // Effect to sync tab state TO URL
@@ -132,7 +147,7 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
                             <VendorHoldBanner />
                         )}
                         <VendorCreditManagementCard vendor={vendor} mutateVendor={mutateVendor} />
-                        <VendorBankDetailsCard vendor={vendor} mutateVendor={mutateVendor} />
+                        <VendorAccountCard vendor={vendor} />
                     </div>
                 );
             case "materialOrders":
@@ -272,9 +287,11 @@ export const VendorView: React.FC<{ vendorId: string }> = ({ vendorId }) => {
 
             <Sheet open={editSheetOpen} onOpenChange={setEditSheetOpen}>
                 <SheetContent className="overflow-auto w-full sm:max-w-xl md:max-w-2xl"> {/* Responsive width */}
-                    <EditVendor toggleEditSheet={toggleEditSheet} />
+                    <EditVendor toggleEditSheet={toggleEditSheet} onRenamed={handleRenamed} />
                 </SheetContent>
             </Sheet>
+
+            {rename && <VendorRenameFlow vendor={vendor} rename={rename} onDone={endRename} />}
         </div>
     );
 };

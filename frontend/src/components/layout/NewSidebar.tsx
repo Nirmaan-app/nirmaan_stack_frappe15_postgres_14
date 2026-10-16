@@ -23,6 +23,7 @@ import {
   ClipboardMinus,
   HandCoins,
   PiggyBank,
+  BookUser,
   ReceiptText, FileUp,
   CreditCard,
   Dices,
@@ -78,8 +79,10 @@ import {
   SERVICE_PROCUREMENT_PROFILES,
   canUseProjectBilling,
   isMaterialProcurementProfile,
+  isNirmaanAdmin,
   isProcurementProfile,
 } from "@/constants/roles";
+import { payeesSidebarPlace } from "@/utils/payees/payeeRoutes";
 
 export function NewSidebar() {
   const [role, setRole] = useState<string | null>(null);
@@ -212,7 +215,8 @@ export function NewSidebar() {
   //
   // Kept as an inline spread rather than a second grouped block so the Admin
   // Options items stay in their existing visual order.
-  const isAdminOnly = user_id == "Administrator" || role == "Nirmaan Admin Profile";
+  const isAdminOnly = isNirmaanAdmin(role, user_id);
+  const payeesPlace = payeesSidebarPlace(role, user_id);
 
   const items = useMemo(() => [
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
@@ -268,6 +272,8 @@ export function NewSidebar() {
                 { key: "/asset-management", label: "Assets" },
                 { key: "/vendors", label: "Vendors" },
                 ...(isAdminOnly ? [{ key: "/customers", label: "Customers" }] : []),
+                // Payees (#1466): the Admin's sits here with the other masters (`payeesSidebarPlace`).
+                ...(payeesPlace === "admin-options" ? [{ key: "/payees", label: "Payees" }] : []),
                 { key: "/packages-settings", label: "Packages Settings" },
                 { key: "/tds-repository", label: "TDS Repository" },
                 { key: "/project-gst", label: "Project GST" },
@@ -652,6 +658,17 @@ export function NewSidebar() {
         },
       ]
       : []),
+    // Payees (spec #1420) for the Accountants; the Admin's is in Admin Options (#1466). Both read the
+    // same constant as the route guard (routesConfig.tsx).
+    ...(payeesPlace === "top-level"
+      ? [
+        {
+          key: '/payees',
+          icon: BookUser,
+          label: 'Payees',
+        },
+      ]
+      : []),
     ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
@@ -821,7 +838,7 @@ export function NewSidebar() {
 
 
 
-  ], [user_id, role, isAdminOnly]);
+  ], [user_id, role, isAdminOnly, payeesPlace]);
 
   const allKeys = useMemo(() => new Set([
     "projects",
@@ -860,6 +877,7 @@ export function NewSidebar() {
     "credits",
     "in-flow-payments",
     "non-project-inflows",
+    "payees",
     'invoice-reconciliation',
     'project-invoices',
     'expense',
@@ -903,7 +921,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "packages-settings", "tds-repository", "all-AQs", "project-gst", "upload-boq/templates"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "payees", "packages-settings", "tds-repository", "all-AQs", "project-gst", "upload-boq/templates"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
     "/products": ["products"],
@@ -917,6 +935,7 @@ export function NewSidebar() {
     "/credits": ["credits"],
     "/in-flow-payments": ["in-flow-payments"],
     "/non-project-inflows": ["non-project-inflows"],
+    "/payees": ["payees"],
     "/invoice-reconciliation": ["invoice-reconciliation"],
     "/project-invoices": ["project-invoices"],
     // Keyed on the module ROOT so every tab (requests / project / non-project) keeps the
@@ -966,6 +985,7 @@ export function NewSidebar() {
       if (selectedKeys === "products") return "/products";
       if (selectedKeys === "vendors") return "/vendors";
       if (selectedKeys === "customers") return "/customers";
+      if (selectedKeys === "payees") return "/payees";
       if (selectedKeys === "asset-management") return "/asset-management";
     }
 
@@ -1047,6 +1067,8 @@ export function NewSidebar() {
                     // Non-Project Inflows (#1265): flat nav button. It was first shipped WITHOUT this
                     // label, so it rendered as an empty group -- a chevron and a click that went nowhere.
                     "Non-Project Inflows",
+                    // Payees (spec #1420): flat nav button, same trap as Non-Project Inflows above.
+                    "Payees",
                     "Vendor Invoice Recon",
                     "Reports",
                     "Design Tracker",

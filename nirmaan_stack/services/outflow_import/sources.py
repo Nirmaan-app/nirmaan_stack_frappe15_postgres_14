@@ -86,9 +86,10 @@ def source_has_settlement_path(source: str) -> bool:
     `False` for a bank passbook. THE MEASUREMENT, so nobody re-derives it (slice B4, 711 real
     debits of one ICICI statement):
 
-      * TIER 1 IS STRUCTURALLY UNREACHABLE. `matcher.account_ifsc_vendors` is the tier-1 population
-        and `ifsc_matches` is only ever set inside the `index.by_account` loop, so an IFSC alone can
-        never set it -- and an ICICI narration carries no beneficiary account number at all.
+      * TIER 1 IS STRUCTURALLY UNREACHABLE. It needs the line's account AND IFSC (against a payment's
+        pay-to copy, or `matcher.account_ifsc_vendors`, whose `ifsc_matches` is only ever set inside
+        the `index.by_account` loop), so an IFSC alone never admits anything -- and an ICICI
+        narration carries no beneficiary account number at all.
       * TIER 0 CANNOT SETTLE. `Project Payments.utr` is written at FULFILMENT, so every UTR belongs
         to an already-`Paid` payment, while `ledgers.SETTLEABLE_STATUSES` is `Approved`-only.
         Measured DB-wide: 7,643 of 7,644 `Paid` payments carry a UTR; 0 of 1 `Approved`, 0 of 131

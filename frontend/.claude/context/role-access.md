@@ -319,6 +319,15 @@ queue — edit & revert" below).
 
 ---
 
+### Payees (`payees/`, spec #1420)
+
+Admin, Accountant and Accountant Lead only (`PAYEE_MANAGE_PROFILES` in `constants/roles.ts`): the `/payees`
+route guard, the sidebar link, the header's Add Payee button and a Payee page's Edit and Delete (#1435) all read it. The server enforces the same list
+(`services/role_profiles.PAYEE_MANAGE_PROFILES`) in every `api/payees/` endpoint. Procurement adds Payees only from
+the vendor screens, and raisers only from an Expense Request (later tickets of #1420).
+
+---
+
 ### Reports (`reports/`)
 
 | Tab | Admin | PMO | Proj Lead | Proj Mgr | Procurement | Accountant |
@@ -327,8 +336,14 @@ queue — edit & revert" below).
 | Vendors | Y | Y | Y | - | - | Y |
 | PO | Y | Y | Y | Limited* | Y | Y |
 | WO (SR) | Y | Y | Y | - | Y | Y |
+| Payment › TDS Deduction | Y | - | - | - | - | Y |
+| Payment › Cheque Payment | Y | - | - | - | Y | Y |
 
 *Project Manager only sees "Dispatched for 1+ days" report
+
+The Payment tab's two reports are gated by `pages/reports/config/paymentTab.config.ts` (`PAYMENT_TDS_ACCESS`
+for TDS Deduction; `CHEQUE_ACCESS_PROFILES` for Cheque Payment, spec #1407). The Cheque Payment gate is enforced
+on the server by `services/role_profiles.CHEQUE_ACCESS_PROFILES` in every `api/cheques/` endpoint.
 
 **Key files:** `ReportsContainer.tsx:49,130,136,144,150,183,185`
 
@@ -389,7 +404,7 @@ queue — edit & revert" below).
 | Delete Project Expense | Y | Y | - | - | - | - |
 | Add Project Expense | Y | Y | - | - | - | Y |
 | Export Vendor Ledger | Y | Y | - | - | - | Y |
-| Edit Vendor Bank Details | Y | Y | Y | - | Y | Y |
+| Set or edit a vendor's Payee (Edit bank details, Use a different payee, Add bank details, the rename prompt's Update the holder name) | Y | Y | Y | - | Y | Y |
 | Request Payments (PO) | Y | Y | Y | - | Y | - |
 | Edit Design Tracker Structure | Y | Y | - | - | - | - |
 | Edit User Role Profiles | Y | Y | - | - | - | - |

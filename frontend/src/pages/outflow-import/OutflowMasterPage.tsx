@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { Columns3, History, Info, Link2, Search, Undo2, Upload, Wallet, X } from "lucide-react";
-import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
 import {
@@ -87,6 +87,7 @@ import {
     tabFromCarried,
     visibleTabs,
 } from "./outflowTableModel";
+import { WAITING_REFUNDS_KEY_PREFIX, waitingRefundNames } from "./waitingRefundMatch";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 /**
@@ -431,6 +432,12 @@ export const OutflowMasterPage = () => {
     const { call: callCreateVendorRefund } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.inflows.create_vendor_refund"
     );
+    // #1401: the same money when procurement already recorded it as a waiting Vendor Refund. The line is
+    // MATCHED to it; nothing is created. ⚠️ THE PAYLOAD CARRIES ONLY WHICH REFUNDS: the server re-reads
+    // their amounts and the line's, and refuses unless they add up exactly.
+    const { call: callMatchWaitingRefunds } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.waiting_refund_match.match_waiting_refunds"
+    );
     // ⚠️ A SEPARATE ENDPOINT, AND THE SEPARATION IS THE GUARD (slice PS). The bulk confirm loops
     // `settleOne`, which calls `settle_row`; a partial can only ever be reached from one reviewer
     // answering one question about one row, which is what keeps it outside the settle window
@@ -524,9 +531,18 @@ export const OutflowMasterPage = () => {
         return out;
     }, [rows, decisions]);
 
+    const { mutate: mutateGlobal } = useSWRConfig();
     const refreshAll = useCallback(async () => {
-        await Promise.all([mutateRows(), mutateSummary(), mutateImports()]);
-    }, [mutateRows, mutateSummary, mutateImports]);
+        await Promise.all([
+            mutateRows(),
+            mutateSummary(),
+            mutateImports(),
+            // #1401: a match or an undo moves a vendor's waiting refunds; the dialog lists them.
+            mutateGlobal(
+                (key) => typeof key === "string" && key.startsWith(WAITING_REFUNDS_KEY_PREFIX)
+            ),
+        ]);
+    }, [mutateRows, mutateSummary, mutateImports, mutateGlobal]);
 
     /** Record what `name` is being ticked as, from its row on this page (#1319). */
     const recordTickKind = useCallback((name: string) => {
@@ -689,6 +705,12 @@ export const OutflowMasterPage = () => {
                     description: form.description?.trim() || undefined,
                     ...anyway,
                 });
+            } else if (decision.target === "waitingRefund") {
+                await callMatchWaitingRefunds({
+                    row: row.name,
+                    refunds: JSON.stringify(waitingRefundNames(decision.waitingRefund)),
+                    ...anyway,
+                });
             } else if (decision.target === "vendorRefund") {
                 // ⚠️ THE ROW'S AMOUNT, DATE AND REFERENCE ARE NOT SENT: the server reads them off the
                 // staged row and re-checks every part -- this vendor's, this project, paid, within its
@@ -762,6 +784,7 @@ export const OutflowMasterPage = () => {
             callCreateInflow,
             callCreateNonProjectInflow,
             callCreateVendorRefund,
+            callMatchWaitingRefunds,
             callSettle,
         ]
     );

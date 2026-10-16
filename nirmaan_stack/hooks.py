@@ -216,6 +216,9 @@ doc_events = {
         "on_update": "nirmaan_stack.integrations.controllers.project_progress_reports.relink_attachment_files"
     },
     "Vendors": {
+        # Only the vendor screens' roles set a vendor's Payee (#1423, spec #1420); the same
+        # controller fills a request's / Project Expense's pay-to account from its vendor (#1436).
+        "validate": "nirmaan_stack.integrations.controllers.payee_links.validate",
         "after_insert": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.generate_vendor_category",
         # IMPLEMENT ON_UPDATE
 		"on_update": "nirmaan_stack.nirmaan_stack.doctype.vendor_category.vendor_category.update_vendor_category",
@@ -318,9 +321,13 @@ doc_events = {
         "after_delete": "nirmaan_stack.integrations.controllers.vendor_invoices.recompute_parent_total",
     },
     # A refund lowers its PO's / WO's `amount_paid` (Paid payments LESS refunds). `on_update` covers
-    # insert; `after_delete`, never `on_trash`, so the sum no longer counts the deleted refund.
+    # insert; `after_delete`, never `on_trash`, so the sum no longer counts the deleted refund. On a
+    # PO that recompute is the refund sync step (#1399), which also links the refund into the PO
+    # Adjustment. `on_trash` only drops those links, before Frappe's link check refuses the delete.
     "Vendor Refunds": {
+        "validate": "nirmaan_stack.integrations.controllers.vendor_refunds.guard_money_edit",
         "on_update": "nirmaan_stack.integrations.controllers.vendor_refunds.recompute_document_amount_paid",
+        "on_trash": "nirmaan_stack.integrations.controllers.vendor_refunds.unlink_from_adjustments",
         "after_delete": "nirmaan_stack.integrations.controllers.vendor_refunds.recompute_document_amount_paid",
     },
     "Project Payments": {
@@ -333,8 +340,9 @@ doc_events = {
         "on_trash": [
             "nirmaan_stack.integrations.controllers.project_payments.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
-            "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_payment",
-        ]
+        ],
+        # after_delete, never on_trash: the cashflow check must read the payment gone (#1453).
+        "after_delete": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_payment",
     },
      "Project Invoices": {
         "validate": "nirmaan_stack.integrations.controllers.project_invoices.validate",
@@ -355,6 +363,8 @@ doc_events = {
         ],
         "on_trash": [
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
+            # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
+            "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
         # Deleting the expense deletes the request it came from. after_delete, not on_trash --
@@ -362,7 +372,10 @@ doc_events = {
         "after_delete": "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
     },
     "Project Expenses": {
-        "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+        "validate": [
+            "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
+            "nirmaan_stack.integrations.controllers.payee_links.validate",
+        ],
         "after_insert": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
         "on_update": [
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
@@ -374,6 +387,8 @@ doc_events = {
         # generate_versions needs the pre-delete data, so it stays on on_trash.
         "on_trash": [
             "nirmaan_stack.integrations.controllers.expense_bank_links.on_trash",
+            # Drops the expense off its Cheque (#1413) before Frappe's link check refuses the delete.
+            "nirmaan_stack.integrations.controllers.cheques.on_expense_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
         # Cashflow recompute moved to after_delete so the gap query runs AFTER the
@@ -406,6 +421,19 @@ doc_events = {
         "validate": "nirmaan_stack.integrations.controllers.project_billing.package_validate",
         "before_rename": "nirmaan_stack.integrations.controllers.project_billing.package_before_rename",
         "on_trash": "nirmaan_stack.integrations.controllers.project_billing.package_on_trash",
+    },
+    # Header rules + bank / cheque number uniqueness on every write path (spec #1407). The
+    # cheques service (`services/cheques/writer.py`) is the only code that writes a Cheque.
+    "Cheques": {
+        "validate": "nirmaan_stack.integrations.controllers.cheques.validate",
+    },
+    # Payee details + (normalized account, IFSC) uniqueness on every write path (spec #1420,
+    # ADR-0033). The Payee module (`services/payees/`) is the only code that creates a Payee.
+    "Payee": {
+        "validate": "nirmaan_stack.integrations.controllers.payee.validate",
+    },
+    "Expense Request": {
+        "validate": "nirmaan_stack.integrations.controllers.payee_links.validate",
     },
     "Material Test Certificate": {
         "validate": "nirmaan_stack.integrations.controllers.material_test_certificate.validate",

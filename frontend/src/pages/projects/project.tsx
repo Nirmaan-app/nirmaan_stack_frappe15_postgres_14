@@ -32,14 +32,12 @@ import { Customers } from "@/types/NirmaanStack/Customers";
 import { ProcurementOrder as ProcurementOrdersType } from "@/types/NirmaanStack/ProcurementOrders";
 import { ProcurementRequest } from "@/types/NirmaanStack/ProcurementRequests";
 import { ProjectEstimates as ProjectEstimatesType } from '@/types/NirmaanStack/ProjectEstimates';
-import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
-import { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses"; // Import new type
-import { AmountBreakdownHoverCard } from "./components/AmountBreakdownHoverCard"; // Import new hover card
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { getAllSRsTotal } from "@/utils/getAmounts";
 import { parseNumber } from "@/utils/parseNumber";
+import { amountPaidByWorkPackage, sumAmountPaid } from "@/utils/projects/projectPaid";
 import { FrappeDoc } from "frappe-react-sdk";
 import {
   ArrowRightLeft,
@@ -113,6 +111,7 @@ import {
   useProjectDocRealtime,
   useProjectPOSummaryCall,
   useProjectViewFinancialData,
+  useProjectOrdersPaid,
   useProjectViewMeta,
   useProjectViewMutations,
 } from "./data/root/useProjectRootApi";
@@ -1002,20 +1001,11 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const {
     projectEstimatesResponse,
-    projectPaymentsResponse,
-    projectExpensesResponse,
-    procurementRequestsResponse,
     procurementOrdersResponse,
     approvedServiceRequestsResponse,
   } = useProjectViewFinancialData(projectId);
 
   const project_estimates = projectEstimatesResponse.data;
-  const projectPayments = projectPaymentsResponse.data;
-  const projectPaymentsLoading = projectPaymentsResponse.isLoading;
-  const projectExpenses = projectExpensesResponse.data;
-  const projectExpensesLoading = projectExpensesResponse.isLoading;
-  const pr_data = procurementRequestsResponse.data;
-  const prData_loading = procurementRequestsResponse.isLoading;
   const po_data = procurementOrdersResponse.data;
   const po_loading = procurementOrdersResponse.isLoading;
   const approvedServiceRequestsData = approvedServiceRequestsResponse.data;
@@ -1032,18 +1022,13 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
   //   value: ven.vendor_name,
   // })), [vendorsList]);
 
-  // --- (Indicator) MODIFIED: Update the getTotalAmountPaid calculation ---
-  const getTotalAmountPaid = useMemo(() => {
-    if (!projectPayments) {
-      return { poAmount: 0, srAmount: 0, projectExpensesAmount: 0, totalAmount: 0 };
-    }
+  // Spends reads EVERY PO and WO of the project, whatever its status (spec #1451 stories 14-15).
+  const { posResponse: projectPOsPaidResponse, wosResponse: projectWOsPaidResponse } = useProjectOrdersPaid(projectId);
+  const projectPOsPaid = projectPOsPaidResponse.data?.message;
 
-    const poAmount = projectPayments.filter(p => p?.document_type === "Procurement Orders").reduce((acc, p) => acc + parseNumber(p.amount), 0);
-    const srAmount = projectPayments.filter(p => p?.document_type === "Service Requests").reduce((acc, p) => acc + parseNumber(p.amount), 0);
-    const projectExpensesAmount = projectExpenses?.reduce((acc, e) => acc + parseNumber(e.amount), 0) || 0;
-
-    return { poAmount, srAmount, projectExpensesAmount, totalAmount: poAmount + srAmount + projectExpensesAmount };
-  }, [projectPayments, projectExpenses]);
+  // Spends "Services" row: every WO's stored Amount Paid (refunds already off, ADR-0034); a WO with no
+  // payments has 0.
+  const servicesAmountPaid = useMemo(() => sumAmountPaid(projectWOsPaidResponse.data || []), [projectWOsPaidResponse.data]);
 
   const totalPosRaised = useMemo(() => {
     // 1. Guard Clause: This part is correct and should be kept.
@@ -1189,37 +1174,18 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     return { groupedData, totals };
   }, [items]);
 
-  const poToWorkPackageMap = useMemo(() => {
-    if (!po_data || !pr_data) return {};
-
-    const map: { [poName: string]: string } = {};
-
-    po_data.forEach((po) => {
-      const pr = pr_data.find((pr) => pr.name === po.procurement_request);
-      const workPackage = pr?.work_package?.trim() ? pr.work_package : "Custom";
-      map[po.name] = workPackage;
-    });
-
-    return map;
-  }, [po_data, pr_data]);
-
   useEffect(() => {
-    if (!po_item_data || !project_estimates || !projectPayments) return;
+    if (!po_item_data || !project_estimates || !projectPOsPaid) return;
 
     const { totals } = groupItemsByWorkPackageAndCategory(po_item_data);
 
-    const totalAmountPaidWPWise: { [key: string]: number } = {};
-
-    projectPayments
-      ?.filter((payment) => payment.document_type === "Procurement Orders")
-      .forEach((payment) => {
-        const workPackage = poToWorkPackageMap[payment.document_name] || "Custom";
-
-        if (!totalAmountPaidWPWise[workPackage]) {
-          totalAmountPaidWPWise[workPackage] = 0;
-        }
-        totalAmountPaidWPWise[workPackage] += parseNumber(payment.amount);
-      });
+    // EVERY PO's stored Amount Paid per work package (ADR-0034), keyed by its own items, so the Spends PO
+    // total is the PO part of the project outflow. A package only a Merged or Inactive PO carries gets a
+    // row of its own.
+    const totalAmountPaidWPWise = amountPaidByWorkPackage(projectPOsPaid.pos, projectPOsPaid.items);
+    Object.keys(totalAmountPaidWPWise).forEach((key) => {
+      totals[key] ??= { amountWithTax: 0, amountWithoutTax: 0 };
+    });
 
     Object.keys(totals || {}).forEach((key) => {
       const estimates = project_estimates?.filter((i) => i?.work_package === key) || [];
@@ -1233,7 +1199,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     });
 
     setWorkPackageTotalAmounts(totals);
-  }, [po_item_data, project_estimates, projectPayments, poToWorkPackageMap]);
+  }, [po_item_data, project_estimates, projectPOsPaid]);
 
   const { groupedData: categorizedData } =
     groupItemsByWorkPackageAndCategory(po_item_data);
@@ -1619,7 +1585,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
 
   const estimatesTotal = useMemo(() => project_estimates?.reduce((acc, i) => acc + (parseNumber(i?.quantity_estimate) * parseNumber(i?.rate_estimate)), 0) || 0, [project_estimates]);
 
-  if (po_loading || projectPaymentsLoading || approvedServiceRequestsDataLoading || prData_loading) {
+  if (po_loading || approvedServiceRequestsDataLoading) {
     return <LoadingFallback />
   }
 
@@ -1631,7 +1597,7 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
     switch (activePage) {
       case PROJECT_PAGE_TABS.OVERVIEW:
         // Pass necessary data to ProjectOverviewTab
-        return <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getTotalAmountPaid={getTotalAmountPaid} />;
+        return <ProjectOverviewTab projectData={data} estimatesTotal={estimatesTotal} projectCustomer={projectCustomer} totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} />;
       case PROJECT_PAGE_TABS.WORK_REPORT: // ADD THIS NEW CASE
         return <ProjectWorkReportTab projectData={data} project_mutate={project_mutate} current_role={role} />;
       case PROJECT_PAGE_TABS.SCHEDULE:
@@ -1679,19 +1645,18 @@ const ProjectView = ({ projectId, data, project_mutate, projectCustomer, po_item
         return <ProjectPOSummaryTable projectId={projectId} hideSummaryCard={isProjectManager} hideFinancialColumns={isProjectManager} />;
       case PROJECT_PAGE_TABS.FINANCIALS:
         return <ProjectFinancialsTab projectData={data} projectCustomer={projectCustomer}
-          totalPOAmountWithGST={totalPOAmountWithGST} getTotalAmountPaid={getTotalAmountPaid} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getAllPODeliveredAmount={totalPoDeliveredAmount}
-          // --- NEW PROPS PASSED HERE ---
+          totalPOAmountWithGST={totalPOAmountWithGST} getAllSRsTotalWithGST={getAllSRsTotalWithGST} getAllPODeliveredAmount={totalPoDeliveredAmount}
           poPaymentAgainstDelivery={poPaymentAgainstDelivery}
           advanceAgainstPO={advanceAgainstPO} />;
       case PROJECT_PAGE_TABS.SPENDS:
         return <ProjectSpendsTab projectId={data?.name} po_data={po_data} options={options}
-          categorizedData={categorizedData} getTotalAmountPaid={getTotalAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />; // Example
+          categorizedData={categorizedData} servicesAmountPaid={servicesAmountPaid} workPackageTotalAmounts={workPackageTotalAmounts} totalServiceOrdersAmt={totalServiceOrdersAmt} />; // Example
       case PROJECT_PAGE_TABS.MAKES:
         return <ProjectMakesTab projectData={data} project_mutate={project_mutate} options={makeOptions} initialTab={makesTab} />; // Example
       case PROJECT_PAGE_TABS.ESTIMATES:
         return <ProjectEstimates projectTab />; // Example
       case PROJECT_PAGE_TABS.MATERIAL_USAGE:
-        return <ProjectMaterialUsageTab projectId={projectId} projectPayments={projectPayments} />;
+        return <ProjectMaterialUsageTab projectId={projectId} />;
       case PROJECT_PAGE_TABS.TRANSFER_MEMOS:
         return <Suspense fallback={<LoadingFallback />}><ProjectTransferMemosTab projectId={projectId} /></Suspense>;
       // --- (Indicator) NEW CASE FOR THE NEW TAB ---

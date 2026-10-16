@@ -33,6 +33,7 @@ TWO ROW STATES ARE NEVER RE-MATCHED:
   * `Settled`  -- an expense was written against this row. Re-matching would strand that audit.
 """
 
+from dataclasses import replace
 from decimal import Decimal
 from typing import Sequence
 
@@ -42,6 +43,7 @@ from nirmaan_stack.api.outflow_import.skip_sources import skip_sources
 from nirmaan_stack.api.outflow_import.permissions import (
     require_outflow_access,
 )
+from nirmaan_stack.api.outflow_import.refund_suggestions import shown_suggestions, suggester
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.matcher import (
     match_by_reference,
@@ -94,6 +96,7 @@ from nirmaan_stack.services.outflow_import.ledgers import (
 # `ledgers._SETTLED_MATCH_KIND`). `review.py` sits above all three, so no cycle here.
 from nirmaan_stack.services.outflow_import.allocation import MATCH_REVERSED, MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
+from nirmaan_stack.services.outflow_import.refund_suggestion import encode_suggestion, suggestion_note
 from nirmaan_stack.services.outflow_import.parser import (
     BANK_SUCCESS_STATUS,
     DIRECTION_DEBIT,
@@ -452,10 +455,26 @@ def _guard_duplicates_only(batch: str, matchable) -> dict:
     these across batches and the screen reads them; omitting a key would be an absence the caller
     has to special-case, while a zero is the truth -- no pass ran, so no pass did anything.
 
+    ⚠️ ONE SUGGESTION IS MADE HERE, AND IT IS NOT A SETTLEMENT CANDIDATE (#1402, ADR-0032). An open
+    CREDIT line that is not already recorded is asked whether it is a refund procurement recorded in
+    advance -- a waiting Vendor Refund, by the bank reference typed on it (or the vendor's account and
+    IFSC, which no credit source carries today). The pure rule is
+    `services/outflow_import/refund_suggestion`; it lands in `suggested_refunds` and the outcome note,
+    never in `suggested_doctype` / `suggested_name`, which stay blank as above. The line stays
+    `Mismatched`: the accountant confirms the match in the decision dialog. Its only pools are the
+    waiting refunds and, for a line carrying an account AND an IFSC (no ICICI line does), the vendor
+    index.
+
     It commits nothing; `_match_rows`' callers do (#1272).
     """
-    for row, _group, outcome, basis in _contains_guard_outcomes(batch, matchable):
-        _persist_row_outcome(row, outcome, None, batch, duplicate_basis=basis)
+    suggest = suggester()
+    for row, group, outcome, basis in _contains_guard_outcomes(batch, matchable):
+        suggestion = suggest(row) if group is None and outcome.status == ROW_MISMATCHED else None
+        if suggestion is not None:
+            outcome = replace(outcome, note=suggestion_note(suggestion))
+        _persist_row_outcome(
+            row, outcome, None, batch, duplicate_basis=basis, refund_suggestion=suggestion
+        )
 
     return _run_result(batch, len(matchable), _refresh_batch_rollup(batch))
 
@@ -512,11 +531,11 @@ def _load_pools(rows, batch: str) -> dict:
     paid_duplicates = _paid_duplicate_pools(references)
 
     # Tier 1 + tier 2 pool: APPROVED payments at these amounts, scoped by NOTHING ELSE. The matcher
-    # narrows it per tier -- by vendor account at tier 1, by project at tier 2 -- so a pool scoped by
+    # narrows it per tier -- by pay-to account at tier 1, by project at tier 2 -- so a pool scoped by
     # either axis here would be narrower than one of the tiers and would hide matches silently.
     by_amount = C.load_payments_by_amount([r.amount for r in rows])
 
-    # The union is correct for every tier: tier 0 filters it by reference, tier 1 by vendor account
+    # The union is correct for every tier: tier 0 filters it by reference, tier 1 by pay-to account
     # and the strict window, tier 2 by project.
     payments = {t.name: t for t in (*by_reference, *by_amount)}
 
@@ -651,7 +670,12 @@ def _paid_duplicate_for(row, pools):
 
 
 def _persist_row_outcome(
-    row: _StagedRow, outcome, result, batch: str, duplicate_basis: Sequence = ()
+    row: _StagedRow,
+    outcome,
+    result,
+    batch: str,
+    duplicate_basis: Sequence = (),
+    refund_suggestion=None,
 ) -> None:
     """Write the derived status and note. A match run records NO `Outflow Row Match` rows.
 
@@ -718,6 +742,10 @@ def _persist_row_outcome(
             # a basis left behind would keep claiming a record the row no longer skips on. Every
             # outcome but a contains-guard skip writes it blank.
             "duplicate_basis": encode_basis(duplicate_basis),
+            # The waiting Vendor Refund(s) a credit line is suggested to be (#1402), written on every
+            # run including as NULL, for the same reason: a refund matched or cancelled since the last
+            # run must not stay suggested. Only the bank-statement run passes one.
+            "suggested_refunds": encode_suggestion(refund_suggestion),
         },
         update_modified=False,
     )
@@ -2821,6 +2849,9 @@ def get_outflow_rows(
                r.normalized_account, r.normalized_reference, r.resolved_vendor, r.resolved_project,
                r.suggested_doctype, r.suggested_name, r.suggestion_rule, r.match_basis,
                r.auto_matched, r.row_status, r.skip_reason, r.outcome_note,
+               -- The waiting refund(s) a credit line is suggested to be (#1402). Shipped as
+               -- `waiting_refund_suggestion`, read fresh against the pool below.
+               r.suggested_refunds,
                -- The Cashbook plan's expense type (#1314): a reopened Cashbook line's Create form
                -- pre-fills from it, beside `suggested_doctype` and `resolved_project`.
                r.suggested_expense_type,
@@ -2904,11 +2935,12 @@ def get_outflow_rows(
     )
     _with_order_names(rows, by_row, related)
     tab_counts, status_counts, direction_status_counts = _tab_counts(where, params)
+    refund_suggestions = shown_suggestions(rows)
 
     return {
         "rows": [
             {
-                **row,
+                **{k: v for k, v in row.items() if k != "suggested_refunds"},
                 "amount": float(row.get("amount") or 0),
                 "service_charge": float(row.get("service_charge") or 0),
                 "service_tax": float(row.get("service_tax") or 0),
@@ -2932,6 +2964,9 @@ def get_outflow_rows(
                 # Outcome cell can say "Same pick as before" only when it is.
                 "unreconciled_at": unreconciled.get(row["name"], {}).get("at"),
                 "unreconciled_targets": unreconciled.get(row["name"], {}).get("targets", []),
+                # #1402: the decision dialog opens on "Match a waiting Vendor Refund" with these
+                # ticked; `None` when the line has none, or one of them has stopped waiting.
+                "waiting_refund_suggestion": refund_suggestions.get(row["name"]),
             }
             for row in rows
         ],

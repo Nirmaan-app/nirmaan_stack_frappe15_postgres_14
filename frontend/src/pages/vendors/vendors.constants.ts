@@ -4,6 +4,18 @@ import { Vendors as VendorsType } from "@/types/NirmaanStack/Vendors"; // Assumi
 import { Category as CategoryType } from "@/types/NirmaanStack/Category";
 
 export const VENDOR_DOCTYPE = 'Vendors';
+
+/**
+ * A vendor list row (`api/payees/vendor_accounts.get_vendor_list`): the vendor with its Payee's
+ * bank columns, each null for a vendor with no Payee. The vendor's bank account is its Payee.
+ */
+export type VendorListRow = VendorsType & {
+    payee_account_name: string | null;
+    payee_account_number: string | null;
+    payee_ifsc: string | null;
+    payee_bank_name: string | null;
+    payee_bank_branch: string | null;
+};
 export const CATEGORY_DOCTYPE = 'Category';
 
 export const VENDOR_LIST_FIELDS_TO_FETCH: (keyof VendorsType | 'name' | 'vendor_city' | 'vendor_state' | 'vendor_category')[] = [
@@ -24,11 +36,7 @@ export const VENDOR_LIST_FIELDS_TO_FETCH: (keyof VendorsType | 'name' | 'vendor_
     'available_credit',
     // Optional columns — hidden by default, revealed via the "Toggle columns" menu.
     // Fetched always because both the grid and `exportAllRows` read from this list.
-    'account_name',
-    'account_number',
-    'ifsc',
-    'bank_name',
-    'bank_branch',
+    // The bank columns are not fetched here: every row carries its Payee's (`VendorListRow`).
     'vendor_contact_person_name',
     'vendor_mobile',
     'tds_deduction_percentage',
@@ -40,11 +48,11 @@ export const VENDOR_LIST_FIELDS_TO_FETCH: (keyof VendorsType | 'name' | 'vendor_
  * mirrors whatever is visible at the time of export.
  */
 export const VENDOR_HIDDEN_COLUMNS: Record<string, boolean> = {
-    account_name: false,
-    account_number: false,
-    ifsc: false,
-    bank_name: false,
-    bank_branch: false,
+    payee_account_name: false,
+    payee_account_number: false,
+    payee_ifsc: false,
+    payee_bank_name: false,
+    payee_bank_branch: false,
     vendor_gst: false,
     vendor_pan: false,
     vendor_contact_person_name: false,

@@ -18,6 +18,8 @@
 //
 // ⚠️ From the day the call sites bind this, a literal `"Paid"` in a money filter is a defect.
 
+/** Sanctioned and waiting to be paid: "Payment need to paid". The one status a row is paid from. */
+export const STATUS_APPROVED = "Approved";
 /** Money has LEFT the bank; the statement has not confirmed it yet. */
 export const STATUS_RECONCILIATION_PENDING = "Reconciliation Pending";
 /** Terminal. Money left the bank AND the statement confirmed it. */
@@ -37,7 +39,7 @@ export const SETTLED_STATUSES = [
 export const PENDING_STATUSES = [
   "Requested",
   "CEO Pending",
-  "Approved",
+  STATUS_APPROVED,
   "Rejected",
 ] as const;
 
@@ -45,7 +47,7 @@ export const PENDING_STATUSES = [
 export const STATUS_SEQUENCE = [
   "Requested",
   "CEO Pending",
-  "Approved",
+  STATUS_APPROVED,
   STATUS_RECONCILIATION_PENDING,
   STATUS_PAID,
 ] as const;

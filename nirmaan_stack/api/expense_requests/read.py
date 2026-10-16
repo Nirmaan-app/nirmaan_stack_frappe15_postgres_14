@@ -30,6 +30,8 @@ from nirmaan_stack.services.expense_request_routing import (
 	resolved_categories,
 	reviewer_role_for_type,
 )
+from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
+from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS, pay_to_account
 
 FIELDS = [
 	"name", "type", "projects", "amount", "comment",
@@ -37,6 +39,9 @@ FIELDS = [
 	# not merely hide the vendor -- the dialog would seed blank and the save would CLEAR a
 	# vendor the requester had picked, silently.
 	"vendor",
+	# Who gets paid: the request's own pay-to account (#1436), served as `pay_to`. The reviewer
+	# reads it before deciding, and the edit dialog shows it.
+	*PAY_TO_FIELDS,
 	"source_data", "status", "reviewed_by", "reviewed_on", "review_comment",
 	"owner", "creation", "modified",
 ]
@@ -87,6 +92,8 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		                        fields=["name", "source_format", "source_format_enabled"],
 		                        filters={"source_format": ["is", "set"]})
 	}
+	# Each type's *Who gets paid* (#1466), so the review dialog words a missing account by it.
+	payee_rules = dict(frappe.get_all("Expense Type", fields=["name", "payee_rule"], as_list=True))
 
 	# Category and reviewer are DERIVED, never stored — a routing change re-resolves history
 	# consistently instead of leaving rows stamped with a retired branch.
@@ -123,6 +130,8 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		# server-side so the dialog states the outcome rather than re-deriving the rule.
 		# The status is amount-dependent since 2026-08-20, and the threshold lives on the
 		# ledger doctypes; a TypeScript copy of it would be free to disagree with `validate`.
+		r["pay_to"] = pay_to_account(r)
+		r["payee_rule"] = payee_rules.get(r["type"]) or NOT_ASKED
 		r["target_doctype"] = target_doctype(frappe._dict(r))
 		r["target_status"] = target_status(frappe._dict(r))
 
@@ -158,7 +167,8 @@ def get_request_catalog(include_type: str | None = None):
 	rows = frappe.get_all(
 		"Expense Type",
 		filters={"name": ["in", types]},
-		fields=["name", "project", "non_project", "source_format", "source_format_enabled"],
+		fields=["name", "project", "non_project", "source_format", "source_format_enabled",
+		        "payee_rule"],
 	) if types else []
 	by_name = {r["name"]: r for r in rows}
 
@@ -182,6 +192,9 @@ def get_request_catalog(include_type: str | None = None):
 					"has_format": bool(
 						f.get("source_format_enabled") and (f.get("source_format") or "").strip()
 					),
+					# Who gets paid: Required / Optional / Not asked (ADR-0033). The dialog
+					# shows the payee section unless Not asked; the server applies the rule.
+					"payee_rule": f.get("payee_rule") or NOT_ASKED,
 				}
 			)
 		categories.append({"category": name, "reviewer_role": reviewer_role, "types": entries})

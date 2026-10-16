@@ -8,7 +8,7 @@ leg goes in; one verdict comes out. The write path (`api/outflow_import/unreconc
 facts UNDER ITS LOCKS and asks here, so the decision is always made on a picture nobody else can be
 changing -- a plan shown on screen earlier is never trusted.
 
-IT KNOWS SIX VERDICTS: `revert_payment`, `revert_expense` (#1277), `delete_created` (#1278),
+IT KNOWS SEVEN VERDICTS: `revert_payment`, `revert_expense` (#1277), `delete_created` (#1278), `unmatch_refund` (#1401),
 `unsplit_payment` (#1279), `unlink_expense_line` (#1300) and `refused`. A new one is a new branch HERE, never a check at a call
 site. Each carries a `what_happens` sentence (#1275) -- the line the Unreconcile dialog shows beside the record -- so the screen never has to know what a verdict does to its target.
 
@@ -42,7 +42,8 @@ A CREATED RECORD (#1278, ADR-0022 reverses ADR-0016 AR3 "an import-created inflo
 is DELETED. `created_by_import` is the leg's STORED flag (`Outflow Row Match.created_by_import`), set by
 every Create path and back-filled for older expense legs (`leg_created_the_record`); unresolved is
 "not created", the safe revert path. ⚠️ AN INFLOW LEG IS ALWAYS CREATED, whatever its flag: the import
-has no way to reach an inflow except by creating it. A created record is refused instead when anyone
+has no way to reach an inflow except by creating it -- bar a Vendor Refund, which the match endpoint
+reaches without creating it (#1401) and which then goes back to waiting (`unmatch_refund`). A created record is refused instead when anyone
 edited it after the match -- a Version dated after `matched_at` that changes any field other than the
 statement attachment the import itself writes (`IMPORT_WRITTEN_FIELDS`). ⚠️ NEVER THE `modified`
 TIMESTAMP: the post-commit statement `File` link and receipt adoption bump it with no human involved.
@@ -104,6 +105,7 @@ VERDICT_REVERT_EXPENSE = "revert_expense"
 VERDICT_DELETE_CREATED = "delete_created"
 VERDICT_UNSPLIT_PAYMENT = "unsplit_payment"
 VERDICT_UNLINK_EXPENSE_LINE = "unlink_expense_line"
+VERDICT_UNMATCH_REFUND = "unmatch_refund"
 VERDICT_REFUSED = "refused"
 
 # Where a refused leg is repaired. `None` on a refusal means there is nothing to repair.
@@ -140,6 +142,18 @@ WHAT_HAPPENS_DELETE_PROJECT_INFLOW = (
 # because they carry figures the screen formats as rupees.
 WHAT_HAPPENS_UNSPLIT = "The split is undone:"
 
+# ⚠️ `unreconcile_refund.unmatch_refund` puts back the status, UTR and date the refund had before the
+# match (read off the match save's Version) and takes off the statement attachment; nothing else.
+WHAT_HAPPENS_UNMATCH_REFUND = (
+    "Goes back to waiting for its bank line (Reconciliation Pending). It is kept, with the UTR and "
+    "date it had before the match."
+)
+# #1403: a refund an Admin marked Received with no bank line before the line was matched to it.
+WHAT_HAPPENS_UNMATCH_NO_BANK_LINE_REFUND = (
+    "Goes back to Received with no bank line (No bank proof). It still counts on its PO, and keeps the "
+    "UTR and date it had before the match."
+)
+
 #: The fields a created record's settle writes after it exists -- the statement attachment
 #: (`settle._STATEMENT_ATTACHMENT_FIELDS`, spelled here because this module may not import settle).
 #: A Version touching only these is the import's own, never a person's edit. Pinned against the
@@ -149,6 +163,8 @@ IMPORT_WRITTEN_FIELDS = frozenset({"payment_attachment", "inflow_attachment", "r
 # `CREATED_WINDOW_SECONDS` (the back-fill's window) lives in `unsplit.py`, shared with the split questions.
 
 _PAID = "Paid"
+#: `services/vendor_refunds.RECEIVED`, spelled here to keep this module pure.
+VENDOR_REFUND_RECEIVED = "Received"
 
 __all__ = [
     "CREATED_WINDOW_SECONDS",
@@ -168,7 +184,10 @@ __all__ = [
     "VERDICT_REVERT_EXPENSE",
     "VERDICT_REVERT_PAYMENT",
     "VERDICT_UNLINK_EXPENSE_LINE",
+    "VERDICT_UNMATCH_REFUND",
     "VERDICT_UNSPLIT_PAYMENT",
+    "WHAT_HAPPENS_UNMATCH_NO_BANK_LINE_REFUND",
+    "WHAT_HAPPENS_UNMATCH_REFUND",
     "WHOLE_LINE_ONLY_REFUSAL",
     "WHOLE_LINE_ONLY_TITLE",
     "ExpenseSlip",
@@ -184,7 +203,7 @@ __all__ = [
 #: The refusal when a request reverses only SOME of a vendor refund line's records.
 WHOLE_LINE_ONLY_TITLE = "Reverse all"
 WHOLE_LINE_ONLY_REFUSAL = (
-    "A vendor refund transfer is undone whole: Reverse all deletes every vendor refund on it. "
+    "A vendor refund transfer is undone whole: Reverse all undoes every vendor refund on it. "
     "Nothing was reversed."
 )
 
@@ -238,6 +257,9 @@ class LegFacts:
     versions: tuple = ()
     # EXPENSES ONLY (#1300): every OTHER slip on the expense (`ExpenseSlip`), live or Reversed.
     other_slips: tuple = ()
+    # MATCHED VENDOR REFUNDS ONLY (#1403): an Admin had marked it Received with no bank line before
+    # this line was matched to it, so undoing the match leaves it Received with that mark back.
+    refund_no_bank_line_before: bool = False
 
 
 @dataclass(frozen=True)
@@ -284,6 +306,8 @@ def leg_verdict(facts: LegFacts) -> LegVerdict:
     if facts.target_doctype in INFLOW_DOCTYPES:
         if not facts.target_exists:
             return _refused(facts, "Not found", f"{facts.target_doctype} '{name}' not found.")
+        if facts.target_doctype == VENDOR_REFUND_DOCTYPE and not facts.created_by_import:
+            return _unmatch_refund_verdict(facts)
         return _created_verdict(facts)
     if facts.target_doctype != PAYMENT_DOCTYPE:
         return _refused(
@@ -463,6 +487,48 @@ def _unlink_line_verdict(facts: LegFacts) -> LegVerdict:
     )
 
 
+def _unmatch_refund_verdict(facts: LegFacts) -> LegVerdict:
+    """A waiting Vendor Refund this line MATCHED (#1401, ADR-0032): it goes back to waiting and is kept.
+
+    ⚠️ THE ONE INFLOW LEG WHOSE FLAG IS READ. The match endpoint is the only writer of a Vendor Refunds
+    leg with `created_by_import = 0`; every create-from-line leg carries 1 (all live ones checked,
+    2026-10-13). The refusals are a payment's: the match wrote the status and the reference and the
+    leg holds the amount, so a refund whose status, amount or reference moved since was changed by
+    somebody else, and putting it back would overwrite them.
+    """
+    name = facts.target_name
+    if normalize_amount(facts.leg_amount) != normalize_amount(facts.target_amount):
+        return _refused(
+            facts,
+            "Changed elsewhere",
+            f"{name} now reads {facts.target_amount}, but this match wrote {facts.leg_amount} "
+            f"against it. Somebody has changed the refund since. Correct it on the Vendor Refunds screen.",
+        )
+    if (facts.target_status or "").strip() != VENDOR_REFUND_RECEIVED:
+        return _refused(
+            facts,
+            "Changed elsewhere",
+            f"{name} is '{facts.target_status}', not Received. Somebody has already changed it.",
+        )
+    stored = (facts.target_reference or "").strip()
+    if stored and stored not in {(r or "").strip() for r in facts.settlement_references}:
+        return _refused(
+            facts,
+            "Changed elsewhere",
+            f"{name} carries reference '{stored}', not this transfer's. Somebody has re-pointed "
+            f"it, so this match cannot be safely undone.",
+        )
+    return LegVerdict(
+        leg=facts.leg,
+        verdict=VERDICT_UNMATCH_REFUND,
+        what_happens=(
+            WHAT_HAPPENS_UNMATCH_NO_BANK_LINE_REFUND
+            if facts.refund_no_bank_line_before
+            else WHAT_HAPPENS_UNMATCH_REFUND
+        ),
+    )
+
+
 def _created_verdict(facts: LegFacts) -> LegVerdict:
     """A record this line's settle created: deleted, unless someone edited it after the match (#1278).
 
@@ -532,7 +598,8 @@ def reverse_all_only(live_legs) -> bool:
     ⚠️ A PART-REVERSED VENDOR REFUND LINE IS A DEAD END. Its other refunds stay, so the line reads
     Partially Allocated -- and `create_vendor_refund` refuses a partially allocated line, while the
     refunds still on it count as already recorded. Nothing could complete it; the only way forward was
-    to reverse the rest. So undoing one vendor refund undoes (deletes) all of them, in one go.
+    to reverse the rest. So undoing one vendor refund undoes all of them, in one go: each created one is
+    deleted, each matched waiting one (#1401) goes back to waiting.
 
     `live_legs` are the line's Settled legs, as mappings with `target_doctype`.
     """

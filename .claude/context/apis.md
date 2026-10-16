@@ -83,8 +83,8 @@ Backend API endpoints in `nirmaan_stack/api/`.
 - `data_table/search.py` - Data aggregation (sorting support prepared but not yet enabled; requires explicit field selection)
 
 ### Master Data
-- `create_vendor_and_address.py` - Vendor onboarding
-- `bank_details.py` - Banking utilities
+- `create_vendor_and_address.py` - Vendor onboarding: takes an existing `payee` or new `bank` details made into a Payee (`services/payees/choosing.choose_payee`); a Vendor has no bank fields
+- `bank_details.py` - IFSC lookup (`generate_bank_details`; no caller in the app since #1432, the Payee module uses `services/payees/ifsc`)
 - `users.py` - User management (rename, etc.)
 - `items.py` - Items doctype with `on_update` hook syncing item_name and category to TDS Repository
 
