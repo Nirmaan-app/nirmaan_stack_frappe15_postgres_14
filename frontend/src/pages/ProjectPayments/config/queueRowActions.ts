@@ -14,6 +14,8 @@
  * the owner still corrects Paid records in Desk. A PO / WO payment gets no pencil at all, so it
  * cannot be edited from the app in any status.
  */
+import { rowEligibility } from "@/utils/payees/paidTo";
+
 import { APPROVAL_STATUS, ApprovalQueueRow } from "./approvalsTable.config";
 
 /** Mirrors `services/role_profiles.PAYMENT_SETTLE_PROFILES` — keep the two lists in sync. */
@@ -81,6 +83,14 @@ export const canUploadInvoiceRow = (row: QueueRowLike, role?: string | null): bo
 /** Is this payment held? It stays Approved but cannot be marked as paid or ticked. */
 export const isHeldQueueRow = (row: Pick<ApprovalQueueRow, "on_hold">): boolean =>
   Number(row.on_hold) === 1;
+
+/**
+ * Can this row on "Payment need to paid" be ticked and marked paid? Not when it is held, nor when it is
+ * Ineligible: there is nowhere to send its money (`paidTo.rowEligibility`, #1464). A row kept out of the
+ * bank file (a cheque, a card / cash expense) can: only the export leaves it out.
+ */
+export const canPayQueueRow = (row: Pick<ApprovalQueueRow, "on_hold" | "paid_to" | "expense_type">): boolean =>
+  !isHeldQueueRow(row) && rowEligibility(row.paid_to, row.expense_type).kind !== "ineligible";
 
 /** Is this expense Paid, so its money fields render read-only in the edit dialog? */
 export const isPaidExpense = (status?: string | null): boolean =>

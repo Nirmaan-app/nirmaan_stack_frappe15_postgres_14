@@ -126,12 +126,12 @@ class TestPaidTo(FrappeTestCase):
         return self._insert("Vendors", {"vendor_name": f"TESTPYE Vendor {frappe.generate_hash(length=5)}",
                                         "payee": payee})
 
-    def _payment(self, vendor, copy_of=None, status="Approved", *, saved=False):
+    def _payment(self, vendor, copy_of=None, status="Approved", *, saved=False, mode="Online"):
         """A PO payment. One the test saves again (`saved`) names no PO: the planted PO number names
         no record, a save checks the link, and marking it paid would sync that PO's term."""
         po = {} if saved else {"document_type": "Procurement Orders", "document_name": "PO/TEST/PAIDTO"}
-        return self._insert(PAYMENT, {"vendor": vendor, "amount": 78000, "status": status, **po,
-                                      **self._copy_of(copy_of)})
+        return self._insert(PAYMENT, {"vendor": vendor, "amount": 78000, "status": status,
+                                      "mode_of_payment": mode, **po, **self._copy_of(copy_of)})
 
     def _expense(self, doctype=NPE, *, rule="Optional", copy_of=None, vendor=None, request_id=None,
                  status="Approved"):
@@ -318,6 +318,34 @@ class TestPaidTo(FrappeTestCase):
         self.assertEqual(answers[-1]["missing"], "payment_has_no_account")
         self.assertIsNone(get_pay_to_box(PAYMENT, paid[0])["switch_to"])
         self.assertIsNone(get_pay_to_box(PE, expense)["switch_to"])
+
+    def test_a_cheque_payment_says_so_and_never_takes_its_vendors_account(self):
+        # #1464, ADR-0033 decision 10: a cheque pays no account, so it keeps its copy (or none) and is
+        # kept out of the bank file; the screens read `by_cheque`.
+        raised_with, vendor_now = self.payees.payee(), self.payees.payee()
+        changed = self._payment(self._vendor(vendor_now), copy_of=raised_with, mode="Cheque")
+        raised_with_none = self._payment(self._vendor(vendor_now), mode="Cheque")
+        online = self._payment(self._vendor(vendor_now), copy_of=raised_with)
+
+        for payment, account in ((changed, self._account(raised_with)), (raised_with_none, None)):
+            for reader, answer in self._every_reader(PAYMENT, payment).items():
+                with self.subTest(payment=payment, reader=reader):
+                    self.assertEqual((answer["by_cheque"], answer["switch_to"], answer["account"]),
+                                     (True, None, account))
+        for reader, answer in self._every_reader(PAYMENT, online).items():
+            with self.subTest(payment=online, reader=reader):
+                self.assertEqual((answer["by_cheque"], answer["switch_to"]), (False, self._account(vendor_now)))
+        expense = self._expense(PE, copy_of=raised_with)
+        self.assertFalse(get_paid_to([{"doctype": PE, "name": expense}])[0]["by_cheque"])
+
+    def test_paying_a_cheque_payment_leaves_its_account_as_it_is(self):
+        raised_with, vendor_now = self.payees.payee(), self.payees.payee()
+        payment = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True, mode="Cheque")
+
+        switched = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[payment])
+
+        self.assertEqual(switched, [])
+        self.assertEqual(self._stored_copy(payment), self._copy_of(raised_with))
 
     # -- Mark as Paid and Export for Payment write the vendor's account first (#1463) --------------
     def _stored_copy(self, payment):

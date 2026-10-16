@@ -1,11 +1,12 @@
 /**
- * Who a payment row is paid to (spec #1420 tickets #1431, #1438, #1463, ADR-0033), as the screens say it. Pure.
+ * Who a payment row is paid to (spec #1420 tickets #1431, #1438, #1463, #1464, ADR-0033), as the screens say it. Pure.
  *
  * The server's Payee module resolves it (`services/payees/paid_to.py`): every PO / WO payment and
  * expense is paid into its OWN pay-to account, copied when it was raised, except an unpaid PO / WO
  * payment whose vendor's account changed since, or that has none: it is paid into the vendor's
- * current account (`switch_to`). These only word the answer: the "Payment need to paid" Paid to
- * cell, its CSV column, Mark as Paid's confirmation and Record Payment's "Pay ₹X to" box.
+ * current account (`switch_to`). A cheque payment never switches (`by_cheque`). These only word the
+ * answer: the "Payment need to paid" Paid to cell, its CSV column, Mark as Paid's confirmation and
+ * Record Payment's "Pay ₹X to" box; and decide from it whether a row can be paid (`rowEligibility`).
  */
 
 import type { PayToAccount } from "@/types/NirmaanStack/Payee";
@@ -40,6 +41,9 @@ export interface PaidTo {
      *  it is paid into. Exporting it or marking it paid writes this onto the payment. Null on every
      *  other row. */
     switch_to: PayToAccount | null;
+    /** A PO / WO payment made by cheque (#1464): it never switches, and is kept out of the bank file.
+     *  False on an expense. */
+    by_cheque: boolean;
 }
 
 /** Which answer a row has, with what each answer needs: its account; its vendor's current account in
@@ -54,7 +58,8 @@ export type PaidToKind =
 export type PaidToTone = PaidToKind["tone"];
 
 export interface PaidToCell {
-    tone: PaidToTone;
+    /** `cheque`: an unpaid cheque payment, whose account the cell doesn't show (a cheque pays none). */
+    tone: PaidToTone | "cheque";
     title: string;
     detail: string;
 }
@@ -83,6 +88,69 @@ const expenseNoAccountReason = (rule: string | null | undefined, expenseType: st
     }
 };
 
+/** Why a row is Ineligible (nowhere to send its money) or Kept out of the bank file (paid another way). */
+export const ELIGIBILITY_REASON = {
+    VENDOR_HAS_NO_ACCOUNT: "vendor_has_no_account",
+    REQUIRED_TYPE_HAS_NO_ACCOUNT: "required_type_has_no_account",
+    CHEQUE: "cheque",
+    CARD_OR_CASH: "card_or_cash",
+} as const;
+
+type Reason = typeof ELIGIBILITY_REASON;
+export type IneligibleReason = Reason["VENDOR_HAS_NO_ACCOUNT"] | Reason["REQUIRED_TYPE_HAS_NO_ACCOUNT"];
+export type KeptOutReason = Reason["CHEQUE"] | Reason["CARD_OR_CASH"];
+
+/** Whether a row on "Payment need to paid" can be paid, and how (GLOSSARY *Ineligible*, *Kept out of
+ *  the bank file*). `text` is the reason as the screen shows it. */
+export type RowEligibility =
+    | { kind: "payable" }
+    | { kind: "kept_out"; reason: KeptOutReason; text: string }
+    | { kind: "ineligible"; reason: IneligibleReason; text: string };
+
+const PAYABLE: RowEligibility = { kind: "payable" };
+const KEPT_OUT_TEXT: Record<KeptOutReason, string> = {
+    [ELIGIBILITY_REASON.CHEQUE]: "Paid by cheque: kept out of the bank file.",
+    [ELIGIBILITY_REASON.CARD_OR_CASH]: "Paid by card or cash: kept out of the bank file.",
+};
+const keptOut = (reason: KeptOutReason): RowEligibility => ({ kind: "kept_out", reason, text: KEPT_OUT_TEXT[reason] });
+
+/**
+ * THE rule for which rows can be paid (ADR-0033 decision 10, #1464), a screen rule:
+ *
+ * - *payable*: into its own account, or a PO / WO payment into its vendor's current one (`switch_to`);
+ * - *kept out of the bank file*: any cheque payment, and an expense of an Optional / Not asked type
+ *   with no account (paid by card or cash). It can be ticked and marked paid; the export leaves it out;
+ * - *Ineligible*: a PO / WO payment with no account whose vendor has none, or an expense of a Required
+ *   type with no account. There is nowhere to send its money: it can't be ticked, exported or marked
+ *   paid until an account is added.
+ *
+ * Read from the server's paid-to answer, so the queue (as loaded) and the bank file (read again at
+ * export) decide alike. A held payment is a separate rule (`queueRowActions.isHeldQueueRow`).
+ */
+export const rowEligibility = (paidTo: PaidTo | undefined, expenseType: string): RowEligibility => {
+    if (paidTo?.by_cheque) return keptOut(ELIGIBILITY_REASON.CHEQUE);
+    const kind = classifyPaidTo(paidTo);
+    switch (kind.tone) {
+        case "account":
+        case "vendor_account":
+            return PAYABLE;
+        case "payment_no_account":
+            return {
+                kind: "ineligible",
+                reason: ELIGIBILITY_REASON.VENDOR_HAS_NO_ACCOUNT,
+                text: "Vendor has no bank account. Add it on the vendor page.",
+            };
+        case "no_account":
+            return asPayeeRule(kind.rule) === PAYEE_RULE.REQUIRED
+                ? {
+                      kind: "ineligible",
+                      reason: ELIGIBILITY_REASON.REQUIRED_TYPE_HAS_NO_ACCOUNT,
+                      text: `${expenseType || "Its type"} requires an account. Add it with the Edit pencil.`,
+                  }
+                : keptOut(ELIGIBILITY_REASON.CARD_OR_CASH);
+    }
+};
+
 export const VENDOR_ACCOUNT_TITLE = "Will be paid into the vendor's current account";
 
 /** An account on one line: holder name, account number, IFSC. */
@@ -95,11 +163,17 @@ const accountText = (account: PayToAccount): string =>
  * the row's `status` (required, so no caller forgets it), a paid row (Reconciliation Pending, Paid:
  * spec stories 56/60) reads as a record of where the money went, with no advice to act (Change
  * account, adding bank details), which is wrong once the money has left. The server never switches a
- * paid row. Record Payment's box keeps its own wording (`PayToBox`).
+ * paid row. An unpaid row that can't be paid, or is kept out of the bank file, says why in
+ * `rowEligibility`'s words (#1464). Record Payment's box keeps its own wording (`PayToBox`).
  */
 export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string, status: string): PaidToCell => {
     // Paid means settled: the server's `rules.PAID_STATUSES` is `settlement.SETTLED_STATUSES` too.
     const paid = (SETTLED_STATUSES as readonly string[]).includes(status);
+    const eligibility = rowEligibility(paidTo, expenseType);
+    if (!paid && eligibility.kind === "kept_out" && eligibility.reason === ELIGIBILITY_REASON.CHEQUE) {
+        return { tone: "cheque", title: "Paid by cheque", detail: "Kept out of the bank file." };
+    }
+    const unpaidReason = !paid && eligibility.kind !== "payable" ? eligibility.text : null;
     const kind = classifyPaidTo(paidTo);
     switch (kind.tone) {
         case "vendor_account":
@@ -118,17 +192,15 @@ export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string, stat
             return {
                 tone: kind.tone,
                 title: "No account on this payment",
-                detail: paid ? "It was paid without one on record." : "Its vendor has no bank account either. Add one on the vendor's page.",
+                detail: unpaidReason ?? "It was paid without one on record.",
             };
         case "no_account": {
             const reason = expenseNoAccountReason(kind.rule, expenseType);
-            return {
-                tone: kind.tone,
-                title: "No account",
-                detail: asPayeeRule(kind.rule) === PAYEE_RULE.REQUIRED && !paid
-                    ? `${reason} Add it with Change account in Record Payment.`
-                    : reason,
-            };
+            let detail = reason;
+            if (unpaidReason) {
+                detail = eligibility.kind === "ineligible" ? unpaidReason : `${reason} ${unpaidReason}`;
+            }
+            return { tone: kind.tone, title: "No account", detail };
         }
     }
 };
@@ -137,7 +209,7 @@ export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string, stat
 export const paidToExportText = (paidTo: PaidTo | undefined, expenseType: string, status: string): string => {
     const cell = paidToCell(paidTo, expenseType, status);
     if (cell.tone === "account") return `${cell.title}, ${cell.detail}`;
-    if (cell.tone === "vendor_account" || cell.tone === "no_account") return `${cell.title}: ${cell.detail}`;
+    if (cell.tone === "vendor_account" || cell.tone === "no_account" || cell.tone === "cheque") return `${cell.title}: ${cell.detail}`;
     return cell.title;
 };
 

@@ -4,7 +4,14 @@ import type { PayToAccount } from "@/types/NirmaanStack/Payee";
 import { formatDate, formatDateToDDMMYYYY } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
-import { PAID_TO_MISSING, expenseTitle, type PaidToMissing } from "@/utils/payees/paidTo";
+import {
+	ELIGIBILITY_REASON,
+	expenseTitle,
+	rowEligibility,
+	type IneligibleReason,
+	type KeptOutReason,
+	type PaidTo,
+} from "@/utils/payees/paidTo";
 
 /** Which bulk-transfer file to emit. ICICI's PAB_VENDOR layout and Cashfree's payout template share no columns. */
 export type BankFileFormat = "icici" | "cashfree";
@@ -23,15 +30,12 @@ export interface BankFileRow {
 	 *  means nothing to an accountant. Unused on a PO / WO payment, named by its PO / SR. */
 	description?: string;
 	expenseType?: string;
-	/** The row's own pay-to account, copied when it was raised (ADR-0033, #1438). */
-	account?: BankFileAccount;
-	/** Why the server says the row has no account to pay into (`get_paid_to`'s `missing`), if it has
-	 *  none. */
-	missing?: PaidToMissing | null;
-	/** A PO / WO payment whose vendor's account changed since it was raised, or that was raised with
-	 *  none (`get_paid_to`'s `switch_to`, #1463): it is paid into this, its vendor's current account,
-	 *  and the export writes it onto the payment (`take_vendor_accounts`). */
-	switchTo?: BankFileAccount | null;
+	/** Who the server says the row is paid to, read at export (`get_paid_to`): its own pay-to account
+	 *  (ADR-0033, #1438), or for a PO / WO payment whose vendor's account changed since it was raised,
+	 *  or that was raised with none, its vendor's current account (`switch_to`, #1463), which the
+	 *  export writes onto the payment (`take_vendor_accounts`). `rowEligibility` reads it to decide
+	 *  whether the row goes in the file (#1464). */
+	paidTo: PaidTo | undefined;
 }
 
 export interface BankFileOptions {
@@ -42,8 +46,9 @@ export interface BankFileOptions {
 	now: Date;
 }
 
-/** Why a ticked row is not in the bank file. */
-export type BankFileLeftOutReason = PaidToMissing;
+/** Why a ticked row is not in the bank file: it is Ineligible, or kept out of the bank file
+ *  (`rowEligibility`, #1464). */
+export type BankFileLeftOutReason = IneligibleReason | KeptOutReason;
 
 export interface BankFileLeftOut {
 	row: BankFileRow;
@@ -61,14 +66,14 @@ const CASHFREE_CONTACT_PHONE = "8904007419";
 export interface BankFile {
 	rows: Record<string, BankFileCell>[];
 	leftOut: BankFileLeftOut[];
-	/** The rows in the file paid into their vendor's current account (`switchTo`), in order. */
+	/** The rows in the file paid into their vendor's current account (`switch_to`), in order. */
 	switched: BankFileRow[];
 	csv: string;
 	fileName: string;
 }
 
 /** The account a row in the file is paid into: its vendor's current one when it switches, else its own. */
-const paidInto = (row: BankFileRow): BankFileAccount | undefined => row.switchTo ?? row.account;
+const paidInto = (row: BankFileRow): BankFileAccount | undefined => row.paidTo?.switch_to ?? row.paidTo?.account ?? undefined;
 
 function iciciRow(row: BankFileRow, options: BankFileOptions): Record<string, BankFileCell> {
 	const payee = paidInto(row);
@@ -117,9 +122,9 @@ export function buildBankFile(rows: BankFileRow[], options: BankFileOptions): Ba
 	const payable: BankFileRow[] = [];
 	const leftOut: BankFileLeftOut[] = [];
 	for (const row of rows) {
-		const reason = leftOutReason(row);
-		if (reason) leftOut.push({ row, reason });
-		else payable.push(row);
+		const eligibility = rowEligibility(row.paidTo, row.expenseType ?? "");
+		if (eligibility.kind === "payable") payable.push(row);
+		else leftOut.push({ row, reason: eligibility.reason });
 	}
 
 	// One stamp per file, shared by every row. Cashfree keys a payout on transferId and rejects one
@@ -136,27 +141,26 @@ export function buildBankFile(rows: BankFileRow[], options: BankFileOptions): Ba
 	return {
 		rows: fileRows,
 		leftOut,
-		switched: payable.filter((row) => row.switchTo),
+		switched: payable.filter((row) => row.paidTo?.switch_to),
 		csv: unparse(fileRows),
 		fileName,
 	};
 }
 
 // ICICI and Cashfree both accept a file holding a row with a blank account or IFSC, and reject
-// that row only after upload, so a row with no account is left out here, not at the bank. A copy
-// always holds a holder name, an account number and an IFSC (it is a Payee's), and so does the
-// vendor account a payment switches to.
-function leftOutReason(row: BankFileRow): BankFileLeftOutReason | null {
-	if (row.switchTo) return null;
-	if (row.missing) return row.missing;
-	if (row.account) return null;
-	return row.kind === "vendor_payment" ? PAID_TO_MISSING.PAYMENT_HAS_NO_ACCOUNT : PAID_TO_MISSING.EXPENSE_HAS_NO_ACCOUNT;
-}
+// that row only after upload, so a row with no account is left out here, not at the bank
+// (`rowEligibility`: only a row with an account, or one to switch to, is payable). A copy always
+// holds a holder name, an account number and an IFSC (it is a Payee's), and so does the vendor
+// account a payment switches to. A cheque payment is left out whatever its account: putting it in
+// the file would pay the vendor twice.
 
 /** Each left-out reason as the toast words it, for `count` rows, in the order the toast lists them. */
+const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? "s" : ""}`;
 const LEFT_OUT_PHRASES: Record<BankFileLeftOutReason, (count: number) => string> = {
-	[PAID_TO_MISSING.EXPENSE_HAS_NO_ACCOUNT]: (n) => `${n} expense${n > 1 ? "s" : ""} with no account`,
-	[PAID_TO_MISSING.PAYMENT_HAS_NO_ACCOUNT]: (n) => `${n} payment${n > 1 ? "s" : ""} with no account`,
+	[ELIGIBILITY_REASON.CHEQUE]: (n) => `${plural(n, "payment")} by cheque`,
+	[ELIGIBILITY_REASON.CARD_OR_CASH]: (n) => `${plural(n, "expense")} with no account, paid by card or cash`,
+	[ELIGIBILITY_REASON.REQUIRED_TYPE_HAS_NO_ACCOUNT]: (n) => `${plural(n, "expense")} with no account that ${n > 1 ? "need" : "needs"} one`,
+	[ELIGIBILITY_REASON.VENDOR_HAS_NO_ACCOUNT]: (n) => `${plural(n, "payment")} with no account, whose vendor has none`,
 };
 
 /** How many rows of the file were paid into their vendor's current account, naming the first three by
@@ -179,7 +183,7 @@ const leftOutName = (row: BankFileRow): string =>
 
 /**
  * The left-out rows as phrases for the export toast, one per reason, naming the first three, e.g.
- * "2 expenses with no account (Hotel stay for site team ₹900; Travel ₹12,500)". The accountant must
+ * "2 expenses with no account, paid by card or cash (Hotel stay for site team ₹900; Travel ₹12,500)". The accountant must
  * know the file is shorter than their selection, and which rows still need paying by hand.
  */
 export function describeLeftOut(leftOut: BankFileLeftOut[]): string[] {

@@ -32,7 +32,7 @@ import { ExpenseBankLinesPopover } from "../components/ExpenseBankLinesPopover";
 import { GstPaymentTag } from "../components/GstPaymentTag";
 import { partReconciled } from "../components/expenseBankLinesView";
 import { cn } from "@/lib/utils";
-import { paidToCell, paidToExportText } from "@/utils/payees/paidTo";
+import { paidToCell, paidToExportText, rowEligibility } from "@/utils/payees/paidTo";
 
 import {
   APPROVAL_STATUS,
@@ -260,7 +260,11 @@ const REGISTRY: Record<
         //
         // A HELD payment shows "On Hold" in that slot instead: the server refuses to move it
         // out of Approved, so a live button there would only ever fail.
+        //
+        // An INELIGIBLE row (nowhere to send its money, #1464) shows Mark as Paid disabled, with the
+        // reason on hover; the Paid to cell says it too.
         const held = isHeldQueueRow(r);
+        const eligibility = rowEligibility(r.paid_to, r.expense_type);
         return (
           <div className="flex items-center gap-2">
             {held ? (
@@ -268,6 +272,15 @@ const REGISTRY: Record<
                 className="inline-flex h-7 w-[136px] items-center justify-center gap-1 rounded-md border border-orange-300 bg-orange-100 text-xs font-medium text-orange-800 dark:border-orange-800 dark:bg-orange-950/50 dark:text-orange-300">
                 <CirclePause className="h-3.5 w-3.5" />
                 On Hold
+              </span>
+            ) : eligibility.kind === "ineligible" ? (
+              // A disabled button fires no pointer events, so the span carries the hover reason.
+              <span title={eligibility.text} className="inline-flex cursor-not-allowed">
+                <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700" disabled
+                  aria-label={`Mark as Paid: ${eligibility.text}`}>
+                  <IndianRupee className="mr-1 h-3.5 w-3.5" />
+                  Mark as Paid
+                </Button>
               </span>
             ) : (
               <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700"

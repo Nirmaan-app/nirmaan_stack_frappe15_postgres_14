@@ -37,7 +37,7 @@ from nirmaan_stack.services.role_profiles import assert_payee_manager
 def get_paid_to(rows: str | list[dict]) -> list[dict]:
     """Who each row is paid to, in the order sent. `rows` is `[{doctype, name}]` (`Project Payments`,
     `Project Expenses`, `Non Project Expenses`). Each answer is `{account, missing, payee_rule,
-    switch_to}` (`services/payees/paid_to.paid_to_rows`)."""
+    switch_to, by_cheque}` (`services/payees/paid_to.paid_to_rows`)."""
     if isinstance(rows, str):
         rows = json.loads(rows)
     rows = list(rows or [])

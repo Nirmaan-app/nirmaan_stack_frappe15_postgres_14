@@ -11,6 +11,7 @@ import {
     paidToCell,
     paidToExportText,
     payToBoxView,
+    rowEligibility,
     switchLine,
     type PaidTo,
 } from "./paidTo";
@@ -23,7 +24,7 @@ const account = {
     bank_branch: "Bhiwandi",
 };
 /** A row paid into its own account: every expense, every payment whose vendor kept its account. */
-const NO_SWITCH = { switch_to: null } as const;
+const NO_SWITCH = { switch_to: null, by_cheque: false } as const;
 const paid: PaidTo = { account, missing: null, payee_rule: null, ...NO_SWITCH };
 const newAccount = {
     account_name: "Ramesh Kumar Yadav",
@@ -46,7 +47,7 @@ describe("paidToCell", () => {
         expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Not asked", ...NO_SWITCH }, "Travel", "Approved")).toEqual({
             tone: "no_account",
             title: "No account",
-            detail: "Not asked for this expense type.",
+            detail: "Not asked for this expense type. Paid by card or cash: kept out of the bank file.",
         });
     });
 
@@ -54,7 +55,7 @@ describe("paidToCell", () => {
         expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Optional", ...NO_SWITCH }, "Travel", "Approved")).toEqual({
             tone: "no_account",
             title: "No account",
-            detail: "No account given; optional for Travel.",
+            detail: "No account given; optional for Travel. Paid by card or cash: kept out of the bank file.",
         });
     });
 
@@ -64,7 +65,7 @@ describe("paidToCell", () => {
         ).toEqual({
             tone: "no_account",
             title: "No account",
-            detail: "Labour Advance requires one. Add it with Change account in Record Payment.",
+            detail: "Labour Advance requires an account. Add it with the Edit pencil.",
         });
     });
 
@@ -72,7 +73,7 @@ describe("paidToCell", () => {
         expect(paidToCell({ account: null, missing: "payment_has_no_account", payee_rule: null, ...NO_SWITCH }, "", "Approved")).toEqual({
             tone: "payment_no_account",
             title: "No account on this payment",
-            detail: "Its vendor has no bank account either. Add one on the vendor's page.",
+            detail: "Vendor has no bank account. Add it on the vendor page.",
         });
     });
 
@@ -86,7 +87,7 @@ describe("paidToCell", () => {
     });
 
     it("says a PO payment raised with no account is paid into the vendor's current one", () => {
-        expect(paidToCell({ account: null, missing: null, payee_rule: null, switch_to: newAccount }, "", "Approved")).toEqual({
+        expect(paidToCell({ account: null, missing: null, payee_rule: null, switch_to: newAccount, by_cheque: false }, "", "Approved")).toEqual({
             tone: "vendor_account",
             title: "Will be paid into the vendor's current account",
             detail: "Ramesh Kumar Yadav, A/c 50100234567812, HDFC0000123. It was raised with no account.",
@@ -95,6 +96,58 @@ describe("paidToCell", () => {
 
     it("reads a row the server sent without paid_to as having no account", () => {
         expect(paidToCell(undefined, "", "Approved").title).toBe("No account");
+    });
+
+    it("says an unpaid cheque payment is paid by cheque, outside the bank file, with or without an account", () => {
+        const cheque = { tone: "cheque", title: "Paid by cheque", detail: "Kept out of the bank file." };
+        expect(paidToCell({ ...paid, by_cheque: true }, "", "Approved")).toEqual(cheque);
+        expect(paidToCell({ account: null, missing: "payment_has_no_account", payee_rule: null, switch_to: null, by_cheque: true }, "", "Approved"))
+            .toEqual(cheque);
+        expect(paidToCell({ ...paid, by_cheque: true }, "", "Reconciliation Pending").title).toBe("Ramesh Kumar Yadav");
+    });
+});
+
+describe("rowEligibility: which rows of Payment need to paid can be paid, and how (#1464, ADR-0033 decision 10)", () => {
+    const expenseWithNone = (rule: string | null): PaidTo =>
+        ({ account: null, missing: "expense_has_no_account", payee_rule: rule, ...NO_SWITCH });
+    const paymentWithNone: PaidTo = { account: null, missing: "payment_has_no_account", payee_rule: null, ...NO_SWITCH };
+
+    it("pays a row into its own account, or a PO / WO payment into its vendor's current one", () => {
+        expect(rowEligibility(paid, "")).toEqual({ kind: "payable" });
+        expect(rowEligibility({ ...paid, payee_rule: "Required" }, "Rent Expenses")).toEqual({ kind: "payable" });
+        expect(rowEligibility({ ...paymentWithNone, missing: null, switch_to: newAccount }, "")).toEqual({ kind: "payable" });
+    });
+
+    it("makes a PO / WO payment with no account whose vendor has none either Ineligible", () => {
+        expect(rowEligibility(paymentWithNone, "")).toEqual({
+            kind: "ineligible",
+            reason: "vendor_has_no_account",
+            text: "Vendor has no bank account. Add it on the vendor page.",
+        });
+    });
+
+    it("makes an expense of a Required type with no account Ineligible, pointing to the Edit pencil", () => {
+        expect(rowEligibility(expenseWithNone("Required"), "Rent Expenses")).toEqual({
+            kind: "ineligible",
+            reason: "required_type_has_no_account",
+            text: "Rent Expenses requires an account. Add it with the Edit pencil.",
+        });
+        expect(rowEligibility(expenseWithNone("Required"), "")).toMatchObject({
+            text: "Its type requires an account. Add it with the Edit pencil.",
+        });
+    });
+
+    it("keeps an Optional or Not asked expense with no account out of the bank file: paid by card or cash", () => {
+        const cardOrCash = { kind: "kept_out", reason: "card_or_cash", text: "Paid by card or cash: kept out of the bank file." };
+        expect(rowEligibility(expenseWithNone("Optional"), "Travel")).toEqual(cardOrCash);
+        expect(rowEligibility(expenseWithNone("Not asked"), "Travel")).toEqual(cardOrCash);
+        expect(rowEligibility(expenseWithNone(null), "Travel")).toEqual(cardOrCash);
+    });
+
+    it("keeps any cheque payment out of the bank file, whatever its account", () => {
+        const cheque = { kind: "kept_out", reason: "cheque", text: "Paid by cheque: kept out of the bank file." };
+        expect(rowEligibility({ ...paid, by_cheque: true }, "")).toEqual(cheque);
+        expect(rowEligibility({ ...paymentWithNone, by_cheque: true }, "")).toEqual(cheque);
     });
 });
 
@@ -113,9 +166,10 @@ describe("paidToExportText", () => {
     it("writes why an expense has no account, as the cell says it", () => {
         const noAccount = (payee_rule: string) =>
             paidToExportText({ account: null, missing: "expense_has_no_account", payee_rule, ...NO_SWITCH }, "Travel", "Approved");
-        expect(noAccount("Not asked")).toBe("No account: Not asked for this expense type.");
-        expect(noAccount("Optional")).toBe("No account: No account given; optional for Travel.");
-        expect(noAccount("Required")).toBe("No account: Travel requires one. Add it with Change account in Record Payment.");
+        expect(noAccount("Not asked")).toBe("No account: Not asked for this expense type. Paid by card or cash: kept out of the bank file.");
+        expect(noAccount("Optional")).toBe("No account: No account given; optional for Travel. Paid by card or cash: kept out of the bank file.");
+        expect(noAccount("Required")).toBe("No account: Travel requires an account. Add it with the Edit pencil.");
+        expect(paidToExportText({ ...paid, by_cheque: true }, "", "Approved")).toBe("Paid by cheque: Kept out of the bank file.");
     });
 });
 
@@ -330,6 +384,6 @@ describe("Paid to on a paid row (Reconciliation Pending, Paid)", () => {
             title: "No account on this payment",
             detail: "It was paid without one on record.",
         });
-        expect(paidToCell(required, "Rent", "Approved").detail).toBe("Rent requires one. Add it with Change account in Record Payment.");
+        expect(paidToCell(required, "Rent", "Approved").detail).toBe("Rent requires an account. Add it with the Edit pencil.");
     });
 });

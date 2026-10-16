@@ -501,7 +501,8 @@ def get_approval_queue(
     # queries per page, never one per row.
     for r, paid_to in zip(rows, paid_to_rows([
         {"doctype": r.get("doctype"), "status": r.get("status"), "vendor": r.get("vendor"),
-         "expense_type": r.get("expense_type"), **{f: r.pop(f, None) for f in PAY_TO_FIELDS}}
+         "expense_type": r.get("expense_type"), "mode_of_payment": r.get("mode_of_payment"),
+         **{f: r.pop(f, None) for f in PAY_TO_FIELDS}}
         for r in rows
     ])):
         r["paid_to"] = paid_to
