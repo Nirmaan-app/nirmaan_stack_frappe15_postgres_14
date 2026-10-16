@@ -55,7 +55,7 @@ interface AddChequeDialogProps {
 const Required = () => <span className="ml-0.5 text-red-500">*</span>;
 
 /**
- * Reports > Payment > Cheque Payment > Add Cheque (spec #1407): photo first, then the bank, number,
+ * Cheque Tracker > All Cheques > Add Cheque (spec #1407): photo first, then the bank, number,
  * date, amount, the payee (a Vendor or a typed name), the lines and a description. A Vendor cheque
  * takes PO/WO payment lines (#1410) and expense lines (#1411); a typed-payee cheque expense lines
  * only (`ChequeLinesTable`). With no lines it is an Ad-hoc cheque and needs the description.
