@@ -1146,6 +1146,17 @@ without cladding and every catalogue-row computation (Derivation tab, impact pan
 such an element is recorded in `drops["items_no_id"]` and skipped, the rest of the batch kept -- no KeyError, no
 transient retry. An id not sent stays in `ids_not_in_batch`. `_TRANSIENT_MARKERS` is untouched.
 
+**COPIED BoQ WORDS ARE ONE CONTINUOUS PIECE, NEVER SHORTENED; A COPY NOT FOUND IN THE ROW IS FLAGGED AND KEPT (owner R1,
+2026-10-15; slice 12e-5c AC3, HVAC v42).** Every `type: text` attribute of the Piping and Insulation configs (Piping:
+`pipe_type_as_written`, `size_mm`, `pipe_class`; Insulation: `cladding_as_written`, `thickness_mm`, `pipe_size_mm`,
+`brand`, `material_as_written`) ends its note with: "Copy the words exactly as the BoQ writes them, as one continuous
+piece; never shorten, never join pieces with '...' or any other mark; if the words are long, copy the shortest continuous
+piece that holds the value." A new copied-text attribute carries the same sentence. `extraction.apply_row_text_check`
+compares each copied value with THAT row's own payload (its text, notes and ancestors): a value not found there is
+recorded in `drops["items_not_in_row_text"]` and flagged for a person - **the value is kept, never dropped** (owner
+ruling 2, 2026-09-23). Measured on the 12e-5c Stage B read (508 replies): 0 values with "..."; the 16 flagged values were
+a heading written as a sibling row (a structure shape, not shortening).
+
 **A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
 12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
 (the smallest size)" (12e-4d AC3: below the smallest stocked size the field's line and the working both say "(the

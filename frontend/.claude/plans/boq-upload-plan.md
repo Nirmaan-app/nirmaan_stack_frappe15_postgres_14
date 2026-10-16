@@ -47840,3 +47840,89 @@ sheets 59; the cert wrote nothing. Screens: `2026-10-15_12e5b2_screens\`.
 - 00186 / 108: pipe size "1" without a unit refuses (F-3, unchanged).
 - 00231 / 325: the cladding select reads "- select -" (the stored answer "None" is not an option); unchanged from the
   baseline.
+
+## Slice 12e-5c - Piping Stage B: two small fixes, then the full read of every remaining Piping sheet (on the merged code) - as built 2026-10-16
+
+**Commits (unpushed at the time of writing):**
+- `02a52dcc8` fix(rate-helper): AC1 - `axisOf`'s unit-word strip uses `\b`, not two literal backspace characters; `slice12e5c.test.ts`.
+- `5022347d9` feat(rate-master): HVAC v42 - the copied-text sentence on all 8 `type: text` notes; the pin moves; `TestSlice12e5cAssetV42`.
+- `8d2b8fef2` test(parity): AC13 - one Stage B row per new parity shape, pinned as it is.
+- The docs commit that carries this entry.
+
+Four commits, not the declared three: AC13's two new parity shapes needed a test-only commit. Start tip `76f078923`
+(= origin). HVAC v42 live on dev (batch `rmbulk-cae9d6502566`, pre-load snapshot `BRMS-26-00957`; configs `460fdfa5...`,
+items unchanged `93bbac8f...`); Electrical v66 untouched. Report on the Desktop: `2026-10-15_12e5c_Report.md` (ledger
+first); also `_Rows_full.xlsx`, `_Inventory.xlsx`, `_AC9_synthetic\`, `_screens\` and the three suite logs.
+
+### 1. The two fixes
+
+| AC | Ruling | Change | Rows moved |
+|---|---|---|---|
+| AC1 | R2 | `itemListPricing.axisOf`: `/\x08(?:mm|cm|...)\x08/gi` -> `/\b(?:mm|cm|...)\b/gi` (caller `splitSizePhrase`) | AC2: 0 of 13,752 |
+| AC3 | R1 | v42: "Copy the words exactly as the BoQ writes them, as one continuous piece; never shorten, never join pieces with '...' or any other mark; if the words are long, copy the shortest continuous piece that holds the value." on Insulation cladding_as_written / thickness_mm / pipe_size_mm / brand / material_as_written and Piping pipe_type_as_written / size_mm / pipe_class | AC4: 0 |
+
+Stub proof: ADP and Electrical requests byte-identical; Piping requests hold the sentence 8x, Insulation 5x, equal to v41
+once it is removed; 0 second opinion. Mechanical authority: `test_v33_04_...` gained the named normaliser
+`_without_12e5c_copied_text_sentence`.
+
+### 2. The run
+
+Inventory: 108 Piping sheets not yet read -> gate OPEN 87 (6 selected-rows: 00269 +26 never-read rows, 00321 +5, 00325
++6, 00327 +2, 00329 +7, 00336 +2; 81 whole-sheet) / CLOSED 21. Declared 504 + 2 calls, cap 531. Actual 508 + 2 (4 lost
+to the killed HVAC-8F read), 0 second opinion, 0 retries; 4,424,368 in / 963,405 out (+2% / +7%). Runs BRSR-26-00718 ..
+00805 (87 complete + active), superseding BRSR-26-00081 / 00116 / 00122 / 00124 / 00126 / 00132; run docs 192 -> 280 (199
+active). The PC slept 01:44-07:17 IST mid-sheet: rq killed the work horse on wake (the `rate_master.py:211` hard kill);
+**BRSR-26-00766 is left `running` / active 0**; restarted in-container on the owner's "restart". AC9: the 26 AC6(a) rows
+read as Piping IN MEMORY (24 read, 2 calls), no write proven over 7 doctypes and 52 category records; the capture holds
+them (lines 210-214).
+
+Outcome of the 4,131 rows read: Piping 998 priced / 134 refused; Insulation 257 / 79; ADP 1,463 / 359; others per
+category in the report.
+
+### 3. The check (AC10-AC13)
+
+AC10 / AC12: 1,492 rows hand-checked (13 reviewers on a rubric, every non-right verdict re-judged against the v42 rules,
+the payload as sent and by hand; 20 / 20 sampled right rows confirmed). **7 rows priced on a wrong reading**: 00312 HVAC
+LOWSIDE AIR 161-163 (rigid PVC FRLS conduit for VAV units, categorised Piping, priced as PVC pipe); 00140 HVAC Lowside
+Works 475 / 476 / 478 / 479 (the thickness lives on a SIBLING group line - rows 471 / 477 - so the default 9 -> 13 was
+priced instead of 50 / 19). 37 owner questions in 7 groups (Q-A coating with no glass cloth read as "Glass Cloth with
+paint", read two ways across sheets; Q-B "fire resistant fibre cloth fabric" read as no cladding; Q-C a hyphen thickness
+range; Q-D unstocked densities; Q-E two materials as alternatives; Q-F thermal vs acoustic; Q-G a size on a rule's
+boundary). Per field: pipe type 1,132 right / 3 wrong; ins. thickness 1,290 / 13; ins. cladding 1,263 / 6 / 31 questions.
+
+AC11: (a) 0 "..." in copied text; (b) 16 copied values not in the row's payload, all from a heading written as a sibling
+row (00148 / 218, 00327 / 55) - **the row-text check flags and keeps them** (owner ruling 2, 2026-09-23); (f) 89
+compositions, 50 under the stated thickness (C-R1 ties to the cheaper); (k) `items_not_in_row_text` 21, `items_coerce_failed`
+2, `items_family_unrecognised` 1, `items_no_id` 1.
+
+AC13: 1,349 stored Piping rows, calculator fed the panel's answers: 1,330 agree (outright 1,083, typed 184, pick 18,
+both refuse 45); two pre-existing shapes differ - the panel refusing a stocked family by the material as written (8 rows)
+and a pipe below its smallest size whose insulation sits on the size as read on the panel but on the laddered size in the
+calculator (11 rows). One row of each is pinned in `calculatorPanelParity.test.ts` (the new 12e-5c block).
+
+### 4. Baselines, suites, cert
+
+AC15: 13,752 -> **17,883 rows; 0 existing rows moved; plain `9a9021ec2b594eabc34da2b0779419077aa45b2bec75010166982418dceaf844`;
+section-aware `ccebd4a91f0c43b39fa3d557a0c43c585ec5320a7242bb89e2e6b862c916a239`; run docs 280 (199 active)**.
+
+Suites at `8d2b8fef2`: vitest 184 files / 6,894 (1 known: writeOffControl 5 s timeout); tsc 3,170 (identical set; 4 GB
+heap); Python Ran 8,453 (6 F / 2 E = the known S7b set, identical; +2 = `TestSlice12e5cAssetV42`). Cert: (2026-10-16, :8080, after a full de-stale; PROOF 1 the served `itemListPricing` holds the
+word-boundary regex and 0 backspace bytes; PROOF 2 the live module read by `await import`): C1 AC2 listed no row, so the
+live `splitSizePhrase` was run: "400 mm High x 600 mm Wide" -> 600 mm Wide, 400 mm High; "250(D) x 600(W) x 300(H)" -> W, H,
+D; "450 mm" -> null. C2 00086 High side / 104 "Cladding as written (BoQ): two coats of 500 micron (0.5 mm) WFT Flame
+Retardant coating" - the BoQ's continuous words. C3 00300 VRF System / 44 Copper 936 / 220 + Nitrile 205 / 14 = 1,141 / 234
+/ 1,375 (= the pure pricer). C4 00086 High side / 104 "No SKU in the catalogue for closed cell elastomeric nitrile
+rubber/XLPE tubular insulation - price this row by hand". C5 00336 HVAC / 128 (a never-read row added) "BoQ says 10 mm ->
+priced as 13 mm (next size up)", 1,258 / 154. C6 00162 / 17 the 114 mm line, 2,109 / 588; calculator ADP fire damper UL
+yes "600 x 600" 7,830 / 692; Electrical 00174 / 309 1,884. C7 HVAC v42 / Electrical v66 by content; Run Log 1; runs 280
+(199 active). The cert wrote nothing. The full Python suite left test residue (5 BOQ Nodes on test BoQs, 4 HVAC piping
+items in batch `rmbulk-cfd052213808`; live HVAC content still = v42) - not cleaned.
+
+### 5. Findings for 12e-6
+
+- The 7 rows above; the owner questions Q-A .. Q-G; AC13's two parity shapes.
+- A heading written as a sibling row: copied (flagged, kept) or missed (00140).
+- `pricingSheetHelper.test.ts` lines 5128 / 6254: `/^\x08[RDTS]-?\d/` - two negative assertions are vacuous.
+- v41 / v42's `material_as_written` note holds "..." in an example list.
+- 00231 / 325 "None" / "- select -" (R5: 12e-6).
+- BRSR-26-00766, the sleep orphan: a run killed by rq after a laptop sleep stays `running`.
