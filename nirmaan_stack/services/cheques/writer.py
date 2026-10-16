@@ -29,6 +29,8 @@ Built so far:
   (`take_payment_off`), with a history note.
 * `take_payment_off` -- a payment back to Online, off its Cheque, status unchanged. The edit and
   Switch to Online (#1416) both use it.
+* `reshape_old_cheque` -- the cheque-types patch's write (#1478, spec #1477): an existing Cheque made a
+  Payment cheque, Old-type or not, at the status and dates worked out from its payments.
 
 Convert to Cheque, Link a new cheque and Switch to Online on a payment (#1416) live in
 `services/cheques/payment_actions.py` and make their Cheque through `create_payment_cheque`.
@@ -49,6 +51,7 @@ from frappe.utils import now_datetime
 
 from nirmaan_stack.services.cheque_payments import MODE_CHEQUE, MODE_ONLINE
 from nirmaan_stack.services.cheques.rules import (
+    CHEQUE_TYPE_PAYMENT,
     ISSUED,
     LINE_PO_WO_PAYMENT,
     MADE_FROM,
@@ -219,6 +222,39 @@ def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | 
     return doc
 
 
+def reshape_old_cheque(
+    name: str,
+    *,
+    status: str,
+    old_type: bool,
+    issue_date: str | None,
+    clearance_date: str | None,
+    user: str,
+    note: str | None = None,
+):
+    """Bring a Cheque recorded before spec #1477 into its shape (#1478): a Payment cheque, flagged
+    `old_type` or not, at `status` with its issue and clearance dates. A status move writes one history
+    row by `user`, saying why (`note`). Returns the saved Cheque.
+
+    Only the cheque-types patch calls this; it works the values out from the Cheque's payments
+    (`rules.status_from_payments`, `rules.old_type_reason`). Saved through the document, so the `validate`
+    controller runs every header and line rule. No payment is written: the status follows the payments,
+    it does not move them, so nothing is recomputed.
+    """
+    doc = frappe.get_doc(CHEQUES, name, for_update=True)
+    if doc.status != status:
+        doc.append("status_history", history_row(doc.status, status, user, note))
+        doc.status = status
+    doc.update({
+        "cheque_type": CHEQUE_TYPE_PAYMENT,
+        "old_type": 1 if old_type else 0,
+        "issue_date": issue_date,
+        "clearance_date": clearance_date,
+    })
+    doc.save(ignore_permissions=True)
+    return doc
+
+
 def _new_cheque(header: ChequeHeader, *, made_from: str, lines, status: str, history: dict):
     """An unsaved Cheque; the caller inserts it. Row-locks the payments its lines name first."""
     _lock_payments([line.payment_name for line in lines if line.payment_doctype == PAYMENT_DOCTYPE])
@@ -233,6 +269,7 @@ def _new_cheque(header: ChequeHeader, *, made_from: str, lines, status: str, his
         "payee_name": header.payee_name,
         "description": header.description,
         "attachment": header.attachment,
+        "cheque_type": CHEQUE_TYPE_PAYMENT,
         "status": status,
         "made_from": made_from,
         "status_history": [history],

@@ -1,7 +1,7 @@
 /**
  * `Cheques` (spec #1407): one paper cheque the company writes, recorded on its own with its photo.
  *
- * Mirrors `nirmaan_stack/services/cheques/rules.py` (statuses, banks, line kinds, where it was made).
+ * Mirrors `nirmaan_stack/services/cheques/rules.py` (statuses, types, banks, line kinds, where it was made).
  * Written only by the cheques service (`services/cheques/writer.py`) through `api/cheques/*`.
  * Hand-maintained: frappe_types does not generate types in dev env benches.
  */
@@ -9,12 +9,25 @@
 export const CHEQUES_CHANGED_EVENT = "cheques:changed";
 
 export const CHEQUE_STATUS = {
+    /** A Payment cheque whose payments still wait for approval (spec #1477). */
+    PENDING: "Pending",
     ISSUED: "Issued",
     CLEARED: "Cleared",
     CANCELLED: "Cancelled",
 } as const;
 
 export type ChequeStatus = (typeof CHEQUE_STATUS)[keyof typeof CHEQUE_STATUS];
+
+/** A Payment cheque is cashed by the bank and pays PO payments; a Security Deposit cheque is only held (spec #1477). */
+export const CHEQUE_TYPE = {
+    PAYMENT: "Payment",
+    SECURITY_DEPOSIT: "Security Deposit",
+} as const;
+
+export type ChequeType = (typeof CHEQUE_TYPE)[keyof typeof CHEQUE_TYPE];
+
+/** How a Payment cheque was cleared (`rules.CLEARED_BY`). */
+export type ChequeClearedBy = "By hand" | "Bank import";
 
 export const CHEQUE_BANK = {
     ICICI: "ICICI Bank",
@@ -56,6 +69,7 @@ export interface Cheques {
     modified: string;
     owner: string;
     modified_by: string;
+    cheque_type: ChequeType;
     bank: ChequeBank;
     /** The typed bank name, for Others only. */
     bank_name?: string | null;
@@ -70,6 +84,15 @@ export interface Cheques {
     payee_name?: string | null;
     status: ChequeStatus;
     made_from: ChequeMadeFrom;
+    /** The day it became Issued: a Payment cheque's payments were approved, a deposit cheque handed over. */
+    issue_date?: string | null;
+    /** The day the bank paid a Payment cheque; each payment's payment date. */
+    clearance_date?: string | null;
+    cleared_by?: ChequeClearedBy | null;
+    /** The imported bank-statement line (`Outflow Import Row`) that cleared it. */
+    bank_line?: string | null;
+    /** 1 for a Cheque from before cheque types that pays Expenses, has no lines or names a typed payee. */
+    old_type?: 0 | 1;
     /** The cheque's photo; empty only on Cheques backfilled from old cheque payments. */
     attachment?: string | null;
     /** Required while the Cheque has no lines (an Ad-hoc cheque). */

@@ -1,5 +1,5 @@
 import { PAYMENT_STATUS } from "@/constants/paymentStatus";
-import { CHEQUE_STATUS } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_STATUS, type ChequeStatus } from "@/types/NirmaanStack/Cheques";
 import { formatDate } from "@/utils/FormatDate";
 
 /**
@@ -19,6 +19,17 @@ export const chequeChipText = (chequeNo: string, status?: string | null): string
 
 /** A Cheque's date (its cheque date, when it was made, a status change) as shown and exported; blank when unset. */
 export const chequeDateText = (v?: string | null): string => (v ? formatDate(v) : "");
+
+const STATUS_TONE: Record<ChequeStatus, string> = {
+    Pending: "border-indigo-300 bg-indigo-50 text-indigo-900",
+    Issued: "border-yellow-300 bg-yellow-50 text-yellow-900",
+    Cleared: "border-green-300 bg-green-50 text-green-900",
+    Cancelled: "border-red-200 bg-red-50 text-red-700",
+};
+
+/** The chip's colours for a Cheque at `status`; plain for a payment no Cheque records yet. */
+export const chequeChipTone = (status?: string | null): string =>
+    STATUS_TONE[status as ChequeStatus] ?? "border-border bg-muted/40 text-foreground";
 
 /** A Cancelled cheque's chip is struck through, so a dead cheque is obvious. */
 export const isChequeStruck = (status?: string | null): boolean => status === CHEQUE_STATUS.CANCELLED;

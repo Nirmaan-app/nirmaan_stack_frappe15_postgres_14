@@ -1,10 +1,13 @@
 import { SearchFieldOption } from "@/components/data-table/new-data-table";
 import {
     CHEQUE_STATUS,
+    CHEQUE_TYPE,
     type ChequeBank,
+    type ChequeClearedBy,
     type ChequeLineType,
     type ChequeMadeFrom,
     type ChequeStatus,
+    type ChequeType,
 } from "@/types/NirmaanStack/Cheques";
 import { LINES_GAP_TOLERANCE } from "@/utils/cheques/chequeLines";
 import { formatDate } from "@/utils/FormatDate";
@@ -38,11 +41,20 @@ export interface ChequeRow {
     owner: string;
     owner_name?: string | null;
     cheque_no: string;
+    cheque_type: ChequeType;
     bank: ChequeBank;
     bank_name?: string | null;
     /** The typed name for an Others bank, else the bank. */
     bank_label: string;
     cheque_date: string;
+    /** The day it became Issued; blank while Pending. */
+    issue_date?: string | null;
+    /** The day the bank paid it (a Payment cheque only). */
+    clearance_date?: string | null;
+    cleared_by?: ChequeClearedBy | null;
+    bank_line?: string | null;
+    /** 1 for a Cheque from before cheque types that no longer fits them (GLOSSARY.md, Old-type cheque). */
+    old_type?: 0 | 1;
     status: ChequeStatus;
     amount: number;
     description?: string | null;
@@ -69,13 +81,14 @@ export const CHEQUE_SEARCHABLE_FIELDS: SearchFieldOption[] = [
     { value: "description", label: "Description" },
 ];
 
-export const CHEQUE_DATE_COLUMNS = ["cheque_date", "creation"];
+export const CHEQUE_DATE_COLUMNS = ["cheque_date", "issue_date", "clearance_date", "creation"];
 
 /**
  * The facet filters, by column id. Each id is also the endpoint's filter field: `project` and
  * `record_name` match a Cheque when any of its lines does.
  */
 export const CHEQUE_FACET_FIELDS = {
+    cheque_type: "Type",
     status: "Status",
     bank_label: "Bank",
     vendor: "Vendor",
@@ -87,7 +100,7 @@ export type ChequeFacetField = keyof typeof CHEQUE_FACET_FIELDS;
 
 /** One box of the summary strip. `status` is undefined for All. */
 export interface ChequeSummaryBucket {
-    key: "all" | "issued" | "cleared" | "cancelled";
+    key: "all" | "pending" | "issued" | "cleared" | "cancelled";
     label: string;
     status?: ChequeStatus;
     count: number;
@@ -100,13 +113,13 @@ const num = (v: unknown) => {
 };
 
 /**
- * The summary strip: count and amount for All, Issued, Cleared and Cancelled, from `get_cheques`'s
+ * The summary strip: count and amount for All, Pending, Issued, Cleared and Cancelled, from `get_cheques`'s
  * `aggregates` (`count`, `total_amount`, `<status>_count`, `<status>_amount`). Each matching Cheque
  * counts once, at its full amount.
  */
 export const chequeSummary = (aggregates: Record<string, unknown> | null | undefined): ChequeSummaryBucket[] => {
     const a = aggregates ?? {};
-    const bucket = (key: "issued" | "cleared" | "cancelled", status: ChequeStatus): ChequeSummaryBucket => ({
+    const bucket = (key: Exclude<ChequeSummaryBucket["key"], "all">, status: ChequeStatus): ChequeSummaryBucket => ({
         key,
         label: status,
         status,
@@ -115,6 +128,7 @@ export const chequeSummary = (aggregates: Record<string, unknown> | null | undef
     });
     return [
         { key: "all", label: "All", status: undefined, count: num(a.count), amount: num(a.total_amount) },
+        bucket("pending", CHEQUE_STATUS.PENDING),
         bucket("issued", CHEQUE_STATUS.ISSUED),
         bucket("cleared", CHEQUE_STATUS.CLEARED),
         bucket("cancelled", CHEQUE_STATUS.CANCELLED),
@@ -153,6 +167,17 @@ export const daysOutstanding = (
 
 export const isStale = (row: Pick<ChequeRow, "status" | "cheque_date">, today: Date = new Date()): boolean =>
     (daysOutstanding(row, today) ?? 0) > CHEQUE_STALE_DAYS;
+
+/** The Type cell: "Payment cheque" or "Security Deposit" (spec #1477). */
+export const chequeTypeLabel = (type: ChequeType): string =>
+    type === CHEQUE_TYPE.SECURITY_DEPOSIT ? "Security Deposit" : "Payment cheque";
+
+/** The Clearance / Payment Date cell as text: "10-Sep-2026 (Bank import)"; blank until the bank pays it. */
+export const clearanceText = (row: Pick<ChequeRow, "clearance_date" | "cleared_by">): string => {
+    if (!row.clearance_date) return "";
+    const date = formatDate(row.clearance_date);
+    return row.cleared_by ? `${date} (${row.cleared_by})` : date;
+};
 
 /** A Cheque without a photo: only a backfilled one can be. */
 export const hasNoPhoto = (row: Pick<ChequeRow, "attachment">): boolean => !row.attachment;

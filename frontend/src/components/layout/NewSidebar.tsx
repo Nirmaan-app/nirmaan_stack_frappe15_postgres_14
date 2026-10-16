@@ -29,7 +29,7 @@ import {
   Dices,
   FileSpreadsheet,
   Landmark, PencilRuler, SquareStack,
-  Warehouse, ClipboardList,
+  Warehouse,
   FileChartLine,
   PackageCheck,
   Tickets,
@@ -711,7 +711,8 @@ export function NewSidebar() {
         {
           key: '/inventory',
           icon: Warehouse,
-          label: 'Inventory',
+          // ⚠️ Matched by label in the flat-button set below: rename both together.
+          label: 'Inventory / Warehouse',
         },
       ]
       : []),
@@ -721,15 +722,6 @@ export function NewSidebar() {
           key: '/internal-transfer-memos',
           icon: ArrowLeftRight,
           label: 'Internal Transfer Memos',
-        },
-      ]
-      : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", ...MATERIAL_PROCUREMENT_PROFILES, "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
-      ? [
-        {
-          key: '/warehouse',
-          icon: Package,
-          label: 'Warehouse',
         },
       ]
       : []),
@@ -806,15 +798,6 @@ export function NewSidebar() {
           key: '/critical-po-tracker',
           icon: ClipboardCheck,
           label: 'PO Tracker',
-        },
-      ]
-      : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role as string)
-      ? [
-        {
-          key: '/pr-tracker',
-          icon: ClipboardList,
-          label: 'PR Tracker',
         },
       ]
       : []),
@@ -896,7 +879,6 @@ export function NewSidebar() {
     'snag-list',
     'hod-tracker',
     'critical-po-tracker',
-    'pr-tracker',
     'work-plan-tracker',
     'material-plan-tracker',
     'cashflow-plan-tracker',
@@ -956,14 +938,14 @@ export function NewSidebar() {
     '/snag-list': ['snag-list'],
     '/hod-tracker': ['hod-tracker'],
     '/critical-po-tracker': ['critical-po-tracker'],
-    '/pr-tracker': ['pr-tracker'],
     '/work-plan-tracker': ['work-plan-tracker'],
     '/material-plan-tracker': ['material-plan-tracker'],
     '/cashflow-plan-tracker': ['cashflow-plan-tracker'],
     '/tds-approval': ['tds-approval'],
-    '/inventory': ['inventory'],
+    // Warehouse is a tab of the "Inventory / Warehouse" entry (InventoryWarehouseLayout), so
+    // /warehouse keeps that entry highlighted. 'warehouse' stays in allKeys for that match.
+    '/inventory': ['inventory', 'warehouse'],
     '/internal-transfer-memos': ['internal-transfer-memos'],
-    '/warehouse': ['warehouse'],
     '/help-repository': ['help-repository'],
     '/commission-tracker': ['commission-tracker'],
     '/billing-tracker': ['billing-tracker'],
@@ -1093,7 +1075,6 @@ export function NewSidebar() {
                     "HOD Tracker",
                     // Flat nav button (no children), like the trackers around it.
                     "Billing Tracker",
-                    "PR Tracker",
                     "PO Tracker",
                     "Work Plan Tracker",
                     "Material Plan Tracker",
@@ -1107,9 +1088,8 @@ export function NewSidebar() {
                     "Products",
                     "TDS Approval",
                     "Work Order Rate Card",
-                    "Inventory",
+                    "Inventory / Warehouse",
                     "Internal Transfer Memos",
-                    "Warehouse",
                     "PMO Dashboard",
                     "Reminders Dashboard",
                     "Upload BoQ",

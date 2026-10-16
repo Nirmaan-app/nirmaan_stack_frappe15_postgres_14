@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   ChevronRight,
   ChevronDown,
@@ -8,7 +8,6 @@ import {
   Download,
   ArrowDown,
   ArrowUp,
-  ArrowLeftRight,
   ChevronsUpDown,
   ListX,
   Warehouse,
@@ -16,8 +15,6 @@ import {
   Package,
   FolderKanban,
 } from "lucide-react";
-import { useUserData } from "@/hooks/useUserData";
-import { ITM_CREATE_ROLES } from "@/constants/itm";
 import {
   Table,
   TableHeader,
@@ -373,9 +370,6 @@ function renderInventoryPONumbers(poNumbers: string[], project: string) {
 
 export default function InventoryItemWisePage() {
   const { data: items, isLoading, error } = useInventoryItemWise();
-  const navigate = useNavigate();
-  const { role } = useUserData();
-  const canCreateITM = ITM_CREATE_ROLES.includes(role);
 
   // View mode
   const [viewMode, setViewMode] = useState<ViewMode>("item");
@@ -696,16 +690,8 @@ export default function InventoryItemWisePage() {
             Inventory — {viewMode === "item" ? "Item-Wise" : "Project-Wise"} Summary
           </h2>
         </div>
+        {/* "Create Internal Transfer Memo" lives on the tab bar (InventoryWarehouseLayout). */}
         <div className="flex items-center gap-2">
-          {canCreateITM && (
-            <Button
-              size="sm"
-              onClick={() => navigate("/internal-transfer-memos/create")}
-            >
-              <ArrowLeftRight className="mr-2 h-4 w-4" />
-              Create Internal Transfer Memo
-            </Button>
-          )}
           <Button
             variant="outline"
             size="sm"

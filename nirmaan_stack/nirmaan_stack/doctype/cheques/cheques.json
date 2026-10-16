@@ -7,6 +7,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "cheque_type",
   "bank",
   "bank_name",
   "bank_key",
@@ -18,6 +19,11 @@
   "payee_name",
   "status",
   "made_from",
+  "issue_date",
+  "clearance_date",
+  "cleared_by",
+  "bank_line",
+  "old_type",
   "attachment",
   "description",
   "lines_section",
@@ -98,7 +104,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Issued\nCleared\nCancelled",
+   "options": "Pending\nIssued\nCleared\nCancelled",
    "read_only": 1,
    "reqd": 1
   },
@@ -146,12 +152,61 @@
    "label": "Status History",
    "options": "Cheque Status History",
    "read_only": 1
+  },
+  {
+   "default": "Payment",
+   "description": "A Payment cheque is cashed by the bank and pays PO payments; a Security Deposit cheque is held as a guarantee and pays nothing.",
+   "fieldname": "cheque_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Cheque Type",
+   "options": "Payment\nSecurity Deposit",
+   "reqd": 1
+  },
+  {
+   "description": "The day the cheque became Issued: for a Payment cheque, the day its payments reached Approved; for a Security Deposit cheque, the day it was handed over.",
+   "fieldname": "issue_date",
+   "fieldtype": "Date",
+   "label": "Issue Date",
+   "read_only": 1
+  },
+  {
+   "description": "Payment cheques: the day the bank paid it. It becomes each payment's payment date.",
+   "fieldname": "clearance_date",
+   "fieldtype": "Date",
+   "label": "Clearance Date",
+   "read_only": 1
+  },
+  {
+   "description": "How a Payment cheque was cleared: by hand (Accounts or Admin) or by a bank-statement line.",
+   "fieldname": "cleared_by",
+   "fieldtype": "Select",
+   "label": "Cleared By",
+   "options": "\nBy hand\nBank import",
+   "read_only": 1
+  },
+  {
+   "description": "The imported bank-statement line that cleared the cheque, when there is one.",
+   "fieldname": "bank_line",
+   "fieldtype": "Link",
+   "label": "Bank Line",
+   "options": "Outflow Import Row",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Recorded before cheque types and pays Expenses, has no lines or names a typed payee. Set only by the migration; cleared or cancelled by hand only.",
+   "fieldname": "old_type",
+   "fieldtype": "Check",
+   "label": "Old Type",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-10-14 01:56:55.489970",
+ "modified": "2026-10-17 00:44:18.521998",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Cheques",

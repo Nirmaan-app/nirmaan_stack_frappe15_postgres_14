@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { chequeChipText, isChequeStruck, showsChequeChip, utrOrChequeText } from "./chequeChip";
+import { chequeChipText, chequeChipTone, isChequeStruck, showsChequeChip, utrOrChequeText } from "./chequeChip";
 
 describe("chequeChipText", () => {
     it("names the cheque number, leading zeros kept, and its status", () => {
@@ -63,5 +63,18 @@ describe("utrOrChequeText (the UTR / Ref export)", () => {
 
     it("names no cheque on a Rejected payment", () => {
         expect(utrOrChequeText({ utr_ref: "", cheque_no: "004521", cheque_status: "Issued", status: "Rejected" })).toBe("");
+    });
+});
+
+describe("chequeChipTone", () => {
+    it("gives each cheque status its own colour, Pending included", () => {
+        const tones = ["Pending", "Issued", "Cleared", "Cancelled"].map(chequeChipTone);
+        expect(new Set(tones).size).toBe(4);
+        expect(chequeChipTone("Pending")).toContain("indigo");
+    });
+
+    it("leaves a payment with no Cheque plain", () => {
+        expect(chequeChipTone(null)).toBe(chequeChipTone("unknown"));
+        expect(chequeChipTone(null)).not.toContain("indigo");
     });
 });

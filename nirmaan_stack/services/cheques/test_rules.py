@@ -24,9 +24,86 @@ def _options(folder: str, fieldname: str) -> tuple:
 class TestChequeNamesMatchTheDoctype(unittest.TestCase):
     def test_select_options_are_the_rule_constants(self):
         self.assertEqual(_options("cheques", "status"), rules.CHEQUE_STATUSES)
+        self.assertEqual(_options("cheques", "cheque_type"), rules.CHEQUE_TYPES)
+        self.assertEqual(_options("cheques", "cleared_by"), ("",) + rules.CLEARED_BY)  # blank until cleared
         self.assertEqual(_options("cheques", "bank"), rules.BANKS)
         self.assertEqual(_options("cheques", "made_from"), rules.MADE_FROM)
         self.assertEqual(_options("cheque_line", "line_type"), rules.LINE_TYPES)
+
+    def test_the_statuses_and_types_are_the_glossary_s(self):
+        self.assertEqual(rules.CHEQUE_STATUSES, ("Pending", "Issued", "Cleared", "Cancelled"))
+        self.assertEqual(rules.CHEQUE_TYPES, ("Payment", "Security Deposit"))
+        self.assertEqual(rules.CLEARED_BY, ("By hand", "Bank import"))
+
+
+class TestStatusFromPayments(unittest.TestCase):
+    """A Payment cheque's status is its payments' status in cheque words (spec #1477, ADR-0035).
+    One entry per line: the payment's status, or None for a line with no payment yet."""
+
+    def assertStatus(self, statuses, expected):
+        self.assertEqual(rules.status_from_payments(statuses), expected, statuses)
+
+    def test_payments_waiting_for_approval_make_it_pending(self):
+        self.assertStatus(["Requested"], "Pending")
+        self.assertStatus(["CEO Pending"], "Pending")
+        self.assertStatus(["Requested", "CEO Pending"], "Pending")
+
+    def test_a_line_with_no_payment_yet_keeps_it_pending(self):
+        self.assertStatus([None], "Pending")
+        self.assertStatus(["Approved", None], "Pending")
+
+    def test_approved_payments_make_it_issued(self):
+        self.assertStatus(["Approved"], "Issued")
+        self.assertStatus(["Reconciliation Pending"], "Issued")
+        self.assertStatus(["Approved", "Reconciliation Pending"], "Issued")
+
+    def test_all_paid_makes_it_cleared(self):
+        self.assertStatus(["Paid"], "Cleared")
+        self.assertStatus(["Paid", "Paid"], "Cleared")
+
+    def test_some_paid_is_still_issued(self):
+        self.assertStatus(["Paid", "Reconciliation Pending"], "Issued")
+
+    def test_one_waiting_payment_holds_the_whole_cheque_at_pending(self):
+        self.assertStatus(["Approved", "Requested"], "Pending")
+        self.assertStatus(["Paid", "CEO Pending"], "Pending")
+
+    def test_all_rejected_makes_it_cancelled(self):
+        self.assertStatus(["Rejected"], "Cancelled")
+        self.assertStatus(["Rejected", "Rejected"], "Cancelled")
+
+    def test_a_rejected_payment_beside_live_ones_does_not_count(self):
+        # Under spec #1407 a Rejected payment dropped off its Cheque's lines, so the live ones decide.
+        self.assertStatus(["Rejected", "Paid"], "Cleared")
+        self.assertStatus(["Rejected", "Approved"], "Issued")
+
+    def test_status_text_is_trimmed(self):
+        self.assertStatus([" Paid "], "Cleared")
+
+    def test_no_lines_or_an_unknown_status_cannot_be_worked_out(self):
+        self.assertStatus([], None)
+        self.assertStatus(["On Hold"], None)
+        self.assertStatus(["Paid", ""], None)
+
+
+class TestOldType(unittest.TestCase):
+    """An Old-type cheque pays Expenses, has no lines, or is made out to a typed name (GLOSSARY.md)."""
+
+    def test_a_vendor_cheque_of_po_lines_is_not_old_type(self):
+        self.assertIsNone(rules.old_type_reason(vendor="V", payee_name=None, line_types=["PO/WO Payment"]))
+
+    def test_each_reason(self):
+        self.assertEqual(
+            rules.old_type_reason(vendor="V", payee_name=None, line_types=["PO/WO Payment", "Project Expense"]),
+            "pays expenses",
+        )
+        self.assertEqual(rules.old_type_reason(vendor=None, payee_name=None, line_types=["Non-project Expense"]),
+                         "pays expenses")
+        self.assertEqual(rules.old_type_reason(vendor="V", payee_name=None, line_types=[]), "has no lines")
+        self.assertEqual(
+            rules.old_type_reason(vendor=None, payee_name="Kavitha Properties", line_types=["PO/WO Payment"]),
+            "is made out to a typed payee",
+        )
 
 
 class TestBankIdentity(unittest.TestCase):

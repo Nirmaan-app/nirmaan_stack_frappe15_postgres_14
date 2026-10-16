@@ -105,6 +105,7 @@ def _insert_vendor(values, vendor_type, payee, bank):
     # ⚠️ Tested against `None`/`""`, NEVER `or` -- `0 or 2` is 2, so a vendor
     # deliberately set to 0% TDS would be silently saved at 2%. The form allows
     # 0 (the zod rule is `.min(0)`), so that value is reachable, not theoretical.
+    # `Vendors.validate` then sets the PAN's rate over a 1% / 2% (services/vendor_tds.py).
     _tds = values.get("tds_deduction_percentage")
     vendor_doc.tds_deduction_percentage = 2 if _tds is None or _tds == "" else _tds
     vendor_doc.payee = choose_payee(payee, bank)

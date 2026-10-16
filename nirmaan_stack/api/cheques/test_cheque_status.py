@@ -139,6 +139,12 @@ class TestChequeStatus(FrappeTestCase):
         self.assertEqual(self._status(cheque), "Issued")
         self.assertEqual(len(self._history(cheque)), 1)
 
+    def test_no_hand_move_reaches_pending(self):
+        # #1478: a Payment cheque is Pending only while its payments wait for approval.
+        cheque = self._cheque()
+        self._refused("Choose Issued, Cleared or Cancelled", change_cheque_status, cheque, "Pending")
+        self.assertEqual(self._status(cheque), "Issued")
+
     def test_a_move_to_the_status_it_has_is_refused(self):
         cheque = self._cheque()
         self._refused("cannot be moved to Issued: already Issued", change_cheque_status, cheque, "Issued")

@@ -1,8 +1,6 @@
 /**
- * Local types for the Create ITM flow.
- *
- * Selection is organized by source_project → item_id → { qty + snapshot metadata }
- * so grouping by source_project in the preview dialog is a cheap Object.entries.
+ * Local types for the Create ITM flow: the picker API's shape and the
+ * `create_itms` selection. The page's own rules live in `utils/itmTransfer.ts`.
  */
 
 export interface InventoryPickerSource {
@@ -39,28 +37,6 @@ export interface InventoryPickerItem {
   sources: InventoryPickerSource[];
 }
 
-export interface ItemSelection {
-  qty: number;
-  estimated_rate: number;
-  available_quantity: number;
-  item_id: string;
-  item_name: string;
-  unit: string;
-  category: string;
-  /** Make of the (project, item) bucket the user picked from. */
-  make: string | null;
-  source_project_name: string;
-}
-
-/**
- * Selection state keyed by source -> "${item_id}|${make ?? ""}" so that
- * distinct makes of the same item under the same source remain independent
- * selections. With one-make-per-(project, item) on RIR today this collapses
- * to one entry per item, but the key shape is forward-compatible if a project
- * ever ends up with multiple makes for the same item.
- */
-export type SelectionState = Record<string, Record<string, ItemSelection>>;
-
 export interface CreateItmsPayloadSelection {
   item_id: string;
   source_project: string;
@@ -73,5 +49,3 @@ export interface CreateItmsPayloadSelection {
    */
   make?: string | null;
 }
-
-export type TargetType = "Project" | "Warehouse";

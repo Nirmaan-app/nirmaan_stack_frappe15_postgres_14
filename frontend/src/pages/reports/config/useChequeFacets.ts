@@ -1,5 +1,5 @@
 /**
- * The Cheque Payments report's facet filters (#1417): status, bank, Vendor, project and PO/WO.
+ * The Cheque Payments report's facet filters (#1417): type (#1478), status, bank, Vendor, project and PO/WO.
  *
  * Not the self-fetching facets: those read one doctype's own fields, and the project and PO/WO
  * values live on the Cheque's lines. `get_cheque_facets` groups over the same WHERE as the rows,
@@ -88,6 +88,7 @@ export function useChequeFacets({
     }, [searchTerm]);
 
     const common = [columnFilters, debouncedSearch, selectedSearchField] as const;
+    const chequeType = useChequeFacet("cheque_type", opened.has("cheque_type"), ...common);
     const status = useChequeFacet("status", opened.has("status"), ...common);
     const bank = useChequeFacet("bank_label", opened.has("bank_label"), ...common);
     const vendor = useChequeFacet("vendor", opened.has("vendor"), ...common);
@@ -96,6 +97,7 @@ export function useChequeFacets({
 
     const facetOptions = useMemo(() => {
         const facets: Record<ChequeFacetField, { values: FacetValue[]; isLoading: boolean }> = {
+            cheque_type: chequeType,
             status,
             bank_label: bank,
             vendor,
@@ -116,7 +118,7 @@ export function useChequeFacets({
             map[field] = { title, isLoading, options };
         }
         return map;
-    }, [status, bank, vendor, project, record, columnFilters]);
+    }, [chequeType, status, bank, vendor, project, record, columnFilters]);
 
     return { facetOptions, onFacetOpen };
 }

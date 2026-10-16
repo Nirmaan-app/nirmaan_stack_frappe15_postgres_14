@@ -9,7 +9,14 @@ import { SheetClose } from "@/components/ui/sheet"
 import { useToast } from "@/components/ui/use-toast"
 import { NAME_REGEX } from "@/constants/vendorFormRegex"
 import { findVendorsByPan, vendorNamesLabel } from "./utils/vendorDuplicates"
-import { vendorTaxIdSchemas } from "./utils/vendorTaxIds"
+import {
+  DEFAULT_TDS_RATE,
+  isIndividualHufPan,
+  refineTdsRateAgainstPan,
+  tdsRateOnPanChange,
+  vendorTaxIdSchemas,
+} from "./utils/vendorTaxIds"
+import { VendorTdsRateHint } from "./components/VendorTdsRateHint"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
 import type { PayeeSummary } from "@/types/NirmaanStack/Payee"
 import { VendorPayeeSection } from "@/components/payees/VendorPayeeSection"
@@ -131,7 +138,9 @@ const getVendorFormSchema = (service: boolean, existingVendors: Vendors[] | unde
               .min(0, { message: "TDS % cannot be negative." })
               .max(100, { message: "TDS % cannot exceed 100." })
       ),
-    });
+    // An Individual / HUF PAN must be at 1%; the server applies the same rule on save
+    // (services/vendor_tds.py).
+    }).superRefine(refineTdsRateAgainstPan);
 };
 
 type VendorFormValues = z.infer<ReturnType<typeof getVendorFormSchema>>;
@@ -154,8 +163,8 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
     const VendorFormSchema = getVendorFormSchema(vendorType === "Service", existingVendors, pincode_data)
     const form = useForm<VendorFormValues>({
         resolver: zodResolver(VendorFormSchema),
-        // Every other field starts blank; this one is the sole seeded default, so
-        // the standard 2% applies unless the user deliberately changes it.
+        // Every other field starts blank; this one is the sole seeded default. It holds
+        // 2% until an Individual / HUF PAN is typed, which locks it at 1% (the PAN's onChange).
         defaultValues: { tds_deduction_percentage: 2 },
         mode: 'all',
         reValidateMode: 'onChange',
@@ -320,8 +329,10 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
         }
     }, [createVendorAndAddress, navigation, mutate, vendorType, service, payeeChoice ]);
 
+    const watchedPan = form.watch("vendor_pan");
+    const tdsLocked = isIndividualHufPan(watchedPan);
     // A PAN another vendor already holds is allowed — warn, never block.
-    const samePanVendors = findVendorsByPan(existingVendors, form.watch("vendor_pan"));
+    const samePanVendors = findVendorsByPan(existingVendors, watchedPan);
 
 
     return (
@@ -428,7 +439,14 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
                                             <FormControl>
                                                 <Input placeholder="enter pan..."
                                                  {...field}
-                                                onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
+                                                onChange={(e) => {
+                                                    const pan = e.target.value === "" ? undefined : e.target.value
+                                                    const prevPan = form.getValues("vendor_pan")
+                                                    field.onChange(pan)
+                                                    // An Individual / HUF PAN fixes the TDS rate at 1%; moving off one puts the 2% default back.
+                                                    const rate = tdsRateOnPanChange(prevPan, pan, form.getValues("tds_deduction_percentage"), DEFAULT_TDS_RATE)
+                                                    if (rate !== null) form.setValue("tds_deduction_percentage", rate, { shouldValidate: true })
+                                                }}
                                                  />
                                             </FormControl>                                            <FormMessage />
                                         </FormItem>
@@ -458,6 +476,9 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
                                                     max={100}
                                                     placeholder="2"
                                                     {...field}
+                                                    // Locked at 1% for an Individual / HUF PAN (vendorTaxIds.ts).
+                                                    readOnly={tdsLocked}
+                                                    className={tdsLocked ? "bg-muted cursor-not-allowed" : undefined}
                                                     // `??` (not `||`) so a deliberate 0% renders as "0".
                                                     value={field.value ?? ""}
                                                     // ⚠️ ALWAYS the raw string -- NEVER `undefined` on a
@@ -473,7 +494,7 @@ export const NewVendor : React.FC<NewVendorProps> = ({ navigation = true, servic
                                                     onChange={(e) => field.onChange(e.target.value)}
                                                 />
                                             </FormControl>
-                                            <p className="text-xs text-muted-foreground">Applied to this vendor's payments. Defaults to 2%.</p>
+                                            <VendorTdsRateHint pan={watchedPan} />
                                             <FormMessage />
                                         </FormItem>
                                     )}
