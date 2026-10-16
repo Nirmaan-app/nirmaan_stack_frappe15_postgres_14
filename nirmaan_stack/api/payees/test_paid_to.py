@@ -41,6 +41,9 @@ PM_PROFILE = "Nirmaan Project Manager Profile"
 #: Reads expenses but may not write them (the doctypes' DocPerm: PMO Executive is read-only).
 PMO_USER = "pye_paidto_pmo@example.com"
 PMO_PROFILE = "Nirmaan PMO Executive Profile"
+#: Accounts: the roles the expense Edit dialog shows Who gets paid to (#1465).
+ACCOUNTANT_USER = "pye_paidto_acct@example.com"
+ACCOUNTANT_LEAD_USER = "pye_paidto_acct_lead@example.com"
 PAYMENT = "Project Payments"
 PE = "Project Expenses"
 NPE = "Non Project Expenses"
@@ -52,6 +55,8 @@ class TestPaidTo(FrappeTestCase):
         super().setUpClass()
         _make_user(PM_USER, PM_PROFILE, ("Nirmaan Project Manager",))
         _make_user(PMO_USER, PMO_PROFILE, ("Nirmaan PMO Executive",))
+        _make_user(ACCOUNTANT_USER, "Nirmaan Accountant Profile", ("Nirmaan Accountant",))
+        _make_user(ACCOUNTANT_LEAD_USER, "Nirmaan Accountant Lead Profile", ("Nirmaan Accountant Lead",))
         cls.types = {}
         for rule in ("Required", "Optional", "Not asked"):
             name = f"pye_paidto_{rule.replace(' ', '_').lower()}_{frappe.generate_hash(length=5)}"
@@ -66,7 +71,7 @@ class TestPaidTo(FrappeTestCase):
     def tearDownClass(cls):
         frappe.set_user(U)
         scopes = [("Expense Type", name) for name in cls.types.values()]
-        for user in (PM_USER, PMO_USER):
+        for user in (PM_USER, PMO_USER, ACCOUNTANT_USER, ACCOUNTANT_LEAD_USER):
             scopes += [("Nirmaan Users", user), ("User", user)]
         try:
             delete_each(scopes)
@@ -389,6 +394,31 @@ class TestPaidTo(FrappeTestCase):
         self.assertEqual(box["account"], self._account(second))
         self.assertEqual(frappe.db.get_value(NPE, expense, "pay_to_account_number"),
                          self._copy_of(second)["pay_to_account_number"])
+
+    def test_accounts_save_the_edit_dialog_and_its_picked_payee_onto_an_approved_expense(self):
+        # The expense Edit dialog (the pencil on "Payment need to paid", #1465) saves its fields the
+        # way the SDK's updateDoc does, then copies the picked Payee through Change account's endpoint.
+        first, picked = self.payees.payee(), self.payees.payee()
+        for doctype in (PE, NPE):
+            for user in (ACCOUNTANT_USER, ACCOUNTANT_LEAD_USER):
+                with self.subTest(doctype=doctype, user=user):
+                    expense = self._expense(doctype, rule="Required", copy_of=first)
+
+                    def save_the_dialog():
+                        doc = frappe.get_doc(doctype, expense)
+                        doc.update({"description": "Shuttering labour, second week", "vendor": ""}
+                                   if doctype == PE else {"description": "Shuttering labour, second week"})
+                        doc.save()
+                        return change_expense_account(doctype=doctype, name=expense, payee=picked)
+
+                    box = self._as(user, save_the_dialog)
+
+                    self.assertEqual(frappe.db.get_value(doctype, expense, list(PAY_TO_FIELDS), as_dict=True),
+                                     self._copy_of(picked))
+                    self.assertEqual(frappe.db.get_value(doctype, expense, "description"),
+                                     "Shuttering labour, second week")
+                    self.assertEqual(box["account"], self._account(picked))
+                    self.assertEqual((box["named_by"]["how"], box["named_by"]["user"]), ("changed", user))
 
     def test_the_endpoints_refuse_a_doctype_that_is_not_paid(self):
         payment = self._payment(self._vendor(), copy_of=self.payees.payee())

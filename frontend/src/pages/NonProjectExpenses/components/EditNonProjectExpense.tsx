@@ -25,6 +25,7 @@ import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomA
 import { Checkbox } from "@/components/ui/checkbox";
 import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import { useToast } from "@/components/ui/use-toast";
+import { getFrappeError } from "@/utils/frappeErrors";
 import { Separator } from "@/components/ui/separator";
 import {
     Popover, PopoverContent, PopoverTrigger,
@@ -43,6 +44,8 @@ import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getNonProjectExpenseTypeListOptions } from "@/config/queryKeys";
+import { ExpenseEditPayToSection, useExpenseEditPayTo } from "@/components/payees/ExpenseEditPayTo";
+import { DuplicatePayeeError } from "@/components/payees/usePayeeChoice";
 
 interface EditExpenseFormState {
     type: string;
@@ -99,6 +102,27 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc(); // Changed
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
+    // With each type's *Who gets paid*, which the Who gets paid section words (#1465).
+    const expenseTypeFetchOptions = useMemo(() => {
+        const options = getNonProjectExpenseTypeListOptions();
+        return { ...options, fields: [...(options.fields ?? []), "payee_rule"] };
+    }, []);
+    const expenseTypeQueryKey = queryKeys.expenseTypes.list(expenseTypeFetchOptions);
+    const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>(
+        "Expense Type", expenseTypeFetchOptions as GetDocListArgs<FrappeDoc<ExpenseType>>, expenseTypeQueryKey
+    );
+
+    // Who gets paid (#1465): Accounts set an Approved expense's account here, saved with the edit.
+    const selectedExpenseType = expenseTypesData?.find(et => et.name === formState.type);
+    const payTo = useExpenseEditPayTo({
+        doctype: "Non Project Expenses",
+        name: expenseToEdit.name,
+        status: expenseToEdit.status,
+        rule: selectedExpenseType ? selectedExpenseType.payee_rule ?? null : undefined,
+        vendorNamed: false,
+    });
+    const { reset: resetPayTo } = payTo;
+
     // Initialize form state when expenseToEdit or dialog visibility changes
     useEffect(() => {
         if (editNonProjectExpenseDialog && expenseToEdit) {
@@ -132,15 +156,11 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             setNewInvoiceAttachmentFile(null);
             setFormErrors({});
             setExpenseTypePopoverOpen(false);
+            resetPayTo();
         }
-    }, [editNonProjectExpenseDialog, expenseToEdit]);
+    }, [editNonProjectExpenseDialog, expenseToEdit, resetPayTo]);
 
 
-    const expenseTypeFetchOptions = useMemo(() => getNonProjectExpenseTypeListOptions(), []);
-    const expenseTypeQueryKey = queryKeys.expenseTypes.list(expenseTypeFetchOptions);
-    const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>(
-        "Expense Type", expenseTypeFetchOptions as GetDocListArgs<FrappeDoc<ExpenseType>>, expenseTypeQueryKey
-    );
     const expenseTypeOptionsForCommand = useMemo<Array<{ value: string; label: string }>>(() =>
         expenseTypesData?.map(et => ({ value: et.name, label: et.expense_name })) || [],
         [expenseTypesData]
@@ -202,6 +222,17 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             return;
         }
 
+        // Who gets paid, resolved FIRST: a new payee is added now, and a duplicate stops the save
+        // before anything is written. It is copied onto the expense after the update below.
+        let payee: string | null | undefined;
+        try {
+            payee = await payTo.resolve();
+        } catch (error: unknown) {
+            const description = error instanceof DuplicatePayeeError ? error.message : getFrappeError(error);
+            toast({ title: "Could not update the expense", description, variant: "destructive" });
+            return;
+        }
+
         const dataToUpdate: Partial<NonProjectExpensesType> = {
             type: formState.type,
             description: formState.description.trim(),
@@ -239,14 +270,15 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
 
         try {
             await updateDoc("Non Project Expenses", expenseToEdit.name, dataToUpdate);
+            await payTo.apply(payee);
             toast({ title: "Success!", description: "Non-project expense updated successfully!", variant: "success" });
             onSuccess?.(); // This will refetch and close dialog (from parent)
         } catch (error: any) {
             console.error("Error updating non-project expense:", error);
-            toast({ title: "Failed!", description: error.message || "Failed to update expense.", variant: "destructive" });
+            toast({ title: "Failed!", description: getFrappeError(error) || "Failed to update expense.", variant: "destructive" });
         }
     }, [
-        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload, isPaid,
+        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload, isPaid, payTo,
         recordPaymentDetails, paymentAttachmentAction, newPaymentAttachmentFile,
         recordInvoiceDetails, invoiceAttachmentAction, newInvoiceAttachmentFile
     ]);
@@ -267,9 +299,9 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     }, []);
 
 
-    const isLoadingOverall = updateLoading || uploadLoading || expenseTypesLoading;
+    const isLoadingOverall = updateLoading || uploadLoading || expenseTypesLoading || payTo.busy;
     const editHasInvoiceAttachment = !!newInvoiceAttachmentFile || (invoiceAttachmentAction !== "remove" && !!existingInvoiceAttachmentUrl);
-    const isSubmitDisabled = isLoadingOverall || !formState.type || !formState.description.trim() || !formState.amount || (recordPaymentDetails && !formState.invoice_date) || (recordInvoiceDetails && !formState.invoice_date) || (recordInvoiceDetails && editHasInvoiceAttachment && !formState.invoice_ref.trim());
+    const isSubmitDisabled = isLoadingOverall || !!payTo.problem || !formState.type || !formState.description.trim() || !formState.amount || (recordPaymentDetails && !formState.invoice_date) || (recordInvoiceDetails && !formState.invoice_date) || (recordInvoiceDetails && editHasInvoiceAttachment && !formState.invoice_ref.trim());
     const selectedExpenseTypeLabel = expenseTypeOptionsForCommand.find(option => option.value === formState.type)?.label || "Select Expense Type...";
 
 
@@ -379,6 +411,11 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                             Use negative amount for refunds.
                         </p>
                     </div>
+                    <ExpenseEditPayToSection
+                        payTo={payTo}
+                        expenseType={selectedExpenseType?.expense_name || formState.type}
+                        disabled={isLoadingOverall}
+                    />
 
                     {/* Payment Details are recorded via "Mark as Paid"; only expose this
                         section when editing an already-Paid expense (e.g. Admin corrections). */}

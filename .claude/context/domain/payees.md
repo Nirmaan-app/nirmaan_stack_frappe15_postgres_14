@@ -175,7 +175,8 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     account's Copy buttons and, once paid, says it was marked paid to the old account), and the bank
     file leaves the row out (`bankUploadFile.ACCOUNT_CHANGED`) with "reject it and raise it again".
     "Mark as Paid" on "Payment need to paid" does not check the flag.
-  - **Change account** (Record Payment, an expense only): copies a picked or added Payee's account
+  - **Change account** (Record Payment, an expense only; also the expense Edit dialogs' *Who gets
+    paid*, below): copies a picked or added Payee's account
     onto the expense, overwriting its copy (`expense_payee.change_expense_account`; the save leaves a
     Version row: who and when). The endpoint (`api/payees/paid_to.change_expense_account`) asks
     Frappe's write permission on the expense (its save ignores permissions, so that check is the
@@ -185,6 +186,14 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     its description (`pay_to_box`'s `description`, `paidTo.expenseTitle`), words its type's rule
     (`paidTo.changeAccountRuleLine`) and offers Remove account only when the type is not *Required*
     (`paidTo.canRemoveExpenseAccount`, a screen rule).
+  - **Who gets paid in the expense Edit dialogs** (#1465; the pencil on "Payment need to paid" and on
+    the expense pages): Change account inside the edit, for Accounts on an Approved expense
+    (`paidTo.editDialogPayTo`). Same picker, endpoints and rule wording; it saves with Save Changes:
+    the pick is resolved first (a new Payee is added, a duplicate stops the save), the fields are
+    updated, then the Payee is copied (`components/payees/ExpenseEditPayTo`,
+    `useChangeExpenseAccount`, which the Change account dialog saves through too). Remove account is
+    staged and applied on save. With a vendor named in the form, the vendor's account shows read-only
+    with "set Vendor to Others (No Vendor)" to pay someone else.
   - **Payment autofill** (`api/payment_autofill._build_vendor_match`) compares a receipt's
     beneficiary with the payment's own holder name (`pay_to_account_name`) and the vendor's name. The
     cheque photo check (`match_payee_to_vendor`) still reads the vendor's current Payee: a cheque has
