@@ -15,6 +15,14 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
   recount them (a payment's `status`, `amount`, `document_type`, `document_name`, both the WO it leaves and the
   one it joins; a refund's) and the judge `services/amount_paid_drift.mismatches` are in `procurement.md`
   § Load-bearing invariants, shared with POs.
+- **A new WO payment passes the invoice check (#1488, GLOSSARY *Invoice check*).** Raised (every payment not
+  Rejected, base and GST, gross of vendor-borne TDS) − `amount_invoiced` must be < ₹100, measured BEFORE the new
+  payment. It lives in the pure `services/work_order_payment_limit` (`invoice_check`, `request_refusal`) and is
+  enforced where the WO limit is: `create_payment_request_for_service` and the Project Payments insert
+  validation (the Accountant's paid entry, Desk, REST), as the session user. An L1 approver or the CEO skips it
+  (`order_payments.skips_invoice_check`, via `approval_raiser.raiser_level`); split leftovers and adjustments
+  skip it with the limit. The same check refuses a negative WO payment for everyone (refunds are Vendor
+  Refunds). `get_payment_summary` returns it as `limit.invoice_check` with `skipped` for the viewer.
 
 ## Doctype: Service Requests
 

@@ -113,8 +113,8 @@ def create_payment_request_for_service(data: str) -> str:
     if doctype not in ALLOWED_DOCS:
         frappe.throw(_("Not allowed for doctype {0}").format(doctype))
 
-    # Allow negative amounts (refunds / credits issued after a negative-rate amend).
-    # Zero is still rejected — it has no business meaning.
+    # Zero has no business meaning. A negative amount is refused on a Work Order by its limit check
+    # below (money coming back is a Vendor Refund, #1488); a PO still allows one.
     if amount == 0:
         frappe.throw(_("Amount cannot be zero"))
 

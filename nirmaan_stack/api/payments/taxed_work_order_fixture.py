@@ -116,23 +116,26 @@ class TaxedWorkOrderFixture:
         *,
         gst: bool = False,
         gst_invoiced: float = 0,
+        amount_invoiced: float = 0,
         categories: list[str] | None = None,
     ) -> str:
         """`total_amount` is generous on purpose: `ProjectPayments.before_insert` refuses a payment
         above its parent's total, and a later test may add several payments to one SR.
 
         `gst` / `gst_invoiced` plant a GST-on Work Order and its GST Invoiced cache as given (the
-        cache is an input to the payment limit here, not the thing under test). `categories` fills
+        cache is an input to the payment limit here, not the thing under test); `amount_invoiced`
+        plants its Total Amount Invoiced the same way, for the invoice check. `categories` fills
         `service_category_list` (`["Miscellaneous Services"]` makes it company-borne,
         `payment_tds.is_company_borne`); none leaves it an ordinary Work Order."""
         name = self._name("SR")
         frappe.db.sql(
             """INSERT INTO "tabService Requests" (name, creation, modified, modified_by, owner,
                    docstatus, idx, project, vendor, status, total_amount, amount_paid, gst, gst_invoiced,
-                   service_category_list)
-               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', %s, 0, %s, %s, %s)""",
+                   amount_invoiced, service_category_list)
+               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 'Approved', %s, 0, %s, %s, %s, %s)""",
             (
                 name, U, U, project, vendor, flt(total), "true" if gst else "false", flt(gst_invoiced),
+                flt(amount_invoiced),
                 frappe.as_json({"list": [{"name": c} for c in categories]}) if categories else None,
             ),
         )

@@ -17,6 +17,7 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services.approval_raiser import raiser_level
 from nirmaan_stack.services.work_order_payment_limit import request_refusal, work_order_limit
 
 #: How a refusal names the action: the request endpoint asks for money, every other path pays it.
@@ -64,22 +65,34 @@ def work_order_summary(sr, exclude_payment: str | None = None) -> dict:
 	payments, tds_by_payment = load_payments(sr.doctype, sr.name)
 	return work_order_limit(
 		sr.get("total_amount"), sr.get("gst"), sr.get("gst_invoiced"),
-		payments, tds_by_payment, exclude_payment,
+		payments, tds_by_payment, exclude_payment, sr.get("amount_invoiced"),
 	)
 
 
+def skips_invoice_check(user: str | None) -> bool:
+	"""Does a payment raised by `user` skip the invoice check? An L1 approver or the CEO does (#1488)."""
+	return raiser_level(user) is not None
+
+
 def assert_within_work_order_limit(sr, amount, gst_payment: bool, action: PaymentAction = "request") -> None:
-	"""Refuse `amount` on Work Order `sr` when it breaks the Work Order payment limit (ADR-0030).
+	"""Refuse `amount` on Work Order `sr` when it breaks the Work Order payment limit (ADR-0030), when
+	the Work Order fails the invoice check and the session user does not skip it, or when it is
+	negative (#1488).
 
 	Payments count GROSS of TDS, as the dialogs and the payment summary count them. Two callers:
 	`create_payment_request_for_service` (`action="request"`) and the `Project Payments` insert
 	validation (`action="pay"`), which covers the Accountant's paid entry and any Desk / REST insert.
 	"""
 	limit = work_order_summary(sr)["limit"]
-	refusal = request_refusal(limit, amount, gst_payment)
+	refusal = request_refusal(limit, amount, gst_payment, not skips_invoice_check(frappe.session.user))
 	if not refusal:
 		return
 	act, done = _VERBS[action]
+	if refusal["part"] == "negative":
+		frappe.throw(_("A Work Order payment cannot be negative. Record money coming back as a Vendor Refund."))
+	if refusal["part"] == "invoice":
+		frappe.throw(_("{0} raised is more than {1} in approved invoices. Get an invoice approved before raising another payment.").format(
+			frappe.format_value(refusal["raised"], "Currency"), frappe.format_value(refusal["invoiced"], "Currency")))
 	if refusal["part"] == "no_gst":
 		frappe.throw(_("This Work Order has no GST, so a GST payment cannot be {0} on it.").format(done))
 

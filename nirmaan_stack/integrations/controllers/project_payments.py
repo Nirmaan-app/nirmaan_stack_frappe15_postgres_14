@@ -269,7 +269,10 @@ def _validate_work_order_limit(doc):
       * `split_child` -- a CEO part-approval or Bulk Import part payment inserts the leftover BEFORE
         it trims the original, so this money is already counted once;
       * `from_adjustment` -- PO Revision, which skips every payment hook;
-      * an amount of zero or less -- a refund only lowers what is paid out.
+      * an amount of zero, which the request endpoint refuses on its own.
+
+    The same check refuses a negative amount (money coming back is a Vendor Refund) and holds the
+    insert to the invoice check, as the session user (#1488).
 
     A Purchase Order payment is not a Work Order payment and keeps only the doctype's own check.
     """
@@ -277,7 +280,7 @@ def _validate_work_order_limit(doc):
         return
     if doc.flags.get("work_order_limit_checked") or doc.flags.get("split_child") or doc.flags.get("from_adjustment"):
         return
-    if flt(doc.amount) <= 0:
+    if flt(doc.amount) == 0:
         return
     sr = frappe.get_doc("Service Requests", doc.document_name)
     assert_within_work_order_limit(sr, doc.amount, bool(cint(doc.get("is_gst_payment"))), action="pay")

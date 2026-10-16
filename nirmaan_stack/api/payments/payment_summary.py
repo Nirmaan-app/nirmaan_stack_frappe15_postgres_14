@@ -13,7 +13,7 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.services.finance import get_source_document_financials
-from nirmaan_stack.services.order_payments import load_payments, work_order_summary
+from nirmaan_stack.services.order_payments import load_payments, skips_invoice_check, work_order_summary
 from nirmaan_stack.services.payment_summary import LINE_ORDER, summarise
 
 ALLOWED = ("Procurement Orders", "Service Requests")
@@ -32,6 +32,8 @@ def get_payment_summary(document_type: str, document_name: str, exclude_payment:
 		# into Base left and GST left (ADR-0030).
 		result = work_order_summary(src, exclude_payment)
 		value_basis = "incl_gst" if result["limit"]["gst_on"] else "total"
+		# Whether the person looking would skip the invoice check if they raised a payment (#1488).
+		result["limit"]["invoice_check"]["skipped"] = skips_invoice_check(frappe.session.user)
 	else:
 		value = get_source_document_financials(src)["payable_total"]
 		result = summarise(value, *load_payments(document_type, document_name), exclude_payment)
