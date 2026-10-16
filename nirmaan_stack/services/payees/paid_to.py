@@ -10,13 +10,16 @@ here.
 
 Every row holds its OWN pay-to account (`pay_to.PAY_TO_FIELDS`), copied when it was raised: a PO /
 WO payment (`Project Payments`) from its vendor's Payee, an expense from the Payee its raiser picked
-or its vendor's. An expense is paid into it. An unpaid PO / WO payment whose vendor's Payee now
+or its vendor's. An expense is paid into it. An Approved PO / WO payment whose vendor's Payee now
 holds another account, or that holds none while its vendor has one, is paid into the vendor's
 account instead (`switch_to`, #1463, ADR-0033 decision 9 revised 2026-10-16): exporting it or
-marking it paid first writes that account onto the payment. A PO / WO payment made by cheque
-(`by_cheque`, #1464, ADR-0033 decision 10) never switches: a cheque pays no account, so its copy is
-not where the money went and no account is taken for it; the screens keep it out of the bank file.
-A row with no account to pay into says why: `PAYMENT_HAS_NO_ACCOUNT` or `EXPENSE_HAS_NO_ACCOUNT`. Every expense carries its type's
+marking it paid first writes that account onto the payment. Only an Approved payment switches: one
+not yet approved, or rejected, is not being paid, and a paid one says where its money went. A row
+paid by cheque (`by_cheque`, #1464, ADR-0033 decision 10) -- a PO / WO payment requested as a cheque,
+or any payment or expense on a Cheque that is not Cancelled -- never switches: a cheque pays no
+account, so its copy is not where the money went and no account is taken for it; the screens keep it
+out of the bank file, since paying it there as well would pay twice. A row with no account to pay
+into says why: `PAYMENT_HAS_NO_ACCOUNT` or `EXPENSE_HAS_NO_ACCOUNT`. Every expense carries its type's
 *Who gets paid* rule, so the screen can say whether the type needs an account (and Change account
 whether it may be removed).
 
@@ -37,6 +40,7 @@ import frappe
 from frappe import _
 
 from nirmaan_stack.services.cheque_payments import is_cheque
+from nirmaan_stack.services.cheques.lines import live_cheques_of
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 from nirmaan_stack.services.outflow_import.normalize import normalize_account, normalize_ifsc
 from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
@@ -44,6 +48,7 @@ from nirmaan_stack.services.payees.pay_to import PAY_TO_FIELDS, pay_to_account, 
 from nirmaan_stack.services.payees.rules import ACCOUNT_FIELDS, ENTERED_FIELDS, PAID_STATUSES
 from nirmaan_stack.services.payees.vendor_account import vendor_accounts
 from nirmaan_stack.services.payees.versions import last_field_change
+from nirmaan_stack.services.settlement import STATUS_APPROVED
 
 PAYMENT_DOCTYPE = "Project Payments"
 #: The row kinds the accountant pays.
@@ -69,37 +74,49 @@ def assert_paid_to_doctype(doctype: str, allowed=PAID_TO_DOCTYPES) -> None:
 
 
 def paid_to_rows(rows: list[dict]) -> list[dict]:
-    """Who each row is paid to, in order. A row carries `doctype`, `status`, `vendor`, `expense_type`,
-    `mode_of_payment` and its pay-to fields. Each answer is `{account, missing, payee_rule, switch_to,
-    by_cheque}`:
+    """Who each row is paid to, in order. A row carries `doctype`, `name`, `status`, `vendor`,
+    `expense_type`, `mode_of_payment` and its pay-to fields. Each answer is `{account, missing,
+    payee_rule, switch_to, by_cheque, vendor_has_no_account}`:
 
     * `account` -- the row's own copy (`pay_to.pay_to_account`), or None.
     * `missing` -- None, `PAYMENT_HAS_NO_ACCOUNT` (a PO / WO payment with no copy and nothing to
       switch to) or `EXPENSE_HAS_NO_ACCOUNT`.
     * `payee_rule` -- an expense's type's rule (Not asked when unset), with or without an account;
       None on a PO / WO payment.
-    * `switch_to` -- on an unpaid PO / WO payment, its vendor's account now when the payment is paid
-      into it instead of `account` (`vendor_account_to_take`, #1463); None on every other row.
-    * `by_cheque` -- a PO / WO payment made by cheque (#1464): it never switches, and the screens keep
-      it out of the bank file. False on an expense.
+    * `switch_to` -- on an Approved PO / WO payment, its vendor's account now when the payment is
+      paid into it instead of `account` (`vendor_account_to_take`, #1463); None on every other row.
+    * `by_cheque` -- a row paid by cheque (#1464): a PO / WO payment requested as one, or any row on a
+      Cheque that is not Cancelled. It never switches, and the screens keep it out of the bank file.
+    * `vendor_has_no_account` -- an Approved PO / WO payment that holds its own account while its
+      vendor has none now: it is paid into the account it was raised with, and the screens say so.
 
-    At most two queries, whatever the row count."""
-    rules = _payee_rules({row.get("expense_type") for row in rows if _is_expense(row.get("doctype"))})
-    accounts_now = vendor_accounts([row.get("vendor") for row in rows if _may_switch(row)])
-    return [_answer(row, rules, accounts_now) for row in rows]
+    At most five queries, whatever the row count: the live cheques of each paid doctype, the expense
+    types' rules, the vendors' accounts."""
+    on_cheque = _on_live_cheques(rows)
+    facts = []
+    for row in rows:
+        expense = _is_expense(row.get("doctype"))
+        by_cheque = (row.get("doctype"), row.get("name")) in on_cheque or (not expense and is_cheque(row))
+        facts.append((row, expense, by_cheque, _may_switch(row, expense, by_cheque)))
+    rules = _payee_rules({row.get("expense_type") for row, expense, _, _ in facts if expense})
+    accounts_now = vendor_accounts([row.get("vendor") for row, _, _, may_switch in facts if may_switch])
+    return [_answer(*fact, rules, accounts_now) for fact in facts]
 
 
-def _answer(row: dict, rules: dict[str, str], accounts_now: dict[str, dict]) -> dict:
+def _answer(row: dict, expense: bool, by_cheque: bool, may_switch: bool, rules: dict[str, str],
+            accounts_now: dict[str, dict]) -> dict:
     account = pay_to_account(row)
     answer = {"account": account, "missing": None, "payee_rule": None, "switch_to": None,
-              "by_cheque": not _is_expense(row.get("doctype")) and is_cheque(row)}
-    if _is_expense(row.get("doctype")):
+              "by_cheque": by_cheque, "vendor_has_no_account": False}
+    if expense:
         answer["payee_rule"] = rules.get(row.get("expense_type")) or NOT_ASKED
         if not account:
             answer["missing"] = EXPENSE_HAS_NO_ACCOUNT
         return answer
-    if _may_switch(row):
-        answer["switch_to"] = vendor_account_to_take(account, accounts_now.get(row["vendor"]))
+    if may_switch:
+        vendor_account_now = accounts_now.get(row["vendor"])
+        answer["switch_to"] = vendor_account_to_take(account, vendor_account_now)
+        answer["vendor_has_no_account"] = bool(account) and not vendor_account_now
     if not account and not answer["switch_to"]:
         answer["missing"] = PAYMENT_HAS_NO_ACCOUNT
     return answer
@@ -111,12 +128,20 @@ def _is_expense(doctype: str | None) -> bool:
     return doctype != PAYMENT_DOCTYPE
 
 
-def _may_switch(row: dict) -> bool:
-    """A row that may be paid into its vendor's account: an unpaid PO / WO payment with a vendor, not
-    made by cheque. A paid one (`rules.PAID_STATUSES`) keeps saying where its money went; a cheque pays
-    no account (#1464)."""
-    return (not _is_expense(row.get("doctype")) and bool(row.get("vendor"))
-            and row.get("status") not in PAID_STATUSES and not is_cheque(row))
+def _on_live_cheques(rows: list[dict]) -> set[tuple[str, str]]:
+    """`(doctype, name)` of each row on a Cheque that is not Cancelled: one query per paid doctype."""
+    on_cheque = set()
+    for doctype in PAID_TO_DOCTYPES:
+        names = [row.get("name") for row in rows if row.get("doctype") == doctype]
+        on_cheque.update((doctype, name) for name in live_cheques_of(doctype, names))
+    return on_cheque
+
+
+def _may_switch(row: dict, expense: bool, by_cheque: bool) -> bool:
+    """A row that may be paid into its vendor's account: an Approved PO / WO payment with a vendor, not
+    paid by cheque. Only an Approved one is being paid: a paid one keeps saying where its money went,
+    and a cheque pays no account (#1464)."""
+    return not expense and bool(row.get("vendor")) and row.get("status") == STATUS_APPROVED and not by_cheque
 
 
 def vendor_account_to_take(copy: dict | None, vendor_account_now: dict | None) -> dict | None:
@@ -194,7 +219,7 @@ def _row_fields(doctype: str, *extra: str) -> list[str]:
 
 def row_facts(doctype: str, row) -> dict:
     """The facts `paid_to_rows` reads, from a stored row (a dict or a Document)."""
-    return {"doctype": doctype, "status": row.get("status"), "vendor": row.get("vendor"),
+    return {"doctype": doctype, "name": row.get("name"), "status": row.get("status"), "vendor": row.get("vendor"),
             "expense_type": row.get("type"), "mode_of_payment": row.get("mode_of_payment"),
             **{field: row.get(field) for field in PAY_TO_FIELDS}}
 

@@ -24,7 +24,7 @@ const account = {
     bank_branch: "Bhiwandi",
 };
 /** A row paid into its own account: every expense, every payment whose vendor kept its account. */
-const NO_SWITCH = { switch_to: null, by_cheque: false } as const;
+const NO_SWITCH = { switch_to: null, by_cheque: false, vendor_has_no_account: false } as const;
 const paid: PaidTo = { account, missing: null, payee_rule: null, ...NO_SWITCH };
 const newAccount = {
     account_name: "Ramesh Kumar Yadav",
@@ -87,7 +87,7 @@ describe("paidToCell", () => {
     });
 
     it("says a PO payment raised with no account is paid into the vendor's current one", () => {
-        expect(paidToCell({ account: null, missing: null, payee_rule: null, switch_to: newAccount, by_cheque: false }, "", "Approved")).toEqual({
+        expect(paidToCell({ account: null, missing: null, payee_rule: null, ...NO_SWITCH, switch_to: newAccount }, "", "Approved")).toEqual({
             tone: "vendor_account",
             title: "Will be paid into the vendor's current account",
             detail: "Ramesh Kumar Yadav, A/c 50100234567812, HDFC0000123. It was raised with no account.",
@@ -101,7 +101,7 @@ describe("paidToCell", () => {
     it("says an unpaid cheque payment is paid by cheque, outside the bank file, with or without an account", () => {
         const cheque = { tone: "cheque", title: "Paid by cheque", detail: "Kept out of the bank file." };
         expect(paidToCell({ ...paid, by_cheque: true }, "", "Approved")).toEqual(cheque);
-        expect(paidToCell({ account: null, missing: "payment_has_no_account", payee_rule: null, switch_to: null, by_cheque: true }, "", "Approved"))
+        expect(paidToCell({ account: null, missing: "payment_has_no_account", payee_rule: null, ...NO_SWITCH, by_cheque: true }, "", "Approved"))
             .toEqual(cheque);
         expect(paidToCell({ ...paid, by_cheque: true }, "", "Reconciliation Pending").title).toBe("Ramesh Kumar Yadav");
     });
@@ -144,10 +144,12 @@ describe("rowEligibility: which rows of Payment need to paid can be paid, and ho
         expect(rowEligibility(expenseWithNone(null), "Travel")).toEqual(cardOrCash);
     });
 
-    it("keeps any cheque payment out of the bank file, whatever its account", () => {
+    it("keeps any row a cheque pays out of the bank file, whatever its account: a payment or an expense", () => {
         const cheque = { kind: "kept_out", reason: "cheque", text: "Paid by cheque: kept out of the bank file." };
         expect(rowEligibility({ ...paid, by_cheque: true }, "")).toEqual(cheque);
         expect(rowEligibility({ ...paymentWithNone, by_cheque: true }, "")).toEqual(cheque);
+        // An expense on a cheque: the cheque pays it, so it is not Ineligible even with no account.
+        expect(rowEligibility({ ...expenseWithNone("Required"), by_cheque: true }, "Rent Expenses")).toEqual(cheque);
     });
 });
 
@@ -355,6 +357,29 @@ describe("Change account names the expense and words its type's rule", () => {
         expect(canRemoveExpenseAccount("Optional", true)).toBe(true);
         expect(canRemoveExpenseAccount(null, true)).toBe(true);
         expect(canRemoveExpenseAccount("Optional", false)).toBe(false);
+    });
+});
+
+describe("a PO / WO payment whose vendor has no account now is paid to the account it was raised with", () => {
+    const LINE = "The vendor has no bank account on record now. Paid to the account it was raised with.";
+    const lost = { ...paid, vendor_has_no_account: true };
+
+    it("says so in the Paid to cell and its CSV", () => {
+        expect(paidToCell(lost, "", "Approved")).toEqual({
+            tone: "account",
+            title: "Ramesh Kumar Yadav",
+            detail: `A/c 36147100982211, SBIN0003435. ${LINE}`,
+        });
+        expect(paidToExportText(lost, "", "Approved")).toBe(`Ramesh Kumar Yadav, A/c 36147100982211, SBIN0003435. ${LINE}`);
+    });
+
+    it("says so in the Pay box, in place of the copied-from note", () => {
+        const box = { ...lost, vendor_fixed: false, vendor_name: "Kaveri Ductfab", paid: false };
+        expect(payToBoxView("Project Payments", box, "")).toEqual({ tone: "account", noAccount: null, note: LINE });
+    });
+
+    it("is still payable", () => {
+        expect(rowEligibility(lost, "")).toEqual({ kind: "payable" });
     });
 });
 

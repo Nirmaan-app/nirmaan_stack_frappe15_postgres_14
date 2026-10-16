@@ -8,8 +8,10 @@
 import { useCallback } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
 
+import { getFrappeError } from "@/utils/frappeErrors";
+
 import { CHANGE_EXPENSE_ACCOUNT_API, type PayToBox } from "./paidToApi";
-import type { PayeeChoice } from "./usePayeeChoice";
+import { DuplicatePayeeError, type PayeeChoice } from "./usePayeeChoice";
 
 /**
  * The Payee to copy (a new one is added now), null to remove the account, or undefined when there is
@@ -21,6 +23,11 @@ export async function chosenExpensePayee(choice: PayeeChoice, remove: boolean): 
     const picked = await choice.resolve();
     return picked?.kind === "payee" ? picked.payee.name : undefined;
 }
+
+/** Why a save that sets an expense's account failed, for its toast: the duplicate's own wording, else
+ *  the server's reason (a Payee rule, a paid expense, …), not the SDK's generic text. */
+export const expenseAccountSaveError = (error: unknown): string =>
+    error instanceof DuplicatePayeeError ? error.message : getFrappeError(error);
 
 /** Copy Payee `payee` (null: no account) onto the expense; resolves to its new "Pay ₹X to" box. */
 export function useChangeExpenseAccount() {

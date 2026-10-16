@@ -13,7 +13,8 @@ const API = "nirmaan_stack.api.payees.paid_to";
 /** Who each `{doctype, name}` row is paid to, read now (Export for Payment). */
 export const PAID_TO_API = `${API}.get_paid_to`;
 /** Export for Payment and Mark as Paid: write the vendor's current account onto each named PO / WO
- *  payment that switches to it (#1463). Takes `{names}`, returns the names switched. */
+ *  payment that switches to it (#1463). Takes `{names}`: every PO / WO payment being paid, since the
+ *  server decides again which switch. Returns a `TakenVendorAccount` per payment. */
 export const TAKE_VENDOR_ACCOUNTS_API = `${API}.take_vendor_accounts`;
 /** Record Payment's "Pay ₹X to" box, for an expense or a PO / WO payment. */
 export const PAY_TO_BOX_API = `${API}.get_pay_to_box`;
@@ -32,6 +33,14 @@ export const ACCOUNTS_PAYEE_APIS: PayeeChoiceApis = {
 };
 
 export type PaidToKey = { doctype: string; name: string };
+
+/** `take_vendor_accounts`' answer for one payment: the paid-to answer its write acted on, read under the
+ *  lock. A switched payment's `switch_to` is exactly the account written onto it; an unswitched one
+ *  keeps `account`. The bank file is built from these, never from the earlier read. */
+export interface TakenVendorAccount {
+    name: string;
+    paid_to: PaidTo;
+}
 export type { PaidTo };
 
 /** `paid_to.pay_to_box`: the "Pay ₹X to" box for one row: its Paid to answer, plus the facts around it. */

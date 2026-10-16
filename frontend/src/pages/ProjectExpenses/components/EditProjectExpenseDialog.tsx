@@ -21,7 +21,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomAttachment";
 import { useToast } from "@/components/ui/use-toast";
-import { getFrappeError } from "@/utils/frappeErrors";
 import { cn } from "@/lib/utils";
 
 // --- Types ---
@@ -37,7 +36,7 @@ import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import SITEURL from "@/constants/siteURL";
 import { ExpenseEditPayToSection, useExpenseEditPayTo } from "@/components/payees/ExpenseEditPayTo";
-import { DuplicatePayeeError } from "@/components/payees/usePayeeChoice";
+import { expenseAccountSaveError } from "@/components/payees/useChangeExpenseAccount";
 
 interface EditProjectExpenseDialogProps {
     expenseToEdit: ProjectExpenses;
@@ -100,11 +99,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
     const { updateDoc, loading } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
     const { data: vendorsData, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", { fields: ["name", "vendor_name"], limit: 0 });
-    // With each type's *Who gets paid*, which the Who gets paid section words (#1465).
-    const expenseTypeFetchOptions = useMemo(() => {
-        const options = getProjectExpenseTypeListOptions();
-        return { ...options, fields: [...(options.fields ?? []), "payee_rule"] };
-    }, []);
+    const expenseTypeFetchOptions = useMemo(() => getProjectExpenseTypeListOptions(), []);
     const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>("Expense Type", expenseTypeFetchOptions as any, queryKeys.expenseTypes.list(expenseTypeFetchOptions));
 
     const vendorOptions = useMemo(() => {
@@ -143,9 +138,8 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
             setNewPaymentFile(null);
             setFormErrors({});
             setExpenseTypePopoverOpen(false);
-            resetPayTo();
         }
-    }, [editProjectExpenseDialog, expenseToEdit, resetPayTo]);
+    }, [editProjectExpenseDialog, expenseToEdit]);
 
     useEffect(() => {
         const commandListElement = commandListRef.current;
@@ -154,7 +148,11 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
         return () => { if (commandListElement) commandListElement.removeEventListener('wheel', handleWheel); };
     }, [expenseTypePopoverOpen]);
 
-    const handleDialogClose = () => setEditProjectExpenseDialog(false);
+    // Every close (Cancel, Escape, after a save) comes through here: the next open starts with nothing picked.
+    const handleDialogClose = () => {
+        resetPayTo();
+        setEditProjectExpenseDialog(false);
+    };
 
     const handleAttachmentError = useCallback(({ message }: { type: "size" | "type", message: string }) => {
         toast({ title: "Attachment Error", description: message, variant: "destructive" });
@@ -226,9 +224,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
             onSuccess?.();
             handleDialogClose();
         } catch (error: unknown) {
-            // The server's own reason (a Payee rule, a paid expense, …), not the SDK's generic text.
-            const description = error instanceof DuplicatePayeeError ? error.message : getFrappeError(error);
-            toast({ title: "Could not update the expense", description, variant: "destructive" });
+            toast({ title: "Could not update the expense", description: expenseAccountSaveError(error), variant: "destructive" });
         }
     };
 

@@ -45,7 +45,7 @@ import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getNonProjectExpenseTypeListOptions } from "@/config/queryKeys";
 import { ExpenseEditPayToSection, useExpenseEditPayTo } from "@/components/payees/ExpenseEditPayTo";
-import { DuplicatePayeeError } from "@/components/payees/usePayeeChoice";
+import { expenseAccountSaveError } from "@/components/payees/useChangeExpenseAccount";
 
 interface EditExpenseFormState {
     type: string;
@@ -102,11 +102,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc(); // Changed
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
-    // With each type's *Who gets paid*, which the Who gets paid section words (#1465).
-    const expenseTypeFetchOptions = useMemo(() => {
-        const options = getNonProjectExpenseTypeListOptions();
-        return { ...options, fields: [...(options.fields ?? []), "payee_rule"] };
-    }, []);
+    const expenseTypeFetchOptions = useMemo(() => getNonProjectExpenseTypeListOptions(), []);
     const expenseTypeQueryKey = queryKeys.expenseTypes.list(expenseTypeFetchOptions);
     const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>(
         "Expense Type", expenseTypeFetchOptions as GetDocListArgs<FrappeDoc<ExpenseType>>, expenseTypeQueryKey
@@ -156,9 +152,8 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             setNewInvoiceAttachmentFile(null);
             setFormErrors({});
             setExpenseTypePopoverOpen(false);
-            resetPayTo();
         }
-    }, [editNonProjectExpenseDialog, expenseToEdit, resetPayTo]);
+    }, [editNonProjectExpenseDialog, expenseToEdit]);
 
 
     const expenseTypeOptionsForCommand = useMemo<Array<{ value: string; label: string }>>(() =>
@@ -228,8 +223,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
         try {
             payee = await payTo.resolve();
         } catch (error: unknown) {
-            const description = error instanceof DuplicatePayeeError ? error.message : getFrappeError(error);
-            toast({ title: "Could not update the expense", description, variant: "destructive" });
+            toast({ title: "Could not update the expense", description: expenseAccountSaveError(error), variant: "destructive" });
             return;
         }
 
@@ -272,13 +266,15 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             await updateDoc("Non Project Expenses", expenseToEdit.name, dataToUpdate);
             await payTo.apply(payee);
             toast({ title: "Success!", description: "Non-project expense updated successfully!", variant: "success" });
+            // The parent closes the dialog through the store, past `onOpenChange`: start the next open clean.
+            resetPayTo();
             onSuccess?.(); // This will refetch and close dialog (from parent)
         } catch (error: any) {
             console.error("Error updating non-project expense:", error);
             toast({ title: "Failed!", description: getFrappeError(error) || "Failed to update expense.", variant: "destructive" });
         }
     }, [
-        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload, isPaid, payTo,
+        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload, isPaid, payTo, resetPayTo,
         recordPaymentDetails, paymentAttachmentAction, newPaymentAttachmentFile,
         recordInvoiceDetails, invoiceAttachmentAction, newInvoiceAttachmentFile
     ]);
@@ -296,7 +292,8 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
         setPaymentAttachmentAction("keep");
         setInvoiceAttachmentAction("keep");
         setExpenseTypePopoverOpen(false);
-    }, []);
+        resetPayTo();
+    }, [resetPayTo]);
 
 
     const isLoadingOverall = updateLoading || uploadLoading || expenseTypesLoading || payTo.busy;

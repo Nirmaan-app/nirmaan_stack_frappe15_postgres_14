@@ -149,15 +149,21 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   Everything else stays blank: a paid record is never filled from its vendor. The writes are raw (no
   hook re-copies, no Version row), so "who set the account" reads the raiser, else the vendor.
 - **Paid to** (#1431, #1438, #1463): who a row the accountant pays is paid to is resolved in one place,
-  `services/payees/paid_to.py`: every row into its own pay-to account, except an unpaid PO / WO
+  `services/payees/paid_to.py`: every row into its own pay-to account, except an Approved PO / WO
   payment that switches to its vendor's current account (below). "Payment need to paid"'s Paid to column (the approval
   queue's `paid_to`, from the `pay_to_*` columns it selects), Export for Payment (read again at export
   through `api/payees/paid_to.get_paid_to`) and Record Payment's "Pay ₹X to" box (`pay_to_box`, for
   an expense and for a PO / WO payment) all read it; no screen re-derives it. An answer is
-  `{account, missing, payee_rule, switch_to, by_cheque}`; `account` is always the row's own copy; `missing` is
+  `{account, missing, payee_rule, switch_to, by_cheque, vendor_has_no_account}`; `account` is always the row's own copy; `missing` is
   `payment_has_no_account` (no copy and nothing to switch to) or `expense_has_no_account`; `payee_rule` is every expense's type rule,
-  with or without an account (null on a payment); `by_cheque` is a PO / WO payment whose Mode of
-  Payment is Cheque (`cheque_payments.is_cheque`). A row with none is left out of the bank file with a
+  with or without an account (null on a payment); `by_cheque` is a row a cheque pays: a PO / WO
+  payment whose Mode of Payment is Cheque (`cheque_payments.is_cheque`), or any payment or expense
+  on a Cheque that is not Cancelled (`cheques.lines.live_cheques_of`, one query per paid doctype,
+  so a cheque made from the Cheques report for an Online payment, or for an expense, is caught);
+  `vendor_has_no_account` is an Approved PO / WO payment holding its own copy while its vendor has
+  no Payee now: it is paid into the copy, and the Paid to cell and the "Pay ₹X to" box say "The
+  vendor has no bank account on record now. Paid to the account it was raised with."
+  (`paidTo.VENDOR_HAS_NO_ACCOUNT_NOW`). A row with none is left out of the bank file with a
   reason, never sent with a blank account, and the export toast names a left-out expense by its
   description and amount, never its ID; the Cashfree beneficiary is the copy's holder name. The
   "Payment Done / Reconciliation Pending" and "Reconciliation Done" tabs show the same Paid to column,
@@ -165,38 +171,45 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   latest Version change to the copy's holder name, account number or IFSC, else the request's raiser
   (when the request holds the same account), else "copied from the vendor".
   - **Paid into the vendor's current account** (#1463, ADR-0033 decision 9 revised 2026-10-16;
-    replaces #1439's "reject it and raise it again"): an unpaid (not `rules.PAID_STATUSES`) PO / WO
+    replaces #1439's "reject it and raise it again"): an Approved (`settlement.STATUS_APPROVED`; not
+    Requested, CEO Pending or Rejected, which are not being paid, nor a paid one) PO / WO
     payment with a vendor has `switch_to` = the vendor's account now when its copy holds another
     account, compared as (`normalize.normalize_account`, `normalize.normalize_ifsc`), or when it holds
     no copy and the vendor has a Payee (`paid_to.vendor_account_to_take`, THE rule; #1464's
     eligibility extends `paid_to._answer`). A holder-name, bank or branch change switches nothing; a
     vendor with no Payee gives nothing to switch to (the payment keeps its copy, or is
-    `payment_has_no_account`); an expense, a paid payment and a cheque payment (#1464: a cheque pays
-    no account, so none is taken for it, at export or at Mark as Paid) never switch. The Paid to cell and its
+    `payment_has_no_account`); an expense, a payment not Approved and a `by_cheque` payment (#1464: a
+    cheque pays no account, so none is taken for it, at export or at Mark as Paid) never switch. The Paid to cell and its
     CSV say "Will be paid into the vendor's current account: X. Was Y." (`paidTo.paidToCell`); the
     "Pay ₹X to" box shows the vendor's account with Copy buttons and the old one as "Was"; Mark as
     Paid's confirmation names each switching row (`paidTo.switchLine`). **Writing it:**
     `api/payees/paid_to.take_vendor_accounts` (POST, Frappe write permission on each payment) calls
     `services/payees/take_vendor_account.take_vendor_accounts`, which locks each payment, refuses one
-    not Approved, re-reads the rule and copies the vendor's Payee (`pay_to.copy_vendor_account`)
-    with a document save (`ignore_version=False`), so the switch is in the payment's Version history
-    with who and when (the box's "Set by" then reads "Changed by"). Mark as Paid (row and bulk) calls
-    it first for the rows its confirmation named, and marks nothing if it fails; Export for Payment
-    puts switched rows in the file at the vendor's account (`bankUploadFile`'s `paidTo.switch_to`,
-    `BankFile.switched`), calls it before saving the file (no file if it fails) and says how many
-    were switched (`describeSwitched`). A PO / WO payment's account is still never edited by hand.
+    not Approved, re-reads the rule under the lock and writes the `switch_to` it read
+    (`pay_to.set_pay_to`) with a document save (`ignore_version=False`), so the switch is in the
+    payment's Version history with who and when (the box's "Set by" then reads "Changed by"). It
+    answers `[{name, paid_to}]`, each the answer the write acted on: `switch_to` is exactly the
+    account written, else `account` is the one kept. Callers send EVERY PO / WO payment they pay, not
+    only those their earlier read showed switching: the server decides again. Mark as Paid (row and
+    bulk) reads paid-to again when it opens its confirmation (so the confirmation names each switching
+    row from a fresh read, and leaves out a row become Ineligible), calls it first, and marks nothing
+    if it fails. Export for Payment calls it for every PO / WO payment the file would pay before
+    saving the file (no file if it fails), then builds the file from its answer
+    (`bankUploadFile.withTakenAccounts`), so the file pays exactly the account each payment records
+    even when the vendor's account changed after the export's read; it says how many were switched
+    (`describeSwitched`). A PO / WO payment's account is still never edited by hand.
   - **Which rows can be paid** (#1464, ADR-0033 decision 10, GLOSSARY *Ineligible* / *Kept out of the
     bank file*; a screen rule): `paidTo.rowEligibility(paid_to, expense_type)` is THE rule, read from
     the paid-to answer so the queue and the export (read again) agree. *Payable*: an account, or a
-    `switch_to`. *Kept out of the bank file*: any `by_cheque` payment (with or without an account; in
-    the file it would pay the vendor twice), and an expense of an Optional / Not asked type with no
+    `switch_to`. *Kept out of the bank file*: any `by_cheque` row, a payment or an expense (with or
+    without an account; in the file it would be paid twice), and an expense of an Optional / Not asked type with no
     account (card or cash): tickable and markable paid, left out of the file, and the export toast
     names them per reason (`describeLeftOut`). *Ineligible*: a PO / WO payment with no account and
     nothing to switch to ("Vendor has no bank account. Add it on the vendor page."), or an expense of
     a Required type with none ("<type> requires an account. Add it with the Edit pencil."): no tick
     box (`queueRowActions.canPayQueueRow`, which also refuses a held row; select-all skips it), Mark
     as Paid disabled with the reason on hover, the Paid to cell says the reason, and bulk Mark as
-    Paid drops a stale tick on it. An unpaid cheque payment's Paid to cell reads "Paid by cheque". The
+    Paid drops a stale tick on it. An unpaid `by_cheque` row's Paid to cell reads "Paid by cheque". The
     server refuses none of this. Adding the vendor's account or the expense's makes the row payable on
     the next load.
   - **Change account** (Record Payment, an expense only; also the expense Edit dialogs' *Who gets

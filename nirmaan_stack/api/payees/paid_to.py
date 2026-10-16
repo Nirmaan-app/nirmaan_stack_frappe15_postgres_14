@@ -10,7 +10,7 @@ payment that switches to its vendor's current account.
 
 * `get_paid_to` -- who each ticked row is paid to, read now: Export for Payment's ICICI / Cashfree file.
 * `take_vendor_accounts` -- Export for Payment and Mark as Paid: write the vendor's current account
-  onto each PO / WO payment that switches to it.
+  onto each PO / WO payment that switches to it, and answer where each is paid now.
 * `get_pay_to_box` -- Record Payment's "Pay ₹X to" box, for an expense or a PO / WO payment.
 * `search_payees` -- Change account's picker: Payees by holder name or account number.
 * `change_expense_account` -- Change account: copy a Payee's account onto an expense.
@@ -37,7 +37,7 @@ from nirmaan_stack.services.role_profiles import assert_payee_manager
 def get_paid_to(rows: str | list[dict]) -> list[dict]:
     """Who each row is paid to, in the order sent. `rows` is `[{doctype, name}]` (`Project Payments`,
     `Project Expenses`, `Non Project Expenses`). Each answer is `{account, missing, payee_rule,
-    switch_to, by_cheque}` (`services/payees/paid_to.paid_to_rows`)."""
+    switch_to, by_cheque, vendor_has_no_account}` (`services/payees/paid_to.paid_to_rows`)."""
     if isinstance(rows, str):
         rows = json.loads(rows)
     rows = list(rows or [])
@@ -56,11 +56,13 @@ def get_pay_to_box(doctype: str, name: str) -> dict:
 
 
 @frappe.whitelist(methods=["POST"])
-def take_vendor_accounts(names: str | list[str]) -> list[str]:
+def take_vendor_accounts(names: str | list[str]) -> list[dict]:
     """Pay each named PO / WO payment into its vendor's current account: where the vendor's account
     changed since the payment was raised, or the payment has none, write the vendor's account onto
     it (`services/payees/take_vendor_account`, #1463). Export for Payment and Mark as Paid call it
-    before the file is saved or the rows are marked paid. Returns the names switched.
+    with every PO / WO payment they pay, before the file is saved or the rows are marked paid; this
+    decides again which switch. Returns `[{name, paid_to}]`, each the answer the write acted on: the
+    bank file pays `switch_to` or else `account` from it, which is what the payment then records.
 
     Asks Frappe's write permission on each payment, as Mark as Paid's own save does; the save ignores
     permissions, so this check is the boundary. One commit: all or nothing."""
@@ -69,9 +71,9 @@ def take_vendor_accounts(names: str | list[str]) -> list[str]:
     names = list(names or [])
     for name in names:
         frappe.has_permission(PAYMENT_DOCTYPE, "write", doc=name, throw=True)
-    switched = take_vendor_account.take_vendor_accounts(names)
+    taken = take_vendor_account.take_vendor_accounts(names)
     frappe.db.commit()
-    return switched
+    return taken
 
 
 @frappe.whitelist()

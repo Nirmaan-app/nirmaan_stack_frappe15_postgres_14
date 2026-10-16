@@ -79,6 +79,7 @@ import {
   SERVICE_PROCUREMENT_PROFILES,
   canUseProjectBilling,
   isMaterialProcurementProfile,
+  isNirmaanAdmin,
   isProcurementProfile,
 } from "@/constants/roles";
 import { payeesSidebarPlace } from "@/utils/payees/payeeRoutes";
@@ -214,7 +215,7 @@ export function NewSidebar() {
   //
   // Kept as an inline spread rather than a second grouped block so the Admin
   // Options items stay in their existing visual order.
-  const isAdminOnly = user_id == "Administrator" || role == "Nirmaan Admin Profile";
+  const isAdminOnly = isNirmaanAdmin(role, user_id);
   const payeesPlace = payeesSidebarPlace(role, user_id);
 
   const items = useMemo(() => [

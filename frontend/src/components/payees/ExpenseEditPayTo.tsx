@@ -72,7 +72,8 @@ export interface ExpenseEditPayTo {
     resolve: () => Promise<string | null | undefined>;
     /** Step 2, after the update: copy `payee` (from `resolve`) onto the expense. */
     apply: (payee: string | null | undefined) => Promise<void>;
-    /** Start again: nothing picked, nothing staged. Call it when the dialog opens. */
+    /** Start again: nothing picked, nothing staged. The dialog calls it in the handlers that close it
+     *  (Cancel, and after a save), so the next open starts clean. */
     reset: () => void;
 }
 
@@ -148,7 +149,7 @@ export function ExpenseEditPayToSection({ payTo, expenseType, vendor, vendorName
     const { offers, box, boxError, rule, choice, removing, setRemoving, canRemove, problem, busy } = payTo;
     if (offers === "none") return null;
     const required = asPayeeRule(rule) === PAYEE_RULE.REQUIRED;
-    const off = disabled || busy;
+    const controlsDisabled = disabled || busy;
 
     let body: ReactNode;
     if (boxError) {
@@ -166,7 +167,7 @@ export function ExpenseEditPayToSection({ payTo, expenseType, vendor, vendorName
                     <p className="rounded-md border bg-background px-3 py-2.5 text-[13px]">No account now.</p>
                 )}
                 {removing ? (
-                    <Button type="button" variant="outline" size="sm" className="self-start" disabled={off} onClick={() => setRemoving(false)}>
+                    <Button type="button" variant="outline" size="sm" className="self-start" disabled={controlsDisabled} onClick={() => setRemoving(false)}>
                         Keep the account
                     </Button>
                 ) : (
@@ -175,10 +176,10 @@ export function ExpenseEditPayToSection({ payTo, expenseType, vendor, vendorName
                             {box.account ? "To change it, pick" : "Pick"} a payee or add new bank details: its account
                             is copied onto the expense when you save.
                         </p>
-                        <PayeePicker choice={choice} disabled={off} />
+                        <PayeePicker choice={choice} disabled={controlsDisabled} />
                         {problem && <p className="text-xs text-muted-foreground">{problem}</p>}
                         {canRemove && (
-                            <Button type="button" variant="outline" size="sm" className="self-start" disabled={off} onClick={() => setRemoving(true)}>
+                            <Button type="button" variant="outline" size="sm" className="self-start" disabled={controlsDisabled} onClick={() => setRemoving(true)}>
                                 Remove account
                             </Button>
                         )}

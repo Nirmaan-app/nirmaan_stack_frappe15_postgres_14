@@ -25,15 +25,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
-import { getFrappeError } from "@/utils/frappeErrors";
 import { canRemoveExpenseAccount, changeAccountRuleLine, expenseTitle, expenseTypeAside } from "@/utils/payees/paidTo";
 import { sameAccountDetails } from "@/utils/payees/payeeForm";
 import { pickedAccount } from "@/utils/payees/payToChoice";
 
 import type { PayToBox } from "./paidToApi";
 import { PayeePicker } from "./PayeePicker";
-import { chosenExpensePayee, useChangeExpenseAccount } from "./useChangeExpenseAccount";
-import { DuplicatePayeeError, type PayeeChoice } from "./usePayeeChoice";
+import { chosenExpensePayee, expenseAccountSaveError, useChangeExpenseAccount } from "./useChangeExpenseAccount";
+import type { PayeeChoice } from "./usePayeeChoice";
 
 interface ChangeExpenseAccountDialogProps {
     open: boolean;
@@ -70,8 +69,7 @@ export function ChangeExpenseAccountDialog({
             onSaved(next);
             onOpenChange(false);
         } catch (e) {
-            const description = e instanceof DuplicatePayeeError ? e.message : getFrappeError(e);
-            toast({ title: "Could not change the account", description, variant: "destructive" });
+            toast({ title: "Could not change the account", description: expenseAccountSaveError(e), variant: "destructive" });
         }
     };
 

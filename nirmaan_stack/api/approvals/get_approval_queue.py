@@ -497,10 +497,10 @@ def get_approval_queue(
     }
 
     # Who each row is paid to (#1431, #1438, #1463): the row's own pay-to account, or the vendor's an
-    # unpaid PO / WO payment switches to, folded into `paid_to` by the Payee module; at most two
-    # queries per page, never one per row.
+    # Approved PO / WO payment switches to, folded into `paid_to` by the Payee module (with whether a
+    # cheque pays it, #1464); a few queries per page, never one per row.
     for r, paid_to in zip(rows, paid_to_rows([
-        {"doctype": r.get("doctype"), "status": r.get("status"), "vendor": r.get("vendor"),
+        {"doctype": r.get("doctype"), "name": r.get("name"), "status": r.get("status"), "vendor": r.get("vendor"),
          "expense_type": r.get("expense_type"), "mode_of_payment": r.get("mode_of_payment"),
          **{f: r.pop(f, None) for f in PAY_TO_FIELDS}}
         for r in rows

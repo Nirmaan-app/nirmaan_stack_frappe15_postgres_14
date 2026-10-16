@@ -283,6 +283,20 @@ class TestPaidTo(FrappeTestCase):
             with self.subTest(reader=reader):
                 self.assertIsNone(answer["switch_to"])
                 self.assertEqual(answer["account"], self._account(payee))
+                # The screens say so: it is paid to the account it was raised with.
+                self.assertIs(answer["vendor_has_no_account"], True)
+
+    def test_only_an_unpaid_payment_whose_vendor_lost_its_account_says_so(self):
+        payee = self.payees.payee()
+        has_account = self._payment(self._vendor(payee), copy_of=payee)
+        no_payee = self._vendor()
+        paid = self._payment(no_payee, copy_of=payee, status="Paid")
+        expense = self._expense(PE, copy_of=payee, vendor=no_payee)
+
+        answers = get_paid_to([{"doctype": PAYMENT, "name": has_account}, {"doctype": PAYMENT, "name": paid},
+                               {"doctype": PE, "name": expense}])
+
+        self.assertEqual([a["vendor_has_no_account"] for a in answers], [False, False, False])
 
     def test_a_payment_whose_vendor_keeps_the_same_account_is_not_switched(self):
         renamed = self.payees.payee(holder=self.payees.holder("Kaveri Ductfab"))
@@ -338,14 +352,61 @@ class TestPaidTo(FrappeTestCase):
         expense = self._expense(PE, copy_of=raised_with)
         self.assertFalse(get_paid_to([{"doctype": PE, "name": expense}])[0]["by_cheque"])
 
+    def _on_cheque(self, doctype, name, status="Issued"):
+        """Put payment or expense `name` on a Cheque of `status`, as the cheque screens do (planted raw)."""
+        cheque = self._insert("Cheques", {"bank": "ICICI Bank", "cheque_no": frappe.generate_hash(length=6),
+                                          "cheque_date": today(), "amount": 78000, "status": status,
+                                          "made_from": "Report"})
+        line_type = {PAYMENT: "PO/WO Payment", PE: "Project Expense", NPE: "Non-project Expense"}[doctype]
+        self._insert("Cheque Line", {"parent": cheque, "parenttype": "Cheques", "parentfield": "lines",
+                                     "line_type": line_type, "payment_doctype": doctype, "payment_name": name,
+                                     "amount": 78000})
+        return cheque
+
+    def test_a_row_on_a_live_cheque_is_by_cheque_whatever_its_mode_of_payment(self):
+        # A cheque already pays it: putting it in the bank file too would pay twice. Its Mode of Payment
+        # may still read Online (a cheque made from the Cheques report), and an expense has none.
+        raised_with, vendor_now = self.payees.payee(), self.payees.payee()
+        on_cheque = self._payment(self._vendor(vendor_now), copy_of=raised_with)
+        self._on_cheque(PAYMENT, on_cheque)
+        on_cancelled = self._payment(self._vendor(vendor_now), copy_of=raised_with)
+        self._on_cheque(PAYMENT, on_cancelled, status="Cancelled")
+        expenses = [self._expense(PE, copy_of=raised_with), self._expense(NPE, copy_of=raised_with)]
+        for doctype, expense in zip((PE, NPE), expenses):
+            self._on_cheque(doctype, expense, status="Cleared")
+
+        for reader, answer in self._every_reader(PAYMENT, on_cheque).items():
+            with self.subTest(payment="on a live cheque", reader=reader):
+                self.assertEqual((answer["by_cheque"], answer["switch_to"], answer["account"]),
+                                 (True, None, self._account(raised_with)))
+        for reader, answer in self._every_reader(PAYMENT, on_cancelled).items():
+            with self.subTest(payment="on a cancelled cheque", reader=reader):
+                self.assertEqual((answer["by_cheque"], answer["switch_to"]), (False, self._account(vendor_now)))
+        for doctype, expense in zip((PE, NPE), expenses):
+            for reader, answer in self._every_reader(doctype, expense).items():
+                with self.subTest(expense=doctype, reader=reader):
+                    self.assertIs(answer["by_cheque"], True)
+
     def test_paying_a_cheque_payment_leaves_its_account_as_it_is(self):
         raised_with, vendor_now = self.payees.payee(), self.payees.payee()
-        payment = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True, mode="Cheque")
+        by_mode = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True, mode="Cheque")
+        on_cheque = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True)
+        self._on_cheque(PAYMENT, on_cheque)
 
-        switched = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[payment])
+        taken = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[by_mode, on_cheque])
 
-        self.assertEqual(switched, [])
-        self.assertEqual(self._stored_copy(payment), self._copy_of(raised_with))
+        self.assertEqual([(t["name"], t["paid_to"]["switch_to"]) for t in taken], [(by_mode, None), (on_cheque, None)])
+        for payment in (by_mode, on_cheque):
+            self.assertEqual(self._stored_copy(payment), self._copy_of(raised_with))
+
+    def test_only_an_approved_payment_is_paid_into_its_vendors_account(self):
+        # A payment not yet approved, or rejected, is not paid: it keeps showing its own copy.
+        raised_with, vendor_now = self.payees.payee(), self.payees.payee()
+        for status in ("Requested", "CEO Pending", "Rejected"):
+            payment = self._payment(self._vendor(vendor_now), copy_of=raised_with, status=status)
+            for reader, answer in self._every_reader(PAYMENT, payment).items():
+                with self.subTest(status=status, reader=reader):
+                    self.assertEqual((answer["switch_to"], answer["account"]), (None, self._account(raised_with)))
 
     # -- Mark as Paid and Export for Payment write the vendor's account first (#1463) --------------
     def _stored_copy(self, payment):
@@ -360,10 +421,11 @@ class TestPaidTo(FrappeTestCase):
         raised_with, vendor_now = self.payees.payee(), self.payees.payee()
         payment = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True)
 
-        switched = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[payment])
+        taken = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[payment])
         self._as(ACCOUNTANT_USER, self._mark_paid, payment=payment)
 
-        self.assertEqual(switched, [payment])
+        self.assertEqual(taken, [{"name": payment, "paid_to": {**taken[0]["paid_to"],
+                                  "account": self._account(raised_with), "switch_to": self._account(vendor_now)}}])
         self.assertEqual(self._stored_copy(payment), self._copy_of(vendor_now))
         box = get_pay_to_box(PAYMENT, payment)
         self.assertEqual((box["account"], box["switch_to"], box["paid"]), (self._account(vendor_now), None, True))
@@ -374,11 +436,36 @@ class TestPaidTo(FrappeTestCase):
         vendor_now = self.payees.payee()
         payment = self._payment(self._vendor(vendor_now), saved=True)
 
-        switched = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[payment])
+        taken = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[payment])
 
-        self.assertEqual(switched, [payment])
+        self.assertEqual([(t["paid_to"]["account"], t["paid_to"]["switch_to"]) for t in taken],
+                         [(None, self._account(vendor_now))])
         self.assertEqual(self._stored_copy(payment), self._copy_of(vendor_now))
         self.assertEqual(get_pay_to_box(PAYMENT, payment)["named_by"]["user"], ACCOUNTANT_USER)
+
+    def test_paying_answers_the_account_it_recorded_when_the_vendors_changed_after_the_screen_read_it(self):
+        # Export for Payment reads who to pay, then takes the vendor's account. If the vendor's account
+        # changes in between, the file must pay the account the payment now records, so the file is
+        # built from what this answers, not from the earlier read.
+        raised_with, vendor_now = self.payees.payee(), self.payees.payee()
+        changed = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True)
+        same = self.payees.payee()
+        was_same = self._payment(self._vendor(same), copy_of=same, saved=True)
+        read_first = get_paid_to([{"doctype": PAYMENT, "name": changed}, {"doctype": PAYMENT, "name": was_same}])
+        self._edit_account(vendor_now, account_number=self.payees.account_number())
+        self._edit_account(same, account_number=self.payees.account_number())
+
+        taken = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[changed, was_same])
+
+        self.assertEqual(read_first[1]["switch_to"], None)
+        for payment, answer in zip((changed, was_same), taken):
+            with self.subTest(payment=payment):
+                self.assertEqual(answer["name"], payment)
+                paid_into = answer["paid_to"]["switch_to"]
+                stored = self._stored_copy(payment)
+                self.assertEqual(paid_into["account_number"], stored.pay_to_account_number)
+                self.assertEqual(paid_into["ifsc"], stored.pay_to_ifsc)
+        self.assertNotEqual(taken[0]["paid_to"]["switch_to"], read_first[0]["switch_to"])
 
     def test_paying_leaves_a_payment_whose_vendors_account_did_not_change_untouched(self):
         payee = self.payees.payee()
@@ -390,11 +477,13 @@ class TestPaidTo(FrappeTestCase):
         before = {name: (self._stored_copy(name), frappe.db.get_value(PAYMENT, name, "modified"))
                   for name in (unchanged, renamed, nowhere)}
 
-        switched = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=list(before))
+        taken = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=list(before))
         for name in before:
             self._as(ACCOUNTANT_USER, self._mark_paid, payment=name)
 
-        self.assertEqual(switched, [])
+        self.assertEqual([(t["name"], t["paid_to"]["switch_to"]) for t in taken],
+                         [(name, None) for name in before])
+        self.assertEqual(taken[0]["paid_to"]["account"], self._account(payee))
         for name, (copy, modified) in before.items():
             with self.subTest(payment=name):
                 self.assertEqual(self._stored_copy(name), copy)

@@ -145,7 +145,7 @@ describe("isHeldQueueRow", () => {
 describe("canPayQueueRow — which rows of Payment need to paid can be ticked and marked paid (#1464)", () => {
   const account = { account_name: "ACME TRADERS PVT LTD", account_number: "0050200012345", ifsc: "HDFC0001234" };
   const paidTo = (over: Partial<PaidTo>): PaidTo =>
-    ({ account: null, missing: null, payee_rule: null, switch_to: null, by_cheque: false, ...over });
+    ({ account: null, missing: null, payee_rule: null, switch_to: null, by_cheque: false, vendor_has_no_account: false, ...over });
 
   it("lets a payable row and a row kept out of the bank file be paid", () => {
     expect(canPayQueueRow({ on_hold: 0, expense_type: "", paid_to: paidTo({ account }) })).toBe(true);

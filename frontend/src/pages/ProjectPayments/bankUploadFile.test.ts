@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { PayToAccount } from "@/types/NirmaanStack/Payee";
 import type { PaidTo } from "@/utils/payees/paidTo";
 
-import { buildBankFile, describeLeftOut, describeSwitched, type BankFileRow } from "./bankUploadFile";
+import { buildBankFile, describeLeftOut, describeSwitched, withTakenAccounts, type BankFileRow } from "./bankUploadFile";
 
 // 2026-10-14 09:30:00.000 local time; Date.now() for it ends in the ten digits the
 // Cashfree transferId takes.
@@ -11,16 +11,17 @@ const NOW = new Date(2026, 9, 14, 9, 30, 0, 0);
 const STAMP = String(NOW.getTime()).slice(-10);
 
 /** The server's answer for a row paid into its own `account` (`get_paid_to`). */
-const own = (account: PayToAccount): PaidTo => ({ account, missing: null, payee_rule: null, switch_to: null, by_cheque: false });
+const own = (account: PayToAccount): PaidTo => ({ account, missing: null, payee_rule: null, switch_to: null, by_cheque: false, vendor_has_no_account: false });
 /** A PO / WO payment with no account whose vendor has none either. */
-const NO_ACCOUNT_PAYMENT: PaidTo = { account: null, missing: "payment_has_no_account", payee_rule: null, switch_to: null, by_cheque: false };
+const NO_ACCOUNT_PAYMENT: PaidTo = { account: null, missing: "payment_has_no_account", payee_rule: null, switch_to: null, by_cheque: false, vendor_has_no_account: false };
 /** An expense with no account, of a type with this *Who gets paid*. */
 const noAccountExpensePaidTo = (rule: string): PaidTo =>
-	({ account: null, missing: "expense_has_no_account", payee_rule: rule, switch_to: null, by_cheque: false });
+	({ account: null, missing: "expense_has_no_account", payee_rule: rule, switch_to: null, by_cheque: false, vendor_has_no_account: false });
 const ACME = { account_name: "ACME TRADERS PVT LTD", account_number: "0050200012345", ifsc: "HDFC0001234" };
 
 const vendorPayment = (over: Partial<BankFileRow> = {}): BankFileRow => ({
 	kind: "vendor_payment",
+	name: "PAY-0001",
 	documentName: "PO/001/26-27",
 	amount: 125000.5,
 	projectLabel: "Tower A",
@@ -90,6 +91,7 @@ describe("buildBankFile — file name", () => {
 describe("buildBankFile — expenses", () => {
 	const expense = (over: Partial<BankFileRow> = {}): BankFileRow => ({
 		kind: "expense",
+		name: "PE-2026-00841",
 		documentName: "PE-2026-00841",
 		amount: 25000,
 		projectLabel: "Whitefield Tower B",
@@ -154,9 +156,47 @@ describe("buildBankFile — a PO payment paid into its vendor's current account 
 	});
 });
 
+describe("withTakenAccounts — the file pays what take_vendor_accounts recorded (#1463)", () => {
+	const readAt = { account_name: "ACME TRADERS PVT LTD", account_number: "50100234567812", ifsc: "ICIC0000456" };
+	const recorded = { account_name: "ACME TRADERS PVT LTD", account_number: "77700011122233", ifsc: "UTIB0000789" };
+
+	it("pays the account the server wrote, even when the vendor's account changed after the export read it", () => {
+		// Read at export: switches to `readAt`. By the time the server took it, the vendor's account was `recorded`.
+		const changed = vendorPayment({ name: "PAY-0009", documentName: "PO/009/26-27", paidTo: { ...own(ACME), switch_to: readAt } });
+		// Read at export: no switch. The vendor's account changed before the take, so the server switched it.
+		const nowSwitched = vendorPayment({ name: "PAY-0010", documentName: "PO/010/26-27" });
+		const rows = withTakenAccounts([changed, nowSwitched], [
+			{ name: "PAY-0009", paid_to: { ...own(ACME), switch_to: recorded } },
+			{ name: "PAY-0010", paid_to: { ...own(ACME), switch_to: recorded } },
+		]);
+
+		const file = buildBankFile(rows, ICICI);
+
+		expect(file.rows.map((r) => [r.REMARK, r.BENE_ACC_NO, r.BENE_IFSC])).toEqual([
+			["PO/009/26-27", "77700011122233", "UTIB0000789"],
+			["PO/010/26-27", "77700011122233", "UTIB0000789"],
+		]);
+		expect(describeSwitched(file.switched)).toBe(
+			"2 payments paid into their vendor's current account (PO/009/26-27; PO/010/26-27)",
+		);
+	});
+
+	it("leaves out a payment the server found nowhere to pay, and leaves expenses as read", () => {
+		const lostIt = vendorPayment({ name: "PAY-0011", paidTo: { ...NO_ACCOUNT_PAYMENT, missing: null, switch_to: readAt } });
+		const expense: BankFileRow = { ...vendorPayment({ kind: "expense", name: "PAY-0011", documentName: "PE-1" }) };
+		const rows = withTakenAccounts([lostIt, expense], [{ name: "PAY-0011", paid_to: NO_ACCOUNT_PAYMENT }]);
+
+		const file = buildBankFile(rows, ICICI);
+
+		expect(file.leftOut.map((l) => [l.row.name, l.reason])).toEqual([["PAY-0011", "vendor_has_no_account"]]);
+		expect(file.payable).toEqual([expense]);
+	});
+});
+
 describe("buildBankFile — rows left out", () => {
 	const noAccountExpense = (documentName: string, over: Partial<BankFileRow> = {}): BankFileRow => ({
 		kind: "expense",
+		name: documentName,
 		documentName,
 		amount: 900,
 		projectLabel: "Tower A",

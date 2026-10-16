@@ -3,7 +3,7 @@
  * URL is built.
  */
 
-import { ADMIN_PROFILE, canManagePayees } from "@/constants/roles";
+import { canManagePayees, isNirmaanAdmin } from "@/constants/roles";
 
 /** The Payees page's URL-sync key: its search lives in `payees_q` / `payees_searchBy`, its tab in `payees_tab`. */
 export const PAYEES_URL_KEY = "payees";
@@ -31,5 +31,5 @@ export const payeesSidebarPlace = (
     userId?: string | null,
 ): "admin-options" | "top-level" | null => {
     if (!canManagePayees(role, userId)) return null;
-    return userId === "Administrator" || role === ADMIN_PROFILE ? "admin-options" : "top-level";
+    return isNirmaanAdmin(role, userId) ? "admin-options" : "top-level";
 };

@@ -1,5 +1,6 @@
 import { unparse } from "papaparse";
 
+import type { TakenVendorAccount } from "@/components/payees/paidToApi";
 import type { PayToAccount } from "@/types/NirmaanStack/Payee";
 import { formatDate, formatDateToDDMMYYYY } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
@@ -22,6 +23,8 @@ export type BankFileAccount = Pick<PayToAccount, "account_name" | "account_numbe
 /** One ticked row on "Payment need to paid", with the account it is paid into. */
 export interface BankFileRow {
 	kind: "vendor_payment" | "expense";
+	/** The record's own ID (the payment's or the expense's): what `take_vendor_accounts` is sent. */
+	name: string;
 	/** PO / SR number, or the expense's ID: the ICICI remark and the tail of the Cashfree remark. */
 	documentName: string;
 	amount: number | string;
@@ -33,8 +36,8 @@ export interface BankFileRow {
 	/** Who the server says the row is paid to, read at export (`get_paid_to`): its own pay-to account
 	 *  (ADR-0033, #1438), or for a PO / WO payment whose vendor's account changed since it was raised,
 	 *  or that was raised with none, its vendor's current account (`switch_to`, #1463), which the
-	 *  export writes onto the payment (`take_vendor_accounts`). `rowEligibility` reads it to decide
-	 *  whether the row goes in the file (#1464). */
+	 *  export writes onto the payment (`take_vendor_accounts`, whose answer replaces this one:
+	 *  `withTakenAccounts`). `rowEligibility` reads it to decide whether the row goes in the file (#1464). */
 	paidTo: PaidTo | undefined;
 }
 
@@ -65,6 +68,8 @@ const CASHFREE_CONTACT_PHONE = "8904007419";
 
 export interface BankFile {
 	rows: Record<string, BankFileCell>[];
+	/** The ticked rows the file pays, in order (one per file row). */
+	payable: BankFileRow[];
 	leftOut: BankFileLeftOut[];
 	/** The rows in the file paid into their vendor's current account (`switch_to`), in order. */
 	switched: BankFileRow[];
@@ -140,11 +145,25 @@ export function buildBankFile(rows: BankFileRow[], options: BankFileOptions): Ba
 		: `New_Payments_${formatDate(options.now)}.csv`;
 	return {
 		rows: fileRows,
+		payable,
 		leftOut,
 		switched: payable.filter((row) => row.paidTo?.switch_to),
 		csv: unparse(fileRows),
 		fileName,
 	};
+}
+
+/**
+ * The rows with each PO / WO payment's answer replaced by the one `take_vendor_accounts` acted on (#1463),
+ * so the file pays exactly the account each payment now records, even when its vendor's account changed
+ * after the export read it. A row the server did not answer keeps its own.
+ */
+export function withTakenAccounts(rows: BankFileRow[], taken: TakenVendorAccount[]): BankFileRow[] {
+	const answers = new Map(taken.map((t) => [t.name, t.paid_to]));
+	return rows.map((row) => {
+		const answer = row.kind === "vendor_payment" ? answers.get(row.name) : undefined;
+		return answer ? { ...row, paidTo: answer } : row;
+	});
 }
 
 // ICICI and Cashfree both accept a file holding a row with a blank account or IFSC, and reject

@@ -10,6 +10,8 @@ copy as it was.
 * `copy_payee_account(doc, payee)` -- THE copy: a Payee's account into `doc`'s pay-to fields (None
   clears them). Every copier calls it.
 * `copy_vendor_account(doc)` -- the same, from `doc.vendor`'s Payee.
+* `set_pay_to(doc, account)` -- an account already read into `doc`'s pay-to fields (paying a PO / WO
+  payment into the vendor account its answer named, `take_vendor_account`).
 * `copy_pay_to(source, target)` -- one record's copy onto another as it is (approval; a split
   payment's remainder).
 * `fill_from_vendor(doc)` -- the save hook's rule for a request or Project Expense naming a vendor
@@ -42,7 +44,12 @@ PAY_TO_FIELDS = tuple(pay_to_field(field) for field in ACCOUNT_FIELDS)
 def copy_payee_account(doc, payee: str | None) -> None:
     """Copy Payee `payee`'s account into `doc`'s pay-to fields; None (or no such Payee) clears them.
     Sets the fields only: the caller saves."""
-    account = frappe.db.get_value("Payee", payee, list(ACCOUNT_FIELDS), as_dict=True) if payee else None
+    set_pay_to(doc, frappe.db.get_value("Payee", payee, list(ACCOUNT_FIELDS), as_dict=True) if payee else None)
+
+
+def set_pay_to(doc, account: dict | None) -> None:
+    """Write `account` (a Payee's field names, as `pay_to_account` answers it) into `doc`'s pay-to
+    fields; None clears them. Sets the fields only: the caller saves."""
     for pay_to, field in zip(PAY_TO_FIELDS, ACCOUNT_FIELDS):
         doc.set(pay_to, (account or {}).get(field) or None)
 
