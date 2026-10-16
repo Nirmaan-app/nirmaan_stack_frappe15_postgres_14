@@ -37,6 +37,8 @@ import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import SITEURL from "@/constants/siteURL";
 import { invoiceAttachmentUrl, projectField } from "@/utils/porterExpense";
 import { PorterSectionBlock, usePorterExpense } from "@/components/common/PorterExpense";
+import { ExpenseEditPayToSection, useExpenseEditPayTo } from "@/components/payees/ExpenseEditPayTo";
+import { expenseAccountSaveError } from "@/components/payees/useChangeExpenseAccount";
 
 interface EditProjectExpenseDialogProps {
     expenseToEdit: ProjectExpenses;
@@ -115,6 +117,18 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
 
     const expenseTypeOptions = useMemo(() => expenseTypesData?.map(et => ({ value: et.name, label: et.expense_name })) || [], [expenseTypesData]);
 
+    // Who gets paid (#1465): Accounts set an Approved expense's account here, saved with the edit.
+    const selectedExpenseType = expenseTypesData?.find(et => et.name === formState.type);
+    const vendorNamed = !!formState.vendor && formState.vendor !== OTHERS_VENDOR_VALUE;
+    const payTo = useExpenseEditPayTo({
+        doctype: DOCTYPE,
+        name: expenseToEdit.name,
+        status: expenseToEdit.status,
+        rule: selectedExpenseType ? selectedExpenseType.payee_rule ?? null : undefined,
+        vendorNamed,
+    });
+    const { reset: resetPayTo } = payTo;
+
     useEffect(() => {
         if (editProjectExpenseDialog && expenseToEdit) {
             setFormState({
@@ -142,7 +156,13 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
         return () => { if (commandListElement) commandListElement.removeEventListener('wheel', handleWheel); };
     }, [expenseTypePopoverOpen]);
 
-    const handleDialogClose = () => setEditProjectExpenseDialog(false);
+    // THE close: Cancel, Escape and a save all come through here, so the next open starts with nothing
+    // picked. A save closes it here too, not only through the parent's store write, which bypasses
+    // `onOpenChange`.
+    const closeDialog = useCallback(() => {
+        resetPayTo();
+        setEditProjectExpenseDialog(false);
+    }, [resetPayTo, setEditProjectExpenseDialog]);
 
     const handleAttachmentError = useCallback(({ message }: { type: "size" | "type", message: string }) => {
         toast({ title: "Attachment Error", description: message, variant: "destructive" });
@@ -179,6 +199,9 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
             return;
         }
         try {
+            // Who gets paid, resolved FIRST: a new payee is added now, and a duplicate stops the save
+            // before anything is written. It is copied onto the expense after the update below.
+            const payee = await payTo.resolve();
             const finalVendor = formState.vendor === OTHERS_VENDOR_VALUE ? "" : formState.vendor;
             // Record<string, any>: null is used to CLEAR a field (undefined would be
             // omitted from the payload and Frappe would retain the current value).
@@ -206,11 +229,12 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
             }
 
             await updateDoc(DOCTYPE, expenseToEdit.name, dataToUpdate);
+            await payTo.apply(payee);
             toast({ title: "Success", description: "Expense updated successfully.", variant: "success" });
+            closeDialog();
             onSuccess?.();
-            handleDialogClose();
-        } catch (error: any) {
-            toast({ title: "Error", description: error.message || "Failed to update expense.", variant: "destructive" });
+        } catch (error: unknown) {
+            toast({ title: "Could not update the expense", description: expenseAccountSaveError(error), variant: "destructive" });
         }
     };
 
@@ -221,12 +245,12 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
         }
     }, [formErrors]);
 
-    const isLoadingOverall = loading || uploadLoading || vendorsLoading || expenseTypesLoading;
-    const isSubmitDisabled = isLoadingOverall || Object.values(formErrors).some(Boolean);
+    const isLoadingOverall = loading || uploadLoading || vendorsLoading || expenseTypesLoading || payTo.busy;
+    const isSubmitDisabled = isLoadingOverall || Object.values(formErrors).some(Boolean) || !!payTo.problem;
     const selectedExpenseTypeLabel = expenseTypeOptions.find(option => option.value === formState.type)?.label || "Select an expense type...";
 
     return (
-        <AlertDialog open={editProjectExpenseDialog} onOpenChange={(isOpen) => !isOpen && handleDialogClose()}>
+        <AlertDialog open={editProjectExpenseDialog} onOpenChange={(isOpen) => (isOpen ? setEditProjectExpenseDialog(true) : closeDialog())}>
             <AlertDialogContent>
                 <AlertDialogHeader>
                     <AlertDialogTitle>Edit Project Expense</AlertDialogTitle>
@@ -283,6 +307,13 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                             {formErrors.vendor && <p className="text-xs text-destructive mt-1">{formErrors.vendor}</p>}
                         </div>
                     </div>
+                    <ExpenseEditPayToSection
+                        payTo={payTo}
+                        expenseType={selectedExpenseType?.expense_name || formState.type}
+                        vendor={vendorNamed ? formState.vendor : undefined}
+                        vendorName={vendorNamed ? vendorOptions.find(v => v.value === formState.vendor)?.label : null}
+                        disabled={isLoadingOverall}
+                    />
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="comment_edit" className="text-right">Comment</Label>
                         <Textarea id="comment_edit" value={formState.comment} onChange={(e) => handleInputChange('comment', e.target.value)} className="col-span-3" disabled={isLoadingOverall} />
@@ -368,7 +399,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                 </div>
                 <AlertDialogFooter>
                     {isLoadingOverall ? <div className="flex justify-end w-full"><TailSpin color="#4f46e5" height={28} width={28} /></div> : <>
-                        <AlertDialogCancel asChild><Button variant="outline" type="button" onClick={handleDialogClose}>Cancel</Button></AlertDialogCancel>
+                        <AlertDialogCancel asChild><Button variant="outline" type="button">Cancel</Button></AlertDialogCancel>
                         <AlertDialogAction onClick={(e) => { e.preventDefault(); handleSubmit(); }} disabled={isSubmitDisabled}>Save Changes</AlertDialogAction>
                     </>}
                 </AlertDialogFooter>

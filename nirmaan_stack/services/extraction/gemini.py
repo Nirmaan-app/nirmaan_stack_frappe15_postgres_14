@@ -16,7 +16,7 @@ from functools import lru_cache
 
 import frappe
 
-from .base import CUSTOMER_PO, INVOICE, TDS_CHALLAN, Entity, LineItem
+from .base import CHEQUE, CUSTOMER_PO, INVOICE, TDS_CHALLAN, Entity, LineItem
 from .files import MIME_TYPES, get_gemini_api_key
 from .validation import is_absent
 
@@ -58,6 +58,10 @@ _TDS_CHALLAN_FIELDS = (
     "breakup_tax", "breakup_surcharge", "breakup_cess", "breakup_interest",
     "breakup_penalty", "breakup_fee",
 )
+# A photo of one of our paper cheques (spec #1407). The model copies what is printed; the cheque
+# rules (`services/cheques/photo.py`) pick the cheque number out of `micr_line` and map the bank.
+# `micr_line` and `cheque_date` are strings: the MICR groups and the date boxes keep their zeros.
+_CHEQUE_FIELDS = ("bank_name", "micr_line", "cheque_date", "amount_in_figures", "payee")
 _NUMERIC = {
     "net_amount", "total_tax_amount", "total_amount", "round_off",
     "igst_amount", "cgst_amount", "sgst_amount", "tax_amount",
@@ -65,6 +69,7 @@ _NUMERIC = {
     "customer_po_value_inctax", "customer_po_value_exctax",
     "amount", "breakup_tax", "breakup_surcharge", "breakup_cess",
     "breakup_interest", "breakup_penalty", "breakup_fee",
+    "amount_in_figures",
 }
 
 # Per-row fields of an invoice's line-item table. `amount` is the line's taxable
@@ -164,6 +169,19 @@ _TDS_CHALLAN_PROMPT = (
     "breakup_fee = the rows of the 'Tax Breakup Details' table (Tax, Surcharge, Cess, Interest, "
     "Penalty, Fee under section 234E). Return 0 where the row shows 0.\n"
     "- If a field is not clearly present, return JSON null. Do NOT guess."
+)
+
+_CHEQUE_PROMPT = (
+    "Extract the listed fields from this photo of an Indian bank cheque and return JSON only.\n"
+    "- bank_name = the name of the bank the cheque is drawn on, as printed on the cheque "
+    "(e.g. ICICI Bank, HDFC Bank).\n"
+    "- micr_line = the magnetic (MICR) code line printed along the bottom edge, every digit "
+    "exactly as printed, with a single space between groups. Keep leading zeros.\n"
+    "- cheque_date = the date written in the eight date boxes at the top right, as DD-MM-YYYY.\n"
+    "- amount_in_figures = the amount written in figures in the rupee box. NOT the amount "
+    "written in words.\n"
+    "- payee = the name written on the 'Pay' line.\n"
+    "- If a field is not clearly readable, return JSON null. Do NOT guess."
 )
 
 
@@ -278,6 +296,11 @@ class GeminiExtractor:
             fields = _CUSTOMER_PO_FIELDS + ("payment_terms",)
             prompt = _CUSTOMER_PO_PROMPT
             schema = _customer_po_schema()
+            is_invoice = False
+        elif doc_kind == CHEQUE:
+            fields = _CHEQUE_FIELDS
+            prompt = _CHEQUE_PROMPT
+            schema = _schema(fields)
             is_invoice = False
         elif doc_kind == TDS_CHALLAN:
             # A challan receipt has no line-item table, so line_items stays [] like payment.

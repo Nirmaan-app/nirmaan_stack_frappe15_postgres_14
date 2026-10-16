@@ -95,6 +95,7 @@ import {
     visibleTabs,
 } from "./outflowTableModel";
 import { PORTER_URL_KEY, opensPorterDialog } from "./porterImport";
+import { WAITING_REFUNDS_KEY_PREFIX, waitingRefundNames } from "./waitingRefundMatch";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
 /**
@@ -496,6 +497,12 @@ export const OutflowMasterPage = () => {
     const { call: callCreateVendorRefund } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.inflows.create_vendor_refund"
     );
+    // #1401: the same money when procurement already recorded it as a waiting Vendor Refund. The line is
+    // MATCHED to it; nothing is created. ⚠️ THE PAYLOAD CARRIES ONLY WHICH REFUNDS: the server re-reads
+    // their amounts and the line's, and refuses unless they add up exactly.
+    const { call: callMatchWaitingRefunds } = useFrappePostCall(
+        "nirmaan_stack.api.outflow_import.waiting_refund_match.match_waiting_refunds"
+    );
     // ⚠️ A SEPARATE ENDPOINT, AND THE SEPARATION IS THE GUARD (slice PS). The bulk confirm loops
     // `settleOne`, which calls `settle_row`; a partial can only ever be reached from one reviewer
     // answering one question about one row, which is what keeps it outside the settle window
@@ -605,6 +612,10 @@ export const OutflowMasterPage = () => {
             mutateSummary(),
             mutateImports(),
             mutateCache((key) => typeof key === "string" && key.startsWith(HISTORY_KEY_PREFIX)),
+            // #1401: a match or an undo moves a vendor's waiting refunds; the dialog lists them.
+            mutateCache(
+                (key) => typeof key === "string" && key.startsWith(WAITING_REFUNDS_KEY_PREFIX)
+            ),
         ]);
     }, [mutateRows, mutateSummary, mutateImports, mutateCache]);
 
@@ -771,6 +782,12 @@ export const OutflowMasterPage = () => {
                     description: form.description?.trim() || undefined,
                     ...anyway,
                 });
+            } else if (decision.target === "waitingRefund") {
+                await callMatchWaitingRefunds({
+                    row: row.name,
+                    refunds: JSON.stringify(waitingRefundNames(decision.waitingRefund)),
+                    ...anyway,
+                });
             } else if (decision.target === "vendorRefund") {
                 // ⚠️ THE ROW'S AMOUNT, DATE AND REFERENCE ARE NOT SENT: the server reads them off the
                 // staged row and re-checks every part -- this vendor's, this project, paid, within its
@@ -844,6 +861,7 @@ export const OutflowMasterPage = () => {
             callCreateInflow,
             callCreateNonProjectInflow,
             callCreateVendorRefund,
+            callMatchWaitingRefunds,
             callSettle,
         ]
     );

@@ -54,7 +54,7 @@ import {
   useAllCriticalPOTasks
 } from "@/pages/projects/data/critical-po/useCriticalPOQueries";
 import { useUpdateCriticalPOTask, useUpdatePOTaskLinks } from "@/pages/projects/data/critical-po/useCriticalPOMutations";
-import { filterPOsByPackage } from "@/pages/projects/CriticalPOTasks/utils";
+import { buildPackageOptions, filterPOsByPackage } from "@/pages/projects/CriticalPOTasks/utils";
 import { CriticalPOTask } from "@/types/NirmaanStack/CriticalPOTasks";
 import dayjs from "dayjs";
 import ReactSelect from "react-select";
@@ -149,30 +149,6 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
     open
   );
 
-  // Extract unique work packages from project_wp_category_makes child table
-  const workPackages = useMemo(() => {
-    if (!projectData?.project_wp_category_makes) return [];
-
-    const uniqueWPDocNames = new Set<string>();
-    projectData.project_wp_category_makes.forEach((item) => {
-      if (item.procurement_package) {
-        uniqueWPDocNames.add(item.procurement_package);
-      }
-    });
-
-    return Array.from(uniqueWPDocNames).map((wpDocName) => ({
-      work_package_name: wpDocName,
-    }));
-  }, [projectData]);
-
-  // Create options for react-select
-  const packageOptions = useMemo(() => {
-    const options = workPackages.map((pkg) => ({
-      label: pkg.work_package_name,
-      value: pkg.work_package_name,
-    }));
-    return [...options, { label: "Custom", value: "Custom" }];
-  }, [workPackages]);
 
   const { data: procurementOrders, isLoading: posLoading } = useCriticalPOProcurementOrders(
     projectId,
@@ -180,11 +156,16 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
     open
   );
 
-  // Fetch PRs to get work_package information
+  // Fetch the project's PRs with their packages -- on open: the dropdown is built from them
   const { data: procurementRequests, isLoading: prsLoading } = useCriticalPOProcurementRequests(
     projectId,
-    selectedPackage,
     open
+  );
+
+  // Package dropdown: enabled packages + packages the project's PRs carry, then "Custom"
+  const packageOptions = useMemo(
+    () => buildPackageOptions(projectData?.project_wp_category_makes, procurementRequests),
+    [projectData, procurementRequests]
   );
 
   // Fetch ALL Critical PO Tasks for the project (for cross-task conflict detection)
@@ -586,7 +567,11 @@ export const EditTaskDialog: React.FC<EditTaskDialogProps> = ({
                           </AlertDescription>
                         </Alert>
                       ) : (
-                        <div className="space-y-2 max-h-[200px] overflow-y-auto border rounded-md p-2">
+                        // `relative`: these checkboxes sit inside the form, so Radix adds a hidden,
+                        // absolutely positioned native input beside each one. Without a positioned
+                        // ancestor here, the inputs of POs scrolled out of this list escape it and
+                        // stretch the dialog (blank space under Save Changes).
+                        <div className="relative space-y-2 max-h-[200px] overflow-y-auto border rounded-md p-2">
                           {availablePOs.map((po) => (
                             <div
                               key={po.name}

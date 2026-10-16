@@ -1,23 +1,21 @@
-import frappe
-import json
+"""PR Tracker: which procurement packages each project's PRs carry.
+
+Computed LIVE from the PRs' package rows (`Procurement Requests.pr_tag_list`, written from the
+items by `integrations/controllers/procurement_request_packages.py`), grouped in the database.
+Nothing is stored, so the tracker cannot drift from the PRs: a deleted PR, a PR whose items
+change, or two PRs saved at the same moment are all reflected on the next read.
+
+The older `Critical PR Tags` records (one per project + header) are no longer read or written.
+They were a stored copy kept in step by PR hooks; under PostgreSQL's REPEATABLE READ two saves
+at once could not both update one record, and deleted PRs were never removed from it.
+"""
+
 from collections import defaultdict
+
+import frappe
 from frappe.utils import create_batch
 
-from typing import Any, Dict, Set, TypedDict
 from nirmaan_stack.services.role_profiles import MATERIAL_PROCUREMENT_PROFILES
-
-class ProjectStats(TypedDict):
-    project: str
-    project_name: str
-    total_tags: int
-    released_tags: int
-    released_count: int
-    not_released_count: int
-    total_enabled_packages: int
-    total_available_headers: int
-    used_packages: Set[str]
-    used_headers: Set[str]
-    all_prs: Set[str]
 
 # Roles that require project-level filtering based on user permissions
 FILTERED_ACCESS_ROLES = {
@@ -66,167 +64,127 @@ def _should_filter_by_permissions(user: str, role: str) -> bool:
     return False
 
 
+def _visible_projects() -> list[str] | None:
+    """The projects the session user may see here: None means every project."""
+    user = frappe.session.user
+    if _should_filter_by_permissions(user, _get_user_role(user)):
+        return _get_allowed_projects(user)
+    return None
+
+
+# A PR with no project has no tracker card and is skipped, as the old tracker did (an empty project
+# would also break sorting the projects).
+_PACKAGE_PRS_SQL = """
+    SELECT pr.project,
+           tag.tag_package AS package,
+           STRING_AGG(DISTINCT pr.name, ',' ORDER BY pr.name) AS prs
+    FROM `tabProcurement Requests` pr
+    JOIN `tabPR Tag Child Table` tag
+      ON tag.parent = pr.name
+     AND tag.parenttype = 'Procurement Requests'
+     AND tag.parentfield = 'pr_tag_list'
+    WHERE COALESCE(tag.tag_package, '') <> ''
+      AND COALESCE(pr.project, '') <> ''
+      AND pr.docstatus < 2
+      {project_filter}
+    GROUP BY pr.project, tag.tag_package
+"""
+
+
+def _package_prs(projects: list[str] | None) -> list[dict]:
+    """[{project, package, prs: [pr names, sorted]}] for `projects` (None = all)."""
+    rows = []
+    if projects is None:
+        rows = frappe.db.sql(_PACKAGE_PRS_SQL.format(project_filter=""), as_dict=True)
+    else:
+        # Chunked: an IN list of every project would overrun sqlparse's 10k-token cap.
+        for chunk in create_batch(sorted(set(projects)), 500):
+            rows += frappe.db.sql(
+                _PACKAGE_PRS_SQL.format(project_filter="AND pr.project IN %(projects)s"),
+                {"projects": tuple(chunk)},
+                as_dict=True,
+            )
+    return [
+        {"project": row.project, "package": row.package, "prs": row.prs.split(",") if row.prs else []}
+        for row in rows
+    ]
+
+
+def _enabled_packages(project_ids: list[str]) -> dict[str, set[str]]:
+    enabled = defaultdict(set)
+    # Chunk the IN list so the generated query never exceeds the sqlparse 10k-token
+    # cap (prod: Frappe validate_generated_query + sqlparse 0.5.5).
+    for chunk in create_batch(project_ids, 500):
+        for entry in frappe.get_all(
+            "Project Work Package Category Make",
+            filters={"parent": ["in", list(chunk)], "parenttype": "Projects"},
+            fields=["parent", "procurement_package"],
+        ):
+            if entry.procurement_package:
+                enabled[entry.parent].add(entry.procurement_package)
+    return enabled
+
+
 @frappe.whitelist()
 def get_projects_with_critical_pr_stats():
-    """
-    Fetches projects that have Critical PR Tags with aggregated statistics.
-    """
-    user = frappe.session.user
-    role = _get_user_role(user)
-
-    filters = []
-    if _should_filter_by_permissions(user, role):
-        allowed_projects = _get_allowed_projects(user)
-        if not allowed_projects:
-            return []
-        filters = [["project", "in", allowed_projects]]
-
-    # 1. Fetch all PR Tag Headers to map packages to headers
-    tag_headers = frappe.get_all("PR Tag Headers", fields=["tag_package", "pr_header"])
-    package_to_headers = defaultdict(list)
-    for h in tag_headers:
-        if h.tag_package:
-            package_to_headers[h.tag_package].append(h.pr_header)
-
-    # 2. Fetch Critical PR Tags
-    tags = frappe.get_all(
-        "Critical PR Tags",
-        fields=[
-            "name",
-            "project",
-            "projectname",
-            "associated_prs",
-            "package",
-            "header"
-        ],
-        filters=filters,
-        order_by="project asc"
-    )
-
-    if not tags:
+    """Every visible project that has at least one PR with a package, with its package stats."""
+    visible = _visible_projects()
+    if visible is not None and not visible:
         return []
 
-    # 3. Fetch unique procurement packages from Project Work Package Category Make for each project
-    project_ids = list(set(tag.get("project") for tag in tags if tag.get("project")))
-    
-    # Efficiently fetch all relevant child table entries in one go.
-    # Chunk the IN list so the generated query never exceeds the sqlparse 10k-token
-    # cap (prod: Frappe validate_generated_query + sqlparse 0.5.5). project_ids scales
-    # with the number of projects that have Critical PR Tags (ALL projects for Admin/PMO).
-    wp_makes = []
-    for _chunk in create_batch(project_ids, 500):
-        wp_makes += frappe.get_all(
-            "Project Work Package Category Make",
-            filters={"parent": ["in", list(_chunk)], "parenttype": "Projects"},
-            fields=["parent", "procurement_package"]
-        )
-    
-    project_pkgs_map = defaultdict(set)
-    for entry in wp_makes:
-        if entry.procurement_package:
-            project_pkgs_map[entry.parent].add(entry.procurement_package)
+    package_rows = _package_prs(visible)
+    if not package_rows:
+        return []
 
-    project_data: Dict[str, ProjectStats] = {}
+    by_project = defaultdict(list)
+    for row in package_rows:
+        by_project[row["project"]].append(row)
 
-    for tag in tags:
-        p_id = tag.get("project")
-        if not p_id:
-            continue
-
-        if p_id not in project_data:
-            enabled_pkgs = list(project_pkgs_map.get(p_id, []))
-            
-            # Calculate total available headers based on enabled packages
-            available_headers = set()
-            for pkg in enabled_pkgs:
-                for h in package_to_headers.get(pkg, []):
-                    available_headers.add(h)
-
-            project_data[p_id] = {
-                "project": p_id,
-                "project_name": tag.get("projectname", ""),
-                "total_tags": 0,
-                "released_tags": 0,
-                "released_count": 0,
-                "not_released_count": 0,
-                "total_enabled_packages": len(enabled_pkgs),
-                "total_available_headers": len(available_headers),
-                "used_packages": set(),
-                "used_headers": set(),
-                "all_prs": set()
-            }
-        
-        # Determine release status based on associated_prs
-        prs_raw = tag.get("associated_prs")
-        is_rel = False
-        p_data = project_data[p_id] # Helping the linter with a local variable
-        
-        if prs_raw:
-            try:
-                data = prs_raw
-                if isinstance(prs_raw, str):
-                    data = json.loads(prs_raw)
-                
-                if isinstance(data, dict) and data.get("prs"):
-                    is_rel = True
-                    # Collect unique PR names/IDs from strings or objects
-                    for pr_entry in data["prs"]:
-                        if isinstance(pr_entry, dict) and pr_entry.get("name"):
-                            p_data["all_prs"].add(pr_entry["name"])
-                        elif isinstance(pr_entry, str):
-                            p_data["all_prs"].add(pr_entry)
-            except Exception:
-                pass
-        
-        p_data["total_tags"] += 1
-        if tag.get("package"):
-            p_data["used_packages"].add(tag.get("package"))
-        if tag.get("header"):
-            p_data["used_headers"].add(tag.get("header"))
-
-        if is_rel:
-            p_data["released_tags"] += 1
-            p_data["released_count"] += 1
-        else:
-            p_data["not_released_count"] += 1
-
-    # Fetch project lifecycle status for the projects with at least one tag
-    project_ids_with_tags = [
-        pid for pid, data in project_data.items() if data["total_tags"] > 0
-    ]
-    project_status_map = {}
-    if project_ids_with_tags:
-        # Chunk the IN list (sqlparse 10k-token cap); merge the per-chunk maps.
-        for _chunk in create_batch(project_ids_with_tags, 500):
-            project_docs = frappe.get_all(
-                "Projects",
-                filters={"name": ["in", list(_chunk)]},
-                fields=["name", "status"],
-            )
-            project_status_map.update({p.name: p.status or "" for p in project_docs})
+    project_ids = sorted(by_project)
+    enabled = _enabled_packages(project_ids)
+    project_info = {}
+    for chunk in create_batch(project_ids, 500):
+        for p in frappe.get_all(
+            "Projects",
+            filters={"name": ["in", list(chunk)]},
+            fields=["name", "project_name", "status"],
+        ):
+            project_info[p.name] = p
 
     result = []
-    for p_id in sorted(project_data.keys()):
-        data = project_data[p_id]
-        if data["total_tags"] > 0:
-            result.append({
-                "project": data["project"],
-                "project_name": data["project_name"],
-                "status_of_project": project_status_map.get(p_id, ""),
-                "total_tags": data["total_tags"],
-                "released_tags": data["released_tags"],
-                "status_counts": {
-                    "Released": data["released_count"],
-                    "Not Released": data["not_released_count"]
-                },
-                "total_enabled_packages": data["total_enabled_packages"],
-                "used_packages_count": len(data["used_packages"]),
-                "total_available_headers": data["total_available_headers"],
-                "used_headers_count": len(data["used_headers"]),
-                "total_prs": len(data["all_prs"])
-            })
+    for project_id in project_ids:
+        rows = by_project[project_id]
+        used = {row["package"] for row in rows}
+        all_prs = {pr for row in rows for pr in row["prs"]}
+        info = project_info.get(project_id) or {}
+        result.append({
+            "project": project_id,
+            "project_name": info.get("project_name") or "",
+            "status_of_project": info.get("status") or "",
+            "total_tags": len(rows),
+            "released_tags": len(rows),
+            "status_counts": {"Released": len(rows), "Not Released": 0},
+            # A PR may carry a package the project has not enabled (its items' categories
+            # decide), so the total counts those too and "used" can never exceed it.
+            "total_enabled_packages": len(enabled.get(project_id, set()) | used),
+            "used_packages_count": len(used),
+            "total_prs": len(all_prs),
+        })
 
-    # Final sort by project name
     result.sort(key=lambda x: x["project_name"].lower() if x["project_name"] else "")
-
     return result
+
+
+@frappe.whitelist()
+def get_project_pr_packages(project: str):
+    """The PR Tracker detail for one project: [{package, prs: [pr names]}], sorted by package."""
+    if not project:
+        return []
+    visible = _visible_projects()
+    if visible is not None and project not in visible:
+        frappe.throw("You do not have access to this project.", frappe.PermissionError)
+    rows = _package_prs([project])
+    return sorted(
+        ({"package": row["package"], "prs": row["prs"]} for row in rows),
+        key=lambda row: row["package"],
+    )

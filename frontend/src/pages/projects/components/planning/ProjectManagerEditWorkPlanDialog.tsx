@@ -41,11 +41,13 @@ export const ProjectManagerEditWorkPlanDialog = ({
         wp_progress: number | string;
         wp_estimate_completion_date: string;
         wp_remarks: string;
+        wp_description: string;
     }>({
         wp_status: "Not Started",
         wp_progress: 0,
         wp_estimate_completion_date: "",
         wp_remarks: "",
+        wp_description: "",
     });
 
     useEffect(() => {
@@ -55,6 +57,7 @@ export const ProjectManagerEditWorkPlanDialog = ({
                 wp_progress: initialData.wp_progress !== undefined ? initialData.wp_progress : 0,
                 wp_estimate_completion_date: initialData.wp_estimate_completion_date || "",
                 wp_remarks: initialData.wp_remarks || "",
+                wp_description: initialData.wp_description || "",
             });
         }
     }, [initialData]);
@@ -149,6 +152,8 @@ export const ProjectManagerEditWorkPlanDialog = ({
 
         const dataToUpdate: any = {
             wp_status: formData.wp_status,
+            // Notes / Description: a PM may add, change or clear it, whatever the status.
+            wp_description: formData.wp_description,
         };
         
         // Critical: Clear remarks if status is NOT On Hold
@@ -287,6 +292,17 @@ export const ProjectManagerEditWorkPlanDialog = ({
                         </div>
                     )}
                      
+                    <div className="grid gap-2">
+                        <Label htmlFor="wp_description">Notes / Description (Optional)</Label>
+                        <Textarea
+                            id="wp_description"
+                            placeholder="Add any additional notes or details..."
+                            value={formData.wp_description}
+                            onChange={(e) => handleChange("wp_description", e.target.value)}
+                            className="min-h-[80px]"
+                        />
+                    </div>
+
                     {formData.wp_status === "Completed" && (
                          <div className="rounded-md bg-blue-50 p-3 text-sm text-blue-700">
                             Task will be marked as 100% completed.

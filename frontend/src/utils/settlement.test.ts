@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import {
   PENDING_STATUSES,
   SETTLED_STATUSES,
+  STATUS_APPROVED,
   STATUS_PAID,
   STATUS_RECONCILIATION_PENDING,
   STATUS_SEQUENCE,
@@ -34,11 +35,13 @@ describe("parity with settlement.py", () => {
     ]);
   });
 
-  it("the two status STRINGS match the Python literals", () => {
+  it("the status STRINGS match the Python literals", () => {
     expect(PY_SOURCE).toMatch(
       /^STATUS_RECONCILIATION_PENDING\s*=\s*"Reconciliation Pending"/m
     );
     expect(PY_SOURCE).toMatch(/^STATUS_PAID\s*=\s*"Paid"/m);
+    expect(PY_SOURCE).toMatch(/^STATUS_APPROVED\s*=\s*"Approved"/m);
+    expect(STATUS_APPROVED).toBe("Approved");
     expect(STATUS_RECONCILIATION_PENDING).toBe("Reconciliation Pending");
     expect(STATUS_PAID).toBe("Paid");
   });

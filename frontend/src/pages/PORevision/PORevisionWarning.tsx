@@ -20,6 +20,7 @@ export const PORevisionWarning: React.FC<PORevisionWarningProps> = ({ poId }) =>
   const isPaymentLocked = warningData?.is_payment_locked || false;
   const hasCreditNotice = warningData?.has_credit_notice || false;
   const remainingCredit = warningData?.remaining_credit || 0;
+  const waitingRefundNames = (warningData?.waiting_refunds ?? []).map((refund) => refund.name);
 
   if (isLoading) return null;
 
@@ -44,6 +45,11 @@ export const PORevisionWarning: React.FC<PORevisionWarningProps> = ({ poId }) =>
             {warningData?.role ? ` as the ${warningData?.role}` : ""}.
             {isItemLocked ? " No dispatch, delivery notes, or merge operations can be processed." : ""}
             {isPaymentLocked ? " No payment term changes can be processed." : ""}
+            {paymentLockSource === "PO Adjustment" && waitingRefundNames.length > 0 && (
+              <span className="block mt-1 font-medium">
+                Waiting for {waitingRefundNames.join(", ")} to be matched with the bank.
+              </span>
+            )}
           </span>
           {warningData?.revision_id && (
             canViewRevision ? (

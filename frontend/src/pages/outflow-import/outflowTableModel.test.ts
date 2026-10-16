@@ -775,11 +775,13 @@ describe("which way the money went — the ONE definition of the axis", () => {
         expect(isCreditRow({ direction: "Refund" } as any)).toBe(false);
     });
 
-    it("offers the three credit dispositions on a credit row, and nothing else", () => {
+    it("offers the four credit dispositions on a credit row, and nothing else", () => {
         // #1266: the receipt is gone; project inflow, non-project inflow and vendor refund remain.
+        // #1401: matching a waiting vendor refund sits just above creating one.
         expect(availableDecisionTargets({ direction: "Credit" } as any)).toEqual([
             "inflow",
             "nonProjectInflow",
+            "waitingRefund",
             "vendorRefund",
         ]);
     });
@@ -805,6 +807,7 @@ describe("which way the money went — the ONE definition of the axis", () => {
                 "new",
                 "inflow",
                 "nonProjectInflow",
+                "waitingRefund",
                 "vendorRefund",
             ].sort()
         );
@@ -813,7 +816,7 @@ describe("which way the money went — the ONE definition of the axis", () => {
     it("hands back a fresh array, so a caller cannot edit the rule for everyone", () => {
         const first = availableDecisionTargets({ direction: "Credit" } as any);
         first.pop();
-        expect(availableDecisionTargets({ direction: "Credit" } as any)).toHaveLength(3);
+        expect(availableDecisionTargets({ direction: "Credit" } as any)).toHaveLength(4);
     });
 });
 

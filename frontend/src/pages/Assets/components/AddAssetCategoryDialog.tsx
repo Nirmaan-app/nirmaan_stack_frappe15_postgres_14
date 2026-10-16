@@ -10,9 +10,11 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
+import { useUserData } from '@/hooks/useUserData';
 import { Boxes, ListChecks, Briefcase, Laptop } from 'lucide-react';
 
 import {
@@ -20,6 +22,7 @@ import {
     ASSET_CATEGORY_TYPE_OPTIONS,
     AssetCategoryType,
 } from '../assets.constants';
+import { getAssetPermissions } from '../utils/permissions';
 
 interface AddAssetCategoryDialogProps {
     isOpen: boolean;
@@ -39,6 +42,10 @@ export const AddAssetCategoryDialog: React.FC<AddAssetCategoryDialogProps> = ({
 }) => {
     const [categoryName, setCategoryName] = useState('');
     const [categoryType, setCategoryType] = useState<AssetCategoryType | ''>('');
+    // Monthly asset audit (owner, 2026-10-14): off unless asked for, and only Admin can ask.
+    const [auditRequired, setAuditRequired] = useState(false);
+    const userData = useUserData();
+    const { canSwitchCategoryAudit } = getAssetPermissions(userData?.user_id, userData?.role);
     const [formError, setFormError] = useState<string | null>(null);
 
     const { toast } = useToast();
@@ -57,6 +64,7 @@ export const AddAssetCategoryDialog: React.FC<AddAssetCategoryDialogProps> = ({
     const resetForm = () => {
         setCategoryName('');
         setCategoryType('');
+        setAuditRequired(false);
         setFormError(null);
     };
 
@@ -89,6 +97,7 @@ export const AddAssetCategoryDialog: React.FC<AddAssetCategoryDialogProps> = ({
             await createDoc(ASSET_CATEGORY_DOCTYPE, {
                 asset_category: trimmedName,
                 category_type: categoryType,
+                audit_required: canSwitchCategoryAudit && auditRequired ? 1 : 0,
             });
 
             toast({
@@ -173,6 +182,23 @@ export const AddAssetCategoryDialog: React.FC<AddAssetCategoryDialogProps> = ({
                             })}
                         </div>
                     </div>
+
+                    {canSwitchCategoryAudit && (
+                    <label htmlFor="newCategoryAudit" className="flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5">
+                        <Checkbox
+                            id="newCategoryAudit"
+                            checked={auditRequired}
+                            onCheckedChange={(checked) => setAuditRequired(checked === true)}
+                            className="mt-0.5"
+                        />
+                        <span className="text-sm">
+                            <span className="font-medium text-gray-700">Monthly audit required</span>
+                            <span className="block text-xs text-gray-500">
+                                Holders send the asset's condition and a photo every month.
+                            </span>
+                        </span>
+                    </label>
+                    )}
 
                     {formError && (
                         <p className="text-sm text-red-600">{formError}</p>

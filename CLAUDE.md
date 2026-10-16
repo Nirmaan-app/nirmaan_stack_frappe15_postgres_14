@@ -28,7 +28,8 @@ Three standards fail silently when broken, so they are summarised here too (full
 ## Session workflow
 
 - **Tickets and specs are GitHub issues.** Read the ticket and its parent spec first:
-  `gh issue view <n> --comments --repo Nirmaan-app/nirmaan_stack_frappe15_postgres_14`.
+  `gh issue view <n> --json title,body,labels,comments --repo Nirmaan-app/nirmaan_stack_frappe15_postgres_14`
+  (`--comments` alone prints only the comments, never the body).
 - **Ad-hoc work (no ticket): write a plan and wait for the user's review before writing code.** Under
   `/implement`, the ticket is the approved plan: build it without re-planning or stopping for review.
 - **Commit once per ticket, on the current branch;** branch only when the user asks. Run
@@ -77,9 +78,10 @@ import frappe; frappe.init(site='localhost'); frappe.connect()
 frappe.destroy()
 EOF
 docker cp /tmp/q.py frappe_docker_devcontainer-frappe-1:/tmp/q.py
-docker exec -w /workspace/development/frappe-bench frappe_docker_devcontainer-frappe-1 env/bin/python /tmp/q.py
+docker exec -w /workspace/development/frappe-bench frappe_docker_devcontainer-frappe-1 env/bin/python -I /tmp/q.py
 ```
-`os.chdir` to `sites/` is required before `frappe.init()`. On Windows Git Bash, prefix `MSYS_NO_PATHCONV=1` on
+`-I` is required: the container's `/tmp` holds stray `.py` files (`profile.py`, `os.py`, …), and without it
+Python imports them ahead of the standard library. `os.chdir` to `sites/` is required before `frappe.init()`. On Windows Git Bash, prefix `MSYS_NO_PATHCONV=1` on
 every `docker exec` / `docker cp` that passes a UNIX path, or `/tmp/...` becomes `C:/Users/.../Temp/...` (handover §9 #93, §11 #33).
 
 **BoQ dev environment** (setup, clean bench restart, the CSRF clear-site-data login fix, :8080 live vs :8000
@@ -109,11 +111,13 @@ The BoQ docs are too large to read whole: `frontend/.claude/plans/boq-upload-pla
 | **Material Test Certificates (MTC)**: the doctype, the PO-page card, the MTC list page, PO merge/cancel effects | `material-test-certificates.md` § Load-bearing invariants |
 | **Projects**, CEO Hold | `projects.md` |
 | **Users**, the Administrator account | `users.md` |
+| **Assets**: assignments, declarations, returns, the monthly audit, asset history | `assets.md` § Load-bearing invariants |
 | **Service Requests** | `service-requests.md` |
 | **Internal Transfer Memos** | `internal-transfer-memos.md` |
 | **Expenses** | `expenses.md` |
 | **Invoice Autofill**, **Invoice Qty** | `invoice-autofill.md`, `invoice-qty.md` |
 | **Outflow import** (bank statement settles payments and expenses) | `outflow-import.md` |
+| **Payees** (bank accounts vendors and expenses are paid into) | `payees.md` § Load-bearing invariants |
 | **Payment TDS** (tax deducted at source, not Technical Data Sheets) | `payment-tds.md` |
 | **Technical Data Sheets**: the TDS Repository, Project TDS requests and their approval (not tax TDS) | `tds.md` § Load-bearing invariants |
 | **Vendor Hold** | `frontend/.claude/context/domain/vendor-hold.md` |

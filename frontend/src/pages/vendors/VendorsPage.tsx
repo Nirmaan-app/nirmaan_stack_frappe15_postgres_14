@@ -19,11 +19,13 @@ import { exportToCsv } from "@/utils/exportToCsv";
 import { useServerDataTable } from "@/hooks/useServerDataTable";
 import { FacetDeclaration } from "@/components/data-table/facetConfig";
 import { useVendorHoldVendors } from "@/hooks/useVendorHoldVendors";
-import { Vendors as VendorsType } from "@/types/NirmaanStack/Vendors";
+import { VENDOR_LIST_API } from "@/components/payees/vendorPayeeAccount";
 import { formatDate } from "@/utils/FormatDate";
+import { accountNumberCsvCell } from "@/utils/payees/payeeForm";
 import { VENDOR_HOLD_ROW_CLASSES } from "@/utils/vendorHoldRowStyles";
 
 import {
+  type VendorListRow,
   VENDOR_DOCTYPE,
   VENDOR_LIST_FIELDS_TO_FETCH,
   VENDOR_SEARCHABLE_FIELDS,
@@ -36,12 +38,12 @@ export default function VendorsPage() {
   // --- Data fetching handled by hooks ---
   const { onHoldVendorIds } = useVendorHoldVendors();
 
-  const getRowClassName = useCallback((row: Row<VendorsType>) => {
+  const getRowClassName = useCallback((row: Row<VendorListRow>) => {
     if (onHoldVendorIds.has(row.original.name)) return VENDOR_HOLD_ROW_CLASSES;
     return undefined;
   }, [onHoldVendorIds]);
 
-  const columns = useMemo<ColumnDef<VendorsType>[]>(
+  const columns = useMemo<ColumnDef<VendorListRow>[]>(
     () => [
       {
         accessorKey: "name",
@@ -99,7 +101,7 @@ export default function VendorsPage() {
         size: 150,
         meta: {
           exportHeaderName: "Nickname",
-          exportValue: (row: VendorsType) => row.vendor_nickname,
+          exportValue: (row: VendorListRow) => row.vendor_nickname,
         },
       },
       {
@@ -209,7 +211,7 @@ export default function VendorsPage() {
             blankLabel: "N/A",
           } satisfies FacetDeclaration,
           exportHeaderName: "Categories",
-          exportValue: (row: VendorsType) =>
+          exportValue: (row: VendorListRow) =>
             row.vendor_category?.categories?.join(", ") || "",
         },
       },
@@ -225,7 +227,7 @@ export default function VendorsPage() {
         // accessorFn (not just `id`) so the column also shows up in the
         // "Toggle columns" menu — without it TanStack has no accessor and the
         // menu skips it, leaving Address as the one column that can't be hidden.
-        accessorFn: (row: VendorsType) =>
+        accessorFn: (row: VendorListRow) =>
           [row.vendor_city, row.vendor_state].filter(Boolean).join(", "),
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Address" />
@@ -248,7 +250,7 @@ export default function VendorsPage() {
           // The cell is DERIVED from vendor_city + vendor_state; with no accessorKey
           // and no exportValue the CSV column came out empty on every row.
           exportHeaderName: "Address",
-          exportValue: (row: VendorsType) =>
+          exportValue: (row: VendorListRow) =>
             [row.vendor_city, row.vendor_state].filter(Boolean).join(", "),
           facet: {
             field: "vendor_state",
@@ -272,13 +274,13 @@ export default function VendorsPage() {
       // --- Optional columns: hidden by default, opt-in via the "Toggle columns" menu.
       // Whatever is visible here is exactly what the CSV export contains.
       {
-        accessorKey: "account_name",
+        accessorKey: "payee_account_name",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Account Holder Name" />
         ),
         cell: ({ row }) => (
           <div className="font-medium text-sm whitespace-normal leading-tight">
-            {row.original.account_name || "--"}
+            {row.original.payee_account_name || "--"}
           </div>
         ),
         size: 220,
@@ -286,27 +288,30 @@ export default function VendorsPage() {
         meta: { exportHeaderName: "Account Holder Name" },
       },
       {
-        accessorKey: "account_number",
+        accessorKey: "payee_account_number",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Account Number" />
         ),
         cell: ({ row }) => (
           <div className="font-medium text-sm whitespace-nowrap">
-            {row.original.account_number || "--"}
+            {row.original.payee_account_number || "--"}
           </div>
         ),
         size: 180,
         enableSorting: false,
-        meta: { exportHeaderName: "Account Number" },
+        meta: {
+          exportHeaderName: "Account Number",
+          exportValue: (row: VendorListRow) => accountNumberCsvCell(row.payee_account_number),
+        },
       },
       {
-        accessorKey: "ifsc",
+        accessorKey: "payee_ifsc",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="IFSC Code" />
         ),
         cell: ({ row }) => (
           <div className="font-medium text-sm whitespace-nowrap">
-            {row.original.ifsc || "--"}
+            {row.original.payee_ifsc || "--"}
           </div>
         ),
         size: 140,
@@ -314,13 +319,13 @@ export default function VendorsPage() {
         meta: { exportHeaderName: "IFSC Code" },
       },
       {
-        accessorKey: "bank_name",
+        accessorKey: "payee_bank_name",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Bank Name" />
         ),
         cell: ({ row }) => (
           <div className="font-medium text-sm whitespace-normal leading-tight">
-            {row.original.bank_name || "--"}
+            {row.original.payee_bank_name || "--"}
           </div>
         ),
         size: 220,
@@ -328,13 +333,13 @@ export default function VendorsPage() {
         meta: { exportHeaderName: "Bank Name" },
       },
       {
-        accessorKey: "bank_branch",
+        accessorKey: "payee_bank_branch",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Branch" />
         ),
         cell: ({ row }) => (
           <div className="font-medium text-sm whitespace-normal leading-tight">
-            {row.original.bank_branch || "--"}
+            {row.original.payee_bank_branch || "--"}
           </div>
         ),
         size: 200,
@@ -430,15 +435,18 @@ export default function VendorsPage() {
     setSearchTerm,
     selectedSearchField,
     setSelectedSearchField,
-  } = useServerDataTable<VendorsType>({
+  } = useServerDataTable<VendorListRow>({
     doctype: VENDOR_DOCTYPE,
+    // Each row arrives with its Payee's bank columns (`payee_account_number`, …).
+    apiEndpoint: VENDOR_LIST_API,
     columns: columns,
     fetchFields: VENDOR_LIST_FIELDS_TO_FETCH as string[],
     searchableFields: VENDOR_SEARCHABLE_FIELDS,
     defaultSort: "creation desc",
     urlSyncKey: `vendors_list`,
     enableRowSelection: false,
-    shouldCache: true,
+    // No server cache: it keeps a page for 5 minutes and nothing clears it, so a vendor just
+    // created (or a Payee just changed) was missing from the list until it expired (#1420 walk C8).
     initialState: { columnVisibility: VENDOR_HIDDEN_COLUMNS },
   });
 
@@ -508,7 +516,7 @@ export default function VendorsPage() {
     >
       <VendorsOverallSummaryCard />
 
-      <DataTable<VendorsType>
+      <DataTable<VendorListRow>
         table={table}
         columns={columns}
         isLoading={tableIsLoading}

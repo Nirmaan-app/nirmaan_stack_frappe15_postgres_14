@@ -19,8 +19,11 @@ THE THREE DISPOSITIONS A CREDIT CAN TAKE, DIVIDED BY WHO IS BEHIND THE MONEY:
     `Non Project Expense` -- that endpoint, its service and its tests are REMOVED, not just hidden:
     a live endpoint nobody calls can still write negative expenses (A-D2).
   * `create_vendor_refund` -- money a VENDOR paid back, written as one `Vendor Refund` per PO / Work
-    Order it is against, plus one for a Misc. Expense part. It creates no Project Payment and moves no
-    paid amount.
+    Order it is against, plus one for a Misc. Expense part. It creates no Project Payment; each PO / WO
+    part lowers that document's paid amount.
+  * `waiting_refund_match.match_waiting_refunds` (#1401) -- the same money when "Adjust Payments"
+    already recorded it as a waiting Vendor Refund: the line is matched to the existing refund(s),
+    which turn Received. Nothing is created. Its own module, beside this one, on these guards.
 
 The axis this module splits on is DIRECTION: `expenses.py` holds every endpoint that writes an
 OUTFLOW, and this one holds the ones a reviewer may take with a credit row, sharing

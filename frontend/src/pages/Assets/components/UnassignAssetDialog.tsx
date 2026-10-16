@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useFrappeUpdateDoc, useFrappeDeleteDoc } from 'frappe-react-sdk';
+import React, { useEffect, useState } from 'react';
+import { useFrappePostCall } from 'frappe-react-sdk';
 
 import {
     AlertDialog,
@@ -14,11 +14,10 @@ import {
 import { useToast } from '@/components/ui/use-toast';
 import { UserMinus } from 'lucide-react';
 
-import {
-    ASSET_MASTER_DOCTYPE,
-    ASSET_MANAGEMENT_DOCTYPE,
-} from '../assets.constants';
+import { getFrappeError } from '@/utils/frappeErrors';
+import { isUnassignReasonValid } from '@/utils/assetUnassign';
 import { useAssetDataRefresh } from '../hooks/useAssetDataRefresh';
+import { UnassignReasonFields } from './UnassignReasonFields';
 
 interface UnassignAssetDialogProps {
     isOpen: boolean;
@@ -26,6 +25,7 @@ interface UnassignAssetDialogProps {
     assetId: string;
     assetName: string;
     assigneeName: string;
+    /** The current holder's assignment row; the server finds it when not given. */
     assetManagementId?: string;
     onUnassigned?: () => void;
 }
@@ -40,29 +40,34 @@ export const UnassignAssetDialog: React.FC<UnassignAssetDialogProps> = ({
     onUnassigned,
 }) => {
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [reason, setReason] = useState('');
+    const [details, setDetails] = useState('');
 
     const { toast } = useToast();
-    const { updateDoc } = useFrappeUpdateDoc();
-    const { deleteDoc } = useFrappeDeleteDoc();
     const { refreshSummaryCards } = useAssetDataRefresh();
+    // One request: the reason is checked, the assignment removed and the reason kept on the
+    // asset's "Unassigned" history row (api/assets/assign.py).
+    const { call: unassignAsset } = useFrappePostCall('nirmaan_stack.api.assets.assign.unassign_asset');
+
+    useEffect(() => {
+        if (isOpen) {
+            setReason('');
+            setDetails('');
+        }
+    }, [isOpen]);
+
+    const canUnassign = isUnassignReasonValid(reason, details) && !isSubmitting;
 
     const handleUnassign = async () => {
         setIsSubmitting(true);
 
         try {
-            // Clear the assignee AND the project this asset was assigned for.
-            // asset_city / asset_state are read-only fetch fields on `project`, and
-            // Frappe does not re-fetch when a link is cleared — the Asset Master
-            // validate hook blanks them whenever the project is empty.
-            await updateDoc(ASSET_MASTER_DOCTYPE, assetId, {
-                current_assignee: '',
-                project: '',
+            await unassignAsset({
+                asset: assetId,
+                reason,
+                details: details.trim() || undefined,
+                assignment: assetManagementId,
             });
-
-            // Delete the Asset Management record if it exists
-            if (assetManagementId) {
-                await deleteDoc(ASSET_MANAGEMENT_DOCTYPE, assetManagementId);
-            }
 
             toast({
                 title: 'Asset Unassigned',
@@ -77,7 +82,7 @@ export const UnassignAssetDialog: React.FC<UnassignAssetDialogProps> = ({
             console.error('Failed to unassign asset:', error);
             toast({
                 title: 'Unassign Failed',
-                description: error?.message || 'An error occurred while unassigning the asset.',
+                description: getFrappeError(error),
                 variant: 'destructive',
             });
         } finally {
@@ -87,7 +92,7 @@ export const UnassignAssetDialog: React.FC<UnassignAssetDialogProps> = ({
 
     return (
         <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
-            <AlertDialogContent>
+            <AlertDialogContent className="max-h-[90vh] overflow-y-auto">
                 <AlertDialogHeader>
                     <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-50">
                         <UserMinus className="h-6 w-6 text-red-600" />
@@ -107,13 +112,24 @@ export const UnassignAssetDialog: React.FC<UnassignAssetDialogProps> = ({
                         </span>
                     </AlertDialogDescription>
                 </AlertDialogHeader>
+                <UnassignReasonFields
+                    reason={reason}
+                    details={details}
+                    onReasonChange={setReason}
+                    onDetailsChange={setDetails}
+                    disabled={isSubmitting}
+                />
                 <AlertDialogFooter className="sm:justify-center gap-2">
                     <AlertDialogCancel disabled={isSubmitting}>
                         Cancel
                     </AlertDialogCancel>
                     <AlertDialogAction
-                        onClick={handleUnassign}
-                        disabled={isSubmitting}
+                        onClick={(event) => {
+                            // Radix closes the dialog on this click by default; it closes only on success.
+                            event.preventDefault();
+                            handleUnassign();
+                        }}
+                        disabled={!canUnassign}
                         className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
                     >
                         {isSubmitting ? 'Unassigning...' : 'Unassign'}

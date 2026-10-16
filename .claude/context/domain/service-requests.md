@@ -2,6 +2,20 @@
 
 Service Requests are called "Work Orders" in the UI. They represent service-based procurement (vs. item-based Purchase Orders).
 
+## Load-bearing invariants
+
+- **`amount_paid` / `amount_due` are recounted by the system, never typed (ADR-0034).** `amount_paid` = the WO's
+  *Paid* Project Payments less its *Received* Vendor Refunds (TDS withheld is not part of it); `amount_due` =
+  `total_amount - amount_paid - TDS withheld from the vendor`: `total_tds` less the tax the company paid on top
+  (`payment_tds.company_borne_tds_sql`). Who bore each deduction is its stored `Payment TDS Deduction.borne_by`,
+  set once when it is created; the WO's categories (Misc/Transport only) decide only that creation, never a
+  reader, so a Misc/Transport WO paid net of TDS before 2026-09-17 still subtracts it and a later category
+  change moves nothing (`payment-tds.md` § Company-borne). The request caps and the WO page's TDS label read
+  the same field. The watched fields that
+  recount them (a payment's `status`, `amount`, `document_type`, `document_name`, both the WO it leaves and the
+  one it joins; a refund's) and the judge `services/amount_paid_drift.mismatches` are in `procurement.md`
+  § Load-bearing invariants, shared with POs.
+
 ## Doctype: Service Requests
 
 ### Key Fields
@@ -13,7 +27,7 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
 | `finalized_by` | Data | Full name (not email) of who finalized |
 | `finalized_on` | Datetime | When finalized |
 | `total_amount` | Currency | Total service amount |
-| `amount_paid` | Currency | Amount paid so far |
+| `amount_paid` | Currency | Paid payments less Received refunds (system-recounted, see above) |
 
 ### Finalization Workflow
 

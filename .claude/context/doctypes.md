@@ -62,7 +62,7 @@
 
 | Doctype | Purpose |
 |---------|---------|
-| **Vendors** | Vendor master with financial balances |
+| **Vendors** | Vendor master with financial balances. Holds no bank fields: its bank account is its `payee` (Link to **Payee**, ADR-0033) |
 | **Vendor Category** | Vendor categorization |
 | **Customers** | Customer master |
 | **Items** | Item/product master |
@@ -82,24 +82,38 @@
 
 ## Asset Management (HR)
 
+Rules, flows and the monthly audit: [domain/assets.md](domain/assets.md).
+
 | Doctype | Purpose |
 |---------|---------|
-| **Asset Category** | Categorization of assets (e.g., Laptop, Phone, Vehicle) |
-| **Asset Master** | Asset inventory with details (serial number, condition, IT credentials) |
-| **Asset Management** | Tracks asset assignments to users with declaration attachments |
+| **Asset Category** | Categorization of assets (e.g., Laptop, Drill Machine); `category_type` Project / IT; `audit_required` (monthly audit, Admin switch) |
+| **Asset Master** | Asset inventory with details (serial number, condition, IT credentials, department) |
+| **Asset Management** | The current assignment: holder, declaration, received / returned, and the open monthly audit |
+| **Asset History** | Child table of Asset Master (`asset_history`): one append-only row per change (assign, declaration, return, department, audit) |
 
 ### Asset Relationships
 ```
 Asset Category
   └─→ Asset Master (via asset_category link)
+        ├─→ Asset History rows (child table asset_history)
         └─→ Asset Management (via asset link)
               └─→ Nirmaan Users (via asset_assigned_to link)
 ```
 
 ### Asset Master Fields
-- `asset_name`, `asset_description`, `asset_condition`, `asset_serial_number`, `asset_value` (Currency)
+- `asset_name`, `asset_description`, `asset_condition`, `asset_serial_number`, `asset_value` (Currency), `project`, `department`
 - IT Asset Details: `asset_email`, `asset_email_password` (Password), `asset_pin` (Password)
 - `current_assignee` (Link to Nirmaan Users, read-only, auto-synced from Asset Management)
+
+### Asset Management Fields
+- `asset`, `asset_assigned_to`, `asset_assigned_on`, `asset_declaration_attachment`
+- `received` / `received_on`, `returned` / `returned_on` (read-only; set by the declaration and the return flow)
+- Monthly audit (read-only): `audit_status` (Pending / Fulfilled), `audit_month` (Data `MM/YYYY`), `last_audit_on`,
+  `audit_proof`, `audit_overdue_since`, `audit_answers` (JSON, stored as `{"answers": [...]}`)
+
+### Asset History Fields
+- `event`, `assigned_to` / `done_by` (Data, not Link), `done_on`, `declaration` (labelled "File"), `from_department` /
+  `to_department`, `reason`, `audit_answers` (JSON)
 
 ### Frontend Route
 - `/asset-management` (NOT `/assets` - conflicts with Frappe's static file serving)

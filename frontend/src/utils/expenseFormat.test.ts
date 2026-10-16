@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
     answersFromSourceData, isKnownBinding, parseFormat, readDetailDescription,
     readNativeInvoice, seedAnswers, validateFormat,
@@ -216,4 +218,16 @@ describe("readNativeInvoice", () => {
          '{"responses":{"invoice":{"invoice_date":7}},"attachments":{"invoice":[{}]}}']
             .forEach((raw) => expect(readNativeInvoice(raw as string | null)).toEqual(blank));
     });
+});
+
+describe("the shipped request forms", () => {
+    // `fixtures/expense_type.json` is what every migrate re-imports, so these are the forms
+    // requesters get. A form changed there (#1430 took the bank fields off) must still draw.
+    const types: { name: string; source_format: string | null }[] = JSON.parse(readFileSync(
+        resolve(__dirname, "../../../nirmaan_stack/fixtures/expense_type.json"), "utf-8"));
+
+    it.each(types.filter((t) => t.source_format?.trim()).map((t) => [t.name, t.source_format!]))(
+        "%s validates", (_name, raw) => {
+            expect(codes(validateFormat(raw))).toEqual([]);
+        });
 });

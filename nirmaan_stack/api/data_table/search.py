@@ -367,9 +367,16 @@ def get_list_with_count_enhanced_impl(
                         append_search_filter(doctype, target_search_field_name, token, final_and_filters),
                     )
             if base_name_constraint is None:
-                # Total via a single COUNT(*) (frappe.db.count -> query builder, which bypasses the sqlparse
-                # gate). No enumeration of the full name set, no `name IN (...)`.
-                total_records = frappe.db.count(doctype, filters=final_and_filters)
+                # Total via a single COUNT(*) through reportview, like the page fetch below, so it applies
+                # the user's permissions (User Permissions on Projects). frappe.db.count does not: a
+                # project-scoped user's pager counted rows they cannot see ("1-5 of 5" over 4 rows). The
+                # query is still small and sqlparse-safe: no name enumeration, no `name IN (...)`.
+                count_rows = reportview_execute(
+                    doctype=doctype,
+                    filters=final_and_filters,
+                    fields=[f"count(`tab{doctype}`.`name`) as total_count"],
+                )
+                total_records = cint(count_rows[0].get("total_count")) if count_rows else 0
                 use_direct_pagination = True
                 # Aggregates / group-by run over the WHOLE matching set, so they still need the name list.
                 # Enumerate it ONLY when configured: `SELECT name ... WHERE <filters>` is a small SQL string

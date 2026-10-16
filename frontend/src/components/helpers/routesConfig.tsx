@@ -64,6 +64,7 @@ import {
   HOD_ACCESS,
   MTC_PAGE_PROFILES,
   NON_PROJECT_INFLOWS_ACCESS,
+  PAYEE_MANAGE_PROFILES,
   PROJECT_INVOICES_ACCESS,
   UPLOAD_BOQ_ACCESS,
 } from "@/constants/roles";
@@ -74,6 +75,7 @@ import ReportsContainer from "@/pages/reports/ReportsContainer";
 // import ProcurementOrdersTesting from "@/pages/ProcurementOrders/testing/ProcurementOrdersTesting";
 import ItemsPage from "@/pages/Items/itemsPage";
 import AssetsPage from "@/pages/Assets/AssetsPage";
+import { AssetsRoute } from "@/pages/Assets/AssetsRoute";
 import AllProjectInvocies from "@/pages/ProjectInvoices/AllProjectInvoices";
 import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
@@ -161,6 +163,9 @@ const RequestFromWarehouse = lazy(() => import("@/pages/Warehouse/RequestFromWar
 const ResolveInvoices = lazy(() => import("@/pages/temp/ResolveInvoices"));
 
 const RemindersPage = lazy(() => import("@/pages/Reminders/RemindersPage"));
+// Payees (spec #1420): every bank account the company pays into.
+const PayeesPage = lazy(() => import("@/pages/payees/PayeesPage"));
+const PayeePage = lazy(() => import("@/pages/payees/PayeePage"));
 // Document Search
 
 export const appRoutes: RouteObject[] = [
@@ -675,6 +680,21 @@ export const appRoutes: RouteObject[] = [
               },
             ],
           },
+          // --- Payees (spec #1420) --- Accountant, Accountant Lead and Admin. The sidebar item and the
+          // header's Add Payee button read the same constant.
+          {
+            element: <RoleRoute allowed={PAYEE_MANAGE_PROFILES} what="Payees" />,
+            children: [
+              {
+                path: "payees",
+                children: [
+                  { index: true, element: <Suspense fallback={null}><PayeesPage /></Suspense> },
+                  // One Payee (#1423): every link to a Payee is built by `utils/payees/payeeRoutes.payeeHref`.
+                  { path: ":payeeId", element: <Suspense fallback={null}><PayeePage /></Suspense> },
+                ],
+              },
+            ],
+          },
 
           // --- Users Section ---
           {
@@ -711,12 +731,20 @@ export const appRoutes: RouteObject[] = [
           },
 
           // --- Assets Section ---
+          // Guarded like the sidebar: the list and category pages need an asset role (AssetsRoute);
+          // one asset's page also lets its current holder in (guarded inside AssetOverview), so an
+          // employee can open their own asset from their profile and sign the declaration.
           {
             path: "asset-management",
             children: [
-              { index: true, element: <AssetsPage /> },
+              {
+                element: <AssetsRoute />,
+                children: [
+                  { index: true, element: <AssetsPage /> },
+                  { path: "category/:categoryId", lazy: () => import("@/pages/Assets/AssetCategoryView") },
+                ],
+              },
               { path: ":assetId", lazy: () => import("@/pages/Assets/AssetOverview") },
-              { path: "category/:categoryId", lazy: () => import("@/pages/Assets/AssetCategoryView") },
             ],
           },
 
@@ -825,7 +853,8 @@ export const appRoutes: RouteObject[] = [
           { path: "packages-settings", element: <PackagesSettings /> },
           { path: "product-packages", element: <Navigate to="/packages-settings?tab=product-packages" replace /> },
           { path: "milestone-packages", element: <Navigate to="/packages-settings?tab=milestone-packages" replace /> },
-          { path: "pr-header-packages", element: <Navigate to="/packages-settings?tab=pr-header-packages" replace /> },
+          // PR headers were retired (PR packages now come from the items): old links land on the settings page.
+          { path: "pr-header-packages", element: <Navigate to="/packages-settings" replace /> },
           { path: "design-packages", element: <Navigate to="/packages-settings?tab=design-packages" replace /> },
           { path: "commission-packages", element: <Navigate to="/packages-settings?tab=commission-packages" replace /> },
           { path: "work-order-rate-card", element: <WOServicePackages /> },

@@ -97,6 +97,15 @@ export interface OutflowRowMatch {
     order_name?: string;
 }
 
+/** The import run's waiting-refund suggestion for a credit line (#1402), as `get_outflow_rows` sends it. */
+export interface WaitingRefundSuggestion {
+    vendor: string;
+    /** How it was found: "Bank reference" or "Account+IFSC+amount" (`matcher.BASIS_*`). */
+    basis: string;
+    /** Each refund's current amount, and its PO as the label. */
+    refunds: { name: string; amount: number; label: string }[];
+}
+
 /** One staged transfer, as `get_batch_rows` returns it. */
 export interface OutflowImportRow {
     name: string;
@@ -211,6 +220,15 @@ export interface OutflowImportRow {
      * there is no entry to stamp.
      */
     suggested_order_name?: string;
+    /**
+     * The waiting Vendor Refund(s) the import run suggests this CREDIT line is (#1402, ADR-0032): its
+     * bank reference is the UTR typed on them (or, when a source carries them, its account and IFSC
+     * are the vendor's and exactly one waiting refund has its amount). `get_outflow_rows` only, read
+     * fresh: `null` once any of them has stopped waiting, and on a line that is not open.
+     *
+     * ⚠️ NOT `suggested_name`. A group cannot fit that pair, and "Confirm all matched" reads it.
+     */
+    waiting_refund_suggestion?: WaitingRefundSuggestion | null;
     /**
      * Whether this settlement took the matcher's pick: "Suggestion accepted" / "Suggestion
      * overridden" / "No suggestion". Blank until the row is settled (slice Q1).

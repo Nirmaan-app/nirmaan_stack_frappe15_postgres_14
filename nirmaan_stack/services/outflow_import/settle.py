@@ -112,7 +112,13 @@ from typing import Callable
 import frappe
 
 from nirmaan_stack.services.non_project_inflows import inflow_type_problem
-from nirmaan_stack.services.vendor_refunds import document_project, money, refund_allocation_problem
+from nirmaan_stack.services.vendor_refunds import (
+    RECEIVED,
+    document_project,
+    money,
+    refund_allocation_problem,
+    waiting_match_problem,
+)
 from nirmaan_stack.services.outflow_import.amounts import (
     AMOUNT_TOLERANCE,
     amounts_match,
@@ -166,6 +172,7 @@ __all__ = [
     "create_inflow_from_row",
     "create_non_project_inflow_from_row",
     "create_vendor_refund_from_row",
+    "match_waiting_refunds_to_row",
     "format_amount_for",
     "statement_attachment_field",
 ]
@@ -1401,8 +1408,10 @@ def create_vendor_refund_from_row(
     within what is still refundable on it, and the parts adding up to the row exactly. Each record's
     own `validate` asks the per-document half again on insert.
 
-    ⚠️ NO STATUS, NO APPROVAL: a record counts the moment it is saved; the review gate is the bank row a
-    person confirmed (owner ruling Q8), as on the other inflow books.
+    ⚠️ EVERY RECORD IS `Received` (#1398, ADR-0032), set here explicitly: the bank line IS the proof, so
+    it counts the moment it is saved, with no approval; the review gate is the bank row a person
+    confirmed (owner ruling Q8), as on the other inflow books. Left unset, Frappe would give the
+    required Select its first option, `Reconciliation Pending`, and the refund would lower nothing.
     """
     if (direction or "").strip() != DIRECTION_CREDIT:
         frappe.throw(
@@ -1461,6 +1470,7 @@ def create_vendor_refund_from_row(
                 # it is what the credit-side contains-match searches for.
                 "utr": reference,
                 "payment_date": getattr(row, "added_on_date", None),
+                "status": RECEIVED,
             }
         )
         # A brand-new record has no proof of its own, so the blank-only rule always lets this land.
@@ -1468,6 +1478,76 @@ def create_vendor_refund_from_row(
         with _outflow_import_write():
             doc.insert(ignore_permissions=True)
         results.append(SettleResult(doctype=VENDOR_REFUND, name=doc.name, amount=part, created=True))
+    return results
+
+
+def match_waiting_refunds_to_row(
+    row,
+    refunds,
+    direction: str,
+    statement_file_url: str | None = None,
+) -> list[SettleResult]:
+    """Match a bank CREDIT to waiting `Vendor Refund`s that already exist (#1401, ADR-0032).
+
+    The other door a credit a vendor paid back can take, beside `create_vendor_refund_from_row`: the
+    refund was recorded before the bank line ("Adjust Payments", Reconciliation Pending), so this
+    creates NOTHING. Each refund becomes `Received`, takes the line's reference as its `utr` and the
+    line's date as its `payment_date`, and the statement as its proof when it has none. Returns one
+    `SettleResult(created=False)` per refund, in the order asked; each becomes one match leg.
+
+    #1403: a refund an Admin marked Received with no bank line waits here too. It already counts, so
+    its save moves no money; the match clears its `no_bank_line` mark ("No bank proof").
+
+    ⚠️ THE REFUNDS ARE LOCKED (name order, so two matches cannot deadlock) AND THE RULE IS ASKED ON WHAT
+    THE LOCK READ (`services/vendor_refunds.waiting_match_problem`): every one still waiting, one vendor,
+    none twice, and adding up EXACTLY to the row -- a credit line is never partly allocated (owner,
+    2026-10-13). A refund another request matched or cancelled a moment ago is refused, not re-matched.
+
+    ⚠️ ONLY THE STATUS, UTR, DATE AND (WHEN BLANK) PROOF ARE WRITTEN, NEVER THE AMOUNT OR THE PO: a
+    Received refund's money is fixed (`integrations/controllers/vendor_refunds.guard_money_edit`). Each
+    `doc.save()` fires the refund hook, which runs the PO sync (paid amount, the adjustment link that
+    clears the balance and lifts the lock, the vendor's credit) inside this savepoint, without
+    committing. The save writes a Version: Unreconcile reads the pre-match status, UTR and date off it.
+    """
+    if (direction or "").strip() != DIRECTION_CREDIT:
+        frappe.throw(
+            "Only a credit can be matched to a vendor refund. This transfer is a "
+            f"{(direction or '').strip().lower() or 'transfer with no stated direction'}, so it "
+            f"took money out.",
+            InflowNotRecordableError,
+            title="Not a credit",
+        )
+    names = [(name or "").strip() for name in (refunds or []) if (name or "").strip()]
+    locked = {}
+    for name in sorted(set(names)):
+        refund = frappe.db.get_value(
+            VENDOR_REFUND, name, ["name", "amount", "status", "vendor", "no_bank_line"],
+            as_dict=True, for_update=True,
+        )
+        if not refund:
+            frappe.throw(f"Vendor Refund '{name}' not found.", InflowNotRecordableError, title="Not found")
+        locked[name] = refund
+    problem = waiting_match_problem(
+        [locked[name] for name in names], normalize_amount(getattr(row, "amount", 0))
+    )
+    if problem:
+        frappe.throw(problem, InflowNotRecordableError, title="Check the refunds to match")
+
+    reference = _settlement_reference_of(row) or None
+    results = []
+    for name in names:
+        doc = frappe.get_doc(VENDOR_REFUND, name)
+        doc.status = RECEIVED
+        # #1403: a refund marked Received with no bank line now has its bank line; the "No bank proof"
+        # mark comes off (who marked it, when and why stay). Clearing it is also what makes this save's
+        # Version recognisable to Unreconcile, since such a refund's status does not change here.
+        doc.no_bank_line = 0
+        doc.utr = reference
+        doc.payment_date = getattr(row, "added_on_date", None)
+        apply_statement_attachment(doc, statement_file_url)
+        with _outflow_import_write():
+            doc.save(ignore_permissions=True, ignore_version=False)
+        results.append(SettleResult(doctype=VENDOR_REFUND, name=name, amount=money(doc.amount), created=False))
     return results
 
 

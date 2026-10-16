@@ -29,6 +29,7 @@ import { useNavigate } from "react-router-dom";
 import { PoPaymentTermRow } from "@/types/NirmaanStack/POPaymentTerms";
 import { getCreditsColumns } from "../components/CreditsTableColumns";
 import { toast } from "@/components/ui/use-toast";
+import { getFrappeError } from "@/utils/frappeErrors";
 import { ApiResponse } from "@/types/NirmaanStack/ApiResponse";
 import {
   TERM_SEARCHABLE_FIELDS,
@@ -325,7 +326,8 @@ export const useCredits = () => {
     } catch (error: any) {
       toast({
         title: "Error",
-        description: `Could not request payment: ${error.message}`,
+        // The server's sentence (e.g. a cheque number already recorded), not the transport's.
+        description: `Could not request payment: ${getFrappeError(error)}`,
         variant: "destructive",
       });
     } finally {

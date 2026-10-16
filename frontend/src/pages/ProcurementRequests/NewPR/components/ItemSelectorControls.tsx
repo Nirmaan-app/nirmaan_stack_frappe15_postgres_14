@@ -7,15 +7,6 @@ import ReactSelect, {
 } from "react-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogTrigger,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogClose,
-} from "@/components/ui/dialog"; // Adjust path
 import { CirclePlus } from "lucide-react";
 import {
   ItemOption,
@@ -30,6 +21,7 @@ import { ManageCategoryMakesDialog } from "./ManageCategoryMakesDialog";
 import { FuzzySearchSelect, TokenSearchConfig } from "@/components/ui/fuzzy-search-select";
 import { useMakeOptions } from "@/hooks/useMakeOptions";
 import { ProjectWPCategoryMake } from "@/types/NirmaanStack/Projects";
+import { derivePRPackages } from "@/utils/prPackages";
 
 // Custom MenuList for Make Select
 export const CustomMakeMenuList = (props: MenuListProps<MakeOption, false>) => {
@@ -84,18 +76,14 @@ const ItemCustomMenuList = (props: MenuListProps<ItemOption, false>) => {
 };
 
 interface ItemSelectorControlsProps {
-  selectedWP: string;
   itemOptions: ItemOption[];
   onAddItem: (
     itemData: Omit<ProcurementRequestItem, "uniqueId" | "status">
   ) => void;
   onOpenNewItemDialog: () => void;
-  allowWpEdit: boolean;
-  onEditWP: () => void;
   disabled?: boolean;
   categoryList?: Category[];
   updateCategoryMakesInStore: (categoryName: string, newMake: string) => void;
-  selectedHeaderTags: { tag_header: string; tag_package: string }[];
   categoryToPackageMap: Record<string, string>;
   itemTokenSearchConfig: TokenSearchConfig;
   procList: ProcurementRequestItem[];
@@ -105,16 +93,12 @@ interface ItemSelectorControlsProps {
 }
 
 export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
-  selectedWP,
   itemOptions,
   onAddItem,
   onOpenNewItemDialog,
-  allowWpEdit,
-  onEditWP,
   disabled = false,
   categoryList,
   updateCategoryMakesInStore,
-  selectedHeaderTags,
   categoryToPackageMap,
   itemTokenSearchConfig,
   procList,
@@ -131,6 +115,10 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
   const userData = useUserData();
 
   // --- Memos and Derived State ---
+  const prPackages = useMemo(
+    () => derivePRPackages(procList, categoryToPackageMap),
+    [procList, categoryToPackageMap]
+  );
   const currentItemCategoryName = curItem?.category;
 
   const filteredItemOptions = useMemo(() => {
@@ -195,7 +183,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     setCurMake(null);
     setCurQuantity("");
     setCurComment("");
-  }, [curItem, curQuantity, curMake, curComment, onAddItem, selectedHeaderTags, selectedWP]);
+  }, [curItem, curQuantity, curMake, curComment, onAddItem, categoryToPackageMap]);
 
   const handleOpenManageMakesDialog = useCallback(() => {
     if (!curItem?.category) {
@@ -232,57 +220,20 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
-        <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Headers Tags:</span>
-            {selectedHeaderTags.map((tag, idx) => (
-              <span
-                key={idx}
-                className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium border border-primary/20 whitespace-nowrap"
-              >
-                {tag.tag_header}
-              </span>
-            ))}
-          </div>
-          {/* <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Packages:</span>
-            {allProjectPackages.map((pkg, idx) => (
-              <span
-                key={idx}
-                className="px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-medium border border-blue-200 whitespace-nowrap"
-              >
-                {pkg}
-              </span>
-            ))}
-          </div> */}
-        </div>
-
-        {allowWpEdit && (
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button size="sm">Reset</Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle>Reset Order List?</DialogTitle>
-                <DialogDescription>
-                  Changing the work package will clear your current item list.
-                  Are you sure?
-                </DialogDescription>
-              </DialogHeader>
-              <div className="flex items-center justify-center gap-4 pt-2">
-                <DialogClose asChild>
-                  <Button variant="outline" size="sm">
-                    No
-                  </Button>
-                </DialogClose>
-                <Button size="sm" onClick={onEditWP}>
-                  Yes, Change
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+      {/* The PR's packages come from its items; the server saves them the same way. */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide shrink-0">Packages:</span>
+        {prPackages.length > 0 ? (
+          prPackages.map((pkg) => (
+            <span
+              key={pkg}
+              className="px-1.5 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium border border-primary/20 whitespace-nowrap"
+            >
+              {pkg}
+            </span>
+          ))
+        ) : (
+          <span className="text-[10px] text-gray-400">Set by the items you add</span>
         )}
       </div>
 

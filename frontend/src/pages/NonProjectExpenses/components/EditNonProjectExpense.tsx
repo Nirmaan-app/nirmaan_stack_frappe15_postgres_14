@@ -25,6 +25,7 @@ import { CustomAttachment, AcceptedFileType } from "@/components/helpers/CustomA
 import { Checkbox } from "@/components/ui/checkbox";
 import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import { useToast } from "@/components/ui/use-toast";
+import { getFrappeError } from "@/utils/frappeErrors";
 import { Separator } from "@/components/ui/separator";
 import {
     Popover, PopoverContent, PopoverTrigger,
@@ -45,6 +46,8 @@ import { ExpenseType } from "@/types/NirmaanStack/ExpenseType";
 import { parseNumber } from "@/utils/parseNumber";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getNonProjectExpenseTypeListOptions } from "@/config/queryKeys";
+import { ExpenseEditPayToSection, useExpenseEditPayTo } from "@/components/payees/ExpenseEditPayTo";
+import { expenseAccountSaveError } from "@/components/payees/useChangeExpenseAccount";
 
 interface EditExpenseFormState {
     type: string;
@@ -107,6 +110,23 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     const { updateDoc, loading: updateLoading } = useFrappeUpdateDoc(); // Changed
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
 
+    const expenseTypeFetchOptions = useMemo(() => getNonProjectExpenseTypeListOptions(), []);
+    const expenseTypeQueryKey = queryKeys.expenseTypes.list(expenseTypeFetchOptions);
+    const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>(
+        "Expense Type", expenseTypeFetchOptions as GetDocListArgs<FrappeDoc<ExpenseType>>, expenseTypeQueryKey
+    );
+
+    // Who gets paid (#1465): Accounts set an Approved expense's account here, saved with the edit.
+    const selectedExpenseType = expenseTypesData?.find(et => et.name === formState.type);
+    const payTo = useExpenseEditPayTo({
+        doctype: "Non Project Expenses",
+        name: expenseToEdit.name,
+        status: expenseToEdit.status,
+        rule: selectedExpenseType ? selectedExpenseType.payee_rule ?? null : undefined,
+        vendorNamed: false,
+    });
+    const { reset: resetPayTo } = payTo;
+
     // Initialize form state when expenseToEdit or dialog visibility changes
     useEffect(() => {
         if (editNonProjectExpenseDialog && expenseToEdit) {
@@ -144,11 +164,6 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     }, [editNonProjectExpenseDialog, expenseToEdit]);
 
 
-    const expenseTypeFetchOptions = useMemo(() => getNonProjectExpenseTypeListOptions(), []);
-    const expenseTypeQueryKey = queryKeys.expenseTypes.list(expenseTypeFetchOptions);
-    const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>(
-        "Expense Type", expenseTypeFetchOptions as GetDocListArgs<FrappeDoc<ExpenseType>>, expenseTypeQueryKey
-    );
     const expenseTypeOptionsForCommand = useMemo<Array<{ value: string; label: string }>>(() =>
         expenseTypesData?.map(et => ({ value: et.name, label: et.expense_name })) || [],
         [expenseTypesData]
@@ -204,9 +219,38 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
         setInvoiceAttachmentAction("remove");
     };
 
+    // THE close: Cancel, Escape and a save all come through here, so the next open starts clean (Who
+    // gets paid included). A save closes it here too, not only through the parent's store write,
+    // which bypasses `onOpenChange`.
+    const closeDialog = useCallback(() => {
+        setEditNonProjectExpenseDialog(false);
+        setFormState({ type: "", description: "", comment: "", amount: "", payment_date: "", payment_ref: "", invoice_date: "", invoice_ref: "" });
+        setFormErrors({});
+        setRecordPaymentDetails(false);
+        setRecordInvoiceDetails(false);
+        setNewPaymentAttachmentFile(null);
+        setNewInvoiceAttachmentFile(null);
+        setExistingPaymentAttachmentUrl(undefined);
+        setExistingInvoiceAttachmentUrl(undefined);
+        setPaymentAttachmentAction("keep");
+        setInvoiceAttachmentAction("keep");
+        setExpenseTypePopoverOpen(false);
+        resetPayTo();
+    }, [resetPayTo, setEditNonProjectExpenseDialog]);
+
     const handleSubmit = useCallback(async () => {
         if (!validateForm()) {
             toast({ title: "Validation Error", description: "Please correct the form errors.", variant: "destructive" });
+            return;
+        }
+
+        // Who gets paid, resolved FIRST: a new payee is added now, and a duplicate stops the save
+        // before anything is written. It is copied onto the expense after the update below.
+        let payee: string | null | undefined;
+        try {
+            payee = await payTo.resolve();
+        } catch (error: unknown) {
+            toast({ title: "Could not update the expense", description: expenseAccountSaveError(error), variant: "destructive" });
             return;
         }
 
@@ -247,37 +291,25 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
 
         try {
             await updateDoc("Non Project Expenses", expenseToEdit.name, dataToUpdate);
+            await payTo.apply(payee);
             toast({ title: "Success!", description: "Non-project expense updated successfully!", variant: "success" });
-            onSuccess?.(); // This will refetch and close dialog (from parent)
+            closeDialog();
+            onSuccess?.(); // The parent refetches.
         } catch (error: any) {
             console.error("Error updating non-project expense:", error);
-            toast({ title: "Failed!", description: error.message || "Failed to update expense.", variant: "destructive" });
+            toast({ title: "Failed!", description: getFrappeError(error) || "Failed to update expense.", variant: "destructive" });
         }
     }, [
-        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload, isPaid,
+        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload, isPaid, payTo, closeDialog,
         recordPaymentDetails, paymentAttachmentAction, newPaymentAttachmentFile,
         recordInvoiceDetails, invoiceAttachmentAction, newInvoiceAttachmentFile
     ]);
 
-    const handleDialogCloseAttempt = useCallback(() => {
-        // Reset local form states, but the dialog's open state is controlled by parent via Zustand
-        setFormState({ type: "", description: "", comment: "", amount: "", payment_date: "", payment_ref: "", invoice_date: "", invoice_ref: "" });
-        setFormErrors({});
-        setRecordPaymentDetails(false);
-        setRecordInvoiceDetails(false);
-        setNewPaymentAttachmentFile(null);
-        setNewInvoiceAttachmentFile(null);
-        setExistingPaymentAttachmentUrl(undefined);
-        setExistingInvoiceAttachmentUrl(undefined);
-        setPaymentAttachmentAction("keep");
-        setInvoiceAttachmentAction("keep");
-        setExpenseTypePopoverOpen(false);
-    }, []);
 
 
-    const isLoadingOverall = updateLoading || uploadLoading || expenseTypesLoading;
+    const isLoadingOverall = updateLoading || uploadLoading || expenseTypesLoading || payTo.busy;
     const editHasInvoiceAttachment = !!newInvoiceAttachmentFile || (invoiceAttachmentAction !== "remove" && !!existingInvoiceAttachmentUrl);
-    const isSubmitDisabled = isLoadingOverall || !formState.type || !formState.description.trim() || !formState.amount || (recordPaymentDetails && !formState.invoice_date) || (recordInvoiceDetails && !formState.invoice_date) || (recordInvoiceDetails && editHasInvoiceAttachment && !formState.invoice_ref.trim());
+    const isSubmitDisabled = isLoadingOverall || !!payTo.problem || !formState.type || !formState.description.trim() || !formState.amount || (recordPaymentDetails && !formState.invoice_date) || (recordInvoiceDetails && !formState.invoice_date) || (recordInvoiceDetails && editHasInvoiceAttachment && !formState.invoice_ref.trim());
     const selectedExpenseTypeLabel = expenseTypeOptionsForCommand.find(option => option.value === formState.type)?.label || "Select Expense Type...";
 
 
@@ -332,10 +364,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     return (
         <AlertDialog
             open={editNonProjectExpenseDialog}
-            onOpenChange={(isOpen) => {
-                setEditNonProjectExpenseDialog(isOpen);
-                if (!isOpen) handleDialogCloseAttempt();
-            }}
+            onOpenChange={(isOpen) => (isOpen ? setEditNonProjectExpenseDialog(true) : closeDialog())}
         >
             <AlertDialogContent className="max-w-lg">
                 <AlertDialogHeader>
@@ -394,6 +423,11 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                             Use negative amount for refunds.
                         </p>
                     </div>
+                    <ExpenseEditPayToSection
+                        payTo={payTo}
+                        expenseType={selectedExpenseType?.expense_name || formState.type}
+                        disabled={isLoadingOverall}
+                    />
 
                     {/* Payment Details are recorded via "Mark as Paid"; only expose this
                         section when editing an already-Paid expense (e.g. Admin corrections). */}

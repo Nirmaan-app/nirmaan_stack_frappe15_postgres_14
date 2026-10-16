@@ -39,6 +39,8 @@ import {
   useProjectPRSupportingData,
 } from "@/pages/projects/data/tab/summary/useProjectPRSummaryApi";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
+import { uniqueTagPackages } from "@/utils/prPackages";
+import { PRPackageChips } from "@/components/procurement-request/PRPackageChips";
 
 const PR_SUMMARY_FIELDS_TO_FETCH: (keyof ProcurementRequest | "name")[] = [
   "name",
@@ -59,9 +61,10 @@ export const PR_SUMMARY_SEARCHABLE_FIELDS: SearchFieldOption[] = [
 
   },
   {
-    value: "PR Tag Child Table.tag_header",
-    label: "PR Tags",
-    placeholder: "Search by PR Tags...",
+    value: "pr_tag_list", // PR tag rows; the backend's child-table search covers tag_package
+    label: "Packages",
+    placeholder: "Search by Package...",
+    is_json: true,
   },
   {
     value: "order_list", // For item search within PR
@@ -351,37 +354,19 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
         },
       },
       {
-        id: "PR Tag Child Table.tag_header",
+        // The PR's procurement packages (written from its items by the server)
+        id: "PR Tag Child Table.tag_package",
         accessorKey: "pr_tag_list",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Headers" />
+          <DataTableColumnHeader column={column} title="Packages" />
         ),
-        cell: ({ row }) => {
-          const tags = (row.original as any).pr_tag_list || [];
-
-          return (
-            <div className="flex flex-wrap gap-1">
-              {tags.length > 0 ? (
-                tags.map((tag: any, index: number) => (
-                  <Badge key={index} variant="outline" className="bg-white">
-                    {tag.tag_header}
-                  </Badge>
-                ))
-              ) : (
-                <div className="font-medium text-gray-500">--</div>
-              )}
-            </div>
-          );
-        },
+        cell: ({ row }) => <PRPackageChips tags={(row.original as any).pr_tag_list} />,
         size: 150,
         enableColumnFilter: true,
         meta: {
-          facet: { field: "tag_header", title: "PR Tags" } satisfies FacetDeclaration,
-          exportHeaderName: "Headers",
-          exportValue: (row: any) => {
-            const tags = row.pr_tag_list || [];
-            return tags.map((t: any) => t.tag_header).join(", ") || "--";
-          },
+          facet: { field: "tag_package", title: "Packages" } satisfies FacetDeclaration,
+          exportHeaderName: "Packages",
+          exportValue: (row: any) => uniqueTagPackages(row.pr_tag_list).join(", ") || "--",
         },
       },
       {
@@ -470,7 +455,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
   }, [statusCounts]);
 
   // --- Faceted Filter Options (legacy path: static derived-status facet only;
-  //     owner + tag_header now self-fetch via meta.facet + facetDoctype) ---
+  //     owner + tag_package now self-fetch via meta.facet + facetDoctype) ---
   const facetFilterOptions = useMemo(
     () => ({
       // Facet for the DERIVED status
@@ -564,7 +549,7 @@ export const ProjectPRSummaryTable: React.FC<ProjectPRSummaryTableProps> = ({
           facetDoctype={DOCTYPE}
           facetOverrides={{
             owner: { additionalFilters: staticFilters },
-            "PR Tag Child Table.tag_header": { additionalFilters: staticFilters },
+            "PR Tag Child Table.tag_package": { additionalFilters: staticFilters },
           }}
           dateFilterColumns={PR_SUMMARY_DATE_COLUMNS}
           showExportButton={true}

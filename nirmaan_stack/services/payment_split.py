@@ -80,6 +80,7 @@ from frappe.utils import flt, nowdate
 # and statuses every settle path writes, never retyped here.
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE, RECONCILIATION_PENDING
+from nirmaan_stack.services.payees.pay_to import copy_pay_to
 
 # A split must leave something meaningful on BOTH sides. Below this the action
 # is not a partial approval — it is a full approval or a rejection, and both of
@@ -267,6 +268,9 @@ def split_payment(
             # leftover's GST at its own approval. `set_only_once`, so it can only be set here.
             "is_gst_payment": pay.get("is_gst_payment") or 0,
         })
+        # The balance is paid where the original was raised to be paid (#1437, ADR-0033): its
+        # parent's pay-to account, not the vendor's Payee as it reads now.
+        copy_pay_to(pay, remainder_doc)
         remainder_doc.flags.split_child = True
         remainder_doc.insert(ignore_permissions=True)
 

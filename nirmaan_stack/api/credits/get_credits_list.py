@@ -21,6 +21,8 @@ from frappe import _
 from frappe.utils import cint, today
 import json
 
+from nirmaan_stack.services.role_profiles import SERVICE_PROCUREMENT_EXECUTIVE_PROFILE
+
 
 @frappe.whitelist()
 def get_credits_list(
@@ -206,6 +208,9 @@ def _get_user_allowed_projects(user: str):
         "Nirmaan PMO Executive Profile",
         "Nirmaan Accountant Profile",
         "Nirmaan Accountant Lead Profile",
+        # Company-wide WO desk, never assigned projects. `sidebar_counts` already gives it
+        # all-project credit tab counts; without this the list under them stayed empty.
+        SERVICE_PROCUREMENT_EXECUTIVE_PROFILE,
     ]
 
     if user == "Administrator":

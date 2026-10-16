@@ -25,6 +25,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { DepartmentSelect } from '@/components/common/DepartmentSelect';
+import { useDepartmentOptions } from '@/hooks/useDepartmentOptions';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/use-toast';
 import { CustomAttachment } from '@/components/helpers/CustomAttachment';
@@ -57,6 +59,8 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
     const [assetName, setAssetName] = useState('');
     const [assetDescription, setAssetDescription] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<string>('');
+    const [department, setDepartment] = useState<string | null>(null);
+    const { departments, isLoading: departmentsLoading } = useDepartmentOptions(isOpen);
     const [assetCondition, setAssetCondition] = useState<string>('');
     const [serialNumber, setSerialNumber] = useState('');
     const [assetValue, setAssetValue] = useState<string>('');
@@ -116,6 +120,7 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
         setAssetName('');
         setAssetDescription('');
         setSelectedCategory('');
+        setDepartment(null);
         setAssetCondition('');
         setSerialNumber('');
         setAssetValue('');
@@ -167,6 +172,11 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
             return;
         }
 
+        if (!department) {
+            setFormError('Please choose the department this asset belongs to.');
+            return;
+        }
+
         setFormError(null);
 
         try {
@@ -174,6 +184,7 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
                 asset_name: trimmedName,
                 asset_description: assetDescription.trim() || undefined,
                 asset_category: selectedCategory,
+                department,
                 asset_condition: assetCondition || undefined,
                 asset_serial_number: serialNumber.trim() || undefined,
                 asset_value: assetValue ? parseFloat(assetValue) : undefined,
@@ -286,6 +297,23 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
                                 control: () => 'border-gray-200 hover:border-gray-300',
                             }}
                         />
+                    </div>
+
+                    {/* Department */}
+                    <div className="space-y-1.5">
+                        <Label htmlFor="assetDepartment" className="text-sm font-medium text-gray-700">
+                            Department <span className="text-red-500">*</span>
+                        </Label>
+                        <DepartmentSelect
+                            inputId="assetDepartment"
+                            value={department}
+                            onChange={setDepartment}
+                            departments={departments}
+                            isLoading={departmentsLoading}
+                        />
+                        <p className="text-xs text-gray-500">
+                            Admin and HR manage the department list in Assets → Departments.
+                        </p>
                     </div>
 
                     {/* Condition */}
@@ -518,7 +546,7 @@ export const AddAssetDialog: React.FC<AddAssetDialogProps> = ({
                     </Button>
                     <Button
                         onClick={handleSubmit}
-                        disabled={isCreating || isUploading || !assetName.trim() || !selectedCategory}
+                        disabled={isCreating || isUploading || !assetName.trim() || !selectedCategory || !department}
                         className="gap-2"
                     >
                         {isCreating ? 'Creating...' : isUploading ? 'Uploading...' : 'Create Asset'}

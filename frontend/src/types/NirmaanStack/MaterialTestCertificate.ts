@@ -15,6 +15,8 @@ export interface MaterialTestCertificate {
   vendor?: string;
   /** Joined from Vendors by the endpoint. */
   vendor_name?: string;
+  /** Joined from Projects by the endpoint. */
+  project_name?: string;
   /** The PO's PR, joined by the endpoint -- builds the PM-side PO link. */
   procurement_request?: string | null;
   /** The certificate file URL. */

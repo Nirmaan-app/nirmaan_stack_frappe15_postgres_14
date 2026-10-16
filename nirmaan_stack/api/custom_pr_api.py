@@ -31,14 +31,9 @@ def new_custom_pr(project_id: str, order: list, categories: list = None, comment
                 # billing_status set server-side from Items master (procurement_requests.validate)
             })
 
-        if tags:
-            if isinstance(tags, str):
-                tags = json.loads(tags)
-            for tag in tags:
-                pr_doc.append("pr_tag_list", {
-                    "tag_header": tag.get("tag_header"),
-                    "tag_package": tag.get("tag_package")
-                })
+        # `tags` is accepted but ignored: the PR's packages (`pr_tag_list`) are written from its
+        # items by the PR validate hook (services/pr_packages.py). The argument stays so an old
+        # cached frontend that still sends it does not fail.
 
         if payment_terms:
             pr_doc.payment_terms = payment_terms

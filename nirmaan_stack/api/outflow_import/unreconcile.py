@@ -55,6 +55,7 @@ from nirmaan_stack.api.outflow_import.review import (
 )
 from nirmaan_stack.api.outflow_import.unreconcile_cleanup import restore_derived_state
 from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created, edits_of
+from nirmaan_stack.api.outflow_import.unreconcile_refund import read_refund_facts, unmatch_refund
 from nirmaan_stack.api.outflow_import.unreconcile_split import (
     join_leftover_back,
     read_payment_facts,
@@ -69,6 +70,7 @@ from nirmaan_stack.services.outflow_import.allocation import (
 from nirmaan_stack.services.outflow_import.ledgers import (
     INFLOW_DOCTYPES,
     PAYMENT_DOCTYPE,
+    VENDOR_REFUND_DOCTYPE,
     is_expense_doctype,
     settleable_statuses,
 )
@@ -87,6 +89,7 @@ from nirmaan_stack.services.outflow_import.unreconcile import (
     VERDICT_REVERT_EXPENSE,
     VERDICT_REVERT_PAYMENT,
     VERDICT_UNLINK_EXPENSE_LINE,
+    VERDICT_UNMATCH_REFUND,
     VERDICT_UNSPLIT_PAYMENT,
     WHOLE_LINE_ONLY_REFUSAL,
     WHOLE_LINE_ONLY_TITLE,
@@ -389,6 +392,10 @@ def _carry_out(
     if kind == VERDICT_DELETE_CREATED:
         project = delete_created(leg.target_doctype, leg.target_name, statement_file_url)
         return CarriedOut(leg.target_doctype, leg.target_name, project=project, deleted=True)
+    if kind == VERDICT_UNMATCH_REFUND:
+        # #1401: a matched waiting refund goes back to waiting and is kept; its save runs the PO sync.
+        unmatch_refund(leg, statement_file_url)
+        return CarriedOut(leg.target_doctype, leg.target_name)
     raise NotImplementedError(f"No write for verdict '{kind}' on match record '{leg.name}'.")
 
 
@@ -502,6 +509,11 @@ def _read_facts(legs, references, source: str, *, for_update: bool) -> dict:
             continue
         if is_expense_doctype(leg.target_doctype):
             facts[leg.name] = _read_expense_facts(leg, base, for_update=for_update)
+            continue
+        if leg.target_doctype == VENDOR_REFUND_DOCTYPE and not leg.created_by_import:
+            # #1401: a MATCHED waiting refund. Judged on its status, amount and reference, like a
+            # payment; it has no "edited since" question because it is never deleted.
+            facts[leg.name] = LegFacts(**base, **read_refund_facts(leg, for_update=for_update))
             continue
         if leg.target_doctype in INFLOW_DOCTYPES:
             exists = frappe.db.get_value(

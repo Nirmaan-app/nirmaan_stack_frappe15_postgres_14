@@ -39,6 +39,7 @@
   "porter_line",
   "placement_reason",
   "placement_strength",
+  "suggested_refunds",
   "suggested_expense_type",
   "source",
   "decision_section",
@@ -108,7 +109,7 @@
    "label": "Transfer Status"
   },
   {
-   "description": "The beneficiary name as the bank holds it. This is an ACCOUNT NAME, not a vendor name -- match it against Vendors.account_name as well as Vendors.vendor_name (174 of 1,077 vendors differ). It may also be a person where the vendor is a company.",
+   "description": "The beneficiary name as the bank holds it. This is an ACCOUNT NAME, not a vendor name -- match it against the holder name of the vendor's Payee (Payee.account_name) as well as Vendors.vendor_name (174 of 1,077 vendors differ). It may also be a person where the vendor is a company.",
    "fieldname": "beneficiary_name",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -234,6 +235,13 @@
    "fieldname": "match_basis",
    "fieldtype": "Data",
    "label": "Match Basis",
+   "read_only": 1
+  },
+  {
+   "description": "Bank credit lines only (#1402, ADR-0032). The waiting Vendor Refund(s) the match run suggests this credit line is, as JSON {vendor, basis, refunds: [names]}: rule services/outflow_import/refund_suggestion.suggest_waiting_refunds (the bank reference equals a UTR typed on one or more waiting refunds of one vendor, or the account and IFSC are the vendor's and exactly one waiting refund agrees within Re 1). Written by the match run on every run, blank when there is none. A GROUP cannot fit suggested_doctype / suggested_name, and those two also feed bulk confirm, which must never settle a refund. Only a suggestion: the accountant confirms it through inflows.match_waiting_refunds. The screen's row read drops it once any of its refunds has stopped waiting.",
+   "fieldname": "suggested_refunds",
+   "fieldtype": "JSON",
+   "label": "Suggested Refunds",
    "read_only": 1
   },
   {

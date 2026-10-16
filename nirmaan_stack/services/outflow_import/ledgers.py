@@ -116,7 +116,8 @@ INFLOW_DOCTYPE = "Project Inflows"
 NON_PROJECT_INFLOW_DOCTYPE = "Non Project Inflows"
 
 # The ledger a bank CREDIT from a VENDOR becomes: money a vendor paid back, one record per PO / WO /
-# Project Expense it is against (2026-09-17). Created, never settled, and it moves no paid amount.
+# Project Expense it is against (2026-09-17). Created, never settled. Only a Received one lowers its
+# order's paid amount (ADR-0032).
 VENDOR_REFUND_DOCTYPE = "Vendor Refunds"
 
 # The ledgers that hold ONLY money received -- the books a bank CREDIT can become, in display order

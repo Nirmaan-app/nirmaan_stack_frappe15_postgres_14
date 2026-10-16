@@ -7,7 +7,6 @@ import {
     useFrappeFileUpload,
     useFrappeDocumentEventListener,
 } from 'frappe-react-sdk';
-import { useSWRConfig } from 'swr';
 import ReactSelect from 'react-select';
 import { TailSpin } from 'react-loader-spinner';
 
@@ -36,6 +35,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AlertDestructive } from '@/components/layout/alert-banner/error-alert';
 import { useToast } from '@/components/ui/use-toast';
 import { useUserData } from '@/hooks/useUserData';
+import { useRefreshUserAssignments } from '@/hooks/useUserAssignments';
 import { CustomAttachment } from '@/components/helpers/CustomAttachment';
 import { formatDate } from '@/utils/FormatDate';
 import { formatToRoundedIndianRupee } from '@/utils/FormatPrice';
@@ -63,10 +63,23 @@ import {
     Briefcase,
     Laptop,
     MapPin,
+    PenLine,
 } from 'lucide-react';
 
+import { canSignDeclaration } from '@/utils/assetDeclaration';
+import { canEditAssetDepartment, normalizeDepartment } from '@/utils/assetDepartment';
+import { AssetHistoryRow } from '@/utils/assetHistory';
+import { DepartmentSelect } from '@/components/common/DepartmentSelect';
+import { useDepartmentOptions } from '@/hooks/useDepartmentOptions';
+import { AssetHistoryCard } from './components/AssetHistoryCard';
+import { AuditStatusRow } from './components/AuditStatusRow';
+import { useAuditedCategories } from './hooks/useAuditPending';
+import { auditBadge, parseAuditAnswers } from '@/utils/assetAudit';
+import { DepartmentBadge } from './utils/departmentColumn';
 import { AssignAssetDialog } from './components/AssignAssetDialog';
 import { UnassignAssetDialog } from './components/UnassignAssetDialog';
+import { SignDeclarationDialog } from './components/SignDeclarationDialog';
+import { useAssetDataRefresh } from './hooks/useAssetDataRefresh';
 
 import {
     ASSET_MASTER_DOCTYPE,
@@ -78,18 +91,21 @@ import {
 } from './assets.constants';
 import { useAssetProjectOptions } from './hooks/useAssetProjectOptions';
 import { getAssetPermissions } from './utils/permissions';
+import { AssetsAccessDenied } from './AssetsRoute';
 
 interface AssetMaster {
     name: string;
     asset_name: string;
     asset_description: string;
     asset_category: string;
+    department?: string | null;
     asset_condition: string;
     asset_serial_number: string;
     asset_value: number;
     project: string;
     asset_city: string;
     asset_state: string;
+    asset_history?: AssetHistoryRow[];
     asset_email: string;
     asset_email_password: string;
     asset_pin: string;
@@ -108,6 +124,15 @@ interface AssetAssignment {
     asset_assigned_to: string;
     asset_assigned_on: string;
     asset_declaration_attachment: string;
+    received_on?: string | null;
+    /** Monthly asset audit (owner, 2026-10-14). */
+    audit_status?: string | null;
+    audit_month?: string | null;
+    last_audit_on?: string | null;
+    audit_overdue_since?: string | null;
+    audit_proof?: string | null;
+    /** The latest audit's questions and answers (owner, 2026-10-15); read through parseAuditAnswers. */
+    audit_answers?: unknown;
 }
 
 interface NirmaanUser {
@@ -147,17 +172,14 @@ const AssetOverview: React.FC = () => {
 const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const { toast } = useToast();
     const userData = useUserData();
-    const { mutate: globalMutate } = useSWRConfig();
+    const refreshUserAssignments = useRefreshUserAssignments();
 
     // Dialog states
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [assignDialogOpen, setAssignDialogOpen] = useState(false);
     const [unassignDialogOpen, setUnassignDialogOpen] = useState(false);
-    const [uploadDeclarationDialogOpen, setUploadDeclarationDialogOpen] = useState(false);
-
-    // Upload declaration state
-    const [declarationFile, setDeclarationFile] = useState<File | null>(null);
-    const [isUploadingDeclaration, setIsUploadingDeclaration] = useState(false);
+    const [signDeclarationDialogOpen, setSignDeclarationDialogOpen] = useState(false);
+    const { refreshSummaryCards } = useAssetDataRefresh();
 
     // Project-asset attachment upload state
     const [projectAttachmentField, setProjectAttachmentField] = useState<ProjectAttachmentField | null>(null);
@@ -215,6 +237,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         asset_name: '',
         asset_description: '',
         asset_category: '',
+        department: '',
         asset_condition: '',
         asset_serial_number: '',
         asset_value: '',
@@ -237,19 +260,29 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         `${ASSET_MASTER_DOCTYPE}_${assetId}`
     );
 
-    // Fetch current assignment - uses shared cache key for cross-component invalidation
+    // Fetch the asset's assignment rows - uses shared cache key for cross-component invalidation.
+    // Normally one; an old leftover row can sit beside it (ASSET-LAP-029 had one).
     const { data: assignments, mutate: mutateAssignments } = useFrappeGetDocList<AssetAssignment>(
         ASSET_MANAGEMENT_DOCTYPE,
         {
-            fields: ['name', 'asset', 'asset_assigned_to', 'asset_assigned_on', 'asset_declaration_attachment'],
+            fields: [
+                'name', 'asset', 'asset_assigned_to', 'asset_assigned_on', 'asset_declaration_attachment',
+                'received_on', 'audit_status', 'audit_month', 'last_audit_on', 'audit_proof', 'audit_overdue_since',
+                'audit_answers',
+            ],
             filters: [['asset', '=', assetId]],
             orderBy: { field: 'asset_assigned_on', order: 'desc' },
-            limit: 1,
+            limit: 0,
         },
         asset?.current_assignee ? ASSET_CACHE_KEYS.assetManagement(assetId) : null
     );
 
-    const currentAssignment = assignments?.[0];
+    // The holder's row, never the newest-dated one: with a leftover row, "newest" can be someone else's,
+    // and the declaration status, Sign and Unassign would then act on that person's row.
+    const currentAssignment = assignments?.find((row) => row.asset_assigned_to === asset?.current_assignee);
+
+    // The monthly audit line under the holder (owner, 2026-10-14).
+    const auditedCategories = useAuditedCategories();
 
     // Fetch assignee user details
     const { data: assigneeUser } = useFrappeGetDoc<NirmaanUser>(
@@ -346,15 +379,20 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
     const { upload } = useFrappeFileUpload();
 
     // Get granular permissions for current user
-    const { canEditAsset, canAssignAsset } = getAssetPermissions(userData?.user_id, userData?.role);
-    // For backward compatibility with existing canManageAssets usage in this file
-    const canManageAssets = canEditAsset || canAssignAsset;
+    const { canViewAssets, canEditAsset, canAssignAsset, canAssignAssetType, canViewHistory } = getAssetPermissions(
+        userData?.user_id,
+        userData?.role
+    );
+    // The action row (Download declaration, Assign/Unassign, Edit) and the attachment uploads.
+    // Procurement manages Project assets only, as with Assign (owner, 2026-10-13): on an IT asset --
+    // or before the kind is known -- they see none of it.
+    const canManageAssets = canEditAsset || (canAssignAsset && canAssignAssetType(currentCategoryType));
 
     // Check if current user can view credentials (admin roles OR assigned to the asset)
     const canViewCredentials = useMemo(() => {
         if (!userData) return false;
         if (userData.user_id === 'Administrator') return true;
-        if (['Nirmaan Admin Profile', 'Nirmaan PMO Executive Profile', 'Nirmaan HR Executive Profile'].includes(userData.role || '')) return true;
+        if (['Nirmaan Admin Profile', 'Nirmaan PMO Executive Profile', 'Nirmaan HR Executive Profile', 'Nirmaan HR Lead Profile'].includes(userData.role || '')) return true;
         if (asset?.current_assignee && asset.current_assignee === userData.user_id) return true;
         return false;
     }, [userData, asset?.current_assignee]);
@@ -364,9 +402,25 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         return asset?.current_assignee && currentAssignment && !currentAssignment.asset_declaration_attachment;
     }, [asset?.current_assignee, currentAssignment]);
 
+    // The assignee signs their own declaration here; the server re-checks.
+    const canSign = canSignDeclaration({
+        viewerId: userData?.user_id,
+        assignedTo: currentAssignment?.asset_assigned_to,
+        currentAssignee: asset?.current_assignee,
+        declaration: currentAssignment?.asset_declaration_attachment,
+    });
+
+    const handleDeclarationSigned = () => {
+        mutate();
+        mutateAssignments();
+        refreshSummaryCards();
+        refreshUserAssignments(userData.user_id); // the sidebar's pending-declaration badge
+    };
+
     // Real-time updates
     useFrappeDocumentEventListener(ASSET_MASTER_DOCTYPE, assetId, () => {
         mutate();
+        mutateAssignments();
     });
 
     // Initialize edit form when asset data loads
@@ -376,6 +430,7 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 asset_name: asset.asset_name || '',
                 asset_description: asset.asset_description || '',
                 asset_category: asset.asset_category || '',
+                department: asset.department || '',
                 asset_condition: asset.asset_condition || '',
                 asset_serial_number: asset.asset_serial_number || '',
                 asset_value: asset.asset_value ? String(asset.asset_value) : '',
@@ -386,6 +441,13 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
             });
         }
     }, [asset]);
+
+    // Edit may fill an empty department or fix one on a never-assigned asset; after that it
+    // moves only through an assignment with a reason (the server enforces the same rule).
+    const hasBeenAssigned =
+        !!asset?.current_assignee || (asset?.asset_history ?? []).some((row) => row.event === 'Assigned');
+    const departmentEditable = canEditAssetDepartment(asset?.department, hasBeenAssigned);
+    const { departments, isLoading: departmentsLoading } = useDepartmentOptions(editDialogOpen && departmentEditable);
 
     const handleEditSubmit = async () => {
         try {
@@ -417,6 +479,11 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 }
             }
 
+            const newDepartment = normalizeDepartment(editForm.department);
+            if (departmentEditable && newDepartment !== normalizeDepartment(asset?.department)) {
+                updateData.department = newDepartment;
+            }
+
             await updateDoc(ASSET_MASTER_DOCTYPE, assetId, updateData);
 
             toast({
@@ -438,9 +505,17 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
 
     if (error) return <AlertDestructive error={error} />;
 
+    // Route guard for one asset: asset roles see any asset; anyone else only the asset they hold now,
+    // which they open from their profile to sign the declaration. Decided once the role and the asset
+    // have loaded, so a typed URL doesn't flash "Access Denied".
+    if (userData?.role !== 'Loading' && asset && !canViewAssets && asset.current_assignee !== userData?.user_id) {
+        return <AssetsAccessDenied />;
+    }
+
     // Handle assignment refresh
     const handleAssignmentChange = () => {
         mutate();
+        mutateAssignments();
     };
 
     const projectAttachmentLabel: Record<ProjectAttachmentField, string> = {
@@ -481,55 +556,6 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
         }
     };
 
-    // Handle declaration upload
-    const handleUploadDeclaration = async () => {
-        if (!declarationFile || !currentAssignment) return;
-
-        setIsUploadingDeclaration(true);
-
-        try {
-            // Upload file
-            const fileArgs = {
-                doctype: ASSET_MANAGEMENT_DOCTYPE,
-                docname: currentAssignment.name,
-                fieldname: 'asset_declaration_attachment',
-                isPrivate: true,
-            };
-            const uploadedFile = await upload(declarationFile, fileArgs);
-
-            // Update the Asset Management document with file URL
-            await updateDoc(ASSET_MANAGEMENT_DOCTYPE, currentAssignment.name, {
-                asset_declaration_attachment: uploadedFile.file_url,
-            });
-
-            toast({
-                title: 'Declaration Uploaded',
-                description: 'The declaration document has been uploaded successfully.',
-                variant: 'success',
-            });
-
-            setUploadDeclarationDialogOpen(false);
-            setDeclarationFile(null);
-            // Refresh Asset Master data
-            mutate();
-            // Refresh assignment data using hook's mutate function
-            mutateAssignments();
-            // Also refresh via global mutate for cross-component updates
-            globalMutate(ASSET_CACHE_KEYS.assetManagement(assetId), undefined, { revalidate: true });
-            // Refresh summary counts (pending declaration count)
-            globalMutate(ASSET_CACHE_KEYS.PENDING_DECLARATION_COUNT, undefined, { revalidate: true });
-        } catch (err: any) {
-            console.error('Failed to upload declaration:', err);
-            toast({
-                title: 'Upload Failed',
-                description: err?.message || 'An error occurred while uploading the declaration.',
-                variant: 'destructive',
-            });
-        } finally {
-            setIsUploadingDeclaration(false);
-        }
-    };
-
     return (
         <div className="space-y-6">
             {/* Pending Declaration Alert */}
@@ -541,9 +567,22 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                     <div className="flex-1">
                         <p className="font-medium text-amber-800">Declaration Pending</p>
                         <p className="text-sm text-amber-600">
-                            Asset declaration document has not been uploaded for this assignment.
+                            {canSign
+                                ? 'Sign the declaration to confirm you received this asset.'
+                                : 'Asset declaration document has not been uploaded for this assignment.'}
                         </p>
                     </div>
+                    {canSign && (
+                        <Button
+                            size="sm"
+                            onClick={() => setSignDeclarationDialogOpen(true)}
+                            className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                        >
+                            <PenLine className="h-4 w-4" />
+                            <span className="hidden sm:inline">Sign Declaration</span>
+                            <span className="sm:hidden">Sign</span>
+                        </Button>
+                    )}
                 </div>
             )}
 
@@ -592,8 +631,8 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                             </Button>
                         )}
 
-                        {/* Assignment Actions */}
-                        {asset?.current_assignee ? (
+                        {/* Assignment Actions -- procurement: Project assets only */}
+                        {!canAssignAssetType(currentCategoryType) ? null : asset?.current_assignee ? (
                             <Button
                                 variant="outline"
                                 size="sm"
@@ -657,6 +696,11 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                         )}
                                     </div>
                                 }
+                            />
+                            <DetailRow
+                                icon={<Briefcase className="h-4 w-4" />}
+                                label="Department"
+                                value={<DepartmentBadge department={asset?.department} />}
                             />
                             <DetailRow
                                 icon={<Hash className="h-4 w-4" />}
@@ -902,8 +946,8 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                             </p>
                                         )}
                                     </div>
-                                    {/* Declaration: View or Upload */}
-                                    {currentAssignment?.asset_declaration_attachment ? (
+                                    {/* Declaration: view it once signed; the holder signs from their profile (no upload) */}
+                                    {currentAssignment?.asset_declaration_attachment && (
                                         <a
                                             href={currentAssignment.asset_declaration_attachment}
                                             target="_blank"
@@ -914,19 +958,6 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                             Declaration
                                             <ExternalLink className="h-3 w-3" />
                                         </a>
-                                    ) : canManageAssets && (
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            className="gap-2 text-amber-600 border-amber-200 hover:bg-amber-50 hover:text-amber-700"
-                                            onClick={() => {
-                                                setDeclarationFile(null);
-                                                setUploadDeclarationDialogOpen(true);
-                                            }}
-                                        >
-                                            <Upload className="h-4 w-4" />
-                                            Upload Declaration
-                                        </Button>
                                     )}
                                 </div>
                             ) : (
@@ -942,8 +973,24 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                     </div>
                                 </div>
                             )}
+                            {asset?.current_assignee && currentAssignment && (
+                                <AuditStatusRow
+                                    className="mt-3"
+                                    badge={auditBadge(
+                                        currentAssignment,
+                                        auditedCategories.has(asset.asset_category),
+                                        asset.asset_category
+                                    )}
+                                    proofUrl={currentAssignment.audit_proof}
+                                    answers={parseAuditAnswers(currentAssignment.audit_answers)}
+                                    answersTitle={`${asset.asset_name} · audit for ${currentAssignment.audit_month ?? ''}`}
+                                />
+                            )}
                         </CardContent>
                     </Card>
+
+                    {/* Asset History - Full Width, Admin and HR only */}
+                    {canViewHistory && <AssetHistoryCard rows={asset?.asset_history} />}
                 </div>
             )}
 
@@ -980,6 +1027,30 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                                 onChange={(val) => setEditForm({ ...editForm, asset_category: val?.value || '' })}
                                 placeholder="Select category"
                             />
+                        </div>
+
+                        {/* Department */}
+                        <div className="space-y-1.5">
+                            <Label htmlFor="editAssetDepartment" className="text-sm font-medium">
+                                Department
+                            </Label>
+                            {departmentEditable ? (
+                                <DepartmentSelect
+                                    inputId="editAssetDepartment"
+                                    value={editForm.department}
+                                    onChange={(value) => setEditForm({ ...editForm, department: value || '' })}
+                                    departments={departments}
+                                    isLoading={departmentsLoading}
+                                />
+                            ) : (
+                                <>
+                                    <Input id="editAssetDepartment" value={asset?.department || ''} readOnly disabled className="bg-gray-50" />
+                                    <p className="text-xs text-gray-500">
+                                        This asset has been assigned before, so its department changes only when you
+                                        assign it to someone in another department (with a reason).
+                                    </p>
+                                </>
+                            )}
                         </div>
 
                         {/* Condition */}
@@ -1176,6 +1247,21 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                 onAssigned={handleAssignmentChange}
             />
 
+            {/* Sign Declaration Dialog (the assignee only) */}
+            {canSign && currentAssignment && (
+                <SignDeclarationDialog
+                    isOpen={signDeclarationDialogOpen}
+                    onOpenChange={setSignDeclarationDialogOpen}
+                    assignmentId={currentAssignment.name}
+                    assetId={assetId}
+                    assetName={asset?.asset_name || ''}
+                    serialNumber={asset?.asset_serial_number}
+                    condition={asset?.asset_condition}
+                    assignedOn={currentAssignment.asset_assigned_on}
+                    onSigned={handleDeclarationSigned}
+                />
+            )}
+
             {/* Unassign Asset Dialog */}
             <UnassignAssetDialog
                 isOpen={unassignDialogOpen}
@@ -1247,57 +1333,6 @@ const AssetOverviewContent: React.FC<{ assetId: string }> = ({ assetId }) => {
                             className="gap-2"
                         >
                             {isUploadingProjectAttachment ? 'Uploading...' : 'Upload'}
-                            <Upload className="h-4 w-4" />
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {/* Upload Declaration Dialog */}
-            <Dialog open={uploadDeclarationDialogOpen} onOpenChange={setUploadDeclarationDialogOpen}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
-                            <FileText className="h-6 w-6 text-amber-600" />
-                        </div>
-                        <DialogTitle className="text-center text-lg font-semibold">
-                            Upload Declaration
-                        </DialogTitle>
-                        <DialogDescription className="text-center text-sm text-gray-500">
-                            Upload the declaration document for{' '}
-                            <span className="font-medium text-gray-700">{asset?.asset_name}</span>
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    <div className="py-4">
-                        <CustomAttachment
-                            selectedFile={declarationFile}
-                            onFileSelect={setDeclarationFile}
-                            acceptedTypes={["image/*", "application/pdf"]}
-                            label="Select Declaration File"
-                            maxFileSize={10 * 1024 * 1024}
-                            onError={(err) => toast({
-                                title: 'File Error',
-                                description: err.message,
-                                variant: 'destructive',
-                            })}
-                        />
-                    </div>
-
-                    <DialogFooter className="gap-2 sm:gap-0">
-                        <Button
-                            variant="outline"
-                            onClick={() => setUploadDeclarationDialogOpen(false)}
-                            disabled={isUploadingDeclaration}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={handleUploadDeclaration}
-                            disabled={isUploadingDeclaration || !declarationFile}
-                            className="gap-2"
-                        >
-                            {isUploadingDeclaration ? 'Uploading...' : 'Upload Declaration'}
                             <Upload className="h-4 w-4" />
                         </Button>
                     </DialogFooter>

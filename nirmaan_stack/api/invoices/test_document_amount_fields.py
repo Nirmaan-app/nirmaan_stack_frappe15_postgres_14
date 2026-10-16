@@ -24,16 +24,13 @@ where we only need the fields the recompute reads. Tests that must exercise the 
 events use a real `insert()` / `save()` / `delete()`.
 """
 
-import unittest
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt, nowdate
 
-from nirmaan_stack.api.invoices._item_billing_sync import (
-    recompute_document_amount_due,
-    recompute_document_amount_invoiced,
-)
+from nirmaan_stack.api.invoices._item_billing_sync import recompute_document_amount_invoiced
+from nirmaan_stack.services.amount_paid import recompute_document_amount_due
 
 POISON = -987654.32
 
@@ -471,25 +468,19 @@ class TestAmountPaidKeepsAmountDueTrue(FrappeTestCase):
         self.assertAlmostEqual(_get("Procurement Orders", self.PO, "amount_paid"), 0)
         self.assertAlmostEqual(_get("Procurement Orders", self.PO, "amount_due"), 50000)
 
-    # ---------------------------------------------------------------- KNOWN OPEN BUGS
-    # These two are the cause of the stale `amount_paid` observed on live POs: the
-    # payment controller fires ONLY on a transition into / out of 'Paid', so a Paid
-    # payment that is edited or re-pointed recomputes NOTHING. Marked expectedFailure
-    # so the suite stays green while the bug is open -- and reports an UNEXPECTED
-    # SUCCESS the moment someone widens the watched-field set, which is the signal to
-    # delete these markers.
+    # ---------------------------------------------------------------- WATCHED FIELDS
+    # A Paid payment edited or re-pointed recounts the order(s) it leaves and joins (#1453;
+    # `services/amount_paid.orders_moved_by`). These were expectedFailure while the payment
+    # controller fired only on a transition into / out of 'Paid'.
 
-    @unittest.expectedFailure
     def test_editing_a_paid_payment_amount_updates_amount_paid(self):
-        """KNOWN BUG: amount edited while status stays 'Paid' -> no recompute."""
+        """An amount edited while status stays 'Paid' recounts the PO."""
         p = self._pay(12000, status="Paid")
         p.reload(); p.amount = 20000; p.save(ignore_permissions=True)
         self.assertAlmostEqual(_get("Procurement Orders", self.PO, "amount_paid"), 20000)
 
-    @unittest.expectedFailure
     def test_repointing_a_paid_payment_updates_both_parents(self):
-        """KNOWN BUG: parent link changed while status stays 'Paid' -> neither the old
-        nor the new PO is recomputed."""
+        """A parent link changed while status stays 'Paid' recounts the old and the new PO."""
         p = self._pay(12000, status="Paid")
         p.reload(); p.document_name = self.PO2; p.save(ignore_permissions=True)
         self.assertAlmostEqual(_get("Procurement Orders", self.PO, "amount_paid"), 0)

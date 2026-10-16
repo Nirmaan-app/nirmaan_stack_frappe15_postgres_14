@@ -1,6 +1,6 @@
 import React from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useFrappeGetDoc, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDoc } from "frappe-react-sdk";
 import { ClipboardList, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
@@ -10,7 +10,9 @@ import { CEOHoldBanner } from "@/components/ui/ceo-hold-banner";
 import { PRCriticalTagsList } from "./components/PRCriticalTagsList";
 import { PRCriticalTagsTable } from "./components/PRCriticalTagsTable";
 import { PRCriticalTagsSummary } from "./components/PRCriticalTagsSummary";
-import { CriticalPRTag } from "./types";
+import { PRPackageRow } from "./types";
+
+const PACKAGES_API = "nirmaan_stack.api.critical_pr_tasks.get_projects_with_pr_stats.get_project_pr_packages";
 
 const PRTrackerDetail: React.FC = () => {
     const { projectId } = useParams<{ projectId: string }>();
@@ -26,17 +28,17 @@ const PRTrackerDetail: React.FC = () => {
         error: projectError,
     } = useFrappeGetDoc<Projects>("Projects", projectId!, projectId ? undefined : null);
 
-    // Fetch Critical PR Tags for this project
+    // The project's packages and the PRs carrying each, computed live from the PRs.
     const {
-        data: tags,
+        data: packagesResponse,
         isLoading: isTagsLoading,
         error: tagsError,
-    } = useFrappeGetDocList<CriticalPRTag>("Critical PR Tags", {
-        fields: ["name", "project", "projectname", "header", "package", "associated_prs"],
-        filters: projectId ? [["project", "=", projectId]] : [],
-        limit: 0,
-        orderBy: { field: "header", order: "asc" },
-    }, projectId ? `Critical PR Tags ${projectId}` : null);
+    } = useFrappeGetCall<{ message: PRPackageRow[] }>(
+        PACKAGES_API,
+        { project: projectId },
+        projectId ? `${PACKAGES_API}:${projectId}` : null
+    );
+    const tags: PRPackageRow[] = packagesResponse?.message ?? [];
 
     // Loading state
     if (isProjectLoading || isTagsLoading) {
@@ -82,7 +84,7 @@ const PRTrackerDetail: React.FC = () => {
                             <h1 className="text-2xl font-semibold text-gray-900">
                                 {project.project_name}
                             </h1>
-                            <p className="text-sm text-gray-500">Critical PR Tag Monitoring</p>
+                            <p className="text-sm text-gray-500">PR Package Monitoring</p>
                         </div>
                     </div>
 
@@ -114,18 +116,17 @@ const PRTrackerDetail: React.FC = () => {
             )}
 
             {/* Common Summary Section */}
-            <PRCriticalTagsSummary tags={tags || []} project={project} />
+            <PRCriticalTagsSummary tags={tags} project={project} />
 
-            {/* List or Table of critical PR tags */}
+            {/* List or Table of the project's PR packages */}
             {viewMode === "list" ? (
                 <PRCriticalTagsList
                     projectId={projectId!}
-                    tags={tags || []}
-                    project={project}
+                    tags={tags}
                 />
             ) : (
                 <PRCriticalTagsTable
-                    tags={tags || []}
+                    tags={tags}
                     projectName={project.project_name}
                     projectId={projectId!}
                 />

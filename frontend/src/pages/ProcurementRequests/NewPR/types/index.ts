@@ -42,11 +42,6 @@ export interface ItemOption extends SelectOption<string> {
 
 export type { MakeOption } from '@/hooks/useMakeOptions';
 
-export interface SelectedHeaderTag {
-  tag_header: string;
-  tag_package: string;
-}
-
 export type { CategoryMakesMap } from '@/hooks/useMakeOptions';
 
 // Extend Frappe Types if needed (Example - ensure Category has new_items)
