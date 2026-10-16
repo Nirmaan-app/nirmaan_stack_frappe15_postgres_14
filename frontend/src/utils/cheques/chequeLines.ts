@@ -178,7 +178,7 @@ const AWAITS_RECONCILIATION = "Once approved it becomes Issued and waits in Cheq
 export const chequeSaveNote = (chequeAmount: number | string, lines: ChequeLineDraft[]): string | undefined => {
     if (lines.length === 0) return undefined;
     if (lines.some((l) => !l.payment_name)) {
-        return "This cheque starts Pending and stays Pending until every line names its payment.";
+        return "This cheque stays Pending until every line names its payment.";
     }
     const n = lines.length;
     const payments = `${n} payment${n > 1 ? "s" : ""}`;
@@ -189,7 +189,7 @@ export const chequeSaveNote = (chequeAmount: number | string, lines: ChequeLineD
     const ceo = needsCEO(chequeAmount)
         ? ` The cheque total ${formatToIndianRupee(parseNumber(chequeAmount))} is over ₹${TIER_L2_ABOVE.toLocaleString("en-IN")}, so the CEO approves them too.`
         : "";
-    return `This cheque starts Pending. ${together}${ceo} ${AWAITS_RECONCILIATION}`;
+    return `This cheque is Pending. ${together}${ceo} ${AWAITS_RECONCILIATION}`;
 };
 
 /** The projects the Vendor has POs in, once each, by name. */

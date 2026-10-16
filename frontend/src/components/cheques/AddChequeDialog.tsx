@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
@@ -79,7 +79,23 @@ const TYPE_CHOICES: { type: ChequeType; label: string; hint: string }[] = [
  */
 export const AddChequeDialog = ({ open, onOpenChange, onSaved, cheque }: AddChequeDialogProps) => {
     const editing = Boolean(cheque);
-    const { cheque: detail, error } = useChequeDetail(open && cheque ? cheque : null);
+    const { cheque: detail, error, refetch } = useChequeDetail(open && cheque ? cheque : null);
+    // The form copies the Cheque once, when it mounts: each opening reads it afresh first, or an edit opened
+    // again would start from the cached Cheque as it was before the last save (realtime may not refetch it).
+    const [freshFor, setFreshFor] = useState<string | null>(null);
+    useEffect(() => {
+        if (!open || !cheque) return;
+        let current = true;
+        setFreshFor(null);
+        void refetch().finally(() => {
+            if (current) setFreshFor(cheque);
+        });
+        return () => {
+            current = false;
+        };
+        // `refetch` changes identity with its data; only a new opening reads again.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, cheque]);
     const [type, setType] = useState<ChequeType | null>(null);
     const done = (name: string) => {
         onOpenChange(false);
@@ -101,7 +117,7 @@ export const AddChequeDialog = ({ open, onOpenChange, onSaved, cheque }: AddCheq
                     </DialogDescription>
                 </DialogHeader>
                 {editing ? (
-                    detail ? (
+                    detail && freshFor === cheque ? (
                         <ChequeForm key={detail.name} edit={detail} onDone={done} onCancel={() => changeOpen(false)} />
                     ) : error ? (
                         <p className="text-sm text-destructive">{getFrappeError(error)}</p>

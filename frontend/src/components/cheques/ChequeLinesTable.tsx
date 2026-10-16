@@ -143,7 +143,8 @@ interface PoLineRowProps {
 const PoLineRow = ({ index, records, disabled, cheque, otherPayments, onRemove }: PoLineRowProps) => {
     const { control } = useFormContext<ChequeFormInput>();
     const line = useWatch({ control, name: `lines.${index}` }) as ChequeLineDraft;
-    const { eligible, isLoading } = useEligiblePayments(line.record_name, cheque, otherPayments);
+    // A locked line (a photo-only edit, or a save in flight) picks nothing: no list, no "not shown" footer.
+    const { eligible, isLoading } = useEligiblePayments(disabled ? "" : line.record_name, cheque, otherPayments);
     const picked = eligible?.payments.find((p) => p.name === line.payment_name);
     const hidden = hiddenPaymentsText(eligible?.hidden, eligible?.step);
     // An edited line keeps its project, PO and payment in the lists, even ones the pickers no longer offer.
