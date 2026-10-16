@@ -17,6 +17,7 @@ import {
     LEFTOVER_PAID_TITLE,
     VERDICT_REVERT_PAYMENT,
     VERDICT_UNLINK_EXPENSE_LINE,
+    VERDICT_UNMATCH_REFUND,
     VERDICT_UNSPLIT_PAYMENT,
     WHAT_HAPPENS_UNSPLIT,
     confirmByHandNote,
@@ -580,6 +581,47 @@ describe("splitNeedsYou -- the confirm dialog never files an unreconciled line u
         const { several, byHand } = splitNeedsYou(rows);
         expect(several.map((r) => r.name)).toEqual(["A", "C"]);
         expect(byHand.map((r) => r.name)).toEqual(["B", "D"]);
+    });
+});
+
+describe("a matched waiting Vendor Refund (#1401)", () => {
+    const matchedLeg = leg({
+        target_doctype: "Vendor Refunds",
+        target_name: "VRF-26-00007",
+        verdict: VERDICT_UNMATCH_REFUND,
+        what_happens:
+            "Goes back to waiting for its bank line (Reconciliation Pending). It is kept, with the UTR and date it had before the match.",
+    });
+
+    it("names the verdict the way the server does", () => {
+        expect(decisionSource).toContain(`VERDICT_UNMATCH_REFUND = "${VERDICT_UNMATCH_REFUND}"`);
+    });
+
+    it("is blue like a payment going back, never red: the refund is kept", () => {
+        expect(legOutcomeLine(matchedLeg).tone).toBe("back");
+    });
+
+    it("the notice says it went back to Reconciliation Pending, not that it was deleted", () => {
+        const result: UnreconcileResult = {
+            row: "ROW-1",
+            row_status: "Mismatched",
+            allocated: 0,
+            remaining: 1180,
+            batch_status: "In Review",
+            reversed: [
+                {
+                    match: "M1",
+                    target_doctype: "Vendor Refunds",
+                    target_name: "VRF-26-00007",
+                    verdict: VERDICT_UNMATCH_REFUND,
+                    reversed_amount: 1180,
+                    amount_after: 1180,
+                },
+            ],
+        };
+        expect(unreconcileNotice(result).body).toBe(
+            "1 record came off this transfer and went back to Reconciliation Pending. It now needs a record.",
+        );
     });
 });
 

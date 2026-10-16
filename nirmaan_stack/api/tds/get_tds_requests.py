@@ -2,7 +2,10 @@
 import frappe
 from frappe import _
 from frappe.utils import cint
-from nirmaan_stack.services.role_profiles import PROCUREMENT_PROFILES
+from nirmaan_stack.services.role_profiles import (
+    PROCUREMENT_PROFILES,
+    SERVICE_PROCUREMENT_EXECUTIVE_PROFILE,
+)
 
 # Roles that require project-level filtering based on user permissions
 FILTERED_ACCESS_ROLES = {
@@ -21,6 +24,9 @@ FULL_ACCESS_ROLES = {
     "Nirmaan Design Lead Profile",
     "Nirmaan Design Executive Profile",
     "Nirmaan HR Executive Profile",
+    # Company-wide WO desk, never assigned projects. It is also in FILTERED_ACCESS_ROLES
+    # (via PROCUREMENT_PROFILES); this set is checked first, so full access wins.
+    SERVICE_PROCUREMENT_EXECUTIVE_PROFILE,
 }
 
 

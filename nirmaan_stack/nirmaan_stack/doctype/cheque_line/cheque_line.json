@@ -1,0 +1,84 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-10-14 01:28:30.640632",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "line_type",
+  "project",
+  "record_doctype",
+  "record_name",
+  "payment_doctype",
+  "payment_name",
+  "amount"
+ ],
+ "fields": [
+  {
+   "fieldname": "line_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Line Type",
+   "options": "PO/WO Payment\nProject Expense\nNon-project Expense",
+   "reqd": 1
+  },
+  {
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Project",
+   "options": "Projects"
+  },
+  {
+   "description": "Procurement Orders or Service Requests, on a PO/WO Payment line only.",
+   "fieldname": "record_doctype",
+   "fieldtype": "Link",
+   "label": "PO / WO Type",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "record_name",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "PO / WO",
+   "options": "record_doctype"
+  },
+  {
+   "description": "Project Payments, Project Expenses or Non Project Expenses.",
+   "fieldname": "payment_doctype",
+   "fieldtype": "Link",
+   "label": "Payment Type",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "payment_name",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Payment",
+   "options": "payment_doctype"
+  },
+  {
+   "description": "Copied once from the payment when it is picked; typed otherwise.",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-14 01:28:30.640632",
+ "modified_by": "Administrator",
+ "module": "Nirmaan Stack",
+ "name": "Cheque Line",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

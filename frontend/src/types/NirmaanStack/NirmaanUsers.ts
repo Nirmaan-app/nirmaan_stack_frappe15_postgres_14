@@ -24,6 +24,8 @@ export interface NirmaanUsers{
 	email: string
 	/**	Nirmaan Role Name : Data	*/
 	role_profile: string
+	/**	Department : Data	*/
+	department?: string
 	/**	FCM Token : Long Text	*/
 	fcm_token?: string
 	/**	Push Notification : Data	*/

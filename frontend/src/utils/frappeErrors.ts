@@ -43,3 +43,35 @@ export const getFrappeError = (error: any): string => {
     // 3. Fallback to basic message or toString
     return error.message || error.toString() || "Something went wrong.";
 };
+
+/**
+ * The reason Frappe gives for refusing a raw `fetch` request, for a toast. Frappe never puts it in
+ * `message`: it is read from `_server_messages` / `exception` through `getFrappeError`. Returns
+ * `fallback` when the body carries neither (production hides `exception` from most users) or is not
+ * JSON at all (an HTML error page while the server restarts). Never throws.
+ */
+export const readFrappeError = async (response: Pick<Response, "json">, fallback: string): Promise<string> => {
+    const body = await response.json().catch(() => null);
+    return (body && (body._server_messages || body.exception) && getFrappeError(body)) || fallback;
+};
+
+/**
+ * Frappe's messages carry HTML -- a link-check refusal links every record it names
+ * (`... linked with Nirmaan Notifications <a href="...">9ekd6leegl</a>`) -- and a toast shows text,
+ * so the tags would appear as typed. Keeps each link's text, decodes the common entities.
+ */
+const toPlainText = (html: string): string =>
+    html
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(/<[^>]*>/g, '')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;|&#x27;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+/** The server's exact reason as plain text, for a toast (see `toPlainText`). */
+export const getFrappeErrorText = (error: any): string => toPlainText(getFrappeError(error));

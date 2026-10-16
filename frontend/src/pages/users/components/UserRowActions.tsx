@@ -25,6 +25,7 @@ import { MoreHorizontal, Eye, KeyRound, Trash2 } from "lucide-react";
 import { NirmaanUsers } from "@/types/NirmaanStack/NirmaanUsers";
 import { useUserData } from "@/hooks/useUserData";
 import { mutate } from "swr";
+import { getFrappeErrorText } from "@/utils/frappeErrors";
 
 interface UserRowActionsProps {
   user: NirmaanUsers;
@@ -106,9 +107,11 @@ export function UserRowActions({ user }: UserRowActionsProps) {
       // Refresh the users list
       mutate((key) => typeof key === "string" && key.includes("Nirmaan Users"));
     } catch (error: any) {
+      // The server's exact reason (e.g. which record still links to this person); `error.message`
+      // is only the SDK's "There was an error while deleting the document."
       toast({
-        title: "Error",
-        description: error?.message || "Failed to delete user",
+        title: `Failed to delete ${user.full_name}`,
+        description: getFrappeErrorText(error),
         variant: "destructive",
       });
     } finally {

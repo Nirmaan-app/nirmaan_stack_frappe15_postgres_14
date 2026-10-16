@@ -263,7 +263,7 @@ Every cross-surface expense calculation now filters `status = "Paid"`:
 
 | Surface | Where |
 |---|---|
-| CEO-Hold **cashflow gap** (backend) | `integrations/controllers/project_cashflow_hold_update.py` (`_compute_cashflow_gap`) |
+| CEO-Hold **cashflow gap** + Projects-list outflow (backend) | `services/project_money.py` (`project_money`), read by `_compute_cashflow_gap` and `get_projects_financial_rollup` |
 | CEO-Hold cashflow gap — **Approve-Payments CEO view** (frontend) | `pages/ProjectPayments/approve-payments/ApprovePayments.tsx` — the `projectExpenses` fetch (swr key `ProjectExpenses_CEOPending`) filters `status = "Paid"`, mirroring the backend gap + `projects.tsx`; `Requested`/`Approved`-but-unpaid no longer inflate the displayed gap. |
 | **30-day Payment dashboard** (Project + Non-Project) | `api/payments/get_project_payment_summary.py` |
 | **Outflow Report(Project)** | `pages/reports/hooks/useOutflowReportData.ts` |
@@ -614,8 +614,58 @@ save an invalid template**.
 - **A format NEVER declares a field named after a native column** (`comment`,
   `amount`, `type`, `projects`). Those are real columns the ledger row is built from; a format
   field of the same name would record the value twice and let the two disagree.
-- **Payee bank details are NOT asked** (owner, 2026-08-18). Payment details belong to the
-  payment, not the request — the accountant records them at Mark-as-Paid.
+- **A request names who gets paid: its own pay-to account** ([ADR-0033](../../../docs/adr/0033-payee-is-one-bank-account.md)
+  is the source; it retired the 2026-08-18 rule that a request asks for no payee bank details).
+  Built by #1429, reworked by #1436 (spec #1420):
+  - `Expense Type.payee_rule` (*Who gets paid*): *Required*, *Optional* or *Not asked* (the
+    default). Set in Expense Packages' Edit dialog (`masters.update_expense_type`). ⚠️ It is a
+    fixture field like the rest of the type, so a value set in the app is reset by the next migrate
+    unless the fixture is re-exported.
+  - **The pay-to account** (#1436): `Expense Request`, `Project Expenses` and `Non Project Expenses`
+    each hold `pay_to_account_name`, `pay_to_account_number`, `pay_to_ifsc`, `pay_to_bank_name`,
+    `pay_to_bank_branch`, a COPY of a Payee's account taken when the record is raised; nothing links
+    back to the Payee, so editing or deleting it changes no copy. The one copy function is
+    `services/payees/pay_to.copy_payee_account`. The three doctypes have no `payee` link (#1438).
+  - **Raising** (`create_expense_request`): the `payee` sent (picked, or just added through
+    `api/expense_requests/payees.add_request_payee`) is copied in, unless the request names a vendor.
+    **Editing** (`update_expense_request`): `keep_pay_to=1` leaves the copy as it is; otherwise the
+    `payee` sent is copied (none clears it). Both through `create.apply_pay_to`.
+  - **A vendor named** (request or Project Expense, every write path): the save hook copies the
+    vendor's Payee when the record has no copy and whenever the vendor changes, until the record is
+    paid (`pay_to.fill_from_vendor`, from `guard.check_payee_links`). New expense dialogs, Bulk
+    Import's create-expense and adjustments get it this way. Clearing the vendor leaves the copy.
+  - **Records raised before the pay-to account** were filled by `patches/v3_0/backfill_pay_to_accounts`
+    (#1441): unpaid ones from the vendor's Payee, paid ones from their settled bank line, the rest
+    blank. Rules: `payees.md`.
+  - **No server refusal** (#1436, owner 2026-10-15): *Required* with no account, a vendor and an
+    account that disagree, a change after payment, a change outside Accounts are all accepted. They
+    are screen rules: the request dialog blocks sending a *Required* type with no account
+    (`utils/payees/expensePayee.whoGetsPaidProblem`) and shows a vendor's account read-only.
+  - Approval (`convert.create_ledger_row`) copies the request's pay-to account onto the Project or
+    Non-Project Expense AS IT IS (`pay_to.copy_pay_to`): the vendor's Payee is not read again. The
+    reviewer sees it: `get_my_expense_requests` rows carry `pay_to` (`pay_to.pay_to_account`).
+  - The dialog's picker (search, add new, the vendor's Payee) calls `api/expense_requests/payees`,
+    gated on `access.can_raise_requests`, never the Accounts-only `api/payees/` endpoints.
+  - Record Payment's "Pay ₹X to" box reads the expense's own copy; its Change account
+    (`expense_payee.change_expense_account`, #1438; Accounts, an approved, unpaid expense with no
+    vendor, a screen rule) overwrites the copy with a picked or added Payee's account, recorded with
+    who and when (`.claude/context/domain/payees.md` § Paid to).
+  - **No format asks for bank details or who gets paid as free text** (#1430): the Payroll,
+    Accommodation Deposit and Staff Accommodation Rent "Payee Bank Details" sections, and the
+    fields that only named the payee (Rent's landlord, the Deposit's landlord / PG, Payroll's
+    employee, the "Paid To" of Office Maintenance, Pooja, Other Financial and Staff Welfare), are
+    gone. Those types ask for a Payee instead: *Required* for Rent Expenses and Accommodation
+    Deposit (paid by transfer into the landlord's account, and a deposit is recovered from it),
+    *Optional* for the other six (card, cash, or a payroll batch with no single payee). The choice
+    is pinned by `api/expense_requests/test_request_forms.py`, which also refuses a bank field or a
+    `description_template` placeholder naming a field the form no longer asks. Bank Interest's
+    "Bank Account No." stays: it is the company's own account, not who gets paid. Supplier-name
+    fields (Service Provider, Print Vendor, Firm / Consultant, Supplier, ...) stay, and those
+    types stay *Not asked*.
+  - **Old requests keep their text.** Their answers stay in `source_data`; a request raised
+    before a field was removed and approved after gets those answers after the format's sentence,
+    labelled from the key (`flatten.undeclared_pairs`, used by `convert.compose_description`).
+    Ledger descriptions already written are never rewritten.
 - **ONE FORMAT PER EXPENSE TYPE** (owner, 2026-08-18), replacing an earlier shared
   accommodation shape. A staff PG, a labour dorm, a deposit and a hotel booking are four
   different questions, and the evidence differs per type: all 7 live Staff rows name exactly

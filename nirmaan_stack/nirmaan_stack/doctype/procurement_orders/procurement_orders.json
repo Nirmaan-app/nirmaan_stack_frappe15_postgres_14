@@ -286,7 +286,8 @@
   {
    "fieldname": "amount_paid",
    "fieldtype": "Currency",
-   "label": "Amount Paid"
+   "label": "Amount Paid",
+   "read_only": 1
   },
   {
    "fieldname": "payment_type",
@@ -321,7 +322,7 @@
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-11 11:26:27.546474",
+ "modified": "2026-10-15 23:16:00.716042",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Procurement Orders",

@@ -15,7 +15,7 @@ When changing a user's email (primary key), update in order:
 
 1. **Frappe User doctype** - `rename_doc("User", old, new, force=True)`
 2. **Nirmaan Users doctype** - `rename_doc("Nirmaan Users", old, new, force=True)`
-3. **Nirmaan User Permissions.user** (Data field) - requires manual SQL update
+3. **Nirmaan User Permissions.user** and **Asset History.assigned_to / done_by** (Data fields) - require manual SQL update (`services/asset_history.rename_person` for the history)
 4. **Clear sessions** - force logout the renamed user
 
 **API**: `nirmaan_stack.api.users.rename_user_email`

@@ -4,10 +4,31 @@
 import frappe
 from frappe.model.document import Document
 
+from nirmaan_stack.services.departments import assert_active_department, is_department_editor
+
 
 class NirmaanUsers(Document):
 	def validate(self):
 		self.set_full_name()
+		self.check_department_editor()
+
+	def check_department_editor(self):
+		"""Only Admin and HR set or change a person's department (owner, 2026-10-12).
+
+		Many roles have write on Nirmaan Users so people can save their own profile; without this an
+		employee could change their own department. Checked by role PROFILE, not Frappe role (see
+		`services/role_profiles`).
+		"""
+		if not self.has_value_changed("department"):
+			return
+		if self.is_new() and not self.department:
+			return
+		if not self.department:
+			# A department is changed, never removed (owner, 2026-10-12) -- as for an asset.
+			frappe.throw("A person's department can't be removed. Choose another one instead.")
+		if not is_department_editor():
+			frappe.throw("Only Admin and HR can change a person's department.", frappe.PermissionError)
+		assert_active_department(self.department)
 
 	def autoname(self):
 		"""set name as Email Address"""

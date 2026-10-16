@@ -20,14 +20,11 @@ interface AllTabProps {
     };
   }[];
   totalServiceOrdersAmt?: number;
-  getTotalAmountPaid?: {
-    poAmount: number;
-    srAmount: number;
-    totalAmount: number;
-  };
+  /** Every WO's stored Amount Paid (whatever its status), shown on the "Services" row. */
+  servicesAmountPaid?: number;
 }
 
-export const AllTab: React.FC<AllTabProps> = ({ workPackageTotalAmounts, setProjectSpendsTab, segregatedServiceOrderData, totalServiceOrdersAmt, getTotalAmountPaid }) => {
+export const AllTab: React.FC<AllTabProps> = ({ workPackageTotalAmounts, setProjectSpendsTab, segregatedServiceOrderData, totalServiceOrdersAmt, servicesAmountPaid }) => {
 
   // const [totalsAmounts, setTotalsAmounts] = useState<{ [key: string]: any }>({})
 
@@ -42,16 +39,16 @@ export const AllTab: React.FC<AllTabProps> = ({ workPackageTotalAmounts, setProj
   const totalsAmounts = useMemo(() => {
     const totalAmountsObject = { ...workPackageTotalAmounts };
 
-    if ((serviceTotalEstdAmt || totalServiceOrdersAmt)) {
+    if (serviceTotalEstdAmt || totalServiceOrdersAmt || servicesAmountPaid) {
       totalAmountsObject["Services"] = {
         amountWithoutTax: totalServiceOrdersAmt,
         total_estimated_amount: serviceTotalEstdAmt,
-        total_amount_paid: getTotalAmountPaid?.srAmount,
+        total_amount_paid: servicesAmountPaid,
       };
     }
 
     return totalAmountsObject;
-  }, [workPackageTotalAmounts, serviceTotalEstdAmt, totalServiceOrdersAmt, getTotalAmountPaid]);
+  }, [workPackageTotalAmounts, serviceTotalEstdAmt, totalServiceOrdersAmt, servicesAmountPaid]);
 
   // console.log("totalsAmounts", totalsAmounts);
 

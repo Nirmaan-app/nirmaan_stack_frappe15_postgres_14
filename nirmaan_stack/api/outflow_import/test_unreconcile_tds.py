@@ -33,6 +33,7 @@ from nirmaan_stack.api.outflow_import.test_settle_payment import PaymentSettleme
 from nirmaan_stack.api.outflow_import.unreconcile import get_unreconcile_plan, unreconcile_row
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services.amount_paid_drift import mismatches
 from nirmaan_stack.services.outflow_import.partial_settle import INTENT_PART_PAYMENT
 from nirmaan_stack.api.outflow_import.test_settle_payment import SETTLEABLE
 
@@ -239,3 +240,32 @@ class TestAPartPaymentsLeftover(TaxedWorkOrderUnreconcileFixture):
         self.assertEqual(stored.status, SETTLEABLE)
         self.assertEqual(float(stored.amount), self.NET, "the original gets its net amount back")
         self.assertEqual(self._deductions(made.name), [made.deduction], "still taxed exactly once")
+
+
+class TestAPartSettledKeptWholePayment(TaxedWorkOrderUnreconcileFixture):
+    """A company-borne (Misc-only) Work Order's payment, kept whole at approval, settled in part.
+
+    The split cuts the payment to the bank's 30,000 and leaves the deduction as it was (50,000 gross,
+    1,000 paid on top). Read off the amounts, 30,000 sits nearer 49,000 than 50,000 and the tax would
+    read as withheld from the vendor: Amount Due 19,000 for a 20,000 balance. `borne_by` keeps it on
+    the company (#1451)."""
+
+    def test_the_tax_stays_paid_by_the_company_and_the_amount_due_is_the_balance(self):
+        wo = self.taxed.service_request(
+            self.wo_project, self.wo_vendor, total=self.GROSS, categories=["Miscellaneous Services"]
+        )
+        made = self.taxed.payment(self.GROSS, project=self.wo_project, vendor=self.wo_vendor, service_request=wo)
+        self.assertEqual((made.net, made.tds), (self.GROSS, self.TDS))
+        self.taxed.mark_as_done(made.name)
+
+        settle_row_partial(self._staged_row(amount="30000"), made.name, INTENT_PART_PAYMENT)
+
+        self.assertEqual(self._stored(made.name).status, "Paid")
+        self.assertEqual(float(self._stored(made.name).amount), 30000.0)
+        self.assertEqual(frappe.db.get_value(PTD, made.deduction, "borne_by"), "Company")
+        figures = frappe.db.get_value(SR, wo, ["amount_paid", "total_tds", "amount_due"], as_dict=True)
+        self.assertEqual(
+            (float(figures.amount_paid), float(figures.total_tds), float(figures.amount_due)),
+            (30000.0, self.TDS, 20000.0),
+        )
+        self.assertEqual(mismatches(SR, [wo]), [])

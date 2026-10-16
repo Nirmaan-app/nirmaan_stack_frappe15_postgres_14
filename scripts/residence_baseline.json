@@ -23,5 +23,15 @@
     "count": 116,
     "description": "Frontend files calling useFrappeUpdateDoc / updateDoc( directly instead of one write-safety seam.",
     "rule": "F5"
+  },
+  "p1_payment_sum_copies": {
+    "count": 2,
+    "description": "Lines that add up Project Payments amounts (frontend, backend, print formats) outside the allowed owners in PAYMENT_SUM_OWNERS: the Amount Paid rule, the payment caps, the bank cash-out lists.",
+    "rule": "P1"
+  },
+  "t1_tests_pick_any_row": {
+    "count": 23,
+    "description": "Lines in test_*.py fetching a row with empty filters (get_value(doctype, {}...)): the record depends on whatever was modified last.",
+    "rule": "T1"
   }
 }

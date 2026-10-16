@@ -5,6 +5,8 @@
 // `Paid` is set by the LEDGER, through the on_update hook that fires when the expense row is
 // paid — never by a reviewer, and there is no endpoint that sets it.
 
+import type { PayToAccount } from "./Payee";
+
 export type ExpenseRequestStatus = "Pending Approval" | "Approved" | "Rejected" | "Paid";
 
 export interface ExpenseRequest {
@@ -46,6 +48,11 @@ export interface ExpenseRequest {
   /** What status the ledger row will be BORN at — server-resolved, because it depends on the
    *  amount and the threshold lives on the ledger doctypes. Never re-derive it here. */
   target_status?: "Approved" | "Requested";
+  /** Who gets paid (ADR-0033, #1436): the request's own pay-to account, copied from the Payee picked
+   *  or the vendor's Payee; approval copies it onto the Expense as it is. Null when it has none. */
+  pay_to?: PayToAccount | null;
+  /** Its type's Who gets paid: Required / Optional / Not asked (`utils/payees/expensePayee`). */
+  payee_rule?: string;
 }
 
 export interface GetMyExpenseRequestsResponse {
@@ -64,6 +71,8 @@ export interface RequestCatalogType {
   /** True only when the type's "Enable Source" switch is ON and a format is written.
    *  False => the dialog asks the standard fields. */
   has_format: boolean;
+  /** Who gets paid: Required / Optional / Not asked (`utils/payees/expensePayee`). */
+  payee_rule: string;
 }
 
 export interface RequestCatalogCategory {

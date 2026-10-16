@@ -4,6 +4,9 @@ import frappe
 from frappe import _
 from frappe.model.rename_doc import rename_doc
 
+from nirmaan_stack.services.asset_history import rename_person as rename_person_in_asset_history
+from nirmaan_stack.services.departments import assert_active_department, is_department_editor
+
 
 @frappe.whitelist()
 def create_user(
@@ -11,7 +14,8 @@ def create_user(
     last_name: str = None,
     email: str = None,
     mobile_no: str = None,
-    role_profile_name: str = None
+    role_profile_name: str = None,
+    department: str = None,
 ):
     """
     Create a new user with graceful handling of email failures.
@@ -26,6 +30,7 @@ def create_user(
         email: User's email address (required, becomes the user ID)
         mobile_no: User's mobile number
         role_profile_name: Role profile to assign
+        department: The person's department (Nirmaan Users.department); Admin/HR only
 
     Returns:
         dict: {
@@ -61,6 +66,15 @@ def create_user(
                 )
             )
 
+    # Checked BEFORE the user exists: the User insert commits, so a refusal after it would leave a
+    # half-made user behind.
+    if department:
+        if not is_department_editor():
+            frappe.throw(_("Only Admin and HR can set a person's department."), frappe.PermissionError)
+        if not frappe.db.exists("Nirmaan Department", department):
+            frappe.throw(_("Unknown department {0}").format(department))
+        assert_active_department(department)
+
     user_doc = None
     full_name = first_name  # Default fallback
 
@@ -77,6 +91,11 @@ def create_user(
             "user_type": "System User",
         })
         user_doc.insert(ignore_permissions=True)
+        if department:
+            # The User after_insert hook has just created the person's Nirmaan Users record.
+            profile = frappe.get_doc("Nirmaan Users", email)
+            profile.department = department
+            profile.save(ignore_permissions=True)
         frappe.db.commit()
         full_name = user_doc.full_name or first_name
 
@@ -319,6 +338,7 @@ def rename_user_email(old_email: str, new_email: str):
 			UPDATE "tabNirmaan User Permissions"
 			SET "user" = %s WHERE "user" = %s
 		""", (new_email, old_email))
+		rename_person_in_asset_history(old_email, new_email)
 
 		# 11. Force logout the renamed user by clearing their sessions
 		frappe.db.sql("""

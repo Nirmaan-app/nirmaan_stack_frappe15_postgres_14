@@ -5,6 +5,7 @@ import { useContext, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { KeyedMutator } from "swr";
 import { NirmaanUserPermissions } from "../types/NirmaanStack/NirmaanUserPermissions";
+import { getFrappeErrorText } from "@/utils/frappeErrors";
 
 // Constants for reusable strings
 const DOCUMENT_TYPES = {
@@ -90,11 +91,9 @@ export const useUserSubmitHandlers = (data: NirmaanUsers | undefined, permission
       toggleDeleteUserDialog()
       navigate("/users");
     } catch (error) {
-      handleError(
-        error,
-        toast,
-        `Failed to delete User: ${data?.full_name}`
-      );
+      console.error("Operation failed:", error);
+      // The server's exact reason (e.g. which record still links to this person), not just "failed".
+      showToast(toast, "destructive", `Failed to delete User: ${data?.full_name}`, getFrappeErrorText(error));
     }
   };
 

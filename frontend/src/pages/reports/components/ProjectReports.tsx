@@ -75,9 +75,29 @@ function CashSheetReport() {
   // Relative presets recompute from today on every load — never freezes.
   const { dateRange, onChange: onDateChange, onClear: onDateClear } = useSharedReportDateRange();
 
+  // Cash Sheet rows ARE projects (not a lookup map), so pre-Won stubs would
+  // render as rows with empty financial columns. Filter them out at the
+  // source.
+  const { data: allProjects } = useFrappeGetDocList<Projects>("Projects", {
+    fields: [
+      "name",
+      "project_name",
+      "project_value",
+      "project_value_gst",
+      "creation",
+      "modified",
+      "status",
+    ],
+    filters: [["tendering_status", "=", "Won"]],
+    limit: 0, // Fetch ALL Won projects
+    orderBy: { field: "creation", order: "desc" },
+  });
+  const projectSource = allProjects || [];
+  const projectIds = useMemo(() => allProjects?.map((p) => p.name) ?? [], [allProjects]);
+
   const { getProjectCalculatedFields, isLoadingGlobalDeps, globalDepsError } =
     useProjectReportCalculations({
-      // <--- PASS DATES TO HOOK
+      projectIds,
       startDate: dateRange?.from,
       endDate: dateRange?.to,
     });
@@ -102,25 +122,6 @@ function CashSheetReport() {
   // although we are about to move search into the DataTable.
   // Ideally, we should feed ALL projects to the table and let the table handle search.
 
-  // Cash Sheet rows ARE projects (not a lookup map), so pre-Won stubs would
-  // render as rows with empty financial columns. Filter them out at the
-  // source.
-  const { data: allProjects } = useFrappeGetDocList<Projects>("Projects", {
-    fields: [
-      "name",
-      "project_name",
-      "project_value",
-      "project_value_gst",
-      "creation",
-      "modified",
-      "status",
-    ],
-    filters: [["tendering_status", "=", "Won"]],
-    limit: 0, // Fetch ALL Won projects
-    orderBy: { field: "creation", order: "desc" },
-  });
-  const projectSource = allProjects || [];
-
   const tableData = useMemo(() => {
     if (!projectSource) return [];
 
@@ -134,20 +135,14 @@ function CashSheetReport() {
         totalInflow: 0,
         totalOutflow: 0,
         totalLiabilities: 0,
+        cashflowGap: 0, // the server's figure, read with the other three
         TotalPurchaseOverCredit: 0,
         CreditPaidAmount: 0, // if needed
       };
 
-      const mergedCalc = calculated || defaultCalc;
-      const cashflowGap =
-        (mergedCalc.totalOutflow || 0) +
-        (mergedCalc.totalLiabilities || 0) -
-        (mergedCalc.totalInflow || 0);
-
       return {
         ...project,
-        ...mergedCalc,
-        cashflowGap,
+        ...(calculated || defaultCalc),
       };
     });
   }, [projectSource, getProjectCalculatedFields]);

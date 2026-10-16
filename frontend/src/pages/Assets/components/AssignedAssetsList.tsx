@@ -13,14 +13,31 @@ import { Hash, User, CheckCircle2, AlertCircle, ExternalLink, Briefcase, MapPin 
 
 import {
     ASSET_MANAGEMENT_DOCTYPE,
-    ASSET_MANAGEMENT_FIELDS,
+    ASSET_MANAGEMENT_AUDIT_FIELDS,
     ASSET_MANAGEMENT_SEARCHABLE_FIELDS,
     ASSET_MANAGEMENT_DATE_COLUMNS,
     AssetCategoryType,
 } from '../assets.constants';
+import { assignmentDepartmentColumn, departmentFacetOptions, matchesDepartmentFilter } from '../utils/departmentColumn';
 import { useAssetMasterNamesByType } from '../hooks/useAssetMasterNamesByType';
 import { useAssetProjectOptions } from '../hooks/useAssetProjectOptions';
 import { AssetLookupFacetFilter } from './AssetLookupFacetFilter';
+import { useAuditedCategories } from '../hooks/useAuditPending';
+import { auditBadge, AuditBadgeTone } from '@/utils/assetAudit';
+
+const AUDIT_TONE_TEXT: Record<AuditBadgeTone, string> = {
+    pending: 'text-amber-700',
+    overdue: 'text-red-700',
+    done: 'text-emerald-700',
+    none: 'text-gray-500',
+    off: 'text-gray-400',
+};
+
+// The Audit column's filter. "No audit yet" and "Not needed" have no status of their own to filter on.
+const AUDIT_STATUS_OPTIONS = [
+    { label: 'Pending', value: 'Pending' },
+    { label: 'Fulfilled', value: 'Fulfilled' },
+];
 
 interface AssetManagement {
     name: string;
@@ -29,12 +46,17 @@ interface AssetManagement {
     asset_assigned_on: string;
     asset_declaration_attachment: string;
     creation: string;
+    /** Monthly asset audit (owner, 2026-10-14). */
+    audit_status?: string | null;
+    audit_month?: string | null;
+    last_audit_on?: string | null;
 }
 
 interface AssetMaster {
     name: string;
     asset_name: string;
     asset_category: string;
+    department: string | null;
     project: string;
     asset_city: string;
     asset_state: string;
@@ -76,7 +98,7 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
     const { data: assetsList } = useFrappeGetDocList<AssetMaster>(
         'Asset Master',
         {
-            fields: ['name', 'asset_name', 'asset_category', 'project', 'asset_city', 'asset_state'],
+            fields: ['name', 'asset_name', 'asset_category', 'department', 'project', 'asset_city', 'asset_state'],
             filters: assetType ? [['name', 'in', masterNames.length ? masterNames : ['__none__']]] : [],
             limit: 0,
         },
@@ -119,6 +141,9 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
     const [projectFilter, setProjectFilter] = useState<string[]>([]);
     const [cityFilter, setCityFilter] = useState<string[]>([]);
     const [stateFilter, setStateFilter] = useState<string[]>([]);
+    // Category and Department live on the Asset Master too, so they filter the same way.
+    const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
+    const [departmentFilter, setDepartmentFilter] = useState<string[]>([]);
 
     // Option lists (with counts) built from the same assets the tab is scoped to.
     const lookupFacetOptions = useMemo(() => {
@@ -150,16 +175,21 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
 
     // Asset names matching every active lookup filter — null means "no constraint".
     const lookupScopedAssetNames = useMemo<string[] | null>(() => {
-        if (!projectFilter.length && !cityFilter.length && !stateFilter.length) return null;
+        if (
+            !projectFilter.length && !cityFilter.length && !stateFilter.length &&
+            !categoryFilter.length && !departmentFilter.length
+        ) return null;
         return (assetsList ?? [])
             .filter((a) => {
                 if (projectFilter.length && !projectFilter.includes(a.project || '')) return false;
                 if (cityFilter.length && !cityFilter.includes((a.asset_city || '').trim())) return false;
                 if (stateFilter.length && !stateFilter.includes((a.asset_state || '').trim())) return false;
+                if (categoryFilter.length && !categoryFilter.includes(a.asset_category || '')) return false;
+                if (departmentFilter.length && !matchesDepartmentFilter(a.department, departmentFilter)) return false;
                 return true;
             })
             .map((a) => a.name);
-    }, [assetsList, projectFilter, cityFilter, stateFilter]);
+    }, [assetsList, projectFilter, cityFilter, stateFilter, categoryFilter, departmentFilter]);
 
     // Source for facets — distinct `asset` + `asset_assigned_to` for this
     // scope, taken from Asset Management directly (mirrors the table query
@@ -205,6 +235,22 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
         return opts.sort((a, b) => a.label.localeCompare(b.label));
     }, [facetCounts, assetsMap]);
 
+    // Category / Department options with counts, from the assigned rows themselves (not every asset).
+    const assignedLookupOptions = useMemo(() => {
+        const rows = facetSource ?? [];
+        const categories = new Map<string, number>();
+        rows.forEach((row) => {
+            const category = assetsMap[row.asset]?.asset_category;
+            if (category) categories.set(category, (categories.get(category) ?? 0) + 1);
+        });
+        return {
+            category: Array.from(categories.entries())
+                .map(([value, count]) => ({ label: `${value} (${count})`, value }))
+                .sort((a, b) => a.label.localeCompare(b.label)),
+            department: departmentFacetOptions(rows.map((row) => assetsMap[row.asset]?.department)),
+        };
+    }, [facetSource, assetsMap]);
+
     const assigneeOptions = useMemo(() => {
         const opts: { label: string; value: string }[] = [];
         facetCounts.asset_assigned_to.forEach((count, userId) => {
@@ -213,6 +259,9 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
         });
         return opts.sort((a, b) => a.label.localeCompare(b.label));
     }, [facetCounts, usersMap]);
+
+    // Which categories are audited, for the Audit column (owner, 2026-10-14).
+    const auditedCategories = useAuditedCategories();
 
     const columns = useMemo<ColumnDef<AssetManagement>[]>(() => [
         {
@@ -253,8 +302,19 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
         },
         {
             id: 'asset_category',
-            header: ({ column }) => <DataTableColumnHeader column={column} title="Category" />,
+            enableSorting: false,
+            header: ({ column }) => (
+                <div className="flex items-center gap-1">
+                    <AssetLookupFacetFilter
+                        title="Category"
+                        options={assignedLookupOptions.category}
+                        onChange={setCategoryFilter}
+                    />
+                    <DataTableColumnHeader column={column} title="Category" />
+                </div>
+            ),
             meta: {
+                exportHeaderName: 'Category',
                 exportValue: (row: any) => assetsMap[row.asset]?.asset_category || ''
             },
             cell: ({ row }) => {
@@ -269,6 +329,10 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
             },
             size: 140,
         },
+        assignmentDepartmentColumn<AssetManagement>((assetId) => assetsMap[assetId]?.department, {
+            options: assignedLookupOptions.department,
+            onChange: setDepartmentFilter,
+        }),
         {
             accessorKey: 'asset_assigned_to',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Assigned To" />,
@@ -414,11 +478,35 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
             },
             size: 120,
         },
+        {
+            // Monthly asset audit (owner, 2026-10-14): pending (red once a month has passed), done, not yet,
+            // or not needed for the category.
+            accessorKey: 'audit_status',
+            enableSorting: false,
+            header: ({ column }) => <DataTableColumnHeader column={column} title="Audit" />,
+            meta: {
+                exportHeaderName: 'Audit',
+                exportValue: (row: AssetManagement) => {
+                    const category = assetsMap[row.asset]?.asset_category;
+                    return auditBadge(row, !!category && auditedCategories.has(category), category).text;
+                },
+            },
+            cell: ({ row }) => {
+                const category = assetsMap[row.original.asset]?.asset_category;
+                const badge = auditBadge(row.original, !!category && auditedCategories.has(category), category);
+                return (
+                    <span title={badge.hint} className={`text-xs font-medium ${AUDIT_TONE_TEXT[badge.tone]}`}>
+                        {badge.text}
+                    </span>
+                );
+            },
+            size: 170,
+        },
         // NOTE: projectFilter / cityFilter / stateFilter are deliberately NOT deps.
         // The funnels own their own selection (see AssetLookupFacetFilter); listing
         // the selection here would rebuild these column defs on every checkbox,
         // remounting the popover and closing it after a single pick.
-    ], [assetsMap, usersMap, projectsById, lookupFacetOptions, isProjectTab]);
+    ], [assetsMap, usersMap, projectsById, lookupFacetOptions, assignedLookupOptions, isProjectTab, auditedCategories]);
 
     const additionalFilters = useMemo(() => {
         // Intersect the type scope (Project/IT tab) with the lookup-filter scope.
@@ -449,7 +537,7 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
     } = useServerDataTable<AssetManagement>({
         doctype: ASSET_MANAGEMENT_DOCTYPE,
         columns,
-        fetchFields: ASSET_MANAGEMENT_FIELDS as unknown as string[],
+        fetchFields: ASSET_MANAGEMENT_AUDIT_FIELDS as unknown as string[],
         searchableFields: ASSET_MANAGEMENT_SEARCHABLE_FIELDS,
         defaultSort: 'asset_assigned_on desc',
         urlSyncKey: assetType ? `assigned_assets_${assetType.toLowerCase()}` : 'assigned_assets',
@@ -465,6 +553,10 @@ const AssignedAssetsListInner: React.FC<AssignedAssetsListInnerProps> = ({ asset
         asset_assigned_to: {
             title: 'Assignee',
             options: assigneeOptions,
+        },
+        audit_status: {
+            title: 'Audit',
+            options: AUDIT_STATUS_OPTIONS,
         },
     }), [assetNameOptions, assigneeOptions]);
 

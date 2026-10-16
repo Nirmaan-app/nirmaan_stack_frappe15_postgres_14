@@ -236,7 +236,8 @@ v2 → v3: `Reconciled` → `Skipped`/`Matched` · `Amount mismatch` → `Mismat
                inside the narration, paid within 15 days
                                               amounts differ          -> Mismatched
 3. TIER 0     normalised UTR equal                     (finds fan-out; payments)
-4. TIER 1     beneficiary account AND IFSC = a vendor's, amount +-Re 1 (payments)
+4. TIER 1     beneficiary account AND IFSC = the payment's pay-to copy (none: its vendor's Payee's),
+              amount +-Re 1 (payments)
 5. TIER 2     amount +-Rs 5 AND the remark names the record's project  (payments + Project Expenses)
 6. OUTCOME    >=1 approved candidate -> Matched     else -> Mismatched
 ```
@@ -251,6 +252,19 @@ name needs ≥2 non-noise words. **Containment, not Jaccard** — a statement na
 of the vendor name. ⚠️ **Only the `ifsc_matches` candidates admit anything to tier 1**; the name
 scoring still runs and is still persisted as the row's resolved vendor, but it no longer MATCHES
 anything. A name is a scoring form, never an identity.
+
+**Tier 1 compares the line with the payment's OWN pay-to account** (#1440, [ADR-0033](../../../docs/adr/0033-payee-is-one-bank-account.md)
+decision 9). `candidates._payment_target` carries `pay_to_account_number` / `pay_to_ifsc` from
+`Project Payments`; `matcher._paid_to_line` admits a payment holding a copy only when the line's
+normalised account (`normalize_account`) AND IFSC equal it, so a line paid to a vendor's PREVIOUS
+account still matches the payment raised to it, and a payment raised to another account is not
+admitted through its vendor's current Payee. **A payment with no copy falls back to its vendor's CURRENT
+Payee**: `candidates.load_vendor_index` reads account, IFSC and holder name through
+`services/payees/vendor_account.vendor_accounts` (a vendor has no bank fields of its own; #1432
+deleted them), and a Payee shared by several vendors admits a payment of ANY of them (the
+shared-account rule above). Refund suggestions keep the vendor-Payee index only (a refund has no
+pay-to record). Tests: `services/outflow_import/test_matcher.py`
+(`TestTier1ReadsThePaymentsOwnPayToAccount`), `services/outflow_import/test_vendor_payee_index.py` (DB).
 
 **Project corroboration** (`project_match.py`): a remark names a project if it contains the project's
 whole name (longest nested name wins — `Fujitsu Chennai` over `Fujitsu`), else a keyword unique to
@@ -5785,7 +5799,7 @@ description box sits on its line). On Confirm each ticked document -- and the Mi
 **one `Vendor Refunds` record** (three POs + misc -> four records), all in ONE savepoint, one match leg
 each (`created_by_import = 1`, `target_amount` = the part).
 
-Doctype **`Vendor Refunds`** (`VRF-.YY.-.#####`, `track_changes`, no status, Non Project Inflows'
+Doctype **`Vendor Refunds`** (`VRF-.YY.-.#####`, `track_changes`, a `status` since #1398 (below), Non Project Inflows'
 DocPerms): `vendor` (required), `project` (optional), `document_type` (required Select: Procurement
 Orders / Service Requests / **Misc. Expense**), `document_name` (Dynamic Link, mandatory only when the
 type is not Misc. Expense -- a misc record stores NULL, so the link is never resolved), `amount` (the
@@ -5808,6 +5822,75 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   refund tests capture + restore their POs' figures for this). ⚠️ Recording the same money through the PO
   Adjustment "Vendor has refund" flow too lowers it twice. ⚠️ Refunds saved BEFORE this change are not
   netted until something recomputes their document.
+- ⚠️ **STATUS (#1398, ADR-0032): `Reconciliation Pending` / `Received` / `Cancelled`**, a required Select
+  with no JSON default (Frappe gives a creator that sets nothing the FIRST option, Reconciliation Pending).
+  A bank-line refund is set `Received` explicitly in `settle.create_vendor_refund_from_row`; rows from
+  before were set Received by the patch `v3_0.set_vendor_refunds_received`. **Only Received lowers
+  `amount_paid`** (`LOWERS_PAID_STATUSES`, so `paid_of` adds back only Received); **the cap counts
+  Received + Reconciliation Pending** (`TAKES_REFUNDABLE_STATUSES`); Cancelled counts for nothing.
+  `refunded_on(..., statuses)` takes the status set with no default, so each caller says which meaning it
+  wants. The hook also watches `status`, and after the paid recompute it **recounts the vendor's credit**
+  for the PO(s) touched (`vendor_credit_refresh.recompute_vendor_credit`; ledger entries
+  `Vendor Refund Recorded / Changed / Deleted`) -- the ONE place a refund save recounts credit. Refund
+  tests restore the vendor's credit with `api/vendor_refunds/credit_fixture`.
+- ⚠️ **A RECEIVED REFUND SETTLES ITS PO'S ADJUSTMENT BALANCE BY ITSELF (#1399, ADR-0032).** On a PO the
+  hook's recompute IS the refund sync step `api/po_adjustments/refund_links.sync_po_refund_links(po_names,
+  credit_entry_type=None)`: paid amount + amount due, then the PO Adjustment's `Vendor Refund` entries with
+  `PO Adjustment Items.vendor_refund` set (rule: `services/refund_links.plan_refund_links`: oldest Received
+  refund first, each up to the still-unsettled NEGATIVE balance of the ledger's other entries), then the
+  vendor's credit when an entry type is passed. Recomputed from source; it saves the adjustment only when
+  an entry changes, so a second run writes nothing. Such an entry creates no Project Payment and no term.
+  Revision approval calls it after `_create_or_update_adjustment` (no credit entry: linking moves no paid
+  amount). `on_trash` drops the refund's entries first (`unlink_refund`), or Frappe's link check refuses a
+  Desk delete; Unreconcile's `delete_doc(force=True)` and a status flip both reach the same sync through
+  the hooks. A writer using raw SQL on refunds, or LOWERING a ledger's base balance, calls the step itself.
+  The rest beyond the balance is `get_po_refund_links(po_id).over_balance`, the PO page's warning. ⚠️ Tests
+  that refund REAL POs pick POs with no `PO Adjustments`, since their raw purge cannot undo a link.
+- ⚠️ **A CREDIT LINE MAY BE MATCHED TO WAITING REFUNDS INSTEAD (#1401, ADR-0032).**
+  `waiting_refund_match.match_waiting_refunds(row, refunds)` matches the line to one or more existing Reconciliation
+  Pending refunds of one vendor (pool: `get_waiting_vendor_refunds(vendor)` ->
+  `services/vendor_refunds.matchable_refunds`). Their amounts must add up to the line EXACTLY
+  (`waiting_match_problem`; owner 2026-10-13: no partial allocation for credit lines). Each refund turns
+  `Received` with the line's reference and date (`settle.match_waiting_refunds_to_row`, a `doc.save` that
+  writes a Version and runs the PO sync through the hook). Nothing is created; each leg has
+  `created_by_import = 0`. **That flag decides Unreconcile**: a Vendor Refunds leg with 0 gets
+  `unmatch_refund` (the refund goes back to the status, UTR and date of the match Version, and is kept;
+  `api/outflow_import/unreconcile_refund.py`), with 1 still `delete_created`. **The credit duplicate guard
+  counts only `Received` refunds** (`candidates.CONTAINS_LEDGERS`, `ContainsLedger.status`): a waiting
+  refund whose typed UTR is the line's reference must not get its own line skipped. The dialog's "Match a
+  waiting Vendor Refund" card sits above "Create a vendor refund", which warns when the vendor has waiting
+  refunds (`waitingRefundMatch.ts`). **A matched refund's UTR is fixed while its leg is live**
+  (`vendor_refunds.utr_edit_problem`, asked by `waiting_refunds.update_waiting_refund`; the refund rows
+  carry `bank_matched`): `unmatch_refund` refuses a refund whose UTR is no longer one of the line's
+  references as "Changed elsewhere", so a paperwork edit must not change it. Unreconcile first.
+- ⚠️ **"RECEIVED WITH NO BANK LINE" IS STILL WAITING FOR ITS LINE (#1403, ADR-0032).** An Admin's
+  `waiting_refunds.mark_received_without_bank_line(refund, reason)` makes a waiting refund Received at once
+  (it counts) with `no_bank_line = 1` ("No bank proof") and `no_bank_line_by` / `_at` / `_reason`. While
+  marked it is in the match pool (`vendor_refunds.is_matchable`) and is NOT recorded money for the credit
+  duplicate guard (`ContainsLedger.still_waiting`). The match clears `no_bank_line` (by/at/reason stay as
+  history) and moves no money. Unreconcile of that leg puts `no_bank_line = 1` back and keeps it Received:
+  `unreconcile_refund` decides by `no_bank_line_by`, and `fields_before_match` recognises the match Version
+  by the cleared mark (the status did not change). `waiting_refunds.cancel_waiting_refund` (creator or
+  Accountant) makes a waiting refund Cancelled; the refund hook moves nothing for it.
+  `waiting_refunds.delete_cancelled_refund` (Admin or material Procurement, `REFUND_DELETE_PROFILES`;
+  owner, 2026-10-13, ADR-0032 amendment) deletes a Cancelled refund, refused when any `Outflow Row Match`
+  (even reversed) names it. It moves no money, and `_delete_keeping_its_number` puts the `VRF-` series
+  counter back so the number is never reused (`frappe.delete_doc` winds it back for the newest record).
+- ⚠️ **THE BANK-STATEMENT RUN SUGGESTS A WAITING REFUND FOR A CREDIT LINE (#1402, ADR-0032).** The pure
+  rule `services/outflow_import/refund_suggestion.suggest_waiting_refunds`: (a) the line's bank reference
+  equals the UTR typed on one or more waiting refunds, all one vendor's (the only rule that may suggest a
+  group; two vendors suggest nothing and stop the ladder), else (b) the line's account AND IFSC are a
+  vendor's Payee's (`matcher.account_ifsc_vendors`) and EXACTLY ONE of that vendor's waiting refunds agrees within
+  `TIER1_TOLERANCE`. Never a group from amounts, never a name-only vendor. ICICI has no account/IFSC
+  columns, so only (a) is live today. `review._guard_duplicates_only` asks it for each open credit line
+  the contains-guard left `Mismatched` with no recorded group (`api/outflow_import/refund_suggestions.
+  suggester`, pool `vendor_refunds.every_matchable_refund`, the same membership as `matchable_refunds`).
+  It lands in **`Outflow Import Row.suggested_refunds`** (JSON `{vendor, basis, refunds: [names]}`,
+  written every run, blank when none) and the outcome note; **never in `suggested_doctype` /
+  `suggested_name`**, which bulk confirm reads. The line stays `Mismatched`. `get_outflow_rows` ships
+  `waiting_refund_suggestion` (`shown_suggestions`: current amounts and POs, `None` once any refund stopped
+  waiting or the line is not open), and `seedDecisions` opens the dialog on the match with those refunds
+  ticked. The accountant still clicks Match (`match_waiting_refunds`).
 - ⚠️ **The rules have ONE home: `services/vendor_refunds.py`.** `refund_document_problem` (one record:
   a PO / WO is that vendor's, on the chosen project WHEN one is chosen, not a **Merged** PO, **paid > 0**
   (`paid_of` = stored `amount_paid` **+ every refund stored against it**, since the stored figure is net)
@@ -5849,7 +5932,9 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   row AND the Selected line; both stop the click so they never tick the row.
 - **Where refunds are READ:** as their own rows in the PO's and the WO's Transaction Details table,
   beside the payments, sorted in by payment date: teal-tinted row, a **Refund** tag under the amount,
-  status **Received** (no voucher, no delete; `components/vendor-refunds/VendorRefundTableRow` +
+  its status (Received, Reconciliation Pending or Cancelled, with "No bank proof" under a Received one
+  marked with no bank line) and, on the PO table, Cancel / Mark Received / Delete (Cancelled only) in the
+  last cell (no voucher; `components/vendor-refunds/VendorRefundTableRow` +
   `mergePaymentsAndRefunds`, fed by
   `api/vendor_refunds/list_refunds.get_vendor_refunds(document_type, document_name)`; this replaced the
   old "View Refunds" button + dialog) and a **Vendor
@@ -6214,8 +6299,10 @@ ONE bank line, so every payment on it carries the same reference — the cheque 
 reconcile pre-fills it) or the clearing line's UTR. Before this, the second such payment was refused
 "Bank reference … is already recorded on payment …".
 
-- **`reference_guard.cheque_siblings_of(target)`** — the other payments with the target's `cheque_no`,
-  and only when the target is itself `mode_of_payment = Cheque`. `assert_reference_is_free` unions it with
+- **`reference_guard.cheque_siblings_of(target)`** — the other Cheque payments linked to the target's
+  Cheque (the `cheque` link; until #1419 it was every payment with the target's `cheque_no`, which made
+  two banks' cheques with one number siblings), and only when the target is itself `mode_of_payment =
+  Cheque` with a Cheque. `assert_reference_is_free` unions it with
   the transfer siblings. It is computed INSIDE the guard from the target, never passed by a caller, so the
   import (`settle._assert_reference_is_free`) and the manual fulfil (`project_payments._fulfil_payment`)
   cannot disagree — the "two call sites must move together" rule holds by construction.

@@ -52,8 +52,8 @@ def has_no_tds_to_wait_for(doc) -> bool:
 def move_to_reconciliation(payment_name: str, *, sync_po_term: bool = True) -> bool:
 	"""Move an `Approved` cheque payment on to `Reconciliation Pending`. False when there was nothing to move.
 
-	RAISES on failure; the caller owns the transaction (`api/payments/project_payments.
-	_move_cheque_to_reconciliation`, or the bulk approval group). A payment that fails to move
+	RAISES on failure; the caller owns the transaction (`commit_move_to_reconciliation`, or the bulk
+	approval group). A payment that fails to move
 	simply stays at `Approved`, where the accountant's "Mark as Paid" finishes the same job --
 	nothing is lost.
 
@@ -82,3 +82,25 @@ def move_to_reconciliation(payment_name: str, *, sync_po_term: bool = True) -> b
 		pay.flags.bulk_approval = True  # `_find_and_update_po_term` stays out; the caller writes the term
 	pay.save(ignore_permissions=True)
 	return True
+
+
+def commit_move_to_reconciliation(payment_name: str) -> bool:
+	"""Move an Approved cheque payment on to Reconciliation Pending, in its OWN transaction.
+
+	⚠️ CALL IT ONLY AFTER THE APPROVAL HAS BEEN COMMITTED. It commits or rolls back by itself, so
+	a failure here can never take the approval with it, and it NEVER raises: a payment it could
+	not move stays at `Approved`, in "Payment need to paid", where the accountant's "Mark as Paid"
+	makes the same move. The rule itself is `move_to_reconciliation`. Every approval route, a hold
+	release and each cheques endpoint that puts a payment on a Cheque end with it.
+	"""
+	try:
+		moved = move_to_reconciliation(payment_name)
+		frappe.db.commit()
+		return moved
+	except Exception:
+		frappe.db.rollback()
+		frappe.log_error(
+			title=f"Cheque payment not moved to Reconciliation Pending ({payment_name})",
+			message=frappe.get_traceback(),
+		)
+		return False

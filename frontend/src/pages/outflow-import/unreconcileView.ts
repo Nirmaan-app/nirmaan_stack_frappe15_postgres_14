@@ -25,6 +25,8 @@ export const VERDICT_DELETE_CREATED = "delete_created";
 export const VERDICT_UNSPLIT_PAYMENT = "unsplit_payment";
 /** One line comes off an expense several lines settle; the expense keeps its amount and reference (blue, #1300). */
 export const VERDICT_UNLINK_EXPENSE_LINE = "unlink_expense_line";
+/** A matched waiting Vendor Refund goes back to waiting and is kept (blue, #1401). */
+export const VERDICT_UNMATCH_REFUND = "unmatch_refund";
 export const VERDICT_REFUSED = "refused";
 
 /** Mirrors `unreconcile.WHAT_HAPPENS_UNSPLIT`: the amber line's lead-in. */
@@ -34,8 +36,9 @@ export const WHAT_HAPPENS_UNSPLIT = "The split is undone:";
  *  so it leads "Can't be undone yet." (mockup scene 3) where every other refusal says "here". */
 export const LEFTOVER_PAID_TITLE = "Leftover paid";
 
-/** The verdicts that put a record back to the settleable status (blue in the dialog). */
-const BACK_TO_APPROVED = new Set([VERDICT_REVERT_PAYMENT, VERDICT_REVERT_EXPENSE]);
+/** The verdicts that put a record back to the settleable status (blue in the dialog). A matched waiting
+ *  refund goes back to Reconciliation Pending too (#1401). */
+const BACK_TO_APPROVED = new Set([VERDICT_REVERT_PAYMENT, VERDICT_REVERT_EXPENSE, VERDICT_UNMATCH_REFUND]);
 
 /** The ticket's footer sentence for one refused record. */
 export const REVERSE_ALL_BLOCKED_ONE =

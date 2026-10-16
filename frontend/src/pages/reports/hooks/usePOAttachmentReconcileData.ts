@@ -7,7 +7,6 @@ import { Vendors } from '@/types/NirmaanStack/Vendors';
 import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
 import { parseNumber } from '@/utils/parseNumber';
-import { queryKeys, getPaymentReportListOptions } from '@/config/queryKeys';
 
 // Invoice item for hover display
 export interface InvoiceHoverItem {
@@ -126,17 +125,23 @@ export const usePOAttachmentReconcileData = (): UsePOAttachmentReconcileDataResu
         ["Nirmaan Attachments", "poAttachments"]
     );
 
-    // Fetch Payments
-    const paymentOptions = getPaymentReportListOptions(['Procurement Orders']);
-    const paymentQueryKey = queryKeys.projectPayments.list(paymentOptions);
+    // Paid PO payments, read only for each PO's latest payment date. What a PO has been paid is its
+    // stored Amount Paid (ADR-0034), never a sum of these rows.
     const {
         data: payments,
         isLoading: paymentsLoading,
         error: paymentsError,
     } = useFrappeGetDocList<ProjectPayments>(
-        paymentQueryKey[0],
-        paymentOptions as GetDocListArgs<FrappeDoc<ProjectPayments>>,
-        paymentQueryKey
+        "Project Payments",
+        {
+            fields: ['document_name', 'payment_date'],
+            filters: [
+                ['document_type', '=', 'Procurement Orders'],
+                ['status', '=', 'Paid'],
+            ],
+            limit: 100000,
+        },
+        ["Project Payments", "poAttachmentReconcileLatestDates"]
     );
 
     // Fetch Projects for name lookup
@@ -177,17 +182,6 @@ export const usePOAttachmentReconcileData = (): UsePOAttachmentReconcileDataResu
             return acc;
         }, {} as Record<string, string>) ?? {};
     }, [vendors]);
-
-    // Group payments by PO name
-    const paymentsMap = useMemo(() => {
-        return payments?.reduce((acc, payment) => {
-            if (payment.document_name) {
-                const currentTotal = acc[payment.document_name] || 0;
-                acc[payment.document_name] = currentTotal + parseNumber(payment.amount);
-            }
-            return acc;
-        }, {} as Record<string, number>) ?? {};
-    }, [payments]);
 
     // Latest Paid payment_date per PO (ISO dates compare correctly as strings)
     const latestPaymentDateMap = useMemo(() => {
@@ -293,7 +287,7 @@ export const usePOAttachmentReconcileData = (): UsePOAttachmentReconcileDataResu
                 modified: po.modified,
                 status: po.status,
                 totalPOAmount: parseNumber(po.total_amount),
-                totalAmountPaid: paymentsMap[po.name] || 0,
+                totalAmountPaid: parseNumber(po.amount_paid),
                 latestPaymentDate: latestPaymentDateMap[po.name] || null,
                 totalInvoiceAmount,
                 poAmountDelivered: parseNumber(po.po_amount_delivered),
@@ -308,7 +302,7 @@ export const usePOAttachmentReconcileData = (): UsePOAttachmentReconcileDataResu
     }, [
         purchaseOrders,
         poLoading, attachmentsLoading, paymentsLoading, projectsLoading, vendorsLoading, invoicesLoading,
-        projectMap, vendorMap, paymentsMap, latestPaymentDateMap, attachmentsByPO, invoicesByPO
+        projectMap, vendorMap, latestPaymentDateMap, attachmentsByPO, invoicesByPO
     ]);
 
     // Calculate summary
