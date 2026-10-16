@@ -184,6 +184,7 @@ __all__ = [
 	"company_borne_tds_by_order",
 	"borne_kind",
 	"work_order_tds_borne",
+	"work_order_deductions",
 	"is_deductible",
 	"is_gst_payment",
 	"existing_deduction",
@@ -356,23 +357,18 @@ def work_order_tds_borne(work_order: str) -> dict:
 	by `borne_by`, and the label kind (`borne_kind`). Feeds the Work Order page's label beside
 	`total_tds` (`api/payments/work_order_tds`).
 
+	BUILT FROM THE TWO SOURCES, NOT A THIRD QUERY: `company` is `company_borne_tds_by_order` (the
+	Amount Due writer's figure, off `company_borne_tds_sql`) and `withheld` is `total_tds_of` less it,
+	so the label cannot disagree with `total_tds` or with the Amount Due.
+
 	⚠️ `Paid` ONLY, LIKE `total_tds_of`: the label sits beside `total_tds`, so it must describe the same
 	deductions. With none paid yet, the category rule (`is_company_borne`) says who would bear the next
 	one. No permission check: the endpoint checks read on the Work Order.
 	"""
-	row = frappe.db.sql(
-		f"""
-		SELECT
-			COALESCE(SUM(CASE WHEN d.borne_by = %(company)s THEN 0 ELSE d.tds_amount END), 0) AS withheld,
-			COALESCE(SUM(CASE WHEN d.borne_by = %(company)s THEN d.tds_amount ELSE 0 END), 0) AS company
-		FROM "tab{TDS_DOCTYPE}" d
-		INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = d.project_payment
-		WHERE p.document_type = %(doctype)s AND p.document_name = %(name)s AND p.status = %(paid)s
-		""",
-		{"company": BORNE_BY_COMPANY, "doctype": SERVICE_REQUEST_DOCTYPE, "name": work_order, "paid": PAID},
-		as_dict=True,
-	)[0]
-	withheld, company = flt(row.withheld, 2), flt(row.company, 2)
+	company = flt(
+		company_borne_tds_by_order(SERVICE_REQUEST_DOCTYPE, [work_order]).get(work_order), 2
+	)
+	withheld = flt(total_tds_of(SERVICE_REQUEST_DOCTYPE, work_order) - company, 2)
 	kind = borne_kind(withheld, company)
 	if kind is None:
 		kind = (
@@ -381,6 +377,30 @@ def work_order_tds_borne(work_order: str) -> dict:
 			else BORNE_KIND_WITHHELD
 		)
 	return {"withheld": withheld, "company": company, "kind": kind}
+
+
+def work_order_deductions(work_order: str) -> dict:
+	"""`{payment name: {tds_amount, borne_by}}`: the deduction on each of one Work Order's payments,
+	WHATEVER THE PAYMENT'S STATUS, for the Work Order page's transactions table (one row per payment,
+	Approved ones included). A payment with no deduction is absent. One query.
+
+	A row with no `borne_by` reads `Vendor`, the column default. No permission check: the endpoint
+	checks read on the Work Order.
+	"""
+	rows = frappe.db.sql(
+		f"""
+		SELECT d.project_payment, d.tds_amount, d.borne_by
+		FROM "tab{TDS_DOCTYPE}" d
+		INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = d.project_payment
+		WHERE p.document_type = %(doctype)s AND p.document_name = %(name)s
+		""",
+		{"doctype": SERVICE_REQUEST_DOCTYPE, "name": work_order},
+		as_dict=True,
+	)
+	return {
+		row.project_payment: {"tds_amount": flt(row.tds_amount, 2), "borne_by": row.borne_by or BORNE_BY_VENDOR}
+		for row in rows
+	}
 
 
 def existing_deduction(payment_name: str) -> str | None:

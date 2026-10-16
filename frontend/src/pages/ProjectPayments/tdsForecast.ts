@@ -61,13 +61,13 @@ export const isCompanyBorneWorkOrder = (serviceCategoryList: unknown): boolean =
 };
 
 /**
- * Who bore a Work Order's PAID tax, as the server answers it (`api/payments/work_order_tds.get_work_order_tds`,
- * #1451): read off each deduction's `Payment TDS Deduction.borne_by`, over the Paid payments only (the
- * same population as `total_tds`, the figure the label sits beside). With nothing paid yet the server
- * answers by the category rule.
+ * A Work Order's TDS as the server answers it (`api/payments/work_order_tds.get_work_order_tds`, #1451):
+ * who bore its PAID tax, read off each deduction's `Payment TDS Deduction.borne_by` over the Paid
+ * payments only (the same population as `total_tds`, the figure the label sits beside; with nothing
+ * paid yet the server answers by the category rule), and each payment's own deduction.
  *
  * ⚠️ ASKED OF THE SERVER, NEVER READ OFF THE DEDUCTIONS HERE: that doctype is readable only by the
- * accountants, so a Procurement user's list read is refused and the page would guess.
+ * accountants, so a Procurement user's list read is refused with a 403.
  */
 export type TdsBorneKind = "withheld" | "company" | "part";
 
@@ -77,6 +77,8 @@ export interface WorkOrderTds {
 	/** Paid tax the company paid on top (`borne_by` Company). */
 	company: number;
 	kind: TdsBorneKind;
+	/** Each payment's own deduction, whatever its status, keyed by payment name; a payment with none is absent. */
+	payments: Record<string, { tds_amount: number; borne_by: "Vendor" | "Company" }>;
 }
 
 const TDS_LABEL: Record<TdsBorneKind, string> = {

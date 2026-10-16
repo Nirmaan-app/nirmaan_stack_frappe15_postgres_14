@@ -124,10 +124,15 @@ figure — the company pays the tax on top:
     `api/payments/work_order_tds.get_work_order_tds` → `payment_tds.work_order_tds_borne`: the
     deductions on the WO's **Paid** payments only (the population `total_tds` counts), split
     withheld / company, kind `withheld` / `company` / `part`; nothing paid yet → the category rule.
+    `company` is `company_borne_tds_by_order` and `withheld` is `total_tds_of` less it, so the label
+    reads the same sources as the Amount Due. The same answer carries `payments`
+    (`payment_tds.work_order_deductions`: each payment's `tds_amount` and `borne_by`, any status) for
+    the WO page's transactions table TDS column.
 - **`Payment TDS Deduction` is readable only by Accountant, Accountant Lead and System Manager**, and
   its permissions stay so. Anything a non-accountant screen needs from it goes through a whitelisted
-  read that checks read on the parent order (`get_work_order_tds`, `get_payment_summary`); a page's
-  own list read of the doctype comes back empty for Procurement (walk story 27, #1451).
+  read that checks read on the parent order (`get_work_order_tds`, `get_payment_summary`). A page's
+  own list read of the doctype is refused to Procurement with a 403 (walk story 27, #1451), so the WO
+  page no longer reads it at all.
 - **Why stored, not inferred:** the Misc/Transport Work Orders paid before 2026-09-17 had their tax
   netted out of the vendor's payment (SR-00041-000138: ₹24,800 → ₹24,552 + ₹248 TDS, due 0) and stay
   `Vendor`; SR-00107-001055 has both kinds. Inferring from payment ≈ gross broke on a part settlement

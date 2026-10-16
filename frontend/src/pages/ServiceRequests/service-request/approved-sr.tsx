@@ -30,7 +30,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "@/components/ui/use-toast";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
-import { PaymentTDSDeduction } from "@/types/NirmaanStack/PaymentTDSDeduction";
 import type { WorkOrderTds } from "@/pages/ProjectPayments/tdsForecast";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
@@ -257,35 +256,22 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
         limit: 1000,
     }, id ? `VendorInvoices-SR-${id}` : null)
 
-    // Tax withheld from this order's payments, keyed by payment so a row can show its own deduction.
-    // ⚠️ Readable by the accountants only: for anyone else this list comes back empty. Nothing that
-    // decides money or a label reads it -- who bore the tax comes from `get_work_order_tds` below and
-    // the request cap from the server's payment summary.
-    const { data: tdsDeductions, mutate: tdsDeductionsMutate } = useFrappeGetDocList<PaymentTDSDeduction>("Payment TDS Deduction", {
-        fields: ["name", "project_payment", "gross_amount", "tds_percentage", "tds_amount", "payment_approved_on", "borne_by"],
-        filters: [["document_name", "=", id]],
-        limit: 100,
-    }, id ? `PaymentTDSDeduction-SR-${id}` : null)
-
-    const tdsByPayment = useMemo(() => {
-        const map: Record<string, PaymentTDSDeduction> = {};
-        (tdsDeductions || []).forEach((d) => { map[d.project_payment] = d; });
-        return map;
-    }, [tdsDeductions]);
-
-    // Who bore this Work Order's paid TDS, for the details card's label. Asked of the server, which
-    // checks read on the Work Order: the deduction list above is refused to Procurement (#1451).
+    // This Work Order's TDS: who bore the paid tax (the details card's label) and each payment's own
+    // deduction (the transactions table's TDS column). Asked of the server, which checks read on the
+    // Work Order. ⚠️ The page never reads `Payment TDS Deduction` itself: that doctype is readable by
+    // the accountants only, and a Procurement user's list read was refused with a 403 (#1451).
     const { data: workOrderTdsResponse, mutate: workOrderTdsMutate } = useFrappeGetCall<{ message: WorkOrderTds }>(
         "nirmaan_stack.api.payments.work_order_tds.get_work_order_tds",
         { work_order: id },
         id ? `WorkOrderTds-${id}` : null
     );
+    const tdsByPayment = workOrderTdsResponse?.message?.payments ?? {};
 
     // A new request can be auto-approved with TDS withheld at insert, so the lists must refresh
     // together -- otherwise the new row shows its net amount with no TDS and the label lags.
     const refreshPayments = useCallback(
-        () => Promise.all([projectPaymentsMutate(), tdsDeductionsMutate(), workOrderTdsMutate()]),
-        [projectPaymentsMutate, tdsDeductionsMutate, workOrderTdsMutate]
+        () => Promise.all([projectPaymentsMutate(), workOrderTdsMutate()]),
+        [projectPaymentsMutate, workOrderTdsMutate]
     );
 
     // The page shows the stored `amount_paid`; refunds do not raise this limit (an overpayment is
