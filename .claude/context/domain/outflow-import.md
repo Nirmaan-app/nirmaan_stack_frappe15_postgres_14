@@ -236,7 +236,8 @@ v2 → v3: `Reconciled` → `Skipped`/`Matched` · `Amount mismatch` → `Mismat
                inside the narration, paid within 15 days
                                               amounts differ          -> Mismatched
 3. TIER 0     normalised UTR equal                     (finds fan-out; payments)
-4. TIER 1     beneficiary account AND IFSC = a vendor's, amount +-Re 1 (payments)
+4. TIER 1     beneficiary account AND IFSC = the payment's pay-to copy (none: its vendor's Payee's),
+              amount +-Re 1 (payments)
 5. TIER 2     amount +-Rs 5 AND the remark names the record's project  (payments + Project Expenses)
 6. OUTCOME    >=1 approved candidate -> Matched     else -> Mismatched
 ```
@@ -251,6 +252,19 @@ name needs ≥2 non-noise words. **Containment, not Jaccard** — a statement na
 of the vendor name. ⚠️ **Only the `ifsc_matches` candidates admit anything to tier 1**; the name
 scoring still runs and is still persisted as the row's resolved vendor, but it no longer MATCHES
 anything. A name is a scoring form, never an identity.
+
+**Tier 1 compares the line with the payment's OWN pay-to account** (#1440, [ADR-0033](../../../docs/adr/0033-payee-is-one-bank-account.md)
+decision 9). `candidates._payment_target` carries `pay_to_account_number` / `pay_to_ifsc` from
+`Project Payments`; `matcher._paid_to_line` admits a payment holding a copy only when the line's
+normalised account (`normalize_account`) AND IFSC equal it, so a line paid to a vendor's PREVIOUS
+account still matches the payment raised to it, and a payment raised to another account is not
+admitted through its vendor's current Payee. **A payment with no copy falls back to its vendor's CURRENT
+Payee**: `candidates.load_vendor_index` reads account, IFSC and holder name through
+`services/payees/vendor_account.vendor_accounts` (a vendor has no bank fields of its own; #1432
+deleted them), and a Payee shared by several vendors admits a payment of ANY of them (the
+shared-account rule above). Refund suggestions keep the vendor-Payee index only (a refund has no
+pay-to record). Tests: `services/outflow_import/test_matcher.py`
+(`TestTier1ReadsThePaymentsOwnPayToAccount`), `services/outflow_import/test_vendor_payee_index.py` (DB).
 
 **Project corroboration** (`project_match.py`): a remark names a project if it contains the project's
 whole name (longest nested name wins — `Fujitsu Chennai` over `Fujitsu`), else a keyword unique to
@@ -5866,7 +5880,7 @@ statement), `description` (Small Text; the Misc. Expense line's text, blank on P
   rule `services/outflow_import/refund_suggestion.suggest_waiting_refunds`: (a) the line's bank reference
   equals the UTR typed on one or more waiting refunds, all one vendor's (the only rule that may suggest a
   group; two vendors suggest nothing and stop the ladder), else (b) the line's account AND IFSC are a
-  vendor's (`matcher.account_ifsc_vendors`) and EXACTLY ONE of that vendor's waiting refunds agrees within
+  vendor's Payee's (`matcher.account_ifsc_vendors`) and EXACTLY ONE of that vendor's waiting refunds agrees within
   `TIER1_TOLERANCE`. Never a group from amounts, never a name-only vendor. ICICI has no account/IFSC
   columns, so only (a) is live today. `review._guard_duplicates_only` asks it for each open credit line
   the contains-guard left `Mismatched` with no recorded group (`api/outflow_import/refund_suggestions.

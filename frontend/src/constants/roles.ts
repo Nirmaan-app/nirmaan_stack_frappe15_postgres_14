@@ -473,6 +473,39 @@ export const AMOUNT_PAID_MISMATCH_PROFILES: readonly string[] = [
 ];
 
 /**
+ * `/payees` — every bank account the company pays into (spec #1420, ADR-0033). Admin, Accountant and
+ * Accountant Lead see the page and its actions (Add Payee; #1435 Edit and Delete on a Payee's page).
+ * Procurement adds Payees only from the vendor screens, raisers only from an Expense Request.
+ * Mirrors `services/role_profiles.PAYEE_MANAGE_PROFILES`, which is the ENFORCEMENT boundary.
+ */
+export const PAYEE_MANAGE_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  ACCOUNTANT_PROFILE,
+  ACCOUNTANT_LEAD_PROFILE,
+];
+
+/** May open the Payees page and add a Payee there. The `Administrator` user always may. */
+export const canManagePayees = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && PAYEE_MANAGE_PROFILES.includes(role));
+
+/**
+ * Who may set a vendor's bank account (its Payee) from the vendor screens (#1425/#1426): the vendor
+ * page's Edit bank details, Use a different payee and Add bank details, and the rename prompt's Update the holder name (#1435). Mirrors `services/role_profiles.VENDOR_PAYEE_PROFILES`,
+ * the ENFORCEMENT boundary.
+ */
+export const VENDOR_PAYEE_PROFILES: readonly string[] = [
+  ADMIN_PROFILE,
+  PMO_EXECUTIVE_PROFILE,
+  PROJECT_LEAD_PROFILE,
+  ...PROCUREMENT_PROFILES,
+  ...PAYEE_MANAGE_PROFILES,
+];
+
+/** May change a vendor's bank account on the vendor page. The `Administrator` user always may. */
+export const canSetVendorPayee = (role?: string | null, userId?: string | null): boolean =>
+  userId === "Administrator" || (!!role && VENDOR_PAYEE_PROFILES.includes(role));
+
+/**
  * Handover Documents -- the profiles that WORK a handover, and the ONLY ones that see it:
  * the `/hod-tracker` sidebar entry + route guard, and the project page's "Handover
  * Documents" tab (owner, 2026-10-07: "sidebar access", then "make those four profile only").

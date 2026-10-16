@@ -26,7 +26,6 @@ export const vendorKeys = {
   vendorAddress: (addressId?: string) => ["vendor", "Address", addressId] as const,
   existingVendors: (excludeId?: string) => ["vendor", "existingVendors", excludeId] as const,
   pincode: (pincode?: string) => ["vendor", "pincode", pincode] as const,
-  bankDetails: (ifsc?: string) => ["vendor", "bankDetails", ifsc] as const,
   categoryList: (orderBy?: { field: string; order: "asc" | "desc" }) =>
     ["vendor", "categoryList", orderBy?.field ?? null, orderBy?.order ?? null] as const,
 };
@@ -242,9 +241,8 @@ export const useExistingVendors = (excludeId?: string) => {
   const filters: any[] = excludeId ? [["name", "!=", excludeId]] : [];
   const response = useFrappeGetDocList<Vendors>("Vendors",
     {
-      // vendor_name is needed to NAME the vendor a duplicate GST / PAN / account number
-      // already belongs to; account_number drives the (non-blocking) bank warning.
-      fields: ["name", "vendor_name", "vendor_gst", "vendor_pan", "account_number"],
+      // vendor_name is needed to NAME the vendor a duplicate GST or PAN already belongs to.
+      fields: ["name", "vendor_name", "vendor_gst", "vendor_pan"],
       filters: filters.length > 0 ? filters : undefined,
       limit: 10000,
     },
@@ -273,20 +271,6 @@ export const usePincodeData = (pincode: string) => {
   return response;
 };
 
-
-export const useBankDetails = (ifsc: string) => {
-  const response = useFrappeGetCall(
-    "nirmaan_stack.api.bank_details.generate_bank_details",
-    { ifsc_code: ifsc },
-    ifsc?.length === 11 ? vendorKeys.bankDetails(ifsc) : null
-  );
-  useApiErrorLogger(response.error, {
-    hook: "useBankDetails",
-    api: "Bank Details",
-    feature: "vendor",
-  });
-  return response;
-};
 
 export const useCategoryList = (orderBy?: {field: string; order: "asc" | "desc" }) => {
   const response = useFrappeGetDocList("Category",

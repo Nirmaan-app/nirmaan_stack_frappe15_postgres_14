@@ -105,7 +105,7 @@
    "label": "Transfer Status"
   },
   {
-   "description": "The beneficiary name as the bank holds it. This is an ACCOUNT NAME, not a vendor name -- match it against Vendors.account_name as well as Vendors.vendor_name (174 of 1,077 vendors differ). It may also be a person where the vendor is a company.",
+   "description": "The beneficiary name as the bank holds it. This is an ACCOUNT NAME, not a vendor name -- match it against the holder name of the vendor's Payee (Payee.account_name) as well as Vendors.vendor_name (174 of 1,077 vendors differ). It may also be a person where the vendor is a company.",
    "fieldname": "beneficiary_name",
    "fieldtype": "Data",
    "in_list_view": 1,

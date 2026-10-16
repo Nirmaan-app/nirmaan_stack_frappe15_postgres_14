@@ -319,6 +319,15 @@ queue — edit & revert" below).
 
 ---
 
+### Payees (`payees/`, spec #1420)
+
+Admin, Accountant and Accountant Lead only (`PAYEE_MANAGE_PROFILES` in `constants/roles.ts`): the `/payees`
+route guard, the sidebar link, the header's Add Payee button and a Payee page's Edit and Delete (#1435) all read it. The server enforces the same list
+(`services/role_profiles.PAYEE_MANAGE_PROFILES`) in every `api/payees/` endpoint. Procurement adds Payees only from
+the vendor screens, and raisers only from an Expense Request (later tickets of #1420).
+
+---
+
 ### Reports (`reports/`)
 
 | Tab | Admin | PMO | Proj Lead | Proj Mgr | Procurement | Accountant |
@@ -395,7 +404,7 @@ on the server by `services/role_profiles.CHEQUE_ACCESS_PROFILES` in every `api/c
 | Delete Project Expense | Y | Y | - | - | - | - |
 | Add Project Expense | Y | Y | - | - | - | Y |
 | Export Vendor Ledger | Y | Y | - | - | - | Y |
-| Edit Vendor Bank Details | Y | Y | Y | - | Y | Y |
+| Set or edit a vendor's Payee (Edit bank details, Use a different payee, Add bank details, the rename prompt's Update the holder name) | Y | Y | Y | - | Y | Y |
 | Request Payments (PO) | Y | Y | Y | - | Y | - |
 | Edit Design Tracker Structure | Y | Y | - | - | - | - |
 | Edit User Role Profiles | Y | Y | - | - | - | - |

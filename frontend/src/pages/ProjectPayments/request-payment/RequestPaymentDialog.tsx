@@ -14,6 +14,8 @@ import { useDialogStore } from "@/zustand/useDialogStore";
 import { useRequestPayment } from "../hooks/useRequestPayment";
 import formatToIndianRupee from "@/utils/FormatPrice";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
+import { RequestPayToAccount } from "@/components/payees/RequestPayToAccount";
+import { useVendorPayeeGate } from "@/components/payees/vendorPayeeAccount";
 import { useDuplicateChequeOf } from "@/components/cheques/useExistingCheque";
 import { PaymentModeFields } from "../components/PaymentModeFields";
 import { PaymentSummaryBlock, usePaymentSummary } from "../components/PaymentSummaryBlock";
@@ -49,6 +51,9 @@ export default function RequestPaymentDialog(p:Props){
 
   /* CEO Hold guard */
   const { isCEOHold, showBlockedToast } = useCEOHoldGuard(p.project);
+
+  /* A PO or Work Order payment is paid into the vendor's Payee: no Payee, no request. */
+  const { payeeBlocked, showPayeeBlockedToast } = useVendorPayeeGate(open ? p.vendor : undefined);
 
   /* local state */
   const [mode,setMode] = useState<"custom"|"percentage"|"full"|"exGST"|"due">("custom");
@@ -127,6 +132,10 @@ export default function RequestPaymentDialog(p:Props){
   const submit = async ()=>{
     if (isCEOHold) {
       showBlockedToast();
+      return;
+    }
+    if (payeeBlocked) {
+      showPayeeBlockedToast();
       return;
     }
     try{
@@ -219,6 +228,8 @@ export default function RequestPaymentDialog(p:Props){
         const note = raiserLandingNote(amount, TIER_L2_ABOVE, raiserLevelOf(role, user_id, CEO_AUTHORIZED_USER));
         return note ? <p className="text-center text-xs text-sky-700 dark:text-sky-400">{note}</p> : null;
       })()}
+
+      {open && <RequestPayToAccount vendor={p.vendor} />}
 
       {/* No cheque figure until the rate has landed: with no rate yet it would show the gross. */}
       <PaymentModeFields value={payMode} onChange={setPayMode} amount={tdsLoading ? undefined : amount}

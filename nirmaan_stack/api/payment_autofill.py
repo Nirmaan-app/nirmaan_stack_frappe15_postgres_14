@@ -17,6 +17,7 @@ from nirmaan_stack.services.extraction.helpers import (
     normalize_utr,
     pick_entity,
 )
+from nirmaan_stack.services.payees.vendor_account import vendor_accounts
 from nirmaan_stack.services.role_profiles import assert_cheque_form_access
 
 MIN_CONFIDENCE = 0.70
@@ -33,7 +34,7 @@ AMOUNT_DELTA = 2.0
 UTR_KEYS = ("utr",)
 PAYMENT_DATE_KEYS = ("payment_date",)
 TRANSFER_AMOUNT_KEYS = ("transfer_amount",)
-# Used only to verify the receipt's payee matches this payment's vendor (soft
+# Used only to verify the receipt's payee matches who this payment is paid to (soft
 # warning) — never a form field, never persisted.
 BENEFICIARY_NAME_KEYS = ("beneficiary_name",)
 
@@ -206,25 +207,30 @@ def _build_validation(file_doc, extracted_transfer_amount):
 
 
 def _build_vendor_match(file_doc, extracted_beneficiary):
-    """Soft check that the receipt's beneficiary matches this payment's vendor.
+    """Soft check that the receipt's beneficiary matches who this payment is paid to.
 
-    The beneficiary printed on a bank-transfer receipt is the credited account
-    holder, i.e. the vendor's bank `account_name` — often not the vendor's display
-    `vendor_name`. So the beneficiary is fuzzy-compared against BOTH and matches if
-    it hits EITHER, which keeps the soft warning from crying wolf. Returns
-    {expected_name, expected_account_name, extracted, match, by} where match is
-    True/False/None ("can't verify") — a missing vendor or an unreadable
-    beneficiary reads as None, never a mismatch. Never persisted server-side.
+    The beneficiary printed on a bank-transfer receipt is the credited account holder, i.e. the
+    holder name of the payment's OWN pay-to account (#1438, ADR-0033), copied when it was raised —
+    often not the vendor's display `vendor_name`, and not the vendor's Payee as it reads now. So the
+    beneficiary is fuzzy-compared against BOTH the vendor's name and that holder name and matches if
+    it hits EITHER, which keeps the soft warning from crying wolf. Returns {expected_name,
+    expected_account_name, extracted, match, by} where match is True/False/None ("can't verify") — a
+    missing payment or an unreadable beneficiary reads as None, never a mismatch. Never persisted.
     """
     parent_doctype = (file_doc.attached_to_doctype or "").strip()
     parent_name = (file_doc.attached_to_name or "").strip()
-    vendor = None
+    payment = None
     if parent_doctype == "Project Payments" and parent_name:
         try:
-            vendor = frappe.db.get_value("Project Payments", parent_name, "vendor")
+            payment = frappe.db.get_value(
+                "Project Payments", parent_name, ["vendor", "pay_to_account_name"], as_dict=True
+            )
         except Exception:
-            vendor = None
-    return _vendor_match(vendor, extracted_beneficiary)
+            payment = None
+    if not payment or not payment.vendor:
+        return _names_match_result("", "", extracted_beneficiary)
+    vendor_name = frappe.db.get_value("Vendors", payment.vendor, "vendor_name")
+    return _names_match_result(vendor_name, payment.pay_to_account_name, extracted_beneficiary)
 
 
 @frappe.whitelist()
@@ -244,30 +250,30 @@ def match_payee_to_vendor(payee, vendor):
 
 
 def _vendor_match(vendor, extracted):
-    """`extracted` (a name read off a document) fuzzy-compared with the Vendor's display name and its
-    bank account holder name; a hit on EITHER is a match. No vendor or no name is None, never False."""
+    """`extracted` (a name read off a cheque) compared with the Vendor's display name and the holder
+    name of its current Payee (`payees.vendor_account.vendor_accounts`): a cheque has no pay-to copy.
+    No vendor is None, never False."""
+    if not vendor:
+        return _names_match_result("", "", extracted)
+    try:
+        vendor_name = frappe.db.get_value("Vendors", vendor, "vendor_name")
+        account = vendor_accounts([vendor]).get(vendor) or {}
+    except Exception:
+        return _names_match_result("", "", extracted)
+    return _names_match_result(vendor_name, account.get("account_name"), extracted)
+
+
+def _names_match_result(vendor_name, holder_name, extracted):
+    """`extracted` fuzzy-compared with a vendor's display name and an account's holder name; a hit
+    on EITHER is a match. match stays None ("can't verify") only when both comparisons are
+    unverifiable; False needs at least one clearly-different name."""
     result = {
-        "expected_name": "",
-        "expected_account_name": "",
+        "expected_name": (vendor_name or "").strip(),
+        "expected_account_name": (holder_name or "").strip(),
         "extracted": (extracted or "").strip(),
         "match": None,
         "by": None,
     }
-    if not vendor:
-        return result  # no vendor → nothing to compare
-
-    try:
-        vendor_name, account_name = frappe.db.get_value(
-            "Vendors", vendor, ["vendor_name", "account_name"]
-        ) or ("", "")
-    except Exception:
-        return result
-    result["expected_name"] = (vendor_name or "").strip()
-    result["expected_account_name"] = (account_name or "").strip()
-
-    # Match if the beneficiary hits EITHER the display name or the bank account
-    # holder name. match stays None ("can't verify") only when both comparisons
-    # are unverifiable; False needs at least one clearly-different name.
     by_name = _names_match(result["expected_name"], result["extracted"])
     by_account = _names_match(result["expected_account_name"], result["extracted"])
     if by_name or by_account:

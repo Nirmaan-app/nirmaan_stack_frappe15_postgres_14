@@ -98,6 +98,7 @@ from nirmaan_stack.services.outflow_import.normalize import normalize_amount, no
 from nirmaan_stack.services.outflow_import.parser import BANK_TERMINAL_STATUSES, is_terminal_status
 from nirmaan_stack.services.outflow_import.project_match import ProjectIndex, build_project_index
 from nirmaan_stack.services.outflow_import.status import ROW_SKIPPED
+from nirmaan_stack.services.payees.vendor_account import vendor_accounts
 from nirmaan_stack.services.vendor_refunds import RECEIVED as VENDOR_REFUND_RECEIVED
 
 __all__ = [
@@ -137,6 +138,13 @@ _PAYMENT_DECIDED_ON = f"{decided_on_sql(PAYMENT_DOCTYPE)} AS decided_on"
 _PROJECT_EXPENSE_DECIDED_ON = f"{decided_on_sql(PROJECT_EXPENSE_DOCTYPE)} AS decided_on"
 _NON_PROJECT_EXPENSE_DECIDED_ON = f"{decided_on_sql(NON_PROJECT_EXPENSE_DOCTYPE)} AS decided_on"
 
+# What `_payment_target` reads, for both payment pools. `pay_to_account_number` and `pay_to_ifsc` are
+# the payment's own copy of the account it was raised to, which tier 1 compares with the line (#1440).
+_PAYMENT_COLUMNS = (
+    "name, amount, status, vendor, utr, payment_date, project, document_type, document_name, "
+    f"pay_to_account_number, pay_to_ifsc, {_PAYMENT_DECIDED_ON}"
+)
+
 
 def amount_window_sql(column: str, amounts: Sequence[Decimal]) -> tuple[str, list]:
     """A SQL predicate matching `column` against any of `amounts` WITHIN THE TOLERANCE.
@@ -162,26 +170,30 @@ def amount_window_sql(column: str, amounts: Sequence[Decimal]) -> tuple[str, lis
 
 
 def load_vendor_index() -> VendorIndex:
-    """Build the vendor index once per batch. ~1,077 rows; normalising per row would be 50x this."""
-    rows = frappe.db.sql(
-        """
-        SELECT name, vendor_name, account_name, account_number, ifsc
-        FROM "tabVendors"
-        """,
-        as_dict=True,
-    )
-    return build_vendor_index(
-        [
+    """Build the vendor index once per batch. ~1,077 rows; normalising per row would be 50x this.
+
+    A vendor's account, IFSC and holder name are its CURRENT Payee's
+    (`payees.vendor_account.vendor_accounts`, #1427, ADR-0033). Tier 1 reads them only for a payment
+    with no pay-to copy of its own (#1440): there a Payee shared by several vendors admits a payment
+    of any of them. A payment with a copy is matched on that copy, so a line paid to a vendor's
+    previous account still reaches the payment raised to it. Refund suggestions read this index too.
+    No vendor bank field is read. A vendor with no Payee is still indexed, by name only.
+    """
+    rows = frappe.db.sql('SELECT name, vendor_name FROM "tabVendors"', as_dict=True)
+    accounts = vendor_accounts()
+    vendors = []
+    for r in rows:
+        account = accounts.get(r["name"], {})
+        vendors.append(
             VendorRef(
                 name=r["name"],
                 vendor_name=r.get("vendor_name") or "",
-                account_name=r.get("account_name") or "",
-                account_number=r.get("account_number") or "",
-                ifsc=r.get("ifsc") or "",
+                account_name=account.get("account_name") or "",
+                account_number=account.get("account_number") or "",
+                ifsc=account.get("ifsc") or "",
             )
-            for r in rows
-        ]
-    )
+        )
+    return build_vendor_index(vendors)
 
 
 def load_project_index() -> ProjectIndex:
@@ -302,8 +314,7 @@ def _payments_by_reference(
     status_ph = ", ".join(["%s"] * len(statuses))
     rows = frappe.db.sql(
         f"""
-        SELECT name, amount, status, vendor, utr, payment_date, project, document_type,
-               document_name, {_PAYMENT_DECIDED_ON}
+        SELECT {_PAYMENT_COLUMNS}
         FROM "tabProject Payments"
         WHERE utr IS NOT NULL AND utr <> ''
           AND upper(btrim(utr)) IN ({reference_ph})
@@ -684,7 +695,8 @@ def load_payments_by_amount(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]
     """TIERS 1 AND 2, SETTLE CANDIDATES: APPROVED payments inside these amount windows.
 
     ⚠️ ONE POOL SERVES BOTH TIERS, AND THE AMOUNT IS THE ONLY AXIS IT SCOPES BY. Tier 1 then filters
-    it in memory by vendor and the strict Re 1 window; tier 2 filters it by project. Pushing either
+    it in memory by the payment's pay-to account (else its vendor's Payee) and the strict Re 1
+    window; tier 2 filters it by project. Pushing either
     of those into SQL would build a pool that is narrower than one of the tiers -- and a pool
     narrower than a tier hides matches without leaving a trace, which is worse than a pool that is
     slightly too wide.
@@ -708,8 +720,7 @@ def load_payments_by_amount(amounts: Sequence[Decimal]) -> tuple[TargetRef, ...]
 
     rows = frappe.db.sql(
         f"""
-        SELECT name, amount, status, vendor, utr, payment_date, project, document_type,
-               document_name, {_PAYMENT_DECIDED_ON}
+        SELECT {_PAYMENT_COLUMNS}
         FROM "tabProject Payments"
         WHERE {amount_clause}
           AND status IN ({status_ph})
@@ -1103,4 +1114,6 @@ def _payment_target(row: dict) -> TargetRef:
         project=row.get("project") or None,
         description="",
         decided_on=_decided_on(row),
+        pay_to_account_number=row.get("pay_to_account_number") or "",
+        pay_to_ifsc=row.get("pay_to_ifsc") or "",
     )

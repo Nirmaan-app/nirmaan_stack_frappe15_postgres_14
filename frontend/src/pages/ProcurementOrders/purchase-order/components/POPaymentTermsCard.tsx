@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { usePOValidation } from "@/hooks/usePOValidation";
+import { RequestPayToAccount } from "@/components/payees/RequestPayToAccount";
+import { useVendorPayeeGate } from "@/components/payees/vendorPayeeAccount";
 import { useUserData } from "@/hooks/useUserData";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { useVendorHoldGuard } from "@/hooks/useVendorHoldGuard";
@@ -713,6 +715,19 @@ const EditGstNotesDialog = ({
   );
 };
 
+interface RequestPaymentDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  term: PaymentTerm | null;
+  onConfirm: (mode?: PaymentModeArgs) => void;
+  isLoading: boolean;
+  isLocked?: boolean;
+  poName: string | undefined;
+  poVendor: string | undefined;
+  /** The vendor's name, for the "Will be paid into" box's no-account line. */
+  poVendorName: string | undefined;
+}
+
 const RequestPaymentDialog = ({
   isOpen,
   onClose,
@@ -722,7 +737,8 @@ const RequestPaymentDialog = ({
   isLocked,
   poName,
   poVendor,
-}) => {
+  poVendorName,
+}: RequestPaymentDialogProps) => {
   const [payMode, setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
   const duplicateOf = useDuplicateChequeOf(payMode);
   // Where this PO's money already stands, before the term is requested (owner, 2026-09-21).
@@ -773,6 +789,7 @@ const RequestPaymentDialog = ({
             return note ? <p className="text-xs text-sky-700 dark:text-sky-400">{note}</p> : null;
           })()}
         </div>
+        <RequestPayToAccount vendor={poVendor} vendorLabel={poVendorName} className="mb-4" />
         <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} vendor={poVendor} />
         <div className="flex justify-end gap-3 mt-4">
           <Button type="button" variant="outline" onClick={onClose}>
@@ -928,7 +945,10 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     PO ? `Projects-${PO.name}` : null
   );
   const { updateDoc, loading: isUpdatingDoc } = useFrappeUpdateDoc();
-  const { errors, isValid, hasVendorIssues, missingVendorBankDetails } = usePOValidation(PO);
+  const { errors, isValid, hasVendorIssues } = usePOValidation(PO);
+  // Not one of `errors`: a vendor with no Payee still has a dispatchable PO. It gates exactly one
+  // action, requesting a payment (see `useVendorPayeeGate`).
+  const { payeeBlocked, showPayeeBlockedToast } = useVendorPayeeGate(PO?.vendor, PO?.vendor_name);
   const { role } = useUserData();
   const { isCEOHold, showBlockedToast } = useCEOHoldGuard(PO?.project);
   const { isOnHold: isVendorOnHold, showBlockedToast: showVendorBlockedToast } = useVendorHoldGuard(PO?.vendor);
@@ -1023,24 +1043,11 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
     [PO.note_points]
   );
 
-  // A payment request is the front of the payout pipeline: it ends as a row in the ICICI /
-  // Cashfree bank file, which is keyed on account_number + ifsc. Letting a request in for a
-  // vendor with neither only defers the failure to the accountant, who finds the row
-  // unselectable on the "Payments to be Paid" tab with no way to fix it from there. So it is
-  // stopped at the source, with the reason and the remedy in the same message.
-  const showMissingBankDetailsToast = useCallback(() => {
-    toast({
-      title: "Bank details missing",
-      description: `This vendor does not have their bank details. Please fill the bank details for ${PO?.vendor_name || PO?.vendor} to request the payment.`,
-      variant: "destructive",
-    });
-  }, [PO?.vendor, PO?.vendor_name]);
-
   const handleOpenRequestDialog = (term: PaymentTerm) => {
     // Checked here rather than only on confirm, so the dialog never opens on a request that
     // cannot be made — the user gets the reason on the click that started it.
-    if (missingVendorBankDetails) {
-      showMissingBankDetailsToast();
+    if (payeeBlocked) {
+      showPayeeBlockedToast();
       return;
     }
     setTermToRequest(term);
@@ -1056,9 +1063,9 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
       return;
     }
     // Re-checked on submit alongside the hold guards: the vendor doc can finish loading, or
-    // its bank row be cleared elsewhere, between opening this dialog and confirming it.
-    if (missingVendorBankDetails) {
-      showMissingBankDetailsToast();
+    // its Payee be unlinked elsewhere, between opening this dialog and confirming it.
+    if (payeeBlocked) {
+      showPayeeBlockedToast();
       return;
     }
     if (!termToRequest) return;
@@ -1305,6 +1312,7 @@ export const POPaymentTermsCard: React.FC<POPaymentTermsCardProps> = ({
         isLocked={isLocked}
         poName={PO?.name}
         poVendor={PO?.vendor}
+        poVendorName={PO?.vendor_name}
       />
     </>
   );

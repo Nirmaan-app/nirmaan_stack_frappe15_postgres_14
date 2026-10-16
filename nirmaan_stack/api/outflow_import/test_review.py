@@ -54,6 +54,7 @@ from nirmaan_stack.api.outflow_import.review import (
 from nirmaan_stack.api.outflow_import.expenses import allocate_row, create_expense, settle_row
 from nirmaan_stack.api.outflow_import.test_allocate_row import AllocationFixture
 from nirmaan_stack.api.outflow_import.upload import BATCH_DOCTYPE, ROW_DOCTYPE, _stage_batch
+from nirmaan_stack.api.payees.payee_fixture import PayeeFixture, delete_each
 from nirmaan_stack.services.outflow_import import candidates as C
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.contains_guard import find_hits
@@ -2835,15 +2836,11 @@ class TestTheTierLadderEndToEnd(OutflowReviewFixture):
         # admits it; the payment's junk UTR is what keeps tier 0 out of the way.
         cls.tier1_row = cls._row("0010")
         cls.test_vendor = f"TEST-OFV-{frappe.generate_hash(length=10)}"
-        frappe.db.sql(
-            """
-            INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-                                      vendor_name, account_number, ifsc)
-            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s)
-            """,
-            (cls.test_vendor, "Administrator", "Administrator", "Testvendor Theta Ltd",
-             cls.tier1_row.bank_account, cls.tier1_row.ifsc),
+        # The vendor's account is its Payee's (#1427).
+        payee = PayeeFixture.class_payee(
+            "TESTPYE Testvendor Theta Ltd", cls.tier1_row.bank_account, cls.tier1_row.ifsc
         )
+        PayeeFixture.insert_vendor(payee, name=cls.test_vendor, vendor_name="Testvendor Theta Ltd")
         cls.pay_tier1 = cls._insert_payment_row(
             amount=cls.tier1_row.amount, status=SETTLEABLE,
             utr="PO/077/00066/25-26", payment_date=None, project=cls.test_project,
@@ -2881,8 +2878,13 @@ class TestTheTierLadderEndToEnd(OutflowReviewFixture):
 
     @classmethod
     def tearDownClass(cls):
-        frappe.db.delete("Vendors", {"name": cls.test_vendor})
-        frappe.db.delete("Projects", {"name": cls.test_project})
+        # The purge rolls back first, so it goes FIRST and deletes the vendor itself: a delete made
+        # before it was undone, which stranded one `Testvendor Theta Ltd` per run.
+        # The project goes in its own scope too, even when the purge reports a failure.
+        try:
+            PayeeFixture.purge(vendors=[cls.test_vendor])
+        finally:
+            delete_each([("Projects", cls.test_project)], raw={"Projects"})
         super().tearDownClass()
 
     def test_tier_1_matches_on_the_bank_account_and_ifsc(self):
@@ -2946,15 +2948,9 @@ class TestStackAutoPairing(OutflowReviewFixture):
         cls.stack_account = "98765432101"
         cls.stack_ifsc = "TEST0009999"
         cls.stack_vendor = f"TEST-OFV-{frappe.generate_hash(length=10)}"
-        frappe.db.sql(
-            """
-            INSERT INTO "tabVendors" (name, creation, modified, modified_by, owner, docstatus, idx,
-                                      vendor_name, account_number, ifsc)
-            VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, %s)
-            """,
-            (cls.stack_vendor, "Administrator", "Administrator",
-             "Testvendor Stackco Ltd", cls.stack_account, cls.stack_ifsc),
-        )
+        # The vendor's account is its Payee's (#1427).
+        payee = PayeeFixture.class_payee("TESTPYE Testvendor Stackco Ltd", cls.stack_account, cls.stack_ifsc)
+        PayeeFixture.insert_vendor(payee, name=cls.stack_vendor, vendor_name="Testvendor Stackco Ltd")
         cls.extra_vendors.append(cls.stack_vendor)
 
         # STACK A -- BALANCED: three transfers, three approved payments.
@@ -3040,8 +3036,8 @@ class TestStackAutoPairing(OutflowReviewFixture):
 
     @classmethod
     def tearDownClass(cls):
-        for name in getattr(cls, "extra_vendors", []):
-            frappe.db.delete("Vendors", {"name": name})
+        # The purge rolls back first, so it deletes the vendors itself (see TestTheTierLadderEndToEnd).
+        PayeeFixture.purge(vendors=getattr(cls, "extra_vendors", []))
         super().tearDownClass()
 
     def _suggestions(self, names) -> list:

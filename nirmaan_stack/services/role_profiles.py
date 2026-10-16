@@ -310,3 +310,42 @@ def assert_cheque_form_access(user: str) -> None:
     For the read-only helpers a cheque form calls, Request Payment's Cheque mode included."""
     if not (can_use_cheques(user) or frappe.has_permission("Project Payments", "create", user=user)):
         raise frappe.PermissionError(_("You are not allowed to look up cheques."))
+
+
+# Payees (spec #1420, ADR-0033). Admin, Accountant and Accountant Lead manage Payees on the Payees page:
+# list them, add one, and (#1423) edit a holder name. Procurement adds Payees only
+# through the vendor screens, and anyone raising an Expense Request only through the request; those
+# endpoints carry their own checks and call the same Payee module (`services/payees/`). ENFORCEMENT
+# boundary for every endpoint in `api/payees/`, which write with `ignore_permissions`. Mirrored
+# client-side by `frontend/src/constants/roles.ts::PAYEE_MANAGE_PROFILES`.
+PAYEE_MANAGE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+
+def can_manage_payees(user: str) -> bool:
+    """True when `user` may use the Payees page. Administrator passes."""
+    return has_role_profile(user, PAYEE_MANAGE_PROFILES)
+
+
+def assert_payee_manager(user: str) -> None:
+    """Refuse a user outside `PAYEE_MANAGE_PROFILES`. Every Payees-page endpoint starts with it."""
+    if not can_manage_payees(user):
+        frappe.throw(_("Only Accounts and Admins can manage payees here."), frappe.PermissionError)
+
+
+# The vendor screens' Payee step (#1425/#1426): who may create a vendor, and so pick its Payee or add
+# one from new bank details. Everyone who reaches a new-vendor form today: Procurement (the Vendors
+# page and the PR / WO vendor sheets), Admin and PMO (Admin Options > Vendors), the Project Lead (Custom
+# PR's New Vendor) and Accounts (the Vendors page). ENFORCEMENT boundary for `api/payees/vendor_payee`
+# and `api/create_vendor_and_address`, which write with `ignore_permissions`. Mirrored client-side by
+# `frontend/src/constants/roles.ts::VENDOR_PAYEE_PROFILES` for the vendor page's Edit bank details and Use a different payee (#1426, #1435).
+VENDOR_PAYEE_PROFILES = (
+    (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, PROJECT_LEAD_PROFILE) + PROCUREMENT_PROFILES + PAYEE_MANAGE_PROFILES
+)
+
+
+def assert_vendor_payee_access(user: str) -> None:
+    """Refuse a user outside `VENDOR_PAYEE_PROFILES` (Administrator passes). Every vendor-screen Payee
+    endpoint starts with it, and the `Vendors` `validate` refuses a `payee` set or change by anyone
+    else (`payees.guard`)."""
+    if not has_role_profile(user, VENDOR_PAYEE_PROFILES):
+        frappe.throw(_("You are not allowed to set a vendor's bank account."), frappe.PermissionError)

@@ -1,14 +1,20 @@
+import { useVendorAccount } from "@/components/payees/vendorPayeeAccount"
 import { Vendors } from "@/types/NirmaanStack/Vendors"
 import { useFrappeGetDoc } from "frappe-react-sdk"
+import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../ui/hover-card"
 
 export const VendorHoverCard: React.FC<{vendor_id?: string}> = ({ vendor_id }) => {
     const { data: vendorData } = useFrappeGetDoc<Vendors>("Vendors", vendor_id, vendor_id ? `Vendors ${vendor_id}` : null)
 
+    // Read when the card first opens, not for every vendor name a page renders.
+    const [opened, setOpened] = useState(false)
+    const payeeAccount = useVendorAccount(vendor_id, opened).account?.payee
+
     const navigate = useNavigate()
     return (
-        <HoverCard>
+        <HoverCard onOpenChange={(open) => open && setOpened(true)}>
             <HoverCardTrigger>
                 <span className="underline">{vendorData?.vendor_name}</span>
             </HoverCardTrigger>
@@ -45,14 +51,15 @@ export const VendorHoverCard: React.FC<{vendor_id?: string}> = ({ vendor_id }) =
                 {/* <AddressView id={vendorData?.vendor_address}/> */}
                 <span>{vendorData?.vendor_city}, {vendorData?.vendor_state}</span>
               </div>
+              {/* The vendor's bank account is its Payee (ADR-0033). */}
               <h3 className="text-sm font-semibold text-gray-800 mt-2">Bank Details</h3>
               <div>
                 <span className=" text-gray-500">Account No.: </span>
-                <p className=" font-medium text-black">{vendorData?.ifsc || "N/A"}</p>
+                <p className=" font-medium text-black">{payeeAccount?.account_number || "N/A"}</p>
               </div>
               <div>
                 <span className=" text-gray-500">IFSC: </span>
-                <p className=" font-medium text-black">{vendorData?.account_number || "N/A"}</p>
+                <p className=" font-medium text-black">{payeeAccount?.ifsc || "N/A"}</p>
               </div>
             </div>
           </HoverCardContent>

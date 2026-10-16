@@ -41,12 +41,10 @@ import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/use
 import { FacetOverrides } from '@/components/data-table/facetConfig';
 import { parseNumber } from "@/utils/parseNumber";
 import { NotificationType, useNotificationStore } from "@/zustand/useNotificationStore";
-import { memoize } from "lodash";
 import { DOC_TYPES } from "../approve-payments/constants";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import { formatDateToDDMMYYYY, formatDate } from "@/utils/FormatDate";
-import { unparse } from 'papaparse'; // For CSV export
+import { formatDate } from "@/utils/FormatDate";
 import { Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -68,9 +66,20 @@ import { countLabel, selectionTotal, summarizeSelection } from "../bulkSelection
 import { SelectionTotalPill } from "../components/SelectionTotalPill"
 import { IndianRupee } from "lucide-react"
 import { QueueRowEditDialog } from "../components/QueueRowEditDialog"
-import { canEditQueueRow, canHoldQueueRow, canWorkQueueRows, isHeldQueueRow } from "../config/queueRowActions"
+import { canEditQueueRow, canHoldQueueRow, canPayQueueRow, canWorkQueueRows, isHeldQueueRow } from "../config/queueRowActions"
 import { PAYMENT_HOLD_ROW_CLASSES, PaymentHoldNotice } from "../components/PaymentHoldNotice"
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
+import {
+    afterExport, buildBankFile, describeLeftOut, describeSwitched, shownSwitches, withTakenAccounts,
+    type BankFile, type BankFileRow,
+} from "../bankUploadFile";
+import {
+    PAID_TO_API, TAKE_VENDOR_ACCOUNTS_API, type PaidTo, type PaidToKey, type ShownSwitch, type TakeVendorAccountsAnswer,
+} from "@/components/payees/paidToApi";
+import {
+    PAYMENT_DOCTYPE, describeSkipped, leaveOutSkipped, switchLine, unpayableReason, type SkippedRow,
+} from "@/utils/payees/paidTo";
+import { toastList } from "@/utils/toastList";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -86,12 +95,6 @@ interface SelectOption { label: string; value: string; }
  * For now, only supports "New Payments" tab.
  * tab prop is optional, defaulting to "New Payments".
  */
-// Cashfree's contact columns are the payout-notification address, and Nirmaan wants those
-// notifications coming back to its own accounts desk rather than out to each vendor. Fixed
-// on every row by design -- the payee is identified by bankAccount + ifsc, not by these.
-const CASHFREE_CONTACT_EMAIL = "accounts@nirmaan.app";
-const CASHFREE_CONTACT_PHONE = "8904007419";
-
 const ICICI_DEBIT_ACCOUNT = "093705003327";
 
 export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payments" }) => {
@@ -145,8 +148,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const [debitAccountNumber, setDebitAccountNumber] = useState(ICICI_DEBIT_ACCOUNT); // Default
     const [paymentMode, setPaymentMode] = useState("IMPS");
     // Which bulk-transfer file to emit. "icici" is the original ICICI PAB_VENDOR layout;
-    // "cashfree" is Cashfree's payout template -- a completely different column set, not a
-    // variation on the same one, which is why the two builders below stay separate.
+    // "cashfree" is Cashfree's payout template. `bankUploadFile.ts` builds both.
     const [exportTarget, setExportTarget] = useState<"icici" | "cashfree">("icici");
 
     // --- Supporting Data Fetches ---
@@ -163,7 +165,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const { data: vendors, isLoading: vendorsLoading, error: vendorsError } = useFrappeGetDocList<Vendors>(
         "Vendors",
         {
-            fields: ["name", "vendor_name", "account_number", "account_name", "ifsc"],
+            fields: ["name", "vendor_name"],
             limit: 10000
         },
         "Vendors_For_Accountant"
@@ -180,15 +182,58 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     const vendorOptions = useMemo<SelectOption[]>(() => vendors?.map(v => ({ label: v.vendor_name, value: v.name })) || [], [vendors]);
 
 
-    const getVendorDetails = useCallback(memoize((vendorId: string | undefined): Vendors | undefined => {
-        return vendors?.find(vendor => vendor.name === vendorId);
-    }), [vendors]);
+    // Who each row is paid to, read again when the bank file is built and when Mark as Paid confirms.
+    const { call: fetchPaidTo } = useFrappePostCall<{ message: PaidTo[] }>(PAID_TO_API);
+    const readPaidTo = useCallback(
+        async (rows: PaidToKey[]): Promise<PaidTo[]> =>
+            (await fetchPaidTo({ rows: rows.map(({ doctype, name }): PaidToKey => ({ doctype, name })) })).message,
+        [fetchPaidTo]
+    );
+    // A PO / WO payment paid into its vendor's current account (#1463): Export for Payment and Mark as
+    // Paid send every PO / WO payment they pay, each with the switch the payer was shown, and the
+    // server writes that account onto each that switches, so the record says where the money went.
+    // It refuses the whole call when its fresh decision is not what the payer was shown, and skips a
+    // payment no longer Approved. Its answer is what was written.
+    const { call: takeVendorAccounts } = useFrappePostCall<{ message: TakeVendorAccountsAnswer }>(TAKE_VENDOR_ACCOUNTS_API);
+    const takeVendorAccountsOf = useCallback(
+        async (payments: ShownSwitch[]): Promise<TakeVendorAccountsAnswer> =>
+            payments.length > 0 ? (await takeVendorAccounts({ payments })).message : { taken: [], skipped: [] },
+        [takeVendorAccounts]
+    );
 
-
-    // const getRowSelectionDisabled = useCallback((vendorId: string | undefined): boolean => {
-    //     const vendor = getVendorDetails(vendorId);
-    //     return !vendor?.account_number; // Disable if no account number
-    // }, [getVendorDetails]);
+    /**
+     * Opens Mark as Paid's confirmation for `rows` (the row button, or the ticked rows), with who each is
+     * paid to READ NOW, not as the page loaded it: the confirmation names each payment that will be paid
+     * into its vendor's current account from this read. A row that can no longer be paid (it became
+     * Ineligible since the page loaded, #1464) is left out, and the toast says why.
+     */
+    const [readingPaidTo, setReadingPaidTo] = useState(false);
+    const openMarkPaid = useCallback(async (rows: ApprovalQueueRow[]) => {
+        setReadingPaidTo(true);
+        let fresh: PaidTo[];
+        try {
+            fresh = await readPaidTo(rows);
+        } catch (error) {
+            toast({ title: "Could not mark as Paid", description: getFrappeError(error), variant: "destructive" });
+            return;
+        } finally {
+            setReadingPaidTo(false);
+        }
+        const read = rows.map((row, i): ApprovalQueueRow => ({ ...row, paid_to: fresh[i] }));
+        const payable = read.filter(canPayQueueRow);
+        const unpayable = read.flatMap((row) => {
+            const reason = unpayableReason(row.paid_to, row.expense_type, isHeldQueueRow(row));
+            return reason ? [`${row.against_primary}: ${reason}`] : [];
+        });
+        if (unpayable.length > 0) {
+            toast({
+                title: unpayable.length === 1 ? "1 row can't be paid now" : `${unpayable.length} rows can't be paid now`,
+                description: toastList(unpayable),
+                variant: "destructive",
+            });
+        }
+        if (payable.length > 0) setConfirmPaidRows(payable);
+    }, [readPaidTo, toast]);
 
     // --- Notification Handling ---
     const handleNewPaymentSeen = useCallback((notification: NotificationType | undefined) => {
@@ -242,7 +287,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         // "Total Paid" is the order's stored Amount Paid (ADR-0034): Paid payments less Received
         // refunds. Reconciliation Pending is not paid yet, so it no longer counts here.
         getAmountPaid,
-        onRecordPayment: (row) => setConfirmPaidRows([row]),
+        onRecordPayment: (row) => openMarkPaid([row]),
         onDelete: setDeleteRow,
         onEdit: canWork ? setEditRow : undefined,
         canEdit: (row) => canEditQueueRow(row, role),
@@ -256,7 +301,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         ),
     }), [
         tab, projectLabelMap, vendorLabelMap, userLabelMap, getTotalAmount, getDeliveredAmount,
-        getAmountPaid, notifications, handleNewPaymentSeen, canWork, role,
+        getAmountPaid, notifications, handleNewPaymentSeen, canWork, role, openMarkPaid,
     ]);
 
     const columns = useMemo(
@@ -265,29 +310,16 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     );
 
 
-    // Whether a vendor can go in the BANK FILE. It no longer gates selection or greys the
-    // row (owner, 16 Sep): a payment made outside the file still has to be marked as paid.
-    // So this is now enforced where it matters — `exportSelectedToCSV` leaves such rows out.
+    // ⚠️ SELECTABLE ≠ EXPORTABLE. A row kept out of the bank file (a cheque payment, a card / cash
+    // expense) can be ticked, because the ticks also drive bulk Mark as Paid; the bank-transfer CSV
+    // leaves it back out (see exportSelectedToCSV).
     //
-    // BOTH halves of the bank details are required, not just the account number. An account
-    // number on its own still exports a blank `ifsc` -- Cashfree and ICICI both reject a
-    // payout row without it, and the failure only surfaces after upload. The beneficiary
-    // name needs no check: it falls back to vendor_name, which is mandatory on the doctype.
-    const hasBankDetails = useCallback((vendorId?: string): boolean => {
-        const vendor = vendors?.find(v => v.name === vendorId);
-        const account = String(vendor?.account_number ?? '').trim();
-        const ifsc = String(vendor?.ifsc ?? '').trim();
-        return !!account && !!ifsc;
-    }, [vendors]);
-
-    // ⚠️ SELECTABLE ≠ EXPORTABLE. Every row on this tab can be ticked — expenses, and
-    // vendors with no bank details — because the ticks also drive bulk Mark as Paid. The
-    // bank-transfer CSV filters the unpayable ones back out (see exportSelectedToCSV).
-    //
-    // A HELD payment cannot be ticked: the ticks drive bulk Mark as Paid AND the bank payout
-    // file, and a held payment must reach neither. `PaymentHoldNotice` says why.
+    // A HELD payment, and an INELIGIBLE row (nowhere to send its money, #1464), cannot be ticked: the
+    // ticks drive bulk Mark as Paid AND the bank payout file, and neither may reach them.
+    // `PaymentHoldNotice` and the Paid to cell say why. Select-all skips them too (TanStack's
+    // `toggleAllPageRowsSelected` ticks only rows that `getCanSelect`).
     const canPaymentRowBeSelected = useCallback(
-        (row: Row<ApprovalQueueRow>): boolean => tab === "New Payments" && !isHeldQueueRow(row.original),
+        (row: Row<ApprovalQueueRow>): boolean => tab === "New Payments" && canPayQueueRow(row.original),
         [tab]
     );
 
@@ -387,12 +419,34 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
      * Two payments on the SAME PO both recompute that PO in their hooks; firing them in
      * parallel races those parent writes. Each row commits on its own, so one failure
      * never rolls back the others — it is reported, and the rest still move.
+     *
+     * FIRST, in one call, every PO / WO payment of the confirmation is sent to take its vendor's
+     * current account (#1463), with the switch the confirmation showed for it: the server decides
+     * again, under a lock, and refuses the whole call when the vendor's account changed since the
+     * confirmation read it, so no payment is paid into an account the payer was not shown. If that
+     * fails nothing is marked: a payment must not be recorded as paid while it still holds the old
+     * account. A payment it skips as no longer Approved is left out of the marking, and the toast
+     * names it.
      */
     const handleMarkPaid = useCallback(async () => {
         if (!confirmPaidRows?.length) return;
-        const rows = confirmPaidRows;
         const failed: { row: ApprovalQueueRow; reason: string }[] = [];
         setMarkingProgress(0);
+        let answer: TakeVendorAccountsAnswer;
+        try {
+            answer = await takeVendorAccountsOf(confirmPaidRows
+                .filter((row) => row.doctype === PAYMENT_DOCTYPE)
+                .map((row): ShownSwitch => ({ name: row.name, shown: row.paid_to?.switch_to ?? null })));
+        } catch (error) {
+            setMarkingProgress(null);
+            toast({ title: "Could not mark as Paid", description: getFrappeError(error), variant: "destructive" });
+            return;
+        }
+        const switchedCount = answer.taken.filter((t) => t.paid_to.switch_to).length;
+        const { kept: rows, skipped } = leaveOutSkipped(
+            confirmPaidRows, answer.skipped, (row) => row.doctype === PAYMENT_DOCTYPE);
+        const skippedLine = describeSkipped(skipped, (row) => row.against_primary);
+        const skippedNote = skippedLine ? ` ${skippedLine}.` : "";
         for (let i = 0; i < rows.length; i++) {
             try {
                 await updateDoc(rows[i].doctype, rows[i].name, {
@@ -406,31 +460,32 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         setMarkingProgress(null);
 
         const movedCount = rows.length - failed.length;
-        if (failed.length === 0) {
+        const switchedNote = switchedCount > 0
+            ? ` ${switchedCount === 1 ? "1 payment was" : `${switchedCount} payments were`} paid into the vendor's current account.`
+            : "";
+        if (rows.length === 0) {
+            toast({ title: "Nothing marked as Paid", description: skippedNote.trim(), variant: "destructive" });
+        } else if (failed.length === 0) {
             toast({
                 title: "Marked as Paid",
-                description: rows.length === 1
+                description: (rows.length === 1
                     ? `${rows[0].against_primary} moved to Reconciliation Pending.`
-                    : `${countLabel(summarizeSelection(rows))} moved to Reconciliation Pending.`,
-                variant: "success",
+                    : `${countLabel(summarizeSelection(rows))} moved to Reconciliation Pending.`) + switchedNote + skippedNote,
+                variant: skipped.length > 0 ? "default" : "success",
             });
         } else {
-            const failedList = failed
-                .slice(0, 3)
-                .map((f) => `${f.row.against_primary}: ${f.reason}`)
-                .join(" · ");
             toast({
                 title: movedCount > 0
                     ? `${movedCount} marked as Paid, ${failed.length} failed`
                     : "Could not mark as Paid",
-                description: failed.length > 3 ? `${failedList} · +${failed.length - 3} more` : failedList,
+                description: toastList(failed.map((f) => `${f.row.against_primary}: ${f.reason}`)) + skippedNote,
                 variant: "destructive",
             });
         }
 
         // Nothing written → keep the dialog open so the accountant can retry, as the row
-        // button always did.
-        if (movedCount === 0) return;
+        // button always did; unless every row was skipped, which a retry can't change.
+        if (movedCount === 0 && rows.length > 0) return;
         setConfirmPaidRows(null);
         // ⚠️ RESET, EVEN AFTER A SINGLE ROW. Selection is keyed by row INDEX (the table
         // has no getRowId), so once moved rows drop out of the list every tick shifts
@@ -440,7 +495,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         invalidateSidebarCounts();
         refreshTabCounts();
         await refetch();
-    }, [confirmPaidRows, updateDoc, toast, refetch, table, refreshTabCounts]);
+    }, [confirmPaidRows, updateDoc, takeVendorAccountsOf, toast, refetch, table, refreshTabCounts]);
 
     const handleConfirmDelete = useCallback(async () => {
         if (!deleteRow) return;
@@ -497,7 +552,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         [tab, data]
     );
 
-    const selectedRows = table.getSelectedRowModel().rows;
+    // Bulk Mark as Paid acts on the ticks on rows that may still be paid: ticks are keyed by row
+    // index, so after a refetch one may sit on a row that has since become held or Ineligible (#1464).
+    const selectedRows = table.getSelectedRowModel().rows.filter((r) => canPayQueueRow(r.original));
     const confirmPaidTotal = useMemo(
         () => selectionTotal(confirmPaidRows ?? []),
         [confirmPaidRows]
@@ -515,7 +572,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         setIsExportDialogOpen(true);
     };
 
-    const exportSelectedToCSV = () => {
+    const exportSelectedToCSV = async () => {
         const selectedRows = table.getSelectedRowModel().rows;
         if (selectedRows.length === 0 && tab === "New Payments") {
             toast({ title: "No Data", description: "No payments selected for export.", variant: "default" });
@@ -534,115 +591,89 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             return;
         }
 
-        // ⚠️ THE BANK FILE IS A VENDOR PAYOUT FILE — the selection is not.
-        // Two kinds of ticked row would export a blank beneficiary account / IFSC: an
-        // expense (no vendor at all) and a vendor payment whose vendor lacks bank details.
-        // ICICI and Cashfree both accept such a file at upload and only reject the
-        // individual rows afterwards, so the filter has to happen HERE, not at the bank.
-        // This is now the ONLY bank-details gate — selection no longer blocks those rows.
-        // Skipped rows are reported in the toast rather than dropped silently — the
-        // accountant must know the file is shorter than their selection.
-        const vendorRows = rowsToExport.filter(row => row.original.source === "Vendor Payment");
-        const payableRows = vendorRows.filter(row => hasBankDetails(row.original.vendor));
-        const skippedExpenses = rowsToExport.length - vendorRows.length;
-        const skippedNoBank = vendorRows.filter(row => !hasBankDetails(row.original.vendor));
-        const skippedParts = [
-            skippedExpenses > 0
-                ? `${skippedExpenses} expense${skippedExpenses > 1 ? "s" : ""} (no vendor)`
-                : "",
-            skippedNoBank.length > 0
-                ? `${skippedNoBank.length} payment${skippedNoBank.length > 1 ? "s" : ""} with no vendor bank account / IFSC (${skippedNoBank.slice(0, 3).map(r => r.original.document_name).join(", ")}${skippedNoBank.length > 3 ? ", …" : ""})`
-                : "",
-        ].filter(Boolean);
-
-        if (payableRows.length === 0) {
-            toast({
-                title: "Nothing to export",
-                description: `No selected row can go in a bank transfer file: ${skippedParts.join("; ")}. Select a vendor payment whose vendor has a bank account and IFSC.`,
-                variant: "destructive",
-            });
-            setIsExportDialogOpen(false);
+        // Each row is paid into its own pay-to account (ADR-0033, #1438), read at export rather than
+        // from the list loaded earlier, so a Change account made since is in the file.
+        const payments = rowsToExport.map(({ original }) => original);
+        let paidTo: PaidTo[];
+        try {
+            paidTo = await readPaidTo(payments);
+        } catch (error) {
+            toast({ title: "Export failed", description: getFrappeError(error), variant: "destructive" });
             return;
         }
 
-        const buildIciciRows = () => payableRows.map(row => {
-            const payment = row.original;
-            const vendorDetails = getVendorDetails(payment.vendor); // Use the memoized helper
+        // ⚠️ THE BANK FILE IS NOT THE SELECTION. `buildBankFile` leaves out every ticked row
+        // that has no account to pay into or is paid another way (a cheque, card / cash: #1464), and
+        // the toast names them: the accountant must know the file is shorter than their selection.
+        // A PO / WO payment whose vendor's account
+        // changed since it was raised, or that has none, is in the file at the vendor's current
+        // account (#1463).
+        const bankRows = payments.map((payment, i): BankFileRow => {
+            const isVendorPayment = payment.doctype === PAYMENT_DOCTYPE;
             return {
-                'PYMT_PROD_TYPE_CODE': 'PAB_VENDOR', // Constant
-                'PYMT_MODE': paymentMode,
-                'DEBIT_ACC_NO': debitAccountNumber,
-                'BNF_NAME': vendorDetails?.account_name || '',
-                'BENE_ACC_NO': vendorDetails?.account_number || '',
-                'BENE_IFSC': vendorDetails?.ifsc || '',
-                'AMOUNT': parseNumber(payment.amount),
-                'DEBIT_NARR': '', // Optional
-                'CREDIT_NARR': '', // Optional
-                'MOBILE_NUM': '', // Optional
-                'EMAIL_ID': '', // Optional
-                'REMARK': payment.document_name, // PO/SR number as remark
-                'PYMT_DATE': formatDateToDDMMYYYY(new Date()), // Today's date for payment file
-                'REF_NO': '',
-                'ADDL_INFO1': '', 'ADDL_INFO2': '', 'ADDL_INFO3': '', 'ADDL_INFO4': '', 'ADDL_INFO5': '',
-                'LEI_NUMBER': ''
+                kind: isVendorPayment ? "vendor_payment" : "expense",
+                name: payment.name,
+                // An expense has no PO / SR: its own ID is the remark.
+                documentName: isVendorPayment ? payment.document_name : payment.name,
+                amount: payment.amount,
+                description: payment.against_full,
+                expenseType: payment.expense_type,
+                projectLabel: projectLabelMap.get(payment.project) ?? (payment.project || "Non Project"),
+                paidTo: paidTo[i],
+                // What the Paid to cell showed, as the page loaded it: the switch the payer was told of.
+                shownSwitchTo: payment.paid_to?.switch_to ?? null,
             };
         });
+        const options = { format: exportTarget, paymentMode, debitAccountNumber, now: new Date() };
+        const nothingToExport = (file: BankFile, skipped: string | null = null): boolean => {
+            if (file.rows.length > 0) return false;
+            const why = [...describeLeftOut(file.leftOut), ...(skipped ? [skipped] : [])];
+            toast({
+                title: "Nothing to export",
+                description: `No selected row can go in the bank file: ${why.join("; ")}.`,
+                variant: "destructive",
+            });
+            setIsExportDialogOpen(false);
+            return true;
+        };
+        const draft = buildBankFile(bankRows, options);
+        if (nothingToExport(draft)) return;
 
-        // One stamp per export, shared by every row in the file. Cashfree keys a payout on
-        // transferId and rejects one it has already processed, so ids must never repeat
-        // across files -- the old position-based ids ("transferId12", "transferId22", ...)
-        // were identical in every export and would have failed on the second upload.
-        //
-        // Date.now() rather than Math.random(): guaranteed unique per export, where a random
-        // number is only probably unique. Kept to its last 10 digits to hold the id short --
-        // that block only repeats every 10^10 ms (~115 days) and would need two exports
-        // landing on the same millisecond 115 days apart to collide.
-        const batchStamp = String(Date.now()).slice(-10);
+        // Every PO / WO payment the file pays takes its vendor's current account where it switches,
+        // BEFORE the file is saved, and the file is then built from what the server wrote. Each is sent
+        // with the switch its Paid to cell showed: the server decides again under a lock and refuses the
+        // whole call when that is not what the payer was shown. A payment no longer Approved is left
+        // out of the file. If the call fails, there is no file.
+        let bankFile = draft;
+        let skipped: SkippedRow<BankFileRow>[] = [];
+        try {
+            const taken = withTakenAccounts(bankRows, await takeVendorAccountsOf(shownSwitches(draft)));
+            bankFile = buildBankFile(taken.rows, options);
+            skipped = taken.skipped;
+        } catch (error) {
+            toast({ title: "Export failed", description: getFrappeError(error), variant: "destructive" });
+            return;
+        }
+        const skippedPart = describeSkipped(skipped, (row) => row.documentName);
+        // ⚠️ Ticks are kept by row position (the table has no getRowId): `afterExport` clears them
+        // whenever the list is refetched, even when the file came out empty.
+        const after = afterExport(bankFile, skipped);
+        const settle = () => {
+            if (after.clearTicks) table.resetRowSelection();
+            if (after.refetch) refetch();
+        };
+        if (nothingToExport(bankFile, skippedPart)) {
+            settle();
+            return;
+        }
+        const skippedParts = describeLeftOut(bankFile.leftOut);
+        const switchedPart = describeSwitched(bankFile.switched);
 
-        const buildCashfreeRows = () => payableRows.map((row, idx) => {
-            const payment = row.original;
-            const vendorDetails = getVendorDetails(payment.vendor);
-            const projectLabel = projectOptions.find(o => o.value === payment.project)?.label ?? payment.project;
-
-            // The beneficiary name must be the ACCOUNT HOLDER's name, which is why this reads
-            // account_name and not vendor_name -- the two legitimately differ (proprietor vs
-            // trading name). But some vendor records have the account NUMBER typed into
-            // account_name (SAFETYWALA EQUIPMENTS LLP is one), which put a bare number in this
-            // column. A name contains at least one letter; if it does not, it is not a name,
-            // so fall back to vendor_name rather than send Cashfree a number to match on.
-            const accountName = (vendorDetails?.account_name || '').trim();
-            const beneficiaryName = /[A-Za-z]/.test(accountName)
-                ? accountName
-                : (vendorDetails?.vendor_name || '');
-
-            return {
-                'transferId': `${batchStamp}${String(idx + 1).padStart(2, '0')}`,
-                'bankAccount': vendorDetails?.account_number || '',
-                'ifsc': vendorDetails?.ifsc || '',
-                'name': beneficiaryName,
-                'email': CASHFREE_CONTACT_EMAIL,
-                'phone': CASHFREE_CONTACT_PHONE,
-                'amount': parseNumber(payment.amount),
-                'remarks': `${projectLabel} - ${payment.document_name}`,
-                'transferMode': paymentMode.toLowerCase(),
-            };
-        });
-
-        // Widened to a common row type: the two layouts share no columns, and papaparse's
-        // unparse() will not accept a union of two different object shapes.
-        // `undefined` is in the value type because formatDateToDDMMYYYY is typed to return
-        // `string | undefined`; papaparse writes an empty cell for it either way.
-        const csvData: Record<string, string | number | undefined>[] =
-            exportTarget === "cashfree" ? buildCashfreeRows() : buildIciciRows();
-
-        const csv = unparse(csvData);
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const blob = new Blob([bankFile.csv], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         const url = URL.createObjectURL(blob);
         link.setAttribute('href', url);
-        link.setAttribute('download', exportTarget === "cashfree"
-            ? `Cashfree_Payments_${formatDate(new Date())}.csv`
-            : `New_Payments_${formatDate(new Date())}.csv`);
+        link.setAttribute('download', bankFile.fileName);
         link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
@@ -650,13 +681,14 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
 
         toast({
             title: "Export Successful",
-            description: skippedParts.length > 0
-                ? `${csvData.length} payments exported. Skipped: ${skippedParts.join("; ")}.`
-                : `${csvData.length} payments exported.`,
-            variant: skippedNoBank.length > 0 ? "default" : "success",
+            description: `${bankFile.rows.length} payments exported.`
+                + (switchedPart ? ` ${switchedPart}.` : "")
+                + (skippedParts.length > 0 ? ` Left out: ${skippedParts.join("; ")}.` : "")
+                + (skippedPart ? ` ${skippedPart}.` : ""),
+            variant: bankFile.leftOut.length > 0 || skippedPart ? "default" : "success",
         });
         setIsExportDialogOpen(false); // Close dialog
-        table.resetRowSelection(); // Clear selection
+        settle();
     };
 
 
@@ -735,8 +767,8 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                     <Button
                                         size="sm"
                                         className="h-8 gap-1 bg-green-600 hover:bg-green-700 text-white"
-                                        disabled={markingPaid}
-                                        onClick={() => setConfirmPaidRows(selectedRows.map((r) => r.original))}
+                                        disabled={markingPaid || readingPaidTo}
+                                        onClick={() => openMarkPaid(selectedRows.map((r) => r.original))}
                                     >
                                         <IndianRupee className="h-4 w-4" />
                                         Mark as Paid ({selectedRows.length})
@@ -838,7 +870,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                 {/* Every row is listed, not just counted: this is the last look
                                     before money is recorded as gone for all of them. */}
                                 <div className="max-h-60 space-y-1.5 overflow-y-auto">
-                                    {confirmPaidRows?.map((row) => (
+                                    {confirmPaidRows?.map((row) => {
+                                        const switching = switchLine(row.paid_to);
+                                        return (
                                         <div key={`${row.doctype}:${row.name}`} className="rounded border bg-muted/40 p-2">
                                             <div className="font-medium text-foreground">
                                                 {row.against_primary}
@@ -850,8 +884,15 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                                                     ? ` · ${vendorLabelMap.get(row.vendor) || row.vendor}`
                                                     : ""}
                                             </div>
+                                            {/* #1463: this payment's account is replaced by its vendor's current one first. */}
+                                            {switching && (
+                                                <div className="mt-1 text-xs font-medium text-blue-700 dark:text-blue-300">
+                                                    {switching}
+                                                </div>
+                                            )}
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </AlertDialogDescription>

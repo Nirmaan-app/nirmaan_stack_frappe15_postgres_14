@@ -248,8 +248,10 @@ export const getProjectInvoiceReportListOptions = (): InflowListParams => ({
   limit: 100000,
 });
 
+// Each type's *Who gets paid* (`payee_rule`) rides along: the expense Edit dialogs word their Who gets
+// paid section by it (#1465).
 export const getNonProjectExpenseTypeListOptions = (): ExpenseTypeListParams => ({
-  fields: EXPENSE_TYPE_MINIMAL_FIELDS,
+  fields: [...EXPENSE_TYPE_MINIMAL_FIELDS, "payee_rule"],
   filters: [['non_project', '=', 1]], // Only fetch non-project expense types
   limit: 100000, // Default to a high limit for dropdowns
   orderBy: { field: "expense_name", order: "asc" }, // Default sort by name
@@ -262,7 +264,7 @@ export const getNonProjectExpenseListOptions = (): NonProjectExpenseListParams =
 });
 
 export const getProjectExpenseTypeListOptions = (): ExpenseTypeListParams => ({
-  fields: EXPENSE_TYPE_MINIMAL_FIELDS,
+  fields: [...EXPENSE_TYPE_MINIMAL_FIELDS, "payee_rule"],
   filters: [['project', '=', 1]], // Only fetch non-project expense types
   limit: 100000, // Default to a high limit for dropdowns
   orderBy: { field: "expense_name", order: "asc" }, // Default sort by name

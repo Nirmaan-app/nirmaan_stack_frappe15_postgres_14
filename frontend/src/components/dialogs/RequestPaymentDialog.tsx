@@ -14,6 +14,8 @@ import formatToIndianRupee from "@/utils/FormatPrice";
 import { usePOLockCheck } from "@/pages/PORevision/data/usePORevisionQueries";
 import { useEffect, useState } from "react";
 import { useDuplicateChequeOf } from "@/components/cheques/useExistingCheque";
+import { RequestPayToAccount } from "@/components/payees/RequestPayToAccount";
+import { useVendorPayeeGate } from "@/components/payees/vendorPayeeAccount";
 import { PaymentModeFields } from "@/pages/ProjectPayments/components/PaymentModeFields";
 import {
   EMPTY_PAYMENT_MODE,
@@ -42,6 +44,11 @@ export const RequestPaymentDialog = ({
   const isLocked = lockData?.is_locked || false;
   const [payMode, setPayMode] = useState<PaymentModeValue>(EMPTY_PAYMENT_MODE);
   const duplicateOf = useDuplicateChequeOf(payMode);
+  // A PO payment is paid into the vendor's Payee: no Payee (or none known yet), no request.
+  const { payeeBlocked, showPayeeBlockedToast } = useVendorPayeeGate(
+    isOpen ? term?.vendor : undefined,
+    term?.vendor_name,
+  );
   // A fresh choice for every request: the dialog stays mounted between terms.
   useEffect(() => {
     if (isOpen) setPayMode(EMPTY_PAYMENT_MODE);
@@ -77,6 +84,7 @@ export const RequestPaymentDialog = ({
             </div>
           </div>
         </div>
+        <RequestPayToAccount vendor={term.vendor} vendorLabel={term.vendor_name} className="mb-4" />
         <PaymentModeFields value={payMode} onChange={setPayMode} amount={Number(term.amount)} vendor={term.vendor} />
         <div className="flex justify-end gap-3 mt-4">
           <Button type="button" variant="outline" onClick={onClose}>
@@ -84,7 +92,13 @@ export const RequestPaymentDialog = ({
           </Button>
           <Button
             className="bg-red-600 hover:bg-red-700 w-32"
-            onClick={() => onConfirm(paymentModeArgs(payMode))}
+            onClick={() => {
+              if (payeeBlocked) {
+                showPayeeBlockedToast();
+                return;
+              }
+              onConfirm(paymentModeArgs(payMode));
+            }}
             disabled={isLoading || isLocked || !isPaymentModeComplete(payMode, duplicateOf)}
           >
             {isLoading ? (
