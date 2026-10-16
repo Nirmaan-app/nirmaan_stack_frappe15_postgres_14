@@ -78,6 +78,8 @@ from frappe.utils import flt, nowdate
 
 # Read by `load_part_reconciled_split_families`, from the modules that own them -- the same slips
 # and statuses every settle path writes, never retyped here.
+from nirmaan_stack.services.cheque_payments import is_cheque
+from nirmaan_stack.services.cheques.rules import CHEQUE_REFUSES_SPLIT, cheque_payment_problem
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.ledgers import PAYMENT_DOCTYPE, RECONCILIATION_PENDING
 from nirmaan_stack.services.payees.pay_to import copy_pay_to
@@ -165,6 +167,14 @@ def split_payment(
                 pay.status, expect_status
             )
         )
+
+    # One cheque, one decision (spec #1477, #1487): a cheque pays its payments in full or not at all,
+    # so neither the CEO's part-approval nor the bank import's part-settlement splits one.
+    problem = cheque_payment_problem(
+        pay.name, CHEQUE_REFUSES_SPLIT, is_cheque=is_cheque(pay), cheque_no=pay.get("cheque_no")
+    )
+    if problem:
+        frappe.throw(_(problem))
 
     # ⚠️ THIS GUARD IS ALSO WHAT KEEPS THE SAVEPOINT ISOLATED — do not demote it
     # to "the frontend already checks this". Saving the payment and the PO both

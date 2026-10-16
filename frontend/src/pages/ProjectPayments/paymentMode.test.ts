@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	chequeAmountFor,
 	chequeAmountHint,
+	chequeModeOffered,
 	EMPTY_PAYMENT_MODE,
 	isChequePayment,
 	isPaymentModeComplete,
@@ -123,5 +124,12 @@ describe("paymentModeSummary", () => {
 				{ source: "Project Expense", mode_of_payment: "", amount: "75000" },
 			])
 		).toEqual({ online: { count: 2, total: 25000 }, cheque: { count: 1, total: 162075 } });
+	});
+});
+
+describe("chequeModeOffered", () => {
+	it("offers Cheque on a PO payment only: a Work Order payment is paid Online (spec #1477)", () => {
+		expect(chequeModeOffered("Procurement Orders")).toBe(true);
+		expect(chequeModeOffered("Service Requests")).toBe(false);
 	});
 });

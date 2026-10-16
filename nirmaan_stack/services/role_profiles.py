@@ -317,7 +317,7 @@ REFUND_PAPERWORK_PROFILES = ADJUST_PAYMENTS_PROFILES + REFUND_ACCOUNTANT_PROFILE
 REFUND_DELETE_PROFILES = (ADMIN_PROFILE,) + MATERIAL_PROCUREMENT_PROFILES
 
 # Cheques (spec #1407). Admin, Accountant and Accountant Lead run cheques end to end; Procurement may
-# view the Cheque Payments report, add a Cheque and Convert to Cheque, but never change its status.
+# view the Cheque Payments report and add a Cheque, but never change its status.
 # Project Managers have no access. ENFORCEMENT boundary for every endpoint in `api/cheques/`, which
 # write through `services/cheques/writer.py` with `ignore_permissions`: the Cheques DocPerms cannot
 # say this (`Nirmaan Procurement Executive` also rides on the Project Lead profile). Not tied to the

@@ -97,8 +97,8 @@ class TestChequePayments(FrappeTestCase):
 		name = self.fx._name("PO")
 		frappe.db.sql(
 			"""INSERT INTO "tabProcurement Orders" (name, creation, modified, modified_by, owner,
-				   docstatus, idx, project, vendor, total_amount, amount_paid, status)
-			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 10000000, 0, 'Delivered')""",
+				   docstatus, idx, project, vendor, total_amount, amount, tax_amount, amount_paid, status)
+			   VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 10000000, 10000000, 0, 0, 'Delivered')""",
 			(name, U, U, self.project, self.vendor),
 		)
 		frappe.db.commit()
@@ -131,16 +131,17 @@ class TestChequePayments(FrappeTestCase):
 			frappe.set_user(U)
 
 	# -- every approval route: taxed once at Approved, then Reconciliation Pending -------------
-	def test_auto_approved_cheque_is_taxed_then_moved(self):
+	def test_auto_approved_cheque_is_moved_straight_on(self):
+		# A PO cheque: a Work Order payment is paid Online since spec #1477 (#1487), and a PO withholds no tax.
 		ChequeFixture.attach(self)  # the request makes the payment's one-line Cheque (#1414)
 		with patch(f"{CONTROLLER}.get_allowed_accountants") as accountants:
 			out = json.loads(create_payment_request_for_service(json.dumps({
-				"doctype": SR, "docname": self.sr, "amount": 10000,
+				"doctype": PO, "docname": self._po(), "amount": 10000,
 				"mode_of_payment": "Cheque", "cheque_no": self._cheque_no(), "cheque_date": nowdate(),
-				"bank": "ICICI Bank", "cheque_amount": 9800,
+				"bank": "ICICI Bank", "cheque_amount": 10000,
 				"cheque_attachment": "https://storage.example.invalid/private/files/cheque-test.jpg",
 			})))
-		self.assertEqual(self._state(out["name"]), (RECON, 9800.0, [200.0]))
+		self.assertEqual(self._state(out["name"]), (RECON, 10000.0, []))
 		# "Payment Ready to Fulfil" points at a tab a cheque never stays in.
 		accountants.assert_not_called()
 
