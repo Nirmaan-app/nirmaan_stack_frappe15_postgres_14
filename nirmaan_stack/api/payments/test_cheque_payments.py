@@ -333,13 +333,15 @@ class TestChequePayments(FrappeTestCase):
 			self.assertEqual(self._state(payment)[0], RECON)
 			self.assertEqual(self._cheque_state(cheque), ("Issued", nowdate(), [(None, "Pending"), ("Pending", "Issued")]))
 
-	def test_a_cheque_that_cannot_be_issued_holds_its_payment_at_approved(self):
-		"""The move and the issue are one write: neither lands without the other."""
+	def test_a_cheque_that_cannot_be_issued_holds_its_payment_where_it_was(self):
+		"""The approval, the move and the issue are one decision (#1480): none lands without the others."""
 		name = self._plant(60000, "CEO Pending", po=self._po())
 		cheque = self._on_new_cheque(name)
 		with patch("nirmaan_stack.services.cheques.status.issue", side_effect=RuntimeError("boom")):
-			self._as_ceo(ceo_approve_payment, name)
-		self.assertEqual(self._state(name)[0], "Approved")
+			with self.assertRaises(RuntimeError):
+				self._as_ceo(ceo_approve_payment, name)
+		frappe.db.rollback()
+		self.assertEqual(self._state(name)[0], "CEO Pending")
 		self.assertEqual(self._cheque_state(cheque), ("Pending", None, [(None, "Pending")]))
 
 	def test_a_payment_already_moved_on_makes_its_new_cheque_issued_at_once(self):

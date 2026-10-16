@@ -232,6 +232,15 @@ class TestChequeRequest(FrappeTestCase):
         self._assert_one_line_cheque(out["cheque"], payment, record=(PO, self.po), amount=20000.0, status="Issued")
         self.assertEqual(self._cheque(out["cheque"]).bank_name, "HDFC Bank")
 
+    def test_the_cheque_amount_picks_the_approval_a_request_starts_at(self):
+        """C3 (#1480): a Rs 20,000 payment on a cheque written for Rs 60,000 is tiered on the cheque. Raised
+        by an L1 holder it would be born Approved on its own amount; on the cheque's it waits for the CEO."""
+        term = self._term(20000)
+        out = self._request_po(term, 20000, **self._cheque_fields(60000))
+        [payment] = self._payments_of(PO, self.po)
+        self.assertEqual(self._payment(payment).status, "CEO Pending")
+        self.assertEqual(self._issued(out["cheque"])[0], "Pending")
+
     # -- refusals: nothing is created -----------------------------------------------------------
     def test_cheque_mode_without_a_photo_is_refused(self):
         with self.assertRaisesRegex(frappe.ValidationError, "Upload the photo of the cheque"):
