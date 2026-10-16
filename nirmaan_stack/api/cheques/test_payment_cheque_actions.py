@@ -131,9 +131,11 @@ class TestPaymentChequeActions(FrappeTestCase):
             for l in frappe.get_doc("Cheques", cheque).lines
         ]
 
-    def _assert_on_cheque(self, payment, cheque, *, amount=20000.0):
+    def _assert_on_cheque(self, payment, cheque, *, amount=20000.0, status="Pending"):
+        """`status`: the new Cheque is Pending until its payment has moved on to Reconciliation Pending,
+        then Issued (#1479)."""
         doc = frappe.get_doc("Cheques", cheque)
-        self.assertEqual((doc.status, doc.made_from, doc.vendor, doc.attachment), ("Issued", "PO/WO Page", self.vendor, PHOTO))
+        self.assertEqual((doc.status, doc.made_from, doc.vendor, doc.attachment), (status, "PO/WO Page", self.vendor, PHOTO))
         self.assertEqual(self._lines(cheque), [("PO/WO Payment", self.project, SR, self.sr, PAYMENT, payment, amount)])
         pay = self._payment(payment)
         self.assertEqual(
@@ -147,7 +149,7 @@ class TestPaymentChequeActions(FrappeTestCase):
         out = self._new_cheque(payment)
         self.assertEqual(out["status"], RECON)
         self.assertEqual(self._payment(payment).status, RECON)
-        self._assert_on_cheque(payment, out["cheque"])
+        self._assert_on_cheque(payment, out["cheque"], status="Issued")
 
     def test_a_waiting_payment_converts_and_keeps_its_status(self):
         for status in ("Requested", "CEO Pending"):
@@ -166,11 +168,13 @@ class TestPaymentChequeActions(FrappeTestCase):
         self.assertEqual(self._payment(payment).status, RECON)
 
     def test_a_settled_payment_converts_and_stays_where_it_is(self):
-        for status in (RECON, "Paid"):
+        # A Paid payment's cheque is not issued: only a payment at Reconciliation Pending issues one.
+        # Convert to Cheque goes with #1487.
+        for status, cheque_status in ((RECON, "Issued"), ("Paid", "Pending")):
             payment = self._plant(status)
             out = self._new_cheque(payment)
             self.assertEqual(self._payment(payment).status, status)
-            self._assert_on_cheque(payment, out["cheque"])
+            self._assert_on_cheque(payment, out["cheque"], status=cheque_status)
 
     def test_the_line_is_for_the_cheque_amount(self):
         payment = self._plant("Requested")
@@ -211,7 +215,7 @@ class TestPaymentChequeActions(FrappeTestCase):
         first = self._new_cheque(payment)["cheque"]
         number = frappe.db.get_value("Cheques", first, "cheque_no")
         self._refused(
-            f"Payment {payment} is on cheque {number} \\(Issued\\). A new cheque can be linked only once that "
+            f"Payment {payment} is on cheque {number} \\(Pending\\). A new cheque can be linked only once that "
             "cheque is Cancelled.",
             self._new_cheque, payment,
         )
@@ -228,7 +232,7 @@ class TestPaymentChequeActions(FrappeTestCase):
         self.assertNotEqual(new, old)
         self._assert_on_cheque(payment, new)
         self.assertEqual(frappe.db.get_value("Cheques", old, "status"), "Cancelled")
-        self.assertEqual(self._history(old), [(None, "Issued"), ("Issued", "Cancelled")])
+        self.assertEqual(self._history(old), [(None, "Pending"), ("Pending", "Cancelled")])
         self.assertEqual([line[5] for line in self._lines(old)], [payment])
 
     def test_a_new_cheque_on_an_approved_payment_moves_it_on(self):

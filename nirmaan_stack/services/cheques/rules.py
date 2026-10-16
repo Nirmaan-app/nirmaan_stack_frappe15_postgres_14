@@ -6,7 +6,9 @@
 A **Cheque** is one paper cheque the company writes (GLOSSARY.md). This module names its statuses,
 types (spec #1477), banks, line kinds and where it was made, turns the values a form sends into a
 `ChequeHeader`, and says why a header cannot be saved. A Payment cheque's status follows its payments:
-`status_from_payments` is that mapping, and `old_type_reason` says which pre-#1477 Cheques are Old-type. `services/cheques/writer.py` is the only code that writes a Cheque;
+`status_from_payments` is that mapping, `ready_to_issue` and `issue_date_from` say when and on what day
+its payments' approval issues it (#1479), and `old_type_reason` says which pre-#1477 Cheques are
+Old-type. `services/cheques/writer.py` is the only code that writes a Cheque;
 it and the `validate` controller both ask this module.
 
 Each `*_problem` function returns the refusal a user reads, or None.
@@ -346,15 +348,19 @@ EDITABLE_HEADER_FIELDS = (
 #: What a Cheque made from the PO/WO page keeps, so it stays in step with the payment it came from,
 #: while a Project Payment is still on it (`edit_problem`).
 LOCKED_ON_PO_WO_PAGE = {"cheque_no": "number", "cheque_date": "date", "amount": "amount"}
+#: The statuses at which a Cheque's fields and lines may still be edited; any other status is photo only.
+#: Pending joined Issued with #1479, so a Request Payment cheque waiting for approval stays editable.
+#: ⚠️ Spec #1477 makes a Payment cheque photo-only once Issued: #1482 drops ISSUED from here.
+EDITABLE_STATUSES = (PENDING, ISSUED)
 
 
 def edit_access_problem(*, status: str, owner: str, user: str, any_cheque: bool) -> str | None:
     """Why `user` may not edit this Cheque, or None. `any_cheque` is True for Admin, Accountant and
-    Accountant Lead; anyone else who may use cheques (Procurement) edits only the Issued Cheques
-    they created."""
-    if any_cheque or (status == ISSUED and owner == user):
+    Accountant Lead; anyone else who may use cheques (Procurement) edits only the Pending or Issued
+    Cheques they created (`EDITABLE_STATUSES`)."""
+    if any_cheque or (status in EDITABLE_STATUSES and owner == user):
         return None
-    return "You can edit only the Issued cheques you created."
+    return "You can edit only the Pending or Issued cheques you created."
 
 
 def _join(words: list[str]) -> str:
@@ -373,7 +379,8 @@ def edit_problem(
     """Why this edit of a Cheque cannot be saved, or None. The rules are the ones the editor sees:
 
     * the photo can be replaced, never removed;
-    * a Cleared or Cancelled Cheque can change only its photo;
+    * a Cleared or Cancelled Cheque can change only its photo; a Pending one edits like an Issued one
+      (`EDITABLE_STATUSES`);
     * an Issued Cheque made from the PO/WO page keeps its number, date and amount while it still has a
       Project Payment line (they stay in step with the payment), but its other fields and its lines can
       change. With no Project Payment line left (removed, swapped out, or dropped by a payee change) it
@@ -388,7 +395,7 @@ def edit_problem(
     if before.attachment and not after.attachment:
         return "The cheque's photo can be replaced, not removed."
     changed = [f for f in EDITABLE_HEADER_FIELDS if getattr(before, f) != getattr(after, f)]
-    if status != ISSUED:
+    if status not in EDITABLE_STATUSES:
         if changed or lines_before != lines_after:
             return f"Cheque {before.cheque_no} is {status}: only its photo can change."
         return None
@@ -535,6 +542,26 @@ def status_from_payments(payment_statuses: Sequence[str | None]) -> str | None:
     if not live:
         return CANCELLED
     return CLEARED if all(s == STATUS_PAID for s in live) else ISSUED
+
+
+def ready_to_issue(payment_statuses: Sequence[str | None]) -> bool:
+    """May a Pending Payment cheque be Issued now? Pure. One entry per line, as `status_from_payments`.
+
+    Only once EVERY line's payment has been approved and moved on to Reconciliation Pending (#1479): a
+    payment still at Approved holds the cheque at Pending, because the move that follows the approval
+    can still fail, and the cheque and its payments must never disagree. A line with no payment yet, a
+    payment waiting for approval or a Rejected one holds it too.
+    """
+    statuses = [None if s is None else s.strip() for s in payment_statuses]
+    return bool(statuses) and all(s == STATUS_RECONCILIATION_PENDING for s in statuses)
+
+
+def issue_date_from(approval_dates: Sequence) -> str | None:
+    """The issue date of a cheque its payments' approvals issue: the day of the last one, as
+    `YYYY-MM-DD`. Pure. `approval_dates` holds every L1 and CEO approval date of its payments (dates
+    or text; blanks are skipped), so a payment the CEO approved counts the CEO's day. None when none."""
+    days = [str(d)[:10] for d in approval_dates if d]
+    return max(days) if days else None
 
 
 def old_type_reason(*, vendor: str | None, payee_name: str | None, line_types: Sequence[str]) -> str | None:
