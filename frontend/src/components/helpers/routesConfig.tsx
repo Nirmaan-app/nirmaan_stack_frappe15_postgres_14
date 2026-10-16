@@ -140,6 +140,7 @@ import { PRTrackerList } from "@/pages/PRTracker";
 import PRTrackerDetail from "@/pages/PRTracker/pr-tracker-detail";
 
 import InventoryItemWisePage from "@/pages/inventory/InventoryItemWisePage";
+import InventoryWarehouseLayout from "@/pages/inventory/InventoryWarehouseLayout";
 import TDSApprovalList from "@/pages/tds/TDSApprovalList";
 import TDSApprovalDetail from "@/pages/tds/TDSApprovalDetail";
 
@@ -158,7 +159,6 @@ const ITMDetail = lazy(() => import("@/pages/InternalTransferMemos/ITMDetail"));
 
 // Warehouse
 const WarehouseStockPage = lazy(() => import("@/pages/Warehouse/WarehouseStockPage"));
-const RequestFromWarehouse = lazy(() => import("@/pages/Warehouse/RequestFromWarehouse"));
 // TEMPORARY — Resolve Invoices admin tool (~1 week; delete this line + the route + the page when done)
 const ResolveInvoices = lazy(() => import("@/pages/temp/ResolveInvoices"));
 
@@ -1006,8 +1006,21 @@ export const appRoutes: RouteObject[] = [
           // Commented out routes from original:
           // { path: "delayed-pr", element: <DelayedPRSelect /> },
           // { path: "delayed-pr/:id", element: <DelayedPR /> },
-          // --- Inventory ---
-          { path: "inventory", element: <InventoryItemWisePage /> },
+          // --- Inventory + Warehouse: one sidebar entry, two tabs (InventoryWarehouseLayout) ---
+          // Pathless layout: each tab keeps its own URL; the layout draws the tab strip.
+          {
+            element: <InventoryWarehouseLayout />,
+            children: [
+              { path: "inventory", element: <InventoryItemWisePage /> },
+              { path: "warehouse", element: <Suspense fallback={null}><WarehouseStockPage /></Suspense> },
+            ],
+          },
+          // The old "Request from Warehouse" page is now the New Transfer page with that
+          // direction preselected; this keeps old bookmarks working.
+          {
+            path: "warehouse/request",
+            element: <Navigate to="/internal-transfer-memos/create?type=warehouse-to-project" replace />,
+          },
 
           // ======================================================
           // --- START: TDS APPROVAL SECTION ---
@@ -1036,20 +1049,6 @@ export const appRoutes: RouteObject[] = [
           },
           // ======================================================
           // --- END: INTERNAL TRANSFER MEMOS SECTION ---
-          // ======================================================
-
-          // ======================================================
-          // --- START: WAREHOUSE SECTION ---
-          // ======================================================
-          {
-            path: "warehouse",
-            children: [
-              { index: true, element: <Suspense fallback={null}><WarehouseStockPage /></Suspense> },
-              { path: "request", element: <Suspense fallback={null}><RequestFromWarehouse /></Suspense> },
-            ],
-          },
-          // ======================================================
-          // --- END: WAREHOUSE SECTION ---
           // ======================================================
         ],
       },

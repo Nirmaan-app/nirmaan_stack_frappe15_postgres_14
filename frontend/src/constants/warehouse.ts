@@ -1,15 +1,19 @@
+import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
+
 /**
- * Roles allowed to add warehouse stock manually.
+ * Roles allowed to add warehouse stock manually (the Warehouse tab's "Add Item").
  *
- * Mirrors `ADMIN_ROLE` in `api/warehouse/add_warehouse_stock.py`. The backend
- * `_require_admin()` is the real boundary — this list only decides whether the
- * button renders. Keep the two in step.
+ * Mirrors `ADD_STOCK_PROFILES` in `api/warehouse/add_warehouse_stock.py`. The
+ * backend `_require_add_stock_profile()` is the real boundary — this list only
+ * decides whether the button renders. Keep the two in step.
  *
  * NOTE: the `Administrator` user is already resolved to
  * "Nirmaan Admin Profile" by `useUserData`, so it needs no separate entry.
  */
 export const WAREHOUSE_ADD_STOCK_ROLES: readonly string[] = [
   "Nirmaan Admin Profile",
+  "Nirmaan PMO Executive Profile",
+  ...MATERIAL_PROCUREMENT_PROFILES,
 ] as const;
 
 /**
