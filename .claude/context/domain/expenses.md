@@ -344,6 +344,18 @@ roles. **Accountant\*** below = both `Nirmaan Accountant Profile` and
   `renderRightActionButton.tsx`): **no extra role gate** — the same 5 groups can create,
   for both Project and Non-Project.
 - **Default landing tab:** Accountant\* → `Approved`; everyone else → `Requested`.
+- **Add Expense on Project Payment & Expense** (`/project-payments`, the Project Expense /
+  Non-Project Expense dropdown): one pure, tested gate,
+  `pages/ProjectPayments/config/addExpenseGate.canAddExpense` — the `Administrator` user, Admin,
+  Accountant\*, every procurement profile, HR Executive and PMO Executive; not HR Lead, Project
+  Lead or Project Manager. It hides the button only: the Direct Expense endpoint's `create` check
+  is the boundary.
+- **PMO Executive's create right sits on its own role** (#1475): the `Nirmaan PMO Executive` DocPerm
+  on `Project Expenses` and `Non Project Expenses` is create + write + read, no delete (a DocType
+  save in developer mode, not a hand-edit). Before it held read only, and a PMO save worked only
+  because the PMO profile also carries System Manager; the right is on the role so it survives
+  System Manager coming off that profile. It grants no approval or settle tab: the 2026-09-17 PMO
+  access review stands (`paymentsTabSet` is unchanged).
 
 ### Non-Project Expenses — actions per tab
 Primary actions render inline; secondary (Requested-only) sit in a `⋯` overflow menu.
@@ -399,7 +411,9 @@ Actions column visibility: same rule as Non-Project.
   a UNION across roles. ⚠️ **`Nirmaan HR Lead Profile` = `[Nirmaan HR Lead, Nirmaan HR Executive]`
   with NO System Manager, so it has genuinely no write.** It is not matched by the
   `role === "Nirmaan HR Executive Profile"` check, so it is safe today (0 such users) — but
-  do NOT extend any write action to HR Lead without adding a real DocPerm first.
+  do NOT extend any write action to HR Lead without adding a real DocPerm first. (PMO
+  Executive was in the same position until #1475 gave its role create + write; see
+  Module visibility & create.)
 
 ---
 

@@ -28,7 +28,9 @@ PM_USER = "exr_test_pyepm@example.com"
 NOBODY = "exr_test_pyenobody2@example.com"
 # Can record an expense (Frappe create on both expense doctypes) but raise no request: no role profile.
 PROCUREMENT = "exr_test_pyeproc@example.com"
-USERS = (PM_USER, NOBODY, PROCUREMENT)
+# Holds the PMO Executive role alone (no System Manager, no role profile): may record an expense (#1475).
+PMO = "exr_test_pyepmo@example.com"
+USERS = (PM_USER, NOBODY, PROCUREMENT, PMO)
 PM_PROFILE = "Nirmaan Project Manager Profile"
 NPE = "Non Project Expenses"
 
@@ -42,6 +44,7 @@ class TestRequestPayees(FrappeTestCase):
 		# either expense doctype (HR Lead holds read only): they may name no Payee.
 		_make_user(NOBODY, None, ("Nirmaan HR Lead",))
 		_make_user(PROCUREMENT, None, ("Nirmaan Procurement Executive",))
+		_make_user(PMO, None, ("Nirmaan PMO Executive",))
 		# The PM must be able to raise SOME type: one of their own, removed after.
 		cls.expense_type = f"exr_test_pye_{frappe.generate_hash(length=6)}"
 		d = frappe.new_doc("Expense Type")
@@ -126,16 +129,19 @@ class TestRequestPayees(FrappeTestCase):
 		self.assertIn(payee, self._search(f"00{number[:5]} {number[5:]}"))
 
 	def test_someone_who_can_record_an_expense_but_raise_no_request_searches_checks_and_adds(self):
-		"""The Add Expense dialogs name who gets paid through these endpoints too (#1471)."""
-		number = self.payees.account_number()
-		existing = self.payees.payee(account_number=number)
-		self.assertIn(existing, [r["name"] for r in self._as(PROCUREMENT, search_payees, text=number)])
-		checked = self._as(PROCUREMENT, check_request_payee, account_number=number, ifsc=TEST_IFSC)
-		self.assertEqual(checked["duplicate"]["name"], existing)
-		holder = self.payees.holder("Procurement")
-		out = self._as(PROCUREMENT, add_request_payee, account_name=holder,
-		               account_number=self.payees.account_number(), ifsc=TEST_IFSC)
-		self.assertEqual(frappe.db.get_value("Payee", out["payee"]["name"], "account_name"), holder)
+		"""The Add Expense dialogs name who gets paid through these endpoints too (#1471): Procurement,
+		and a PMO Executive on its own role's create right (#1475)."""
+		for user in (PROCUREMENT, PMO):
+			with self.subTest(user=user):
+				number = self.payees.account_number()
+				existing = self.payees.payee(account_number=number)
+				self.assertIn(existing, [r["name"] for r in self._as(user, search_payees, text=number)])
+				checked = self._as(user, check_request_payee, account_number=number, ifsc=TEST_IFSC)
+				self.assertEqual(checked["duplicate"]["name"], existing)
+				holder = self.payees.holder("Raiser")
+				out = self._as(user, add_request_payee, account_name=holder,
+				               account_number=self.payees.account_number(), ifsc=TEST_IFSC)
+				self.assertEqual(frappe.db.get_value("Payee", out["payee"]["name"], "account_name"), holder)
 
 	def test_someone_who_can_neither_raise_a_request_nor_record_an_expense_cannot_search_or_add(self):
 		with self.assertRaises(frappe.PermissionError):
