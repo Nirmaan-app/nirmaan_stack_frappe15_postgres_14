@@ -216,3 +216,16 @@ export interface InventoryLocation {
   qty?: Array<number | string | null>;
 }
 
+/** One location as the Inventory dialog FILLS it: the materials found there and their count. The screen's
+ *  shape only -- the draft carries it as `entries` while the dialog is open, and Mark as Done stores the
+ *  matrix above (`hodRules.inventoryMatrixOf`), which is what prints. */
+export interface InventoryItem {
+  material: string;
+  qty: string;
+}
+
+export interface InventoryEntry {
+  name: string;
+  items: InventoryItem[];
+}
+
