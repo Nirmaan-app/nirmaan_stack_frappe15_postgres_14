@@ -23,9 +23,11 @@ from frappe.utils import add_days, flt, nowdate
 from nirmaan_stack.api.cheques.cheque_detail import get_cheque
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.cheques.cheque_status import change_cheque_status
-from nirmaan_stack.api.cheques.payment_cheque_actions import put_payment_on_new_cheque
 from nirmaan_stack.api.cheques.save_cheque import save_cheque
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
+from nirmaan_stack.services.cheque_payments import commit_move_to_reconciliation
+from nirmaan_stack.services.cheques.rules import parse_header
+from nirmaan_stack.services.cheques.writer import create_payment_cheque
 
 U = "Administrator"
 PAYMENT = "Project Payments"
@@ -118,16 +120,20 @@ class TestChequeEdit(FrappeTestCase):
         return self.cheques.track(out["cheque"])
 
     def _from_po_page(self, payment, amount=20000):
-        """A Cheque made from the PO / Work Order page (Convert to Cheque on an Online payment)."""
-        out = put_payment_on_new_cheque(
-            payment=payment,
-            bank="ICICI Bank",
-            cheque_no=self.cheques.number(),
-            cheque_date=nowdate(),
-            cheque_amount=amount,
-            cheque_attachment=PHOTO,
-        )
-        return self.cheques.track(out["cheque"])
+        """A Cheque made from the PO / Work Order page: the one-line Cheque Request Payment makes for its
+        payment, then the move an approved payment takes once that is on disk."""
+        header = parse_header({
+            "bank": "ICICI Bank",
+            "cheque_no": self.cheques.number(),
+            "cheque_date": nowdate(),
+            "amount": amount,
+            "vendor": self.vendor,
+            "attachment": PHOTO,
+        })
+        name = self.cheques.track(create_payment_cheque(header, payment, user=U).name)
+        frappe.db.commit()
+        commit_move_to_reconciliation(payment)
+        return name
 
     # -- the edit dialog ------------------------------------------------------------------------
     @staticmethod
@@ -303,7 +309,7 @@ class TestChequeEdit(FrappeTestCase):
         name = self._from_po_page(pay)
         self._edit(name, lines=[], description="Kept as an advance")
         self.assertEqual((self._payment(pay).mode_of_payment, self._payment(pay).cheque), ("Online", None))
-        self.assertEqual(self._payment(pay).status, RECON)  # where Convert to Cheque moved it
+        self.assertEqual(self._payment(pay).status, RECON)  # where the cheque move took it
 
     def test_a_po_page_cheque_keeps_its_number_date_and_amount(self):
         pay = self._plant("Requested")
@@ -338,6 +344,21 @@ class TestChequeEdit(FrappeTestCase):
 
             self._edit(name, attachment=NEW_PHOTO)
             self.assertEqual((self._cheque(name).attachment, self._cheque(name).status), (NEW_PHOTO, to_status))
+
+    def test_an_old_type_cheque_can_change_only_its_photo(self):
+        """Spec #1477 (#1487): an Old-type cheque is only cleared or cancelled by hand; its photo may be replaced."""
+        name = self._add([self._npe_line(self._npe())], vendor=None, payee_name="Ravi Kumar")
+        frappe.db.set_value("Cheques", name, "old_type", 1)  # what the cheque-types patch flags
+        frappe.db.commit()
+
+        reason = "is an Old-type cheque: only its photo can change"
+        self._refused(reason, name, description="changed")
+        self._refused(reason, name, cheque_no=self.cheques.number())
+        self._refused(reason, name, payee_name="Ravi K")
+        self._refused(reason, name, lines=[])
+
+        self._edit(name, attachment=NEW_PHOTO)
+        self.assertEqual(self._cheque(name).attachment, NEW_PHOTO)
 
     def test_a_backfilled_cheque_with_no_photo_gets_its_photo(self):
         name = self._add([self._npe_line(self._npe())])

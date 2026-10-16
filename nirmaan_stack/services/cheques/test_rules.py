@@ -157,44 +157,52 @@ class TestBankIdentity(unittest.TestCase):
         self.assertEqual(rules.normalise_cheque_no(" 004 521 "), "004521")
 
 
-class TestPaymentChequeButtons(unittest.TestCase):
-    """Which payments Convert to Cheque / Link a new cheque and Switch to Online accept (#1416)."""
+class TestWhatAChequePaymentRefuses(unittest.TestCase):
+    """Spec #1477 (ADR-0035): a Work Order is never paid by cheque, and a cheque payment moves with its
+    cheque, so hold, Revert to Approved and a split each refuse it."""
 
-    def test_an_online_payment_that_is_not_rejected_converts(self):
-        for status in ("Requested", "CEO Pending", "Approved", "Reconciliation Pending", "Paid"):
-            self.assertIsNone(rules.new_payment_cheque_problem("P1", is_cheque=False, status=status))
-        self.assertIn("is Rejected", rules.new_payment_cheque_problem("P1", is_cheque=False, status="Rejected"))
-
-    def test_a_cheque_payment_gets_a_new_cheque_only_once_its_cheque_is_cancelled(self):
-        self.assertIsNone(
-            rules.new_payment_cheque_problem("P1", is_cheque=True, status="Approved", cheque_no="1", cheque_status="Cancelled")
-        )
-        for cheque_status in ("Issued", "Cleared"):
-            self.assertEqual(
-                rules.new_payment_cheque_problem(
-                    "P1", is_cheque=True, status="Approved", cheque_no="004521", cheque_status=cheque_status
-                ),
-                f"Payment P1 is on cheque 004521 ({cheque_status}). A new cheque can be linked only once that "
-                "cheque is Cancelled.",
-            )
-        self.assertIn("is Rejected", rules.new_payment_cheque_problem(
-            "P1", is_cheque=True, status="Rejected", cheque_no="1", cheque_status="Cancelled"
-        ))
-
-    def test_a_cheque_payment_no_cheque_records_may_get_a_cheque_or_go_back_online(self):
-        # The backfill skips a refused cheque number, leaving its payments with no Cheque: both ways out
-        # stay open, so the payment is not stuck.
-        self.assertIsNone(rules.new_payment_cheque_problem("P1", is_cheque=True, status="Approved", cheque_no="004521"))
-        self.assertIsNone(rules.switch_to_online_problem("P1", is_cheque=True, status="Approved", cheque_no="004521"))
-
-    def test_a_rejected_cheque_payment_no_cheque_records_is_refused_both(self):
-        self.assertIn("is Rejected", rules.new_payment_cheque_problem(
-            "P1", is_cheque=True, status="Rejected", cheque_no="004521"
-        ))
+    def test_only_a_po_payment_may_be_paid_by_cheque(self):
+        self.assertIsNone(rules.cheque_mode_problem(rules.PO_DOCTYPE))
         self.assertEqual(
-            rules.switch_to_online_problem("P1", is_cheque=True, status="Rejected", cheque_no="004521"),
-            "Payment P1 is Rejected.",
+            rules.cheque_mode_problem(rules.WORK_ORDER_DOCTYPE),
+            "A Work Order payment is paid Online: only a PO payment can be paid by cheque.",
         )
+
+    def test_an_online_payment_is_never_refused(self):
+        for action in rules.CHEQUE_PAYMENT_ACTIONS:
+            self.assertIsNone(rules.cheque_payment_problem("PAY-1", action, is_cheque=False))
+
+    def test_hold_revert_and_split_each_refuse_a_cheque_payment_saying_why(self):
+        self.assertEqual(
+            rules.cheque_payment_problem("PAY-1", rules.CHEQUE_REFUSES_HOLD, is_cheque=True, cheque_no="000747"),
+            "PAY-1 is paid by cheque 000747, so it cannot be put on hold: a cheque's payments move together. "
+            "Cancel the cheque in the Cheque Tracker instead.",
+        )
+        self.assertEqual(
+            rules.cheque_payment_problem("PAY-1", rules.CHEQUE_REFUSES_REVERT, is_cheque=True, cheque_no="000747"),
+            "PAY-1 is paid by cheque 000747, so it cannot go back to Approved: a cheque's payments move together. "
+            "Cancel the cheque in the Cheque Tracker instead.",
+        )
+        self.assertEqual(
+            rules.cheque_payment_problem("PAY-1", rules.CHEQUE_REFUSES_SPLIT, is_cheque=True, cheque_no="000747"),
+            "PAY-1 is paid by cheque 000747, so it cannot be split: a cheque pays its payments in full or not "
+            "at all.",
+        )
+
+    def test_a_cheque_payment_with_no_number_still_refuses(self):
+        self.assertTrue(
+            rules.cheque_payment_problem("PAY-1", rules.CHEQUE_REFUSES_HOLD, is_cheque=True).startswith(
+                "PAY-1 is paid by cheque, so it cannot be put on hold"
+            )
+        )
+
+    def test_an_unknown_action_is_a_bug(self):
+        with self.assertRaises(KeyError):
+            rules.cheque_payment_problem("PAY-1", "delete", is_cheque=True)
+
+
+class TestModeChange(unittest.TestCase):
+    """A payment's Mode of Payment changes only through a Cheque (spec #1407)."""
 
     def test_the_mode_changes_only_through_a_cheque(self):
         def problem(was, now, *, cheque=None, old_cheque_status=None):
@@ -222,12 +230,6 @@ class TestPaymentChequeButtons(unittest.TestCase):
         self.assertIsNone(rules.mode_change_problem(
             was_cheque=True, now_cheque=False, cheque=None, old_cheque_status="Issued", on_old_cheque_lines=False
         ))
-
-    def test_switch_to_online_needs_a_cancelled_cheque(self):
-        self.assertIsNone(rules.switch_to_online_problem("P1", is_cheque=True, cheque_no="1", cheque_status="Cancelled"))
-        self.assertEqual(rules.switch_to_online_problem("P1", is_cheque=False), "Payment P1 is already Online.")
-        self.assertIn("only once its cheque is Cancelled; it is on cheque 1 (Issued)",
-                      rules.switch_to_online_problem("P1", is_cheque=True, cheque_no="1", cheque_status="Issued"))
 
 
 class TestEditTakesPaymentsOff(unittest.TestCase):
@@ -291,3 +293,33 @@ class TestEditTakesPaymentsOff(unittest.TestCase):
                 before, after, status=rules.ISSUED, made_from=rules.MADE_FROM_PO_WO_PAGE,
                 lines_before=lines, lines_after=lines,
             ))
+
+
+class TestOldTypeChequeEdit(unittest.TestCase):
+    """An Old-type cheque (spec #1477) changes only its photo, whatever its status."""
+
+    BEFORE = {"bank": "ICICI Bank", "cheque_no": "1", "cheque_date": "2026-10-14", "amount": 100,
+              "payee_name": "Ravi Kumar", "attachment": "old.jpg"}
+
+    def _problem(self, after, *, lines_after=None, status=rules.ISSUED):
+        lines = [rules.parse_line({"line_type": rules.LINE_NON_PROJECT_EXPENSE, "payment_name": "NPE-1",
+                                   "amount": 100})]
+        return rules.edit_problem(
+            rules.parse_header(self.BEFORE), rules.parse_header({**self.BEFORE, **after}),
+            status=status, made_from=rules.MADE_FROM_REPORT, old_type=True,
+            lines_before=lines, lines_after=lines if lines_after is None else lines_after,
+        )
+
+    def test_its_photo_may_be_replaced(self):
+        for status in (rules.ISSUED, rules.CLEARED, rules.CANCELLED):
+            self.assertIsNone(self._problem({"attachment": "new.jpg"}, status=status))
+
+    def test_any_other_change_is_refused(self):
+        expected = "Cheque 1 is an Old-type cheque: only its photo can change."
+        self.assertEqual(self._problem({"cheque_no": "2"}), expected)
+        self.assertEqual(self._problem({"payee_name": "Ravi K"}), expected)
+        self.assertEqual(self._problem({"description": "Rent"}), expected)
+        self.assertEqual(self._problem({}, lines_after=[]), expected)
+
+    def test_its_photo_still_cannot_be_removed(self):
+        self.assertEqual(self._problem({"attachment": ""}), "The cheque's photo can be replaced, not removed.")

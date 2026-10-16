@@ -167,33 +167,39 @@ class TestChequeRequest(FrappeTestCase):
                          ("Cheque", cheque, doc.cheque_no, str(doc.cheque_date)))
 
     # -- the Work Order page --------------------------------------------------------------------
-    def test_a_wo_cheque_request_makes_the_payment_and_a_one_line_cheque(self):
-        out = self._request_wo(10000, **self._cheque_fields(9800))
-        # Unchanged: born Approved (auto band), taxed once, then on to Reconciliation Pending.
-        pay = self._payment(out["name"])
-        self.assertEqual((pay.status, flt(pay.amount)), (RECON, 9800.0))
-        self.assertEqual(self._tds(out["name"]), [200.0])
-        self._assert_one_line_cheque(out["cheque"], out["name"], record=(SR, self.sr), amount=9800.0, status="Issued")
+    def test_a_wo_cheque_request_is_refused_and_nothing_is_created(self):
+        """Spec #1477 (#1487): a Work Order payment is paid Online, whatever the dialog sends."""
+        fields = self._cheque_fields(9800)
+        with self.assertRaisesRegex(
+            frappe.ValidationError, "A Work Order payment is paid Online: only a PO payment can be paid by cheque."
+        ):
+            self._request_wo(10000, **fields)
+        frappe.db.rollback()
+        self.assertEqual(self._payments_of(SR, self.sr), [])
+        self.assertEqual(frappe.get_all("Cheques", filters={"cheque_no": fields["cheque_no"]}, pluck="name"), [])
 
-    def test_a_wo_cheque_waiting_for_the_ceo_moves_once_approved(self):
-        out = self._request_wo(60000, **self._cheque_fields(58800))
-        self.assertEqual(self._payment(out["name"]).status, "CEO Pending")
-        self._assert_one_line_cheque(out["cheque"], out["name"], record=(SR, self.sr), amount=58800.0, status="Pending")
-
+    def test_a_wo_cheque_payment_already_in_flight_finishes_as_it_is(self):
+        """One requested before the rule keeps saving and moving: CEO approval takes it on."""
+        name = self.cheques.plant_payment(
+            self.fx, "CEO Pending", project=self.project, vendor=self.vendor, document=(SR, self.sr),
+            amount=60000, cheque_no=self.cheques.number(),
+        )
         frappe.set_user(CEO_AUTHORIZED_USER)
         try:
-            ceo_approve_payment(out["name"])
+            ceo_approve_payment(name)
             frappe.db.commit()
         finally:
             frappe.set_user(U)
-        pay = self._payment(out["name"])
-        self.assertEqual((pay.status, flt(pay.amount), pay.cheque), (RECON, 58800.0, out["cheque"]))
-        self.assertEqual(self._tds(out["name"]), [1200.0])
-        self.assertEqual(self._issued(out["cheque"]), ("Issued", nowdate(), [(None, "Pending"), ("Pending", "Issued")]))
+        pay = self._payment(name)
+        self.assertEqual((pay.status, pay.mode_of_payment, flt(pay.amount)), (RECON, "Cheque", 58800.0))
+        self.assertEqual(self._tds(name), [1200.0])
 
     # -- the Cheque starts Pending and is Issued on approval (#1479, spec #1477) ----------------
     def test_a_cheque_waiting_for_approval_is_pending_with_no_issue_date(self):
-        out = self._request_wo(60000, **self._cheque_fields(58800))
+        term = self._term(60000)
+        out = self._request_po(term, 60000, **self._cheque_fields(60000))
+        [payment] = self._payments_of(PO, self.po)
+        self.assertEqual(frappe.db.get_value(PAYMENT, payment, "status"), "CEO Pending")
         self.assertEqual(self._issued(out["cheque"]), ("Pending", None, [(None, "Pending")]))
 
     def test_a_payment_born_approved_makes_an_issued_cheque_dated_its_approval(self):
@@ -205,11 +211,13 @@ class TestChequeRequest(FrappeTestCase):
         self.assertEqual(self._issued(out["cheque"]), ("Issued", approved_on, [(None, "Pending"), ("Pending", "Issued")]))
 
     def test_a_born_approved_payment_whose_move_fails_leaves_its_cheque_pending(self):
+        term = self._term(20000)
         with patch(
             "nirmaan_stack.services.cheque_payments.move_to_reconciliation", side_effect=RuntimeError("boom")
         ):
-            out = self._request_wo(10000, **self._cheque_fields(9800))
-        self.assertEqual(self._payment(out["name"]).status, "Approved")
+            out = self._request_po(term, 20000, **self._cheque_fields(20000))
+        [payment] = self._payments_of(PO, self.po)
+        self.assertEqual(frappe.db.get_value(PAYMENT, payment, "status"), "Approved")
         self.assertEqual(self._issued(out["cheque"]), ("Pending", None, [(None, "Pending")]))
 
     def test_an_online_wo_request_makes_no_cheque(self):
@@ -286,7 +294,7 @@ class TestChequeRequest(FrappeTestCase):
     def test_the_same_number_on_another_bank_is_not_a_duplicate(self):
         number = self.cheques.number()
         self._record_cheque(number, bank="Others", bank_name="HDFC Bank")
-        out = self._request_wo(10000, **self._cheque_fields(9800, cheque_no=number))
+        out = self._request_po(self._term(20000), 20000, **self._cheque_fields(20000, cheque_no=number))
         self.assertTrue(out["cheque"])
 
     def test_a_cheque_recorded_in_between_takes_the_payment_back(self):
@@ -296,11 +304,16 @@ class TestChequeRequest(FrappeTestCase):
         number = self.cheques.number()
         self._record_cheque(number)
         # Only the pre-check's lookup is blinded; the Cheques `validate` controller still sees it.
+        term = self._term(60000)
+        # Deleting a PO payment recounts the Vendor's credit and saves the Vendor, whose hook needs the
+        # category JSON every real Vendor carries; the fixture's bare Vendor has none.
+        frappe.db.set_value("Vendors", self.vendor, "vendor_category", '{"categories": []}', update_modified=False)
+        frappe.db.commit()
         with patch("nirmaan_stack.services.cheques.writer.existing_cheque", return_value=None):
             with self.assertRaises(frappe.ValidationError):
-                self._request_wo(60000, **self._cheque_fields(58800, cheque_no=number))
+                self._request_po(term, 60000, **self._cheque_fields(60000, cheque_no=number))
         frappe.db.rollback()
-        self.assertEqual(self._payments_of(SR, self.sr), [])
+        self.assertEqual(self._payments_of(PO, self.po), [])
 
     # -- the dialog's lookup --------------------------------------------------------------------
     def test_the_dialog_finds_a_recorded_cheque_with_the_submit_refusal(self):
