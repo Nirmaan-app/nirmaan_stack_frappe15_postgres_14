@@ -56,6 +56,8 @@ import {
 import { buildApprovalColumns, ApprovalColumnCtx } from "../config/approvalColumns";
 import { statusAfterL1, TIER_L2_ABOVE_EXPENSES } from "@/utils/approvalTiers";
 import { isChequePayment } from "../paymentMode";
+import { APPROVE_CHEQUE_API, approvesThroughCheque } from "@/utils/cheques/chequeApproval";
+import { useChequeApproval } from "@/components/cheques/useChequeApproval";
 import { withholdsOnApproval } from "../tdsForecast";
 import { useApprovalQueueExport, ApprovalExportButton } from "../hooks/useApprovalQueueExport";
 import { useApprovalFacets } from "../config/useApprovalFacets";
@@ -571,6 +573,18 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
   const { call: moveChequeCall, loading: moveChequeLoading } = useFrappePostCall(
     "nirmaan_stack.api.payments.project_payments.move_cheque_payment_to_reconciliation"
   );
+  const { call: approveChequeCall, loading: approveChequeLoading } = useFrappePostCall(APPROVE_CHEQUE_API);
+
+  // One cheque, one decision (#1480, spec #1477): a payment on a Pending cheque is approved with every
+  // payment on it. The dialog lists them; the L1 approve goes to the server, never a browser status write.
+  const throughCheque = approvesThroughCheque(selectedPayment as unknown as ApprovalQueueRow | null);
+  // Not keyed on `isDialogOpen`: the dialog keeps its cheque view while it closes.
+  const { approval: chequeApproval, isLoading: chequeApprovalLoading } = useChequeApproval(
+    throughCheque && dialogActionType === DIALOG_ACTION_TYPES.APPROVE
+      ? selectedPayment?.name ?? null
+      : null,
+    isCEOMode ? "ceo" : "lead"
+  );
   const handlePaymentUpdate = useCallback(
     async (
       actionType: DialogActionType,
@@ -619,6 +633,10 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             // rather than re-deriving a second wording that could drift from what happened.
             successMessage = response?.message?.message;
           }
+        } else if (actionType === DIALOG_ACTION_TYPES.APPROVE && chequeApproval) {
+          // Every payment on the cheque, at the tier its cheque amount needs, in one server step.
+          const response = await approveChequeCall({ payment_id: selectedPayment.name });
+          successMessage = response?.message?.message;
         } else {
           // ⚠️ THIS QUEUE HOLDS THREE LEDGERS, SO NOTHING HERE MAY BE HARD-CODED.
           //
@@ -703,7 +721,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
         });
       }
     },
-    [selectedPayment, updateDoc, ceoApproveCall, moveChequeCall, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch, refreshTabCounts]
+    [selectedPayment, updateDoc, ceoApproveCall, moveChequeCall, approveChequeCall, chequeApproval, closeDialog, toast, isCEOHold, showBlockedToast, isCEOMode, refetch, refreshTabCounts]
   );
 
   // Vendor rates for the rows on this page, so the approve dialogs can forecast the deduction.
@@ -841,7 +859,7 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
             vendors?.find((v) => v.name === selectedPayment.vendor)?.vendor_name
           }
           onSubmit={handlePaymentUpdate}
-          isLoading={updateLoading || ceoApproveLoading || moveChequeLoading}
+          isLoading={updateLoading || ceoApproveLoading || moveChequeLoading || approveChequeLoading}
           // Partial approval is the CEO gate ONLY (owner ruling). The lead tick stays a plain
           // full approve — two split points would let one payment fragment twice on its way up.
           allowPartial={isCEOMode}
@@ -849,6 +867,8 @@ export const ApprovePayments: React.FC<ApprovePaymentsProps> = ({ readOnly = fal
           // click when it finishes the approval (15,000-50,000).
           withholdsTdsNow={withholdsOnApproval(isCEOMode ? "ceo" : "lead", selectedPayment.amount)}
           stage={isCEOMode ? "ceo" : "lead"}
+          chequeApproval={throughCheque ? chequeApproval : undefined}
+          chequeApprovalLoading={throughCheque && chequeApprovalLoading}
         />
       )}
     </div>
