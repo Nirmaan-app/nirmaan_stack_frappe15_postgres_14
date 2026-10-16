@@ -22,6 +22,11 @@ The detailed rules live in the code's own docstrings, cited below; this page is 
     Frappe's "changed after you opened it" instead of the history guard. Batch runs (the 28th / 7th jobs, a
     category's audit switched on) wrap their work in `touch_assets_at_the_end()` so the dates move in one
     statement right before the commit and no asset row is held while they work; a clash skips the date only.
+  - One exception, run once: `patches/v3_0/backfill_first_asset_history` (owner, 2026-10-16) gave every asset
+    held from before the history its first entries, with the old records' who and when: "Assigned" (by whoever
+    created the assignment), and "Declaration Signed" by the HOLDER when a paper form is on file (the uploader
+    is not named; the File record keeps them). Both carry "Recorded from the assignment made before asset
+    history started", the only mark of an old paper form. They take idx 1 / 2 because the history card orders by idx.
   - `Asset History.assigned_to` / `done_by` are **Data, not Link**, so the history never blocks deleting a
     person. A rename does not follow them on its own: `services/asset_history.rename_person` (called from
     `api/users.rename_user_email`) moves them.

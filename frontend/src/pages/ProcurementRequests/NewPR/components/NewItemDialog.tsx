@@ -24,6 +24,7 @@ import { useUserData } from '@/hooks/useUserData';
 import { Items } from '@/types/NirmaanStack/Items';
 import { Category } from '@/types/NirmaanStack/Category';
 import { getFrappeError } from '@/utils/frappeErrors';
+import { newItemRequestReason } from '@/utils/prNewItem';
 
 
 interface NewItemDialogProps {
@@ -73,13 +74,17 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
             value: cat.name,
             label: cat.category_name,
             tax: parseFloat(cat.tax || "0"),
-            // PMO no longer bypasses the per-category `new_items` gate; treated like a Project
-            // Manager (2026-07-04 PMO access review) — request-only in locked categories.
-            newItemsDisabled: cat.new_items === "false" && userData?.role !== "Nirmaan Admin Profile"
         })) || [];
-    }, [categories, userData?.role]);
+    }, [categories]);
 
-    const isNewItemsDisabled = useMemo(() => selectedCategory?.newItemsDisabled ?? false, [selectedCategory]);
+    // Create vs request: Admin creates, PMO only requests, others follow the category's `new_items`.
+    // Worked out before a category is picked too, so PMO never sees "Create & Add".
+    const requestReason = useMemo(() => {
+        const category = categories?.find(cat => cat.name === selectedCategory?.value);
+        return newItemRequestReason(userData?.role, category?.new_items);
+    }, [selectedCategory, categories, userData?.role]);
+
+    const isNewItemsDisabled = requestReason !== null;
 
     const resolveWorkPackage = useCallback((categoryValue: string) => {
         return categoryToPackageMap[categoryValue] || '';
@@ -231,9 +236,14 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                             }}
                             isClearable
                         />
-                        {isNewItemsDisabled && (
+                        {requestReason === "category" && (
                             <p className="text-xs text-red-500 px-1 mt-1">
                                 New item creation is disabled for this category by Admin. This item will be added as a 'Request'.
+                            </p>
+                        )}
+                        {requestReason === "role" && (
+                            <p className="text-xs text-red-500 px-1 mt-1">
+                                PMO can't create new items. This item will be added as a 'Request', and the PR approver creates it.
                             </p>
                         )}
                     </div>

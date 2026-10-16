@@ -14,7 +14,16 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { NAME_REGEX } from "@/constants/vendorFormRegex";
 import { findVendorsByPan, vendorNamesLabel } from "./utils/vendorDuplicates";
-import { vendorTaxIdSchemas } from "./utils/vendorTaxIds";
+import {
+  fallbackTdsRate,
+  isIndividualHufPan,
+  refineTdsRateAgainstPan,
+  tdsRateChangeNote,
+  tdsRateOnPanChange,
+  tdsRateToStore,
+  vendorTaxIdSchemas,
+} from "./utils/vendorTaxIds";
+import { VendorTdsRateHint } from "./components/VendorTdsRateHint";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEditVendorData, usePincodeData, useExistingVendors } from './data/useVendorQueries';
@@ -130,7 +139,8 @@ const getVendorFormSchema = (service: boolean, existingVendors: Vendors[] | unde
                 .min(0, { message: "TDS % cannot be negative." })
                 .max(100, { message: "TDS % cannot exceed 100." })
         ),
-    })
+    // An Individual / HUF PAN must be at 1%; the server applies the same rule on save. See new-vendor.tsx.
+    }).superRefine(refineTdsRateAgainstPan)
 };
 
 type VendorFormValues = z.infer<ReturnType<typeof getVendorFormSchema>>;
@@ -194,8 +204,9 @@ export const EditVendor: React.FC<EditVendorProps> = ({ toggleEditSheet, onRenam
         vendor_pan: data?.vendor_pan,
         // `??` (not `||`) so a vendor deliberately on 0% keeps 0 instead of being
         // silently bumped back to 2 the next time anyone opens this form. The
-        // fallback only covers a vendor the backfill patch has not reached.
-        tds_deduction_percentage: data?.tds_deduction_percentage ?? 2,
+        // fallback only covers a vendor the backfill patch has not reached. An
+        // Individual / HUF vendor opens at 1%, since the field is locked there.
+        tds_deduction_percentage: tdsRateToStore(data?.vendor_pan, data?.tds_deduction_percentage ?? 2),
       });
 
       setPincode(vendorAddress?.pincode);
@@ -283,8 +294,11 @@ export const EditVendor: React.FC<EditVendorProps> = ({ toggleEditSheet, onRenam
     }
   };
 
+  const watchedPan = form.watch("vendor_pan");
+  const tdsLocked = isIndividualHufPan(watchedPan);
+  const tdsChangeNote = tdsRateChangeNote(data?.tds_deduction_percentage, form.watch("tds_deduction_percentage"));
   // A PAN another vendor already holds is allowed — warn, never block.
-  const samePanVendors = findVendorsByPan(existingVendors, form.watch("vendor_pan"));
+  const samePanVendors = findVendorsByPan(existingVendors, watchedPan);
   const gstRequired = vendorChange || ["Material", "Material & Service"].includes(data?.vendor_type);
 
   return (
@@ -387,7 +401,20 @@ export const EditVendor: React.FC<EditVendorProps> = ({ toggleEditSheet, onRenam
                 <FormControl>
                   <Input placeholder="enter pan..."
                    {...field}
-                    onChange={(e) => field.onChange(e.target.value === "" ? undefined : e.target.value)}
+                    onChange={(e) => {
+                      const pan = e.target.value === "" ? undefined : e.target.value;
+                      const prevPan = form.getValues("vendor_pan");
+                      field.onChange(pan);
+                      // An Individual / HUF PAN fixes the TDS rate at 1%; moving off one puts back the
+                      // saved rate (or 2% when the vendor was saved as an Individual / HUF).
+                      const rate = tdsRateOnPanChange(
+                        prevPan,
+                        pan,
+                        form.getValues("tds_deduction_percentage"),
+                        fallbackTdsRate(data?.vendor_pan, data?.tds_deduction_percentage)
+                      );
+                      if (rate !== null) form.setValue("tds_deduction_percentage", rate, { shouldValidate: true });
+                    }}
                    />
                 </FormControl>                <FormMessage />
               </FormItem>
@@ -414,6 +441,9 @@ export const EditVendor: React.FC<EditVendorProps> = ({ toggleEditSheet, onRenam
                     max={100}
                     placeholder="2"
                     {...field}
+                    // Locked at 1% for an Individual / HUF PAN (vendorTaxIds.ts).
+                    readOnly={tdsLocked}
+                    className={tdsLocked ? "bg-muted cursor-not-allowed" : undefined}
                     // `??` (not `||`) so a deliberate 0% renders as "0".
                     value={field.value ?? ""}
                     // ⚠️ ALWAYS the raw string, never `undefined` -- RHF reads a
@@ -423,7 +453,8 @@ export const EditVendor: React.FC<EditVendorProps> = ({ toggleEditSheet, onRenam
                     onChange={(e) => field.onChange(e.target.value)}
                   />
                 </FormControl>
-                <p className="text-xs text-muted-foreground">Applied to this vendor's payments. Defaults to 2%.</p>
+                <VendorTdsRateHint pan={watchedPan} />
+                {tdsChangeNote && <p className="text-xs text-amber-700">{tdsChangeNote}</p>}
                 <FormMessage />
               </FormItem>
             )}

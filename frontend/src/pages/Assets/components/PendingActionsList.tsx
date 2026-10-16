@@ -8,18 +8,14 @@ import { DataTableColumnHeader } from '@/components/data-table/data-table-column
 import { useServerDataTable } from '@/hooks/useServerDataTable';
 import { formatDate } from '@/utils/FormatDate';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/components/ui/use-toast';
-import { Hash, User, AlertTriangle, Download } from 'lucide-react';
-import { TailSpin } from 'react-loader-spinner';
+import { Hash, User, AlertTriangle } from 'lucide-react';
 
 import {
     ASSET_MANAGEMENT_DOCTYPE,
     ASSET_MANAGEMENT_FIELDS,
     ASSET_MANAGEMENT_SEARCHABLE_FIELDS,
     ASSET_MANAGEMENT_DATE_COLUMNS,
-    ASSET_MASTER_DOCTYPE,
     AssetCategoryType,
 } from '../assets.constants';
 import { assignmentDepartmentColumn, departmentFacetOptions, matchesDepartmentFilter } from '../utils/departmentColumn';
@@ -78,51 +74,6 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
     assetType,
     masterNames,
 }) => {
-    const { toast } = useToast();
-    const [downloadingAssetId, setDownloadingAssetId] = useState<string | null>(null);
-
-    // Handle download declaration form PDF
-    const handleDownloadDeclaration = async (assetId: string, assetName: string) => {
-        setDownloadingAssetId(assetId);
-        try {
-            const params = new URLSearchParams({
-                doctype: ASSET_MASTER_DOCTYPE,
-                name: assetId,
-                format: 'Asset Master Form',
-                no_letterhead: '0',
-                _lang: 'en'
-            });
-
-            const response = await fetch(`/api/method/frappe.utils.print_format.download_pdf?${params.toString()}`);
-            if (!response.ok) throw new Error('PDF generation failed');
-
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-            const link = document.createElement('a');
-            link.href = url;
-            link.setAttribute('download', `${assetName || assetId}_Declaration_Form.pdf`);
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            window.URL.revokeObjectURL(url);
-
-            toast({
-                title: "Downloaded",
-                description: "Declaration form downloaded successfully.",
-                variant: "success",
-            });
-        } catch (error) {
-            console.error('Download Error:', error);
-            toast({
-                title: "Failed",
-                description: "Failed to download declaration form.",
-                variant: "destructive",
-            });
-        } finally {
-            setDownloadingAssetId(null);
-        }
-    };
-
     // Fetch asset details — scope to typed asset names when filtering
     const { data: assetsList } = useFrappeGetDocList<AssetMaster>(
         'Asset Master',
@@ -342,46 +293,21 @@ const PendingActionsListInner: React.FC<PendingActionsListInnerProps> = ({
         {
             id: 'status',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Status" />,
+            // Every holder signs their own declaration in the app (owner, 2026-10-15): nothing to download here.
             cell: () => (
-                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                    <AlertTriangle className="h-3 w-3 mr-1" />
-                    Pending Declaration
-                </Badge>
+                <div className="flex flex-col items-start gap-1">
+                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                        <AlertTriangle className="h-3 w-3 mr-1" />
+                        Pending Declaration
+                    </Badge>
+                    <span className="text-xs text-gray-500">User has to sign and submit</span>
+                </div>
             ),
-            size: 110,
-        },
-        {
-            id: 'actions',
-            header: () => <span className="sr-only">Actions</span>,
-            cell: ({ row }) => {
-                const assetId = row.original.asset;
-                const assetData = assetsMap[assetId];
-                const isDownloading = downloadingAssetId === assetId;
-
-                return (
-                    <div className="flex items-center gap-1.5">
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50 hover:text-amber-700"
-                            onClick={() => handleDownloadDeclaration(assetId, assetData?.asset_name || assetId)}
-                            disabled={isDownloading}
-                        >
-                            {isDownloading ? (
-                                <TailSpin height={14} width={14} color="#d97706" />
-                            ) : (
-                                <Download className="h-3.5 w-3.5" />
-                            )}
-                            <span className="hidden lg:inline">Download</span>
-                        </Button>
-                    </div>
-                );
-            },
             size: 180,
         },
         // categoryFilter / departmentFilter are deliberately NOT deps: the funnels own their selection, and
         // rebuilding the columns on every tick would remount the popover and close it after one pick.
-    ], [assetsMap, usersMap, downloadingAssetId, handleDownloadDeclaration, pendingLookupOptions]);
+    ], [assetsMap, usersMap, pendingLookupOptions]);
 
     const additionalFilters = useMemo(() => {
         const filters: any[] = [['asset_declaration_attachment', 'is', 'not set']];

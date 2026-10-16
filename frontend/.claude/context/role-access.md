@@ -25,7 +25,7 @@ This document contains detailed page-level role access control mappings for the 
 - **TDS Approval:** PMO can see the "Pending Approval" tab (read-only) but cannot approve/reject TDS items
 - **Project Payment Approval:** PMO can see the "Approve Payments" tab (read-only) but cannot approve/reject payments. (Editing a fulfilled payment no longer exists for anyone — see *Payments queue — edit & revert* below.)
 - **PR Approval** *(2026-07-04 access review)*: PMO does **not** see the "Approve PR" tab and is blocked from the approve/reject view even by a direct/bookmarked `?tab=Approve PR` URL (redirected to New PR Request). Approver roles are **Admin + Project Lead** (`PR_ADMIN_ROLES` in `config/prTabs.constants.ts`). Unlike TDS/Payments, this is NOT a read-only tab — it is removed entirely. PMO keeps New PR Request / In Progress / Sent Back / All PRs.
-- **New-item creation in the PR flow** *(2026-07-04 access review)*: PMO is treated like a Project Manager — in `new_items="false"` categories they can only **request** an item (ephemeral `REQ-…`), not create a master Item. The Admin/PMO category-restriction bypass was removed (Admin still bypasses). Does not affect the Items master table (PMO already could not create there; only edit).
+- **New-item creation in the PR flow** *(2026-07-04 access review; widened 2026-10-16)*: PMO can only **request** a new item (ephemeral `REQ-…`), never create a master Item, in **every** category — the category's `new_items` flag does not matter for PMO. The PR approver (Admin / Project Lead) creates the item or swaps in an existing one on the Approve PR screen. Rule: `newItemRequestReason` in `src/utils/prNewItem.ts`. Frontend only: the PMO profile carries System Manager, which can still create Items in Desk. Does not affect the Items master table (PMO already could not create there; only edit).
 
 ---
 
@@ -206,10 +206,11 @@ profile missing from an endpoint's list reads 0 there while its tables show ever
 | Sent Back Tabs | Y | Y | Y | Y | - |
 | Delete PR | Y | Y | Y | - | - |
 | Create New Item (bypass category restriction) | Y | - | - | - | - |
+| Create New Item in an open category (`new_items` not "false") | Y | - | Y | Y | Y (PM) |
 
-> **PMO note (2026-07-04):** PMO removed from `PR_ADMIN_ROLES`, so no "Approve PR" tab and the approve view/list are guarded against direct-URL access. The new-item create bypass now excludes PMO (Admin-only), so PMO is request-only in `new_items="false"` categories like a Project Manager.
+> **PMO note (2026-07-04, 2026-10-16):** PMO removed from `PR_ADMIN_ROLES`, so no "Approve PR" tab and the approve view/list are guarded against direct-URL access. PMO is request-only for new items in **every** category, open ones included (2026-10-16); the PR approver creates the item.
 
-**Key files:** `config/prTabs.constants.ts` (`PR_ADMIN_ROLES` — approver set), `render-procurement-requests.tsx` (approve-view URL guard → redirect), `procurement-requests.tsx` (tab visibility + pending-list guard), `NewPR/components/NewItemDialog.tsx` + `NewPR/components/ItemSelectorControls.tsx` (`newItemsDisabled` create-vs-request gate)
+**Key files:** `config/prTabs.constants.ts` (`PR_ADMIN_ROLES` — approver set), `render-procurement-requests.tsx` (approve-view URL guard → redirect), `procurement-requests.tsx` (tab visibility + pending-list guard), `src/utils/prNewItem.ts` (`newItemRequestReason` — the one create-vs-request rule, used by `NewPR/components/NewItemDialog.tsx` + `NewPR/components/ItemSelectorControls.tsx`)
 
 ---
 
