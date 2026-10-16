@@ -105,8 +105,10 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   only (`services/role_profiles.PAYEE_MANAGE_PROFILES`, mirrored in `frontend/src/constants/roles.ts`).
   The vendor screens' Payee step (`api/payees/vendor_payee`, `api/create_vendor_and_address`) is
   for whoever may create a vendor (`VENDOR_PAYEE_PROFILES`). Anyone who can raise an Expense
-  Request searches and adds Payees only through the request's endpoints
-  (`api/expense_requests/payees.py`, #1429), which call the same `create_payee`.
+  Request or record an expense (Frappe `create` on `Project Expenses` or `Non Project Expenses`,
+  #1471) searches and adds Payees only through the request's endpoints
+  (`api/expense_requests/payees.py`, #1429, gated by `access.can_name_expense_payee`), which call the
+  same `create_payee`.
 - **Expense payee** (#1429, reworked by #1436): an expense type's *Who gets paid*
   (`Expense Type.payee_rule`) is *Required*, *Optional* or *Not asked* (default). These are SCREEN
   rules (#1436): the request dialog blocks sending a *Required* type with no account
@@ -116,8 +118,19 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     `pay_to_bank_branch`, a copy of a Payee's account (`pay_to.copy_payee_account`). Editing or
     deleting the Payee changes no copy. No request or expense links a Payee (#1438 removed the
     `payee` field from all three), so Frappe's link check never stops a Payee's delete over one.
-  - **Picked or added**: the request endpoints copy the Payee sent (`create.apply_pay_to`); an edit
-    with `keep_pay_to` leaves the copy as it is. With a vendor named the Payee sent is ignored.
+  - **Picked or added**: the request endpoints copy the Payee sent (`pay_to.apply_picked_payee`); an
+    edit with `keep_pay_to` leaves the copy as it is. With a vendor named the Payee sent is ignored. A
+    Payee that does not exist is refused (`frappe.DoesNotExistError`), so nothing is saved.
+  - **A Direct Expense** (#1471; GLOSSARY *Direct Expense*): Add Expense's Project Expense /
+    Non-Project Expense, with no Expense Request behind it, names who gets paid too.
+    `api/expenses/direct_expense.create_direct_expense(doctype, expense, payee=None)` (POST; Frappe's
+    `create` permission on the doctype) inserts it with the Payee's account copied in the same save
+    (`expense_payee.create_direct_expense`, through `apply_picked_payee`, so a vendor named wins as on
+    a request) and commits once. `expense` is a closed field list (`DIRECT_EXPENSE_FIELDS`): a
+    `status`, approval stamp or `pay_to_*` sent is refused, so the status stays the doctype's
+    `validate` (auto-approval, the Raiser's own step). It refuses nothing about who gets paid. The
+    Non-Project Expense dialog (`NewNonProjectExpense`) saves through it and renders the request's
+    `WhoGetsPaidSection` by the type's rule (`whoGetsPaidProblem`); changing the type resets the pick.
   - **A vendor named** (request or Project Expense, every write path): the save copies the vendor's
     Payee when the record has no copy and whenever the vendor changes (`pay_to.fill_from_vendor`), a
     fill, never a refusal. Once the record is paid (`rules.PAID_STATUSES`) nothing is copied: the copy
@@ -261,8 +274,9 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | Vendor bank details → Payees (#1424) | `patches/v3_0/move_vendor_bank_details_to_payees.py` (re-runnable; its docstring holds the grouping, fallback and skip rules); test `api/payees/test_vendor_payees_patch.py` |
 | Pay-to backfill (#1441) | `patches/v3_0/backfill_pay_to_accounts.py` (re-runnable; its docstring holds the sources and hook reasoning); test `api/payees/test_pay_to_backfill_patch.py` |
 | Frontend fields + dialog | `components/payees/` (`PayeeBankFields`, `usePayeeBankForm`, `AddPayeeDialog`) |
+| Direct Expense create (#1471) | `api/expenses/direct_expense.create_direct_expense`, `services/payees/expense_payee.create_direct_expense`; test `api/expenses/test_direct_expense.py` |
 | Expense payee rules (#1429, #1436) | `services/payees/expense_rules.py` (pure: the Required / Optional / Not asked options; the rules are the screen's), `services/payees/expense_payee.py` (`change_expense_account`), `services/payees/search.py` (`find_payees`, by holder name) |
-| Expense Request picker endpoints | `api/expense_requests/payees.py` (`search_payees`, `check_request_payee`, `add_request_payee`), gated on `access.can_raise_requests`; the picked vendor's Payee is `useVendorAccount` (`get_vendor_account`, Vendors read) |
+| Expense payee picker endpoints | `api/expense_requests/payees.py` (`search_payees`, `check_request_payee`, `add_request_payee`), gated on `access.can_name_expense_payee` (raise a request, or create an expense); the picked vendor's Payee is `useVendorAccount` (`get_vendor_account`, Vendors read) |
 | Frontend picker | `components/payees/PayeePicker.tsx` + `usePayeeChoice.ts` (pick or add new; reused by Change account) |
 | Frontend rules | `utils/payees/payeeForm.ts` (form rules, `newPayeeProblem`, `bankLine`), `utils/payees/expensePayee.ts`, `utils/payees/payeeRoutes.ts` (`payeeHref`); pinned to the server's by the shared cases `services/payees/payee_rules_cases.json` (F1: `test_rules.py` / `test_expense_rules.py` and `payeeForm.test.ts` / `expensePayee.test.ts` run the same cases) |
 | Payees page | `pages/payees/PayeesPage.tsx`, route `/payees` |

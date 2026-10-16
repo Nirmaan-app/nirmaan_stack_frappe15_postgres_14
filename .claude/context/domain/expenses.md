@@ -635,7 +635,9 @@ save an invalid template**.
   - **Raising** (`create_expense_request`): the `payee` sent (picked, or just added through
     `api/expense_requests/payees.add_request_payee`) is copied in, unless the request names a vendor.
     **Editing** (`update_expense_request`): `keep_pay_to=1` leaves the copy as it is; otherwise the
-    `payee` sent is copied (none clears it). Both through `create.apply_pay_to`.
+    `payee` sent is copied (none clears it). Both through `pay_to.apply_picked_payee`, which refuses
+    a Payee that does not exist. A **Direct Expense** (#1471) is recorded the same way:
+    `api/expenses/direct_expense.create_direct_expense` (rules in `payees.md` § Expense payee).
   - **A vendor named** (request or Project Expense, every write path): the save hook copies the
     vendor's Payee when the record has no copy and whenever the vendor changes, until the record is
     paid (`pay_to.fill_from_vendor`, from `guard.check_payee_links`). New expense dialogs, Bulk

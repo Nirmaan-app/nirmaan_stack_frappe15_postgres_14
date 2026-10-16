@@ -18,7 +18,7 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	native_description,
 	native_invoice,
 )
-from nirmaan_stack.services.payees.pay_to import copy_payee_account
+from nirmaan_stack.services.payees.pay_to import apply_picked_payee
 
 
 @frappe.whitelist(methods=["POST"])
@@ -99,20 +99,11 @@ def create_expense_request(
 		}
 	)
 	# After the promotion, so a vendor a format inferred is paid into its Payee just the same.
-	apply_pay_to(doc, payee)
+	apply_picked_payee(doc, payee)
 	doc.insert()
 	frappe.db.commit()
 
 	return {"name": doc.name, "status": doc.status, "projects": doc.projects}
-
-
-def apply_pay_to(doc, payee: str | None) -> None:
-	"""Copy the Payee picked into the request's pay-to account (None clears it), unless it names a
-	vendor: then the save copies the vendor's Payee (`pay_to.fill_from_vendor`).
-
-	SHARED with `update`, like the guards below."""
-	if not doc.get("vendor"):
-		copy_payee_account(doc, payee or None)
 
 
 def guard_vendor_scope(vendor, projects) -> str | None:
