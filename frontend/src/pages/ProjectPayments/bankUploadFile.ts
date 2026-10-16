@@ -1,10 +1,11 @@
 import { unparse } from "papaparse";
 
-import type { TakenVendorAccount } from "@/components/payees/paidToApi";
+import type { ShownSwitch, TakeVendorAccountsAnswer } from "@/components/payees/paidToApi";
 import type { PayToAccount } from "@/types/NirmaanStack/Payee";
 import { formatDate, formatDateToDDMMYYYY } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
+import { toastList } from "@/utils/toastList";
 import {
 	ELIGIBILITY_REASON,
 	expenseTitle,
@@ -39,6 +40,10 @@ export interface BankFileRow {
 	 *  export writes onto the payment (`take_vendor_accounts`, whose answer replaces this one:
 	 *  `withTakenAccounts`). `rowEligibility` reads it to decide whether the row goes in the file (#1464). */
 	paidTo: PaidTo | undefined;
+	/** A PO / WO payment's vendor account the Paid to cell showed it is paid into (its `switch_to` as the
+	 *  page loaded it), or null when the cell showed no switch: what `take_vendor_accounts` checks its
+	 *  own decision against, since the payer must be told before a payment's account is replaced. */
+	shownSwitchTo?: PayToAccount | null;
 }
 
 export interface BankFileOptions {
@@ -153,17 +158,50 @@ export function buildBankFile(rows: BankFileRow[], options: BankFileOptions): Ba
 	};
 }
 
+/** What Export for Payment sends `take_vendor_accounts`: every PO / WO payment the file pays, with the
+ *  switch the payer was shown for it (`shownSwitchTo`). */
+export function shownSwitches(file: BankFile): ShownSwitch[] {
+	return file.payable
+		.filter((row) => row.kind === "vendor_payment")
+		.map((row) => ({ name: row.name, shown: row.shownSwitchTo ?? null }));
+}
+
+/** A PO / WO payment the export left out because `take_vendor_accounts` found it no longer Approved. */
+export interface BankFileSkipped {
+	row: BankFileRow;
+	status: string;
+}
+
 /**
  * The rows with each PO / WO payment's answer replaced by the one `take_vendor_accounts` acted on (#1463),
- * so the file pays exactly the account each payment now records, even when its vendor's account changed
- * after the export read it. A row the server did not answer keeps its own.
+ * so the file pays exactly the account each payment now records, and without each payment it skipped
+ * as no longer Approved (`skipped`, for the toast to name). A row the server did not answer keeps its own.
  */
-export function withTakenAccounts(rows: BankFileRow[], taken: TakenVendorAccount[]): BankFileRow[] {
-	const answers = new Map(taken.map((t) => [t.name, t.paid_to]));
-	return rows.map((row) => {
-		const answer = row.kind === "vendor_payment" ? answers.get(row.name) : undefined;
-		return answer ? { ...row, paidTo: answer } : row;
-	});
+export function withTakenAccounts(
+	rows: BankFileRow[],
+	answer: TakeVendorAccountsAnswer,
+): { rows: BankFileRow[]; skipped: BankFileSkipped[] } {
+	const answers = new Map(answer.taken.map((t) => [t.name, t.paid_to]));
+	const statusOf = new Map(answer.skipped.map((s) => [s.name, s.status]));
+	const kept: BankFileRow[] = [];
+	const skipped: BankFileSkipped[] = [];
+	for (const row of rows) {
+		const status = row.kind === "vendor_payment" ? statusOf.get(row.name) : undefined;
+		if (status !== undefined) {
+			skipped.push({ row, status });
+			continue;
+		}
+		const paidTo = row.kind === "vendor_payment" ? answers.get(row.name) : undefined;
+		kept.push(paidTo ? { ...row, paidTo } : row);
+	}
+	return { rows: kept, skipped };
+}
+
+/** The export toast's line on the payments left out as no longer Approved, e.g. "Left out, no longer
+ *  Approved: PO/009 (Paid) · PO/010 (Reconciliation Pending)"; null when none. */
+export function describeSkipped(skipped: BankFileSkipped[]): string | null {
+	if (skipped.length === 0) return null;
+	return `Left out, no longer Approved: ${toastList(skipped.map((s) => `${s.row.documentName} (${s.status})`))}`;
 }
 
 // ICICI and Cashfree both accept a file holding a row with a blank account or IFSC, and reject

@@ -3,7 +3,15 @@ import { describe, expect, it } from "vitest";
 import type { PayToAccount } from "@/types/NirmaanStack/Payee";
 import type { PaidTo } from "@/utils/payees/paidTo";
 
-import { buildBankFile, describeLeftOut, describeSwitched, withTakenAccounts, type BankFileRow } from "./bankUploadFile";
+import {
+	buildBankFile,
+	describeLeftOut,
+	describeSkipped,
+	describeSwitched,
+	shownSwitches,
+	withTakenAccounts,
+	type BankFileRow,
+} from "./bankUploadFile";
 
 // 2026-10-14 09:30:00.000 local time; Date.now() for it ends in the ten digits the
 // Cashfree transferId takes.
@@ -165,10 +173,13 @@ describe("withTakenAccounts — the file pays what take_vendor_accounts recorded
 		const changed = vendorPayment({ name: "PAY-0009", documentName: "PO/009/26-27", paidTo: { ...own(ACME), switch_to: readAt } });
 		// Read at export: no switch. The vendor's account changed before the take, so the server switched it.
 		const nowSwitched = vendorPayment({ name: "PAY-0010", documentName: "PO/010/26-27" });
-		const rows = withTakenAccounts([changed, nowSwitched], [
-			{ name: "PAY-0009", paid_to: { ...own(ACME), switch_to: recorded } },
-			{ name: "PAY-0010", paid_to: { ...own(ACME), switch_to: recorded } },
-		]);
+		const { rows } = withTakenAccounts([changed, nowSwitched], {
+			taken: [
+				{ name: "PAY-0009", paid_to: { ...own(ACME), switch_to: recorded } },
+				{ name: "PAY-0010", paid_to: { ...own(ACME), switch_to: recorded } },
+			],
+			skipped: [],
+		});
 
 		const file = buildBankFile(rows, ICICI);
 
@@ -184,12 +195,60 @@ describe("withTakenAccounts — the file pays what take_vendor_accounts recorded
 	it("leaves out a payment the server found nowhere to pay, and leaves expenses as read", () => {
 		const lostIt = vendorPayment({ name: "PAY-0011", paidTo: { ...NO_ACCOUNT_PAYMENT, missing: null, switch_to: readAt } });
 		const expense: BankFileRow = { ...vendorPayment({ kind: "expense", name: "PAY-0011", documentName: "PE-1" }) };
-		const rows = withTakenAccounts([lostIt, expense], [{ name: "PAY-0011", paid_to: NO_ACCOUNT_PAYMENT }]);
+		const { rows } = withTakenAccounts([lostIt, expense], {
+			taken: [{ name: "PAY-0011", paid_to: NO_ACCOUNT_PAYMENT }],
+			skipped: [],
+		});
 
 		const file = buildBankFile(rows, ICICI);
 
 		expect(file.leftOut.map((l) => [l.row.name, l.reason])).toEqual([["PAY-0011", "vendor_has_no_account"]]);
 		expect(file.payable).toEqual([expense]);
+	});
+});
+
+describe("a payment no longer Approved is left out of the file (#1463)", () => {
+	it("drops each skipped PO / WO payment, keeps the rest in order, and names the skipped ones", () => {
+		const stale = vendorPayment({ name: "PAY-0020", documentName: "PO/020/26-27" });
+		const fresh = vendorPayment({ name: "PAY-0021", documentName: "PO/021/26-27" });
+		const expense = vendorPayment({ kind: "expense", name: "PAY-0020", documentName: "PE-9" });
+
+		const { rows, skipped } = withTakenAccounts([stale, fresh, expense], {
+			taken: [{ name: "PAY-0021", paid_to: own(ACME) }],
+			skipped: [{ name: "PAY-0020", status: "Reconciliation Pending" }],
+		});
+		const file = buildBankFile(rows, ICICI);
+
+		expect(file.rows.map((r) => r.REMARK)).toEqual(["PO/021/26-27", "PE-9"]);
+		expect(skipped).toEqual([{ row: stale, status: "Reconciliation Pending" }]);
+		expect(describeSkipped(skipped)).toBe("Left out, no longer Approved: PO/020/26-27 (Reconciliation Pending)");
+	});
+
+	it("says nothing when nothing was skipped", () => {
+		expect(describeSkipped([])).toBeNull();
+	});
+
+	it("names the first three skipped and counts the rest", () => {
+		const skipped = ["1", "2", "3", "4"].map((n) => ({ row: vendorPayment({ documentName: `PO/00${n}` }), status: "Paid" }));
+		expect(describeSkipped(skipped)).toBe(
+			"Left out, no longer Approved: PO/001 (Paid) · PO/002 (Paid) · PO/003 (Paid) · +1 more",
+		);
+	});
+});
+
+describe("shownSwitches — what the export tells take_vendor_accounts the payer was shown (#1463)", () => {
+	const shown = { account_name: "ACME TRADERS PVT LTD", account_number: "50100234567812", ifsc: "ICIC0000456" };
+
+	it("sends every PO / WO payment the file pays with the switch its Paid to cell showed, or null", () => {
+		const switching = vendorPayment({ name: "PAY-0030", shownSwitchTo: shown, paidTo: { ...own(ACME), switch_to: shown } });
+		const keeping = vendorPayment({ name: "PAY-0031" });
+		const expense = vendorPayment({ kind: "expense", name: "PE-1", documentName: "PE-1" });
+		const leftOut = vendorPayment({ name: "PAY-0032", paidTo: NO_ACCOUNT_PAYMENT });
+
+		expect(shownSwitches(buildBankFile([switching, keeping, expense, leftOut], ICICI))).toEqual([
+			{ name: "PAY-0030", shown },
+			{ name: "PAY-0031", shown: null },
+		]);
 	});
 });
 

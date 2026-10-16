@@ -154,6 +154,48 @@ export const rowEligibility = (paidTo: PaidTo | undefined, expenseType: string):
     }
 };
 
+/** Why a held payment can't be paid now (Mark as Paid's toast). */
+export const HELD_REASON = "It is on hold.";
+
+/**
+ * Why a row on "Payment need to paid" can't be ticked or marked paid now, as the screen says it, or
+ * null when it can. THE rule `queueRowActions.canPayQueueRow` reads: an Ineligible row (nowhere to
+ * send its money, `rowEligibility`) or a held payment (`held`). A row kept out of the bank file can
+ * be paid: only the export leaves it out.
+ */
+export const unpayableReason = (paidTo: PaidTo | undefined, expenseType: string, held: boolean): string | null => {
+    const eligibility = rowEligibility(paidTo, expenseType);
+    if (eligibility.kind === "ineligible") return eligibility.text;
+    return held ? HELD_REASON : null;
+};
+
+/** A PO / WO payment `take_vendor_accounts` left alone because it is no longer Approved, with the
+ *  status it found. */
+export interface SkippedPayment {
+    name: string;
+    status: string;
+}
+
+/**
+ * The rows without the PO / WO payments `take_vendor_accounts` skipped (#1463): one no longer
+ * Approved is not marked paid again, nor put in the bank file. `skipped` pairs each left-out row with
+ * the status the server found, so the toast can name it. Expenses are never skipped here.
+ */
+export const leaveOutSkipped = <T extends { doctype: string; name: string }>(
+    rows: readonly T[],
+    skipped: readonly SkippedPayment[],
+): { kept: T[]; skipped: { row: T; status: string }[] } => {
+    const statusOf = new Map(skipped.map((s) => [s.name, s.status]));
+    const kept: T[] = [];
+    const left: { row: T; status: string }[] = [];
+    for (const row of rows) {
+        const status = row.doctype === PAYMENT_DOCTYPE ? statusOf.get(row.name) : undefined;
+        if (status === undefined) kept.push(row);
+        else left.push({ row, status });
+    }
+    return { kept, skipped: left };
+};
+
 export const VENDOR_ACCOUNT_TITLE = "Will be paid into the vendor's current account";
 
 /** The line under a PO / WO payment paid into its own account because its vendor has none now. */

@@ -393,7 +393,7 @@ class TestPaidTo(FrappeTestCase):
         on_cheque = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True)
         self._on_cheque(PAYMENT, on_cheque)
 
-        taken = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[by_mode, on_cheque])
+        taken = self._take([by_mode, on_cheque])["taken"]
 
         self.assertEqual([(t["name"], t["paid_to"]["switch_to"]) for t in taken], [(by_mode, None), (on_cheque, None)])
         for payment in (by_mode, on_cheque):
@@ -412,6 +412,15 @@ class TestPaidTo(FrappeTestCase):
     def _stored_copy(self, payment):
         return frappe.db.get_value(PAYMENT, payment, list(PAY_TO_FIELDS), as_dict=True)
 
+    def _take(self, names, *, user=ACCOUNTANT_USER, shown=None):
+        """Mark as Paid / Export for Payment's take: each payment sent with the vendor's account the screen
+        showed it is paid into (`switch_to`, or None), read now as the screen reads it unless `shown`
+        gives what an earlier read showed."""
+        if shown is None:
+            shown = [a["switch_to"] for a in get_paid_to([{"doctype": PAYMENT, "name": n} for n in names])]
+        return self._as(user, take_vendor_accounts,
+                        payments=[{"name": name, "shown": account} for name, account in zip(names, shown)])
+
     def _mark_paid(self, payment):
         """Mark as Paid, as the screen writes it (`updateDoc`, through `frappe.client.set_value`)."""
         frappe.client.set_value(PAYMENT, payment, "status", "Reconciliation Pending")
@@ -421,7 +430,7 @@ class TestPaidTo(FrappeTestCase):
         raised_with, vendor_now = self.payees.payee(), self.payees.payee()
         payment = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True)
 
-        taken = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[payment])
+        taken = self._take([payment])["taken"]
         self._as(ACCOUNTANT_USER, self._mark_paid, payment=payment)
 
         self.assertEqual(taken, [{"name": payment, "paid_to": {**taken[0]["paid_to"],
@@ -436,36 +445,64 @@ class TestPaidTo(FrappeTestCase):
         vendor_now = self.payees.payee()
         payment = self._payment(self._vendor(vendor_now), saved=True)
 
-        taken = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[payment])
+        taken = self._take([payment])["taken"]
 
         self.assertEqual([(t["paid_to"]["account"], t["paid_to"]["switch_to"]) for t in taken],
                          [(None, self._account(vendor_now))])
         self.assertEqual(self._stored_copy(payment), self._copy_of(vendor_now))
         self.assertEqual(get_pay_to_box(PAYMENT, payment)["named_by"]["user"], ACCOUNTANT_USER)
 
-    def test_paying_answers_the_account_it_recorded_when_the_vendors_changed_after_the_screen_read_it(self):
-        # Export for Payment reads who to pay, then takes the vendor's account. If the vendor's account
-        # changes in between, the file must pay the account the payment now records, so the file is
-        # built from what this answers, not from the earlier read.
+    def test_paying_refuses_a_switch_the_payer_was_not_shown_and_writes_nothing(self):
+        # GLOSSARY *Pay-to account*: "the payer is told before that happens". The confirmation (or the
+        # Paid to cell) showed each payment's switch; the vendor's account is edited before the take,
+        # so the server's fresh decision is not what the payer saw: the whole call is refused, the
+        # payment that still matches included.
+        for case in ("a switch shown, another one now", "no switch shown, one now"):
+            with self.subTest(case):
+                raised_with, vendor_now = self.payees.payee(), self.payees.payee()
+                if case.startswith("a switch"):
+                    edited = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True)
+                else:
+                    edited = self._payment(self._vendor(vendor_now), copy_of=vendor_now, saved=True)
+                still_matches = self._payment(self._vendor(self.payees.payee()), copy_of=raised_with, saved=True)
+                names = [edited, still_matches]
+                shown = [a["switch_to"] for a in get_paid_to([{"doctype": PAYMENT, "name": n} for n in names])]
+                before = {name: self._stored_copy(name) for name in names}
+                self._edit_account(vendor_now, account_number=self.payees.account_number())
+
+                with self.assertRaisesRegex(frappe.ValidationError, r"changed again\. Refresh and try again\."):
+                    self._take(names, shown=shown)
+
+                self.assertEqual({name: self._stored_copy(name) for name in names}, before)
+                self.assertIsNone(frappe.db.get_value(
+                    "Version", {"ref_doctype": PAYMENT, "docname": ["in", names], "data": ["like", '%"pay_to_%']}))
+
+    def test_paying_names_each_payment_whose_vendors_account_changed_again(self):
+        payee = self.payees.payee()
+        payment = self._payment(self._vendor(payee), copy_of=payee, saved=True)
+        frappe.db.set_value(PAYMENT, payment, {"document_type": "Procurement Orders",
+                                               "document_name": "PO/TEST/AGAIN"}, update_modified=False)
+        frappe.db.commit()
+        self._edit_account(payee, account_number=self.payees.account_number())
+
+        with self.assertRaises(frappe.ValidationError) as refused:
+            self._take([payment], shown=[None])
+        self.assertIn("The vendor's account for PO/TEST/AGAIN changed again. Refresh and try again.",
+                      str(refused.exception))
+
+    def test_paying_takes_the_switch_it_showed_however_its_account_number_is_written(self):
+        # The comparison is the switch rule's: normalised account number and IFSC, so the screen's
+        # copy of the account matches the server's whatever spaces or case it carries.
         raised_with, vendor_now = self.payees.payee(), self.payees.payee()
-        changed = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True)
-        same = self.payees.payee()
-        was_same = self._payment(self._vendor(same), copy_of=same, saved=True)
-        read_first = get_paid_to([{"doctype": PAYMENT, "name": changed}, {"doctype": PAYMENT, "name": was_same}])
-        self._edit_account(vendor_now, account_number=self.payees.account_number())
-        self._edit_account(same, account_number=self.payees.account_number())
+        payment = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True)
+        account = self._account(vendor_now)
+        shown = {**account, "account_number": f" {account['account_number'][:4]} {account['account_number'][4:]}",
+                 "ifsc": account["ifsc"].lower()}
 
-        taken = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[changed, was_same])
+        taken = self._take([payment], shown=[shown])["taken"]
 
-        self.assertEqual(read_first[1]["switch_to"], None)
-        for payment, answer in zip((changed, was_same), taken):
-            with self.subTest(payment=payment):
-                self.assertEqual(answer["name"], payment)
-                paid_into = answer["paid_to"]["switch_to"]
-                stored = self._stored_copy(payment)
-                self.assertEqual(paid_into["account_number"], stored.pay_to_account_number)
-                self.assertEqual(paid_into["ifsc"], stored.pay_to_ifsc)
-        self.assertNotEqual(taken[0]["paid_to"]["switch_to"], read_first[0]["switch_to"])
+        self.assertEqual(taken[0]["paid_to"]["switch_to"], account)
+        self.assertEqual(self._stored_copy(payment), self._copy_of(vendor_now))
 
     def test_paying_leaves_a_payment_whose_vendors_account_did_not_change_untouched(self):
         payee = self.payees.payee()
@@ -477,7 +514,7 @@ class TestPaidTo(FrappeTestCase):
         before = {name: (self._stored_copy(name), frappe.db.get_value(PAYMENT, name, "modified"))
                   for name in (unchanged, renamed, nowhere)}
 
-        taken = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=list(before))
+        taken = self._take(list(before))["taken"]
         for name in before:
             self._as(ACCOUNTANT_USER, self._mark_paid, payment=name)
 
@@ -491,22 +528,30 @@ class TestPaidTo(FrappeTestCase):
                 self.assertIsNone(frappe.db.get_value(
                     "Version", {"ref_doctype": PAYMENT, "docname": name, "data": ["like", '%"pay_to_%']}))
 
-    def test_paying_refuses_a_payment_that_is_no_longer_approved(self):
-        # The screen sends only Approved rows; a paid one keeps saying where its money went.
+    def test_paying_skips_a_payment_that_is_no_longer_approved_and_takes_the_rest(self):
+        # One stale row does not block the batch: it comes back skipped, with its status, and keeps
+        # saying where its money went; the screen leaves it out of the marking and the bank file.
         raised_with, vendor_now = self.payees.payee(), self.payees.payee()
-        paid = self._payment(self._vendor(vendor_now), copy_of=raised_with, status="Reconciliation Pending",
-                             saved=True)
+        paid = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True)
+        approved = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True)
+        shown = [a["switch_to"] for a in get_paid_to([{"doctype": PAYMENT, "name": n} for n in (paid, approved)])]
+        frappe.db.set_value(PAYMENT, paid, "status", "Reconciliation Pending", update_modified=False)
+        frappe.db.commit()
 
-        with self.assertRaises(frappe.ValidationError):
-            self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[paid])
+        answer = self._take([paid, approved], shown=shown)
+
+        self.assertEqual(answer["skipped"], [{"name": paid, "status": "Reconciliation Pending"}])
+        self.assertEqual([(t["name"], t["paid_to"]["switch_to"]) for t in answer["taken"]],
+                         [(approved, self._account(vendor_now))])
         self.assertEqual(self._stored_copy(paid), self._copy_of(raised_with))
+        self.assertEqual(self._stored_copy(approved), self._copy_of(vendor_now))
 
     def test_paying_asks_write_permission_on_the_payment(self):
         raised_with, vendor_now = self.payees.payee(), self.payees.payee()
         payment = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True)
 
         with self.assertRaises(frappe.PermissionError):
-            self._as(PMO_USER, take_vendor_accounts, names=[payment])
+            self._take([payment], user=PMO_USER)
         self.assertEqual(self._stored_copy(payment), self._copy_of(raised_with))
 
     # -- payment autofill's name check ------------------------------------------------------------

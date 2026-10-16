@@ -29,12 +29,15 @@ whether it may be removed).
   paid, and who set the account.
 * `vendor_account_to_take` -- the rule: which vendor account, if any, a PO / WO payment is paid
   into in place of its copy.
+* `account_key` -- what makes two accounts the same one: the rule's comparison.
 
 An answer is a dict so later rules add keys to it (one place: `_answer`); every reader passes it on
 whole.
 """
 
 from __future__ import annotations
+
+from typing import NamedTuple
 
 import frappe
 from frappe import _
@@ -73,6 +76,15 @@ def assert_paid_to_doctype(doctype: str, allowed=PAID_TO_DOCTYPES) -> None:
         frappe.throw(_("{0} is not a payment or an expense.").format(doctype))
 
 
+class _RowFacts(NamedTuple):
+    """What `paid_to_rows` decides about a row before reading the expense types and vendors."""
+
+    row: dict
+    expense: bool
+    by_cheque: bool
+    may_switch: bool
+
+
 def paid_to_rows(rows: list[dict]) -> list[dict]:
     """Who each row is paid to, in order. A row carries `doctype`, `name`, `status`, `vendor`,
     `expense_type`, `mode_of_payment` and its pay-to fields. Each answer is `{account, missing,
@@ -97,23 +109,23 @@ def paid_to_rows(rows: list[dict]) -> list[dict]:
     for row in rows:
         expense = _is_expense(row.get("doctype"))
         by_cheque = (row.get("doctype"), row.get("name")) in on_cheque or (not expense and is_cheque(row))
-        facts.append((row, expense, by_cheque, _may_switch(row, expense, by_cheque)))
-    rules = _payee_rules({row.get("expense_type") for row, expense, _, _ in facts if expense})
-    accounts_now = vendor_accounts([row.get("vendor") for row, _, _, may_switch in facts if may_switch])
-    return [_answer(*fact, rules, accounts_now) for fact in facts]
+        facts.append(_RowFacts(row, expense, by_cheque, _may_switch(row, expense, by_cheque)))
+    rules = _payee_rules({fact.row.get("expense_type") for fact in facts if fact.expense})
+    accounts_now = vendor_accounts([fact.row.get("vendor") for fact in facts if fact.may_switch])
+    return [_answer(fact, rules, accounts_now) for fact in facts]
 
 
-def _answer(row: dict, expense: bool, by_cheque: bool, may_switch: bool, rules: dict[str, str],
-            accounts_now: dict[str, dict]) -> dict:
+def _answer(fact: _RowFacts, rules: dict[str, str], accounts_now: dict[str, dict]) -> dict:
+    row = fact.row
     account = pay_to_account(row)
     answer = {"account": account, "missing": None, "payee_rule": None, "switch_to": None,
-              "by_cheque": by_cheque, "vendor_has_no_account": False}
-    if expense:
+              "by_cheque": fact.by_cheque, "vendor_has_no_account": False}
+    if fact.expense:
         answer["payee_rule"] = rules.get(row.get("expense_type")) or NOT_ASKED
         if not account:
             answer["missing"] = EXPENSE_HAS_NO_ACCOUNT
         return answer
-    if may_switch:
+    if fact.may_switch:
         vendor_account_now = accounts_now.get(row["vendor"])
         answer["switch_to"] = vendor_account_to_take(account, vendor_account_now)
         answer["vendor_has_no_account"] = bool(account) and not vendor_account_now
@@ -154,12 +166,18 @@ def vendor_account_to_take(copy: dict | None, vendor_account_now: dict | None) -
     copy, or has no account at all."""
     if not vendor_account_now:
         return None
-    if copy and (
-        normalize_account(copy.get("account_number")) == normalize_account(vendor_account_now.get("account_number"))
-        and normalize_ifsc(copy.get("ifsc")) == normalize_ifsc(vendor_account_now.get("ifsc"))
-    ):
+    if copy and account_key(copy) == account_key(vendor_account_now):
         return None
     return {field: vendor_account_now[field] for field in ACCOUNT_FIELDS}
+
+
+def account_key(account: dict | None) -> tuple[str, str] | None:
+    """What makes two accounts the same one: the normalised account number and IFSC, in a Payee's
+    field names; None for no account. `vendor_account_to_take` switches when the keys differ, and
+    `take_vendor_account` compares the switch the payer was shown with its own by this."""
+    if not account:
+        return None
+    return normalize_account(account.get("account_number")), normalize_ifsc(account.get("ifsc"))
 
 
 def paid_to_for(keys: list[dict]) -> list[dict]:

@@ -211,6 +211,25 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
         setInvoiceAttachmentAction("remove");
     };
 
+    // THE close: Cancel, Escape and a save all come through here, so the next open starts clean (Who
+    // gets paid included). A save closes it here too, not only through the parent's store write,
+    // which bypasses `onOpenChange`.
+    const closeDialog = useCallback(() => {
+        setEditNonProjectExpenseDialog(false);
+        setFormState({ type: "", description: "", comment: "", amount: "", payment_date: "", payment_ref: "", invoice_date: "", invoice_ref: "" });
+        setFormErrors({});
+        setRecordPaymentDetails(false);
+        setRecordInvoiceDetails(false);
+        setNewPaymentAttachmentFile(null);
+        setNewInvoiceAttachmentFile(null);
+        setExistingPaymentAttachmentUrl(undefined);
+        setExistingInvoiceAttachmentUrl(undefined);
+        setPaymentAttachmentAction("keep");
+        setInvoiceAttachmentAction("keep");
+        setExpenseTypePopoverOpen(false);
+        resetPayTo();
+    }, [resetPayTo, setEditNonProjectExpenseDialog]);
+
     const handleSubmit = useCallback(async () => {
         if (!validateForm()) {
             toast({ title: "Validation Error", description: "Please correct the form errors.", variant: "destructive" });
@@ -266,34 +285,18 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
             await updateDoc("Non Project Expenses", expenseToEdit.name, dataToUpdate);
             await payTo.apply(payee);
             toast({ title: "Success!", description: "Non-project expense updated successfully!", variant: "success" });
-            // The parent closes the dialog through the store, past `onOpenChange`: start the next open clean.
-            resetPayTo();
-            onSuccess?.(); // This will refetch and close dialog (from parent)
+            closeDialog();
+            onSuccess?.(); // The parent refetches.
         } catch (error: any) {
             console.error("Error updating non-project expense:", error);
             toast({ title: "Failed!", description: getFrappeError(error) || "Failed to update expense.", variant: "destructive" });
         }
     }, [
-        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload, isPaid, payTo, resetPayTo,
+        updateDoc, expenseToEdit.name, formState, validateForm, toast, onSuccess, upload, isPaid, payTo, closeDialog,
         recordPaymentDetails, paymentAttachmentAction, newPaymentAttachmentFile,
         recordInvoiceDetails, invoiceAttachmentAction, newInvoiceAttachmentFile
     ]);
 
-    const handleDialogCloseAttempt = useCallback(() => {
-        // Reset local form states, but the dialog's open state is controlled by parent via Zustand
-        setFormState({ type: "", description: "", comment: "", amount: "", payment_date: "", payment_ref: "", invoice_date: "", invoice_ref: "" });
-        setFormErrors({});
-        setRecordPaymentDetails(false);
-        setRecordInvoiceDetails(false);
-        setNewPaymentAttachmentFile(null);
-        setNewInvoiceAttachmentFile(null);
-        setExistingPaymentAttachmentUrl(undefined);
-        setExistingInvoiceAttachmentUrl(undefined);
-        setPaymentAttachmentAction("keep");
-        setInvoiceAttachmentAction("keep");
-        setExpenseTypePopoverOpen(false);
-        resetPayTo();
-    }, [resetPayTo]);
 
 
     const isLoadingOverall = updateLoading || uploadLoading || expenseTypesLoading || payTo.busy;
@@ -353,10 +356,7 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     return (
         <AlertDialog
             open={editNonProjectExpenseDialog}
-            onOpenChange={(isOpen) => {
-                setEditNonProjectExpenseDialog(isOpen);
-                if (!isOpen) handleDialogCloseAttempt();
-            }}
+            onOpenChange={(isOpen) => (isOpen ? setEditNonProjectExpenseDialog(true) : closeDialog())}
         >
             <AlertDialogContent className="max-w-lg">
                 <AlertDialogHeader>

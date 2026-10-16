@@ -5,16 +5,18 @@
  */
 
 import type { PayToAccount } from "@/types/NirmaanStack/Payee";
-import type { NamedBy, PaidTo } from "@/utils/payees/paidTo";
+import type { NamedBy, PaidTo, SkippedPayment } from "@/utils/payees/paidTo";
 
 import type { PayeeChoiceApis } from "./usePayeeChoice";
 
 const API = "nirmaan_stack.api.payees.paid_to";
 /** Who each `{doctype, name}` row is paid to, read now (Export for Payment). */
 export const PAID_TO_API = `${API}.get_paid_to`;
-/** Export for Payment and Mark as Paid: write the vendor's current account onto each named PO / WO
- *  payment that switches to it (#1463). Takes `{names}`: every PO / WO payment being paid, since the
- *  server decides again which switch. Returns a `TakenVendorAccount` per payment. */
+/** Export for Payment and Mark as Paid: write the vendor's current account onto each PO / WO payment
+ *  that switches to it (#1463). Takes `{payments}`, a `ShownSwitch` for every PO / WO payment being
+ *  paid: the server decides again which switch, and refuses the whole call ("The vendor's account for
+ *  <PO> changed again. Refresh and try again.") when that is not the switch the payer was shown.
+ *  Returns a `TakeVendorAccountsAnswer`. */
 export const TAKE_VENDOR_ACCOUNTS_API = `${API}.take_vendor_accounts`;
 /** Record Payment's "Pay ₹X to" box, for an expense or a PO / WO payment. */
 export const PAY_TO_BOX_API = `${API}.get_pay_to_box`;
@@ -41,7 +43,21 @@ export interface TakenVendorAccount {
     name: string;
     paid_to: PaidTo;
 }
-export type { PaidTo };
+/** One PO / WO payment sent to `take_vendor_accounts`: the vendor's account the screen showed it is paid
+ *  into (its `switch_to` as shown: Mark as Paid's confirmation, the Paid to cell), or null when it
+ *  showed no switch. */
+export interface ShownSwitch {
+    name: string;
+    shown: PayToAccount | null;
+}
+
+/** `take_vendor_accounts`' whole answer: the payments it took, and those it skipped as no longer
+ *  Approved, which the screen leaves out of the marking and the bank file. */
+export interface TakeVendorAccountsAnswer {
+    taken: TakenVendorAccount[];
+    skipped: SkippedPayment[];
+}
+export type { PaidTo, SkippedPayment };
 
 /** `paid_to.pay_to_box`: the "Pay ₹X to" box for one row: its Paid to answer, plus the facts around it. */
 export interface PayToBox extends PaidTo {

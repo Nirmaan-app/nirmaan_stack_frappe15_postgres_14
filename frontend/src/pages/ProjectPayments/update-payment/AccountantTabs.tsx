@@ -71,11 +71,15 @@ import { QueueRowEditDialog } from "../components/QueueRowEditDialog"
 import { canEditQueueRow, canHoldQueueRow, canPayQueueRow, canWorkQueueRows, isHeldQueueRow } from "../config/queueRowActions"
 import { PAYMENT_HOLD_ROW_CLASSES, PaymentHoldNotice } from "../components/PaymentHoldNotice"
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
-import { buildBankFile, describeLeftOut, describeSwitched, withTakenAccounts, type BankFile, type BankFileRow } from "../bankUploadFile";
 import {
-    PAID_TO_API, TAKE_VENDOR_ACCOUNTS_API, type PaidTo, type PaidToKey, type TakenVendorAccount,
+    buildBankFile, describeLeftOut, describeSkipped, describeSwitched, shownSwitches, withTakenAccounts,
+    type BankFile, type BankFileRow,
+} from "../bankUploadFile";
+import {
+    PAID_TO_API, TAKE_VENDOR_ACCOUNTS_API, type PaidTo, type PaidToKey, type ShownSwitch, type TakeVendorAccountsAnswer,
 } from "@/components/payees/paidToApi";
-import { PAYMENT_DOCTYPE, rowEligibility, switchLine } from "@/utils/payees/paidTo";
+import { PAYMENT_DOCTYPE, leaveOutSkipped, switchLine, unpayableReason } from "@/utils/payees/paidTo";
+import { toastList } from "@/utils/toastList";
 
 // --- Constants ---
 const DOCTYPE = DOC_TYPES.PROJECT_PAYMENTS;
@@ -182,17 +186,19 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     // Who each row is paid to, read again when the bank file is built and when Mark as Paid confirms.
     const { call: fetchPaidTo } = useFrappePostCall<{ message: PaidTo[] }>(PAID_TO_API);
     const readPaidTo = useCallback(
-        async (rows: { doctype: string; name: string }[]): Promise<PaidTo[]> =>
-            (await fetchPaidTo({ rows: rows.map((r): PaidToKey => ({ doctype: r.doctype, name: r.name })) })).message,
+        async (rows: PaidToKey[]): Promise<PaidTo[]> =>
+            (await fetchPaidTo({ rows: rows.map(({ doctype, name }): PaidToKey => ({ doctype, name })) })).message,
         [fetchPaidTo]
     );
     // A PO / WO payment paid into its vendor's current account (#1463): Export for Payment and Mark as
-    // Paid send every PO / WO payment they pay, and the server writes that account onto each that
-    // switches, so the record says where the money went. Its answer is what was written.
-    const { call: takeVendorAccounts } = useFrappePostCall<{ message: TakenVendorAccount[] }>(TAKE_VENDOR_ACCOUNTS_API);
+    // Paid send every PO / WO payment they pay, each with the switch the payer was shown, and the
+    // server writes that account onto each that switches, so the record says where the money went.
+    // It refuses the whole call when its fresh decision is not what the payer was shown, and skips a
+    // payment no longer Approved. Its answer is what was written.
+    const { call: takeVendorAccounts } = useFrappePostCall<{ message: TakeVendorAccountsAnswer }>(TAKE_VENDOR_ACCOUNTS_API);
     const takeVendorAccountsOf = useCallback(
-        async (names: string[]): Promise<TakenVendorAccount[]> =>
-            names.length > 0 ? (await takeVendorAccounts({ names })).message : [],
+        async (payments: ShownSwitch[]): Promise<TakeVendorAccountsAnswer> =>
+            payments.length > 0 ? (await takeVendorAccounts({ payments })).message : { taken: [], skipped: [] },
         [takeVendorAccounts]
     );
 
@@ -216,18 +222,14 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         }
         const read = rows.map((row, i): ApprovalQueueRow => ({ ...row, paid_to: fresh[i] }));
         const payable = read.filter(canPayQueueRow);
-        const unpayable = read.filter((row) => !canPayQueueRow(row));
+        const unpayable = read.flatMap((row) => {
+            const reason = unpayableReason(row.paid_to, row.expense_type, isHeldQueueRow(row));
+            return reason ? [`${row.against_primary}: ${reason}`] : [];
+        });
         if (unpayable.length > 0) {
-            const list = unpayable
-                .slice(0, 3)
-                .map((row) => {
-                    const eligibility = rowEligibility(row.paid_to, row.expense_type);
-                    return `${row.against_primary}: ${eligibility.kind === "payable" ? "it is on hold." : eligibility.text}`;
-                })
-                .join(" · ");
             toast({
                 title: unpayable.length === 1 ? "1 row can't be paid now" : `${unpayable.length} rows can't be paid now`,
-                description: unpayable.length > 3 ? `${list} · +${unpayable.length - 3} more` : list,
+                description: toastList(unpayable),
                 variant: "destructive",
             });
         }
@@ -423,27 +425,32 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
      * never rolls back the others — it is reported, and the rest still move.
      *
      * FIRST, in one call, every PO / WO payment of the confirmation is sent to take its vendor's
-     * current account (#1463): the server decides again, under a lock, which switch, so one whose
-     * vendor's account changed since the confirmation read it is still paid into the right one. If
-     * that fails nothing is marked: a payment must not be recorded as paid while it still holds the
-     * old account.
+     * current account (#1463), with the switch the confirmation showed for it: the server decides
+     * again, under a lock, and refuses the whole call when the vendor's account changed since the
+     * confirmation read it, so no payment is paid into an account the payer was not shown. If that
+     * fails nothing is marked: a payment must not be recorded as paid while it still holds the old
+     * account. A payment it skips as no longer Approved is left out of the marking, and the toast
+     * names it.
      */
     const handleMarkPaid = useCallback(async () => {
         if (!confirmPaidRows?.length) return;
-        const rows = confirmPaidRows;
         const failed: { row: ApprovalQueueRow; reason: string }[] = [];
         setMarkingProgress(0);
-        let switchedCount = 0;
+        let answer: TakeVendorAccountsAnswer;
         try {
-            const taken = await takeVendorAccountsOf(
-                rows.filter((row) => row.doctype === PAYMENT_DOCTYPE).map((row) => row.name)
-            );
-            switchedCount = taken.filter((t) => t.paid_to.switch_to).length;
+            answer = await takeVendorAccountsOf(confirmPaidRows
+                .filter((row) => row.doctype === PAYMENT_DOCTYPE)
+                .map((row): ShownSwitch => ({ name: row.name, shown: row.paid_to?.switch_to ?? null })));
         } catch (error) {
             setMarkingProgress(null);
             toast({ title: "Could not mark as Paid", description: getFrappeError(error), variant: "destructive" });
             return;
         }
+        const switchedCount = answer.taken.filter((t) => t.paid_to.switch_to).length;
+        const { kept: rows, skipped } = leaveOutSkipped(confirmPaidRows, answer.skipped);
+        const skippedNote = skipped.length > 0
+            ? ` Left out, no longer Approved: ${toastList(skipped.map((s) => `${s.row.against_primary} (${s.status})`))}.`
+            : "";
         for (let i = 0; i < rows.length; i++) {
             try {
                 await updateDoc(rows[i].doctype, rows[i].name, {
@@ -460,31 +467,29 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         const switchedNote = switchedCount > 0
             ? ` ${switchedCount === 1 ? "1 payment was" : `${switchedCount} payments were`} paid into the vendor's current account.`
             : "";
-        if (failed.length === 0) {
+        if (rows.length === 0) {
+            toast({ title: "Nothing marked as Paid", description: skippedNote.trim(), variant: "destructive" });
+        } else if (failed.length === 0) {
             toast({
                 title: "Marked as Paid",
                 description: (rows.length === 1
                     ? `${rows[0].against_primary} moved to Reconciliation Pending.`
-                    : `${countLabel(summarizeSelection(rows))} moved to Reconciliation Pending.`) + switchedNote,
-                variant: "success",
+                    : `${countLabel(summarizeSelection(rows))} moved to Reconciliation Pending.`) + switchedNote + skippedNote,
+                variant: skipped.length > 0 ? "default" : "success",
             });
         } else {
-            const failedList = failed
-                .slice(0, 3)
-                .map((f) => `${f.row.against_primary}: ${f.reason}`)
-                .join(" · ");
             toast({
                 title: movedCount > 0
                     ? `${movedCount} marked as Paid, ${failed.length} failed`
                     : "Could not mark as Paid",
-                description: failed.length > 3 ? `${failedList} · +${failed.length - 3} more` : failedList,
+                description: toastList(failed.map((f) => `${f.row.against_primary}: ${f.reason}`)) + skippedNote,
                 variant: "destructive",
             });
         }
 
         // Nothing written → keep the dialog open so the accountant can retry, as the row
-        // button always did.
-        if (movedCount === 0) return;
+        // button always did; unless every row was skipped, which a retry can't change.
+        if (movedCount === 0 && rows.length > 0) return;
         setConfirmPaidRows(null);
         // ⚠️ RESET, EVEN AFTER A SINGLE ROW. Selection is keyed by row INDEX (the table
         // has no getRowId), so once moved rows drop out of the list every tick shifts
@@ -619,14 +624,17 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                 expenseType: payment.expense_type,
                 projectLabel: projectLabelMap.get(payment.project) ?? (payment.project || "Non Project"),
                 paidTo: paidTo[i],
+                // What the Paid to cell showed, as the page loaded it: the switch the payer was told of.
+                shownSwitchTo: payment.paid_to?.switch_to ?? null,
             };
         });
         const options = { format: exportTarget, paymentMode, debitAccountNumber, now: new Date() };
-        const nothingToExport = (file: BankFile): boolean => {
+        const nothingToExport = (file: BankFile, skipped: string | null = null): boolean => {
             if (file.rows.length > 0) return false;
+            const why = [...describeLeftOut(file.leftOut), ...(skipped ? [skipped] : [])];
             toast({
                 title: "Nothing to export",
-                description: `No selected row can go in the bank file: ${describeLeftOut(file.leftOut).join("; ")}.`,
+                description: `No selected row can go in the bank file: ${why.join("; ")}.`,
                 variant: "destructive",
             });
             setIsExportDialogOpen(false);
@@ -636,20 +644,24 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         if (nothingToExport(draft)) return;
 
         // Every PO / WO payment the file pays takes its vendor's current account where it switches,
-        // BEFORE the file is saved, and the file is then built from what the server wrote: it decides
-        // again under a lock, so a vendor's account changed since the read above is the one both the
-        // file and the payment hold. If that fails, there is no file.
+        // BEFORE the file is saved, and the file is then built from what the server wrote. Each is sent
+        // with the switch its Paid to cell showed: the server decides again under a lock and refuses the
+        // whole call when that is not what the payer was shown. A payment no longer Approved is left
+        // out of the file. If the call fails, there is no file.
         let bankFile = draft;
+        let skippedPart: string | null = null;
         try {
-            const taken = await takeVendorAccountsOf(
-                draft.payable.filter((row) => row.kind === "vendor_payment").map((row) => row.name)
-            );
-            bankFile = buildBankFile(withTakenAccounts(bankRows, taken), options);
+            const taken = withTakenAccounts(bankRows, await takeVendorAccountsOf(shownSwitches(draft)));
+            bankFile = buildBankFile(taken.rows, options);
+            skippedPart = describeSkipped(taken.skipped);
         } catch (error) {
             toast({ title: "Export failed", description: getFrappeError(error), variant: "destructive" });
             return;
         }
-        if (nothingToExport(bankFile)) return;
+        if (nothingToExport(bankFile, skippedPart)) {
+            if (skippedPart) refetch();
+            return;
+        }
         const skippedParts = describeLeftOut(bankFile.leftOut);
         const switchedPart = describeSwitched(bankFile.switched);
 
@@ -667,13 +679,14 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             title: "Export Successful",
             description: `${bankFile.rows.length} payments exported.`
                 + (switchedPart ? ` ${switchedPart}.` : "")
-                + (skippedParts.length > 0 ? ` Left out: ${skippedParts.join("; ")}.` : ""),
-            variant: bankFile.leftOut.length > 0 ? "default" : "success",
+                + (skippedParts.length > 0 ? ` Left out: ${skippedParts.join("; ")}.` : "")
+                + (skippedPart ? ` ${skippedPart}.` : ""),
+            variant: bankFile.leftOut.length > 0 || skippedPart ? "default" : "success",
         });
         setIsExportDialogOpen(false); // Close dialog
         table.resetRowSelection(); // Clear selection
-        // A switched payment's Paid to cell now reads its new account.
-        if (bankFile.switched.length > 0) refetch();
+        // A switched payment's Paid to cell now reads its new account; a skipped one leaves the tab.
+        if (bankFile.switched.length > 0 || skippedPart) refetch();
     };
 
 

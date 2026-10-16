@@ -14,7 +14,7 @@
  * the owner still corrects Paid records in Desk. A PO / WO payment gets no pencil at all, so it
  * cannot be edited from the app in any status.
  */
-import { rowEligibility } from "@/utils/payees/paidTo";
+import { unpayableReason } from "@/utils/payees/paidTo";
 
 import { APPROVAL_STATUS, ApprovalQueueRow } from "./approvalsTable.config";
 
@@ -90,7 +90,7 @@ export const isHeldQueueRow = (row: Pick<ApprovalQueueRow, "on_hold">): boolean 
  * bank file (a cheque, a card / cash expense) can: only the export leaves it out.
  */
 export const canPayQueueRow = (row: Pick<ApprovalQueueRow, "on_hold" | "paid_to" | "expense_type">): boolean =>
-  !isHeldQueueRow(row) && rowEligibility(row.paid_to, row.expense_type).kind !== "ineligible";
+  unpayableReason(row.paid_to, row.expense_type, isHeldQueueRow(row)) === null;
 
 /** Is this expense Paid, so its money fields render read-only in the edit dialog? */
 export const isPaidExpense = (status?: string | null): boolean =>

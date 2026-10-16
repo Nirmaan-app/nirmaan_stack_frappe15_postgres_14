@@ -148,11 +148,13 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
         return () => { if (commandListElement) commandListElement.removeEventListener('wheel', handleWheel); };
     }, [expenseTypePopoverOpen]);
 
-    // Every close (Cancel, Escape, after a save) comes through here: the next open starts with nothing picked.
-    const handleDialogClose = () => {
+    // THE close: Cancel, Escape and a save all come through here, so the next open starts with nothing
+    // picked. A save closes it here too, not only through the parent's store write, which bypasses
+    // `onOpenChange`.
+    const closeDialog = useCallback(() => {
         resetPayTo();
         setEditProjectExpenseDialog(false);
-    };
+    }, [resetPayTo, setEditProjectExpenseDialog]);
 
     const handleAttachmentError = useCallback(({ message }: { type: "size" | "type", message: string }) => {
         toast({ title: "Attachment Error", description: message, variant: "destructive" });
@@ -221,8 +223,8 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
             await updateDoc(DOCTYPE, expenseToEdit.name, dataToUpdate);
             await payTo.apply(payee);
             toast({ title: "Success", description: "Expense updated successfully.", variant: "success" });
+            closeDialog();
             onSuccess?.();
-            handleDialogClose();
         } catch (error: unknown) {
             toast({ title: "Could not update the expense", description: expenseAccountSaveError(error), variant: "destructive" });
         }
@@ -240,7 +242,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
     const selectedExpenseTypeLabel = expenseTypeOptions.find(option => option.value === formState.type)?.label || "Select an expense type...";
 
     return (
-        <AlertDialog open={editProjectExpenseDialog} onOpenChange={(isOpen) => !isOpen && handleDialogClose()}>
+        <AlertDialog open={editProjectExpenseDialog} onOpenChange={(isOpen) => (isOpen ? setEditProjectExpenseDialog(true) : closeDialog())}>
             <AlertDialogContent>
                 <AlertDialogHeader>
                     <AlertDialogTitle>Edit Project Expense</AlertDialogTitle>
@@ -373,7 +375,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                 </div>
                 <AlertDialogFooter>
                     {isLoadingOverall ? <div className="flex justify-end w-full"><TailSpin color="#4f46e5" height={28} width={28} /></div> : <>
-                        <AlertDialogCancel asChild><Button variant="outline" type="button" onClick={handleDialogClose}>Cancel</Button></AlertDialogCancel>
+                        <AlertDialogCancel asChild><Button variant="outline" type="button">Cancel</Button></AlertDialogCancel>
                         <AlertDialogAction onClick={(e) => { e.preventDefault(); handleSubmit(); }} disabled={isSubmitDisabled}>Save Changes</AlertDialogAction>
                     </>}
                 </AlertDialogFooter>

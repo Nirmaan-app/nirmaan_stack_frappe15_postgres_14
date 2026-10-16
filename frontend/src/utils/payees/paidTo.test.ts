@@ -7,12 +7,14 @@ import {
     editDialogPayTo,
     expenseTitle,
     expenseTypeAside,
+    leaveOutSkipped,
     namedByText,
     paidToCell,
     paidToExportText,
     payToBoxView,
     rowEligibility,
     switchLine,
+    unpayableReason,
     type PaidTo,
 } from "./paidTo";
 
@@ -150,6 +152,51 @@ describe("rowEligibility: which rows of Payment need to paid can be paid, and ho
         expect(rowEligibility({ ...paymentWithNone, by_cheque: true }, "")).toEqual(cheque);
         // An expense on a cheque: the cheque pays it, so it is not Ineligible even with no account.
         expect(rowEligibility({ ...expenseWithNone("Required"), by_cheque: true }, "Rent Expenses")).toEqual(cheque);
+    });
+});
+
+describe("unpayableReason: why Mark as Paid leaves a row out (#1464)", () => {
+    const paymentWithNone: PaidTo = { account: null, missing: "payment_has_no_account", payee_rule: null, ...NO_SWITCH };
+    const requiredWithNone: PaidTo = { account: null, missing: "expense_has_no_account", payee_rule: "Required", ...NO_SWITCH };
+    const optionalWithNone: PaidTo = { ...requiredWithNone, payee_rule: "Optional" };
+
+    it("says nothing for a row that can be paid, kept out of the bank file or not", () => {
+        expect(unpayableReason(paid, "", false)).toBeNull();
+        expect(unpayableReason({ ...paid, by_cheque: true }, "", false)).toBeNull();
+        expect(unpayableReason(optionalWithNone, "Travel", false)).toBeNull();
+    });
+
+    it("gives an Ineligible row's reason", () => {
+        expect(unpayableReason(paymentWithNone, "", false)).toBe("Vendor has no bank account. Add it on the vendor page.");
+        expect(unpayableReason(requiredWithNone, "Rent Expenses", false)).toBe(
+            "Rent Expenses requires an account. Add it with the Edit pencil.",
+        );
+    });
+
+    it("says a held payment is on hold, even one kept out of the bank file", () => {
+        expect(unpayableReason(paid, "", true)).toBe("It is on hold.");
+        expect(unpayableReason({ ...paid, by_cheque: true }, "", true)).toBe("It is on hold.");
+    });
+});
+
+describe("leaveOutSkipped: rows take_vendor_accounts found no longer Approved (#1463)", () => {
+    const payment = (name: string) => ({ doctype: "Project Payments", name, against_primary: name });
+
+    it("leaves out each skipped PO / WO payment with the status the server found, and keeps the rest in order", () => {
+        const rows = [payment("PAY-1"), { doctype: "Project Expenses", name: "PAY-2", against_primary: "Travel" }, payment("PAY-3")];
+
+        const { kept, skipped } = leaveOutSkipped(rows, [
+            { name: "PAY-1", status: "Reconciliation Pending" },
+            { name: "PAY-2", status: "Paid" },
+        ]);
+
+        expect(kept.map((r) => r.name)).toEqual(["PAY-2", "PAY-3"]);
+        expect(skipped).toEqual([{ row: rows[0], status: "Reconciliation Pending" }]);
+    });
+
+    it("keeps every row when nothing was skipped", () => {
+        const rows = [payment("PAY-1")];
+        expect(leaveOutSkipped(rows, [])).toEqual({ kept: rows, skipped: [] });
     });
 });
 
