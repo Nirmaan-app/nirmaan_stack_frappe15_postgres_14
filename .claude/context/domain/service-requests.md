@@ -6,7 +6,9 @@ Service Requests are called "Work Orders" in the UI. They represent service-base
 
 - **`amount_paid` / `amount_due` are recounted by the system, never typed (ADR-0034).** `amount_paid` = the WO's
   *Paid* Project Payments less its *Received* Vendor Refunds (TDS withheld is not part of it); `amount_due` =
-  `total_amount - amount_paid - total_tds` (company-borne WOs leave `total_tds` out). The watched fields that
+  `total_amount - amount_paid - TDS withheld from the vendor`: `total_tds` less the tax the company paid on top
+  of a payment kept whole (`payment_tds.company_borne_tds_by_order`, read off each deduction, so a
+  Misc/Transport WO paid net of TDS before 2026-09-17 still subtracts it; `payment-tds.md` § Company-borne). The watched fields that
   recount them (a payment's `status`, `amount`, `document_type`, `document_name`, both the WO it leaves and the
   one it joins; a refund's) and the judge `services/amount_paid_drift.mismatches` are in `procurement.md`
   § Load-bearing invariants, shared with POs.

@@ -6,7 +6,7 @@
 An order is a PO or a Work Order. Its source is THE rule every writer shares: Paid Project Payments less
 Received Vendor Refunds (`services/amount_paid.amount_paid_of`); its Amount Due is built from that with
 the order's own formula (`services/amount_paid.amount_due_from`: PO invoiced - paid, WO total - paid - TDS
-withheld). An order is a MISMATCH when its stored `amount_paid` or `amount_due` is ₹1 or more off
+withheld from the vendor). An order is a MISMATCH when its stored `amount_paid` or `amount_due` is ₹1 or more off
 (paisa rounding is not a mismatch). A mismatch means some path skipped the recount; it is reported,
 never fixed silently.
 
@@ -31,7 +31,7 @@ from frappe.utils import flt
 
 from nirmaan_stack.api.po_adjustments.refund_links import sync_po_refund_links
 from nirmaan_stack.services.amount_paid import amount_due_columns, amount_due_from, write_amount_paid
-from nirmaan_stack.services.payment_tds import DEDUCTIBLE_PARENTS, categories_are_company_borne
+from nirmaan_stack.services.payment_tds import company_borne_tds_by_order
 from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, PROCUREMENT_ORDERS, SERVICE_REQUESTS
 
 #: The orders that store an Amount Paid.
@@ -41,10 +41,6 @@ THRESHOLD = 1.0
 #: The Vendor Credit Ledger entry type a PO recount writes its vendor's credit under (the Recount
 #: button of the Amount Paid Mismatch report; the 2026-10-15 patch spells the same word itself).
 RECOUNT_CREDIT_ENTRY = "Amount Paid Recount"
-
-#: What decides a company-borne Work Order (`payment_tds.categories_are_company_borne`), read beside
-#: the Amount Due operands (`amount_paid.amount_due_columns`).
-_COMPANY_BORNE_COLUMN = "service_category_list"
 
 
 class Mismatch(NamedTuple):
@@ -66,13 +62,13 @@ class Mismatch(NamedTuple):
 
 def mismatches(doctype: str, names=None) -> list[Mismatch]:
     """Every order of `doctype` (only those in `names` when given) whose stored Amount Paid or Amount
-    Due is ₹1 or more off its source, sorted by name. One query; writes nothing."""
+    Due is ₹1 or more off its source, sorted by name. One query, plus one for a Work Order's
+    company-borne tax (`payment_tds.company_borne_tds_by_order`); writes nothing."""
     _assert_order_doctype(doctype)
     names = None if names is None else sorted({n for n in names if n})
     if names == []:
         return []
-    columns = amount_due_columns(doctype) + ((_COMPANY_BORNE_COLUMN,) if doctype in DEDUCTIBLE_PARENTS else ())
-    due_columns = ", ".join(f'o."{col}"' for col in columns)
+    due_columns = ", ".join(f'o."{col}"' for col in amount_due_columns(doctype))
     # Table and column names come from the constants above, never from a caller.
     rows = frappe.db.sql(
         f"""
@@ -98,11 +94,13 @@ def mismatches(doctype: str, names=None) -> list[Mismatch]:
         {"doctype": doctype, "lowers": tuple(LOWERS_PAID_STATUSES), "names": tuple(names or ())},
         as_dict=True,
     )
+    company_borne_tds = company_borne_tds_by_order(doctype, names)
     found = []
     for row in rows:
-        company_borne = doctype in DEDUCTIBLE_PARENTS and categories_are_company_borne(row.get(_COMPANY_BORNE_COLUMN))
         correct_paid = flt(row.correct_paid, 2)
-        correct_due = flt(amount_due_from(doctype, {**row, "amount_paid": correct_paid}, company_borne), 2)
+        correct_due = flt(
+            amount_due_from(doctype, {**row, "amount_paid": correct_paid}, company_borne_tds.get(row.name)), 2
+        )
         stored_paid, stored_due = flt(row.stored_paid, 2), flt(row.stored_due, 2)
         if abs(stored_paid - correct_paid) >= THRESHOLD or abs(stored_due - correct_due) >= THRESHOLD:
             found.append(Mismatch(

@@ -69,7 +69,7 @@ def amount_due_columns(document_type: str) -> tuple[str, ...]:
     return tuple(col for col in (minuend, *subtrahends) if col != "amount_paid")
 
 
-def amount_due_from(document_type: str, values, company_borne: bool) -> float:
+def amount_due_from(document_type: str, values, company_borne_tds: float = 0.0) -> float:
     """THE Amount Due of one PO / Work Order from its operands (`values` maps each column named in
     `AMOUNT_DUE_OPERANDS` to its figure). Pure: the writer below and the Amount Paid mismatch judge
     (`services/amount_paid_drift`, which passes the CORRECT paid figure) share it.
@@ -81,15 +81,17 @@ def amount_due_from(document_type: str, values, company_borne: bool) -> float:
     optional -- see the module docstring in `services/payment_tds.py`. Procurement Orders keep a
     single subtrahend and have no `total_tds` column to read.
 
-    ⚠️ A COMPANY-BORNE WORK ORDER (Miscellaneous / Transportation only) KEEPS ITS PAYMENTS GROSS
-    -- the tax is paid on top, not taken out -- so `amount_paid` already covers the whole order
-    and subtracting `total_tds` as well would read it overpaid by its own tax (Rs 800 order,
-    Rs 800 paid, Rs 16 TDS -> -16). The rule lives in `services/payment_tds.is_company_borne`.
+    ⚠️ ONLY THE TAX WITHHELD FROM THE VENDOR IS TAKEN OFF. `company_borne_tds` is the part of
+    `total_tds` the company paid ON TOP, on a payment kept whole (Miscellaneous / Transportation
+    Work Orders since 2026-09-17): `amount_paid` already covers it, so subtracting it as well would
+    read the order overpaid by its own tax (Rs 800 order, Rs 800 paid, Rs 16 TDS -> -16). It is added
+    back. Which deductions those are is read off each one
+    (`services/payment_tds.company_borne_tds_by_order`), not off the categories alone: the same
+    Work Orders paid before that date had their tax withheld from the vendor (owner ruling
+    2026-10-16, #1451).
     """
     minuend, subtrahends = AMOUNT_DUE_OPERANDS[document_type]
-    if company_borne:
-        subtrahends = tuple(col for col in subtrahends if col != "total_tds")
-    return flt(values.get(minuend)) - sum(flt(values.get(col)) for col in subtrahends)
+    return flt(values.get(minuend)) - sum(flt(values.get(col)) for col in subtrahends) + flt(company_borne_tds)
 
 
 def amount_paid_of(document_type: str, document_name: str, exclude_payment: str | None = None) -> float:
@@ -125,10 +127,10 @@ def write_amount_paid(document_type: str, document_name: str, exclude_payment: s
         amount_paid_of(document_type, document_name, exclude_payment=exclude_payment),
     )
     payment_tds.sync_total_tds(document_type, document_name, exclude_payment=exclude_payment)
-    recompute_document_amount_due(document_type, document_name)
+    recompute_document_amount_due(document_type, document_name, exclude_payment=exclude_payment)
 
 
-def recompute_document_amount_due(document_type: str, document_name: str) -> None:
+def recompute_document_amount_due(document_type: str, document_name: str, exclude_payment: str | None = None) -> None:
     """Re-derive `amount_due` on ONE Procurement Order / Service Request.
 
     Called from every place that writes one of its operands -- there is no single
@@ -149,6 +151,9 @@ def recompute_document_amount_due(document_type: str, document_name: str) -> Non
     Reads the operands straight back from the row (same transaction, so it sees the
     write that triggered it) and lets `set_value` stamp `modified` / `modified_by`,
     matching `amount_invoiced` and `amount_paid`. Does NOT commit.
+
+    `exclude_payment`: a payment being trashed (still in the table during its `on_trash`), whose
+    company-borne tax must leave the Amount Due with it, as it already left `total_tds`.
     """
     operands = AMOUNT_DUE_OPERANDS.get(document_type)
     if not operands or not document_name:
@@ -165,5 +170,8 @@ def recompute_document_amount_due(document_type: str, document_name: str) -> Non
         return
     frappe.db.set_value(
         document_type, document_name, "amount_due",
-        amount_due_from(document_type, row[0], payment_tds.is_company_borne(document_type, document_name)),
+        amount_due_from(
+            document_type, row[0],
+            payment_tds.company_borne_tds_by_order(document_type, [document_name], exclude_payment).get(document_name),
+        ),
     )

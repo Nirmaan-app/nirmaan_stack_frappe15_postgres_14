@@ -28,6 +28,7 @@ WO = "Service Requests"
 PAYMENT = "Project Payments"
 REFUNDS = "Vendor Refunds"
 LEDGER = "Vendor Credit Ledger"
+DEDUCTIONS = "Payment TDS Deduction"
 ENTRY = "TEST Amount Paid Recount"
 
 
@@ -60,6 +61,7 @@ class OrdersFixture(unittest.TestCase):
                 ("Version", lambda: frappe.db.delete(
                     "Version", {"docname": ["in", refunds + payments + names or ["-"]]})),
                 (REFUNDS, lambda: refunds and frappe.db.delete(REFUNDS, {"name": ["in", refunds]})),
+                (DEDUCTIONS, lambda: frappe.db.delete(DEDUCTIONS, {"document_name": ["in", names or ["-"]]})),
                 (PAYMENT, lambda: payments and frappe.db.delete(PAYMENT, {"name": ["in", payments]})),
                 ("PO Payment Terms", lambda: self.orders[PO] and frappe.db.delete(
                     "PO Payment Terms", {"parent": ["in", self.orders[PO]]})),
@@ -123,6 +125,23 @@ class OrdersFixture(unittest.TestCase):
         )
         frappe.db.commit()
         return name
+
+    def _taxed_payment(self, order, amount, gross, tds):
+        """A Paid Work Order payment of `amount` with a deduction of `tds` taken on `gross`: `amount` is
+        `gross - tds` when the tax was withheld from the vendor, `gross` when the payment was kept whole."""
+        payment = self._payment(WO, order, amount)
+        frappe.db.sql(
+            f"""INSERT INTO "tab{DEDUCTIONS}"
+                    (name, creation, modified, modified_by, owner, docstatus, idx, project_payment,
+                     document_type, document_name, vendor, project, gross_amount, tds_percentage,
+                     tds_amount, payment_approved_on)
+                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s,
+                        %s, %s, %s, %s, %s, 1, %s, CURRENT_DATE)""",
+            (f"{self.PREFIX}-PTD-{frappe.generate_hash(length=10)}", payment, WO, order, self.vendor,
+             self.project, gross, tds),
+        )
+        frappe.db.commit()
+        return payment
 
     def _refund(self, doctype, order, amount, status):
         name = f"{self.PREFIX}-VRF-{frappe.generate_hash(length=8)}"
@@ -205,19 +224,33 @@ class FindingMismatches(OrdersFixture):
             sorted([(stale, 0.0, 490.0, 990.0, 500.0), (due_off, 490.0, 490.0, 510.0, 500.0)]),
         )
 
-    def test_a_company_borne_work_order_keeps_its_tds_out_of_its_amount_due(self):
-        # SR-00105-001064 (#1459): Miscellaneous only, so the company pays the 269.39 TDS on top and the
-        # payments stay gross. Due is 13,200 - 13,200 = 0; the stored -269.39 took the TDS off as well.
-        stale = self._wo(stored_paid=13200, payments=[13200], total=13200, tds=269.39, stored_due=-269.39,
-                         categories=["Miscellaneous Services"])
-        right = self._wo(stored_paid=13200, payments=[13200], total=13200, tds=269.39, stored_due=0,
+    def test_a_misc_work_order_whose_tax_was_withheld_from_the_vendor_takes_it_off_its_amount_due(self):
+        # SR-00041-000138: Miscellaneous only, but paid in 2025, before the company-borne rule, so the
+        # 248 TDS came out of the vendor's payment (24,800 -> 24,552). Due is 24,800 - 24,552 - 248 = 0.
+        right = self._wo(stored_paid=24552, total=24800, tds=248, stored_due=0, categories=["Miscellaneous Services"])
+        self._taxed_payment(right, 24552, gross=24800, tds=248)
+        stale = self._wo(stored_paid=24552, total=24800, tds=248, stored_due=248, categories=["Miscellaneous Services"])
+        self._taxed_payment(stale, 24552, gross=24800, tds=248)
+
+        found = mismatches(WO, [right, stale])
+
+        self.assertEqual([(m.name, m.stored_due, m.correct_due) for m in found], [(stale, 248.0, 0.0)])
+
+    def test_a_company_borne_work_order_whose_payment_was_kept_whole_leaves_its_tax_out(self):
+        # SR-00203-001113: Miscellaneous only, approved after the rule, so the payment stayed 12,000 and
+        # the company pays the 240 TDS on top. Due is 12,000 - 12,000 = 0; -240 took the TDS off as well.
+        right = self._wo(stored_paid=12000, total=12000, tds=240, stored_due=0,
                          categories=["Miscellaneous Services", "Transportation Services"])
-        mixed = self._wo(stored_paid=12930.61, payments=[12930.61], total=13200, tds=269.39,
+        self._taxed_payment(right, 12000, gross=12000, tds=240)
+        stale = self._wo(stored_paid=12000, total=12000, tds=240, stored_due=-240, categories=["Miscellaneous Services"])
+        self._taxed_payment(stale, 12000, gross=12000, tds=240)
+        mixed = self._wo(stored_paid=11760, total=12000, tds=240, stored_due=0,
                          categories=["Miscellaneous Services", "Electrical Services"])
+        self._taxed_payment(mixed, 11760, gross=12000, tds=240)
 
-        found = mismatches(WO, [stale, right, mixed])
+        found = mismatches(WO, [right, stale, mixed])
 
-        self.assertEqual([(m.name, m.stored_due, m.correct_due) for m in found], [(stale, -269.39, 0.0)])
+        self.assertEqual([(m.name, m.stored_due, m.correct_due) for m in found], [(stale, -240.0, 0.0)])
 
     def test_with_no_names_it_reads_every_order_of_the_doctype(self):
         stale = self._po(stored_paid=0, payments=[300])
@@ -252,6 +285,20 @@ class RecountingOneOrder(OrdersFixture):
 
         self.assertEqual(self._stored(WO, wo), (400.0, 600.0))
         self.assertRight(WO, wo)
+
+    def test_recount_of_a_misc_work_order_takes_off_only_the_tax_withheld_from_the_vendor(self):
+        withheld = self._wo(stored_paid=24552, total=24800, tds=248, stored_due=248, categories=["Miscellaneous Services"])
+        self._taxed_payment(withheld, 24552, gross=24800, tds=248)
+        kept_whole = self._wo(stored_paid=12000, total=12000, tds=240, stored_due=-240,
+                              categories=["Miscellaneous Services"])
+        self._taxed_payment(kept_whole, 12000, gross=12000, tds=240)
+
+        recount(WO, withheld, ENTRY)
+        recount(WO, kept_whole, ENTRY)
+
+        self.assertEqual(self._stored(WO, withheld), (24552.0, 0.0))
+        self.assertEqual(self._stored(WO, kept_whole), (12000.0, 0.0))
+        self.assertRight(WO, withheld, kept_whole)
 
     def test_recount_of_an_order_already_right_writes_nothing(self):
         po = self._po(stored_paid=1000, payments=[1000])

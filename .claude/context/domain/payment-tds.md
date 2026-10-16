@@ -98,15 +98,23 @@ figure — the company pays the tax on top:
 - **Decided in `record_deduction`**, the one function every approval route shares (single approve, a
   split's approved half, auto-approve at insert, bulk approve post-commit) → `write_deduction(reduce_payment=False)`.
   `write_deduction` defaults to reducing, so the historical backfills are unchanged.
-- **Every reader that rebuilds the gross branches on the same rule:** `amount_due` skips `total_tds`
-  (`services/amount_paid.recompute_document_amount_due`); an amount edit taxes the new figure directly
-  (`tds = amount × rate`, no inversion); the WO page's Amount Paid / request cap don't add the tax;
-  the approve + bulk-confirm previews show "Vendor receives" at the full amount.
-- ⚠️ **DERIVED FROM THE CATEGORIES EVERY TIME, NOT STORED** (owner chose no new field). So the rule
-  also re-reads deductions taken BEFORE it existed: measured 2026-09-17, **37 settled company-borne
-  Work Orders** (₹65,182 of TDS, already netted) now read that TDS as still payable — on the WO page at
-  once, in the stored `amount_due` at its next recompute — and the request cap allows it to be raised
-  again. Changing a Work Order's categories later also moves how its existing deductions are read.
+- **Amount Due takes off only the tax WITHHELD FROM THE VENDOR, read off each deduction (owner ruling
+  2026-10-16, #1451):** `amount_due = total − paid − total_tds + company-borne tax`, where the
+  company-borne tax is the deductions on Paid payments that were **kept whole** (payment ≈ the row's
+  `gross_amount`, not `gross_amount − tds_amount`; nearer wins) on a Work Order whose categories are
+  company-borne. ONE source, `payment_tds.company_borne_tds_by_order`, read by the writer
+  (`services/amount_paid.recompute_document_amount_due`) and the mismatch judge
+  (`services/amount_paid_drift.mismatches`). The categories alone are NOT the Amount Due rule: the
+  Misc/Transport Work Orders paid before 2026-09-17 had their tax netted out of the vendor's payment
+  (SR-00041-000138: ₹24,800 → ₹24,552 + ₹248 TDS, due 0), and they stay vendor-borne. A Work Order with
+  both kinds (SR-00107-001055) takes off only its withheld deductions.
+- **Other readers still branch on the categories alone** (`is_company_borne`): an amount edit taxes the
+  new figure directly (`tds = amount × rate`, no inversion); the WO page's request cap
+  (`services/payment_summary`, `work_order_payment_limit`) doesn't add the tax back; the approve +
+  bulk-confirm previews show "Vendor receives" at the full amount. On a pre-rule Misc/Transport Work
+  Order the request cap therefore still leaves room for its netted tax.
+- ⚠️ **NOT STORED** (owner chose no new field). Changing a Work Order's categories moves what its next
+  approval does; deductions already taken keep their own record.
 
 ---
 

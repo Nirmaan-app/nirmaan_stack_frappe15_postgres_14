@@ -152,12 +152,11 @@ DEDUCTIBLE_PARENTS = frozenset({SERVICE_REQUEST_DOCTYPE})
 #: ⚠️ "ALL", NOT "ANY". A Work Order mixing one of these with any other category (Electrical, ...)
 #: is taxed the ordinary way. A Work Order with no categories at all is ordinary too.
 #:
-#: ⚠️ DECIDED FROM THE WORK ORDER'S CATEGORIES EVERY TIME, NOT STORED ON THE DEDUCTION (owner
-#: ruling 2026-09-17, no new field). Two consequences that were accepted with it:
-#:   * the 50 deductions already recorded on such Work Orders (measured 2026-09-17, 49 of them
-#:     netted before this rule existed) are now READ as company-borne, so their `amount_due` reads
-#:     short by their own tax the next time it is recomputed;
-#:   * changing a Work Order's categories later moves how its existing deductions are read.
+#: ⚠️ DECIDED FROM THE WORK ORDER'S CATEGORIES AT APPROVAL, NOT STORED ON THE DEDUCTION (owner
+#: ruling 2026-09-17, no new field). What a deduction already did is read off its own record instead:
+#: its payment kept whole (company-borne) or reduced by the tax (withheld from the vendor) --
+#: `company_borne_tds_by_order`. Deductions taken on such Work Orders BEFORE this rule were withheld
+#: from the vendor and stay so (owner ruling 2026-10-16, #1451).
 #:
 #: ⚠️ MIRRORED IN THE FRONTEND by `COMPANY_BORNE_CATEGORIES` in
 #: `frontend/src/pages/ProjectPayments/tdsForecast.ts`. Change both or neither.
@@ -170,6 +169,7 @@ __all__ = [
 	"is_approval_from_an_earlier_step",
 	"is_company_borne",
 	"categories_are_company_borne",
+	"company_borne_tds_by_order",
 	"is_deductible",
 	"is_gst_payment",
 	"existing_deduction",
@@ -270,6 +270,56 @@ def categories_are_company_borne(raw) -> bool:
 	}
 	categories.discard("")
 	return bool(categories) and categories <= COMPANY_BORNE_CATEGORIES
+
+
+def company_borne_tds_by_order(document_type: str, names=None, exclude_payment: str | None = None) -> dict:
+	"""The tax the COMPANY paid on top, per Work Order: `{name: tds}` over the deductions on its Paid
+	payments that were KEPT WHOLE, for a company-borne Work Order (`categories_are_company_borne`).
+	Every Work Order when `names` is None. The rest of its `total_tds` was withheld from the vendor.
+
+	⚠️ READ OFF EACH DEDUCTION, NOT THE CATEGORIES ALONE (owner ruling 2026-10-16, #1451). The rule
+	only decides what an approval does; what it did is on the record: a payment kept whole still equals
+	the deduction's `gross_amount`, a reduced one equals `gross_amount - tds_amount` (both stay so
+	through an amount edit, `restate_deduction_on_amount_change`). Nearer wins, so the outflow
+	import's few rupees of rounding do not flip it. 34 Miscellaneous / Transportation Work Orders paid
+	before the rule had their tax withheld from the vendor (SR-00041-000138: 24,800 -> 24,552 + 248);
+	reading them by category alone put that tax back as still owed.
+
+	⚠️ GATED ON THE CATEGORIES TOO: only a company-borne Work Order's payment is ever kept whole. An
+	ordinary one whose deduction was restated off its payment (SR-00190-001007) can sit nearer its gross
+	and must not read as company-borne.
+
+	`exclude_payment` as in `total_tds_of`: a payment being trashed is still in the table.
+	"""
+	if document_type not in DEDUCTIBLE_PARENTS:
+		return {}
+	names = None if names is None else sorted({n for n in names if n})
+	if names == []:
+		return {}
+	rows = frappe.db.sql(
+		f"""
+		SELECT k.document_name, k.tds, o.service_category_list
+		FROM (
+			SELECT p.document_name, SUM(d.tds_amount) AS tds
+			FROM "tab{TDS_DOCTYPE}" d
+			INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = d.project_payment
+			WHERE p.document_type = %(doctype)s
+			  AND p.status = %(paid)s
+			  AND ABS(p.amount - d.gross_amount) < ABS(p.amount - (d.gross_amount - d.tds_amount))
+			  {"AND p.document_name IN %(names)s" if names else ""}
+			  {"AND p.name <> %(exclude)s" if exclude_payment else ""}
+			GROUP BY p.document_name
+		) k
+		INNER JOIN "tab{document_type}" o ON o.name = k.document_name
+		""",
+		{"doctype": document_type, "paid": PAID, "names": tuple(names or ()), "exclude": exclude_payment},
+		as_dict=True,
+	)
+	return {
+		row.document_name: flt(row.tds, 2)
+		for row in rows
+		if categories_are_company_borne(row.service_category_list)
+	}
 
 
 def existing_deduction(payment_name: str) -> str | None:
