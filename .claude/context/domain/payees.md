@@ -148,14 +148,14 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   `Outflow Row Match` line that holds an account number; bank and branch stay blank (no IFSC lookup).
   Everything else stays blank: a paid record is never filled from its vendor. The writes are raw (no
   hook re-copies, no Version row), so "who set the account" reads the raiser, else the vendor.
-- **Paid to** (#1431, #1438): who a row the accountant pays is paid to is resolved in one place,
-  `services/payees/paid_to.py`: EVERY row (PO / WO payment or expense) into its own pay-to account,
-  never its vendor's Payee as it reads now. "Payment need to paid"'s Paid to column (the approval
+- **Paid to** (#1431, #1438, #1463): who a row the accountant pays is paid to is resolved in one place,
+  `services/payees/paid_to.py`: every row into its own pay-to account, except an unpaid PO / WO
+  payment that switches to its vendor's current account (below). "Payment need to paid"'s Paid to column (the approval
   queue's `paid_to`, from the `pay_to_*` columns it selects), Export for Payment (read again at export
   through `api/payees/paid_to.get_paid_to`) and Record Payment's "Pay ₹X to" box (`pay_to_box`, for
   an expense and for a PO / WO payment) all read it; no screen re-derives it. An answer is
-  `{account, missing, payee_rule, account_changed, current_account}`; `missing` is
-  `payment_has_no_account` or `expense_has_no_account`; `payee_rule` is every expense's type rule,
+  `{account, missing, payee_rule, switch_to}`; `account` is always the row's own copy; `missing` is
+  `payment_has_no_account` (no copy and nothing to switch to) or `expense_has_no_account`; `payee_rule` is every expense's type rule,
   with or without an account (null on a payment). A row with none is left out of the bank file with a
   reason, never sent with a blank account, and the export toast names a left-out expense by its
   description and amount, never its ID; the Cashfree beneficiary is the copy's holder name. The
@@ -163,25 +163,33 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
   read-only (spec stories 56/60): the account the money went into. The box's "Set by" is the
   latest Version change to the copy's holder name, account number or IFSC, else the request's raiser
   (when the request holds the same account), else "copied from the vendor".
-  - **"Vendor's account changed since this was raised"** (#1439): a PO / WO payment with a copy is
-    flagged `account_changed` when its vendor's Payee now holds another account, compared as
-    (`normalize.normalize_account`, `normalize.normalize_ifsc`), or the vendor has no Payee any more
-    (`paid_to.account_changed_since`). A holder-name, bank or branch change is not flagged; a blank
-    copy, an expense and a payment with no vendor never are. `current_account` is the vendor's account
-    now (null when it has none), set only on a flagged row. The flag ignores status; the screens word
-    it: the Paid to cell (until the row is paid: a Reconciliation Pending or Paid row shows its own
-    account plainly and no advice to act, `utils/payees/paidTo.paidToCell` given the status, since
-    "reject and raise again" is wrong advice once the money has left) and the "Pay ₹X to" box warn with the new account (the box drops the old
-    account's Copy buttons and, once paid, says it was marked paid to the old account), and the bank
-    file leaves the row out (`bankUploadFile.ACCOUNT_CHANGED`) with "reject it and raise it again".
-    "Mark as Paid" on "Payment need to paid" does not check the flag.
+  - **Paid into the vendor's current account** (#1463, ADR-0033 decision 9 revised 2026-10-16;
+    replaces #1439's "reject it and raise it again"): an unpaid (not `rules.PAID_STATUSES`) PO / WO
+    payment with a vendor has `switch_to` = the vendor's account now when its copy holds another
+    account, compared as (`normalize.normalize_account`, `normalize.normalize_ifsc`), or when it holds
+    no copy and the vendor has a Payee (`paid_to.vendor_account_to_take`, THE rule; #1464's
+    eligibility extends `paid_to._answer`). A holder-name, bank or branch change switches nothing; a
+    vendor with no Payee gives nothing to switch to (the payment keeps its copy, or is
+    `payment_has_no_account`); an expense and a paid payment never switch. The Paid to cell and its
+    CSV say "Will be paid into the vendor's current account: X. Was Y." (`paidTo.paidToCell`); the
+    "Pay ₹X to" box shows the vendor's account with Copy buttons and the old one as "Was"; Mark as
+    Paid's confirmation names each switching row (`paidTo.switchLine`). **Writing it:**
+    `api/payees/paid_to.take_vendor_accounts` (POST, Frappe write permission on each payment) calls
+    `services/payees/take_vendor_account.take_vendor_accounts`, which locks each payment, refuses one
+    not Approved, re-reads the rule and copies the vendor's Payee (`pay_to.copy_vendor_account`)
+    with a document save (`ignore_version=False`), so the switch is in the payment's Version history
+    with who and when (the box's "Set by" then reads "Changed by"). Mark as Paid (row and bulk) calls
+    it first for the rows its confirmation named, and marks nothing if it fails; Export for Payment
+    puts switched rows in the file at the vendor's account (`bankUploadFile`'s `switchTo`,
+    `BankFile.switched`), calls it before saving the file (no file if it fails) and says how many
+    were switched (`describeSwitched`). A PO / WO payment's account is still never edited by hand.
   - **Change account** (Record Payment, an expense only): copies a picked or added Payee's account
     onto the expense, overwriting its copy (`expense_payee.change_expense_account`; the save leaves a
     Version row: who and when). The endpoint (`api/payees/paid_to.change_expense_account`) asks
     Frappe's write permission on the expense (its save ignores permissions, so that check is the
     boundary) and refuses a PO / WO payment; offering it to Accounts only, and only for an approved,
     unpaid expense with no vendor, is a screen rule (`utils/payees/paidTo.canChangeExpenseAccount`). A PO / WO payment's copy
-    is never changed: a wrong account means reject and raise again. The dialog names the expense by
+    is never edited by hand: it follows its vendor's account when paid (above). The dialog names the expense by
     its description (`pay_to_box`'s `description`, `paidTo.expenseTitle`), words its type's rule
     (`paidTo.changeAccountRuleLine`) and offers Remove account only when the type is not *Required*
     (`paidTo.canRemoveExpenseAccount`, a screen rule).
@@ -212,6 +220,6 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
 | One Payee's page (#1423, #1435) | `pages/payees/PayeePage.tsx`, route `/payees/:payeeId`; endpoints `api/payees/payee_page.py` (`get_payee`, `edit_payee`, `delete_payee`); `components/payees/EditPayeeDialog` (shared with the vendor screens' `EditVendorPayeeDialog`), `pages/payees/components/DeletePayeeDialog`; rules `utils/payees/payeePage.ts` (tabs), `utils/payees/payeeEdit.ts` (edit form, shared-Payee warning, delete block, last-changed line) |
 | Vendor Payee endpoints | `api/payees/vendor_payee.py`: `suggest_vendor_payees`, `get_payee_choice`, `check_vendor_payee`; `get_vendor_account`, `change_vendor_payee` (#1426); `edit_vendor_payee` (#1435) |
 | A vendor's account on screens (#1428) | `api/payees/vendor_accounts.py`: `get_vendor_list`; frontend `components/payees/vendorPayeeAccount.ts` (`useVendorAccount`, `useVendorPayeeGate`). The gate blocks a PO / WO payment request until the vendor is KNOWN to have a Payee: while it loads and when the read fails (`utils/payees/vendorAccount.vendorPayeeGateProblem`); used by the PO payment terms card, the PO / WO request dialog and the Credits page's request dialog |
-| Paying: Paid to, bank file, Record Payment (#1431, #1438) | `services/payees/paid_to.py`; endpoints `api/payees/paid_to.py` (`get_paid_to`, `get_pay_to_box`, `search_payees`, `change_expense_account`); frontend `components/payees/PayToBox` (expense and PO / WO Record Payment dialogs), `ChangeExpenseAccountDialog`, `paidToApi`; wording and screen rule `utils/payees/paidTo.ts`; file builder `pages/ProjectPayments/bankUploadFile.ts`; tests `api/payees/test_paid_to.py`, `paidTo.test.ts`, `bankUploadFile.test.ts` |
+| Paying: Paid to, bank file, Record Payment (#1431, #1438, #1463) | `services/payees/paid_to.py`, `services/payees/take_vendor_account.py`; endpoints `api/payees/paid_to.py` (`get_paid_to`, `take_vendor_accounts`, `get_pay_to_box`, `search_payees`, `change_expense_account`); frontend `components/payees/PayToBox` (expense and PO / WO Record Payment dialogs), `ChangeExpenseAccountDialog`, `paidToApi`; wording and screen rule `utils/payees/paidTo.ts`; file builder `pages/ProjectPayments/bankUploadFile.ts`; tests `api/payees/test_paid_to.py`, `paidTo.test.ts`, `bankUploadFile.test.ts` |
 | Vendor page account card + rename prompt (#1426, #1435) | `pages/vendors/components/VendorAccountCard`, `VendorRenameFlow`; `components/payees/ChangeVendorAccountDialog` (Use a different payee), `EditVendorPayeeDialog` (Edit bank details, Update the holder name), `VendorRenamePrompt`; wording in `utils/payees/vendorAccount.ts`; test `api/payees/test_vendor_account.py` |
 | Vendor Payee step (frontend) | `components/payees/VendorPayeeSection` + `useVendorPayeeChoice`, `PayeeSuggestionsPanel`, `UsePayeeDialog`, `vendorPayeeApi`; wording in `utils/payees/payeeChoice.ts` |

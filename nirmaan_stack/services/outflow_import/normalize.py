@@ -106,7 +106,7 @@ def normalize_account(value: object) -> str:
 
 def normalize_ifsc(value: object) -> str:
     """Identity form of an IFSC: trimmed and upper-cased. Paired with `normalize_account`, it is how
-    Bulk Import's Tier 1 and the payer's "account changed since" flag (`services/payees/paid_to`)
+    Bulk Import's Tier 1 and the payer's vendor-account switch (`services/payees/paid_to`)
     decide two accounts are the same."""
     return str(value or "").strip().upper()
 

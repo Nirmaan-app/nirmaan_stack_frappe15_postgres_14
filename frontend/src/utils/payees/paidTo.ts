@@ -1,9 +1,11 @@
 /**
- * Who a payment row is paid to (spec #1420 tickets #1431, #1438, #1439, ADR-0033), as the screens say it. Pure.
+ * Who a payment row is paid to (spec #1420 tickets #1431, #1438, #1463, ADR-0033), as the screens say it. Pure.
  *
  * The server's Payee module resolves it (`services/payees/paid_to.py`): every PO / WO payment and
- * expense is paid into its OWN pay-to account, copied when it was raised. These only word the answer:
- * the "Payment need to paid" Paid to cell, its CSV column, and Record Payment's "Pay ₹X to" box.
+ * expense is paid into its OWN pay-to account, copied when it was raised, except an unpaid PO / WO
+ * payment whose vendor's account changed since, or that has none: it is paid into the vendor's
+ * current account (`switch_to`). These only word the answer: the "Payment need to paid" Paid to
+ * cell, its CSV column, Mark as Paid's confirmation and Record Payment's "Pay ₹X to" box.
  */
 
 import type { PayToAccount } from "@/types/NirmaanStack/Payee";
@@ -33,20 +35,19 @@ export interface PaidTo {
     missing: PaidToMissing | null;
     /** An expense's type's *Who gets paid*, with or without an account; null on a PO / WO payment. */
     payee_rule: string | null;
-    /** A PO / WO payment whose vendor's Payee no longer holds its copy's account (normalised account
-     *  number, IFSC), or whose vendor has no Payee any more (#1439). It is rejected and raised again,
-     *  never paid. Never set on an expense or a row with no account. */
-    account_changed: boolean;
-    /** On a flagged payment, its vendor's account now; null when the vendor has none. */
-    current_account: PayToAccount | null;
+    /** On an unpaid PO / WO payment whose vendor's account is another (normalised account number,
+     *  IFSC), or that holds none while its vendor has one (#1463): the vendor's current account, which
+     *  it is paid into. Exporting it or marking it paid writes this onto the payment. Null on every
+     *  other row. */
+    switch_to: PayToAccount | null;
 }
 
-/** Which answer a row has, with what each answer needs: its account; its account with the vendor's
- *  changed since (#1439); no account on a PO / WO payment; no account on an expense, with its type's
- *  rule. */
+/** Which answer a row has, with what each answer needs: its account; its vendor's current account in
+ *  place of its own (`was`, null when it had none, #1463); no account on a PO / WO payment; no
+ *  account on an expense, with its type's rule. */
 export type PaidToKind =
     | { tone: "account"; account: PayToAccount }
-    | { tone: "account_changed"; account: PayToAccount; current: PayToAccount | null }
+    | { tone: "vendor_account"; account: PayToAccount; was: PayToAccount | null }
     | { tone: "payment_no_account" }
     | { tone: "no_account"; rule: string | null };
 
@@ -61,12 +62,9 @@ export interface PaidToCell {
 /** THE classifier every Paid to wording starts from (the cell, its CSV, the "Pay ₹X to" box). A row
  *  the server sent without paid_to has no account. */
 export const classifyPaidTo = (paidTo: PaidTo | undefined): PaidToKind => {
+    if (paidTo?.switch_to) return { tone: "vendor_account", account: paidTo.switch_to, was: paidTo.account };
     const account = paidTo?.account;
-    if (account) {
-        return paidTo.account_changed
-            ? { tone: "account_changed", account, current: paidTo.current_account }
-            : { tone: "account", account };
-    }
+    if (account) return { tone: "account", account };
     return paidTo?.missing === PAID_TO_MISSING.PAYMENT_HAS_NO_ACCOUNT
         ? { tone: "payment_no_account" }
         : { tone: "no_account", rule: paidTo?.payee_rule ?? null };
@@ -85,32 +83,30 @@ const expenseNoAccountReason = (rule: string | null | undefined, expenseType: st
     }
 };
 
-export const ACCOUNT_CHANGED_TITLE = "Vendor's account changed since this was raised";
+export const VENDOR_ACCOUNT_TITLE = "Will be paid into the vendor's current account";
 
-/** Where a flagged payment's vendor is paid now, on one line. */
-export const currentAccountText = (current: PayToAccount | null): string =>
-    current
-        ? `Now ${current.account_name}, A/c ${current.account_number}, ${current.ifsc}.`
-        : "The vendor has no account now.";
+/** An account on one line: holder name, account number, IFSC. */
+const accountText = (account: PayToAccount): string =>
+    `${account.account_name}, A/c ${account.account_number}, ${account.ifsc}`;
 
 /**
- * The Paid to cell: the holder name with the account and IFSC under it, the account-changed warning,
- * or why there is no account. By the row's `status` (required, so no caller forgets it), a paid row
- * (Reconciliation Pending, Paid:
- * spec stories 56/60) reads as a record of where the money went: its own account plainly, never the
- * "vendor's account changed since" flag, and no advice to act (reject, raise again, Change account),
- * which is wrong once the money has left. Record Payment's box keeps its own wording (`PayToBox`).
+ * The Paid to cell: the holder name with the account and IFSC under it, the vendor's current account
+ * a PO / WO payment switches to (with the one it was raised with), or why there is no account. By
+ * the row's `status` (required, so no caller forgets it), a paid row (Reconciliation Pending, Paid:
+ * spec stories 56/60) reads as a record of where the money went, with no advice to act (Change
+ * account, adding bank details), which is wrong once the money has left. The server never switches a
+ * paid row. Record Payment's box keeps its own wording (`PayToBox`).
  */
 export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string, status: string): PaidToCell => {
     // Paid means settled: the server's `rules.PAID_STATUSES` is `settlement.SETTLED_STATUSES` too.
     const paid = (SETTLED_STATUSES as readonly string[]).includes(status);
-    const kind = classifyPaidTo(paid && paidTo ? { ...paidTo, account_changed: false, current_account: null } : paidTo);
+    const kind = classifyPaidTo(paidTo);
     switch (kind.tone) {
-        case "account_changed":
+        case "vendor_account":
             return {
                 tone: kind.tone,
-                title: ACCOUNT_CHANGED_TITLE,
-                detail: `${currentAccountText(kind.current)} Reject it and raise it again.`,
+                title: VENDOR_ACCOUNT_TITLE,
+                detail: `${accountText(kind.account)}. ${kind.was ? `Was ${accountText(kind.was)}.` : "It was raised with no account."}`,
             };
         case "account":
             return {
@@ -122,7 +118,7 @@ export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string, stat
             return {
                 tone: kind.tone,
                 title: "No account on this payment",
-                detail: paid ? "It was paid without one on record." : "Pay it another way, or reject it and raise it again.",
+                detail: paid ? "It was paid without one on record." : "Its vendor has no bank account either. Add one on the vendor's page.",
             };
         case "no_account": {
             const reason = expenseNoAccountReason(kind.rule, expenseType);
@@ -141,9 +137,14 @@ export const paidToCell = (paidTo: PaidTo | undefined, expenseType: string, stat
 export const paidToExportText = (paidTo: PaidTo | undefined, expenseType: string, status: string): string => {
     const cell = paidToCell(paidTo, expenseType, status);
     if (cell.tone === "account") return `${cell.title}, ${cell.detail}`;
-    if (cell.tone === "account_changed" || cell.tone === "no_account") return `${cell.title}: ${cell.detail}`;
+    if (cell.tone === "vendor_account" || cell.tone === "no_account") return `${cell.title}: ${cell.detail}`;
     return cell.title;
 };
+
+/** Mark as Paid's line under a row that is paid into its vendor's current account, naming that
+ *  account and the old one; null for any other row. Only unpaid rows switch, so no status is needed. */
+export const switchLine = (paidTo: PaidTo | undefined): string | null =>
+    paidTo?.switch_to ? paidToExportText(paidTo, "", "Approved") : null;
 
 /** Record Payment's "Pay ₹X to" box for an expense with no account and no vendor. */
 const noAccountBoxText = (rule: string | null | undefined, expenseType: string): string =>
@@ -155,13 +156,15 @@ const noAccountBoxText = (rule: string | null | undefined, expenseType: string):
 export interface PayToBoxFacts extends PaidTo {
     vendor_fixed: boolean;
     vendor_name: string | null;
+    /** Money has left Approved: the box records where it went and gives no advice to act. */
+    paid: boolean;
 }
 
 /** What Record Payment's "Pay ₹X to" box shows besides the account itself, decided once. */
 export interface PayToBoxView {
-    /** The box's colour: red when the vendor's account changed since, green with an account, amber
-     *  with none. */
-    tone: "account_changed" | "account" | "no_account";
+    /** The box's colour: blue when a PO / WO payment is paid into its vendor's current account, green
+     *  with its own account, amber with none. */
+    tone: "vendor_account" | "account" | "no_account";
     /** Why there is no account: a bold title and a line. Null when there is one. */
     noAccount: { title: string; detail: string } | null;
     /** The small print under an account, saying where it was copied from. Null when none. */
@@ -171,14 +174,20 @@ export interface PayToBoxView {
 export const payToBoxView = (doctype: PayToBoxDoctype, box: PayToBoxFacts, expenseType: string): PayToBoxView => {
     const vendor = box.vendor_name || "the vendor";
     switch (classifyPaidTo(box).tone) {
-        case "account_changed":
-            return { tone: "account_changed", noAccount: null, note: null };
+        case "vendor_account":
+            return {
+                tone: "vendor_account",
+                noAccount: null,
+                note: `${sentenceStart(vendor)}'s current account. Exporting this payment or marking it paid records it on the payment.`,
+            };
         case "account": {
             let note: string | null = null;
             if (doctype === PAYMENT_DOCTYPE) {
-                note =
-                    `Copied from ${vendor}'s account when this payment was raised. A payment's account is never ` +
-                    "changed: if it is wrong, reject the payment and raise it again.";
+                // A paid payment's account is where its money went: "Set by" says who set it.
+                note = box.paid
+                    ? null
+                    : `Copied from ${vendor}'s account when this payment was raised. It is never edited by hand: if ` +
+                      `${vendor}'s account changes, the payment is paid into the new one.`;
             } else if (box.vendor_fixed) {
                 note = `Copied from ${vendor}'s account. To pay someone else, the expense's vendor has to change.`;
             }
@@ -189,7 +198,9 @@ export const payToBoxView = (doctype: PayToBoxDoctype, box: PayToBoxFacts, expen
                 tone: "no_account",
                 noAccount: {
                     title: "No account on this payment.",
-                    detail: `Pay it another way, or reject it and raise it again once ${vendor} has a bank account.`,
+                    detail: box.paid
+                        ? "It was paid without one on record."
+                        : `${sentenceStart(vendor)} has no bank account either. Add one on the vendor's page, and this payment is paid into it.`,
                 },
                 note: null,
             };
@@ -210,7 +221,7 @@ export const payToBoxView = (doctype: PayToBoxDoctype, box: PayToBoxFacts, expen
 /**
  * Whether Record Payment offers Change account (a screen rule, ADR-0033): Accounts change an expense's
  * account until it is paid, unless a vendor is named (then it is the vendor's). A PO / WO payment's
- * copy is never changed: a wrong one means reject and raise again.
+ * copy is never edited by hand: it follows its vendor's account when it is paid (#1463).
  */
 export const canChangeExpenseAccount = (
     doctype: PayToBoxDoctype,

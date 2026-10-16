@@ -23,15 +23,15 @@ export interface BankFileRow {
 	 *  means nothing to an accountant. Unused on a PO / WO payment, named by its PO / SR. */
 	description?: string;
 	expenseType?: string;
-	/** The row's own pay-to account, copied when it was raised (ADR-0033, #1438): never its vendor's
-	 *  Payee as it reads now. */
+	/** The row's own pay-to account, copied when it was raised (ADR-0033, #1438). */
 	account?: BankFileAccount;
 	/** Why the server says the row has no account to pay into (`get_paid_to`'s `missing`), if it has
 	 *  none. */
 	missing?: PaidToMissing | null;
-	/** A PO / WO payment whose vendor's account changed since it was raised (`get_paid_to`'s
-	 *  `account_changed`, #1439): its copy is the old account, so it is never put in the file. */
-	accountChanged?: boolean;
+	/** A PO / WO payment whose vendor's account changed since it was raised, or that was raised with
+	 *  none (`get_paid_to`'s `switch_to`, #1463): it is paid into this, its vendor's current account,
+	 *  and the export writes it onto the payment (`take_vendor_accounts`). */
+	switchTo?: BankFileAccount | null;
 }
 
 export interface BankFileOptions {
@@ -42,11 +42,8 @@ export interface BankFileOptions {
 	now: Date;
 }
 
-/** A PO / WO payment left out because its vendor's account changed since it was raised. */
-export const ACCOUNT_CHANGED = "account_changed";
-
 /** Why a ticked row is not in the bank file. */
-export type BankFileLeftOutReason = PaidToMissing | typeof ACCOUNT_CHANGED;
+export type BankFileLeftOutReason = PaidToMissing;
 
 export interface BankFileLeftOut {
 	row: BankFileRow;
@@ -64,12 +61,17 @@ const CASHFREE_CONTACT_PHONE = "8904007419";
 export interface BankFile {
 	rows: Record<string, BankFileCell>[];
 	leftOut: BankFileLeftOut[];
+	/** The rows in the file paid into their vendor's current account (`switchTo`), in order. */
+	switched: BankFileRow[];
 	csv: string;
 	fileName: string;
 }
 
+/** The account a row in the file is paid into: its vendor's current one when it switches, else its own. */
+const paidInto = (row: BankFileRow): BankFileAccount | undefined => row.switchTo ?? row.account;
+
 function iciciRow(row: BankFileRow, options: BankFileOptions): Record<string, BankFileCell> {
-	const payee = row.account;
+	const payee = paidInto(row);
 	return {
 		PYMT_PROD_TYPE_CODE: "PAB_VENDOR",
 		PYMT_MODE: options.paymentMode,
@@ -91,7 +93,7 @@ function iciciRow(row: BankFileRow, options: BankFileOptions): Record<string, Ba
 }
 
 function cashfreeRow(row: BankFileRow, idx: number, batchStamp: string, options: BankFileOptions): Record<string, BankFileCell> {
-	const payee = row.account;
+	const payee = paidInto(row);
 	return {
 		transferId: `${batchStamp}${String(idx + 1).padStart(2, "0")}`,
 		bankAccount: payee?.account_number || "",
@@ -131,16 +133,22 @@ export function buildBankFile(rows: BankFileRow[], options: BankFileOptions): Ba
 	const fileName = options.format === "cashfree"
 		? `Cashfree_Payments_${formatDate(options.now)}.csv`
 		: `New_Payments_${formatDate(options.now)}.csv`;
-	return { rows: fileRows, leftOut, csv: unparse(fileRows), fileName };
+	return {
+		rows: fileRows,
+		leftOut,
+		switched: payable.filter((row) => row.switchTo),
+		csv: unparse(fileRows),
+		fileName,
+	};
 }
 
 // ICICI and Cashfree both accept a file holding a row with a blank account or IFSC, and reject
 // that row only after upload, so a row with no account is left out here, not at the bank. A copy
-// always holds a holder name, an account number and an IFSC (it is a Payee's). A payment whose
-// vendor's account changed since holds the OLD account: paying it would pay the wrong one.
+// always holds a holder name, an account number and an IFSC (it is a Payee's), and so does the
+// vendor account a payment switches to.
 function leftOutReason(row: BankFileRow): BankFileLeftOutReason | null {
+	if (row.switchTo) return null;
 	if (row.missing) return row.missing;
-	if (row.accountChanged) return ACCOUNT_CHANGED;
 	if (row.account) return null;
 	return row.kind === "vendor_payment" ? PAID_TO_MISSING.PAYMENT_HAS_NO_ACCOUNT : PAID_TO_MISSING.EXPENSE_HAS_NO_ACCOUNT;
 }
@@ -149,14 +157,17 @@ function leftOutReason(row: BankFileRow): BankFileLeftOutReason | null {
 const LEFT_OUT_PHRASES: Record<BankFileLeftOutReason, (count: number) => string> = {
 	[PAID_TO_MISSING.EXPENSE_HAS_NO_ACCOUNT]: (n) => `${n} expense${n > 1 ? "s" : ""} with no account`,
 	[PAID_TO_MISSING.PAYMENT_HAS_NO_ACCOUNT]: (n) => `${n} payment${n > 1 ? "s" : ""} with no account`,
-	[ACCOUNT_CHANGED]: (n) =>
-		`${n} payment${n > 1 ? "s" : ""} whose vendor's account changed since ${n > 1 ? "they were" : "it was"} raised`,
 };
 
-/** What the accountant does about a left-out row, after its names; nothing when it is paid by hand. */
-const LEFT_OUT_ACTION: Partial<Record<BankFileLeftOutReason, (count: number) => string>> = {
-	[ACCOUNT_CHANGED]: (n) => (n > 1 ? ": reject them and raise them again" : ": reject it and raise it again"),
-};
+/** How many rows of the file were paid into their vendor's current account, naming the first three by
+ *  their PO / SR, e.g. "2 payments paid into their vendor's current account (PO/009; PO/010)"; null
+ *  when none. The export toast says it: those payments' accounts were just changed. */
+export function describeSwitched(switched: BankFileRow[]): string | null {
+	const n = switched.length;
+	if (n === 0) return null;
+	const names = switched.slice(0, 3).map((row) => row.documentName).join("; ") + (n > 3 ? "; …" : "");
+	return `${n} payment${n > 1 ? "s" : ""} paid into ${n > 1 ? "their" : "its"} vendor's current account (${names})`;
+}
 
 /** How the toast names a left-out row: a PO / WO payment by its PO / SR, an expense by its
  *  description (or type) and amount, short enough for three in a toast. */
@@ -176,7 +187,6 @@ export function describeLeftOut(leftOut: BankFileLeftOut[]): string[] {
 		const names = leftOut.filter((l) => l.reason === reason).map((l) => leftOutName(l.row));
 		if (names.length === 0) return [];
 		const list = names.slice(0, 3).join("; ") + (names.length > 3 ? "; …" : "");
-		const action = LEFT_OUT_ACTION[reason]?.(names.length) ?? "";
-		return [`${LEFT_OUT_PHRASES[reason](names.length)} (${list})${action}`];
+		return [`${LEFT_OUT_PHRASES[reason](names.length)} (${list})`];
 	});
 }

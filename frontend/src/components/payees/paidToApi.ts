@@ -1,5 +1,5 @@
 /**
- * Paying a payment or an expense (spec #1420 tickets #1431, #1438): the endpoints of
+ * Paying a payment or an expense (spec #1420 tickets #1431, #1438, #1463): the endpoints of
  * `api/payees/paid_to.py` and what they return. Every row is paid into its own pay-to account; the
  * server's Payee module reads it (`services/payees/paid_to.py`).
  */
@@ -12,6 +12,9 @@ import type { PayeeChoiceApis } from "./usePayeeChoice";
 const API = "nirmaan_stack.api.payees.paid_to";
 /** Who each `{doctype, name}` row is paid to, read now (Export for Payment). */
 export const PAID_TO_API = `${API}.get_paid_to`;
+/** Export for Payment and Mark as Paid: write the vendor's current account onto each named PO / WO
+ *  payment that switches to it (#1463). Takes `{names}`, returns the names switched. */
+export const TAKE_VENDOR_ACCOUNTS_API = `${API}.take_vendor_accounts`;
 /** Record Payment's "Pay ₹X to" box, for an expense or a PO / WO payment. */
 export const PAY_TO_BOX_API = `${API}.get_pay_to_box`;
 /** Change account on an expense: the server asks write permission; the screen offers it to Accounts. */

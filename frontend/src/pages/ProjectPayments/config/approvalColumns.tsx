@@ -578,9 +578,9 @@ const REGISTRY: Record<
   }),
 
   // Where the row's money goes (#1431, #1438, approved mockup screen 11): the row's own pay-to
-  // account, copied when it was raised, or why there is none. A PO / WO payment whose vendor's
-  // account changed since shows the warning and the new account instead (#1439), until it is paid: a
-  // paid row shows its own account read-only, the one its money went into (`paidToCell`'s status).
+  // account, copied when it was raised, or why there is none. An unpaid PO / WO payment whose vendor's
+  // account changed since, or that has none, says it will be paid into the vendor's current account,
+  // naming the old one (#1463): a paid row shows its own account read-only, the one its money went into.
   paid_to: () => ({
     id: "paid_to",
     header: ({ column }) => <DataTableColumnHeader column={column} title="Paid to" />,
@@ -593,10 +593,10 @@ const REGISTRY: Record<
           <span className="flex items-center gap-1.5">
             <span
               className={cn(
-                // The warning wraps so it reads whole; a holder name stays on one line.
-                cell.tone === "account_changed" ? "font-medium leading-snug" : "truncate",
+                // The switch notice wraps so it reads whole; a holder name stays on one line.
+                cell.tone === "vendor_account" ? "font-medium leading-snug text-blue-700" : "truncate",
                 cell.tone === "no_account" && "text-amber-700",
-                (cell.tone === "payment_no_account" || cell.tone === "account_changed") && "text-red-700",
+                cell.tone === "payment_no_account" && "text-red-700",
               )}
               title={cell.title}
             >

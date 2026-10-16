@@ -496,11 +496,12 @@ def get_approval_queue(
         for member in family["members"]
     }
 
-    # Who each row is paid to (#1431, #1438): the row's own pay-to account, folded into `paid_to` by
-    # the Payee module; at most one query per page, never one per row.
+    # Who each row is paid to (#1431, #1438, #1463): the row's own pay-to account, or the vendor's an
+    # unpaid PO / WO payment switches to, folded into `paid_to` by the Payee module; at most two
+    # queries per page, never one per row.
     for r, paid_to in zip(rows, paid_to_rows([
-        {"doctype": r.get("doctype"), "vendor": r.get("vendor"), "expense_type": r.get("expense_type"),
-         **{f: r.pop(f, None) for f in PAY_TO_FIELDS}}
+        {"doctype": r.get("doctype"), "status": r.get("status"), "vendor": r.get("vendor"),
+         "expense_type": r.get("expense_type"), **{f: r.pop(f, None) for f in PAY_TO_FIELDS}}
         for r in rows
     ])):
         r["paid_to"] = paid_to

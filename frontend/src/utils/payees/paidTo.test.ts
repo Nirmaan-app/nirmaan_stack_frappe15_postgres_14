@@ -10,6 +10,7 @@ import {
     paidToCell,
     paidToExportText,
     payToBoxView,
+    switchLine,
     type PaidTo,
 } from "./paidTo";
 
@@ -20,9 +21,9 @@ const account = {
     bank_name: "State Bank of India",
     bank_branch: "Bhiwandi",
 };
-/** A row the "account changed since" flag passed (every expense, every unchanged payment). */
-const UNFLAGGED = { account_changed: false, current_account: null } as const;
-const paid: PaidTo = { account, missing: null, payee_rule: null, ...UNFLAGGED };
+/** A row paid into its own account: every expense, every payment whose vendor kept its account. */
+const NO_SWITCH = { switch_to: null } as const;
+const paid: PaidTo = { account, missing: null, payee_rule: null, ...NO_SWITCH };
 const newAccount = {
     account_name: "Ramesh Kumar Yadav",
     account_number: "50100234567812",
@@ -41,7 +42,7 @@ describe("paidToCell", () => {
     });
 
     it("says an expense of a Not asked type has no account because its type doesn't ask", () => {
-        expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Not asked", ...UNFLAGGED }, "Travel", "Approved")).toEqual({
+        expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Not asked", ...NO_SWITCH }, "Travel", "Approved")).toEqual({
             tone: "no_account",
             title: "No account",
             detail: "Not asked for this expense type.",
@@ -49,7 +50,7 @@ describe("paidToCell", () => {
     });
 
     it("says an expense of an Optional type was raised without one", () => {
-        expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Optional", ...UNFLAGGED }, "Travel", "Approved")).toEqual({
+        expect(paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Optional", ...NO_SWITCH }, "Travel", "Approved")).toEqual({
             tone: "no_account",
             title: "No account",
             detail: "No account given; optional for Travel.",
@@ -58,7 +59,7 @@ describe("paidToCell", () => {
 
     it("says when the type requires an account and the expense has none", () => {
         expect(
-            paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Required", ...UNFLAGGED }, "Labour Advance", "Approved"),
+            paidToCell({ account: null, missing: "expense_has_no_account", payee_rule: "Required", ...NO_SWITCH }, "Labour Advance", "Approved"),
         ).toEqual({
             tone: "no_account",
             title: "No account",
@@ -66,27 +67,28 @@ describe("paidToCell", () => {
         });
     });
 
-    it("says a vendor payment holds no account of its own", () => {
-        expect(paidToCell({ account: null, missing: "payment_has_no_account", payee_rule: null, ...UNFLAGGED }, "", "Approved")).toEqual({
+    it("says a vendor payment has no account, and neither has its vendor", () => {
+        expect(paidToCell({ account: null, missing: "payment_has_no_account", payee_rule: null, ...NO_SWITCH }, "", "Approved")).toEqual({
             tone: "payment_no_account",
             title: "No account on this payment",
-            detail: "Pay it another way, or reject it and raise it again.",
+            detail: "Its vendor has no bank account either. Add one on the vendor's page.",
         });
     });
 
-    it("warns that a PO payment's vendor changed account since, naming the new account", () => {
-        expect(paidToCell({ ...paid, account_changed: true, current_account: newAccount }, "", "Approved")).toEqual({
-            tone: "account_changed",
-            title: "Vendor's account changed since this was raised",
-            detail: "Now Ramesh Kumar Yadav, A/c 50100234567812, HDFC0000123. Reject it and raise it again.",
+    it("says a PO payment whose vendor changed account is paid into the vendor's current one, naming the old", () => {
+        expect(paidToCell({ ...paid, switch_to: newAccount }, "", "Approved")).toEqual({
+            tone: "vendor_account",
+            title: "Will be paid into the vendor's current account",
+            detail:
+                "Ramesh Kumar Yadav, A/c 50100234567812, HDFC0000123. Was Ramesh Kumar Yadav, A/c 36147100982211, SBIN0003435.",
         });
     });
 
-    it("warns when the PO payment's vendor has no account any more", () => {
-        expect(paidToCell({ ...paid, account_changed: true, current_account: null }, "", "Approved")).toEqual({
-            tone: "account_changed",
-            title: "Vendor's account changed since this was raised",
-            detail: "The vendor has no account now. Reject it and raise it again.",
+    it("says a PO payment raised with no account is paid into the vendor's current one", () => {
+        expect(paidToCell({ account: null, missing: null, payee_rule: null, switch_to: newAccount }, "", "Approved")).toEqual({
+            tone: "vendor_account",
+            title: "Will be paid into the vendor's current account",
+            detail: "Ramesh Kumar Yadav, A/c 50100234567812, HDFC0000123. It was raised with no account.",
         });
     });
 
@@ -98,17 +100,18 @@ describe("paidToCell", () => {
 describe("paidToExportText", () => {
     it("writes the account on one line, or why there is none", () => {
         expect(paidToExportText(paid, "Labour Advance", "Approved")).toBe("Ramesh Kumar Yadav, A/c 36147100982211, SBIN0003435");
-        expect(paidToExportText({ account: null, missing: "payment_has_no_account", payee_rule: null, ...UNFLAGGED }, "", "Approved")).toBe(
+        expect(paidToExportText({ account: null, missing: "payment_has_no_account", payee_rule: null, ...NO_SWITCH }, "", "Approved")).toBe(
             "No account on this payment",
         );
-        expect(paidToExportText({ ...paid, account_changed: true, current_account: null }, "", "Approved")).toBe(
-            "Vendor's account changed since this was raised: The vendor has no account now. Reject it and raise it again.",
+        expect(paidToExportText({ ...paid, switch_to: newAccount }, "", "Approved")).toBe(
+            "Will be paid into the vendor's current account: Ramesh Kumar Yadav, A/c 50100234567812, HDFC0000123. " +
+            "Was Ramesh Kumar Yadav, A/c 36147100982211, SBIN0003435.",
         );
     });
 
     it("writes why an expense has no account, as the cell says it", () => {
         const noAccount = (payee_rule: string) =>
-            paidToExportText({ account: null, missing: "expense_has_no_account", payee_rule, ...UNFLAGGED }, "Travel", "Approved");
+            paidToExportText({ account: null, missing: "expense_has_no_account", payee_rule, ...NO_SWITCH }, "Travel", "Approved");
         expect(noAccount("Not asked")).toBe("No account: Not asked for this expense type.");
         expect(noAccount("Optional")).toBe("No account: No account given; optional for Travel.");
         expect(noAccount("Required")).toBe("No account: Travel requires one. Add it with Change account in Record Payment.");
@@ -116,25 +119,38 @@ describe("paidToExportText", () => {
 });
 
 describe("payToBoxView", () => {
-    const facts = { ...paid, vendor_fixed: false, vendor_name: "Kaveri Ductfab" };
+    const facts = { ...paid, vendor_fixed: false, vendor_name: "Kaveri Ductfab", paid: false };
     const none = { ...facts, account: null };
 
-    it("turns red with no small print when a PO payment's vendor changed account since", () => {
-        expect(payToBoxView("Project Payments", { ...facts, account_changed: true, current_account: newAccount }, "")).toEqual({
-            tone: "account_changed",
+    it("pays a PO payment into its vendor's current account, saying the payment takes it when paid", () => {
+        const note =
+            "Kaveri Ductfab's current account. Exporting this payment or marking it paid records it on the payment.";
+        expect(payToBoxView("Project Payments", { ...facts, switch_to: newAccount }, "")).toEqual({
+            tone: "vendor_account",
             noAccount: null,
-            note: null,
+            note,
         });
+        expect(payToBoxView("Project Payments", { ...none, switch_to: newAccount }, "").note).toBe(note);
     });
 
-    it("says a PO payment's account was copied from its vendor and is never changed", () => {
+    it("says a PO payment's account was copied from its vendor and follows the vendor's account", () => {
         expect(payToBoxView("Project Payments", facts, "")).toEqual({
             tone: "account",
             noAccount: null,
             note:
-                "Copied from Kaveri Ductfab's account when this payment was raised. A payment's account is never " +
-                "changed: if it is wrong, reject the payment and raise it again.",
+                "Copied from Kaveri Ductfab's account when this payment was raised. It is never edited by hand: if " +
+                "Kaveri Ductfab's account changes, the payment is paid into the new one.",
         });
+    });
+
+    it("gives a paid PO payment no advice to act: its account is where the money went", () => {
+        expect(payToBoxView("Project Payments", { ...facts, paid: true }, "")).toEqual({
+            tone: "account",
+            noAccount: null,
+            note: null,
+        });
+        expect(payToBoxView("Project Payments", { ...none, missing: "payment_has_no_account", paid: true }, "").noAccount)
+            .toEqual({ title: "No account on this payment.", detail: "It was paid without one on record." });
     });
 
     it("says an expense naming a vendor is paid into the vendor's account", () => {
@@ -149,7 +165,7 @@ describe("payToBoxView", () => {
             tone: "no_account",
             noAccount: {
                 title: "No account on this payment.",
-                detail: "Pay it another way, or reject it and raise it again once Kaveri Ductfab has a bank account.",
+                detail: "Kaveri Ductfab has no bank account either. Add one on the vendor's page, and this payment is paid into it.",
             },
             note: null,
         });
@@ -269,24 +285,25 @@ describe("Change account names the expense and words its type's rule", () => {
     });
 });
 
+describe("switchLine (Mark as Paid's confirmation)", () => {
+    it("names the account a switching payment will now go to, and the old one", () => {
+        expect(switchLine({ ...paid, switch_to: newAccount })).toBe(
+            "Will be paid into the vendor's current account: Ramesh Kumar Yadav, A/c 50100234567812, HDFC0000123. " +
+            "Was Ramesh Kumar Yadav, A/c 36147100982211, SBIN0003435.",
+        );
+    });
+
+    it("says nothing for a row paid into its own account", () => {
+        expect(switchLine(paid)).toBeNull();
+        expect(switchLine(undefined)).toBeNull();
+    });
+});
+
 describe("Paid to on a paid row (Reconciliation Pending, Paid)", () => {
-    const flagged: PaidTo = { ...paid, account_changed: true, current_account: newAccount };
-    const PLAIN = { tone: "account", title: "Ramesh Kumar Yadav", detail: "A/c 36147100982211, SBIN0003435" };
-
-    it("keeps the account-changed flag on a row not paid yet", () => {
-        expect(paidToCell(flagged, "", "Approved").tone).toBe("account_changed");
-    });
-
-    it("shows a paid row's own account plainly: its money already went there", () => {
-        for (const status of ["Reconciliation Pending", "Paid"]) {
-            expect(paidToCell(flagged, "", status)).toEqual(PLAIN);
-        }
-        expect(paidToExportText(flagged, "", "Paid")).toBe("Ramesh Kumar Yadav, A/c 36147100982211, SBIN0003435");
-    });
-
+    // The server never switches a paid row (`paid_to._may_switch`): it shows the account its money went into.
     it("never tells the payer to act on a paid row with no account", () => {
-        const required: PaidTo = { account: null, missing: "expense_has_no_account", payee_rule: "Required", ...UNFLAGGED };
-        const payment: PaidTo = { account: null, missing: "payment_has_no_account", payee_rule: null, ...UNFLAGGED };
+        const required: PaidTo = { account: null, missing: "expense_has_no_account", payee_rule: "Required", ...NO_SWITCH };
+        const payment: PaidTo = { account: null, missing: "payment_has_no_account", payee_rule: null, ...NO_SWITCH };
 
         expect(paidToCell(required, "Rent", "Paid")).toEqual({ tone: "no_account", title: "No account", detail: "Rent requires one." });
         expect(paidToCell(payment, "", "Reconciliation Pending")).toEqual({

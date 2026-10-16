@@ -5,14 +5,15 @@
 
 The one place "this vendor's bank details" is resolved: the hover card, the detail popover, the
 payment-request gate and its "Will be paid into" box, and the vendor list, and on the server Bulk
-Import's vendor index (refund suggestions), the "account changed since" flag (`paid_to`) and a
-cheque's holder-name check in the payment autofill, all read it from here, never from the old
-`Vendors` bank fields and never by joining `tabPayee` themselves.
+Import's vendor index (refund suggestions), the "paid into the vendor's current account" rule
+(`paid_to`) and a cheque's holder-name check in the payment autofill, all read it from here, never
+from the old `Vendors` bank fields and never by joining `tabPayee` themselves.
 
 A vendor's account is the Payee it links to NOW. A vendor with no Payee has no bank account. Every
 PO / WO payment and expense holds its own copy of the account it was raised with (`pay_to`,
-ADR-0033 decision 9), so a vendor's account read here is never what an existing row pays into: it
-is what the next row copies, and what `paid_to` compares a PO / WO payment's copy against.
+ADR-0033 decision 9), so a vendor's account read here is what the next row copies, and what
+`paid_to` compares an unpaid PO / WO payment's copy against: where they differ, the payment is paid
+into this account (#1463).
 
 * `payee_for_vendor` -- the name of the Payee one vendor is paid into (the expense rules, Change
   account).
@@ -20,7 +21,7 @@ is what the next row copies, and what `paid_to` compares a PO / WO payment's cop
   vendor page's Account Details card and every screen's single-vendor read, the Expense Request's
   vendor Payee among them.
 * `vendor_accounts` -- many vendors' account fields at once: the vendor list, Bulk Import's vendor
-  index, `paid_to`'s "account changed since" flag and the payment autofill's cheque check.
+  index, `paid_to`'s vendor-account switch and the payment autofill's cheque check.
 """
 
 from __future__ import annotations
