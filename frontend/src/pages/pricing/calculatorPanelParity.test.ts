@@ -1383,3 +1383,107 @@ describe("12e-5 AC10 -- one real Stage A row per row type (runs BRSR-26-00447 ..
     expect(facts(calcOf(p, { "insulation.thickness_mm": "19" }))).not.toEqual(facts(p));
   });
 });
+
+// =====================================================================================================
+// SLICE 12e-5c AC13 -- ONE ROW PER NEW SHAPE FOUND IN THE STAGE B READ, calculator vs panel, PINNED AS IT IS
+// =====================================================================================================
+/**
+ * The 12e-5c Stage B read (2026-10-15 / 16, runs BRSR-26-00718 .. 00805, HVAC v42) put all 1,349 stored Piping rows
+ * through the existing parity method (the 12e-5 block above: the calculator fed the panel's own answers). 1,330
+ * agree (outright 1,083, typed 184, pick 18, both refuse 45). The rest are TWO SHAPES this test did not hold, both
+ * pre-existing (they occur on Stage A / 12e-5b rows too) and neither in `calculatorPanelParity.awaiting.ts`. ONE real
+ * Stage B row of each is pinned here (owner AC13: "one row per new shape, not every row"), AS IT IS, for the owner:
+ *
+ *   as-written refusal -- the panel refuses a STOCKED family by the material the BoQ writes ("nitrile rubber/XLPE":
+ *                         `no_sku_named_by: material_as_written`); the calculator has no as-written box, so the same
+ *                         family handed to it prices. 8 Stage B rows (BOQ-26-00086 High side 98-101, 104-107).
+ *   below smallest     -- a pipe below its smallest stocked size ladders UP (CPVC 20 -> 25); the panel puts the
+ *                         insulation on the pipe size AS READ (20 -> 22.23, 12e-5b2 R6), the calculator's insulation
+ *                         pipe size mirrors the pipe box (25 -> 28.58). 11 rows (Stage A, 12e-5b and Stage B).
+ *
+ * `want` is the panel, `calc` the calculator; a ruling that removes either shape flips its pin.
+ */
+describe("12e-5c AC13 -- one Stage B row per new shape (runs BRSR-26-00718 .. 00805, v42): calculator vs panel, pinned", () => {
+  const v42 = readJsonFixture<{ discipline: string; items: Array<Omit<RateMasterItem, "discipline">>; category_configs: RateCategoryConfig[] }>(
+    new URL("../../../../nirmaan_stack/services/boq_rate_master/data/rate_master_hvac_all_v42.json", import.meta.url),
+  );
+  const cfg42 = new Map<string, RateCategoryConfig>(v42.category_configs.map((c) => [c.category_id, c]));
+  const items42: RateMasterItem[] = v42.items.map((it) => ({ ...it, discipline: v42.discipline } as RateMasterItem));
+  const PIP = "hvac_piping";
+  interface ShapeRow {
+    shape: "as-written refusal" | "below smallest";
+    id: string;
+    unit: string;
+    desc: string;
+    h: string[];
+    items: Array<{ a: Record<string, string | null>; s?: string }>;
+    want: [number, number] | string;
+    calc: [number, number];
+  }
+  const ROWS: ShapeRow[] = [
+    {"shape": "as-written refusal", "id": "BOQ-26-00086/High side/98", "unit": "RM", "desc": "15.9 mm O.D. (with 19mm insulation)", "h": ["The quoted price should include lifting, shifting, positioning at site of all the equipment fittings, remote controls, vibration isolators, ancilliary materials as specified and all such item required to fullfill the intent and purpose as laid down in specifications and drawings.", "COPPER REFRIGERANT PIPING"], "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "COPPER", "size_mm": "15.9 mm O.D.", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "Glass Cloth with paint", "cladding_as_written": "two coats of 500 micron (0.5 mm) WFT Flame Retardant coating", "thickness_mm": "19mm", "pipe_size_mm": "15.9 mm O.D.", "brand": null, "material_as_written": "closed cell elastomeric nitrile rubber/XLPE tubular insulation"}, "s": "insulation"}], "want": "No SKU in the catalogue for closed cell elastomeric nitrile rubber/XLPE tubular insulation - price this row by hand", "calc": [1595, 304]},
+    {"shape": "below smallest", "id": "BOQ-26-00300/VRF System/71", "unit": "Rmt", "desc": "20 mm dia.", "h": ["CPVC Pipes with 6mm thick Closed Cell Polyethylene"], "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "20 mm dia.", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "none of these", "cladding": "None", "cladding_as_written": null, "thickness_mm": "6 mm thick", "pipe_size_mm": "20 mm dia.", "brand": null, "material_as_written": "closed cell polyethylene"}, "s": "insulation"}], "want": [466, 42], "calc": [478, 42]},
+  ];
+  type Shown = { s: ItemListSuggestion; v: ItemListView };
+  const list = (r: unknown): Shown => {
+    if (!isSuggestion(r as never)) throw new Error("expected a suggestion");
+    return { s: r as ItemListSuggestion, v: (r as ItemListSuggestion).itemList! };
+  };
+  function panelOf(r: ShapeRow): Shown {
+    const pc: ParityCase = { cat: PIP, unit: r.unit, desc: r.desc, attrs: {}, items: r.items.map((i) => i.a), headings: r.h, ownNotes: [] };
+    const stored = extractionRowFor(pc) as ExtractionRow & { items: Array<{ attributes: unknown; section?: string }> };
+    r.items.forEach((i, n) => { if (i.s) stored.items[n].section = i.s; });
+    const ctx = { ...panelCtx(pc), unit: r.unit };
+    return list(makePricingSheetHelper({ configsByCategory: cfg42, items: items42, extractionByRow: new Map([[stored.excelRow, stored]]) }).compute(ctx));
+  }
+  type Edit = ItemListEditState["items"][number];
+  /** The 12e-5 block's feed, with the typed box given the number the panel itself resolved (owner U4: one number). */
+  function editOf(b: ItemBlockView): Edit {
+    const attrs: Record<string, string> = {};
+    const other: string[] = [];
+    for (const f of b.fields) {
+      if (f.readOnly || f.mirrorTag) continue;
+      const v = f.otherMode ? (f.value || f.typedValue) : f.value;
+      if (v !== "") attrs[f.id] = v;
+      if (f.otherMode && !f.value) other.push(f.id);
+    }
+    const sections: Record<string, Edit> = {};
+    for (const sv of b.sections ?? []) {
+      const sb = sv.view.items[0];
+      if (!sb) continue;
+      const e = editOf(sb);
+      if (sb.qtyMirrorTag) delete e.qty;
+      sections[sv.sectionId] = e;
+    }
+    return { base: null, family: b.family, attrs, qty: b.qty, ...(other.length ? { other } : {}), ...(Object.keys(sections).length ? { sections } : {}) } as Edit;
+  }
+  function calcOf(panel: Shown): Shown {
+    const state = { items: panel.v.items.map((b) => editOf(b)) };
+    return list(calculatorHelper(cfg42, items42).compute(calculatorCtx("HVAC", PIP), { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify(state), [ROW_UNIT_OVERRIDE_KEY]: "mts" }));
+  }
+  const fig = (x: Shown): [number, number] | string => (x.v.rowPriced ? [x.s.values.supply_rate as number, x.s.values.install_rate as number] : (x.v.reason ?? "?"));
+
+  it("the fixture names exactly what it covers: 2 new shapes, one real Stage B row each", () => {
+    expect(ROWS).toHaveLength(2);
+    expect(ROWS.map((r) => r.shape)).toEqual(["as-written refusal", "below smallest"]);
+    expect(new Set(ROWS.map((r) => r.id)).size).toBe(2);
+  });
+  it.each(ROWS.map((r) => [r.id, r] as const))("%s: the panel and the calculator, fed the panel's own answers, AS THEY ARE today", (_id, r) => {
+    const p = panelOf(r);
+    const c = calcOf(p);
+    expect({ panel: fig(p), calc: fig(c) }).toEqual({ panel: r.want, calc: r.calc });
+  });
+  it("as-written refusal: the panel's refusal is the material AS WRITTEN; its pipe item still prices (only the section refuses)", () => {
+    const p = panelOf(ROWS[0]);
+    expect(p.v.items[0].state).toBe("priced");
+    expect(p.v.items[0].sections?.[0].view.rowPriced).toBe(false);
+  });
+  it("below smallest: the PIPE agrees on both surfaces (CPVC 25); only the insulation's pipe size differs (22.23 vs the mirrored 25)", () => {
+    const p = panelOf(ROWS[1]);
+    const c = calcOf(p);
+    expect(p.v.items[0].figures).toEqual(c.v.items[0].figures);
+    const ins = (x: Shown) => x.v.items[0].sections?.[0].view.items[0].fields.find((f) => f.id === "pipe_size_mm")?.value;
+    expect(ins(p)).toBe("22.23");
+    expect(ins(p)).not.toBe(ins(c));
+  });
+});
