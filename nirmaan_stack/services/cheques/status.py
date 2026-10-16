@@ -1,10 +1,20 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""A Cheque's status, changed by hand (#1412, spec #1407). Part of THE cheques service; never commits.
+"""A Cheque's status: issued when its payments are approved, or changed by hand. Part of THE cheques
+service; never commits.
 
-A Cheque moves between Issued, Cleared and Cancelled in any direction. Each move writes one
-`Cheque Status History` row (from, to, who, when, note). The rules:
+**Issue** (#1479, spec #1477, ADR-0035). `issue` is THE ONLY CODE THAT TAKES A PAYMENT CHEQUE FROM
+PENDING TO ISSUED. (The old hand moves back to Issued from Cleared or Cancelled are removed by #1484.)
+A Payment cheque starts Pending and is Issued in the same write that moves its last payment on to
+Reconciliation Pending (`cheque_payments.move_to_reconciliation` calls it), with its issue date set
+to the day of its payments' last approval. Every approval route ends in that move (single L1, CEO,
+bulk, auto-approve and the raiser's own step at creation), so they all issue through here; a cheque
+made for payments already moved on is issued as it is made (`writer.create_cheque`).
+
+**By hand** (#1412). A Cheque moves between Issued, Cleared and Cancelled in any direction. A
+Pending one can only be Cancelled by hand: it is Issued by approving its payments. Each move writes
+one `Cheque Status History` row (from, to, who, when, note). The rules:
 
 * a Cheque already at the status asked for does not move;
 * Cancel needs a note;
@@ -26,10 +36,21 @@ from dataclasses import dataclass, field
 
 import frappe
 from frappe import _
+from frappe.utils import nowdate
 
 from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.cheques.lines import live_cheques_of
-from nirmaan_stack.services.cheques.rules import CANCELLED, CLEARED, ISSUED, PAYMENT_DOCTYPE, PAYMENT_REJECTED
+from nirmaan_stack.services.cheques.rules import (
+    CANCELLED,
+    CHEQUE_TYPE_PAYMENT,
+    CLEARED,
+    ISSUED,
+    PAYMENT_DOCTYPE,
+    PAYMENT_REJECTED,
+    PENDING,
+    issue_date_from,
+    ready_to_issue,
+)
 from nirmaan_stack.services.cheques.writer import CHEQUES, history_row
 from nirmaan_stack.services.settlement import STATUS_PAID, STATUS_RECONCILIATION_PENDING
 
@@ -78,6 +99,8 @@ def move_problem(facts: MoveFacts, to_status: str) -> str | None:
     """
     if facts.status == to_status:
         return f"already {to_status}"
+    if facts.status == PENDING and to_status != CANCELLED:
+        return "it is Pending until its payments are approved"
     if to_status == CANCELLED:
         paid = [p.name for p in facts.payments if p.doctype == PAYMENT_DOCTYPE and p.status == STATUS_PAID]
         if paid:
@@ -197,3 +220,41 @@ def change_statuses(names, to_status: str, *, user: str, note: str | None = None
                 "reconciliation_pending": reconciliation_pending(facts) if to_status == CANCELLED else [],
             })
     return {"changed": changed, "skipped": skipped}
+
+
+def issue(name: str, *, user: str, note: str | None = None):
+    """Issue Payment cheque `name` if its payments allow it: the only way out of Pending to Issued.
+
+    Re-reads the Cheque under its row lock. A Pending Payment cheque (not Old-type) whose every line's
+    payment is at Reconciliation Pending (`rules.ready_to_issue`) becomes Issued, with its issue date
+    set to the day of its payments' last approval (`rules.issue_date_from`; today when none is dated)
+    and one history row by `user`, saying `note` if given. Returns the saved Cheque, or None when it
+    stays as it is, so calling it again, or for a cheque that still waits on a payment, is harmless.
+
+    ⚠️ CALL IT IN THE SAME TRANSACTION (OR SAVEPOINT) AS THE PAYMENT MOVE, never after its commit:
+    should either fail, both roll back, and the cheque stays Pending beside its Approved payment. It
+    commits nothing, and no hook of the Cheque save commits.
+    """
+    doc = frappe.get_doc(CHEQUES, name, for_update=True)
+    if doc.status != PENDING or doc.cheque_type != CHEQUE_TYPE_PAYMENT or doc.old_type:
+        return None
+    lines = doc.get("lines") or []
+    payments = [row.payment_name for row in lines if row.payment_doctype == PAYMENT_DOCTYPE and row.payment_name]
+    if not payments or len(payments) != len(lines):
+        return None  # a line with no payment yet (or an expense line) keeps it Pending
+    rows = {
+        r.name: r
+        for r in frappe.get_all(
+            PAYMENT_DOCTYPE,
+            filters={"name": ["in", payments]},
+            fields=["name", "status", "approval_date", "ceo_approval_date"],
+        )
+    }
+    if not ready_to_issue([rows[p].status if p in rows else None for p in payments]):
+        return None
+    approvals = [r.approval_date for r in rows.values()] + [r.ceo_approval_date for r in rows.values()]
+    doc.append("status_history", history_row(PENDING, ISSUED, user, note))
+    doc.status = ISSUED
+    doc.issue_date = issue_date_from(approvals) or nowdate()
+    doc.save(ignore_permissions=True)
+    return doc

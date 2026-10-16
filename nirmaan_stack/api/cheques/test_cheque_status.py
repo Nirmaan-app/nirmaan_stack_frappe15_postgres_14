@@ -24,6 +24,8 @@ from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.cheques.cheque_status import change_cheque_status, change_cheque_statuses
 from nirmaan_stack.api.cheques.save_cheque import save_cheque
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
+from nirmaan_stack.services.cheques.rules import parse_header
+from nirmaan_stack.services.cheques.writer import create_payment_cheque
 
 U = "Administrator"
 PAYMENT = "Project Payments"
@@ -144,6 +146,24 @@ class TestChequeStatus(FrappeTestCase):
         cheque = self._cheque()
         self._refused("Choose Issued, Cleared or Cancelled", change_cheque_status, cheque, "Pending")
         self.assertEqual(self._status(cheque), "Issued")
+
+    def test_a_pending_cheque_is_issued_only_by_approving_its_payment(self):
+        # #1479: Issued follows the payment's approval; by hand a Pending cheque can only be cancelled.
+        payment = self._plant("Requested")
+        header = parse_header({
+            "bank": "ICICI Bank", "cheque_no": self.cheques.number(), "cheque_date": nowdate(),
+            "amount": 20000, "vendor": self.vendor, "attachment": PHOTO,
+        })
+        cheque = self.cheques.track(create_payment_cheque(header, payment, user=U).name)
+        frappe.db.commit()
+        self.assertEqual(self._status(cheque), "Pending")
+        for target in ("Issued", "Cleared"):
+            self._refused(f"cannot be moved to {target}: it is Pending until its payments are approved",
+                          change_cheque_status, cheque, target)
+        self.assertEqual(self._status(cheque), "Pending")
+
+        change_cheque_status(cheque, "Cancelled", note="torn up")
+        self.assertEqual(self._history(cheque)[1:], [("Pending", "Cancelled", U, "torn up")])
 
     def test_a_move_to_the_status_it_has_is_refused(self):
         cheque = self._cheque()

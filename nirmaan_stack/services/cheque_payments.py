@@ -1,7 +1,8 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""Cheque payments — approved like any payment, then moved straight on to Reconciliation Pending.
+"""Cheque payments — approved like any payment, then moved straight on to Reconciliation Pending,
+and their Cheque Issued in the same write.
 
 A cheque is already written when it is requested (its number and date are captured on the
 request), so there is nothing for an accountant to pay: "Payment need to paid" (`Approved`) has
@@ -22,6 +23,11 @@ withhold tax a second time.
 only for rows still at `Approved` (`bulk_actions._record_bulk_deductions`); moving a row before that
 would leave a Work Order cheque with no deduction and its amount gross. That is why this is an
 explicit call at the end of each approval route, never a hook inside the save.
+
+THE MOVE ISSUES THE CHEQUE (#1479, spec #1477, ADR-0035). A Payment cheque starts Pending; the save
+that moves its last payment on to Reconciliation Pending also makes it Issued, dated the day of the
+last approval (`services/cheques/status.issue`). One transaction, so a failed move leaves both the
+payment at Approved and its cheque at Pending: the two never disagree.
 """
 
 import frappe
@@ -50,7 +56,8 @@ def has_no_tds_to_wait_for(doc) -> bool:
 
 
 def move_to_reconciliation(payment_name: str, *, sync_po_term: bool = True) -> bool:
-	"""Move an `Approved` cheque payment on to `Reconciliation Pending`. False when there was nothing to move.
+	"""Move an `Approved` cheque payment on to `Reconciliation Pending`, and issue its Cheque once every
+	payment on it has moved (`services/cheques/status.issue`). False when there was nothing to move.
 
 	RAISES on failure; the caller owns the transaction (`commit_move_to_reconciliation`, or the bulk
 	approval group). A payment that fails to move
@@ -81,6 +88,13 @@ def move_to_reconciliation(payment_name: str, *, sync_po_term: bool = True) -> b
 	if not sync_po_term:
 		pay.flags.bulk_approval = True  # `_find_and_update_po_term` stays out; the caller writes the term
 	pay.save(ignore_permissions=True)
+	if pay.get("cheque"):
+		# Local: the cheques service imports this module.
+		from nirmaan_stack.services.cheques.status import issue
+		from nirmaan_stack.services.cheques.writer import CHEQUES_CHANGED_EVENT
+
+		if issue(pay.cheque, user=frappe.session.user):
+			frappe.publish_realtime(CHEQUES_CHANGED_EVENT, {"cheque": pay.cheque}, after_commit=True)
 	return True
 
 

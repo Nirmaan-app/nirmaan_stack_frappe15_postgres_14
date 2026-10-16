@@ -297,8 +297,8 @@ export const PaymentModeFields = ({
 					)}
 					{isRequest && (
 						<p className="text-[11px] text-muted-foreground">
-							This payment gets its own new cheque. Once approved, a cheque payment goes straight to
-							Reconciliation Pending.
+							This payment gets its own new cheque. The cheque starts Pending; once the payment is
+							approved, the cheque is Issued and waits in the Cheque Tracker until the bank clears it.
 						</p>
 					)}
 				</>

@@ -86,6 +86,45 @@ class TestStatusFromPayments(unittest.TestCase):
         self.assertStatus(["Paid", ""], None)
 
 
+class TestReadyToIssue(unittest.TestCase):
+    """A Pending Payment cheque is Issued in the step that moves its last payment on to Reconciliation
+    Pending (#1479): Approved alone is not enough, since that move can still fail."""
+
+    def test_every_payment_moved_on_issues_it(self):
+        self.assertTrue(rules.ready_to_issue(["Reconciliation Pending"]))
+        self.assertTrue(rules.ready_to_issue(["Reconciliation Pending", " Reconciliation Pending "]))
+
+    def test_a_payment_still_at_approved_holds_it(self):
+        self.assertFalse(rules.ready_to_issue(["Approved"]))
+        self.assertFalse(rules.ready_to_issue(["Reconciliation Pending", "Approved"]))
+
+    def test_a_waiting_payment_or_a_line_with_none_holds_it(self):
+        self.assertFalse(rules.ready_to_issue(["Reconciliation Pending", "Requested"]))
+        self.assertFalse(rules.ready_to_issue(["Reconciliation Pending", "CEO Pending"]))
+        self.assertFalse(rules.ready_to_issue(["Reconciliation Pending", None]))
+
+    def test_no_lines_or_another_status_never_issues_it(self):
+        self.assertFalse(rules.ready_to_issue([]))
+        self.assertFalse(rules.ready_to_issue(["Paid"]))
+        self.assertFalse(rules.ready_to_issue(["Rejected", "Reconciliation Pending"]))
+
+
+class TestIssueDate(unittest.TestCase):
+    """The issue date is the day of the last approval: an L1 date, or the CEO's when the CEO approved."""
+
+    def test_the_latest_approval_wins(self):
+        self.assertEqual(rules.issue_date_from(["2026-10-12", "2026-10-15", None]), "2026-10-15")
+
+    def test_dates_and_text_compare_as_dates(self):
+        import datetime
+
+        self.assertEqual(rules.issue_date_from([datetime.date(2026, 10, 9), "2026-10-10"]), "2026-10-10")
+
+    def test_no_approval_date_gives_none(self):
+        self.assertIsNone(rules.issue_date_from([None, ""]))
+        self.assertIsNone(rules.issue_date_from([]))
+
+
 class TestOldType(unittest.TestCase):
     """An Old-type cheque pays Expenses, has no lines, or is made out to a typed name (GLOSSARY.md)."""
 
@@ -205,14 +244,27 @@ class TestEditTakesPaymentsOff(unittest.TestCase):
         after = [self._line(wo, "PAY-2"), self._line(wo, "PAY-3")]
         self.assertEqual(rules.payments_taken_off(before, after), ["PAY-1"])  # an expense is no payment
 
-    def test_an_issued_cheque_s_payment_line_may_come_off(self):
+    def test_a_pending_or_issued_cheque_s_payment_line_may_come_off(self):
         header = rules.parse_header({"bank": "ICICI Bank", "cheque_no": "1", "cheque_date": "2026-10-14",
                                      "amount": 100, "vendor": "V", "attachment": "x"})
-        for made_from in rules.MADE_FROM:
-            self.assertIsNone(rules.edit_problem(
-                header, header, status=rules.ISSUED, made_from=made_from,
-                lines_before=[self._line(rules.LINE_PO_WO_PAYMENT, "PAY-1")], lines_after=[],
-            ))
+        for status in (rules.PENDING, rules.ISSUED):
+            for made_from in rules.MADE_FROM:
+                self.assertIsNone(rules.edit_problem(
+                    header, header, status=status, made_from=made_from,
+                    lines_before=[self._line(rules.LINE_PO_WO_PAYMENT, "PAY-1")], lines_after=[],
+                ))
+        self.assertIn("is Cleared: only its photo can change", rules.edit_problem(
+            header, header, status=rules.CLEARED, made_from=rules.MADE_FROM_REPORT,
+            lines_before=[self._line(rules.LINE_PO_WO_PAYMENT, "PAY-1")], lines_after=[],
+        ))
+
+    def test_procurement_edits_its_own_pending_or_issued_cheques(self):
+        # #1479: a Request Payment cheque waiting for approval is Pending, and its maker may still edit it.
+        for status in (rules.PENDING, rules.ISSUED):
+            self.assertIsNone(rules.edit_access_problem(status=status, owner="u", user="u", any_cheque=False))
+        self.assertIn("only the Pending or Issued cheques you created",
+                      rules.edit_access_problem(status=rules.CLEARED, owner="u", user="u", any_cheque=False))
+        self.assertIsNotNone(rules.edit_access_problem(status=rules.PENDING, owner="v", user="u", any_cheque=False))
 
     # The amount is left out: `flt(..., 2)` needs a site, so with no DB every amount reads 0.0.
     # `api/cheques/test_cheque_edit` covers it.

@@ -79,8 +79,9 @@ describe("canEditCheque", () => {
         expect(canEditCheque({ status: "Cancelled", owner: "someone@else" }, "Nirmaan Admin Profile", "Administrator")).toBe(true);
     });
 
-    it("lets Procurement edit only the Issued Cheques they created", () => {
+    it("lets Procurement edit only the Pending or Issued Cheques they created", () => {
         const user = "buyer@nirmaan.app";
+        expect(canEditCheque({ status: "Pending", owner: user }, PROCUREMENT, user)).toBe(true);
         expect(canEditCheque({ status: "Issued", owner: user }, PROCUREMENT, user)).toBe(true);
         expect(canEditCheque({ status: "Issued", owner: "other@nirmaan.app" }, PROCUREMENT, user)).toBe(false);
         expect(canEditCheque({ status: "Cleared", owner: user }, PROCUREMENT, user)).toBe(false);
@@ -107,6 +108,12 @@ describe("chequeEditMode and its locks", () => {
         expect(editLockHint(mode, "Issued")).toBe(
             "Made from the PO/WO page: the number, date and amount stay as on its payment. Change them on the payment.",
         );
+    });
+
+    it("edits a Pending Cheque like an Issued one (#1479)", () => {
+        expect(chequeEditMode(detail({ status: "Pending", made_from: "PO/WO Page" }))).toBe("po_wo_page");
+        expect(chequeEditMode(detail({ status: "Pending", made_from: "Report" }))).toBe("all");
+        expect(paymentsOnCheque(detail({ status: "Pending" }))).toEqual(["PAY-1"]);
     });
 
     it("opens everything on a PO-page Issued Cheque with no Project Payment line left", () => {

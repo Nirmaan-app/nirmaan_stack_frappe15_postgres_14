@@ -359,12 +359,12 @@ class TestChequeEdit(FrappeTestCase):
         self.assertEqual(self._cheque(own).description, "Fixed my typo")
 
         someone_elses = self._add()
-        with self.assertRaisesRegex(frappe.PermissionError, "only the Issued cheques you created"):
+        with self.assertRaisesRegex(frappe.PermissionError, "only the Pending or Issued cheques you created"):
             self._as(buyer, self._edit, someone_elses, description="not mine")
         frappe.db.rollback()
 
         change_cheque_status(own, "Cleared")
-        with self.assertRaisesRegex(frappe.PermissionError, "only the Issued cheques you created"):
+        with self.assertRaisesRegex(frappe.PermissionError, "only the Pending or Issued cheques you created"):
             self._as(buyer, self._edit, own, attachment=NEW_PHOTO)
         frappe.db.rollback()
 
