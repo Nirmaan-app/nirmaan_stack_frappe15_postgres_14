@@ -22,6 +22,7 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt, nowdate
 
+from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.payments import bulk_actions
 from nirmaan_stack.api.payments.project_payments import (
 	ceo_approve_payment,
@@ -32,6 +33,8 @@ from nirmaan_stack.api.payments.project_payments import (
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 from nirmaan_stack.services import payment_tds
+from nirmaan_stack.services.cheques.rules import ChequeHeader, ChequeLineInput
+from nirmaan_stack.services.cheques.writer import create_cheque
 
 PAYMENT = "Project Payments"
 SR = "Service Requests"
@@ -129,10 +132,13 @@ class TestChequePayments(FrappeTestCase):
 
 	# -- every approval route: taxed once at Approved, then Reconciliation Pending -------------
 	def test_auto_approved_cheque_is_taxed_then_moved(self):
+		ChequeFixture.attach(self)  # the request makes the payment's one-line Cheque (#1414)
 		with patch(f"{CONTROLLER}.get_allowed_accountants") as accountants:
 			out = json.loads(create_payment_request_for_service(json.dumps({
 				"doctype": SR, "docname": self.sr, "amount": 10000,
 				"mode_of_payment": "Cheque", "cheque_no": self._cheque_no(), "cheque_date": nowdate(),
+				"bank": "ICICI Bank", "cheque_amount": 9800,
+				"cheque_attachment": "https://storage.example.invalid/private/files/cheque-test.jpg",
 			})))
 		self.assertEqual(self._state(out["name"]), (RECON, 9800.0, [200.0]))
 		# "Payment Ready to Fulfil" points at a tab a cheque never stays in.
@@ -272,11 +278,32 @@ class TestChequePayments(FrappeTestCase):
 			self._as_ceo(ceo_approve_payment, name, approved_amount=30000)
 		self.assertEqual(self._state(name), ("CEO Pending", 60000.0, []))
 
-	def test_the_mode_is_locked_after_creation(self):
-		name = self._plant(20000, "Requested")
-		doc = frappe.get_doc(PAYMENT, name)
+	def test_the_mode_changes_only_through_a_cheque(self):
+		"""Spec #1407: Online -> Cheque only by putting the payment on a Cheque; Cheque -> Online only
+		once its Cheque is Cancelled, or when it is on no Cheque (`test_cheque_lines` covers both
+		allowed moves through a Cheque)."""
+		ChequeFixture.attach(self)
+		number = self._cheque_no()
+		cheque = self._plant(20000, "Requested", cheque_no=number)
+		self._on_one_cheque(number, cheque)
+		doc = frappe.get_doc(PAYMENT, cheque)
 		doc.mode_of_payment = "Online"
-		with self.assertRaisesRegex(frappe.ValidationError, "Value cannot be changed"):
+		with self.assertRaisesRegex(frappe.ValidationError, "back to Online only once its Cheque is Cancelled"):
+			doc.save()
+		frappe.db.rollback()
+
+		# The backfill refused its number, so no Cheque holds it: nothing keeps it a Cheque payment.
+		orphan = self._plant(20000, "Requested")
+		doc = frappe.get_doc(PAYMENT, orphan)
+		doc.mode_of_payment = "Online"
+		doc.save()
+		frappe.db.commit()
+		self.assertEqual(tuple(frappe.db.get_value(PAYMENT, orphan, ["mode_of_payment", "cheque_no"])), ("Online", None))
+
+		online = self._plant(20000, "Requested", cheque=False)
+		doc = frappe.get_doc(PAYMENT, online)
+		doc.update({"mode_of_payment": "Cheque", "cheque_no": self._cheque_no(), "cheque_date": nowdate()})
+		with self.assertRaisesRegex(frappe.ValidationError, "becomes a Cheque payment by putting it on a Cheque"):
 			doc.save()
 
 	# -- the request's own checks -----------------------------------------------------------------
@@ -318,14 +345,45 @@ class TestChequePayments(FrappeTestCase):
 		update_payment_request(json.dumps({"action": "fulfil", "name": name, "utr": utr, "pay_date": nowdate()}))
 		frappe.db.commit()
 
+	def _on_one_cheque(self, number, *payments, bank="ICICI Bank", bank_name=None):
+		"""Put `payments` on one new Cheque (#1419: the guard keys on the Cheque link)."""
+		header = ChequeHeader(
+			bank=bank, bank_name=bank_name, cheque_no=number, cheque_date=nowdate(),
+			amount=sum(flt(frappe.db.get_value(PAYMENT, p, "amount")) for p in payments), vendor=self.vendor,
+			payee_name=None, description=None, attachment="https://storage.example.invalid/private/files/cheque-test.jpg",
+		)
+		lines = [
+			ChequeLineInput(line_type="PO/WO Payment", project=self.project, record_doctype=SR, record_name=self.sr,
+							payment_doctype=PAYMENT, payment_name=p, amount=0)
+			for p in payments
+		]
+		create_cheque(header, user=U, made_from="Report", lines=lines)
+		frappe.db.commit()
+
 	def test_payments_on_one_cheque_all_reconcile_against_its_number(self):
+		ChequeFixture.attach(self)
 		number = self._cheque_no()
 		first = self._plant(20000, RECON, cheque_no=number)
 		second = self._plant(30000, RECON, cheque_no=number)
+		self._on_one_cheque(number, first, second)
 		self._fulfil(first, number)
 		self._fulfil(second, number)  # the same reference: refused before, allowed for the same cheque
 		for name in (first, second):
 			self.assertEqual(frappe.db.get_value(PAYMENT, name, ["status", "utr"]), ("Paid", number))
+
+	def test_the_same_number_on_two_cheques_still_blocks(self):
+		"""The siblings are the payments on the same Cheque, not every payment sharing its number (#1419):
+		cheque 004521 of ICICI Bank and cheque 004521 of another bank are two cheques."""
+		ChequeFixture.attach(self)
+		number = self._cheque_no()
+		icici = self._plant(20000, RECON, cheque_no=number)
+		other_bank = self._plant(30000, RECON, cheque_no=number)
+		self._on_one_cheque(number, icici)
+		self._on_one_cheque(number, other_bank, bank="Others", bank_name="HDFC Bank")
+		self._fulfil(icici, number)
+		with self.assertRaisesRegex(frappe.ValidationError, "already recorded"):
+			self._fulfil(other_bank, number)
+		self.assertEqual(frappe.db.get_value(PAYMENT, other_bank, "status"), RECON)
 
 	def test_a_reference_held_by_another_payment_still_blocks_a_cheque(self):
 		"""Only payments on the SAME cheque excuse each other."""

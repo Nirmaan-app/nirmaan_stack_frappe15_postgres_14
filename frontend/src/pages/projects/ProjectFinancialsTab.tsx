@@ -23,6 +23,7 @@ import { AmountBreakdownHoverCard } from "./components/AmountBreakdownHoverCard"
 import { CustomerPODetailsCard } from "./components/CustomerPODeatilsCard";
 import {
   useProjectFinancialsTabData,
+  useProjectMoney,
 } from "./data/tab/financials/useProjectFinancialsTabApi";
 import { useProjectAllCredits } from "./hooks/useProjectAllCredits";
 import { TruncatedText } from "@/components/common/TruncatedText";
@@ -38,12 +39,6 @@ interface ProjectFinancialsTabProps {
   projectData?: Projects
   projectCustomer?: Customers;
   // updateURL: (params: Record<string, string>, removeParams?: string[]) => void;
-  getTotalAmountPaid: {
-    poAmount: number;
-    srAmount: number;
-    projectExpensesAmount: number; // Receive the new field
-    totalAmount: number;
-  }
   totalPOAmountWithGST: number;
   getAllSRsTotalWithGST: number;
   getAllPODeliveredAmount: number;
@@ -124,7 +119,7 @@ const SummaryTile: React.FC<{ item: SummaryItem }> = ({ item }) => (
   </div>
 );
 
-export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO }) => {
+export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ projectData, projectCustomer, totalPOAmountWithGST, getAllSRsTotalWithGST, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO }) => {
 
   const { role } = useUserData();
   const isSales = role === "Nirmaan Sales Executive Profile" || role === "Nirmaan Sales Lead Profile";
@@ -192,6 +187,11 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
 
 
   const { inflowsResponse, invoicesResponse } = useProjectFinancialsTabData(projectData?.name);
+
+  // Total OutFlow and Current Liabilities: the server's project money, the figures CEO Hold and the
+  // Projects list read (ADR-0034). Never worked out again in the browser.
+  const { data: projectMoneyResponse } = useProjectMoney(projectData?.name);
+  const projectMoney = projectMoneyResponse?.message;
   const { data: projectInflows, isLoading: projectInflowsLoading } = inflowsResponse;
 
   const totalInflowAmount = useMemo(() => getTotalInflowAmount(projectInflows || []), [projectInflows])
@@ -272,17 +272,14 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
       // label: "Total Amount Paid",
       label: "Total OutFlow Amount",
 
-      value: getTotalAmountPaid.totalAmount,
-      info: "Total expenses recorded for the project. (Hover for breakdown)",
+      value: projectMoney?.outflow ?? 0,
+      info: "Money paid out for the project: Paid payments less Received vendor refunds, plus Paid expenses. (Hover for breakdown)",
       style: "text-red-600",
-
-      // --- (Indicator) NEW: Add breakdown data for hover card ---
-      breakdown: {
-        poAmount: getTotalAmountPaid.poAmount,
-        srAmount: getTotalAmountPaid.srAmount,
-        projectExpensesAmount: getTotalAmountPaid.projectExpensesAmount
+      breakdown: projectMoney && {
+        poAmount: projectMoney.po_outflow,
+        srAmount: projectMoney.wo_outflow,
+        projectExpensesAmount: projectMoney.expense_outflow,
       },
-
     },
     {
       label: "Payable Amount Against Delivered Items in PO",
@@ -304,12 +301,12 @@ export const ProjectFinancialsTab: React.FC<ProjectFinancialsTabProps> = ({ proj
     },
     {
       label: "Current Liabilities",
-      value: getAllPODeliveredAmount - poPaymentAgainstDelivery,
+      value: projectMoney?.liabilities ?? 0,
       style: "",
-      info: "PO Payable Amount - PO Payment Against Delivery"
+      info: "Delivered value not yet paid, per PO (Merged, Cancelled and Inactive POs left out)"
     },
 
-  ], [totalInflowAmount, totalProjectInvoiceAmount, getTotalAmountPaid, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value, relatedTotalBalanceCredit, relatedTotalCreditPaid, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO])
+  ], [totalInflowAmount, totalProjectInvoiceAmount, projectMoney, totalPOAmountWithGST, getAllSRsTotalWithGST, projectData?.project_value, relatedTotalBalanceCredit, relatedTotalCreditPaid, getAllPODeliveredAmount, poPaymentAgainstDelivery, advanceAgainstPO])
 
 
   // Ordered by CLIENT_SUMMARY_LABELS, not by position in amountsSummaryItems.

@@ -10,9 +10,11 @@ import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { dateFilterFn, facetedFilterFn } from "@/utils/tableFilters";
-import type { POItem, WOItem, VendorInvoice, PODeliveryDocuments, ProjectInvoice } from "../useBulkDownloadWizard";
+import type { BulkScopeKind } from "@/utils/bulkDownload/bulkDownloadTypes";
+import type { POItem, WOItem, VendorInvoice, PODeliveryDocuments, ProjectInvoice, PaymentVoucherRow, MTCRow } from "../useBulkDownloadWizard";
 
 type VendorRow = { name: string; vendor?: string; vendor_name?: string };
+type ProjectRow = { project?: string; project_name?: string };
 
 /** `yyyy-MM-dd[ time]` -> `dd-MMM-yyyy`, read at local midnight so the day never shifts. */
 const displayDate = (value?: string) => (value ? formatDate(`${value.slice(0, 10)}T00:00:00`) : "—");
@@ -34,6 +36,16 @@ const facetColumn = <T,>(id: string, title: string, get: (row: T) => string | un
 
 const vendorColumn = <T extends VendorRow>(): ColumnDef<T, any> =>
     facetColumn<T>("vendor", "Vendor", (row) => row.vendor_name || row.vendor);
+
+const projectColumn = <T extends ProjectRow>(): ColumnDef<T, any> =>
+    facetColumn<T>("project", "Project", (row) => row.project_name || row.project);
+
+/**
+ * A project's documents span vendors, a vendor's span projects: in vendor scope the Vendor column
+ * becomes a Project column (same place, same facet behaviour). Project scope returns `columns` as is.
+ */
+export const forScope = <T extends ProjectRow>(columns: ColumnDef<T, any>[], kind: BulkScopeKind): ColumnDef<T, any>[] =>
+    kind === "vendor" ? columns.map((column) => (column.id === "vendor" ? projectColumn<T>() : column)) : columns;
 
 const statusColumn = <T extends { status?: string }>(): ColumnDef<T, any> => ({
     id: "status",
@@ -131,4 +143,31 @@ export const clientInvoiceColumns: ColumnDef<ProjectInvoice, any>[] = [
     facetColumn<ProjectInvoice>("customer", "Customer", (row) => row.company_name || row.customer),
     dateColumn<ProjectInvoice>("invoice_date", "Invoice Date", (row) => row.invoice_date),
     amountColumn<ProjectInvoice>("amount", "Amount (incl. GST)", (row) => row.amount),
+];
+
+/** A paid payment: the same columns for PO and WO payments, only the order's header differs. */
+const voucherColumns = (orderHeader: "PO ID" | "WO ID"): ColumnDef<PaymentVoucherRow, any>[] => [
+    textColumn<PaymentVoucherRow>("document_name", orderHeader, (row) => row.document_name, true),
+    vendorColumn<PaymentVoucherRow>(),
+    amountColumn<PaymentVoucherRow>("amount", "Amount", (row) => row.amount),
+    textColumn<PaymentVoucherRow>("utr", "UTR", (row) => row.utr),
+    dateColumn<PaymentVoucherRow>("payment_date", "Paid On", (row) => row.payment_date),
+];
+
+/** Paid PO payments (their vouchers are generated). */
+export const poVoucherColumns = voucherColumns("PO ID");
+/** Paid WO payments that have an uploaded voucher (the wizard lists no other). */
+export const woVoucherColumns = voucherColumns("WO ID");
+
+/** What a certificate covers, e.g. "Copper Cable 4 sq mm (Polycab), Cable Tray". It tells certificates of one PO apart (MTC ids are never shown). */
+export const mtcItemsText = (row: MTCRow) =>
+    (row.items ?? []).map((i) => (i.make ? `${i.item_name || i.item_id} (${i.make})` : i.item_name || i.item_id)).join(", ");
+
+/** Material Test Certificates: one row per certificate, like a DC. */
+export const mtcColumns: ColumnDef<MTCRow, any>[] = [
+    textColumn<MTCRow>("items", "Items", mtcItemsText, true),
+    textColumn<MTCRow>("po", "PO", (row) => row.procurement_order),
+    vendorColumn<MTCRow>(),
+    dateColumn<MTCRow>("certificate_date", "Certificate Date", (row) => row.certificate_date ?? undefined),
+    dateColumn<MTCRow>("creation", "Uploaded On", (row) => row.creation),
 ];

@@ -40,6 +40,12 @@ import { paymentHref } from "@/pages/ProjectPayments/config/projectPaymentsTable
 import { inflowHref } from "@/pages/inflow-payments/config/inflowPaymentsTable.config";
 import { nonProjectInflowHref } from "@/pages/non-project-inflows/config/nonProjectInflowsTable.config";
 import {
+    sameWaitingRefunds,
+    suggestedWaitingRefundForm,
+    waitingRefundProblem,
+    type WaitingRefundForm,
+} from "./waitingRefundMatch";
+import {
     descriptionRequired,
     isInflowType,
 } from "@/pages/non-project-inflows/nonProjectInflowModel";
@@ -184,8 +190,10 @@ function wrapToWidth(text: string | null | undefined, width: number): string[] {
  *   * `nonProjectInflow` (#1266) — FD interest, an FD closing, a loan drawdown, written as a
  *     `Non Project Inflow` with an Inflow Type. It replaced the B7 `receipt`, which wrote a NEGATIVE
  *     `Non Project Expense` (ADR-0016 Amendment A-D2).
- *   * `vendorRefund` — money a vendor paid back, written as a `Vendor Refund` naming the vendor. It
- *     moves no PO or vendor paid amount; the PO Adjustment refund flow still owns that.
+ *   * `vendorRefund` — money a vendor paid back, written as a `Vendor Refund` naming the vendor.
+ *   * `waitingRefund` (#1401) — the same money when "Adjust Payments" already recorded it as a waiting
+ *     Vendor Refund: the line is MATCHED to it (`waitingRefundMatch.ts`), creating nothing. It is not a
+ *     create target, and not a payable picked from the record list either (`settlesAPickedRecord`).
  */
 export type DecisionTarget =
     | "Project Payments"
@@ -194,6 +202,7 @@ export type DecisionTarget =
     | "new"
     | "inflow"
     | "nonProjectInflow"
+    | "waitingRefund"
     | "vendorRefund";
 
 /** The debit-side dispositions: settle an approved record, or create the expense that is missing. */
@@ -204,8 +213,14 @@ const PAID_TARGETS: readonly DecisionTarget[] = [
     "new",
 ];
 
-/** The credit-side dispositions, in the order the dialog offers them. The ONLY three. */
-const RECEIVED_TARGETS: readonly DecisionTarget[] = ["inflow", "nonProjectInflow", "vendorRefund"];
+/** The credit-side dispositions, in the order the dialog offers them. Matching a waiting refund sits
+ *  just above creating one (#1401), so the existing record is the first refund choice seen. */
+const RECEIVED_TARGETS: readonly DecisionTarget[] = [
+    "inflow",
+    "nonProjectInflow",
+    "waitingRefund",
+    "vendorRefund",
+];
 
 /** The dispositions that CREATE a record rather than link an existing one. */
 const CREATE_TARGETS: readonly DecisionTarget[] = [
@@ -222,6 +237,14 @@ const CREATE_TARGETS: readonly DecisionTarget[] = [
  */
 export const isCreateTarget = (target: DecisionTarget | undefined): boolean =>
     target !== undefined && CREATE_TARGETS.includes(target);
+
+/**
+ * Does this disposition settle a payable picked from the record list (so the allocation bar and the
+ * Normal / Split routing govern Confirm)? Every target but the create cards and the waiting-refund match
+ * (#1401), which carries its own picks and its own exact-sum rule.
+ */
+export const settlesAPickedRecord = (target: DecisionTarget | undefined): boolean =>
+    !isCreateTarget(target) && target !== "waitingRefund";
 
 /**
  * Did this transfer bring money IN? THE one definition of the axis on this side of the wire.
@@ -362,6 +385,12 @@ export interface RowDecision {
      * along onto another.
      */
     newVendorRefund?: VendorRefundForm;
+    /**
+     * Only for `target: "waitingRefund"` (#1401) — the vendor and the waiting refunds this credit line is
+     * matched to. Every change goes through `waitingRefundMatch.ts` (`withWaitingRefundVendor`,
+     * `toggleWaitingRefund`), so a tick never rides along onto another vendor.
+     */
+    waitingRefund?: WaitingRefundForm;
 }
 
 /** One ticked PO or WO and the part of the refund against it. */
@@ -2441,7 +2470,8 @@ export const needsRecordAnywayConfirmation = (err: unknown): boolean =>
 export const recordAnywayWording = (
     decision: Pick<RowDecision, "target">
 ): { title: string; action: string } => {
-    const verb = isCreateTarget(decision.target) ? "Create" : "Link";
+    const verb =
+        decision.target === "waitingRefund" ? "Match" : isCreateTarget(decision.target) ? "Create" : "Link";
     return { title: `${verb} anyway?`, action: `${verb} anyway` };
 };
 
@@ -2785,6 +2815,14 @@ export const confirmBlocker = (
     if (decision.target === "vendorRefund") {
         if (!isCreditRow(row)) return "Money went OUT on this line, so it cannot be a vendor refund.";
         return refundAllocationProblem(decision.newVendorRefund, row.amount);
+    }
+    /**
+     * ⚠️ A CREDIT ONLY (#1401), and the server's exact-sum rule (`waitingRefundProblem`): the refunds
+     * matched must add up to the line exactly.
+     */
+    if (decision.target === "waitingRefund") {
+        if (!isCreditRow(row)) return "Money went OUT on this line, so it cannot match a vendor refund.";
+        return waitingRefundProblem(decision.waitingRefund, row.amount);
     }
     /**
      * ⚠️ A DEBIT (OR BLANK) ONLY -- THE MISSING HALF, AND THE ONE THAT MOVED REAL MONEY. Every
@@ -3160,12 +3198,19 @@ const SETTLEABLE_TARGETS: readonly string[] = [
  * suggestion rendered as ready-to-confirm on a row nobody may settle is bad enough to check twice.
  */
 export const suggestedDecision = (row: OutflowImportRow): RowDecision | null => {
+    if (!OPEN_ROW_STATUSES.has(row.row_status)) return null;
+    if (row.row_status === ROW_PENDING_MATCH) return null;
+    // #1402: a credit line the run found to be waiting Vendor Refund(s) opens on the match, those
+    // refunds ticked. Its own field, never `suggested_name` (a group does not fit it). The server
+    // sends it only while every refund still waits.
+    const refunds = row.waiting_refund_suggestion;
+    if (refunds?.refunds?.length) {
+        return { target: "waitingRefund", waitingRefund: suggestedWaitingRefundForm(refunds) };
+    }
     const target = (row.suggested_doctype ?? "").trim();
     const linkTo = (row.suggested_name ?? "").trim();
     if (!target || !linkTo) return null;
     if (!SETTLEABLE_TARGETS.includes(target)) return null;
-    if (!OPEN_ROW_STATUSES.has(row.row_status)) return null;
-    if (row.row_status === ROW_PENDING_MATCH) return null;
     // ⚠️ A ONE-ELEMENT SET (Task 7) -- the match run only ever proposes a single record, so this
     // is `linkTargets`' singleton case. `recordKey` is the SAME identity function the picker and
     // `parseRecordKey` share; a second way to spell `"<doctype>|<name>"` here would be exactly the
@@ -3220,6 +3265,13 @@ export const decisionOrigin = (
 ): DecisionOrigin => {
     if (!decision) return "none";
     const suggestion = suggestedDecision(row);
+    // A waiting-refund suggestion (#1402) has no link keys; it agrees when the same refunds are ticked.
+    if (suggestion?.target === "waitingRefund") {
+        return decision.target === "waitingRefund" &&
+            sameWaitingRefunds(suggestion.waitingRefund, decision.waitingRefund)
+            ? "suggested"
+            : "chosen";
+    }
     // ⚠️ COMPARED AS NORMALISED KEY SETS (issue #1240), never field-against-field. The suggestion is
     // always banked in `linkTargets`, but a person picking that same record in Normal mode writes
     // `linkTo` -- and a field-against-field compare would then read a word-for-word agreement as

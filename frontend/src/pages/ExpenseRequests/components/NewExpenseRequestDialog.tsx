@@ -14,6 +14,11 @@
 // format. OFF (or no format): the STANDARD fields a directly-entered expense needs --
 // a required Description, a required Vendor once a project is chosen, and optional invoice
 // details that reach the ledger row's invoice columns at approval.
+//
+// Who gets paid (ADR-0033, #1429, #1436): when the type's `payee_rule` asks (Required / Optional), the
+// "Who gets paid" section picks or adds a Payee -- or, with a vendor picked, shows that vendor's
+// account read-only. The server COPIES the account into the request's own pay-to fields
+// (`services/payees/pay_to`) and refuses nothing: Required is this screen's rule.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFrappeFileUpload, useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
@@ -37,6 +42,16 @@ import { useToast } from "@/components/ui/use-toast";
 import ProjectSelect from "@/components/custom-select/project-select";
 import VendorSelect, { OTHERS_VENDOR_VALUE } from "@/components/custom-select/vendor-select";
 
+import { DuplicatePayeeError, usePayeeChoice } from "@/components/payees/usePayeeChoice";
+import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
+import type { PayToAccount } from "@/types/NirmaanStack/Payee";
+import {
+    asksWhoGetsPaid,
+    showsWhoGetsPaid,
+    whoGetsPaidProblem,
+} from "@/utils/payees/expensePayee";
+import { payToSave } from "@/utils/payees/payToChoice";
+
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { useUserData } from "@/hooks/useUserData";
 import { parseNumber } from "@/utils/parseNumber";
@@ -52,6 +67,7 @@ import {
 import FormatFieldsRenderer, {
     FormatAnswers, FormatFiles, requiredKeys, toResponses,
 } from "./FormatFieldsRenderer";
+import WhoGetsPaidSection from "./WhoGetsPaidSection";
 
 /** One option per expense type.
  *
@@ -125,6 +141,10 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     const [submitting, setSubmitting] = useState(false);
     // Edit-only: the requester has asked to swap the project, so hand them the picker.
     const [changingProject, setChangingProject] = useState(false);
+    // Who gets paid when no vendor is picked: an existing Payee, or a new one added on send. On an
+    // edit (no vendor) the request's own account is seeded as the pick; while it stays picked the save
+    // keeps it as it is (`utils/payees/payToChoice`), so a Payee edited since moves nothing.
+    const payeeChoice = usePayeeChoice();
 
     const isEdit = !!editing;
     // The catalog lists only the types the caller's role may see. An EDIT also asks for the
@@ -216,6 +236,39 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
     // non-project request would be silently dropped at approval. Asking for it only once a
     // project is on screen is what keeps the request and the ledger row able to agree.
     const showVendor = showProject && !!form.projects;
+    const vendorChosen = showVendor && !!form.vendor && form.vendor !== OTHERS_VENDOR_VALUE;
+
+    // Who gets paid: asked unless the type says Not asked. With a vendor picked it is the vendor's
+    // account, shown read-only, on a Not asked type too (the accountant pays it): the server copies
+    // the vendor's Payee when the vendor is set or changed. An edit that keeps its vendor keeps the
+    // account the request already holds, so that is what shows.
+    const payeeRule = selected?.payee_rule ?? "";
+    const asksPayee = !!selected && asksWhoGetsPaid(payeeRule);
+    const showsPayee = !!selected && showsWhoGetsPaid(payeeRule, vendorChosen);
+    const keepsVendorCopy = vendorChosen && !!editing?.pay_to && form.vendor === editing.vendor;
+    const { account: vendorAccount, isLoading: vendorAccountLoading } =
+        useVendorAccount(form.vendor, showsPayee && vendorChosen && !keepsVendorCopy);
+    const vendorPayTo: PayToAccount | null = !vendorChosen
+        ? null
+        : keepsVendorCopy ? editing?.pay_to ?? null : vendorAccount?.payee ?? null;
+    const vendorPayToLoading = vendorChosen && !keepsVendorCopy && vendorAccountLoading;
+    const vendorName = vendorChosen ? (vendorAccount?.vendor_name || form.vendor) : null;
+    const payeeProblem = showsPayee
+        ? whoGetsPaidProblem({
+            rule: payeeRule,
+            expenseType: form.expense_type,
+            vendor: vendorName,
+            vendorHasAccount: !!vendorPayTo,
+            hasChoice: payeeChoice.hasChoice,
+        })
+        : null;
+    const payeeReady = !payeeProblem && (
+        vendorChosen ? !vendorPayToLoading : !asksPayee || !payeeChoice.problem
+    );
+
+    const handleVendorChange = (value: string) => {
+        setForm((f) => ({ ...f, vendor: value }));
+    };
 
     // STANDARD mode: the type's form is switched off (or unwritten, or unparseable), so the
     // dialog asks what a directly-entered expense needs. While a switched-on format is still
@@ -231,7 +284,7 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
 
     // Answers belong to the type that was on screen when they were typed. Carrying them to
     // a different type would silently file one type's answers under another's format.
-    const handleTypeChange = useCallback((value: string) => {
+    const handleTypeChange = (value: string) => {
         setAnswers({});
         setFiles({});
         setInvoiceFile(null);
@@ -240,14 +293,15 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         // hangs off the project, so it goes with it -- a vendor left behind on a now
         // non-project type is exactly the value the server refuses.
         setForm((f) => ({ ...f, expense_type: value, projects: "", vendor: "" }));
-    }, []);
+    };
 
     // Clearing or switching the project clears the vendor with it. Without this a vendor
     // picked under one project would silently ride along to another, or sit invisible on a
     // request with no project at all.
-    const handleProjectChange = useCallback((projectId: string) => {
-        setForm((f) => (f.projects === projectId ? f : { ...f, projects: projectId, vendor: "" }));
-    }, []);
+    const handleProjectChange = (projectId: string) => {
+        if (form.projects === projectId) return;
+        setForm((f) => ({ ...f, projects: projectId, vendor: "" }));
+    };
 
     const amountValue = parseNumber(form.amount);
     const missingFormatAnswers = useMemo(
@@ -273,6 +327,8 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         !formatPending &&
         missingFormatAnswers.length === 0 &&
         standardComplete &&
+        payeeReady &&
+        !payeeChoice.adding &&
         !submitting;
 
     const close = useCallback(() => {
@@ -281,9 +337,10 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         setAnswers({});
         setFiles({});
         setInvoiceFile(null);
+        payeeChoice.reset();
         setNewExpenseRequestDialog(false);
         onEditingChange?.(null);
-    }, [setNewExpenseRequestDialog, onEditingChange]);
+    }, [setNewExpenseRequestDialog, onEditingChange, payeeChoice.reset]);
 
     // Seed from the request being edited. Keyed on its NAME, not the object: the row is
     // re-fetched on every refresh, so an object-identity dep would re-seed the form under the
@@ -312,6 +369,9 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             existingInvoiceUrl: invoice.invoice_attachment,
         });
         setChangingProject(false);
+        // The request's own account (`pay_to`), seeded as the pick when it was picked rather than
+        // copied from a vendor. A vendor's copy is not seeded: clearing the vendor then asks anew.
+        payeeChoice.reset(editing.pay_to && !editing.vendor ? { kind: "own", account: editing.pay_to } : null);
         skipNextSeed.current = true;
         setAnswers(answersFromSourceData(editing.source_data));
         setFiles({});
@@ -322,6 +382,12 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         if (!canSubmit) return;
         setSubmitting(true);
         try {
+            // Who gets paid, resolved FIRST: new payee details are added now (a duplicate stops
+            // here, before any upload, with the Payee to pick shown in the section). With a vendor
+            // nothing is sent: the server copies the vendor's Payee. An edit that leaves the
+            // request's own account picked keeps it as it is.
+            const payTo = asksPayee && !vendorChosen ? payToSave(await payeeChoice.resolve()) : {};
+
             // Upload now, so nothing is orphaned by a cancelled dialog. The file is stored as
             // a URL inside `source_data.attachments`, keyed by SLOT -- which is what lets the
             // backend find the slot declaring `maps_to: invoice_attachment` and carry that one
@@ -370,6 +436,9 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                     showVendor && form.vendor && form.vendor !== OTHERS_VENDOR_VALUE
                         ? form.vendor
                         : undefined,
+                // Never sent for a Not asked type or with a vendor: the request then has no
+                // account of its own to pick (a vendor's is copied by the server).
+                ...payTo,
                 // Wrapped in the `responses` envelope the backend flattener reads. Omitted
                 // entirely when the type has no format, so a format-less request stores NULL
                 // and converts exactly as it would have before formats existed.
@@ -411,6 +480,10 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
             close();
             onSuccess?.();
         } catch (e: any) {
+            if (e instanceof DuplicatePayeeError) {
+                toast({ title: "This account is already a payee", description: e.message, variant: "destructive" });
+                return;
+            }
             // ⚠️ Frappe puts the useful text in `_server_messages` / `exception`, NEVER in
             // `message` -- so `e?.message` rendered the duplicate refusal as the entirely
             // uninformative "There was an error." `getFrappeError` is the shared reader.
@@ -424,7 +497,8 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
         }
     }, [canSubmit, createRequest, updateRequest, isEdit, editing, upload, files, form,
         amountValue, showProject, showVendor, isStandard, invoiceFile,
-        parsedFormat, answers, toast, close, onSuccess]);
+        parsedFormat, answers, toast, close, onSuccess,
+        asksPayee, vendorChosen, payeeChoice.resolve]);
 
     return (
         <AlertDialog
@@ -514,13 +588,29 @@ export const NewExpenseRequestDialog: React.FC<Props> = ({
                             <VendorSelect
                                 usePortal
                                 value={form.vendor}
-                                onChange={(o) => set("vendor", o?.value ?? "")}
+                                onChange={(o) => handleVendorChange(o?.value ?? "")}
                             />
                             <p className="text-xs text-muted-foreground">
                                 {isStandard ? "" : "Optional. "}
-                                Choose "Others (No Vendor)" if the payee is not on record.
+                                {asksPayee
+                                    ? "Pick a vendor and its bank account fills in below."
+                                    : 'Choose "Others (No Vendor)" if the payee is not on record.'}
                             </p>
                         </div>
+                    )}
+
+                    {showsPayee && (
+                        <WhoGetsPaidSection
+                            rule={payeeRule}
+                            expenseType={form.expense_type}
+                            vendorChosen={vendorChosen}
+                            vendorName={vendorName}
+                            vendorPayTo={vendorPayTo}
+                            vendorPayToLoading={vendorPayToLoading}
+                            choice={payeeChoice}
+                            problem={payeeProblem}
+                            disabled={submitting}
+                        />
                     )}
 
                     <div className="space-y-1.5">

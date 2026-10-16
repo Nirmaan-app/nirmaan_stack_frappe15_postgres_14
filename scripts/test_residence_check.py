@@ -1,0 +1,119 @@
+"""Tests for the P1 rule of residence_check.py: code that adds up Project Payments to show a paid figure.
+
+Stdlib only, like the check itself:  python3 scripts/test_residence_check.py
+"""
+
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from residence_check import payment_sum_lines_jinja, payment_sum_lines_py, payment_sum_lines_ts  # noqa: E402
+
+
+class FrontendPaymentSums(unittest.TestCase):
+    def test_a_reduce_over_payment_amounts_is_a_copy(self):
+        src = "const x = 1;\nconst paid = payments.reduce((sum, p) => sum + parseNumber(p.amount), 0);\n"
+        self.assertEqual(payment_sum_lines_ts(src), [2])
+
+    def test_each_call_of_the_shared_payment_sum_helpers_is_a_copy(self):
+        src = (
+            "export const getTotalAmountPaid = memoize(\n"
+            "const paid = useMemo(() => getTotalAmountPaid(rows), [rows]);\n"
+            "const { getAmount } = useOrderPayments();\n"
+            "export const useOrderPayments = () => {\n"
+        )
+        self.assertEqual(payment_sum_lines_ts(src), [2, 3])
+
+    def test_a_commented_out_sum_is_not_a_copy(self):
+        src = "// const paid = getTotalAmountPaid(rows);\n   * sum + parseNumber(p.amount)\n"
+        self.assertEqual(payment_sum_lines_ts(src), [])
+
+    def test_a_payment_cap_marked_on_or_above_the_line_is_an_allowed_owner(self):
+        src = (
+            "// ADR-0034 payment cap: the Request Payment limit\n"
+            "const pending = getTotalAmountPaid(open);\n"
+            "const left = getTotalAmountPaid(open); // ADR-0034 payment cap\n"
+            "const paid = getTotalAmountPaid(paidRows);\n"
+        )
+        self.assertEqual(payment_sum_lines_ts(src), [4])
+
+    def test_other_amounts_are_not_payment_sums(self):
+        src = "const t = terms.reduce((s, t) => s + parseNumber(t.amount), 0);\nconst x = sum + toPaise(p.amount);\n"
+        self.assertEqual(payment_sum_lines_ts(src), [])
+
+
+class PrintFormatPaymentSums(unittest.TestCase):
+    def test_a_jinja_loop_adding_up_payment_rows_is_a_copy(self):
+        src = (
+            '{%- for r in frappe.get_all("Procurement Orders", fields=["amount_invoiced"]) -%}\n'
+            "    {%- set inv.invoiced = inv.invoiced + (r.amount_invoiced or 0) -%}\n"
+            "{%- endfor -%}\n"
+            '{%- for r in frappe.get_all("Project Payments", filters={"status": "Paid"}, fields=["amount"]) -%}\n'
+            "    {%- set inv.paid = inv.paid + (r.amount or 0) -%}\n"
+            "{%- endfor -%}\n"
+            "{%- set due = inv.invoiced - r.amount -%}\n"
+        )
+        self.assertEqual(payment_sum_lines_jinja(src), [5])
+
+
+class BackendPaymentSums(unittest.TestCase):
+    def test_summing_fetched_payment_rows_is_a_copy(self):
+        src = (
+            "def gap(project):\n"
+            "    paid = frappe.get_all(\n"
+            "        'Project Payments', filters={'project': project}, fields=['amount'])\n"
+            "    inflows = frappe.get_all('Project Inflows', fields=['amount'])\n"
+            "    inflow = sum(flt(i.amount) for i in inflows)\n"
+            "    return sum(flt(p.amount) for p in paid) - inflow\n"
+        )
+        self.assertEqual(payment_sum_lines_py(src), [6])
+
+    def test_a_loop_adding_up_payment_rows_is_a_copy(self):
+        src = (
+            "rows = []\n"
+            "for chunk in batches:\n"
+            "    rows.extend(frappe.get_all('Project Payments', fields=['project', 'amount']))\n"
+            "for r in rows:\n"
+            "    b[r.project] += flt(r.get('amount'))\n"
+            "for r in frappe.get_all('Project Expenses', fields=['amount']):\n"
+            "    b['x'] += flt(r.get('amount'))\n"
+        )
+        self.assertEqual(payment_sum_lines_py(src), [5])
+
+    def test_a_sql_sum_over_the_payments_table_is_a_copy(self):
+        src = (
+            'rows = frappe.db.sql("""\n'
+            "    SELECT p.name,\n"
+            '           (SELECT SUM(t.amount) FROM "tabPO Payment Terms" t WHERE t.parent = p.name) AS terms,\n'
+            '           (SELECT SUM(pp.amount) FROM "tabProject Payments" pp WHERE pp.document_name = p.name) AS paid,\n'
+            '           (SELECT SUM(d.tds_amount) FROM "tabPayment TDS Deduction" d) AS tds\n'
+            '    FROM "tabProcurement Orders" p""")\n'
+            "x = frappe.db.sql('SELECT COALESCE(SUM(amount), 0) FROM \"tabProject Payments\" WHERE status = %s', s)\n"
+        )
+        self.assertEqual(payment_sum_lines_py(src), [4, 7])
+
+    def test_a_sum_field_on_a_payments_fetch_is_a_copy(self):
+        src = (
+            "def paid(names):\n"
+            "    sum_field = 'sum(CAST(amount as numeric)) as total_paid'\n"
+            "    r = frappe.get_all('Project Payments', filters={'name': ['in', names]},\n"
+            "                       fields=[sum_field])\n"
+            "    s = frappe.get_all('Project Expenses', fields=['sum(amount) as t'])\n"
+            "    return r\n"
+        )
+        self.assertEqual(payment_sum_lines_py(src), [3])
+
+    def test_a_docstring_or_comment_naming_the_sum_is_not_a_copy(self):
+        src = (
+            'def f():\n'
+            '    """Was: SELECT SUM(amount) FROM "tabProject Payments"."""\n'
+            '    # sum(flt(p.amount) for p in frappe.get_all("Project Payments", fields=["amount"]))\n'
+            '    return 0\n'
+        )
+        self.assertEqual(payment_sum_lines_py(src), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

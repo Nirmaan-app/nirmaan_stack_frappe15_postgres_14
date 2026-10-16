@@ -3,7 +3,7 @@ import { useUrlParam } from "@/hooks/useUrlParam";
 import { urlStateManager } from "@/utils/urlStateManager";
 import { startOfDay, addDays, parseISO, format } from "date-fns";
 import { DateRange } from "react-day-picker";
-import { SevenDayPlanningHeader } from "../components/planning/SevenDayPlanningHeader";
+import { PlanningDurationFilter } from "../components/planning/PlanningDurationFilter";
 import { CashflowTabs, CASHFLOW_TABS, CashflowTabValue, } from "./CashflowTabs";
 import { POCashflow } from "./POCashflow";
 import { WOCashflow } from "./WOCashflow";
@@ -156,21 +156,19 @@ export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
     // --- Render ---
     return (
         <div className="flex flex-col h-full bg-gray-50/50">
-            {/* 1. Command Center Header */}
-            <SevenDayPlanningHeader 
-                title={projectId} 
-                activeDuration={activeDuration}
-                dateRange={dateRange}
-                setDaysRange={setDaysRange}
-            />
-
-            {/* 2. Navigation Tabs (Dense) */}
+            {/* 1. Navigation Tabs (Dense), with the date filter + Export on the right */}
             <div className="sticky top-0 z-10 bg-white shadow-sm">
-                <CashflowTabs 
-                    activeTab={activeTab} 
+                <CashflowTabs
+                    activeTab={activeTab}
                     onTabChange={handleTabChange}
                     // TODO: Wire up actual counts from react-query data in Phase 2
                     rightElement={
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                        <PlanningDurationFilter
+                            dateRange={dateRange}
+                            activeDuration={activeDuration}
+                            setDaysRange={setDaysRange}
+                        />
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                  <Button 
@@ -211,11 +209,12 @@ export const CashflowPlan = ({ projectId, isOverview }: CashflowPlanProps) => {
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
+                        </div>
                     }
                 />
             </div>
 
-            {/* 3. Scrollable Content Area */}
+            {/* 2. Scrollable Content Area */}
             <ScrollArea className="flex-1">
                 <div className="p-2">
                     {activeTab === CASHFLOW_TABS.PO_CASHFLOW && <POCashflow dateRange={dateRange} isOverview={isOverview} />}

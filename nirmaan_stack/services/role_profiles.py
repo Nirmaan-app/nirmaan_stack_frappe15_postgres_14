@@ -1,4 +1,4 @@
-"""Shared role-profile constants.
+"""Shared role-profile constants, the checks built on them, and the access asserts endpoints start with.
 
 ADR-0010 B1: a decision the business names gets one owning module. Endpoint role
 gating was previously an inline profile string repeated across ~14 modules,
@@ -7,8 +7,8 @@ real user — was refused by every one of them.
 
 Lives in ``services/`` rather than ``api/`` because BOTH ``api/`` and
 ``integrations/`` consume it, and api -> service is the one legal direction
-(same reasoning as ``services/boq_bcs/readiness.py``). It is pure data: no
-``frappe.db``, no request context.
+(same reasoning as ``services/boq_bcs/readiness.py``). It reads no request
+context.
 
 Note the two distinct layers, they are NOT the same thing:
 
@@ -20,19 +20,26 @@ Note the two distinct layers, they are NOT the same thing:
 Mirrored client-side by ``frontend/src/constants/roles.ts``; keep the two in sync.
 This layer is the enforcement boundary.
 
-The constants below are pure data. The RESOLVERS at the bottom
-(``get_role_profile`` / ``has_role_profile`` / ``is_nirmaan_admin``) read
+The constants are pure data. The RESOLVERS (``get_role_profile`` /
+``has_role_profile`` / ``is_nirmaan_admin``), the ``can_*`` checks built on them and
+the ``assert_*`` access guards (``assert_cheque_access`` /
+``assert_cheque_form_access``, which raise ``frappe.PermissionError``) read
 ``frappe.db`` — a DB read, never request context: every one takes ``user`` as an
 argument and none of them touch ``frappe.session``, so they stay callable from
 ``api/``, ``integrations/`` and a background job alike.
 """
 
 import frappe
+from frappe import _
 
 PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Procurement Executive Profile"
 PROCUREMENT_LEAD_PROFILE = "Nirmaan Procurement Lead Profile"
 MATERIAL_PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Material Procurement Executive Profile"
 SERVICE_PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Service Procurement Executive Profile"
+# ^ A company-wide WO desk, like Estimates: NEVER assigned projects, sees all of them.
+# That takes zero User Permission rows (so Frappe lists stay unfiltered) AND a seat in
+# every project-scoped endpoint's full-access list -- today `api/sidebar_counts.py`
+# and `api/tds/get_tds_requests.py`. The frontend half is in `constants/roles.ts`.
 
 # Procurement splits by WHAT IS BOUGHT. Material = the PR -> PO chain and
 # everything downstream of a material buy; Service = Work Orders (Service
@@ -117,6 +124,12 @@ NON_PROJECT_INFLOWS_READ_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTA
 NON_PROJECT_INFLOWS_WRITE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 NON_PROJECT_INFLOWS_DELETE_PROFILES = (ADMIN_PROFILE,)
 
+# The Amount Paid Mismatch report and its Recount (#1455, ADR-0034): Admin and Accountant Lead only --
+# the people who can judge a wrong payment. Narrower than the 2B Reconcile report (no Accountant).
+# ENFORCEMENT boundary for `api/reports/amount_paid_mismatch`, whose recount writes with `set_value`.
+# Mirrored client-side by `frontend/src/constants/roles.ts::AMOUNT_PAID_MISMATCH_PROFILES`.
+AMOUNT_PAID_MISMATCH_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
 HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile"
 HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
 
@@ -196,6 +209,12 @@ def is_nirmaan_admin(user: str) -> bool:
     return has_role_profile(user, (ADMIN_PROFILE,))
 
 
+def assert_amount_paid_mismatch_access(user: str) -> None:
+    """Refuse a user outside `AMOUNT_PAID_MISMATCH_PROFILES`. Both of the report's endpoints start with it."""
+    if not has_role_profile(user, AMOUNT_PAID_MISMATCH_PROFILES):
+        raise frappe.PermissionError(_("Only an Admin or Accountant Lead may use the Amount Paid Mismatch report."))
+
+
 BILLING_EXECUTIVE_PROFILE = "Nirmaan Billing Executive Profile"
 BILLING_LEAD_PROFILE = "Nirmaan Billing Lead Profile"
 
@@ -270,3 +289,97 @@ MTC_PROJECT_SCOPED_PROFILES = (PROJECT_MANAGER_PROFILE, PROJECT_LEAD_PROFILE)
 def can_manage_mtc(user: str) -> bool:
     """True when `user` may upload / edit / delete an MTC. Administrator always passes."""
     return has_role_profile(user, MTC_MANAGE_PROFILES)
+
+
+# May open "Adjust Payments" on a PO and record a waiting Vendor Refund from it (#1400, ADR-0032:
+# "anyone who may use Adjust Payments may record one"). Waiting refunds are PO-only, so the material
+# procurement profiles, exactly as the PO page's button gate (`PODetails.tsx`).
+# ENFORCEMENT boundary for `api/vendor_refunds/waiting_refunds.record_waiting_refund`, which writes
+# with `ignore_permissions` (the Vendor Refunds DocPerms give these users read only).
+ADJUST_PAYMENTS_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + MATERIAL_PROCUREMENT_PROFILES
+
+# "An Accountant" for a waiting Vendor Refund (#1400): may correct its amount or PO while it waits, or
+# cancel it, besides the user who recorded it. Mirrored client-side by
+# `frontend/src/constants/roles.ts::REFUND_ACCOUNTANT_PROFILES`.
+REFUND_ACCOUNTANT_PROFILES = (ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+# May complete a Vendor Refund's paperwork -- its proof, UTR and description -- at any status (#1396
+# story 10): whoever works the PO's payments, i.e. the "Adjust Payments" profiles and the Accountants.
+# Its amount and PO stay with its creator or an Accountant (`services/vendor_refunds.money_edit_problem`).
+# ENFORCEMENT boundary for `api/vendor_refunds/waiting_refunds.update_waiting_refund`. Mirrored
+# client-side by `frontend/src/constants/roles.ts::REFUND_PAPERWORK_PROFILES`.
+REFUND_PAPERWORK_PROFILES = ADJUST_PAYMENTS_PROFILES + REFUND_ACCOUNTANT_PROFILES
+
+# May delete a Cancelled Vendor Refund from its PO's Transaction Details (owner, 2026-10-13): an Admin or
+# material Procurement (waiting refunds, and so Cancelled ones, are PO-only). ENFORCEMENT boundary for
+# `api/vendor_refunds/waiting_refunds.delete_cancelled_refund`. Mirrored client-side by
+# `frontend/src/constants/roles.ts::REFUND_DELETE_PROFILES`.
+REFUND_DELETE_PROFILES = (ADMIN_PROFILE,) + MATERIAL_PROCUREMENT_PROFILES
+
+# Cheques (spec #1407). Admin, Accountant and Accountant Lead run cheques end to end; Procurement may
+# view the Cheque Payments report, add a Cheque and Convert to Cheque, but never change its status.
+# Project Managers have no access. ENFORCEMENT boundary for every endpoint in `api/cheques/`, which
+# write through `services/cheques/writer.py` with `ignore_permissions`: the Cheques DocPerms cannot
+# say this (`Nirmaan Procurement Executive` also rides on the Project Lead profile). Not tied to the
+# Payment TDS Deduction read permission. Mirrored client-side by
+# `frontend/src/constants/roles.ts::CHEQUE_ACCESS_PROFILES` / `CHEQUE_ACCOUNTS_PROFILES`.
+CHEQUE_ACCOUNTS_PROFILES = PAYMENT_SETTLE_PROFILES
+CHEQUE_ACCESS_PROFILES = CHEQUE_ACCOUNTS_PROFILES + PROCUREMENT_PROFILES
+
+
+def can_use_cheques(user: str) -> bool:
+    """True when `user` may open the Cheque Payments report and add a Cheque. Administrator passes."""
+    return has_role_profile(user, CHEQUE_ACCESS_PROFILES)
+
+
+def assert_cheque_access(user: str) -> None:
+    """Refuse a user outside `CHEQUE_ACCESS_PROFILES` (Project Managers included). Every cheques
+    endpoint starts with it."""
+    if not can_use_cheques(user):
+        raise frappe.PermissionError(_("You are not allowed to view or add cheques."))
+
+
+def assert_cheque_form_access(user: str) -> None:
+    """Refuse a user who may neither use cheques nor request a payment (create on Project Payments).
+    For the read-only helpers a cheque form calls, Request Payment's Cheque mode included."""
+    if not (can_use_cheques(user) or frappe.has_permission("Project Payments", "create", user=user)):
+        raise frappe.PermissionError(_("You are not allowed to look up cheques."))
+
+
+# Payees (spec #1420, ADR-0033). Admin, Accountant and Accountant Lead manage Payees on the Payees page:
+# list them, add one, and (#1423) edit a holder name. Procurement adds Payees only
+# through the vendor screens, and anyone raising an Expense Request only through the request; those
+# endpoints carry their own checks and call the same Payee module (`services/payees/`). ENFORCEMENT
+# boundary for every endpoint in `api/payees/`, which write with `ignore_permissions`. Mirrored
+# client-side by `frontend/src/constants/roles.ts::PAYEE_MANAGE_PROFILES`.
+PAYEE_MANAGE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
+
+def can_manage_payees(user: str) -> bool:
+    """True when `user` may use the Payees page. Administrator passes."""
+    return has_role_profile(user, PAYEE_MANAGE_PROFILES)
+
+
+def assert_payee_manager(user: str) -> None:
+    """Refuse a user outside `PAYEE_MANAGE_PROFILES`. Every Payees-page endpoint starts with it."""
+    if not can_manage_payees(user):
+        frappe.throw(_("Only Accounts and Admins can manage payees here."), frappe.PermissionError)
+
+
+# The vendor screens' Payee step (#1425/#1426): who may create a vendor, and so pick its Payee or add
+# one from new bank details. Everyone who reaches a new-vendor form today: Procurement (the Vendors
+# page and the PR / WO vendor sheets), Admin and PMO (Admin Options > Vendors), the Project Lead (Custom
+# PR's New Vendor) and Accounts (the Vendors page). ENFORCEMENT boundary for `api/payees/vendor_payee`
+# and `api/create_vendor_and_address`, which write with `ignore_permissions`. Mirrored client-side by
+# `frontend/src/constants/roles.ts::VENDOR_PAYEE_PROFILES` for the vendor page's Edit bank details and Use a different payee (#1426, #1435).
+VENDOR_PAYEE_PROFILES = (
+    (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, PROJECT_LEAD_PROFILE) + PROCUREMENT_PROFILES + PAYEE_MANAGE_PROFILES
+)
+
+
+def assert_vendor_payee_access(user: str) -> None:
+    """Refuse a user outside `VENDOR_PAYEE_PROFILES` (Administrator passes). Every vendor-screen Payee
+    endpoint starts with it, and the `Vendors` `validate` refuses a `payee` set or change by anyone
+    else (`payees.guard`)."""
+    if not has_role_profile(user, VENDOR_PAYEE_PROFILES):
+        frappe.throw(_("You are not allowed to set a vendor's bank account."), frappe.PermissionError)

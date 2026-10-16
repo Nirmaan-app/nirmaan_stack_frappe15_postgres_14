@@ -187,9 +187,15 @@ class TestPaymentHold(FrappeTestCase):
 		log_error.assert_not_called()
 		self.assertEqual(self._state(name), (APPROVED, 1))
 
-		set_payment_hold(name, False)
-		self.assertEqual(move_cheque_payment_to_reconciliation(name), {"moved": True})
+		# Releasing the hold is what moves it on (spec #1407): no other call is needed.
+		self.assertEqual(set_payment_hold(name, False), {"name": name, "on_hold": 0, "moved": True})
 		self.assertEqual(self._state(name), (RECON, 0))
+
+	def test_releasing_an_online_payment_leaves_it_approved(self):
+		name = self._plant()
+		set_payment_hold(name, True)
+		self.assertEqual(set_payment_hold(name, False), {"name": name, "on_hold": 0, "moved": False})
+		self.assertEqual(self._state(name), (APPROVED, 0))
 
 	def test_a_save_that_leaves_the_status_alone_still_works_while_held(self):
 		"""Other writers (a PO term sync, a TDS restatement) save a held payment without moving it."""

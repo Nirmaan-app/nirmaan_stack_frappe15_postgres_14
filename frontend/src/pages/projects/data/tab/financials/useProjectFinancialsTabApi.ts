@@ -1,11 +1,30 @@
-import { useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
 import { ProjectInflows } from "@/types/NirmaanStack/ProjectInflows";
 import { ProjectInvoice } from "@/types/NirmaanStack/ProjectInvoice";
+import { ProjectMoney } from "@/types/NirmaanStack/ProjectMoney";
 import { useApiErrorLogger } from "@/utils/sentry/useApiErrorLogger";
 
 const financialsTabKeys = {
   inflows: (projectName: string) => ["project-tab", "financials", "inflows", projectName] as const,
   invoices: (projectName: string) => ["project-tab", "financials", "invoices", projectName] as const,
+  money: (projectName: string) => ["project-tab", "financials", "money", projectName] as const,
+};
+
+export const useProjectMoney = (projectName?: string) => {
+  const response = useFrappeGetCall<{ message: ProjectMoney }>(
+    "nirmaan_stack.api.projects.project_money.get_project_money",
+    { project: projectName },
+    projectName ? financialsTabKeys.money(projectName) : null
+  );
+
+  useApiErrorLogger(response.error, {
+    hook: "useProjectMoney",
+    api: "get_project_money",
+    feature: "projects-tab-financials",
+    entity_id: projectName,
+  });
+
+  return response;
 };
 
 export const useProjectFinancialsTabData = (projectName?: string) => {

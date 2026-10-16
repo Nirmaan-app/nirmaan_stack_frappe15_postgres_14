@@ -1,7 +1,8 @@
 # Non-Project Inflows
 
 Money the company receives that belongs to **no project and no customer** — interest, FD closures,
-loan drawdowns, and (until they get their own workflow) vendor refunds and returned labour advances.
+loan drawdowns, and returned labour advances. A vendor refund is **not** one: it is a `Vendor Refunds`
+record (ADR-0032).
 Decision record: `docs/adr/0016-bank-statement-import-creates-inflows.md` **Amendment A**. Glossary:
 root `GLOSSARY.md` § Inflows. Built in #1265 (doctype + page); the import wiring, dashboard figure and
 tab split are separate slices of #1263 (`frontend/.claude/plans/non-project-inflows-plan.md`).
@@ -85,7 +86,8 @@ permission hooks will not hide it there.
 
 ## Accepted risks (Amendment A)
 
-- **AR1** a vendor refund booked as Others reduces no PO / vendor paid amount.
+- **AR1** *(superseded by ADR-0032)* vendor refunds are no longer booked as Others; they are
+  `Vendor Refunds` records.
 - **AR2** old negative Non-Project Expenses still exist beside this doctype; a "total non-project
   received" figure must read both until the owner's follow-up.
 - **AR3** a record the import created cannot be deleted (Frappe's link check on `Outflow Row Match`);

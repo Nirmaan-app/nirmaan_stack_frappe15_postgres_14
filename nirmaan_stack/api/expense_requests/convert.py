@@ -30,8 +30,10 @@ from nirmaan_stack.api.expense_requests.flatten import (
 	flatten_source_data,
 	native_invoice,
 	render_description_template,
+	undeclared_pairs,
 )
 from nirmaan_stack.services.outflow_import.settle import format_amount_for
+from nirmaan_stack.services.payees.pay_to import copy_pay_to
 from nirmaan_stack.services.approval_raiser import raiser_level
 from nirmaan_stack.services.approval_tiers import TIER_L2_ABOVE_EXPENSES, initial_status_for_raiser
 
@@ -101,7 +103,11 @@ def compose_description(req, source_format=None) -> str:
 	"""
 	prose = render_description_template(req.source_data, source_format)
 	if prose:
-		body = prose
+		# An answer to a field since taken off the form (#1430's bank fields) is not in the
+		# sentence, so it follows it: a request raised before keeps what was typed.
+		body = SEP.join([prose] + [
+			f"{label}: {value}" for label, value in undeclared_pairs(req.source_data, source_format)
+		])
 	elif source_format:
 		body = flatten_source_data(req.source_data, source_format)
 	else:
@@ -200,5 +206,9 @@ def create_ledger_row(req):
 
 	row = frappe.new_doc(doctype)
 	row.update(values)
+	# Who gets paid (ADR-0033, #1436), on BOTH ledgers: the request's pay-to account, exactly as the
+	# reviewer saw it. The vendor's Payee is NOT read again; the save copies it only when the request
+	# carried none (`services/payees/pay_to.fill_from_vendor`).
+	copy_pay_to(req, row)
 	row.insert(ignore_permissions=True)
 	return row

@@ -43,11 +43,8 @@ export interface Vendors{
 	 *  vendor's payments, default 2. NOT related to the "TDS Items" /
 	 *  "TDS Repository" doctypes, where TDS means Technical Data Sheet.	*/
 	tds_deduction_percentage?: number
-	account_name? : string
-	account_number?: string | number
-	ifsc? : string
-	bank_name?: string
-	bank_branch?: string
+	/**	Payee : Link - Payee — the vendor's bank account (ADR-0033); one Payee may serve several vendors	*/
+	payee?: string
 	/**	Vendor Status : Select	*/
 	vendor_status?: "Active" | "On-Hold"
 	/**	GST Hold : Check — set by the daily job when GST-off WOs this FY total > ₹15L; only an Admin removes it. NOT vendor_status On-Hold.	*/

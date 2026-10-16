@@ -43,6 +43,9 @@ export const COMPANY_BORNE_CATEGORIES: ReadonlySet<string> = new Set([
  * Accepts the field as Frappe sends it (a JSON string) or already parsed (`{ list: [{ name }] }`).
  * ⚠️ "ALL", NOT "ANY", and an empty or unreadable list is NOT company-borne — the same answer
  * `payment_tds.is_company_borne` gives.
+ *
+ * ⚠️ IT ANSWERS FOR A NEW DEDUCTION ONLY (the approval forecasts). One already taken carries its own
+ * answer in `borne_by`, which the server reads (`WorkOrderTds`, the request cap's payment summary).
  */
 export const isCompanyBorneWorkOrder = (serviceCategoryList: unknown): boolean => {
 	const parsed = safeJsonParse<{ list?: unknown } | null>(
@@ -56,6 +59,37 @@ export const isCompanyBorneWorkOrder = (serviceCategoryList: unknown): boolean =
 		.filter(Boolean);
 	return names.length > 0 && names.every((name) => COMPANY_BORNE_CATEGORIES.has(name));
 };
+
+/**
+ * A Work Order's TDS as the server answers it (`api/payments/work_order_tds.get_work_order_tds`, #1451):
+ * who bore its PAID tax, read off each deduction's `Payment TDS Deduction.borne_by` over the Paid
+ * payments only (the same population as `total_tds`, the figure the label sits beside; with nothing
+ * paid yet the server answers by the category rule), and each payment's own deduction.
+ *
+ * ⚠️ ASKED OF THE SERVER, NEVER READ OFF THE DEDUCTIONS HERE: that doctype is readable only by the
+ * accountants, so a Procurement user's list read is refused with a 403.
+ */
+export type TdsBorneKind = "withheld" | "company" | "part";
+
+export interface WorkOrderTds {
+	/** Paid tax withheld from the vendor (`borne_by` Vendor). */
+	withheld: number;
+	/** Paid tax the company paid on top (`borne_by` Company). */
+	company: number;
+	kind: TdsBorneKind;
+	/** Each payment's own deduction, whatever its status, keyed by payment name; a payment with none is absent. */
+	payments: Record<string, { tds_amount: number; borne_by: "Vendor" | "Company" }>;
+}
+
+const TDS_LABEL: Record<TdsBorneKind, string> = {
+	withheld: "TDS withheld",
+	company: "TDS (paid by company)",
+	part: "TDS (part paid by company)",
+};
+
+/** The Work Order page's label for its TDS figure; a plain "TDS" until the server has answered. */
+export const workOrderTdsLabel = (answer: WorkOrderTds | undefined): string =>
+	answer ? TDS_LABEL[answer.kind] : "TDS";
 
 export interface TdsForecast {
 	/** The rate applied, as a percentage. */

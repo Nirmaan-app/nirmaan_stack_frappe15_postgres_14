@@ -1,25 +1,24 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Separator } from "@/components/ui/separator";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import { isCompanyBorneWorkOrder } from "@/pages/ProjectPayments/tdsForecast";
+import { workOrderTdsLabel, type WorkOrderTds } from "@/pages/ProjectPayments/tdsForecast";
 import { formatDate } from "@/utils/FormatDate";
-import formatToIndianRupee from "@/utils/FormatPrice";
+import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
+import { parseNumber } from "@/utils/parseNumber";
 import { Eye, FileText, Lock, PencilRuler, Trash2, Unlock } from "lucide-react";
-import { useMemo } from "react";
 
 interface SRDetailsCardProps {
   orderData: ServiceRequests | undefined;
+  /** Who bore the WO's paid TDS, as the server answers it (`get_work_order_tds`); undefined while loading. */
+  workOrderTds?: WorkOrderTds;
   project: Projects | undefined;
   vendor: Vendors | undefined;
   gstEnabled: boolean;
   getTotal: number;
-  /** Sum of this order's Paid payments. NET of tax withheld on an SR — see `tdsPaid`. */
-  amountPaid: number;
   hideActions?: boolean;
   hideAmounts?: boolean;
   // Action callbacks
@@ -55,17 +54,17 @@ interface SRDetailsCardProps {
  * Sections:
  * 1. Header - Title with Status badge
  * 2. Info - Project, Package, Vendor (with separators)
- * 3. Amounts - Total, Paid, Pending, GST status (color-coded)
+ * 3. Amounts - Total, Invoiced, Paid, TDS withheld, Due, GST status (color-coded)
  * 4. Timeline - Created, Modified, Approved dates
  * 5. Actions - Role-conditional action buttons
  */
 export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   orderData,
+  workOrderTds,
   project,
   vendor,
   gstEnabled,
   getTotal,
-  amountPaid,
   hideActions = false,
   hideAmounts = false,
   onDelete,
@@ -105,36 +104,17 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
     }
   };
 
-  // What actually left the order: paid to the vendor PLUS tax withheld on their behalf.
-  // On an SR the payment amount is stored net, so `amountPaid` alone understates what has been
-  // settled against the order by exactly the tax.
-  //
-  // `total_tds` is read straight off the order rather than recomputed here: the server writes it
-  // in the SAME pass as `amount_paid`, so the two always describe the same set of payments. A
-  // Procurement Order has no such field and reads 0, leaving that screen untouched.
-  const tdsPaid = Number(orderData?.total_tds) || 0;
-  // ⚠️ EXCEPT ON A COMPANY-BORNE WORK ORDER (Miscellaneous / Transportation only): its payments are
-  // never reduced, so `amountPaid` already covers the order and the tax was paid ON TOP. Adding it
-  // here would count it twice. Mirrors `payment_tds.is_company_borne` / the server's `amount_due`.
-  const companyBorneTds = useMemo(
-    () => isCompanyBorneWorkOrder(orderData?.service_category_list),
-    [orderData?.service_category_list]
-  );
-  const grossPaid = useMemo(
-    () => amountPaid + (companyBorneTds ? 0 : tdsPaid),
-    [amountPaid, tdsPaid, companyBorneTds]
-  );
-
-  // Calculate amount pending (total - gross paid)
-  //
-  // ⚠️ IT SUBTRACTS THE TAX TOO, mirroring the server's `amount_due`
-  // (`total_amount - amount_paid - total_tds`). Subtracting only `amountPaid` would report the
-  // withheld tax as still payable to the vendor, on every settled order, forever - and nothing
-  // could ever pay it off, because the vendor is not owed it.
-  const calculatedAmountPending = useMemo(() => {
-    const totalWithGst = gstEnabled ? getTotal * 1.18 : getTotal;
-    return Math.max(0, Math.floor(totalWithGst) - grossPaid);
-  }, [getTotal, gstEnabled, grossPaid]);
+  // The three money figures are the WO's stored fields, the same ones the WO list shows (ADR-0034):
+  // never re-added from payments here. `amount_paid` is what the vendor got (Paid payments less
+  // Received refunds), `total_tds` the tax beside it, and `amount_due` the server's
+  // `total_amount - amount_paid - TDS withheld from the vendor` (the tax the company paid on top is
+  // not taken off).
+  const amountPaid = parseNumber(orderData?.amount_paid);
+  const tdsWithheld = parseNumber(orderData?.total_tds);
+  const amountDue = parseNumber(orderData?.amount_due);
+  // Who bore the tax is the server's answer off the WO's deductions (`borne_by`), never its categories
+  // and never the page's own deduction read, which a Procurement user is refused (#1451).
+  const tdsLabel = workOrderTdsLabel(workOrderTds);
 
   return (
     <Card className="rounded-sm shadow-md overflow-x-auto">
@@ -211,7 +191,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
               Amounts
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
               {/* Total Value */}
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">
@@ -239,57 +219,29 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
                 )}
               </div>
 
-              {/* Amount Paid — gross: what left the order, tax included */}
+              {/* Amount Paid: what the vendor got, refunds taken off, tax not in it */}
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">Amount Paid</p>
-                <HoverCard openDelay={100}>
-                  <HoverCardTrigger asChild>
-                    <p className="text-sm font-medium text-green-600 underline decoration-dotted underline-offset-4 cursor-help">
-                      {formatToIndianRupee(grossPaid)}
-                    </p>
-                  </HoverCardTrigger>
-                  <HoverCardContent className="w-64" align="start">
-                    <p className="text-xs font-semibold mb-2">Amount Paid</p>
-                    <div className="space-y-1 text-xs">
-                      <div className="flex justify-between gap-4">
-                        <span className="text-gray-500">Paid to vendor</span>
-                        <span className="font-medium tabular-nums">
-                          {formatToIndianRupee(amountPaid || 0)}
-                        </span>
-                      </div>
-                      {!companyBorneTds && (
-                        <div className="flex justify-between gap-4">
-                          <span className="text-gray-500">TDS withheld</span>
-                          <span className="font-medium tabular-nums">
-                            {formatToIndianRupee(tdsPaid)}
-                          </span>
-                        </div>
-                      )}
-                      <Separator className="my-1" />
-                      <div className="flex justify-between gap-4">
-                        <span className="font-semibold">Total</span>
-                        <span className="font-semibold tabular-nums text-green-600">
-                          {formatToIndianRupee(grossPaid)}
-                        </span>
-                      </div>
-                      {companyBorneTds && (
-                        <div className="flex justify-between gap-4">
-                          <span className="text-gray-500">TDS paid by company (on top)</span>
-                          <span className="font-medium tabular-nums">
-                            {formatToIndianRupee(tdsPaid)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </HoverCardContent>
-                </HoverCard>
+                <p className="text-sm font-medium text-green-600 tabular-nums">
+                  {formatToIndianRupeeOrZero(amountPaid)}
+                </p>
               </div>
 
-              {/* Amount Payable */}
+              {/* TDS withheld: settled with the tax office, beside Amount Paid */}
               <div className="space-y-0.5">
-                <p className="text-xs text-gray-500">Amount Payable</p>
-                <p className="text-sm font-medium text-yellow-600">
-                  {formatToIndianRupee(calculatedAmountPending)}
+                <p className="text-xs text-gray-500">
+                  {tdsLabel}
+                </p>
+                <p className="text-sm font-medium text-gray-700 tabular-nums">
+                  {formatToIndianRupeeOrZero(tdsWithheld)}
+                </p>
+              </div>
+
+              {/* Amount Due: negative when the WO is overpaid */}
+              <div className="space-y-0.5">
+                <p className="text-xs text-gray-500">Amount Due</p>
+                <p className={`text-sm font-medium tabular-nums ${amountDue < 0 ? "text-red-600" : "text-yellow-600"}`}>
+                  {formatToIndianRupeeOrZero(amountDue)}
                 </p>
               </div>
 

@@ -45,6 +45,17 @@ export const getFrappeError = (error: any): string => {
 };
 
 /**
+ * The reason Frappe gives for refusing a raw `fetch` request, for a toast. Frappe never puts it in
+ * `message`: it is read from `_server_messages` / `exception` through `getFrappeError`. Returns
+ * `fallback` when the body carries neither (production hides `exception` from most users) or is not
+ * JSON at all (an HTML error page while the server restarts). Never throws.
+ */
+export const readFrappeError = async (response: Pick<Response, "json">, fallback: string): Promise<string> => {
+    const body = await response.json().catch(() => null);
+    return (body && (body._server_messages || body.exception) && getFrappeError(body)) || fallback;
+};
+
+/**
  * Frappe's messages carry HTML -- a link-check refusal links every record it names
  * (`... linked with Nirmaan Notifications <a href="...">9ekd6leegl</a>`) -- and a toast shows text,
  * so the tags would appear as typed. Keeps each link's text, decodes the common entities.

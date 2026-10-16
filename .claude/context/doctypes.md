@@ -62,7 +62,7 @@
 
 | Doctype | Purpose |
 |---------|---------|
-| **Vendors** | Vendor master with financial balances |
+| **Vendors** | Vendor master with financial balances. Holds no bank fields: its bank account is its `payee` (Link to **Payee**, ADR-0033) |
 | **Vendor Category** | Vendor categorization |
 | **Customers** | Customer master |
 | **Items** | Item/product master |

@@ -75,12 +75,11 @@ export const QueueRowEditDialog = ({ row, onClose, onSaved }: QueueRowEditDialog
     }
   }, [isOpen, onClose]);
 
+  // Both dialogs close themselves after a save (their one close function).
   const handleSaved = useCallback(() => {
     mutate();
     onSaved();
-    // The project dialog closes itself after a save; the non-project one leaves that to its parent.
-    if (isNonProjectExpense) setEditNonProjectExpenseDialog(false);
-  }, [mutate, onSaved, isNonProjectExpense, setEditNonProjectExpenseDialog]);
+  }, [mutate, onSaved]);
 
   if (!name || !doc || docName !== name) return null;
   if (isProjectExpense) return <EditProjectExpenseDialog expenseToEdit={doc} onSuccess={handleSaved} />;

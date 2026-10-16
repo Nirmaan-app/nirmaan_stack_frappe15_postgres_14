@@ -28,7 +28,6 @@ import { useUserData } from "@/hooks/useUserData";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
 import { useUsersList } from "@/pages/ProcurementRequests/ApproveNewPR/hooks/useUsersList";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
-import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useTotalInvoicedByDocument } from "../hooks/useTotalInvoicedByDocument";
 import { useFacetValues } from "@/hooks/useFacetValues";
 import { invoiceRowClassName } from "../utils/invoiceRowStyle";
@@ -137,8 +136,7 @@ export const PendingTasksTable: React.FC = () => {
         resetRecheck();
     }, [resetRecheck]);
 
-    const { getTotalAmount, getDeliveredAmount, getVendorName } = useOrderTotals();
-    const { getAmount } = useOrderPayments();
+    const { getTotalAmount, getDeliveredAmount, getVendorName, getAmountPaid } = useOrderTotals();
     const { getTotalInvoiced } = useTotalInvoicedByDocument();
 
     // Resolves uploaded_by -> full name for the "Invoice Added By" column.
@@ -162,7 +160,7 @@ export const PendingTasksTable: React.FC = () => {
                 isProcessing,
                 attachmentsMap,
                 getTotalAmount,
-                getAmount,
+                getAmountPaid,
                 getDeliveredAmount,
                 getVendorName,
                 getTotalInvoiced,
@@ -175,7 +173,7 @@ export const PendingTasksTable: React.FC = () => {
             isProcessing,
             attachmentsMap,
             getTotalAmount,
-            getAmount,
+            getAmountPaid,
             getDeliveredAmount,
             getVendorName,
             getTotalInvoiced,
@@ -346,9 +344,9 @@ export const PendingTasksTable: React.FC = () => {
                             confirmationState.invoice.document_name,
                             confirmationState.invoice.document_type
                         )?.totalWithTax}
-                        paidAmount={getAmount(
+                        paidAmount={getAmountPaid(
                             confirmationState.invoice.document_name,
-                            ["Paid"]
+                            confirmationState.invoice.document_type
                         )}
                         deliveredAmount={
                             confirmationState.invoice.document_type === "Procurement Orders"

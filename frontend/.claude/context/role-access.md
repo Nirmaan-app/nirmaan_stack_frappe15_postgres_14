@@ -147,6 +147,7 @@ Each role sees a different dashboard (`src/pages/dashboard.tsx`):
 - Project Lead → Project Lead Dashboard
 - Project Manager → Project Manager Dashboard
 - Procurement Executive → Procurement Dashboard
+- Service Procurement Executive → Service Procurement Dashboard (one card per sidebar item)
 - Accountant → Accountant Dashboard
 - Estimates Executive → Estimates Executive Dashboard
 - Billing Executive → Billing Executive Dashboard (a copy of the Estimates dashboard, own `useCounts` cache key)
@@ -165,6 +166,14 @@ Roles that don't require `has_project === "true"`:
 - Nirmaan Design Lead Profile
 - Nirmaan Design Executive Profile
 - Nirmaan HR Executive Profile
+- Nirmaan Service Procurement Executive Profile
+
+**"All projects" is several pieces that must agree, not one switch.** A profile in this list
+must also have zero `User Permission` rows on Projects (Frappe list queries filter only when a
+row exists), sit in the full-access list of each project-scoped endpoint it uses
+(`api/sidebar_counts.py`, `api/tds/get_tds_requests.py`, …), and be blocked from assignment
+in the UI (`UserProjectsTab.isRestrictedRole`, the `ProjectOverviewTab` assignee picker). A
+profile missing from an endpoint's list reads 0 there while its tables show everything.
 
 ---
 
@@ -319,6 +328,15 @@ queue — edit & revert" below).
 
 ---
 
+### Payees (`payees/`, spec #1420)
+
+Admin, Accountant and Accountant Lead only (`PAYEE_MANAGE_PROFILES` in `constants/roles.ts`): the `/payees`
+route guard, the sidebar link, the header's Add Payee button and a Payee page's Edit and Delete (#1435) all read it. The server enforces the same list
+(`services/role_profiles.PAYEE_MANAGE_PROFILES`) in every `api/payees/` endpoint. Procurement adds Payees only from
+the vendor screens, and raisers only from an Expense Request (later tickets of #1420).
+
+---
+
 ### Reports (`reports/`)
 
 | Tab | Admin | PMO | Proj Lead | Proj Mgr | Procurement | Accountant |
@@ -327,8 +345,14 @@ queue — edit & revert" below).
 | Vendors | Y | Y | Y | - | - | Y |
 | PO | Y | Y | Y | Limited* | Y | Y |
 | WO (SR) | Y | Y | Y | - | Y | Y |
+| Payment › TDS Deduction | Y | - | - | - | - | Y |
+| Payment › Cheque Payment | Y | - | - | - | Y | Y |
 
 *Project Manager only sees "Dispatched for 1+ days" report
+
+The Payment tab's two reports are gated by `pages/reports/config/paymentTab.config.ts` (`PAYMENT_TDS_ACCESS`
+for TDS Deduction; `CHEQUE_ACCESS_PROFILES` for Cheque Payment, spec #1407). The Cheque Payment gate is enforced
+on the server by `services/role_profiles.CHEQUE_ACCESS_PROFILES` in every `api/cheques/` endpoint.
 
 **Key files:** `ReportsContainer.tsx:49,130,136,144,150,183,185`
 
@@ -391,6 +415,7 @@ The rules and the monthly audit: `../../../.claude/context/domain/assets.md`.
 | Users | Assign Projects to Users | Y | Y | Y | - | - |
 | Items | Add/Edit Products | Y | Y | - | - | - |
 | Vendors | Export Ledger | Y | Y | - | Y (Accountant) | - |
+| Vendors | Bulk Download tab (`canBulkDownloadVendor`; a typed `?tab=bulkDownload` from anyone else is redirected) | Y | Y | - | - | Accountant, Accountant Lead, Procurement profiles only |
 
 **Key files:**
 - `project.tsx:1045,1058`
@@ -417,7 +442,7 @@ The rules and the monthly audit: `../../../.claude/context/domain/assets.md`.
 | Delete Project Expense | Y | Y | - | - | - | - |
 | Add Project Expense | Y | Y | - | - | - | Y |
 | Export Vendor Ledger | Y | Y | - | - | - | Y |
-| Edit Vendor Bank Details | Y | Y | Y | - | Y | Y |
+| Set or edit a vendor's Payee (Edit bank details, Use a different payee, Add bank details, the rename prompt's Update the holder name) | Y | Y | Y | - | Y | Y |
 | Request Payments (PO) | Y | Y | Y | - | Y | - |
 | Edit Design Tracker Structure | Y | Y | - | - | - | - |
 | Edit User Role Profiles | Y | Y | - | - | - | - |

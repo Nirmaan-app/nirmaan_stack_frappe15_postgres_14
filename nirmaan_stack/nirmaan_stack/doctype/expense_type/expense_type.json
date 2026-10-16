@@ -15,7 +15,8 @@
   "allowed_roles",
   "request_form_section",
   "source_format_enabled",
-  "source_format"
+  "source_format",
+  "payee_rule"
  ],
  "fields": [
   {
@@ -79,12 +80,20 @@
    "fieldname": "source_format",
    "fieldtype": "Long Text",
    "label": "Source Format"
+  },
+  {
+   "default": "Not asked",
+   "description": "Whether an Expense Request of this type names who gets paid (ADR-0033). Required: the request can't be sent without a payee. Optional: it can be left blank. Not asked: the request doesn't show the payee field. The rules are services/payees/expense_rules.py.",
+   "fieldname": "payee_rule",
+   "fieldtype": "Select",
+   "label": "Who Gets Paid",
+   "options": "Required\nOptional\nNot asked"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-16 17:00:00.000000",
+ "modified": "2026-10-14 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Expense Type",
