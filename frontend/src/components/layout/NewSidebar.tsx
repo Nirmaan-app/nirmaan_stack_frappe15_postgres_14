@@ -29,7 +29,7 @@ import {
   Dices,
   FileSpreadsheet,
   Landmark, PencilRuler, SquareStack,
-  Warehouse, ClipboardList,
+  Warehouse,
   FileChartLine,
   PackageCheck,
   Tickets,
@@ -809,15 +809,6 @@ export function NewSidebar() {
         },
       ]
       : []),
-    ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile", ...MATERIAL_PROCUREMENT_PROFILES].includes(role as string)
-      ? [
-        {
-          key: '/pr-tracker',
-          icon: ClipboardList,
-          label: 'PR Tracker',
-        },
-      ]
-      : []),
     ...(user_id == "Administrator" || ["Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan Project Manager Profile"].includes(role as string)
       ? [
         {
@@ -896,7 +887,6 @@ export function NewSidebar() {
     'snag-list',
     'hod-tracker',
     'critical-po-tracker',
-    'pr-tracker',
     'work-plan-tracker',
     'material-plan-tracker',
     'cashflow-plan-tracker',
@@ -956,7 +946,6 @@ export function NewSidebar() {
     '/snag-list': ['snag-list'],
     '/hod-tracker': ['hod-tracker'],
     '/critical-po-tracker': ['critical-po-tracker'],
-    '/pr-tracker': ['pr-tracker'],
     '/work-plan-tracker': ['work-plan-tracker'],
     '/material-plan-tracker': ['material-plan-tracker'],
     '/cashflow-plan-tracker': ['cashflow-plan-tracker'],
@@ -1093,7 +1082,6 @@ export function NewSidebar() {
                     "HOD Tracker",
                     // Flat nav button (no children), like the trackers around it.
                     "Billing Tracker",
-                    "PR Tracker",
                     "PO Tracker",
                     "Work Plan Tracker",
                     "Material Plan Tracker",
