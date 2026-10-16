@@ -1,12 +1,40 @@
-/**
- * Roles allowed to create Internal Transfer Memos (from Inventory Item-Wise CTA).
- */
+// Who may start which transfer on the New Transfer page. `allowedTransferDirections` in
+// utils/itmTransfer.ts reads these lists, and the "Create Internal Transfer Memo"
+// buttons show for anyone it gives at least one direction.
 import { MATERIAL_PROCUREMENT_PROFILES } from "@/constants/roles";
 
+/**
+ * Roles allowed every direction: Project → Project, Project → Warehouse, Warehouse → Project,
+ * from any project to ANY Won project, whatever projects they are assigned to (rule set by
+ * Abhishek, 2026-10-16). Mirrors `DESTINATION_PROFILES` in
+ * `api/internal_transfers/get_transfer_destinations.py`, which serves their "To Project" list.
+ */
 export const ITM_CREATE_ROLES: readonly string[] = [
   "Nirmaan Admin Profile",
   "Nirmaan PMO Executive Profile",
   ...MATERIAL_PROCUREMENT_PROFILES,
+] as const;
+
+/**
+ * Roles allowed Project → Warehouse ONLY: they return their projects' surplus to the
+ * warehouse, and never move stock between projects or out of the warehouse. Rule set by
+ * Abhishek (manager), 2026-10-16. Their source projects are limited to their own:
+ * ITM_SOURCE_SCOPED_ROLES.
+ */
+export const ITM_PROJECT_RETURN_ROLES: readonly string[] = [
+  "Nirmaan Project Manager Profile",
+  "Nirmaan Project Lead Profile",
+] as const;
+
+/**
+ * Roles whose "From Project" list is limited to projects they can read (their User
+ * Permissions, i.e. their assigned projects). Without it a Project Manager or Lead could
+ * return any project's stock. Procurement is deliberately not here: some of those users
+ * are project-scoped too, and they have always picked from every project's stock.
+ */
+export const ITM_SOURCE_SCOPED_ROLES: readonly string[] = [
+  "Nirmaan Project Manager Profile",
+  "Nirmaan Project Lead Profile",
 ] as const;
 
 /**
