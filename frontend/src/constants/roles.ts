@@ -641,7 +641,7 @@ export const REFUND_DELETE_PROFILES: readonly string[] = [ADMIN_PROFILE, ...MATE
  * Cheques (spec #1407). Mirrors `services/role_profiles.CHEQUE_ACCOUNTS_PROFILES` /
  * `CHEQUE_ACCESS_PROFILES`; the server is the enforcement boundary (every `api/cheques/` endpoint).
  *
- * `CHEQUE_ACCESS_PROFILES`: open the Cheque Tracker (`/cheque-tracker`), add a Cheque, Convert to Cheque.
+ * `CHEQUE_ACCESS_PROFILES`: open the Cheque Tracker (`/cheque-tracker`), add a Cheque.
  * Project Managers are not in it. Not tied to the Payment TDS Deduction read permission.
  * `CHEQUE_ACCOUNTS_PROFILES`: also edit any Cheque and change its status.
  */

@@ -22,20 +22,17 @@ Built so far:
   date (#1410). `create_cheque` calls it; the caller then moves the payments on after its commit.
   An expense line's expense (#1411) is never written: linking an expense changes nothing on it.
 * `payment_cheque_problem` and `create_payment_cheque` -- the one-line Cheque for one payment, made
-  from the PO/WO page (#1414 Request Payment; #1416 Convert to Cheque). Ask the first BEFORE the
+  from the PO/WO page (#1414 Request Payment). Ask the first BEFORE the
   payment is inserted: a Project Payment's `after_insert` commits, so a refusal after it is too late.
 
 * `edit_cheque` -- the report's Edit (#1418): what may change depends on the status, where the
   Cheque was made and who made it (`rules.edit_access_problem`, `rules.edit_problem`). A payment
   added on edit is put on the Cheque exactly as on create; one taken off goes back to Online
   (`take_payment_off`), with a history note.
-* `take_payment_off` -- a payment back to Online, off its Cheque, status unchanged. The edit and
-  Switch to Online (#1416) both use it.
+* `take_payment_off` -- a payment back to Online, off its Cheque, status unchanged. The edit uses it.
 * `reshape_old_cheque` -- the cheque-types patch's write (#1478, spec #1477): an existing Cheque made a
   Payment cheque, Old-type or not, at the status and dates worked out from its payments.
 
-Convert to Cheque, Link a new cheque and Switch to Online on a payment (#1416) live in
-`services/cheques/payment_actions.py` and make their Cheque through `create_payment_cheque`.
 Status change for one or many, with history, is `services/cheques/status.py` (#1412). A Rejected or
 deleted payment's line comes off in `services/cheques/detach.py` (#1413).
 
@@ -189,7 +186,8 @@ def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | 
 
     Re-reads the Cheque under its row lock, then refuses with `frappe.PermissionError` a user who may
     not edit it (`any_cheque` is False for Procurement: only their own Pending or Issued Cheques), and with a
-    validation error an edit the rules forbid (`rules.edit_problem`). The `validate` controller still
+    validation error an edit the rules forbid (`rules.edit_problem`; an Old-type cheque changes only
+    its photo, spec #1477). The `validate` controller still
     runs every header and line rule.
 
     A payment added on edit is put on the Cheque as on create (`link_payments`), and a new number or
@@ -211,6 +209,7 @@ def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | 
         made_from=doc.made_from,
         lines_before=lines_before,
         lines_after=lines_after,
+        old_type=bool(doc.get("old_type")),
     )
     if problem:
         frappe.throw(_(problem))
@@ -234,7 +233,7 @@ def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | 
         doc.append("status_history", history_row(doc.status, doc.status, user, taken_off_note(payment)))
     doc.save(ignore_permissions=True)
     # Lines and the number change only while Pending or Issued; a Cleared or Cancelled Cheque's payments
-    # may have moved on (Switch to Online, Link a new cheque) and must not be pulled back.
+    # may have moved on and must not be pulled back.
     if doc.status in EDITABLE_STATUSES:
         # After the save: the payment's mode rule lets it go Online once its line is off the Cheque.
         for payment in taken_off:
@@ -323,7 +322,7 @@ def payment_cheque_problem(
 
 
 def create_payment_cheque(header: ChequeHeader, payment_name: str, *, user: str):
-    """A new Cheque, made from the PO/WO page, with one line for `payment_name` (#1414, #1416).
+    """A new Cheque, made from the PO/WO page, with one line for `payment_name` (#1414).
 
     The line names the payment's PO / Work Order and that record's project, for the whole cheque
     amount: the cheque pays this one payment. `header.vendor` must be the record's Vendor. The

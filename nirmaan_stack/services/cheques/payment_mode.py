@@ -1,18 +1,20 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""A Project Payment's Mode of Payment changes only through a Cheque (spec #1407). Part of THE cheques
-service; never commits.
+"""A Project Payment's Mode of Payment: the Project Payments `validate` rules the cheques service owns
+(spec #1407, spec #1477). Part of THE cheques service; never commits.
 
-`validate_mode_change` is the Project Payments `validate` rule, which is what lets `mode_of_payment` drop
-`set_only_once`. The rule itself is pure: `rules.mode_change_problem`.
+* `validate_mode_change` -- the mode changes only through a Cheque, which is what lets `mode_of_payment`
+  drop `set_only_once`. The rule itself is pure: `rules.mode_change_problem`.
+* `validate_cheque_mode` -- a payment requested in Cheque mode must be a PO payment: Work Order payments
+  are paid Online (#1487). The rule itself is pure: `rules.cheque_mode_problem`.
 """
 
 import frappe
 from frappe import _
 
 from nirmaan_stack.services.cheque_payments import is_cheque
-from nirmaan_stack.services.cheques.rules import PAYMENT_DOCTYPE, mode_change_problem
+from nirmaan_stack.services.cheques.rules import PAYMENT_DOCTYPE, cheque_mode_problem, mode_change_problem
 from nirmaan_stack.services.cheques.writer import CHEQUES
 
 
@@ -36,5 +38,16 @@ def validate_mode_change(pay) -> None:
             "payment_name": pay.name,
         })),
     )
+    if problem:
+        frappe.throw(_(problem))
+
+
+def validate_cheque_mode(pay) -> None:
+    """Refuse a new Project Payment in Cheque mode on anything but a PO (`rules.cheque_mode_problem`).
+    Called from its `validate`, so it holds for every request path, before the insert's `after_insert`
+    commits. A Work Order cheque payment already saved finishes as it is."""
+    if not pay.is_new() or not is_cheque(pay):
+        return
+    problem = cheque_mode_problem(pay.get("document_type"))
     if problem:
         frappe.throw(_(problem))

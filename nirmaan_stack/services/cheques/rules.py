@@ -319,20 +319,18 @@ def duplicate_problem(header: ChequeHeader, existing: str) -> str:
 
 
 #: Where a payment's own new Cheque is made, for the refusal when its bank + number is taken: Request
-#: Payment on a PO / Work Order (#1414), or Convert to Cheque / Link a new cheque (#1416).
+#: Payment on a PO (#1414). Convert to Cheque / Link a new cheque (#1416) were removed by #1487.
 NEW_CHEQUE_FROM_REQUEST = "request"
-NEW_CHEQUE_FROM_PAYMENT = "payment"
 #: Per place: what it does, and how the user puts the payment on the recorded cheque instead.
 _TAKEN_NUMBER_WORDING = {
     NEW_CHEQUE_FROM_REQUEST: ("A payment made here gets its own new cheque.", "request it as Online, then add it"),
-    NEW_CHEQUE_FROM_PAYMENT: ("This makes a new cheque for the payment.", "add it"),
 }
 
 
 def payment_duplicate_problem(header: ChequeHeader, *, made_from: str) -> str:
     """The refusal when a payment's new Cheque names a bank + cheque number already recorded.
-    `made_from` is NEW_CHEQUE_FROM_REQUEST or NEW_CHEQUE_FROM_PAYMENT. Either way a new Cheque is
-    made; joining an existing one is done from the Cheque Tracker."""
+    `made_from` is NEW_CHEQUE_FROM_REQUEST. A new Cheque is made; joining an existing one is done
+    from the Cheque Tracker."""
     label = bank_label(header.bank or "", header.bank_name)
     what, how = _TAKEN_NUMBER_WORDING[made_from]
     return (
@@ -376,10 +374,12 @@ def edit_problem(
     made_from: str,
     lines_before: list[ChequeLineInput],
     lines_after: list[ChequeLineInput],
+    old_type: bool = False,
 ) -> str | None:
     """Why this edit of a Cheque cannot be saved, or None. The rules are the ones the editor sees:
 
     * the photo can be replaced, never removed;
+    * an Old-type cheque (spec #1477) can change only its photo, whatever its status;
     * a Cleared or Cancelled Cheque can change only its photo; a Pending one edits like an Issued one
       (`EDITABLE_STATUSES`);
     * an Issued Cheque made from the PO/WO page keeps its number, date and amount while it still has a
@@ -396,6 +396,8 @@ def edit_problem(
     if before.attachment and not after.attachment:
         return "The cheque's photo can be replaced, not removed."
     changed = [f for f in EDITABLE_HEADER_FIELDS if getattr(before, f) != getattr(after, f)]
+    if old_type and (changed or lines_before != lines_after):
+        return f"Cheque {before.cheque_no} is an Old-type cheque: only its photo can change."
     if status not in EDITABLE_STATUSES:
         if changed or lines_before != lines_after:
             return f"Cheque {before.cheque_no} is {status}: only its photo can change."
@@ -431,61 +433,6 @@ def taken_off_note(payment: str) -> str:
 _RELEASED_CHEQUE_STATUSES = (CANCELLED, None)
 
 
-def _cheque_text(cheque_no: str | None, cheque_status: str | None) -> str:
-    return f"cheque {cheque_no} ({cheque_status})"
-
-
-def _is_rejected(status: str | None) -> bool:
-    return (status or "").strip() == PAYMENT_REJECTED
-
-
-def new_payment_cheque_problem(
-    payment: str,
-    *,
-    is_cheque: bool,
-    status: str | None,
-    cheque_no: str | None = None,
-    cheque_status: str | None = None,
-) -> str | None:
-    """Why `payment` cannot be put on a new one-line Cheque from the PO / Work Order page, or None (#1416).
-
-    An Online payment converts (Convert to Cheque). A Cheque payment gets a new Cheque (Link a new
-    cheque) once its Cheque is Cancelled, the old one staying as history, or when it is on no Cheque
-    at all. A Rejected payment is never put on a cheque. `cheque_status` is the status of the Cheque
-    the payment names, None when it names none.
-    """
-    if _is_rejected(status):
-        return f"Payment {payment} is Rejected and cannot be put on a cheque."
-    if is_cheque and cheque_status not in _RELEASED_CHEQUE_STATUSES:
-        return (
-            f"Payment {payment} is on {_cheque_text(cheque_no, cheque_status)}. A new cheque can be "
-            "linked only once that cheque is Cancelled."
-        )
-    return None
-
-
-def switch_to_online_problem(
-    payment: str,
-    *,
-    is_cheque: bool,
-    status: str | None = None,
-    cheque_no: str | None = None,
-    cheque_status: str | None = None,
-) -> str | None:
-    """Why a payment cannot be switched back to Online, or None (#1416). A Cheque payment goes back once
-    its Cheque is Cancelled, or, not Rejected, when it is on no Cheque at all."""
-    if not is_cheque:
-        return f"Payment {payment} is already Online."
-    if cheque_status is None and _is_rejected(status):
-        return f"Payment {payment} is Rejected."
-    if cheque_status not in _RELEASED_CHEQUE_STATUSES:
-        return (
-            f"Payment {payment} goes back to Online only once its cheque is Cancelled; it is on "
-            f"{_cheque_text(cheque_no, cheque_status)}."
-        )
-    return None
-
-
 def mode_change_problem(
     *,
     was_cheque: bool,
@@ -509,6 +456,41 @@ def mode_change_problem(
     if old_cheque_status not in _RELEASED_CHEQUE_STATUSES and on_old_cheque_lines:
         return "A Cheque payment goes back to Online only once its Cheque is Cancelled."
     return None
+
+
+# -- what a cheque payment refuses (spec #1477, ADR-0035, #1487) ---------------------------------
+def cheque_mode_problem(document_type: str | None) -> str | None:
+    """Why a payment of a `document_type` record cannot be paid by cheque, or None. Only a PO payment can:
+    Work Order payments are paid Online. The Project Payments `validate` asks it when a payment becomes
+    a Cheque payment; a Work Order cheque payment already in flight finishes as it is."""
+    if document_type == PO_DOCTYPE:
+        return None
+    return "A Work Order payment is paid Online: only a PO payment can be paid by cheque."
+
+
+#: The one-payment actions a cheque payment refuses. A cheque's payments are approved, paid or rejected
+#: together (one cheque, one decision), so none of them may move alone; cancelling the cheque is the undo.
+CHEQUE_REFUSES_HOLD = "hold"
+CHEQUE_REFUSES_REVERT = "revert"
+#: CEO part-approval and the bank import's part-settlement, both `payment_split.split_payment`.
+CHEQUE_REFUSES_SPLIT = "split"
+_CANCEL_INSTEAD = "a cheque's payments move together. Cancel the cheque in the Cheque Tracker instead."
+_CHEQUE_REFUSALS = {
+    CHEQUE_REFUSES_HOLD: f"cannot be put on hold: {_CANCEL_INSTEAD}",
+    CHEQUE_REFUSES_REVERT: f"cannot go back to Approved: {_CANCEL_INSTEAD}",
+    CHEQUE_REFUSES_SPLIT: "cannot be split: a cheque pays its payments in full or not at all.",
+}
+CHEQUE_PAYMENT_ACTIONS = tuple(_CHEQUE_REFUSALS)
+
+
+def cheque_payment_problem(payment: str, action: str, *, is_cheque: bool, cheque_no: str | None = None) -> str | None:
+    """Why `action` (a `CHEQUE_REFUSES_*`) is refused on `payment`, or None for an Online payment.
+    `cheque_no` names the cheque in the refusal when known."""
+    refusal = _CHEQUE_REFUSALS[action]
+    if not is_cheque:
+        return None
+    cheque = f"cheque {cheque_no}" if cheque_no else "cheque"
+    return f"{payment} is paid by {cheque}, so it {refusal}"
 
 
 # -- a Payment cheque follows its payments (spec #1477, ADR-0035) --------------------------------

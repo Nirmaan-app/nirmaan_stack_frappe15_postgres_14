@@ -56,7 +56,6 @@ import LoadingFallback from "@/components/layout/loaders/LoadingFallback";
 import { DeletePaymentDialog } from "@/pages/ProjectPayments/update-payment/DeletePaymentDialog";
 import SRPdf from "./SRPdf";
 import { PaymentVoucherActions } from "@/components/paymentsVoucher/PaymentVoucherActions";
-import { PaymentChequeActions } from "@/components/cheques/PaymentChequeActions";
 import { PaymentUtrOrCheque } from "@/components/cheques/PaymentUtrOrCheque";
 import { useChequeChips } from "@/components/cheques/useChequeChips";
 import { GstPaymentTag } from "@/pages/ProjectPayments/components/GstPaymentTag";
@@ -816,11 +815,6 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
                                                 {/* ----------------------------------------------- */}
 
                                                 <TableCell className="text-red-500 text-end w-[5%]">
-                                                    <PaymentChequeActions
-                                                        payment={payment}
-                                                        chip={payment.cheque ? chequeChips[payment.cheque] : undefined}
-                                                        onChanged={refreshPayments}
-                                                    />
                                                     {/* Approved: Admin only (owner, 18 Sep) — as on the PO page. Paid: never.
                                                         Deleting the payment also deletes its Payment TDS Deduction (server on_trash).
                                                         A REJECTED payment: Admin also gets the trash in the summary view, which is how
