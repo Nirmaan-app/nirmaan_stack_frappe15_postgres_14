@@ -56,7 +56,8 @@ import { parseNumber } from "@/utils/parseNumber";
 import { getExpenseCreatedToast, getExpenseSubmitLabel } from "@/utils/expenseApproval";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getNonProjectExpenseTypeListOptions } from "@/config/queryKeys";
-import { directExpenseErrorToast, useCreateDirectExpense } from "@/components/payees/useCreateDirectExpense";
+import { useCreateDirectExpense } from "@/components/payees/useCreateDirectExpense";
+import { directExpenseErrorToast } from "@/utils/payees/directExpense";
 import { whoGetsPaidView } from "@/utils/payees/expensePayee";
 import WhoGetsPaidSection from "@/pages/ExpenseRequests/components/WhoGetsPaidSection";
 
@@ -122,8 +123,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
     const extractionSessionRef = useRef(0);
 
     // Who gets paid: an existing Payee, or a new one added on save; saved with the expense.
-    const { payeeChoice, create: createDirectExpense, loading: createLoading, changeType } =
-        useCreateDirectExpense(DOCTYPE);
+    const { payeeChoice, create: createDirectExpense, loading: createLoading } = useCreateDirectExpense(DOCTYPE);
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
     const { call: extractPaymentFields } = useFrappePostCall(
         "nirmaan_stack.api.payment_autofill.extract_payment_fields"
@@ -236,13 +236,13 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
     // Changing the type re-applies its rule: a pick made under one type is not carried to another.
     const handleExpenseTypeSelect = useCallback((currentValue: string) => {
         const next = currentValue === formState.type ? "" : currentValue;
-        changeType(formState.type, next);
+        if (next !== formState.type) payeeChoice.reset();
         setFormState(prev => ({ ...prev, type: next }));
         setExpenseTypePopoverOpen(false);
         if (formErrors.type && currentValue) {
             setFormErrors(prev => ({ ...prev, type: undefined }));
         }
-    }, [formState.type, formErrors.type, changeType]);
+    }, [formState.type, formErrors.type, payeeChoice.reset]);
 
     // Who gets paid, by the type's rule. A Non-Project Expense has no vendor, so it is pick / add only.
     const selectedType = expenseTypesData?.find(et => et.name === formState.type);
@@ -342,6 +342,8 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
         whoGetsPaid.sendsPayee
     ]);
 
+    // Escape does not close mid-save (`createLoading` spans the whole save, the payee add included): a
+    // close there would reset the choice before the add lands its pick, and that pick would outlive the reopen.
     const closeDialogAndReset = useCallback(() => {
         // Invalidate any in-flight autofill so its eventual response doesn't
         // leak state into the next dialog session.
@@ -397,7 +399,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
     const submitLabel = getExpenseSubmitLabel(formState.amount);
 
     return (
-        <AlertDialog open={newNonProjectExpenseDialog} onOpenChange={(isOpen) => !isOpen && closeDialogAndReset()}>
+        <AlertDialog open={newNonProjectExpenseDialog} onOpenChange={(isOpen) => !isOpen && !createLoading && closeDialogAndReset()}>
             <AlertDialogContent className="max-w-lg">
                 <AlertDialogHeader>
                     <AlertDialogTitle className="text-center text-xl">Record New Non-Project Expense</AlertDialogTitle>

@@ -6,18 +6,25 @@
  * so a duplicate account stops the save before any upload, and the save itself.
  */
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useFrappePostCall } from "frappe-react-sdk";
 
-import { getFrappeError } from "@/utils/frappeErrors";
+import type { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
+import type { ProjectExpenses } from "@/types/NirmaanStack/ProjectExpenses";
 import { payToSave } from "@/utils/payees/payToChoice";
 
-import { DuplicatePayeeError, usePayeeChoice } from "./usePayeeChoice";
+import { usePayeeChoice } from "./usePayeeChoice";
 
 export const CREATE_DIRECT_EXPENSE_API = "nirmaan_stack.api.expenses.direct_expense.create_direct_expense";
 
+/** The fields each ledger's dialog sends for its new expense, by doctype. */
+export interface DirectExpenseFields {
+    "Project Expenses": Partial<ProjectExpenses>;
+    "Non Project Expenses": Partial<NonProjectExpenses>;
+}
+
 /** The two ledgers a Direct Expense is recorded on. */
-export type DirectExpenseDoctype = "Project Expenses" | "Non Project Expenses";
+export type DirectExpenseDoctype = keyof DirectExpenseFields;
 
 /** What the server returns for the expense it created; `status` names the path it took. */
 export interface CreatedDirectExpense {
@@ -30,37 +37,32 @@ export interface CreatedDirectExpense {
  *
  * `create(sendsPayee, buildExpense)` resolves who gets paid first when `sendsPayee` (new payee details
  * are added now; a duplicate throws `DuplicatePayeeError`), then calls `buildExpense` (the dialog's
- * uploads and fields), then saves. `changeType(from, to)` clears the choice when the expense type
- * changes, so a pick made under one type is not carried to another.
+ * uploads and fields), then saves. `loading` is true for that whole save, the payee add included, so
+ * a dialog that blocks closing on it cannot be closed while an add is still to land its pick.
  */
-export function useCreateDirectExpense(doctype: DirectExpenseDoctype) {
+export function useCreateDirectExpense<D extends DirectExpenseDoctype>(doctype: D) {
     const payeeChoice = usePayeeChoice();
-    const { resolve, reset } = payeeChoice;
-    const { call, loading } = useFrappePostCall<{ message: CreatedDirectExpense }>(CREATE_DIRECT_EXPENSE_API);
+    const { resolve } = payeeChoice;
+    const { call } = useFrappePostCall<{ message: CreatedDirectExpense }>(CREATE_DIRECT_EXPENSE_API);
+    const [loading, setLoading] = useState(false);
 
     const create = useCallback(
-        async (sendsPayee: boolean, buildExpense: () => Promise<object>): Promise<CreatedDirectExpense | undefined> => {
-            const payTo = sendsPayee ? payToSave(await resolve()) : {};
-            const expense = await buildExpense();
-            const res = await call({ doctype, expense, ...payTo });
-            return res?.message;
+        async (
+            sendsPayee: boolean,
+            buildExpense: () => Promise<DirectExpenseFields[D]>,
+        ): Promise<CreatedDirectExpense | undefined> => {
+            setLoading(true);
+            try {
+                const payTo = sendsPayee ? payToSave(await resolve()) : {};
+                const expense = await buildExpense();
+                const res = await call({ doctype, expense, ...payTo });
+                return res?.message;
+            } finally {
+                setLoading(false);
+            }
         },
         [doctype, call, resolve],
     );
 
-    const changeType = useCallback(
-        (from: string, to: string) => {
-            if (from !== to) reset();
-        },
-        [reset],
-    );
-
-    return { payeeChoice, create, loading, changeType };
+    return { payeeChoice, create, loading };
 }
-
-/** The toast for a failed save: a duplicate account says so (its Payee now shows to pick); anything
- *  else gives the server's reason, or `fallback`. */
-export const directExpenseErrorToast = (error: unknown, title: string, fallback: string) =>
-    error instanceof DuplicatePayeeError
-        ? { title: "This account is already a payee", description: error.message, variant: "destructive" as const }
-        : { title, description: getFrappeError(error) || fallback, variant: "destructive" as const };

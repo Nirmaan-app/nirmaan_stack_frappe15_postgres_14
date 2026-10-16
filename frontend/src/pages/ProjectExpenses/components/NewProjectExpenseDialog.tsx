@@ -49,7 +49,8 @@ import { getExpenseCreatedToast, getExpenseSubmitLabel } from "@/utils/expenseAp
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
-import { directExpenseErrorToast, useCreateDirectExpense } from "@/components/payees/useCreateDirectExpense";
+import { useCreateDirectExpense } from "@/components/payees/useCreateDirectExpense";
+import { directExpenseErrorToast } from "@/utils/payees/directExpense";
 import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
 import { whoGetsPaidView } from "@/utils/payees/expensePayee";
 import WhoGetsPaidSection from "@/pages/ExpenseRequests/components/WhoGetsPaidSection";
@@ -137,7 +138,7 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
 
     // Who gets paid with "Others (No Vendor)": an existing Payee, or a new one added on save; saved
     // with the expense.
-    const { payeeChoice, create: createDirectExpense, loading, changeType } = useCreateDirectExpense(DOCTYPE);
+    const { payeeChoice, create: createDirectExpense, loading } = useCreateDirectExpense(DOCTYPE);
     const { updateDoc } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
     const { call: extractInvoiceFields } = useFrappePostCall("nirmaan_stack.api.invoice_autofill.extract_invoice_fields");
@@ -170,6 +171,8 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
         choice: payeeChoice,
     });
 
+    // Escape does not close mid-save (`loading` spans the whole save, the payee add included): a close
+    // there would reset the choice before the add lands its pick, and that pick would outlive the reopen.
     const handleDialogClose = () => {
         payeeChoice.reset();
         setNewProjectExpenseDialog(false);
@@ -189,7 +192,7 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
             });
             if (session !== extractionSessionRef.current) return;
             setUploadedInvoiceUrl(uploaded.file_url);
-            setUploadedInvoiceFileName((uploaded as any).name || null);
+            setUploadedInvoiceFileName(uploaded.name || null);
 
             const res = await extractInvoiceFields({ file_url: uploaded.file_url });
             if (session !== extractionSessionRef.current) return;
@@ -297,7 +300,7 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
                 if (recordInvoiceDetails && invoiceAttachmentFile && !invoiceAttachmentUrl) {
                     const uploaded = await upload(invoiceAttachmentFile, { doctype: DOCTYPE, fieldname: "invoice_attachment", isPrivate: true });
                     invoiceAttachmentUrl = uploaded.file_url;
-                    setUploadedInvoiceFileName((uploaded as any).name || null);
+                    setUploadedInvoiceFileName(uploaded.name || null);
                 }
 
                 return {
@@ -340,7 +343,7 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
 
     // Changing the type re-applies its rule: a pick made under one type is not carried to another.
     const handleTypeSelect = (type: string) => {
-        changeType(formState.type, type);
+        if (type !== formState.type) payeeChoice.reset();
         handleInputChange('type', type);
         setExpenseTypePopoverOpen(false);
     };
@@ -400,7 +403,7 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
     const submitLabel = getExpenseSubmitLabel(formState.amount);
 
     return (
-        <AlertDialog open={newProjectExpenseDialog} onOpenChange={(isOpen) => !isOpen && handleDialogClose()}>
+        <AlertDialog open={newProjectExpenseDialog} onOpenChange={(isOpen) => !isOpen && !loading && handleDialogClose()}>
             <AlertDialogContent className="sm:max-w-lg">
                 <AlertDialogHeader><AlertDialogTitle className="text-center">Add New Project Expense</AlertDialogTitle></AlertDialogHeader>
                 <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-2">

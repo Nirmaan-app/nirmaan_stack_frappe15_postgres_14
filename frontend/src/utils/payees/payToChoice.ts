@@ -13,6 +13,10 @@ export type PickedPayTo =
     | { kind: "payee"; payee: PayeeOption }
     | { kind: "own"; account: PayToAccount };
 
+/** Thrown by `usePayeeChoice().resolve()` when the new details belong to a Payee already on record.
+ *  The duplicate block then shows that Payee, so the screen only has to stop saving and say why. */
+export class DuplicatePayeeError extends Error {}
+
 /** The account a pick shows. */
 export const pickedAccount = (picked: PickedPayTo): PayToAccount =>
     picked.kind === "payee" ? picked.payee : picked.account;
