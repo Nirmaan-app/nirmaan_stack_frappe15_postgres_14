@@ -36,6 +36,8 @@ import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys"
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import SITEURL from "@/constants/siteURL";
+import { ExpenseEditPayToSection, useExpenseEditPayTo } from "@/components/payees/ExpenseEditPayTo";
+import { DuplicatePayeeError } from "@/components/payees/usePayeeChoice";
 
 interface EditProjectExpenseDialogProps {
     expenseToEdit: ProjectExpenses;
@@ -98,7 +100,11 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
     const { updateDoc, loading } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
     const { data: vendorsData, isLoading: vendorsLoading } = useFrappeGetDocList<Vendors>("Vendors", { fields: ["name", "vendor_name"], limit: 0 });
-    const expenseTypeFetchOptions = useMemo(() => getProjectExpenseTypeListOptions(), []);
+    // With each type's *Who gets paid*, which the Who gets paid section words (#1465).
+    const expenseTypeFetchOptions = useMemo(() => {
+        const options = getProjectExpenseTypeListOptions();
+        return { ...options, fields: [...(options.fields ?? []), "payee_rule"] };
+    }, []);
     const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>("Expense Type", expenseTypeFetchOptions as any, queryKeys.expenseTypes.list(expenseTypeFetchOptions));
 
     const vendorOptions = useMemo(() => {
@@ -107,6 +113,18 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
     }, [vendorsData]);
 
     const expenseTypeOptions = useMemo(() => expenseTypesData?.map(et => ({ value: et.name, label: et.expense_name })) || [], [expenseTypesData]);
+
+    // Who gets paid (#1465): Accounts set an Approved expense's account here, saved with the edit.
+    const selectedExpenseType = expenseTypesData?.find(et => et.name === formState.type);
+    const vendorNamed = !!formState.vendor && formState.vendor !== OTHERS_VENDOR_VALUE;
+    const payTo = useExpenseEditPayTo({
+        doctype: DOCTYPE,
+        name: expenseToEdit.name,
+        status: expenseToEdit.status,
+        rule: selectedExpenseType ? selectedExpenseType.payee_rule ?? null : undefined,
+        vendorNamed,
+    });
+    const { reset: resetPayTo } = payTo;
 
     useEffect(() => {
         if (editProjectExpenseDialog && expenseToEdit) {
@@ -125,8 +143,9 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
             setNewPaymentFile(null);
             setFormErrors({});
             setExpenseTypePopoverOpen(false);
+            resetPayTo();
         }
-    }, [editProjectExpenseDialog, expenseToEdit]);
+    }, [editProjectExpenseDialog, expenseToEdit, resetPayTo]);
 
     useEffect(() => {
         const commandListElement = commandListRef.current;
@@ -172,6 +191,9 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
             return;
         }
         try {
+            // Who gets paid, resolved FIRST: a new payee is added now, and a duplicate stops the save
+            // before anything is written. It is copied onto the expense after the update below.
+            const payee = await payTo.resolve();
             const finalVendor = formState.vendor === OTHERS_VENDOR_VALUE ? "" : formState.vendor;
             // Record<string, any>: null is used to CLEAR a field (undefined would be
             // omitted from the payload and Frappe would retain the current value).
@@ -199,12 +221,14 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
             }
 
             await updateDoc(DOCTYPE, expenseToEdit.name, dataToUpdate);
+            await payTo.apply(payee);
             toast({ title: "Success", description: "Expense updated successfully.", variant: "success" });
             onSuccess?.();
             handleDialogClose();
         } catch (error: unknown) {
             // The server's own reason (a Payee rule, a paid expense, …), not the SDK's generic text.
-            toast({ title: "Could not update the expense", description: getFrappeError(error), variant: "destructive" });
+            const description = error instanceof DuplicatePayeeError ? error.message : getFrappeError(error);
+            toast({ title: "Could not update the expense", description, variant: "destructive" });
         }
     };
 
@@ -215,8 +239,8 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
         }
     }, [formErrors]);
 
-    const isLoadingOverall = loading || uploadLoading || vendorsLoading || expenseTypesLoading;
-    const isSubmitDisabled = isLoadingOverall || Object.values(formErrors).some(Boolean);
+    const isLoadingOverall = loading || uploadLoading || vendorsLoading || expenseTypesLoading || payTo.busy;
+    const isSubmitDisabled = isLoadingOverall || Object.values(formErrors).some(Boolean) || !!payTo.problem;
     const selectedExpenseTypeLabel = expenseTypeOptions.find(option => option.value === formState.type)?.label || "Select an expense type...";
 
     return (
@@ -268,6 +292,13 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                             {formErrors.vendor && <p className="text-xs text-destructive mt-1">{formErrors.vendor}</p>}
                         </div>
                     </div>
+                    <ExpenseEditPayToSection
+                        payTo={payTo}
+                        expenseType={selectedExpenseType?.expense_name || formState.type}
+                        vendor={vendorNamed ? formState.vendor : undefined}
+                        vendorName={vendorNamed ? vendorOptions.find(v => v.value === formState.vendor)?.label : null}
+                        disabled={isLoadingOverall}
+                    />
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="comment_edit" className="text-right">Comment</Label>
                         <Textarea id="comment_edit" value={formState.comment} onChange={(e) => handleInputChange('comment', e.target.value)} className="col-span-3" disabled={isLoadingOverall} />
