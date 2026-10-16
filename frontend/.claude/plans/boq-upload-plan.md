@@ -47926,3 +47926,92 @@ items in batch `rmbulk-cfd052213808`; live HVAC content still = v42) - not clean
 - v41 / v42's `material_as_written` note holds "..." in an example list.
 - 00231 / 325 "None" / "- select -" (R5: 12e-6).
 - BRSR-26-00766, the sleep orphan: a run killed by rq after a laptop sleep stays `running`.
+
+## Slice 12e-6 - Piping: the Stage B review's fixes and rulings, the free recheck, two declared re-reads (on the merged code) - as built 2026-10-16
+
+**Commits (unpushed at the time of writing):**
+- `a08e829c3` fix(rate-helper): AC1-AC9 (and owner R2 as amended 14:22) in `itemListPricing.ts` / `pricingSheetHelper.ts`; AC14 / U9: ten
+  add-only Derivation-tab lines in `itemListRuleOrder.ts` (owner 14:49 put it in scope); `slice12e6.test.ts`; pins moved by mechanical
+  authority, each with its before line.
+- `26d770d92` test(rate-helper): AC10 - `pricingSheetHelper.test.ts` held `/<0x08>[RDTS]-?\d/` twice (no `^`); now `/\b[RDTS]-?\d/`.
+- `c9841318b` feat(rate-master): HVAC v43 - Insulation notes only (item, cladding, material_as_written).
+- `79f320204` feat(rate-master): HVAC v44 - a conditional COATING copied only for a row that meets it (owner option A).
+- `0b2d746b6` revert: v44 (owner option 3, declared).
+- `18d49c55a` test(rate-helper): the unused `allWorking` helper removed (TS6133; owner-approved).
+- The docs commit that carries this entry.
+
+Start tip `ff1ec608b` (= origin). Live on dev: HVAC v43 (configs `18d9fe2c787e62f5`, items `93bbac8f...` unchanged), Electrical v66.
+Report on the Desktop: `2026-10-16_12e6_Report.md` (ledger first), `_Rows_full.xlsx`, `_Structure_list.xlsx`, the two declarations.
+
+### 1. The fixes (Part 1)
+
+| AC | Ruling | As built |
+|---|---|---|
+| AC1 | R7 "mm = NB and NB = mm" | `pipeIsNb` (it missed "50 mm NB") -> `pipeSizeIsOd` / `sizeIsOutsideDiameter`: the cladding girth on the MATCHED size unless OD / O.D. / outer dia, an inch size, or a copper pipe (`odHint` from the section pass; `COPPER_WORDS` on an Insulation row). 00169 / 81-84: 633 -> 643, 572 -> 574, 538 -> 545, 500 -> 510 |
+| AC2 | 12d-1a | "none of these" with no material named (nothing copied, no unstocked / XLPE word in the row or headings) -> the row-kind default |
+| AC3 | D1b / D5b | "Insulated: Yes" with no insulation item -> the section on Insulation's own "not mentioned" defaults (not the calculator) |
+| AC4 | - | `withoutFixingWords` masks GI strip / grid / frame / clamps / C shape / duct before `named_in_row` (the config list unchanged) |
+| AC5 | U4 | a row-kind family on the other row kind -> `family_when_none.by_unit_class`'s family, "priced as ... (row is per ...)" |
+| AC6 | R1 R3 R8 R5 R4 | `alternativeMaterials` (stocked beside unstocked -> the stocked; two stocked -> the lower cost, `priceOneItemOrCheaper`); `xlpeAliasRefusal` (cross linked / XPE / FR-XPE / co-extruded) before the closed-cell-PE map; `coatingOnlyRefusal` only where the cladding was NOT answered (premise correction: 21 rows of 00086 High side copy a shortened piece of a coating sandwiched with glass cloth) |
+| AC7 | R2 + 14:22 | CPVC named with PVC / uPVC -> CPVC; any other two stocked types -> the lower cost; a typed two-type word reads as the BoQ's (12e-4b parity) |
+| AC8 | R10 | the value was already the top (R6); thickness readers say "states a range - the higher, N, is taken" |
+| AC9 | U7 | (a) a composed cladding shows the outer layer's "No"; (b) `sizeRefused` on "above the largest" -> the section repeats the pipe's sentence; (c) `claddingLabel` names only the parts priced |
+
+Vacuity: each mechanism's line disabled -> its tests red -> restored sha-equal (15 runs). Copper: 0 Copper pipe moved by AC1 (the 14
+copper-headed rows that moved are PVC / CPVC drains). Premise corrections: C8's 00162 / Water Side 17 is MS (2,109 -> 2,123), not copper.
+
+### 2. The free recheck (AC12 / AC13)
+
+407 stored rows changed (Insulation rows 82, Piping rows 325), 0 Electrical, 0 ADP: priced -> refused 24 (22 R4 coatings, 2 XLPE),
+refused -> priced 30, price changed 114 (113 AC1, 1 R3), display only 239. 00247 / 64 and 00329 / 276 (cross-linked polyethylene) refused
+by name. The money rows: 00169 / 81-84 fixed; 00140 / 475-479 stay on the wrong reading (structure, AC20) but move a few rupees by AC1;
+542-546 and 00312 / 161-163 unchanged. v43 moves 0 rows.
+
+### 3. The re-reads (AC15-AC19)
+
+Run 1 (v43): 214 rows / 36 sheets / 45 calls (cap 54), 0 second opinion, 459,573 in / 65,685 out, byte-identical to the stub build. AC17
+stopped: 3 CONTROL rows (00197 / 370 / 374 / 378, a "polysheild coating ... only for exposed" copied, then refused by R4). Owner option 2 /
+A: HVAC v44 (conditional COATINGS only) and a second read: 222 rows / 32 sheets / 38 calls (cap 48), 634,158 in (estimated 640,716 with
+the system prompt) / 65,625 out. The owner's expectations held (00197 back to 3,823 / 1,809 / 581 + 234; 00086 / High side 78-107 and
+00169 / 289-290 unchanged; the 10 controls unchanged) but 59 rows got worse or were not fixed: 28 conditional GLASS CLOTH dropped, 19
+00140 / HVAC Lowside Works rows returned no items, 8 00318 rows read "between indoor & outdoor" as a condition, 4 00336 rows still
+refused. Owner option 3: the 7 sheets restored to their run-1 reading through the run's own active flag, v44 reverted, v43 loaded again;
+the replay returns those 600 rows exactly. Final AC17 (run 1, 214 rows): FIXED 74, NEUTRAL 116, VARIABLE 12 (00133 "XLPE / with nitrile
+sleeves"), NEW WRONG 12 (00197 x3 carried, 00191 / 37-44 unconditional coating not copied, 00281 / 66 "DRAIN" answered PVC). AC18 payload
+integrity: 436 / 436 blocks byte-equal to the payload logged; EA-7 436 / 436 PASS. Run docs 280 -> 348 (active 199). Baseline:
+17,883 rows, plain `b835c355...`, section-aware `b01183fa...`.
+
+### 4. The structure list (AC20, read-only)
+
+9 groups / 64 rows (00140, 00261, 00148, 00327, 00191, 00269); 11 rows would change price with the right structure (00140 / 475 422 ->
+889; 00261 / 38 348 -> 746; 00269 / 102-105 refused -> priced ...). `Desktop\2026-10-16_12e6_Structure_list.xlsx`.
+
+### 5. Suites, cert
+
+Suites, all at `18d49c55a` (logs on the Desktop: `2026-10-16_12e6_python_full.log`, `_frontend_full.log`, `_tsc_full.log`):
+Python full suite Ran 8,456, failures=6, errors=2 (the identical known set); vitest 185 files / 6,969 tests, 1 failed (the known
+`writeOffControl.test.ts` 5 s timeout); tsc 3,170 errors, the identical set. The capture log was copied to `Desktop\Capture log
+backup\` before each Python suite and each paid run; every copy sha-equal, no line lost (232 lines at the end).
+
+Cert (:8080, own tab, de-staled first: served modules carry this slice's strings; screenshots `Desktop\2026-10-16_12e6_screens\`):
+C1 00169 / HVAC 81: 643, "cladding: measured on the matched size 53.98 (mm = NB ...)". C2 00273 / 202: combined 1,626, the
+insulation section on defaults ("material not mentioned -> Nitrile by row kind", "cladding not mentioned -> without cladding").
+C3 00149 / 439: priced 2,330 ("GI strip ... grid" no longer refuses). C4 00086 / High side 104: 1,595 + 304 with the R1 line
+"BoQ says closed cell elastomeric nitrile rubber/XLPE -> priced as Nitrile Rubber Insulation". C5 00003 / 371: CPVC, "BoQ
+allows CPVC or uPVC -> priced as CPVC"; in the calculator only, CPVC 25 = 240 + 28, PVC 25 = 120 + 28. C6 00336 / 207: "No SKU
+in the catalogue for polyshield coating - price this row by hand"; 00102 / 27: "factory laminated fire resistant fibre cloth
+fabric" -> Glass Cloth with paint. C7 00231 / 325: cladding "No" (the GI bolt is a fixing). C8 00162 / Water Side 17: MS
+2,123 / 588 with "mm = NB, not an outside diameter"; ADP fire damper UL yes "600 x 600" 7,830 / 692; Electrical 00174 / 309
+1,884. C9: HVAC v43 configs `18d9fe2c787e62f5` items `93bbac8f3c13d86c`, Electrical v66 `784d1dbe8024d5f8` / `aa8d0a49ef645120`,
+run docs 348 (199 active), BoQ AI Run Log 1, no write during the cert. U9: the ten Derivation-tab lines shown (Piping 6 and
+19; Insulation 5, 7, 8, 10, 13, 15, 22, 23). Fast render off per sheet, on again on reload. No override used. One mis-click on
+00086 toggled "Freeze columns" (a view setting) and was toggled back at once.
+
+### 6. Findings for 12e-6b
+
+- The conditional-COATING rule (v44, reverted): the model must leave a conditional coating out WITHOUT touching a conditional glass cloth
+  or reading "between indoor & outdoor" as a condition -- the 59 rows (`Rows_full.xlsx`, "Run 2 - rows made worse") are the test set.
+- 00197 / 370 / 374 / 378 refuse again (safe) until that rule lands.
+- 00191 / Sheet1 37-44: an unconditional coating not copied (priced with no cladding); 00281 / 66: "DRAIN PIPE" answered PVC.
+- 00133: "XLPE ... tubular insulation/with ... nitrile rubber tubular sleeves" -- alternatives or both? (owner question).
+- residence_check: F5 120 / 117 and F2 221 / 217 were already over baseline at `ff1ec608b` (no 12e-6 file changes either count).

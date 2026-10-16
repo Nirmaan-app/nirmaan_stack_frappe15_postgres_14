@@ -1157,6 +1157,55 @@ recorded in `drops["items_not_in_row_text"]` and flagged for a person - **the va
 ruling 2, 2026-09-23). Measured on the 12e-5c Stage B read (508 replies): 0 values with "..."; the 16 flagged values were
 a heading written as a sibling row (a structure shape, not shortening).
 
+**MM = NB AND NB = MM: A PIPE SIZE IN MM OR NB IS ONE SIZE, AND THE CLADDING IS MEASURED ON THE MATCHED SIZE (owner R7,
+STANDING, 2026-10-16: "for pricing purpose we are assuming mm = NB and NB = mm. I have ruled this so many times"; restates
+D3b 2026-10-11; slice 12e-6 AC1).** "50 mm", "50 mm dia", "50 NB" and "50 mm NB" get ONE treatment: the cladding girth is on
+the MATCHED insulation size (it supersedes 12e-5b2 R6 for every such size). Only a size AS READ that is an OUTSIDE DIAMETER keeps
+the size as read: written "OD" / "O.D." / "outer dia", an inch size, or a COPPER pipe (copper is sized by its outside diameter;
+VRF / refrigerant = Copper). `itemListPricing.sizeIsOutsideDiameter` reads the text; the section pass hands the pipe's family and
+size to its insulation (`odHint`); an Insulation row of its own reads its own words (`COPPER_WORDS`). 20 NB / 20 mm still
+ladders to the next stocked size.
+
+**INSULATION MATERIALS: THE DEFAULT, ALTERNATIVES, XLPE AND THE ROW KIND (owner 2026-10-16; slice 12e-6 AC2 / AC5 / AC6).**
+(a) 12d-1a: a material the BoQ does not NAME takes the row-kind default (Nitrile Rubber per metre, Thermal Nitrile per sq.m,
+Acoustic for acoustic / lining), amber with its line -- also where the model answered "none of these" with nothing copied as
+the material and no unstocked word (XLPE included, whatever the config lists) in the row or its headings; "none of these" stays
+a refusal by name wherever a material is named. (b) R1: an unstocked material offered beside a stocked one ("nitrile
+rubber/XLPE", "rockwool/glasswool") prices the stocked one with "BoQ says <as written> -> priced as <family>"; R3: two stocked
+ones ("open-cell acoustic foam / 32 kg fiberglass board") price the LOWER cost for the row's size and thickness, with "BoQ
+allows ... the lower cost". (c) R8 / R5: "cross linked", "XPE", "FR-XPE" and a "co-extruded" jacket or covering ARE XLPE and
+refuse by name, before closed cell polyethylene can map to nitrile. (d) AC5: a row-kind family on the other row kind (Nitrile
+Rubber per sq.m, Thermal Nitrile per metre) prices as the family `family_when_none.by_unit_class` names for the row's unit,
+"priced as ... (row is per ...)". (e) R9 (v43 note): closed cell nitrile on a duct is Thermal Nitrile even under an
+"acoustic" heading. (f) R11: "48 kg density elastomeric rubber" is nitrile as written.
+
+**CLADDING WORDS: A COATING WITH NO GLASS CLOTH REFUSES BY NAME; A CLOTH FACING IS THE GLASS CLOTH; A FIXING IS NO CLADDING
+(owner R4 / R6, 2026-10-16; slice 12e-6 AC4 / AC6 e, HVAC v43).** R4: a cladding as written that is a coating or paint with no
+glass cloth, sheet or foil ("polyshield coating", "fire retardant coating") refuses "No SKU in the catalogue for <the coating as
+written> - price this row by hand" -- ONLY where the cladding was not answered: a cladding the model DID answer stands, because
+the copy may be the shortest piece of a coating that IS sandwiched with glass cloth (measured: 00086 High side, 21 rows). R6: a
+factory-laminated or reinforced glass / fibre cloth facing IS the glass cloth cladding (Glass Cloth with paint, on nitrile).
+AC4: "cladding named in this row but not read" fires only on a word that names a cladding; fixings and duct material ("GI strip",
+"GI grid", a "C" shape GI frame, bolts, clamps, channels, angles, "aluminium and GI duct") are masked first
+(`withoutFixingWords`). OPEN (12e-6b): a coating a heading limits to exposed / outdoor / terrace pipes is NOT handled yet -- a
+model copy of it refuses by R4 on a row that does not meet the condition. HVAC v44 tried a note for it and was REVERTED (owner
+option 3, 2026-10-16): the model also dropped conditional glass cloth and read "between indoor & outdoor" as a condition.
+
+**TWO STOCKED PIPE TYPES FOR ONE PIPE (owner R2, amended 2026-10-16 14:22: "when both CPVC and PVC or uPVC pipes are mentioned
+together then we should quote for CPVC. this overrides my earlier rule for lesser price item selection"; slice 12e-6 AC7).**
+CPVC named with PVC or uPVC prices as CPVC ("BoQ allows CPVC or uPVC -> priced as CPVC"); any other two stocked types price the
+LOWER cost for the row's size. The person switches it with the family control; a PICK is never second-guessed, and a word typed
+naming two types reads exactly as the same word read off the BoQ ("You typed ..."). A row with two pipes stays two items.
+
+**A THICKNESS RANGE TAKES THE HIGHER (owner R10, 2026-10-16: "ok"; slice 12e-6 AC8).** "25-50 mm" (hyphen or en dash) on a
+thickness reader (`several: "highest"`) reads "'25-50mm' states a range - the higher, 50, is taken"; a pipe size range keeps
+its own line.
+
+**"INSULATED: YES" WITH NO INSULATION FACTS OPENS THE SECTION ON INSULATION'S DEFAULTS (owner D1b / D5b; slice 12e-6 AC3).**
+On a BoQ row the model opened with no insulation item, the section is priced by Insulation's own "not mentioned" path: the
+material by the row-kind default, the ruled thickness then the ladder (the thickness priority ends at 9 mm, 12d-2), cladding
+"No" -- each amber with its line. The calculator keeps "choose the material" (D1b).
+
 **A DEFAULT IS NAMED AS THE DEFAULT, SAID ONCE, BY ITS FIELD'S LABEL (owner G1 / G2 / G3, 2026-10-12 "yes"; slice
 12e-4b).** G1: a number nobody stated (the ruled default) heads its field note "Default 9 mm -> priced as 13 mm
 (the smallest size)" (12e-4d AC3: below the smallest stocked size the field's line and the working both say "(the
