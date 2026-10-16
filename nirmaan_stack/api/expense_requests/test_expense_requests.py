@@ -54,13 +54,20 @@ def _make_user(email: str, profile: str, roles: tuple[str, ...]):
 	wired to User `after_insert`. Never insert that row here (PK collision); set the profile
 	on the auto-created one, AFTER `add_roles` (which saves the User and fires
 	`on_user_update`).
+
+	The User ends with exactly `roles`: a role an earlier run left on the same email is removed, so
+	a user that survived a failed clean-up never keeps a right the test means it to lack.
 	"""
 	if not frappe.db.exists("User", email):
 		u = frappe.new_doc("User")
 		u.update({"email": email, "first_name": email.split("@")[0], "send_welcome_email": 0})
 		u.flags.no_welcome_mail = True
 		u.insert(ignore_permissions=True)
-	frappe.get_doc("User", email).add_roles(*roles)
+	user = frappe.get_doc("User", email)
+	stale = [r.role for r in user.roles if r.role not in roles]
+	if stale:
+		user.remove_roles(*stale)
+	user.add_roles(*roles)
 	frappe.db.set_value("Nirmaan Users", email, "role_profile", profile, update_modified=False)
 
 

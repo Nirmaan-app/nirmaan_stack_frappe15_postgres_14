@@ -101,6 +101,54 @@ export const whoGetsPaidProblem = ({
     return hasChoice ? null : "Pick who gets paid, or add a new payee.";
 };
 
+/** What an Add Expense dialog knows about who gets paid (a Direct Expense, spec #1470). */
+export interface WhoGetsPaidViewState {
+    rule: string | null | undefined;
+    expenseType: string;
+    /** An expense type is picked. */
+    typeChosen: boolean;
+    /** The picked vendor's display name (not "Others (No Vendor)"), else null. */
+    vendor: string | null;
+    /** The picked vendor has a Payee (`useVendorAccount`). */
+    vendorHasAccount: boolean;
+    /** The picked vendor's account is still being read. */
+    vendorAccountLoading: boolean;
+    /** The pick / add state (`usePayeeChoice`). */
+    choice: { hasChoice: boolean; problem: string | null; adding: boolean };
+}
+
+/** The "Who gets paid" section of an Add Expense dialog: whether it shows, whether the save sends the
+ *  pick (no vendor named; with one the server copies the vendor's Payee), what blocks the save, and
+ *  whether the save may go ahead. */
+export interface WhoGetsPaidView {
+    shows: boolean;
+    sendsPayee: boolean;
+    problem: string | null;
+    ready: boolean;
+}
+
+/** Who gets paid on an Add Expense dialog, by the type's rule (`showsWhoGetsPaid`, `whoGetsPaidProblem`). */
+export const whoGetsPaidView = (s: WhoGetsPaidViewState): WhoGetsPaidView => {
+    const vendorChosen = !!s.vendor;
+    const shows = s.typeChosen && showsWhoGetsPaid(s.rule, vendorChosen);
+    const sendsPayee = s.typeChosen && asksWhoGetsPaid(s.rule) && !vendorChosen;
+    const problem = shows
+        ? whoGetsPaidProblem({
+            rule: s.rule,
+            expenseType: s.expenseType,
+            vendor: s.vendor,
+            vendorHasAccount: s.vendorHasAccount,
+            hasChoice: s.choice.hasChoice,
+        })
+        : null;
+    const ready = !problem && (
+        vendorChosen
+            ? !s.vendorAccountLoading
+            : !sendsPayee || (!s.choice.problem && !s.choice.adding)
+    );
+    return { shows, sendsPayee, problem, ready };
+};
+
 interface PayeeAccount {
     account_number: string;
     ifsc: string;

@@ -196,6 +196,10 @@ def _payments_select():
             -- Payment kind (ADR-0030): 1 on a GST payment, which is never taxed -- the lists tag it
             -- and the TDS forecast skips it. ⚠️ POSITIONAL: `0` at the same place in `_expense_select`.
             COALESCE(p."is_gst_payment", 0) AS is_gst_payment,
+            -- The Expense Request an expense came from; blank on a Direct Expense, so "Payment Raised
+            -- By Me" gives its raiser the Edit pencil (#1472). A payment has none. ⚠️ POSITIONAL: right
+            -- before `invoice` in `_expense_select` too.
+            ''::text                        AS request_id,
             -- An expense's invoice file, for the "Upload Invoice" action on the Paid tab. A PO / WO
             -- payment's invoices are Vendor Invoices, never a field here, so it is blank.
             -- ⚠️ POSITIONAL: before the pay-to columns in `_expense_select` too.
@@ -287,6 +291,7 @@ def _expense_select(table, source, project_col):
             0                               AS on_hold,
             -- Only a Work Order payment can be a GST payment.
             0                               AS is_gst_payment,
+            COALESCE(e."request_id", '')::text AS request_id,
             COALESCE(e."invoice_attachment", '')::text AS invoice,
             {_pay_to_columns("e")}
         FROM "{table}" e
@@ -555,7 +560,6 @@ def get_approval_queue_counts():
     )
     counts = {r["status"] or "": cint(r["cnt"]) for r in rows}
     amounts = {r["status"] or "": flt(r["amt"]) for r in rows}
-    counts["All"] = sum(counts.values())
     # "Payment By Me" badge: every status, rows the logged-in user created -- for EVERY
     # caller, Admin included, matching what that tab now lists. Its own key, not inside
     # `counts`, which is keyed by status.
@@ -563,7 +567,9 @@ def get_approval_queue_counts():
         f'SELECT COUNT(*) FROM ({union}) q WHERE q."raised_by" = %s',
         (frappe.session.user,),
     )[0][0]
-    return {"counts": counts, "amounts": amounts, "by_me": cint(by_me)}
+    # "All Payments" badge (#1476): every readable ledger, every status -- what that tab lists
+    # (the queue with no filter). Its own key, like `by_me`.
+    return {"counts": counts, "amounts": amounts, "by_me": cint(by_me), "all": sum(counts.values())}
 
 
 # Facet fields the queue offers. `tier` is absent on purpose: it is derived in

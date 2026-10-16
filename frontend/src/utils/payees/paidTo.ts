@@ -9,6 +9,7 @@
  * Record Payment's "Pay ₹X to" box; and decide from it whether a row can be paid (`rowEligibility`).
  */
 
+import { PAYMENT_STATUS } from "@/constants/paymentStatus";
 import type { PayToAccount } from "@/types/NirmaanStack/Payee";
 import { formatDate } from "@/utils/FormatDate";
 import { SETTLED_STATUSES, STATUS_APPROVED } from "@/utils/settlement";
@@ -375,14 +376,40 @@ export const canChangeExpenseAccount = (
  *  picker, saved with the edit; `vendor`, the vendor's account read-only; `none`, no section. */
 export type EditDialogPayTo = "none" | "vendor" | "change";
 
+/** What decides who may change an expense's account: its status, who raised it (`owner`) and the
+ *  Expense Request behind it (`request_id`, blank on a Direct Expense). */
+export interface RaisedExpense {
+    status?: string | null;
+    owner?: string | null;
+    request_id?: string | null;
+}
+
+/**
+ * The raiser of a Direct Expense changes its account while it is Requested (GLOSSARY *Pay-to account*:
+ * "the raiser may change it until approval", #1472). An expense an Expense Request's approval created
+ * is not a Direct Expense: its raiser changes the account on the request. A screen rule: the server
+ * asks only Frappe's write permission.
+ */
+export const raiserMayChangeAccount = (expense: RaisedExpense, user: string | null | undefined): boolean =>
+    !!user
+    && expense.owner === user
+    && !(expense.request_id || "").trim()
+    && (expense.status || "").trim() === PAYMENT_STATUS.REQUESTED;
+
 /**
  * The expense Edit dialog's *Who gets paid* (a screen rule, ADR-0033 decision 9): Accounts set an
- * expense's account once it is Approved and until it is paid (before approval the raiser sets it on
- * the request). While a vendor is named in the form it is the vendor's account, read-only: to pay
- * someone else, the Vendor becomes "Others (No Vendor)". `isAccounts` is `canManagePayees`.
+ * expense's account once it is Approved and until it is paid; before that, the raiser of a Direct
+ * Expense sets it while it is Requested (`raiserMayChangeAccount`). While a vendor is named in the
+ * form it is the vendor's account, read-only: to pay someone else, the Vendor becomes "Others (No
+ * Vendor)". `viewer.isAccounts` is `canManagePayees`.
  */
-export const editDialogPayTo = (status: string | null | undefined, isAccounts: boolean, vendorNamed: boolean): EditDialogPayTo => {
-    if (!isAccounts || (status || "").trim() !== STATUS_APPROVED) return "none";
+export const editDialogPayTo = (
+    expense: RaisedExpense,
+    viewer: { user: string | null | undefined; isAccounts: boolean },
+    vendorNamed: boolean,
+): EditDialogPayTo => {
+    const accountsMay = viewer.isAccounts && (expense.status || "").trim() === STATUS_APPROVED;
+    if (!accountsMay && !raiserMayChangeAccount(expense, viewer.user)) return "none";
     return vendorNamed ? "vendor" : "change";
 };
 

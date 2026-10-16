@@ -238,6 +238,22 @@ Done"** a Paid **Non Project** expense row carries a small **Upload Inv** button
   (retrying uploads again) — the same as every expense dialog. Two people editing one invoice: last write
   wins.
 
+### Payments queue: All Payments returns; HR Lead view-only (spec #1470, #1476)
+
+- **All Payments** (every PO / WO payment, Project Expense and Non-Project Expense, in every status) is
+  back on the strip, right after "Payment Raised By Me", for **Administrator, Admin, Accountant,
+  Accountant Lead, PMO Executive, HR Executive and HR Lead**. Procurement, Project Lead and Project
+  Manager do not see it; a deep link still opens it for them. The rule is
+  `frontend/src/pages/ProjectPayments/config/paymentsTabSet.ts`.
+- **Its badge** is `get_approval_queue_counts`'s `all`: every readable ledger, every status, the same
+  rows the tab lists (`test_approval_queue_counts`). Not the payments-only store count.
+- **Row actions:** the Actions column shows only to the queue edit profiles (`canWorkQueueRows`), so
+  PMO and HR see none.
+- **HR Lead** gets the Project Payment & Expense sidebar entry, **view-only**: HR Executive's tab set
+  (Reconciliation Pending, Payment Done, Payment Raised By Me, All Payments; Payments Pending by link),
+  landing on "Payment Raised By Me". No Add Expense button and no write right (its profile holds no
+  System Manager; see *Known asymmetries* below).
+
 ### Four server rules protect an expense its bank lines settle (ADR-0027 Q11/Q22, #1302)
 Both expense doctypes share ONE controller, `integrations/controllers/expense_bank_links.py`, wired in
 `hooks.py` on `validate` + `on_trash`. The refusals themselves are pure functions in
@@ -328,6 +344,18 @@ roles. **Accountant\*** below = both `Nirmaan Accountant Profile` and
   `renderRightActionButton.tsx`): **no extra role gate** — the same 5 groups can create,
   for both Project and Non-Project.
 - **Default landing tab:** Accountant\* → `Approved`; everyone else → `Requested`.
+- **Add Expense on Project Payment & Expense** (`/project-payments`, the Project Expense /
+  Non-Project Expense dropdown): one pure, tested gate,
+  `pages/ProjectPayments/config/addExpenseGate.canAddExpense` — the `Administrator` user, Admin,
+  Accountant\*, every procurement profile, HR Executive and PMO Executive; not HR Lead, Project
+  Lead or Project Manager. It hides the button only: the Direct Expense endpoint's `create` check
+  is the boundary.
+- **PMO Executive's create right sits on its own role** (#1475): the `Nirmaan PMO Executive` DocPerm
+  on `Project Expenses` and `Non Project Expenses` is create + write + read, no delete (a DocType
+  save in developer mode, not a hand-edit). Before it held read only, and a PMO save worked only
+  because the PMO profile also carries System Manager; the right is on the role so it survives
+  System Manager coming off that profile. It grants no approval or settle tab: the 2026-09-17 PMO
+  access review stands (`paymentsTabSet` is unchanged).
 
 ### Non-Project Expenses — actions per tab
 Primary actions render inline; secondary (Requested-only) sit in a `⋯` overflow menu.
@@ -383,7 +411,9 @@ Actions column visibility: same rule as Non-Project.
   a UNION across roles. ⚠️ **`Nirmaan HR Lead Profile` = `[Nirmaan HR Lead, Nirmaan HR Executive]`
   with NO System Manager, so it has genuinely no write.** It is not matched by the
   `role === "Nirmaan HR Executive Profile"` check, so it is safe today (0 such users) — but
-  do NOT extend any write action to HR Lead without adding a real DocPerm first.
+  do NOT extend any write action to HR Lead without adding a real DocPerm first. (PMO
+  Executive was in the same position until #1475 gave its role create + write; see
+  Module visibility & create.)
 
 ---
 
@@ -635,7 +665,9 @@ save an invalid template**.
   - **Raising** (`create_expense_request`): the `payee` sent (picked, or just added through
     `api/expense_requests/payees.add_request_payee`) is copied in, unless the request names a vendor.
     **Editing** (`update_expense_request`): `keep_pay_to=1` leaves the copy as it is; otherwise the
-    `payee` sent is copied (none clears it). Both through `create.apply_pay_to`.
+    `payee` sent is copied (none clears it). Both through `pay_to.apply_picked_payee`, which refuses
+    a Payee that does not exist. A **Direct Expense** (#1471) is recorded the same way:
+    `api/expenses/direct_expense.create_direct_expense` (rules in `payees.md` § Expense payee).
   - **A vendor named** (request or Project Expense, every write path): the save hook copies the
     vendor's Payee when the record has no copy and whenever the vendor changes, until the record is
     paid (`pay_to.fill_from_vendor`, from `guard.check_payee_links`). New expense dialogs, Bulk

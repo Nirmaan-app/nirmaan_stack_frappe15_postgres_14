@@ -43,13 +43,18 @@ from nirmaan_stack.services.payees.writer import edit_payee
 U = "Administrator"
 PM_USER = "pye_paidto_pm@example.com"
 PM_PROFILE = "Nirmaan Project Manager Profile"
-#: Reads expenses but may not write them (the doctypes' DocPerm: PMO Executive is read-only).
+#: Reads PO / WO payments but may not write them (the Project Payments DocPerm). It may write expenses
+#: since #1475, so the expense case below uses HR_LEAD_USER.
 PMO_USER = "pye_paidto_pmo@example.com"
 PMO_PROFILE = "Nirmaan PMO Executive Profile"
+#: Reads expenses but may not write them (the expense doctypes' DocPerm: HR Lead is read-only).
+HR_LEAD_USER = "pye_paidto_hrlead@example.com"
 #: Accounts: the roles the expense Edit dialog shows Who gets paid to (#1465). The Accountant also pays
 #: on "Payment need to paid": Mark as Paid and Export for Payment (#1463).
 ACCOUNTANT_USER = "pye_paidto_acct@example.com"
 ACCOUNTANT_LEAD_USER = "pye_paidto_acct_lead@example.com"
+#: The raiser of a Direct Expense (#1472): Procurement may write expenses (the doctypes' DocPerm).
+PROCUREMENT_USER = "pye_paidto_proc@example.com"
 PAYMENT = "Project Payments"
 PE = "Project Expenses"
 NPE = "Non Project Expenses"
@@ -61,8 +66,10 @@ class TestPaidTo(FrappeTestCase):
         super().setUpClass()
         _make_user(PM_USER, PM_PROFILE, ("Nirmaan Project Manager",))
         _make_user(PMO_USER, PMO_PROFILE, ("Nirmaan PMO Executive",))
+        _make_user(HR_LEAD_USER, "Nirmaan HR Lead Profile", ("Nirmaan HR Lead",))
         _make_user(ACCOUNTANT_USER, "Nirmaan Accountant Profile", ("Nirmaan Accountant",))
         _make_user(ACCOUNTANT_LEAD_USER, "Nirmaan Accountant Lead Profile", ("Nirmaan Accountant Lead",))
+        _make_user(PROCUREMENT_USER, "Nirmaan Procurement Executive Profile", ("Nirmaan Procurement Executive",))
         cls.types = {}
         for rule in ("Required", "Optional", "Not asked"):
             name = f"pye_paidto_{rule.replace(' ', '_').lower()}_{frappe.generate_hash(length=5)}"
@@ -77,7 +84,7 @@ class TestPaidTo(FrappeTestCase):
     def tearDownClass(cls):
         frappe.set_user(U)
         scopes = [("Expense Type", name) for name in cls.types.values()]
-        for user in (PM_USER, PMO_USER, ACCOUNTANT_USER, ACCOUNTANT_LEAD_USER):
+        for user in (PM_USER, PMO_USER, HR_LEAD_USER, ACCOUNTANT_USER, ACCOUNTANT_LEAD_USER, PROCUREMENT_USER):
             scopes += [("Nirmaan Users", user), ("User", user)]
         try:
             delete_each(scopes)
@@ -134,13 +141,13 @@ class TestPaidTo(FrappeTestCase):
                                       "mode_of_payment": mode, **po, **self._copy_of(copy_of)})
 
     def _expense(self, doctype=NPE, *, rule="Optional", copy_of=None, vendor=None, request_id=None,
-                 status="Approved"):
+                 status="Approved", owner=U):
         values = {"type": self.types[rule], "amount": 25000, "status": status,
                   "request_id": request_id, "description": "Advance for shuttering labour",
                   **self._copy_of(copy_of)}
         if vendor:
             values["vendor"] = vendor
-        return self._insert(doctype, values)
+        return self._insert(doctype, values, owner=owner)
 
     def _request(self, copy_of, owner=PM_USER):
         return self._insert("Expense Request", {"type": self.types["Required"], "amount": 25000,
@@ -640,7 +647,7 @@ class TestPaidTo(FrappeTestCase):
         first, second = self.payees.payee(), self.payees.payee()
         expense = self._expense(copy_of=first)
         with self.assertRaises(frappe.PermissionError):
-            self._as(PMO_USER, change_expense_account, doctype=NPE, name=expense, payee=second)
+            self._as(HR_LEAD_USER, change_expense_account, doctype=NPE, name=expense, payee=second)
         self.assertEqual(frappe.db.get_value(NPE, expense, "pay_to_account_number"),
                          self._copy_of(first)["pay_to_account_number"])
 
@@ -680,6 +687,52 @@ class TestPaidTo(FrappeTestCase):
                                      "Shuttering labour, second week")
                     self.assertEqual(box["account"], self._account(picked))
                     self.assertEqual((box["named_by"]["how"], box["named_by"]["user"]), ("changed", user))
+
+    # -- The raiser of a Direct Expense changes its account while it is Requested (#1472) ---------
+    def test_payment_raised_by_me_says_which_rows_are_direct_expenses(self):
+        # The raiser's Edit pencil shows only on a Direct Expense (`queueRowActions.canRaiserEditQueueRow`):
+        # each row says whether an Expense Request is behind it.
+        payee = self.payees.payee()
+        direct = self._expense(copy_of=payee, status="Requested", owner=PROCUREMENT_USER)
+        from_request = self._expense(PE, copy_of=payee, status="Requested", owner=PROCUREMENT_USER,
+                                     request_id=self._request(payee))
+        payment = self._insert(PAYMENT, {"vendor": self._vendor(payee), "amount": 78000, "status": "Requested",
+                                         "document_type": "Procurement Orders",
+                                         "document_name": "PO/TEST/PAIDTO"}, owner=PROCUREMENT_USER)
+
+        result = self._as(PROCUREMENT_USER, get_approval_queue,
+                          filters=[["raised_by", "=", "@me"], ["name", "in", [direct, from_request, payment]]],
+                          limit_page_length=10)
+
+        by_name = {row["name"]: row["request_id"] for row in result["data"]}
+        self.assertEqual(by_name, {direct: "", payment: "",
+                                   from_request: frappe.db.get_value(PE, from_request, "request_id")})
+
+    def test_the_raiser_changes_a_requested_direct_expenses_account_and_set_by_names_them(self):
+        first, picked = self.payees.payee(), self.payees.payee()
+        for doctype in (PE, NPE):
+            with self.subTest(doctype=doctype):
+                expense = self._expense(doctype, rule="Required", copy_of=first, status="Requested",
+                                        owner=PROCUREMENT_USER)
+                self.addCleanup(self._purge_versions, doctype, expense)
+
+                box = self._as(PROCUREMENT_USER, change_expense_account, doctype=doctype, name=expense,
+                               payee=picked)
+
+                self.assertEqual(frappe.db.get_value(doctype, expense, list(PAY_TO_FIELDS), as_dict=True),
+                                 self._copy_of(picked))
+                versions = frappe.get_all("Version", filters={"ref_doctype": doctype, "docname": expense},
+                                          pluck="owner")
+                self.assertEqual(versions, [PROCUREMENT_USER])
+                # Record Payment's "Set by" line reads that Version row.
+                self.assertEqual((box["named_by"]["how"], box["named_by"]["user"], box["named_by"]["on"]),
+                                 ("changed", PROCUREMENT_USER, today()))
+                self.assertEqual(get_pay_to_box(doctype, expense)["named_by"]["user"], PROCUREMENT_USER)
+
+    def _purge_versions(self, doctype, name):
+        frappe.db.rollback()
+        frappe.db.delete("Version", {"ref_doctype": doctype, "docname": name})
+        frappe.db.commit()
 
     def test_the_endpoints_refuse_a_doctype_that_is_not_paid(self):
         payment = self._payment(self._vendor(), copy_of=self.payees.payee())
