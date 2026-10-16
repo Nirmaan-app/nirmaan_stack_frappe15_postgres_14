@@ -1223,6 +1223,20 @@ class TestPartialSettlementRefusals(PartialSettlementFixture):
         self.assertIn("approved", str(caught.exception).lower())
         self._assert_nothing_happened()
 
+    def test_a_cheque_payment_is_refused(self):
+        """Spec #1477 (#1487): a cheque pays its payments in full or not at all, so a bank line paying
+        part of one never splits it."""
+        frappe.db.set_value(
+            PAYMENT, self.big_payment,
+            {"mode_of_payment": "Cheque", "cheque_no": "000747", "cheque_date": frappe.utils.nowdate()},
+            update_modified=False,
+        )
+        frappe.db.commit()
+        with self.assertRaises(frappe.ValidationError) as caught:
+            settle_row_partial(self.partial_row.name, self.big_payment, INTENT_PART_PAYMENT)
+        self.assertIn("is paid by cheque 000747, so it cannot be split", str(caught.exception))
+        self._assert_nothing_happened()
+
     def test_a_gap_inside_the_settle_window_is_refused_as_an_ordinary_settle(self):
         frappe.db.set_value(
             ROW_DOCTYPE, self.partial_row.name, "amount", self.RECORD - 2, update_modified=False

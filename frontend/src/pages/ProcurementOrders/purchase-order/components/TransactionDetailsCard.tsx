@@ -79,7 +79,6 @@ import { TailSpin } from "react-loader-spinner";
 import { poRefundsTarget, useVendorRefunds } from "@/components/vendor-refunds/useVendorRefunds";
 import { mergePaymentsAndRefunds, VendorRefundTableRow } from "@/components/vendor-refunds/VendorRefundTableRow";
 import { WaitingRefundActions } from "@/components/vendor-refunds/WaitingRefundActions";
-import { PaymentChequeActions } from "@/components/cheques/PaymentChequeActions";
 import { PaymentUtrOrCheque } from "@/components/cheques/PaymentUtrOrCheque";
 import { useChequeChips } from "@/components/cheques/useChequeChips";
 // import RequestPaymentDialog from "../ProjectPayments/request-payment-dialog";
@@ -429,11 +428,6 @@ export const TransactionDetailsCard: React.FC<TransactionDetailsCardProps> = ({
                       ) : ("--")}
                     </TableCell>
                     <TableCell className="text-red-500 text-end w-[5%]">
-                      <PaymentChequeActions
-                        payment={payment}
-                        chip={payment.cheque ? chequeChips[payment.cheque] : undefined}
-                        onChanged={onPOChanged}
-                      />
                       {/* The row's status and the reader's role decide (`canDeletePayment`), the same on
                           every route that opens the PO. */}
                       {canDeletePayment(payment?.status, role) &&

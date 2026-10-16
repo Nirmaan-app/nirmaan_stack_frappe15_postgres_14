@@ -335,6 +335,24 @@ class TestChequeEdit(FrappeTestCase):
             self._edit(name, attachment=NEW_PHOTO)
             self.assertEqual((self._cheque(name).attachment, self._cheque(name).status), (NEW_PHOTO, to_status))
 
+    def test_an_old_type_cheque_can_change_only_its_photo(self):
+        """Spec #1477 (#1487): an Old-type cheque is only cleared or cancelled by hand; its photo may be replaced."""
+        name = self.cheques.plant_cheque(  # an Ad-hoc cheque to a typed payee, as the report made one
+            status="Pending", bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
+            amount=5000, payee_name="Ravi Kumar", description="Rent", attachment=PHOTO,
+        )
+        frappe.db.set_value("Cheques", name, "old_type", 1)  # what the cheque-types patch flags
+        frappe.db.commit()
+
+        reason = "is an Old-type cheque: only its photo can change"
+        self._refused(reason, name, description="changed")
+        self._refused(reason, name, cheque_no=self.cheques.number())
+        self._refused(reason, name, payee_name="Ravi K")
+        self._refused(reason, name, lines=[self._line(amount=5000)])
+
+        self._edit(name, attachment=NEW_PHOTO)
+        self.assertEqual(self._cheque(name).attachment, NEW_PHOTO)
+
     def test_a_backfilled_cheque_with_no_photo_gets_its_photo(self):
         name = self.cheques.plant_cheque(
             bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(), amount=100,
