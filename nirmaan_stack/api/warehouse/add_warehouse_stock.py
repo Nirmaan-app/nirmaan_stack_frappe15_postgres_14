@@ -1,5 +1,5 @@
 """
-Manual warehouse stock entry (admin only).
+Manual warehouse stock entry (Admin, PMO and material Procurement profiles).
 
 This is deliberately OUTSIDE the ITM lifecycle: no Internal Transfer Memo is
 created, no source/target project, no dispatch or delivery states. It is the
@@ -18,17 +18,24 @@ from nirmaan_stack.api.warehouse.get_item_estimated_rate import (
 from nirmaan_stack.integrations.controllers.warehouse_stock import (
 	_get_or_create_stock_item,
 )
+from nirmaan_stack.services.role_profiles import (
+	ADMIN_PROFILE,
+	MATERIAL_PROCUREMENT_PROFILES,
+	PMO_EXECUTIVE_PROFILE,
+)
 
 
-ADMIN_ROLE = "Nirmaan Admin Profile"
+# Profiles that may add stock by hand. Mirrors `WAREHOUSE_ADD_STOCK_ROLES` in
+# frontend/src/constants/warehouse.ts, which only decides whether the button renders.
+ADD_STOCK_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE) + MATERIAL_PROCUREMENT_PROFILES
 
 # Stamped onto the ledger row's ``doctype_ref``. Not a real doctype — a manual
 # entry has no source document, and the Ledger tab renders this verbatim.
 MANUAL_LEDGER_REF = "Manual Entry"
 
 
-def _require_admin():
-	"""Permit the ``Administrator`` user or a Nirmaan Admin Profile user.
+def _require_add_stock_profile():
+	"""Permit the ``Administrator`` user or a user whose profile is in ``ADD_STOCK_PROFILES``.
 
 	Compares against the user's *role profile* — the same string the frontend
 	reads via ``useUserData`` — NOT ``frappe.get_roles``. A Frappe role profile
@@ -39,10 +46,10 @@ def _require_admin():
 	user = frappe.session.user
 	if user == "Administrator":
 		return
-	if frappe.db.get_value("User", user, "role_profile_name") == ADMIN_ROLE:
+	if frappe.db.get_value("User", user, "role_profile_name") in ADD_STOCK_PROFILES:
 		return
 	frappe.throw(
-		"Only administrators may add warehouse stock manually.",
+		"Only Admin, PMO and Procurement users may add warehouse stock manually.",
 		frappe.PermissionError,
 	)
 
@@ -61,7 +68,7 @@ def add_warehouse_stock(
 	browser is spoofable. Deriving it server-side also makes the max-wins
 	property unbreakable: the stored rate can never be lowered by this path.
 	"""
-	_require_admin()
+	_require_add_stock_profile()
 
 	if not item_id:
 		frappe.throw("item_id is required.", frappe.ValidationError)
@@ -80,7 +87,7 @@ def add_warehouse_stock(
 		frappe.throw(f"Item {item_id} does not exist.", frappe.ValidationError)
 
 	# max(highest live-PO quote for this item+make, rate already on the bucket).
-	# Same call the dialog made to display the figure, so what the admin saw and
+	# Same call the dialog made to display the figure, so what the user saw and
 	# what gets stored cannot diverge.
 	rate = flt(get_item_estimated_rate(item_id, make)["suggested_rate"])
 

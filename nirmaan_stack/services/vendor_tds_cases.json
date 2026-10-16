@@ -1,0 +1,33 @@
+{
+  "_about": "Shared cases for a vendor's TDS rate from its PAN (Section 194C). Read by BOTH services/test_vendor_tds.py and frontend/src/pages/vendors/utils/vendorTaxIds.test.ts, so the server rule and the form's twin cannot drift. `rate` is the figure as sent (a form sends a string or a number); `individual_huf` is whether the PAN fixes the rate at 1%; `stored` is what the save keeps.",
+  "cases": [
+    {"name": "Individual at the old 2% default moves to 1%", "pan": "ABCPE1234F", "rate": 2, "individual_huf": true, "stored": 1},
+    {"name": "HUF at 2% moves to 1%", "pan": "ABCHE1234F", "rate": 2, "individual_huf": true, "stored": 1},
+    {"name": "Individual already at 1% stays", "pan": "ABCPE1234F", "rate": 1, "individual_huf": true, "stored": 1},
+    {"name": "Individual set to 3% is put back to 1%", "pan": "ABCPE1234F", "rate": 3, "individual_huf": true, "stored": 1},
+    {"name": "Individual set to 0% is put back to 1%", "pan": "ABCPE1234F", "rate": 0, "individual_huf": true, "stored": 1},
+    {"name": "Individual set to 0.5% is put back to 1%", "pan": "ABCPE1234F", "rate": 0.5, "individual_huf": true, "stored": 1},
+    {"name": "HUF set to 4% is put back to 1%", "pan": "ABCHE1234F", "rate": "4", "individual_huf": true, "stored": 1},
+    {"name": "the rate as a string from the form", "pan": "ABCPE1234F", "rate": "2", "individual_huf": true, "stored": 1},
+    {"name": "lowercase PAN with spaces is still read", "pan": "  abcpe1234f ", "rate": 2, "individual_huf": true, "stored": 1},
+    {"name": "Individual with no rate gets 1%", "pan": "ABCPE1234F", "rate": null, "individual_huf": true, "stored": 1},
+    {"name": "Company at the 2% default stays", "pan": "ABCCE1234F", "rate": 2, "individual_huf": false, "stored": 2},
+    {"name": "Company set to 1% by the user is kept", "pan": "ABCCE1234F", "rate": 1, "individual_huf": false, "stored": 1},
+    {"name": "Company set to 3% by the user is kept", "pan": "ABCCE1234F", "rate": 3, "individual_huf": false, "stored": 3},
+    {"name": "Company set to 4% as a string is kept", "pan": "ABCCE1234F", "rate": "4", "individual_huf": false, "stored": 4},
+    {"name": "Company set to 0% (not deducted) is kept", "pan": "ABCCE1234F", "rate": 0, "individual_huf": false, "stored": 0},
+    {"name": "Firm set to 2.5% is kept", "pan": "ABCFE1234F", "rate": "2.5", "individual_huf": false, "stored": 2.5},
+    {"name": "Trust at 2% stays", "pan": "ABCTE1234F", "rate": 2, "individual_huf": false, "stored": 2},
+    {"name": "Company with no rate gets the 2% default", "pan": "ABCCE1234F", "rate": null, "individual_huf": false, "stored": 2},
+    {"name": "Company with an empty rate gets the 2% default", "pan": "ABCCE1234F", "rate": "", "individual_huf": false, "stored": 2},
+    {"name": "an unreadable rate '2%' is not stored as 0", "pan": "ABCCE1234F", "rate": "2%", "individual_huf": false, "stored": 2},
+    {"name": "a word for a rate gets the default", "pan": "ABCCE1234F", "rate": "abc", "individual_huf": false, "stored": 2},
+    {"name": "true is not a rate", "pan": "ABCCE1234F", "rate": true, "individual_huf": false, "stored": 2},
+    {"name": "a hex string is not a rate", "pan": "ABCCE1234F", "rate": "0x2", "individual_huf": false, "stored": 2},
+    {"name": "blank PAN keeps the rate", "pan": "", "rate": 1, "individual_huf": false, "stored": 1},
+    {"name": "no PAN keeps the rate", "pan": null, "rate": 2, "individual_huf": false, "stored": 2},
+    {"name": "9-character PAN keeps the rate", "pan": "ABCP1234F", "rate": 3, "individual_huf": false, "stored": 3},
+    {"name": "PAN missing its last letter keeps the rate", "pan": "ABCPE1234", "rate": 2, "individual_huf": false, "stored": 2},
+    {"name": "a GSTIN in the PAN box keeps the rate", "pan": "29ABCPE1234F1Z5", "rate": 2, "individual_huf": false, "stored": 2}
+  ]
+}

@@ -147,6 +147,31 @@ figure — the company pays the tax on top:
 
 ---
 
+## The vendor's rate — set from its PAN (Section 194C)
+
+`Vendors.tds_deduction_percentage` is the rate `vendor_rate` snapshots at approval. The PAN's 4th
+letter decides it (owner, 2026-10-16):
+
+| PAN | Rate |
+|---|---|
+| valid, 4th letter **P** (Individual) or **H** (HUF) | **always 1%** — the forms lock the field; the server puts any other figure back to 1 |
+| valid, any other 4th letter | **2% by default**; any rate the user sets (1, 3, 4…) is kept |
+| blank / not a valid PAN | kept as entered |
+
+- **ONE rule, `services/vendor_tds.py`**, applied by `Vendors.validate` **only when a vendor is
+  created or its PAN / rate is edited**: the vendor screens, Desk, Data Import. Every other save
+  leaves the rate alone, so the 04:30 credit job's full vendor save never moves a rate. Mirrored on
+  the frontend by `pages/vendors/utils/vendorTaxIds.ts`; both suites read
+  `services/vendor_tds_cases.json`. Change both or neither.
+- **Corrected, never refused.** A blank or unreadable rate ("2%", "abc") with a valid PAN gets the 2%
+  default rather than being stored as 0 (no tax withheld).
+- **Moving off an Individual / HUF PAN puts a default back in the form only**: 2% on the new-vendor
+  form, the saved rate (or 2%) on the edit form. The server keeps whatever rate arrives with a
+  non-Individual PAN, so a Desk edit from P to C with the rate left at 1 stays 1.
+- A PAN edit moves only future approvals; past deduction rows keep their snapshot (above).
+
+---
+
 ## The two doctypes
 
 **`Payment TDS Deduction`** — one deduction, one payment.
