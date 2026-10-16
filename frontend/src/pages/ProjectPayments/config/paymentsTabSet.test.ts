@@ -16,15 +16,17 @@ const BY_ME = "Payment By Me";
 const viewer = (role: string, userId = "someone@nirmaan.app") => ({ role, userId });
 
 describe("paymentsTabSet: the tab strip and landing tab per viewer", () => {
-    // Expected values pin the strip as the page drew it before #1473 (2026-10-16).
+    // Expected values pin the strip as the page drew it before #1473 (2026-10-16), plus All Payments
+    // right after "Payment Raised By Me" for its seven audiences (#1476).
     const cases: { who: string; v: { role: string; userId: string }; tabs: string[]; defaultTab: string }[] = [
-        { who: "Administrator", v: viewer("Nirmaan Admin Profile", "Administrator"), tabs: [APPROVE, TO_PAY, RECON, DONE, BY_ME], defaultTab: APPROVE },
-        { who: "Admin", v: viewer("Nirmaan Admin Profile"), tabs: [APPROVE, TO_PAY, RECON, DONE, BY_ME], defaultTab: APPROVE },
-        { who: "CEO", v: viewer("Nirmaan Admin Profile", "nitesh@nirmaan.app"), tabs: [APPROVE, CEO, TO_PAY, RECON, DONE, BY_ME], defaultTab: CEO },
-        { who: "Accountant", v: viewer("Nirmaan Accountant Profile"), tabs: [TO_PAY, RECON, DONE, BY_ME], defaultTab: TO_PAY },
-        { who: "Accountant Lead", v: viewer("Nirmaan Accountant Lead Profile"), tabs: [TO_PAY, RECON, DONE, BY_ME], defaultTab: TO_PAY },
-        { who: "PMO Executive", v: viewer("Nirmaan PMO Executive Profile"), tabs: [DONE, BY_ME], defaultTab: DONE },
-        { who: "HR Executive", v: viewer("Nirmaan HR Executive Profile"), tabs: [RECON, DONE, BY_ME], defaultTab: BY_ME },
+        { who: "Administrator", v: viewer("Nirmaan Admin Profile", "Administrator"), tabs: [APPROVE, TO_PAY, RECON, DONE, BY_ME, ALL], defaultTab: APPROVE },
+        { who: "Admin", v: viewer("Nirmaan Admin Profile"), tabs: [APPROVE, TO_PAY, RECON, DONE, BY_ME, ALL], defaultTab: APPROVE },
+        { who: "CEO", v: viewer("Nirmaan Admin Profile", "nitesh@nirmaan.app"), tabs: [APPROVE, CEO, TO_PAY, RECON, DONE, BY_ME, ALL], defaultTab: CEO },
+        { who: "Accountant", v: viewer("Nirmaan Accountant Profile"), tabs: [TO_PAY, RECON, DONE, BY_ME, ALL], defaultTab: TO_PAY },
+        { who: "Accountant Lead", v: viewer("Nirmaan Accountant Lead Profile"), tabs: [TO_PAY, RECON, DONE, BY_ME, ALL], defaultTab: TO_PAY },
+        { who: "PMO Executive", v: viewer("Nirmaan PMO Executive Profile"), tabs: [DONE, BY_ME, ALL], defaultTab: DONE },
+        { who: "HR Executive", v: viewer("Nirmaan HR Executive Profile"), tabs: [RECON, DONE, BY_ME, ALL], defaultTab: BY_ME },
+        { who: "HR Lead", v: viewer("Nirmaan HR Lead Profile"), tabs: [RECON, DONE, BY_ME, ALL], defaultTab: BY_ME },
         { who: "Procurement Executive", v: viewer("Nirmaan Procurement Executive Profile"), tabs: [DONE, BY_ME], defaultTab: DONE },
         { who: "Procurement Lead", v: viewer("Nirmaan Procurement Lead Profile"), tabs: [DONE, BY_ME], defaultTab: DONE },
         { who: "Material Procurement Executive", v: viewer("Nirmaan Material Procurement Executive Profile"), tabs: [DONE, BY_ME], defaultTab: DONE },
@@ -43,13 +45,23 @@ describe("paymentsTabSet: the tab strip and landing tab per viewer", () => {
         });
     }
 
-    it("never shows the hidden tabs (All Payments, PO Wise, Payments Pending) to anyone", () => {
+    it("never shows the hidden tabs (PO Wise, Payments Pending) to anyone", () => {
         for (const c of cases) {
             const { tabs } = paymentsTabSet(c.v);
-            expect(tabs).not.toContain(ALL);
             expect(tabs).not.toContain(PO_WISE);
             expect(tabs).not.toContain(PENDING);
         }
+    });
+
+    it("shows All Payments to exactly its seven audiences, never to Procurement, Project Lead or Project Manager", () => {
+        const audience = ["Administrator", "Admin", "CEO", "Accountant", "Accountant Lead", "PMO Executive", "HR Executive", "HR Lead"];
+        const seeing = cases.filter((c) => paymentsTabSet(c.v).tabs.includes(ALL)).map((c) => c.who);
+        // The CEO is an Admin, so it is in the Admin audience.
+        expect(seeing).toEqual(audience);
+    });
+
+    it("HR Lead gets exactly HR Executive's tabs, landing and open-limit", () => {
+        expect(paymentsTabSet(viewer("Nirmaan HR Lead Profile"))).toEqual(paymentsTabSet(viewer("Nirmaan HR Executive Profile")));
     });
 });
 
@@ -57,15 +69,19 @@ describe("resolvePaymentsTab: what a requested ?tab= opens", () => {
     const hr = paymentsTabSet(viewer("Nirmaan HR Executive Profile"));
 
     it("an HR Executive's hand-edited ?tab= outside its set falls back to Payment Raised By Me", () => {
-        for (const outside of [APPROVE, CEO, TO_PAY, ALL, PO_WISE, "Nonsense"]) {
+        for (const outside of [APPROVE, CEO, TO_PAY, PO_WISE, "Nonsense"]) {
             expect(resolvePaymentsTab(hr, outside)).toBe(BY_ME);
         }
     });
 
-    it("an HR Executive opens any tab inside its set, the hidden Payments Pending included", () => {
-        for (const inside of [RECON, DONE, PENDING, BY_ME]) {
+    it("an HR Executive opens any tab inside its set, All Payments and the hidden Payments Pending included", () => {
+        for (const inside of [RECON, DONE, PENDING, BY_ME, ALL]) {
             expect(resolvePaymentsTab(hr, inside)).toBe(inside);
         }
+    });
+
+    it("an HR Lead's deep link to All Payments opens it", () => {
+        expect(resolvePaymentsTab(paymentsTabSet(viewer("Nirmaan HR Lead Profile")), ALL)).toBe(ALL);
     });
 
     it("any other viewer opens what it asked for, so deep links to hidden tabs still resolve", () => {

@@ -560,7 +560,6 @@ def get_approval_queue_counts():
     )
     counts = {r["status"] or "": cint(r["cnt"]) for r in rows}
     amounts = {r["status"] or "": flt(r["amt"]) for r in rows}
-    counts["All"] = sum(counts.values())
     # "Payment By Me" badge: every status, rows the logged-in user created -- for EVERY
     # caller, Admin included, matching what that tab now lists. Its own key, not inside
     # `counts`, which is keyed by status.
@@ -568,7 +567,9 @@ def get_approval_queue_counts():
         f'SELECT COUNT(*) FROM ({union}) q WHERE q."raised_by" = %s',
         (frappe.session.user,),
     )[0][0]
-    return {"counts": counts, "amounts": amounts, "by_me": cint(by_me)}
+    # "All Payments" badge (#1476): every readable ledger, every status -- what that tab lists
+    # (the queue with no filter). Its own key, like `by_me`.
+    return {"counts": counts, "amounts": amounts, "by_me": cint(by_me), "all": sum(counts.values())}
 
 
 # Facet fields the queue offers. `tier` is absent on purpose: it is derived in

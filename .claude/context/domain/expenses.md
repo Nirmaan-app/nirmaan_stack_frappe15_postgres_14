@@ -238,6 +238,22 @@ Done"** a Paid **Non Project** expense row carries a small **Upload Inv** button
   (retrying uploads again) — the same as every expense dialog. Two people editing one invoice: last write
   wins.
 
+### Payments queue: All Payments returns; HR Lead view-only (spec #1470, #1476)
+
+- **All Payments** (every PO / WO payment, Project Expense and Non-Project Expense, in every status) is
+  back on the strip, right after "Payment Raised By Me", for **Administrator, Admin, Accountant,
+  Accountant Lead, PMO Executive, HR Executive and HR Lead**. Procurement, Project Lead and Project
+  Manager do not see it; a deep link still opens it for them. The rule is
+  `frontend/src/pages/ProjectPayments/config/paymentsTabSet.ts`.
+- **Its badge** is `get_approval_queue_counts`'s `all`: every readable ledger, every status, the same
+  rows the tab lists (`test_approval_queue_counts`). Not the payments-only store count.
+- **Row actions:** the Actions column shows only to the queue edit profiles (`canWorkQueueRows`), so
+  PMO and HR see none.
+- **HR Lead** gets the Project Payment & Expense sidebar entry, **view-only**: HR Executive's tab set
+  (Reconciliation Pending, Payment Done, Payment Raised By Me, All Payments; Payments Pending by link),
+  landing on "Payment Raised By Me". No Add Expense button and no write right (its profile holds no
+  System Manager; see *Known asymmetries* below).
+
 ### Four server rules protect an expense its bank lines settle (ADR-0027 Q11/Q22, #1302)
 Both expense doctypes share ONE controller, `integrations/controllers/expense_bank_links.py`, wired in
 `hooks.py` on `validate` + `on_trash`. The refusals themselves are pure functions in

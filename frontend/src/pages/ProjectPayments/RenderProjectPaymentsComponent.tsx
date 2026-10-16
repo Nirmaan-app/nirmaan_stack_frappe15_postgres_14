@@ -12,10 +12,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Info } from "lucide-react";
 // --- Tab Configuration ---
 import {
-    PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_CEO_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_RECONCILIATION_TAB_OPTIONS, PP_BY_ME_TAB_OPTIONS, PPTabOption, PPTabValue,
+    PP_TABS, PP_ADMIN_TAB_OPTIONS, PP_CEO_TAB_OPTIONS, PP_NEW_PAYMENTS_TAB_OPTIONS, PP_RECONCILIATION_TAB_OPTIONS, PP_BY_ME_TAB_OPTIONS, PP_ALL_TAB_OPTIONS, PPTabOption, PPTabValue,
 } from "./config/ppTabs.constants";
 // Which tabs a viewer sees, where it lands and what it may open: one tested rule.
-// PO Wise and All Payments have no button (2026-09-15) but stay ROUTED below.
+// PO Wise has no button (2026-09-15) but stays ROUTED below; so does All Payments for the
+// viewers outside its audience (#1476).
 import { paymentsTabSet, resolvePaymentsTab } from "./config/paymentsTabSet";
 
 const ApprovePayments = React.lazy(() => import("./approve-payments/ApprovePayments"));
@@ -39,7 +40,7 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
     // `countValue` wins over `countKey` in renderTabButton, so overriding here
     // leaves the sidebar store — shared with other screens — completely untouched.
     const { data: queueCounts, mutate: mutateQueueCounts } = useFrappeGetCall<{
-        message: { counts: Record<string, number>; amounts: Record<string, number>; by_me?: number };
+        message: { counts: Record<string, number>; amounts: Record<string, number>; by_me?: number; all?: number };
     }>(APPROVAL_COUNTS_API, undefined, APPROVAL_COUNTS_SWR_KEY);
 
     // ── Keep the badges live ──────────────────────────────────────────────────
@@ -141,6 +142,9 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
         // "Payment By Me" -- the badge stays hidden until the count loads (`countValue`
         // undefined renders no badge) rather than flashing a 0.
         [PP_TABS.PAYMENT_BY_ME]: { ...PP_BY_ME_TAB_OPTIONS[0], countValue: queueCounts?.message?.by_me },
+        // "All Payments" (#1476) -- all three ledgers, every status (`all`), the same rows the tab
+        // lists; never the payments-only store count. Hidden until it loads, like "Payment By Me".
+        [PP_TABS.ALL_PAYMENTS]: { ...PP_ALL_TAB_OPTIONS[0], countValue: queueCounts?.message?.all },
     }), [withUnionCount, unionCount, counts, queueCounts]);
 
     /**
@@ -198,9 +202,9 @@ export const RenderProjectPaymentsComponent: React.FC = () => {
                 <div className="flex flex-nowrap sm:flex-wrap items-center gap-1.5 pb-1 sm:pb-0">
                     {/*
                       One button per tab in `tabSet.tabs`, a separator between each. PO Wise
-                      and All Payments have no button (owner 2026-09-15) but their ROUTES below
-                      stay: `paymentHref()` sends every non-paid payment deep link to
-                      `?tab=All Payments`.
+                      has no button (owner 2026-09-15) and All Payments has one only for its
+                      audience (#1476), but both ROUTES below stay: `paymentHref()` sends every
+                      non-paid payment deep link to `?tab=All Payments`.
                     */}
                     {tabSet.tabs.map((value, i) => {
                         const option = tabButtons[value];
