@@ -2,12 +2,15 @@
 # For license information, please see license.txt
 
 """Paying a payment or an expense: who to pay, and changing an expense's account before paying it
-(spec #1420 tickets #1431, #1438, ADR-0033).
+(spec #1420 tickets #1431, #1438, #1463, ADR-0033).
 
-Thin: check who is asking, call the Payee module (`services/payees/paid_to`, `expense_payee`),
-commit. Every row is paid into its own pay-to account.
+Thin: check who is asking, call the Payee module (`services/payees/paid_to`, `expense_payee`,
+`take_vendor_account`), commit. Every row is paid into its own pay-to account, except a PO / WO
+payment that switches to its vendor's current account.
 
 * `get_paid_to` -- who each ticked row is paid to, read now: Export for Payment's ICICI / Cashfree file.
+* `take_vendor_accounts` -- Export for Payment and Mark as Paid: write the vendor's current account
+  onto each PO / WO payment that switches to it.
 * `get_pay_to_box` -- Record Payment's "Pay ₹X to" box, for an expense or a PO / WO payment.
 * `search_payees` -- Change account's picker: Payees by holder name or account number.
 * `change_expense_account` -- Change account: copy a Payee's account onto an expense.
@@ -24,8 +27,8 @@ import json
 import frappe
 
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
-from nirmaan_stack.services.payees import expense_payee
-from nirmaan_stack.services.payees.paid_to import assert_paid_to_doctype, paid_to_for, pay_to_box
+from nirmaan_stack.services.payees import expense_payee, take_vendor_account
+from nirmaan_stack.services.payees.paid_to import PAYMENT_DOCTYPE, assert_paid_to_doctype, paid_to_for, pay_to_box
 from nirmaan_stack.services.payees.search import find_payees
 from nirmaan_stack.services.role_profiles import assert_payee_manager
 
@@ -34,8 +37,7 @@ from nirmaan_stack.services.role_profiles import assert_payee_manager
 def get_paid_to(rows: str | list[dict]) -> list[dict]:
     """Who each row is paid to, in the order sent. `rows` is `[{doctype, name}]` (`Project Payments`,
     `Project Expenses`, `Non Project Expenses`). Each answer is `{account, missing, payee_rule,
-    account_changed, current_account}`
-    (`services/payees/paid_to.paid_to_rows`)."""
+    switch_to}` (`services/payees/paid_to.paid_to_rows`)."""
     if isinstance(rows, str):
         rows = json.loads(rows)
     rows = list(rows or [])
@@ -51,6 +53,25 @@ def get_pay_to_box(doctype: str, name: str) -> dict:
     assert_paid_to_doctype(doctype)
     frappe.has_permission(doctype, "read", doc=name, throw=True)
     return pay_to_box(doctype, name)
+
+
+@frappe.whitelist(methods=["POST"])
+def take_vendor_accounts(names: str | list[str]) -> list[str]:
+    """Pay each named PO / WO payment into its vendor's current account: where the vendor's account
+    changed since the payment was raised, or the payment has none, write the vendor's account onto
+    it (`services/payees/take_vendor_account`, #1463). Export for Payment and Mark as Paid call it
+    before the file is saved or the rows are marked paid. Returns the names switched.
+
+    Asks Frappe's write permission on each payment, as Mark as Paid's own save does; the save ignores
+    permissions, so this check is the boundary. One commit: all or nothing."""
+    if isinstance(names, str):
+        names = json.loads(names)
+    names = list(names or [])
+    for name in names:
+        frappe.has_permission(PAYMENT_DOCTYPE, "write", doc=name, throw=True)
+    switched = take_vendor_account.take_vendor_accounts(names)
+    frappe.db.commit()
+    return switched
 
 
 @frappe.whitelist()

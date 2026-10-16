@@ -26,7 +26,10 @@ nothing paid points back at it.
 * `vendor_account` -- THE vendor -> Payee read: `payee_for_vendor`, `vendor_account` (one vendor, with
   `other_vendors`), `vendor_accounts` (many, for screens, Bulk Import's vendor index, the autofill).
 * `paid_to` -- `paid_to_rows`, `paid_to_for`, `pay_to_box`: who a payment or expense row is paid to,
-  always its own pay-to account (#1438).
+  its own pay-to account (#1438), or for a PO / WO payment its vendor's current one
+  (`vendor_account_to_take`, #1463).
+* `take_vendor_account` -- `take_vendor_accounts`: writes that vendor account onto the payment
+  when it is exported or marked paid (#1463).
 
 Import from the submodule (`from nirmaan_stack.services.payees.writer import create_payee`).
 Invariants: `.claude/context/domain/payees.md`.

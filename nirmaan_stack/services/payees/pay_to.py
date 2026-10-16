@@ -84,8 +84,9 @@ def fill_payment_from_vendor(doc) -> None:
     """The save rule of a PO / Work Order payment (`Project Payments`, #1437): inserted with no copy,
     it copies its vendor's Payee. Only on insert, so whichever path creates the payment (term
     request, Work Order request, credits, adjustments, a payment recorded directly) gets one, and it
-    is never re-copied: editing the vendor's Payee leaves every payment already raised as it was. A
-    split remainder arrives with its parent's copy (`copy_pay_to`) and keeps it."""
+    is never re-copied on save: editing the vendor's Payee leaves every payment already raised as it
+    was until it is exported or marked paid (`take_vendor_account`, #1463). A split remainder arrives
+    with its parent's copy (`copy_pay_to`) and keeps it."""
     if doc.is_new() and not has_pay_to(doc):
         copy_vendor_account(doc)
 

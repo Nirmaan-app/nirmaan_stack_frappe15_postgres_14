@@ -6,14 +6,13 @@
  * Shown for an expense and for a PO / WO payment. Who to pay is the server's
  * (`services/payees/paid_to.pay_to_box`); what the box says about it is `utils/payees/paidTo.payToBoxView`;
  * when Change account shows is a screen rule (`canChangeExpenseAccount`): Accounts, an expense, not
- * yet paid, no vendor named. A PO / WO payment's copy is never changed: a wrong account means reject
- * the payment and raise it again.
+ * yet paid, no vendor named. A PO / WO payment's copy is never edited by hand.
  *
- * A PO / WO payment whose vendor's account changed since it was raised (#1439) turns red: the
- * warning names the vendor's account now and, until it is paid, says to reject and raise again; the
- * old account below loses its Copy buttons, so nobody pastes it into the bank portal. Record Payment
- * opens on Reconciliation Pending, after "Mark as Paid": there the warning says the payment was
- * marked paid to the old account instead.
+ * An unpaid PO / WO payment whose vendor's account changed since it was raised, or that has none
+ * (#1463), turns blue: the account shown, with its Copy buttons, is the vendor's current one, which
+ * it is paid into, and the one it was raised with is named under it as "Was", with no Copy buttons,
+ * so nobody pastes it into the bank portal. Exporting the payment or marking it paid writes the
+ * vendor's account onto it, so a paid payment shows that account plainly.
  */
 
 import { useState } from "react";
@@ -29,7 +28,7 @@ import { cn } from "@/lib/utils";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { bankLine } from "@/utils/payees/payeeForm";
 import {
-    ACCOUNT_CHANGED_TITLE,
+    VENDOR_ACCOUNT_TITLE,
     canChangeExpenseAccount,
     namedByText,
     payToBoxView,
@@ -42,7 +41,7 @@ import { ACCOUNTS_PAYEE_APIS, PAY_TO_BOX_API, payToBoxKey, type PayToBox as PayT
 import { usePayeeChoice } from "./usePayeeChoice";
 
 const TONE_CLASSES: Record<PayToBoxView["tone"], { box: string; heading: string }> = {
-    account_changed: { box: "border-red-500 bg-red-50 dark:bg-red-950/30", heading: "text-red-800 dark:text-red-300" },
+    vendor_account: { box: "border-blue-500 bg-blue-50 dark:bg-blue-950/30", heading: "text-blue-800 dark:text-blue-300" },
     account: { box: "border-green-600 bg-green-50 dark:bg-green-950/30", heading: "text-green-800 dark:text-green-300" },
     no_account: { box: "border-amber-400 bg-amber-50 dark:bg-amber-950/30", heading: "text-amber-900 dark:text-amber-300" },
 };
@@ -76,10 +75,11 @@ export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
         );
     }
 
-    const account = box.account;
+    // A switching payment is paid into its vendor's current account; the one it holds is only "Was".
+    const account = box.switch_to ?? box.account;
+    const was = box.switch_to ? box.account : null;
     const view = payToBoxView(doctype, box, expenseType);
-    const changed = view.tone === "account_changed";
-    const AccountValue = changed ? Fact : CopyValue;
+    const switching = view.tone === "vendor_account";
     const canChange = canChangeExpenseAccount(doctype, box, canManagePayees(role, user_id));
     const bank = account ? bankLine(account) : "";
     // Each open starts from a fresh pick: the copy is not a Payee, so there is nothing to seed it with.
@@ -107,38 +107,26 @@ export function PayToBox({ doctype, name, expenseType = "" }: PayToBoxProps) {
                 )}
             </div>
 
-            {changed && (
-                <div role="alert" className="flex flex-col gap-1 rounded-md border border-red-300 bg-background px-3 py-2 text-sm">
-                    <p className="font-semibold text-red-800 dark:text-red-300">{ACCOUNT_CHANGED_TITLE}</p>
-                    {box.current_account ? (
-                        <p>
-                            {box.vendor_name || "The vendor"} is now paid into{" "}
-                            <span className="font-semibold">{box.current_account.account_name}</span>, A/c{" "}
-                            <span className="whitespace-nowrap font-semibold tabular-nums">{box.current_account.account_number}</span>,{" "}
-                            <span className="whitespace-nowrap">{box.current_account.ifsc}</span>
-                            {bankLine(box.current_account) ? ` (${bankLine(box.current_account)})` : ""}.
-                        </p>
-                    ) : (
-                        <p>{box.vendor_name || "The vendor"} has no bank account now.</p>
-                    )}
-                    <p>
-                        {box.paid
-                            ? "It was marked paid to the old account below, the one it was raised with."
-                            : "Don't pay the old account below. Reject this payment and raise it again."}
-                    </p>
-                </div>
+            {switching && (
+                <p className="text-sm font-semibold text-blue-800 dark:text-blue-300">{VENDOR_ACCOUNT_TITLE}</p>
             )}
 
             {account ? (
                 <>
-                    {changed && <p className="text-xs text-muted-foreground">Account on this payment (old)</p>}
                     <p className="text-xl font-bold leading-tight">{account.account_name}</p>
                     {/* The account number and IFSC each get a full row, so neither wraps mid-value beside its Copy button. */}
-                    <AccountValue label="Account number" value={account.account_number} />
-                    <AccountValue label="IFSC" value={account.ifsc} />
+                    <CopyValue label="Account number" value={account.account_number} />
+                    <CopyValue label="IFSC" value={account.ifsc} />
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <Fact label="Bank" value={bank || "--"} />
-                        <Fact label="Set by" value={namedByText(box.named_by, box.vendor_name)} />
+                        {switching ? (
+                            <Fact
+                                label="Was"
+                                value={was ? `${was.account_name}, A/c ${was.account_number}, ${was.ifsc}` : "No account"}
+                            />
+                        ) : (
+                            <Fact label="Set by" value={namedByText(box.named_by, box.vendor_name)} />
+                        )}
                     </div>
                 </>
             ) : (

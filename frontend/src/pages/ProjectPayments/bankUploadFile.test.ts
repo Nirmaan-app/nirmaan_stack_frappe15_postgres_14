@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildBankFile, describeLeftOut, type BankFileRow } from "./bankUploadFile";
+import { buildBankFile, describeLeftOut, describeSwitched, type BankFileRow } from "./bankUploadFile";
 
 // 2026-10-14 09:30:00.000 local time; Date.now() for it ends in the ten digits the
 // Cashfree transferId takes.
@@ -105,6 +105,43 @@ describe("buildBankFile — expenses", () => {
 	});
 });
 
+describe("buildBankFile — a PO payment paid into its vendor's current account (#1463)", () => {
+	const vendorNow = { account_name: "ACME TRADERS PVT LTD", account_number: "50100234567812", ifsc: "ICIC0000456" };
+	const changed = vendorPayment({ documentName: "PO/009/26-27", switchTo: vendorNow });
+	const raisedWithNone = vendorPayment({ documentName: "PO/010/26-27", account: undefined, switchTo: vendorNow });
+
+	it("pays a payment whose vendor's account changed into the vendor's current account, in both files", () => {
+		expect(buildBankFile([changed], ICICI).csv.split("\r\n")[1]).toBe(
+			"PAB_VENDOR,IMPS,093705003327,ACME TRADERS PVT LTD,50100234567812,ICIC0000456,125000.5,,,,,PO/009/26-27,14-10-2026,,,,,,,",
+		);
+		expect(buildBankFile([changed], CASHFREE).rows[0]).toMatchObject({
+			bankAccount: "50100234567812",
+			ifsc: "ICIC0000456",
+			name: "ACME TRADERS PVT LTD",
+		});
+	});
+
+	it("pays a payment raised with no account into its vendor's account, never leaving it out", () => {
+		const file = buildBankFile([raisedWithNone], ICICI);
+
+		expect(file.leftOut).toEqual([]);
+		expect(file.rows[0]).toMatchObject({ BENE_ACC_NO: "50100234567812", BENE_IFSC: "ICIC0000456" });
+	});
+
+	it("lists the switched rows so the export can say how many, and leaves the others off the list", () => {
+		const file = buildBankFile([changed, vendorPayment(), raisedWithNone], ICICI);
+
+		expect(file.switched).toEqual([changed, raisedWithNone]);
+		expect(describeSwitched(file.switched)).toBe(
+			"2 payments paid into their vendor's current account (PO/009/26-27; PO/010/26-27)",
+		);
+		expect(describeSwitched(buildBankFile([changed], ICICI).switched)).toBe(
+			"1 payment paid into its vendor's current account (PO/009/26-27)",
+		);
+		expect(describeSwitched([])).toBeNull();
+	});
+});
+
 describe("buildBankFile — rows left out", () => {
 	const noAccountExpense = (documentName: string, over: Partial<BankFileRow> = {}): BankFileRow => ({
 		kind: "expense",
@@ -129,17 +166,6 @@ describe("buildBankFile — rows left out", () => {
 			{ row: noPayee2, reason: "payment_has_no_account" },
 			{ row: noPayee3, reason: "payment_has_no_account" },
 			{ row: noPayee4, reason: "payment_has_no_account" },
-		]);
-	});
-
-	it("leaves out a PO payment whose vendor's account changed since it was raised, saying why", () => {
-		const changed = vendorPayment({ documentName: "PO/009/26-27", accountChanged: true });
-		const file = buildBankFile([changed, vendorPayment()], CASHFREE);
-
-		expect(file.rows.map((r) => r.remarks)).toEqual(["Tower A - PO/001/26-27"]);
-		expect(file.leftOut).toEqual([{ row: changed, reason: "account_changed" }]);
-		expect(describeLeftOut(file.leftOut)).toEqual([
-			"1 payment whose vendor's account changed since it was raised (PO/009/26-27): reject it and raise it again",
 		]);
 	});
 

@@ -65,7 +65,7 @@ export const sameHolderName = (a: string | null | undefined, b: string | null | 
  * (spaces, dashes and case aside, but not leading zeros: the number is written as typed) and IFSC.
  * Saving either one over the other would change nothing: Edit has nothing to save, and Change account
  * would copy the account the expense already holds. Not the server's "is the vendor's account another
- * account?" (`paid_to.account_changed_since`), which ignores the holder name.
+ * account?" (`paid_to.vendor_account_to_take`), which ignores the holder name.
  */
 export const sameAccountDetails = (a: AccountDetails, b: AccountDetails): boolean =>
     squashHolderName(a.account_name) === squashHolderName(b.account_name) &&
