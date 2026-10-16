@@ -31,7 +31,7 @@ import {
   isServiceProcurementProfile,
 } from "@/constants/roles";
 
-const BRAND_PRIMARY = "#D03B45";
+export const BRAND_PRIMARY = "#D03B45";
 
 // ============================================================================
 // Types & Configuration
@@ -253,7 +253,8 @@ const PROCUREMENT_SECTIONS: DashboardSection[] = [
 // Components
 // ============================================================================
 
-interface MetricCardProps {
+/** Props for a dashboard metric card; shared with the Service Procurement dashboard. */
+export interface MetricCardProps {
   title: string;
   description: string;
   linkTo: string;
@@ -261,9 +262,12 @@ interface MetricCardProps {
   count?: number | string;
   isLoading?: boolean;
   error?: unknown;
+  /** A link-only card: render no number (not even "--"); the description says what it opens. */
+  hideCount?: boolean;
 }
 
-const MetricCard: React.FC<MetricCardProps> = ({
+/** A linked dashboard card with a large count; shared with the Service Procurement dashboard. */
+export const MetricCard: React.FC<MetricCardProps> = ({
   title,
   description,
   linkTo,
@@ -271,8 +275,12 @@ const MetricCard: React.FC<MetricCardProps> = ({
   count,
   isLoading,
   error,
+  hideCount,
 }) => {
   const renderContent = () => {
+    if (hideCount) {
+      return null;
+    }
     if (isLoading) {
       return (
         <TailSpin
@@ -413,12 +421,14 @@ const MetricCard: React.FC<MetricCardProps> = ({
   );
 };
 
-interface SectionProps {
+/** Props for a titled grid of metric cards. */
+export interface SectionProps {
   title: string;
   children: React.ReactNode;
 }
 
-const Section: React.FC<SectionProps> = ({ title, children }) => (
+/** A titled grid of metric cards; shared with the Service Procurement dashboard. */
+export const Section: React.FC<SectionProps> = ({ title, children }) => (
   <div className="space-y-4">
     <h3 className="text-base font-semibold tracking-tight text-gray-700 dark:text-gray-300">
       {title}
@@ -433,7 +443,8 @@ const Section: React.FC<SectionProps> = ({ title, children }) => (
 // Helper to get nested count from store
 // ============================================================================
 
-const getNestedCount = (
+/** Read a dotted path (e.g. "sr.all") from the sidebar count store; undefined if absent. */
+export const getNestedCount = (
   counts: Record<string, any>,
   path: string
 ): number | undefined => {

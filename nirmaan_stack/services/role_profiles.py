@@ -36,6 +36,10 @@ PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Procurement Executive Profile"
 PROCUREMENT_LEAD_PROFILE = "Nirmaan Procurement Lead Profile"
 MATERIAL_PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Material Procurement Executive Profile"
 SERVICE_PROCUREMENT_EXECUTIVE_PROFILE = "Nirmaan Service Procurement Executive Profile"
+# ^ A company-wide WO desk, like Estimates: NEVER assigned projects, sees all of them.
+# That takes zero User Permission rows (so Frappe lists stay unfiltered) AND a seat in
+# every project-scoped endpoint's full-access list -- today `api/sidebar_counts.py`
+# and `api/tds/get_tds_requests.py`. The frontend half is in `constants/roles.ts`.
 
 # Procurement splits by WHAT IS BOUGHT. Material = the PR -> PO chain and
 # everything downstream of a material buy; Service = Work Orders (Service

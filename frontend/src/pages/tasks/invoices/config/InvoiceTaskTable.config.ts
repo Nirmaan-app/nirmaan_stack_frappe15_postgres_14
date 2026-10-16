@@ -5,7 +5,7 @@
  */
 import { SearchFieldOption } from '@/components/data-table/new-data-table';
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
-import { isProcurementProfile } from "@/constants/roles";
+import { isProcurementProfile, SERVICE_PROCUREMENT_EXECUTIVE_PROFILE } from "@/constants/roles";
 
 /**
  * Fields to fetch for Vendor Invoice tables
@@ -102,7 +102,9 @@ export const getVendorInvoiceStaticFilters = (statusFilter: string, role: string
         ? HISTORY_VENDOR_INVOICE_STATIC_FILTERS
         : PENDING_VENDOR_INVOICE_STATIC_FILTERS;
 
-    if (isProcurementProfile(role)) {
+    // Procurement sees only the invoices it uploaded -- except Service Procurement, a
+    // company-wide WO desk that sees every invoice (owner, 2026-10-13).
+    if (isProcurementProfile(role) && role !== SERVICE_PROCUREMENT_EXECUTIVE_PROFILE) {
         return base.concat([['owner', '=', user_id]]);
     }
     return base;

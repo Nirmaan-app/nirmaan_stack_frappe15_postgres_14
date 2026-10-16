@@ -147,6 +147,7 @@ Each role sees a different dashboard (`src/pages/dashboard.tsx`):
 - Project Lead → Project Lead Dashboard
 - Project Manager → Project Manager Dashboard
 - Procurement Executive → Procurement Dashboard
+- Service Procurement Executive → Service Procurement Dashboard (one card per sidebar item)
 - Accountant → Accountant Dashboard
 - Estimates Executive → Estimates Executive Dashboard
 - Billing Executive → Billing Executive Dashboard (a copy of the Estimates dashboard, own `useCounts` cache key)
@@ -165,6 +166,14 @@ Roles that don't require `has_project === "true"`:
 - Nirmaan Design Lead Profile
 - Nirmaan Design Executive Profile
 - Nirmaan HR Executive Profile
+- Nirmaan Service Procurement Executive Profile
+
+**"All projects" is several pieces that must agree, not one switch.** A profile in this list
+must also have zero `User Permission` rows on Projects (Frappe list queries filter only when a
+row exists), sit in the full-access list of each project-scoped endpoint it uses
+(`api/sidebar_counts.py`, `api/tds/get_tds_requests.py`, …), and be blocked from assignment
+in the UI (`UserProjectsTab.isRestrictedRole`, the `ProjectOverviewTab` assignee picker). A
+profile missing from an endpoint's list reads 0 there while its tables show everything.
 
 ---
 

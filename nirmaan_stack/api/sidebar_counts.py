@@ -1,6 +1,7 @@
 import frappe, json
 from frappe import _
 from nirmaan_stack.services.procurement_approval import AWAITING_APPROVAL_STATES, PENDING_ITEM_STATUS
+from nirmaan_stack.services.role_profiles import SERVICE_PROCUREMENT_EXECUTIVE_PROFILE
 
 @frappe.whitelist()
 def sidebar_counts(user: str) -> str:
@@ -16,7 +17,10 @@ def sidebar_counts(user: str) -> str:
         "Nirmaan Accountant Profile",  # Accountants need access to all projects for financial operations
         "Nirmaan Accountant Lead Profile",  # Accountant Leads mirror Accountant access
         "Nirmaan Estimates Executive Profile",
-        "Nirmaan Billing Executive Profile"  # Billing Executive mirrors Estimates Executive access
+        "Nirmaan Billing Executive Profile",  # Billing Executive mirrors Estimates Executive access
+        # Company-wide WO desk, never assigned projects. Without this its WO tab counts
+        # read 0 while the WO table (Frappe list, no User Permission rows) shows every WO.
+        SERVICE_PROCUREMENT_EXECUTIVE_PROFILE,
     ]
     user_role = frappe.get_value("Nirmaan Users", user, "role_profile") if user != "Administrator" else None
     is_full_access = user == "Administrator" or user_role in full_access_roles
