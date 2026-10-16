@@ -53,6 +53,8 @@ import { useUsersList } from "./ApproveNewPR/hooks/useUsersList";
 import { getProjectListOptions, queryKeys } from "@/config/queryKeys";
 import { DEFAULT_PR_FIELDS_TO_FETCH, getPRStaticFilters, PR_DATE_COLUMNS, PR_SEARCHABLE_FIELDS } from "./config/prTable.config";
 import { AlertDestructive } from "@/components/layout/alert-banner/error-alert";
+import { uniqueTagPackages } from "@/utils/prPackages";
+import { PRPackageChips } from "@/components/procurement-request/PRPackageChips";
 
 // --- Lazy Loaded Tab Components ---
 const ApprovePR = React.lazy(() => import("./ApproveNewPR/approve-pr"));
@@ -61,23 +63,6 @@ const SentBackRequest = React.lazy(() => import("@/pages/Sent Back Requests/sent
 // --- Constants ---
 const DOCTYPE = 'Procurement Requests';
 const URL_SYNC_KEY_BASE = 'pr'; // Base key for URL params for this page
-
-export const PRTagsCell: React.FC<{ row: any }> = ({ row }) => {
-    const tags = (row.original as any).pr_tag_list || [];
-    return (
-        <div className="flex flex-wrap gap-1 items-start justify-start">
-            {tags.length > 0 ? (
-                tags.map((tag: any, index: number) => (
-                    <Badge key={index} variant="outline" className="text-xs bg-white">
-                        {tag.tag_header}
-                    </Badge>
-                ))
-            ) : (
-                <div className="font-medium text-gray-500 text-xs">Custom</div>
-            )}
-        </div>
-    );
-};
 
 
 const PRDataTableWrapper: React.FC<{
@@ -165,7 +150,7 @@ const PRDataTableWrapper: React.FC<{
                 facetOverrides={{
                     project: { additionalFilters: staticFilters },
                     owner: { additionalFilters: staticFilters },
-                    "PR Tag Child Table.tag_header": { additionalFilters: staticFilters },
+                    "PR Tag Child Table.tag_package": { additionalFilters: staticFilters },
                     workflow_state: { additionalFilters: staticFilters, enabled: tab === PR_TABS.ALL_PRS },
                 } satisfies FacetOverrides}
                 dateFilterColumns={dateColumns}
@@ -356,18 +341,16 @@ export const ProcurementRequests: React.FC = () => {
             }
         },
         {
-            // Pr_work_Package
-            id: "PR Tag Child Table.tag_header",
-            accessorKey: "pr_tag_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Headers" />,
-            cell: ({ row }) => <PRTagsCell row={row} />,
+            // The PR's procurement packages (written from its items by the server)
+            id: "PR Tag Child Table.tag_package",
+            accessorKey: "pr_tag_list", header: ({ column }) => <DataTableColumnHeader column={column} title="Packages" />,
+            cell: ({ row }) => <PRPackageChips tags={(row.original as any).pr_tag_list} />,
             enableColumnFilter: true, size: 150,
             meta: {
-                facet: { field: 'tag_header', title: 'Header' } satisfies FacetDeclaration,
-                exportHeaderName: "Headers",
-                exportValue: (row: ProcurementRequest) => {
-                    const tags = (row as any).pr_tag_list || [];
-                    return tags.map((t: any) => `• ${t.tag_header}`).join("\n");
-                }
+                facet: { field: 'tag_package', title: 'Package' } satisfies FacetDeclaration,
+                exportHeaderName: "Packages",
+                exportValue: (row: ProcurementRequest) =>
+                    uniqueTagPackages((row as any).pr_tag_list).map((p) => `• ${p}`).join("\n"),
             }
         },
         {

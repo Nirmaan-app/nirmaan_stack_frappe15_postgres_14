@@ -18,7 +18,7 @@ CHILD_TABLE_ITEM_SEARCH_MAP = {
         "pr_tag_list": {
             "child_doctype": "PR Tag Child Table",
             "link_field_to_parent": "parent",
-            "searchable_child_fields": ["tag_package", "tag_header"]
+            "searchable_child_fields": ["tag_package"]
         }
     },
     "Sent Back Category": {

@@ -21,13 +21,12 @@ export const PRProjectCard: React.FC<PRProjectCardProps> = ({
     status_of_project,
     total_enabled_packages,
     used_packages_count,
-    total_available_headers,
-    used_headers_count,
     total_prs
   } = project;
 
+  // Share of the project's packages that have at least one PR.
   const completionPercentage =
-    total_available_headers > 0 ? Math.round((used_headers_count / total_available_headers) * 100) : 0;
+    total_enabled_packages > 0 ? Math.round((used_packages_count / total_enabled_packages) * 100) : 0;
 
   const progressColor = getProgressColor(completionPercentage);
 
@@ -57,7 +56,7 @@ export const PRProjectCard: React.FC<PRProjectCardProps> = ({
             <ProjectStatusBadge status={status_of_project} />
           </div>
 
-          {/* Progress Circle - Shows released percentage */}
+          {/* Progress Circle - share of packages with a PR */}
           <ProgressCircle
             value={completionPercentage}
             className={`size-12 flex-shrink-0 ${progressColor}`}
@@ -68,7 +67,7 @@ export const PRProjectCard: React.FC<PRProjectCardProps> = ({
 
       <CardContent className="flex-1 flex flex-col justify-between pt-0 pb-3">
         {/* Stats Summary */}
-        <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="grid grid-cols-1 gap-3 mb-3">
           {/* Packages Stat */}
           <div className="bg-blue-50/50 p-2 rounded-lg border border-blue-100/50 flex flex-col justify-between">
             <span className="text-[10px] uppercase tracking-wider text-blue-600 font-bold">Packages</span>
@@ -77,16 +76,6 @@ export const PRProjectCard: React.FC<PRProjectCardProps> = ({
               <span className="text-xs text-blue-400 font-medium">/ {total_enabled_packages}</span>
             </div>
             <span className="text-[9px] text-blue-500/80 font-medium mt-0.5">Used total</span>
-          </div>
-
-          {/* Headers Stat */}
-          <div className="bg-purple-50/50 p-2 rounded-lg border border-purple-100/50 flex flex-col justify-between">
-            <span className="text-[10px] uppercase tracking-wider text-purple-600 font-bold">Headers</span>
-            <div className="flex items-baseline gap-1 mt-0.5">
-              <span className="text-lg font-bold text-purple-700 tabular-nums">{used_headers_count}</span>
-              <span className="text-xs text-purple-400 font-medium">/ {total_available_headers}</span>
-            </div>
-            <span className="text-[9px] text-purple-500/80 font-medium mt-0.5">Used total</span>
           </div>
         </div>
 
@@ -103,7 +92,7 @@ export const PRProjectCard: React.FC<PRProjectCardProps> = ({
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center py-2">
-            <p className="text-xs text-gray-400 italic">No PR Tags created yet</p>
+            <p className="text-xs text-gray-400 italic">No PRs created yet</p>
           </div>
         )}
 

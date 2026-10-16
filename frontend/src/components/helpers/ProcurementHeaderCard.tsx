@@ -1,4 +1,5 @@
 import { formatDate } from "@/utils/FormatDate"
+import { uniqueTagPackages } from "@/utils/prPackages"
 import { useFrappeGetDoc } from "frappe-react-sdk"
 import { useEffect, useState } from "react"
 import { Card } from "../ui/card"
@@ -9,10 +10,13 @@ interface ProcurementHeaderCardProps {
   sentBack?: boolean
   sr?: boolean
   customPr?: boolean
-  headers?: { tag_header: string; tag_package: string }[]
+  /** Live packages while a custom PR is being built; otherwise the PR's stored packages show. */
+  packages?: string[]
 }
 
-export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false, sr = false, customPr = false, headers = [] }: ProcurementHeaderCardProps) => {
+export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false, sr = false, customPr = false, packages }: ProcurementHeaderCardProps) => {
+  const shownPackages = packages ?? uniqueTagPackages(orderData?.pr_tag_list)
+
   const [creatorId, setCreatorId] = useState<string | undefined>("")
   const [approverId, setApproverId] = useState<string | undefined>("")
 
@@ -39,17 +43,17 @@ export const ProcurementHeaderCard = ({ orderData = undefined, sentBack = false,
       </div>
       {!sentBack && (
         <div className="border-0 flex flex-col">
-          <p className="text-left py-1 font-light text-sm text-red-700">PR Headers</p>
+          <p className="text-left py-1 font-light text-sm text-red-700">{sr ? "Package" : "Packages"}</p>
           {sr ? (
             <p className="text-left font-bold py-1 text-base text-black">Services</p>
-          ) : customPr && headers.length > 0 ? (
+          ) : shownPackages.length > 0 ? (
             <div className="flex items-center gap-1.5 flex-wrap py-1">
-              {headers.map((h, idx) => (
+              {shownPackages.map((pkg) => (
                 <span
-                  key={idx}
+                  key={pkg}
                   className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-medium border border-primary/20 whitespace-nowrap"
                 >
-                  {h.tag_header}
+                  {pkg}
                 </span>
               ))}
             </div>

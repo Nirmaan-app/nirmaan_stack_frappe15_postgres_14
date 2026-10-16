@@ -56,8 +56,6 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
 
     // CEO Hold guard
     const { isCEOHold, showBlockedToast } = useCEOHoldGuard(projectId || undefined);
-    const selectedWP = useProcurementRequestStore(state => state.selectedWP);
-    const selectedHeaderTags = useProcurementRequestStore(state => state.selectedHeaderTags);
     const procList = useProcurementRequestStore(state => state.procList);
     // const newPRComment = useProcurementRequestStore(state => state.newPRComment);
     const resetStore = useProcurementRequestStore(state => state.resetStore);
@@ -127,8 +125,8 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             return;
         }
 
-        if (!projectId || !selectedWP || procList.length === 0) {
-            toast({ title: "Missing Information", description: "Project, Work Package, and items are required.", variant: "destructive" });
+        if (!projectId || procList.length === 0) {
+            toast({ title: "Missing Information", description: "Project and items are required.", variant: "destructive" });
             return;
         }
 
@@ -145,12 +143,8 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
                 project: projectId,
                 work_package: "Normal",
                 order_list: backendOrderList,
-                pr_tag_list: selectedHeaderTags
-                    .filter(tag => tag.tag_header)
-                    .map(tag => ({
-                        tag_header: tag.tag_header,
-                        tag_package: tag.tag_package
-                    }))
+                // No pr_tag_list: the server writes the PR's packages from its items
+                // (services/pr_packages.py).
             };
 
             const res = await createDoc("Procurement Requests", payload);
@@ -175,7 +169,6 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
         }
     }, [
         projectId,
-        selectedWP,
         procList,
         createDoc,
         addCommentIfNeeded,
@@ -212,12 +205,7 @@ export const useSubmitProcurementRequest = (): UseSubmitProcurementRequestResult
             const updateData: any = {
                 order_list: backendOrderList,
                 workflow_state: "Pending",
-                pr_tag_list: selectedHeaderTags
-                    .filter(tag => tag.tag_header)
-                    .map(tag => ({
-                        tag_header: tag.tag_header,
-                        tag_package: tag.tag_package
-                    }))
+                // No pr_tag_list: the server rewrites the PR's packages from its items.
             };
 
             await updateDoc("Procurement Requests", prId, updateData);

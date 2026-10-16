@@ -31,12 +31,6 @@ const ExpensePackages = React.lazy(() =>
   }))
 );
 
-const PRHeaderPackages = React.lazy(() =>
-  import("@/components/PRHeaderTagMaster").then((module) => ({
-    default: module.PRHeaderTagMaster,
-  }))
-);
-
 const PMOPackages = React.lazy(() =>
   import("@/components/pmo-packages").then((module) => ({
     default: module.PMOPackages,
@@ -67,7 +61,6 @@ export const PACKAGE_SETTINGS_TABS = {
   DESIGN_PACKAGES: "design-packages",
   COMMISSION_PACKAGES: "commission-packages",
   EXPENSE_PACKAGES: "expense-packages",
-  PR_HEADER_PACKAGES: "pr-header-packages",
   PMO_PACKAGES: "pmo-packages",
   HANDOVER_DOCUMENTS: "handover-documents",
   BILLING_PACKAGES: "billing-packages",
@@ -108,11 +101,6 @@ export const PACKAGE_SETTINGS_TAB_OPTIONS: PackageSettingsTabOption[] = [
     label: "Expense Packages",
     value: PACKAGE_SETTINGS_TABS.EXPENSE_PACKAGES,
     component: ExpensePackages,
-  },
-  {
-    label: "PR Header Packages",
-    value: PACKAGE_SETTINGS_TABS.PR_HEADER_PACKAGES,
-    component: PRHeaderPackages,
   },
   {
     label: "PMO Packages",

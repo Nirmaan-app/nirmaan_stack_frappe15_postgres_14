@@ -30,7 +30,6 @@ interface NewItemDialogProps {
     isOpen: boolean;
     onOpenChange: (isOpen: boolean) => void;
     categories: Category[];
-    selectedHeaderTags: { tag_header: string; tag_package: string }[];
     categoryToPackageMap: Record<string, string>;
     onSubmit: (itemData: Omit<ProcurementRequestItem, "uniqueId" | "status">, isRequest?: boolean) => void;
     fuzzySearch: (input: string) => Items[];
@@ -55,7 +54,6 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
     isOpen,
     onOpenChange,
     categories,
-    selectedHeaderTags,
     categoryToPackageMap,
     onSubmit,
     fuzzySearch,
@@ -85,7 +83,7 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
 
     const resolveWorkPackage = useCallback((categoryValue: string) => {
         return categoryToPackageMap[categoryValue] || '';
-    }, [categoryToPackageMap, selectedHeaderTags]);
+    }, [categoryToPackageMap]);
 
     useEffect(() => {
         if (isOpen) {
@@ -204,16 +202,6 @@ export const NewItemDialog: React.FC<NewItemDialogProps> = ({
                     <AlertDialogTitle>
                         Create or Request New Item
                     </AlertDialogTitle>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                        {selectedHeaderTags.map((tag, idx) => (
-                            <span
-                                key={idx}
-                                className="px-2 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-medium border border-primary/20"
-                            >
-                                {tag.tag_header}
-                            </span>
-                        ))}
-                    </div>
                     <AlertDialogDescription className="mt-2">
                         Fill in the details for the new item. If creation is disabled for the category, it will be added as a request.
                     </AlertDialogDescription>

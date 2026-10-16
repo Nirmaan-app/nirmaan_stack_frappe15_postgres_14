@@ -27,7 +27,7 @@ export const useProcurementRequestData = (): UseProcurementRequestDataResult => 
         !!projectId ? undefined : null,
     );
 
-    // Fetch Work Packages (for WorkPackageSelector)
+    // Fetch Procurement Packages (exposed as wpList)
     const { data: wp_list, isLoading: wpLoading, error: wpError } = useFrappeGetDocList<ProcurementPackages>(
         "Procurement Packages", {
             fields: ["work_package_name", "work_package_image"],

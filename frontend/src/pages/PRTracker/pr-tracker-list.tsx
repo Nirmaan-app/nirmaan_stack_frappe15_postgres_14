@@ -108,7 +108,7 @@ const PRTrackerList: React.FC = () => {
               PR Tracker
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              Track critical PR tag release status across all projects
+              Track which procurement packages each project's PRs cover
             </p>
           </div>
         </div>
@@ -156,10 +156,10 @@ const PRTrackerList: React.FC = () => {
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <ClipboardList className="h-16 w-16 text-gray-300 mb-4" />
           <h3 className="text-lg font-medium text-gray-700 mb-2">
-            No Critical PR Tags Found
+            No PR Packages Found
           </h3>
           <p className="text-sm text-gray-500 max-w-md">
-            No projects have been set up with Critical PR Tags yet.
+            No project has a PR with a procurement package yet.
           </p>
         </div>
       ) : filteredProjects.length === 0 ? (
