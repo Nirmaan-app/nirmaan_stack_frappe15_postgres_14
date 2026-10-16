@@ -28,7 +28,7 @@ import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import SITEURL from "@/constants/siteURL";
 import { attachmentsFromSourceData } from "@/utils/expenseFormat";
 import { getFrappeError } from "@/utils/frappeErrors";
-import { payeeAccountLine } from "@/utils/payees/expensePayee";
+import { PAYEE_RULE, asPayeeRule, noAccountReviewLine, payeeAccountLine } from "@/utils/payees/expensePayee";
 import { bankLine } from "@/utils/payees/payeeForm";
 import type { ExpenseRequest } from "@/types/NirmaanStack/ExpenseRequest";
 
@@ -82,6 +82,7 @@ export const ReviewActionDialog: React.FC<Props> = ({
     const r = enriched && request ? { ...request, ...enriched } : (enriched ?? request);
     const detail = enriched?.detail ?? [];
     const attachments = attachmentsFromSourceData(enriched?.source_data);
+    const noAccountLine = noAccountReviewLine(r?.payee_rule, r?.type ?? "");
 
     // Read-only, and fetched ONLY while the dialog is open -- the reviewer is the control
     // point, so this is where it earns its cost. `undefined` vs `null` as the swrKey is the
@@ -156,8 +157,8 @@ export const ReviewActionDialog: React.FC<Props> = ({
                     </Row>
                     {/* Who gets paid (ADR-0033, #1436): the request's own pay-to account, which
                         approval copies onto the expense as it is. The reviewer can catch a wrong
-                        account before then. */}
-                    {r?.pay_to && (
+                        account before then, or a Required type's missing one (#1466). */}
+                    {r?.pay_to ? (
                         <Row label="Who gets paid">
                             <span className="block font-medium">{r.pay_to.account_name}</span>
                             <span className="block text-xs tabular-nums text-muted-foreground">
@@ -168,6 +169,13 @@ export const ReviewActionDialog: React.FC<Props> = ({
                                     {bankLine(r.pay_to)}
                                 </span>
                             )}
+                        </Row>
+                    ) : noAccountLine && (
+                        <Row label="Who gets paid">
+                            <span className={asPayeeRule(r?.payee_rule) === PAYEE_RULE.REQUIRED
+                                ? "font-medium text-destructive" : "text-muted-foreground"}>
+                                {noAccountLine}
+                            </span>
                         </Row>
                     )}
                     <Row label="Raised by">

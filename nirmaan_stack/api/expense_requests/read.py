@@ -92,6 +92,8 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		                        fields=["name", "source_format", "source_format_enabled"],
 		                        filters={"source_format": ["is", "set"]})
 	}
+	# Each type's *Who gets paid* (#1466), so the review dialog words a missing account by it.
+	payee_rules = dict(frappe.get_all("Expense Type", fields=["name", "payee_rule"], as_list=True))
 
 	# Category and reviewer are DERIVED, never stored — a routing change re-resolves history
 	# consistently instead of leaving rows stamped with a retired branch.
@@ -129,6 +131,7 @@ def get_my_expense_requests(status: str | None = None, limit: int = 200):
 		# The status is amount-dependent since 2026-08-20, and the threshold lives on the
 		# ledger doctypes; a TypeScript copy of it would be free to disagree with `validate`.
 		r["pay_to"] = pay_to_account(r)
+		r["payee_rule"] = payee_rules.get(r["type"]) or NOT_ASKED
 		r["target_doctype"] = target_doctype(frappe._dict(r))
 		r["target_status"] = target_status(frappe._dict(r))
 

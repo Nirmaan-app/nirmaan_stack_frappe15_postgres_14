@@ -46,9 +46,10 @@ PM_PROFILE = "Nirmaan Project Manager Profile"
 #: Reads expenses but may not write them (the doctypes' DocPerm: PMO Executive is read-only).
 PMO_USER = "pye_paidto_pmo@example.com"
 PMO_PROFILE = "Nirmaan PMO Executive Profile"
-#: Pays on "Payment need to paid": Mark as Paid and Export for Payment.
-ACC_USER = "pye_paidto_acc@example.com"
-ACC_PROFILE = "Nirmaan Accountant Profile"
+#: Accounts: the roles the expense Edit dialog shows Who gets paid to (#1465). The Accountant also pays
+#: on "Payment need to paid": Mark as Paid and Export for Payment (#1463).
+ACCOUNTANT_USER = "pye_paidto_acct@example.com"
+ACCOUNTANT_LEAD_USER = "pye_paidto_acct_lead@example.com"
 PAYMENT = "Project Payments"
 PE = "Project Expenses"
 NPE = "Non Project Expenses"
@@ -60,7 +61,8 @@ class TestPaidTo(FrappeTestCase):
         super().setUpClass()
         _make_user(PM_USER, PM_PROFILE, ("Nirmaan Project Manager",))
         _make_user(PMO_USER, PMO_PROFILE, ("Nirmaan PMO Executive",))
-        _make_user(ACC_USER, ACC_PROFILE, ("Nirmaan Accountant",))
+        _make_user(ACCOUNTANT_USER, "Nirmaan Accountant Profile", ("Nirmaan Accountant",))
+        _make_user(ACCOUNTANT_LEAD_USER, "Nirmaan Accountant Lead Profile", ("Nirmaan Accountant Lead",))
         cls.types = {}
         for rule in ("Required", "Optional", "Not asked"):
             name = f"pye_paidto_{rule.replace(' ', '_').lower()}_{frappe.generate_hash(length=5)}"
@@ -75,7 +77,7 @@ class TestPaidTo(FrappeTestCase):
     def tearDownClass(cls):
         frappe.set_user(U)
         scopes = [("Expense Type", name) for name in cls.types.values()]
-        for user in (PM_USER, PMO_USER, ACC_USER):
+        for user in (PM_USER, PMO_USER, ACCOUNTANT_USER, ACCOUNTANT_LEAD_USER):
             scopes += [("Nirmaan Users", user), ("User", user)]
         try:
             delete_each(scopes)
@@ -330,25 +332,25 @@ class TestPaidTo(FrappeTestCase):
         raised_with, vendor_now = self.payees.payee(), self.payees.payee()
         payment = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True)
 
-        switched = self._as(ACC_USER, take_vendor_accounts, names=[payment])
-        self._as(ACC_USER, self._mark_paid, payment=payment)
+        switched = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[payment])
+        self._as(ACCOUNTANT_USER, self._mark_paid, payment=payment)
 
         self.assertEqual(switched, [payment])
         self.assertEqual(self._stored_copy(payment), self._copy_of(vendor_now))
         box = get_pay_to_box(PAYMENT, payment)
         self.assertEqual((box["account"], box["switch_to"], box["paid"]), (self._account(vendor_now), None, True))
         self.assertEqual((box["named_by"]["how"], box["named_by"]["user"], box["named_by"]["on"]),
-                         ("changed", ACC_USER, today()))
+                         ("changed", ACCOUNTANT_USER, today()))
 
     def test_paying_a_payment_with_no_copy_writes_its_vendors_account(self):
         vendor_now = self.payees.payee()
         payment = self._payment(self._vendor(vendor_now), saved=True)
 
-        switched = self._as(ACC_USER, take_vendor_accounts, names=[payment])
+        switched = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[payment])
 
         self.assertEqual(switched, [payment])
         self.assertEqual(self._stored_copy(payment), self._copy_of(vendor_now))
-        self.assertEqual(get_pay_to_box(PAYMENT, payment)["named_by"]["user"], ACC_USER)
+        self.assertEqual(get_pay_to_box(PAYMENT, payment)["named_by"]["user"], ACCOUNTANT_USER)
 
     def test_paying_leaves_a_payment_whose_vendors_account_did_not_change_untouched(self):
         payee = self.payees.payee()
@@ -360,9 +362,9 @@ class TestPaidTo(FrappeTestCase):
         before = {name: (self._stored_copy(name), frappe.db.get_value(PAYMENT, name, "modified"))
                   for name in (unchanged, renamed, nowhere)}
 
-        switched = self._as(ACC_USER, take_vendor_accounts, names=list(before))
+        switched = self._as(ACCOUNTANT_USER, take_vendor_accounts, names=list(before))
         for name in before:
-            self._as(ACC_USER, self._mark_paid, payment=name)
+            self._as(ACCOUNTANT_USER, self._mark_paid, payment=name)
 
         self.assertEqual(switched, [])
         for name, (copy, modified) in before.items():
@@ -379,7 +381,7 @@ class TestPaidTo(FrappeTestCase):
                              saved=True)
 
         with self.assertRaises(frappe.ValidationError):
-            self._as(ACC_USER, take_vendor_accounts, names=[paid])
+            self._as(ACCOUNTANT_USER, take_vendor_accounts, names=[paid])
         self.assertEqual(self._stored_copy(paid), self._copy_of(raised_with))
 
     def test_paying_asks_write_permission_on_the_payment(self):
@@ -487,6 +489,31 @@ class TestPaidTo(FrappeTestCase):
         self.assertEqual(box["account"], self._account(second))
         self.assertEqual(frappe.db.get_value(NPE, expense, "pay_to_account_number"),
                          self._copy_of(second)["pay_to_account_number"])
+
+    def test_accounts_save_the_edit_dialog_and_its_picked_payee_onto_an_approved_expense(self):
+        # The expense Edit dialog (the pencil on "Payment need to paid", #1465) saves its fields the
+        # way the SDK's updateDoc does, then copies the picked Payee through Change account's endpoint.
+        first, picked = self.payees.payee(), self.payees.payee()
+        for doctype in (PE, NPE):
+            for user in (ACCOUNTANT_USER, ACCOUNTANT_LEAD_USER):
+                with self.subTest(doctype=doctype, user=user):
+                    expense = self._expense(doctype, rule="Required", copy_of=first)
+
+                    def save_the_dialog():
+                        doc = frappe.get_doc(doctype, expense)
+                        doc.update({"description": "Shuttering labour, second week", "vendor": ""}
+                                   if doctype == PE else {"description": "Shuttering labour, second week"})
+                        doc.save()
+                        return change_expense_account(doctype=doctype, name=expense, payee=picked)
+
+                    box = self._as(user, save_the_dialog)
+
+                    self.assertEqual(frappe.db.get_value(doctype, expense, list(PAY_TO_FIELDS), as_dict=True),
+                                     self._copy_of(picked))
+                    self.assertEqual(frappe.db.get_value(doctype, expense, "description"),
+                                     "Shuttering labour, second week")
+                    self.assertEqual(box["account"], self._account(picked))
+                    self.assertEqual((box["named_by"]["how"], box["named_by"]["user"]), ("changed", user))
 
     def test_the_endpoints_refuse_a_doctype_that_is_not_paid(self):
         payment = self._payment(self._vendor(), copy_of=self.payees.payee())

@@ -4,6 +4,7 @@ import {
     canChangeExpenseAccount,
     canRemoveExpenseAccount,
     changeAccountRuleLine,
+    editDialogPayTo,
     expenseTitle,
     expenseTypeAside,
     namedByText,
@@ -231,6 +232,24 @@ describe("canChangeExpenseAccount", () => {
         expect(canChangeExpenseAccount("Project Expenses", { ...unpaid, vendor_fixed: true }, true)).toBe(false);
         expect(canChangeExpenseAccount("Project Expenses", unpaid, false)).toBe(false);
         expect(canChangeExpenseAccount("Project Payments", unpaid, true)).toBe(false);
+    });
+});
+
+describe("editDialogPayTo: Who gets paid in the expense Edit dialog", () => {
+    it("offers Accounts Change account's picker on an approved expense with no vendor", () => {
+        expect(editDialogPayTo("Approved", true, false)).toBe("change");
+    });
+
+    it("shows the vendor's account read-only while a vendor is named", () => {
+        expect(editDialogPayTo("Approved", true, true)).toBe("vendor");
+    });
+
+    it("shows nothing before approval, once paid, or to anyone outside Accounts", () => {
+        for (const status of ["Requested", "CEO Pending", "Reconciliation Pending", "Paid", "Rejected"]) {
+            expect(editDialogPayTo(status, true, false)).toBe("none");
+        }
+        expect(editDialogPayTo("Approved", false, false)).toBe("none");
+        expect(editDialogPayTo("Approved", false, true)).toBe("none");
     });
 });
 

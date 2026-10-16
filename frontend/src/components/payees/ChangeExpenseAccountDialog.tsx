@@ -6,12 +6,12 @@
  * The expense keeps a copy, never a link: editing the Payee later changes nothing here.
  *
  * Reuses the request's `PayeePicker` / `usePayeeChoice`, on the Accounts endpoints
- * (`ACCOUNTS_PAYEE_APIS`): Change account is Admin, Accountant and Accountant Lead only. The opener
+ * (`ACCOUNTS_PAYEE_APIS`), and saves through `useChangeExpenseAccount`, as the expense Edit dialogs'
+ * Who gets paid does (#1465): Change account is Admin, Accountant and Accountant Lead only. The opener
  * holds the choice and resets it in the handler that opens this dialog. Which expenses may change is
  * a screen rule (`canChangeExpenseAccount`); the save records who changed it and when.
  */
 
-import { useFrappePostCall } from "frappe-react-sdk";
 import { Loader2 } from "lucide-react";
 
 import {
@@ -30,8 +30,9 @@ import { canRemoveExpenseAccount, changeAccountRuleLine, expenseTitle, expenseTy
 import { sameAccountDetails } from "@/utils/payees/payeeForm";
 import { pickedAccount } from "@/utils/payees/payToChoice";
 
-import { CHANGE_EXPENSE_ACCOUNT_API, type PayToBox } from "./paidToApi";
+import type { PayToBox } from "./paidToApi";
 import { PayeePicker } from "./PayeePicker";
+import { chosenExpensePayee, useChangeExpenseAccount } from "./useChangeExpenseAccount";
 import { DuplicatePayeeError, type PayeeChoice } from "./usePayeeChoice";
 
 interface ChangeExpenseAccountDialogProps {
@@ -48,7 +49,7 @@ interface ChangeExpenseAccountDialogProps {
 export function ChangeExpenseAccountDialog({
     open, onOpenChange, doctype, box, expenseType, choice, onSaved,
 }: ChangeExpenseAccountDialogProps) {
-    const { call, loading } = useFrappePostCall<{ message: PayToBox }>(CHANGE_EXPENSE_ACCOUNT_API);
+    const { change, loading } = useChangeExpenseAccount();
 
     const title = expenseTitle(box.description, expenseType);
     const canRemove = canRemoveExpenseAccount(box.payee_rule, !!box.account);
@@ -56,18 +57,17 @@ export function ChangeExpenseAccountDialog({
 
     const save = async (clear: boolean) => {
         try {
-            const picked = clear ? null : await choice.resolve();
-            // Only a Payee is copied: this dialog never seeds the expense's own account as the pick.
-            if (!clear && picked?.kind !== "payee") return;
-            const res = await call({ doctype, name: box.name, payee: picked?.kind === "payee" ? picked.payee.name : null });
+            const payee = await chosenExpensePayee(choice, clear);
+            if (payee === undefined) return;
+            const next = await change(doctype, box.name, payee);
             toast({
                 title: "Account changed",
-                description: res.message.account
-                    ? `${title} is now paid to ${res.message.account.account_name}.`
+                description: next.account
+                    ? `${title} is now paid to ${next.account.account_name}.`
                     : `${title} has no account now.`,
                 variant: "success",
             });
-            onSaved(res.message);
+            onSaved(next);
             onOpenChange(false);
         } catch (e) {
             const description = e instanceof DuplicatePayeeError ? e.message : getFrappeError(e);
