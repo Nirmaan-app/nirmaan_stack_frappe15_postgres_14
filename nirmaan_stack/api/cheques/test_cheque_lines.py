@@ -8,7 +8,7 @@ Drives the Cheque Tracker's endpoints against the database the way the Add Chequ
 (`save_cheque` with `lines`, `pickers.get_vendor_records`, `pickers.get_eligible_payments`) and reads
 back what a user sees: the Cheque, its status, issue date and lines, each payment's link, mode, cheque
 number, date and status, or the refusal. Approvals after the save go through their real routes (the
-single L1 approve's two calls, the CEO endpoint).
+L1 approve of a cheque's payments, the CEO endpoint).
 
 A Payment cheque pays PO payments only, picked at Requested, CEO Pending or Approved, all at one step.
 It saves Pending; picked Approved payments move on to Reconciliation Pending at once, which issues it.
@@ -27,10 +27,8 @@ from frappe.utils import add_days, flt, nowdate
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.cheques.pickers import get_eligible_payments, get_vendor_records
 from nirmaan_stack.api.cheques.save_cheque import save_cheque
-from nirmaan_stack.api.payments.project_payments import (
-    ceo_approve_payment,
-    move_cheque_payment_to_reconciliation,
-)
+from nirmaan_stack.api.payments.cheque_approval import approve_cheque_payments
+from nirmaan_stack.api.payments.project_payments import ceo_approve_payment
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 from nirmaan_stack.constants.authorized_users import CEO_AUTHORIZED_USER
 
@@ -254,17 +252,12 @@ class TestChequeLines(FrappeTestCase):
         history = [(h.from_status, h.to_status) for h in frappe.get_doc("Cheques", name).status_history]
         self.assertEqual(history, [(None, "Pending"), ("Pending", "Issued")])
 
-    def test_requested_waits_then_the_single_l1_approve_issues_the_cheque(self):
+    def test_requested_waits_then_the_l1_approve_issues_the_cheque(self):
         pay = self._plant("Requested")
-        name = self._save([self._line(pay)])
+        name = self._save([self._line(pay)], amount=20000)
         self.assertEqual((self._status(pay), self._cheque(name)), ("Requested", ("Pending", None)))
 
-        # The browser's single L1 approve: `updateDoc`, then the move endpoint.
-        doc = frappe.get_doc(PAYMENT, pay)
-        doc.update({"status": "Approved", "amount": 20000, "approval_date": nowdate()})
-        doc.save()
-        frappe.db.commit()
-        self.assertEqual(move_cheque_payment_to_reconciliation(pay), {"moved": True})
+        approve_cheque_payments(pay)  # the L1 approve of a cheque payment (#1480)
         self.assertEqual(self._status(pay), RECON)
         self.assertEqual(self._cheque(name), ("Issued", nowdate()))
 
