@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import type { PaidTo } from "@/utils/payees/paidTo";
+
 import {
   canEditQueueRow,
   canHoldQueueRow,
+  canPayQueueRow,
   canRevertQueueRow,
   canUploadInvoiceRow,
   canWorkQueueRows,
@@ -136,5 +139,23 @@ describe("isHeldQueueRow", () => {
     expect(isHeldQueueRow({ on_hold: 0 })).toBe(false);
     expect(isHeldQueueRow({ on_hold: undefined as any })).toBe(false);
     expect(isHeldQueueRow({ on_hold: null as any })).toBe(false);
+  });
+});
+
+describe("canPayQueueRow — which rows of Payment need to paid can be ticked and marked paid (#1464)", () => {
+  const account = { account_name: "ACME TRADERS PVT LTD", account_number: "0050200012345", ifsc: "HDFC0001234" };
+  const paidTo = (over: Partial<PaidTo>): PaidTo =>
+    ({ account: null, missing: null, payee_rule: null, switch_to: null, by_cheque: false, ...over });
+
+  it("lets a payable row and a row kept out of the bank file be paid", () => {
+    expect(canPayQueueRow({ on_hold: 0, expense_type: "", paid_to: paidTo({ account }) })).toBe(true);
+    expect(canPayQueueRow({ on_hold: 0, expense_type: "", paid_to: paidTo({ missing: "payment_has_no_account", by_cheque: true }) })).toBe(true);
+    expect(canPayQueueRow({ on_hold: 0, expense_type: "Travel", paid_to: paidTo({ missing: "expense_has_no_account", payee_rule: "Optional" }) })).toBe(true);
+  });
+
+  it("refuses an Ineligible row and a held one", () => {
+    expect(canPayQueueRow({ on_hold: 0, expense_type: "", paid_to: paidTo({ missing: "payment_has_no_account" }) })).toBe(false);
+    expect(canPayQueueRow({ on_hold: 0, expense_type: "Rent", paid_to: paidTo({ missing: "expense_has_no_account", payee_rule: "Required" }) })).toBe(false);
+    expect(canPayQueueRow({ on_hold: 1, expense_type: "", paid_to: paidTo({ account }) })).toBe(false);
   });
 });

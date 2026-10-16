@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import type { PayToAccount } from "@/types/NirmaanStack/Payee";
+import type { PaidTo } from "@/utils/payees/paidTo";
+
 import { buildBankFile, describeLeftOut, describeSwitched, type BankFileRow } from "./bankUploadFile";
 
 // 2026-10-14 09:30:00.000 local time; Date.now() for it ends in the ten digits the
@@ -7,12 +10,21 @@ import { buildBankFile, describeLeftOut, describeSwitched, type BankFileRow } fr
 const NOW = new Date(2026, 9, 14, 9, 30, 0, 0);
 const STAMP = String(NOW.getTime()).slice(-10);
 
+/** The server's answer for a row paid into its own `account` (`get_paid_to`). */
+const own = (account: PayToAccount): PaidTo => ({ account, missing: null, payee_rule: null, switch_to: null, by_cheque: false });
+/** A PO / WO payment with no account whose vendor has none either. */
+const NO_ACCOUNT_PAYMENT: PaidTo = { account: null, missing: "payment_has_no_account", payee_rule: null, switch_to: null, by_cheque: false };
+/** An expense with no account, of a type with this *Who gets paid*. */
+const noAccountExpensePaidTo = (rule: string): PaidTo =>
+	({ account: null, missing: "expense_has_no_account", payee_rule: rule, switch_to: null, by_cheque: false });
+const ACME = { account_name: "ACME TRADERS PVT LTD", account_number: "0050200012345", ifsc: "HDFC0001234" };
+
 const vendorPayment = (over: Partial<BankFileRow> = {}): BankFileRow => ({
 	kind: "vendor_payment",
 	documentName: "PO/001/26-27",
 	amount: 125000.5,
 	projectLabel: "Tower A",
-	account: { account_name: "ACME TRADERS PVT LTD", account_number: "0050200012345", ifsc: "HDFC0001234" },
+	paidTo: own(ACME),
 	...over,
 });
 
@@ -47,7 +59,7 @@ describe("buildBankFile — Cashfree", () => {
 
 	it("names the beneficiary by the pay-to account's holder name, never the vendor's", () => {
 		const file = buildBankFile(
-			[vendorPayment({ account: { account_name: "SAFETYWALA EQUIPMENTS LLP", account_number: "50200012345", ifsc: "HDFC0001234" } })],
+			[vendorPayment({ paidTo: own({ account_name: "SAFETYWALA EQUIPMENTS LLP", account_number: "50200012345", ifsc: "HDFC0001234" }) })],
 			CASHFREE,
 		);
 
@@ -57,8 +69,8 @@ describe("buildBankFile — Cashfree", () => {
 	it("keeps the holder name as the copy holds it, trimmed, even when it is not a name", () => {
 		const file = buildBankFile(
 			[
-				vendorPayment({ account: { account_name: "  R. Kumar  ", account_number: "1234", ifsc: "SBIN0000001" } }),
-				vendorPayment({ account: { account_name: " 50200012345 ", account_number: "50200012345", ifsc: "HDFC0001234" } }),
+				vendorPayment({ paidTo: own({ account_name: "  R. Kumar  ", account_number: "1234", ifsc: "SBIN0000001" }) }),
+				vendorPayment({ paidTo: own({ account_name: " 50200012345 ", account_number: "50200012345", ifsc: "HDFC0001234" }) }),
 			],
 			CASHFREE,
 		);
@@ -81,7 +93,7 @@ describe("buildBankFile — expenses", () => {
 		documentName: "PE-2026-00841",
 		amount: 25000,
 		projectLabel: "Whitefield Tower B",
-		account: { account_name: "Ramesh Kumar Yadav", account_number: "36147100982211", ifsc: "SBIN0003435" },
+		paidTo: own({ account_name: "Ramesh Kumar Yadav", account_number: "36147100982211", ifsc: "SBIN0003435" }),
 		...over,
 	});
 
@@ -107,8 +119,8 @@ describe("buildBankFile — expenses", () => {
 
 describe("buildBankFile — a PO payment paid into its vendor's current account (#1463)", () => {
 	const vendorNow = { account_name: "ACME TRADERS PVT LTD", account_number: "50100234567812", ifsc: "ICIC0000456" };
-	const changed = vendorPayment({ documentName: "PO/009/26-27", switchTo: vendorNow });
-	const raisedWithNone = vendorPayment({ documentName: "PO/010/26-27", account: undefined, switchTo: vendorNow });
+	const changed = vendorPayment({ documentName: "PO/009/26-27", paidTo: { ...own(ACME), switch_to: vendorNow } });
+	const raisedWithNone = vendorPayment({ documentName: "PO/010/26-27", paidTo: { ...NO_ACCOUNT_PAYMENT, missing: null, switch_to: vendorNow } });
 
 	it("pays a payment whose vendor's account changed into the vendor's current account, in both files", () => {
 		expect(buildBankFile([changed], ICICI).csv.split("\r\n")[1]).toBe(
@@ -150,10 +162,11 @@ describe("buildBankFile — rows left out", () => {
 		projectLabel: "Tower A",
 		description: "Hotel stay for site team\nA/c 1234",
 		expenseType: "Accommodation",
+		paidTo: noAccountExpensePaidTo("Optional"),
 		...over,
 	});
 	const expense = noAccountExpense("PE-2026-00900");
-	const noPayee = (documentName: string) => vendorPayment({ documentName, account: undefined });
+	const noPayee = (documentName: string) => vendorPayment({ documentName, paidTo: NO_ACCOUNT_PAYMENT });
 	const [noPayee2, noPayee3, noPayee4] = ["PO/002/26-27", "PO/003/26-27", "PO/004/26-27"].map(noPayee);
 
 	it("leaves out expenses and vendor payments with no pay-to account of their own, saying why", () => {
@@ -162,10 +175,32 @@ describe("buildBankFile — rows left out", () => {
 
 		expect(file.rows.map((r) => r.REMARK)).toEqual(["PO/001/26-27"]);
 		expect(file.leftOut).toEqual([
-			{ row: expense, reason: "expense_has_no_account" },
-			{ row: noPayee2, reason: "payment_has_no_account" },
-			{ row: noPayee3, reason: "payment_has_no_account" },
-			{ row: noPayee4, reason: "payment_has_no_account" },
+			{ row: expense, reason: "card_or_cash" },
+			{ row: noPayee2, reason: "vendor_has_no_account" },
+			{ row: noPayee3, reason: "vendor_has_no_account" },
+			{ row: noPayee4, reason: "vendor_has_no_account" },
+		]);
+	});
+
+	it("keeps a cheque payment out of the file even with an account, so the vendor is not paid twice (#1464)", () => {
+		const cheque = vendorPayment({ documentName: "PO/011/26-27", paidTo: { ...own(ACME), by_cheque: true } });
+		const chequeNoAccount = vendorPayment({ documentName: "PO/012/26-27", paidTo: { ...NO_ACCOUNT_PAYMENT, by_cheque: true } });
+		const file = buildBankFile([cheque, vendorPayment(), chequeNoAccount], CASHFREE);
+
+		expect(file.rows.map((r) => r.remarks)).toEqual(["Tower A - PO/001/26-27"]);
+		expect(file.leftOut).toEqual([{ row: cheque, reason: "cheque" }, { row: chequeNoAccount, reason: "cheque" }]);
+		expect(describeLeftOut(file.leftOut)).toEqual(["2 payments by cheque (PO/011/26-27; PO/012/26-27)"]);
+	});
+
+	it("keeps an Optional or Not asked expense with no account out as card or cash, and names a Required one apart", () => {
+		const notAsked = noAccountExpense("NPE-2026-00013", { description: "Diesel for generator", amount: 3000, paidTo: noAccountExpensePaidTo("Not asked") });
+		const required = noAccountExpense("NPE-2026-00014", { description: "Site office rent", amount: 40000, paidTo: noAccountExpensePaidTo("Required") });
+		const file = buildBankFile([expense, notAsked, required], ICICI);
+
+		expect(file.leftOut.map((l) => l.reason)).toEqual(["card_or_cash", "card_or_cash", "required_type_has_no_account"]);
+		expect(describeLeftOut(file.leftOut)).toEqual([
+			"2 expenses with no account, paid by card or cash (Hotel stay for site team ₹900; Diesel for generator ₹3,000)",
+			"1 expense with no account that needs one (Site office rent ₹40,000)",
 		]);
 	});
 
@@ -187,14 +222,14 @@ describe("buildBankFile — rows left out", () => {
 		const expense2 = noAccountExpense("NPE-2026-00012", { description: "", expenseType: "Travel", amount: 12500 });
 
 		expect(describeLeftOut(buildBankFile([expense], ICICI).leftOut)).toEqual([
-			"1 expense with no account (Hotel stay for site team ₹900)",
+			"1 expense with no account, paid by card or cash (Hotel stay for site team ₹900)",
 		]);
 		expect(describeLeftOut(buildBankFile([noPayee2], ICICI).leftOut)).toEqual([
-			"1 payment with no account (PO/002/26-27)",
+			"1 payment with no account, whose vendor has none (PO/002/26-27)",
 		]);
 		expect(describeLeftOut(buildBankFile([expense, expense2, ...fourNoPayee], ICICI).leftOut)).toEqual([
-			"2 expenses with no account (Hotel stay for site team ₹900; Travel ₹12,500)",
-			"4 payments with no account (PO/002/26-27; PO/003/26-27; PO/004/26-27; …)",
+			"2 expenses with no account, paid by card or cash (Hotel stay for site team ₹900; Travel ₹12,500)",
+			"4 payments with no account, whose vendor has none (PO/002/26-27; PO/003/26-27; PO/004/26-27; …)",
 		]);
 		expect(describeLeftOut([])).toEqual([]);
 	});
@@ -204,7 +239,7 @@ describe("buildBankFile — rows left out", () => {
 		const bare = noAccountExpense("mpc0t7hd08", { description: undefined, expenseType: undefined });
 
 		expect(describeLeftOut(buildBankFile([long, bare], ICICI).leftOut)).toEqual([
-			"2 expenses with no account (Advance to the shuttering cont… ₹900; Expense ₹900)",
+			"2 expenses with no account, paid by card or cash (Advance to the shuttering cont… ₹900; Expense ₹900)",
 		]);
 	});
 });

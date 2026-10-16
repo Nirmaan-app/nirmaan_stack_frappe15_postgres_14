@@ -13,8 +13,10 @@ WO payment (`Project Payments`) from its vendor's Payee, an expense from the Pay
 or its vendor's. An expense is paid into it. An unpaid PO / WO payment whose vendor's Payee now
 holds another account, or that holds none while its vendor has one, is paid into the vendor's
 account instead (`switch_to`, #1463, ADR-0033 decision 9 revised 2026-10-16): exporting it or
-marking it paid first writes that account onto the payment. A row with no account to pay into
-says why: `PAYMENT_HAS_NO_ACCOUNT` or `EXPENSE_HAS_NO_ACCOUNT`. Every expense carries its type's
+marking it paid first writes that account onto the payment. A PO / WO payment made by cheque
+(`by_cheque`, #1464, ADR-0033 decision 10) never switches: a cheque pays no account, so its copy is
+not where the money went and no account is taken for it; the screens keep it out of the bank file.
+A row with no account to pay into says why: `PAYMENT_HAS_NO_ACCOUNT` or `EXPENSE_HAS_NO_ACCOUNT`. Every expense carries its type's
 *Who gets paid* rule, so the screen can say whether the type needs an account (and Change account
 whether it may be removed).
 
@@ -34,6 +36,7 @@ from __future__ import annotations
 import frappe
 from frappe import _
 
+from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 from nirmaan_stack.services.outflow_import.normalize import normalize_account, normalize_ifsc
 from nirmaan_stack.services.payees.expense_rules import NOT_ASKED
@@ -66,8 +69,9 @@ def assert_paid_to_doctype(doctype: str, allowed=PAID_TO_DOCTYPES) -> None:
 
 
 def paid_to_rows(rows: list[dict]) -> list[dict]:
-    """Who each row is paid to, in order. A row carries `doctype`, `status`, `vendor`, `expense_type`
-    and its pay-to fields. Each answer is `{account, missing, payee_rule, switch_to}`:
+    """Who each row is paid to, in order. A row carries `doctype`, `status`, `vendor`, `expense_type`,
+    `mode_of_payment` and its pay-to fields. Each answer is `{account, missing, payee_rule, switch_to,
+    by_cheque}`:
 
     * `account` -- the row's own copy (`pay_to.pay_to_account`), or None.
     * `missing` -- None, `PAYMENT_HAS_NO_ACCOUNT` (a PO / WO payment with no copy and nothing to
@@ -76,6 +80,8 @@ def paid_to_rows(rows: list[dict]) -> list[dict]:
       None on a PO / WO payment.
     * `switch_to` -- on an unpaid PO / WO payment, its vendor's account now when the payment is paid
       into it instead of `account` (`vendor_account_to_take`, #1463); None on every other row.
+    * `by_cheque` -- a PO / WO payment made by cheque (#1464): it never switches, and the screens keep
+      it out of the bank file. False on an expense.
 
     At most two queries, whatever the row count."""
     rules = _payee_rules({row.get("expense_type") for row in rows if _is_expense(row.get("doctype"))})
@@ -85,7 +91,8 @@ def paid_to_rows(rows: list[dict]) -> list[dict]:
 
 def _answer(row: dict, rules: dict[str, str], accounts_now: dict[str, dict]) -> dict:
     account = pay_to_account(row)
-    answer = {"account": account, "missing": None, "payee_rule": None, "switch_to": None}
+    answer = {"account": account, "missing": None, "payee_rule": None, "switch_to": None,
+              "by_cheque": not _is_expense(row.get("doctype")) and is_cheque(row)}
     if _is_expense(row.get("doctype")):
         answer["payee_rule"] = rules.get(row.get("expense_type")) or NOT_ASKED
         if not account:
@@ -105,10 +112,11 @@ def _is_expense(doctype: str | None) -> bool:
 
 
 def _may_switch(row: dict) -> bool:
-    """A row that may be paid into its vendor's account: an unpaid PO / WO payment with a vendor. A paid
-    one (`rules.PAID_STATUSES`) keeps saying where its money went."""
+    """A row that may be paid into its vendor's account: an unpaid PO / WO payment with a vendor, not
+    made by cheque. A paid one (`rules.PAID_STATUSES`) keeps saying where its money went; a cheque pays
+    no account (#1464)."""
     return (not _is_expense(row.get("doctype")) and bool(row.get("vendor"))
-            and row.get("status") not in PAID_STATUSES)
+            and row.get("status") not in PAID_STATUSES and not is_cheque(row))
 
 
 def vendor_account_to_take(copy: dict | None, vendor_account_now: dict | None) -> dict | None:
@@ -172,10 +180,13 @@ def pay_to_box(doctype: str, name: str) -> dict:
 
 def _row_fields(doctype: str, *extra: str) -> list[str]:
     """What a row's answer is read from: its copy, its status, its vendor where it has one (only `Non
-    Project Expenses` has none), an expense's type and the request it came from."""
+    Project Expenses` has none), an expense's type and the request it came from, a PO / WO payment's
+    Mode of Payment."""
     fields = ["name", "status", *PAY_TO_FIELDS, *extra]
     if _is_expense(doctype):
         fields += ["type", "request_id"]
+    else:
+        fields.append("mode_of_payment")
     if frappe.get_meta(doctype).has_field("vendor"):
         fields.append("vendor")
     return fields
@@ -184,7 +195,8 @@ def _row_fields(doctype: str, *extra: str) -> list[str]:
 def row_facts(doctype: str, row) -> dict:
     """The facts `paid_to_rows` reads, from a stored row (a dict or a Document)."""
     return {"doctype": doctype, "status": row.get("status"), "vendor": row.get("vendor"),
-            "expense_type": row.get("type"), **{field: row.get(field) for field in PAY_TO_FIELDS}}
+            "expense_type": row.get("type"), "mode_of_payment": row.get("mode_of_payment"),
+            **{field: row.get(field) for field in PAY_TO_FIELDS}}
 
 
 def _named_by(doctype, doc, vendor) -> dict | None:

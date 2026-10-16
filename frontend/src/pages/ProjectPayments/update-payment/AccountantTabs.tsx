@@ -68,7 +68,7 @@ import { countLabel, selectionTotal, summarizeSelection } from "../bulkSelection
 import { SelectionTotalPill } from "../components/SelectionTotalPill"
 import { IndianRupee } from "lucide-react"
 import { QueueRowEditDialog } from "../components/QueueRowEditDialog"
-import { canEditQueueRow, canHoldQueueRow, canWorkQueueRows, isHeldQueueRow } from "../config/queueRowActions"
+import { canEditQueueRow, canHoldQueueRow, canPayQueueRow, canWorkQueueRows, isHeldQueueRow } from "../config/queueRowActions"
 import { PAYMENT_HOLD_ROW_CLASSES, PaymentHoldNotice } from "../components/PaymentHoldNotice"
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 import { buildBankFile, describeLeftOut, describeSwitched, type BankFileRow } from "../bankUploadFile";
@@ -261,14 +261,16 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
     );
 
 
-    // ⚠️ SELECTABLE ≠ EXPORTABLE. Every row on this tab can be ticked — rows with no Payee
-    // included — because the ticks also drive bulk Mark as Paid. The bank-transfer CSV
-    // leaves the unpayable ones back out (see exportSelectedToCSV).
+    // ⚠️ SELECTABLE ≠ EXPORTABLE. A row kept out of the bank file (a cheque payment, a card / cash
+    // expense) can be ticked, because the ticks also drive bulk Mark as Paid; the bank-transfer CSV
+    // leaves it back out (see exportSelectedToCSV).
     //
-    // A HELD payment cannot be ticked: the ticks drive bulk Mark as Paid AND the bank payout
-    // file, and a held payment must reach neither. `PaymentHoldNotice` says why.
+    // A HELD payment, and an INELIGIBLE row (nowhere to send its money, #1464), cannot be ticked: the
+    // ticks drive bulk Mark as Paid AND the bank payout file, and neither may reach them.
+    // `PaymentHoldNotice` and the Paid to cell say why. Select-all skips them too (TanStack's
+    // `toggleAllPageRowsSelected` ticks only rows that `getCanSelect`).
     const canPaymentRowBeSelected = useCallback(
-        (row: Row<ApprovalQueueRow>): boolean => tab === "New Payments" && !isHeldQueueRow(row.original),
+        (row: Row<ApprovalQueueRow>): boolean => tab === "New Payments" && canPayQueueRow(row.original),
         [tab]
     );
 
@@ -496,7 +498,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         [tab, data]
     );
 
-    const selectedRows = table.getSelectedRowModel().rows;
+    // Bulk Mark as Paid acts on the ticks on rows that may still be paid: ticks are keyed by row
+    // index, so after a refetch one may sit on a row that has since become held or Ineligible (#1464).
+    const selectedRows = table.getSelectedRowModel().rows.filter((r) => canPayQueueRow(r.original));
     const confirmPaidTotal = useMemo(
         () => selectionTotal(confirmPaidRows ?? []),
         [confirmPaidRows]
@@ -547,8 +551,9 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         }
 
         // ⚠️ THE BANK FILE IS NOT THE SELECTION. `buildBankFile` leaves out every ticked row
-        // that has no account to pay into, and the toast names them: the accountant must
-        // know the file is shorter than their selection. A PO / WO payment whose vendor's account
+        // that has no account to pay into or is paid another way (a cheque, card / cash: #1464), and
+        // the toast names them: the accountant must know the file is shorter than their selection.
+        // A PO / WO payment whose vendor's account
         // changed since it was raised, or that has none, is in the file at the vendor's current
         // account (#1463).
         const recordName = new Map<BankFileRow, string>();
@@ -563,9 +568,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
                     description: payment.against_full,
                     expenseType: payment.expense_type,
                     projectLabel: projectLabelMap.get(payment.project) ?? (payment.project || "Non Project"),
-                    account: paidTo[i]?.account ?? undefined,
-                    missing: paidTo[i]?.missing,
-                    switchTo: paidTo[i]?.switch_to,
+                    paidTo: paidTo[i],
                 };
                 recordName.set(row, payment.name);
                 return row;
