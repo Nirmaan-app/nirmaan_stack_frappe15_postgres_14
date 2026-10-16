@@ -178,3 +178,6 @@ nirmaan_stack.patches.v3_0.backfill_payment_tds_borne_by
 nirmaan_stack.patches.v3_0.move_vendor_bank_details_to_payees
 nirmaan_stack.patches.v3_0.backfill_pay_to_accounts
 nirmaan_stack.patches.v3_0.set_vendor_tds_rate_from_pan
+nirmaan_stack.patches.v3_0.setup_nirmaan_departments #v1
+nirmaan_stack.patches.v3_0.remove_leftover_asset_assignments
+nirmaan_stack.patches.v3_0.add_asset_history_parent_index

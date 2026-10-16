@@ -5,7 +5,8 @@
  * Granular permissions allow different roles to have specific capabilities.
  */
 
-import { PROCUREMENT_PROFILES, isProcurementProfile } from "@/constants/roles";
+import { ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE, PROCUREMENT_PROFILES, isProcurementProfile } from "@/constants/roles";
+import type { AssetCategoryType } from "../assets.constants";
 
 // Roles that can manage ALL aspects of assets (add, edit, delete, assign, categories)
 export const ASSET_ADMIN_ROLES = [
@@ -13,18 +14,33 @@ export const ASSET_ADMIN_ROLES = [
     'Nirmaan PMO Executive Profile',
 ] as const;
 
-// Roles that can manage assets (add, edit, assign) but not all admin functions
-export const ASSET_HR_ROLE = 'Nirmaan HR Executive Profile' as const;
+// Roles that can manage assets (add, edit, assign) but not all admin functions. HR Lead has every asset
+// permission HR Executive has (owner, 2026-10-15).
+export const ASSET_HR_ROLES: readonly string[] = [HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
 
 // Roles that have limited asset management capabilities (add assets, assign/unassign)
 export const ASSET_PROCUREMENT_ROLES = PROCUREMENT_PROFILES;
 
+/**
+ * Roles that can see the asset history (the History tab and the history card on an asset).
+ * Owner, 2026-10-12: "only admin and HR". Mirrors `ASSET_HISTORY_PROFILES` in
+ * `nirmaan_stack/services/role_profiles.py`, which the server enforces.
+ */
+export const ASSET_HISTORY_ROLES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE];
+
+/**
+ * Roles that assign and unassign EVERY asset; procurement does Project assets only (owner, 2026-10-13).
+ * Mirrors `ASSET_ASSIGN_ALL_PROFILES` / `ASSET_ASSIGN_PROJECT_PROFILES` in
+ * `nirmaan_stack/services/role_profiles.py`, which the server enforces -- keep the two in sync.
+ */
+export const ASSET_ASSIGN_ALL_ROLES: readonly string[] = [ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE];
+
 // Combined list of all roles that can access assets module
-export const ASSET_ACCESS_ROLES = [
+export const ASSET_ACCESS_ROLES: readonly string[] = [
     ...ASSET_ADMIN_ROLES,
-    ASSET_HR_ROLE,
+    ...ASSET_HR_ROLES,
     ...ASSET_PROCUREMENT_ROLES,
-] as const;
+];
 
 export interface AssetPermissions {
     /** Can view the Assets module and all lists */
@@ -33,26 +49,41 @@ export interface AssetPermissions {
     canAddAsset: boolean;
     /** Can add new asset categories */
     canAddCategory: boolean;
-    /** Can assign/unassign assets to users */
+    /** Can assign/unassign at least one kind of asset (procurement: Project assets only) */
     canAssignAsset: boolean;
+    /**
+     * Can assign/unassign an asset of this kind. Admin, HR and PMO: any; procurement: Project only,
+     * so an unknown kind (still loading) shows nothing to procurement.
+     */
+    canAssignAssetType: (type: AssetCategoryType | null | undefined) => boolean;
+
     /** Can edit existing assets */
     canEditAsset: boolean;
     /** Can delete assets */
     canDeleteAsset: boolean;
     /** Can edit/delete categories */
     canManageCategories: boolean;
+    /** Can see the asset history (Admin and HR only) */
+    canViewHistory: boolean;
+    /**
+     * Can see and switch a category's "Monthly audit required" (owner, 2026-10-14): Admin only (Admin
+     * profile + Administrator). Mirrors `ASSET_CATEGORY_AUDIT_PROFILES` in services/role_profiles.py.
+     */
+    canSwitchCategoryAudit: boolean;
 }
 
 /**
  * Get granular asset permissions for a user based on their role
  *
  * Permission matrix:
+ * HR = HR Executive and HR Lead.
+ *
  * | Capability        | Admin/PMO | HR | Procurement |
  * |-------------------|-----------|----| ------------|
  * | View Assets       | ✓         | ✓  | ✓           |
  * | Add Asset         | ✓         | ✓  | ✓           |
  * | Add Category      | ✓         | ✓  | ✗           |
- * | Assign/Unassign   | ✓         | ✓  | ✓           |
+ * | Assign/Unassign   | ✓         | ✓  | Project only|
  * | Edit Asset        | ✓         | ✓  | ✗           |
  * | Delete Asset      | ✓         | ✓  | ✗           |
  * | Manage Categories | ✓         | ✓  | ✗           |
@@ -63,7 +94,7 @@ export function getAssetPermissions(
 ): AssetPermissions {
     const isAdmin = userId === 'Administrator';
     const isAdminRole = ASSET_ADMIN_ROLES.includes(role as typeof ASSET_ADMIN_ROLES[number]);
-    const isHRRole = role === ASSET_HR_ROLE;
+    const isHRRole = ASSET_HR_ROLES.includes(role ?? '');
     const isProcurementRole = isProcurementProfile(role);
 
     // Full admin access: Administrator user or Admin/PMO roles
@@ -78,6 +109,8 @@ export function getAssetPermissions(
     // Can manage all (for backward compatibility with existing code)
     const canManageAll = hasFullAccess || hasHRAccess;
 
+    const assignsEveryKind = isAdmin || ASSET_ASSIGN_ALL_ROLES.includes(role ?? '');
+
     return {
         // View: Anyone with asset access can view
         canViewAssets: hasFullAccess || hasHRAccess || hasProcurementAccess,
@@ -88,8 +121,9 @@ export function getAssetPermissions(
         // Add Category: Only admin roles and HR (NOT Procurement)
         canAddCategory: hasFullAccess || hasHRAccess,
 
-        // Assign/Unassign: All roles with asset access can assign
-        canAssignAsset: hasFullAccess || hasHRAccess || hasProcurementAccess,
+        // Assign/Unassign: Admin, HR and PMO any asset; procurement Project assets only
+        canAssignAsset: assignsEveryKind || hasProcurementAccess,
+        canAssignAssetType: (type) => assignsEveryKind || (hasProcurementAccess && type === 'Project'),
 
         // Edit Asset: Only admin roles and HR (NOT Procurement)
         canEditAsset: canManageAll,
@@ -99,6 +133,14 @@ export function getAssetPermissions(
 
         // Manage Categories (edit/delete): Only admin roles and HR
         canManageCategories: canManageAll,
+
+        // Asset history: Admin and HR (Executive + Lead) only -- not PMO, not Procurement
+        canViewHistory: isAdmin || ASSET_HISTORY_ROLES.includes(role ?? ''),
+
+        // No declaration upload for anyone (owner, 2026-10-15): everyone signs their own in the app, Admin too.
+
+        // Monthly asset audit (owner, 2026-10-14)
+        canSwitchCategoryAudit: isAdmin || role === ADMIN_PROFILE,
     };
 }
 

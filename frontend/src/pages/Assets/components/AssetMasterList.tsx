@@ -23,12 +23,14 @@ import {
     AssetCategoryType,
 } from '../assets.constants';
 import { useAssetProjectOptions } from '../hooks/useAssetProjectOptions';
+import { assetDepartmentColumn, departmentFacetOptions } from '../utils/departmentColumn';
 
 interface AssetMaster {
     name: string;
     asset_name: string;
     asset_description: string;
     asset_category: string;
+    department: string | null;
     asset_condition: string;
     asset_serial_number: string;
     asset_value: number;
@@ -131,6 +133,7 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
         asset_name: string;
         current_assignee: string;
         asset_category: string;
+        department: string | null;
         asset_condition: string;
         project: string;
         asset_city: string;
@@ -138,7 +141,7 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
     }>(
         ASSET_MASTER_DOCTYPE,
         {
-            fields: ['name', 'asset_name', 'current_assignee', 'asset_category', 'asset_condition', 'project', 'asset_city', 'asset_state'],
+            fields: ['name', 'asset_name', 'current_assignee', 'asset_category', 'department', 'asset_condition', 'project', 'asset_city', 'asset_state'],
             filters: scopeFilter,
             limit: 0,
         },
@@ -180,6 +183,11 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
             value: cat.name,
         })),
         [categoryList, facetCounts]
+    );
+
+    const departmentOptions = useMemo(
+        () => departmentFacetOptions((facetSource ?? []).map((row) => row.department)),
+        [facetSource]
     );
 
     const conditionOptions = useMemo(() =>
@@ -285,6 +293,7 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
                 exportValue: (row: AssetMaster) => row.asset_category,
             },
         },
+        assetDepartmentColumn<AssetMaster>(),
         {
             accessorKey: 'asset_condition',
             header: ({ column }) => <DataTableColumnHeader column={column} title="Condition" />,
@@ -487,6 +496,10 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
             title: 'Category',
             options: categoryOptions,
         },
+        department: {
+            title: 'Department',
+            options: departmentOptions,
+        },
         asset_condition: {
             title: 'Condition',
             options: conditionOptions,
@@ -500,7 +513,7 @@ const AssetMasterListInner: React.FC<AssetMasterListInnerProps> = ({ assetType, 
             asset_city: { title: 'City', options: cityOptions },
             asset_state: { title: 'State', options: stateOptions },
         } : {}),
-    }), [assetNameOptions, categoryOptions, conditionOptions, assigneeOptions, isProjectTab, projectOptions, cityOptions, stateOptions]);
+    }), [assetNameOptions, categoryOptions, departmentOptions, conditionOptions, assigneeOptions, isProjectTab, projectOptions, cityOptions, stateOptions]);
 
     return (
         <DataTable<AssetMaster>

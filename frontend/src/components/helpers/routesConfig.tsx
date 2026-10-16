@@ -75,6 +75,7 @@ import ReportsContainer from "@/pages/reports/ReportsContainer";
 // import ProcurementOrdersTesting from "@/pages/ProcurementOrders/testing/ProcurementOrdersTesting";
 import ItemsPage from "@/pages/Items/itemsPage";
 import AssetsPage from "@/pages/Assets/AssetsPage";
+import { AssetsRoute } from "@/pages/Assets/AssetsRoute";
 import AllProjectInvocies from "@/pages/ProjectInvoices/AllProjectInvoices";
 import NonProjectExpensesPage from "@/pages/NonProjectExpenses/NonProjectExpensesPage";
 import AllProjectExpensesPage from "@/pages/ProjectExpenses/AllProjectExpenses";
@@ -730,12 +731,20 @@ export const appRoutes: RouteObject[] = [
           },
 
           // --- Assets Section ---
+          // Guarded like the sidebar: the list and category pages need an asset role (AssetsRoute);
+          // one asset's page also lets its current holder in (guarded inside AssetOverview), so an
+          // employee can open their own asset from their profile and sign the declaration.
           {
             path: "asset-management",
             children: [
-              { index: true, element: <AssetsPage /> },
+              {
+                element: <AssetsRoute />,
+                children: [
+                  { index: true, element: <AssetsPage /> },
+                  { path: "category/:categoryId", lazy: () => import("@/pages/Assets/AssetCategoryView") },
+                ],
+              },
               { path: ":assetId", lazy: () => import("@/pages/Assets/AssetOverview") },
-              { path: "category/:categoryId", lazy: () => import("@/pages/Assets/AssetCategoryView") },
             ],
           },
 

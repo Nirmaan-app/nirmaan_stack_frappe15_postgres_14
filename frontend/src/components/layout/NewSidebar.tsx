@@ -304,6 +304,16 @@ export function NewSidebar() {
         },
       ]
       : []),
+    // HR Lead has every asset permission HR Executive has (owner, 2026-10-15), so the Assets link too.
+    ...(role == "Nirmaan HR Lead Profile"
+      ? [
+        {
+          key: "/asset-management",
+          icon: Package,
+          label: "Assets",
+        },
+      ]
+      : []),
     ...(role == "Nirmaan Project Lead Profile" || role == "Nirmaan Accountant Profile" || role == "Nirmaan Accountant Lead Profile" || isProcurementProfile(role) || role == "Nirmaan Project Manager Profile" || role == "Nirmaan Estimates Executive Profile" || role == "Nirmaan Billing Executive Profile"
       ? [
         {

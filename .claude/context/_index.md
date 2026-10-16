@@ -14,6 +14,7 @@ for frontend code, `frontend/CODING_STANDARDS.md`.
 | [domain/procurement.md](domain/procurement.md) | Procurement | **Load-bearing invariants** (PR package = tags not `work_package`, Critical PO Task ↔ PO links, Loss Justification); PR/PO/RFQ/Quotation workflows, PO delivery documents |
 | [domain/service-requests.md](domain/service-requests.md) | Service Requests | Work Orders, finalization, SR remarks |
 | [domain/users.md](domain/users.md) | User Management | Nirmaan Users, permissions, authentication |
+| [domain/assets.md](domain/assets.md) | Assets | **Load-bearing invariants** (no new doctype, append-only history read by role profile, who assigns, the 28th/7th monthly audit, questions only in the frontend, `{"answers": [...]}`); doctypes, backend and frontend maps, tests |
 | [domain/projects.md](domain/projects.md) | Projects | Project status lifecycle, status effects on features |
 | [domain/internal-transfer-memos.md](domain/internal-transfer-memos.md) | Internal Transfer Memos | Inter-project material transfer (ITM) — doctype, state machine, invariants, phase roadmap |
 | [domain/material-test-certificates.md](domain/material-test-certificates.md) | Material Test Certificates | **Load-bearing invariants** (status rule, one line per MTC per PO, profile-based project scope, file kept on delete, PO cascade, index names); doctypes, file map, screens, tests |

@@ -130,6 +130,36 @@ NON_PROJECT_INFLOWS_DELETE_PROFILES = (ADMIN_PROFILE,)
 # Mirrored client-side by `frontend/src/constants/roles.ts::AMOUNT_PAID_MISMATCH_PROFILES`.
 AMOUNT_PAID_MISMATCH_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 
+HR_EXECUTIVE_PROFILE = "Nirmaan HR Executive Profile"
+HR_LEAD_PROFILE = "Nirmaan HR Lead Profile"
+
+# Set or change a person's `Nirmaan Users.department` (owner, 2026-10-12). Many roles have
+# write on Nirmaan Users (their own profile), so the doctype's role rows cannot say this;
+# `NirmaanUsers.validate` enforces it. Mirrored client-side by `DEPARTMENT_EDIT_PROFILES` in
+# `frontend/src/constants/departments.ts` -- keep the two lists in sync.
+DEPARTMENT_EDIT_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+
+# See the asset history -- the cross-asset log (`api/assets/history.get_asset_history`) and the
+# History card on an asset (owner, 2026-10-12: "only admin and HR"). Mirrored client-side by
+# `canViewHistory` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep the two in sync.
+ASSET_HISTORY_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE)
+
+# Assign and unassign assets (owner, 2026-10-13): Admin, HR and PMO handle every asset; procurement
+# handles Project assets only. Nobody else, whatever Roles their profile bundles (System Manager on
+# Project Lead / Design Lead / Estimates carries Asset Management create + delete). HR Lead has every
+# asset permission HR Executive has (owner, 2026-10-15). `services/asset_assign_access.py` enforces it;
+# mirrored client-side by `canAssignAssetType` in `frontend/src/pages/Assets/utils/permissions.ts` -- keep
+# the two in sync.
+ASSET_ASSIGN_ALL_PROFILES = (ADMIN_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE, PMO_EXECUTIVE_PROFILE)
+ASSET_ASSIGN_PROJECT_PROFILES = PROCUREMENT_PROFILES
+
+# Monthly asset audit (owner, 2026-10-14). Switching a category's "Monthly audit required": Admin only (the
+# Categories tab shows the column to Admin alone, owner 2026-10-14). Reading audit rows from the history -- the
+# Asset Audit tab's Fulfilled list -- everyone who sees the Assets lists (`canViewAssets`), on top of
+# ASSET_HISTORY_PROFILES. Mirrored in `frontend/src/pages/Assets/utils/permissions.ts` -- keep in sync.
+ASSET_CATEGORY_AUDIT_PROFILES = (ADMIN_PROFILE,)
+ASSET_AUDIT_VIEW_PROFILES = (ADMIN_PROFILE, PMO_EXECUTIVE_PROFILE, HR_EXECUTIVE_PROFILE, HR_LEAD_PROFILE) + PROCUREMENT_PROFILES
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Resolvers — the ONE way a whitelisted endpoint answers "is this user X?".

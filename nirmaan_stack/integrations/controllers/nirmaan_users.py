@@ -1,5 +1,31 @@
 import frappe
 
+from nirmaan_stack.services.asset_history import DEPARTMENT_SET, add_history
+
+
+def on_update(doc, method):
+    """A person's department set for the first time: the assets they hold that have no department
+    take it, each with a "Department Set" row in its history.
+
+    A later change (someone moving from one department to another) moves nothing: the assets keep
+    their department, and the next assignment asks for a reason. `set_value` skips Asset Master's
+    validate on purpose -- filling an EMPTY department is always allowed there, and nothing is derived
+    from the field.
+    """
+    if not doc.department or not doc.has_value_changed("department"):
+        return
+    before = doc.get_doc_before_save()
+    if before and before.department:
+        return
+
+    for asset in frappe.get_all(
+        "Asset Master",
+        filters=[["current_assignee", "=", doc.name], ["department", "is", "not set"]],
+        pluck="name",
+    ):
+        frappe.db.set_value("Asset Master", asset, "department", doc.department)
+        add_history(asset, DEPARTMENT_SET, assigned_to=doc.name, to_department=doc.department)
+
 
 def on_trash(doc, method):
     """

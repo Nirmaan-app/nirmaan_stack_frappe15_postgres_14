@@ -15,6 +15,7 @@
   "mobile_no",
   "email",
   "role_profile",
+  "department",
   "fcm_token",
   "push_notification"
  ],
@@ -81,15 +82,21 @@
    "fieldname": "push_notification",
    "fieldtype": "Data",
    "label": "Push Notification"
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "options": "Nirmaan Department"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-01-13 21:00:14.744628",
+ "modified": "2026-10-12 17:10:43.160246",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Nirmaan Users",
- "naming_rule": "Expression (old style)",
+ "naming_rule": "Expression",
  "owner": "Administrator",
  "permissions": [
   {
@@ -165,30 +172,30 @@
    "write": 1
   },
   {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
    "role": "Nirmaan Design Lead",
+   "share": 1
+  },
+  {
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "share": 1
-  },
-  {
    "role": "Nirmaan HR Executive",
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
    "share": 1
   },
   {
-   "role": "Nirmaan PMO Executive",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan PMO Executive",
    "share": 1
   },
   {
@@ -242,42 +249,43 @@
    "write": 1
   },
   {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
    "role": "Nirmaan Tendering Lead",
+   "share": 1
+  },
+  {
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "share": 1
-  },
-  {
    "role": "Nirmaan Sales Lead",
+   "share": 1
+  },
+  {
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
-   "share": 1
-  },
-  {
    "role": "Nirmaan Billing Lead",
-   "email": 1,
-   "export": 1,
-   "print": 1,
-   "read": 1,
-   "report": 1,
    "share": 1
   },
   {
-   "role": "Nirmaan HR Lead",
    "email": 1,
    "export": 1,
    "print": 1,
    "read": 1,
    "report": 1,
+   "role": "Nirmaan HR Lead",
    "share": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
