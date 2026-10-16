@@ -75,13 +75,13 @@ import {
   HOD_ACCESS,
   MATERIAL_PROCUREMENT_PROFILES,
   NON_PROJECT_INFLOWS_ACCESS,
-  canManagePayees,
   PROCUREMENT_PROFILES,
   SERVICE_PROCUREMENT_PROFILES,
   canUseProjectBilling,
   isMaterialProcurementProfile,
   isProcurementProfile,
 } from "@/constants/roles";
+import { payeesSidebarPlace } from "@/utils/payees/payeeRoutes";
 
 export function NewSidebar() {
   const [role, setRole] = useState<string | null>(null);
@@ -215,6 +215,7 @@ export function NewSidebar() {
   // Kept as an inline spread rather than a second grouped block so the Admin
   // Options items stay in their existing visual order.
   const isAdminOnly = user_id == "Administrator" || role == "Nirmaan Admin Profile";
+  const payeesPlace = payeesSidebarPlace(role, user_id);
 
   const items = useMemo(() => [
     { key: "/", icon: LayoutGrid, label: "Dashboard" },
@@ -270,6 +271,8 @@ export function NewSidebar() {
                 { key: "/asset-management", label: "Assets" },
                 { key: "/vendors", label: "Vendors" },
                 ...(isAdminOnly ? [{ key: "/customers", label: "Customers" }] : []),
+                // Payees (#1466): the Admin's sits here with the other masters (`payeesSidebarPlace`).
+                ...(payeesPlace === "admin-options" ? [{ key: "/payees", label: "Payees" }] : []),
                 { key: "/packages-settings", label: "Packages Settings" },
                 { key: "/tds-repository", label: "TDS Repository" },
                 { key: "/project-gst", label: "Project GST" },
@@ -654,8 +657,9 @@ export function NewSidebar() {
         },
       ]
       : []),
-    // Payees (spec #1420) -- reads the same constant as the route guard (routesConfig.tsx).
-    ...(canManagePayees(role, user_id)
+    // Payees (spec #1420) for the Accountants; the Admin's is in Admin Options (#1466). Both read the
+    // same constant as the route guard (routesConfig.tsx).
+    ...(payeesPlace === "top-level"
       ? [
         {
           key: '/payees',
@@ -833,7 +837,7 @@ export function NewSidebar() {
 
 
 
-  ], [user_id, role, isAdminOnly]);
+  ], [user_id, role, isAdminOnly, payeesPlace]);
 
   const allKeys = useMemo(() => new Set([
     "projects",
@@ -916,7 +920,7 @@ export function NewSidebar() {
 
 
   const groupMappings = useMemo(() => ({
-    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "packages-settings", "tds-repository", "all-AQs", "project-gst", "upload-boq/templates"],
+    "admin-actions": ["users", "products", "asset-management", "vendors", "customers", "payees", "packages-settings", "tds-repository", "all-AQs", "project-gst", "upload-boq/templates"],
     "/asset-management": ["asset-management"],
     "/projects": ["projects"],
     "/products": ["products"],
@@ -980,6 +984,7 @@ export function NewSidebar() {
       if (selectedKeys === "products") return "/products";
       if (selectedKeys === "vendors") return "/vendors";
       if (selectedKeys === "customers") return "/customers";
+      if (selectedKeys === "payees") return "/payees";
       if (selectedKeys === "asset-management") return "/asset-management";
     }
 

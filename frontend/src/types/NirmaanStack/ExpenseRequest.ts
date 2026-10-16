@@ -51,6 +51,8 @@ export interface ExpenseRequest {
   /** Who gets paid (ADR-0033, #1436): the request's own pay-to account, copied from the Payee picked
    *  or the vendor's Payee; approval copies it onto the Expense as it is. Null when it has none. */
   pay_to?: PayToAccount | null;
+  /** Its type's Who gets paid: Required / Optional / Not asked (`utils/payees/expensePayee`). */
+  payee_rule?: string;
 }
 
 export interface GetMyExpenseRequestsResponse {

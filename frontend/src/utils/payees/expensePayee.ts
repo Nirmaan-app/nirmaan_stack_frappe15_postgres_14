@@ -61,6 +61,19 @@ export const whoGetsPaidHelp = (rule: string | null | undefined, expenseType: st
     }
 };
 
+/** The review dialog's "Who gets paid" row for a request with no account (#1466); null hides the
+ *  row (a Not asked type). */
+export const noAccountReviewLine = (rule: string | null | undefined, expenseType: string): string | null => {
+    switch (asPayeeRule(rule)) {
+        case PAYEE_RULE.REQUIRED:
+            return `No account. ${expenseType} requires one.`;
+        case PAYEE_RULE.OPTIONAL:
+            return `No account (optional for ${expenseType})`;
+        case PAYEE_RULE.NOT_ASKED:
+            return null;
+    }
+};
+
 export interface WhoGetsPaidState {
     rule: string | null | undefined;
     expenseType: string;

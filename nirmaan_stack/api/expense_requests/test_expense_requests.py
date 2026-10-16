@@ -1354,6 +1354,12 @@ class TestExpenseRequestPayee(FrappeTestCase):
 		row = next(r for r in get_my_expense_requests()["requests"] if r["name"] == res["name"])
 		self.assertIsNone(row["pay_to"])
 
+	def test_the_reviewer_reads_the_types_who_gets_paid(self):
+		"""The review dialog words a missing account by the type's rule (#1466)."""
+		res = self._raise(self._type("Required"), payee=self.payees.payee())
+		row = next(r for r in get_my_expense_requests()["requests"] if r["name"] == res["name"])
+		self.assertEqual(row["payee_rule"], "Required")
+
 	def test_the_catalog_says_who_gets_paid_for_each_type(self):
 		typ = self._type("Optional")
 		routing.clear_cache()
