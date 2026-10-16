@@ -54,6 +54,7 @@ __all__ = [
     "amount_below_links_refusal",
     "bulk_id_of",
     "delete_while_linked_refusal",
+    "linked_lines_refusal",
     "derive_expense_status",
     "lines_fit",
     "linked_totals_join",
@@ -235,12 +236,20 @@ def delete_while_linked_refusal(name: str, links: ExpenseLinks) -> str | None:
     """
     if not links.line_count:
         return None
-    verb = "is" if links.line_count == 1 else "are"
-    them = "it" if links.line_count == 1 else "them"
+    return linked_lines_refusal(name, links.line_count, links.linked_total)
+
+
+def linked_lines_refusal(name: str, count: int, total, where: str | None = None) -> str:
+    """The ONE sentence a record is refused a delete in while bank lines settle it: rule 3 here, and
+    `settled_targets.delete_while_settled_refusal` for every other doctype a bank line settles
+    (ADR-0022 Amendment G), which passes `where` -- "import OFR-…, 12-Oct-2026" -- to name the lines.
+    """
+    verb = "is" if count == 1 else "are"
+    them = "it" if count == 1 else "them"
+    where = f" ({where})" if where else ""
     return (
-        f"{name} cannot be deleted: {_bank_lines(links.line_count)} totalling "
-        f"{rupees(links.linked_total)} {verb} linked to it. Take {them} off with Unreconcile on "
-        "Bulk Import Transactions first."
+        f"{name} cannot be deleted: {_bank_lines(count)} totalling {rupees(total)}{where} {verb} "
+        f"linked to it. Take {them} off with Unreconcile on Bulk Import Transactions first."
     )
 
 

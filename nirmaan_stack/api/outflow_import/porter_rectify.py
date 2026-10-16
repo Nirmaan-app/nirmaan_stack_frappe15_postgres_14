@@ -31,8 +31,8 @@ it would delete the edit. Rectify carries the Expense over (a Paid Expense's mon
 cannot change in the app), so the only edit it could lose is the description -- and a description that
 differs from the generated text is kept (`porter_wording.rectified_description`).
 
-⚠️ STAMPED BEFORE THE DELETE, as in Unreconcile: the leg's Dynamic Link is validated on its save, and the
-bank-links rule refuses to delete an Expense a Settled match still points at.
+⚠️ STAMPED BEFORE THE DELETE, as in Unreconcile: the bank-links rule refuses to delete an Expense a Settled
+match still points at (ADR-0022 Amendment G).
 
 ⚠️ THE PORTER ORDER NEVER CHANGES. The Expense owns the `porter_order` link, so the replacement points at
 the same order, and the earlier-imports placement signal (#1448), which follows that link, reads the

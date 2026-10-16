@@ -32,8 +32,8 @@ each other instead of deadlocking. Before #1271 the reversal took no row lock at
 commit for the same reason: "nothing was saved" is false after it.
 
 ⚠️ EACH LEG IS STAMPED REVERSED BEFORE ITS VERDICT IS CARRIED OUT (#1278). A record the import created
-is DELETED, and the leg's save validates its Dynamic Link to the target -- stamped after the delete,
-it would refuse a link to a record that is gone. Both happen in the one savepoint either way.
+is DELETED, and its `on_trash` refuses while a LIVE leg names it (ADR-0022 Amendment G) -- stamped
+after the delete, the leg would make the undo refuse itself. Both happen in the one savepoint either way.
 """
 
 from typing import NamedTuple
@@ -280,7 +280,7 @@ def unreconcile_line(row: str, legs, reason: str, actor: str, *, bulk_of: int | 
             # in the last unreconcile" as the legs sharing the latest `reversed_at`.
             reversed_at = frappe.utils.now_datetime()
             for leg, verdict in zip(requested, verdicts):
-                # Stamp FIRST -- see the module docstring (a deleted target fails the link check).
+                # Stamp FIRST -- see the module docstring (a live leg refuses its target's delete).
                 stamp_reversed(leg.name, actor, reason, reversed_at)
                 carried.append(_carry_out(verdict, leg, statement, actor, reason))
             # #1276: vendor credit, CEO Hold, latest payment date and the statement `File` row,

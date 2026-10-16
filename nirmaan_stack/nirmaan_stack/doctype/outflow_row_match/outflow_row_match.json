@@ -72,12 +72,11 @@
    "reqd": 1
   },
   {
-   "description": "The matched record.",
+   "description": "The matched record's name, as text (ADR-0022 Amendment G): a Reversed match record never blocks deleting it, and may name a record that no longer exists. A live one blocks the delete through the target's own on_trash check.",
    "fieldname": "target_name",
-   "fieldtype": "Dynamic Link",
+   "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Target",
-   "options": "target_doctype",
    "reqd": 1
   },
   {
