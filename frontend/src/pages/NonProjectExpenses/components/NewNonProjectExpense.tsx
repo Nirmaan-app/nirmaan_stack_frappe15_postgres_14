@@ -3,9 +3,9 @@
 // Add Expense -> Non-Project Expense: records a Direct Expense (spec #1470 ticket #1471). It names who
 // gets paid the way an Expense Request does: the type's rule (`payee_rule`) shows the "Who gets paid"
 // section (Required / Optional; Not asked hides it), a Required type cannot be saved without an
-// account (`whoGetsPaidProblem`, a screen rule), and the Payee picked or added is copied into the
-// expense's pay-to account by the server in the same save
-// (`api/expenses/direct_expense.create_direct_expense`).
+// account (`utils/payees/expensePayee.whoGetsPaidView`, a screen rule), and the Payee picked or
+// added is copied into the expense's pay-to account by the server in the same save
+// (`components/payees/useCreateDirectExpense`, `api/expenses/direct_expense.create_direct_expense`).
 
 import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
 import {
@@ -56,13 +56,10 @@ import { parseNumber } from "@/utils/parseNumber";
 import { getExpenseCreatedToast, getExpenseSubmitLabel } from "@/utils/expenseApproval";
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getNonProjectExpenseTypeListOptions } from "@/config/queryKeys";
-import { getFrappeError } from "@/utils/frappeErrors";
-import { DuplicatePayeeError, usePayeeChoice } from "@/components/payees/usePayeeChoice";
-import { asksWhoGetsPaid, whoGetsPaidProblem } from "@/utils/payees/expensePayee";
-import { payToSave } from "@/utils/payees/payToChoice";
+import { directExpenseErrorToast, useCreateDirectExpense } from "@/components/payees/useCreateDirectExpense";
+import { whoGetsPaidView } from "@/utils/payees/expensePayee";
 import WhoGetsPaidSection from "@/pages/ExpenseRequests/components/WhoGetsPaidSection";
 
-const CREATE_DIRECT_EXPENSE_API = "nirmaan_stack.api.expenses.direct_expense.create_direct_expense";
 const DOCTYPE = "Non Project Expenses";
 
 interface NewExpenseFormState {
@@ -124,10 +121,9 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
     const [paymentStage, setPaymentStage] = useState<"upload" | "form">("upload");
     const extractionSessionRef = useRef(0);
 
-    // Who gets paid: an existing Payee, or a new one added on save (`usePayeeChoice`, the request's).
-    const payeeChoice = usePayeeChoice();
-    const { call: createDirectExpense, loading: createLoading } =
-        useFrappePostCall<{ message: { name: string; status: string } }>(CREATE_DIRECT_EXPENSE_API);
+    // Who gets paid: an existing Payee, or a new one added on save; saved with the expense.
+    const { payeeChoice, create: createDirectExpense, loading: createLoading, changeType } =
+        useCreateDirectExpense(DOCTYPE);
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
     const { call: extractPaymentFields } = useFrappePostCall(
         "nirmaan_stack.api.payment_autofill.extract_payment_fields"
@@ -240,29 +236,27 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
     // Changing the type re-applies its rule: a pick made under one type is not carried to another.
     const handleExpenseTypeSelect = useCallback((currentValue: string) => {
         const next = currentValue === formState.type ? "" : currentValue;
-        if (next !== formState.type) payeeChoice.reset();
+        changeType(formState.type, next);
         setFormState(prev => ({ ...prev, type: next }));
         setExpenseTypePopoverOpen(false);
         if (formErrors.type && currentValue) {
             setFormErrors(prev => ({ ...prev, type: undefined }));
         }
-    }, [formState.type, formErrors.type, payeeChoice.reset]);
+    }, [formState.type, formErrors.type, changeType]);
 
     // Who gets paid, by the type's rule. A Non-Project Expense has no vendor, so it is pick / add only.
     const selectedType = expenseTypesData?.find(et => et.name === formState.type);
     const selectedTypeLabel = selectedType?.expense_name ?? formState.type;
     const payeeRule = selectedType?.payee_rule ?? "";
-    const asksPayee = !!selectedType && asksWhoGetsPaid(payeeRule);
-    const payeeProblem = asksPayee
-        ? whoGetsPaidProblem({
-            rule: payeeRule,
-            expenseType: selectedTypeLabel,
-            vendor: null,
-            vendorHasAccount: false,
-            hasChoice: payeeChoice.hasChoice,
-        })
-        : null;
-    const payeeReady = !asksPayee || (!payeeProblem && !payeeChoice.problem && !payeeChoice.adding);
+    const whoGetsPaid = whoGetsPaidView({
+        rule: payeeRule,
+        expenseType: selectedTypeLabel,
+        typeChosen: !!selectedType,
+        vendor: null,
+        vendorHasAccount: false,
+        vendorAccountLoading: false,
+        choice: payeeChoice,
+    });
 
 
     const handleAttachmentError = useCallback(({ message }: { type: "size" | "type", message: string }) => {
@@ -299,60 +293,53 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
             return;
         }
 
-        let paymentAttachmentUrl: string | undefined = undefined;
-        let invoiceAttachmentUrl: string | undefined = undefined;
-
         try {
-            // Who gets paid, resolved FIRST: new payee details are added now (a duplicate stops here,
-            // before any upload, with the Payee to pick shown in the section). A Not asked type sends none.
-            const payTo = asksPayee ? payToSave(await payeeChoice.resolve()) : {};
-
-            // Payment attachment: reuse the upload performed during autofill if
-            // available; otherwise fall back to the original upload-on-submit
-            // (which is also the path used for unsupported file types).
-            if (recordPaymentDetails) {
-                if (uploadedPaymentUrl) {
-                    paymentAttachmentUrl = uploadedPaymentUrl;
-                } else if (paymentAttachmentFile) {
-                    const uploadedFile = await upload(paymentAttachmentFile, { doctype: "Non Project Expenses", isPrivate: true, fieldname: "payment_attachment" });
-                    paymentAttachmentUrl = uploadedFile.file_url;
+            // Who gets paid is resolved FIRST: new payee details are added before any upload (a
+            // duplicate stops here, with the Payee to pick shown in the section). A Not asked type
+            // sends none. The expense and its pay-to account are saved together on the server.
+            const created = await createDirectExpense(whoGetsPaid.sendsPayee, async () => {
+                let paymentAttachmentUrl: string | undefined = undefined;
+                let invoiceAttachmentUrl: string | undefined = undefined;
+                // Payment attachment: reuse the upload performed during autofill if
+                // available; otherwise fall back to the original upload-on-submit
+                // (which is also the path used for unsupported file types).
+                if (recordPaymentDetails) {
+                    if (uploadedPaymentUrl) {
+                        paymentAttachmentUrl = uploadedPaymentUrl;
+                    } else if (paymentAttachmentFile) {
+                        const uploadedFile = await upload(paymentAttachmentFile, { doctype: "Non Project Expenses", isPrivate: true, fieldname: "payment_attachment" });
+                        paymentAttachmentUrl = uploadedFile.file_url;
+                    }
                 }
-            }
-            if (recordInvoiceDetails && invoiceAttachmentFile) {
-                const uploadedFile = await upload(invoiceAttachmentFile, { doctype: "Non Project Expenses", isPrivate: true, fieldname: "invoice_attachment" });
-                invoiceAttachmentUrl = uploadedFile.file_url;
-            }
+                if (recordInvoiceDetails && invoiceAttachmentFile) {
+                    const uploadedFile = await upload(invoiceAttachmentFile, { doctype: "Non Project Expenses", isPrivate: true, fieldname: "invoice_attachment" });
+                    invoiceAttachmentUrl = uploadedFile.file_url;
+                }
 
-            const docToCreate: Partial<NonProjectExpensesType> = {
-                type: formState.type,
-                description: formState.description.trim(),
-                comment: formState.comment.trim() || undefined,
-                amount: parseNumber(formState.amount),
-                // No status: the doctype's own `validate` routes it (auto-approval, the Raiser's own step).
-                ...(recordPaymentDetails && { payment_date: formState.payment_date, payment_ref: formState.payment_ref.trim() || undefined, payment_attachment: paymentAttachmentUrl }),
-                ...(recordInvoiceDetails && { invoice_date: formState.invoice_date, invoice_ref: formState.invoice_ref.trim() || undefined, invoice_attachment: invoiceAttachmentUrl }),
-            };
-
-            // The expense and its pay-to account are saved together on the server.
-            const res = await createDirectExpense({ doctype: DOCTYPE, expense: docToCreate, ...payTo });
-            const created = res?.message;
+                const docToCreate: Partial<NonProjectExpensesType> = {
+                    type: formState.type,
+                    description: formState.description.trim(),
+                    comment: formState.comment.trim() || undefined,
+                    amount: parseNumber(formState.amount),
+                    // No status: the doctype's own `validate` routes it (auto-approval, the Raiser's own step).
+                    ...(recordPaymentDetails && { payment_date: formState.payment_date, payment_ref: formState.payment_ref.trim() || undefined, payment_attachment: paymentAttachmentUrl }),
+                    ...(recordInvoiceDetails && { invoice_date: formState.invoice_date, invoice_ref: formState.invoice_ref.trim() || undefined, invoice_attachment: invoiceAttachmentUrl }),
+                };
+                return docToCreate;
+            });
             // Name the path the expense took: an auto-approved one never reaches an
             // approver, and the server's returned status is the authority on that.
             toast({ ...getExpenseCreatedToast(created?.status, formState.amount), variant: "success" });
             refetchList?.();
             closeDialogAndReset();
-        } catch (error: any) {
-            if (error instanceof DuplicatePayeeError) {
-                toast({ title: "This account is already a payee", description: error.message, variant: "destructive" });
-                return;
-            }
+        } catch (error: unknown) {
             console.error("Error adding non-project expense:", error);
-            toast({ title: "Failed!", description: getFrappeError(error) || "Failed to add expense.", variant: "destructive" });
+            toast(directExpenseErrorToast(error, "Failed!", "Failed to add expense."));
         }
     }, [
         createDirectExpense, formState, validateForm, toast, refetchList, upload,
         recordPaymentDetails, paymentAttachmentFile, uploadedPaymentUrl, recordInvoiceDetails, invoiceAttachmentFile,
-        asksPayee, payeeChoice.resolve
+        whoGetsPaid.sendsPayee
     ]);
 
     const closeDialogAndReset = useCallback(() => {
@@ -391,12 +378,11 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
             setIsAutofilling(false);
             setUploadedPaymentUrl(null);
             setPaymentStage("upload");
-            payeeChoice.reset();
         }
-    }, [newNonProjectExpenseDialog]);   // eslint-disable-line react-hooks/exhaustive-deps
+    }, [newNonProjectExpenseDialog]);
 
     const isLoadingOverall = createLoading || uploadLoading || expenseTypesLoading;
-    const isSubmitDisabled = isLoadingOverall || isAutofilling || !payeeReady || !formState.type || !formState.description.trim() || !formState.amount || (recordPaymentDetails && (!formState.payment_date || !formState.invoice_date)) || (recordInvoiceDetails && !formState.invoice_date) || (recordInvoiceDetails && !!invoiceAttachmentFile && !formState.invoice_ref.trim());
+    const isSubmitDisabled = isLoadingOverall || isAutofilling || !whoGetsPaid.ready || !formState.type || !formState.description.trim() || !formState.amount || (recordPaymentDetails && (!formState.payment_date || !formState.invoice_date)) || (recordInvoiceDetails && !formState.invoice_date) || (recordInvoiceDetails && !!invoiceAttachmentFile && !formState.invoice_ref.trim());
 
     const selectedExpenseTypeLabel = expenseTypeOptionsForCommand.find(option => option.value === formState.type)?.label || "Select Expense Type...";
     // The submit label names the path this expense will actually take: a positive amount
@@ -483,7 +469,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
                         </p>
                     </div>
 
-                    {asksPayee && (
+                    {whoGetsPaid.shows && (
                         <WhoGetsPaidSection
                             rule={payeeRule}
                             expenseType={selectedTypeLabel}
@@ -492,7 +478,7 @@ export const NewNonProjectExpense: React.FC<NewNonProjectExpenseProps> = ({ refe
                             vendorPayTo={null}
                             vendorPayToLoading={false}
                             choice={payeeChoice}
-                            problem={payeeProblem}
+                            problem={whoGetsPaid.problem}
                             disabled={isLoadingOverall}
                         />
                     )}

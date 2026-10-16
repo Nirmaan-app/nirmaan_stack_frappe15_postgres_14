@@ -25,7 +25,7 @@ from nirmaan_stack.services import expense_request_routing as routing
 from nirmaan_stack.services.payees.expense_payee import change_expense_account
 
 PM_USER = "exr_test_pyepm@example.com"
-NOBODY = "exr_test_pyenobody2@example.com"
+NOBODY = "exr_test_pyenobody@example.com"
 # Can record an expense (Frappe create on both expense doctypes) but raise no request: no role profile.
 PROCUREMENT = "exr_test_pyeproc@example.com"
 # Holds the PMO Executive role alone (no System Manager, no role profile): may record an expense (#1475).

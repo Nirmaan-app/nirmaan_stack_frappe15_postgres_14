@@ -68,7 +68,7 @@ export const canRaiserEditQueueRow = (
   EXPENSE_DOCTYPES.includes(row.doctype) &&
   raiserMayChangeAccount({ status: row.status, owner: row.raised_by, request_id: row.request_id }, user);
 
-export const canRevertQueueRow =(row: QueueRowLike, role?: string | null): boolean =>
+export const canRevertQueueRow = (row: QueueRowLike, role?: string | null): boolean =>
   canWorkQueueRows(role) &&
   row.doctype === "Project Payments" &&
   statusOf(row) === APPROVAL_STATUS.RECONCILIATION_PENDING;

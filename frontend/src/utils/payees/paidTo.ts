@@ -9,15 +9,13 @@
  * Record Payment's "Pay ₹X to" box; and decide from it whether a row can be paid (`rowEligibility`).
  */
 
+import { PAYMENT_STATUS } from "@/constants/paymentStatus";
 import type { PayToAccount } from "@/types/NirmaanStack/Payee";
 import { formatDate } from "@/utils/FormatDate";
 import { SETTLED_STATUSES, STATUS_APPROVED } from "@/utils/settlement";
 import { toastList } from "@/utils/toastList";
 
 import { PAYEE_RULE, asPayeeRule } from "./expensePayee";
-
-/** Raised and waiting for its first approval. */
-const STATUS_REQUESTED = "Requested";
 
 /** A PO / Work Order payment (`paid_to.PAYMENT_DOCTYPE`); every other row the accountant pays is an expense. */
 export const PAYMENT_DOCTYPE = "Project Payments";
@@ -380,7 +378,7 @@ export type EditDialogPayTo = "none" | "vendor" | "change";
 
 /** What decides who may change an expense's account: its status, who raised it (`owner`) and the
  *  Expense Request behind it (`request_id`, blank on a Direct Expense). */
-export interface ExpenseRaise {
+export interface RaisedExpense {
     status?: string | null;
     owner?: string | null;
     request_id?: string | null;
@@ -392,11 +390,11 @@ export interface ExpenseRaise {
  * is not a Direct Expense: its raiser changes the account on the request. A screen rule: the server
  * asks only Frappe's write permission.
  */
-export const raiserMayChangeAccount = (expense: ExpenseRaise, user: string | null | undefined): boolean =>
+export const raiserMayChangeAccount = (expense: RaisedExpense, user: string | null | undefined): boolean =>
     !!user
     && expense.owner === user
     && !(expense.request_id || "").trim()
-    && (expense.status || "").trim() === STATUS_REQUESTED;
+    && (expense.status || "").trim() === PAYMENT_STATUS.REQUESTED;
 
 /**
  * The expense Edit dialog's *Who gets paid* (a screen rule, ADR-0033 decision 9): Accounts set an
@@ -406,7 +404,7 @@ export const raiserMayChangeAccount = (expense: ExpenseRaise, user: string | nul
  * Vendor)". `viewer.isAccounts` is `canManagePayees`.
  */
 export const editDialogPayTo = (
-    expense: ExpenseRaise,
+    expense: RaisedExpense,
     viewer: { user: string | null | undefined; isAccounts: boolean },
     vendorNamed: boolean,
 ): EditDialogPayTo => {

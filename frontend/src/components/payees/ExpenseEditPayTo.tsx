@@ -31,7 +31,7 @@ import {
     changeAccountRuleLine,
     editDialogPayTo,
     type EditDialogPayTo,
-    type ExpenseRaise,
+    type RaisedExpense,
 } from "@/utils/payees/paidTo";
 import { sameAccountDetails } from "@/utils/payees/payeeForm";
 import { pickedAccount } from "@/utils/payees/payToChoice";
@@ -48,7 +48,7 @@ interface ExpenseEditPayToArgs {
     doctype: "Project Expenses" | "Non Project Expenses";
     name: string;
     /** The stored expense: its status, its raiser and the Expense Request behind it, if any. */
-    expense: ExpenseRaise;
+    expense: RaisedExpense;
     /** The form's expense type's *Who gets paid* (Required / Optional / Not asked); undefined while
      *  the types are loading, when the stored type's rule stands. */
     rule: string | null | undefined;

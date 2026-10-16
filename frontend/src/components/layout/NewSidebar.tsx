@@ -73,6 +73,7 @@ import { Separator } from "../ui/separator";
 import { useCountsBridge } from "@/hooks/useSidebarCounts";
 import {
   HOD_ACCESS,
+  HR_LEAD_PROFILE,
   MATERIAL_PROCUREMENT_PROFILES,
   NON_PROJECT_INFLOWS_ACCESS,
   PROCUREMENT_PROFILES,
@@ -573,7 +574,7 @@ export function NewSidebar() {
     // Pending, Payment Done, Payments Pending, Payment By Me, and All Payments since #1476) --
     // `paymentsTabSet` holds it to them. HR LEAD added #1476 (spec #1470): the same view-only
     // tabs, landing on "Payment Raised By Me", and no Add Expense (it holds no write right).
-    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan HR Executive Profile", "Nirmaan HR Lead Profile", ...PROCUREMENT_PROFILES].includes(role as string)
+    ...(user_id == "Administrator" || ["Nirmaan Accountant Profile", "Nirmaan Accountant Lead Profile", "Nirmaan Admin Profile", "Nirmaan PMO Executive Profile", "Nirmaan Project Lead Profile", "Nirmaan HR Executive Profile", HR_LEAD_PROFILE, ...PROCUREMENT_PROFILES].includes(role as string)
       ? [
         {
           key: '/project-payments',

@@ -70,8 +70,9 @@ describe("roles", () => {
 
 describe("canRaiserEditQueueRow — the raiser's pencil on Payment Raised By Me (#1472)", () => {
   const ME = "procurement@nirmaan.app";
-  const own = (doctype: string, status: string, request_id = "") =>
-    ({ doctype, status, raised_by: ME, request_id }) as any;
+  type RaiserRow = Parameters<typeof canRaiserEditQueueRow>[0];
+  const own = (doctype: RaiserRow["doctype"], status: string, request_id = ""): RaiserRow =>
+    ({ doctype, status, raised_by: ME, request_id });
 
   it("shows on the viewer's own Direct Expense, either ledger, only while it is Requested", () => {
     for (const ledger of LEDGERS) {

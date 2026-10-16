@@ -5,7 +5,8 @@
 // picked shows that Vendor's account read-only (`useVendorAccount`, the one vendor-account SWR key),
 // on a Not asked type too; "Others (No Vendor)" picks or adds a Payee when the type asks (Required /
 // Optional). A Required type cannot be saved without an account (a screen rule). The server saves the
-// expense and copies the account in one step (`api/expenses/direct_expense.create_direct_expense`;
+// expense and copies the account in one step (`components/payees/useCreateDirectExpense`,
+// `api/expenses/direct_expense.create_direct_expense`;
 // with a vendor named it copies the vendor's Payee, so no Payee is sent).
 
 import React, { useCallback, useEffect, useState, useMemo, useRef } from "react";
@@ -48,14 +49,10 @@ import { getExpenseCreatedToast, getExpenseSubmitLabel } from "@/utils/expenseAp
 import { useDialogStore } from "@/zustand/useDialogStore";
 import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys";
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
-import { getFrappeError } from "@/utils/frappeErrors";
-import { DuplicatePayeeError, usePayeeChoice } from "@/components/payees/usePayeeChoice";
+import { directExpenseErrorToast, useCreateDirectExpense } from "@/components/payees/useCreateDirectExpense";
 import { useVendorAccount } from "@/components/payees/vendorPayeeAccount";
 import { whoGetsPaidView } from "@/utils/payees/expensePayee";
-import { payToSave } from "@/utils/payees/payToChoice";
 import WhoGetsPaidSection from "@/pages/ExpenseRequests/components/WhoGetsPaidSection";
-
-const CREATE_DIRECT_EXPENSE_API = "nirmaan_stack.api.expenses.direct_expense.create_direct_expense";
 
 interface NewProjectExpenseDialogProps {
     projectId?: string; // Optional: If provided, this dialog is for a specific project
@@ -138,10 +135,9 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
     const expenseTypeFetchOptions = useMemo(() => getProjectExpenseTypeListOptions(), []);
     const { data: expenseTypesData, isLoading: expenseTypesLoading } = useFrappeGetDocList<ExpenseType>("Expense Type", expenseTypeFetchOptions as any, queryKeys.expenseTypes.list(expenseTypeFetchOptions));
 
-    // Who gets paid with "Others (No Vendor)": an existing Payee, or a new one added on save.
-    const payeeChoice = usePayeeChoice();
-    const { call: createDirectExpense, loading } =
-        useFrappePostCall<{ message: { name: string; status: string } }>(CREATE_DIRECT_EXPENSE_API);
+    // Who gets paid with "Others (No Vendor)": an existing Payee, or a new one added on save; saved
+    // with the expense.
+    const { payeeChoice, create: createDirectExpense, loading, changeType } = useCreateDirectExpense(DOCTYPE);
     const { updateDoc } = useFrappeUpdateDoc();
     const { upload, loading: uploadLoading } = useFrappeFileUpload();
     const { call: extractInvoiceFields } = useFrappePostCall("nirmaan_stack.api.invoice_autofill.extract_invoice_fields");
@@ -174,7 +170,10 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
         choice: payeeChoice,
     });
 
-    const handleDialogClose = () => setNewProjectExpenseDialog(false);
+    const handleDialogClose = () => {
+        payeeChoice.reset();
+        setNewProjectExpenseDialog(false);
+    };
 
     // --- Invoice autofill: upload → extract → prefill ---
     const runInvoiceAutofill = useCallback(async (file: File) => {
@@ -286,37 +285,35 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
             return;
         }
         if (!whoGetsPaid.ready) return;
+        let invoiceAttachmentUrl: string | undefined = uploadedInvoiceUrl || undefined;
         try {
-            // Who gets paid, resolved FIRST: new payee details are added now (a duplicate stops here,
-            // before any upload, with the Payee to pick shown in the section). With a vendor named, or
-            // on a Not asked type, none is sent: the server copies the vendor's Payee.
-            const payTo = whoGetsPaid.sendsPayee ? payToSave(await payeeChoice.resolve()) : {};
+            // Who gets paid is resolved FIRST: new payee details are added before any upload (a
+            // duplicate stops here, with the Payee to pick shown in the section). With a vendor named,
+            // or on a Not asked type, none is sent: the server copies the vendor's Payee. The expense
+            // and its pay-to account are saved together on the server.
+            const created = await createDirectExpense(whoGetsPaid.sendsPayee, async () => {
+                // Fallback: an unsupported-for-AI invoice file was never uploaded during
+                // autofill — upload it now (no docname yet; re-linked after create).
+                if (recordInvoiceDetails && invoiceAttachmentFile && !invoiceAttachmentUrl) {
+                    const uploaded = await upload(invoiceAttachmentFile, { doctype: DOCTYPE, fieldname: "invoice_attachment", isPrivate: true });
+                    invoiceAttachmentUrl = uploaded.file_url;
+                    setUploadedInvoiceFileName((uploaded as any).name || null);
+                }
 
-            let invoiceAttachmentUrl: string | undefined = uploadedInvoiceUrl || undefined;
-            // Fallback: an unsupported-for-AI invoice file was never uploaded during
-            // autofill — upload it now (no docname yet; re-linked after create).
-            if (recordInvoiceDetails && invoiceAttachmentFile && !invoiceAttachmentUrl) {
-                const uploaded = await upload(invoiceAttachmentFile, { doctype: DOCTYPE, fieldname: "invoice_attachment", isPrivate: true });
-                invoiceAttachmentUrl = uploaded.file_url;
-                setUploadedInvoiceFileName((uploaded as any).name || null);
-            }
-
-            const payload = {
-                projects: formState.projects,
-                type: formState.type,
-                vendor: formState.vendor === OTHERS_VENDOR_VALUE ? "" : formState.vendor,
-                description: formState.description.trim(),
-                comment: formState.comment.trim(),
-                amount: parseNumber(formState.amount),
-                ...(recordInvoiceDetails && {
-                    invoice_ref: formState.invoice_ref.trim() || undefined,
-                    invoice_date: formState.invoice_date || undefined,
-                    invoice_attachment: invoiceAttachmentUrl,
-                }),
-            };
-            // The expense and its pay-to account are saved together on the server.
-            const res = await createDirectExpense({ doctype: DOCTYPE, expense: payload, ...payTo });
-            const created = res?.message;
+                return {
+                    projects: formState.projects,
+                    type: formState.type,
+                    vendor: formState.vendor === OTHERS_VENDOR_VALUE ? "" : formState.vendor,
+                    description: formState.description.trim(),
+                    comment: formState.comment.trim(),
+                    amount: parseNumber(formState.amount),
+                    ...(recordInvoiceDetails && {
+                        invoice_ref: formState.invoice_ref.trim() || undefined,
+                        invoice_date: formState.invoice_date || undefined,
+                        invoice_attachment: invoiceAttachmentUrl,
+                    }),
+                };
+            });
 
             // Re-link the uploaded invoice File to the freshly-created expense so it
             // shows under the doc's attachments (attached_to_doctype / _name). Field
@@ -336,18 +333,14 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
             toast({ ...getExpenseCreatedToast(created?.status, formState.amount), variant: "success" });
             onSuccess?.();
             handleDialogClose();
-        } catch (error: any) {
-            if (error instanceof DuplicatePayeeError) {
-                toast({ title: "This account is already a payee", description: error.message, variant: "destructive" });
-                return;
-            }
-            toast({ title: "Error", description: getFrappeError(error) || "Failed to record expense.", variant: "destructive" });
+        } catch (error: unknown) {
+            toast(directExpenseErrorToast(error, "Error", "Failed to record expense."));
         }
     };
 
     // Changing the type re-applies its rule: a pick made under one type is not carried to another.
     const handleTypeSelect = (type: string) => {
-        if (type !== formState.type) payeeChoice.reset();
+        changeType(formState.type, type);
         handleInputChange('type', type);
         setExpenseTypePopoverOpen(false);
     };
@@ -371,9 +364,8 @@ export const NewProjectExpenseDialog: React.FC<NewProjectExpenseDialogProps> = (
             setFormErrors({});
             setExpenseTypePopoverOpen(false);
             resetInvoiceState();
-            payeeChoice.reset();
         }
-    }, [newProjectExpenseDialog, projectId, resetInvoiceState]);   // eslint-disable-line react-hooks/exhaustive-deps
+    }, [newProjectExpenseDialog, projectId, resetInvoiceState]);
 
     useEffect(() => {
         const commandListElement = commandListRef.current;
