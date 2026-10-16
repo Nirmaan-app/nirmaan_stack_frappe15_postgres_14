@@ -67,7 +67,12 @@ class PaidPaymentFixture(OrdersFixture):
         frappe.db.commit()
 
     def _credit_entries(self, entry_type):
-        return frappe.get_all(LEDGER, filters={"parent": self.vendor, "entry_type": entry_type}, pluck="po_id")
+        """This test's own entries only: the vendor is a real one, so other entries of it may exist."""
+        return frappe.get_all(
+            LEDGER,
+            filters={"parent": self.vendor, "entry_type": entry_type, "po_id": ["like", f"{self.PREFIX}%"]},
+            pluck="po_id",
+        )
 
 
 class EditingAPaidPayment(PaidPaymentFixture):
