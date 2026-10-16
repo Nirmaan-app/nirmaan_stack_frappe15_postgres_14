@@ -137,6 +137,18 @@ def required_tier(amount, l2_above: float = TIER_L2_ABOVE) -> str:
     return TIER_L1_L2
 
 
+def approval_amount(amount, cheque_amount=None):
+    """The amount a payment's approval tier is read from: its own, or, for a payment on a Payment cheque,
+    the CHEQUE amount (spec #1477, C3, ADR-0035).
+
+    One cheque is one decision, so a cheque of Rs 20,000 + Rs 40,000 goes to the CEO although each payment
+    is under 50,000. Every route that tiers a cheque payment passes the cheque amount through here:
+    creation (auto-approve and the raiser's own step) and the cheque's approval
+    (`services/cheques/decide.py`, and the payment's own `validate` guard).
+    """
+    return amount if cheque_amount is None else cheque_amount
+
+
 def initial_status(amount, l2_above: float = TIER_L2_ABOVE) -> str:
     """The status a NEW record is created at.
 
