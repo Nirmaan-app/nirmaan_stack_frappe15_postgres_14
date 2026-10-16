@@ -70,6 +70,8 @@ A shared glossary of domain terms. Definitions only — no implementation detail
 
 - **Expense** — a cost recorded outside the Purchase Order / Service Request flow. Two kinds: a **Project Expense** (attributed to a specific Project; labelled "Misc Project Expense" in the UI) and a **Non-Project Expense** (company-wide, not tied to any Project). Both share the same three-stage approval lifecycle and are entered and managed together in one **Expense** area.
 
+- **Direct Expense** — an Expense recorded straight from the Add Expense dialogs, with no Expense Request behind it. Its raiser is whoever recorded it, and it names its **Expense payee** the way a request does. *Avoid*: manual expense, new expense. (Owner, 2026-10-16.)
+
 - **Expense and Payment status** — the single field describing where an Expense or a Project Payment sits in its lifecycle. It advances in one direction: *Requested* → *CEO Pending* → *Approved* → *Reconciliation Pending* → *Paid*, with *Rejected* as the one way out. A record holds exactly one at a time. Not every record meets every step: only a payment above the CEO's threshold waits at *CEO Pending*, and a small Expense is auto-approved straight to *Approved*.
   - **Requested** — entered, awaiting approval; not yet sanctioned and no cash has gone out.
   - **CEO Pending** — approved by the team and waiting for the CEO, who may approve it in full or approve part of it and leave the balance here.
@@ -225,7 +227,7 @@ Two separate holds sit on a Vendor. They share the word "hold" and nothing else 
 
 - **Kept out of the bank file** — an Expense of an *Optional* or *Not asked* type with no pay-to account (paid by card or cash), and any payment made by cheque. It can be ticked and marked paid, but is never put in an ICICI or Cashfree file, and the export says which rows it left out. Contrast **Ineligible**. (Owner, 2026-10-16.)
 
-- **Expense payee** — whoever an Expense is to be paid to, named on the Expense Request by picking an existing Payee or adding a new one, which fills in the request's **pay-to account**; approval carries that account onto the Expense. A Project Expense or Expense Request may also name a Vendor; its pay-to account is then copied from that Vendor's Payee, and no other account can be typed while the Vendor is named. Each **expense type** says whether its pay-to account is *Required*, *Optional* or *Not asked*. *This replaces the 2026-08-18 rule that a request asks for no payee bank details.* (Owner, 2026-10-14; revised 2026-10-15.)
+- **Expense payee** — whoever an Expense is to be paid to, named by picking an existing Payee or adding a new one, which fills in the **pay-to account**: on the Expense Request, where approval carries the account onto the Expense, or on a **Direct Expense** itself when it is recorded. A Project Expense or Expense Request may also name a Vendor; its pay-to account is then copied from that Vendor's Payee, and no other account can be typed while the Vendor is named. Each **expense type** says whether its pay-to account is *Required*, *Optional* or *Not asked*. *This replaces the 2026-08-18 rule that a request asks for no payee bank details.* (Owner, 2026-10-14; revised 2026-10-15.)
 
 ## Module residence
 
