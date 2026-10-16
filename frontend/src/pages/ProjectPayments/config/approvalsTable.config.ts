@@ -79,6 +79,8 @@ export interface ApprovalQueueRow {
   vendor: string;
   project: string;
   raised_by: string;
+  /** The Expense Request an expense came from; blank on a Direct Expense and on a payment (#1472). */
+  request_id: string;
   creation: string;
   approved_on: string | null;
   paid_on: string | null;

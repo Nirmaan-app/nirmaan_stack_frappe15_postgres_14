@@ -128,9 +128,14 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     (`expense_payee.create_direct_expense`, through `apply_picked_payee`, so a vendor named wins as on
     a request) and commits once. `expense` is a closed field list (`DIRECT_EXPENSE_FIELDS`): a
     `status`, approval stamp or `pay_to_*` sent is refused, so the status stays the doctype's
-    `validate` (auto-approval, the Raiser's own step). It refuses nothing about who gets paid. The
-    Non-Project Expense dialog (`NewNonProjectExpense`) saves through it and renders the request's
-    `WhoGetsPaidSection` by the type's rule (`whoGetsPaidProblem`); changing the type resets the pick.
+    `validate` (auto-approval, the Raiser's own step). It refuses nothing about who gets paid. Both
+    Add Expense dialogs save through it and render the request's `WhoGetsPaidSection` by the type's
+    rule; changing the type resets the pick. The Non-Project Expense dialog (`NewNonProjectExpense`,
+    #1471) is pick / add only. The Project Expense dialog (`NewProjectExpenseDialog`, #1474) reads
+    its section from `utils/payees/expensePayee.whoGetsPaidView`: a Vendor picked shows its account
+    read-only through `useVendorAccount` (the one vendor-account SWR key), on a *Not asked* type too,
+    or the "no bank account on record" note (which blocks a *Required* type); "Others (No Vendor)"
+    picks or adds a Payee and sends it. With a Vendor no Payee is sent: the save copies the Vendor's.
   - **A vendor named** (request or Project Expense, every write path): the save copies the vendor's
     Payee when the record has no copy and whenever the vendor changes (`pay_to.fill_from_vendor`), a
     fill, never a refusal. Once the record is paid (`rules.PAID_STATUSES`) nothing is copied: the copy
@@ -248,8 +253,17 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     (`paidTo.changeAccountRuleLine`) and offers Remove account only when the type is not *Required*
     (`paidTo.canRemoveExpenseAccount`, a screen rule).
   - **Who gets paid in the expense Edit dialogs** (#1465; the pencil on "Payment need to paid" and on
-    the expense pages): Change account inside the edit, for Accounts on an Approved expense
-    (`paidTo.editDialogPayTo`). Same picker, endpoints and rule wording; it saves with Save Changes:
+    the expense pages): Change account inside the edit, for Accounts on an Approved expense, and for
+    the raiser of a **Direct Expense** (its `owner`, with no `request_id`) while it is Requested
+    (#1472, `paidTo.editDialogPayTo`, whose raiser case is `paidTo.raiserMayChangeAccount`). An
+    expense an Expense Request's approval created never gets the raiser case: its raiser changes the
+    account on the request. The raiser reaches the dialog from the pencil on their own Requested
+    Direct Expense rows on "Payment Raised By Me" (`queueRowActions.canRaiserEditQueueRow`; the
+    queue row's `request_id` says whether a request is behind it); the settle-side pencil is
+    unchanged. A raiser outside Accounts searches and adds Payees through the request's endpoints
+    (`api/expense_requests/payees`), Accounts through theirs. Both save through Change account's
+    endpoint, which asks write permission on the expense and leaves the Version row "Set by" reads.
+    Same picker and rule wording; it saves with Save Changes:
     the pick is resolved first (a new Payee is added, a duplicate stops the save), the fields are
     updated, then the Payee is copied (`components/payees/ExpenseEditPayTo`,
     `useChangeExpenseAccount`, which the Change account dialog saves through too). Remove account is

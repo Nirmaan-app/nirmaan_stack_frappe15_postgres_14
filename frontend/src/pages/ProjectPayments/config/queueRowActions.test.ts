@@ -6,6 +6,7 @@ import {
   canEditQueueRow,
   canHoldQueueRow,
   canPayQueueRow,
+  canRaiserEditQueueRow,
   canRevertQueueRow,
   canUploadInvoiceRow,
   canWorkQueueRows,
@@ -64,6 +65,35 @@ describe("roles", () => {
         }
       }
     }
+  });
+});
+
+describe("canRaiserEditQueueRow — the raiser's pencil on Payment Raised By Me (#1472)", () => {
+  const ME = "procurement@nirmaan.app";
+  const own = (doctype: string, status: string, request_id = "") =>
+    ({ doctype, status, raised_by: ME, request_id }) as any;
+
+  it("shows on the viewer's own Direct Expense, either ledger, only while it is Requested", () => {
+    for (const ledger of LEDGERS) {
+      for (const status of STATUSES) {
+        const want = ledger !== "Project Payments" && status === "Requested";
+        expect(canRaiserEditQueueRow(own(ledger, status), ME)).toBe(want);
+      }
+    }
+  });
+
+  it("reads a padded status", () => {
+    expect(canRaiserEditQueueRow(own("Non Project Expenses", " Requested "), ME)).toBe(true);
+  });
+
+  it("never shows on an expense from an Expense Request", () => {
+    expect(canRaiserEditQueueRow(own("Project Expenses", "Requested", "EXR-0042"), ME)).toBe(false);
+  });
+
+  it("never shows on someone else's row, or with no viewer", () => {
+    expect(canRaiserEditQueueRow(own("Project Expenses", "Requested"), "someone.else@nirmaan.app")).toBe(false);
+    expect(canRaiserEditQueueRow(own("Project Expenses", "Requested"), null)).toBe(false);
+    expect(canRaiserEditQueueRow({ ...own("Project Expenses", "Requested"), raised_by: "" }, "")).toBe(false);
   });
 });
 
