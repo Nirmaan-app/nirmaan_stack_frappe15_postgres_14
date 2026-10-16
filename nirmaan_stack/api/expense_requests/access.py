@@ -18,6 +18,7 @@ from nirmaan_stack.services.expense_request_routing import (
 	reviewer_role_for_type,
 	types_reviewed_by,
 )
+from nirmaan_stack.services.outflow_import.ledgers import EXPENSE_DOCTYPES
 
 ADMIN_PROFILE = "Nirmaan Admin Profile"
 PM_PROFILE = "Nirmaan Project Manager Profile"
@@ -106,12 +107,22 @@ def can_raise_requests(user: str | None = None) -> bool:
 	return bool(profile) and any(profile in allowed_roles_for_type(t) for t in requestable_types())
 
 
-def guard_can_raise() -> None:
-	"""Refuse a caller who can raise no expense request. Gates what only the request dialog offers,
-	such as searching and adding Payees from it (`api/expense_requests/payees`)."""
-	if not can_raise_requests():
+def can_name_expense_payee(user: str | None = None) -> bool:
+	"""May the caller name who gets paid on an expense: raise an expense request, or record a Direct
+	Expense (Frappe's create right on `Project Expenses` or `Non Project Expenses`, #1471)?"""
+	user = user or frappe.session.user
+	return can_raise_requests(user) or any(
+		frappe.has_permission(doctype, "create", user=user) for doctype in EXPENSE_DOCTYPES
+	)
+
+
+def guard_can_name_expense_payee() -> None:
+	"""Refuse a caller who can neither raise an expense request nor record an expense. Gates the
+	Payee search / check / add that the request dialog and the Add Expense dialogs share
+	(`api/expense_requests/payees`)."""
+	if not can_name_expense_payee():
 		frappe.throw(
-			"Only someone who can raise an expense request may do this.",
+			"Only someone who can raise an expense request or record an expense may do this.",
 			frappe.PermissionError,
 			title="Not a requester",
 		)

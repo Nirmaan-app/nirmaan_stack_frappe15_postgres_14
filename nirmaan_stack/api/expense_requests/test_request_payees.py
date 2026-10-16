@@ -25,7 +25,10 @@ from nirmaan_stack.services import expense_request_routing as routing
 from nirmaan_stack.services.payees.expense_payee import change_expense_account
 
 PM_USER = "exr_test_pyepm@example.com"
-NOBODY = "exr_test_pyenobody@example.com"
+NOBODY = "exr_test_pyenobody2@example.com"
+# Can record an expense (Frappe create on both expense doctypes) but raise no request: no role profile.
+PROCUREMENT = "exr_test_pyeproc@example.com"
+USERS = (PM_USER, NOBODY, PROCUREMENT)
 PM_PROFILE = "Nirmaan Project Manager Profile"
 NPE = "Non Project Expenses"
 
@@ -35,8 +38,10 @@ class TestRequestPayees(FrappeTestCase):
 	def setUpClass(cls):
 		super().setUpClass()
 		_make_user(PM_USER, PM_PROFILE, ("Nirmaan Project Manager",))
-		# A signed-in user with no role profile: they can see no expense type, so raise nothing.
-		_make_user(NOBODY, None, ("Nirmaan Project Manager",))
+		# A signed-in user with no role profile (so no expense type to raise) and no create right on
+		# either expense doctype (HR Lead holds read only): they may name no Payee.
+		_make_user(NOBODY, None, ("Nirmaan HR Lead",))
+		_make_user(PROCUREMENT, None, ("Nirmaan Procurement Executive",))
 		# The PM must be able to raise SOME type: one of their own, removed after.
 		cls.expense_type = f"exr_test_pye_{frappe.generate_hash(length=6)}"
 		d = frappe.new_doc("Expense Type")
@@ -50,7 +55,7 @@ class TestRequestPayees(FrappeTestCase):
 	def tearDownClass(cls):
 		frappe.set_user("Administrator")
 		scopes = [("Expense Type", cls.expense_type)] + [
-			(dt, email) for email in (PM_USER, NOBODY) for dt in ("Nirmaan Users", "User")
+			(dt, email) for email in USERS for dt in ("Nirmaan Users", "User")
 		]
 		delete_each(scopes)
 		super().tearDownClass()
@@ -120,7 +125,19 @@ class TestRequestPayees(FrappeTestCase):
 		payee = self.payees.payee(account_number=number)
 		self.assertIn(payee, self._search(f"00{number[:5]} {number[5:]}"))
 
-	def test_someone_who_can_raise_no_request_cannot_search_or_add(self):
+	def test_someone_who_can_record_an_expense_but_raise_no_request_searches_checks_and_adds(self):
+		"""The Add Expense dialogs name who gets paid through these endpoints too (#1471)."""
+		number = self.payees.account_number()
+		existing = self.payees.payee(account_number=number)
+		self.assertIn(existing, [r["name"] for r in self._as(PROCUREMENT, search_payees, text=number)])
+		checked = self._as(PROCUREMENT, check_request_payee, account_number=number, ifsc=TEST_IFSC)
+		self.assertEqual(checked["duplicate"]["name"], existing)
+		holder = self.payees.holder("Procurement")
+		out = self._as(PROCUREMENT, add_request_payee, account_name=holder,
+		               account_number=self.payees.account_number(), ifsc=TEST_IFSC)
+		self.assertEqual(frappe.db.get_value("Payee", out["payee"]["name"], "account_name"), holder)
+
+	def test_someone_who_can_neither_raise_a_request_nor_record_an_expense_cannot_search_or_add(self):
 		with self.assertRaises(frappe.PermissionError):
 			self._as(NOBODY, search_payees, text="TESTPYE")
 		with self.assertRaises(frappe.PermissionError):
