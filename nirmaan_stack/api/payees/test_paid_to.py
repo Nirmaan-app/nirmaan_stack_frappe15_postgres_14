@@ -43,9 +43,12 @@ from nirmaan_stack.services.payees.writer import edit_payee
 U = "Administrator"
 PM_USER = "pye_paidto_pm@example.com"
 PM_PROFILE = "Nirmaan Project Manager Profile"
-#: Reads expenses but may not write them (the doctypes' DocPerm: PMO Executive is read-only).
+#: Reads PO / WO payments but may not write them (the Project Payments DocPerm). It may write expenses
+#: since #1475, so the expense case below uses HR_LEAD_USER.
 PMO_USER = "pye_paidto_pmo@example.com"
 PMO_PROFILE = "Nirmaan PMO Executive Profile"
+#: Reads expenses but may not write them (the expense doctypes' DocPerm: HR Lead is read-only).
+HR_LEAD_USER = "pye_paidto_hrlead@example.com"
 #: Accounts: the roles the expense Edit dialog shows Who gets paid to (#1465). The Accountant also pays
 #: on "Payment need to paid": Mark as Paid and Export for Payment (#1463).
 ACCOUNTANT_USER = "pye_paidto_acct@example.com"
@@ -61,6 +64,7 @@ class TestPaidTo(FrappeTestCase):
         super().setUpClass()
         _make_user(PM_USER, PM_PROFILE, ("Nirmaan Project Manager",))
         _make_user(PMO_USER, PMO_PROFILE, ("Nirmaan PMO Executive",))
+        _make_user(HR_LEAD_USER, "Nirmaan HR Lead Profile", ("Nirmaan HR Lead",))
         _make_user(ACCOUNTANT_USER, "Nirmaan Accountant Profile", ("Nirmaan Accountant",))
         _make_user(ACCOUNTANT_LEAD_USER, "Nirmaan Accountant Lead Profile", ("Nirmaan Accountant Lead",))
         cls.types = {}
@@ -77,7 +81,7 @@ class TestPaidTo(FrappeTestCase):
     def tearDownClass(cls):
         frappe.set_user(U)
         scopes = [("Expense Type", name) for name in cls.types.values()]
-        for user in (PM_USER, PMO_USER, ACCOUNTANT_USER, ACCOUNTANT_LEAD_USER):
+        for user in (PM_USER, PMO_USER, HR_LEAD_USER, ACCOUNTANT_USER, ACCOUNTANT_LEAD_USER):
             scopes += [("Nirmaan Users", user), ("User", user)]
         try:
             delete_each(scopes)
@@ -640,7 +644,7 @@ class TestPaidTo(FrappeTestCase):
         first, second = self.payees.payee(), self.payees.payee()
         expense = self._expense(copy_of=first)
         with self.assertRaises(frappe.PermissionError):
-            self._as(PMO_USER, change_expense_account, doctype=NPE, name=expense, payee=second)
+            self._as(HR_LEAD_USER, change_expense_account, doctype=NPE, name=expense, payee=second)
         self.assertEqual(frappe.db.get_value(NPE, expense, "pay_to_account_number"),
                          self._copy_of(first)["pay_to_account_number"])
 

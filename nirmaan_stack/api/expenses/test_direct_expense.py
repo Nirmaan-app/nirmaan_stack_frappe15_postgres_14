@@ -26,7 +26,9 @@ NPE = "Non Project Expenses"
 ACCOUNTANT = "dxe_test_accountant@example.com"
 # Holds no create right on either expense doctype, and no role profile (so it raises no request).
 NO_CREATE = "dxe_test_hrlead@example.com"
-USERS = (ACCOUNTANT, NO_CREATE)
+# Holds the PMO Executive role alone: no System Manager, which the real PMO profile also carries (#1475).
+PMO = "dxe_test_pmo@example.com"
+USERS = (ACCOUNTANT, NO_CREATE, PMO)
 
 
 class TestCreateDirectExpense(FrappeTestCase):
@@ -35,6 +37,7 @@ class TestCreateDirectExpense(FrappeTestCase):
         super().setUpClass()
         _make_user(ACCOUNTANT, "Nirmaan Accountant Profile", ("Nirmaan Accountant",))
         _make_user(NO_CREATE, None, ("Nirmaan HR Lead",))
+        _make_user(PMO, None, ("Nirmaan PMO Executive",))
         cls.types = {}
         for rule, project in (("Required", 0), ("Optional", 1)):
             name = f"dxe_test_{rule.lower()}_{frappe.generate_hash(length=5)}"
@@ -133,6 +136,18 @@ class TestCreateDirectExpense(FrappeTestCase):
         with self.assertRaises(frappe.ValidationError):
             self._create(NPE, amount=20000, status="Approved")
         self.assertFalse(frappe.db.exists(NPE, {"description": self.tag}))
+
+    # -- who may record one -------------------------------------------------------------------------
+    def test_a_pmo_executive_records_both_kinds_on_its_own_role(self):
+        """The right sits on the PMO Executive role itself, not on the System Manager its profile
+        happens to carry (#1475)."""
+        self.assertNotIn("System Manager", frappe.get_roles(PMO))
+        payee = self.payees.payee()
+        for doctype in (PE, NPE):
+            with self.subTest(doctype=doctype):
+                created = self._create(doctype, user=PMO, payee=payee)
+                self.assertEqual(frappe.db.get_value(doctype, created["name"], "owner"), PMO)
+                self.assertEqual(self._pay_to(doctype, created["name"]), self._account_of(payee))
 
     # -- refusals ---------------------------------------------------------------------------------
     def test_an_unknown_payee_leaves_no_expense_behind(self):
