@@ -3297,7 +3297,9 @@ describe("SLICE 12d-1b / T2 -- several = highest: a bare slash list of any lengt
   });
 
   it("HAZARD PIN (recon item 10): '50 mm - 32 mm' copied into thickness reads as a RANGE -> its top, 50 -- pinned so a prompt change that starts copying such phrases is caught", () => {
-    expect(readNumber("50 mm - 32 mm thick", HIGHEST)).toEqual({ value: 50, note: "range '50 mm - 32 mm thick' -> its top value 50 (R6)" });
+    // 12e-6 AC8 (owner R10 / U6) INVERTED by mechanical authority: the VALUE is unchanged (50); a thickness reader states
+    // the range in the or / slash rule's words. Before: note "range '50 mm - 32 mm thick' -> its top value 50 (R6)".
+    expect(readNumber("50 mm - 32 mm thick", HIGHEST)).toEqual({ value: 50, note: "'50 mm - 32 mm thick' states a range - the higher, 50, is taken" });
   });
 });
 

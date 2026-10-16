@@ -24,7 +24,21 @@ import type { RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-ma
 import type { ExtractionRow, RateHelperRowContext } from "./rateHelperTypes";
 import { isSuggestion } from "./rateHelperTypes";
 import { readJsonFixture } from "@/pages/pricing/calculatorPanelParity.harness";
-import { itemListRuleOrder } from "@/pages/pricing/rate-master/itemListRuleOrder";
+import { itemListRuleOrder as itemListRuleOrderLive } from "@/pages/pricing/rate-master/itemListRuleOrder";
+// SLICE 12e-6 (AC14 / U9) INVERTED by mechanical authority: BEFORE every tab read below called `itemListRuleOrder` directly.
+// 12e-6 ADDS ten lines (owner 2026-10-16 14:49, condition (a): every existing line keeps its words and order); this file's
+// pins read the tab WITHOUT them, renumbered -- so each pin still proves the old lines unchanged. The new lines are pinned
+// in ruleReachability.test.ts and slice12e6.test.ts.
+const ADDED_12E6: readonly RegExp[] = [
+  /^A '.*' answer where the BoQ names no material takes the kind its row implies$/, /^A material written with an alternative prices the stocked one$/,
+  /^Cross-linked polyethylene, XPE, FR-XPE and a co-extruded jacket or covering are XLPE and refuse by name$/,
+  /^A row-kind material on the other row kind prices as the one for the row's unit$/, / range takes the higher value$/,
+  / in mm or NB is one size: the cladding is measured on the matched size$/, /^Fixings and duct material in the row are not a /,
+  / written as a coating with no glass cloth refuses by name$/, / written as two stocked kinds prices one of them$/,
+  / with no .* facts opens the .* section on .*'s defaults$/,
+];
+const itemListRuleOrder = (...a: Parameters<typeof itemListRuleOrderLive>) =>
+  itemListRuleOrderLive(...a).filter((l) => !ADDED_12E6.some((re) => re.test(l.title))).map((l, i) => ({ ...l, n: i + 1 }));
 import { onceOnly, plainPricerText } from "@/pages/pricing/rate-master/plainEnglish";
 import {
   ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, assembleItems, buildExtractionByRow, decodeItemEdits, makePricingSheetHelper, unitChoicesOf,
@@ -282,8 +296,12 @@ describe("12e-4b AC4 (D-3) -- 'Pipe type as written' is read by the ONE reader a
     expect(one.v.items[0].familyLine).toBe("BoQ names MS / GI -> priced as MS");
     expect(fig(one.values)).toEqual(pure(PIP, pipe("MS", "50")));
     const two = asWritten("uPVC/ CPVC");
-    expect(two.v.rowPriced).toBe(false);
-    expect(two.v.items[0].reason).toBe("two pipe types are named in this row (CPVC, uPVC) - pick the type");
+    // 12e-6 R2 INVERTED by mechanical authority (owner 2026-10-16 14:22: "when both CPVC and PVC or uPVC pipes are mentioned
+    // together then we should quote for CPVC"). BEFORE: rowPriced false, reason "two pipe types are named in this row
+    // (CPVC, uPVC) - pick the type".
+    expect(two.v.rowPriced).toBe(true);
+    expect(two.v.items[0].family).toBe("CPVC");
+    expect(two.v.items[0].familyLine).toBe("BoQ allows uPVC or CPVC -> priced as CPVC");
   });
 
   const PARITY = ["GI", "uPVC", "HDPE", "SS", "Stainless steel", "MS / GI", "uPVC/ CPVC"];
@@ -302,7 +320,7 @@ describe("12e-4b AC4 (D-3) -- 'Pipe type as written' is read by the ONE reader a
     const fa = facts(a), ft = facts(t);
     expect({ ...fa, familyLine: fa.familyLine === null ? null : typedFamilyLine(fa.familyLine), working: fa.working.map(typedFamilyLine) }).toEqual(ft);
     if (fa.familyLine !== null) {
-      expect(fa.familyLine).toMatch(/^BoQ (says|names) /);
+      expect(fa.familyLine).toMatch(/^BoQ (says|names|allows) /);   // 12e-6 R2: "allows" added (BEFORE /^BoQ (says|names) /)
       expect(ft.familyLine).toMatch(/^You typed /);
       expect(JSON.stringify(ft)).not.toContain("BoQ says");
     }
@@ -312,12 +330,14 @@ describe("12e-4b AC4 (D-3) -- 'Pipe type as written' is read by the ONE reader a
     }
     // and both equal the pure reader's verdict on the bare word
     const verdict = readFamilyWord(itemListPricingSpec(CFG[PIP])!, word);
-    if (verdict && "refuse" in verdict) expect(a.v.items[0].reason).toBe(verdict.refuse);
+    // 12e-6 R2 INVERTED for the one two-type word: BEFORE both paths refused with the reader's own sentence; both now price CPVC
+    if (word === "uPVC/ CPVC") expect([a.v.items[0].family, t.v.items[0].family]).toEqual(["CPVC", "CPVC"]);
+    else if (verdict && "refuse" in verdict) expect(a.v.items[0].reason).toBe(verdict.refuse);
     else expect(a.v.items[0].family).toBe(verdict!.family);
   });
   it("the parity set is named, and it is not vacuous: four of the seven price, three refuse, and the priced ones are not all one type", () => {
     const outcomes = Object.fromEntries(PARITY.map((w) => { const { v } = asWritten(w, "50"); return [w, v.rowPriced ? v.items[0].family : "refuses"]; }));
-    expect(outcomes).toEqual({ GI: "MS", uPVC: "PVC", HDPE: "PVC", SS: "refuses", "Stainless steel": "refuses", "MS / GI": "MS", "uPVC/ CPVC": "refuses" });
+    expect(outcomes).toEqual({ GI: "MS", uPVC: "PVC", HDPE: "PVC", SS: "refuses", "Stainless steel": "refuses", "MS / GI": "MS", "uPVC/ CPVC": "CPVC" });   // 12e-6 R2 INVERTED: BEFORE "uPVC/ CPVC": "refuses" (five of the seven price now)
   });
   it("NEGATIVE: a config that does not name the attribute (v37) reads nothing from it -- the row keeps 'no pipe type could be told'; the typed word is unchanged there", () => {
     const row = { excelRow: 1, description: "", attributes: {}, items: [{ attributes: { pipe_type: { value: null, confidence: 0 }, [AS_WRITTEN]: { value: "uPVC", confidence: 0.9 }, size_mm: { value: "25", confidence: 0.9 } } }] } as unknown as ExtractionRow;

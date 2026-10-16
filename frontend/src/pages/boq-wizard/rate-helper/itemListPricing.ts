@@ -711,8 +711,9 @@ export interface ItemPriceResult {
     /** SLICE 12e-5b (owner R7): the pipe size AS READ (before any ladder), for the outer layer's one wrap of
      * cladding. Present only where the config declares `compose.outer_surface` and the size was read. */
     pipeAsRead?: number;
-    /** SLICE 12e-5b2 (owner Q1 (b)): the pipe size was written as a NOMINAL BORE -- the wrap stays on the matched size. */
-    pipeNb?: true;
+    /** SLICE 12e-6 (owner R7, 2026-10-16: "mm = NB and NB = mm"; was 12e-5b2 Q1 (b)'s NB flag): the size as read is
+     * NOT an outside diameter -- a size in mm, an NB number, "mm dia" -- so the wrap stays on the matched size. */
+    pipeMatched?: true;
   };
   /** The family the model returned (may be an alias or "none of these"). */
   familyRaw: string | null;
@@ -724,6 +725,9 @@ export interface ItemPriceResult {
   /** SLICE 12e-2 (owner Q16 / Q15): the line said under the family when `family_text` read it as another
    * family ("BoQ says GI -> priced as MS ...") or read it off the row's own words. Present ONLY then. */
   familyLine?: string;
+  /** SLICE 12e-6 (owner R2 / R3): the family the cheaper of two stocked alternatives settled on -- present ONLY then,
+   * so a composition's layers price that family as answered. */
+  alternativeChosen?: string;
   /** The SKU unit class the pipelines ran against (after any conversion). */
   skuUnitClass: string | null;
   state: "priced" | "blank";
@@ -1428,6 +1432,10 @@ export function readNumber(text: string | number | null | undefined, reader: Num
   if (found.length === 2 && isRange(gaps[0])) {
     const top = found[0].n >= found[1].n ? found[0] : found[1];
     const sc = scale(top);
+    // SLICE 12e-6 (AC8, owner R10: a thickness range "-> the highest, like the or / slash / bracket rule"; U6): on a
+    // reader declaring `several: "highest"` (the thickness readers) the range says so in that rule's words. The VALUE
+    // was already the top one (R6); every other reader -- a pipe size included -- keeps its line byte-identical.
+    if (reader.several === "highest") return below({ value: sc.value, note: `'${raw}' states a range - the higher, ${sc.value}, is taken` });
     return below({ value: sc.value, note: `range '${raw}' -> its top value ${sc.value} (R6)` });
   }
   // SLICE 11 (owner ruling, 2026-09-25): an ALTERNATIVE written as a SLASH PAIR takes the HIGHER value,
@@ -1689,7 +1697,8 @@ export function familyFromRowText(
 /** SLICE 12e-4c (owner, 2026-10-13): the family line of a word the PRICER typed -- the config's line ("BoQ says
  * uPVC -> priced as PVC ...") and the several-names line ("BoQ names MS / GI -> ...") open "You typed". PURE. */
 export function typedFamilyLine(line: string): string {
-  return line.replace(/^BoQ (?:says|names) /, "You typed ");
+  // SLICE 12e-6: "BoQ allows" (R2) reads "You typed" too where the pricer typed the two types
+  return line.replace(/^BoQ (?:says|names|allows) /, "You typed ");
 }
 
 export function readFamilyWord(
@@ -1823,11 +1832,147 @@ export function namedMaterialRefusal(spec: ItemListPricingSpec, item: ExtractedL
   if (um) {
     const copied = um.from_attr ? rawValue(item, um.from_attr) : null;
     const copiedText = copied !== null && copied !== "None" ? String(copied) : "";
-    const hit = wordStartHit(`${ownText} | ${copiedText}`, um.words);
+    // SLICE 12e-6 (owner R1): an unstocked word offered as an ALTERNATIVE to a stocked one ("nitrile rubber/XLPE")
+    // is not a refusal -- the stocked one prices (`alternativeMaterials`); only the text outside such a clause counts
+    const hit = wordStartHit(`${withoutStockedAlternatives(ownText, um.words)} | ${withoutStockedAlternatives(copiedText, um.words)}`, um.words);
     if (hit !== null) return `No SKU in the catalogue for ${namedText ?? hit.toUpperCase()} - price this row by hand`;
   }
   return null;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SLICE 12e-6 (owner rulings 2026-10-16) -- THE MATERIAL, CLADDING AND SIZE WORDS OF THE STAGE B REVIEW. PURE.
+// Every rule here reads text the row or the model wrote; none reads a config key the v42 asset does not have, so
+// the asset keeps its keys (v43 changes notes only) and every category without the Insulation / Piping shape never
+// reaches them (each is gated on the attribute ids the config itself names).
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** R1 / R3: the STOCKED insulation materials a BoQ may name, by kind. A part naming one is a stocked alternative. */
+const STOCKED_MATERIAL_WORDS: Record<"nitrile" | "acoustic" | "fiberglass" | "puf", readonly string[]> = {
+  nitrile: ["nitrile", "nitril", "nbr", "elastomeric", "elastometric"],
+  acoustic: ["open cell", "open-cell", "acoustic foam"],
+  fiberglass: ["glass wool", "glasswool", "fibre glass", "fiber glass", "fibreglass", "fiberglass", "glass fibre", "glass fiber", "resin bonded"],
+  puf: ["puf", "polyurethane"],
+};
+/** R8 / R5: words that ARE XLPE -- refused by name before the closed-cell-polyethylene map can read them as nitrile. */
+const XLPE_RE = /(^|[^a-z0-9])(?:fr-?xpe|xpe|cross[\s-]?linked|crosslinked|co[\s-]?extruded)(?![a-z0-9])/i;
+/** R4: a coating or paint ... */
+const COATING_RE = /(^|[^a-z0-9])(?:coat|coats|coating|coatings|polyshield|paint|painted|painting|mastic|lacquer)(?![a-z0-9])/i;
+/** ... and the words that make it more than a coating: a cloth (R6: a fibre cloth fabric is glass cloth), a sheet, a foil. */
+const NOT_ONLY_COATING_RE = /(^|[^a-z0-9])(?:cloth|fabric|fibre\s*glass\s*tape|alumin(?:i)?um|alu|foil|sheet|gi|g\.i|gss|perforated|jacket|canvas|tissue|frp|cladding)(?![a-z0-9])/i;
+
+/** The clauses of a text that hold ALTERNATIVES: a clause (split at ; | , . and line ends) whose parts are joined by
+ * "/" or "or". Each part is returned as written. PURE. */
+function alternativeClauses(text: string): Array<{ clause: string; parts: string[] }> {
+  const out: Array<{ clause: string; parts: string[] }> = [];
+  for (const clause of text.split(/[;|\n]|,\s|\.\s/)) {
+    const parts = clause.split(/\s*\/\s*|\s+or\s+/i).map((p) => p.trim()).filter((p) => p !== "");
+    if (parts.length >= 2) out.push({ clause: clause.trim(), parts });
+  }
+  return out;
+}
+function stockedKindOf(part: string): keyof typeof STOCKED_MATERIAL_WORDS | null {
+  for (const k of Object.keys(STOCKED_MATERIAL_WORDS) as Array<keyof typeof STOCKED_MATERIAL_WORDS>) {
+    if (wordStartHit(part, STOCKED_MATERIAL_WORDS[k]) !== null) return k;
+  }
+  return null;
+}
+function namesUnstocked(part: string, unstocked: readonly string[]): boolean {
+  return wordStartHit(part, unstocked) !== null || XLPE_RE.test(part);
+}
+/** R1: the text with every clause removed that offers an unstocked material beside a stocked one. PURE. */
+export function withoutStockedAlternatives(text: string, unstocked: readonly string[]): string {
+  let t = text;
+  for (const { clause, parts } of alternativeClauses(text)) {
+    const stocked = parts.some((p) => stockedKindOf(p) !== null && !namesUnstocked(p, unstocked));
+    const other = parts.some((p) => namesUnstocked(p, unstocked));
+    if (stocked && other) t = t.replace(clause, " ");
+  }
+  return t;
+}
+
+/**
+ * R1 / R3 (owner 2026-10-16: "yes agree"; Q7 "ok"). The material AS WRITTEN offered as alternatives. PURE.
+ *   one stocked + one unstocked ("nitrile rubber/XLPE", "rockwool/glasswool")  -> { kind: "one", family }
+ *   two stocked of DIFFERENT families ("open-cell acoustic foam / 32 kg fiberglass board") -> { kind: "both", families }
+ * The family of a stocked part is the config's own: nitrile and open cell by the row kind (`family_when_none`), glass
+ * wool the fibre-glass board, PUF the tubular PUF -- each only where the family is declared. Null otherwise.
+ */
+export function alternativeMaterials(
+  spec: ItemListPricingSpec, text: string, rowUnitClass: string | null,
+): { kind: "one"; family: string; clause: string } | { kind: "both"; families: string[]; clause: string } | null {
+  const unstocked = spec.unstocked_materials?.words ?? [];
+  const famOf = (kind: keyof typeof STOCKED_MATERIAL_WORDS, part: string): string | null => {
+    const fams = Object.keys(spec.families);
+    if (kind === "fiberglass") return fams.find((f) => /fib(?:re|er)\s*glass/i.test(f)) ?? null;
+    if (kind === "puf") return fams.find((f) => /\bpuf\b/i.test(f)) ?? null;
+    if (rowUnitClass === null) return null;
+    // nitrile / open cell: the row kind decides, and "acoustic" / "open cell" in the PART picks the acoustic family
+    const byKind = familyWhenNone(spec, rowUnitClass, kind === "acoustic" ? `${part} acoustic` : part);
+    return byKind ? byKind.value : null;
+  };
+  for (const { clause, parts } of alternativeClauses(text)) {
+    const stocked: string[] = [];
+    let unstockedPart = false;
+    for (const p of parts) {
+      if (namesUnstocked(p, unstocked)) { unstockedPart = true; continue; }
+      const k = stockedKindOf(p);
+      const fam = k ? famOf(k, p) : null;
+      if (fam && spec.families[fam] && (rowUnitClass === null || spec.families[fam].units[rowUnitClass]) && !stocked.includes(fam)) stocked.push(fam);
+    }
+    if (stocked.length >= 2) return { kind: "both", families: stocked, clause };
+    if (stocked.length === 1 && unstockedPart) return { kind: "one", family: stocked[0], clause };
+  }
+  return null;
+}
+
+/** R8 / R5 (owner "correct" / "this is XLPE"): an XLPE alias in the row's own text or a copied value -> its refusal. PURE. */
+export function xlpeAliasRefusal(spec: ItemListPricingSpec, item: ExtractedListItem, ownText: string): string | null {
+  if (!spec.unstocked_materials) return null;
+  const unstocked = spec.unstocked_materials.words;
+  const copiedAttrs = [spec.no_sku_named_by, ...(spec.choice_text ?? []).map((c) => c.from_attr)].filter((a): a is string => !!a);
+  for (const a of copiedAttrs) {
+    const v = rawValue(item, a);
+    const said = v !== null && v !== "None" ? String(v).trim() : "";
+    if (said !== "" && XLPE_RE.test(withoutStockedAlternatives(said, unstocked))) {
+      return `No SKU in the catalogue for ${said}${/xlpe/i.test(said) ? "" : " (XLPE)"} - price this row by hand`;
+    }
+  }
+  const m = withoutStockedAlternatives(ownText, unstocked).match(XLPE_RE);
+  return m ? `No SKU in the catalogue for ${m[0].replace(/^[^a-z0-9]/i, "").trim()} (XLPE) - price this row by hand` : null;
+}
+
+/** R4 (owner "ok"): the cladding AS WRITTEN is a coating with no glass cloth, sheet or foil -> its refusal by name,
+ * or null. Read only where the cladding was NOT answered as a stocked cladding (the caller's test). PURE. */
+export function coatingOnlyRefusal(said: string): string | null {
+  const s = said.trim();
+  if (s === "" || s === "None" || !COATING_RE.test(s) || NOT_ONLY_COATING_RE.test(s)) return null;
+  return `No SKU in the catalogue for ${s} - price this row by hand`;
+}
+
+/**
+ * SLICE 12e-6 (AC4): the words of a row that name a FIXING or a DUCT, not a cladding -- "GI strip", "GI grid", "C shape
+ * GI frame", "GI bolt", "aluminium and GI duct" -- are masked before the "cladding named in this row but not read" test,
+ * so only a word that names a cladding (aluminium sheet, foil, glass cloth, perforated sheet, a frame WITH a sheet --
+ * whose sheet word still hits -- "cladding" ...) can fire it. PURE.
+ */
+export function withoutFixingWords(text: string): string {
+  const metal = String.raw`(?:gi|g\.i\.?|ms|m\.s\.?|galvani[sz]ed(?:\s+iron)?|alumin(?:i)?um|al\.?|steel)`;
+  const fixing = String.raw`(?:strips?|grids?|frames?|channels?|angles?|bolts?|nuts?|clamps?|clips?|supports?|hangers?|rods?|ducts?|ducting|ductwork|duct\s+work)`;
+  return text
+    .replace(new RegExp(String.raw`(^|[^a-z0-9])${metal}(?:\s*(?:and|&|\/|or)\s*${metal})?\s*${fixing}(?![a-z0-9])`, "gi"), "$1 ")
+    .replace(/(^|[^a-z0-9])['"‘’]?c['"‘’]?\s*-?\s*shape(?![a-z0-9])/gi, "$1 ");
+}
+
+/** AC1 (owner R7): a pipe size written as an OUTSIDE DIAMETER -- "OD", "O.D.", "outer / outside dia(meter)" -- or as an
+ * inch size. Everything else (mm, NB, "mm dia", "mm NB") is the SAME size as its NB and is measured on the match. PURE. */
+export function sizeIsOutsideDiameter(text: string | number | null | undefined): boolean {
+  if (text === null || text === undefined || typeof text === "number") return false;
+  const s = unicodeFractions(String(text));
+  return /(^|[^a-z])o\.?\s*d\b\.?|out(?:er|side)\s*dia/i.test(s) || INCH_HEAD.test(s) || /\d\s*in\b/i.test(s);
+}
+/** AC1: copper is sized by its outside diameter -- a copper, refrigerant, VRF or VRV row (VRF / refrigerant = Copper). */
+export const COPPER_WORDS: readonly string[] = ["copper", "refrigerant", "vrf", "vrv"];
 
 function priceOneItem(
   spec: ItemListPricingSpec,
@@ -1846,7 +1991,11 @@ function priceOneItem(
   ownText: string = "",
   /** SLICE 12e-5b (owner R7): the OUTER layer of a composition -- the TOTAL thickness of all its layers and the
    * pipe size AS READ (absent where it was not read). Absent on every other item. */
-  outerWrap?: { total: number; pipeAsRead?: number; pipeNb?: true },
+  outerWrap?: { total: number; pipeAsRead?: number; pipeMatched?: true },
+  /** SLICE 12e-6 (AC1, owner R7): what the section pass knows of the PIPE above this item -- true when it is Copper or
+   * its size is written as an outside diameter / inch size, false for any other pipe. Undefined (an Insulation row of
+   * its own) -> the row's own words decide (`COPPER_WORDS`). */
+  odHint?: boolean,
 ): ItemPriceResult {
   const out: ItemPriceResult = {
     index, familyRaw: null, family: null, skuUnitClass: null, state: "blank", selection: {}, readValues: {}, defaulted: [],
@@ -1876,6 +2025,21 @@ function priceOneItem(
   out.familyRaw = famRaw === null ? null : String(famRaw);
   // SLICE 12e-4d (AC1): the MODEL answered the family itself -- not the pricer, not a default, not the row's words
   const modelAnswered = out.familyRaw !== null && out.familyRaw !== "None" && item.attributes?.[familyAttr(spec)]?.typed !== true;
+  /**
+   * SLICE 12e-6 (AC2; the 12d-1a default, "material not named -> Nitrile ... amber"). A MODEL answer of a no-SKU family
+   * ("none of these") where the BoQ names NO material -- nothing copied as the material as written, no unstocked word in
+   * the row or its headings -- is the row saying nothing: it takes the row-kind default exactly as an absent answer
+   * does. "none of these" stays a refusal by name wherever a material IS named (rockwool, XLPE, EPDM ...). A pricer's
+   * own pick is never touched.
+   */
+  if (modelAnswered && (spec.no_sku_families ?? []).includes(out.familyRaw!)) {
+    const named = spec.no_sku_named_by ? rawValue(item, spec.no_sku_named_by) : null;
+    const namedText = named !== null && named !== "None" ? String(named).trim() : "";
+    // an unstocked material the config lists, or XLPE / an XLPE alias whatever the config lists (R8 / R5)
+    const unstockedNamed = (spec.unstocked_materials && wordStartHit(rowText, spec.unstocked_materials.words) !== null)
+      || /(^|[^a-z0-9])xlpe(?![a-z0-9])/i.test(rowText) || XLPE_RE.test(rowText);
+    if (namedText === "" && !unstockedNamed && familyWhenNone(spec, rowUnitClass, rowText)) out.familyRaw = "None";
+  }
   // SLICE 12d-1a (owner R2): a row that names NO material prices as the family its ROW KIND implies --
   // declared in config, marked as a default. ONLY over an absent / "None" answer; a stated family,
   // "none of these" included, is never touched.
@@ -1948,6 +2112,23 @@ function priceOneItem(
       }
     }
   }
+  // SLICE 12e-6 (owner R8 / R5, 2026-10-16): "cross linked" / "XPE" / "FR-XPE" and a "co-extruded" jacket or covering
+  // ARE XLPE -- refused by name, BEFORE the closed-cell-polyethylene map below could read them as nitrile
+  const xlpe = xlpeAliasRefusal(spec, item, ownText);
+  if (xlpe !== null) return blank(xlpe);
+  // SLICE 12e-6 (owner R1, "yes agree"): the material as written offers a stocked material beside an unstocked one
+  // ("nitrile rubber/XLPE") -> the stocked one prices, with the line. A model answer that is itself a stocked family
+  // is kept (it may know the row kind better); a no-SKU answer takes the stocked alternative. Both-stocked (R3) is
+  // decided by cost in `priceItemList` before this item is priced, which hands the family in as answered.
+  if (spec.no_sku_named_by && !familyTyped) {
+    const w = rawValue(item, spec.no_sku_named_by);
+    const alt = w !== null && w !== "None" ? alternativeMaterials(spec, String(w), rowUnitClass) : null;
+    if (alt && alt.kind === "one") {
+      if (!spec.families[family] || (spec.no_sku_families ?? []).includes(family)) { family = alt.family; out.familyRaw = alt.family; }
+      out.familyLine = `BoQ says ${alt.clause} -> priced as ${family.trim()}`;
+      out.working.push(out.familyLine);
+    }
+  }
   // SLICE 12e-5b (owner R5): a no-SKU answer whose material AS WRITTEN the catalogue prices as one of its families
   // ("closed cell polyethylene" -> Nitrile Rubber on a pipe, Thermal Nitrile on a sheet), with its amber line
   const materialMapped = materialTextFor(spec, out.familyRaw, item, rowUnitClass);
@@ -1966,6 +2147,24 @@ function priceOneItem(
   if (material !== null) return blank(material);
   if (!spec.families[family]) {
     return blank(`no SKU in the catalogue for '${out.familyRaw}' -- the user decides (R18)`);
+  }
+  /**
+   * SLICE 12e-6 (AC5, owner U4): a ROW-KIND family on the other row kind -- "Nitrile Rubber Insulation" (the pipe
+   * family) on a per-sq.m row, or "Thermal Nitrile Insulation" (the sheet family) on a per-metre one -- prices as the
+   * family the config's own row-kind default names for THIS row's unit (`family_when_none.by_unit_class`), with the
+   * line, as closed cell polyethylene already does. Only where the family sells nothing in the row's unit and declares
+   * no conversion for it; a family outside the row-kind default (Acoustic, Fiberglass, PUF) is never touched.
+   */
+  {
+    const byKind = spec.family_when_none?.by_unit_class;
+    const to = byKind?.[rowUnitClass];
+    if (byKind && to && to !== family && spec.families[to] && Object.values(byKind).includes(family)
+        && !spec.families[family].units[rowUnitClass] && !(spec.families[family].convert?.[rowUnitClass] ?? []).length) {
+      family = to;
+      out.family = to;
+      out.familyLine = `priced as ${to.trim()} (row is per ${unitWord(spec, rowUnitClass)})`;
+      out.working.push(out.familyLine);
+    }
   }
   const fam = spec.families[family];
   // SLICE 12d-4a (owner D8): a line generated from a text the model copied ("BoQ says 32 kg/m3 -> priced as
@@ -1989,22 +2188,29 @@ function priceOneItem(
   const readDefaulted: DefaultedAttr[] = [];
   // SLICE 12e-5b (owner R7): the pipe size AS READ, carried on a composition for its outer layer's one wrap
   /**
-   * SLICE 12e-5b2 (owner Q1 (b), 2026-10-15: "where the size as read is a Nominal Bore (NB), the cladding stays on the
-   * matched size; copper and other outside-diameter readings keep R6"). A Nominal Bore is not the pipe's outside
-   * diameter (50 NB steel is about 60 mm), so an NB text carries no size as read for the cladding -- only the flag.
+   * SLICE 12e-6 (AC1; owner R7, 2026-10-16, STANDING: "for pricing purpose we are assuming mm = NB and NB = mm"; it
+   * widens 12e-5b2 Q1 (b), which gave this only to a size written "NB"). A size in mm and the same number in NB are
+   * the SAME size -- "50 mm dia", "50 NB", "50 mm NB" -- so the cladding is measured on the MATCHED insulation size.
+   * Only a size AS READ that is an OUTSIDE DIAMETER keeps the size as read (12e-5b2 R6): written with "OD" / "O.D." /
+   * "outer dia", an inch size, or a COPPER pipe (copper is sized by its outside diameter). Copper is told by the
+   * section pass (`odHint`, the pipe above) or, on an Insulation row of its own, by the row's words (copper,
+   * refrigerant, VRF, VRV -- VRF / refrigerant = Copper).
    */
-  const pipeIsNb = (): boolean => {
+  const pipeSizeIsOd = (): boolean => {
     const os = spec.compose?.outer_surface;
     if (!os) return false;
-    return (spec.numbers[os.pipe]?.from ?? [os.pipe]).some((src) => {
-      const v = rawValue(item, src);
-      return typeof v === "string" && /\d\s*n\.?\s*b\b/i.test(v);
-    });
+    if (odHint !== undefined) {
+      if (odHint) return true;
+    } else if (wordStartHit(rowText, COPPER_WORDS) !== null) {
+      return true;
+    }
+    return (spec.numbers[os.pipe]?.from ?? [os.pipe]).some((src) => sizeIsOutsideDiameter(rawValue(item, src)));
   };
-  const pipeAsReadOf = (): { pipeAsRead?: number; pipeNb?: true } => {
+  const pipeAsReadOf = (): { pipeAsRead?: number; pipeMatched?: true } => {
     const os = spec.compose?.outer_surface;
-    if (pipeIsNb()) return { pipeNb: true };
-    const v = os ? read[os.pipe] : undefined;
+    if (!os) return {};
+    if (!pipeSizeIsOd()) return { pipeMatched: true };
+    const v = read[os.pipe];
     return typeof v === "number" && Number.isFinite(v) ? { pipeAsRead: v } : {};
   };
   const unreadable: Record<string, string> = {};
@@ -2226,11 +2432,31 @@ function priceOneItem(
     const byWord = noneSaid.has(rule.attr) && wordStartHit(ownText, rule.words) !== null;
     if (byValue || byWord) return { ...blank(rule.refuse), selection: { [familyAttr(spec)]: family } };
   }
+  /**
+   * SLICE 12e-6 (owner R4, 2026-10-16: "ok"): a cladding AS WRITTEN that is a COATING with no glass cloth ("polyshield
+   * coating", "fire retardant coating", "protective coating") refuses BY NAME -- where the cladding was NOT answered
+   * ("not mentioned", or nothing). A cladding the model DID answer stands: the
+   * model saw the whole payload, the pricer only the copy, and a copy may be the shortest piece of a coating that IS
+   * sandwiched with glass cloth (measured: 21 stored rows of BOQ-26-00086 / High side, "two coats of ... Flame
+   * Retardant coating", whose payload goes on "sandwiched with 10 Mil Class E Glass Cloth"). It runs before D3, so the
+   * person is told the outcome rather than asked to set a cladding.
+   */
+  for (const ct of spec.choice_text ?? []) {
+    const now = read[ct.attr];
+    // "not mentioned" or nothing at all -- never a stated "No", which is also what `outer_only` gives a composition's
+    // inner layers (their cladding is the outer layer's, whatever was written)
+    if (now !== undefined && !noneSaid.has(ct.attr)) continue;
+    const w = rawValue(item, ct.from_attr);
+    const coating = w !== null && w !== "None" ? coatingOnlyRefusal(String(w)) : null;
+    if (coating !== null) return { ...blank(coating), selection: { [familyAttr(spec)]: family } };
+  }
   // SLICE 12d-4a (owner D3): a value NAMED IN THE ROW'S OWN TEXT but answered "not mentioned" never falls
   // to the default -- the row refuses for a person. Headings never trigger it (`ownText` carries none).
+  // SLICE 12e-6 (AC4): the row's FIXINGS and DUCT MATERIAL are masked first ("GI strip", "C shape GI frame",
+  // "aluminium and GI duct") -- they name no cladding (`withoutFixingWords`).
   for (const rule of spec.named_in_row ?? []) {
     if (!noneSaid.has(rule.attr)) continue;
-    if (wordStartHit(ownText, rule.words) !== null) return { ...blank(rule.refuse), selection: { [familyAttr(spec)]: family } };
+    if (wordStartHit(withoutFixingWords(ownText), rule.words) !== null) return { ...blank(rule.refuse), selection: { [familyAttr(spec)]: family } };
   }
   // SLICE 12d-1b (owner T4): STATED LAYERS go through the EXISTING composition path -- each layer its own item
   // at the row's pipe size, `outer_only` stripping the cladding from every inner layer. Nothing new is priced
@@ -2555,7 +2781,8 @@ function priceOneItem(
       if (comp) {
         return { ...out, selection: { ...sel }, composeInto: { attr, stated: want, layers: [...comp.layers].sort((a, b) => a - b), delta: comp.delta, top: top.size, ...pipeAsReadOf() } };
       }
-      return { ...blank(`${name} ${fmt(want)} is above the largest size on the sheet (${fmt(top.size)})`), selection: sel };
+      // SLICE 12e-6 (AC9 b): the axis is named, so a section taking its size from it repeats this sentence (12e-4d AC2)
+      return { ...blank(`${name} ${fmt(want)} is above the largest size on the sheet (${fmt(top.size)})`), selection: sel, sizeRefused: attr };
     }
     resolvedLadders.add(attr);
     // SLICE 12e-2: `how` is written ONLY where a declaring key is present (owner Q17 / Q11 / Q14 / Q14a)
@@ -2626,7 +2853,8 @@ function priceOneItem(
       const od = pipe + 2 * outerWrap.total;
       runSel = { ...sel, [os.attr]: od };
       wrapStep = os.girth_step;
-      const how = asRead ? "as read" : outerWrap.pipeNb ? "as matched (the BoQ states a nominal bore, NB)" : "as matched (the size as read is not available)";
+      // SLICE 12e-6 (AC1, owner R7): every size that is not an outside diameter is "as matched" -- mm = NB
+      const how = asRead ? "as read" : outerWrap.pipeMatched ? "as matched (mm = NB, not an outside diameter)" : "as matched (the size as read is not available)";
       out.working.push(`cladding: ONE wrap over the outer surface -- pipe size ${how} ${fmt(pipe)} + 2 x ${fmt(outerWrap.total)} (the total thickness) = ${fmt(od)} mm`);
     }
   } else if (os && !outerWrap && sel[os.pipe] !== undefined && sel[os.thickness] !== undefined) {
@@ -2640,15 +2868,20 @@ function priceOneItem(
      */
     const ps = Number(sel[os.pipe]);
     const t = Number(sel[os.thickness]);
-    const asRead = pipeAsReadOf().pipeAsRead;
+    const where = pipeAsReadOf();
+    const asRead = where.pipeAsRead;
     const oo = spec.compose?.outer_only;
     const clad = !oo || (sel[oo.attr] !== undefined && sel[oo.attr] !== oo.value);
+    const stated = read[os.pipe];
     if (clad && Number.isFinite(ps) && Number.isFinite(t) && typeof asRead === "number" && Math.abs(asRead - ps) > 0.1) {
       const od = asRead + 2 * t;
       runSel = { ...sel, [os.attr]: od };
       wrapStep = os.girth_step;
       out.working.push(`cladding: measured on the pipe size as read ${fmt(asRead)} (not the ${fmt(ps)} it was priced at) + 2 x ${fmt(t)} (the thickness) = ${fmt(od)} mm`);
-    } else if (clad && Number.isFinite(ps) && asRead === undefined && !pipeIsNb()) {
+    } else if (clad && Number.isFinite(ps) && where.pipeMatched && typeof stated === "number" && Math.abs(stated - ps) > 0.1) {
+      // SLICE 12e-6 (AC1, owner R7 / U1): the config's own girth step, on the matched size -- the line says so
+      out.working.push(`cladding: measured on the matched size ${fmt(ps)} (mm = NB: the size as read, ${fmt(stated)}, is not an outside diameter)`);
+    } else if (clad && Number.isFinite(ps) && asRead === undefined && !where.pipeMatched) {
       out.working.push(`cladding: measured on the pipe size as matched ${fmt(ps)} (the size as read is not available)`);
     }
   }
@@ -2672,7 +2905,7 @@ function priceOneItem(
     }
     if (!out.sku && r.matchedItem) out.sku = skuOf(r.matchedItem);
     for (const st of r.steps) {
-      if (st.produced) out.working.push(`${id}: ${st.label} = ${fmt(st.produced.value)}`);
+      if (st.produced) out.working.push(`${id}: ${claddingLabel(st)} = ${fmt(st.produced.value)}`);
     }
   }
   // (6b) SLICE 11 (owner ruling, 2026-09-25) -- THE ROW UNIT'S CONVERSION FACTOR. The catalogue quotes this
@@ -2690,6 +2923,24 @@ function priceOneItem(
   return { ...out, state: "priced", finals, figures, pipelineResults: results };
 }
 
+/**
+ * SLICE 12e-6 (AC9 c, owner U7). The cladding component's working line names ONLY the parts priced. The config's one
+ * label -- "cladding: (aluminium sheet x overlap + glass cloth) x girth" -- serves every cladding of the per-metre
+ * families, and the condition that fired zeroes the parts this cladding does not have: Glass Cloth with paint carries
+ * no sheet ("cladding: glass cloth x girth"), a bare aluminium sheet no cloth ("cladding: aluminium sheet x overlap x
+ * girth"). Both parts, or neither (no cladding), keep the config's label. Every other step's label is untouched. PURE.
+ */
+const BOTH_PARTS_LABEL = "cladding: (aluminium sheet x overlap + glass cloth) x girth";
+export function claddingLabel(st: { step: string; label: string; params?: Record<string, string | number> }): string {
+  if (st.step !== "component" || !st.label.startsWith(BOTH_PARTS_LABEL) || !st.params) return st.label;
+  const rest = st.label.slice(BOTH_PARTS_LABEL.length);
+  const sheet = st.params.al !== 0 && "al_from_ctx" in st.params;
+  const cloth = st.params.gc !== 0 && "gc_from_ctx" in st.params;
+  if (sheet && !cloth) return `cladding: aluminium sheet x overlap x girth${rest}`;
+  if (cloth && !sheet) return `cladding: glass cloth x girth${rest}`;
+  return st.label;
+}
+
 function skuOf(it: RateMasterItem): ItemPriceResult["sku"] {
   return {
     item_uid: it.item_uid,
@@ -2697,6 +2948,125 @@ function skuOf(it: RateMasterItem): ItemPriceResult["sku"] {
     item_detail: typeof it.attributes.item_detail === "string" ? it.attributes.item_detail : undefined,
     unit: it.unit,
   };
+}
+
+/**
+ * SLICE 12e-6 (owner R2 / R3, 2026-10-16). PURE. The families ONE item may be priced as when the BoQ allows two STOCKED
+ * ones, or null:
+ *   R2 (a config reading pipe types, `family_text.from_row`): NO type answered, and the row's own words -- else the type
+ *      as written -- name two different stocked types ("CPVC / UPVC" -> CPVC, PVC);
+ *   R3 (a config naming the material as written, `no_sku_named_by`): the material as written offers two stocked
+ *      families as alternatives ("open-cell acoustic foam / 32 kg fiberglass board").
+ * A family the PRICER picked is never second-guessed (the caller's test).
+ */
+export function cheaperAlternatives(
+  spec: ItemListPricingSpec, item: ExtractedListItem, ownText: string, rowUnitClass: string | null,
+): { families: string[]; said: string; pipes?: true; fromAnswer?: true } | null {
+  const fr = spec.family_text?.from_row;
+  const answered = rawValue(item, familyAttr(spec));
+  const refused = (text: string) => (spec.family_text?.refuse ?? []).some((r) => wordStartHit(text, [r.from]) !== null);
+  // the answer ITSELF names two stocked types ("uPVC/ CPVC" in the type box, typed or read): the same rule as the
+  // words as written, so a word typed and the same word read never price differently (12e-4b D-3's parity)
+  if (fr && answered !== null && answered !== "None" && !spec.families[String(answered)]) {
+    const t = String(answered);
+    const words: Array<{ word: string; family: string }> = [
+      ...Object.keys(spec.families).map((f) => ({ word: f, family: f })),
+      ...(spec.family_text?.map ?? []).map((m) => ({ word: m.from, family: m.to })),
+    ];
+    const at = (w: string) => t.toLowerCase().indexOf(w.toLowerCase());
+    const found = words.filter((w) => wordStartHit(t, [w.word]) !== null).sort((x, y) => at(x.word) - at(y.word));
+    const families = [...new Set(found.map((f) => f.family))].filter((f) => !!spec.families[f]);
+    if (families.length >= 2 && !refused(t)) return { families, said: found.map((f) => f.word).join(" or "), pipes: true, fromAnswer: true };
+    return null;
+  }
+  if (fr && (answered === null || answered === "None")) {
+    const several = (text: string): { families: string[]; named: string[] } | null => {
+      if (!text.trim()) return null;
+      const words: Array<{ word: string; family: string }> = [
+        ...Object.keys(spec.families).map((f) => ({ word: f, family: f })),
+        ...(spec.family_text?.map ?? []).map((m) => ({ word: m.from, family: m.to })),
+      ];
+      // in the order the BoQ writes them ("MS / Copper" -> "MS or Copper")
+      const at = (w: string) => text.toLowerCase().indexOf(w.toLowerCase());
+      const found = words.filter((w) => wordStartHit(text, [w.word]) !== null).sort((x, y) => at(x.word) - at(y.word));
+      const families = [...new Set(found.map((f) => f.family))].filter((f) => !!spec.families[f]);
+      return { families, named: found.map((f) => f.word) };
+    };
+    const own = several(ownText);
+    if (own && own.families.length >= 2) return { families: own.families, said: own.named.join(" or "), pipes: true };
+    if (own && own.families.length === 1) return null;
+    const w = spec.family_text?.from_attr ? rawValue(item, spec.family_text.from_attr) : null;
+    const word = w !== null && w !== "None" ? String(w) : "";
+    const fromWord = several(word);
+    if (fromWord && fromWord.families.length >= 2 && !refused(word)) {
+      return { families: fromWord.families, said: fromWord.named.join(" or "), pipes: true };
+    }
+    return null;
+  }
+  if (spec.no_sku_named_by) {
+    const w = rawValue(item, spec.no_sku_named_by);
+    const alt = w !== null && w !== "None" ? alternativeMaterials(spec, String(w), rowUnitClass) : null;
+    if (alt && alt.kind === "both") return { families: alt.families, said: alt.clause };
+  }
+  return null;
+}
+
+/**
+ * SLICE 12e-6 (R2 / R3): price ONE item; where the BoQ allows two stocked families, price each as answered and keep
+ * the CHEAPER for this row's size and thickness (supply + install, a composition's layers summed), with the amber line
+ * "BoQ allows CPVC or uPVC -> priced as PVC, the lower cost". The person switches it with the family control (a pick
+ * is the pricer's and is never second-guessed). None of them prices -> the item as it was (its own refusal stands).
+ */
+const CPVC = "CPVC";
+const PVC = "PVC";
+function priceOneItemOrCheaper(
+  spec: ItemListPricingSpec, projected: RateMasterItem[], rowUnitClass: string, item: ExtractedListItem, index: number,
+  unitFactor: UnitFactor | null, rowText: string, ownText: string, odHint: boolean | undefined,
+): ItemPriceResult {
+  const fa = familyAttr(spec);
+  const typed = item.attributes?.[fa]?.typed === true;
+  const found = cheaperAlternatives(spec, item, ownText, rowUnitClass);
+  // a PICK the pricer made is theirs; a word they TYPED naming two types reads exactly as the same word read off the BoQ
+  const alts = found && (!typed || found.fromAnswer) ? found : null;
+  if (!alts) return priceOneItem(spec, projected, rowUnitClass, item, index, unitFactor, rowText, ownText, undefined, odHint);
+  const said = (line: string) => (typed ? typedFamilyLine(line) : line);
+  const as = (f: string): ExtractedListItem => ({ ...item, attributes: { ...item.attributes, [fa]: { value: f } } });
+  const costOf = (r: ItemPriceResult, f: string): number | null => {
+    if (r.composeInto) {
+      const c = r.composeInto;
+      const oo = spec.compose?.outer_only;
+      let total = 0;
+      for (let li = 0; li < c.layers.length; li++) {
+        const attrs: ExtractedListItem["attributes"] = { ...as(f).attributes, [c.attr]: { value: c.layers[li] } };
+        if (oo && li < c.layers.length - 1) attrs[oo.attr] = { value: oo.value };
+        const layer = priceOneItem(spec, projected, rowUnitClass, { ...item, attributes: attrs }, index, unitFactor, rowText, ownText, undefined, odHint);
+        if (layer.state !== "priced") return null;
+        total += (layer.figures.supply ?? 0) + (layer.figures.install ?? 0);
+      }
+      return total;
+    }
+    return r.state === "priced" ? (r.figures.supply ?? 0) + (r.figures.install ?? 0) : null;
+  };
+  /**
+   * OWNER RULING 2026-10-16 14:22 IST (amends R2): "when both CPVC and PVC or uPVC pipes are mentioned together then we
+   * should quote for CPVC. this overrides my earlier rule for lesser price item selection." CPVC named with PVC / uPVC
+   * -> CPVC, whatever it costs; every other pair of stocked pipe types keeps the cheaper.
+   */
+  if (alts.pipes && alts.families.includes(CPVC) && alts.families.includes(PVC)) {
+    const r = priceOneItem(spec, projected, rowUnitClass, as(CPVC), index, unitFactor, rowText, ownText, undefined, odHint);
+    const line = said(`BoQ allows ${alts.said} -> priced as ${CPVC}`);
+    return { ...r, familyRaw: rawValue(item, fa) === null ? null : String(rawValue(item, fa)), familyLine: line, working: r.composeInto ? r.working : [line, ...r.working], alternativeChosen: CPVC };
+  }
+  let best: { f: string; r: ItemPriceResult; cost: number } | null = null;
+  for (const f of alts.families) {
+    const r = priceOneItem(spec, projected, rowUnitClass, as(f), index, unitFactor, rowText, ownText, undefined, odHint);
+    const cost = costOf(r, f);
+    if (cost !== null && (best === null || cost < best.cost)) best = { f, r, cost };
+  }
+  if (!best) return priceOneItem(spec, projected, rowUnitClass, item, index, unitFactor, rowText, ownText, undefined, odHint);
+  const line = said(`BoQ allows ${alts.said} -> priced as ${best.f.trim()}, the lower cost`);
+  const working = best.r.composeInto ? best.r.working : [line, ...best.r.working];
+  return { ...best.r, familyRaw: rawValue(item, fa) === null ? null : String(rawValue(item, fa)), familyLine: line, working, alternativeChosen: best.f };
 }
 
 /**
@@ -2708,12 +3078,15 @@ export function priceItemList(
   items: RateMasterItem[],
   rowUnit: string | null | undefined,
   extracted: ExtractedListItem[] | null | undefined,
-  /** SLICE 12d-1a (owner R2): the row's own text and its headings, joined -- read ONLY by
-   * `family_when_none`'s word rules. Absent => only the unit class can decide a silent family. */
+  /** SLICE 12d-1a (owner R2): the row's own text and its headings, joined -- read by `family_when_none`'s word
+   * rules and (12e-6) by AC1's copper words and AC2's "is a material named". Absent => only the unit class can
+   * decide a silent family. */
   rowText: string = "",
   /** SLICE 12d-4a (owner D3 / D7 / D9b): the row's OWN text (description + own notes, never a heading).
    * Absent (the calculator) => the word rules never match. */
   ownText: string = "",
+  /** SLICE 12e-6 (AC1): the section pass's word on the pipe above (see `priceOneItem`'s `odHint`). */
+  odHint?: boolean,
 ): RowPriceResult {
   const unit = rowUnit ?? "";
   let cls = unitClassOf(spec, unit);
@@ -2811,7 +3184,7 @@ export function priceItemList(
   const projected = projectUnitClass(spec, items);
   // SLICE 11: computed ONCE from the row's unit TEXT (the class alone cannot say which unit of it this is).
   const unitFactor = unitFactorOf(spec, unit);
-  let priced = extracted.map((it, i) => priceOneItem(spec, projected, cls, it, i, unitFactor, rowText, ownText));
+  let priced = extracted.map((it, i) => priceOneItemOrCheaper(spec, projected, cls, it, i, unitFactor, rowText, ownText, odHint));
   // SLICE 12c (owner Q8/Q9): an item whose stated size is above the top rung may be BUILT out of two or
   // more rungs. `priceOneItem` cannot do it alone -- one item cannot return several prices -- so it hands
   // back the layers it found and the expansion happens here, where a row has always been able to hold a
@@ -2833,9 +3206,12 @@ export function priceItemList(
         if (oo && !outer) attrs[oo.attr] = { value: oo.value };
         // SLICE 12e-5b (owner R7): the OUTER layer's cladding wraps the whole stack -- the pipe as read + 2 x the total
         const wrap = outer && spec.compose?.outer_surface
-          ? { total: c.layers.reduce((a, b) => a + b, 0), ...(c.pipeAsRead !== undefined ? { pipeAsRead: c.pipeAsRead } : {}), ...(c.pipeNb ? { pipeNb: true as const } : {}) }
+          ? { total: c.layers.reduce((a, b) => a + b, 0), ...(c.pipeAsRead !== undefined ? { pipeAsRead: c.pipeAsRead } : {}), ...(c.pipeMatched ? { pipeMatched: true as const } : {}) }
           : undefined;
-        const one = priceOneItem(spec, projected, cls, { ...src, attributes: attrs }, expanded.length, unitFactor, rowText, ownText, wrap);
+        // SLICE 12e-6 (R2 / R3): a layer prices the family the cheaper-alternative choice settled on, as answered
+        const layerAttrs = p.alternativeChosen ? { ...attrs, [familyAttr(spec)]: { value: p.alternativeChosen } } : attrs;
+        const one = priceOneItem(spec, projected, cls, { ...src, attributes: layerAttrs }, expanded.length, unitFactor, rowText, ownText, wrap, odHint);
+        if (p.alternativeChosen && p.familyLine) { one.familyLine = p.familyLine; if (li === 0) one.working.unshift(p.familyLine); }
         if (li === 0) {
           const total = c.layers.reduce((a, b) => a + b, 0);
           const sign = c.delta >= 0 ? "+" : "";

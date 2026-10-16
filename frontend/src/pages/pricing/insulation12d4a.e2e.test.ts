@@ -65,13 +65,13 @@ export const EXPECTED_DIVERGENCE_ROWS: ReadonlyArray<{ id: string; cause: string
   { id: "BOQ-26-00017|Lowside #94", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
   { id: "BOQ-26-00020|HVAC_-19TH FLOOR#515", cause: "F_row_text_not_an_input (D9b by word) -- ACCEPTED BY OWNER: ok" },
   { id: "BOQ-26-00108|HVAC#420", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
-  { id: "BOQ-26-00117|HVAC BOQ #189", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
+  { id: "BOQ-26-00117|HVAC BOQ #189", cause: "RESOLVED_12E6_AC4 (a FIXING names no cladding: the panel prices, as the calculator does) -- BEFORE: F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
   /** 12d-6 (owner U4): this row's model-read thickness is "38mm (19+19)"; typed into the calculator it is not a single
    *  number, so the calculator now refuses by U4 where it used to price -- the D9b divergence stays, with a second cause. */
   { id: "BOQ-26-00140|HVAC Lowside Works #59", cause: "F_row_text_not_an_input (D9b by word) -- ACCEPTED BY OWNER: ok; + U4_typed_layered_text_refuses -- APPROVED BY OWNER: U4, 12d-6, 2026-10-09" },
-  { id: "BOQ-26-00149|HVAC-BOQ#439", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
-  { id: "BOQ-26-00164|BOQ#136", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
-  { id: "BOQ-26-00197|HVAC BOQ #199", cause: "F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
+  { id: "BOQ-26-00149|HVAC-BOQ#439", cause: "RESOLVED_12E6_AC4 (a FIXING names no cladding: the panel prices, as the calculator does) -- BEFORE: F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
+  { id: "BOQ-26-00164|BOQ#136", cause: "RESOLVED_12E6_AC4 (a FIXING names no cladding: the panel prices, as the calculator does) -- BEFORE: F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
+  { id: "BOQ-26-00197|HVAC BOQ #199", cause: "RESOLVED_12E6_AC4 (a FIXING names no cladding: the panel prices, as the calculator does) -- BEFORE: F_row_text_not_an_input (D3) -- ACCEPTED BY OWNER: ok" },
   /** SLICE 12d-6 (owner U4, 2026-10-09): the row's model-read thickness "25 mm - 2 Layers" composes on the PANEL
    *  (12e-0b defect fixed; the row still refuses on its several-sizes pipe text), while the CALCULATOR, fed the same
    *  text TYPED, refuses by U4 ("Type the thickness as a single number in mm"). Both refuse; the sentence differs. */
@@ -166,7 +166,13 @@ describe("every audited row through BOTH paths on v31", () => {
       "BOQ-26-00017|Lowside #94", "BOQ-26-00020|HVAC_-19TH FLOOR#515", "BOQ-26-00108|HVAC#420", "BOQ-26-00117|HVAC BOQ #189",
       "BOQ-26-00137|LOWSIDE OFFICE WORKS#128", "BOQ-26-00140|HVAC Lowside Works #59", "BOQ-26-00149|HVAC-BOQ#439", "BOQ-26-00164|BOQ#136", "BOQ-26-00197|HVAC BOQ #199",
     ]);
-    for (const x of d3) {
+    // 12e-6 AC4 INVERTED by mechanical authority: BEFORE all 9 refused. The four whose only cladding word was a FIXING
+    // ("GI strip as at a grid distance of 1m X 1 m") now price -- a fixing names no cladding -- with cladding "No" (amber)
+    const AC4_12E6 = ["BOQ-26-00117|HVAC BOQ #189", "BOQ-26-00149|HVAC-BOQ#439", "BOQ-26-00164|BOQ#136", "BOQ-26-00197|HVAC BOQ #199"];
+    for (const x of d3.filter((y) => AC4_12E6.includes(y.r.id))) {
+      expect([x.out!.priced, x.out!.reason ?? null, x.out!.defaulted], x.r.id).toEqual([true, null, ["0:cladding=No"]]);
+    }
+    for (const x of d3.filter((y) => !AC4_12E6.includes(y.r.id))) {
       expect(x.out!.priced, x.r.id).toBe(false);
       const d9b = x.r.fixes.includes("D9b");
       const d11 = x.r.fixes.includes("D11");
@@ -189,7 +195,12 @@ describe("every audited row through BOTH paths on v31", () => {
       "BOQ-26-00029|HVAC WORK#269", "BOQ-26-00029|HVAC WORK#270", "BOQ-26-00029|HVAC WORK#271", "BOQ-26-00029|HVAC WORK#275", "BOQ-26-00029|HVAC WORK#276", "BOQ-26-00029|HVAC WORK#277",
       "BOQ-26-00086|Low side#64", "BOQ-26-00086|Low side#65", "BOQ-26-00086|Low side#67", "BOQ-26-00087|HVAC#32",
     ]);
-    for (const x of d7) {
+    // 12e-6 R1 INVERTED by mechanical authority (owner: "when the BoQ allows alternatives and ONE is stocked, price the
+    // stocked one"): BEFORE all 16 refused BY NAME. The four written as an alternative -- "XLPE/Nitrile Rubber foam" (00086 Low
+    // side 64 / 65 / 67) and "fiberglass / mineral wool insulation" (00087 / 32) -- now price the stocked material.
+    const R1_12E6 = ["BOQ-26-00086|Low side#64", "BOQ-26-00086|Low side#65", "BOQ-26-00086|Low side#67", "BOQ-26-00087|HVAC#32"];
+    for (const x of d7.filter((y) => R1_12E6.includes(y.r.id))) expect([x.out!.priced, x.out!.reason ?? null], x.r.id).toEqual([true, null]);
+    for (const x of d7.filter((y) => !R1_12E6.includes(y.r.id))) {
       expect(x.out!.priced, x.r.id).toBe(false);
       expect(x.out!.reason, x.r.id).toMatch(/^No SKU in the catalogue for .* - price this row by hand$/);
       // material_as_written is a hidden fact fed in `full` mode, so both paths refuse alike -- except on the
@@ -208,7 +219,8 @@ describe("every audited row through BOTH paths on v31", () => {
       expect(x.out!.working0, id).toBe("BoQ says 25 mm thick - 2 Layers -> priced as two layers, 25 + 25 mm (50 mm); cladding on the outer layer only");
       // ONE user block (the composition's layers are priced items under it); the field shows the model's own "None"
       // INVERTED at 12e-5b2 (owner R5 / U2: a composed field shows the TOTAL). BEFORE: ["25/None"], one layer's 25
-      expect(x.out!.layers, id).toEqual(["50/None"]);
+      // 12e-6 AC9 a INVERTED: BEFORE ["50/None"] -- the composed field shows the outer layer's ruled "No"
+      expect(x.out!.layers, id).toEqual(["50/No"]);
       expect(x.out!.layers, id).not.toEqual(["25/None"]);
     }
     // stated in advance from the product's own run: two 25 mm Nitrile Rubber layers, cladding No, at 53.98 / 41.28
@@ -275,7 +287,11 @@ describe("every audited row through BOTH paths on v31", () => {
 
   it("PARITY (owner P1): EXACTLY the named rows diverge; on the NEW row-text class the panel refuses while the calculator prices; every other named row is a pre-existing class", () => {
     const seen = results.filter((x) => x.run.divergences.length).map((x) => x.r.id).sort();
-    expect(seen).toEqual(EXPECTED_DIVERGENCE_ROWS.map((d) => d.id).sort());
+    // 12e-6 AC4 INVERTED by mechanical authority: BEFORE every listed row diverged; the four RESOLVED_12E6_AC4 rows now agree
+    expect(seen).toEqual(EXPECTED_DIVERGENCE_ROWS.filter((d) => !d.cause.startsWith("RESOLVED_12E6")).map((d) => d.id).sort());
+    for (const x of results.filter((y) => EXPECTED_DIVERGENCE_ROWS.some((d) => d.id === y.r.id && d.cause.startsWith("RESOLVED_12E6")))) {
+      expect([x.run.divergences, view(x.run).rowPriced], x.r.id).toEqual([[], true]);
+    }
     const cause = new Map(EXPECTED_DIVERGENCE_ROWS.map((d) => [d.id, d.cause]));
     for (const x of results.filter((y) => y.run.divergences.length)) {
       if (cause.get(x.r.id)!.startsWith("F_row_text_not_an_input") && cause.get(x.r.id)!.includes("U4_typed_layered_text_refuses")) {
@@ -296,7 +312,8 @@ describe("every audited row through BOTH paths on v31", () => {
         expect(calc.itemList!.items[0].reason, x.r.id).toBe("Type the thickness as a single number in mm");
       }
     }
-    expect(EXPECTED_DIVERGENCE_ROWS.filter((d) => d.cause.startsWith("F_")).length).toBe(8);
+    expect(EXPECTED_DIVERGENCE_ROWS.filter((d) => d.cause.startsWith("F_")).length).toBe(4);   // 12e-6 AC4: BEFORE 8 (four RESOLVED_12E6_AC4)
+    expect(EXPECTED_DIVERGENCE_ROWS.filter((d) => d.cause.startsWith("RESOLVED_12E6_AC4")).length).toBe(4);
     expect(EXPECTED_DIVERGENCE_ROWS.filter((d) => d.cause.includes("U4_typed_layered_text_refuses")).length).toBe(2);   // 12d-6: #471 and #59
   });
 });

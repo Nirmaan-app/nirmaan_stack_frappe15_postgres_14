@@ -24,7 +24,21 @@ import type { RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-ma
 import type { ExtractionRow, RateHelperRowContext } from "./rateHelperTypes";
 import { isSuggestion } from "./rateHelperTypes";
 import { readJsonFixture, runParity, type ParityCase } from "@/pages/pricing/calculatorPanelParity.harness";
-import { itemListRuleOrder } from "@/pages/pricing/rate-master/itemListRuleOrder";
+import { itemListRuleOrder as itemListRuleOrderLive } from "@/pages/pricing/rate-master/itemListRuleOrder";
+// SLICE 12e-6 (AC14 / U9) INVERTED by mechanical authority: BEFORE every tab read below called `itemListRuleOrder` directly.
+// 12e-6 ADDS ten lines (owner 2026-10-16 14:49, condition (a): every existing line keeps its words and order); this file's
+// pins read the tab WITHOUT them, renumbered -- so each pin still proves the old lines unchanged. The new lines are pinned
+// in ruleReachability.test.ts and slice12e6.test.ts.
+const ADDED_12E6: readonly RegExp[] = [
+  /^A '.*' answer where the BoQ names no material takes the kind its row implies$/, /^A material written with an alternative prices the stocked one$/,
+  /^Cross-linked polyethylene, XPE, FR-XPE and a co-extruded jacket or covering are XLPE and refuse by name$/,
+  /^A row-kind material on the other row kind prices as the one for the row's unit$/, / range takes the higher value$/,
+  / in mm or NB is one size: the cladding is measured on the matched size$/, /^Fixings and duct material in the row are not a /,
+  / written as a coating with no glass cloth refuses by name$/, / written as two stocked kinds prices one of them$/,
+  / with no .* facts opens the .* section on .*'s defaults$/,
+];
+const itemListRuleOrder = (...a: Parameters<typeof itemListRuleOrderLive>) =>
+  itemListRuleOrderLive(...a).filter((l) => !ADDED_12E6.some((re) => re.test(l.title))).map((l, i) => ({ ...l, n: i + 1 }));
 import { itemsWithInput, priceSkuExactItemList } from "@/pages/pricing/rate-master/pricingInputExact";
 import { computePricingInputReach } from "@/pages/pricing/rate-master/pricingInputReach";
 import {
@@ -325,8 +339,11 @@ describe("12e-2 P1 -- the pipe type: stocked, mapped, refused, read off the row 
     expect(one.b.family).toBe("MS");
     expect(one.b.familyLine).toBe("BoQ names MS / GI -> priced as MS");
     const two = panel({ pipe_type: "None", size_mm: "50" }, "Rmt", { description: "copper or PVC drain pipe 50 mm" });
-    expect(two.v.rowPriced).toBe(false);
-    expect(two.b.reason).toBe("two pipe types are named in this row (Copper, PVC) - pick the type");
+    // 12e-6 R2 INVERTED by mechanical authority (owner 2026-10-16: two stocked types -> the lower cost; CPVC with PVC -> CPVC).
+    // BEFORE: rowPriced false, reason "two pipe types are named in this row (Copper, PVC) - pick the type".
+    expect(two.v.rowPriced).toBe(true);
+    expect(two.b.familyLine).toBe("BoQ allows Copper or PVC -> priced as PVC, the lower cost");
+    expect(two.b.family).toBe("PVC");
     const none = panel({ pipe_type: "None", size_mm: "50" }, "Rmt", { description: "pipe 50 mm dia" });
     expect(none.v.rowPriced).toBe(false);
     expect(none.b.reason).toBe("no pipe type could be told for this item");

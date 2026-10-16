@@ -20,7 +20,21 @@ import type { RateCategoryConfig, RateMasterItem } from "@/pages/pricing/rate-ma
 import type { ExtractionRow, RateHelperRowContext } from "./rateHelperTypes";
 import { isSuggestion } from "./rateHelperTypes";
 import { readJsonFixture } from "@/pages/pricing/calculatorPanelParity.harness";
-import { itemListRuleOrder } from "@/pages/pricing/rate-master/itemListRuleOrder";
+import { itemListRuleOrder as itemListRuleOrderLive } from "@/pages/pricing/rate-master/itemListRuleOrder";
+// SLICE 12e-6 (AC14 / U9) INVERTED by mechanical authority: BEFORE every tab read below called `itemListRuleOrder` directly.
+// 12e-6 ADDS ten lines (owner 2026-10-16 14:49, condition (a): every existing line keeps its words and order); this file's
+// pins read the tab WITHOUT them, renumbered -- so each pin still proves the old lines unchanged. The new lines are pinned
+// in ruleReachability.test.ts and slice12e6.test.ts.
+const ADDED_12E6: readonly RegExp[] = [
+  /^A '.*' answer where the BoQ names no material takes the kind its row implies$/, /^A material written with an alternative prices the stocked one$/,
+  /^Cross-linked polyethylene, XPE, FR-XPE and a co-extruded jacket or covering are XLPE and refuse by name$/,
+  /^A row-kind material on the other row kind prices as the one for the row's unit$/, / range takes the higher value$/,
+  / in mm or NB is one size: the cladding is measured on the matched size$/, /^Fixings and duct material in the row are not a /,
+  / written as a coating with no glass cloth refuses by name$/, / written as two stocked kinds prices one of them$/,
+  / with no .* facts opens the .* section on .*'s defaults$/,
+];
+const itemListRuleOrder = (...a: Parameters<typeof itemListRuleOrderLive>) =>
+  itemListRuleOrderLive(...a).filter((l) => !ADDED_12E6.some((re) => re.test(l.title))).map((l, i) => ({ ...l, n: i + 1 }));
 import {
   ITEM_LIST_OVERRIDE_KEY, ROW_UNIT_OVERRIDE_KEY, makePricingSheetHelper, type ItemListSuggestion, type ItemBlockView,
 } from "./pricingSheetHelper";
@@ -225,8 +239,11 @@ describe("SLICE 12d-8 / R2 -- a number-matched model value keeps the reader's ow
     const th = field(block, "thickness_mm");
     expect(th.value).toBe("65");
     // INVERTED at 12e-4d (AC3). BEFORE "... -> priced as 65 mm (next size up)"
-    expect(th.note).toBe("BoQ says 25 to 50 -> 50 mm (range '25 to 50' -> its top value 50) -> priced as 65 mm (the smallest size)");
-    expect(block.working).toContain("thickness: range '25 to 50' -> its top value 50");
+    // 12e-6 AC8 (owner R10 / U6) INVERTED by mechanical authority -- the line only; value, hop and figures unchanged.
+    // Before: "BoQ says 25 to 50 -> 50 mm (range '25 to 50' -> its top value 50) -> ..." / "thickness: range '25 to 50' -> its top value 50"
+    expect(th.note).toBe("BoQ says 25 to 50 -> 50 mm (states a range - the higher, 50, is taken) -> priced as 65 mm (the smallest size)");
+    expect(block.working).toContain("thickness: '25 to 50' states a range - the higher, 50, is taken");
+    expect(block.working).not.toContain("thickness: range '25 to 50' -> its top value 50");
   });
 
   it("NEGATIVE: a plain match (\"19 mm\" -> 19) keeps today's note", () => {

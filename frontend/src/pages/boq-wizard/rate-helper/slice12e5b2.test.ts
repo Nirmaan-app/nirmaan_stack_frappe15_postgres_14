@@ -175,7 +175,9 @@ describe("AC5 composition: the field shows the total, the chooser stays C-R1", (
     const r = panel(PIP, row, "Rmt.", "50mm. Dia", ["CHILLED WATER PIPING with INSULATION."]);
     const f = field(secBlock(attached(r.v)), "thickness_mm");
     expect(f.value).toBe("32");
-    expect(fig(r.values)).toEqual([2109, 588]);
+    // 12e-6 AC1 INVERTED by mechanical authority (owner R7, STANDING: "mm = NB and NB = mm"). BEFORE [2109, 588] (the wrap on the size as read 50);
+    // the MS "50mm. Dia" wrap is now on the matched 53.98 (the C8 smoke row: 2,109 -> 2,123)
+    expect(fig(r.values)).toEqual([2123, 588]);
   });
   it("NEGATIVE a one-layer field keeps the layer it priced at, and no composition line", () => {
     const r = panel(INS, [{ ...R325[0], thickness_mm: "15 mm" }], "Sq.m");
@@ -198,22 +200,28 @@ function girthOf(answer: Answer[]): number | undefined {
 
 describe("AC6 a single layer's cladding: on the pipe size as read", () => {
   it("Q2: an Insulation-category row with an OUTSIDE-diameter size (50 mm, priced at 53.98): girth 3.14 x (50 + 2 x 19) / 1000, the line names 50; 604 / 224", () => {
-    expect(girthOf(R137("50 mm"))).toBeCloseTo((3.14 * (50 + 2 * 19)) / 1000, 9);
-    const r = panel(INS, R137("50 mm"), "RMT", "50 mm");
+    // 12e-6 AC1 INVERTED by mechanical authority (owner R7, STANDING: "mm = NB and NB = mm"). BEFORE "50 mm" was read as an
+    // outside diameter: girth on 50, the as-read line, 604 / 224. "50 mm" is mm = NB now; the OUTSIDE diameter is "50 mm O.D.".
+    expect(girthOf(R137("50 mm O.D."))).toBeCloseTo((3.14 * (50 + 2 * 19)) / 1000, 9);
+    const r = panel(INS, R137("50 mm O.D."), "RMT", "50 mm O.D.");
     expect(working(r.v.items[0])).toContain("cladding: measured on the pipe size as read 50 (not the 53.98 it was priced at) + 2 x 19 (the thickness) = 88 mm");
     expect(fig(r.values)).toEqual([604, 224]);
+    expect(girthOf(R137("50 mm"))).toBeCloseTo((3.14 * (53.98 + 2 * 19)) / 1000, 9);
+    expect(fig(panel(INS, R137("50 mm"), "RMT", "50 mm").values)).toEqual([615, 224]);
   });
   it("Q1 (b) NEGATIVE: 00137 rows 39-42 written as NOMINAL BORE keep the matched size, byte-identical to before: 615 / 535 / 493 / 460", () => {
     for (const [nb, matched, supply] of [["50NB", 53.98, 615], ["40NB", 41.28, 535], ["32NB", 34.93, 493], ["25NB", 28.58, 460], ["50 N.B.", 53.98, 615], ["50 nb", 53.98, 615]] as Array<[string, number, number]>) {
       expect(girthOf(R137(nb))).toBeCloseTo((3.14 * (matched + 2 * 19)) / 1000, 9);
       const r = panel(INS, R137(nb), "RMT", nb);
       expect(fig(r.values)).toEqual([supply, 224]);
-      expect(working(r.v.items[0]).some((w) => w.startsWith("cladding: measured"))).toBe(false);
+      // 12e-6 AC1 / U1 INVERTED: BEFORE no "cladding: measured" line on an NB row; it now names the matched size, like "mm dia"
+      expect(working(r.v.items[0]).filter((w) => w.startsWith("cladding: measured"))).toEqual([`cladding: measured on the matched size ${matched} (mm = NB: the size as read, ${parseFloat(nb)}, is not an outside diameter)`]);
     }
   });
   it("Q1 (b): a composed NB row's outer wrap is on the matched size, and its line says so", () => {
     const r = panel(INS, [{ ...R137("50NB")[0], thickness_mm: "32 mm" }], "RMT");
-    expect(r.v.items.flatMap((b) => working(b))).toContain("cladding: ONE wrap over the outer surface -- pipe size as matched (the BoQ states a nominal bore, NB) 53.98 + 2 x 32 (the total thickness) = 117.98 mm");
+    // 12e-6 AC1 INVERTED (wording only): BEFORE "... -- pipe size as matched (the BoQ states a nominal bore, NB) 53.98 + ..."
+    expect(r.v.items.flatMap((b) => working(b))).toContain("cladding: ONE wrap over the outer surface -- pipe size as matched (mm = NB, not an outside diameter) 53.98 + 2 x 32 (the total thickness) = 117.98 mm");
   });
   it("a Piping section (00341 VRV row 35, 31.8 priced at 34.93, Al. foil): the line names 31.8; 3,410 / 444", () => {
     const row: Answer[] = [
@@ -226,7 +234,8 @@ describe("AC6 a single layer's cladding: on the pipe size as read", () => {
   it("the calculator: a typed pipe size is the size as read", () => {
     const st = { items: [{ base: null, family: NITRILE, attrs: { cladding: "26G Aluminium", thickness_mm: "19", pipe_size_mm: "50" } }] } as unknown as ItemListEditState;
     const r = calc(INS, st);
-    expect(r.v.items.flatMap((b) => working(b))).toContain("cladding: measured on the pipe size as read 50 (not the 53.98 it was priced at) + 2 x 19 (the thickness) = 88 mm");
+    // 12e-6 AC1 INVERTED (owner R7: a typed 50 is mm = NB). BEFORE "cladding: measured on the pipe size as read 50 (not the 53.98 ...) = 88 mm"
+    expect(r.v.items.flatMap((b) => working(b))).toContain("cladding: measured on the matched size 53.98 (mm = NB: the size as read, 50, is not an outside diameter)");
   });
   it("NEGATIVE an exact match (53.98) and a spelling-only match (12.7 for 1/2\") keep the config's own girth step and no line", () => {
     for (const pipe of ["53.98 mm", '1/2"']) {
@@ -241,7 +250,8 @@ describe("AC6 a single layer's cladding: on the pipe size as read", () => {
     expect(working(r.v.items[0]).some((w) => w.startsWith("cladding: measured"))).toBe(false);
   });
   it("NEGATIVE a composition's outer layer keeps its own one-wrap line (12e-5b R7), unchanged", () => {
-    const r = panel(INS, [{ ...R137("50 mm")[0], thickness_mm: "32 mm" }], "RMT");   // an OD size (Q1: NB is matched)
+    // 12e-6 AC1 INVERTED: BEFORE R137("50 mm") was the OD size; it is "50 mm O.D." now (R7: "50 mm" is mm = NB)
+    const r = panel(INS, [{ ...R137("50 mm O.D.")[0], thickness_mm: "32 mm" }], "RMT");
     const w = r.v.items.flatMap((b) => working(b));
     expect(w).toContain("cladding: ONE wrap over the outer surface -- pipe size as read 50 + 2 x 32 (the total thickness) = 114 mm");
     expect(w.some((x) => x.startsWith("cladding: measured"))).toBe(false);

@@ -828,7 +828,9 @@ describe("SLICE 12d-8 / T2 -- one parity case per Derivation-tab rule, on the li
     ins("I3", "A row that names no material takes the kind its row implies", "RMT", { ...NIT, item: "None" }),
     ins("I4", "A material the model could not match to any kind refuses", "RMT", { ...NIT, item: "none of these", material_as_written: "XLPE foam" }),
     ins("I5", "A material the catalogue does not stock refuses by name, whatever kind was picked", "RMT", { ...NIT, material_as_written: "EPDM closed cell" }),
-    ins("I6", "That kind's rule for that unit", "sqm", NIT, UNIT),
+    // 12e-6 AC5 INVERTED by mechanical authority: BEFORE `ins("I6", ..., "sqm", NIT, UNIT)` -- Nitrile Rubber on a per-sq.m row now
+    // prices as Thermal Nitrile (I29 below); a kind outside the row-kind pair keeps the unit-class exclusion
+    ins("I6", "That kind's rule for that unit", "sqm", { item: "Tubular Puf Insulation", cladding: "No", thickness_mm: "25", pipe_size_mm: "100" }, UNIT),
     ins("I7", "The facts that rule needs before it can price", "RMT", { item: NR, cladding: "26G Aluminium", thickness_mm: "19" }),
     ins("I8", "A thickness the model writes as layers is priced as those layers", "RMT", { ...NIT, thickness_mm: "Double layer of 19mm thick" }, T6U4),
     ins("I9", "Several thickness values stated take the highest", "RMT", { ...NIT, thickness_mm: "13 / 19 / 25" }),
@@ -846,6 +848,13 @@ describe("SLICE 12d-8 / T2 -- one parity case per Derivation-tab rule, on the li
     ins("I21", "A cost the rules compute from the Pricing Inputs and the row's own geometry is shown greyed, never typed", "RMT", NIT),
     ins("I23", "The rate converts to the unit the row is written in", "sqft", THMI),
     ins("I24", "Multiplied by how many of the item one unit of the row pays for", "RMT", NIT),
+    // ── SLICE 12e-6 (AC14 / U9): the lines this slice adds to the v33-generated tab, one parity case each ──
+    ins("I26", "A 'none of these' answer where the BoQ names no material takes the kind its row implies", "RMT", { ...NIT, item: "none of these" }),
+    ins("I27", "A material written with an alternative prices the stocked one", "RMT", { ...NIT, material_as_written: "nitrile rubber/XLPE" }),
+    ins("I28", "Cross-linked polyethylene, XPE, FR-XPE and a co-extruded jacket or covering are XLPE and refuse by name", "RMT", { ...NIT, item: "none of these", material_as_written: "cross-linked polyethylene" }),
+    ins("I29", "A row-kind material on the other row kind prices as the one for the row's unit", "sqm", { item: NR, cladding: "No", thickness_mm: "19" }),
+    ins("I30", "A thickness range takes the higher value", "RMT", { ...NIT, thickness_mm: "13-19 mm" }),
+    ins("I31", "Fixings and duct material in the row are not a cladding", "RMT", { ...NIT, cladding: "None" }, "agree", { desc: "Nitrile insulation fixed with GI strip on a GI duct" }),
     adp("A1", "The row's unit decides which kind of rate applies", "nos", { family: "VCD", variant: "GI rectangular", size_mm: "600x600" }),
     adp("A2", "The item's own kind decides which products can price it", "nos", { family: "grille, type not stated", damper: "with", size_mm: "600x150" }),
     adp("A3", "A material the model could not match to any kind refuses", "nos", { family: "none of these", damper: "with", dia_mm: "200" }),
@@ -1421,7 +1430,7 @@ describe("12e-5c AC13 -- one Stage B row per new shape (runs BRSR-26-00718 .. 00
     calc: [number, number];
   }
   const ROWS: ShapeRow[] = [
-    {"shape": "as-written refusal", "id": "BOQ-26-00086/High side/98", "unit": "RM", "desc": "15.9 mm O.D. (with 19mm insulation)", "h": ["The quoted price should include lifting, shifting, positioning at site of all the equipment fittings, remote controls, vibration isolators, ancilliary materials as specified and all such item required to fullfill the intent and purpose as laid down in specifications and drawings.", "COPPER REFRIGERANT PIPING"], "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "COPPER", "size_mm": "15.9 mm O.D.", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "Glass Cloth with paint", "cladding_as_written": "two coats of 500 micron (0.5 mm) WFT Flame Retardant coating", "thickness_mm": "19mm", "pipe_size_mm": "15.9 mm O.D.", "brand": null, "material_as_written": "closed cell elastomeric nitrile rubber/XLPE tubular insulation"}, "s": "insulation"}], "want": "No SKU in the catalogue for closed cell elastomeric nitrile rubber/XLPE tubular insulation - price this row by hand", "calc": [1595, 304]},
+    {"shape": "as-written refusal", "id": "BOQ-26-00086/High side/98", "unit": "RM", "desc": "15.9 mm O.D. (with 19mm insulation)", "h": ["The quoted price should include lifting, shifting, positioning at site of all the equipment fittings, remote controls, vibration isolators, ancilliary materials as specified and all such item required to fullfill the intent and purpose as laid down in specifications and drawings.", "COPPER REFRIGERANT PIPING"], "items": [{"a": {"pipe_type": "Copper", "pipe_type_as_written": "COPPER", "size_mm": "15.9 mm O.D.", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "Nitrile Rubber Insulation", "cladding": "Glass Cloth with paint", "cladding_as_written": "two coats of 500 micron (0.5 mm) WFT Flame Retardant coating", "thickness_mm": "19mm", "pipe_size_mm": "15.9 mm O.D.", "brand": null, "material_as_written": "closed cell elastomeric nitrile rubber/XLPE tubular insulation"}, "s": "insulation"}], "want": [1595, 304], "calc": [1595, 304]},
     {"shape": "below smallest", "id": "BOQ-26-00300/VRF System/71", "unit": "Rmt", "desc": "20 mm dia.", "h": ["CPVC Pipes with 6mm thick Closed Cell Polyethylene"], "items": [{"a": {"pipe_type": "CPVC", "pipe_type_as_written": "CPVC", "size_mm": "20 mm dia.", "pipe_class": null, "insulated": "Yes"}}, {"a": {"item": "none of these", "cladding": "None", "cladding_as_written": null, "thickness_mm": "6 mm thick", "pipe_size_mm": "20 mm dia.", "brand": null, "material_as_written": "closed cell polyethylene"}, "s": "insulation"}], "want": [466, 42], "calc": [478, 42]},
   ];
   type Shown = { s: ItemListSuggestion; v: ItemListView };
@@ -1473,10 +1482,14 @@ describe("12e-5c AC13 -- one Stage B row per new shape (runs BRSR-26-00718 .. 00
     const c = calcOf(p);
     expect({ panel: fig(p), calc: fig(c) }).toEqual({ panel: r.want, calc: r.calc });
   });
+  // 12e-6 AC6 a INVERTED by mechanical authority (owner R1: "nitrile rubber/XLPE" offers a stocked alternative). BEFORE: the
+  // panel refused with the material AS WRITTEN ("No SKU in the catalogue for closed cell elastomeric nitrile rubber/XLPE
+  // tubular insulation - price this row by hand") while the calculator priced 1,595 / 304; the section now prices and the two agree.
   it("as-written refusal: the panel's refusal is the material AS WRITTEN; its pipe item still prices (only the section refuses)", () => {
     const p = panelOf(ROWS[0]);
     expect(p.v.items[0].state).toBe("priced");
-    expect(p.v.items[0].sections?.[0].view.rowPriced).toBe(false);
+    expect(p.v.items[0].sections?.[0].view.rowPriced).toBe(true);
+    expect(p.v.items[0].sections?.[0].view.items[0].familyLine).toBe("BoQ says closed cell elastomeric nitrile rubber/XLPE tubular insulation -> priced as Nitrile Rubber Insulation");
   });
   it("below smallest: the PIPE agrees on both surfaces (CPVC 25); only the insulation's pipe size differs (22.23 vs the mirrored 25)", () => {
     const p = panelOf(ROWS[1]);

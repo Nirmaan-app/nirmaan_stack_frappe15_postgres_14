@@ -216,13 +216,20 @@ describe("AC2 composed insulation: ONE cladding over the outer surface", () => {
   it("00162 row 17 (50 mm, 32 mm as 13 + 19): the outer layer's girth is 3.14 x (50 + 2 x 32) / 1000, with its working line", () => {
     const g = girths(KEYED, "50mm. Dia");
     expect(g.length).toBe(2);
-    expect(g[1]).toBeCloseTo((3.14 * (50 + 2 * 32)) / 1000, 9);
+    // 12e-6 AC1 INVERTED by mechanical authority (owner R7, STANDING: "mm = NB and NB = mm"): "50mm. Dia" is not an outside
+    // diameter, so the ONE wrap (unchanged, 12e-5b R7) sits on the MATCHED size. BEFORE: girth 3.14 x (50 + 2 x 32) / 1000 and the line
+    // "... -- pipe size as read 50 + 2 x 32 (the total thickness) = 114 mm".
+    expect(g[1]).toBeCloseTo((3.14 * (53.98 + 2 * 32)) / 1000, 9);
     const r = panel(PIP, ROW("50mm. Dia"), "Rmt.", "50mm. Dia", H162);
     const sec = attached(r.v);
-    expect(sec.view.items.flatMap((b) => b.working.map((w) => w.trim()))).toContain("cladding: ONE wrap over the outer surface -- pipe size as read 50 + 2 x 32 (the total thickness) = 114 mm");
+    expect(sec.view.items.flatMap((b) => b.working.map((w) => w.trim()))).toContain("cladding: ONE wrap over the outer surface -- pipe size as matched (mm = NB, not an outside diameter) 53.98 + 2 x 32 (the total thickness) = 117.98 mm");
+    // the negative half kept: the same row written as an OUTSIDE diameter wraps on the size as read, as before
+    expect(girths(KEYED, "50 mm O.D.")[1]).toBeCloseTo((3.14 * (50 + 2 * 32)) / 1000, 9);
   });
   it("00162 row 18 (40 mm): 3.14 x (40 + 2 x 32) / 1000", () => {
-    expect(girths(KEYED, "40mm Dia")[1]).toBeCloseTo((3.14 * (40 + 2 * 32)) / 1000, 9);
+    // 12e-6 AC1 INVERTED by mechanical authority (owner R7, STANDING: "mm = NB and NB = mm"): "50mm. Dia" is not an outside
+    // diameter, so the ONE wrap (unchanged, 12e-5b R7) sits on the MATCHED size. BEFORE: 3.14 x (40 + 2 x 32) / 1000.
+    expect(girths(KEYED, "40mm Dia")[1]).toBeCloseTo((3.14 * (41.28 + 2 * 32)) / 1000, 9);
   });
   it("NEGATIVE the inner layer carries no cladding and keeps the config's own girth step", () => {
     const g = girths(KEYED, "50mm. Dia");
@@ -239,16 +246,24 @@ describe("AC2 composed insulation: ONE cladding over the outer surface", () => {
     const one: Answer[] = [{ ...ROW("50mm. Dia")[0] }, { ...ROW("50mm. Dia")[1], thickness_mm: "19mm" }];
     const a = panel(PIP, one, "Rmt.", "50mm. Dia", H162, undefined, KEYED);
     const b = panel(PIP, one, "Rmt.", "50mm. Dia", H162, undefined, PLAIN);
-    expect(fig(a.values)).toEqual([1669, 574]);
+    // 12e-6 AC1 INVERTED by mechanical authority (owner R7: "mm = NB"): BEFORE a.values [1669, 574] (on the size as read 50)
+    // with the line "cladding: measured on the pipe size as read 50 (not the 53.98 it was priced at) + 2 x 19 ...". AFTER the
+    // keyed row is on the matched size like the plain one, and says so; the OD form keeps the as-read figure (the negative half).
+    expect(fig(a.values)).toEqual([1683, 574]);
     expect(fig(b.values)).toEqual([1683, 574]);
-    expect(attached(a.v).view.items.flatMap((x) => x.working.map((w) => w.trim()))).toContain("cladding: measured on the pipe size as read 50 (not the 53.98 it was priced at) + 2 x 19 (the thickness) = 88 mm");
+    expect(attached(a.v).view.items.flatMap((x) => x.working.map((w) => w.trim()))).toContain("cladding: measured on the matched size 53.98 (mm = NB: the size as read, 50, is not an outside diameter)");
+    const od: Answer[] = [{ ...ROW("50 mm O.D.")[0] }, { ...ROW("50 mm O.D.")[1], thickness_mm: "19mm" }];
+    const c = panel(PIP, od, "Rmt.", "50 mm O.D.", H162, undefined, KEYED);
+    expect(fig(c.values)).toEqual([1669, 574]);
+    expect(attached(c.v).view.items.flatMap((x) => x.working.map((w) => w.trim()))).toContain("cladding: measured on the pipe size as read 50 (not the 53.98 it was priced at) + 2 x 19 (the thickness) = 88 mm");
     expect(attached(b.v).view.items.flatMap((x) => x.working).some((w) => w.trim().startsWith("cladding: measured"))).toBe(false);
   });
   it("the calculator: a typed pipe size counts as the size as read", () => {
     const st: ItemListEditState = { items: [{ base: null, family: NITRILE, attrs: { cladding: "24G Aluminium", thickness_mm: "32", pipe_size_mm: "50" } }] } as unknown as ItemListEditState;
     const r = calc(INS, st);
     const w = r.v.items.flatMap((b) => b.working.map((x) => x.trim())).find((l) => l.startsWith("cladding: ONE wrap"));
-    expect(w).toBe("cladding: ONE wrap over the outer surface -- pipe size as read 50 + 2 x 32 (the total thickness) = 114 mm");
+    // 12e-6 AC1 INVERTED (owner R7: a typed 50 is mm = NB too). BEFORE "... -- pipe size as read 50 + 2 x 32 (the total thickness) = 114 mm"
+    expect(w).toBe("cladding: ONE wrap over the outer surface -- pipe size as matched (mm = NB, not an outside diameter) 53.98 + 2 x 32 (the total thickness) = 117.98 mm");
   });
 });
 

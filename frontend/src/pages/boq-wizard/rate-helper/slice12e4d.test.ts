@@ -251,10 +251,13 @@ describe("12e-4d AC2 -- an insulation section never prices a size its pipe refus
       expect({ label, pipe: x.v.items[0].state, sec: sv.view.rowPriced, fig: fig(sv.view.totals), mirrored: field(secBlock(sv), "pipe_size_mm").mirrorTag ?? null })
         .toEqual({ label, pipe: "blank", sec: true, fig: [226, 14], mirrored: null });
     }
-    // above the largest MS size: the size WAS read, so it is mirrored and the section refuses with ITS OWN sentence, as before
+    // 12e-6 AC9 b INVERTED by mechanical authority (the "above the largest" refusal joins 12e-4d AC2): BEFORE the size was
+    // mirrored and the section refused with ITS OWN sentence ("pipe size 400 is above the largest size on the sheet (53.98)").
+    // AFTER it repeats the PIPE's sentence, mirrors nothing, and shows no figure.
     const big = model("MS", "400");
     expect(big.v.items[0].reason).toBe("pipe size 400 is above the largest size on the sheet (300)");
-    expect(attached(big.v).view.reason).toBe("pipe size 400 is above the largest size on the sheet (53.98)");
+    expect(attached(big.v).view.reason).toBe("pipe size 400 is above the largest size on the sheet (300)");
+    expect(field(secBlock(attached(big.v)), "pipe_size_mm")).toMatchObject({ value: "", note: "From pipe: pipe size 400 is above the largest size on the sheet (300)" });
     // a pipe that prices keeps mirroring its read size, as before
     const ok = model("Copper", `5/8${INCH}`);
     expect(field(secBlock(attached(ok.v)), "pipe_size_mm").note).toBe("From pipe: 15.875 mm -> priced as 15.88 mm (the sheet's own spelling of this size)");

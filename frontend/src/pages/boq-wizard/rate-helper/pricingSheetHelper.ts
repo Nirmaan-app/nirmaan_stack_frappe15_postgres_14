@@ -73,6 +73,7 @@ import {
   plainFactOf,
   readLayers,
   readNumber,
+  sizeIsOutsideDiameter,
   severalSizesTaken,
   listSpecDefs,
   priceItemList,
@@ -156,6 +157,10 @@ export type RowContextWithUnit = RateHelperRowContext & {
    * delegated category refusing AT THAT NEED shows the defaults it had read (`ItemPriceResult.heldDefaults`)
    * exactly as a priced item shows its own. Absent everywhere else, so no category's own row changes. */
   showHeldDefaultsOn?: string;
+  /** SLICE 12e-6 (AC1, owner R7): set by the section pass -- the pipe above is Copper or its size is written as an
+   * outside diameter / inch size (true), or it is another pipe (false). Absent on an Insulation row of its own, where
+   * the row's own words decide. Read only by the cladding's girth. */
+  pipeOdHint?: boolean;
 };
 
 /** A pipeline id is surfaced in the helper iff it is NOT a BCS pipeline (owner deferral). PURE. */
@@ -2244,6 +2249,17 @@ function itemBlockView(
   }
   const fieldDefs = itemFieldDefs(spec, defs, family, unitClass, { items, answers });
   const defaultedBy = new Map(res.defaulted.map((d) => [d.attr, d]));
+  /**
+   * SLICE 12e-6 (AC9 a, owner U7; 12e-5b2 review "ok with 12e-6"): on a COMPOSED block the cladding belongs to the
+   * OUTER layer -- `outer_only` sets every inner layer's to its plain "No", so the first layer (`res`) carries no
+   * default for it and the field showed the model's raw "None" ("- select -"). It shows the outer layer's ruled value
+   * ("No", amber, with its rule) instead. Display only; one layer (everything uncomposed) is untouched.
+   */
+  const outerOnly = spec.compose?.outer_only?.attr;
+  if (outerOnly && layers.length > 1 && !defaultedBy.has(outerOnly)) {
+    const od = layers[layers.length - 1].defaulted.find((d) => d.attr === outerOnly);
+    if (od) defaultedBy.set(outerOnly, od);
+  }
   // SLICE 12e-5b (owner R2): a choice priced from the BoQ's own words (`choice_text`) -- its value and amber line
   const textMappedBy = new Map((res.textMapped ?? []).map((t) => [t.attr, t]));
   const hopBy = new Map(res.ladderHops.map((h) => [h.attr, h]));
@@ -2784,7 +2800,7 @@ function computeItemListOwn(
    * The calculator has no row and passes nothing, so those rules read only the model's values there.
    */
   const ownText = [ctx.description ?? "", ...(ctx.ownNotes ?? [])].join(" | ");
-  const priced = priceItemList(spec, items, unit, forPricing, rowText, ownText);
+  const priced = priceItemList(spec, items, unit, forPricing, rowText, ownText, ctx.pipeOdHint);
   const unitClass = priced.unitClass ?? unitClassOf(spec, unit);
   /**
    * CERT-FOUND 2026-10-04. A composition turns ONE user block into SEVERAL priced layers, so
@@ -3013,6 +3029,10 @@ function computeItemList(
     ownerQty?: string,
     /** SLICE 12e-4d (AC2): the item's own refusal, where it refused on the size this section takes from it */
     pipeRefusal?: string,
+    /** SLICE 12e-6 (AC1): the pipe above is Copper / written as an outside diameter (true), another pipe (false) */
+    pipeOd?: boolean,
+    /** SLICE 12e-6 (AC3): the MODEL opened this section ("Insulated: Yes") and answered no item for it */
+    modelOpened = false,
   ): SectionBlockView => {
     const heading = `${r.s.label} - priced by ${r.cfg ? categoryLabel(r.cfg) : r.s.label}'s rules`;
     if (!r.cfg || !r.dspec) {
@@ -3021,7 +3041,20 @@ function computeItemList(
       return { sectionId: r.s.id, heading, pipe, index,
                view: { unit: rowUnit, unitClass: null, unitPickable: false, unitChoices: [], rowPriced: false, reason, items: [], families: [], editState: { items: [] }, modelCount: 0 } };
     }
-    const modelItem = secEdit.base !== null && secEdit.family === null ? secModel[r.s.id]?.[secEdit.base] : undefined;
+    const answeredItem = secEdit.base !== null && secEdit.family === null ? secModel[r.s.id]?.[secEdit.base] : undefined;
+    /**
+     * SLICE 12e-6 (AC3; owner D1b / D5b, 2026-10-12). "Insulated: Yes" on a BoQ row with NO insulation item in the reply:
+     * the section opens on the MODEL PATH's defaults, exactly as the delegated category prices a row that mentions none
+     * of its facts -- the material by the row-kind default (AC2), the thickness by its ruled default and the ladder,
+     * the cladding "None" -> "No" -- each amber with its own line. It used to open with nothing answered and refuse
+     * "could not tell cladding". It is the delegated category's own rules on an answer of "not mentioned" (every choice
+     * and the family "None"); nothing is decided here. Not the calculator (D1b: there the material starts blank), and not
+     * a pipe the pricer added or switched to Yes.
+     */
+    const dspecNow = r.dspec;
+    const modelItem: ExtractedListItem | undefined = answeredItem ?? (modelOpened && !calculator && secEdit.base === null && secEdit.family === null
+      ? { attributes: Object.fromEntries([familyAttr(dspecNow), ...dspecNow.choice_attrs].map((a) => [a, { value: "None" }])) }
+      : undefined);
     const offered = new Set(r.s.families ?? []);
     const stocked = (fam: string) => items.some((it) => it.kind === r.dspec!.kind && it.attributes?.[familyAttr(r.dspec!)] === fam);
     /**
@@ -3083,7 +3116,7 @@ function computeItemList(
      * section still refuses, with no figure and no "priced as" line. A value with no dropdown word ("6mm") shows
      * as before, in its "Other..." box.
      */
-    const res = computeItemListOwn(r.cfg, r.dspec, items, { ...ctx, unit: rowUnit, ...(calculator ? { noRow: true } : {}), ...(mir ? { showHeldDefaultsOn: mir.to } : {}) }, dext, inRun,
+    const res = computeItemListOwn(r.cfg, r.dspec, items, { ...ctx, unit: rowUnit, ...(calculator ? { noRow: true } : {}), ...(mir ? { showHeldDefaultsOn: mir.to } : {}), ...(pipeOd !== undefined ? { pipeOdHint: pipeOd } : {}) }, dext, inRun,
                                    { [ITEM_LIST_OVERRIDE_KEY]: JSON.stringify({ items: [callEdit] }) }) as ItemListSuggestion;
     const dview = res.itemList!;
     if (refusedByPipe) {
@@ -3172,7 +3205,14 @@ function computeItemList(
       editsOut.items[i] = { ...editsOut.items[i], sections: { ...(editsOut.items[i].sections ?? {}), [r.s.id]: secEdit } };
       const own = layers.get(i)?.[0];
       const pipeRefusal = r.s.mirror && own?.sizeRefused === r.s.mirror.from ? own.reason : undefined;
-      attached.push(priceSection(r, secEdit, i, 0, r.s.mirror ? mirroredNumber(own, r.s.mirror.from) : undefined, b.qty, pipeRefusal));
+      // SLICE 12e-6 (AC1, owner R7): the pipe above -- Copper, or a size written as an outside diameter / inch size --
+      // keeps its cladding on the size as read; any other pipe is mm = NB. A pipe with no family tells nothing.
+      const pipeRaw = r.s.mirror
+        ? (hasOwn(edit.attrs, r.s.mirror.from) ? edit.attrs[r.s.mirror.from] : (isModelItem ? ownModel[edit.base!]?.attributes?.[r.s.mirror.from]?.value : undefined))
+        : undefined;
+      const pipeOd = own?.family ? (/\bcopper\b/i.test(own.family) || sizeIsOutsideDiameter(pipeRaw ?? null)) : undefined;
+      const opened = typed === undefined && !modelSection && modelSaid === inc.equals;
+      attached.push(priceSection(r, secEdit, i, 0, r.s.mirror ? mirroredNumber(own, r.s.mirror.from) : undefined, b.qty, pipeRefusal, pipeOd, opened));
     }
     return { ...b, fields, ...(attached.length ? { sections: attached } : {}) };
   });

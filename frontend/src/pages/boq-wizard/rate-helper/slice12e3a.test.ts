@@ -383,12 +383,19 @@ describe("12e-3a AC5 -- the model path (owner Q3 / Q4): insulation arrives as a 
   it("Yes with no facts -> an empty section that refuses until filled; the pipe keeps its figures; no row total", () => {
     const { v, values } = panel([{ ...PIPE1, insulated: "Yes" }]);
     const sv = attached(v);
-    expect(sv.view.rowPriced).toBe(false);
-    expect(secBlock(sv).source).toBe("user");
-    expect(values).toEqual({});
-    expect(v.rowPriced).toBe(false);
+    // 12e-6 AC3 INVERTED by mechanical authority (owner D1b / D5b: the model path's defaults). BEFORE: the section refused
+    // (rowPriced false, source "user"), values {}, the row unpriced, sections { lines: 2, bad: 1 }. AFTER: the section opens
+    // on Insulation's own "not mentioned" defaults -- each amber -- and the row prices; the pipe keeps its figures.
+    expect(sv.view.rowPriced).toBe(true);
+    const sb = secBlock(sv);
+    expect(sb.familyDefaulted?.value).toBe(NITRILE);
+    expect(field(sb, "cladding")).toMatchObject({ value: "No", defaulted: true });
+    expect(field(sb, "thickness_mm").defaulted).toBe(true);
+    expect(sb.reason).toBeUndefined();
+    expect(v.rowPriced).toBe(true);
     expect(fig(v.items[0].figures)).toEqual([1298, 220]);
-    expect(v.sections).toMatchObject({ lines: 2, bad: 1 });
+    expect(values.supply_rate).toBe(1298 + (sb.figures.supply_rate ?? NaN));
+    expect(v.sections).toMatchObject({ lines: 2, bad: 0 });
   });
   it("the k-th insulation item attaches to the k-th pipe; an extra one is independent", () => {
     const { v } = panel([PIPE1, PIPE2, INS1, INS2, { section: SEC, item: PUF, cladding: "No", thickness_mm: "25", pipe_size_mm: "40" }]);
@@ -721,12 +728,15 @@ describe("12e-3a AC8 -- parity: the Piping section == Calculator -> Insulation, 
         const whole = compute(PIP, insulated("MS", typed, ins(fam, picks))).v;
         const sv = attached(whole);
         const own = insCalc(fam, { ...picks, pipe_size_mm: typed });
-        if (whole.items[0].reason === noUnitMessage(typed)) {
+        // 12e-6 AC9 b INVERTED by mechanical authority: BEFORE only the no-unit refusal (12e-4d AC2) took this branch; an MS
+        // pipe ABOVE ITS LARGEST size (the 350 of the PUF sweep) now joins it -- the section repeats the pipe's sentence
+        const pipeSaid = whole.items[0].reason;
+        if (pipeSaid === noUnitMessage(typed) || (pipeSaid ?? "").startsWith(`pipe size ${typed} is above the largest size on the sheet`)) {
           // the AC2 half: the section refuses with the pipe's sentence, no figure anywhere on it
           const a = secBlock(sv);
           expect({ kind, priced: sv.view.rowPriced, reason: sv.view.reason, totals: sv.view.totals, state: a.state, blockReason: a.reason, figures: a.figures })
-            .toEqual({ kind, priced: false, reason: noUnitMessage(typed), totals: undefined, state: "blank", blockReason: noUnitMessage(typed), figures: {} });
-          expect(field(a, "pipe_size_mm"), kind).toMatchObject({ mirrorTag: "from pipe", value: "", note: `From pipe: ${noUnitMessage(typed)}` });
+            .toEqual({ kind, priced: false, reason: pipeSaid, totals: undefined, state: "blank", blockReason: pipeSaid, figures: {} });
+          expect(field(a, "pipe_size_mm"), kind).toMatchObject({ mirrorTag: "from pipe", value: "", note: `From pipe: ${pipeSaid}` });
           // ... and the pricer's own size in the section's box prices it exactly as Calculator -> Insulation
           const typedHere = attached(compute(PIP, insulated("MS", typed, ins(fam, { ...picks, pipe_size_mm: typed }, ["pipe_size_mm"]))).v);
           expect([typedHere.view.rowPriced, typedHere.view.totals], kind).toEqual([own.v.rowPriced, own.v.totals]);
@@ -761,6 +771,7 @@ describe("12e-3a AC8 -- parity: the Piping section == Calculator -> Insulation, 
     expect(compared).toBe(SECTION_SKUS.length * 3);
     expect(compared).toBe(612);
     // 12e-4d (AC2): the comparisons where the MS pipe refused on its size, named above, and counted
-    expect(refusedByPipe).toBe(REFUSED_BY_PIPE_12E4D);
+    // 12e-6 AC9 b: BEFORE `toBe(REFUSED_BY_PIPE_12E4D)` (48); the 36 Tubular PUF "refused" sizes (an MS pipe above its largest) join it
+    expect(refusedByPipe).toBe(REFUSED_BY_PIPE_12E4D + 36);
   });
 });

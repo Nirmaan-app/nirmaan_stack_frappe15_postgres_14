@@ -135,6 +135,9 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     if (ft.from_row && typeof ft.from_row === "object" && ft.from_row.refuse) {
       add(`A row naming one ${name(famAttrId)} prices as it; two different ones with none chosen refuse`,
           `the names in the row's own text, read through the same map; ${plainSentence(String(ft.from_row.refuse).replace("{types}", "the names found"))}`);
+      // SLICE 12e-6 (owner R2, amended 2026-10-16 14:22; U9): ADDED -- the line above keeps its words
+      add(`One ${name(famAttrId)} written as two stocked kinds prices one of them`,
+          "CPVC named with PVC or uPVC prices as CPVC; any other two stocked kinds price the lower cost for the row's size -- with a line saying so; the pricer can change it");
     }
     // SLICE 12e-4b (owner D-3; decisions 2 / 3 / 7): the family as the BoQ writes it, where the config names
     // the attribute that carries it
@@ -161,10 +164,22 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add("A material the model could not match to any kind refuses",
         `the kind ${quoteList(noSku)} is a refusal for a person${by}`);
   }
+  // SLICE 12e-6 (AC2; U9): ADDED
+  if (noSku.length && fwn && typeof fwn === "object") {
+    add(`A ${quoteList(noSku)} answer where the BoQ names no material takes the kind its row implies`,
+        "nothing copied as the material and no unstocked material in the row or its headings -- shown as assumed; a material the BoQ names keeps the refusal");
+  }
   const um = pr.unstocked_materials;
   if (um && Array.isArray(um.words) && um.words.length) {
     add("A material the catalogue does not stock refuses by name, whatever kind was picked",
         `${quoteList(um.words, 12)} in the row's own text${um.from_attr ? ` or in the ${name(String(um.from_attr))}` : ""}`);
+    // SLICE 12e-6 (owner R1 / R3 / R5 / R8; U9): ADDED
+    if (pr.no_sku_named_by) {
+      add("A material written with an alternative prices the stocked one",
+          "an unstocked material beside a stocked one ('nitrile rubber/XLPE', 'rockwool/glasswool') prices the stocked one; two stocked ones ('open-cell acoustic foam / fiberglass board') price the lower cost -- with a line saying so");
+    }
+    add("Cross-linked polyethylene, XPE, FR-XPE and a co-extruded jacket or covering are XLPE and refuse by name",
+        "before closed cell polyethylene could be read as nitrile: 'No SKU in the catalogue for <the words as written> - price this row by hand'");
   }
 
   // ── 3. the rule for the unit, the facts it needs ──────────────────────────────────────────────────
@@ -175,6 +190,12 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
       classes.length === 1
         ? "a kind is priced per " + String(pr.unit_words?.[classes[0]] ?? classes[0]) + " and has one rule for it"
         : "a kind priced per metre and per square metre has a rule for each");
+  // SLICE 12e-6 (AC5; U9): ADDED
+  const byKind = Object.entries<any>(fwn?.by_unit_class ?? {});
+  if (byKind.length >= 2) {
+    add("A row-kind material on the other row kind prices as the one for the row's unit",
+        `${byKind.map(([cls, f]) => `per ${pr.unit_words?.[cls] ?? cls}: ${famWord(f)}`).join("; ")} -- with a line saying so ('priced as ... (row is per ...)')`);
+  }
   const notOffered: string[] = [];
   for (const [f, fv] of Object.entries<any>(pr.families ?? {})) {
     for (const u of fv?.units_not_offered ?? []) notOffered.push(`${famWord(f)} is not offered per ${pr.unit_words?.[u] ?? u}`);
@@ -200,11 +221,19 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     add(`A ${name(composed)} the model writes as layers is priced as those layers`,
         `'a + b', 'a x 2', '2 layers of a', 'a mm - 2 layers', 'double layer of a' -- each layer at the row's own size${outer}; a value the pricer types is never read as layers`);
   }
+  // SLICE 12e-6 (owner R7: "mm = NB and NB = mm"; U9): ADDED
+  const os = pr.compose?.outer_surface;
+  if (os?.pipe) {
+    add(`A ${name(String(os.pipe))} in mm or NB is one size: the cladding is measured on the matched size`,
+        "'50 mm', '50 mm dia', '50 NB' and '50 mm NB' are the same size; only an outside diameter -- written OD / O.D. / outer dia, an inch size, or a copper, refrigerant, VRF or VRV pipe -- is measured as read");
+  }
   for (const [attr, rd] of Object.entries<any>(pr.numbers ?? {})) {
     if (rd?.several === "highest") {
       // SLICE 12d-8 (owner R5): the wording follows the code -- a range is read as its TOP value, not refused
       add(`Several ${name(attr)} values stated take the highest`,
           "a bare slash list ('19 / 25 / 32'); a size range ('25 to 50') takes its top value; a comma list and a tolerance ('25 +/- 2') still refuse");
+      // SLICE 12e-6 (owner R10; U9): ADDED
+      add(`A ${name(attr)} range takes the higher value`, "'25-50 mm' or '25 to 50' prices 50, with a line saying 'states a range - the higher, 50, is taken'");
     }
     if (rd?.inches) {
       // SLICE 12e-2 (owner Q14): the second conversion, where the reader declares one
@@ -260,6 +289,15 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
     if (!r?.attr) continue;
     add(`A ${name(String(r.attr))} named in the row's own text but read as not mentioned refuses`,
         `${plainSentence(r.refuse)} -- the words: ${quoteList(r.words ?? [], 8)}; a heading never triggers it`);
+    // SLICE 12e-6 (AC4; U9): ADDED
+    add(`Fixings and duct material in the row are not a ${name(String(r.attr))}`,
+        "GI strip, GI grid, a 'C' shape GI frame, GI bolts, clamps, channels, angles and an aluminium or GI duct never trigger the line above");
+  }
+  // SLICE 12e-6 (owner R4; U9): ADDED
+  for (const c of (pr.choice_text ?? []) as any[]) {
+    if (!c?.attr) continue;
+    add(`A ${name(String(c.attr))} written as a coating with no glass cloth refuses by name`,
+        `polyshield, fire retardant or protective coating, a paint: 'No SKU in the catalogue for <the coating as written> - price this row by hand'; a ${name(String(c.attr))} the model answered stands`);
   }
   for (const r of (pr.read_notes ?? []) as any[]) {
     if (!r?.line) continue;
@@ -372,6 +410,9 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
            `any other answer removes only that section`,
            sec.add_label ? `'${String(sec.add_label)}' adds a section that belongs to no ${ownWord}` : "",
            `in the calculator a section opens with nothing picked`].filter(Boolean).join("; "));
+      // SLICE 12e-6 (AC3, owner D1b / D5b; U9): ADDED
+      add(`${labels[String(inc.attr)] ?? String(inc.attr)} ${String(inc.equals)} with no ${low} facts opens the ${low} section on ${label}'s defaults`,
+          "the material its row kind implies, the ruled thickness then the ladder, the cladding 'No' -- each shown as assumed with its line");
     }
     add(`The ${low} section is priced by ${label}'s rules`,
         [`its own catalogue, pricing inputs, defaults, ladders and refusals -- no rule of it is copied here`,
