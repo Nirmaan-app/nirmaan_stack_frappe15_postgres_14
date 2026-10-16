@@ -29,7 +29,7 @@ from frappe import _
 
 from nirmaan_stack.services.cheque_payments import is_cheque
 from nirmaan_stack.services.cheques.lines import live_cheques_of
-from nirmaan_stack.services.cheques.rules import CANCELLED, CHEQUE_STATUSES, PAYMENT_DOCTYPE, PAYMENT_REJECTED
+from nirmaan_stack.services.cheques.rules import CANCELLED, CLEARED, ISSUED, PAYMENT_DOCTYPE, PAYMENT_REJECTED
 from nirmaan_stack.services.cheques.writer import CHEQUES, history_row
 from nirmaan_stack.services.settlement import STATUS_PAID, STATUS_RECONCILIATION_PENDING
 
@@ -54,8 +54,13 @@ class MoveFacts:
     payments: list[LinePayment] = field(default_factory=list)
 
 
+#: The statuses a hand move may reach. Pending (spec #1477) is never reached by hand: a Payment cheque is
+#: Pending only while its payments wait for approval.
+HAND_MOVE_STATUSES = (ISSUED, CLEARED, CANCELLED)
+
+
 def target_problem(to_status: str) -> str | None:
-    if to_status not in CHEQUE_STATUSES:
+    if to_status not in HAND_MOVE_STATUSES:
         return "Choose Issued, Cleared or Cancelled."
     return None
 

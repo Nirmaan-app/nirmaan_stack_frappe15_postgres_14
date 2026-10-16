@@ -228,6 +228,7 @@ class TestChequeReportFiltersAndSummary(FrappeTestCase):
             summary,
             {
                 "count": 3, "total_amount": 40000,
+                "pending_count": 0, "pending_amount": 0,
                 "issued_count": 1, "issued_amount": 25000,
                 "cleared_count": 1, "cleared_amount": 10000,
                 "cancelled_count": 1, "cancelled_amount": 5000,
@@ -273,3 +274,75 @@ class TestChequeReportFiltersAndSummary(FrappeTestCase):
     def test_an_unknown_facet_is_refused(self):
         with self.assertRaises(frappe.ValidationError):
             get_cheque_facets("amount")
+
+
+class TestChequeTypeAndDates(FrappeTestCase):
+    """#1478: each row carries its cheque type, issue and clearance dates, how it cleared and the Old-type
+    flag; the list filters on type and both dates, and the strip counts Pending."""
+
+    def setUp(self):
+        frappe.set_user(U)
+        self.fx = TaxedWorkOrderFixture.attach(self)
+        self.cheques = ChequeFixture.attach(self)
+        self.vendor = self.fx.vendor()
+        frappe.db.commit()
+
+    def tearDown(self):
+        frappe.set_user(U)
+
+    def _save(self, amount=25000, **values):
+        """A Cheque saved through the report, then given `values` raw: the writers that set them (issue on
+        approval, clear, deposit cheques) come in later tickets of spec #1477."""
+        result = save_cheque(bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
+                             amount=amount, vendor=self.vendor, description="Advance", attachment=PHOTO)
+        name = self.cheques.track(result["cheque"])
+        if values:
+            frappe.db.set_value("Cheques", name, values, update_modified=False)
+            frappe.db.commit()
+        return name
+
+    def _names(self, *filters):
+        rows = get_cheques(filters=json.dumps([["vendor", "=", self.vendor], *filters]))["data"]
+        return sorted(r["name"] for r in rows)
+
+    def test_a_new_cheque_is_a_payment_cheque(self):
+        name = self._save()
+        self.assertEqual(frappe.db.get_value("Cheques", name, "cheque_type"), "Payment")
+
+    def test_a_row_carries_type_dates_how_it_cleared_and_old_type(self):
+        name = self._save(cheque_type="Payment", status="Cleared", issue_date="2026-09-02",
+                          clearance_date="2026-09-10", cleared_by="Bank import", old_type=1)
+
+        row = get_cheques(filters=json.dumps([["name", "=", name]]))["data"][0]
+
+        self.assertEqual(
+            (row["cheque_type"], str(row["issue_date"]), str(row["clearance_date"]), row["cleared_by"], row["old_type"]),
+            ("Payment", "2026-09-02", "2026-09-10", "Bank import", 1),
+        )
+
+    def test_the_list_filters_on_cheque_type(self):
+        payment = self._save()
+        deposit = self._save(cheque_type="Security Deposit")
+
+        self.assertEqual(self._names(["cheque_type", "=", "Security Deposit"]), [deposit])
+        self.assertEqual(self._names(["cheque_type", "in", ["Payment"]]), [payment])
+        types = get_cheque_facets("cheque_type", filters=json.dumps([["vendor", "=", self.vendor]]))["values"]
+        self.assertEqual(sorted((v["value"], v["count"]) for v in types), [("Payment", 1), ("Security Deposit", 1)])
+
+    def test_the_list_filters_on_issue_and_clearance_dates(self):
+        early = self._save(issue_date="2026-09-02", clearance_date="2026-09-20")
+        late = self._save(issue_date="2026-09-15")
+        self._save()  # never issued
+
+        self.assertEqual(self._names(["issue_date", "between", ["2026-09-01", "2026-09-05"]]), [early])
+        self.assertEqual(self._names(["issue_date", ">=", "2026-09-01"]), sorted([early, late]))
+        self.assertEqual(self._names(["clearance_date", "between", ["2026-09-19", "2026-09-21"]]), [early])
+
+    def test_the_summary_counts_pending_cheques(self):
+        self._save(10000, status="Pending")
+        self._save(25000)
+
+        summary = get_cheques(filters=json.dumps([["vendor", "=", self.vendor]]))["aggregates"]
+
+        self.assertEqual((summary["pending_count"], summary["pending_amount"]), (1, 10000))
+        self.assertEqual((summary["issued_count"], summary["count"]), (1, 2))

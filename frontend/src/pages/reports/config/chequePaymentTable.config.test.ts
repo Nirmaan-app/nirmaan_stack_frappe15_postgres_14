@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
     chequeSummary,
+    chequeTypeLabel,
+    clearanceText,
     daysOutstanding,
     firstWithMore,
     hasNoPhoto,
@@ -52,11 +54,13 @@ describe("statusChangeText", () => {
 });
 
 describe("chequeSummary", () => {
-    it("shapes the endpoint's aggregates into the strip's four buckets, in order", () => {
+    it("shapes the endpoint's aggregates into the strip's five buckets, in order", () => {
         expect(
             chequeSummary({
-                count: 5,
-                total_amount: 90000,
+                count: 6,
+                total_amount: 98000,
+                pending_count: 1,
+                pending_amount: 8000,
                 issued_count: 2,
                 issued_amount: 50000,
                 cleared_count: 2,
@@ -65,7 +69,8 @@ describe("chequeSummary", () => {
                 cancelled_amount: 5000,
             }),
         ).toEqual([
-            { key: "all", label: "All", status: undefined, count: 5, amount: 90000 },
+            { key: "all", label: "All", status: undefined, count: 6, amount: 98000 },
+            { key: "pending", label: "Pending", status: "Pending", count: 1, amount: 8000 },
             { key: "issued", label: "Issued", status: "Issued", count: 2, amount: 50000 },
             { key: "cleared", label: "Cleared", status: "Cleared", count: 2, amount: 35000 },
             { key: "cancelled", label: "Cancelled", status: "Cancelled", count: 1, amount: 5000 },
@@ -74,6 +79,7 @@ describe("chequeSummary", () => {
 
     it("reads missing figures as zero while the first page loads", () => {
         expect(chequeSummary(null).map((b) => [b.count, b.amount])).toEqual([
+            [0, 0],
             [0, 0],
             [0, 0],
             [0, 0],
@@ -151,5 +157,25 @@ describe("hasNoPhoto", () => {
         expect(hasNoPhoto({ attachment: null })).toBe(true);
         expect(hasNoPhoto({ attachment: "" })).toBe(true);
         expect(hasNoPhoto({ attachment: "/private/files/cheque.jpg" })).toBe(false);
+    });
+});
+
+describe("chequeTypeLabel", () => {
+    it("names each cheque type as the tracker shows it", () => {
+        expect(chequeTypeLabel("Payment")).toBe("Payment cheque");
+        expect(chequeTypeLabel("Security Deposit")).toBe("Security Deposit");
+    });
+});
+
+describe("clearanceText", () => {
+    it("shows the clearance date and how the cheque was cleared", () => {
+        expect(clearanceText({ clearance_date: "2026-09-10", cleared_by: "Bank import" })).toBe(
+            "10-Sep-2026 (Bank import)",
+        );
+        expect(clearanceText({ clearance_date: "2026-09-10", cleared_by: null })).toBe("10-Sep-2026");
+    });
+
+    it("is blank while the bank has not paid it", () => {
+        expect(clearanceText({ clearance_date: null, cleared_by: null })).toBe("");
     });
 });

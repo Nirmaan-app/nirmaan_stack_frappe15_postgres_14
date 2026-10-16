@@ -4,23 +4,50 @@
 """The Cheque's rules that need no database (spec #1407, ADR-0010 B1). Pure: no `frappe.db`.
 
 A **Cheque** is one paper cheque the company writes (GLOSSARY.md). This module names its statuses,
-banks, line kinds and where it was made, turns the values a form sends into a `ChequeHeader`, and
-says why a header cannot be saved. `services/cheques/writer.py` is the only code that writes a Cheque;
+types (spec #1477), banks, line kinds and where it was made, turns the values a form sends into a
+`ChequeHeader`, and says why a header cannot be saved. A Payment cheque's status follows its payments:
+`status_from_payments` is that mapping, and `old_type_reason` says which pre-#1477 Cheques are Old-type. `services/cheques/writer.py` is the only code that writes a Cheque;
 it and the `validate` controller both ask this module.
 
 Each `*_problem` function returns the refusal a user reads, or None.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from frappe.utils import flt
 
+from nirmaan_stack.services.settlement import (
+    STATUS_APPROVED,
+    STATUS_CEO_PENDING,
+    STATUS_PAID,
+    STATUS_RECONCILIATION_PENDING,
+    STATUS_REJECTED,
+    STATUS_REQUESTED,
+)
+
 # -- statuses ------------------------------------------------------------------------------------
+#: A Payment cheque whose payments still wait for approval (spec #1477).
+PENDING = "Pending"
 ISSUED = "Issued"
 CLEARED = "Cleared"
 CANCELLED = "Cancelled"
 #: Pinned to the `Cheques.status` Select options by test.
-CHEQUE_STATUSES = (ISSUED, CLEARED, CANCELLED)
+CHEQUE_STATUSES = (PENDING, ISSUED, CLEARED, CANCELLED)
+
+# -- cheque types (spec #1477, ADR-0035) ---------------------------------------------------------
+#: Cashed by the bank; pays PO payments.
+CHEQUE_TYPE_PAYMENT = "Payment"
+#: Held as a guarantee; pays nothing and is never matched to a bank line.
+CHEQUE_TYPE_SECURITY_DEPOSIT = "Security Deposit"
+#: Pinned to the `Cheques.cheque_type` Select options by test.
+CHEQUE_TYPES = (CHEQUE_TYPE_PAYMENT, CHEQUE_TYPE_SECURITY_DEPOSIT)
+
+# -- how a Payment cheque was cleared (spec #1477) -----------------------------------------------
+CLEARED_BY_HAND = "By hand"
+CLEARED_BY_BANK_IMPORT = "Bank import"
+#: Pinned to the `Cheques.cleared_by` Select options (after its blank first option) by test.
+CLEARED_BY = (CLEARED_BY_HAND, CLEARED_BY_BANK_IMPORT)
 
 # -- banks ---------------------------------------------------------------------------------------
 ICICI_BANK = "ICICI Bank"
@@ -473,4 +500,53 @@ def mode_change_problem(
         return None if cheque else "An Online payment becomes a Cheque payment by putting it on a Cheque."
     if old_cheque_status not in _RELEASED_CHEQUE_STATUSES and on_old_cheque_lines:
         return "A Cheque payment goes back to Online only once its Cheque is Cancelled."
+    return None
+
+
+# -- a Payment cheque follows its payments (spec #1477, ADR-0035) --------------------------------
+#: The payment statuses each cheque status stands for. A Rejected payment is apart: it counts only when
+#: every payment on the cheque is Rejected (`status_from_payments`).
+_WAITING = (STATUS_REQUESTED, STATUS_CEO_PENDING)
+_APPROVED = (STATUS_APPROVED, STATUS_RECONCILIATION_PENDING)
+_KNOWN_PAYMENT_STATUSES = _WAITING + _APPROVED + (STATUS_PAID, STATUS_REJECTED)
+
+
+def status_from_payments(payment_statuses: Sequence[str | None]) -> str | None:
+    """A Payment cheque's status, worked out from its lines' payments. Pure.
+
+    `payment_statuses` has one entry per line: the status of the payment the line names, or None for a
+    line with no payment yet. The cheque is
+
+    * Pending while a line has no payment yet or a payment waits for approval (Requested, CEO Pending);
+    * Cancelled when every payment is Rejected;
+    * otherwise, the Rejected ones aside, Cleared when every payment is Paid, else Issued (Approved or
+      Reconciliation Pending: approved, not yet paid by the bank).
+
+    None when it cannot be worked out: no lines, or a payment status this rule does not know.
+    """
+    if not payment_statuses:
+        return None
+    statuses = [None if s is None else s.strip() for s in payment_statuses]
+    if any(s is not None and s not in _KNOWN_PAYMENT_STATUSES for s in statuses):
+        return None
+    if any(s is None or s in _WAITING for s in statuses):
+        return PENDING
+    live = [s for s in statuses if s != STATUS_REJECTED]
+    if not live:
+        return CANCELLED
+    return CLEARED if all(s == STATUS_PAID for s in live) else ISSUED
+
+
+def old_type_reason(*, vendor: str | None, payee_name: str | None, line_types: Sequence[str]) -> str | None:
+    """Why a Cheque recorded before spec #1477 is an Old-type cheque, or None. Pure.
+
+    It is one when it pays Expenses, has no lines (an Ad-hoc cheque), or is made out to a typed payee
+    (GLOSSARY.md). An Old-type cheque keeps its status; it is cleared or cancelled by hand only.
+    """
+    if any(t in EXPENSE_LINE_TYPES for t in line_types):
+        return "pays expenses"
+    if not line_types:
+        return "has no lines"
+    if payee_name and not vendor:
+        return "is made out to a typed payee"
     return None

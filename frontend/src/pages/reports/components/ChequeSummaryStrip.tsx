@@ -7,13 +7,14 @@ import type { ChequeSummaryBucket } from "../config/chequePaymentTable.config";
 
 const TONE: Record<ChequeSummaryBucket["key"], string> = {
     all: "text-foreground",
+    pending: "text-indigo-700",
     issued: "text-blue-700",
     cleared: "text-green-700",
     cancelled: "text-red-700",
 };
 
 /**
- * The Cheque Payments report's summary strip (#1417): count and amount for All, Issued, Cleared and
+ * The Cheque Payments report's summary strip (#1417): count and amount for All, Pending, Issued, Cleared and
  * Cancelled over the table's current filters and search. Each matching Cheque counts once, at its
  * full amount, so the figures are "cheque amounts", not line amounts.
  */

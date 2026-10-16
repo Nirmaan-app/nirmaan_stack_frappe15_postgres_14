@@ -7,14 +7,15 @@ Matches the data-table contract (`useServerDataTable`'s `apiEndpoint`): it takes
 `filters`, `order_by`, paging and search arguments and returns
 `{data, total_count, aggregates, group_by_result}`. Prior art: `api/approvals/get_approval_queue.py`.
 
-Each row is a Cheque with what the table shows: number, bank (`bank_label`: the typed name for
-Others), date, status, amount, description, Vendor or typed payee, who made it, the photo, and the
-last status change ("by <user> . <date>", from the Cheque's history).
+Each row is a Cheque with what the table shows: number, cheque type, bank (`bank_label`: the typed name
+for Others), date, issue and clearance dates, how it was cleared, status, amount, description, Vendor or
+typed payee, who made it, the photo, the Old-type flag, and the last status change ("by <user> . <date>",
+from the Cheque's history).
 
 Each row also carries its `lines` (kind, project and its name, PO/WO, payment, amount), oldest first,
 so the table can expand a row and show "+N" without a second read.
 
-The summary strip (`aggregates`: count and amount for All, Issued, Cleared, Cancelled), the rows and
+The summary strip (`aggregates`: count and amount for All, Pending, Issued, Cleared, Cancelled), the rows and
 the facets (`get_cheque_facets`) all read the same WHERE, so they always agree. The project and PO/WO
 filters match a Cheque when ANY of its lines matches (EXISTS on `Cheque Line`), and the Cheque is
 still counted once, at its full amount (#1417).
@@ -28,7 +29,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
-from nirmaan_stack.services.cheques.rules import CANCELLED, CLEARED, ISSUED
+from nirmaan_stack.services.cheques.rules import CANCELLED, CLEARED, ISSUED, PENDING
 from nirmaan_stack.services.role_profiles import assert_cheque_access
 
 MAX_PAGE_LENGTH = 500
@@ -38,9 +39,10 @@ EXPORT_MAX_PAGE_LENGTH = 100_000
 # One Cheque, flattened. `last` is its newest history row (the "by <user> . <date>" under the status).
 _BASE = """
     SELECT c.name, c.creation, c.owner, owner_user.full_name AS owner_name,
-           c.cheque_no, c.bank, c.bank_name,
+           c.cheque_no, c.cheque_type, c.bank, c.bank_name,
            CASE WHEN c.bank = 'Others' THEN c.bank_name ELSE c.bank END AS bank_label,
-           c.cheque_date, c.status, c.amount, c.description,
+           c.cheque_date, c.issue_date, c.clearance_date, c.cleared_by, c.bank_line, c.old_type,
+           c.status, c.amount, c.description,
            c.vendor, v.vendor_name, c.payee_name, c.attachment, c.made_from,
            last.changed_by AS status_changed_by, changer.full_name AS status_changed_by_name,
            last.changed_at AS status_changed_at
@@ -72,16 +74,17 @@ _LINES = """
 """
 
 #: The strip's per-status buckets: `<key>_count` and `<key>_amount` in `aggregates`.
-SUMMARY_STATUSES = {"issued": ISSUED, "cleared": CLEARED, "cancelled": CANCELLED}
+SUMMARY_STATUSES = {"pending": PENDING, "issued": ISSUED, "cleared": CLEARED, "cancelled": CANCELLED}
 
 #: Filters on the Cheque's lines, by Cheque Line column: a Cheque matches when ANY of its lines does.
 LINE_FILTERS = {"project", "record_name"}
 
-FILTERABLE = {"name", "status", "bank", "bank_label", "vendor", "payee_name", "made_from", "owner",
-              "cheque_date", "creation"} | LINE_FILTERS
-DATE_FIELDS = {"cheque_date", "creation"}
+FILTERABLE = {"name", "status", "cheque_type", "bank", "bank_label", "vendor", "payee_name", "made_from", "owner",
+              "cheque_date", "issue_date", "clearance_date", "creation"} | LINE_FILTERS
+DATE_FIELDS = {"cheque_date", "issue_date", "clearance_date", "creation"}
 SEARCHABLE = {"cheque_no", "name", "bank_label", "vendor_name", "payee_name", "description"}
-SORTABLE = {"name", "creation", "cheque_no", "bank_label", "cheque_date", "status", "amount", "vendor_name",
+SORTABLE = {"name", "creation", "cheque_no", "cheque_type", "bank_label", "cheque_date", "issue_date",
+            "clearance_date", "status", "amount", "vendor_name",
             "payee_name", "owner_name", "status_changed_at"}
 
 _OPERATORS = {"=": "=", "!=": "!=", "like": "ILIKE", "not like": "NOT ILIKE", ">": ">", "<": "<", ">=": ">=",
@@ -232,7 +235,7 @@ def get_cheques(
 
     `doctype`, `fields` and the hook's other arguments are accepted and ignored: the row shape is
     fixed here. `aggregates` is the summary strip over the whole filtered set: `count`,
-    `total_amount`, and `<issued|cleared|cancelled>_count` / `_amount`.
+    `total_amount`, and `<pending|issued|cleared|cancelled>_count` / `_amount`.
     """
     assert_cheque_access(frappe.session.user)
 
@@ -267,6 +270,7 @@ def get_cheques(
 # their lines, counting each Cheque once per value.
 _HEADER_FACETS = {
     "status": ('q."status"', 'q."status"'),
+    "cheque_type": ('q."cheque_type"', 'q."cheque_type"'),
     "bank_label": ('q."bank_label"', 'q."bank_label"'),
     "vendor": ('q."vendor"', 'MAX(q."vendor_name")'),
 }

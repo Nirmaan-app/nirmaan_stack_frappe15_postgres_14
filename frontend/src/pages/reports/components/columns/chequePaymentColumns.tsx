@@ -8,11 +8,15 @@ import { TruncatedText } from "@/components/common/TruncatedText";
 import { DataTableColumnHeader } from "@/components/data-table/data-table-column-header";
 import { Button } from "@/components/ui/button";
 import SITEURL from "@/constants/siteURL";
+import { cn } from "@/lib/utils";
+import { CHEQUE_TYPE } from "@/types/NirmaanStack/Cheques";
 import { chequeDateText } from "@/utils/cheques/chequeChip";
 import { formatForReport, formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 
 import {
     ChequeRow,
+    chequeTypeLabel,
+    clearanceText,
     daysOutstanding,
     firstWithMore,
     hasNoPhoto,
@@ -74,8 +78,9 @@ interface ChequeColumnActions {
  * chevron beside the number expands the row into its lines (#1417; the page passes
  * `renderExpandedRow` to DataTable).
  *
- * The facet columns' ids (`status`, `bank_label`, `vendor`, `project`, `record_name`) are the
- * endpoint's filter fields.
+ * The facet columns' ids (`cheque_type`, `status`, `bank_label`, `vendor`, `project`, `record_name`) are
+ * the endpoint's filter fields, and so are the date columns (`cheque_date`, `issue_date`,
+ * `clearance_date`). An Old-type cheque carries an "Old type" tag under its type (#1478).
  */
 export const getChequePaymentColumns = ({ onOpen, onChangeStatus, onEdit, canEdit }: ChequeColumnActions): ColumnDef<ChequeRow>[] => [
     {
@@ -110,6 +115,37 @@ export const getChequePaymentColumns = ({ onOpen, onChangeStatus, onEdit, canEdi
         meta: { exportHeaderName: "Cheque No", exportValue: (r: ChequeRow) => r.cheque_no },
     },
     {
+        accessorKey: "cheque_type",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Type" className={WRAP_HEADER} />,
+        cell: ({ row }) => (
+            <div className="flex flex-col items-start gap-1">
+                <span
+                    className={cn(
+                        "whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium",
+                        row.original.cheque_type === CHEQUE_TYPE.SECURITY_DEPOSIT
+                            ? "bg-purple-50 text-purple-800"
+                            : "bg-blue-50 text-blue-800",
+                    )}
+                >
+                    {chequeTypeLabel(row.original.cheque_type)}
+                </span>
+                {row.original.old_type ? (
+                    <span
+                        className="whitespace-nowrap rounded border border-dashed border-gray-400 bg-gray-50 px-1.5 text-[11px] font-medium text-gray-600"
+                        title="Recorded before cheque types: it pays Expenses, has no lines or names a typed payee. It is cleared or cancelled by hand."
+                    >
+                        Old type
+                    </span>
+                ) : null}
+            </div>
+        ),
+        size: 125,
+        meta: {
+            exportHeaderName: "Type",
+            exportValue: (r: ChequeRow) => [chequeTypeLabel(r.cheque_type), r.old_type ? "Old type" : ""].filter(Boolean).join(" "),
+        },
+    },
+    {
         accessorKey: "bank_label",
         header: ({ column }) => <DataTableColumnHeader column={column} title="Bank" className={WRAP_HEADER} />,
         cell: ({ row }) => <TruncatedText text={row.original.bank_label} className="max-w-full" />,
@@ -122,6 +158,32 @@ export const getChequePaymentColumns = ({ onOpen, onChangeStatus, onEdit, canEdi
         cell: ({ row }) => <div className="whitespace-nowrap">{chequeDateText(row.original.cheque_date) || "--"}</div>,
         size: 115,
         meta: { exportHeaderName: "Cheque Date", exportValue: (r: ChequeRow) => chequeDateText(r.cheque_date) },
+    },
+    {
+        accessorKey: "issue_date",
+        header: ({ column }) => <DataTableColumnHeader column={column} title="Issue Date" className={WRAP_HEADER} />,
+        cell: ({ row }) => <div className="whitespace-nowrap">{chequeDateText(row.original.issue_date) || "--"}</div>,
+        size: 115,
+        meta: { exportHeaderName: "Issue Date", exportValue: (r: ChequeRow) => chequeDateText(r.issue_date) },
+    },
+    {
+        accessorKey: "clearance_date",
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title="Clearance / Payment Date" className={WRAP_HEADER} />
+        ),
+        cell: ({ row }) =>
+            row.original.clearance_date ? (
+                <div className="flex flex-col">
+                    <span className="whitespace-nowrap">{chequeDateText(row.original.clearance_date)}</span>
+                    {row.original.cleared_by && (
+                        <span className="text-[11px] text-muted-foreground">{row.original.cleared_by}</span>
+                    )}
+                </div>
+            ) : (
+                <span className="text-muted-foreground">--</span>
+            ),
+        size: 125,
+        meta: { exportHeaderName: "Clearance / Payment Date", exportValue: (r: ChequeRow) => clearanceText(r) },
     },
     {
         accessorKey: "status",
