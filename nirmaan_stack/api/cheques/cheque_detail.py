@@ -13,7 +13,7 @@ from nirmaan_stack.services.cheques.writer import CHEQUES
 from nirmaan_stack.services.role_profiles import assert_cheque_access
 
 _HEADER = ("name", "creation", "owner", "cheque_no", "bank", "bank_name", "cheque_date", "amount", "status",
-           "vendor", "payee_name", "description", "attachment", "made_from")
+           "vendor", "payee_name", "description", "attachment", "made_from", "cheque_type", "old_type")
 
 
 def _name_map(doctype: str, field: str, names) -> dict:

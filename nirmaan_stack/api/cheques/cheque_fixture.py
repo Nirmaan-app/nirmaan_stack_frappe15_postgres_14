@@ -12,6 +12,7 @@ USAGE
                                                     # (which link to those rows) go first
     no = self.cheques.number()                      # a fresh TESTCHQ cheque number
     self.cheques.track(name)                        # a Cheque the code under test made
+    name = self.cheques.plant_cheque(vendor=v, ...) # a Cheque in an old shape, at Issued (#1482)
     pay = self.cheques.plant_payment(self.fx, "Approved", project=p, vendor=v, document=(SR, sr))
     self.addCleanup(ChequeFixture.purge_rows, [("Version", {...}), (doctype, {"name": name})])
 
@@ -22,6 +23,10 @@ the insert and `track` strands nothing.
 
 import frappe
 from frappe.utils import add_days, flt, nowdate
+
+from nirmaan_stack.services.cheque_payments import commit_move_to_reconciliation
+from nirmaan_stack.services.cheques.rules import MADE_FROM_REPORT, parse_header, parse_line
+from nirmaan_stack.services.cheques.writer import _new_cheque, history_row, line_payments, link_payments
 
 CHEQUES = "Cheques"
 CHILD_TABLES = ("Cheque Line", "Cheque Status History")
@@ -88,6 +93,50 @@ class ChequeFixture:
         fx.payments.append(name)
         frappe.db.commit()
         return name
+
+    @classmethod
+    def plant_po(cls, test, fx, *, project: str, vendor: str, status: str = "Delivered") -> str:
+        """A bare PO of `vendor` in `project` (raw insert: no PO hook runs), purged after `test`.
+        `Delivered` by default, so `procurement_orders.on_update` takes none of its status branches."""
+        name = fx._name("PO")
+        frappe.db.sql(
+            """INSERT INTO "tabProcurement Orders" (name, creation, modified, modified_by, owner,
+                   docstatus, idx, project, vendor, total_amount, amount_paid, status)
+               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 10000000, 0, %s)""",
+            (name, ADMIN, ADMIN, project, vendor, status),
+        )
+        test.addCleanup(cls.purge_rows, [
+            ("Version", {"ref_doctype": "Procurement Orders", "docname": name}),
+            ("Procurement Orders", {"name": name}),
+        ])
+        frappe.db.commit()
+        return name
+
+    def plant_cheque(self, *, status: str = "Issued", lines=None, **values) -> str:
+        """A Cheque as the report's Add Cheque made one before #1482: any payee, any line kinds (Work
+        Order and expense lines too), none at all, straight at `status` with its "created" history row.
+        A state today's Tracker can no longer make, for suites that test what such a Cheque does, not how
+        it is added. `values` are `save_cheque`'s header arguments; `lines` its lines (a list or JSON).
+
+        Inserted through the Cheque document, so the `validate` controller runs every rule it still
+        holds for every writer; each line's payment is put on it and, after the commit, moved on as the
+        report's save did. Tracked and committed; returns its name.
+        """
+        raw = frappe.parse_json(lines) if isinstance(lines, str) else (lines or [])
+        doc = _new_cheque(
+            parse_header(values),
+            made_from=MADE_FROM_REPORT,
+            lines=[parse_line(line) for line in raw],
+            status=status,
+            history=history_row(None, status, frappe.session.user),
+        )
+        doc.insert(ignore_permissions=True)  # owned by the session user, as the report's save was
+        link_payments(doc)
+        self.track(doc.name)
+        frappe.db.commit()
+        for payment in line_payments(doc):
+            commit_move_to_reconciliation(payment)
+        return doc.name
 
     @staticmethod
     def purge_rows(scopes, *, what: str = "Test purge") -> None:

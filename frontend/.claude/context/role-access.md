@@ -344,7 +344,7 @@ Admin, Accountant, Accountant Lead and Procurement (`CHEQUE_ACCESS_PROFILES` in 
 Managers are not in it. The `/cheque-tracker` route guard and the sidebar link read it, and the server enforces the
 same list (`services/role_profiles.CHEQUE_ACCESS_PROFILES`) in every `api/cheques/` endpoint. Row buttons come from
 `utils/cheques/chequeRowActions.ts`: Clear and Cancel for Admin, Accountant and Accountant Lead only; Edit as
-`canEditCheque` allows. It was Reports › Payment › Cheque Payment until #1483; `/reports?report=Cheque Payment`
+`canEditCheque` allows (accounts: any cheque; Procurement: only the Pending cheques it created, #1482). It was Reports › Payment › Cheque Payment until #1483; `/reports?report=Cheque Payment`
 links redirect to it (`pages/reports/ReportsIndex.tsx`).
 
 ---

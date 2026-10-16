@@ -6,6 +6,7 @@ import {
     type ChequeLineType,
     type ChequeMadeFrom,
     type ChequeStatus,
+    type ChequeType,
 } from "@/types/NirmaanStack/Cheques";
 import { CHEQUE_DETAIL_API } from "@/utils/cheques/chequeStatus";
 
@@ -45,6 +46,9 @@ export interface ChequeDetail {
     cheque_date: string;
     amount: number;
     status: ChequeStatus;
+    cheque_type: ChequeType;
+    /** 1 for a Cheque from before cheque types (spec #1477): only its photo can change. */
+    old_type?: 0 | 1;
     vendor?: string | null;
     vendor_name?: string | null;
     payee_name?: string | null;

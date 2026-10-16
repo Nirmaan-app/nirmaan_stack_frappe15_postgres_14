@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { chequeFormSchema, linesErrorMessage, saveChequeArgs, type ChequeFormInput } from "./chequeForm";
+import { chequeFormSchema, linesErrorMessage, makeChequeFormSchema, saveChequeArgs, type ChequeFormInput } from "./chequeForm";
 import type { ChequeLineDraft } from "./chequeLines";
 
 const PHOTO = "/private/files/cheque.jpg";
+
+const poLine = (overrides: Partial<ChequeLineDraft> = {}): ChequeLineDraft => ({
+    line_type: "PO/WO Payment",
+    project: "PROJ-1",
+    record_doctype: "Procurement Orders",
+    record_name: "PO/001",
+    payment_name: "",
+    amount: 5000,
+    ...overrides,
+});
 
 const valid = (overrides: Partial<ChequeFormInput> = {}): ChequeFormInput => ({
     bank: "ICICI Bank",
@@ -15,18 +25,8 @@ const valid = (overrides: Partial<ChequeFormInput> = {}): ChequeFormInput => ({
     vendor: "VEN-0042",
     payee_name: "",
     attachment: PHOTO,
-    description: "Office rent, October",
-    lines: [],
-    ...overrides,
-});
-
-const poLine = (overrides: Partial<ChequeLineDraft> = {}): ChequeLineDraft => ({
-    line_type: "PO/WO Payment",
-    project: "PROJ-1",
-    record_doctype: "Service Requests",
-    record_name: "SR-001",
-    payment_name: "",
-    amount: 5000,
+    description: "",
+    lines: [poLine({ payment_name: "PAY-1", amount: 25000 })],
     ...overrides,
 });
 
@@ -37,23 +37,43 @@ const problemAt = (input: ChequeFormInput, field: string) => {
     return result.error.issues.find((i) => i.path[0] === field)?.message;
 };
 
-describe("chequeFormSchema", () => {
-    it("accepts an Ad-hoc cheque with a description", () => {
+const lineIssues = (line: ChequeLineDraft) => {
+    const result = chequeFormSchema.safeParse(valid({ lines: [line] }));
+    return result.success ? undefined : result.error.issues.map((i) => [i.path.join("."), i.message]);
+};
+
+describe("chequeFormSchema: a new Payment cheque (#1482)", () => {
+    it("accepts a Vendor cheque with a PO line and no description", () => {
         expect(chequeFormSchema.safeParse(valid()).success).toBe(true);
     });
 
-    it("refuses a cheque with no lines and no description", () => {
-        expect(problemAt(valid({ description: "  " }), "description")).toMatch(/Ad-hoc cheque/);
+    it("refuses a cheque with no lines: there is no Ad-hoc Payment cheque", () => {
+        expect(problemAt(valid({ lines: [], description: "Office rent" }), "lines")).toBe(
+            "Add at least one PO payment: a Payment cheque pays the PO payments on its lines.",
+        );
+    });
+
+    it("requires the Vendor and refuses a typed payee", () => {
+        expect(problemAt(valid({ vendor: "" }), "vendor")).toBe("Pick the Vendor the cheque is made out to.");
+        expect(problemAt(valid({ payee_kind: "typed", vendor: "", payee_name: "Tata Power" }), "vendor")).toBe(
+            "A Payment cheque is made out to a Vendor: pick the Vendor, not a typed payee.",
+        );
+    });
+
+    it("refuses an expense line", () => {
+        const npe = poLine({ line_type: "Non-project Expense", project: "", record_doctype: "", record_name: "", payment_name: "NPE-1" });
+        expect(lineIssues(npe)).toContainEqual(["lines.0.line_type", "A Payment cheque pays PO payments only."]);
+    });
+
+    it("asks each line for its project, its PO, and an amount when it has no payment", () => {
+        expect(lineIssues(poLine({ project: "" }))).toContainEqual(["lines.0.project", "Pick the project."]);
+        expect(lineIssues(poLine({ record_name: "" }))).toContainEqual(["lines.0.record_name", "Pick the PO."]);
+        expect(lineIssues(poLine({ amount: "" }))).toContainEqual(["lines.0.amount", "Enter the amount, greater than 0."]);
+        expect(lineIssues(poLine({ payment_name: "PAY-1", amount: 20000 }))).toBeUndefined();
     });
 
     it("requires the photo", () => {
         expect(problemAt(valid({ attachment: "" }), "attachment")).toBe("Upload the photo of the cheque.");
-    });
-
-    it("requires the Vendor or the typed payee, whichever is chosen", () => {
-        expect(problemAt(valid({ vendor: "" }), "vendor")).toBeDefined();
-        expect(problemAt(valid({ payee_kind: "typed", payee_name: " " }), "payee_name")).toBeDefined();
-        expect(chequeFormSchema.safeParse(valid({ payee_kind: "typed", vendor: "", payee_name: "Tata Power" })).success).toBe(true);
     });
 
     it("needs the bank's name for Others only", () => {
@@ -66,56 +86,30 @@ describe("chequeFormSchema", () => {
         expect(problemAt(valid({ amount: "" as unknown as number }), "amount")).toBeDefined();
     });
 
-    it("needs no description once the cheque has a line", () => {
-        expect(chequeFormSchema.safeParse(valid({ description: "", lines: [poLine()] })).success).toBe(true);
-    });
-
-    it("asks each PO/WO line for its project, its PO or Work Order, and an amount when it has no payment", () => {
-        const issues = (line: ChequeLineDraft) => {
-            const result = chequeFormSchema.safeParse(valid({ lines: [line] }));
-            return result.success ? undefined : result.error.issues.map((i) => [i.path.join("."), i.message]);
-        };
-        expect(issues(poLine({ project: "" }))).toContainEqual(["lines.0.project", "Pick the project."]);
-        expect(issues(poLine({ record_name: "" }))).toContainEqual(["lines.0.record_name", "Pick the PO or Work Order."]);
-        expect(issues(poLine({ amount: "" }))).toContainEqual(["lines.0.amount", "Enter the amount, greater than 0."]);
-        expect(issues(poLine({ payment_name: "PAY-1", amount: 20000 }))).toBeUndefined();
-    });
-
-    it("keeps PO/WO lines to a Vendor payee", () => {
-        expect(problemAt(valid({ payee_kind: "typed", vendor: "", payee_name: "Tata Power", lines: [poLine()] }), "lines")).toBe(
-            "A PO or Work Order payment needs a cheque made out to a Vendor, not a typed payee."
-        );
-    });
-
-    it("lets a typed-payee cheque carry expense lines", () => {
-        const typed = { payee_kind: "typed" as const, vendor: "", payee_name: "Tata Power", description: "" };
-        const lines = [
-            poLine({ line_type: "Non-project Expense", project: "", record_doctype: "", record_name: "", payment_name: "NPE-1" }),
-            poLine({ line_type: "Project Expense", record_doctype: "", record_name: "", payment_name: "PE-1" }),
-        ];
-        expect(chequeFormSchema.safeParse(valid({ ...typed, lines })).success).toBe(true);
-    });
-
-    it("asks an expense line for its expense, and a Project Expense line for its project", () => {
-        const issues = (line: ChequeLineDraft) => {
-            const result = chequeFormSchema.safeParse(valid({ lines: [line] }));
-            return result.success ? undefined : result.error.issues.map((i) => [i.path.join("."), i.message]);
-        };
-        const npe = poLine({ line_type: "Non-project Expense", project: "", record_doctype: "", record_name: "" });
-        expect(issues(npe)).toEqual([["lines.0.payment_name", "Pick the Non-Project Expense."]]);
-        expect(issues({ ...npe, line_type: "Project Expense" })).toEqual([
-            ["lines.0.project", "Pick the project."],
-            ["lines.0.payment_name", "Pick the Project Expense."],
-        ]);
-    });
-
     it("accepts a post-dated cheque", () => {
         expect(chequeFormSchema.safeParse(valid({ cheque_date: "2027-03-01" })).success).toBe(true);
     });
 });
 
+describe("makeChequeFormSchema for an Old-type cheque's photo-only edit", () => {
+    const oldType = makeChequeFormSchema({ photoRequired: true, paymentCheque: false });
+
+    it("takes the cheque as recorded: a typed payee, expense lines or none", () => {
+        const typed = { payee_kind: "typed" as const, vendor: "", payee_name: "Tata Power" };
+        const npe = poLine({ line_type: "Non-project Expense", project: "", record_doctype: "", record_name: "", payment_name: "NPE-1" });
+        expect(oldType.safeParse(valid({ ...typed, lines: [npe] })).success).toBe(true);
+        expect(oldType.safeParse(valid({ ...typed, lines: [], description: "Rent" })).success).toBe(true);
+    });
+
+    it("still asks for a backfilled cheque's photo only when told to", () => {
+        const input = valid({ attachment: "" });
+        expect(makeChequeFormSchema({ photoRequired: false, paymentCheque: false }).safeParse(input).success).toBe(true);
+        expect(oldType.safeParse(input).success).toBe(false);
+    });
+});
+
 describe("saveChequeArgs", () => {
-    it("sends the Vendor and not the typed name for a Vendor payee", () => {
+    it("sends the Vendor and not a left-over typed name", () => {
         const args = saveChequeArgs(chequeFormSchema.parse(valid({ payee_name: "left over" })));
         expect(args).toEqual({
             bank: "ICICI Bank",
@@ -123,44 +117,37 @@ describe("saveChequeArgs", () => {
             cheque_date: "2026-10-14",
             amount: 25000,
             vendor: "VEN-0042",
-            description: "Office rent, October",
             attachment: PHOTO,
+            lines: [
+                { line_type: "PO/WO Payment", project: "PROJ-1", record_doctype: "Procurement Orders", record_name: "PO/001", payment_name: "PAY-1", amount: 25000 },
+            ],
         });
     });
 
-    it("sends the typed payee and the Others bank name", () => {
-        const args = saveChequeArgs(
-            chequeFormSchema.parse(
-                valid({ bank: "Others", bank_name: " HDFC Bank ", payee_kind: "typed", vendor: "VEN-0042", payee_name: " Tata Power " }),
-            ),
+    it("sends an Old-type cheque's typed payee back as recorded", () => {
+        const values = makeChequeFormSchema({ photoRequired: true, paymentCheque: false }).parse(
+            valid({ payee_kind: "typed", vendor: "VEN-0042", payee_name: " Tata Power ", lines: [], description: "Rent" }),
         );
-        expect(args.bank_name).toBe("HDFC Bank");
+        const args = saveChequeArgs(values);
         expect(args.payee_name).toBe("Tata Power");
         expect(args.vendor).toBeUndefined();
+        expect(args.description).toBe("Rent");
     });
 
-    it("sends the lines, when there are any", () => {
-        const args = saveChequeArgs(chequeFormSchema.parse(valid({ lines: [poLine({ amount: "5000" })] })));
-        expect(args.lines).toEqual([
-            { line_type: "PO/WO Payment", project: "PROJ-1", record_doctype: "Service Requests", record_name: "SR-001", amount: 5000 },
-        ]);
-    });
-
-    it("drops a bank name typed before switching back to ICICI Bank", () => {
-        const args = saveChequeArgs(chequeFormSchema.parse(valid({ bank_name: "HDFC Bank" })));
-        expect(args.bank_name).toBeUndefined();
+    it("sends the Others bank name, and drops one typed before switching back to ICICI Bank", () => {
+        expect(saveChequeArgs(chequeFormSchema.parse(valid({ bank: "Others", bank_name: " HDFC Bank " }))).bank_name).toBe("HDFC Bank");
+        expect(saveChequeArgs(chequeFormSchema.parse(valid({ bank_name: "HDFC Bank" }))).bank_name).toBeUndefined();
     });
 });
 
 describe("linesErrorMessage", () => {
     it("reads the lines' own error, nested at root by react-hook-form", () => {
-        expect(linesErrorMessage({ root: { message: "A PO or Work Order payment needs a cheque made out to a Vendor." } }))
-            .toBe("A PO or Work Order payment needs a cheque made out to a Vendor.");
+        expect(linesErrorMessage({ root: { message: "Add at least one PO payment." } })).toBe("Add at least one PO payment.");
         expect(linesErrorMessage({ message: "Lines are wrong." })).toBe("Lines are wrong.");
     });
 
     it("shows nothing for errors on one line's boxes (no 'undefined')", () => {
-        const perLine = [{ record_name: { message: "Pick the PO or Work Order." } }];
+        const perLine = [{ record_name: { message: "Pick the PO." } }];
         expect(linesErrorMessage(perLine as never)).toBeUndefined();
         expect(linesErrorMessage(undefined)).toBeUndefined();
     });

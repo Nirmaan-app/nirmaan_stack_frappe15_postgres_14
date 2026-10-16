@@ -18,7 +18,6 @@ from frappe.utils import add_days, nowdate
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.cheques.cheque_status import change_cheque_status
 from nirmaan_stack.api.cheques.list_cheques import get_cheque_facets, get_cheques
-from nirmaan_stack.api.cheques.save_cheque import save_cheque
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 
 U = "Administrator"
@@ -72,9 +71,8 @@ class TestListCheques(FrappeTestCase):
             "attachment": PHOTO,
         }
         values.update(overrides)
-        result = save_cheque(**{k: v for k, v in values.items() if v is not None})
-        self.cheques.track(result["cheque"])
-        return result["cheque"], values["cheque_no"]
+        name = self.cheques.plant_cheque(**{k: v for k, v in values.items() if v is not None})
+        return name, values["cheque_no"]
 
     def _search(self, number, **kwargs):
         return get_cheques(search_term=number, current_search_fields='["cheque_no"]', **kwargs)
@@ -154,7 +152,7 @@ class TestChequeReportFiltersAndSummary(FrappeTestCase):
         frappe.set_user(U)
 
     def _save(self, amount, *, lines=None, description="Advance"):
-        result = save_cheque(
+        return self.cheques.plant_cheque(
             bank="ICICI Bank",
             cheque_no=self.cheques.number(),
             cheque_date=nowdate(),
@@ -162,9 +160,8 @@ class TestChequeReportFiltersAndSummary(FrappeTestCase):
             vendor=self.vendor,
             description=description,
             attachment=PHOTO,
-            lines=json.dumps(lines or []),
+            lines=lines or [],
         )
-        return self.cheques.track(result["cheque"])
 
     def _wo_line(self, project, wo, amount):
         return {"line_type": LINE, "project": project, "record_doctype": SR, "record_name": wo, "amount": amount}
@@ -294,9 +291,8 @@ class TestChequeTypeAndDates(FrappeTestCase):
     def _save(self, amount=25000, **values):
         """A Cheque saved through the report, then given `values` raw: the writers that set them (issue on
         approval, clear, deposit cheques) come in later tickets of spec #1477."""
-        result = save_cheque(bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
-                             amount=amount, vendor=self.vendor, description="Advance", attachment=PHOTO)
-        name = self.cheques.track(result["cheque"])
+        name = self.cheques.plant_cheque(bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
+                                         amount=amount, vendor=self.vendor, description="Advance", attachment=PHOTO)
         if values:
             frappe.db.set_value("Cheques", name, values, update_modified=False)
             frappe.db.commit()
@@ -367,9 +363,8 @@ class TestTheChequeTrackerTabs(FrappeTestCase):
     def _cheque(self, amount=25000, **values):
         """A Cheque saved through the report, then put in the state a test needs (raw: the writers that set
         status and dates by the new rules come with other tickets of spec #1477)."""
-        result = save_cheque(bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
-                             amount=amount, vendor=self.vendor, description="Advance", attachment=PHOTO)
-        name = self.cheques.track(result["cheque"])
+        name = self.cheques.plant_cheque(bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
+                                         amount=amount, vendor=self.vendor, description="Advance", attachment=PHOTO)
         frappe.db.set_value("Cheques", name, {"status": "Issued", "cheque_type": "Payment", **values},
                             update_modified=False)
         frappe.db.commit()

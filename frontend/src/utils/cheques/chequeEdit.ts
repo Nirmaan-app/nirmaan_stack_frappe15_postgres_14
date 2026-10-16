@@ -6,26 +6,25 @@ import { saveChequeArgs, type ChequeFormInput, type ChequeFormValues, type SaveC
 import { LINE_TYPE, saveLineArgs, type ChequeLineDraft } from "./chequeLines";
 
 /**
- * Editing a Cheque from the report (#1418, spec #1407), pure so vitest covers it without React (F4).
+ * Editing a Cheque from the Cheque Tracker (#1418, spec #1407; #1482, spec #1477), pure so vitest covers it
+ * without React (F4).
  *
  * Mirrors `services/cheques/rules.edit_access_problem` and `edit_problem`, which are the enforcement:
  * this only shapes the Edit dialog (which boxes are open, the hints) and who sees the Edit button.
  *
- * - A Pending Cheque edits like an Issued one (#1479; `EDITABLE_STATUSES`, mirroring
- *   `rules.EDITABLE_STATUSES`). #1482 makes a Payment cheque photo-only once Issued.
- * - An Issued Cheque made on the report: everything can change.
- * - An Issued Cheque made from the PO/WO page: while a Project Payment line is still on it, its number,
+ * - A Payment cheque's fields and lines change only while it is Pending (`EDITABLE_STATUSES`, mirroring
+ *   `rules.EDITABLE_STATUSES`). Issued, Cleared and Cancelled: only its photo.
+ * - An Old-type cheque (spec #1477): only its photo, whatever its status.
+ * - A Pending Cheque made from the PO/WO page: while a Project Payment line is still on it, its number,
  *   date and amount stay as on its payment; its other fields and its lines can change. With no Project
- *   Payment line left, it edits like a report-made Cheque.
- * - A Cleared or Cancelled Cheque: only its photo.
- * - Any line can come off an Issued Cheque. A Project Payment taken off switches back to Online, its
+ *   Payment line left, it edits like a Tracker-made Cheque.
+ * - Any line can come off a Pending Cheque. A Project Payment taken off switches back to Online, its
  *   status unchanged (`rules.payments_taken_off`); the dialog says so beside the lines.
- * - Admin, Accountant and Accountant Lead edit any Cheque; Procurement only the Pending or Issued ones
- *   they made.
+ * - Admin, Accountant and Accountant Lead edit any Cheque; Procurement only the Pending ones they made (C6).
  */
 
 /** The statuses at which a Cheque's fields and lines may still change (`rules.EDITABLE_STATUSES`). */
-const EDITABLE_STATUSES: readonly ChequeStatus[] = [CHEQUE_STATUS.PENDING, CHEQUE_STATUS.ISSUED];
+const EDITABLE_STATUSES: readonly ChequeStatus[] = [CHEQUE_STATUS.PENDING];
 const isEditableStatus = (status: ChequeStatus): boolean => EDITABLE_STATUSES.includes(status);
 
 /** Which of a Cheque's boxes the Edit dialog opens. */
@@ -38,11 +37,18 @@ export const canEditCheque = (cheque: { status: ChequeStatus; owner: string }, r
     CHEQUE_ACCOUNTS_PROFILES.includes(role) ||
     (CHEQUE_ACCESS_PROFILES.includes(role) && isEditableStatus(cheque.status) && cheque.owner === user);
 
-export const chequeEditMode = (cheque: Pick<ChequeDetail, "status" | "made_from" | "lines">): ChequeEditMode => {
-    if (!isEditableStatus(cheque.status)) return "photo_only";
+export const chequeEditMode = (cheque: Pick<ChequeDetail, "status" | "made_from" | "lines" | "old_type">): ChequeEditMode => {
+    if (cheque.old_type || !isEditableStatus(cheque.status)) return "photo_only";
     const holdsPayment = cheque.lines.some((l) => l.line_type === LINE_TYPE.PO_WO && l.payment_name);
     return cheque.made_from === "PO/WO Page" && holdsPayment ? "po_wo_page" : "all";
 };
+
+/** The form rules for editing `cheque`: a Payment cheque's in full, or a photo-only edit's. */
+export const chequeFormRules = (cheque: Pick<ChequeDetail, "status" | "made_from" | "lines" | "old_type" | "attachment">) => ({
+    // A backfilled Cheque has no photo; editing it does not force one (the server asks only a new Cheque).
+    photoRequired: Boolean(cheque.attachment),
+    paymentCheque: chequeEditMode(cheque) !== "photo_only",
+});
 
 /** Whether the dialog locks a box: a header field's name, "lines", or "attachment" (the photo). */
 export const isHeaderLocked = (mode: ChequeEditMode, field: string): boolean => {
@@ -52,15 +58,22 @@ export const isHeaderLocked = (mode: ChequeEditMode, field: string): boolean => 
 };
 
 /** The note at the top of the Edit dialog saying what is locked, if anything is. */
-export const editLockHint = (mode: ChequeEditMode, status: ChequeStatus): string | undefined => {
-    if (mode === "photo_only") return `This cheque is ${status}: only its photo can change.`;
+export const editLockHint = (
+    mode: ChequeEditMode,
+    cheque: Pick<ChequeDetail, "status" | "old_type">,
+): string | undefined => {
+    if (mode === "photo_only") {
+        return cheque.old_type
+            ? "This is an Old-type cheque: only its photo can change."
+            : `This cheque is ${cheque.status}: only its photo can change.`;
+    }
     if (mode === "po_wo_page") {
         return "Made from the PO/WO page: the number, date and amount stay as on its payment. Change them on the payment.";
     }
     return undefined;
 };
 
-/** The Project Payments on a Pending or Issued Cheque's lines: each one an edit takes off goes back to Online. */
+/** The Project Payments on a Pending Cheque's lines: each one an edit takes off goes back to Online. */
 export const paymentsOnCheque = (cheque: Pick<ChequeDetail, "status" | "lines">): string[] =>
     isEditableStatus(cheque.status)
         ? cheque.lines
@@ -98,6 +111,7 @@ export const chequeFormFromDetail = (d: ChequeDetail): ChequeFormInput => ({
         record_doctype: l.record_doctype ?? "",
         record_name: l.record_name ?? "",
         payment_name: l.payment_name ?? "",
+        payment_status: l.payment_status ?? "",
         amount: l.amount,
     })),
 });

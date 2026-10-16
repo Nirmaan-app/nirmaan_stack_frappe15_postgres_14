@@ -22,7 +22,6 @@ from frappe.utils import flt, nowdate
 
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.cheques.cheque_status import change_cheque_status
-from nirmaan_stack.api.cheques.save_cheque import save_cheque
 from nirmaan_stack.api.payments import bulk_actions
 from nirmaan_stack.api.payments.project_payments import update_payment_request
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
@@ -87,8 +86,9 @@ class TestChequeDetach(FrappeTestCase):
                 "record_name": self.sr, "payment_name": payment}
 
     def _cheque(self, *lines, description=None, payee_name=None):
-        """A Cheque from the report with `lines`. A Vendor payee unless `payee_name` is given."""
-        result = save_cheque(
+        """An Issued Cheque as the report made one before #1482, with `lines`. A Vendor payee unless
+        `payee_name` is given."""
+        return self.cheques.plant_cheque(
             bank="ICICI Bank",
             cheque_no=self.cheques.number(),
             cheque_date=nowdate(),
@@ -97,9 +97,8 @@ class TestChequeDetach(FrappeTestCase):
             payee_name=payee_name,
             attachment=PHOTO,
             description=description,
-            lines=json.dumps(list(lines)),
+            lines=list(lines),
         )
-        return self.cheques.track(result["cheque"])
 
     # -- reading --------------------------------------------------------------------------------
     def _line_payments(self, cheque):
