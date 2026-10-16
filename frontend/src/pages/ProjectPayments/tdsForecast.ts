@@ -43,6 +43,9 @@ export const COMPANY_BORNE_CATEGORIES: ReadonlySet<string> = new Set([
  * Accepts the field as Frappe sends it (a JSON string) or already parsed (`{ list: [{ name }] }`).
  * ⚠️ "ALL", NOT "ANY", and an empty or unreadable list is NOT company-borne — the same answer
  * `payment_tds.is_company_borne` gives.
+ *
+ * ⚠️ IT ANSWERS FOR A NEW DEDUCTION ONLY (the approval forecasts). One already taken carries its own
+ * answer in `borne_by`: `taxWithheld`, `workOrderTdsBorneBy`.
  */
 export const isCompanyBorneWorkOrder = (serviceCategoryList: unknown): boolean => {
 	const parsed = safeJsonParse<{ list?: unknown } | null>(
@@ -55,6 +58,38 @@ export const isCompanyBorneWorkOrder = (serviceCategoryList: unknown): boolean =
 		.map((entry) => (entry && typeof entry === "object" ? String((entry as { name?: unknown }).name ?? "").trim() : ""))
 		.filter(Boolean);
 	return names.length > 0 && names.every((name) => COMPANY_BORNE_CATEGORIES.has(name));
+};
+
+/**
+ * Who bore a deduction already taken: `Payment TDS Deduction.borne_by`, stored when it was created
+ * (#1451). "Vendor": withheld, the payment cut to the net. "Company": paid on top, the payment kept
+ * whole. A deduction is read by this field, NEVER by `isCompanyBorneWorkOrder`: a Work Order's
+ * categories decide only a NEW deduction, and they can change after one is taken.
+ */
+export type TdsBorneBy = "Vendor" | "Company";
+
+interface BorneDeduction {
+	tds_amount?: number | string;
+	borne_by?: TdsBorneBy | string;
+}
+
+/** The tax withheld from a payment by its deduction: none when the company bore it. */
+export const taxWithheld = (deduction: BorneDeduction | undefined): number =>
+	deduction && deduction.borne_by !== "Company" ? parseNumber(deduction.tds_amount) : 0;
+
+/**
+ * Who bears a Work Order's TDS, for its page: its deductions say, and "Mixed" when they disagree (a
+ * Misc-only Work Order paid net before 2026-09-17 and kept whole after). With no deduction yet, the
+ * category rule says who would bear the next one.
+ */
+export const workOrderTdsBorneBy = (
+	deductions: BorneDeduction[] | undefined,
+	serviceCategoryList: unknown
+): TdsBorneBy | "Mixed" => {
+	if (!deductions?.length) return isCompanyBorneWorkOrder(serviceCategoryList) ? "Company" : "Vendor";
+	const company = deductions.filter((d) => d.borne_by === "Company").length;
+	if (company === 0) return "Vendor";
+	return company === deductions.length ? "Company" : "Mixed";
 };
 
 export interface TdsForecast {

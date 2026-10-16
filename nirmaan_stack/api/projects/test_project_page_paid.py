@@ -140,15 +140,21 @@ class TestProjectPagePaid(FrappeTestCase):
         finally:
             frappe.set_user("Administrator")
             frappe.db.rollback()
+            # The User and its Contact go through `delete_doc`, so their child rows (`Has Role`,
+            # `Contact Email`) go with them; a bare row delete would strand those.
+            scopes = (
+                ("User Permission", lambda: frappe.db.delete("User Permission", {"user": email})),
+                ("User", lambda: frappe.delete_doc("User", email, force=True, ignore_permissions=True)),
+                ("Contact", lambda: [
+                    frappe.delete_doc("Contact", contact, force=True, ignore_permissions=True)
+                    for contact in frappe.get_all("Contact", {"email_id": email}, pluck="name")
+                ]),
+                ("Projects", lambda: frappe.db.delete("Projects", {"name": other})),
+            )
             failures = []
-            for doctype, filters in (
-                ("User Permission", {"user": email}),
-                ("Contact", {"email_id": email}),
-                ("User", {"name": email}),
-                ("Projects", {"name": other}),
-            ):
+            for doctype, purge in scopes:
                 try:
-                    frappe.db.delete(doctype, filters)
+                    purge()
                     frappe.db.commit()
                 except Exception as error:  # noqa: BLE001 - report every scope, strand none silently
                     frappe.db.rollback()

@@ -85,10 +85,10 @@ def amount_due_from(document_type: str, values, company_borne_tds: float = 0.0) 
     `total_tds` the company paid ON TOP, on a payment kept whole (Miscellaneous / Transportation
     Work Orders since 2026-09-17): `amount_paid` already covers it, so subtracting it as well would
     read the order overpaid by its own tax (Rs 800 order, Rs 800 paid, Rs 16 TDS -> -16). It is added
-    back. Which deductions those are is read off each one
-    (`services/payment_tds.company_borne_tds_by_order`), not off the categories alone: the same
-    Work Orders paid before that date had their tax withheld from the vendor (owner ruling
-    2026-10-16, #1451).
+    back. Which deductions those are is stored on each one, `Payment TDS Deduction.borne_by`, set when
+    it was created (`services/payment_tds.company_borne_tds_sql`), never read off the categories: the
+    same Work Orders paid before that date had their tax withheld from the vendor (owner ruling
+    2026-10-16, #1451), and categories can change after a deduction is taken.
     """
     minuend, subtrahends = AMOUNT_DUE_OPERANDS[document_type]
     return flt(values.get(minuend)) - sum(flt(values.get(col)) for col in subtrahends) + flt(company_borne_tds)

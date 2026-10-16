@@ -31,7 +31,7 @@ from frappe.utils import flt
 
 from nirmaan_stack.api.po_adjustments.refund_links import sync_po_refund_links
 from nirmaan_stack.services.amount_paid import amount_due_columns, amount_due_from, write_amount_paid
-from nirmaan_stack.services.payment_tds import company_borne_tds_by_order
+from nirmaan_stack.services.payment_tds import DEDUCTIBLE_PARENTS, company_borne_tds_sql
 from nirmaan_stack.services.vendor_refunds import LOWERS_PAID_STATUSES, PROCUREMENT_ORDERS, SERVICE_REQUESTS
 
 #: The orders that store an Amount Paid.
@@ -62,13 +62,18 @@ class Mismatch(NamedTuple):
 
 def mismatches(doctype: str, names=None) -> list[Mismatch]:
     """Every order of `doctype` (only those in `names` when given) whose stored Amount Paid or Amount
-    Due is ₹1 or more off its source, sorted by name. One query, plus one for a Work Order's
-    company-borne tax (`payment_tds.company_borne_tds_by_order`); writes nothing."""
+    Due is ₹1 or more off its source, sorted by name. One query, which joins a Work Order's
+    company-borne tax from the writer's own source (`payment_tds.company_borne_tds_sql`); writes
+    nothing."""
     _assert_order_doctype(doctype)
     names = None if names is None else sorted({n for n in names if n})
     if names == []:
         return []
     due_columns = ", ".join(f'o."{col}"' for col in amount_due_columns(doctype))
+    # A PO takes no deductions: nothing to join, and its formula has no TDS to give back.
+    taxed = doctype in DEDUCTIBLE_PARENTS
+    company_borne_join = f"LEFT JOIN ({company_borne_tds_sql()}) c ON c.document_name = o.name" if taxed else ""
+    company_borne_tds = "COALESCE(c.company_borne_tds, 0)" if taxed else "0"
     # Table and column names come from the constants above, never from a caller.
     rows = frappe.db.sql(
         f"""
@@ -76,6 +81,7 @@ def mismatches(doctype: str, names=None) -> list[Mismatch]:
                COALESCE(o.amount_paid, 0) AS stored_paid,
                COALESCE(o.amount_due, 0) AS stored_due,
                COALESCE(p.paid, 0) - COALESCE(r.refunded, 0) AS correct_paid,
+               {company_borne_tds} AS company_borne_tds,
                {due_columns}
         FROM "tab{doctype}" o
         LEFT JOIN (
@@ -88,18 +94,18 @@ def mismatches(doctype: str, names=None) -> list[Mismatch]:
             WHERE document_type = %(doctype)s AND status IN %(lowers)s
             GROUP BY document_name
         ) r ON r.document_name = o.name
+        {company_borne_join}
         {"WHERE o.name IN %(names)s" if names else ""}
         ORDER BY o.name
         """,
         {"doctype": doctype, "lowers": tuple(LOWERS_PAID_STATUSES), "names": tuple(names or ())},
         as_dict=True,
     )
-    company_borne_tds = company_borne_tds_by_order(doctype, names)
     found = []
     for row in rows:
         correct_paid = flt(row.correct_paid, 2)
         correct_due = flt(
-            amount_due_from(doctype, {**row, "amount_paid": correct_paid}, company_borne_tds.get(row.name)), 2
+            amount_due_from(doctype, {**row, "amount_paid": correct_paid}, row.company_borne_tds), 2
         )
         stored_paid, stored_due = flt(row.stored_paid, 2), flt(row.stored_due, 2)
         if abs(stored_paid - correct_paid) >= THRESHOLD or abs(stored_due - correct_due) >= THRESHOLD:

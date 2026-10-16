@@ -27,6 +27,10 @@ export interface PaymentTDSDeduction {
 	tds_percentage: number;
 	/** gross_amount x tds_percentage / 100. This is what Service Requests.total_tds sums. */
 	tds_amount: number;
+	/** Who bears this tax, set once when the deduction is created (#1451). "Vendor": withheld, the
+	 *  payment cut to the net. "Company": paid on top, the payment kept whole. Read this, never the
+	 *  Work Order's categories (`tdsForecast.taxWithheld`, `workOrderTdsBorneBy`). */
+	borne_by?: "Vendor" | "Company";
 	/** The day the payment reached `Approved` and the tax was withheld. Renamed from
 	 *  `deducted_on` — same data, truer name. */
 	payment_approved_on?: string;
