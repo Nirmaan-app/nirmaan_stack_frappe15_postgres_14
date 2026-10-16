@@ -36,6 +36,9 @@ const ADDED_12E6: readonly RegExp[] = [
   / in mm or NB is one size: the cladding is measured on the matched size$/, /^Fixings and duct material in the row are not a /,
   / written as a coating with no glass cloth refuses by name$/, / written as two stocked kinds prices one of them$/,
   / with no .* facts opens the .* section on .*'s defaults$/,
+  // 12e-6b (owner R1 / U2) INVERTED by mechanical authority: BEFORE the list ended at the line above. The one R1 line is
+  // ADDED (pinned in ruleReachability.test.ts); every pin below still reads the tab without it.
+  /^A drain pipe whose material the BoQ does not name prices as CPVC$/,
 ];
 const itemListRuleOrder = (...a: Parameters<typeof itemListRuleOrderLive>) =>
   itemListRuleOrderLive(...a).filter((l) => !ADDED_12E6.some((re) => re.test(l.title))).map((l, i) => ({ ...l, n: i + 1 }));

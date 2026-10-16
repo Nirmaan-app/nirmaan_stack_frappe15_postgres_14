@@ -148,6 +148,11 @@ export function itemListRuleOrder(config: unknown, items: ReadonlyArray<RuleOrde
            `a word naming several kinds prices as the one they all mean and refuses when they differ`,
            `an answered ${name(famAttrId)} always wins over it`,
            `shown read-only, and only where it differs from the kind priced`].join("; "));
+      // SLICE 12e-6b (owner R1, 2026-10-16 23:43 IST; owner U9 precedent): ADDED -- the lines above keep their words
+      if (pr.families?.CPVC) {
+        add(`A drain pipe whose material the BoQ does not name prices as CPVC`,
+            "a pipe the row or a heading calls a drain (drain, drainage, condensate) with no type told and no pipe material named -- in amber: 'drain pipe, no material stated -> priced as CPVC'; a material the BoQ names keeps its rule; the pricer can change it");
+      }
     }
   }
 

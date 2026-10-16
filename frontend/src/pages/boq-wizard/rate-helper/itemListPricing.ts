@@ -1974,6 +1974,45 @@ export function sizeIsOutsideDiameter(text: string | number | null | undefined):
 /** AC1: copper is sized by its outside diameter -- a copper, refrigerant, VRF or VRV row (VRF / refrigerant = Copper). */
 export const COPPER_WORDS: readonly string[] = ["copper", "refrigerant", "vrf", "vrv"];
 
+/** SLICE 12e-6b (owner R1): the words that make a pipe a drain, in the row or a heading. */
+const DRAIN_RE = /(^|[^a-z0-9])(?:drain(?:s|age)?|condensate)(?![a-z0-9])/i;
+/** SLICE 12e-6b (owner R1): pipe materials beyond the config's own family / map / refuse words (whole words). */
+export const DRAIN_MATERIAL_WORDS: readonly string[] = [
+  "m.s", "g.i", "mild steel", "galvanised", "galvanized", "stainless", "p v c", "p.v.c", "u.p.v.c", "c.p.v.c",
+  "ppr", "pprc", "pp-r", "pp-rc", "polypropylene", "polyethylene", "cast iron", "ductile",
+];
+/** SLICE 12e-6b (owner R1): an as-written word that is only the drain's service ("DRAIN", "drain pipe", "condensate
+ * drain line") names no pipe material. PURE. */
+function namesNoPipeMaterial(word: string): boolean {
+  return word.toLowerCase().replace(/\b(?:drain(?:s|age)?|condensate|condensed|water|pipes?|piping|lines?|a\.?c|for|of|the|and)\b|[^a-z0-9]+/g, "") === "";
+}
+
+/**
+ * SLICE 12e-6b (owner R1, 2026-10-16 23:43 IST: "for drain pipes consider CPVC if no material is mentioned"). PURE.
+ * A pipe whose type was not told, whose row or heading calls it a drain (drain, drains, drainage, condensate) and
+ * whose text names NO pipe material -- no stocked family, no `family_text` map / refuse word, no
+ * `DRAIN_MATERIAL_WORDS` word, each as a whole word -- prices as CPVC, with the amber line. A material the BoQ names
+ * keeps today's rules (uPVC -> PVC, GI -> MS, CPVC with uPVC -> CPVC). Only a config that reads the family as
+ * written (`family_text.from_attr`) and stocks CPVC: Piping. The calculator has no row text, so it never fires there.
+ */
+export function drainPipeDefault(
+  spec: ItemListPricingSpec,
+  rowText: string,
+  ownText: string,
+): { family: string; line: string } | null {
+  if (!spec.family_text?.from_attr || !spec.families[CPVC]) return null;
+  const text = [rowText, ownText].join(" | ");
+  if (!DRAIN_RE.test(text)) return null;
+  const t = text.toLowerCase();
+  const words = [...Object.keys(spec.families), ...(spec.family_text.map ?? []).map((m) => m.from),
+    ...(spec.family_text.refuse ?? []).map((r) => r.from), ...DRAIN_MATERIAL_WORDS];
+  for (const word of words) {
+    const w = word.toLowerCase().trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (w && new RegExp(`(^|[^a-z0-9])${w}(?![a-z0-9])`).test(t)) return null;
+  }
+  return { family: CPVC, line: `drain pipe, no material stated -> priced as ${CPVC}` };
+}
+
 function priceOneItem(
   spec: ItemListPricingSpec,
   projected: RateMasterItem[],
@@ -2069,10 +2108,22 @@ function priceOneItem(
   // SLICE 12e-4c: the family answer is the pricer's own TYPED word (read before the as-written word can stand in)
   const familyTyped = item.attributes?.[familyAttr(spec)]?.typed === true && out.familyRaw !== null && out.familyRaw !== "None";
   const asWrittenAttr = spec.family_text?.from_attr;
+  let fromAsWritten = false;
   if ((out.familyRaw === null || out.familyRaw === "None") && asWrittenAttr) {
     const w = rawValue(item, asWrittenAttr);
     const word = w !== null && w !== "None" ? String(w).trim() : "";
-    if (word !== "") out.familyRaw = word;
+    if (word !== "") { out.familyRaw = word; fromAsWritten = true; }
+  }
+  // SLICE 12e-6b (owner R1): still no type told -- nothing answered, or only the drain's service copied as written
+  // ("DRAIN") -- on a drain whose text names no pipe material: CPVC, amber with the line. An answered, typed or picked
+  // type is never touched; the person switches it with the family control.
+  if (!familyTyped && (out.familyRaw === null || out.familyRaw === "None" || (fromAsWritten && namesNoPipeMaterial(out.familyRaw)))) {
+    const drain = drainPipeDefault(spec, rowText, ownText);
+    if (drain) {
+      out.familyRaw = drain.family;
+      out.familyLine = drain.line;
+      out.working.push(drain.line);
+    }
   }
   // SLICE 12d-1a (owner R6): category-NEUTRAL -- the sentence names the family in the config's own label
   // ("no item family could be told", "no insulation material could be told"); it used to say "ADP kind".

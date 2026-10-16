@@ -158,6 +158,8 @@ const T = {
   coating: "A cladding written as a coating with no glass cloth refuses by name",
   twoTypes: "One pipe type written as two stocked kinds prices one of them",
   secDefaults: "Insulated Yes with no insulation facts opens the insulation section on Insulation's defaults",
+  // ── SLICE 12e-6b (owner R1; U2): the one line it adds ──
+  drainCpvc: "A drain pipe whose material the BoQ does not name prices as CPVC",
 };
 /** Tab lines that are NOT panel-path rules (a catalogue / rate-master rule the pricer never reads), by name. */
 const NOT_PANEL_RULES: Record<string, string> = {
@@ -435,6 +437,10 @@ const CASES: Case[] = [
   { id: "P6c-neg", rule: T.twoTypes, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "None", pipe_type_as_written: "MS / GI", size_mm: "25" }], re: ["BoQ names MS / GI -> priced as MS"], not: ["BoQ allows"], priced: true },
   { id: "S6a", rule: T.secDefaults, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "MS", size_mm: "50", insulated: "Yes" }], re: ["sec.default:material not mentioned -> Nitrile by row kind", "sec.cladding not mentioned -> No (without cladding)"], not: ["could not tell cladding"], priced: true, pure: false },
   { id: "S6b-neg", rule: T.secDefaults, cat: PIP, path: "calc", kind: "neg", edits: calc("MS", { size_mm: "50", insulated: "Yes" }, ["size_mm"]), rowUnit: "mts", re: ["sec.pick:Choose the insulation material"], priced: false, pure: false },
+  // ── SLICE 12e-6b (owner R1; U2): an untold drain -> CPVC; a named material keeps its rule; the calculator has no row text ──
+  { id: "P8a", rule: T.drainCpvc, cat: PIP, path: "panel", kind: "pos", unit: "mts", model: [{ pipe_type: "None", pipe_type_as_written: "DRAIN", size_mm: "25MM DIA" }], description: "DRAIN PIPE 25MM DIA WITH 6 MM INSULATION", re: ["drain pipe, no material stated -> priced as CPVC", "family:CPVC"], priced: true },
+  { id: "P8b-neg", rule: T.drainCpvc, cat: PIP, path: "panel", kind: "neg", unit: "mts", model: [{ pipe_type: "None", pipe_type_as_written: "uPVC", size_mm: "25" }], description: "Drain pipe 25 mm", re: ["BoQ says uPVC -> priced as PVC", "family:PVC"], not: ["no material stated"], priced: true },
+  { id: "P8c-neg", rule: T.drainCpvc, cat: PIP, path: "calc", kind: "neg", edits: [{ base: null, family: null, attrs: { size_mm: "25" }, other: ["size_mm"] }], rowUnit: "mts", re: ["no pipe type could be told for this item"], not: ["no material stated", "family:CPVC"], priced: false },
 ];
 
 /** ADP line 5 (`units_not_offered`) acts on the CALCULATOR'S UNIT PICKER, not on a row's price: it is covered
@@ -535,7 +541,9 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
   // SLICE 12e-6 (AC14, owner condition (a): ADD lines only): the tab WITHOUT this slice's lines is exactly the tab before
   // it, so every positional pin below reads `before12e6` -- unchanged words, unchanged order
   const NEW_12E6 = (): string[] => [T.noneNamed, T.altMaterial, T.xlpe, T.rowKindSwap, T.thkRange, T.mmNb, T.fixings, T.coating, T.twoTypes, T.secDefaults];
-  const before12e6 = (cat: string) => titles(cat).filter((t) => !NEW_12E6().includes(t));
+  // SLICE 12e-6b (owner R1; U2): ADD only, so the pins below read the tab without its one line as well
+  const NEW_12E6B = (): string[] => [T.drainCpvc];
+  const before12e6 = (cat: string) => titles(cat).filter((t) => !NEW_12E6().includes(t) && !NEW_12E6B().includes(t));
 
   it("THE GUARD: the rules this file names EQUAL the rules the config generates (Insulation 25, ADP 18, Piping 21 at 12e-4b / v38 -- Insulation 24 and Piping 19 before it); a new rule without a case, or a case naming a dead rule, fails here", () => {
     for (const cat of [INS, ADP, PIP]) {
@@ -551,7 +559,8 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
     // and the two Piping lines this slice adds are counted here; every old pin now reads the tab without them.
     expect(titles(INS)).toHaveLength(31);
     expect(before12e6(INS)).toHaveLength(25);
-    expect(titles(PIP)).toHaveLength(23);
+    // INVERTED at 12e-6b (owner R1 / U2) by mechanical authority: BEFORE `expect(titles(PIP)).toHaveLength(23)`. The one R1 line.
+    expect(titles(PIP)).toHaveLength(24);
     expect(before12e6(PIP)).toHaveLength(21);
     expect(before12e6(INS)).toContain(T.nearPipe);
     expect(titles(ADP)).toHaveLength(18);
@@ -585,6 +594,18 @@ describe("T1 -- every Derivation-tab rule of Insulation and ADP fires from the p
       expect({ rule: t, pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ rule: t, pos: true, neg: true });
     }
     for (const t of NEW) expect(t42(ADP)).not.toContain(t);
+  });
+
+  // SLICE 12e-6b (owner R1; U2): THE 12e-6b GUARD -- the ONE line this slice adds sits on the Piping tab right after the
+  // as-written line, has a positive and a negative case, and Insulation and ADP do not gain it (v38 and v42 alike)
+  it("12e-6b: the R1 drain line is on Piping only, right after the as-written line, with a positive and a negative case", () => {
+    expect(titles(PIP).filter((t) => t === T.drainCpvc)).toHaveLength(1);
+    expect(titles(PIP)[titles(PIP).indexOf(T.asWritten) + 1]).toBe(T.drainCpvc);
+    const t42 = (cat: string) => itemListRuleOrder(CFG42[cat], ITEMS42).map((l) => l.title);
+    expect(t42(PIP)[t42(PIP).indexOf(T.asWritten) + 1]).toBe(T.drainCpvc);
+    for (const cat of [INS, ADP]) { expect(titles(cat)).not.toContain(T.drainCpvc); expect(t42(cat)).not.toContain(T.drainCpvc); }
+    const mine = CASES.filter((c) => c.rule === T.drainCpvc);
+    expect({ pos: mine.some((c) => c.kind === "pos"), neg: mine.some((c) => c.kind === "neg") }).toEqual({ pos: true, neg: true });
   });
 
   it("every panel-path rule has a POSITIVE model-read case and a NEGATIVE (near-miss) case", () => {
