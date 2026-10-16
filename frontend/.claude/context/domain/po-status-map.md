@@ -248,7 +248,7 @@ DC/MIR queries use: `status IN (Partially Dispatched, Partially Delivered, Deliv
 | # | Hook/Component | File | Backend Call | PO Status Filter | Data Use |
 |---|----------------|------|-------------|-----------------|----------|
 | 1 | `useServerDataTable` (PO tabs) | `release-po-select.tsx` | `useFrappeGetDocList("Procurement Orders")` | Base: NOT IN [Merged, PO Amendment, Inactive]; per-tab: exact status match | Main PO DataTable with tabs |
-| 2 | `useOrderTotals()` | `src/hooks/useOrderTotals.ts` | `useFrappeGetDocList("Procurement Orders")` | NOT IN [Cancelled, Merged] | Global hook: getTotalAmount(), getDeliveredAmount(), getVendorName() per PO |
+| 2 | `useOrderTotals()` | `src/hooks/useOrderTotals.ts` | `useFrappeGetDocList("Procurement Orders")` | all; NOT IN [Cancelled, Merged] in memory for every getter but getAmountPaid | Global hook: getTotalAmount(), getDeliveredAmount(), getVendorName() per PO; getAmountPaid() reads every status (#1451) |
 | 3 | `useSidebarCounts()` | `src/hooks/useSidebarCounts.ts` | `useFrappeGetCall("sidebar_counts")` | Server-side GROUP BY status | Sidebar badge counts for all 7 statuses |
 | 4 | `useCredits()` | `pages/credits/hooks/useCredits.ts` | `useFrappePostCall("get_credits_list")` | Server-side NOT IN [Merged, Inactive, PO Amendment] + term_status | Credits DataTable with tabs (Due/Requested/Approved/Paid) |
 | 5 | Estimates Dashboard | `dashboards/estimates-executive-dashboard.tsx` | `useFrappeGetDocList("Procurement Orders")` | NOT IN [Merged, PO Amendment] | Summary card: total PO count |

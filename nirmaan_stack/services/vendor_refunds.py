@@ -21,12 +21,11 @@ bank credit split across three POs and the rest as misc becomes four records. Tw
 exclusions and paid rule, so it cannot offer a document the write then refuses.
 
 ⚠️ A RECEIVED REFUND LOWERS ITS PO'S / WO'S `amount_paid` (owner, 2026-09-17, reversing the same day's
-"moves no paid amount"; only Received since #1398). The stored field is `amount_paid_of`: the document's
-Paid `Project Payments` LESS its Received Vendor Refunds -- recomputed from source, never decremented. EVERY writer of the field asks it
-(`Project Payments.update_parent_amount_paid`, `_payment_utils._recalculate_amount_paid`, and the refund
-hook in `integrations/controllers/vendor_refunds`), so a payment settling after a refund cannot write
-the refund back out. It creates no `Project Payment`. Because the stored figure is now NET, `paid_of`
-adds the Received refunds back to get what was PAID -- the cap would otherwise subtract them twice.
+"moves no paid amount"; only Received since #1398). The rule and its one writer live in
+`services/amount_paid` (`amount_paid_of`, `write_amount_paid`): the document's Paid `Project Payments`
+LESS its Received Vendor Refunds, read here through `refunded_on(..., LOWERS_PAID_STATUSES)`. A refund
+creates no `Project Payment`. Because the stored figure is NET, `paid_of` adds the Received refunds back
+to get what was PAID -- the cap would otherwise subtract them twice.
 
 ⚠️ THE PROJECT IS OPTIONAL (owner, 2026-09-17). With none chosen the lists cover the vendor's documents
 on EVERY project, and a PO / WO refund records its DOCUMENT'S project (`document_project`) -- never a
@@ -36,7 +35,7 @@ guess. A Misc. Expense records the chosen project, or none.
 from decimal import ROUND_HALF_UP, Decimal
 
 import frappe
-from frappe.utils import cint, flt
+from frappe.utils import cint
 
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.reference_guard import MATCH_DOCTYPE
@@ -60,7 +59,7 @@ CANCELLED = "Cancelled"
 REFUND_STATUSES = (RECONCILIATION_PENDING, RECEIVED, CANCELLED)
 
 #: ⚠️ THE STATUS SPLITS WHAT `refunded_on` MEANS, so every caller names which of these it wants.
-#: Only a Received refund LOWERS the paid amount (`amount_paid_of`), so only it is added back to get
+#: Only a Received refund LOWERS the paid amount (`amount_paid.amount_paid_of`), so only it is added back to get
 #: what was paid (`paid_of`). The cap ("no more than is still refundable") also counts a waiting
 #: refund, so the money the vendor says it sent cannot be refunded twice. Cancelled counts for nothing.
 LOWERS_PAID_STATUSES = (RECEIVED,)
@@ -116,28 +115,11 @@ def money(value) -> Decimal:
 def paid_of(document_type: str, document, refunded: Decimal) -> Decimal:
     """How much has been paid on this document -- THE one definition of "paid" for a refund.
 
-    The stored `amount_paid` is NET of the document's Received refunds (`amount_paid_of`), so `refunded`
+    The stored `amount_paid` is NET of the document's Received refunds (`amount_paid.amount_paid_of`), so `refunded`
     -- every RECEIVED refund stored against it (`LOWERS_PAID_STATUSES`), a record being re-saved
     included -- is added back. Adding back any other status would invent money that was never paid.
     """
     return money(document.get("amount_paid")) + refunded
-
-
-def amount_paid_of(document_type: str, document_name: str, exclude_payment: str | None = None) -> float:
-    """THE stored `amount_paid` of a PO / Work Order: its `Paid` Project Payments LESS its RECEIVED
-    Vendor Refunds (a waiting or cancelled refund lowers nothing, ADR-0032).
-
-    `exclude_payment` is a payment being trashed -- still in the table while its `on_trash` runs. With
-    no refund against the document this is exactly the plain sum of its Paid payments.
-    """
-    filters = {"document_type": document_type, "document_name": document_name, "status": "Paid"}
-    if exclude_payment:
-        filters["name"] = ["!=", exclude_payment]
-    total_paid = sum(
-        flt(p.amount) for p in frappe.get_all("Project Payments", filters=filters, fields=["amount"])
-    )
-    refunded = refunded_on(document_type, [document_name], LOWERS_PAID_STATUSES).get(document_name)
-    return total_paid - float(refunded) if refunded else total_paid
 
 
 def refunded_on(
@@ -165,25 +147,6 @@ def refunded_on(
         totals[refund.document_name] = totals.get(refund.document_name, Decimal("0")) + money(
             refund.amount
         )
-    return totals
-
-
-def refunds_lowering_paid_by_project(project: str | None = None) -> dict[str, float]:
-    """The RECEIVED Vendor Refunds on each project's POs and Work Orders, by project -- on `project`
-    only when one is given (owner, 2026-10-13).
-
-    What the cashflow gap takes off "paid out": money a vendor sent back is not paid out any more. The
-    same rule as `amount_paid_of` (`LOWERS_PAID_STATUSES`), summed per project: a waiting or cancelled
-    refund lowers nothing, and a Misc. Expense refund is against no PO or Work Order.
-    """
-    filters = {
-        "document_type": ["in", list(REFUND_DOCUMENT_FIELDS)],
-        "status": ["in", list(LOWERS_PAID_STATUSES)],
-        "project": project if project else ["is", "set"],
-    }
-    totals: dict[str, float] = {}
-    for refund in frappe.get_all(VENDOR_REFUNDS, filters=filters, fields=["project", "amount"], limit_page_length=0):
-        totals[refund.project] = totals.get(refund.project, 0.0) + flt(refund.amount)
     return totals
 
 

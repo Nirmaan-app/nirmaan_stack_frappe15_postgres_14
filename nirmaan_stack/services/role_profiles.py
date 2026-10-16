@@ -120,6 +120,12 @@ NON_PROJECT_INFLOWS_READ_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_PROFILE, ACCOUNTA
 NON_PROJECT_INFLOWS_WRITE_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
 NON_PROJECT_INFLOWS_DELETE_PROFILES = (ADMIN_PROFILE,)
 
+# The Amount Paid Mismatch report and its Recount (#1455, ADR-0034): Admin and Accountant Lead only --
+# the people who can judge a wrong payment. Narrower than the 2B Reconcile report (no Accountant).
+# ENFORCEMENT boundary for `api/reports/amount_paid_mismatch`, whose recount writes with `set_value`.
+# Mirrored client-side by `frontend/src/constants/roles.ts::AMOUNT_PAID_MISMATCH_PROFILES`.
+AMOUNT_PAID_MISMATCH_PROFILES = (ADMIN_PROFILE, ACCOUNTANT_LEAD_PROFILE)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Resolvers — the ONE way a whitelisted endpoint answers "is this user X?".
@@ -167,6 +173,12 @@ def has_role_profile(user: str, profiles, *, superuser_passes: bool = True) -> b
 def is_nirmaan_admin(user: str) -> bool:
     """True for the Administrator superuser or a `Nirmaan Admin Profile` user."""
     return has_role_profile(user, (ADMIN_PROFILE,))
+
+
+def assert_amount_paid_mismatch_access(user: str) -> None:
+    """Refuse a user outside `AMOUNT_PAID_MISMATCH_PROFILES`. Both of the report's endpoints start with it."""
+    if not has_role_profile(user, AMOUNT_PAID_MISMATCH_PROFILES):
+        raise frappe.PermissionError(_("Only an Admin or Accountant Lead may use the Amount Paid Mismatch report."))
 
 
 BILLING_EXECUTIVE_PROFILE = "Nirmaan Billing Executive Profile"

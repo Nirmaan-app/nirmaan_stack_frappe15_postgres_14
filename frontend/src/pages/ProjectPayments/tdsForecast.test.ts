@@ -6,6 +6,7 @@ import {
 	isCompanyBorneWorkOrder,
 	isDeductible,
 	withholdsOnApproval,
+	workOrderTdsLabel,
 } from "./tdsForecast";
 
 const SR = "Service Requests";
@@ -196,5 +197,19 @@ describe("withholdsOnApproval", () => {
 	it("an L1 click above 50,000 only forwards to the CEO and withholds nothing yet", () => {
 		expect(withholdsOnApproval("lead", 50000.01)).toBe(false);
 		expect(withholdsOnApproval("lead", 60000)).toBe(false);
+	});
+});
+
+describe("the Work Order page's TDS label (server answer `get_work_order_tds`, #1451)", () => {
+	it("names who bore the paid tax", () => {
+		// SR-00105-000908: Misc-only, its tax withheld from the vendor before the 2026-09-17 rule.
+		expect(workOrderTdsLabel({ withheld: 248, company: 0, kind: "withheld", payments: {} })).toBe("TDS withheld");
+		expect(workOrderTdsLabel({ withheld: 0, company: 200, kind: "company", payments: {} })).toBe("TDS (paid by company)");
+		// SR-00107-001055: 120 withheld, 282.40 paid on top.
+		expect(workOrderTdsLabel({ withheld: 120, company: 282.4, kind: "part", payments: {} })).toBe("TDS (part paid by company)");
+	});
+
+	it("claims no side until the server has answered", () => {
+		expect(workOrderTdsLabel(undefined)).toBe("TDS");
 	});
 });

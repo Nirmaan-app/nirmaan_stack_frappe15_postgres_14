@@ -415,9 +415,10 @@ export const Projects: React.FC<ProjectsProps> = ({
       totalCreditPurchase: 0,
       totalCreditPaid: 0,
       totalLiabilities: 0,
+      cashflowGap: 0,
     };
-    // Per-row lookup into the server rollup. Same field mapping / numbers as the former
-    // client-side reduce (liabilities uses the per-PO min already applied server-side).
+    // Per-row lookup into the server rollup. Inflow, outflow, liabilities and the cashflow
+    // gap are the server's project money figure, the one CEO Hold reads (ADR-0034).
     // A project with no financial activity (absent from the rollup) reads ZERO.
     return (projectId: string) => {
       const r = rollup[projectId];
@@ -431,6 +432,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         totalCreditPurchase: r.total_credit_purchase,
         totalCreditPaid: r.total_credit_paid,
         totalLiabilities: r.liabilities,
+        cashflowGap: r.cashflow_gap,
       };
     };
   }, [financialRollup]);
@@ -717,11 +719,7 @@ export const Projects: React.FC<ProjectsProps> = ({
           </HeaderWithInfo>
         ),
         cell: ({ row }) => {
-          const financials = getProjectFinancials(row.original.name);
-          const cashflowGap =
-            financials.calculatedTotalOutflow +
-            financials.totalLiabilities -
-            financials.calculatedTotalInflow;
+          const { cashflowGap } = getProjectFinancials(row.original.name);
           return (
             <span
               className={`tabular-nums ${cashflowGap > 0 ? "text-red-600" : "text-green-600"
@@ -734,14 +732,7 @@ export const Projects: React.FC<ProjectsProps> = ({
         size: 100,
         meta: {
           exportHeaderName: "Cashflow Gap (in Lakhs)",
-          exportValue: (row) => {
-            const financials = getProjectFinancials(row.name);
-            const cashflowGap =
-              financials.calculatedTotalOutflow +
-              financials.totalLiabilities -
-              financials.calculatedTotalInflow;
-            return formatToLakhsNumber(cashflowGap);
-          },
+          exportValue: (row) => formatToLakhsNumber(getProjectFinancials(row.name).cashflowGap),
           isNumeric: true,
         },
       },

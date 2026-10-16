@@ -1,12 +1,13 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # See license.txt
 
-"""Tests for finding and recounting a PO whose stored Amount Paid has drifted from its source.
+"""Tests for the judge of "is this order's stored Amount Paid right" (ADR-0034).
 
-Source = the PO's Paid Project Payments less its Received Vendor Refunds (`amount_paid_of`). A drifted PO
-is recounted from that source, with its Amount Due and its vendor's credit; a PO already right is left
-alone. Fixtures are raw-SQL rows on a real vendor and project, purged by name; the vendor's credit is put
-back.
+Source = the order's Paid Project Payments less its Received Vendor Refunds (`amount_paid_of`); Amount
+Due is built from it with the order's own formula (PO: invoiced - paid; WO: total - paid - TDS withheld).
+An order is a mismatch when either stored figure is ₹1 or more off. A mismatch is recounted from source,
+with a PO's vendor credit; an order already right is left alone. Fixtures are raw-SQL rows on a real
+vendor, purged by name; the vendor's credit is put back.
 """
 
 import unittest
@@ -15,121 +16,337 @@ import frappe
 from frappe.utils import flt
 
 from nirmaan_stack.api.vendor_refunds import credit_fixture, po_refund_fixture
-from nirmaan_stack.api.vendor_refunds.po_refund_fixture import PAYMENT, PO
-from nirmaan_stack.services.amount_paid_drift import drifted_pos, recount_pos
+from nirmaan_stack.services.amount_paid_drift import (
+    drifted_pos,
+    mismatches,
+    recount,
+    recount_pos,
+)
 
-ENTRY = "TEST Amount Paid Recount"
+PO = "Procurement Orders"
+WO = "Service Requests"
+PAYMENT = "Project Payments"
+REFUNDS = "Vendor Refunds"
 LEDGER = "Vendor Credit Ledger"
+DEDUCTIONS = "Payment TDS Deduction"
+ENTRY = "TEST Amount Paid Recount"
 
 
-class AmountPaidDriftTests(unittest.TestCase):
+class OrdersFixture(unittest.TestCase):
+    """Raw-SQL POs and WOs with Paid payments and refunds, on a real vendor; purged by name.
+
+    Shared by the integrity tests (`test_amount_paid_integrity`), which drive real saves on top of it.
+    """
+
+    PREFIX = "TEST-RECOUNT"
+
     def setUp(self):
         frappe.set_user("Administrator")
         # The rows are raw SQL, so the project is only a label; the vendor must be real, with the
         # credit limit its credit recount reads.
-        self.project = "TEST-RECOUNT-PROJECT"
+        self.project = f"{self.PREFIX}-PROJECT"
         self.vendor = frappe.db.get_value("Vendors", {"credit_limit": [">", 0]}, "name")
-        self.pos = []
+        self.orders = {PO: [], WO: []}
         self.credit = credit_fixture.snapshot([self.vendor])
         frappe.db.commit()
 
     def tearDown(self):
+        frappe.set_user("Administrator")
         frappe.db.rollback()
-        refunds = frappe.get_all("Vendor Refunds", {"document_name": ["in", self.pos or ["-"]]}, pluck="name")
+        names = self.orders[PO] + self.orders[WO]
+        refunds = frappe.get_all(REFUNDS, {"document_name": ["in", names or ["-"]]}, pluck="name")
+        payments = frappe.get_all(PAYMENT, {"document_name": ["in", names or ["-"]]}, pluck="name")
         po_refund_fixture.purge(
-            po_refund_fixture.po_scopes(self.pos, [], refunds)
-            + [("vendor credit", lambda: credit_fixture.restore(self.credit))]
+            [
+                ("Version", lambda: frappe.db.delete(
+                    "Version", {"docname": ["in", refunds + payments + names or ["-"]]})),
+                (REFUNDS, lambda: refunds and frappe.db.delete(REFUNDS, {"name": ["in", refunds]})),
+                (DEDUCTIONS, lambda: frappe.db.delete(DEDUCTIONS, {"document_name": ["in", names or ["-"]]})),
+                (PAYMENT, lambda: payments and frappe.db.delete(PAYMENT, {"name": ["in", payments]})),
+                ("PO Payment Terms", lambda: self.orders[PO] and frappe.db.delete(
+                    "PO Payment Terms", {"parent": ["in", self.orders[PO]]})),
+                (PO, lambda: self.orders[PO] and frappe.db.delete(PO, {"name": ["in", self.orders[PO]]})),
+                (WO, lambda: self.orders[WO] and frappe.db.delete(WO, {"name": ["in", self.orders[WO]]})),
+                ("vendor credit", lambda: credit_fixture.restore(self.credit)),
+            ]
         )
 
     # ── fixture ─────────────────────────────────────────────────────────────────
 
-    def _po(self, stored_paid, payments, total=1000.0):
-        """A PO invoiced and worth `total`, storing `stored_paid`, with one Paid payment per amount."""
-        po = f"TEST-RECOUNT-PO-{frappe.generate_hash(length=10)}"
+    def _po(self, stored_paid, payments=(), total=1000.0, invoiced=None, stored_due=None, project=None):
+        """A PO worth and invoiced `total` (or `invoiced`), storing `stored_paid` and an Amount Due
+        right for it (or `stored_due`), with one Paid payment per amount."""
+        invoiced = total if invoiced is None else invoiced
+        due = invoiced - stored_paid if stored_due is None else stored_due
+        po = f"{self.PREFIX}-PO-{frappe.generate_hash(length=10)}"
         frappe.db.sql(
             f"""INSERT INTO "tab{PO}"
                     (name, creation, modified, modified_by, owner, docstatus, idx, project, vendor,
                      amount_paid, total_amount, amount_invoiced, amount_due, status)
                 VALUES (%s, '2026-01-01', '2026-01-01', 'Administrator', 'Administrator', 0, 0, %s, %s,
                         %s, %s, %s, %s, 'Delivered')""",
-            (po, self.project, self.vendor, stored_paid, total, total, total - stored_paid),
+            (po, project or self.project, self.vendor, stored_paid, total, invoiced, due),
         )
+        self.orders[PO].append(po)
         for amount in payments:
-            frappe.db.sql(
-                f"""INSERT INTO "tab{PAYMENT}"
-                        (name, creation, modified, modified_by, owner, docstatus, idx,
-                         document_type, document_name, project, vendor, amount, status)
-                    VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0,
-                            %s, %s, %s, %s, %s, 'Paid')""",
-                (f"TEST-RECOUNT-PAY-{frappe.generate_hash(length=10)}", PO, po, self.project, self.vendor, amount),
-            )
-        self.pos.append(po)
+            self._payment(PO, po, amount)
         frappe.db.commit()
         return po
 
-    def _refund(self, po, amount, status):
+    def _wo(self, stored_paid, payments=(), total=1000.0, tds=0.0, stored_due=None, project=None, categories=()):
+        """A Work Order worth `total`, raised under `categories`, storing `stored_paid`, `tds` withheld
+        and an Amount Due right for them (or `stored_due`), with one Paid payment per amount."""
+        due = total - stored_paid - tds if stored_due is None else stored_due
+        wo = f"{self.PREFIX}-WO-{frappe.generate_hash(length=10)}"
         frappe.db.sql(
-            """INSERT INTO "tabVendor Refunds"
-                    (name, creation, modified, modified_by, owner, docstatus, idx, vendor, project,
-                     document_type, document_name, status, amount, payment_date)
-                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, %s,
-                        %s, %s, %s, %s, CURRENT_DATE)""",
-            (f"TEST-RECOUNT-VRF-{frappe.generate_hash(length=8)}", self.vendor, self.project, PO, po, status, amount),
+            f"""INSERT INTO "tab{WO}"
+                    (name, creation, modified, modified_by, owner, docstatus, idx, project, vendor,
+                     amount_paid, total_amount, total_tds, amount_due, status, service_category_list)
+                VALUES (%s, '2026-01-01', '2026-01-01', 'Administrator', 'Administrator', 0, 0, %s, %s,
+                        %s, %s, %s, %s, 'Approved', %s)""",
+            (wo, project or self.project, self.vendor, stored_paid, total, tds, due,
+             frappe.as_json({"list": [{"name": c} for c in categories]})),
+        )
+        self.orders[WO].append(wo)
+        for amount in payments:
+            self._payment(WO, wo, amount)
+        frappe.db.commit()
+        return wo
+
+    def _payment(self, doctype, order, amount, status="Paid", project=None):
+        name = f"{self.PREFIX}-PAY-{frappe.generate_hash(length=10)}"
+        frappe.db.sql(
+            f"""INSERT INTO "tab{PAYMENT}"
+                    (name, creation, modified, modified_by, owner, docstatus, idx,
+                     document_type, document_name, project, vendor, amount, status, payment_date)
+                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0,
+                        %s, %s, %s, %s, %s, %s, CURRENT_DATE)""",
+            (name, doctype, order, project or self.project, self.vendor, amount, status),
         )
         frappe.db.commit()
+        return name
 
-    def _stored(self, po):
-        values = frappe.db.get_value(PO, po, ["amount_paid", "amount_due"], as_dict=True)
+    def _taxed_payment(self, order, amount, gross, tds, borne_by="Vendor"):
+        """A Paid Work Order payment of `amount` with a deduction of `tds` taken on `gross`, borne by
+        `borne_by`: `amount` is `gross - tds` when the tax was withheld from the vendor, `gross` when
+        the company bore it and the payment was kept whole."""
+        payment = self._payment(WO, order, amount)
+        frappe.db.sql(
+            f"""INSERT INTO "tab{DEDUCTIONS}"
+                    (name, creation, modified, modified_by, owner, docstatus, idx, project_payment,
+                     document_type, document_name, vendor, project, gross_amount, tds_percentage,
+                     tds_amount, payment_approved_on, borne_by)
+                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s,
+                        %s, %s, %s, %s, %s, 1, %s, CURRENT_DATE, %s)""",
+            (f"{self.PREFIX}-PTD-{frappe.generate_hash(length=10)}", payment, WO, order, self.vendor,
+             self.project, gross, tds, borne_by),
+        )
+        frappe.db.commit()
+        return payment
+
+    def _refund(self, doctype, order, amount, status):
+        name = f"{self.PREFIX}-VRF-{frappe.generate_hash(length=8)}"
+        frappe.db.sql(
+            f"""INSERT INTO "tab{REFUNDS}"
+                    (name, creation, modified, modified_by, owner, docstatus, idx, vendor, project,
+                     document_type, document_name, status, amount, payment_date, waiting_created_by)
+                VALUES (%s, NOW(), NOW(), 'Administrator', 'Administrator', 0, 0, %s, %s,
+                        %s, %s, %s, %s, CURRENT_DATE, 'Administrator')""",
+            (name, self.vendor, self.project, doctype, order, status, amount),
+        )
+        frappe.db.commit()
+        return name
+
+    def _stored(self, doctype, order):
+        values = frappe.db.get_value(doctype, order, ["amount_paid", "amount_due"], as_dict=True)
         return flt(values.amount_paid, 2), flt(values.amount_due, 2)
 
-    # ── finding ─────────────────────────────────────────────────────────────────
+    def assertRight(self, doctype, *orders):
+        """The judge finds nothing wrong with these orders."""
+        self.assertEqual(mismatches(doctype, orders), [])
 
-    def test_finds_only_the_po_whose_stored_paid_differs_from_its_payments_and_writes_nothing(self):
+
+class FindingMismatches(OrdersFixture):
+    def test_finds_a_po_whose_stored_paid_is_off_by_a_rupee_or_more_and_writes_nothing(self):
         stale = self._po(stored_paid=400, payments=[600, 400])
+        paisa = self._po(stored_paid=999.5, payments=[1000])
         right = self._po(stored_paid=1000, payments=[1000])
 
-        found = drifted_pos([stale, right])
+        found = mismatches(PO, [stale, paisa, right])
 
-        self.assertEqual([(r.name, r.stored, r.source) for r in found], [(stale, 400.0, 1000.0)])
-        self.assertEqual(self._stored(stale), (400.0, 600.0))
+        self.assertEqual(
+            [(m.name, m.stored_paid, m.correct_paid, m.stored_due, m.correct_due) for m in found],
+            [(stale, 400.0, 1000.0, 600.0, 0.0)],
+        )
+        self.assertEqual(self._stored(PO, stale), (400.0, 600.0))
+
+    def test_finds_a_po_whose_paid_is_right_but_whose_amount_due_is_off(self):
+        po = self._po(stored_paid=1000, payments=[1000], invoiced=1500, stored_due=0)
+
+        found = mismatches(PO, [po])
+
+        self.assertEqual([(m.name, m.stored_due, m.correct_due) for m in found], [(po, 0.0, 500.0)])
+
+    def test_a_row_carries_the_order_project_vendor_and_status(self):
+        po = self._po(stored_paid=0, payments=[700])
+
+        (row,) = mismatches(PO, [po])
+
+        self.assertEqual(
+            (row.doctype, row.name, row.project, row.vendor, row.status, row.paid_difference),
+            (PO, po, self.project, self.vendor, "Delivered", 700.0),
+        )
 
     def test_a_received_refund_is_part_of_the_source_and_a_waiting_one_is_not(self):
         received = self._po(stored_paid=1000, payments=[1000])
-        self._refund(received, 200, "Received")
+        self._refund(PO, received, 200, "Received")
         waiting = self._po(stored_paid=1000, payments=[1000])
-        self._refund(waiting, 200, "Reconciliation Pending")
+        self._refund(PO, waiting, 200, "Reconciliation Pending")
 
-        found = drifted_pos([received, waiting])
+        found = mismatches(PO, [received, waiting])
 
-        self.assertEqual([(r.name, r.source) for r in found], [(received, 800.0)])
+        self.assertEqual([(m.name, m.correct_paid) for m in found], [(received, 800.0)])
 
-    # ── recounting ──────────────────────────────────────────────────────────────
+    def test_a_po_netted_by_its_received_refund_is_right(self):
+        po = self._po(stored_paid=800, payments=[1000])
+        self._refund(PO, po, 200, "Received")
 
-    def test_recount_sets_paid_and_due_from_source_and_leaves_a_right_po_untouched(self):
+        self.assertRight(PO, po)
+
+    def test_finds_a_work_order_off_on_paid_or_due_with_tds_withheld_in_its_due(self):
+        stale = self._wo(stored_paid=0, payments=[490], tds=10)
+        due_off = self._wo(stored_paid=490, payments=[490], tds=10, stored_due=510)
+        right = self._wo(stored_paid=490, payments=[490], tds=10)
+
+        found = mismatches(WO, [stale, due_off, right])
+
+        self.assertEqual(
+            sorted((m.name, m.stored_paid, m.correct_paid, m.stored_due, m.correct_due) for m in found),
+            sorted([(stale, 0.0, 490.0, 990.0, 500.0), (due_off, 490.0, 490.0, 510.0, 500.0)]),
+        )
+
+    def test_a_misc_work_order_whose_tax_was_withheld_from_the_vendor_takes_it_off_its_amount_due(self):
+        # SR-00041-000138: Miscellaneous only, but paid in 2025, before the company-borne rule, so the
+        # 248 TDS came out of the vendor's payment (24,800 -> 24,552). Due is 24,800 - 24,552 - 248 = 0.
+        right = self._wo(stored_paid=24552, total=24800, tds=248, stored_due=0, categories=["Miscellaneous Services"])
+        self._taxed_payment(right, 24552, gross=24800, tds=248)
+        stale = self._wo(stored_paid=24552, total=24800, tds=248, stored_due=248, categories=["Miscellaneous Services"])
+        self._taxed_payment(stale, 24552, gross=24800, tds=248)
+
+        found = mismatches(WO, [right, stale])
+
+        self.assertEqual([(m.name, m.stored_due, m.correct_due) for m in found], [(stale, 248.0, 0.0)])
+
+    def test_a_deduction_the_company_bore_leaves_its_tax_out(self):
+        # SR-00203-001113: Miscellaneous only, approved after the rule, so the payment stayed 12,000 and
+        # the company pays the 240 TDS on top. Due is 12,000 - 12,000 = 0; -240 took the TDS off as well.
+        right = self._wo(stored_paid=12000, total=12000, tds=240, stored_due=0,
+                         categories=["Miscellaneous Services", "Transportation Services"])
+        self._taxed_payment(right, 12000, gross=12000, tds=240, borne_by="Company")
+        stale = self._wo(stored_paid=12000, total=12000, tds=240, stored_due=-240, categories=["Miscellaneous Services"])
+        self._taxed_payment(stale, 12000, gross=12000, tds=240, borne_by="Company")
+        # The deduction says who bore it, not today's categories: this WO gained Electrical afterwards.
+        recategorised = self._wo(stored_paid=12000, total=12000, tds=240, stored_due=0,
+                                 categories=["Miscellaneous Services", "Electrical Services"])
+        self._taxed_payment(recategorised, 12000, gross=12000, tds=240, borne_by="Company")
+
+        found = mismatches(WO, [right, stale, recategorised])
+
+        self.assertEqual([(m.name, m.stored_due, m.correct_due) for m in found], [(stale, -240.0, 0.0)])
+
+    def test_a_work_order_with_both_kinds_takes_off_only_the_withheld_tax(self):
+        # SR-00107-001055: 120 withheld from a 6,000 payment, 282.40 paid on top of a 14,120 one.
+        # Due is 20,120 - 20,000 - 402.40 + 282.40 = 0.
+        right = self._wo(stored_paid=20000, total=20120, tds=402.4, stored_due=0, categories=["Miscellaneous Services"])
+        self._taxed_payment(right, 5880, gross=6000, tds=120)
+        self._taxed_payment(right, 14120, gross=14120, tds=282.4, borne_by="Company")
+        # Stored by the category-only rule: all of the tax left out.
+        stale = self._wo(stored_paid=20000, total=20120, tds=402.4, stored_due=120, categories=["Miscellaneous Services"])
+        self._taxed_payment(stale, 5880, gross=6000, tds=120)
+        self._taxed_payment(stale, 14120, gross=14120, tds=282.4, borne_by="Company")
+
+        found = mismatches(WO, [right, stale])
+
+        self.assertEqual([(m.name, m.stored_due, m.correct_due) for m in found], [(stale, 120.0, 0.0)])
+
+    def test_with_no_names_it_reads_every_order_of_the_doctype(self):
+        stale = self._po(stored_paid=0, payments=[300])
+        right = self._po(stored_paid=300, payments=[300])
+
+        names = {m.name for m in mismatches(PO)}
+
+        self.assertIn(stale, names)
+        self.assertNotIn(right, names)
+
+    def test_any_other_doctype_is_refused(self):
+        with self.assertRaises(frappe.ValidationError):
+            mismatches("Project Expenses")
+
+
+class RecountingOneOrder(OrdersFixture):
+    def test_recount_of_a_po_sets_paid_and_due_and_recounts_its_vendors_credit(self):
+        po = self._po(stored_paid=0, payments=[500])
+
+        before = recount(PO, po, ENTRY)
+
+        self.assertEqual((before.stored_paid, before.correct_paid), (0.0, 500.0))
+        self.assertEqual(self._stored(PO, po), (500.0, 500.0))
+        self.assertRight(PO, po)
+        entries = frappe.get_all(LEDGER, filters={"parent": self.vendor, "entry_type": ENTRY}, pluck="po_id")
+        self.assertEqual(entries, [po])
+
+    def test_recount_of_a_work_order_sets_paid_and_due(self):
+        wo = self._wo(stored_paid=0, payments=[400])
+
+        recount(WO, wo, ENTRY)
+
+        self.assertEqual(self._stored(WO, wo), (400.0, 600.0))
+        self.assertRight(WO, wo)
+
+    def test_recount_of_a_misc_work_order_takes_off_only_the_tax_withheld_from_the_vendor(self):
+        withheld = self._wo(stored_paid=24552, total=24800, tds=248, stored_due=248, categories=["Miscellaneous Services"])
+        self._taxed_payment(withheld, 24552, gross=24800, tds=248)
+        kept_whole = self._wo(stored_paid=12000, total=12000, tds=240, stored_due=-240,
+                              categories=["Miscellaneous Services"])
+        self._taxed_payment(kept_whole, 12000, gross=12000, tds=240, borne_by="Company")
+
+        recount(WO, withheld, ENTRY)
+        recount(WO, kept_whole, ENTRY)
+
+        self.assertEqual(self._stored(WO, withheld), (24552.0, 0.0))
+        self.assertEqual(self._stored(WO, kept_whole), (12000.0, 0.0))
+        self.assertRight(WO, withheld, kept_whole)
+
+    def test_recount_of_an_order_already_right_writes_nothing(self):
+        po = self._po(stored_paid=1000, payments=[1000])
+        modified = frappe.db.get_value(PO, po, "modified")
+
+        self.assertIsNone(recount(PO, po, ENTRY))
+        self.assertEqual(frappe.db.get_value(PO, po, "modified"), modified)
+        self.assertFalse(frappe.get_all(LEDGER, filters={"parent": self.vendor, "entry_type": ENTRY}))
+
+
+class TheOneTimePatchFunctions(OrdersFixture):
+    """`patches/v3_0/recount_drifted_po_amount_paid` calls these; the patch file is append-only."""
+
+    def test_drifted_pos_reports_stored_and_source_paid(self):
         stale = self._po(stored_paid=400, payments=[600, 400])
+        right = self._po(stored_paid=1000, payments=[1000])
+
+        self.assertEqual([(r.name, r.stored, r.source) for r in drifted_pos([stale, right])], [(stale, 400.0, 1000.0)])
+
+    def test_recount_pos_recounts_each_vendor_once_and_leaves_a_right_po_untouched(self):
+        first = self._po(stored_paid=0, payments=[500])
+        second = self._po(stored_paid=0, payments=[700])
         right = self._po(stored_paid=1000, payments=[1000])
         right_modified = frappe.db.get_value(PO, right, "modified")
 
-        changed = recount_pos([stale, right], ENTRY)
+        changed = recount_pos([first, second, right], ENTRY)
 
-        self.assertEqual([r.name for r in changed], [stale])
-        self.assertEqual(self._stored(stale), (1000.0, 0.0))
+        self.assertEqual(sorted(r.name for r in changed), sorted([first, second]))
         self.assertEqual(frappe.db.get_value(PO, right, "modified"), right_modified)
-        self.assertEqual(drifted_pos([stale, right]), [])
-
-    def test_recount_recounts_the_vendors_credit_once_under_the_given_entry(self):
-        first = self._po(stored_paid=0, payments=[500])
-        second = self._po(stored_paid=0, payments=[700])
-
-        recount_pos([first, second], ENTRY)
-
+        self.assertRight(PO, first, second, right)
         entries = frappe.get_all(LEDGER, filters={"parent": self.vendor, "entry_type": ENTRY}, pluck="po_id")
         self.assertEqual(len(entries), 1)
         self.assertIn(first, entries[0])
         self.assertIn(second, entries[0])
-
-    def test_recount_of_pos_already_right_writes_no_credit_entry(self):
-        right = self._po(stored_paid=1000, payments=[1000])
-
-        self.assertEqual(recount_pos([right], ENTRY), [])
-        self.assertFalse(frappe.get_all(LEDGER, filters={"parent": self.vendor, "entry_type": ENTRY}))

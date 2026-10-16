@@ -1,13 +1,14 @@
 // frontend/src/pages/reports/hooks/useVendorLedgerCalculations.ts
-import { useFrappeGetDocList,useFrappeGetDoc, FrappeDoc, GetDocListArgs } from 'frappe-react-sdk';
+import { useFrappeGetCall, useFrappeGetDocList } from 'frappe-react-sdk';
 import { useMemo, useCallback } from 'react';
 import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
 import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
-import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
 import { VendorInvoice } from '@/types/NirmaanStack/VendorInvoice';
 import { parseNumber } from '@/utils/parseNumber';
-import { isWithinInterval, parseISO, isBefore, endOfDay } from 'date-fns';
-import { Vendors } from '@/types/NirmaanStack/Vendors'; 
+import { isWithinInterval, parseISO, endOfDay, format } from 'date-fns';
+import { Vendors } from '@/types/NirmaanStack/Vendors';
+import { LEDGER_START } from '@/pages/vendors/utils/vendorLedgerStatement';
+import { vendorPaidFigures } from '../utils/vendorReportPaid';
 
 
 // Define a type for the parameters for better readability
@@ -21,9 +22,9 @@ export interface VendorCalculatedFields {
     totalPO: number; // Will now be total for the period
     totalSR: number; // Will now be total for the period
     totalInvoiced: number; // Will now be total for the period
-    totalPaid: number; // Will now be total for the period
-    currentFYPaid: number; // Paid in the current financial year, whatever the period
-    balance: number; // Will be the CUMULATIVE balance up to endDate
+    totalPaid: number; // All time: the orders' Amount Paid; in a period: paid less refunds dated in it
+    currentFYPaid: number; // Paid less refunds dated in the current financial year, whatever the period
+    balance: number; // The vendor's Ledger tab closing balance
 }
 
 // The Indian financial year (1 Apr - 31 Mar) that `today` falls in, e.g. "FY 26-27".
@@ -67,6 +68,21 @@ export const isDateOnOrAfter = (dateStr: string | null | undefined, compareDate:
     }
 }
 
+const GET_VENDORS_PAID = 'nirmaan_stack.api.vendor.vendor_paid.get_vendors_paid';
+const NO_PAID: Record<string, number> = {};
+const day = (date: Date) => format(date, 'yyyy-MM-dd');
+
+// `{vendor: paid}` for a date range from the server: Paid payments less Received refunds, each on its
+// own date (ADR-0034). `swrKey` null skips the call.
+const useVendorsPaid = (fromDate: string | null, toDate: string | null, swrKey: string | null) => {
+    const { data, isLoading, error } = useFrappeGetCall<{ message: Record<string, number> }>(
+        GET_VENDORS_PAID,
+        { ...(fromDate && { from_date: fromDate }), ...(toDate && { to_date: toDate }) },
+        swrKey
+    );
+    return { paid: data?.message, isLoading, error };
+};
+
 
 export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): UseVendorLedgerCalculationsResult => {
     const { startDate, endDate } = params;
@@ -78,21 +94,15 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
     }, 'all-vendors-with-opening-balances');
 
     const { data: purchaseOrders, isLoading: isLoadingPOs, error: errorPOs } = useFrappeGetDocList<ProcurementOrder>('Procurement Orders', {
-        fields: ['name', 'vendor', 'total_amount', 'creation'],
+        fields: ['name', 'vendor', 'total_amount', 'amount_paid', 'creation'],
         limit: 0
     }, 'all-pos-for-vendor-ledger');
 
     const { data: serviceRequests, isLoading: isLoadingSRs, error: errorSRs } = useFrappeGetDocList<ServiceRequests>('Service Requests', {
         // total_amount is fresh on every save (incl. GST when sr.gst === "true").
-        fields: ['name', 'vendor', 'gst', 'total_amount', 'creation'],
+        fields: ['name', 'vendor', 'gst', 'total_amount', 'amount_paid', 'creation'],
         limit: 0
     }, 'all-srs-for-vendor-ledger');
-
-    const { data: paymentsData, isLoading: isLoadingPayments, error: errorPayments } = useFrappeGetDocList<ProjectPayments>('Project Payments', {
-        fields: ['name', 'vendor', 'amount', 'payment_date', 'creation'],
-        filters: [['status', '=', 'Paid']],
-        limit: 0
-    }, 'all-payments-for-vendor-ledger');
 
     // Fetch Vendor Invoices for ledger calculations
     const { data: vendorInvoices, isLoading: isLoadingInvoices, error: errorInvoices } = useFrappeGetDocList<VendorInvoice>('Vendor Invoices', {
@@ -106,6 +116,15 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
     // ---------------------------------------------------
 
     const currentFY = useMemo(() => getCurrentFinancialYear(), []);
+
+    // Dated paid figures: the server applies the Amount Paid rule to dated rows (a refund on its own date).
+    const periodFrom = startDate && endDate ? day(startDate) : null;
+    const periodTo = startDate && endDate ? day(endDate) : null;
+    const period = useVendorsPaid(periodFrom, periodTo, periodFrom ? `vendors-paid-${periodFrom}-${periodTo}` : null);
+    const fyFrom = day(currentFY.start);
+    const fyTo = day(currentFY.end);
+    const fy = useVendorsPaid(fyFrom, fyTo, `vendors-paid-${fyFrom}-${fyTo}`);
+    const sinceLedgerStart = useVendorsPaid(LEDGER_START, null, `vendors-paid-${LEDGER_START}-`);
 
     // Group Vendor Invoices by vendor
     const invoicesByVendor = useMemo(() =>
@@ -144,27 +163,18 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
         }, new Map<string, ServiceRequests[]>()) ?? new Map(),
     [serviceRequests]);
 
-    // Group the full payment documents, not just the sum.
-    const paymentsByVendor = useMemo(() =>
-        paymentsData?.reduce((acc, payment) => {
-            if (payment.vendor) {
-                (acc.get(payment.vendor) || acc.set(payment.vendor, []).get(payment.vendor))!.push(payment);
-            }
-            return acc;
-        }, new Map<string, ProjectPayments[]>()) ?? new Map(),
-    [paymentsData]);
+    const isLoadingPaid = period.isLoading || fy.isLoading || sinceLedgerStart.isLoading;
+    const isLoadingGlobalDeps = isLoadingVendors || isLoadingPOs || isLoadingSRs || isLoadingInvoices || isLoadingPaid;
 
     // 5. Create the memoized function that performs the detailed ledger calculation.
     const getVendorCalculatedFields = useCallback(
         (vendorId: string): VendorCalculatedFields | null => {
-            const isLoading = isLoadingVendors || isLoadingPOs || isLoadingSRs || isLoadingPayments || isLoadingInvoices;
-            if (isLoading) {
+            if (isLoadingGlobalDeps) {
                 return null; // Data not ready
             }
 
             const relatedPOs = posByVendor.get(vendorId) || [];
             const relatedSRs = srsByVendor.get(vendorId) || [];
-            const relatedPayments = paymentsByVendor.get(vendorId) || [];
 
             const vendorDoc = vendorsMap.get(vendorId);
 
@@ -191,83 +201,38 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
                 return shouldInclude ? sum + parseNumber(invoice.invoice_amount) : sum;
             }, 0);
 
-            // totalPaid: Filtered by Payment Date within the range
-            const totalPaid = relatedPayments.reduce((sum, p) => {
-                const shouldInclude = !shouldFilterByPeriod || isDateInPeriod(p.payment_date || p.creation, startDate, endDate);
-                return shouldInclude ? sum + parseNumber(p.amount) : sum;
-            }, 0);
-
-            // currentFYPaid: payments dated in the current financial year. Ignores the period.
-            const currentFYPaid = relatedPayments.reduce((sum: number, p: ProjectPayments) => {
-                return isDateInPeriod(p.payment_date || p.creation, currentFY.start, currentFY.end)
-                    ? sum + parseNumber(p.amount)
-                    : sum;
-            }, 0);
-
-
-            // --- CUMULATIVE BALANCE CALCULATION ---
-            // This sums up ALL historical transactions from 2025-04-01 onwards using Vendor Invoices
-
+            // Invoices since the ledger start (the opening balance holds everything before it).
             const cumulativeInvoiced = relatedInvoices.reduce((sum, invoice) => {
-                if (isDateOnOrAfter(invoice.invoice_date, new Date("2025-04-01"))) {
+                if (isDateOnOrAfter(invoice.invoice_date, new Date(LEDGER_START))) {
                     return sum + parseNumber(invoice.invoice_amount);
                 }
                 return sum;
             }, 0);
 
-            const cumulativePaid = relatedPayments.reduce((sum, p) => {
-                if (isDateOnOrAfter(p.payment_date || p.creation, new Date("2025-04-01"))) {
-                    return sum + parseNumber(p.amount);
-                }
-                return sum;
-            }, 0);
-
-                        // --- CUMULATIVE BALANCE CALCULATION (Total up to endDate) ---
-
-            // const cumulativeInvoiced = [...relatedPOs, ...relatedSRs].reduce((sum, doc) => {
-            //     const invoiceData = doc.invoice_data?.data;
-            //     if (!invoiceData || !endDate) return sum;
-
-            //     let invoiceSum = 0;
-            //     for (const dateStr in invoiceData) {
-            //         // CUMULATIVE: Filter by date <= endDate
-            //         if (isDateOnOrBefore(dateStr, endDate)) {
-            //             invoiceSum += parseNumber(invoiceData[dateStr].amount);
-            //         }
-            //     }
-            //     return sum + invoiceSum;
-            // }, 0);
-
-            // const cumulativePaid = relatedPayments.reduce((sum, p) => {
-            //     if (!endDate) return sum; // Cannot calculate cumulative balance without an end date
-            //     // CUMULATIVE: Filter by date <= endDate
-            //     if (isDateOnOrBefore(p.payment_date || p.creation, endDate)) {
-            //         return sum + parseNumber(p.amount);
-            //     }
-            //     return sum;
-            // }, 0);
-
-
-
-            // const balance = cumulativeInvoiced - cumulativePaid;
-            // console.log("DEBUG: cumulativeInvoiced", cumulativeInvoiced, "cumulativePaid", cumulativePaid, "vendor", vendorId, "openingBalance", openingBalance)
-
-            // Get Opening Balance (assuming you want to use the total historical balance for the balance column)
-            const openingInvoiceBalance = parseNumber(vendorDoc?.invoice_balance);
-            const openingPaymentBalance = parseNumber(vendorDoc?.payment_balance);
-            const openingBalance = openingInvoiceBalance - openingPaymentBalance;
-
-            // The running balance up to the end date
-            const balance = openingBalance + (cumulativeInvoiced - cumulativePaid);
+            // Total Paid, Current FY Paid and Balance Payable: the orders' Amount Paid, or the server's
+            // dated figures (ADR-0034). Opening balance: the Vendors balancing fields, as on 31 Mar 2025.
+            const { totalPaid, currentFYPaid, balance } = vendorPaidFigures(
+                vendorId,
+                [...relatedPOs, ...relatedSRs],
+                {
+                    periodPaid: shouldFilterByPeriod ? period.paid ?? NO_PAID : null,
+                    currentFYPaid: fy.paid ?? NO_PAID,
+                    paidSinceLedgerStart: sinceLedgerStart.paid ?? NO_PAID,
+                },
+                {
+                    invoice: parseNumber(vendorDoc?.invoice_balance),
+                    payment: parseNumber(vendorDoc?.payment_balance),
+                },
+                cumulativeInvoiced
+            );
 
             return { totalPO, totalSR, totalInvoiced, totalPaid, currentFYPaid, balance };
         },
         // Dependencies now include the dates, so this function is re-created when they change.
-        [posByVendor, srsByVendor, paymentsByVendor, invoicesByVendor, vendorsMap, isLoadingVendors, isLoadingPOs, isLoadingSRs, isLoadingPayments, isLoadingInvoices, startDate, endDate, shouldFilterByPeriod, currentFY]
+        [posByVendor, srsByVendor, invoicesByVendor, vendorsMap, isLoadingGlobalDeps, startDate, endDate, shouldFilterByPeriod, period.paid, fy.paid, sinceLedgerStart.paid]
     );
 
-    const isLoadingGlobalDeps = isLoadingVendors || isLoadingPOs || isLoadingSRs || isLoadingPayments || isLoadingInvoices;
-    const globalDepsError = errorVendors || errorPOs || errorSRs || errorPayments || errorInvoices;
+    const globalDepsError = errorVendors || errorPOs || errorSRs || errorInvoices || period.error || fy.error || sinceLedgerStart.error;
 
     return {
         vendors,
@@ -276,155 +241,3 @@ export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): Us
         globalDepsError: globalDepsError instanceof Error ? globalDepsError : null,
     };
 };
-
-// // frontend/src/pages/reports/hooks/useVendorLedgerCalculations.ts
-// import { useFrappeGetDocList, FrappeDoc, GetDocListArgs } from 'frappe-react-sdk';
-// import { useMemo, useCallback } from 'react';
-// import memoize from 'lodash/memoize';
-// import { ProcurementOrder } from '@/types/NirmaanStack/ProcurementOrders';
-// import { ServiceRequests } from '@/types/NirmaanStack/ServiceRequests';
-// import { ProjectPayments } from '@/types/NirmaanStack/ProjectPayments';
-// import { getPOTotal, getSRTotal, getTotalInvoiceAmount } from '@/utils/getAmounts';
-// import { parseNumber } from '@/utils/parseNumber';
-// import { queryKeys } from '@/config/queryKeys';
-// import { isWithinInterval, parseISO } from 'date-fns'; // 👈 Import date-fns helpers
-
-// // Define a type for the parameters for better readability
-// interface VendorLedgerParams {
-//     startDate?: Date | null;
-//     endDate?: Date | null;
-// }
-
-// // 1. Define the structure for the calculated fields (no change)
-// export interface VendorCalculatedFields {
-//     totalPO: number;
-//     totalSR: number;
-//     totalInvoiced: number;
-//     totalPaid: number;
-//     balance: number;
-// }
-
-// // 2. The hook's return type (no change)
-// export interface UseVendorLedgerCalculationsResult {
-//     getVendorCalculatedFields: (vendorId: string) => VendorCalculatedFields | null;
-//     isLoadingGlobalDeps: boolean;
-//     globalDepsError: Error | null;
-// }
-
-// // 👇 UPDATE hook signature
-// export const useVendorLedgerCalculations = (params: VendorLedgerParams = {}): UseVendorLedgerCalculationsResult => {
-//     const { startDate, endDate } = params; // Destructure the dates
-
-//     // 3. Fetch all underlying data (one-time fetches)
-//     const { data: purchaseOrders, isLoading: isLoadingPOs, error: errorPOs } = useFrappeGetDocList<ProcurementOrder>('Procurement Orders', {
-//         fields: ['name', 'vendor', 'total_amount', 'invoice_data', 'creation'], // Added 'creation'
-//         limit: 0
-//     }, 'all-pos-for-vendor-ledger');
-
-//     const { data: serviceRequests, isLoading: isLoadingSRs, error: errorSRs } = useFrappeGetDocList<ServiceRequests>('Service Requests', {
-//         fields: ['name', 'vendor', 'gst', 'service_order_list', 'invoice_data', 'creation'], // Added 'creation'
-//         limit: 0
-//     }, 'all-srs-for-vendor-ledger');
-
-//     const { data: paymentsData, isLoading: isLoadingPayments, error: errorPayments } = useFrappeGetDocList<ProjectPayments>('Project Payments', {
-//         fields: ['name', 'vendor', 'amount', 'payment_date', 'creation'], // Added 'payment_date' and 'creation'
-//         filters: [['status', '=', 'Paid']],
-//         limit: 0
-//     }, 'all-payments-for-vendor-ledger');
-
-//     // 👇 4. Pre-process and group data, APPLYING THE DATE FILTER
-//     const posByVendor = useMemo(() => {
-//         const filteredPOs = purchaseOrders?.filter(po => {
-//             if (!startDate && !endDate) return true; // No filter applied
-//             try {
-//                 const poDate = parseISO(po.creation);
-//                 return isWithinInterval(poDate, { start: startDate || new Date(0), end: endDate || new Date() });
-//             } catch { return false; }
-//         }) || [];
-
-//         return filteredPOs.reduce((acc, po) => {
-//             if (po.vendor) {
-//                 (acc.get(po.vendor) || acc.set(po.vendor, []).get(po.vendor))!.push(po);
-//             }
-//             return acc;
-//         }, new Map<string, ProcurementOrder[]>());
-//     }, [purchaseOrders, startDate, endDate]); // 👈 Add dates to dependency array
-
-//     const srsByVendor = useMemo(() => {
-//         const filteredSRs = serviceRequests?.filter(sr => {
-//             if (!startDate && !endDate) return true;
-//             try {
-//                 const srDate = parseISO(sr.creation);
-//                 return isWithinInterval(srDate, { start: startDate || new Date(0), end: endDate || new Date() });
-//             } catch { return false; }
-//         }) || [];
-
-//         return filteredSRs.reduce((acc, sr) => {
-//             if (sr.vendor) {
-//                 (acc.get(sr.vendor) || acc.set(sr.vendor, []).get(sr.vendor))!.push(sr);
-//             }
-//             return acc;
-//         }, new Map<string, ServiceRequests[]>());
-//     }, [serviceRequests, startDate, endDate]); // 👈 Add dates to dependency array
-
-//     const paymentsByVendor = useMemo(() => {
-//         const filteredPayments = paymentsData?.filter(p => {
-//             if (!startDate && !endDate) return true;
-//             try {
-//                 // Project Payments have a 'payment_date' which is more relevant
-//                 const paymentDate = parseISO(p.payment_date || p.creation);
-//                 return isWithinInterval(paymentDate, { start: startDate || new Date(0), end: endDate || new Date() });
-//             } catch { return false; }
-//         }) || [];
-
-//         return filteredPayments.reduce((acc, payment) => {
-//             if (payment.vendor) {
-//                 acc.set(payment.vendor, (acc.get(payment.vendor) || 0) + parseNumber(payment.amount));
-//             }
-//             return acc;
-//         }, new Map<string, number>());
-//     }, [paymentsData, startDate, endDate]); // 👈 Add dates to dependency array
-
-
-//     // 5. Create the memoized function that performs the calculation for a single vendor
-//     const getVendorCalculatedFields = useCallback(
-//         memoize((vendorId: string): VendorCalculatedFields | null => {
-//             const isLoading = isLoadingPOs || isLoadingSRs || isLoadingPayments;
-//             if (isLoading) {
-//                 return null; // Data not ready
-//             }
-
-//             const relatedPOs = posByVendor.get(vendorId) || [];
-//             const relatedSRs = srsByVendor.get(vendorId) || [];
-
-           
-// console.log("DEBUG: totalSR",totalSR)
-//             const totalInvoicedFromPOs = relatedPOs.reduce((sum, po) => sum + getTotalInvoiceAmount(po.invoice_data), 0);
-//             const totalInvoicedFromSRs = relatedSRs.reduce((sum, sr) => sum + getTotalInvoiceAmount(sr.invoice_data), 0);
-//             const totalInvoiced = totalInvoicedFromPOs + totalInvoicedFromSRs;
-
-//              const totalPO = relatedPOs.reduce((sum, po) => sum + parseNumber(po.total_amount), 0);
-
-//             const totalSR = relatedSRs.reduce((sum, sr) => {
-//                 const amount = getSRTotal(sr) || 0;
-//                 return sum + (sr?.gst === "true" ? amount * 1.18 : amount);
-//             }, 0);
-
-//             const totalPaid = paymentsByVendor.get(vendorId) || 0;
-//             const balance = totalInvoiced - totalPaid;
-
-//             return { totalPO, totalSR, totalInvoiced, totalPaid, balance };
-//         }),
-//         // Dependencies are now the re-calculated maps
-//         [posByVendor, srsByVendor, paymentsByVendor, isLoadingPOs, isLoadingSRs, isLoadingPayments]
-//     );
-
-//     const isLoadingGlobalDeps = isLoadingPOs || isLoadingSRs || isLoadingPayments;
-//     const globalDepsError = errorPOs || errorSRs || errorPayments;
-
-//     return {
-//         getVendorCalculatedFields,
-//         isLoadingGlobalDeps,
-//         globalDepsError: globalDepsError instanceof Error ? globalDepsError : null,
-//     };
-// };

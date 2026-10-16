@@ -17,8 +17,9 @@ with the ₹10 tolerance the request cap has always had. So the most one part ma
 min(part left, total left), and `caps` says which of the two binds: the dialogs show that figure
 and that reason as given, and never combine the two themselves.
 
-Payments count exactly as `services/payment_summary` counts them: GROSS of TDS (except on a
-company-borne Work Order), at every status the request cap counts, Rejected included until deleted.
+Payments count exactly as `services/payment_summary` counts them: GROSS of the TDS withheld from them
+(a deduction the company bore on top added nothing back), at every status the request cap counts,
+Rejected included until deleted.
 
 ⚠️ THE `min(..., Work Order GST)` IS THE TDS GUARD, NOT A TIDY-UP. The invoice cap checks only an
 invoice's total, so an invoice with over-stated GST would otherwise let base value go out as a GST
@@ -40,16 +41,15 @@ def work_order_limit(
 	gst_invoiced,
 	payments,
 	tds_by_payment=None,
-	company_borne=False,
 	exclude_payment=None,
 ) -> dict:
 	"""The payment summary of a Work Order, measured against its total incl. GST, plus `limit`.
 
-	`payments`: dicts with `name`, `amount`, `status`, `is_gst_payment`. `exclude_payment` is the
-	payment being approved, as in `summarise`.
+	`payments`: dicts with `name`, `amount`, `status`, `is_gst_payment`. `tds_by_payment`: the tax
+	withheld from each, as in `summarise`. `exclude_payment` is the payment being approved, as there.
 	"""
 	total = round(flt(total_amount), 2)
-	summary = summarise(total, payments, tds_by_payment, company_borne, exclude_payment)
+	summary = summarise(total, payments, tds_by_payment, exclude_payment)
 
 	base_paid = gst_paid = 0.0
 	for p in summary["payments"]:

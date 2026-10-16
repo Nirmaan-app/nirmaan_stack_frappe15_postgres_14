@@ -14,6 +14,7 @@ import json
 from ._payment_utils import (
     _create_project_payment,
     _recalculate_amount_paid,
+    _recheck_cashflow_after_recount,
     _append_return_payment_term,
     _split_target_po_term,
     _transfer_credit,
@@ -245,6 +246,9 @@ def execute_adjustment(po_id, adjustments_json):
 
         # Recalculate remaining impact
         adj_doc.recalculate_remaining_impact()
+
+        # CEO Hold, on the recounted amount_paid: the payments above skipped the check.
+        _recheck_cashflow_after_recount([po_id, *affected_target_pos])
 
         # Emit socket event
         frappe.db.commit()
@@ -537,6 +541,9 @@ def apply_vendor_credit_to_po(dest_po, allocations_json):
 
         if vendor:
             recalculate_vendor_credit(vendor, "Adjustment Resolved", po_id=dest_po, project=dest.project)
+
+        # CEO Hold, on the recounted amount_paid: the payments above skipped the check.
+        _recheck_cashflow_after_recount([dest_po, *merged])
 
         frappe.db.commit()
         frappe.publish_realtime(

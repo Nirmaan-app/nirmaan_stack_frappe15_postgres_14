@@ -82,10 +82,6 @@ class TestLimitRules(unittest.TestCase):
 		self.assertEqual(out["limit"]["work_order_gst"], 0)
 		self.assertEqual(_limit(out), (70000, 0, 70000))
 
-	def test_a_company_borne_work_order_does_not_add_the_tax_back(self):
-		out = work_order_limit(118000, "true", 0, [_base("B1", 40000)], {"B1": 800}, company_borne=True)
-		self.assertEqual(out["limit"]["base_left"], 60000)
-
 	def test_a_rejected_payment_still_holds_its_share(self):
 		payments = [_base("B1", 10000, "Rejected"), _gst("G1", 2000, "Rejected")]
 		out = work_order_limit(118000, "true", 9000, payments)

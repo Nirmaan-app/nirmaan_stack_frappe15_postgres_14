@@ -17,6 +17,7 @@
   "tds_percentage",
   "column_break_amounts",
   "tds_amount",
+  "borne_by",
   "payment_approved_on",
   "deducted_on",
   "challan_section",
@@ -144,11 +145,21 @@
    "fieldtype": "Date",
    "label": "Deducted On (retired)",
    "read_only": 1
+  },
+  {
+   "default": "Vendor",
+   "description": "Who bears this tax, set once when the deduction is created and never changed after. Vendor: withheld from the vendor, the payment cut to the net. Company: paid by the company on top, the payment kept whole (a Work Order whose categories were all Miscellaneous / Transportation Services at that moment, services/payment_tds.is_company_borne). Every reader (Amount Due, the mismatch report, an amount edit, the request cap, the Work Order page) reads this, never the Work Order's categories, which may change later (#1451).",
+   "fieldname": "borne_by",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "TDS Borne By",
+   "options": "Vendor\nCompany",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-09-12 11:04:30.881098",
+ "modified": "2026-10-16 10:01:48.077047",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Payment TDS Deduction",

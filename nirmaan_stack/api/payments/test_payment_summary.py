@@ -57,10 +57,6 @@ class TestSummarise(unittest.TestCase):
 		self.assertEqual(out["lines"]["paid"], 5000)
 		self.assertEqual(out["payments"][0]["gross_amount"], 5000)
 
-	def test_a_company_borne_work_order_does_not_add_the_tax_back(self):
-		out = summarise(10000, [_p("A", 5000, "Paid")], tds_by_payment={"A": 100}, company_borne=True)
-		self.assertEqual(out["lines"]["paid"], 5000)
-
 	def test_an_over_committed_order_goes_negative(self):
 		self.assertEqual(summarise(100, [_p("A", 150, "Approved")])["left"], -50)
 

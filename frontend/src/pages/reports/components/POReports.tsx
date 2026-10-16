@@ -35,6 +35,7 @@ import { useUserData } from "@/hooks/useUserData";
 import PO2BReconcileReport from "./PO2BReconcileReport";
 import POAttachmentReconcileReport from "./POAttachmentReconcileReport";
 import DNDCQuantityReport from "./DNDCQuantityReport";
+import AmountPaidMismatchReport from "./AmountPaidMismatchReport";
 import { Info } from "lucide-react";
 import {
   PENDING_UPLOAD_CREATION_FROM,
@@ -486,6 +487,10 @@ export default function POReports({ pendingUploadMode = false }: POReportsProps 
 
   if (selectedReportType === 'DN > DC Quantity Report') {
     return <DNDCQuantityReport />;
+  }
+
+  if (selectedReportType === 'Amount Paid Mismatch') {
+    return <AmountPaidMismatchReport doctype="Procurement Orders" />;
   }
 
   // If 2B Reconcile Report is selected, render the dedicated component

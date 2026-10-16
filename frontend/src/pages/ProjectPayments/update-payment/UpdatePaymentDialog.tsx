@@ -19,7 +19,6 @@ import { AlertTriangle, Loader2, Sparkles } from "lucide-react";
 import { useUpdatePaymentRequest } from "../hooks/useUpdatePaymentRequests";
 import { useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
 import { DOC_TYPES } from "../approve-payments/constants";
-import { useOrderPayments } from "@/hooks/useOrderPayments";
 import { useOrderTotals } from "@/hooks/useOrderTotals";
 import { invalidateSidebarCounts } from "@/hooks/useSidebarCounts";
 
@@ -56,8 +55,7 @@ export default function UpdatePaymentRequestDialog({
   mode, payment, onSuccess
 }: UpdatePaymentDialogProps) {
 
-  const { getAmount: getTotalAmountPaidForPO } = useOrderPayments()
-  const { getTotalAmount } = useOrderTotals()
+  const { getTotalAmount, getAmountPaid } = useOrderTotals()
 
   /* global dialog open/close from zustand */
   const { paymentDialog: open, togglePaymentDialog: toggle } =
@@ -293,7 +291,7 @@ export default function UpdatePaymentRequestDialog({
           <Row label="Doc #"    val={payment.document_name} />
           <Row label="Req. Amt" val={fmt(payment.amount)} labelClass="font-bold" valClass="font-bold" />
           <Row label={payment.document_type === "Service Requests" ? "WO Value" : "PO Value"} val={fmt(getTotalAmount(payment.document_name, payment.document_type).totalWithTax)} />
-          <Row label="Total Paid" val={fmt(getTotalAmountPaidForPO(payment.document_name, ["Paid"]))} />
+          <Row label="Total Paid" val={fmt(getAmountPaid(payment.document_name, payment.document_type))} />
         </div>
 
         {mode === "fulfil" ? (
