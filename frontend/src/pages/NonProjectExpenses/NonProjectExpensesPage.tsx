@@ -63,6 +63,7 @@ import { EditNonProjectExpense } from "./components/EditNonProjectExpense";
 import { UpdatePaymentDetailsDialog } from "./components/UpdatePaymentDetailsDialog";
 import { UpdateInvoiceDetailsDialog } from "./components/UpdateInvoiceDetailsDialog";
 import { NonProjectExpenseSummaryCard } from "./components/NonProjectExpenseSummaryCard";
+import { getFrappeError } from "@/utils/frappeErrors";
 
 const DOCTYPE = "Non Project Expenses";
 
@@ -305,7 +306,9 @@ export const NonProjectExpensesPage: React.FC<NonProjectExpensesPageProps> = ({
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to delete expense.",
+        // The server's reason (e.g. "linked bank lines: take them off with Unreconcile"), not the
+        // SDK's generic "There was an error while deleting the document." (#1450).
+        description: getFrappeError(error) || "Failed to delete expense.",
         variant: "destructive",
       });
     } finally {

@@ -3,17 +3,19 @@ import { describe, expect, it } from "vitest";
 
 import { newExpenseSeed, statementSpender } from "./newExpenseSeed";
 
+// ⚠️ THE REMARK IS PRESENT ON PURPOSE: a row that HAS one must still open with an empty description.
 const row = (over: Record<string, unknown> = {}) => ({
     remarks: "Transport charges alpha project",
     source: "Cashfree",
+    suggested_doctype: null as string | null,
     ...over,
 });
 
 describe("newExpenseSeed", () => {
-    it("with no plan: a project expense, described by the statement's remark", () => {
+    it("★ with no plan: a project expense with an EMPTY description -- the narration is its Payment reference", () => {
         expect(newExpenseSeed(row())).toEqual({
             doctype: "Project Expenses",
-            description: "Transport charges alpha project",
+            description: "",
         });
     });
 
@@ -31,7 +33,7 @@ describe("newExpenseSeed", () => {
             doctype: "Project Expenses",
             expenseType: "Travel",
             project: "PROJ-1",
-            description: "Transport charges alpha project",
+            description: "",
         });
     });
 
@@ -48,14 +50,14 @@ describe("newExpenseSeed", () => {
             doctype: "Non Project Expenses",
             expenseType: "Petty Cash",
             project: null,
-            description: "Transport charges alpha project",
+            description: "",
         });
     });
 
     it("a matcher's suggested record is not a plan: no expense type means no pre-fill", () => {
         expect(
             newExpenseSeed(row({ suggested_doctype: "Non Project Expenses", suggested_name: "NPE-1" })),
-        ).toEqual({ doctype: "Project Expenses", description: "Transport charges alpha project" });
+        ).toEqual({ doctype: "Project Expenses", description: "" });
     });
 
     it("a ledger that is not an expense is ignored", () => {

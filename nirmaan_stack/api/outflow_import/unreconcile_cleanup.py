@@ -93,7 +93,7 @@ def restore_derived_state(carried, statement_file_url: str | None) -> None:
         )
     # LAST: the gap reads the PO `amount_paid` the saves recomputed and every record's status.
     for project in sorted(projects):
-        _resync_cashflow_hold(project)
+        resync_cashflow_hold(project)
 
 
 def delete_statement_file_links(doctype: str, names, statement_file_url: str | None) -> None:
@@ -119,7 +119,7 @@ def delete_statement_file_links(doctype: str, names, statement_file_url: str | N
     )
 
 
-def _resync_cashflow_hold(project: str) -> None:
+def resync_cashflow_hold(project: str) -> None:
     """Re-evaluate the project's cashflow-gap hold on the state after EVERY write.
 
     Called directly rather than through `trigger_check`, whose per-request flag is exactly what left

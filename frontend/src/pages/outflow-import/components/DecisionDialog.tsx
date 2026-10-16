@@ -69,7 +69,7 @@ import {
     INFLOW_TYPES,
 } from "@/pages/non-project-inflows/nonProjectInflowModel";
 import { ROW_PARTIALLY_ALLOCATED, canSkipByHand, canUndoOutflow } from "../outflowImportStatus";
-import { newExpenseSeed, statementSpender } from "../newExpenseSeed";
+import { NEW_EXPENSE_COMMENT_MAX, newExpenseSeed, statementSpender } from "../newExpenseSeed";
 import { useUserData } from "@/hooks/useUserData";
 import type { UnreconcileResult } from "../unreconcileView";
 import { UnreconcilePanel } from "./UnreconcileDialog";
@@ -102,9 +102,8 @@ import {
     matcherCandidateLine,
     parseRecordKey,
     partialOffer,
-    nonProjectInflowDescriptionSeed,
     recordKey,
-    referenceValue,
+    referenceToSave,
     settlementLink,
     settleBlockRemedy,
     settleBlockText,
@@ -197,7 +196,7 @@ const NON_PROJECT_EXPENSE = "Non Project Expenses";
  * merely re-enabled: the form below, `RowDecision.newExpense`, the `new` branch of `isConfirmable`
  * (which the bulk bar's `countDecided` reads too), `OutflowMasterPage.settleOne`'s create branch,
  * `expenses.create_expense` / `get_expense_types`, and `settle.create_expense_from_row`. The
- * contract still matches: the client sends doctype + type + project + description only, and every
+ * contract still matches: the client sends doctype + type + project + description + comment only, and every
  * figure -- amount, payment date, reference -- is read SERVER-SIDE off the staged bank row.
  *
  * ⚠️ `SHOW_SKIP_ROW` STAYS OFF (see below). B5 turns on exactly one of the two hidden exits; the
@@ -946,9 +945,9 @@ export const DecisionDialog = ({
                             onChange={onChange}
                             seed={() => ({
                                 target: "nonProjectInflow",
-                                newNonProjectInflow: decision?.newNonProjectInflow ?? {
-                                    description: nonProjectInflowDescriptionSeed(row),
-                                },
+                                // ⚠️ EMPTY (owner ruling): the narration is the inflow's Payment
+                                // reference, and a blank description is filled by the server.
+                                newNonProjectInflow: decision?.newNonProjectInflow ?? { description: "" },
                             })}
                         >
                             <NewNonProjectInflowForm
@@ -2375,19 +2374,29 @@ const NewExpenseForm = ({
                 />
             </div>
 
+            <div className="space-y-1.5 sm:col-span-2">
+                <Label className="text-xs">
+                    Comment <span className="font-normal text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                    className="h-9"
+                    value={form.comment ?? ""}
+                    maxLength={NEW_EXPENSE_COMMENT_MAX}
+                    placeholder="Anything the accounts team should know"
+                    onChange={(e) => patch({ comment: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                    Saved with “Imported from {row.import_batch}” after it.
+                </p>
+            </div>
+
             {/* Read-only from the bank row -- the statement is the source of truth. */}
             <ReadOnlyField label="Amount" value={formatToRoundedIndianRupee(row.amount)} />
             <ReadOnlyField
                 label="Payment date"
                 value={row.added_on ? formatDate(row.added_on.split(/[ T]/)[0]) : "—"}
             />
-            {/* `referenceValue`, not `bank_reference_no`: a Cashbook line has no bank reference, and
-                its wallet id is what the server writes (#1314 browser walk -- it read "—"). */}
-            <ReadOnlyField
-                label="Payment reference"
-                value={referenceValue(row) || "—"}
-                className="sm:col-span-2"
-            />
+            <PaymentReferenceField row={row} />
             {spender && <ReadOnlyField label="Paid by" value={spender} className="sm:col-span-2" />}
         </div>
     );
@@ -2526,11 +2535,7 @@ const NewInflowForm = ({
                 label="Payment date"
                 value={row.added_on ? formatDate(row.added_on.split(/[ T]/)[0]) : "—"}
             />
-            <ReadOnlyField
-                label="Payment reference"
-                value={row.bank_reference_no || "—"}
-                className="sm:col-span-2"
-            />
+            <PaymentReferenceField row={row} />
         </div>
     );
 };
@@ -2607,14 +2612,7 @@ const NewNonProjectInflowForm = ({
                 label="Payment date"
                 value={row.added_on ? formatDate(row.added_on.split(/[ T]/)[0]) : "—"}
             />
-            {/* `referenceValue`, the table's own Reference cell: an ICICI closure line carries no
-                `bank_reference_no`, so reading that field alone showed "—" beside a table showing
-                the reference. */}
-            <ReadOnlyField
-                label="Payment reference"
-                value={referenceValue(row) || "—"}
-                className="sm:col-span-2"
-            />
+            <PaymentReferenceField row={row} />
         </div>
     );
 };
@@ -2799,6 +2797,7 @@ const NewVendorRefundForm = ({
                     />
                 </div>
                 */}
+                <PaymentReferenceField row={row} />
             </div>
 
             {/* #1401: WARN BEFORE A SECOND RECORD. A waiting refund is the same money the vendor said it
@@ -3682,5 +3681,20 @@ const ReadOnlyField = ({
     <div className={`space-y-1.5 ${className}`}>
         <Label className="text-xs text-muted-foreground">{label}</Label>
         <Input className="h-9 bg-muted/50" value={value} readOnly tabIndex={-1} />
+    </div>
+);
+
+/**
+ * The read-only "Payment reference" every create form shows: what the server WRITES onto the record
+ * (`referenceToSave`) -- on an ICICI line the whole narration (#1259), on a wallet line its
+ * transaction id (#1314) -- never the table's short reference. It WRAPS rather than clipping, because
+ * a narration runs past any input's width.
+ */
+const PaymentReferenceField = ({ row }: { row: OutflowImportRow }) => (
+    <div className="space-y-1.5 sm:col-span-2">
+        <Label className="text-xs text-muted-foreground">Payment reference</Label>
+        <div className="min-h-9 w-full break-all rounded-md border border-input bg-muted/50 px-3 py-2 font-mono text-sm">
+            {referenceToSave(row) || "—"}
+        </div>
     </div>
 );

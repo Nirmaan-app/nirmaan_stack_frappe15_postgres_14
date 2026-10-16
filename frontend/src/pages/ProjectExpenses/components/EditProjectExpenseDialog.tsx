@@ -35,6 +35,8 @@ import { queryKeys, getProjectExpenseTypeListOptions } from "@/config/queryKeys"
 import { useCEOHoldGuard } from "@/hooks/useCEOHoldGuard";
 import { isPaidExpense } from "@/pages/ProjectPayments/config/queueRowActions";
 import SITEURL from "@/constants/siteURL";
+import { invoiceAttachmentUrl, projectField } from "@/utils/porterExpense";
+import { PorterSectionBlock, usePorterExpense } from "@/components/common/PorterExpense";
 import { ExpenseEditPayToSection, useExpenseEditPayTo } from "@/components/payees/ExpenseEditPayTo";
 import { expenseAccountSaveError } from "@/components/payees/useChangeExpenseAccount";
 
@@ -92,6 +94,12 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
     // (owner, 2026-09-21); the proof stays replaceable. This screen is the ONLY lock -- the server
     // leaves Paid expenses editable so they can still be corrected in Desk.
     const isPaid = isPaidExpense(expenseToEdit?.status);
+
+    // A Porter Expense (#1450): its project is shown locked -- it moves only through Rectify in Bulk
+    // Import, which keeps the import's record in step -- and its Porter facts are shown read-only. The
+    // dialog has no project field for any other expense, as before.
+    const project = projectField(expenseToEdit);
+    const porter = usePorterExpense(DOCTYPE, expenseToEdit?.name, project.locked && editProjectExpenseDialog);
 
     const [expenseTypePopoverOpen, setExpenseTypePopoverOpen] = useState(false);
     const commandListRef = useRef<HTMLDivElement>(null);
@@ -249,6 +257,15 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                     <AlertDialogDescription>ID: {expenseToEdit.name}</AlertDialogDescription>
                 </AlertDialogHeader>
                 <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-2">
+                    {project.locked && (
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="project_edit" className="text-right">Project</Label>
+                            <div className="col-span-3">
+                                <Input id="project_edit" value={porter.section?.project_name || expenseToEdit.projects || ""} disabled readOnly />
+                                <p className="text-xs text-muted-foreground mt-1">{project.hint}</p>
+                            </div>
+                        </div>
+                    )}
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="type_edit" className="text-right">Type <sup className="text-destructive">*</sup></Label>
                         <div className="col-span-3">
@@ -322,7 +339,7 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                             {expenseToEdit.invoice_attachment && !newInvoiceFile && (
                                 <div className="flex items-center gap-2 p-2 bg-muted/60 rounded-md text-sm">
                                     <Download className="h-4 w-4 text-primary flex-shrink-0" />
-                                    <a href={SITEURL + expenseToEdit.invoice_attachment} target="_blank" rel="noreferrer" className="truncate hover:underline" title={`View ${expenseToEdit.invoice_attachment.split('/').pop()}`}>{expenseToEdit.invoice_attachment.split('/').pop()}</a>
+                                    <a href={SITEURL + (invoiceAttachmentUrl(DOCTYPE, expenseToEdit) ?? expenseToEdit.invoice_attachment)} target="_blank" rel="noreferrer" className="truncate hover:underline" title={`View ${expenseToEdit.invoice_attachment.split('/').pop()}`}>{expenseToEdit.invoice_attachment.split('/').pop()}</a>
                                 </div>
                             )}
                             <CustomAttachment
@@ -370,6 +387,13 @@ export const EditProjectExpenseDialog: React.FC<EditProjectExpenseDialogProps> =
                                     />
                                 </div>
                             </div>
+                        </>
+                    )}
+
+                    {project.locked && (
+                        <>
+                            <Separator className="my-1" />
+                            <PorterSectionBlock section={porter.section} isLoading={porter.isLoading} error={porter.error} />
                         </>
                     )}
                 </div>

@@ -74,6 +74,19 @@ export function referenceValue(row: OutflowImportRow): string {
     return (row.transfer_id ?? "").trim();
 }
 
+/**
+ * The Payment reference a create or link form shows: the value the server will WRITE onto the record.
+ *
+ * ⚠️ NOT `referenceValue`. That is the table's Reference cell -- the short reference the parser pulled
+ * out of the line, which search, sort and the export key on. On an ICICI line the server writes the
+ * WHOLE narration instead (#1259), so a form showing `referenceValue` named a value the record would
+ * never carry. `settlement_reference` comes from the server's own writer, so the two cannot drift;
+ * the fallback only covers a row read without it.
+ */
+export function referenceToSave(row: OutflowImportRow): string {
+    return (row.settlement_reference ?? "").trim() || referenceValue(row);
+}
+
 /** Beyond this many characters a reference is shown by its tail. */
 export const REFERENCE_DISPLAY_MAX = 12;
 
@@ -335,6 +348,8 @@ export interface RowDecision {
         project?: string | null;
         expenseType?: string | null;
         description?: string;
+        /** Typed in the dialog; the server stores it with `Imported from <batch>` after it. */
+        comment?: string;
         vendor?: string | null;
     };
     /**
@@ -706,18 +721,6 @@ export const suggestRefundVendor = (
     return hits.size === 1 ? [...hits][0] : null;
 };
 
-/**
- * The Description a new Non-Project Inflow card starts with: the payer, then the bank remarks
- * (#1266). A dialog prefill only -- the server does not default the description. Blank parts are
- * dropped; the result may be empty, and the reviewer edits it either way.
- */
-export const nonProjectInflowDescriptionSeed = (
-    row: Pick<OutflowImportRow, "beneficiary_name" | "remarks">
-): string =>
-    [row.beneficiary_name, row.remarks]
-        .map((part) => (part ?? "").trim())
-        .filter(Boolean)
-        .join(" - ");
 
 /**
  * ⚠️ `date` IS NOT A FACET, AND IT USED TO BE (slice P1). `added_on` shipped as `filter: "facet"`,
@@ -1230,7 +1233,12 @@ export const SOURCE_COLUMN_ID = "source";
  * rows still appear, but the Source scope control cannot select it — so a screen filtered to a
  * source the user cannot name looks like a screen with missing rows.
  */
-export const SOURCE_OPTIONS: readonly string[] = ["Cashfree", "Cashbook", "ICICI Bank Statement"];
+export const SOURCE_OPTIONS: readonly string[] = [
+    "Cashfree",
+    "Cashbook",
+    "ICICI Bank Statement",
+    "Porter Statement",
+];
 
 /**
  * What the Source dropdown displays for a given selection.
@@ -1963,11 +1971,18 @@ export const importUploaderLabel = (option: { uploaded_by?: string }): string =>
  *
  * The tone follows the screen's existing chip vocabulary rather than inventing one: finished is
  * quiet, outstanding work is amber, exactly as the summary panel's own chips read.
+ *
+ * A Porter import reports its own state instead (#1444, `review.list_imports`): Validated reads as
+ * passed, Validation failed as refused, Validating as work still open; Created (#1445) is finished like
+ * Completed, and Creating is work still open.
  */
-export const importStatusTone = (status?: string): string =>
-    (status ?? "").trim() === "Completed"
-        ? "bg-muted text-muted-foreground"
-        : "bg-amber-50 text-amber-700";
+export const importStatusTone = (status?: string): string => {
+    const value = (status ?? "").trim();
+    if (value === "Completed" || value === "Created") return "bg-muted text-muted-foreground";
+    if (value === "Validated") return "bg-emerald-50 text-emerald-700";
+    if (value === "Validation failed") return "bg-destructive/10 text-destructive";
+    return "bg-amber-50 text-amber-700";
+};
 
 // --- confirm all matched (slice X5) --------------------------------------------------------------
 
@@ -2477,7 +2492,7 @@ export const recordAnywayWording = (
 
 /**
  * What a BULK confirm adds to such a refusal. It has no dialog, so it cannot ask; it points at the
- * one place that can, rather than leaving "confirm to record it anyway" unanswerable.
+ * one place that can, rather than leaving the server's "... or create / link anyway." unanswerable.
  */
 export const bulkRecordAnywayHint = (err: unknown): string =>
     needsRecordAnywayConfirmation(err) ? " Open the transfer to record it anyway." : "";

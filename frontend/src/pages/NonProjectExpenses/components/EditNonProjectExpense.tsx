@@ -35,6 +35,8 @@ import {
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
 import SITEURL from "@/constants/siteURL";
+import { projectField } from "@/utils/porterExpense";
+import { PorterSectionBlock, usePorterExpense } from "@/components/common/PorterExpense";
 
 // --- Types ---
 import { NonProjectExpenses as NonProjectExpensesType } from "@/types/NirmaanStack/NonProjectExpenses";
@@ -79,6 +81,12 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
     // read-only here and never sent. This screen is the ONLY lock -- the server leaves Paid
     // expenses editable so they can still be corrected in Desk.
     const isPaid = isPaidExpense(expenseToEdit?.status);
+
+    // A Porter Expense (#1450): it shows a locked Project row -- moving it onto a project is Rectify in
+    // Bulk Import, which keeps the import's record in step -- and its Porter facts, read-only. Any other
+    // Non-Project expense shows neither, as before.
+    const project = projectField(expenseToEdit);
+    const porter = usePorterExpense("Non Project Expenses", expenseToEdit?.name, project.locked && editNonProjectExpenseDialog);
 
     // Section toggles. The payment section is Paid-only and cannot be switched off there: unticking
     // it used to clear the payment fields while the expense stayed Paid.
@@ -365,6 +373,13 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                     <Separator className="my-3" />
                 </AlertDialogHeader>
                 <div className="space-y-3 py-1 max-h-[70vh] overflow-y-auto pr-2">
+                    {project.locked && (
+                        <div className="grid grid-cols-4 items-center gap-3">
+                            <Label htmlFor="project_edit_npe" className="text-right col-span-1">Project</Label>
+                            <Input id="project_edit_npe" value="Non-Project" className="col-span-3" disabled readOnly />
+                            <p className="col-span-3 col-start-2 text-xs text-muted-foreground mt-0.5">{project.hint}</p>
+                        </div>
+                    )}
                     {/* Core Details: Type, Description, Amount - Similar to NewNonProjectExpense */}
                     <div className="grid grid-cols-4 items-center gap-3">
                         <Label htmlFor="type_edit_npe_trigger" className="text-right col-span-1">Type <sup className="text-destructive">*</sup></Label>
@@ -459,6 +474,13 @@ export const EditNonProjectExpense: React.FC<EditNonProjectExpenseProps> = ({ ex
                             </div>
                             {renderAttachmentSection("invoice", existingInvoiceAttachmentUrl, newInvoiceAttachmentFile, invoiceAttachmentAction, handleNewInvoiceFileSelected, handleRemoveExistingInvoiceAttachment, "Invoice")}
                         </div>
+                    )}
+
+                    {project.locked && (
+                        <>
+                            <Separator className="my-4" />
+                            <PorterSectionBlock section={porter.section} isLoading={porter.isLoading} error={porter.error} />
+                        </>
                     )}
                 </div>
                 <AlertDialogFooter className="pt-4">

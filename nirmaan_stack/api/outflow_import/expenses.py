@@ -67,10 +67,10 @@ from nirmaan_stack.api.outflow_import.review import (
     BATCH_DOCTYPE,
     MATCH_DOCTYPE,
     ROW_DOCTYPE,
-    _StagedRow,
+    StagedRow,
     _batch_source,
     _recorded_money_group,
-    _refresh_batch_rollup,
+    refresh_batch_rollup,
     derive_batch_status,
 )
 from nirmaan_stack.api.outflow_import.vendor_credit_refresh import (
@@ -82,7 +82,11 @@ from nirmaan_stack.services.outflow_import.ledgers import (
     settleable_statuses,
 )
 from nirmaan_stack.services.outflow_import.normalize import normalize_amount
-from nirmaan_stack.services.outflow_import.sources import source_names_its_spender
+from nirmaan_stack.services.outflow_import.porter import OWN_IMPORT_LINE_REFUSAL
+from nirmaan_stack.services.outflow_import.sources import (
+    source_names_its_spender,
+    source_waits_for_its_own_create,
+)
 from nirmaan_stack.services.outflow_import.amounts import to_decimal
 from nirmaan_stack.services.outflow_import.concurrency import is_concurrent_writer_refusal
 # ⚠️ THE SPLIT LIVES IN `services/payment_split.py`, THE SAME MODULE THE CEO PARTIAL APPROVAL USES,
@@ -100,6 +104,10 @@ from nirmaan_stack.services.outflow_import.partial_settle import (
     VALID_INTENTS,
     partial_eligibility,
 )
+from nirmaan_stack.services.outflow_import.import_comment import (
+    import_comment,
+    import_comment_problem,
+)
 from nirmaan_stack.services.outflow_import.settle import (
     NON_PROJECT_EXPENSE,
     PROJECT_EXPENSE,
@@ -116,6 +124,8 @@ from nirmaan_stack.services.outflow_import.status import (
     ROW_PARTIALLY_ALLOCATED,
     ROW_SETTLED,
     ROW_SKIPPED,
+    RECORDED_ACTION_CREATE,
+    RECORDED_ACTION_LINK,
     RECORDED_DUPLICATE,
     derive_recorded_money_verdict,
     # ⚠️ THE ONE DEFINITION OF THE DIRECTION AXIS, REUSED RATHER THAN RE-SPELLED (ADR-0010 B1).
@@ -191,7 +201,7 @@ class ConcurrentAllocationError(frappe.ValidationError):
 
 
 @contextmanager
-def _concurrent_writer_refusal_as_sentence(endpoint: str, row: str):
+def concurrent_writer_refusal_as_sentence(endpoint: str, row: str):
     """Turn a concurrent writer's refusal -- and ONLY that -- into `CONCURRENT_ALLOCATION_MESSAGE`.
 
     The one shared boundary for `allocate_row` (#1246) and `settle_row` (#1250), so the two
@@ -252,7 +262,7 @@ def settle_row(
     unsettleable row would then discard seven good decisions.
 
     ⚠️ THE SAME ONE DATABASE FAILURE IS TRANSLATED HERE AS ON `allocate_row` (issue #1250), through
-    the same `_concurrent_writer_refusal_as_sentence`. Two reviewers on one transfer, and this one
+    the same `concurrent_writer_refusal_as_sentence`. Two reviewers on one transfer, and this one
     commits second: Postgres refuses it with a `SerializationFailure`, and it now reads "another
     user may have already resolved this transfer". In a bulk confirm that sentence lands on the ONE
     row that lost, prefixed with its name; each row is its own request and its own transaction, so
@@ -264,7 +274,7 @@ def settle_row(
     where both payments sit on one PO it reaches this boundary as the untranslatable
     `InFailedSqlTransaction` instead -- `update_parent_amount_paid` swallows the 40001 first.
     """
-    with _concurrent_writer_refusal_as_sentence("settle_row", row):
+    with concurrent_writer_refusal_as_sentence("settle_row", row):
         done = _settle_and_commit(row, target_doctype, target_name, confirm_mismatch, bulk)
     _link_statement_file_to_target(done.statement_file_url, done.result)
     return _summary(row, done.result, done.batch, done.batch_statuses)
@@ -294,7 +304,8 @@ def _settle_and_commit(
     # OUT carries it.
     _guard_is_a_debit(doc)
     _guard_money_not_recorded(
-        staged, doc, confirm_mismatch, writing=[(target_doctype, target_name)]
+        staged, doc, confirm_mismatch, writing=[(target_doctype, target_name)],
+        action=RECORDED_ACTION_LINK,
     )
     statement_file_url = _statement_file_url(doc["import_batch"])
 
@@ -351,7 +362,7 @@ def _settle_and_commit(
         raise
     frappe.db.release_savepoint(savepoint)
 
-    statuses = _refresh_batch_rollup(doc["import_batch"])
+    statuses = refresh_batch_rollup(doc["import_batch"])
     frappe.db.commit()
     return _CommittedSettle(
         result=result,
@@ -397,16 +408,16 @@ def allocate_row(row: str, targets, confirm_mismatch=False):
 
     ⚠️ THE TRANSLATION ENDS AT THE COMMIT (code review, #1246). The sentence says nothing was saved;
     after the commit everything was, so a failure in the post-commit linking stays itself. Both
-    rules live in `_concurrent_writer_refusal_as_sentence`, shared with `settle_row` (#1250).
+    rules live in `concurrent_writer_refusal_as_sentence`, shared with `settle_row` (#1250).
     """
-    with _concurrent_writer_refusal_as_sentence("allocate_row", row):
+    with concurrent_writer_refusal_as_sentence("allocate_row", row):
         done = _allocate_and_commit(row, targets, confirm_mismatch)
 
     # After the commit and outside the savepoint, same reasoning as every other call site of this
     # function: it never raises, so looping over every leg's result is safe.
     for result in done.results:
         _link_statement_file_to_target(done.statement_file_url, result)
-    legs = _live_legs(row)
+    legs = live_legs(row)
     return {
         "row": row,
         "row_status": done.row_status,
@@ -433,7 +444,7 @@ def _allocate_and_commit(row: str, targets, confirm_mismatch=False) -> _Committe
     actor = require_outflow_access()
     targets = _parse_targets(targets)
     # ⚠️ THIS TAKES A `FOR UPDATE` ROW LOCK, AND IT SERIALISES ALLOCATION AGAINST ONE TRANSFER
-    # (review F1). The per-leg `allocation_fits` below cannot: `_live_legs` reads this
+    # (review F1). The per-leg `allocation_fits` below cannot: `live_legs` reads this
     # transaction's SNAPSHOT and is blind to another transaction's legs, so two reviewers on the
     # same transfer each fit against a picture missing the other's. Held to the commit; see
     # `_load_allocatable_row`'s docstring for the isolation level this actually runs at (MEASURED,
@@ -448,6 +459,7 @@ def _allocate_and_commit(row: str, targets, confirm_mismatch=False) -> _Committe
         doc,
         confirm_mismatch,
         writing=[(PAYMENT_DOCTYPE, t["target_name"]) for t in targets],
+        action=RECORDED_ACTION_LINK,
     )
     statement_file_url = _statement_file_url(doc["import_batch"])
 
@@ -461,7 +473,7 @@ def _allocate_and_commit(row: str, targets, confirm_mismatch=False) -> _Committe
     # that 403s: visibly attached, refuses to open.
     results = []
     try:
-        legs = _live_legs(staged.name)
+        legs = live_legs(staged.name)
         for target in targets:
             amount = _approved_payment_amount(target["target_name"])
             if not allocation_fits(doc["amount"], legs, amount):
@@ -485,7 +497,7 @@ def _allocate_and_commit(row: str, targets, confirm_mismatch=False) -> _Committe
             results.append(result)
             recompute_for_settled_payment(target["target_name"])
             _record_settlement(staged, doc, result, actor)
-            legs = _live_legs(staged.name)
+            legs = live_legs(staged.name)
         # ⚠️ A BACKSTOP THAT THE ROW LOCK MAKES UNREACHABLE SINGLE-THREADED, AND IT STAYS (review
         # F1). With the lock held, every `allocation_fits` above was judged against legs nobody else
         # could be adding to, so the sum cannot end this loop negative. It is kept because it is the
@@ -504,7 +516,7 @@ def _allocate_and_commit(row: str, targets, confirm_mismatch=False) -> _Committe
         raise
     frappe.db.release_savepoint(savepoint)
 
-    statuses = _refresh_batch_rollup(doc["import_batch"])
+    statuses = refresh_batch_rollup(doc["import_batch"])
     frappe.db.commit()
     return _CommittedAllocation(
         amount=doc["amount"],
@@ -622,7 +634,7 @@ def _load_allocatable_row(row: str):
 
     ⚠️ `for_update=True` -- THIS READ TAKES THE ROW LOCK THAT SERIALISES ALLOCATION AGAINST ONE
     TRANSFER (whole-branch review, F1). The per-leg `allocation_fits` check cannot do it, and the
-    reason is isolation, not arithmetic: `_live_legs` re-reads this transaction's SNAPSHOT and
+    reason is isolation, not arithmetic: `live_legs` re-reads this transaction's SNAPSHOT and
     cannot see another transaction's legs. Two reviewers ticking DIFFERENT payments on the same
     transfer therefore each measure the remainder against a picture with the other's legs missing,
     and the `is_over_allocated` backstop after the loop is per-transaction and equally blind.
@@ -665,6 +677,7 @@ def _load_allocatable_row(row: str):
     doc = frappe.db.get_value(ROW_DOCTYPE, row, "*", as_dict=True, for_update=True)
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
+    guard_not_an_own_import_line(doc)
     if doc.get("row_status") == ROW_SETTLED:
         frappe.throw(
             "This transfer is fully allocated. Reverse an allocation to change it.",
@@ -672,10 +685,10 @@ def _load_allocatable_row(row: str):
         )
     if doc.get("row_status") == ROW_SKIPPED:
         frappe.throw(SKIPPED_ROW_REFUSAL, title="Row skipped")
-    return _StagedRow(doc), doc
+    return StagedRow(doc), doc
 
 
-def _live_legs(row_name: str) -> list:
+def live_legs(row_name: str) -> list:
     """This row's Settled match records, oldest first. Always re-read, never cached across a leg."""
     return frappe.db.get_all(
         MATCH_DOCTYPE,
@@ -799,7 +812,7 @@ def settle_row_partial(row: str, target_name: str, intent: str, confirm_mismatch
         raise
     frappe.db.release_savepoint(savepoint)
 
-    statuses = _refresh_batch_rollup(doc["import_batch"])
+    statuses = refresh_batch_rollup(doc["import_batch"])
     frappe.db.commit()
     _link_statement_file_to_target(statement_file_url, result)
     _record_partial_provenance(staged, split, declared)
@@ -856,7 +869,8 @@ def _guard_partial_preconditions(row: str, target_name: str, confirm_mismatch):
     # an expense could otherwise be part-settled onto a larger Approved payment from the same dialog,
     # and `settle_payment`'s UTR guard sees only references on OTHER PAYMENTS.
     _guard_money_not_recorded(
-        staged, doc, confirm_mismatch, writing=[(PAYMENT_DOCTYPE, target_name)]
+        staged, doc, confirm_mismatch, writing=[(PAYMENT_DOCTYPE, target_name)],
+        action=RECORDED_ACTION_LINK,
     )
     return staged, doc
 
@@ -999,7 +1013,12 @@ def create_expense(
     # `Paid` expense out of the bank row alone, so an unguarded credit would mint a brand-new
     # payment-out document for money that arrived.
     _guard_is_a_debit(doc)
-    _guard_money_not_recorded(staged, doc, confirm_mismatch)
+    _guard_money_not_recorded(staged, doc, confirm_mismatch, action=RECORDED_ACTION_CREATE)
+    # Before anything is written: `comment` is a 140-character Data field, and the database's own
+    # refusal names neither the field nor what to do about it.
+    problem = import_comment_problem(comment, doc["import_batch"])
+    if problem:
+        frappe.throw(problem, frappe.ValidationError, title="Comment too long")
     statement_file_url = _statement_file_url(doc["import_batch"])
 
     savepoint = f"ofi_create_{frappe.generate_hash(length=10)}"
@@ -1014,8 +1033,9 @@ def create_expense(
             description=description,
             vendor=vendor,
             # Visible provenance on the expense itself. The Outflow Row Match record is the durable
-            # link, but nobody opening an expense form sees that -- this line is what tells them.
-            comment=comment or f"Imported from {doc['import_batch']}",
+            # link, but nobody opening an expense form sees that -- the note is what tells them, so
+            # a comment typed in the dialog is stored WITH it, never instead of it.
+            comment=import_comment(comment, doc["import_batch"]),
             statement_file_url=statement_file_url,
             # ⚠️ WHO SPENT IT, on a source whose statement says so (#1314, trap 4): the Cashbook job
             # writes the `From` column, and a reopened Cashbook line created here must match it.
@@ -1031,7 +1051,7 @@ def create_expense(
         raise
     frappe.db.release_savepoint(savepoint)
 
-    statuses = _refresh_batch_rollup(doc["import_batch"])
+    statuses = refresh_batch_rollup(doc["import_batch"])
     frappe.db.commit()
     _link_statement_file_to_target(statement_file_url, result)
     return _summary(row, result, doc["import_batch"], statuses)
@@ -1134,7 +1154,7 @@ def _load_settleable_row(row: str):
     `create_expense`).
 
     ⚠️ REFUSES `ROW_PARTIALLY_ALLOCATED` (Task 6 review fix A, ADR-0020). None of the three
-    whole-transfer paths above consults `_live_legs` or `is_over_allocated` -- `settle_row`'s own
+    whole-transfer paths above consults `live_legs` or `is_over_allocated` -- `settle_row`'s own
     guard is that the record settled equals the WHOLE transfer, which is already false the moment
     anything has been allocated against it. Left open, a row carrying a Rs 60 allocation against a
     Rs 100 transfer could still take a Rs 100 `settle_row` on top of it -- Rs 160 against a Rs 100
@@ -1153,6 +1173,7 @@ def _load_settleable_row(row: str):
     doc = frappe.db.get_value(ROW_DOCTYPE, row, "*", as_dict=True)
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
+    guard_not_an_own_import_line(doc)
     if doc.get("row_status") == ROW_SETTLED:
         frappe.throw(
             "This row has already settled an expense.", title="Already settled"
@@ -1165,7 +1186,19 @@ def _load_settleable_row(row: str):
         )
     if doc.get("row_status") == ROW_SKIPPED:
         frappe.throw(SKIPPED_ROW_REFUSAL, title="Row skipped")
-    return _StagedRow(doc), doc
+    return StagedRow(doc), doc
+
+
+def guard_not_an_own_import_line(doc) -> None:
+    """Refuse a line whose source creates it through its OWN import, never from the main table (#1443).
+
+    A Porter Statement line is created only by its Porter import, after every Porter Invoice in the file
+    has been checked against Porter's PDF (ADR-0032). Creating, linking, allocating or settling it from
+    here would bypass that gate, which must never be bypassable -- so every main-table loader asks this
+    first, whatever the line's status. The sentence points to the import that owns the line.
+    """
+    if source_waits_for_its_own_create(doc.get("source")):
+        frappe.throw(OWN_IMPORT_LINE_REFUSAL, ExpenseSettlementError, title="Porter line")
 
 
 def _guard_is_a_debit(doc) -> None:
@@ -1209,7 +1242,7 @@ def _guard_is_a_debit(doc) -> None:
     )
 
 
-def _guard_money_not_recorded(staged, doc, confirm_mismatch=False, writing=()) -> None:
+def _guard_money_not_recorded(staged, doc, confirm_mismatch=False, writing=(), *, action: str) -> None:
     """Refuse a line whose money is already recorded, BEFORE anything is written (#1260).
 
     Shared by every endpoint that records money from a line: `settle_row` (and its `settle_expense`
@@ -1223,9 +1256,13 @@ def _guard_money_not_recorded(staged, doc, confirm_mismatch=False, writing=()) -
         unless `confirm_mismatch` -- the screen's "... anyway?" answer;
       * otherwise it returns and the write proceeds exactly as before.
 
-    The refusal carries the run's own note, so it names every record and its ledger. `writing` are the
-    `(doctype, name)` records this call is about to settle; see `review._recorded_money_group` for why
-    they are never the duplicate.
+    A duplicate refusal carries the run's own note, so it names every record and its ledger. The
+    confirmation carries `verdict.prompt` instead (2026-10-15): the same records, said for the moment
+    a person records money, with what recording again would do -- the run's note ("Not skipped",
+    "statement line") made no sense on a button. `action` is `RECORDED_ACTION_CREATE` or
+    `RECORDED_ACTION_LINK`, keyword-only and required so no caller can forget which it is.
+    `writing` are the `(doctype, name)` records this call is about to settle; see
+    `review._recorded_money_group` for why they are never the duplicate.
 
     ⚠️ IT RUNS BEFORE THE SAVEPOINT AND READS ONLY, so a refusal leaves nothing behind. Only
     `allocate_row` holds a row lock, and the guard runs under it. The others take none, and a
@@ -1239,7 +1276,7 @@ def _guard_money_not_recorded(staged, doc, confirm_mismatch=False, writing=()) -
     forgotten: do not add a per-row lock here believing it fixes this.
     """
     verdict = derive_recorded_money_verdict(
-        staged, _recorded_money_group(staged, doc["import_batch"], writing)
+        staged, _recorded_money_group(staged, doc["import_batch"], writing), action
     )
     if verdict is None:
         return
@@ -1252,7 +1289,7 @@ def _guard_money_not_recorded(staged, doc, confirm_mismatch=False, writing=()) -
     if frappe.utils.sbool(confirm_mismatch):
         return
     frappe.throw(
-        f"{verdict.note} Nothing has been recorded yet -- confirm to record it anyway.",
+        verdict.prompt,
         RecordedMoneyNeedsConfirmationError,
         title="Check before recording",
     )
@@ -1316,13 +1353,13 @@ def _record_settlement(staged, doc, result, actor) -> None:
             "matched_at": frappe.utils.now_datetime(),
             "matched_by": actor,
             # SNAPSHOTS at allocation time -- never recomputed. See the field descriptions.
-            **_target_snapshot(result.doctype, result.name),
+            **target_snapshot(result.doctype, result.name),
         }
     )
     match.insert(ignore_permissions=True)
 
 
-def _target_snapshot(doctype: str, name: str) -> dict:
+def target_snapshot(doctype: str, name: str) -> dict:
     """Reads the DB, so it stays here -- `ledgers.TARGET_SNAPSHOT_FIELDS` (the map itself, moved
     there at review since a per-ledger field map is the same kind of fact `SETTLEABLE_STATUSES`
     already owns) is pure; this function is not."""

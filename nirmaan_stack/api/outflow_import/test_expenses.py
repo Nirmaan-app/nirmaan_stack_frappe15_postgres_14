@@ -798,6 +798,57 @@ class TestCreateExpense(SettlementFixture):
             create_expense(row["name"], PROJECT_EXPENSE, self.project_type)
 
 
+class TestTheTypedComment(SettlementFixture):
+    """The dialog's Comment box: a typed comment is stored WITH the import note, never instead of it."""
+
+    def _comment_of(self, result):
+        self.non_project_expenses.append(result["settled"]["name"])
+        return frappe.db.get_value(NON_PROJECT_EXPENSE, result["settled"]["name"], "comment")
+
+    def test_a_typed_comment_is_stored_with_the_import_note_after_it(self):
+        row = self._next_settleable_row()
+        result = create_expense(
+            row["name"], NON_PROJECT_EXPENSE, self.non_project_type, comment="  Site rent, Sep  "
+        )
+        self.assertEqual(
+            self._comment_of(result), f"Site rent, Sep · Imported from {self.batch.name}"
+        )
+
+    def test_no_comment_stores_the_import_note_alone(self):
+        row = self._next_settleable_row()
+        result = create_expense(row["name"], NON_PROJECT_EXPENSE, self.non_project_type)
+        self.assertEqual(self._comment_of(result), f"Imported from {self.batch.name}")
+
+    def test_a_comment_too_long_for_the_field_is_refused_and_nothing_is_created(self):
+        row = self._next_settleable_row()
+        before = frappe.db.count(NON_PROJECT_EXPENSE)
+        with self.assertRaises(frappe.ValidationError) as caught:
+            # ⚠️ A REGRESSION CREATES A REAL EXPENSE, and it is tracked for the class purge rather
+            # than left in the live database for the assertion to complain about.
+            self.non_project_expenses.append(
+                create_expense(
+                    row["name"], NON_PROJECT_EXPENSE, self.non_project_type, comment="x" * 140
+                )["settled"]["name"]
+            )
+        frappe.db.rollback()
+        self.assertIn("too long", str(caught.exception))
+        self.assertEqual(frappe.db.count(NON_PROJECT_EXPENSE), before)
+        self.assertNotEqual(
+            frappe.db.get_value(ROW_DOCTYPE, row["name"], "row_status"), "Settled"
+        )
+
+    def test_the_description_typed_in_the_dialog_is_stored_as_typed(self):
+        row = self._next_settleable_row()
+        result = create_expense(
+            row["name"], NON_PROJECT_EXPENSE, self.non_project_type, description="Office water cans"
+        )
+        self.non_project_expenses.append(result["settled"]["name"])
+        self.assertEqual(
+            frappe.db.get_value(NON_PROJECT_EXPENSE, result["settled"]["name"], "description"),
+            "Office water cans",
+        )
+
+
 class TestALongReferenceIsWrittenWhole(SettlementFixture):
     """#1254: the reference fields are Text, so a long bank narration saves instead of failing
     Frappe's 140-character check -- on the import row and on both expense ledgers."""

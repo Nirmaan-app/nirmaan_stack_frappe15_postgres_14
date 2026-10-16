@@ -221,9 +221,13 @@ doc_events = {
         "on_update": "nirmaan_stack.nirmaan_stack.doctype.projects.projects.on_update"
     },
     "Non Project Inflows": {
+        # Carry the match records to the new name (ADR-0022 Amendment G).
+        "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
         # Claim the loose receipt File the add dialog uploaded before the record existed. Frappe's
         # own `attach_files_to_document` skips the GCP attachment app's `/api/method/...` URLs.
-        "on_update": "nirmaan_stack.integrations.controllers.non_project_inflows.adopt_receipt_file"
+        "on_update": "nirmaan_stack.integrations.controllers.non_project_inflows.adopt_receipt_file",
+        # Refuse the delete while a bank line still settles it (ADR-0022 Amendment G).
+        "on_trash": "nirmaan_stack.integrations.controllers.settled_targets.on_trash",
     },
     "Project Progress Reports": {
         # Adopt capture-time DPR photo Files (uploaded before the report existed,
@@ -341,19 +345,29 @@ doc_events = {
     # PO that recompute is the refund sync step (#1399), which also links the refund into the PO
     # Adjustment. `on_trash` only drops those links, before Frappe's link check refuses the delete.
     "Vendor Refunds": {
+        # Carry the match records to the new name (ADR-0022 Amendment G).
+        "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
         "validate": "nirmaan_stack.integrations.controllers.vendor_refunds.guard_money_edit",
         "on_update": "nirmaan_stack.integrations.controllers.vendor_refunds.recompute_document_amount_paid",
-        "on_trash": "nirmaan_stack.integrations.controllers.vendor_refunds.unlink_from_adjustments",
+        # Refuse a bank-settled refund first, so a refused delete unlinks nothing.
+        "on_trash": [
+            "nirmaan_stack.integrations.controllers.settled_targets.on_trash",
+            "nirmaan_stack.integrations.controllers.vendor_refunds.unlink_from_adjustments",
+        ],
         "after_delete": "nirmaan_stack.integrations.controllers.vendor_refunds.recompute_document_amount_paid",
     },
     "Project Payments": {
+        # Carry the match records to the new name (ADR-0022 Amendment G).
+        "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
         "validate": "nirmaan_stack.integrations.controllers.project_payments.validate",
         "after_insert": "nirmaan_stack.integrations.controllers.project_payments.after_insert",
         "on_update": [
             "nirmaan_stack.integrations.controllers.project_payments.on_update",
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_payment",
         ],
+        # `settled_targets` FIRST: a refused delete runs no clean-up (ADR-0022 Amendment G).
         "on_trash": [
+            "nirmaan_stack.integrations.controllers.settled_targets.on_trash",
             "nirmaan_stack.integrations.controllers.project_payments.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
         ],
@@ -369,6 +383,8 @@ doc_events = {
     # live `Outflow Row Match` slips. Its `on_trash` comes FIRST so a refused delete never mints a
     # version row for a document that is still there.
     "Non Project Expenses": {
+        # Carry the match records to the new name (ADR-0022 Amendment G).
+        "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
         "validate": "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
         # Both exit immediately unless the row is transitioning INTO Paid, so the ~700
         # ordinary saves cost one field comparison each. STATE FIRST, then the telling:
@@ -385,9 +401,15 @@ doc_events = {
         ],
         # Deleting the expense deletes the request it came from. after_delete, not on_trash --
         # the row must be GONE before the request it links to can be deleted.
-        "after_delete": "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
+        "after_delete": [
+            "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
+            # Its Files through the shared-bytes-safe delete, before Frappe's own `remove_all` (#1442).
+            "nirmaan_stack.integrations.controllers.expense_files.delete_attached_files",
+        ],
     },
     "Project Expenses": {
+        # Carry the match records to the new name (ADR-0022 Amendment G).
+        "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
         "validate": [
             "nirmaan_stack.integrations.controllers.expense_bank_links.validate",
             "nirmaan_stack.integrations.controllers.payee_links.validate",
@@ -414,13 +436,23 @@ doc_events = {
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_expense",
             # Deleting the expense deletes the request it came from.
             "nirmaan_stack.integrations.controllers.expense_request_status.on_expense_deleted",
+            # Its Files through the shared-bytes-safe delete, before Frappe's own `remove_all` (#1442).
+            "nirmaan_stack.integrations.controllers.expense_files.delete_attached_files",
         ],
     },
+    # No expense ever owns a File for a Porter invoice PDF: that one File is its Porter Invoice's (#1442).
+    "File": {
+        "before_insert": "nirmaan_stack.integrations.controllers.expense_files.refuse_invoice_pdf_copy",
+    },
     "Project Inflows": {
+        # Carry the match records to the new name (ADR-0022 Amendment G).
+        "after_rename": "nirmaan_stack.integrations.controllers.settled_targets.after_rename",
         "validate": "nirmaan_stack.integrations.controllers.project_inflows.validate",
         "after_insert": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_inflow",
         "on_update": "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_inflow",
+        # `settled_targets` FIRST: a refused delete runs no clean-up (ADR-0022 Amendment G).
         "on_trash": [
+            "nirmaan_stack.integrations.controllers.settled_targets.on_trash",
             "nirmaan_stack.integrations.controllers.delete_doc_versions.generate_versions",
             "nirmaan_stack.integrations.controllers.project_cashflow_hold_update.on_project_inflow",
         ],

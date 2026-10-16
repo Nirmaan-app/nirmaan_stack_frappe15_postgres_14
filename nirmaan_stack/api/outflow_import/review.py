@@ -33,6 +33,9 @@ TWO ROW STATES ARE NEVER RE-MATCHED:
   * `Settled`  -- an expense was written against this row. Re-matching would strand that audit.
 """
 
+import calendar
+import datetime
+import re
 from dataclasses import replace
 from decimal import Decimal
 from typing import Sequence
@@ -117,6 +120,8 @@ from nirmaan_stack.services.outflow_import.similarity import (
 )
 from nirmaan_stack.services.outflow_import.sources import (
     BANK_STATEMENT_SOURCES,
+    CREATE_GATED_SOURCES,
+    PORTER_STATEMENT_SOURCE,
     source_has_settlement_path,
     source_runs_the_matcher,
 )
@@ -171,7 +176,7 @@ MATCH_DOCTYPE = "Outflow Row Match"
 _FROZEN_ROW_STATUSES = (ROW_SKIPPED, ROW_SETTLED, ROW_PARTIALLY_ALLOCATED)
 
 
-class _StagedRow:
+class StagedRow:
     """Adapts a persisted import row to the shape the pure matcher and deriver read.
 
     They read by ATTRIBUTE, never by type, so this is the whole seam between the database and the
@@ -240,7 +245,7 @@ def match_batch(batch: str):
     require_outflow_access()
     _assert_batch(batch)
 
-    rows = [_StagedRow(r) for r in _load_rows(batch)]
+    rows = [StagedRow(r) for r in _load_rows(batch)]
     matchable = [r for r in rows if r.row_status not in _FROZEN_ROW_STATUSES]
     result = _match_rows(batch, matchable)
     frappe.db.commit()
@@ -298,7 +303,7 @@ def match_line(row: str) -> dict:
             "Cashbook lines are never run through the matcher.", title="Line is not matchable"
         )
 
-    result = _match_rows(batch, [_StagedRow(doc)])
+    result = _match_rows(batch, [StagedRow(doc)])
     line = frappe.db.get_value(
         ROW_DOCTYPE,
         row,
@@ -375,7 +380,7 @@ def _match_rows(batch: str, matchable) -> dict:
         # would sweep rows the stack pass was about to pair.
         swept = _sweep_unresolved_to_mismatched(results, noted_surplus)
 
-    statuses = _refresh_batch_rollup(batch)
+    statuses = refresh_batch_rollup(batch)
     return _run_result(
         batch, len(matchable), statuses, paired=paired, released=released, picked=picked, swept=swept
     )
@@ -476,7 +481,7 @@ def _guard_duplicates_only(batch: str, matchable) -> dict:
             row, outcome, None, batch, duplicate_basis=basis, refund_suggestion=suggestion
         )
 
-    return _run_result(batch, len(matchable), _refresh_batch_rollup(batch))
+    return _run_result(batch, len(matchable), refresh_batch_rollup(batch))
 
 
 def _contains_guard_outcomes(batch: str, matchable, carried_claims=()):
@@ -670,7 +675,7 @@ def _paid_duplicate_for(row, pools):
 
 
 def _persist_row_outcome(
-    row: _StagedRow,
+    row: StagedRow,
     outcome,
     result,
     batch: str,
@@ -1082,7 +1087,7 @@ def _resolve_stacks(matchable, pools) -> tuple[int, set[str]]:
     # pairing so the pass cannot hand out a record a 1:1 row is holding.
     claimed = {r["suggested_name"] for r in rows if (r.get("suggested_name") or "").strip()}
 
-    staged = [_StagedRow(r) for r in rows if not (r.get("suggested_name") or "").strip()]
+    staged = [StagedRow(r) for r in rows if not (r.get("suggested_name") or "").strip()]
 
     # ⚠️ CAPTURED FROM THE ONE CALL `group_into_stacks` ALREADY MAKES. It asks for a stack's records
     # exactly once, so the tier that produced them is recorded on the way past rather than by
@@ -1388,14 +1393,14 @@ def skip_row(row: str, reason: str):
       * A COMMENT on the line records who skipped it and why, beside the Version row.
     """
     # A FUNCTION-LOCAL IMPORT: `expenses.py` imports this module, so a top-level import is a cycle.
-    from nirmaan_stack.api.outflow_import.expenses import _concurrent_writer_refusal_as_sentence
+    from nirmaan_stack.api.outflow_import.expenses import concurrent_writer_refusal_as_sentence
 
     actor = require_outflow_access()
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(SKIP_REASON_REQUIRED, title="Missing reason")
 
-    with _concurrent_writer_refusal_as_sentence("skip_row", row):
+    with concurrent_writer_refusal_as_sentence("skip_row", row):
         current = frappe.db.get_value(
             ROW_DOCTYPE, row, ["name", "import_batch", "row_status"], as_dict=True, for_update=True
         )
@@ -1431,7 +1436,7 @@ def skip_row(row: str, reason: str):
         # to `Matched`/`Mismatched` -- but it may carry the `Reversed` records ADR-0020 D3 says must
         # never be deleted, and this keeps them.
         frappe.db.delete(MATCH_DOCTYPE, {"import_row": row, "match_kind": MATCH_SETTLED})
-        statuses = _refresh_batch_rollup(current.import_batch)
+        statuses = refresh_batch_rollup(current.import_batch)
         frappe.db.commit()
     return {"row": row, "status": ROW_SKIPPED, "batch_status": derive_batch_status(statuses)}
 
@@ -1468,7 +1473,7 @@ def unskip_row(row: str, reason: str):
         (`candidates.load_record_claims`), so re-opening releases it anyway; clearing the field too
         keeps a stale basis from ever being read as this line's.
 
-    ⚠️ THE ROLLUP IS REFRESHED BY THE RE-CHECK. `_match_rows` ends with `_refresh_batch_rollup`, so a
+    ⚠️ THE ROLLUP IS REFRESHED BY THE RE-CHECK. `_match_rows` ends with `refresh_batch_rollup`, so a
     Completed import with this line back open reopens without a second refresh here.
 
     ⚠️ A CASHBOOK LINE TAKES ITS OWN PATH, AND NEVER THROUGH `Pending match run` (#1314, owner Q4/Q5).
@@ -1480,14 +1485,14 @@ def unskip_row(row: str, reason: str):
     and the plan is kept, since the Create form pre-fills from it.
     """
     # A FUNCTION-LOCAL IMPORT: `expenses.py` imports this module, so a top-level import is a cycle.
-    from nirmaan_stack.api.outflow_import.expenses import _concurrent_writer_refusal_as_sentence
+    from nirmaan_stack.api.outflow_import.expenses import concurrent_writer_refusal_as_sentence
 
     actor = require_outflow_access()
     reason = (reason or "").strip()
     if not reason:
         frappe.throw(UNSKIP_REASON_REQUIRED, title="Missing reason")
 
-    with _concurrent_writer_refusal_as_sentence("unskip_row", row):
+    with concurrent_writer_refusal_as_sentence("unskip_row", row):
         current = frappe.db.get_value(
             ROW_DOCTYPE,
             row,
@@ -1581,7 +1586,7 @@ def _unskip_cashbook_line(row: str, batch: str, actor: str, reason: str) -> dict
     doc.save(ignore_permissions=True, ignore_version=False)
     doc.add_comment("Comment", text=f"Unskipped by {actor}: {reason}")
 
-    statuses = _refresh_batch_rollup(batch)
+    statuses = refresh_batch_rollup(batch)
     frappe.db.commit()
     return {
         "row": row,
@@ -1625,6 +1630,12 @@ def get_batch_rows(batch: str):
                 "service_tax": float(row.get("service_tax") or 0),
                 "matches": by_row.get(row["name"], []),
                 "related_records": related.get(row["name"], []),
+                # ⚠️ THE REFERENCE A SETTLE OR CREATE WILL WRITE, not the parser's short
+                # `bank_reference_no`. The decision dialog shows it as "Payment reference", and the
+                # forms used to show the short value while the server saved the whole ICICI
+                # narration. Computed by the writers' own function, which also recomputes an ICICI
+                # row staged before #1259 whose column still holds the short value.
+                "settlement_reference": settlement_reference_of_row(row),
                 # The suggestion is a pair of scalar columns on the row, not a list, so it takes
                 # its own key rather than being stamped in place like the two lists above.
                 "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
@@ -1740,7 +1751,7 @@ def _related_records(rows: list) -> dict[str, list]:
     own rather than by being excluded here.
     """
     gateway = [r for r in rows if source_has_settlement_path(r.get("source") or "")]
-    bank = [_StagedRow(r) for r in rows if not source_has_settlement_path(r.get("source") or "")]
+    bank = [StagedRow(r) for r in rows if not source_has_settlement_path(r.get("source") or "")]
 
     related: dict[str, list] = {}
     if gateway:
@@ -1896,7 +1907,7 @@ def get_row_candidates(row: str):
     if not doc:
         frappe.throw(f"Import row '{row}' not found.", title="Not found")
 
-    staged = _StagedRow(doc)
+    staged = StagedRow(doc)
     vendor_index = C.load_vendor_index()
     project_index = C.load_project_index()
     resolution = resolve_vendors(staged, vendor_index)
@@ -2865,6 +2876,9 @@ def get_outflow_rows(
                -- 849 settled rows while the summary beside it reported 843 auto-matched. Caught in
                -- the browser, by nothing else: every suite was green.
                r.settlement_origin, r.source,
+               -- What the dialog's "Payment reference" shows: `settlement_reference_of_row` reads
+               -- the stored column beside `remarks`, `reference_id` and `source` (below).
+               r.settlement_reference,
                -- WHICH WAY THE MONEY WENT (slice B6). Shipped to the screen because the decision
                -- dialog offers "Create a project inflow" on a CREDIT and nothing else can tell one
                -- from a debit: `amount` is the positive magnitude on every source by design.
@@ -2957,6 +2971,8 @@ def get_outflow_rows(
                 # The row's live settlement legs (#1266), the same shape `get_batch_rows` sends.
                 "matches": by_row.get(row["name"], []),
                 "related_records": related.get(row["name"], []),
+                # The reference the writers will store -- see `get_batch_rows` for why it is computed.
+                "settlement_reference": settlement_reference_of_row(row),
                 "skip_source": sources.get(row["name"]),
                 "suggested_order_name": suggested_orders.get(row.get("suggested_name") or "", ""),
                 "confirm_by_hand": bool(row.get("confirm_by_hand")),
@@ -2997,6 +3013,14 @@ def _row_filters(*, batch, search, date_from, date_to, amount_min, amount_max, f
     and the facet column, both from allow-lists.
     """
     where, params = [], []
+
+    # ⚠️ A LINE WAITING FOR ITS OWN IMPORT'S CREATE IS NOT A BANK LINE (#1443, ADR-0032), so it is left
+    # out of the population EVERY reader of this builder describes: the page, its count, the tab counts,
+    # the facets, the summary panel's *Still open* and the Payments card's *Total Unreconciled Outflow*
+    # (`not_matched_totals`). One clause here keeps all of them equal to each other. A Porter line comes
+    # back once it is decided -- Settled by its Create, or Skipped as a cancelled order.
+    where.append("NOT (TRIM(COALESCE(r.source, '')) IN %s AND r.row_status NOT IN %s)")
+    params.extend([tuple(sorted(CREATE_GATED_SOURCES)), (ROW_SETTLED, ROW_SKIPPED)])
 
     if batch:
         where.append("r.import_batch = %s")
@@ -3823,7 +3847,7 @@ def _targets_by_name(target_doctype: str, names: list) -> dict:
 
 
 @frappe.whitelist()
-def list_imports(limit=60, sources=None):
+def list_imports(limit=60, sources=None, month=None):
     """The import picker's options: newest first, labelled by what a person recognises.
 
     ⚠️ NOT THE BATCH ID. An accountant knows a statement by its file and the fortnight it covers;
@@ -3882,16 +3906,33 @@ def list_imports(limit=60, sources=None):
 
     `repeats_not_saved` is read straight off the batch (ADR-0031): how many exact repeats of lines
     already held the upload left out. Those lines have no rows, so it cannot be counted from the join.
+
+    ⚠️ `month` ("YYYY-MM") IS THE HISTORY DIALOG'S STATEMENT MONTH, AND IT LIFTS THE `LIMIT`
+    (owner ruling 2026-10-14). The dialog used to show the newest ten of this list, so a statement
+    below the cut could not be reached from it at all -- 186 statements were on the site against a
+    60-row cap, with 76 Cashfree statements in one month. A month is a bounded population the reader
+    chose, so it is returned whole. A statement belongs to EVERY month its declared period overlaps
+    (GLOSSARY: *Statement month*); a missing period falls back to the upload date, then `creation`.
+    The picker never passes `month`, so it keeps its cap and its order. The month narrows HERE, on
+    the server, for the reason the source does -- see the note above.
     """
     require_outflow_access()
     chosen = _parsed_sources(sources)
-    source_clause = ""
+    window = _parsed_month(month)
+    where = []
     params = [BANK_SUCCESS_STATUS, DIRECTION_DEBIT]
     if chosen:
-        source_clause = "WHERE (TRIM(COALESCE(b.source, '')) IN %s OR TRIM(COALESCE(b.source, '')) = '')"
+        where.append("(TRIM(COALESCE(b.source, '')) IN %s OR TRIM(COALESCE(b.source, '')) = '')")
         params.append(tuple(chosen))
-    params.append(max(1, min(int(limit or 60), 200)))
-    return frappe.db.sql(
+    if window:
+        where.append(f"{_STATEMENT_START} <= %s AND {_STATEMENT_END} >= %s")
+        params.extend([window[1], window[0]])
+    where_clause = f"WHERE {' AND '.join(where)}" if where else ""
+    limit_clause = ""
+    if not window:
+        limit_clause = "LIMIT %s"
+        params.append(max(1, min(int(limit or 60), 200)))
+    imports = frappe.db.sql(
         f"""
         SELECT b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
                b.total_rows, b.repeats_not_saved, b.gross_amount, b.uploaded_at, b.uploaded_by,
@@ -3901,16 +3942,70 @@ def list_imports(limit=60, sources=None):
                ) AS successful_rows
         FROM "tabOutflow Import Batch" b
         LEFT JOIN "tabOutflow Import Row" r ON r.import_batch = b.name
-        {source_clause}
+        {where_clause}
         GROUP BY b.name, b.original_filename, b.period_from, b.period_to, b.status, b.source,
                  b.total_rows, b.repeats_not_saved, b.gross_amount, b.uploaded_at, b.uploaded_by,
                  b.creation
         ORDER BY b.period_to DESC NULLS LAST, b.uploaded_at DESC NULLS LAST, b.creation DESC
-        LIMIT %s
+        {limit_clause}
         """,
         tuple(params),
         as_dict=True,
     )
+    # ⚠️ A PORTER IMPORT REPORTS ITS OWN STATE (#1444): Validating / Validated / Validation failed,
+    # derived from its Porter Invoices. Its stored `status` is the bank-line rollup, which reads
+    # "Partially Settled" over lines that are not bank lines and wait for Create.
+    from nirmaan_stack.api.outflow_import.porter_records import porter_import_states
+
+    porter = [row["name"] for row in imports if (row.get("source") or "").strip() == PORTER_STATEMENT_SOURCE]
+    states = porter_import_states(porter)
+    for row in imports:
+        if row["name"] in states:
+            row["status"] = states[row["name"]]
+    return imports
+
+
+# The first and last day a statement covers, for the Statement month (GLOSSARY). A batch whose
+# period did not parse falls back to the day it was uploaded, then to `creation` -- one SQL spelling,
+# shared by `list_imports(month=...)` and `earliest_import_month` so the dialog's month list and its
+# contents cannot disagree about where a statement sits.
+_STATEMENT_START = "COALESCE(b.period_from, b.period_to, b.uploaded_at::date, b.creation::date)"
+_STATEMENT_END = "COALESCE(b.period_to, b.period_from, b.uploaded_at::date, b.creation::date)"
+
+_MONTH_PATTERN = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
+
+
+@frappe.whitelist()
+def earliest_import_month():
+    """The oldest Statement month on the site, as "YYYY-MM", or `None` when nothing is imported.
+
+    The History dialog's month selector starts here. ⚠️ IT IS A BOUND, NOT A SECOND LIST OF
+    IMPORTS -- `list_imports` remains the one reader of which statements exist (slice CF/S4), so
+    this answers only "how far back can the selector go" and cannot offer a statement the list lacks.
+    It reads `_STATEMENT_START`, the same expression the month filter applies.
+    """
+    require_outflow_access()
+    earliest = frappe.db.sql(
+        f'SELECT MIN({_STATEMENT_START}) FROM "tabOutflow Import Batch" b'
+    )[0][0]
+    return earliest.strftime("%Y-%m") if earliest else None
+
+
+def _parsed_month(month):
+    """`(first_day, last_day)` of a "YYYY-MM" month, or `None` when no month was asked for.
+
+    ⚠️ A MALFORMED MONTH IS REFUSED, NOT IGNORED -- the opposite of `_parsed_sources`. Only the
+    History dialog sends one, from its own selector, so a bad value is a bug; quietly dropping it
+    would return the whole uncapped table, which is the one answer this argument exists to prevent.
+    """
+    if not month:
+        return None
+    found = _MONTH_PATTERN.match(str(month).strip())
+    if not found:
+        frappe.throw(f"Month '{month}' is not a YYYY-MM month.", title="Invalid month")
+    year, number = int(found.group(1)), int(found.group(2))
+    last = calendar.monthrange(year, number)[1]
+    return datetime.date(year, number, 1), datetime.date(year, number, last)
 
 
 def _parsed_sources(sources) -> list:
@@ -3952,7 +4047,7 @@ def _load_rows(batch: str, row: str = None) -> list:
                row_status, skip_reason, outcome_note, settlement_origin,
                -- B9: `settlement_reference` plus the two columns its deploy-window recompute needs
                -- that were not already here. The matcher must never READ the resolved value, but
-               -- `_StagedRow` builds it for every row it adapts, and a projection that omitted
+               -- `StagedRow` builds it for every row it adapts, and a projection that omitted
                -- these would silently hand the wallet rung a blank.
                settlement_reference, source,
                -- #1257: the ICICI contains-guard scopes its ledgers by the money's direction.
@@ -3967,7 +4062,7 @@ def _load_rows(batch: str, row: str = None) -> list:
     )
 
 
-def _refresh_batch_rollup(batch: str) -> list:
+def refresh_batch_rollup(batch: str) -> list:
     """Recompute the batch's counters and status from its rows. `status.py` is the only deriver.
 
     ⚠️ THERE IS NO CLOSE ANY MORE. `closed_at` was already excluded from the status derivation when
@@ -3980,6 +4075,11 @@ def _refresh_batch_rollup(batch: str) -> list:
     values["status"] = derive_batch_status(statuses)
     frappe.db.set_value(BATCH_DOCTYPE, batch, values, update_modified=False)
     return statuses
+
+
+# The old private name, kept ONLY for `patches/v3_0/delete_stored_exact_repeats.py`, which imports it:
+# patches are append-only, so that file cannot be changed to the public name. Nothing else may use it.
+_refresh_batch_rollup = refresh_batch_rollup
 
 
 def _row_statuses(batch: str) -> list:

@@ -4,7 +4,12 @@
 // Pure: no React, no fetch. `SkippedRowsDialog` renders these; `unskipView.test.ts` pins them.
 
 import { NEVER_MATCHED_SOURCES, ROW_MATCHED, ROW_SKIPPED } from "./outflowImportStatus";
-import { BANK_RULE_SKIP_KINDS, SKIP_KIND_BY_HAND, UNSKIP_LOCKED_KINDS } from "./skipKinds";
+import {
+    BANK_RULE_SKIP_KINDS,
+    SKIP_KIND_BY_HAND,
+    SKIP_KIND_PORTER_CANCELLED,
+    UNSKIP_LOCKED_KINDS,
+} from "./skipKinds";
 
 export const UNSKIP_BLOCK_NOT_SKIPPED = "This transfer is not skipped.";
 export const UNSKIP_BLOCK_CASHBOOK = "Only a Cashbook line skipped by hand can be unskipped.";
@@ -29,6 +34,8 @@ export const unskipBlockReason = (row: {
 }): string | null => {
     if (row.row_status !== ROW_SKIPPED) return UNSKIP_BLOCK_NOT_SKIPPED;
     const kind = (row.skip_kind ?? "").trim();
+    // Asked before the Cashbook rule, which would otherwise answer for every never-matched source.
+    if (kind === SKIP_KIND_PORTER_CANCELLED) return UNSKIP_LOCKED_KINDS[kind];
     if (NEVER_MATCHED_SOURCES.has((row.source ?? "").trim()) && kind !== SKIP_KIND_BY_HAND) {
         return UNSKIP_BLOCK_CASHBOOK;
     }

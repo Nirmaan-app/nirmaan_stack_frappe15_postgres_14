@@ -25,7 +25,7 @@ export interface OutflowImportBatch {
      * selects a COLUMN ADAPTER, and a second bank has different columns and a different narration
      * grammar. Adding HDFC later is one more option, not a re-fit of this one.
      */
-    source: "Cashfree" | "Cashbook" | "ICICI Bank Statement";
+    source: "Cashfree" | "Cashbook" | "ICICI Bank Statement" | "Porter Statement";
     /** The stored CSV. Attached to the BATCH and only the batch (owner ruling R3). */
     source_file?: string;
     original_filename?: string;
@@ -120,6 +120,13 @@ export interface OutflowImportRow {
     ifsc?: string;
     remarks?: string;
     bank_reference_no?: string;
+    /**
+     * The reference a settle or create from this line WRITES -- the server's
+     * `settlement_reference_of_row`, computed on read (never the raw column): on an ICICI line the
+     * whole narration, plus the cheque number on a cheque line; on a gateway line its bank reference;
+     * on a wallet line its transaction id. What the decision dialog shows as "Payment reference".
+     */
+    settlement_reference?: string;
     /**
      * `Debit` / `Credit` / blank — WHICH WAY THE MONEY WENT (slices B3, shipped to the screen at B6).
      *

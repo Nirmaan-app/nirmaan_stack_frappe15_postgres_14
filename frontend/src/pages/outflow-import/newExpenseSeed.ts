@@ -12,14 +12,20 @@ const NON_PROJECT_EXPENSE = "Non Project Expenses";
 type NewExpense = NonNullable<RowDecision["newExpense"]>;
 
 interface SeedRow {
-    remarks?: string | null;
     suggested_doctype?: string | null;
     suggested_expense_type?: string | null;
     resolved_project?: string | null;
 }
 
 /**
- * The form's starting values: a project expense described by the statement's remark -- or, on a line
+ * The longest comment the Create form accepts. The server stores it as `<typed> · Imported from
+ * <batch>` in a 140-character field (`import_comment.COMMENT_MAX_LENGTH`), and a batch name is fixed
+ * at 12 characters, so 100 always fits; `commentCapParity.test.ts` checks that against the server's text.
+ */
+export const NEW_EXPENSE_COMMENT_MAX = 100;
+
+/**
+ * The form's starting values: a project expense with an EMPTY description -- or, on a line
  * that carries a Cashbook PLAN, that plan's ledger, expense type and project (a reopened Cashbook line,
  * #1314). The person can change every one of them.
  *
@@ -28,7 +34,11 @@ interface SeedRow {
  * what a NEW expense should be; only the Cashbook import writes `suggested_expense_type`.
  */
 export const newExpenseSeed = (row: SeedRow): NewExpense => {
-    const description = row.remarks || "";
+    // ⚠️ EMPTY, NOT THE STATEMENT'S REMARK (owner ruling). On a bank statement the remark is already
+    // the expense's Payment reference, so a prefill wrote it twice. Left empty, the server fills
+    // "payee - remark" (`_default_description`) -- the same sentence the Cashbook job writes, so a
+    // reopened Cashbook line created here still matches the ones the job created.
+    const description = "";
     const doctype = (row.suggested_doctype ?? "").trim();
     const expenseType = (row.suggested_expense_type ?? "").trim();
     if (!expenseType || (doctype !== PROJECT_EXPENSE && doctype !== NON_PROJECT_EXPENSE)) {

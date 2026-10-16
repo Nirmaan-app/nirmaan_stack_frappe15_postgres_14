@@ -517,9 +517,11 @@ def _merge_po_terms(po_doc, original_payment, leftover_payment) -> bool:
 def _delete_leftover(name: str) -> None:
     """Delete the balance payment. Its own function so a test can fail it mid-way.
 
-    ⚠️ `force=True` SKIPS THE LINK CHECK, AND THAT IS NEEDED: a Reversed outflow match record (a transfer
-    that paid this balance and was unreconciled) keeps a Dynamic Link to it forever. The trash hooks
-    still run -- the term was folded away first, so the controller's term sync finds nothing to touch.
+    `force=True` skips Frappe's link check. A Reversed outflow match record (a transfer that paid this
+    balance and was unreconciled) names it as text since ADR-0022 Amendment G, so it no longer trips
+    that check; a LIVE one is refused by `settled_targets.on_trash`, which `force` does not skip.
+    The trash hooks still run -- the term was folded away first, so the controller's term sync finds
+    nothing to touch.
     """
     frappe.delete_doc("Project Payments", name, force=True, ignore_permissions=True)
 

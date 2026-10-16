@@ -113,6 +113,11 @@ amount), which neither can reach and neither may be stretched to reach. A TDS pa
                                                amount predicate, so an amount-off hit still reads
                                                `Mismatched` naming the record. Never stretched to
                                                reach TDS (owner ruling on #1252).
+  * `contains_guard._fully_accounted` (2026-10-15) -- SETTLE window: do other lines' settled
+                                               legs add up to a record's amount? A record they
+                                               account for in full is left out of an amount-off
+                                               line's group. The verdict's window, so "fully
+                                               accounted" can never mean short by more than it.
   * `similarity._amount_score`             -- the browse list's RANKING axis, SETTLE window
                                                (slice N1). ⚠️ THE ONE SITE THAT DECIDES NOTHING:
                                                it shapes the ORDER of a list a person reads, and
@@ -192,6 +197,7 @@ from decimal import Decimal, InvalidOperation
 __all__ = [
     "AMOUNT_TOLERANCE",
     "TIER1_TOLERANCE",
+    "PORTER_INVOICE_TOLERANCE",
     "amounts_match",
     "amount_difference",
     "tolerance_bounds",
@@ -208,6 +214,12 @@ AMOUNT_TOLERANCE = Decimal("5")
 # THE TIER 1 WINDOW. One caller: `matcher`'s account+IFSC tier, which can afford to be strict
 # because it has a second strong axis. MUST stay <= AMOUNT_TOLERANCE -- see the docstring.
 TIER1_TOLERANCE = Decimal("1")
+
+# THE PORTER INVOICE WINDOW. Not a matching window: it is how far a Porter Invoice's fare or tax
+# may differ from the Porter Statement's completed-order totals and still pass validation (spec
+# #1442; the statement rounds tax row by row, measured up to Rs 0.18 on the 2026-09 file). Inclusive.
+# Independent of the two windows above: changing either of them must not move this one.
+PORTER_INVOICE_TOLERANCE = Decimal("1.00")
 
 
 def to_decimal(value) -> Decimal:
@@ -283,8 +295,11 @@ def tolerance_bounds(
     return amount - width, amount + width
 
 
-def rupees(amount) -> str:
+def rupees(amount, *, paise: bool = False) -> str:
     """`₹21,480` / `₹1,60,113.50` -- Indian grouping, paise only when there are any, for a refusal.
+
+    `paise=True` always prints them (`₹1,812.00`): where figures are compared side by side, as a Porter
+    invoice check's failure does ("Tax: invoice ₹1,709.40, statement ₹1,812.00").
 
     ⚠️ IT LIVES HERE, NOT IN THE MODULE THAT FIRST NEEDED IT. It was `settle._rupees` until #1302,
     when the expense document rules needed the same shape for their own refusals -- and `settle.py`
@@ -295,7 +310,7 @@ def rupees(amount) -> str:
     """
     value = to_decimal(amount).quantize(Decimal("0.01"))
     sign = "-" if value < 0 else ""
-    whole, _, paise = f"{abs(value):.2f}".partition(".")
+    whole, _, fraction = f"{abs(value):.2f}".partition(".")
     head, tail = whole[:-3], whole[-3:]
     groups = []
     while len(head) > 2:
@@ -304,4 +319,4 @@ def rupees(amount) -> str:
     if head:
         groups.insert(0, head)
     grouped = ",".join(groups + [tail]) if groups else tail
-    return f"{sign}₹{grouped}" + (f".{paise}" if paise != "00" else "")
+    return f"{sign}₹{grouped}" + (f".{fraction}" if paise or fraction != "00" else "")

@@ -31,4 +31,7 @@ export interface ProjectExpenses {
     invoice_attachment?: string; // File URL of the invoice document
     invoice_ref?: string; // Invoice number / reference
     invoice_date?: string; // YYYY-MM-DD format
+
+    // Set only by the Porter Statement import (#1445): the Porter Order this expense pays for.
+    porter_order?: string | null;
 }

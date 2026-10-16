@@ -51,11 +51,11 @@ import frappe
 
 from nirmaan_stack.api.outflow_import.expenses import (
     MATCH_DOCTYPE,
-    _refresh_batch_rollup,
+    refresh_batch_rollup,
     _statement_file_url,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
-from nirmaan_stack.api.outflow_import.review import _StagedRow
+from nirmaan_stack.api.outflow_import.review import StagedRow
 from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.candidates import (
     load_expense_rules,
@@ -74,6 +74,7 @@ from nirmaan_stack.services.outflow_import.duplicates import (
     find_prior_sighting,
     index_prior_sightings,
 )
+from nirmaan_stack.services.outflow_import.import_comment import import_comment
 from nirmaan_stack.services.outflow_import.ledgers import (
     EXPENSE_DOCTYPES,
     PROJECT_EXPENSE_DOCTYPE,
@@ -261,7 +262,7 @@ def _cashbook_worker(batch: str, actor: str):
             )
             frappe.db.commit()
 
-    _refresh_batch_rollup(batch)
+    refresh_batch_rollup(batch)
     frappe.db.commit()
 
 
@@ -271,7 +272,7 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
 
     # ⚠️ THE ADAPTER, NOT A RAW `frappe.get_doc`. `create_expense_from_row` reads its argument BY
     # ATTRIBUTE, and two of the attributes it wants are DERIVED rather than stored: `added_on_date`
-    # (from the `added_on` datetime) and a `Decimal` amount. `_StagedRow` computes both; a
+    # (from the `added_on` datetime) and a `Decimal` amount. `StagedRow` computes both; a
     # `Document` has neither, and `getattr(doc, "added_on_date", None)` returns None in silence.
     #
     # It cost 115 expenses with a BLANK `payment_date` on the first production import -- every
@@ -279,7 +280,7 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
     # the fields the writer sets rather than the ones it derives. Found by reading the records back
     # out of the database after a real run. `expenses.create_expense` has always used this adapter;
     # this path simply did not, which is the whole of the defect.
-    staged = _StagedRow(doc)
+    staged = StagedRow(doc)
     result = create_expense_from_row(
         staged,
         doctype=doc["suggested_doctype"],
@@ -289,7 +290,7 @@ def _write_one(row_name: str, batch: str, actor: str, statement_file_url: str | 
         # Description is left to `settle._default_description`, which composes the payee with the
         # remark. Deciding it here would be a second definition of the same sentence.
         description=None,
-        comment=f"Imported from {batch}",
+        comment=import_comment(None, batch),
         statement_file_url=statement_file_url,
         # ⚠️ WHO SPENT IT, from the statement's own `From` column -- not the accountant importing it.
         payment_by=(doc.get("added_by_raw") or "").strip() or None,
@@ -522,7 +523,7 @@ def booked_elsewhere(row: str) -> str | None:
     transfer_id = (line.transfer_id or "").strip()
     if not transfer_id:
         return None
-    staged = _StagedRow(line)
+    staged = StagedRow(line)
     label = find_prior_sighting(
         _booked_index([transfer_id]), transfer_id, staged.amount, staged.added_on_date
     )

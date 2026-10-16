@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { Columns3, History, Info, Link2, Search, Undo2, Upload, Wallet, X } from "lucide-react";
+import { ArrowRightLeft, Columns3, History, Info, Link2, Search, Undo2, Upload, Wallet, X } from "lucide-react";
 import { useFrappeGetCall, useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
 import { TailSpin } from "react-loader-spinner";
 
@@ -28,11 +28,14 @@ import type {
     OutflowImportSummary,
 } from "@/types/NirmaanStack/OutflowImportBatch";
 import { useUserData } from "@/hooks/useUserData";
+import { urlStateManager } from "@/utils/urlStateManager";
 import { canUndoOutflow } from "./outflowImportStatus";
 import { unreconcileNotice, type UnreconcileNotice, type UnreconcileResult } from "./unreconcileView";
 import { UnreconcileDialog } from "./components/UnreconcileDialog";
 import { BulkUnreconcileDialog } from "./components/BulkUnreconcileDialog";
 import { unreconcileButtonState } from "./bulkUnreconcileView";
+import { RectifyDialog } from "./components/RectifyDialog";
+import { rectifyButtonState } from "./porterRectify";
 import { selectionMode, settledTicksAllowed, tickKindOf, tickRules, type TickKind } from "./tickMode";
 import { LinkLinesDialog, type LinkLinesResult } from "./components/LinkLinesDialog";
 import { linkButtonState, linkedNotice, selectedMoneyIn } from "./linkLinesView";
@@ -40,7 +43,11 @@ import { ConfirmAllMatchedDialog } from "./components/ConfirmAllMatchedDialog";
 import { DecisionDialog } from "./components/DecisionDialog";
 import { ExportButton } from "./components/ExportButton";
 import { exportFileBase, toExportColumns } from "./outflowExport";
-import { ImportHistoryDialog } from "./components/ImportHistoryDialog";
+import {
+    HISTORY_KEY_PREFIX,
+    ImportHistoryDialog,
+    type HistorySelection,
+} from "./components/ImportHistoryDialog";
 import { ImportStatementDialog } from "./components/ImportStatementDialog";
 import { ImportSummaryPanel } from "./components/ImportSummaryPanel";
 import { useOutflowRows } from "./useOutflowRows";
@@ -87,6 +94,7 @@ import {
     tabFromCarried,
     visibleTabs,
 } from "./outflowTableModel";
+import { PORTER_URL_KEY, opensPorterDialog } from "./porterImport";
 import { WAITING_REFUNDS_KEY_PREFIX, waitingRefundNames } from "./waitingRefundMatch";
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 
@@ -225,6 +233,20 @@ export const OutflowMasterPage = () => {
         { title: string; action: string; message: string; retry: () => Promise<void> } | null
     >(null);
     const [importing, setImporting] = useState(false);
+    /**
+     * The Porter import the dialog is showing (#1444), mirrored in the URL as `?porter=OFI-…`.
+     *
+     * ⚠️ IN THE URL SO A RELOAD BRINGS THE PROGRESS BACK. A Porter import validates in the background for
+     * minutes; the dialog reads its state from the server by this batch, so a reload, or a reopen from
+     * Import History, shows it exactly as it stands. Seeded once, on mount; written only with the dialog.
+     */
+    const [porterBatch, setPorterBatchState] = useState<string | null>(
+        () => urlStateManager.getParam(PORTER_URL_KEY) || null
+    );
+    const setPorterBatch = useCallback((batch: string | null) => {
+        urlStateManager.updateParam(PORTER_URL_KEY, batch);
+        setPorterBatchState(batch);
+    }, []);
     const [showingHistory, setShowingHistory] = useState(false);
     const [confirmingAll, setConfirmingAll] = useState(false);
     const [showingSkipped, setShowingSkipped] = useState(false);
@@ -265,6 +287,8 @@ export const OutflowMasterPage = () => {
     const [unreconcilingRow, setUnreconcilingRow] = useState<OutflowImportRow | null>(null);
     /** The ticked Settled lines the bulk Unreconcile check step is open on (#1319), or `null`. A snapshot. */
     const [bulkUnreconcileRows, setBulkUnreconcileRows] = useState<string[] | null>(null);
+    /** The Settled Porter lines the Rectify dialog is open on (#1449) -- one, or the ticked ones -- or `null`. */
+    const [rectifyRows, setRectifyRows] = useState<string[] | null>(null);
     const { role, user_id } = useUserData();
     const canUndo = canUndoOutflow(role, user_id);
     /**
@@ -341,6 +365,20 @@ export const OutflowMasterPage = () => {
     const { sources, setSources } = useOutflowSource();
 
     /**
+     * The summary card's Reset: Source, Import and Period back to their defaults, together.
+     *
+     * ⚠️ LEAVE THE PINNED STATEMENT FIRST, THEN CLEAR THE TWO STORES. Both stores live in memory and
+     * write their URL params onto the CURRENT location; navigating out of a pinned statement goes to
+     * the bare path. Clearing after the navigation writes "all time" onto the URL the reader lands on,
+     * rather than onto one they have just left.
+     */
+    const handleResetScope = useCallback(() => {
+        if (selectedImport) handleSelectImport(undefined);
+        setSources([]);
+        setPeriod(null);
+    }, [selectedImport, handleSelectImport, setSources, setPeriod]);
+
+    /**
      * ⚠️ THE SUMMARY TAKES THE TABLE'S OWN FILTERS, MINUS THE SCOPE. This is what makes the panel
      * the aggregate of the table beneath it rather than a second opinion about a different
      * population — the objection behind the 2026-08-10 ruling that P1 revises. `filterQuery` is
@@ -385,7 +423,6 @@ export const OutflowMasterPage = () => {
     const importsArgs = useMemo(() => ({ sources: JSON.stringify(sources) }), [sources]);
     const {
         data: importsData,
-        isLoading: importsLoading,
         mutate: mutateImports,
     } = useFrappeGetCall<{
         message: OutflowImportOption[];
@@ -397,6 +434,34 @@ export const OutflowMasterPage = () => {
     );
 
     const importOptions = useMemo(() => importsData?.message ?? [], [importsData]);
+
+    /** The Import selector's choice: a Porter import opens its own dialog, any other is pinned. */
+    const handlePickImport = useCallback(
+        (batch?: string) => {
+            if (batch && opensPorterDialog(batch, importOptions)) setPorterBatch(batch);
+            else handleSelectImport(batch);
+        },
+        [importOptions, setPorterBatch, handleSelectImport]
+    );
+
+    /**
+     * The pinned statement, as the History dialog opens on it (its tab and its month).
+     *
+     * ⚠️ THE PINNED SUMMARY FIRST, THE PICKER'S LIST SECOND. A deep-linked statement can sit outside
+     * the picker's sixty, and the summary's `import` block is the one read guaranteed to describe it.
+     */
+    const historySelection = useMemo<HistorySelection | undefined>(() => {
+        if (!selectedImport) return undefined;
+        const pinned = summary?.import?.name === selectedImport ? summary.import : undefined;
+        const listed = importOptions.find((option) => option.name === selectedImport);
+        const from = pinned ?? listed;
+        return {
+            name: selectedImport,
+            source: from?.source,
+            period_from: from?.period_from,
+            period_to: from?.period_to,
+        };
+    }, [selectedImport, summary, importOptions]);
 
     // ⚠️ PERIOD-WIDE, NOT PER BATCH (slice P1). `match_period` resolves which imports the current
     // filters touch and loops `match_batch` over them -- the matching UNIT is still one whole
@@ -522,6 +587,10 @@ export const OutflowMasterPage = () => {
         () => unreconcileButtonState(rows, selected, tickedOnPageRef.current, table.page),
         [rows, selected, table.page]
     );
+    const rectifyState = useMemo(
+        () => rectifyButtonState(rows, selected, tickedOnPageRef.current, table.page),
+        [rows, selected, table.page]
+    );
     // The toolbar's off-page chip and amber note follow whichever action the mode offers.
     const offPageChip = settledMode ? unreconcileState.offPage : linkState.offPage;
     const toolbarNote = settledMode ? unreconcileState.note ?? ticks.note : linkState.note;
@@ -531,18 +600,24 @@ export const OutflowMasterPage = () => {
         return out;
     }, [rows, decisions]);
 
-    const { mutate: mutateGlobal } = useSWRConfig();
+    /**
+     * The History dialog reads its own months (`list_imports(month=...)`), so a refresh revalidates
+     * every key it has cached as well — otherwise a statement imported a moment ago would be missing
+     * from the dialog until its cache expired.
+     */
+    const { mutate: mutateCache } = useSWRConfig();
     const refreshAll = useCallback(async () => {
         await Promise.all([
             mutateRows(),
             mutateSummary(),
             mutateImports(),
+            mutateCache((key) => typeof key === "string" && key.startsWith(HISTORY_KEY_PREFIX)),
             // #1401: a match or an undo moves a vendor's waiting refunds; the dialog lists them.
-            mutateGlobal(
+            mutateCache(
                 (key) => typeof key === "string" && key.startsWith(WAITING_REFUNDS_KEY_PREFIX)
             ),
         ]);
-    }, [mutateRows, mutateSummary, mutateImports, mutateGlobal]);
+    }, [mutateRows, mutateSummary, mutateImports, mutateCache]);
 
     /** Record what `name` is being ticked as, from its row on this page (#1319). */
     const recordTickKind = useCallback((name: string) => {
@@ -680,6 +755,8 @@ export const OutflowMasterPage = () => {
                     project: form.project || undefined,
                     description: form.description || undefined,
                     vendor: form.vendor || undefined,
+                    // The server stores it with "Imported from <batch>" after it, never instead.
+                    comment: form.comment?.trim() || undefined,
                     ...anyway,
                 });
             } else if (decision.target === "inflow") {
@@ -822,6 +899,19 @@ export const OutflowMasterPage = () => {
         setReverseNotice(null);
         setUnreconcilingRow(row);
     }, []);
+
+    /** Reference-stable: every memoized table row receives it (#1449). */
+    const handleOpenRectify = useCallback((row: OutflowImportRow) => {
+        setReverseNotice(null);
+        setRectifyRows([row.name]);
+    }, []);
+
+    /** A Rectify run's result box closed: the moved lines stay Settled, so the ticks go and the page refetches. */
+    const handleRectified = useCallback(async () => {
+        setRectifyRows(null);
+        setSelected(new Set());
+        await refreshAll();
+    }, [refreshAll]);
 
     const confirmOne = useCallback(async (confirmMismatch: boolean) => {
         if (!openRow) return;
@@ -1165,11 +1255,12 @@ export const OutflowMasterPage = () => {
         (open: boolean) => {
             setImporting(open);
             if (open) return;
+            setPorterBatch(null);
             const pending = pendingPinRef.current;
             pendingPinRef.current = null;
             if (pending) handleSelectImport(pending.batch, pending.tab);
         },
-        [handleSelectImport]
+        [handleSelectImport, setPorterBatch]
     );
 
     return (
@@ -1209,12 +1300,13 @@ export const OutflowMasterPage = () => {
                 onSourcesChange={setSources}
                 imports={importOptions}
                 selectedImport={selectedImport}
-                onSelectImport={handleSelectImport}
+                onSelectImport={handlePickImport}
                 loading={summaryLoading}
                 matching={matching}
                 onConfirmAllMatched={() => setConfirmingAll(true)}
                 onRunMatch={handleMatch}
                 onShowSkipped={() => setShowingSkipped(true)}
+                onResetScope={handleResetScope}
             />
 
             {/* ⚠️ THE "same period" LINE IS GONE (owner ruling, slice CF/S1), AND WHAT IT WAS
@@ -1402,6 +1494,7 @@ export const OutflowMasterPage = () => {
                                 off-page note sits under the toolbar, from the pure
                                 `unreconcileButtonState`. Link and Confirm only work on open lines. */}
                             {settledMode ? (
+                                <>
                                 <Button
                                     variant="outline"
                                     size="sm"
@@ -1417,6 +1510,25 @@ export const OutflowMasterPage = () => {
                                     <Undo2 className="mr-1.5 h-3.5 w-3.5" />
                                     Unreconcile {unreconcileState.count}
                                 </Button>
+                                {/* #1449: ticked Porter orders move together with Rectify. */}
+                                {rectifyState.visible && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8"
+                                        disabled={!rectifyState.enabled || busy}
+                                        title={rectifyState.note ?? undefined}
+                                        onClick={() =>
+                                            setRectifyRows(
+                                                rows.filter((row) => selected.has(row.name)).map((row) => row.name)
+                                            )
+                                        }
+                                    >
+                                        <ArrowRightLeft className="mr-1.5 h-3.5 w-3.5" />
+                                        Rectify {rectifyState.count}
+                                    </Button>
+                                )}
+                                </>
                             ) : (
                             <>
                             {/* #1298: many lines -> one expense. Its off-state note sits under the
@@ -1518,6 +1630,8 @@ export const OutflowMasterPage = () => {
                         onToggleAll={toggleAll}
                         // #1275: presence is the gate -- a plain Accountant gets no Unreconcile.
                         onUnreconcile={canUndo ? handleOpenUnreconcile : undefined}
+                        // #1449: the same gate; the button shows only on a Settled Porter line.
+                        onRectify={canUndo ? handleOpenRectify : undefined}
                         // ⚠️ THE NOTICE IS CLEARED HERE, NOT ON A TIMER (review F9). Opening the
                         // next row is the moment the previous reversal stops being what the
                         // reviewer is looking at, so a sentence about it must not still be on
@@ -1543,25 +1657,25 @@ export const OutflowMasterPage = () => {
                 also moving the period and the tab — `handleImported` does both, correctly, but only
                 once, when the statement arrives. */}
             <ImportStatementDialog
-                open={importing}
+                open={importing || Boolean(porterBatch)}
                 onOpenChange={handleImportDialogOpenChange}
                 onImported={handleImported}
                 onRefresh={refreshAll}
+                porterBatch={porterBatch}
+                onPorterBatch={setPorterBatch}
             />
 
-            {/* ⚠️ IT TAKES `importOptions`, THE SAME LIST THE IMPORT SELECTOR RENDERS, so the two
-                cannot disagree about which statements exist or in what order. Every row here is a
-                way to select one, and offering a statement the picker does not have would be a dead
-                end. It obeys the source scope and ignores the period -- see the dialog's own note on
-                why that asymmetry is deliberate. */}
+            {/* ⚠️ IT READS `list_imports` ITSELF, A MONTH AT A TIME (owner ruling 2026-10-14) — the
+                same endpoint the Import selector reads, so the two cannot disagree about which
+                statements exist. The screen's Source only chooses the tab it OPENS on; nothing the
+                dialog does writes back to the screen's scope. See the dialog's own note. */}
             <ImportHistoryDialog
                 open={showingHistory}
                 onOpenChange={setShowingHistory}
-                imports={importOptions}
-                sources={sources}
-                selectedImport={selectedImport}
+                screenSources={sources}
+                selected={historySelection}
                 onSelectImport={handleSelectImport}
-                loading={importsLoading}
+                onOpenPorterImport={setPorterBatch}
             />
 
             {/* ⚠️ BOTH TAKE THE PERIOD'S FILTERS, NOT A BATCH (slice P1). The confirm dialog acts on
@@ -1600,6 +1714,15 @@ export const OutflowMasterPage = () => {
                     onClose={() => setBulkUnreconcileRows(null)}
                     onFinished={handleBulkUnreconciled}
                     onRefresh={refreshAll}
+                />
+            )}
+
+            {/* #1449: only the undo roles reach it; both endpoints refuse anyone else. */}
+            {canUndo && (
+                <RectifyDialog
+                    rows={rectifyRows}
+                    onClose={() => setRectifyRows(null)}
+                    onDone={handleRectified}
                 />
             )}
 

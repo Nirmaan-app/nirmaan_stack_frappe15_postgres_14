@@ -454,7 +454,7 @@ def load_recorded_by_contains(
       * HIT -- an eligible token of the stored reference equals a line's transfer id or is contained
         in its match surface. The tokenising in SQL mirrors `contains_guard.reference_tokens`
         (whole string without whitespace + pieces split on non-alphanumerics; 6+ characters, a digit,
-        not a `BULD` batch id, no `DUMMY-` reference). `test_review.TestTheContainsQueryMirrorsThe
+        not a `BULD` batch id, not a bank branch code, no `DUMMY-` reference). `test_review.TestTheContainsQueryMirrorsThe
         PureTokens` pins the two together. ⚠️ KNOWN LIMIT: for a reference holding NON-ASCII
         whitespace or digits (a non-breaking space, a Devanagari numeral) PostgreSQL's `\s` / `[0-9]`
         see less than Python's, so the WHOLE-STRING token can be missed; the ASCII pieces still hit;
@@ -584,6 +584,8 @@ def load_recorded_by_contains(
               AND length(piece.token) >= {MIN_TOKEN_LENGTH}
               AND piece.token ~ '[0-9]'
               AND piece.token !~ '^BULD[0-9]+$'
+              -- A bank branch code (IFSC), or one cut short -- `contains_guard._BANK_BRANCH_CODE`.
+              AND piece.token !~ '^[A-Z]{{4}}0[A-Z0-9]{{0,6}}$'
         ),
         gram AS (
             SELECT line.direction, substr(line.surface, i, {MIN_TOKEN_LENGTH}) AS g
@@ -652,6 +654,10 @@ def load_record_claims(records) -> tuple[RecordClaim, ...]:
 
     `records` is anything with `doctype` and `name` -- in practice the contains-guard pool. The pairs
     travel as a `VALUES` list with explicit placeholders (see the module docstring on `= ANY(%s)`).
+
+    Each claim carries how much of the record its line accounts for (2026-10-15): a settled leg's
+    `target_amount`, or none for a skip basis, which accounts for the whole record. `::text` and
+    `normalize_amount`, as `load_recorded_by_contains` reads amounts, so a junk value reads as 0.
     """
     pairs = sorted({(r.doctype, r.name) for r in records})
     if not pairs:
@@ -660,7 +666,8 @@ def load_record_claims(records) -> tuple[RecordClaim, ...]:
     found = frappe.db.sql(
         f"""
         WITH rec(doctype, name) AS (VALUES {values})
-        SELECT rec.doctype, rec.name, r.name AS import_row, r.import_batch, 0 AS settled
+        SELECT rec.doctype, rec.name, r.name AS import_row, r.import_batch, 0 AS settled,
+               NULL::text AS amount
         FROM "tabOutflow Import Row" r
         -- The CASE, not a WHERE on json_typeof: a WHERE may be applied after the set-returning call,
         -- and one non-array value would then fail the whole match run.
@@ -671,7 +678,8 @@ def load_record_claims(records) -> tuple[RecordClaim, ...]:
         WHERE r.duplicate_basis IS NOT NULL
           AND r.row_status = %s
         UNION
-        SELECT rec.doctype, rec.name, m.import_row, m.import_batch, 1 AS settled
+        SELECT rec.doctype, rec.name, m.import_row, m.import_batch, 1 AS settled,
+               m.target_amount::text AS amount
         FROM "tabOutflow Row Match" m
         JOIN rec ON rec.doctype = m.target_doctype AND rec.name = m.target_name
         WHERE m.match_kind = %s
@@ -686,6 +694,8 @@ def load_record_claims(records) -> tuple[RecordClaim, ...]:
             import_row=r.get("import_row") or "",
             import_batch=r.get("import_batch") or "",
             settled=bool(r.get("settled")),
+            # A skip basis claims the whole record (None); a settled leg claims its own part.
+            amount=None if r.get("amount") is None else normalize_amount(r.get("amount")),
         )
         for r in found
     )

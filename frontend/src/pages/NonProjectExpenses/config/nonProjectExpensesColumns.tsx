@@ -50,6 +50,8 @@ import { cn } from "@/lib/utils";
 import SITEURL from "@/constants/siteURL";
 import { NonProjectExpenses } from "@/types/NirmaanStack/NonProjectExpenses";
 import { isProcurementProfile } from "@/constants/roles";
+import { PorterBadge } from "@/components/common/PorterExpense";
+import { invoiceAttachmentUrl } from "@/utils/porterExpense";
 
 export interface GetNonProjectExpenseColumnsOptions {
   statusTab: string;
@@ -172,9 +174,11 @@ export const getNonProjectExpenseColumns = ({
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Description" />
     ),
+    // The Porter badge sits before the text so a truncated description never hides it.
     cell: ({ row }) => (
-      <div className="truncate" title={row.original.description}>
-        {row.original.description || "--"}
+      <div className="flex min-w-0 items-center" title={row.original.description}>
+        <PorterBadge expense={row.original} />
+        <span className="truncate">{row.original.description || "--"}</span>
       </div>
     ),
     meta: {
@@ -253,7 +257,7 @@ export const getNonProjectExpenseColumns = ({
     header: "Invoice Ref",
     cell: ({ row }) => {
       const ref = row.original.invoice_ref;
-      const attachment = row.original.invoice_attachment;
+      const attachment = invoiceAttachmentUrl("Non Project Expenses", row.original);
       // On the Paid/All tabs, link the ref to the invoice attachment (opens in a new tab).
       if (invoiceRefClickable && attachment && ref) {
         return (
@@ -358,7 +362,7 @@ export const getNonProjectExpenseColumns = ({
     size: 110,
     enableSorting: false,
     cell: ({ row }) => {
-      const url = row.original.invoice_attachment;
+      const url = invoiceAttachmentUrl("Non Project Expenses", row.original);
       return url ? (
         <a
           href={SITEURL + url}

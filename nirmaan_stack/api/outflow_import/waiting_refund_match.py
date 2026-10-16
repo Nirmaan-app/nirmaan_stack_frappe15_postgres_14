@@ -32,6 +32,7 @@ from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import _refresh_batch_rollup
 from nirmaan_stack.services.outflow_import.ledgers import VENDOR_REFUND_DOCTYPE
 from nirmaan_stack.services.outflow_import.settle import match_waiting_refunds_to_row
+from nirmaan_stack.services.outflow_import.status import RECORDED_ACTION_LINK
 from nirmaan_stack.services.vendor_refunds import PROCUREMENT_ORDERS, matchable_refunds
 
 __all__ = ["get_waiting_vendor_refunds", "match_waiting_refunds"]
@@ -66,7 +67,11 @@ def match_waiting_refunds(row: str, refunds=None, confirm_mismatch=False):
     _guard_is_a_credit(doc)
     _guard_not_already_recorded(staged, doc)
     _guard_money_not_recorded(
-        staged, doc, confirm_mismatch, writing=[(VENDOR_REFUND_DOCTYPE, name) for name in names]
+        staged,
+        doc,
+        confirm_mismatch,
+        writing=[(VENDOR_REFUND_DOCTYPE, name) for name in names],
+        action=RECORDED_ACTION_LINK,
     )
     statement_file_url = _statement_file_url(doc["import_batch"])
 

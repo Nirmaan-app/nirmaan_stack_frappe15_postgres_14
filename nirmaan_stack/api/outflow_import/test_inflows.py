@@ -78,6 +78,7 @@ from nirmaan_stack.services.outflow_import.settle import (
     format_amount_for,
     statement_attachment_field,
 )
+from nirmaan_stack.services.outflow_import.allocation import MATCH_SETTLED
 from nirmaan_stack.services.outflow_import.status import ROW_SETTLED
 from nirmaan_stack.api.outflow_import.unreconcile import get_unreconcile_plan, unreconcile_row
 
@@ -634,6 +635,77 @@ class TestTheDuplicateGuards(InflowFixture):
         row, summary = self._receive(row=row, confirm_mismatch=True)
         self.assertTrue(summary["settled"]["name"])
 
+    def test_the_ask_names_the_record_and_what_creating_again_would_do(self):
+        """2026-10-15: the button asks in the words of creating, not with the match run's note."""
+        row = self._next_credit_row()
+        planted = self._plant_inflow(row, row["remarks"], amount_delta=500)
+
+        message = self._refusal(row, error=RecordedMoneyNeedsConfirmationError)
+        self.assertIn(f"Project Inflow {planted} (₹", message)
+        self.assertIn("has this credit's reference, but its amount is ₹500 more.", message)
+        self.assertIn("a new inflow counts the money two times", message)
+        self.assertIn("or create anyway.", message)
+        self.assertNotIn("Nothing has been recorded yet", message)
+
+    def test_an_inflow_sharing_only_a_bank_branch_code_does_not_ask(self):
+        """The measured false warning: an unrelated payer's inflow whose stored narration ends in the
+        same HDFC branch code. A branch code identifies a branch, never a transfer (2026-10-15)."""
+        row = self._next_credit_row()
+        self._set_remarks(row, f"{row['remarks']}/HDFC0000240")
+        self._plant_inflow(row, "NEFT-UNRELATED PAYER PVT LTD-HDFC0000240", amount_delta=-5000)
+
+        row, summary = self._record(row=row)
+        self.assertTrue(summary["settled"]["name"])
+        self._release(row)
+
+    def test_an_inflow_another_line_accounts_for_in_full_does_not_ask(self):
+        """The other measured false warning: the record is another line's money, whole, so it is not
+        this line's money recorded with a different figure (2026-10-15)."""
+        row = self._next_credit_row()
+        planted = self._plant_inflow(row, row["remarks"], amount_delta=500)
+        self._settle_on_another_line(row, planted)
+
+        row, summary = self._record(row=row)
+        self.assertTrue(summary["settled"]["name"])
+        self._release(row)
+
+    @staticmethod
+    def _release(row):
+        """Undo the create so the line is open again: this suite has few credit lines, and the
+        tests after this one each need one (Unreconcile deletes the inflow the import created)."""
+        unreconcile_row(row=row["name"], legs="all", reason="test: release the credit line")
+
+    def _set_remarks(self, row, remarks):
+        """Change a staged line's narration for one test, restoring the original after it."""
+        original = frappe.db.get_value(ROW_DOCTYPE, row["name"], "remarks")
+        frappe.db.set_value(ROW_DOCTYPE, row["name"], "remarks", remarks, update_modified=False)
+        frappe.db.commit()
+        row["remarks"] = remarks
+        self.addCleanup(
+            lambda: (
+                frappe.db.set_value(ROW_DOCTYPE, row["name"], "remarks", original, update_modified=False),
+                frappe.db.commit(),
+            )
+        )
+
+    def _settle_on_another_line(self, row, target_name):
+        """A `Settled` leg from a different staged line onto `target_name`, for its whole amount."""
+        other = frappe.get_all(
+            ROW_DOCTYPE,
+            filters={"import_batch": self.batch.name, "direction": ["!=", DIRECTION_CREDIT]},
+            fields=["name", "transfer_id"],
+            limit=1,
+        )[0]
+        leg = frappe.get_doc({
+            "doctype": MATCH_DOCTYPE, "import_row": other["name"], "import_batch": self.batch.name,
+            "transfer_id": other["transfer_id"], "target_doctype": INFLOW_DOCTYPE,
+            "target_name": target_name,
+            "target_amount": frappe.db.get_value(INFLOW_DOCTYPE, target_name, "amount"),
+            "match_kind": MATCH_SETTLED, "match_basis": "Manual",
+        }).insert(ignore_permissions=True)
+        frappe.db.commit()
+        self.addCleanup(lambda: (frappe.db.delete(MATCH_DOCTYPE, {"name": leg.name}), frappe.db.commit()))
+
     def test_a_junk_reference_inside_the_narration_does_not_refuse(self):
         """Inverted at #1259 (it asserted a blank key). A reference with no eligible token --
         `ICICI`, a short code -- never refuses a receipt, even when the narration contains it."""
@@ -739,8 +811,9 @@ class TestTheNonProjectInflowDuplicateGuards(InflowFixture):
         refusal = self._refusal(
             other, error=RecordedMoneyNeedsConfirmationError, create=self._non_project_call
         )
-        self.assertIn(f"Non Project Inflow {summary['settled']['name']} already accounts", refusal)
-        self.assertIn(f"recorded from batch {batch}", refusal)
+        # 2026-10-15: the button's prompt names the other bank line and its batch.
+        self.assertIn(f"Non Project Inflow {summary['settled']['name']} (₹", refusal)
+        self.assertIn(f"bank line {row['name']} (batch {batch}) already accounts for it", refusal)
         self._assert_nothing_written(other, before)
 
 
@@ -960,6 +1033,30 @@ class TestTheNonProjectInflow(InflowFixture):
             NON_PROJECT_INFLOW, summary["settled"]["name"], ["inflow_type", "description"], as_dict=True
         )
         self.assertEqual((doc.inflow_type, doc.description), ("Others", "Vendor refund, PO 0123"))
+
+
+class TestTheNonProjectInflowDefaultDescription(InflowFixture):
+    """The dialog's Description starts EMPTY, so a description left blank is filled by the server
+    -- the payer, then the bank narration -- exactly as a created expense's is. Its own class: the
+    happy-path class above already holds the six consuming tests the fixture's credits allow."""
+
+    def _stored(self, summary):
+        return frappe.db.get_value(NON_PROJECT_INFLOW, summary["settled"]["name"], "description")
+
+    def _row_text(self, row):
+        return frappe.db.get_value(ROW_DOCTYPE, row["name"], ["beneficiary_name", "remarks"], as_dict=True)
+
+    def test_a_blank_description_gets_the_payer_and_the_narration(self):
+        for blank in (None, "   "):
+            row, summary = self._receive(inflow_type="FD Closures", description=blank)
+            text = self._row_text(row)
+            expected = " - ".join(p for p in (text.beneficiary_name, text.remarks) if (p or "").strip())
+            self.assertTrue(expected, "fixture precondition: the row carries a payer or a narration")
+            self.assertEqual(self._stored(summary), expected)
+
+    def test_a_typed_description_is_stored_as_typed(self):
+        _, summary = self._receive(inflow_type="FD Closures", description="  FD 0057 closed  ")
+        self.assertEqual(self._stored(summary), "FD 0057 closed")
 
 
 class TestTheNonProjectInflowRefusals(InflowFixture):
