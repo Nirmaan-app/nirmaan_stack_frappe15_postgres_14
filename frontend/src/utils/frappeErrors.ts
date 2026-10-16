@@ -43,3 +43,14 @@ export const getFrappeError = (error: any): string => {
     // 3. Fallback to basic message or toString
     return error.message || error.toString() || "Something went wrong.";
 };
+
+/**
+ * The reason Frappe gives for refusing a raw `fetch` request, for a toast. Frappe never puts it in
+ * `message`: it is read from `_server_messages` / `exception` through `getFrappeError`. Returns
+ * `fallback` when the body carries neither (production hides `exception` from most users) or is not
+ * JSON at all (an HTML error page while the server restarts). Never throws.
+ */
+export const readFrappeError = async (response: Pick<Response, "json">, fallback: string): Promise<string> => {
+    const body = await response.json().catch(() => null);
+    return (body && (body._server_messages || body.exception) && getFrappeError(body)) || fallback;
+};
