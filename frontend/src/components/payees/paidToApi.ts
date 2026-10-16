@@ -14,8 +14,8 @@ const API = "nirmaan_stack.api.payees.paid_to";
 export const PAID_TO_API = `${API}.get_paid_to`;
 /** Export for Payment and Mark as Paid: write the vendor's current account onto each PO / WO payment
  *  that switches to it (#1463). Takes `{payments}`, a `ShownSwitch` for every PO / WO payment being
- *  paid: the server decides again which switch, and refuses the whole call ("The vendor's account for
- *  <PO> changed again. Refresh and try again.") when that is not the switch the payer was shown.
+ *  paid: the server decides again which switch, and refuses the whole call ("The account for <PO> has
+ *  changed since the page loaded. Refresh and try again.") when that is not the switch the payer was shown.
  *  Returns a `TakeVendorAccountsAnswer`. */
 export const TAKE_VENDOR_ACCOUNTS_API = `${API}.take_vendor_accounts`;
 /** Record Payment's "Pay ₹X to" box, for an expense or a PO / WO payment. */

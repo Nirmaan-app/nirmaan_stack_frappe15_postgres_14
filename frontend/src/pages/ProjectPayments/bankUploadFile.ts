@@ -5,14 +5,15 @@ import type { PayToAccount } from "@/types/NirmaanStack/Payee";
 import { formatDate, formatDateToDDMMYYYY } from "@/utils/FormatDate";
 import { formatToRoundedIndianRupee } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
-import { toastList } from "@/utils/toastList";
 import {
 	ELIGIBILITY_REASON,
 	expenseTitle,
+	leaveOutSkipped,
 	rowEligibility,
 	type IneligibleReason,
 	type KeptOutReason,
 	type PaidTo,
+	type SkippedRow,
 } from "@/utils/payees/paidTo";
 
 /** Which bulk-transfer file to emit. ICICI's PAB_VENDOR layout and Cashfree's payout template share no columns. */
@@ -166,42 +167,39 @@ export function shownSwitches(file: BankFile): ShownSwitch[] {
 		.map((row) => ({ name: row.name, shown: row.shownSwitchTo ?? null }));
 }
 
-/** A PO / WO payment the export left out because `take_vendor_accounts` found it no longer Approved. */
-export interface BankFileSkipped {
-	row: BankFileRow;
-	status: string;
-}
+const isVendorPayment = (row: BankFileRow): boolean => row.kind === "vendor_payment";
 
 /**
  * The rows with each PO / WO payment's answer replaced by the one `take_vendor_accounts` acted on (#1463),
  * so the file pays exactly the account each payment now records, and without each payment it skipped
- * as no longer Approved (`skipped`, for the toast to name). A row the server did not answer keeps its own.
+ * as no longer Approved (`leaveOutSkipped`; `skipped`, for `describeSkipped` to name). A row the server
+ * did not answer keeps its own.
  */
 export function withTakenAccounts(
 	rows: BankFileRow[],
 	answer: TakeVendorAccountsAnswer,
-): { rows: BankFileRow[]; skipped: BankFileSkipped[] } {
+): { rows: BankFileRow[]; skipped: SkippedRow<BankFileRow>[] } {
 	const answers = new Map(answer.taken.map((t) => [t.name, t.paid_to]));
-	const statusOf = new Map(answer.skipped.map((s) => [s.name, s.status]));
-	const kept: BankFileRow[] = [];
-	const skipped: BankFileSkipped[] = [];
-	for (const row of rows) {
-		const status = row.kind === "vendor_payment" ? statusOf.get(row.name) : undefined;
-		if (status !== undefined) {
-			skipped.push({ row, status });
-			continue;
-		}
-		const paidTo = row.kind === "vendor_payment" ? answers.get(row.name) : undefined;
-		kept.push(paidTo ? { ...row, paidTo } : row);
-	}
-	return { rows: kept, skipped };
+	const { kept, skipped } = leaveOutSkipped(rows, answer.skipped, isVendorPayment);
+	return {
+		rows: kept.map((row) => {
+			const paidTo = isVendorPayment(row) ? answers.get(row.name) : undefined;
+			return paidTo ? { ...row, paidTo } : row;
+		}),
+		skipped,
+	};
 }
 
-/** The export toast's line on the payments left out as no longer Approved, e.g. "Left out, no longer
- *  Approved: PO/009 (Paid) · PO/010 (Reconciliation Pending)"; null when none. */
-export function describeSkipped(skipped: BankFileSkipped[]): string | null {
-	if (skipped.length === 0) return null;
-	return `Left out, no longer Approved: ${toastList(skipped.map((s) => `${s.row.documentName} (${s.status})`))}`;
+/**
+ * What the page does once `take_vendor_accounts` has answered: `refetch` the list when a payment was
+ * switched (its Paid to cell now reads the new account) or skipped (it has left the tab), and
+ * `clearTicks` whenever the file was saved or the list is refetched, even when every row was skipped.
+ * Ticks are kept by row position (the table has no getRowId), so after a refetch they would sit on
+ * other payments, which the bank file and Mark as Paid then act on.
+ */
+export function afterExport(file: BankFile, skipped: readonly unknown[]): { clearTicks: boolean; refetch: boolean } {
+	const refetch = file.switched.length > 0 || skipped.length > 0;
+	return { clearTicks: refetch || file.rows.length > 0, refetch };
 }
 
 // ICICI and Cashfree both accept a file holding a row with a blank account or IFSC, and reject

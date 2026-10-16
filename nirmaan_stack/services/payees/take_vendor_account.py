@@ -57,7 +57,7 @@ def take_vendor_accounts(payments: list[dict]) -> dict:
     changed = [doc for doc, paid_to in zip(docs, answers)
                if account_key(paid_to["switch_to"]) != account_key(shown[doc.name])]
     if changed:
-        frappe.throw(_("The vendor's account for {0} changed again. Refresh and try again.")
+        frappe.throw(_("The account for {0} has changed since the page loaded. Refresh and try again.")
                      .format(", ".join(doc.get("document_name") or doc.name for doc in changed)))
     for doc, paid_to in zip(docs, answers):
         if paid_to["switch_to"]:

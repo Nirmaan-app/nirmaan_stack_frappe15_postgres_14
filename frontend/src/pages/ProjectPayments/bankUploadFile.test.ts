@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { PayToAccount } from "@/types/NirmaanStack/Payee";
-import type { PaidTo } from "@/utils/payees/paidTo";
+import { describeSkipped, type PaidTo } from "@/utils/payees/paidTo";
 
 import {
+	afterExport,
 	buildBankFile,
 	describeLeftOut,
-	describeSkipped,
 	describeSwitched,
 	shownSwitches,
 	withTakenAccounts,
@@ -166,48 +166,68 @@ describe("buildBankFile — a PO payment paid into its vendor's current account 
 
 describe("withTakenAccounts — the file pays what take_vendor_accounts recorded (#1463)", () => {
 	const readAt = { account_name: "ACME TRADERS PVT LTD", account_number: "50100234567812", ifsc: "ICIC0000456" };
-	const recorded = { account_name: "ACME TRADERS PVT LTD", account_number: "77700011122233", ifsc: "UTIB0000789" };
 
-	it("pays the account the server wrote, even when the vendor's account changed after the export read it", () => {
-		// Read at export: switches to `readAt`. By the time the server took it, the vendor's account was `recorded`.
-		const changed = vendorPayment({ name: "PAY-0009", documentName: "PO/009/26-27", paidTo: { ...own(ACME), switch_to: readAt } });
-		// Read at export: no switch. The vendor's account changed before the take, so the server switched it.
-		const nowSwitched = vendorPayment({ name: "PAY-0010", documentName: "PO/010/26-27" });
-		const { rows } = withTakenAccounts([changed, nowSwitched], {
+	it("pays the account the server wrote, even when the vendor's holder name changed after the export read it", () => {
+		// Read at export: switches to `readAt`. Before the take the vendor's holder name was edited: the same
+		// account by number and IFSC, so the server took the switch it was shown (any other change it
+		// refuses), and wrote the account as it reads now.
+		const renamed = { ...readAt, account_name: "ACME TRADERS PRIVATE LIMITED" };
+		const switching = vendorPayment({
+			name: "PAY-0009", documentName: "PO/009/26-27", paidTo: { ...own(ACME), switch_to: readAt }, shownSwitchTo: readAt,
+		});
+		const keeping = vendorPayment({ name: "PAY-0010", documentName: "PO/010/26-27" });
+		const { rows } = withTakenAccounts([switching, keeping], {
 			taken: [
-				{ name: "PAY-0009", paid_to: { ...own(ACME), switch_to: recorded } },
-				{ name: "PAY-0010", paid_to: { ...own(ACME), switch_to: recorded } },
+				{ name: "PAY-0009", paid_to: { ...own(ACME), switch_to: renamed } },
+				{ name: "PAY-0010", paid_to: own(ACME) },
 			],
 			skipped: [],
 		});
 
 		const file = buildBankFile(rows, ICICI);
 
-		expect(file.rows.map((r) => [r.REMARK, r.BENE_ACC_NO, r.BENE_IFSC])).toEqual([
-			["PO/009/26-27", "77700011122233", "UTIB0000789"],
-			["PO/010/26-27", "77700011122233", "UTIB0000789"],
+		expect(file.rows.map((r) => [r.REMARK, r.BNF_NAME, r.BENE_ACC_NO, r.BENE_IFSC])).toEqual([
+			["PO/009/26-27", "ACME TRADERS PRIVATE LIMITED", "50100234567812", "ICIC0000456"],
+			["PO/010/26-27", "ACME TRADERS PVT LTD", "0050200012345", "HDFC0001234"],
 		]);
-		expect(describeSwitched(file.switched)).toBe(
-			"2 payments paid into their vendor's current account (PO/009/26-27; PO/010/26-27)",
-		);
+		expect(describeSwitched(file.switched)).toBe("1 payment paid into its vendor's current account (PO/009/26-27)");
 	});
 
-	it("leaves out a payment the server found nowhere to pay, and leaves expenses as read", () => {
-		const lostIt = vendorPayment({ name: "PAY-0011", paidTo: { ...NO_ACCOUNT_PAYMENT, missing: null, switch_to: readAt } });
-		const expense: BankFileRow = { ...vendorPayment({ kind: "expense", name: "PAY-0011", documentName: "PE-1" }) };
-		const { rows } = withTakenAccounts([lostIt, expense], {
-			taken: [{ name: "PAY-0011", paid_to: NO_ACCOUNT_PAYMENT }],
-			skipped: [],
-		});
+	it("leaves an expense as read, even one sharing a payment's ID: the server answers only PO / WO payments", () => {
+		const payment = vendorPayment({ name: "PAY-0011", documentName: "PO/011/26-27" });
+		const expense = vendorPayment({ kind: "expense", name: "PAY-0011", documentName: "PE-1", paidTo: own(readAt) });
+		const answer = { ...own(ACME), switch_to: readAt };
 
-		const file = buildBankFile(rows, ICICI);
+		const { rows } = withTakenAccounts([payment, expense], { taken: [{ name: "PAY-0011", paid_to: answer }], skipped: [] });
 
-		expect(file.leftOut.map((l) => [l.row.name, l.reason])).toEqual([["PAY-0011", "vendor_has_no_account"]]);
-		expect(file.payable).toEqual([expense]);
+		expect(rows).toEqual([{ ...payment, paidTo: answer }, expense]);
+	});
+});
+
+describe("afterExport — the ticks never outlive a refetch", () => {
+	const switchedFile = buildBankFile([vendorPayment({ paidTo: { ...own(ACME), switch_to: ACME } })], ICICI);
+	const plainFile = buildBankFile([vendorPayment()], ICICI);
+	const emptyFile = buildBankFile([vendorPayment({ paidTo: NO_ACCOUNT_PAYMENT })], ICICI);
+	const stale = [{ row: vendorPayment(), status: "Paid" }];
+
+	it("clears the ticks when every row was skipped and the list is refetched, though no file was saved", () => {
+		expect(afterExport(emptyFile, stale)).toEqual({ clearTicks: true, refetch: true });
+	});
+
+	it("refetches after a switch or a skip, and clears the ticks after any saved file", () => {
+		expect(afterExport(switchedFile, [])).toEqual({ clearTicks: true, refetch: true });
+		expect(afterExport(plainFile, stale)).toEqual({ clearTicks: true, refetch: true });
+		expect(afterExport(plainFile, [])).toEqual({ clearTicks: true, refetch: false });
+	});
+
+	it("keeps the ticks when nothing was saved and the list stays as it is", () => {
+		expect(afterExport(emptyFile, [])).toEqual({ clearTicks: false, refetch: false });
 	});
 });
 
 describe("a payment no longer Approved is left out of the file (#1463)", () => {
+	const byDocument = (row: BankFileRow) => row.documentName;
+
 	it("drops each skipped PO / WO payment, keeps the rest in order, and names the skipped ones", () => {
 		const stale = vendorPayment({ name: "PAY-0020", documentName: "PO/020/26-27" });
 		const fresh = vendorPayment({ name: "PAY-0021", documentName: "PO/021/26-27" });
@@ -221,16 +241,16 @@ describe("a payment no longer Approved is left out of the file (#1463)", () => {
 
 		expect(file.rows.map((r) => r.REMARK)).toEqual(["PO/021/26-27", "PE-9"]);
 		expect(skipped).toEqual([{ row: stale, status: "Reconciliation Pending" }]);
-		expect(describeSkipped(skipped)).toBe("Left out, no longer Approved: PO/020/26-27 (Reconciliation Pending)");
+		expect(describeSkipped(skipped, byDocument)).toBe("Left out, no longer Approved: PO/020/26-27 (Reconciliation Pending)");
 	});
 
 	it("says nothing when nothing was skipped", () => {
-		expect(describeSkipped([])).toBeNull();
+		expect(describeSkipped([], byDocument)).toBeNull();
 	});
 
 	it("names the first three skipped and counts the rest", () => {
 		const skipped = ["1", "2", "3", "4"].map((n) => ({ row: vendorPayment({ documentName: `PO/00${n}` }), status: "Paid" }));
-		expect(describeSkipped(skipped)).toBe(
+		expect(describeSkipped(skipped, byDocument)).toBe(
 			"Left out, no longer Approved: PO/001 (Paid) · PO/002 (Paid) · PO/003 (Paid) · +1 more",
 		);
 	});

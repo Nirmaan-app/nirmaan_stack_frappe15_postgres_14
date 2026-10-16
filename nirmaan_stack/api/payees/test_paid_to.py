@@ -470,16 +470,19 @@ class TestPaidTo(FrappeTestCase):
                 before = {name: self._stored_copy(name) for name in names}
                 self._edit_account(vendor_now, account_number=self.payees.account_number())
 
-                with self.assertRaisesRegex(frappe.ValidationError, r"changed again\. Refresh and try again\."):
+                with self.assertRaisesRegex(frappe.ValidationError,
+                                            r"has changed since the page loaded\. Refresh and try again\."):
                     self._take(names, shown=shown)
 
                 self.assertEqual({name: self._stored_copy(name) for name in names}, before)
                 self.assertIsNone(frappe.db.get_value(
                     "Version", {"ref_doctype": PAYMENT, "docname": ["in", names], "data": ["like", '%"pay_to_%']}))
 
-    def test_paying_names_each_payment_whose_vendors_account_changed_again(self):
+    def test_paying_names_each_payment_whose_account_changed_since_the_page_loaded(self):
+        # The page showed no switch for it, so the message must not say its account changed "again".
         payee = self.payees.payee()
         payment = self._payment(self._vendor(payee), copy_of=payee, saved=True)
+        # Raw write on purpose: only the PO name the message prints is needed; no hook reads document_name here.
         frappe.db.set_value(PAYMENT, payment, {"document_type": "Procurement Orders",
                                                "document_name": "PO/TEST/AGAIN"}, update_modified=False)
         frappe.db.commit()
@@ -487,7 +490,7 @@ class TestPaidTo(FrappeTestCase):
 
         with self.assertRaises(frappe.ValidationError) as refused:
             self._take([payment], shown=[None])
-        self.assertIn("The vendor's account for PO/TEST/AGAIN changed again. Refresh and try again.",
+        self.assertIn("The account for PO/TEST/AGAIN has changed since the page loaded. Refresh and try again.",
                       str(refused.exception))
 
     def test_paying_takes_the_switch_it_showed_however_its_account_number_is_written(self):
@@ -535,6 +538,7 @@ class TestPaidTo(FrappeTestCase):
         paid = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True)
         approved = self._payment(self._vendor(vendor_now), copy_of=raised_with, saved=True)
         shown = [a["switch_to"] for a in get_paid_to([{"doctype": PAYMENT, "name": n} for n in (paid, approved)])]
+        # Raw write on purpose: the test needs only a payment no longer Approved, and reads no figure its hooks derive.
         frappe.db.set_value(PAYMENT, paid, "status", "Reconciliation Pending", update_modified=False)
         frappe.db.commit()
 

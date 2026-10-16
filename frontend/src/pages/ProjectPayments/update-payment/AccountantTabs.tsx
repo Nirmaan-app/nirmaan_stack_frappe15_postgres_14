@@ -72,13 +72,15 @@ import { canEditQueueRow, canHoldQueueRow, canPayQueueRow, canWorkQueueRows, isH
 import { PAYMENT_HOLD_ROW_CLASSES, PaymentHoldNotice } from "../components/PaymentHoldNotice"
 import { useHasLoadedOnce } from "@/hooks/useHasLoadedOnce";
 import {
-    buildBankFile, describeLeftOut, describeSkipped, describeSwitched, shownSwitches, withTakenAccounts,
+    afterExport, buildBankFile, describeLeftOut, describeSwitched, shownSwitches, withTakenAccounts,
     type BankFile, type BankFileRow,
 } from "../bankUploadFile";
 import {
     PAID_TO_API, TAKE_VENDOR_ACCOUNTS_API, type PaidTo, type PaidToKey, type ShownSwitch, type TakeVendorAccountsAnswer,
 } from "@/components/payees/paidToApi";
-import { PAYMENT_DOCTYPE, leaveOutSkipped, switchLine, unpayableReason } from "@/utils/payees/paidTo";
+import {
+    PAYMENT_DOCTYPE, describeSkipped, leaveOutSkipped, switchLine, unpayableReason, type SkippedRow,
+} from "@/utils/payees/paidTo";
 import { toastList } from "@/utils/toastList";
 
 // --- Constants ---
@@ -447,10 +449,10 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             return;
         }
         const switchedCount = answer.taken.filter((t) => t.paid_to.switch_to).length;
-        const { kept: rows, skipped } = leaveOutSkipped(confirmPaidRows, answer.skipped);
-        const skippedNote = skipped.length > 0
-            ? ` Left out, no longer Approved: ${toastList(skipped.map((s) => `${s.row.against_primary} (${s.status})`))}.`
-            : "";
+        const { kept: rows, skipped } = leaveOutSkipped(
+            confirmPaidRows, answer.skipped, (row) => row.doctype === PAYMENT_DOCTYPE);
+        const skippedLine = describeSkipped(skipped, (row) => row.against_primary);
+        const skippedNote = skippedLine ? ` ${skippedLine}.` : "";
         for (let i = 0; i < rows.length; i++) {
             try {
                 await updateDoc(rows[i].doctype, rows[i].name, {
@@ -649,17 +651,25 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
         // whole call when that is not what the payer was shown. A payment no longer Approved is left
         // out of the file. If the call fails, there is no file.
         let bankFile = draft;
-        let skippedPart: string | null = null;
+        let skipped: SkippedRow<BankFileRow>[] = [];
         try {
             const taken = withTakenAccounts(bankRows, await takeVendorAccountsOf(shownSwitches(draft)));
             bankFile = buildBankFile(taken.rows, options);
-            skippedPart = describeSkipped(taken.skipped);
+            skipped = taken.skipped;
         } catch (error) {
             toast({ title: "Export failed", description: getFrappeError(error), variant: "destructive" });
             return;
         }
+        const skippedPart = describeSkipped(skipped, (row) => row.documentName);
+        // ⚠️ Ticks are kept by row position (the table has no getRowId): `afterExport` clears them
+        // whenever the list is refetched, even when the file came out empty.
+        const after = afterExport(bankFile, skipped);
+        const settle = () => {
+            if (after.clearTicks) table.resetRowSelection();
+            if (after.refetch) refetch();
+        };
         if (nothingToExport(bankFile, skippedPart)) {
-            if (skippedPart) refetch();
+            settle();
             return;
         }
         const skippedParts = describeLeftOut(bankFile.leftOut);
@@ -684,9 +694,7 @@ export const AccountantTabs: React.FC<AccountantTabsProps> = ({ tab = "New Payme
             variant: bankFile.leftOut.length > 0 || skippedPart ? "default" : "success",
         });
         setIsExportDialogOpen(false); // Close dialog
-        table.resetRowSelection(); // Clear selection
-        // A switched payment's Paid to cell now reads its new account; a skipped one leaves the tab.
-        if (bankFile.switched.length > 0 || skippedPart) refetch();
+        settle();
     };
 
 

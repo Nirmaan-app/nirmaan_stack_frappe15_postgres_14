@@ -189,8 +189,8 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     skips one no longer Approved (answered in `skipped` with its status, never a refusal: one stale row
     must not block the batch). It re-reads the rule under the lock and compares each fresh `switch_to`
     with `shown` by `paid_to.account_key` (normalised account number and IFSC, the switch rule's own
-    comparison): on any difference it refuses the whole call, "The vendor's account for <PO> changed
-    again. Refresh and try again.", and writes nothing (GLOSSARY *Pay-to account*: the payer is told
+    comparison): on any difference it refuses the whole call, "The account for <PO> has changed since
+    the page loaded. Refresh and try again.", and writes nothing (GLOSSARY *Pay-to account*: the payer is told
     before the account is replaced). Otherwise it writes each `switch_to`
     (`pay_to.set_pay_to`) with a document save (`ignore_version=False`), so the switch is in the
     payment's Version history with who and when (the box's "Set by" then reads "Changed by"). It
@@ -200,13 +200,15 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     confirmation (so the confirmation names each switching row from a fresh read, and leaves out a row
     become Ineligible or held, naming why: `paidTo.unpayableReason`), sends each payment with the
     switch the confirmation showed, marks nothing if the call fails, and leaves the skipped rows out of
-    the marking (`paidTo.leaveOutSkipped`), naming them in the toast. Export for Payment sends each
+    the marking (`paidTo.leaveOutSkipped`), naming them in the toast (`paidTo.describeSkipped`, which
+    the export's toast shares). Export for Payment sends each
     payment the file would pay with the switch its Paid to cell showed as the page loaded it
     (`BankFileRow.shownSwitchTo`, `bankUploadFile.shownSwitches`) before saving the file (no file if it
     fails), then builds the file from its answer without the skipped ones
-    (`bankUploadFile.withTakenAccounts`, `describeSkipped`), so the file pays exactly the account each
-    payment records; it says how many were switched
-    (`describeSwitched`). A PO / WO payment's account is still never edited by hand.
+    (`bankUploadFile.withTakenAccounts`, through `leaveOutSkipped`), so the file pays exactly the account
+    each payment records; it says how many were switched (`describeSwitched`). Whenever a skip or a
+    switch makes it refetch the list, it clears the ticks first, even when no file was saved
+    (`bankUploadFile.afterExport`): ticks are kept by row position. A PO / WO payment's account is still never edited by hand.
   - **Which rows can be paid** (#1464, ADR-0033 decision 10, GLOSSARY *Ineligible* / *Kept out of the
     bank file*; a screen rule): `paidTo.rowEligibility(paid_to, expense_type)` is THE rule, read from
     the paid-to answer so the queue and the export (read again) agree. *Payable*: an account, or a

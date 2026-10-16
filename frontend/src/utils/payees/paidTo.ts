@@ -12,6 +12,7 @@
 import type { PayToAccount } from "@/types/NirmaanStack/Payee";
 import { formatDate } from "@/utils/FormatDate";
 import { SETTLED_STATUSES, STATUS_APPROVED } from "@/utils/settlement";
+import { toastList } from "@/utils/toastList";
 
 import { PAYEE_RULE, asPayeeRule } from "./expensePayee";
 
@@ -176,25 +177,42 @@ export interface SkippedPayment {
     status: string;
 }
 
+/** A row left out because `take_vendor_accounts` skipped it, with the status the server found. */
+export interface SkippedRow<T> {
+    row: T;
+    status: string;
+}
+
 /**
  * The rows without the PO / WO payments `take_vendor_accounts` skipped (#1463): one no longer
  * Approved is not marked paid again, nor put in the bank file. `skipped` pairs each left-out row with
- * the status the server found, so the toast can name it. Expenses are never skipped here.
+ * the status the server found, so the toast can name it (`describeSkipped`). `isVendorPayment` says
+ * which rows are PO / WO payments (a queue row by its doctype, a bank-file row by its kind): expenses
+ * are never skipped here.
  */
-export const leaveOutSkipped = <T extends { doctype: string; name: string }>(
+export const leaveOutSkipped = <T extends { name: string }>(
     rows: readonly T[],
     skipped: readonly SkippedPayment[],
-): { kept: T[]; skipped: { row: T; status: string }[] } => {
+    isVendorPayment: (row: T) => boolean,
+): { kept: T[]; skipped: SkippedRow<T>[] } => {
     const statusOf = new Map(skipped.map((s) => [s.name, s.status]));
     const kept: T[] = [];
-    const left: { row: T; status: string }[] = [];
+    const left: SkippedRow<T>[] = [];
     for (const row of rows) {
-        const status = row.doctype === PAYMENT_DOCTYPE ? statusOf.get(row.name) : undefined;
+        const status = isVendorPayment(row) ? statusOf.get(row.name) : undefined;
         if (status === undefined) kept.push(row);
         else left.push({ row, status });
     }
     return { kept, skipped: left };
 };
+
+/** The toast's line on the payments left out as no longer Approved, each named by `nameOf` (its PO /
+ *  SR), e.g. "Left out, no longer Approved: PO/009 (Paid) · PO/010 (Reconciliation Pending)"; null
+ *  when none. Mark as Paid and Export for Payment both say it. */
+export const describeSkipped = <T>(skipped: readonly SkippedRow<T>[], nameOf: (row: T) => string): string | null =>
+    skipped.length === 0
+        ? null
+        : `Left out, no longer Approved: ${toastList(skipped.map((s) => `${nameOf(s.row)} (${s.status})`))}`;
 
 export const VENDOR_ACCOUNT_TITLE = "Will be paid into the vendor's current account";
 

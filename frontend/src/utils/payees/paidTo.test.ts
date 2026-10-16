@@ -4,6 +4,7 @@ import {
     canChangeExpenseAccount,
     canRemoveExpenseAccount,
     changeAccountRuleLine,
+    describeSkipped,
     editDialogPayTo,
     expenseTitle,
     expenseTypeAside,
@@ -181,6 +182,7 @@ describe("unpayableReason: why Mark as Paid leaves a row out (#1464)", () => {
 
 describe("leaveOutSkipped: rows take_vendor_accounts found no longer Approved (#1463)", () => {
     const payment = (name: string) => ({ doctype: "Project Payments", name, against_primary: name });
+    const isVendorPayment = (row: { doctype: string }) => row.doctype === "Project Payments";
 
     it("leaves out each skipped PO / WO payment with the status the server found, and keeps the rest in order", () => {
         const rows = [payment("PAY-1"), { doctype: "Project Expenses", name: "PAY-2", against_primary: "Travel" }, payment("PAY-3")];
@@ -188,15 +190,17 @@ describe("leaveOutSkipped: rows take_vendor_accounts found no longer Approved (#
         const { kept, skipped } = leaveOutSkipped(rows, [
             { name: "PAY-1", status: "Reconciliation Pending" },
             { name: "PAY-2", status: "Paid" },
-        ]);
+        ], isVendorPayment);
 
         expect(kept.map((r) => r.name)).toEqual(["PAY-2", "PAY-3"]);
         expect(skipped).toEqual([{ row: rows[0], status: "Reconciliation Pending" }]);
+        expect(describeSkipped(skipped, (row) => row.against_primary))
+            .toBe("Left out, no longer Approved: PAY-1 (Reconciliation Pending)");
     });
 
     it("keeps every row when nothing was skipped", () => {
         const rows = [payment("PAY-1")];
-        expect(leaveOutSkipped(rows, [])).toEqual({ kept: rows, skipped: [] });
+        expect(leaveOutSkipped(rows, [], isVendorPayment)).toEqual({ kept: rows, skipped: [] });
     });
 });
 
