@@ -109,6 +109,12 @@ class TestCreateDirectExpense(FrappeTestCase):
         created = self._create(PE, payee=other, vendor=vendor)
         self.assertEqual(self._pay_to(PE, created["name"]), self._account_of(vendor_payee))
 
+    def test_a_project_expense_with_others_no_vendor_holds_the_payee_picked(self):
+        """The Project Expense dialog sends "Others (No Vendor)" as an empty vendor (#1474)."""
+        payee = self.payees.payee()
+        created = self._create(PE, payee=payee, vendor="")
+        self.assertEqual(self._pay_to(PE, created["name"]), self._account_of(payee))
+
     def test_an_expense_with_no_payee_is_saved_with_no_account(self):
         """Nothing about who gets paid is refused on the server, not even a Required type with none."""
         for doctype in (PE, NPE):
