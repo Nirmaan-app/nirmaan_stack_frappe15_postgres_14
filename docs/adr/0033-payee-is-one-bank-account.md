@@ -62,15 +62,22 @@ upload files always skipped expenses as "(no vendor)".
    the record is raised, so the raiser sees where the money goes before submitting: a PO / WO
    payment from its vendor's Payee, an expense from the Payee picked. On an Expense Request or
    Expense the raiser may change it until approval; after that Accountant, Accountant Lead or Admin,
-   until it is paid. A PO / WO payment's is never edited, keeping the rule that a PO / WO payment is
-   not editable in the app: if its vendor's Payee has changed since the copy, the payer is warned,
-   and the payment is rejected and raised again. From *Reconciliation Pending* or *Paid* the screens
+   until it is paid. A PO / WO payment's is never edited by hand, keeping the rule that a PO / WO
+   payment is not editable in the app. **Revised 2026-10-16:** if its vendor's Payee has changed
+   since the copy, or it has no copy, it is not rejected and raised again: when it is put in a bank
+   file or marked paid it takes the vendor's current account, so the copy records the account
+   actually paid; the payer sees the change first. From *Reconciliation Pending* or *Paid* the screens
    no longer let it change; this is a screen rule only, and the server enforces none of these
    edit rules (owner, 2026-10-15), like the other edit-by-status rules. Every change is
    recorded (`track_changes`). An account number typed by hand anywhere is typed twice, paste
    disabled. The bank upload files and Bulk Import Tier 1 read the record's own pay-to account.
    Existing records: unpaid ones are copied from today's Payee; paid ones are filled from their
    matched bank line where it holds an account number, and otherwise left blank, never guessed.
+10. **Which rows can be paid (2026-10-16).** A row is *Ineligible* when there is nowhere to send
+    its money: a PO / WO payment with no copy whose vendor has no Payee, or an Expense of a
+    *Required* type with no pay-to account. The payment screens don't let it be ticked, exported or
+    marked paid. An Expense of an *Optional* / *Not asked* type with no account, and any cheque
+    payment, is *kept out of the bank file* but can be marked paid. Screen rules, like decision 9.
 
 This replaces the 2026-08-18 rule in `.claude/context/domain/expenses.md` that a request asks for no
 payee bank details.
