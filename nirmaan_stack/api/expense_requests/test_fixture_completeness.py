@@ -91,6 +91,17 @@ class TestFixtureCompleteness(FrappeTestCase):
 			live = frappe.db.get_value("Expense Type", name, "source_format")
 			self.assertTrue(live, f"{name}: fixture carries a format but the database has none")
 
+	def test_material_transportation_charges_is_offered_on_both_ledgers(self):
+		"""Every Porter Expense is typed this, Project or Non-Project (ADR-0032, #1445). Create refuses
+		a type whose flag is 0 for its side (`settle._assert_type_scope`), so a migrate that reset
+		`non_project` would fail every Non-Project Porter order."""
+		name = "Material Transportation Charges"
+		shipped = next(r for r in json.load(open(_fixture_path("Expense Type"))) if r["name"] == name)
+		self.assertEqual((shipped["project"], shipped["non_project"]), (1, 1))
+		live = frappe.db.get_value("Expense Type", name, ["project", "non_project"], as_dict=True)
+		self.assertIsNotNone(live, f"{name} is missing -- run `bench migrate`")
+		self.assertEqual((live.project, live.non_project), (1, 1))
+
 	def test_every_categorised_type_points_at_a_category_that_ships(self):
 		"""A Link whose target is not in the fixtures dangles on a fixture-seeded site."""
 		types = json.load(open(_fixture_path("Expense Type")))

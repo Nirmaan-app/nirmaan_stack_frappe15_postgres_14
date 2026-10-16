@@ -108,6 +108,8 @@ class TestVocabulary(unittest.TestCase):
                 "Credit card auto-debit",
                 "Cashbook internal movement",
                 "Skipped by hand",
+                # #1443 (ADR-0032): a Porter Statement line whose order Porter cancelled.
+                "Porter order cancelled",
             ),
         )
 

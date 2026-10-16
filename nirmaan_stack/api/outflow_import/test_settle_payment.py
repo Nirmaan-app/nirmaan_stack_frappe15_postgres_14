@@ -1451,7 +1451,7 @@ class TestTheResolvedSettlementReference(PaymentSettlementFixture):
         new field alone would then settle every one of them with a BLANK -- strictly worse than the
         defect being fixed, and silent.
 
-        `_StagedRow` carries a legacy floor for exactly this. It is ONE expression at ONE adapter,
+        `StagedRow` carries a legacy floor for exactly this. It is ONE expression at ONE adapter,
         it holds no per-source rung, and it must never be copied to a write site.
         """
         row = self._import_row("0003")

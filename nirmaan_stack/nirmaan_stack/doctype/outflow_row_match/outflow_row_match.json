@@ -123,7 +123,7 @@
    "fieldname": "match_basis",
    "fieldtype": "Select",
    "label": "Match Basis",
-   "options": "reference\naccount+IFSC\nproject in remark\nManual\ncashbook remark",
+   "options": "reference\naccount+IFSC\nproject in remark\nManual\ncashbook remark\nporter statement",
    "reqd": 1
   },
   {
@@ -184,7 +184,7 @@
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-09-15 00:00:00.000000",
+ "modified": "2026-10-15 21:30:00.000000",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Row Match",

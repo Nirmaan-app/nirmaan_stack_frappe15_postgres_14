@@ -1361,7 +1361,7 @@ class TestBatchStatus(unittest.TestCase):
 
         The 2026-08-10 ruling deleted `close_batch` because it stamped three fields nobody read.
         Nothing here writes anything: a batch closes itself the moment `derive_batch_status` returns
-        `Completed`, and `_refresh_batch_rollup` runs on every settle and every skip.
+        `Completed`, and `refresh_batch_rollup` runs on every settle and every skip.
         """
         self.assertFalse(batch_is_open(derive_batch_status([ROW_SETTLED, ROW_SKIPPED])))
         self.assertTrue(batch_is_open(derive_batch_status([ROW_SETTLED, ROW_MATCHED])))

@@ -281,6 +281,11 @@ List-page **summary cards stay tab-scoped** (they reflect the active status tab)
   `on_trash` *before* the row is deleted, so the gap query would still count the row);
   `after_delete` runs after the delete, so removing a `Paid` expense correctly lowers the
   gap / can release a hold. `generate_versions` stays on `on_trash`.
+- **An expense's own Files go through `stored_files.delete_files`** (`expense_files.delete_attached_files`,
+  the LAST `after_delete` handler on both expense doctypes, spec #1442): a File sharing its stored bytes
+  with another (a Porter invoice PDF) loses only its record. It runs mid-transaction, against
+  `delete_files`' "call it last" rule, and no later than before: Frappe's own `remove_all` trashed the same
+  Files at this same point of `delete_doc`, so a rollback after it could not restore a stored object either.
 
 ### PO adjustment
 - The ad-hoc adjustment expense is created directly as **`Paid`** (money has already moved)
@@ -558,7 +563,8 @@ PM raises  ->  Pending Approval  ->  routed reviewer
   2026-08-18) — and it MUST be `after_delete`, never `on_trash`: `on_trash` fires BEFORE the
   row leaves the database, so the expense still points at the request and Frappe refuses
   (`LinkExistsError`). The cashflow recompute on the same doctype moved to `after_delete` for
-  the same class of reason. **It clears the request's notifications FIRST, and that is not
+  the same class of reason, and so does the Files delete (`expense_files.delete_attached_files`, after the
+  link checks: a refused delete deletes no bytes). **It clears the request's notifications FIRST, and that is not
   tidiness — it is what makes the delete possible**: `Nirmaan Notifications.docname` is a
   **Dynamic Link**, and Frappe's delete guard walks dynamic links, so any rejected or paid
   request carries a notification that would block it. `ignore_links=True` is the WRONG fix —
@@ -706,18 +712,71 @@ silently wiped the shipped Travel (Bus) format once. Use the suite's `_set_forma
 - Plan / as-built: `.claude/plans/expense-request-plan.md`.
 - Bank-line settlement as-built: `.claude/context/domain/outflow-import.md`.
 
-## Porter expenses (designed 2026-10-15, ⚠️ NOT BUILT YET)
+## Porter expenses (designed 2026-10-15; created since #1445; expense screens since #1450)
 
-The Porter Statement import ([ADR-0032](../../../docs/adr/0032-porter-statement-import.md); rulings in
-`outflow-import.md` § *Porter Statement — the fourth source*) will create one Project or Non-Project Expense
-per completed Porter order, at `Paid`:
-- **Amount:** the Porter fare, never the reverse-charge GST.
-- **Link:** one `porter_order` Link to a new `Porter Order` doctype.
-- **Invoice PDF:** shared with every other order on the same Porter Invoice.
-- **Expense screens:** a Porter badge and a read-only Porter section.
-- **Locked project:** the project field is locked on these expenses; corrections go through **Rectify** in
-  Bulk Import.
-- **Delete:** already refused by `expense_bank_links` rule 3, because each one has a live import match.
+The Porter Statement import ([ADR-0032](../../../docs/adr/0032-porter-statement-import.md); rulings and
+as-built in `outflow-import.md` § *Porter Statement — the fourth source*) creates one Project or Non-Project
+Expense per completed Porter order, at `Paid` (`api/outflow_import/porter_create.py`, #1445):
+- **Amount:** the Porter fare, never the reverse-charge GST (that stays on the Porter Order as `rcm_gst`).
+- **Fields:** `payment_date` = the order's completion date; `payment_ref` = the CRN; `invoice_ref` /
+  `invoice_date` = the Porter Invoice's number and the date Gemini read; `payment_by` = the trimmed
+  booked-by name (Project side; Non-Project has no Paid by); `vendor` blank; `type` = Material
+  Transportation Charges (now flagged for both ledgers in the fixture); description "Porter Delivery raised
+  by {name} for {project}" (no " for …" on Non-Project); comment "Imported from OFI-…"; no
+  `payment_attachment`.
+- **Link:** one read-only, indexed `porter_order` Link to the `Porter Order` doctype (named by CRN). The
+  Expense owns the link; the Porter Order holds none back and survives the Expense's deletion.
+- **Invoice PDF:** `invoice_attachment` is the URL of the ONE `File` attached to the Porter Invoice, shared by
+  every order on it; no File row per expense (written raw after insert so Frappe's attach-on-update hook makes
+  none, and a `File` `before_insert` hook, `expense_files.refuse_invoice_pdf_copy`, refuses the copy that hook
+  tries on every later save of a local-path value; it logs "Error Attaching File" and the save goes through).
+  Deleting the expense runs its own Files through `stored_files.delete_files`, so the PDF is never deleted
+  with it. The File itself is readable only by roles that can read `Porter Invoice` (Admin, Accountant,
+  Accountant Lead) on a local-disk site, so every screen (both lists, both edit dialogs, the approval detail,
+  the Porter section) opens it through `porter_invoice_pdf` (below), never the raw URL: one rule, a Porter
+  Expense WITH an invoice attachment, in `porter_expense.pdf_url` and `utils/porterExpense.invoiceAttachmentUrl`,
+  pinned to each other. (In production the stored URL is the storage app's `generate_file`, which checks
+  nothing.)
+- **CEO Hold:** a Paid Project Expense counts in the cashflow gap at once; the Create job re-evaluates each
+  project it wrote to once at the end (the insert hook's check runs once per request).
+- **Delete:** refused by `expense_bank_links` rule 3, because each one has a live Settled import match
+  (pinned by `test_porter_expense.TestDeletingAPorterExpense`). `porter_order` itself guards nothing. Both
+  list pages now toast the server's reason (`getFrappeError`), e.g. "… cannot be deleted: 1 bank line
+  totalling ₹133 is linked to it. Take it off with Unreconcile …", not the SDK's generic delete error.
+
+### As built — #1450: Porter expenses in the expense screens (2026-10-15)
+
+**Decisions** live in `frontend/src/utils/porterExpense.ts` (vitest `porterExpense.test.ts`):
+`isPorterExpense` (= `porter_order` set: the badge and every lock), `projectField` (locked + `RECTIFY_HINT`
+"Use Rectify in Bulk Import" on a Porter Expense, `{locked: false}` otherwise), `porterSectionRows`.
+Components: `frontend/src/components/common/PorterExpense.tsx` — `PorterBadge`, `usePorterExpense`
+(SWR key `porter_expense_<doctype>_<name>`, null unless enabled), `PorterSectionBlock`, `PorterSection`.
+
+- **Badge** ("Porter", orange pill, before the text so truncation never hides it) in the Description column of
+  the Project list (standalone and the project's *Misc. Project Expenses* tab: one component) and the
+  Non-Project list (and its Outflow (Non-Project) report mode). `porter_order` is in
+  `DEFAULT_PE_FIELDS_TO_FETCH` / `DEFAULT_NPE_FIELDS_TO_FETCH` — the lists hand the ROW to the edit dialogs,
+  so without it neither the badge nor the dialogs' lock see it. Not on the Payments queue (out of scope:
+  `get_approval_queue` is a positional UNION).
+- **Read-only Porter section**: CRN, booked by, from → to, city, fare, reverse-charge GST, billing entity, and
+  the invoice number with a **View PDF** link. Read by ONE endpoint keyed on the EXPENSE,
+  `api/outflow_import/porter_expense.get_porter_expense(doctype, name)` (expense read permission; the Porter
+  doctypes are read without their own check, as `expense_detail` reads the Expense Request), `None` for a
+  hand-keyed expense. Shown in both edit dialogs (bottom), in the approval detail
+  (`ExpenseApprovalDetails`, when `get_expense_approval_detail` returns `porter_order`) and in the
+  bank-lines card on the Payments & Expenses table / Bulk Import (`ExpenseBankLinesCard`, when
+  `get_expense_bank_lines.details.porter_order` is set). It fetches only for a Porter Expense: every other
+  expense opens with no extra request. ⚠️ A Porter Expense is created at Paid, so it never reaches the
+  approval dialog in practice; the bank-lines card is where a Paid one is read.
+- **PDF (story 53):** `porter_expense.porter_invoice_pdf(doctype, name)` serves the Porter Invoice's stored
+  PDF inline (`response.type = "pdf"`) to anyone who may read the EXPENSE, reading the bytes through
+  `services/extraction/files.fetch_file_content` (cloud or local). Walked: a PMO Executive gets 403 on the raw
+  `/private/files/…` URL and the PDF through this link.
+- **Project lock (UI only, like every Paid lock — no server rule):** the Project edit dialog, which has no
+  project field for any other expense, shows a disabled Project row (the project's name) with the hint; the
+  Non-Project dialog shows a disabled "Non-Project" row with the same hint. Description and comment stay
+  editable and save (walked on both ledgers). On a local-disk site that save no longer adds a `File` row for
+  the shared PDF (the review fixes' `File` `before_insert` refusal; it logs "Error Attaching File").
 
 ## Deliberate design decisions (do NOT "fix")
 

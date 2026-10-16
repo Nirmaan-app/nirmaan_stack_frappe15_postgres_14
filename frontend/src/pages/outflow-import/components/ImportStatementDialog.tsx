@@ -9,7 +9,7 @@ import {
     RefreshCw,
     Upload,
 } from "lucide-react";
-import { useFrappePostCall } from "frappe-react-sdk";
+import { useFrappeGetCall, useFrappePostCall, useSWRConfig } from "frappe-react-sdk";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -54,13 +54,33 @@ import {
 import {
     CONFIRM_STEP_NOTE,
     FINISH_LATER_NOTE,
+    IMPORT_SOURCES,
+    acceptedExtensions,
     clickableStepIndex,
     confirmEmptyCopy,
     currentStepIndex,
     importSteps,
+    sourceExportPath,
 } from "../importWizard";
+import {
+    PORTER_CREATE_METHOD,
+    PORTER_RETRY_METHOD,
+    PORTER_SOURCE,
+    PORTER_STATUS_METHOD,
+    PORTER_STATUS_POLL_MS,
+    PORTER_UPLOAD_URL,
+    canCreatePorter,
+    createButtonLabel,
+    porterCreateStarted,
+    porterPolling,
+    type PorterStatus,
+} from "../porterImport";
+import { porterReviewOffered } from "../porterReview";
 import { CashbookReviewTree } from "./CashbookReviewTree";
 import { ConfirmMatchedPanel } from "./ConfirmMatchedPanel";
+import { PorterDiscardButton } from "./PorterDiscardButton";
+import { PorterImportSummary } from "./PorterImportSummary";
+import { PorterReviewPanel } from "./PorterReviewPanel";
 import { SheetHeaderPicker } from "./SheetHeaderPicker";
 
 const PREVIEW_URL =
@@ -84,12 +104,6 @@ const STATUS_POLL_MS = 1500;
  */
 const EMPTY_CONFIRM_SCOPE: Record<string, unknown> = {};
 
-// Mirrors the server's own limits (api/outflow_import/upload.py). Client-side is a courtesy so a
-// wrong file fails instantly; the endpoint is the boundary.
-// .xlsx joins .csv at Q10 -- the server sniffs the real format from the bytes, so a renamed export
-// still works and this list only decides what we accept by name.
-const ALLOWED_EXTENSIONS = [".csv", ".xlsx"];
-
 /**
  * WHICH Cashfree report each source is exported from.
  *
@@ -100,7 +114,7 @@ const ALLOWED_EXTENSIONS = [".csv", ".xlsx"];
  * parser then reports missing columns, which reads as "our file is broken" rather than "you took
  * the other export".
  *
- * ⚠️ KEYED BY THE SAME STRINGS AS `SOURCES` above, and a source with no entry falls back to plain
+ * ⚠️ KEYED BY THE SAME STRINGS AS `importWizard.IMPORT_SOURCES`, and a source with no entry falls back to plain
  * wording rather than rendering "undefined" — so adding a source that is NOT a Cashfree report
  * degrades honestly instead of claiming a menu path that does not exist.
  */
@@ -111,27 +125,14 @@ const SOURCE_REPORT: Record<string, string> = {
     // filled anyway because the SAME mistake exists here in a different form: a bank offers several
     // exports and only the detailed statement carries the narration this parser reads.
     "ICICI Bank Statement": "Detailed account statement",
+    // Porter's monthly CSV, one line per delivery order (#1443). Not a Cashfree report: its menu path
+    // is `importWizard.sourceExportPath`'s.
+    [PORTER_SOURCE]: "Porter Statement",
 };
+// Mirrors the server's own limit (api/outflow_import/upload.py). Client-side is a courtesy so a wrong
+// file fails instantly; the endpoint is the boundary. Which extensions each source takes is
+// `importWizard.acceptedExtensions`'s.
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
-
-/**
- * Only sources the backend parser actually has an adapter for may be selected.
- *
- * ⚠️ THESE `value` STRINGS ARE THE PARSER'S ADAPTER KEYS AND THE DOCTYPE SELECT OPTIONS, and all
- * three spellings are pinned together by test. `upload._read_and_parse` validates the posted source
- * against `SUPPORTED_SOURCES` and `_stage_batch` writes that same string straight into the Select,
- * so a value that differs from either fails Frappe's validation on EVERY batch insert for that
- * source. Widen this list in the same change as the parser and the doctype, never on its own.
- *
- * ⚠️ `ICICI Bank Statement` names the BANK, not "a bank statement", deliberately: the source picks a
- * COLUMN ADAPTER, and a second bank has different columns and a different narration grammar. Adding
- * HDFC later is one more entry here, not a re-fit of this one.
- */
-const SOURCES = [
-    { value: "Cashfree", label: "Cashfree", available: true },
-    { value: "Cashbook", label: "Cashbook (petty cash)", available: true },
-    { value: "ICICI Bank Statement", label: "ICICI bank statement", available: true },
-];
 
 /**
  * What KIND of thing this source is importing — the dialog's heading, its opening sentence, and how
@@ -180,6 +181,14 @@ const SOURCE_SHAPE: Record<string, SourceShape> = {
             "Everything that moved through the account. Nothing is matched or settled by importing — the rows land in the Not-Matched list, where each one is resolved by a person.",
         wide: true,
     },
+    // ⚠️ IT PROMISES THE GATE, BECAUSE THE GATE IS THE POINT (ADR-0032): every completed order becomes
+    // an expense, but only once every Porter Invoice in the file agrees with Porter's own PDF.
+    [PORTER_SOURCE]: {
+        title: "Import a Porter Statement",
+        description:
+            "Porter deliveries the wallet already paid for. Each completed order becomes one expense — but only after every Porter invoice in the file agrees with Porter's own PDF.",
+        wide: true,
+    },
 };
 
 const sourceShape = (source: string): SourceShape =>
@@ -211,6 +220,13 @@ interface Props {
      * would yank the tab out from under somebody mid-review.
      */
     onRefresh?: () => Promise<void> | void;
+    /**
+     * The Porter import on screen (#1444), held by the page in the URL so a reload reopens it. Set, the
+     * dialog shows that import whatever source was picked; the page also sets it from Import History.
+     */
+    porterBatch?: string | null;
+    /** The upload staged a Porter import: the page holds its batch from here on. */
+    onPorterBatch?: (batch: string) => void;
 }
 
 /**
@@ -228,10 +244,19 @@ interface Props {
  * batch back, rather than reporting a failure that would send somebody to re-upload a statement
  * that is already in.
  */
-export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefresh }: Props) => {
+export const ImportStatementDialog = ({
+    open,
+    onOpenChange,
+    onImported,
+    onRefresh,
+    porterBatch = null,
+    onPorterBatch,
+}: Props) => {
     const inputRef = useRef<HTMLInputElement>(null);
 
-    const [source, setSource] = useState("Cashfree");
+    const [chosenSource, setSource] = useState("Cashfree");
+    // A Porter import on screen (a reload, or Import History) IS the source: there is nothing to pick.
+    const source = porterBatch ? PORTER_SOURCE : chosenSource;
     const [file, setFile] = useState<File | null>(null);
     const [isBusy, setIsBusy] = useState<"preview" | "upload" | "match" | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -262,6 +287,31 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
     const [cashbookStatus, setCashbookStatus] = useState<CashbookStatus | null>(null);
 
     /**
+     * The Porter import as the server reports it (#1443, #1444): its invoices and where each one's check
+     * stands. Set means the lines and the Porter Invoices are IN THE DATABASE.
+     *
+     * ⚠️ READ FROM THE SERVER BY BATCH, NEVER HELD AS LOCAL STATE. Validation runs in the background for
+     * minutes; the records are the truth, so a reload or a reopen shows exactly where it stands. Polled
+     * while the import is Validating, and not after (no socket, following Cashbook).
+     */
+    const porterKey = porterBatch ? `porter-status::${porterBatch}` : null;
+    const { data: porterData, mutate: setPorterData } = useFrappeGetCall<{ message: PorterStatus }>(
+        PORTER_STATUS_METHOD,
+        { batch: porterBatch },
+        porterKey,
+        // Polled while the invoices are being checked, and while the Create job is queued or running (#1445).
+        { refreshInterval: (latest) => (porterPolling(latest?.message) ? PORTER_STATUS_POLL_MS : 0) }
+    );
+    const porterStatus = porterBatch ? porterData?.message ?? null : null;
+    const { mutate: seedCache } = useSWRConfig();
+    const { call: retryPorterInvoice } = useFrappePostCall<{ message: PorterStatus }>(PORTER_RETRY_METHOD);
+    /** The invoice whose Retry is in flight, so its button can say so. */
+    const [retrying, setRetrying] = useState<string | null>(null);
+    const { call: startPorterCreate } = useFrappePostCall<{ message: PorterStatus }>(PORTER_CREATE_METHOD);
+    /** The Create request is in flight (the job itself runs on the server; the poll follows it). */
+    const [startingCreate, setStartingCreate] = useState(false);
+
+    /**
      * The Cashfree match has FINISHED, which is not the same as "not running" (slice CF/S7).
      *
      * ⚠️ IT IS WHAT SEPARATES STEP 3 FROM STEP 4, AND A FAILURE MUST NOT SET IT. `isBusy` goes back
@@ -275,6 +325,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
     const [rematchNonce, setRematchNonce] = useState(0);
 
     const isCashbook = source === "Cashbook";
+    const isPorter = source === PORTER_SOURCE;
 
     const { call: runMatch } = useFrappePostCall(
         "nirmaan_stack.api.outflow_import.review.match_batch"
@@ -337,8 +388,9 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
         if (!candidate) return;
 
         const lower = candidate.name.toLowerCase();
-        if (!ALLOWED_EXTENSIONS.some((ext) => lower.endsWith(ext))) {
-            setError("We support .csv and .xlsx statements.");
+        const extensions = acceptedExtensions(source);
+        if (!extensions.some((ext) => lower.endsWith(ext))) {
+            setError(`We support ${extensions.join(" and ")} statements.`);
             return;
         }
         if (candidate.size > MAX_FILE_BYTES) {
@@ -350,7 +402,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
             return;
         }
         setFile(candidate);
-    }, []);
+    }, [source]);
 
     /**
      * POST the statement to `url`.
@@ -545,6 +597,81 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
         onOpenChange(false);
     }, [cashbookBatch, cashbookPreview, onImported, onOpenChange]);
 
+    /**
+     * Upload a Porter Statement (#1443). ONE request reads, refuses or stages the whole file.
+     *
+     * ⚠️ NO PREVIEW FIRST, unlike Cashfree and Cashbook. The server refuses a wrong file before it saves
+     * anything, and the check that matters comes AFTER the upload, against Porter's own invoices — so a
+     * read-only preview would only ask the accountant to confirm a file twice.
+     */
+    const handlePorterUpload = useCallback(async () => {
+        if (!file || isBusy) return;
+        setIsBusy("upload");
+        setError(null);
+        try {
+            const message = (await post(PORTER_UPLOAD_URL, null)) as PorterStatus | undefined;
+            if (!message?.batch) {
+                setError("The server accepted the file but returned no import.");
+                return;
+            }
+            // Seeded, so the invoices show at once; the poll takes over from here.
+            await seedCache(`porter-status::${message.batch}`, { message }, { revalidate: false });
+            onPorterBatch?.(message.batch);
+        } catch (err: unknown) {
+            setError(describeFrappeError(err, "The upload failed."));
+        } finally {
+            setIsBusy(null);
+        }
+    }, [file, isBusy, post, seedCache, onPorterBatch]);
+
+    /**
+     * Retry one Porter Invoice that hit an Error (#1444). The server refuses anything else -- a Failed
+     * invoice is final -- and answers with the import, which restarts the poll.
+     */
+    const handlePorterRetry = useCallback(
+        async (invoice: string) => {
+            setRetrying(invoice);
+            setError(null);
+            try {
+                const response = await retryPorterInvoice({ invoice });
+                await setPorterData(response, { revalidate: false });
+            } catch (err: unknown) {
+                setError(describeFrappeError(err, "The retry could not be started."));
+            } finally {
+                setRetrying(null);
+            }
+        },
+        [retryPorterInvoice, setPorterData]
+    );
+
+    /**
+     * Create the import's expenses (#1445). The server refuses an import that is not validated, enqueues
+     * the job once per import, and answers with the import -- whose `create_running` restarts the poll.
+     */
+    const handlePorterCreate = useCallback(async () => {
+        if (!porterBatch) return;
+        setStartingCreate(true);
+        setError(null);
+        try {
+            const response = await startPorterCreate({ batch: porterBatch });
+            await setPorterData(response, { revalidate: false });
+        } catch (err: unknown) {
+            setError(describeFrappeError(err, "Create could not be started."));
+        } finally {
+            setStartingCreate(false);
+        }
+    }, [porterBatch, startPorterCreate, setPorterData]);
+
+    /**
+     * Close a Porter import. ⚠️ NOT `onImported`: its lines are not bank lines and the main table does
+     * not show them until they are created, so pinning the table to this import would show an empty
+     * screen. The screen behind is refreshed so Import History lists it.
+     */
+    const handlePorterDone = useCallback(async () => {
+        onOpenChange(false);
+        await onRefresh?.();
+    }, [onOpenChange, onRefresh]);
+
 
     const handleConfirm = useCallback(async () => {
         if (!file || isBusy) return;
@@ -644,9 +771,15 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
      * describe something that really happened.
      */
     const flow = {
-        previewed: isCashbook ? Boolean(cashbookPreview) : Boolean(preview),
-        staged: isCashbook ? Boolean(cashbookBatch) : Boolean(staged),
+        previewed: isPorter
+            ? Boolean(porterStatus)
+            : isCashbook
+              ? Boolean(cashbookPreview)
+              : Boolean(preview),
+        staged: isPorter ? Boolean(porterStatus) : isCashbook ? Boolean(cashbookBatch) : Boolean(staged),
         matched,
+        validated: isPorter && porterReviewOffered(porterStatus),
+        createStarted: isPorter && porterCreateStarted(porterStatus),
     };
     const steps = importSteps(source);
     const stepIndex = currentStepIndex(source, flow);
@@ -751,7 +884,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                {SOURCES.map((s) => (
+                                {IMPORT_SOURCES.map((s) => (
                                     <SelectItem key={s.value} value={s.value} disabled={!s.available}>
                                         {s.label}
                                     </SelectItem>
@@ -779,7 +912,7 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                         <input
                             ref={inputRef}
                             type="file"
-                            accept=".csv,.xlsx"
+                            accept={acceptedExtensions(source).join(",")}
                             className="hidden"
                             onChange={(e) => acceptFile(e.target.files?.[0])}
                         />
@@ -799,22 +932,35 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                                 </p>
                                 {SOURCE_REPORT[source] && (
                                     <p className="text-xs text-muted-foreground">
-                                        Cashfree → Reports → {SOURCE_REPORT[source]}
+                                        {sourceExportPath(source) ??
+                                            `Cashfree → Reports → ${SOURCE_REPORT[source]}`}
                                     </p>
                                 )}
                                 <p className="mt-0.5 text-xs text-muted-foreground">
-                                    .csv or .xlsx — or click to browse
+                                    {acceptedExtensions(source).join(" or ")} — or click to browse
                                 </p>
                             </>
                         )}
                     </div>
 
-                            <Button onClick={handlePreview} disabled={!file || isBusy !== null}>
-                                {isBusy === "preview" && (
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                )}
-                                {isBusy === "preview" ? "Reading statement…" : "Read statement"}
-                            </Button>
+                            {isPorter ? (
+                                <Button
+                                    onClick={handlePorterUpload}
+                                    disabled={!file || isBusy !== null}
+                                >
+                                    {isBusy === "upload" && (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    )}
+                                    {isBusy === "upload" ? "Uploading statement…" : "Upload statement"}
+                                </Button>
+                            ) : (
+                                <Button onClick={handlePreview} disabled={!file || isBusy !== null}>
+                                    {isBusy === "preview" && (
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    )}
+                                    {isBusy === "preview" ? "Reading statement…" : "Read statement"}
+                                </Button>
+                            )}
                         </>
                     )}
 
@@ -841,8 +987,25 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                         </div>
                     )}
 
+                    {/* PORTER, FROM STEP 2 ON -- the import is IN: its orders, its invoices and where
+                        each invoice's check stands. Nothing has been created. */}
+                    {isPorter && porterStatus && (
+                        <PorterImportSummary
+                            status={porterStatus}
+                            onRetry={handlePorterRetry}
+                            retrying={retrying}
+                            collapseInvoices={porterReviewOffered(porterStatus)}
+                        />
+                    )}
+
+                    {/* PORTER, STEP 3 -- every invoice passed: place each order before Create (#1446). */}
+                    {isPorter && porterStatus && porterReviewOffered(porterStatus) && (
+                        <PorterReviewPanel batch={porterStatus.batch} />
+                    )}
+
                     {/* STEP 2 -- what importing this statement WOULD do. Nothing is written yet. */}
                     {stepIndex === 1 &&
+                        !isPorter &&
                         (isCashbook ? (
                             cashbookPreview && <CashbookReviewTree preview={cashbookPreview} />
                         ) : (
@@ -995,7 +1158,26 @@ export const ImportStatementDialog = ({ open, onOpenChange, onImported, onRefres
                     would restructure a screen that settles money for no reason this slice needs.
                     From step 3 the body is a staged summary or an 800-row vendor tree that is MEANT
                     to be scrolled, so the way OUT has to stay put while you scroll it. */}
-                {!isCashbook && stepIndex >= 2 && (
+                {isPorter && porterStatus && (
+                    <div className="flex shrink-0 items-center justify-end gap-2 border-t px-6 py-3">
+                        {/* Discard (#1447): Admin / Accountant Lead, until Create has written anything. */}
+                        <PorterDiscardButton status={porterStatus} onDiscarded={handlePorterDone} />
+                        {canCreatePorter(porterStatus) && (
+                            <Button onClick={handlePorterCreate} disabled={startingCreate}>
+                                {startingCreate && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+                                {createButtonLabel(porterStatus)}
+                            </Button>
+                        )}
+                        <Button
+                            variant={canCreatePorter(porterStatus) ? "outline" : "default"}
+                            onClick={handlePorterDone}
+                        >
+                            Done
+                        </Button>
+                    </div>
+                )}
+
+                {!isCashbook && !isPorter && stepIndex >= 2 && (
                     <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t px-6 py-3">
                         {/* ⚠️ IT SAYS THE ROWS ARE ALREADY IN. By this point closing loses nothing,
                             and a reviewer who cannot tell that will sit through an 800-row confirm

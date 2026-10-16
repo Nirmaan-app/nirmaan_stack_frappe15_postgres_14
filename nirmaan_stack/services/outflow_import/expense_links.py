@@ -251,7 +251,7 @@ def load_expense_links(doctype: str, name: str) -> ExpenseLinks:
     nothing -- the same rule `allocation.allocated_of` applies to a row's legs.
 
     ⚠️ THE LINE DATE IS THE ROW'S `added_on` DATE, the same field a 1:1 settle has always written as
-    `payment_date` (`_StagedRow.added_on_date`).
+    `payment_date` (`StagedRow.added_on_date`).
     """
     result = frappe.db.sql(
         f"""

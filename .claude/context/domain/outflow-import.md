@@ -94,7 +94,7 @@ pick one ad-hoc; ask.
 | **Did a settlement take the machine's pick?** (Q1) | `services/outflow_import/status.py` (`settlement_origin`, `ORIGIN_*`) — pure | re-derive the accepted/overridden/no-suggestion test. THREE callers share it: the settle path, the summary aggregate, and the backfill patch. ⚠️ It is in `services/` because `api/expenses.py` imports `api/review.py`, so the reverse would be a cycle. ⚠️ NOT `auto_matched`, which means only "a suggestion existed" |
 | **Can this leg be unreconciled, and what happens?** (#1271) | `services/outflow_import/unreconcile.py` (`leg_verdict`, `first_refusal`, `LegFacts`, `VERDICT_*`) — pure, B1; the ONE writer that acts on it is `api/outflow_import/unreconcile.unreconcile_row`, which `expenses.reverse_allocation` wraps with one leg; the ONE reader of the plan is `unreconcile.get_unreconcile_plan` (#1275), sharing `_read_facts` with the write. Screen copy: `frontend/.../outflow-import/unreconcileView.ts` | decide at a call site whether a leg may be reversed, or write a reversal anywhere else. The write path reads the facts UNDER its row / leg / target locks and asks here; a plan shown earlier is never trusted. One refused leg means NOTHING is written. Refusal sentences and their ORDER are pinned by `test_unreconcile.py` (a leg wrong in several ways is told only the first). Later verdicts (`revert_expense`, `delete_created`, `unsplit_payment`, `unlink_expense_line`) are new branches here; which split child is a leg's own leftover, and whether it is untouched, is decided here too (#1279). **`unlink_expense_line` (#1300, ADR-0027 Q15/Q21) is one line off a many-line expense: NONE of the three "changed elsewhere" checks (amount, Paid, reference) apply** — linking never rewrote the amount or wrote that line's reference, and the expense is only Paid once every line is in, so each check would refuse every line but one. **Which legs are many-line is `_is_many_line_expense`, and nothing stored says it** — no flag marks a 1:1 settle — so it reads the slips: another slip shared the expense (live, or Reversed AFTER this leg was matched), or this lone line only part-fills a Reconciliation Pending expense (short by more than ₹5). ⚠️ **EVERY DOUBT IS 1:1**, which keeps the exact checks: an unknown match or reversal time is not sharing, and a 1:1 settle that was reversed and settled again by a new line is still 1:1. ⚠️ **THE SECOND SHAPE GOES PAST Q21's LETTER AND IS AWAITING OWNER RATIFICATION** (flagged at #1300): Q21 says "a single-slip undo keeps today's exact check", and a lone line that only part-fills IS single-slip — but it is the FIRST GO OF A RUN, and today's checks refuse it on all three counts (short amount, not Paid, the run's reference), so without this shape that line can never come off and the run is stuck. The cost is that a 1:1 expense whose amount was RAISED after settling (which #1302's rule 4 flips to Reconciliation Pending) reads as part-linked and reverts instead of refusing — which is the Q8 reading, a raised amount being an expense with room. A LOWERED amount still refuses, because it leaves the expense Paid and not short. The write `api/.../unreconcile._unlink_expense_line` touches NEITHER the amount, the reference nor `payment_by` (other lines still settle it) and re-derives status + date through the same `settle._derive_status_and_save` every expense settle ends in, AFTER the Reversed stamp so it reads only the lines that stay. The statement attachment — and its `File` link row, via `CarriedOut.statement_still_linked` — comes off only when no live line from the same import is left. Figures for the screen ride the plan and the response through `expense_line_fields` (`stays_linked`, `other_lines`, `expense_amount`, `stays_paid`); `unreconcileView.expenseLineConsequences` / `legAmountLabel` render them, and ⚠️ **such a leg is excluded from the notice's changed-amount line** — its figure is one line's, the expense keeps its own |
 | **Bulk Unreconcile — several Settled lines at once** (#1317; read side #1319, write #1320) | `api/outflow_import/bulk_unreconcile.py` — a thin loop (B4): `get_bulk_unreconcile_plan` calls `unreconcile.plan_of_line` per line (the SAME function `get_unreconcile_plan` wraps); the write `bulk_unreconcile_rows` calls `unreconcile.unreconcile_line(legs="all", bulk_of=N)` per line, each in its own transaction, and owns ONLY the per-line isolation (Settled re-check under the row lock, rollback + drop the queued message on a refusal). Cap `BULK_UNRECONCILE_LIMIT` = 50. Screen: `frontend/.../outflow-import/tickMode.ts` (which lines are tickable — open OR Settled, never both), `bulkUnreconcileView.ts` (the toolbar button, the check-step summary, the run's labels, the result box's `bulkResultSummary`) | describe a line in the bulk check step differently from the one-line dialog, put a decision rule in the bulk module, or write a line any way but through `unreconcile_line`. ⚠️ The tick-mode rule lives ONLY in `tickMode.tickRules`; the page and table read its answer |
-| **Which database failure means "another reviewer wrote to this transfer first"** (#1246, ADR-0020 B4) | `services/outflow_import/concurrency.py` (`is_concurrent_writer_refusal`) — pure; the ONE reader is `expenses._concurrent_writer_refusal_as_sentence`, the shared boundary `allocate_row` (#1246) and `settle_row` (#1250) both wrap their work-up-to-the-commit in, which turns it into `CONCURRENT_ALLOCATION_MESSAGE` | widen it, or catch database errors broadly anywhere in this feature. Whatever it says yes to is told to a reviewer as a harmless race, on a screen that settles money. It recognises `SerializationFailure` (SQLSTATE 40001) ONLY — `InFailedSqlTransaction` and `DeadlockDetected` are deliberately outside, each pinned by a test. ⚠️ The translation ENDS AT THE COMMIT ("nothing was saved" is false after it). ⚠️ Where both racing payments sit on ONE PO the loser still sees raw `InFailedSqlTransaction` — `update_parent_amount_paid` swallows the 40001 first; measured and recorded in ADR-0020 B4a, deliberately NOT translated. `settle_row_partial` / `create_expense` are not covered |
+| **Which database failure means "another reviewer wrote to this transfer first"** (#1246, ADR-0020 B4) | `services/outflow_import/concurrency.py` (`is_concurrent_writer_refusal`) — pure; the ONE reader is `expenses.concurrent_writer_refusal_as_sentence`, the shared boundary `allocate_row` (#1246) and `settle_row` (#1250) both wrap their work-up-to-the-commit in, which turns it into `CONCURRENT_ALLOCATION_MESSAGE` | widen it, or catch database errors broadly anywhere in this feature. Whatever it says yes to is told to a reviewer as a harmless race, on a screen that settles money. It recognises `SerializationFailure` (SQLSTATE 40001) ONLY — `InFailedSqlTransaction` and `DeadlockDetected` are deliberately outside, each pinned by a test. ⚠️ The translation ENDS AT THE COMMIT ("nothing was saved" is false after it). ⚠️ Where both racing payments sit on ONE PO the loser still sees raw `InFailedSqlTransaction` — `update_parent_amount_paid` swallows the 40001 first; measured and recorded in ADR-0020 B4a, deliberately NOT translated. `settle_row_partial` / `create_expense` are not covered |
 | **What makes two staged transfers THE SAME transfer** (D3; widened source-aware at B3) | `services/outflow_import/duplicates.py` (`row_identity`, `row_identity_of`, `WIDE_IDENTITY_SOURCES`, `dates_agree`, `RowIdentity`) — pure | key a duplicate check on anything else. THREE readers: the cross-batch lookup (`candidates.find_earlier_batches_for_rows`), the in-file repeat check in `upload._stage_batch`, and the parser's `_duplicate_transfer_ids`. They used to key on `transfer_id` independently; a key that differed between them would let one call two rows duplicates while another called them distinct, on the same file. ⚠️ It is **NOT** the `Outflow Row Match` unique constraint — that stays `(transfer_id, target_doctype, target_name)` and is the money guarantee; this is about WORK, and may be more discriminating | ⚠️ **THE KEY IS SOURCE-AWARE SINCE B3, and the DEFAULT is the guarantee.** `row_identity(..., source="")` — what every caller passing nothing gets — returns the old `(transfer_id, amount, date)` triple **BYTE-IDENTICALLY**, because Cashfree and Cashbook carry live settled data whose duplicate behaviour is proven in production. A source in `WIDE_IDENTITY_SOURCES` (today: `ICICI Bank Statement`) gets `+ (direction, remarks)`. **Both extra fields are load-bearing and each catches a different failure, measured on the real 1,274-row statement where the triple silently LOSES 5 REAL ROWS:** *remarks* catches four SGST/CGST pairs (same id, date, amount AND direction, differing only in narration), *direction* catches the GL transfer whose two legs carry byte-identical narration. These are bank-narration artefacts that cannot occur in a payout export — which is exactly why the widening is per-source and not global. ⚠️ `row_identity_of(row, source)` is the ADAPTER over the one rule, never a second rule: the widening added two fields that live ON the row, and forgetting `remarks` at a call site degrades ICICI silently back to the four-field key — it still works, it just loses four rows a statement and says nothing. ⚠️ It is a DIFFERENT set from `sources.BANK_STATEMENT_SOURCES` and they must not be merged "because they hold the same string today": this one answers *what makes two lines of this statement the same line?*, that one answers *what can this statement's rows DO?*. Full numbers: ADR-0016 § 4.
 | Candidate pool queries | `services/outflow_import/candidates.py` | query a ledger for candidates inline in an endpoint |
 | **Which Paid records a GATEWAY row already duplicates** (#1256) | `api/outflow_import/review._paid_duplicate_pools` (over `candidates.load_paid_payments_by_reference` + `load_paid_expenses_by_reference`) builds the pools; `services/outflow_import/status.pick_duplicate_group` (pure) picks the group | compose the already-recorded pools a second time, or concatenate them before the pick. Both readers — the gateway run and `_related_records` for gateway rows — call the one builder, so a row is never skipped on a record its link omits. ⚠️ GATEWAY-ONLY since #1257: the `has_settlement_path` flag is gone because no bank-statement caller is left. ⚠️ The pick order `payments → expenses → both` is what keeps the pre-#1256 payment skip unchanged |
@@ -427,7 +427,7 @@ for each unfrozen row:  match_row -> derive_row_outcome -> _persist_row_outcome
 2. _disambiguate_matched         (disambiguate.py)  Option B: separate several candidates
 3. _resolve_stacks               (stacks.py)        pair interchangeable sets
 4. _sweep_unresolved_to_mismatched                  leftovers read as Not-Matched
-   _refresh_batch_rollup + commit
+   refresh_batch_rollup + commit
 ```
 
 **A bank statement (ICICI) never enters that loop.** `match_batch` forks above it into
@@ -437,7 +437,7 @@ for each unfrozen row:  match_row -> derive_row_outcome -> _persist_row_outcome
 load_recorded_by_contains(unfrozen rows)                   one query, the pool
 for each unfrozen row:  find_hits -> pick_recorded_group -> derive_duplicate_guard_outcome
                         -> _persist_row_outcome            (result=None: no suggestion, ever)
-_refresh_batch_rollup + commit
+refresh_batch_rollup + commit
 ```
 
 - **All three run AFTER the loop, never inside it.** `_persist_row_outcome` CLEARS every suggestion
@@ -738,7 +738,7 @@ needs one vocabulary rather than one per writer.
       QUEUED first line hid an exact copy). Those lookups are private to `skip_sources` again. Per
       import: the count is ADDED to `repeats_not_saved`, the rows are raw-deleted (no Deleted Document
       copy; their `Version` / `Comment` go with them), then counters/status go through
-      `review._refresh_batch_rollup` and gross/charges are re-summed with `parser.stored_money`. An
+      `review.refresh_batch_rollup` and gross/charges are re-summed with `parser.stored_money`. An
       import left with NO rows is kept and marked `Completed` (the deriver's empty-import `Draft` reads
       as open work). ⚠️ **Two keeps that look like gaps are the safety:** every earlier sighting must
       sit in an import created BEFORE the row's own (so every deletion points strictly earlier and each
@@ -1579,7 +1579,7 @@ have manufactured decisions nobody made. That reasoning outlives the feature and
 
 The owner asked for finished imports to stop being re-matched. That sounds like the deleted control
 and is not: **nothing is written.** `derive_batch_status` already returns `Completed` when a batch
-has no open rows, and `_refresh_batch_rollup` runs on **every settle and every skip** — so a batch
+has no open rows, and `refresh_batch_rollup` runs on **every settle and every skip** — so a batch
 closes itself, and a statement whose last transfer was settled a year ago already reads `Completed`
 today. No field, no patch, no backfill.
 
@@ -3536,7 +3536,7 @@ now does, with the re-pointed guard as its positive control, and was confirmed R
 ### ⚠️ THE DEPLOY-WINDOW FLOOR — one function, both readers, and it keeps every rung
 
 `settlement_reference_of_row(doc)` takes the stored column and recomputes the ladder **only when it is
-blank**. Both api readers (`review._StagedRow`, `expenses.reverse_allocation`) call it. **Without it
+blank**. Both api readers (`review.StagedRow`, `expenses.reverse_allocation`) call it. **Without it
 this slice is a REGRESSION**: the backfill's `patches.txt` wiring is added by the maintainer, by this
 repo's own convention, so the code can be live while the column is still NULL on every existing row,
 and reading the column alone would settle every one of them with a BLANK.
@@ -3551,7 +3551,7 @@ transaction id — the very source B9 exists to reach. Caught by the spec review
 `test_allocate_row.test_every_leg_carries_the_RAW_bank_reference`, whose fixture builds a row the
 pre-B9 way — `_staged_row`'s default shape is deliberately NOT modernised for that reason.
 
-`review._load_rows` gained `settlement_reference` and `source`: `_StagedRow` builds the value for every
+`review._load_rows` gained `settlement_reference` and `source`: `StagedRow` builds the value for every
 row it adapts, and a projection omitting them would silently hand the wallet rung a blank.
 
 ### The backfill
@@ -4861,7 +4861,7 @@ No user-visible change. First slice of #1270 (Unreconcile, Skip and Unskip).
   row-then-payment order as `allocate_row`; before #1271 a reversal took no row lock. Verdicts are
   computed for every leg before any write; one refusal throws that leg's sentence and writes nothing.
   Writes go in one savepoint; then `_refresh_row_allocation`, the batch rollup, commit.
-- **Concurrency:** wrapped in `_concurrent_writer_refusal_as_sentence`, so a concurrent writer now gets
+- **Concurrency:** wrapped in `concurrent_writer_refusal_as_sentence`, so a concurrent writer now gets
   `CONCURRENT_ALLOCATION_MESSAGE` on a reversal too (it used to get raw database text).
 - **`reverse_allocation`** keeps its URL, arguments, response and sentences; it is a wrapper with one
   leg. It imports `unreconcile` inside the function because `unreconcile` imports `expenses`.
@@ -4957,7 +4957,7 @@ Reverses the 2026-08-10 hidden-skip ruling and ADR-0016 R6. Record: **ADR-0022**
   non-open status / Cashbook by BATCH source) → `doc.save(ignore_permissions=True, ignore_version=False)`
   setting `row_status`, `skip_origin=Manual`, `skip_reason`, **`outcome_note = reason`**, `decided_at`,
   `decided_by` → a `Comment` ("Skipped by hand by <user>: <reason>") → the scoped Settled-leg delete →
-  rollup → commit, all inside `_concurrent_writer_refusal_as_sentence`.
+  rollup → commit, all inside `concurrent_writer_refusal_as_sentence`.
   - ⚠️ **`ignore_version=False` is required.** Frappe defaults it to `frappe.flags.in_test`, so without it
     no Version row is written under the test runner and the audit goes untested (found live: 0 Versions).
   - ⚠️ Accepting an already-Skipped line was the hole: it relabelled a system skip as a hand skip, which
@@ -5005,7 +5005,7 @@ Reverses the 2026-08-10 hidden-skip ruling and ADR-0016 R6. Record: **ADR-0022**
   `doc.save(ignore_version=False)` back to `Pending match run`, clearing `skip_origin`, `skip_reason`,
   `outcome_note`, `decided_at`, `decided_by`, `settlement_origin`, `duplicate_basis` → a `Comment`
   ("Unskipped by <user>: <reason>") → **`match_line(row)`** → commit, all inside
-  `_concurrent_writer_refusal_as_sentence`. Returns `{row, status, outcome_note, suggested_doctype,
+  `concurrent_writer_refusal_as_sentence`. Returns `{row, status, outcome_note, suggested_doctype,
   suggested_name, batch_status}`.
   - ⚠️ **The re-open and the re-check are ONE transaction.** A failing re-check rolls the re-open back
     with it, so a line is never left open with no outcome.
@@ -5014,7 +5014,7 @@ Reverses the 2026-08-10 hidden-skip ruling and ADR-0016 R6. Record: **ADR-0022**
   - **The claim is released by the status, not by the field.** `candidates.load_record_claims` reads a
     basis only while the line is `Skipped`; clearing `duplicate_basis` as well keeps a stale basis from
     ever being read as this line's. Pinned: the blocked twin skips on its next run.
-  - **No second rollup refresh:** `_match_rows` ends with `_refresh_batch_rollup`, so a Completed import
+  - **No second rollup refresh:** `_match_rows` ends with `refresh_batch_rollup`, so a Completed import
     reopens through the re-check. The one-line differences written up under #1272 apply here.
 - **`expenses.SKIPPED_ROW_REFUSAL`** reworded: a hand skip is unskipped from the Skipped list (no more
   "correct it in Desk").
@@ -5362,7 +5362,7 @@ Record: **ADR-0022** § *Confirm by hand*. Closes the #1270 slice list.
 - **Table read.** `get_outflow_rows` ships `confirm_by_hand`, `unreconciled_at` and `unreconciled_targets` from
   `review._last_unreconcile_by_row` (one query, marked rows only): the latest `reversed_at` on the row's
   `Reversed` legs and the targets reversed within one second of it. `unreconcile_row` now stamps every leg
-  of one call with ONE `reversed_at` (`_stamp_reversed` takes it); the second's tolerance is for legs reversed
+  of one call with ONE `reversed_at` (`stamp_reversed` takes it); the second's tolerance is for legs reversed
   before #1280, which each took their own timestamp microseconds apart.
   `get_batch_rows` / the export do not carry these keys.
 - **Frontend.**
@@ -6528,11 +6528,11 @@ four shapes) and the IFSC cases in `TestTheContainsQueryMirrorsThePureTokens`; `
 (3: the prompt text, a branch-code-only inflow, an inflow another line accounts for).
 
 
-## Porter Statement — the fourth source (designed 2026-10-15, ⚠️ NOT BUILT YET)
+## Porter Statement — the fourth source (designed 2026-10-15; upload built at #1443, validation at #1444, review at #1446, create at #1445, re-uploads and Discard at #1447, placement signals at #1448, rectify at #1449, the rest NOT BUILT YET)
 
 Decisions: **[ADR-0032](../../../docs/adr/0032-porter-statement-import.md)** (owner grilling, Q1–Q36).
-Terms: `GLOSSARY.md` § *Porter deliveries*. Replace this section with the as-built record when it ships;
-until then nothing below exists in code.
+Terms: `GLOSSARY.md` § *Porter deliveries*. The design below is the target; § *As built* at the end of
+this section says which parts exist in code. Each later slice of spec #1442 moves its part there.
 
 **What it is.** Porter's monthly CSV, one line per delivery order. Each completed order becomes ONE
 `Project Expenses` / `Non Project Expenses` row at `Paid`. Like Cashbook, it creates and never settles, so
@@ -6608,3 +6608,540 @@ that rule skips the wallet top-ups and stays unchanged.
 - `OutflowImportBatch.source`
 - a new `Outflow Row Match.match_basis` value
 - a new `skip_kind` for "Porter order cancelled"
+
+### As built — #1443: upload a Porter Statement and see its invoices (2026-10-15)
+
+**Where it lives.** Pure rules: `services/outflow_import/porter.py`. Endpoints:
+`api/outflow_import/porter.py` — `upload_porter_statement` (POST, multipart `file`) and
+`get_porter_status(batch)` (reads only; the upload returns the same shape). Both use
+`require_outflow_access`. Later slices extend these two modules; nothing Porter-shaped lives elsewhere
+except the source string and the guards listed below.
+
+**The source string** `"Porter Statement"` is `sources.PORTER_STATEMENT_SOURCE`, and is in: `parser._ADAPTERS`,
+the `Outflow Import Batch.source` Select, `NEVER_MATCHED_SOURCES` (+ `outflowImportStatus.ts`),
+`TRANSFER_ID_REFERENCE_SOURCES` (the CRN is the settlement reference), the new `CREATE_GATED_SOURCES`,
+`SOURCE_OPTIONS`, `OutflowImportBatch.source`, `importWizard.IMPORT_SOURCES` (the dialog's list, moved out
+of `ImportStatementDialog`) and `SOURCE_FLOWS`, and the dialog's `SOURCE_SHAPE` / `SOURCE_REPORT`. Pinned by
+`test_sources`, `test_upload.TestSourceVocabulary`, `outflowTableModel.test.ts`, `outflowUndoAccessParity.test.ts`
+and `porterImport.test.ts`.
+
+**Parsing.** A parser adapter like every source's, plus capability 7: a column map may name a field
+`RawRow` has no slot for, kept in `RawRow.extra`. Porter maps all 22 of its columns that way (all
+REQUIRED), and the generic fields: `crn` → `transfer_id`, `order_completion_time` → `added_on`,
+`invoice_order_fare` → `amount` (Debit), `customer_name` → `added_by_raw`, `customer_remarks` → `remarks`,
+`billing_entity` → `beneficiary_name`. ⚠️ `status_raw` is `SUCCESS` for a `completed` order (derivation,
+as ICICI's) and verbatim (`cancelled`) otherwise, so every summary's success/failed split reads a cancelled
+order as money that never moved. The statement's own word stays in `porter_line["order_status"]`.
+
+**Refusals, all before `save_file`:** missing column, no rows (parser); a line with no invoice link, a
+CRN twice, a completed order with no completion time, an invoice link whose lines disagree on invoice
+number / Porter GSTIN / customer GSTIN / billing entity, one invoice number under two links
+(`read_porter_statement`); the invoice-level repeat rules (`porter_repeats`, #1447 below).
+
+**What upload saves.** The CSV (private File attached to the batch); the batch (`period_from/to` = first /
+last completion date of the completed orders, `gross_amount` = their fare); one `Porter Invoice` per
+invoice link, **named by its invoice number**, holding the statement's figures over completed orders
+only, `validation_status` `Queued`; one `Outflow Import Row` per order, in file order:
+- cancelled → `Skipped`, `skip_kind` **Porter order cancelled** (locked in `skip_origin.UNSKIP_LOCKED_KINDS`
+  and its frontend mirror, checked before the Cashbook rule), `skip_origin` System;
+- completed → `Pending match run`, `suggested_doctype` / `resolved_project` / `placement_reason` /
+  `placement_strength` from the placement signals over **Won projects only, no aliases** (#1448, below;
+  #1443 had the name matcher alone), `suggested_expense_type` = Material Transportation Charges on both
+  ledgers, `match_basis` `porter statement`, `auto_matched` 1.
+Every Porter row carries `porter_invoice` (Link) and `porter_line` (JSON: the 22 columns verbatim, read
+only through `porter.statement_line`). Four new `Outflow Import Row` fields; see `CODING_STANDARDS.md`
+§ Don't touch. Upload then enqueues validation (#1444, below).
+
+**Its open lines are not bank lines.** `review._row_filters` leaves out every line of a
+`CREATE_GATED_SOURCES` source that is neither `Settled` nor `Skipped`, so they are in no tab, no facet,
+not in *Still open* and not in *Total Unreconciled Outflow* — one clause, every reader. A cancelled line
+stays visible in the Skipped popup. Create / Settle / Allocate / Link refuse a Porter line in their
+loaders (`expenses.guard_not_an_own_import_line`), Skip refuses it (`skip_origin.manual_skip_refusal`), all
+with `porter.OWN_IMPORT_LINE_REFUSAL`, which points to the Porter import. The generic
+`upload_outflow_statement` refuses the Porter source.
+
+**The matcher is never called** by either Porter module: `test_porter_import.TestTheMatcherIsNeverCalled`
+runs the Cashbook AST guard (`TestItNeverSettlesAnExistingRecord.forbidden_imports/forbidden_calls`) over them.
+
+**Screen.** "Porter Statement (deliveries)" in the Import statement dialog; steps Upload → Check invoices →
+Review projects → Create (`PORTER_STEPS`); one upload request (no preview), then `PorterImportSummary`
+(orders · invoices · cancelled, period, fare, one row per invoice with its state). Done closes and
+refreshes — it does not pin the table to the import, whose lines are not shown there. Import History gets a
+Porter Statement tab through `SOURCE_OPTIONS`; the batch lists under its Statement month.
+
+**Tests.** `services/outflow_import/test_porter.py` (pure: adapter, grouping and refusals, suggestion,
+skip and unskip refusals), `api/outflow_import/test_porter_import.py` (bench, endpoint-driven, `save_file`
+stubbed), `frontend/src/pages/outflow-import/porterImport.test.ts`. Fixture
+`services/outflow_import/tests/fixtures/porter_sample.csv` is synthetic (4 invoices, 2 billing entities,
+IGST and CGST/SGST cities, 1 cancelled order, a ₹0.01 tax rounding gap).
+
+### As built — #1444: validate a Porter import against Porter's invoices (2026-10-15)
+
+**Where it lives.** The job and the download helper: `api/outflow_import/porter_validation.py`
+(`validate_porter_import(batch, actor)`, `validate_invoice`, `fetch_invoice_pdf`, `enqueue_validation`).
+The endpoints stay in `api/outflow_import/porter.py`: `upload_porter_statement` now enqueues the job,
+`retry_porter_invoice(invoice)` (POST) is new, `get_porter_status` reports the import's state and what was
+read. The pure rules are in `services/outflow_import/porter.py`: `judge_invoice`, `import_state`,
+`rupees`, the `INVOICE_*` / `IMPORT_*` constants, `InvoiceFigures` / `InvoiceRead` / `InvoiceVerdict`.
+
+**The job.** Upload commits, then `frappe.enqueue(..., queue="long", job_id="porter-validate-<batch>",
+deduplicate=True)`. The job takes every `Queued` Porter Invoice of the import and runs up to
+`VALIDATION_CONCURRENCY` (3) at once in threads, **each thread on its own frappe connection**
+(`frappe.init` + `connect`, as a second worker would; Gemini takes 30 s to minutes per invoice). Invoices
+queued while it runs (a Retry) are picked up before it ends; each invoice is attempted once per run.
+- **Claim first.** `_claim` reads the invoice `FOR UPDATE` and moves on only a `Queued` one, so the
+  upload's job and a Retry's job may overlap without reading one invoice twice, and a re-run never
+  touches a decided invoice. The claim also clears the `read_*` fields of an earlier attempt.
+- **Each step commits** (`Downloading` → `Reading` → `Comparing` → `Passed` / `Failed` / `Error`), so the
+  dialog's poll shows it. Raw `set_value` throughout: `Porter Invoice` has no `doc_events`, and nothing is
+  derived from these fields except on read.
+- **Download** (`fetch_invoice_pdf`, the seam tests fake): `https://` only, `stream=True` with a
+  `MAX_INVOICE_PDF_BYTES` (10 MB) cap and a `(10, 60)` s timeout, and the bytes must start `%PDF-`.
+  Refusals raise `InvoiceDownloadError`. The PDF is stored ONCE by `save_file(dt="Porter Invoice",
+  dn=<invoice>, df="invoice_file", is_private=1)`, attached at insert (the storage key is derived from the
+  attachment), and its URL written to `invoice_file`. Frappe's `File` parses a PDF on insert (a JavaScript
+  check), so a canned test PDF must be a real one.
+- **Read**: the shared `extract(content, "pdf", settings, doc_kind="invoice")` with the shared Document AI
+  Settings model; the invoice-autofill pick keys (`INVOICE_NO_KEYS`, `NET_AMOUNT_KEYS` for the fare, the GST
+  components through `derive_gst` for the total tax — the IGST / CGST+SGST split is irrelevant). Stored on
+  the invoice as `read_*`. ⚠️ `read_fare` / `read_tax` are NOT NULL Currency columns, so a figure not read is
+  stored 0; `porter.what_gemini_read`, the one reader, reads 0 back as "not read" (a Porter invoice always
+  bills a fare and its GST) and returns None until the invoice has been read.
+- **Compare** (`judge_invoice`, pure): invoice number; supplier GSTIN = Porter GSTIN; receiver GSTIN =
+  customer GSTIN (spacing and case ignored); fare and tax each within `amounts.PORTER_INVOICE_TOLERANCE` = ₹1.00
+  inclusive (₹1.00 passes, ₹1.01 fails). **Failed** names every figure that disagrees, invoice first:
+  "Invoice 36SM… disagrees with the statement. Tax: invoice ₹31.66, statement ₹30.65." A figure Gemini did
+  not read, with nothing disagreeing, is **Error** ("could not read the tax off the PDF. Retry it."): a
+  read glitch decides nothing. A disagreement outweighs an unread figure.
+- **Errors.** A download refusal, a stored PDF that cannot be read back, a Gemini failure (its
+  `frappe.throw` is caught; the message log is cleared) or an exception of any kind rolls back and marks
+  the invoice `Error` with a sentence naming the invoice and the step; the stored PDF is kept.
+
+**Retry** (`retry_porter_invoice`, `require_outflow_access`): re-reads the invoice under its row lock,
+refuses anything but `Error` (a `Failed` invoice: "…is final and cannot be retried or overridden"), sets
+it `Queued` and enqueues the job with a per-invoice id (`porter-validate-<batch>-<invoice>`, so an upload
+job still running cannot swallow it). The job then goes straight to Reading on the stored PDF: **a stored
+PDF is never downloaded twice**. There is no other path that moves a `Failed` invoice: **no override.**
+
+**The import's state is derived, never stored.** `import_state(statuses)`: `Validating` while any invoice
+is Queued / Downloading / Reading / Comparing; `Validated` only when there are invoices and all Passed;
+otherwise `Validation failed` (a Failed invoice is final, an Error one waits for its Retry).
+`porter_records.porter_import_states(batches)` derives it in one query; **`porter_records.is_validated(batch)` is the gate
+Review (#1446) and Create (#1445) ask.** `Outflow Import Batch.status` keeps its bank-line rollup;
+`review.list_imports` replaces it with the derived state for a Porter batch, so Import History reads
+Validating / Validated / Validation failed instead of "Partially Settled" (`importStatusTone`: Validated
+emerald, Validation failed red). #1445 extended `import_state` with Creating / Created (below).
+
+**Screen.** `get_porter_status` returns `state` and, per invoice, `can_retry`, `has_pdf`, `porter_gstin`,
+`customer_gstin` and `read` (None until read). The dialog reads it through SWR by batch and polls every
+`PORTER_STATUS_POLL_MS` (2 s) while `Validating` — no socket, following Cashbook. `PorterImportSummary`
+shows the import's state with one sentence (`porterStateNote`), then one card per invoice: Downloading →
+Reading → Comparing → outcome (`invoiceProgress`; an Error marks the step it broke in, read off what the
+invoice holds — no PDF: download; PDF, nothing read: Gemini; read: the comparison), the message, Retry on
+an Error only (`canRetryInvoice`), and the statement's figures beside what was read
+(`invoiceFigureRows`; a differing read is highlighted, the verdict stays the server's). **Resume:** the
+page holds the batch in the URL as `?porter=OFI-…` (`PORTER_URL_KEY`, written through `urlStateManager`
+like the period and source params), so a reload reopens the dialog on it; closing clears it; clicking a
+Porter import in Import History opens the dialog on it instead of pinning the table.
+
+**Tests.** `services/outflow_import/test_porter.py` (pure: every mismatch kind, the ₹1 edges, unread vs
+disagreeing, Indian grouping, `import_state`); `api/outflow_import/test_porter_validation.py` (bench: the
+job called directly; fakes only Gemini — `GeminiExtractor._build_client`, replying by which PDF it was
+handed — and `fetch_invoice_pdf`; the helper's own refusals against a canned HTTP response; 3-at-a-time
+measured with a slowed download; the storage apps' `File.after_insert` uploads are stubbed so no test file
+reaches a bucket); `frontend/src/pages/outflow-import/porterImport.test.ts` (states pinned to the doctype
+and the server, progress, figures, Retry). `test_porter_import._upload` now records `frappe.enqueue`: the
+Redis queue is shared with the main bench.
+
+**Known limits.** An invoice whose worker is killed mid-step (RQ timeout, a container restart) stays in
+that step, and the import reads `Validating` until it is discarded (#1447); there is no stale-claim sweep.
+
+### As built — #1446: review and correct projects before Create (2026-10-15)
+
+**Where it lives.** Endpoints: `api/outflow_import/porter_review.py` — `get_porter_review(batch)` (GET) and
+`set_porter_placement(batch, rows, project)` (POST), both `require_outflow_access`. Pure: the group key
+`porter.remark_group_key(remarks, city)` and `porter.REASON_REVIEW`. Screen logic:
+`frontend/src/pages/outflow-import/porterReview.ts`; panel `components/PorterReviewPanel.tsx`.
+
+**The gate.** Both endpoints refuse an import that is not Validated (`porter_records.is_validated`; "every invoice
+has to pass its check against Porter's own PDF first"), so review is closed while invoices are checked and
+for good once one Failed. ⚠️ `is_validated` asks the invoices only (#1445), so it stays true once Create has
+started: what stops an edit then is the per-line rule below (a line no longer `Pending match run` is
+refused). The screen offers the step on `state == "Validated"` (`porterReviewOffered`), and again on a
+stopped *Creating* import with orders still to create (review fixes, below); the stepper moves to *Review
+projects* through `ImportFlowState.validated`.
+
+**What it shows.** Every completed order (cancelled ones are not placed), in file order, with `crn`,
+`completed_on`, `fare`, `remarks`, `city`, `from_address`, `to_address` (from `porter_line` through
+`statement_line`), `booked_by`, its placement (`ledger`, `project`, `project_name`, `reason`, `strength`),
+`editable` (Create would still write it: `porter_state.CREATE_LINE_STATUSES`, review fixes) and `group_key`; plus the Won projects, the only ones offered.
+- **Group key** (server, so #1448's group-majority rule uses the same one): city + remark, case-folded,
+  punctuation and spacing collapsed; **blank when the remark is blank** — such an order is reviewed on its
+  own, with its addresses and who booked it.
+- **Order** (`reviewItems`, screen): *Check* first (a weak suggestion, or a group whose orders are placed
+  differently), then items with no project found (they would become Non-Project), then the rest; within a
+  tier, bigger groups, then the earlier order. `keepShownOrder` keeps an item where it was after an edit
+  changes its tier, until the dialog is reopened.
+- **Reason / strength** are shown as stored. `reasonLabel` names `name` and `review`; ⚠️ a reason it does
+  not know is shown verbatim, never hidden (#1448 adds reasons; `porterReview.test.ts` reads every
+  `REASON_*` in `porter.py` and fails until each has a label). Strength: plain when Strong, a *Check* badge
+  when weak.
+
+**Editing writes the plan Create reads.** `set_porter_placement` takes a group's line names (or one), reads
+them `FOR UPDATE`, refuses a line of another import, a cancelled order or one no longer `Pending match run`
+("already created … Move a created order with Rectify"), refuses a project that does not exist or is not
+Won, then writes on every line `suggested_doctype` (Project Expenses with a project, Non Project Expenses
+without), `resolved_project`, `suggested_expense_type` (Material Transportation Charges) — the fields the
+Create job reads — and `placement_reason` `review` with no `placement_strength` (a person decided it), and
+commits. Raw `set_value`: `Outflow Import Row` has no doc_events and the row status does not move. It
+returns the review, which the panel puts in its SWR cache. Saved per choice: there is no Save button and a
+reload shows the edit. Clearing the project (the clear button, or *No project (Non-Project expense)*) makes
+the orders Non-Project.
+
+**Screen.** Step 3 of the Porter dialog, below the import summary, whose invoice cards fold under one line
+once Validated. One card per group (“remark” · city · N orders · fare, its placement and reason, a
+searchable project select, the orders behind a disclosure) or per order without a remark (CRN, date, booked
+by, fare, from → to).
+
+**Tests.** `api/outflow_import/test_porter_review.py` (bench: the gate while Validating and after a Failed
+invoice; what the review lists; a group assigned at once and read back; clearing; refusals; access);
+`services/outflow_import/test_porter.py` (`remark_group_key`); `frontend/.../porterReview.test.ts`
+(grouping, labels, ordering, keeping the shown order, the gate, the stepper, reason parity).
+"Create honours review edits" is proved here by the lines holding the edit; the end-to-end check is
+`test_porter_create.TestCreateHonoursTheReviewedPlan` (#1445).
+
+### As built — #1445: create Porter expenses from a validated import (2026-10-15)
+
+**Where it lives.** `api/outflow_import/porter_create.py`: the endpoint `create_porter_expenses(batch)`
+(POST, `require_outflow_access`) and the job `create_porter_import(batch, actor)`. Pure, in
+`services/outflow_import/porter.py`: `import_state(invoice_statuses, line_statuses)` (Creating / Created),
+`CREATE_LINE_STATUSES`, `expense_description`, `porter_order_fields`. The writer is the shared
+`settle.create_expense_from_row`, extended with keyword-only `invoice: ExpenseInvoice` (number, date, file
+URL → `invoice_ref` / `invoice_date` / `invoice_attachment`) and `porter_order`.
+
+**Schema** (see `CODING_STANDARDS.md` § Don't touch): the new `Porter Order` doctype (named by `crn`,
+unique; links `porter_invoice` and `import_row`; `completed_at`, `vehicle_type`, `city`, `from_address` /
+`to_address` / `waypoint_addresses`, `distance_km`, `travel_duration`, `waiting_time`, `booked_by` (+
+`_mobile`, `_email`), `remark`, `order_status`, `fare`, `rcm_gst`; all read-only; System Manager, Accountant,
+Accountant Lead, like `Porter Invoice`); one read-only, indexed `porter_order` Link on `Project Expenses` and
+`Non Project Expenses`; `porter statement` added to `Outflow Row Match.match_basis`; `Material Transportation
+Charges` carries `non_project: 1` in `fixtures/expense_type.json` (pinned by `test_fixture_completeness`).
+
+**The gate.** The endpoint refuses unless `porter_records.is_validated(batch)` (every Porter Invoice Passed; the
+refusal names the state: Validating / Validation failed), and refuses an import already Created. ⚠️
+`is_validated` asks the INVOICES only, so it stays true while Creating: a re-run passes the same gate. The
+job asks again before it writes, so a job enqueued any other way writes nothing on an unvalidated import.
+It enqueues `create_porter_import` on `long`, `job_id = porter.create_job_id(batch)`
+(`porter-create-<batch>`), `deduplicate=True`, and returns `porter_status(batch)`.
+
+**Per line, one transaction, committed before the next** (Cashbook's `_write_one` shape): the line is
+re-read `FOR UPDATE` and skipped unless its status is in `CREATE_LINE_STATUSES`; its Porter Order is
+inserted from `porter_line` (through `statement_line` → `porter_order_fields`) or, if one exists for the
+CRN, reused; the Expense via `create_expense_from_row(StagedRow(row), …)` with the line's
+`suggested_doctype` / `resolved_project` **as the line holds them** (Review's edits, never re-planned),
+`type` = Material Transportation Charges, description `expense_description(customer_name, project_name)`,
+comment `import_comment(None, batch)`, `payment_by` = trimmed `customer_name` (Project side only),
+`statement_file_url=None` (no `payment_attachment`: the CSV holds staff contact details), the invoice's
+number / Gemini-read date / stored PDF URL, and `porter_order`; then a Settled `Outflow Row Match`
+(`match_basis` `porter statement`, `settlement_origin` Suggestion accepted, `created_by_import` 1, plus
+`target_project` / `target_vendor` from `target_snapshot`, frozen for Rectify's history); then the line →
+`Settled` with `suggested_name`, `outcome_note`, `decided_at/by`, `confirm_by_hand` 0. A failing line rolls
+back, is marked `Error` ("Could not create this expense. Run Create again."), and the run carries on.
+Amount = `row.amount` = the Porter fare; the GST stays on the Porter Order as `rcm_gst`.
+
+**Re-runs and Unreconcile (#1449).** `CREATE_LINE_STATUSES` = Pending match run, Error, Mismatched: a re-run
+creates exactly the lines not yet created — a line a dead or failed run left behind, and a line
+Unreconcile reopened (a Porter line never runs the matcher, so `Mismatched` means only that). A Settled line
+is never written twice (row lock + status re-check). Unreconcile deletes only the Expense — the Expense owns
+the link — so the re-run reuses the line's Porter Order: one Porter Order per CRN for good. Pinned by
+`TestAnUnreconciledLineIsCreatedAgain` through the real `unreconcile_row`.
+
+**No File row per expense.** ⚠️ The PDF URL is written to `invoice_attachment` by a raw `set_value` AFTER the
+insert: Frappe's `"*"` on_update hook `file.utils.attach_files_to_document` otherwise inserts a `File` row
+for any Attach value under `/files` or `/private/files` (a local-storage site; a cloud URL is
+`/api/method/…` and skipped), one per expense, sharing the invoice's stored object. Nothing is derived from
+`invoice_attachment`. A later ordinary save is kept from minting one too by
+`integrations/controllers/expense_files` (review fixes, below).
+
+**CEO-Hold.** The insert hook's check is de-duplicated per request per project (`trigger_check`) and the whole
+job is one request, so only the first expense of a project would count. The job calls
+`unreconcile_cleanup.resync_cashflow_hold(project)` once per project it wrote to, after the last line.
+
+**State and progress** (derived, never stored). `import_state` over the invoices, then the lines (Skipped
+aside): no line touched → Validated; every completed line Settled → **Created**; anything between (running,
+a line in Error, a line reopened) → **Creating**. `porter_import_states` adds one `SELECT DISTINCT
+import_batch, row_status` query, so Import History reads Creating / Created (`importStatusTone`: Created
+muted like Completed, Creating amber). `get_porter_status` adds `to_create` (lines in
+`CREATE_LINE_STATUSES`), `created`, `failed` and `create_running` (`frappe.utils.background_jobs.is_job_enqueued`
+on the job id).
+
+**Screen.** The Porter dialog's footer shows **Create N expenses** (or *Create the remaining N*) when
+`canCreatePorter`: state Validated or Creating, something to create, the job not running. It posts, seeds
+the status, and polls (`porterPolling`: Validating, or `create_running`). The summary shows
+`createProgress` ("Creating… 4 of 11 created.", "10 of 11 created. 1 could not be created: press Create
+again to retry it.", "All 11 expenses created, at Paid.") and the state note for Creating / Created. The
+stepper reaches *Create* through `ImportFlowState.createStarted` (`porterCreateStarted`).
+
+**Tests.** `api/outflow_import/test_porter_create.py` (bench: upload → validation job with Gemini and the
+download faked → Create endpoint → job called directly; the gate; the full record set — one Porter Order and
+one Expense per completed order, none for the cancelled one, every expense field, shared PDF and no new
+File row, Settled matches with the Porter basis; review edits through `set_porter_placement`; an interrupted
+run resumed without duplicates; an unreconciled line re-created on the same Porter Order; the cashflow gap
+and its hold after the run); `services/outflow_import/test_porter.py` (Creating / Created, description,
+Porter Order fields); `api/expense_requests/test_fixture_completeness.py` (both flags, file and DB);
+`frontend/.../porterImport.test.ts` (Create offer, label, polling, progress, stepper), `outflowTableModel.test.ts`
+(tones). The AST guard in `test_porter_import` covers `porter_create` too.
+
+**Known limits / left for later.** A Porter Expense's invoice PDF is a private File attached to its Porter
+Invoice, which only Admin, Accountant and Accountant Lead can read: other roles who can open the expense get
+403 on the raw URL (story 53). Since #1450 the expense screens open it through
+`porter_expense.porter_invoice_pdf`, keyed on the expense's own read permission (`expenses.md` § Porter
+expenses). Since the review fixes an `Error` line can be re-placed in Review before a re-run.
+
+### As built — #1448: project suggestions from typos, initials, site addresses and earlier imports (2026-10-15)
+
+**Where it lives.** Pure: `services/outflow_import/porter_placement.py` — `build_placement_master(projects,
+sites, earlier)` and `place_orders(orders, master)`, the signals `typo_project`, `initials_project`,
+`address_project` (and the history in the master), the inputs `OrderFacts`, `SiteAddress`, `EarlierPlacement`,
+the output `Placement` (moved here from `porter.py`; `porter.suggest_placement` is gone). The vocabulary stays
+in `porter.py`: `REASON_NAME`, `REASON_TYPO`, `REASON_INITIALS`, `REASON_ADDRESS`, `REASON_CONFLICT`,
+`REASON_HISTORY`, `REASON_REVIEW`, `STRENGTH_STRONG` / `STRENGTH_CHECK`. The upload
+(`api/outflow_import/porter._placement_master`) reads the master and the history ONCE, then places every
+completed order of the file in one call (an order's suggestion depends on its remark group). **No alias table
+and no AI call** (pinned: `TestPurity` and the AST guard in `test_porter_import`).
+
+**The signals.** Each is counted over the Won master as it stands — nothing to maintain, a new project takes
+part at once (`_sole_owners`: a key claimed by two projects means neither).
+1. **Name** — `project_match` (whole name, else one word unique to a project). Ambiguous here STOPS 2–3.
+2. **Typo** — a remark word exactly one edit (change, add or drop a letter) from a keyword unique to one
+   project and **5+ letters as written** (`TYPO_MIN_WORD_LENGTH`; "telus" counts though it compares as
+   "telu"). A remark word that is a word of any project name, or a generic word, is never a typo.
+3. **Initials** — two or more single letters in a row ("v r mall", "e y", "e.y") read as one word, matched
+   to a word of one project's name ("vr") or to one project's initials, noise words aside ("ey" of Ernst &
+   Young). Letters typed together ("ey") are NOT read: too many short words are someone's initials.
+4. **Site address** — `Projects.project_address` → `Address` (`address_line1`, `address_line2`, `pincode`;
+   `city` / `state` / `country` only as words to ignore). Evidence at one address end (from or to) = words of
+   one site's address lines that no other site has (city/state/country words of every site, the order's own
+   city and generic words excluded) plus that site's pincode if no other site has it. **Two pieces of
+   evidence** name a site; the two ends naming two projects name neither.
+5. **Earlier imports** — see below. Read FIRST, though listed last: it is a person's decision, and the name
+   matcher would otherwise repeat a corrected mistake every month (story 30).
+
+**Combination** (`place_orders`), per remark group (`remark_group_key`; an order with no remark is its own):
+name = 5, else 1–3 on the remark; each order's address vote; the group majority = the one project voted by
+≥ max(2, ceil(n/2)) orders.
+- the name gives a project, and a majority votes ANOTHER project → **no suggestion**, reason `conflict`,
+  Check (Non-Project until a person places it);
+- else the name's project: **Strong** when an address agrees (the order's own vote or the majority; reason
+  `<name reason>+address`, e.g. `name+address`), else **Check** for a loose reading (one unique word, typo,
+  initials), else Strong (whole name, history);
+- history kept the remark Non-Project → Non-Project, reason `history`, Strong (a majority for a project →
+  `conflict`);
+- no name → the order's own address vote (reason `address`, Check), else blank (Non-Project, no reason).
+A single noisy address never moves a name: only a group majority can, and only to "decide it yourself".
+
+**Signal 5 reads exactly this** (for #1449 to check against): every `Porter Order`'s `remark` and `city`,
+joined to the LIVE Expense that links to it — `Project Expenses.porter_order` → its `projects`, or
+`Non Project Expenses.porter_order` → Non-Project — keyed by `remark_group_key(remark, city)`. Per key, the
+placement held by MORE than half of those orders wins; an even split says nothing; a project no longer Won is
+not counted. Every created order counts (Create after review = confirmed). A Rectify that replaces the Expense
+(same Porter Order) is therefore read as the new placement with no code of its own; an Unreconcile deletes the
+Expense, and the order drops out (pinned: `test_porter_create.TestTheNextImportRemembersThePlacement`). ⚠️ So
+from the second month most orders read `history`, Strong — including a Check suggestion that was created
+without being corrected.
+
+**Screen.** `porterReview.ts` `reasonLabel` names every reason ("Project name misspelt in the remark",
+"Project initials in the remark", "Its site address", "Kept so in an earlier Porter import", "Name and most
+addresses point to different projects") and a joined one part by part ("Project name in the remark, and its
+site address"); an unknown part is still shown as it is. A `conflict` line is Check, so it is listed first.
+
+**Tests.** `services/outflow_import/test_porter_placement.py` (pure, every signal and the combination; the
+table `TestTheSeptemberRemarkGroups` over a synthetic master mirroring the 2026-09 measured cases — telus
+name+address, cignus typo, v r mall / e y initials, a conflict, an ambiguous name falling back to address,
+no-remark orders, history kept Non-Project — and the two known misplacements, "cheque to xinergy
+innovation" → Schneider Innovation and "exl and qburst project" → QBurst, both reason `name`, Check);
+`api/outflow_import/test_porter_import.py` (`TestAnOrderIsPlacedByItsProjectsSiteAddress`: the Address join
+at upload); `test_porter_create.py` (`TestTheNextImportRemembersThePlacement`: review → Create → next upload;
+Unreconcile forgets); `frontend/.../porterReview.test.ts` (labels; every `REASON_*` parity).
+
+### As built — #1447: re-uploads and Discard (2026-10-15)
+
+**Where it lives.** Pure: `services/outflow_import/porter_repeats.py` (`leave_out_repeats`, `HeldInvoice`,
+`RepeatJudgement`, `PorterRepeatRefusal`; kept out of `porter.py` so the parallel slices do not collide).
+Upload: `api/outflow_import/porter.py` `_leave_out_repeats` / `_held_invoices`, and `created_imports(batches)`
+/ `created_anything(batch)`. Discard: `api/outflow_import/porter_discard.py` `discard_porter_import(batch)`
+(POST). The File delete: `services/stored_files.delete_files(filters)` (generalised out of
+`api/tds/submit.delete_row_datasheet`, which now calls it).
+
+**"Created" is per IMPORT** (`created_imports`): any `Outflow Row Match` of the batch (Settled, or Reversed by
+Unreconcile / Rectify) or any `Porter Order` of its invoices. Both outlive every correction, so an import
+that has created once stays created: past Discard, and its invoices left out of every later upload. An
+import between (Creating, a line in Error) is created too — its own Create re-run finishes it.
+
+**Repeat rules, at invoice level, in `upload_porter_statement` BEFORE `save_file`.** The invoice number is
+the Porter Invoice's name, so a number is held by at most one import. Per invoice of the file:
+- held by a created import, **same CRN set** (cancelled orders included) → left out: no line, no Porter
+  Invoice, never downloaded or read again; its lines counted in the batch's `repeats_not_saved` (written once
+  at staging, shown in Import History as "N already imported, not saved" and in the Porter summary). The
+  batch's period and fare are the kept invoices' alone.
+- held by a created import, **different CRNs** → refused: "Invoice X was already created in OFI-…, and this
+  file lists different orders on it (not in that import: CRN…; missing from this file: CRN…). Porter may
+  have re-issued it: check it with Porter."
+- held by an import that created nothing → refused: "Already uploaded in OFI-…: open it or discard it
+  (invoice X)." — one sentence per holding import.
+- every invoice left out → refused: "Not imported. All N invoices in '<file>' were already created in
+  OFI-…. Nothing in this file is new, so nothing was saved."
+Every blocking invoice is named in one refusal (re-issued first). Title "Already imported".
+
+**Discard.** `has_outflow_undo_access` (Admin, Accountant Lead; "Only an Admin or an Accountant Lead can
+discard a Porter import."). Locks the batch row, then every line `FOR UPDATE` (a Create line in flight
+commits first), then refuses: not a Porter import; `created_anything` ("… Correct its lines with Rectify
+or Unreconcile instead."); any job of the import queued or running — `porter.create_job_id`,
+`porter_validation.validation_job_id(batch)` and the per-invoice Retry ids (`validation_job_id(batch,
+invoice)`, now the one source of both ids), read with `is_job_enqueued` (RQ status queued or started).
+Discard is the way out of the #1444 gap (an import stuck Validating), with one wait: a job whose worker
+died still reads *started* until RQ's registry cleanup fails it (at most the job's 1-hour timeout), and a
+job queued with no worker running stays queued; the refusal says to wait. Deletes, raw (no `doc_events` on any
+of them; `frappe.delete_doc` would trash attached Files through the document layer): the lines, the Porter
+Invoices and the batch, with their `Version` and `Comment` rows; then, LAST, every File attached to its
+Porter Invoices and to the batch (the CSV) through `delete_files`, which removes only the record when
+another File shares the `content_hash`. Then commits. The statement can be uploaded again at once.
+
+**Status.** `porter_status` adds `repeats_not_saved` and `discardable` (= not `created_anything`; who may
+discard is the screen's question).
+
+**Screen.** `PorterDiscardButton` in the Porter dialog's footer (left), shown when
+`porterDiscard.canDiscardPorter`: `canUndoOutflow` and `discardable` and the Create job not running — in
+Validating too. It confirms with `discardConfirmation` ("Discard OFI-…? This deletes its 12 orders, its 4
+Porter invoices and their PDFs. …"), posts, then closes the dialog like Done. `PorterImportSummary` shows
+`repeatsLeftOutNote` ("9 orders on invoices already created were left out: they are not saved again.").
+A refused upload shows the server's sentence in the dialog's error box; "open it" means Import History →
+Porter Statement tab.
+
+**Tests.** `services/outflow_import/test_porter_repeats.py` (unit: each rule, the kept statement's totals,
+one refusal naming every block); `api/outflow_import/test_porter_reupload.py` (bench: created import →
+left out + counted + not read again, re-issued invoice blocked, nothing new refused; uncreated import
+blocked; Discard removes exactly its records and Files, keeps bytes another File shares, refused once
+created / for a plain Accountant / while its validation job runs, works on an import stuck Validating, and
+the same statement uploads again); `frontend/.../porterDiscard.test.ts`.
+
+### As built — #1449: Rectify (and Unreconcile) a Porter expense (2026-10-15)
+
+**Where it lives.** `api/outflow_import/porter_rectify.py`: `get_porter_rectify_plan(rows)` (GET, reads only)
+and `rectify_porter_rows(rows, project, reason)` (POST). Both use `require_outflow_undo_access` (Admin,
+Accountant Lead). Pure, in `services/outflow_import/porter.py`: `booked_by(statement)` (Create uses it too),
+`rectified_description`, `description_hand_edited`. `porter_records` (since the review fixes; `porter_review` before) exports `won_projects()` and
+`refuse_unless_won(project)`, shared by Review and Rectify.
+
+**One endpoint for one line and for ticked lines.** `rows` is a JSON list (at most `RECTIFY_LIMIT` = the bulk
+Unreconcile cap, 50); every line goes to the ONE placement chosen (`project` blank = Non-Project). Refused
+outright, writing nothing: no reason, no lines / too many, a project that does not exist or is not Won.
+Per line it returns `{row, rectified: True, from, to, description_kept}` or `{row, rectified: False,
+reason}`: a refused line never stops the others and pops no message (the bulk Unreconcile shape). Line
+refusals: not a Porter line, not Settled, not exactly one live leg that the import created on an expense
+("Unreconcile it instead"), already on that project / already Non-Project.
+
+**Per line, one savepoint, committed before the next** (lock order row → leg → expense, Unreconcile's):
+1. the Settled leg → Reversed with the reason (`unreconcile.stamp_reversed`) — FIRST, or the bank-links rule
+   refuses the delete;
+2. the replacement through `create_expense_from_row`, built FROM THE OLD EXPENSE (`_ExpenseAsRow`: amount,
+   `payment_date`, `payment_ref`) plus its `type`, `comment`, `invoice_ref` / `invoice_date` /
+   `invoice_attachment` (`ExpenseInvoice`), `porter_order`, and `payment_by` (kept; on a move from
+   Non-Project, the booked-by name), `vendor` kept on Project → Project;
+3. any attachment a person added moves with it: `payment_attachment` copied raw after the insert, and every
+   `File` row attached to the old expense re-pointed raw to the new one — otherwise `delete_doc` would trash
+   it and the storage app would delete the stored object;
+4. the old expense deleted through `unreconcile_created.delete_created` (series counter kept);
+5. a new Settled match: `match_basis` `porter statement`, `created_by_import` 1, `settlement_origin`
+   Suggestion overridden, `target_project` snapshot;
+6. the line follows: `suggested_doctype`, `resolved_project`, `suggested_name`, `outcome_note` "Rectified to
+   …", `decided_at/by`, `settlement_origin`; status stays Settled (no rollup). So a later Unreconcile + Create
+   re-creates it where it was rectified to. A comment on the line: "Rectified by <user>: <reason> (<old> on A
+   -> <new> on B)";
+7. `resync_cashflow_hold` for BOTH projects (the insert / delete hooks' check is de-duplicated per request).
+A failure anywhere rolls the whole line back to its savepoint: old expense, Settled match and line untouched.
+
+**Description rule.** Rewritten (`expense_description(booked_by, new project name)`) only when the stored text
+is still exactly what Create generated for the old placement (whitespace aside) or blank; anything else is a
+hand edit and is kept word for word. No Version history is read. A project renamed since Create makes the
+stored text differ, so it is kept (safe direction).
+
+**Always allowed.** No "edited since" refusal: a Paid expense's money, date and reference cannot change in
+the app, and the one editable thing Rectify rewrites (the description) follows the rule above.
+
+**The Porter Order never changes**, and the replacement links the same one, so the earlier-imports placement
+signal (#1448: the live expense behind a Porter Order) reads the rectified project from then on.
+
+**Unreconcile on a Porter line** needed no code: it deletes the created expense (unless edited since, the
+Cashbook rule), keeps the Porter Order (the expense owns the link), and reopens the line `Mismatched`, which
+Create re-creates (#1445).
+
+**Screen.** `porterRectify.ts` (pure, `porterRectify.test.ts`): `rectifyAffordance` (Settled + Porter
+Statement + undo roles), `rectifyButtonState` ("Rectify N" beside "Unreconcile N" in the Settled toolbar,
+shown once a Porter line is ticked, off while a non-Porter line or an off-page line is ticked),
+`placementText`, `linesToMove` / `staysNote` (refused or already there), `rectifyOutcome`. The Outcome cell
+shows **Rectify** beside **Unreconcile** on a Settled Porter line (`OutflowRowsTable` `onRectify`, passed only
+for `canUndo`). `components/RectifyDialog.tsx`: each line's current placement, a hand-edited-description
+note, a Won-project picker (with "No project"), a required reason, then the result box. ⚠️ Its picker's menu
+is portaled to `body` with `pointerEvents: "auto"`: a modal dialog sets `pointer-events: none` on the body,
+and without it a click picked the wrong project on the walk.
+
+**Tests.** `api/outflow_import/test_porter_rectify.py` (bench: the three moves, every kept field, reversed +
+new match, the line, the description rule, refusals and roles, atomicity, both projects' CEO-Hold reasons,
+ticked lines with a refused one, the plan, Unreconcile on a Porter line, an added attachment that moves and is
+never cloud-deleted, the live expense behind the Porter Order); `services/outflow_import/test_porter.py`
+(description rule); the Porter AST guard in `test_porter_import` covers `porter_rectify`.
+
+### As built — the spec/1442 review fixes (2026-10-15)
+
+**Module map after the split** (no re-exports; every caller imports the owner):
+- `services/outflow_import/porter.py` — the statement: `read_porter_statement`, `statement_line`, `REASON_*`
+  / `STRENGTH_*`, `remark_group_key`, `EXPENSE_TYPE`, `MATCH_BASIS`, `OWN_IMPORT_LINE_REFUSAL`.
+  `porter_state.py` — `INVOICE_*`, `IMPORT_*`, `CREATE_LINE_STATUSES`, `import_state`. `porter_verdict.py` —
+  `judge_invoice` and its dataclasses (figures printed by `amounts.rupees(…, paise=True)`, the one rupee
+  formatter). `porter_wording.py` — `expense_description`, `booked_by`, `rectified_description`,
+  `description_hand_edited`, `porter_order_fields`. The frontend parity tests read `REASON_*` from
+  `porter.py` and the import states from `porter_state.py`.
+- `api/outflow_import/porter_records.py` — the import doctypes (`BATCH_DOCTYPE`, `ROW_DOCTYPE`, `SOURCE`),
+  `WON`, `won_projects`, `won_refusal`, `refuse_unless_won`, `refuse_unless_porter_import(batch,
+  for_update=)`, `line_names`, `porter_import_states`, `is_validated`, `create_job_id`, `created_imports`,
+  `created_anything`. `porter_upload.py` — the upload's steps (`read_upload`, `read_statement`,
+  `leave_out_porter_repeats`, `held_invoices`, `placement_master`, `stage`). `porter.py` keeps the three
+  endpoints (`upload_porter_statement`, `retry_porter_invoice`, `get_porter_status`) and `porter_status`.
+  Create and Rectify write their match through `porter_matches.record_porter_match`. The two Porter
+  doctype constants live in `services/outflow_import/porter.py`; the PDF reads (`invoice_pdf_url`,
+  `is_invoice_pdf`) in `services/outflow_import/porter_pdf.py`.
+- The cancelled-order sentence is `status.SKIP_REASON_PORTER_CANCELLED`, in `SYSTEM_SKIP_SENTENCES` and the
+  skip-kind back-fill.
+
+**The shared invoice PDF (story 52).** No expense ever owns a `File` for a Porter Invoice's PDF:
+`integrations/controllers/expense_files.refuse_invoice_pdf_copy` (`File` `before_insert`) refuses the copy
+Frappe's attach hook tries on every save of a local-path Attach value; that hook swallows the refusal and
+logs "Error Attaching File", and the save goes through. Every expense delete (list page, Unreconcile's
+`delete_created`, Rectify) runs the expense's own Files through `stored_files.delete_files`
+(`expense_files.delete_attached_files`, `after_delete` on both expense doctypes, so after Frappe's link
+checks and before its `remove_all`). Rectify's `_move_attachments` never carries a File whose URL is the
+invoice PDF (`porter_pdf.invoice_pdf_url`). Pinned by `test_porter_rectify`
+`TestTheSharedInvoicePdfSurvivesEveryCorrection`.
+
+**Behaviour changes.**
+- Paid by: a blank booked-by name leaves Paid by blank (`create_expense_from_row(…,
+  blank_payment_by_is_actor=False)` from Create and Rectify), never the importer (story 47).
+- Create re-checks every Project line's project with `won_refusal`; a project no longer Won stops that line
+  in Error with "<name> (<id>) is <status>, not Won. Place this order again in Review, then run Create
+  again." Nothing moves it to Non-Project.
+- Review accepts every line in `CREATE_LINE_STATUSES` (waiting, Error, reopened `Mismatched`), still refusing
+  Settled and cancelled ones. The screen offers Review again on a *Creating* import that is not running and
+  has `to_create > 0`; a group's choice places only its still-editable orders (`ReviewItem.toPlace`).
+- Upload takes `.csv` only, server (`porter_upload.read_upload`) and picker (`importWizard.acceptedExtensions`;
+  the export path is `importWizard.sourceExportPath`).
+- The expense lists, both edit dialogs and the approval detail open a Porter Expense's invoice through
+  `porter_expense.porter_invoice_pdf` (`utils/porterExpense.invoiceAttachmentUrl`), so a reader without
+  Porter Invoice access gets the PDF, not a 403 (story 53).
+- Choosing a Porter import from the Import selector or Import History opens its Porter dialog
+  (`porterImport.isPorterImport`), never the pinned table.
+- Review and Rectify share one project picker, `components/PorterProjectSelect.tsx`: its menu is portaled to
+  `body` with `menuPosition="fixed"`, and `FuzzySearchSelect`'s shared theme (`getSelectStyles`) gives the
+  portal `zIndex` 9999 and `pointerEvents: "auto"` (no styles of its own). Walked on both: the option clicked
+  is the project saved.
+

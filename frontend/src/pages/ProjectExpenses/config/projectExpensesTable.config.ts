@@ -28,6 +28,8 @@ export const DEFAULT_PE_FIELDS_TO_FETCH: (keyof ProjectExpenses | 'name' | 'owne
     "invoice_date",
     "payment_attachment",
     "payment_ref",
+    // The Porter badge and the edit dialog's Porter section / project lock (#1450).
+    "porter_order",
 ];
 
 // Searchable fields for the Project Expenses table

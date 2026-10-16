@@ -35,6 +35,10 @@
   "suggestion_rule",
   "auto_matched",
   "match_basis",
+  "porter_invoice",
+  "porter_line",
+  "placement_reason",
+  "placement_strength",
   "suggested_expense_type",
   "source",
   "decision_section",
@@ -266,7 +270,7 @@
    "fieldname": "skip_kind",
    "fieldtype": "Select",
    "label": "Skip Kind",
-   "options": "\nAlready imported\nRepeated in same file\nBank refused\nNo amount\nOutflow Already Recorded\nInflow Already Recorded\nCashfree wallet top-up\nCashbook wallet top-up\nPorter wallet top-up\nWallet money returned\nBank internal transfer\nFailed payment bounced back\nBank card rounding (₹2)\nCredit card bill payment\nCredit card auto-debit\nCashbook internal movement\nSkipped by hand",
+   "options": "\nAlready imported\nRepeated in same file\nBank refused\nNo amount\nOutflow Already Recorded\nInflow Already Recorded\nCashfree wallet top-up\nCashbook wallet top-up\nPorter wallet top-up\nWallet money returned\nBank internal transfer\nFailed payment bounced back\nBank card rounding (₹2)\nCredit card bill payment\nCredit card auto-debit\nCashbook internal movement\nSkipped by hand\nPorter order cancelled",
    "read_only": 1
   },
   {
@@ -336,12 +340,43 @@
    "label": "Confirm By Hand",
    "default": "0",
    "read_only": 1
+  },
+  {
+   "description": "Porter Statement lines only: the Porter Invoice that bills this order. Blank on every other source.",
+   "fieldname": "porter_invoice",
+   "fieldtype": "Link",
+   "label": "Porter Invoice",
+   "options": "Porter Invoice",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Porter Statement lines only: the statement's columns for this order, verbatim, keyed by Porter's own column names. Read through services/outflow_import/porter.py; the Porter Order is built from it at Create.",
+   "fieldname": "porter_line",
+   "fieldtype": "JSON",
+   "label": "Porter Line",
+   "read_only": 1
+  },
+  {
+   "description": "Porter Statement lines only: why the suggested project was suggested (e.g. name). Blank when nothing was suggested.",
+   "fieldname": "placement_reason",
+   "fieldtype": "Data",
+   "label": "Placement Reason",
+   "read_only": 1
+  },
+  {
+   "description": "Porter Statement lines only: Strong, or Check for a weak suggestion a person should look at first.",
+   "fieldname": "placement_strength",
+   "fieldtype": "Select",
+   "label": "Placement Strength",
+   "options": "\nStrong\nCheck",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "istable": 0,
  "links": [],
- "modified": "2026-09-17 12:00:00.000000",
+ "modified": "2026-10-15 19:35:41.908376",
  "modified_by": "Administrator",
  "module": "Nirmaan Stack",
  "name": "Outflow Import Row",

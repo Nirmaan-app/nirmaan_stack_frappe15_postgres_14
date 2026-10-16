@@ -23,19 +23,20 @@ from decimal import Decimal
 import frappe
 
 from nirmaan_stack.api.outflow_import.expenses import (
-    _concurrent_writer_refusal_as_sentence,
+    concurrent_writer_refusal_as_sentence,
     _guard_is_a_debit,
     _guard_money_not_recorded,
     _link_statement_file_to_target,
     _record_settlement,
     _refresh_row_allocation,
     _statement_file_url,
+    guard_not_an_own_import_line,
 )
 from nirmaan_stack.api.outflow_import.permissions import require_outflow_access
 from nirmaan_stack.api.outflow_import.review import (
     ROW_DOCTYPE,
-    _StagedRow,
-    _refresh_batch_rollup,
+    StagedRow,
+    refresh_batch_rollup,
     derive_batch_status,
 )
 from nirmaan_stack.services.outflow_import.expense_links import (
@@ -71,7 +72,7 @@ def link_rows_to_expense(rows, target_doctype: str, target_name: str, confirm_mi
     to every line: the screen asks once for the request, naming the server's sentence.
     """
     names = _parse_rows(rows)
-    with _concurrent_writer_refusal_as_sentence("link_rows_to_expense", names[0]):
+    with concurrent_writer_refusal_as_sentence("link_rows_to_expense", names[0]):
         done = _link_and_commit(names, target_doctype, target_name, confirm_mismatch)
     _link_statement_file_to_target(done["statement_file_url"], done["result"])
 
@@ -152,7 +153,7 @@ def _link_and_commit(names, target_doctype, target_name, confirm_mismatch):
         raise
     frappe.db.release_savepoint(savepoint)
 
-    batch_status = {batch: derive_batch_status(_refresh_batch_rollup(batch)) for batch in batches}
+    batch_status = {batch: derive_batch_status(refresh_batch_rollup(batch)) for batch in batches}
     frappe.db.commit()
     return {
         "result": result,
@@ -185,6 +186,7 @@ def _load_linkable_row(name: str):
     doc = frappe.db.get_value(ROW_DOCTYPE, name, "*", as_dict=True, for_update=True)
     if not doc:
         frappe.throw(f"Import row '{name}' not found.", title="Not found")
+    guard_not_an_own_import_line(doc)
     status = doc.get("row_status") or ""
     if status not in OPEN_ROW_STATUSES:
         who = (doc.get("beneficiary_name") or "").strip() or name
@@ -194,7 +196,7 @@ def _load_linkable_row(name: str):
             ExpenseSettlementError,
             title="Line not open",
         )
-    return _StagedRow(doc), doc
+    return StagedRow(doc), doc
 
 
 @frappe.whitelist()

@@ -178,7 +178,7 @@ SETTLEABLE_STATUSES: dict[str, tuple[str, ...]] = {
 
 # The per-ledger PROJECT/VENDOR field names for the `Outflow Row Match` snapshot taken at
 # settlement time (ADR-0020, Task 3). It lives beside `SETTLEABLE_STATUSES` for the same reason:
-# a per-ledger column fact gets ONE owner, and `expenses._target_snapshot` reads THIS map rather
+# a per-ledger column fact gets ONE owner, and `expenses.target_snapshot` reads THIS map rather
 # than a private copy.
 #
 # ⚠️ THE PROJECT FIELD IS NAMED DIFFERENTLY ON EACH LEDGER, and `Non Project Expenses` has neither

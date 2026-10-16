@@ -118,7 +118,9 @@ def _expense_details(doctype: str, name: str) -> dict | None:
     if doctype not in EXPENSE_DOCTYPES:
         return None
     has_project = frappe.get_meta(doctype).has_field("projects")
-    fields = ["type", "description", "comment"] + (["projects", "vendor"] if has_project else [])
+    fields = ["type", "description", "comment", "porter_order"] + (
+        ["projects", "vendor"] if has_project else []
+    )
     row = frappe.db.get_value(doctype, name, fields, as_dict=True) or {}
     project = row.get("projects") or ""
     vendor = row.get("vendor") or ""
@@ -132,6 +134,8 @@ def _expense_details(doctype: str, name: str) -> dict | None:
         "vendor": vendor,
         "vendor_name": (frappe.db.get_value("Vendors", vendor, "vendor_name") if vendor else "")
         or "",
+        # Set on a Porter Expense: the card then shows its read-only Porter section (#1450).
+        "porter_order": row.get("porter_order") or "",
     }
 
 

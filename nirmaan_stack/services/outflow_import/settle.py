@@ -280,6 +280,18 @@ class SettleResult:
         return self.original_amount is not None and self.original_amount != self.amount
 
 
+@dataclass(frozen=True)
+class ExpenseInvoice:
+    """The supplier invoice a created expense carries: `invoice_ref`, `invoice_date`, `invoice_attachment`.
+
+    `file_url` is an existing File's URL, copied onto the expense; no File row is made for it.
+    """
+
+    number: str
+    date: object = None
+    file_url: str | None = None
+
+
 def _settlement_reference_of(row) -> str:
     """The reference THIS settlement writes -- resolved once at ingest (ADR-0020 B9).
 
@@ -987,12 +999,23 @@ def create_expense_from_row(
     comment: str | None = None,
     statement_file_url: str | None = None,
     payment_by: str | None = None,
+    *,
+    invoice: ExpenseInvoice | None = None,
+    porter_order: str | None = None,
+    blank_payment_by_is_actor: bool = True,
 ) -> SettleResult:
     """Create a new expense, already `Paid`, from a bank row that matched nothing.
 
     This is the productive path for the ~13 of 43 rows in a real statement that are site rent,
     accommodation, utilities and sundries -- spend that never had a PO and so has no payment to
     reconcile against.
+
+    `invoice` and `porter_order` are the Porter Statement import's (#1445, ADR-0032): the Porter Invoice's
+    number, date and SHARED PDF URL go to `invoice_ref` / `invoice_date` / `invoice_attachment` (never
+    `payment_attachment`, which is the statement's), and the Porter Order to the `porter_order` link.
+    A URL is copied, never a `File` row made: the invoice's one File stays attached to its Porter Invoice.
+    `blank_payment_by_is_actor=False` (Porter, spec #1442 story 47) leaves Paid by blank when the statement
+    names nobody: Paid by is who booked the order, and the importer did not.
 
     ⚠️ THE `payment_ref` OVERRIDE IS GONE, AND ITS REMOVAL IS THE POINT (ADR-0020 B9). It existed so
     the wallet path could pass its own transaction id, because the wallet issues no UTR -- a remedy
@@ -1053,7 +1076,13 @@ def create_expense_from_row(
         # right default. A petty-cash wallet statement names the actual spender in its own `From`
         # column, and writing the importer's name over 115 rows would claim one accountant made
         # every purchase on the sheet. The caller passes it when the statement knows.
-        doc.payment_by = payment_by or actor
+        doc.payment_by = payment_by or (actor if blank_payment_by_is_actor else None)
+
+    if invoice is not None:
+        doc.invoice_ref = invoice.number or None
+        doc.invoice_date = invoice.date or None
+    if porter_order:
+        doc.porter_order = porter_order
 
     # A brand-new expense has no proof of its own, so the blank-only rule always lets this land --
     # which is the point: a record created FROM a statement should carry that statement.
@@ -1076,6 +1105,15 @@ def create_expense_from_row(
     # sees the doc). `create_inflow_from_row` has always wrapped its insert for the same reason.
     with _outflow_import_write():
         doc.insert(ignore_permissions=True)
+    if invoice is not None and invoice.file_url:
+        # ⚠️ RAW, AFTER THE INSERT, AND THAT IS THE POINT. Frappe's `"*"` on_update hook
+        # (`file.utils.attach_files_to_document`) makes a NEW `File` row for any Attach value under
+        # `/files` or `/private/files` not yet attached to this document -- one per expense, sharing
+        # the invoice's stored object, which the storage app's delete-by-key would then remove for all
+        # of them. Nothing is derived from `invoice_attachment`, so no hook is owed; the insert already
+        # ran every one, and wrote no Version row to keep in step.
+        frappe.db.set_value(doctype, doc.name, "invoice_attachment", invoice.file_url, update_modified=False)
+        doc.invoice_attachment = invoice.file_url
     return SettleResult(doctype=doctype, name=doc.name, amount=amount, created=True)
 
 
@@ -1126,7 +1164,7 @@ def create_inflow_from_row(
     disagrees is a screen that has gone stale, and is refused rather than silently overruled.
     """
     # A DEBIT recorded as an inflow would book money that LEFT the account as money that arrived.
-    # The direction is passed in because `_StagedRow` does not carry it (`__slots__`), and it is
+    # The direction is passed in because `StagedRow` does not carry it (`__slots__`), and it is
     # checked here rather than in the endpoint so the rule sits with the write it governs.
     if direction is not None and (direction or "").strip() != DIRECTION_CREDIT:
         frappe.throw(

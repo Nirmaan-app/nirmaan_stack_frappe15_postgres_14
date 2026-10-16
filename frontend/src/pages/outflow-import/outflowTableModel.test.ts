@@ -550,6 +550,17 @@ describe("the import history row", () => {
         expect(importStatusTone("In Review")).toContain("amber");
         expect(importStatusTone(undefined)).toContain("amber");
     });
+
+    it("tones a Porter import's own state: validated good, failed red, validating still open", () => {
+        expect(importStatusTone("Validated")).toContain("emerald");
+        expect(importStatusTone("Validation failed")).toContain("destructive");
+        expect(importStatusTone("Validating")).toContain("amber");
+    });
+
+    it("tones a Created Porter import as finished, and one still Creating as open work (#1445)", () => {
+        expect(importStatusTone("Created")).toContain("muted");
+        expect(importStatusTone("Creating")).toContain("amber");
+    });
 });
 
 describe("the source scope", () => {
@@ -595,7 +606,12 @@ describe("the source scope", () => {
         // imports and its rows still render, but the Source scope control cannot name it — so the
         // screen looks like it is missing rows rather than missing an option. Exact equality is
         // what turns "somebody added a source and forgot this list" into a red test.
-        expect([...SOURCE_OPTIONS]).toEqual(["Cashfree", "Cashbook", "ICICI Bank Statement"]);
+        expect([...SOURCE_OPTIONS]).toEqual([
+            "Cashfree",
+            "Cashbook",
+            "ICICI Bank Statement",
+            "Porter Statement",
+        ]);
     });
 
     it("narrows the imports on offer to the chosen source", () => {

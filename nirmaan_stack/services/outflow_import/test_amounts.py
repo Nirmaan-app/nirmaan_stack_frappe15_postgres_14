@@ -19,6 +19,7 @@ from nirmaan_stack.services.outflow_import.amounts import (
     amount_difference,
     amounts_match,
     rewrite_amount,
+    rupees,
     to_decimal,
     tolerance_bounds,
 )
@@ -235,6 +236,20 @@ class TestThereIsExactlyOneCopyOfTheNumber(unittest.TestCase):
                 if marker in source:
                     offenders.append(f"{path.name}: {marker}")
         self.assertEqual(offenders, [], f"tolerance redefined outside amounts.py: {offenders}")
+
+
+
+class TestAFigureInASentence(unittest.TestCase):
+    def test_indian_grouping_with_paise_only_when_there_are_any(self):
+        self.assertEqual(rupees(Decimal("21480")), "₹21,480")
+        self.assertEqual(rupees(Decimal("160113.5")), "₹1,60,113.50")
+        self.assertEqual(rupees(Decimal("-1234567.5")), "-₹12,34,567.50")
+
+    def test_paise_always_where_figures_stand_side_by_side(self):
+        """The Porter invoice check prints both sides alike: "statement ₹1,812.00", never "₹1,812"."""
+        self.assertEqual(rupees(Decimal("1812"), paise=True), "₹1,812.00")
+        self.assertEqual(rupees(Decimal("1709.4"), paise=True), "₹1,709.40")
+        self.assertEqual(rupees(10, paise=True), "₹10.00")
 
 
 if __name__ == "__main__":

@@ -28,7 +28,7 @@ in ONE savepoint, so a failure half way through (a concurrent writer, a hook) ro
 each other instead of deadlocking. Before #1271 the reversal took no row lock at all.
 
 ⚠️ THE CONCURRENT-WRITER REFUSAL IS A SENTENCE HERE TOO, through the same
-`_concurrent_writer_refusal_as_sentence` `settle_row` and `allocate_row` share, and it ends at the
+`concurrent_writer_refusal_as_sentence` `settle_row` and `allocate_row` share, and it ends at the
 commit for the same reason: "nothing was saved" is false after it.
 
 ⚠️ EACH LEG IS STAMPED REVERSED BEFORE ITS VERDICT IS CARRIED OUT (#1278). A record the import created
@@ -41,8 +41,8 @@ from typing import NamedTuple
 import frappe
 
 from nirmaan_stack.api.outflow_import.expenses import (
-    _concurrent_writer_refusal_as_sentence,
-    _live_legs,
+    concurrent_writer_refusal_as_sentence,
+    live_legs,
     _refresh_row_allocation,
     _statement_file_url,
 )
@@ -51,7 +51,7 @@ from nirmaan_stack.api.outflow_import.review import (
     MATCH_DOCTYPE,
     ROW_DOCTYPE,
     _batch_source,
-    _refresh_batch_rollup,
+    refresh_batch_rollup,
 )
 from nirmaan_stack.api.outflow_import.unreconcile_cleanup import restore_derived_state
 from nirmaan_stack.api.outflow_import.unreconcile_created import delete_created, edits_of
@@ -253,12 +253,12 @@ def unreconcile_line(row: str, legs, reason: str, actor: str, *, bulk_of: int | 
     if not reason:
         frappe.throw(REASON_REQUIRED, title="Missing reason")
 
-    with _concurrent_writer_refusal_as_sentence("unreconcile_row", row):
+    with concurrent_writer_refusal_as_sentence("unreconcile_row", row):
         line = _lock_row(row)
         requested = _lock_legs(line, legs)
         # A vendor refund line is undone whole (`reverse_all_only`): a request naming only some of its
         # live legs is refused before anything is read for writing.
-        live = _live_legs(line.name)
+        live = live_legs(line.name)
         if reverse_all_only(live) and {leg.name for leg in requested} != {leg.name for leg in live}:
             frappe.throw(WHOLE_LINE_ONLY_REFUSAL, title=WHOLE_LINE_ONLY_TITLE)
         references = settlement_references_of_row(line)
@@ -281,7 +281,7 @@ def unreconcile_line(row: str, legs, reason: str, actor: str, *, bulk_of: int | 
             reversed_at = frappe.utils.now_datetime()
             for leg, verdict in zip(requested, verdicts):
                 # Stamp FIRST -- see the module docstring (a deleted target fails the link check).
-                _stamp_reversed(leg.name, actor, reason, reversed_at)
+                stamp_reversed(leg.name, actor, reason, reversed_at)
                 carried.append(_carry_out(verdict, leg, statement, actor, reason))
             # #1276: vendor credit, CEO Hold, latest payment date and the statement `File` row,
             # once, on the state after EVERY leg -- see `unreconcile_cleanup`.
@@ -296,10 +296,10 @@ def unreconcile_line(row: str, legs, reason: str, actor: str, *, bulk_of: int | 
             raise
         frappe.db.release_savepoint(savepoint)
 
-        statuses = _refresh_batch_rollup(line.import_batch)
+        statuses = refresh_batch_rollup(line.import_batch)
         frappe.db.commit()
 
-    remaining_legs = _live_legs(line.name)
+    remaining_legs = live_legs(line.name)
     return {
         "row": line.name,
         "row_status": new_status,
@@ -443,7 +443,7 @@ def _lock_legs(line, legs) -> list:
     """
     names = _parse_legs(legs)
     if names == ALL_LEGS:
-        names = [leg["name"] for leg in _live_legs(line.name)]
+        names = [leg["name"] for leg in live_legs(line.name)]
         if not names:
             frappe.throw(
                 "Nothing on this line is settled, so there is nothing to reverse.",
@@ -652,7 +652,7 @@ def _revert_payment(name: str, statement_file_url: str | None) -> None:
         doc.save(ignore_permissions=True, ignore_version=False)
 
 
-def _stamp_reversed(match: str, actor: str, reason: str, reversed_at) -> None:
+def stamp_reversed(match: str, actor: str, reason: str, reversed_at) -> None:
     """SOFT, NOT A DELETE (ADR-0020 D3): the record is kept, so "this was settled and undone" is
     never lost, and a Reversed leg stops holding the partial unique key."""
     doc = frappe.get_doc(MATCH_DOCTYPE, match)

@@ -1204,7 +1204,12 @@ export const SOURCE_COLUMN_ID = "source";
  * rows still appear, but the Source scope control cannot select it — so a screen filtered to a
  * source the user cannot name looks like a screen with missing rows.
  */
-export const SOURCE_OPTIONS: readonly string[] = ["Cashfree", "Cashbook", "ICICI Bank Statement"];
+export const SOURCE_OPTIONS: readonly string[] = [
+    "Cashfree",
+    "Cashbook",
+    "ICICI Bank Statement",
+    "Porter Statement",
+];
 
 /**
  * What the Source dropdown displays for a given selection.
@@ -1937,11 +1942,18 @@ export const importUploaderLabel = (option: { uploaded_by?: string }): string =>
  *
  * The tone follows the screen's existing chip vocabulary rather than inventing one: finished is
  * quiet, outstanding work is amber, exactly as the summary panel's own chips read.
+ *
+ * A Porter import reports its own state instead (#1444, `review.list_imports`): Validated reads as
+ * passed, Validation failed as refused, Validating as work still open; Created (#1445) is finished like
+ * Completed, and Creating is work still open.
  */
-export const importStatusTone = (status?: string): string =>
-    (status ?? "").trim() === "Completed"
-        ? "bg-muted text-muted-foreground"
-        : "bg-amber-50 text-amber-700";
+export const importStatusTone = (status?: string): string => {
+    const value = (status ?? "").trim();
+    if (value === "Completed" || value === "Created") return "bg-muted text-muted-foreground";
+    if (value === "Validated") return "bg-emerald-50 text-emerald-700";
+    if (value === "Validation failed") return "bg-destructive/10 text-destructive";
+    return "bg-amber-50 text-amber-700";
+};
 
 // --- confirm all matched (slice X5) --------------------------------------------------------------
 
