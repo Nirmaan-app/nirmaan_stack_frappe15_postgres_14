@@ -218,6 +218,21 @@ export const canChangeExpenseAccount = (
     isAccounts: boolean,
 ): boolean => isAccounts && doctype !== PAYMENT_DOCTYPE && !box.paid && !box.vendor_fixed;
 
+/** What the expense Edit dialog's *Who gets paid* section offers (#1465): `change`, Change account's
+ *  picker, saved with the edit; `vendor`, the vendor's account read-only; `none`, no section. */
+export type EditDialogPayTo = "none" | "vendor" | "change";
+
+/**
+ * The expense Edit dialog's *Who gets paid* (a screen rule, ADR-0033 decision 9): Accounts set an
+ * expense's account once it is Approved and until it is paid (before approval the raiser sets it on
+ * the request). While a vendor is named in the form it is the vendor's account, read-only: to pay
+ * someone else, the Vendor becomes "Others (No Vendor)". `isAccounts` is `canManagePayees`.
+ */
+export const editDialogPayTo = (status: string | null | undefined, isAccounts: boolean, vendorNamed: boolean): EditDialogPayTo => {
+    if (!isAccounts || (status || "").trim() !== "Approved") return "none";
+    return vendorNamed ? "vendor" : "change";
+};
+
 /** How a screen names an expense to an accountant: its description's first line (cut at `max`
  *  characters), else its type. Never its ID, which means nothing to them. Change account and the bank
  *  file's left-out toast use it. */
