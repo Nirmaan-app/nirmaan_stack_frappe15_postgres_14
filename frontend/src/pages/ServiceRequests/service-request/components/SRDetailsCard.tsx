@@ -5,15 +5,22 @@ import { Separator } from "@/components/ui/separator";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import { isCompanyBorneWorkOrder } from "@/pages/ProjectPayments/tdsForecast";
+import type { TdsBorneBy } from "@/pages/ProjectPayments/tdsForecast";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { Eye, FileText, Lock, PencilRuler, Trash2, Unlock } from "lucide-react";
-import { useMemo } from "react";
+
+const TDS_LABEL: Record<TdsBorneBy | "Mixed", string> = {
+  Vendor: "TDS withheld",
+  Company: "TDS (paid by company)",
+  Mixed: "TDS (part paid by company)",
+};
 
 interface SRDetailsCardProps {
   orderData: ServiceRequests | undefined;
+  /** Who bore the WO's TDS, read off its deductions (`tdsForecast.workOrderTdsBorneBy`). */
+  tdsBorneBy?: TdsBorneBy | "Mixed";
   project: Projects | undefined;
   vendor: Vendors | undefined;
   gstEnabled: boolean;
@@ -59,6 +66,7 @@ interface SRDetailsCardProps {
  */
 export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   orderData,
+  tdsBorneBy = "Vendor",
   project,
   vendor,
   gstEnabled,
@@ -105,16 +113,13 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   // The three money figures are the WO's stored fields, the same ones the WO list shows (ADR-0034):
   // never re-added from payments here. `amount_paid` is what the vendor got (Paid payments less
   // Received refunds), `total_tds` the tax beside it, and `amount_due` the server's
-  // `total_amount - amount_paid - total_tds`, which leaves the tax out on a company-borne WO.
+  // `total_amount - amount_paid - TDS withheld from the vendor` (the tax the company paid on top is
+  // not taken off).
   const amountPaid = parseNumber(orderData?.amount_paid);
   const tdsWithheld = parseNumber(orderData?.total_tds);
   const amountDue = parseNumber(orderData?.amount_due);
-  // On a company-borne Work Order (Miscellaneous / Transportation only) the tax is paid by the
-  // company on top of the payment, not withheld from the vendor (`payment_tds.is_company_borne`).
-  const companyBorneTds = useMemo(
-    () => isCompanyBorneWorkOrder(orderData?.service_category_list),
-    [orderData?.service_category_list]
-  );
+  // Who bore the tax is read off the WO's deductions (`borne_by`), never its categories (#1451).
+  const tdsLabel = TDS_LABEL[tdsBorneBy];
 
   return (
     <Card className="rounded-sm shadow-md overflow-x-auto">
@@ -230,7 +235,7 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
               {/* TDS withheld: settled with the tax office, beside Amount Paid */}
               <div className="space-y-0.5">
                 <p className="text-xs text-gray-500">
-                  {companyBorneTds ? "TDS (paid by company)" : "TDS withheld"}
+                  {tdsLabel}
                 </p>
                 <p className="text-sm font-medium text-gray-700 tabular-nums">
                   {formatToIndianRupeeOrZero(tdsWithheld)}

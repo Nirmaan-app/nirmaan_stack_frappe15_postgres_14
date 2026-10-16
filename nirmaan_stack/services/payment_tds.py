@@ -152,23 +152,34 @@ DEDUCTIBLE_PARENTS = frozenset({SERVICE_REQUEST_DOCTYPE})
 #: ⚠️ "ALL", NOT "ANY". A Work Order mixing one of these with any other category (Electrical, ...)
 #: is taxed the ordinary way. A Work Order with no categories at all is ordinary too.
 #:
-#: ⚠️ DECIDED FROM THE WORK ORDER'S CATEGORIES AT APPROVAL, NOT STORED ON THE DEDUCTION (owner
-#: ruling 2026-09-17, no new field). What a deduction already did is read off its own record instead:
-#: its payment kept whole (company-borne) or reduced by the tax (withheld from the vendor) --
-#: `company_borne_tds_by_order`. Deductions taken on such Work Orders BEFORE this rule were withheld
-#: from the vendor and stay so (owner ruling 2026-10-16, #1451).
+#: ⚠️ THE RULE DECIDES ONLY WHEN A DEDUCTION IS CREATED. `record_deduction` stores its answer on the
+#: row as `borne_by` (#1451), and every reader after that reads the row, never the categories: an
+#: amount edit, the Amount Due, the mismatch judge, the request cap, the Work Order page. So a Work
+#: Order whose categories change later keeps every deduction it already took as it was taken, and the
+#: Misc / Transport Work Orders paid before this rule (their tax withheld from the vendor, owner
+#: ruling 2026-10-16) stay vendor-borne. Rows from before the field were backfilled once from their
+#: payments (`patches/v3_0/backfill_payment_tds_borne_by`).
 #:
 #: ⚠️ MIRRORED IN THE FRONTEND by `COMPANY_BORNE_CATEGORIES` in
 #: `frontend/src/pages/ProjectPayments/tdsForecast.ts`. Change both or neither.
 COMPANY_BORNE_CATEGORIES = frozenset({"Miscellaneous Services", "Transportation Services"})
 
+#: `Payment TDS Deduction.borne_by`: who bears the tax of one deduction, set once when it is created.
+#: VENDOR -- withheld from the vendor, the payment cut to the net. COMPANY -- paid by the company on
+#: top, the payment kept whole. A row with neither (a raw insert) reads as VENDOR, the column default.
+BORNE_BY_VENDOR = "Vendor"
+BORNE_BY_COMPANY = "Company"
+
 __all__ = [
 	"APPROVAL_SOURCE_STATUSES",
 	"COMPANY_BORNE_CATEGORIES",
+	"BORNE_BY_VENDOR",
+	"BORNE_BY_COMPANY",
 	"DEDUCTIBLE_PARENTS",
 	"is_approval_from_an_earlier_step",
 	"is_company_borne",
 	"categories_are_company_borne",
+	"company_borne_tds_sql",
 	"company_borne_tds_by_order",
 	"is_deductible",
 	"is_gst_payment",
@@ -235,7 +246,9 @@ def is_deductible(doc) -> bool:
 
 
 def is_company_borne(document_type: str | None, document_name: str | None) -> bool:
-	"""Does the company pay this Work Order's TDS on top, leaving its payments unreduced?
+	"""Would the company pay the TDS of a deduction taken on this Work Order NOW, leaving the payment
+	unreduced? The category rule, asked only when a deduction is created (`record_deduction`); a
+	deduction already taken says who bore it on its own row (`borne_by`).
 
 	True only for a `Service Requests` parent whose `service_category_list` is non-empty and holds
 	nothing outside `COMPANY_BORNE_CATEGORIES` -- see that constant for the rule and its ruling.
@@ -254,7 +267,7 @@ def is_company_borne(document_type: str | None, document_name: str | None) -> bo
 
 def categories_are_company_borne(raw) -> bool:
 	"""`is_company_borne` on a Work Order's `service_category_list` as read: for a reader that loads
-	many Work Orders in one query (the Amount Paid mismatch judge). Pure."""
+	many Work Orders in one query (the `borne_by` backfill patch). Pure."""
 	# A Postgres `json` column can arrive already decoded or as text, depending on the driver path.
 	try:
 		parsed = frappe.parse_json(raw) if isinstance(raw, str) else raw
@@ -272,54 +285,49 @@ def categories_are_company_borne(raw) -> bool:
 	return bool(categories) and categories <= COMPANY_BORNE_CATEGORIES
 
 
-def company_borne_tds_by_order(document_type: str, names=None, exclude_payment: str | None = None) -> dict:
-	"""The tax the COMPANY paid on top, per Work Order: `{name: tds}` over the deductions on its Paid
-	payments that were KEPT WHOLE, for a company-borne Work Order (`categories_are_company_borne`).
-	Every Work Order when `names` is None. The rest of its `total_tds` was withheld from the vendor.
+def company_borne_tds_sql(exclude_payment: bool = False) -> str:
+	"""A derived table `(document_name, company_borne_tds)`: per order of `%(doctype)s`, the tax its
+	Paid payments' deductions put on the COMPANY (`borne_by`). The rest of its `total_tds` was withheld
+	from the vendor. With `exclude_payment`, the payment `%(exclude)s` is left out.
 
-	⚠️ READ OFF EACH DEDUCTION, NOT THE CATEGORIES ALONE (owner ruling 2026-10-16, #1451). The rule
-	only decides what an approval does; what it did is on the record: a payment kept whole still equals
-	the deduction's `gross_amount`, a reduced one equals `gross_amount - tds_amount` (both stay so
-	through an amount edit, `restate_deduction_on_amount_change`). Nearer wins, so the outflow
-	import's few rupees of rounding do not flip it. 34 Miscellaneous / Transportation Work Orders paid
-	before the rule had their tax withheld from the vendor (SR-00041-000138: 24,800 -> 24,552 + 248);
-	reading them by category alone put that tax back as still owed.
-
-	⚠️ GATED ON THE CATEGORIES TOO: only a company-borne Work Order's payment is ever kept whole. An
-	ordinary one whose deduction was restated off its payment (SR-00190-001007) can sit nearer its gross
-	and must not read as company-borne.
-
-	`exclude_payment` as in `total_tds_of`: a payment being trashed is still in the table.
+	THE ONE SOURCE of that figure: `company_borne_tds_by_order` (the Amount Due writer) selects from it
+	and the mismatch judge (`services/amount_paid_drift.mismatches`) joins it into its one query, so
+	the two cannot disagree. Read off each row's stored `borne_by` (#1451), never off the categories
+	or the amounts: a part settlement cuts a kept-whole payment below its gross, an amount edit moves
+	both figures, and a Work Order's categories can change after the fact.
 	"""
-	if document_type not in DEDUCTIBLE_PARENTS:
-		return {}
-	names = None if names is None else sorted({n for n in names if n})
-	if names == []:
+	return f"""
+		SELECT p.document_name, SUM(d.tds_amount) AS company_borne_tds
+		FROM "tab{TDS_DOCTYPE}" d
+		INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = d.project_payment
+		WHERE p.document_type = %(doctype)s
+		  AND p.status = '{PAID}'
+		  AND d.borne_by = '{BORNE_BY_COMPANY}'
+		  {"AND p.name <> %(exclude)s" if exclude_payment else ""}
+		GROUP BY p.document_name
+	"""
+
+
+def company_borne_tds_by_order(document_type: str, names, exclude_payment: str | None = None) -> dict:
+	"""`{name: tax the company paid on top}` for the given Work Orders (`company_borne_tds_sql`). Empty
+	for an order type that takes no deductions.
+
+	`exclude_payment` as in `total_tds_of`: a payment being trashed is still in the table, and its tax
+	must leave this figure as it leaves `total_tds`.
+	"""
+	names = sorted({n for n in names or () if n})
+	if document_type not in DEDUCTIBLE_PARENTS or not names:
 		return {}
 	rows = frappe.db.sql(
 		f"""
-		SELECT k.document_name, k.tds, o.service_category_list
-		FROM (
-			SELECT p.document_name, SUM(d.tds_amount) AS tds
-			FROM "tab{TDS_DOCTYPE}" d
-			INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = d.project_payment
-			WHERE p.document_type = %(doctype)s
-			  AND p.status = %(paid)s
-			  AND ABS(p.amount - d.gross_amount) < ABS(p.amount - (d.gross_amount - d.tds_amount))
-			  {"AND p.document_name IN %(names)s" if names else ""}
-			  {"AND p.name <> %(exclude)s" if exclude_payment else ""}
-			GROUP BY p.document_name
-		) k
-		INNER JOIN "tab{document_type}" o ON o.name = k.document_name
+		SELECT c.document_name, c.company_borne_tds
+		FROM ({company_borne_tds_sql(bool(exclude_payment))}) c
+		WHERE c.document_name IN %(names)s
 		""",
-		{"doctype": document_type, "paid": PAID, "names": tuple(names or ()), "exclude": exclude_payment},
+		{"doctype": document_type, "names": tuple(names), "exclude": exclude_payment},
 		as_dict=True,
 	)
-	return {
-		row.document_name: flt(row.tds, 2)
-		for row in rows
-		if categories_are_company_borne(row.service_category_list)
-	}
+	return {row.document_name: flt(row.company_borne_tds, 2) for row in rows}
 
 
 def existing_deduction(payment_name: str) -> str | None:
@@ -398,8 +406,10 @@ def restate_deduction_on_amount_change(doc) -> str | None:
 
 	    gross = net / (1 - rate/100)          tds = gross - net
 
-	⚠️ EXCEPT ON A COMPANY-BORNE WORK ORDER (`is_company_borne`), whose payment was never reduced:
-	there the edited figure IS the gross, and `tds = amount * rate/100`.
+	⚠️ EXCEPT FOR A DEDUCTION THE COMPANY BORE (`borne_by` = Company), whose payment was never
+	reduced: there the edited figure IS the gross, and `tds = amount * rate/100`. Read off the row,
+	never the Work Order's categories, which may have changed since (#1451); `borne_by` itself is
+	never restated.
 
 	⚠️ AT THE DEDUCTION'S OWN SNAPSHOTTED RATE, NEVER THE VENDOR'S CURRENT ONE. 561 of 629 rows
 	already carry a rate that differs from their vendor's today, so re-reading the master would
@@ -428,7 +438,7 @@ def restate_deduction_on_amount_change(doc) -> str | None:
 	row = frappe.db.get_value(
 		TDS_DOCTYPE,
 		name,
-		["gross_amount", "tds_amount", "tds_percentage", "tds_challan"],
+		["gross_amount", "tds_amount", "tds_percentage", "tds_challan", "borne_by"],
 		as_dict=True,
 	)
 	rate = flt(row.get("tds_percentage"))
@@ -439,7 +449,7 @@ def restate_deduction_on_amount_change(doc) -> str | None:
 	if rate <= 0 or rate >= 100 or amount <= 0:
 		return name
 
-	if is_company_borne(doc.get("document_type"), doc.get("document_name")):
+	if row.get("borne_by") == BORNE_BY_COMPANY:
 		# The payment was never reduced, so the edited figure IS the gross and the tax is taken on
 		# it directly -- the same arithmetic `record_deduction` used at approval.
 		gross = amount
@@ -487,14 +497,15 @@ def write_deduction(
 	tds_percentage,
 	payment_approved_on: str | None = None,
 	update_modified: bool = True,
-	reduce_payment: bool = True,
+	borne_by: str = BORNE_BY_VENDOR,
 ) -> str | None:
 	"""Record ONE deduction and net the payment. The caller supplies the FIGURES; this owns the
 	record, the ordering and the guards.
 
-	`reduce_payment=False` records the deduction but leaves `Project Payments.amount` at the gross
-	figure -- a company-borne Work Order (`is_company_borne`). It defaults to True so the historical
-	backfills, which call this directly, keep writing exactly what they always wrote.
+	`borne_by` is stored on the row and decides the payment: VENDOR (the default) cuts it to the net,
+	COMPANY leaves it at the gross -- the company pays the tax on top (`is_company_borne`, asked by
+	`record_deduction`). The default keeps the historical backfills, which call this directly, writing
+	exactly what they always wrote.
 
 	⚠️ IT EXISTS BECAUSE THE TWO ERAS SOURCE THE TAX DIFFERENTLY BUT MUST WRITE IT IDENTICALLY.
 	A payment approved from now on derives its tax from the vendor's CURRENT rate
@@ -540,6 +551,7 @@ def write_deduction(
 			"tds_percentage": flt(tds_percentage, 2),
 			"tds_amount": tds_amount,
 			"payment_approved_on": payment_approved_on or nowdate(),
+			"borne_by": borne_by,
 		}
 	)
 	row.insert(ignore_permissions=True)
@@ -558,7 +570,7 @@ def write_deduction(
 
 	# A company-borne Work Order keeps its payment at the gross figure: the vendor receives it in
 	# full and the tax is paid on top (owner ruling 2026-09-17, `COMPANY_BORNE_CATEGORIES`).
-	if not reduce_payment:
+	if borne_by == BORNE_BY_COMPANY:
 		return row.name
 
 	# The payment now states what will actually leave the bank (owner ruling 2026-09-10).
@@ -620,7 +632,12 @@ def record_deduction(doc, *, payment_approved_on: str | None = None, update_modi
 		# approved half (`on_update`), auto-approve (`after_insert`) and bulk approve
 		# (`_record_bulk_deductions`) all arrive through this function, so none can reduce a
 		# company-borne payment that another would leave whole.
-		reduce_payment=not is_company_borne(doc.get("document_type"), doc.get("document_name")),
+		# Stored on the row: from here on the row, not the categories, says who bore this tax.
+		borne_by=(
+			BORNE_BY_COMPANY
+			if is_company_borne(doc.get("document_type"), doc.get("document_name"))
+			else BORNE_BY_VENDOR
+		),
 	)
 
 

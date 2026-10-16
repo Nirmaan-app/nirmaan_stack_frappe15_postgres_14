@@ -174,3 +174,4 @@ nirmaan_stack.patches.v3_0.set_vendor_refunds_received
 nirmaan_stack.patches.v3_0.convert_adjustment_vendor_refunds
 nirmaan_stack.patches.v3_0.backfill_cheques_from_cheque_payments
 nirmaan_stack.patches.v3_0.recount_drifted_po_amount_paid
+nirmaan_stack.patches.v3_0.backfill_payment_tds_borne_by

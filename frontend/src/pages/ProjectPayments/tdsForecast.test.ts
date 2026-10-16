@@ -5,7 +5,9 @@ import {
 	forecastTdsTotals,
 	isCompanyBorneWorkOrder,
 	isDeductible,
+	taxWithheld,
 	withholdsOnApproval,
+	workOrderTdsBorneBy,
 } from "./tdsForecast";
 
 const SR = "Service Requests";
@@ -196,5 +198,30 @@ describe("withholdsOnApproval", () => {
 	it("an L1 click above 50,000 only forwards to the CEO and withholds nothing yet", () => {
 		expect(withholdsOnApproval("lead", 50000.01)).toBe(false);
 		expect(withholdsOnApproval("lead", 60000)).toBe(false);
+	});
+});
+
+describe("who bore a deduction already taken (Payment TDS Deduction.borne_by, #1451)", () => {
+	const misc = JSON.stringify({ list: [{ name: "Miscellaneous Services" }] });
+	const ordinary = JSON.stringify({ list: [{ name: "Electrical Services" }] });
+
+	it("counts as withheld only the tax the vendor bore", () => {
+		expect(taxWithheld({ tds_amount: 120, borne_by: "Vendor" })).toBe(120);
+		expect(taxWithheld({ tds_amount: 282.4, borne_by: "Company" })).toBe(0);
+		expect(taxWithheld(undefined)).toBe(0);
+	});
+
+	it("reads a Work Order's deductions, never its categories, once it has any", () => {
+		// SR-00107-001055: one withheld, one kept whole, on a Misc-only Work Order.
+		expect(workOrderTdsBorneBy([{ borne_by: "Vendor" }, { borne_by: "Company" }], misc)).toBe("Mixed");
+		// Paid before the rule: Misc-only, but the tax came out of the vendor's payment.
+		expect(workOrderTdsBorneBy([{ borne_by: "Vendor" }], misc)).toBe("Vendor");
+		// Kept whole, then Electrical was added: still the company's.
+		expect(workOrderTdsBorneBy([{ borne_by: "Company" }], ordinary)).toBe("Company");
+	});
+
+	it("falls back to the category rule while a Work Order has no deduction yet", () => {
+		expect(workOrderTdsBorneBy([], misc)).toBe("Company");
+		expect(workOrderTdsBorneBy(undefined, ordinary)).toBe("Vendor");
 	});
 });

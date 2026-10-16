@@ -31,7 +31,7 @@ import { toast } from "@/components/ui/use-toast";
 import { InvoiceDialog } from "@/pages/ProcurementOrders/invoices-and-dcs/components/InvoiceDialog";
 import RequestPaymentDialog from "@/pages/ProjectPayments/request-payment/RequestPaymentDialog";
 import { PaymentTDSDeduction } from "@/types/NirmaanStack/PaymentTDSDeduction";
-import { isCompanyBorneWorkOrder } from "@/pages/ProjectPayments/tdsForecast";
+import { taxWithheld, workOrderTdsBorneBy } from "@/pages/ProjectPayments/tdsForecast";
 import { ProjectPayments } from "@/types/NirmaanStack/ProjectPayments";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
@@ -260,7 +260,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     // Tax withheld from this order's payments. Keyed by payment so a row can show its own
     // deduction and the summary can restrict itself to the PAID ones.
     const { data: tdsDeductions, mutate: tdsDeductionsMutate } = useFrappeGetDocList<PaymentTDSDeduction>("Payment TDS Deduction", {
-        fields: ["name", "project_payment", "gross_amount", "tds_percentage", "tds_amount", "payment_approved_on"],
+        fields: ["name", "project_payment", "gross_amount", "tds_percentage", "tds_amount", "payment_approved_on", "borne_by"],
         filters: [["document_name", "=", id]],
         limit: 100,
     }, id ? `PaymentTDSDeduction-SR-${id}` : null)
@@ -289,21 +289,23 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
     // `amount` is rewritten to the NET figure once TDS is withheld, but the withheld tax was still
     // part of what was requested -- so the Request Payment cap counts each payment GROSS.
     //
-    // ⚠️ EXCEPT ON A COMPANY-BORNE WORK ORDER (Miscellaneous / Transportation only): `amount` is never
-    // reduced there, so it already IS the gross, and adding the tax would shrink the cap by it.
-    const companyBorneTds = useMemo(
-        () => isCompanyBorneWorkOrder(service_request?.service_category_list),
-        [service_request?.service_category_list]
-    );
+    // ⚠️ ONLY THE TAX WITHHELD IS ADDED BACK (`taxWithheld`, read off each deduction's `borne_by`): a
+    // deduction the company bore left its payment whole, so its `amount` already IS the gross. Per
+    // deduction, so a Work Order with both kinds counts each payment right (#1451).
     const grossRequested = useMemo(() => {
-        const tdsFor = (statuses: string[]) => companyBorneTds ? 0 : (projectPayments || [])
+        const tdsFor = (statuses: string[]) => (projectPayments || [])
             .filter(i => statuses.includes(i?.status))
-            .reduce((acc, i) => acc + parseNumber(tdsByPayment[i.name]?.tds_amount), 0);
+            .reduce((acc, i) => acc + taxWithheld(tdsByPayment[i.name]), 0);
         return {
             paid: paidPaymentsForCap + tdsFor(["Paid"]),
             pending: amountPending + tdsFor(OPEN_REQUEST_STATUSES),
         };
-    }, [projectPayments, tdsByPayment, paidPaymentsForCap, amountPending, companyBorneTds]);
+    }, [projectPayments, tdsByPayment, paidPaymentsForCap, amountPending]);
+    // Who bore this Work Order's TDS, for the details card's label.
+    const tdsBorneBy = useMemo(
+        () => workOrderTdsBorneBy(tdsDeductions, service_request?.service_category_list),
+        [tdsDeductions, service_request?.service_category_list]
+    );
 
     useEffect(() => {
         if (service_request) {
@@ -557,6 +559,7 @@ export const ApprovedSR = ({ summaryPage = false, accountsPage = false }: Approv
             {/* WO Details Card - using new SRDetailsCard component */}
             <SRDetailsCard
                 orderData={orderData}
+                tdsBorneBy={tdsBorneBy}
                 project={project}
                 vendor={service_vendor}
                 gstEnabled={gstEnabled}
