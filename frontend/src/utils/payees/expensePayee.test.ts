@@ -8,6 +8,7 @@ import {
     asPayeeRule,
     asksWhoGetsPaid,
     countAskingWhoGetsPaid,
+    noAccountReviewLine,
     payeeAccountLine,
     showsWhoGetsPaid,
     whoGetsPaidHelp,
@@ -140,5 +141,20 @@ describe("showsWhoGetsPaid", () => {
         expect(whoGetsPaidHelp("Not asked", "Material Purchase")).toBe(
             "Material Purchase doesn't ask who gets paid, but a vendor is paid into its own account.",
         );
+    });
+});
+
+describe("noAccountReviewLine", () => {
+    it("tells the reviewer a Required type's request has no account", () => {
+        expect(noAccountReviewLine("Required", "Site Labour")).toBe("No account. Site Labour requires one.");
+    });
+
+    it("notes that an Optional type's request left it blank", () => {
+        expect(noAccountReviewLine("Optional", "Travel")).toBe("No account (optional for Travel)");
+    });
+
+    it("says nothing for a Not asked type", () => {
+        expect(noAccountReviewLine("Not asked", "Food")).toBeNull();
+        expect(noAccountReviewLine(undefined, "Food")).toBeNull();
     });
 });
