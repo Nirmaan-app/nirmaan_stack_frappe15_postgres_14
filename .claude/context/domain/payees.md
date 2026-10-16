@@ -253,8 +253,17 @@ Spec #1420; the Payee record, the Payee module and the Payees page are #1422.
     (`paidTo.changeAccountRuleLine`) and offers Remove account only when the type is not *Required*
     (`paidTo.canRemoveExpenseAccount`, a screen rule).
   - **Who gets paid in the expense Edit dialogs** (#1465; the pencil on "Payment need to paid" and on
-    the expense pages): Change account inside the edit, for Accounts on an Approved expense
-    (`paidTo.editDialogPayTo`). Same picker, endpoints and rule wording; it saves with Save Changes:
+    the expense pages): Change account inside the edit, for Accounts on an Approved expense, and for
+    the raiser of a **Direct Expense** (its `owner`, with no `request_id`) while it is Requested
+    (#1472, `paidTo.editDialogPayTo`, whose raiser case is `paidTo.raiserMayChangeAccount`). An
+    expense an Expense Request's approval created never gets the raiser case: its raiser changes the
+    account on the request. The raiser reaches the dialog from the pencil on their own Requested
+    Direct Expense rows on "Payment Raised By Me" (`queueRowActions.canRaiserEditQueueRow`; the
+    queue row's `request_id` says whether a request is behind it); the settle-side pencil is
+    unchanged. A raiser outside Accounts searches and adds Payees through the request's endpoints
+    (`api/expense_requests/payees`), Accounts through theirs. Both save through Change account's
+    endpoint, which asks write permission on the expense and leaves the Version row "Set by" reads.
+    Same picker and rule wording; it saves with Save Changes:
     the pick is resolved first (a new Payee is added, a duplicate stops the save), the fields are
     updated, then the Payee is copied (`components/payees/ExpenseEditPayTo`,
     `useChangeExpenseAccount`, which the Change account dialog saves through too). Remove account is

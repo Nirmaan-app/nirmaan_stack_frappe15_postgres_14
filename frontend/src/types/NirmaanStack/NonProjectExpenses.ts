@@ -27,5 +27,8 @@ export interface NonProjectExpenses {
     // Set only by the Porter Statement import (#1445): the Porter Order this expense pays for.
     porter_order?: string | null;
 
+    // The Expense Request this expense was created from, written by its approval; blank on a Direct Expense.
+    request_id?: string | null;
+
     // Standard Frappe fields like name, creation, modified, owner are implicitly available
 }

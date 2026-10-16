@@ -196,6 +196,10 @@ def _payments_select():
             -- Payment kind (ADR-0030): 1 on a GST payment, which is never taxed -- the lists tag it
             -- and the TDS forecast skips it. ⚠️ POSITIONAL: `0` at the same place in `_expense_select`.
             COALESCE(p."is_gst_payment", 0) AS is_gst_payment,
+            -- The Expense Request an expense came from; blank on a Direct Expense, so "Payment Raised
+            -- By Me" gives its raiser the Edit pencil (#1472). A payment has none. ⚠️ POSITIONAL: right
+            -- before `invoice` in `_expense_select` too.
+            ''::text                        AS request_id,
             -- An expense's invoice file, for the "Upload Invoice" action on the Paid tab. A PO / WO
             -- payment's invoices are Vendor Invoices, never a field here, so it is blank.
             -- ⚠️ POSITIONAL: before the pay-to columns in `_expense_select` too.
@@ -287,6 +291,7 @@ def _expense_select(table, source, project_col):
             0                               AS on_hold,
             -- Only a Work Order payment can be a GST payment.
             0                               AS is_gst_payment,
+            COALESCE(e."request_id", '')::text AS request_id,
             COALESCE(e."invoice_attachment", '')::text AS invoice,
             {_pay_to_columns("e")}
         FROM "{table}" e
