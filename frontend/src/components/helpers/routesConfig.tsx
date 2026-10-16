@@ -60,6 +60,7 @@ import WorkPackages from "@/pages/work-packages";
 import { ProtectedRoute, UsersRoute, UserProfileRoute, InflowPaymentsRoute, NewProjectRoute, PricingRoute, OutflowImportRoute, RoleRoute } from "@/utils/auth/ProtectedRoute";
 import {
   BOQ_TEMPLATES_ACCESS,
+  CHEQUE_ACCESS_PROFILES,
   CUSTOMERS_ACCESS,
   HOD_ACCESS,
   MTC_PAGE_PROFILES,
@@ -71,7 +72,7 @@ import {
 import { ProjectManager } from "../layout/dashboards/dashboard-pm";
 import InvoiceReconciliationContainer from "@/pages/tasks/invoices/InvoiceReconciliationContainer";
 import { NewProcurementRequestPage } from "@/pages/ProcurementRequests/NewPR/NewProcurementRequestPage";
-import ReportsContainer from "@/pages/reports/ReportsContainer";
+import ReportsIndex from "@/pages/reports/ReportsIndex";
 // import ProcurementOrdersTesting from "@/pages/ProcurementOrders/testing/ProcurementOrdersTesting";
 import ItemsPage from "@/pages/Items/itemsPage";
 import AssetsPage from "@/pages/Assets/AssetsPage";
@@ -166,6 +167,8 @@ const RemindersPage = lazy(() => import("@/pages/Reminders/RemindersPage"));
 // Payees (spec #1420): every bank account the company pays into.
 const PayeesPage = lazy(() => import("@/pages/payees/PayeesPage"));
 const PayeePage = lazy(() => import("@/pages/payees/PayeePage"));
+// Cheque Tracker (spec #1477, #1483): every cheque the company writes. It was Reports › Payment › Cheque Payment.
+const ChequeTrackerPage = lazy(() => import("@/pages/cheque-tracker/ChequeTrackerPage"));
 // Document Search
 
 export const appRoutes: RouteObject[] = [
@@ -623,7 +626,8 @@ export const appRoutes: RouteObject[] = [
           {
             path: "reports",
             children: [
-              { index: true, element: <ReportsContainer /> },
+              // ReportsIndex sends an old Cheque Payment report link to the Cheque Tracker (#1483).
+              { index: true, element: <ReportsIndex /> },
               // A PO opened from a report stays under Reports (see `orderDetailPath`).
               { path: "po/:poId", lazy: () => import("@/components/POSummary") },
             ],
@@ -645,6 +649,14 @@ export const appRoutes: RouteObject[] = [
           {
             path: "non-project",
             element: <Navigate to="/expense/non-project" replace />,
+          },
+          // --- Cheque Tracker (#1483) --- Admin, Accountants and Procurement. The sidebar item reads the same
+          // constant; every `api/cheques/` endpoint enforces it.
+          {
+            element: <RoleRoute allowed={CHEQUE_ACCESS_PROFILES} what="the Cheque Tracker" />,
+            children: [
+              { path: "cheque-tracker", element: <Suspense fallback={null}><ChequeTrackerPage /></Suspense> },
+            ],
           },
           // --- Project Payments ---
           {

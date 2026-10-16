@@ -13,7 +13,7 @@ import { LINES_GAP_TOLERANCE } from "@/utils/cheques/chequeLines";
 import { formatDate } from "@/utils/FormatDate";
 
 /**
- * Reports > Payment > Cheque Payment: one row per Cheque (spec #1407), served by
+ * The Cheque Tracker's tables (spec #1407, #1483): one row per Cheque, served by
  * `api/cheques/list_cheques.get_cheques` (the `useServerDataTable` custom-endpoint contract).
  * The summary strip is that same call's `aggregates`, and the facets come from
  * `get_cheque_facets` over the same filters, so the strip, the facets and the rows always agree (#1417).
@@ -135,6 +135,26 @@ export const chequeSummary = (aggregates: Record<string, unknown> | null | undef
     ];
 };
 
+/** A count and an amount of Cheques. */
+export interface ChequeFigure {
+    count: number;
+    amount: number;
+}
+
+/**
+ * The Issued tab's strip (#1483), from `get_cheques`'s `aggregates` over the tab's rows: every cheque waiting
+ * for the bank (`count`, `total_amount`), and those issued more than `CHEQUE_STALE_DAYS` ago (`stale_*`).
+ */
+export const issuedChequeFigures = (
+    aggregates: Record<string, unknown> | null | undefined,
+): { waiting: ChequeFigure; stale: ChequeFigure } => {
+    const a = aggregates ?? {};
+    return {
+        waiting: { count: num(a.count), amount: num(a.total_amount) },
+        stale: { count: num(a.stale_count), amount: num(a.stale_amount) },
+    };
+};
+
 /** The PO/WO and Project cells: the first line's value, plus how many other values the lines name. */
 export const firstWithMore = (values: (string | null | undefined)[]): { first?: string; more: number } => {
     const distinct = [...new Set(values.filter((v): v is string => !!v))];
@@ -149,24 +169,33 @@ export const linesGap = (row: Pick<ChequeRow, "amount" | "lines">): number | nul
     return Math.abs(gap) > LINES_GAP_TOLERANCE ? gap : null;
 };
 
-/** A cheque is good for 3 months from its date; an Issued one older than that is stale. */
+/**
+ * A cheque is good for 3 months; an Issued one issued longer ago than this is stale (spec #1477). The list
+ * endpoint's `stale_*` aggregates use the same line (`list_cheques.STALE_AFTER_DAYS`).
+ */
 export const CHEQUE_STALE_DAYS = 90;
 
-/** Days since the cheque date while the cheque is Issued (negative when post-dated); null otherwise. */
-export const daysOutstanding = (
-    row: Pick<ChequeRow, "status" | "cheque_date">,
-    today: Date = new Date(),
-): number | null => {
-    if (row.status !== CHEQUE_STATUS.ISSUED || !row.cheque_date) return null;
-    const [y, m, d] = row.cheque_date.split("-").map(Number);
+type IssueDates = Pick<ChequeRow, "status" | "cheque_date"> & Partial<Pick<ChequeRow, "issue_date">>;
+
+/**
+ * Days since the cheque was issued, while it is Issued; null otherwise. An old cheque with no issue date
+ * (made before issue dates) counts from its cheque date, which can be in the future (negative: post-dated).
+ */
+export const daysSinceIssue = (row: IssueDates, today: Date = new Date()): number | null => {
+    const from = row.issue_date || row.cheque_date;
+    if (row.status !== CHEQUE_STATUS.ISSUED || !from) return null;
+    const [y, m, d] = from.split("-").map(Number);
     if (!y || !m || !d) return null;
     const start = Date.UTC(y, m - 1, d);
     const end = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
     return Math.round((end - start) / 86_400_000);
 };
 
-export const isStale = (row: Pick<ChequeRow, "status" | "cheque_date">, today: Date = new Date()): boolean =>
-    (daysOutstanding(row, today) ?? 0) > CHEQUE_STALE_DAYS;
+export const isStale = (row: IssueDates, today: Date = new Date()): boolean =>
+    (daysSinceIssue(row, today) ?? 0) > CHEQUE_STALE_DAYS;
+
+/** How many payments the cheque pays: its lines that name one. */
+export const paymentCount = (row: Pick<ChequeRow, "lines">): number => row.lines.filter((l) => l.payment_name).length;
 
 /** The Type cell: "Payment cheque" or "Security Deposit" (spec #1477). */
 export const chequeTypeLabel = (type: ChequeType): string =>

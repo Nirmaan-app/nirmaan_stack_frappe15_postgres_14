@@ -21,8 +21,8 @@ export type SROption = 'Pending Invoices' | 'PO with Excess Payments' | '2B Reco
 
 export type DCMIRReportType = 'DC Report' | 'MIR Report';
 
-// The "Payment" tab: the Tax Deducted at Source ledger, and every Cheque (spec #1407).
-export type PaymentTDSReportType = 'TDS Deduction' | 'Cheque Payment';
+// The "Payment" tab: the Tax Deducted at Source ledger. (Cheques moved to the Cheque Tracker, #1483.)
+export type PaymentTDSReportType = 'TDS Deduction';
 
 // Combined type for any selectable report
 export type ReportType = ProjectReportType | VendorReportType | CustomerReportType | POReportOption | SROption | DCMIRReportType | PaymentTDSReportType | null;
@@ -94,7 +94,7 @@ const getDefaultReportTypeForTabAndRole = (tab: string, userRole?: string): Repo
         return null;
     } else if (tab === REPORTS_TABS.PAYMENT_TDS) {
         // Reads the SAME helper as the tab itself and its dropdown, so the default can never
-        // name a report the user's own dropdown does not offer (Procurement: Cheque Payment).
+        // name a report the user's own dropdown does not offer.
         return paymentTabReports(userRole)[0] ?? null;
     }
     return null; // Default fallback
