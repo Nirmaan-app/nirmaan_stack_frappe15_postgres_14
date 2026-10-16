@@ -1,31 +1,32 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""A vendor cheque's PO/WO lines, the payment picker and Online -> Cheque conversion (#1410, spec #1407).
+"""A Payment cheque's PO lines, the payment picker and the payments it takes (#1410, spec #1407; #1482,
+spec #1477).
 
-Drives the report's endpoints against the database the way the Add Cheque dialog does
+Drives the Cheque Tracker's endpoints against the database the way the Add Cheque dialog does
 (`save_cheque` with `lines`, `pickers.get_vendor_records`, `pickers.get_eligible_payments`) and reads
-back what a user sees: the Cheque and its lines, each payment's link, mode, cheque number, date and
-status, or the refusal. Approvals after a conversion go through their real routes (the single L1
-approve's two calls, the CEO endpoint, bulk approve, the hold release).
+back what a user sees: the Cheque, its status, issue date and lines, each payment's link, mode, cheque
+number, date and status, or the refusal. Approvals after the save go through their real routes (the
+single L1 approve's two calls, the CEO endpoint).
+
+A Payment cheque pays PO payments only, picked at Requested, CEO Pending or Approved, all at one step.
+It saves Pending; picked Approved payments move on to Reconciliation Pending at once, which issues it.
 
 ⚠️ RUNS AGAINST THE ENV DATABASE (the endpoints commit). Projects, vendors, Work Orders and payments
-come from `TaxedWorkOrderFixture`; POs are planted and purged here; every Cheque carries a TESTCHQ
+come from `TaxedWorkOrderFixture`, POs from `ChequeFixture.plant_po`; every Cheque carries a TESTCHQ
 number and is purged by `ChequeFixture`.
 """
 
-import json
 from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import flt, nowdate
+from frappe.utils import add_days, flt, nowdate
 
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.cheques.pickers import get_eligible_payments, get_vendor_records
 from nirmaan_stack.api.cheques.save_cheque import save_cheque
-from nirmaan_stack.api.payments import bulk_actions
-from nirmaan_stack.api.payments.payment_hold import set_payment_hold
 from nirmaan_stack.api.payments.project_payments import (
     ceo_approve_payment,
     move_cheque_payment_to_reconciliation,
@@ -37,6 +38,7 @@ U = "Administrator"
 PAYMENT = "Project Payments"
 SR = "Service Requests"
 PO = "Procurement Orders"
+NPE = "Non Project Expenses"
 LINE = "PO/WO Payment"
 RECON = "Reconciliation Pending"
 PHOTO = "https://storage.example.invalid/private/files/cheque-test.jpg"
@@ -51,56 +53,44 @@ class TestChequeLines(FrappeTestCase):
         self.vendor = self.fx.vendor(2.0)
         self.project = self.fx.project()
         self.other_project = self.fx.project()
+        self.po = self._po(self.project)
+        self.other_po = self._po(self.other_project)
         self.sr = self.fx.service_request(self.project, self.vendor)
-        self.po = self._po(self.other_project, self.vendor)
         frappe.db.commit()  # a refusal below rolls back; the planted rows must outlive it
-        quiet = patch(f"{CONTROLLER}._notify_admins_auto_approved")
-        quiet.start()
-        self.addCleanup(quiet.stop)
+        for target in ("_notify_admins_auto_approved", "PrNotification"):
+            quiet = patch(f"{CONTROLLER}.{target}")
+            quiet.start()
+            self.addCleanup(quiet.stop)
 
     def tearDown(self):
         frappe.set_user(U)
 
     # -- planting -------------------------------------------------------------------------------
-    def _po(self, project, vendor, status="Delivered"):
-        """A bare PO. `Delivered`, so `procurement_orders.on_update` takes none of its status branches."""
-        name = self.fx._name("PO")
-        frappe.db.sql(
-            """INSERT INTO "tabProcurement Orders" (name, creation, modified, modified_by, owner,
-                   docstatus, idx, project, vendor, total_amount, amount_paid, status)
-               VALUES (%s, NOW(), NOW(), %s, %s, 0, 0, %s, %s, 10000000, 0, %s)""",
-            (name, U, U, project, vendor, status),
+    def _po(self, project, vendor=None, status="Delivered"):
+        return ChequeFixture.plant_po(self, self.fx, project=project, vendor=vendor or self.vendor, status=status)
+
+    def _plant(self, status, *, amount=20000, po=None, on_hold=False, approved_on=None, parent=None):
+        """An Online payment of a PO (`self.po` unless given) already at `status` (raw insert: no hook runs)."""
+        parent_dt, parent_name = parent or (PO, po or self.po)
+        name = self.cheques.plant_payment(
+            self.fx, status, project=frappe.db.get_value(parent_dt, parent_name, "project"), vendor=self.vendor,
+            document=(parent_dt, parent_name), amount=amount, on_hold=on_hold,
         )
-        self.addCleanup(
-            ChequeFixture.purge_rows, [("Version", {"ref_doctype": PO, "docname": name}), (PO, {"name": name})]
-        )
+        if approved_on:
+            frappe.db.set_value(PAYMENT, name, "approval_date", approved_on, update_modified=False)
+            frappe.db.commit()
         return name
 
-    def _plant(self, status, *, amount=20000, parent=None, mode="Online", on_hold=False):
-        """A payment already sitting at `status` (raw insert: no approval hook runs)."""
-        parent_dt, parent_name = parent or (SR, self.sr)
-        return self.cheques.plant_payment(
-            self.fx, status, project=frappe.db.get_value(parent_dt, parent_name, "project"), vendor=self.vendor,
-            document=(parent_dt, parent_name), amount=amount,
-            cheque_no=self.cheques.number() if mode == "Cheque" else None, on_hold=on_hold,
-        )
-
     # -- driving --------------------------------------------------------------------------------
-    @staticmethod
-    def _line(payment=None, *, record=None, project=None, amount=None):
-        record_dt, record_name = record
-        line = {"line_type": LINE, "project": project, "record_doctype": record_dt, "record_name": record_name}
+    def _line(self, payment=None, *, po=None, project=None, amount=None, record_doctype=PO):
+        po = po or self.po
+        line = {"line_type": LINE, "project": project or frappe.db.get_value(record_doctype, po, "project"),
+                "record_doctype": record_doctype, "record_name": po}
         if payment:
             line["payment_name"] = payment
         if amount is not None:
             line["amount"] = amount
         return line
-
-    def _wo_line(self, payment=None, **kw):
-        return self._line(payment, record=(SR, self.sr), project=self.project, **kw)
-
-    def _po_line(self, payment=None, **kw):
-        return self._line(payment, record=(PO, self.po), project=self.other_project, **kw)
 
     def _save(self, lines, **overrides):
         values = {
@@ -110,7 +100,7 @@ class TestChequeLines(FrappeTestCase):
             "amount": 50000,
             "vendor": self.vendor,
             "attachment": PHOTO,
-            "lines": json.dumps(lines),
+            "lines": lines,
         }
         values.update(overrides)
         result = save_cheque(**{k: v for k, v in values.items() if v is not None})
@@ -123,17 +113,22 @@ class TestChequeLines(FrappeTestCase):
 
     def _payment(self, name):
         return frappe.db.get_value(
-            PAYMENT, name, ["status", "mode_of_payment", "cheque", "cheque_no", "cheque_date", "on_hold"], as_dict=True
+            PAYMENT, name, ["status", "mode_of_payment", "cheque", "cheque_no", "cheque_date"], as_dict=True
         )
 
     def _status(self, name):
         return frappe.db.get_value(PAYMENT, name, "status")
 
+    def _cheque(self, name):
+        """`(status, issue_date)` of the Cheque."""
+        status, issued = frappe.db.get_value("Cheques", name, ["status", "issue_date"])
+        return status, str(issued) if issued else None
+
     def _cancel(self, cheque):
-        """Plant a Cancelled Cheque. The status change itself is #1412's; this is only its outcome."""
+        """Plant a Cancelled Cheque. The status change itself is another ticket's; this is only its outcome."""
         # Raw on purpose: it skips the Cheque's `validate` and writes no history row, because this suite
-        # tests what a Cancelled Cheque's lines may do, not the status change (`test_cheque_status` does).
-        # No derived figure reads a Cheque's status, so nothing needs recomputing.
+        # tests what a Cancelled Cheque's lines may do, not the status change. No derived figure reads a
+        # Cheque's status, so nothing needs recomputing.
         frappe.db.set_value("Cheques", cheque, "status", "Cancelled")
         frappe.db.commit()
 
@@ -147,10 +142,10 @@ class TestChequeLines(FrappeTestCase):
             frappe.set_user(U)
 
     # -- saving lines ---------------------------------------------------------------------------
-    def test_a_cheque_saves_with_po_and_wo_lines_across_projects(self):
-        wo_pay = self._plant("Requested", amount=30000)
-        po_pay = self._plant("Requested", amount=15000, parent=(PO, self.po))
-        name = self._save([self._wo_line(wo_pay), self._po_line(po_pay), self._wo_line(amount=5000)])
+    def test_a_cheque_saves_with_po_lines_across_pos_and_projects(self):
+        first = self._plant("Requested", amount=30000)
+        second = self._plant("Requested", amount=15000, po=self.other_po)
+        name = self._save([self._line(first), self._line(second, po=self.other_po), self._line(amount=5000)])
 
         lines = frappe.get_all(
             "Cheque Line",
@@ -161,71 +156,108 @@ class TestChequeLines(FrappeTestCase):
         self.assertEqual(
             [(l.project, l.record_name, l.payment_doctype, l.payment_name, flt(l.amount)) for l in lines],
             [
-                (self.project, self.sr, PAYMENT, wo_pay, 30000.0),  # the amount comes from the payment
-                (self.other_project, self.po, PAYMENT, po_pay, 15000.0),
-                (self.project, self.sr, None, None, 5000.0),  # no payment yet: the typed amount
+                (self.project, self.po, PAYMENT, first, 30000.0),  # the amount comes from the payment
+                (self.other_project, self.other_po, PAYMENT, second, 15000.0),
+                (self.project, self.po, None, None, 5000.0),  # no payment yet: the typed amount
             ],
         )
+        self.assertEqual(self._cheque(name), ("Pending", None))
+
+    def test_a_work_order_line_is_refused(self):
+        wo_pay = self._plant("Requested", parent=(SR, self.sr))
+        self._refused("Line 2: a Payment cheque pays PO payments only",
+                      [self._line(amount=100), self._line(wo_pay, po=self.sr, record_doctype=SR)])
+        self.assertEqual(self._payment(wo_pay).mode_of_payment, "Online")
+
+    def test_an_expense_line_is_refused(self):
+        self._refused("Line 1: a Payment cheque pays PO payments only",
+                      [{"line_type": "Non-project Expense", "payment_name": "NPE-ANY", "amount": 100}])
 
     def test_a_line_with_no_payment_needs_an_amount(self):
-        self._refused("Line 1: enter the amount", [self._wo_line()])
+        self._refused("Line 1: enter the amount", [self._line()])
 
-    def test_each_po_wo_must_be_the_cheques_vendors_and_in_its_lines_project(self):
-        stranger = self.fx.vendor()
-        stranger_po = self._po(self.project, stranger)
-        frappe.db.commit()
+    def test_each_po_must_be_the_cheques_vendors_and_in_its_lines_project(self):
+        stranger_po = self._po(self.project, self.fx.vendor())
         self._refused(
             f"Line 1: {stranger_po} is not a PO or Work Order of this cheque's Vendor",
-            [self._line(record=(PO, stranger_po), project=self.project, amount=100)],
+            [self._line(po=stranger_po, amount=100)],
         )
         self._refused(
-            f"Line 1: {self.sr} is not in project {self.other_project}",
-            [self._line(record=(SR, self.sr), project=self.other_project, amount=100)],
+            f"Line 1: {self.po} is not in project {self.other_project}",
+            [self._line(project=self.other_project, amount=100)],
         )
 
-    def test_each_payment_must_belong_to_its_lines_po_wo(self):
-        po_pay = self._plant("Requested", parent=(PO, self.po))
-        self._refused(f"Line 1: payment {po_pay} is not a payment of {self.sr}", [self._wo_line(po_pay)])
+    def test_each_payment_must_belong_to_its_lines_po(self):
+        other = self._plant("Requested", po=self.other_po)
+        self._refused(f"Line 1: payment {other} is not a payment of {self.po}", [self._line(other)])
 
-    def test_a_rejected_payment_cannot_be_linked(self):
-        rejected = self._plant("Rejected")
-        self._refused(f"Line 1: payment {rejected} is Rejected", [self._wo_line(rejected)])
-        self.assertEqual(self._payment(rejected).mode_of_payment, "Online")
+    # -- which payments, and at one step ----------------------------------------------------------
+    def test_a_rejected_reconciliation_pending_or_paid_payment_is_refused(self):
+        for status in ("Rejected", RECON, "Paid"):
+            pay = self._plant(status)
+            self._refused(f"Line 1: payment {pay} is {status}", [self._line(pay)])
+            self.assertEqual(self._payment(pay).mode_of_payment, "Online")
+
+    def test_a_held_payment_is_refused(self):
+        pay = self._plant("Approved", on_hold=True)
+        self._refused(f"Line 1: payment {pay} is on hold", [self._line(pay)])
+
+    def test_payments_at_two_steps_are_refused(self):
+        requested = self._plant("Requested")
+        approved = self._plant("Approved")
+        self._refused(f"same step: {requested} is Requested, {approved} is Approved",
+                      [self._line(requested), self._line(approved)])
 
     def test_a_payment_sits_on_at_most_one_live_cheque(self):
         pay = self._plant("Requested")
-        first = self._save([self._wo_line(pay)])
+        first = self._save([self._line(pay)])
         number = frappe.db.get_value("Cheques", first, "cheque_no")
-        self._refused(f"Line 1: payment {pay} is already on cheque {number} \\(Issued\\)", [self._wo_line(pay)])
-        self._refused("is on two lines", [self._wo_line(pay), self._wo_line(pay)], cheque_no=self.cheques.number())
+        self._refused(f"Line 1: payment {pay} is already on cheque {number} \\(Pending\\)", [self._line(pay)])
+        self._refused("is on two lines", [self._line(pay), self._line(pay)], cheque_no=self.cheques.number())
 
     def test_a_payment_only_on_a_cancelled_cheque_can_be_linked_again(self):
         pay = self._plant("Requested")
-        first = self._save([self._wo_line(pay)])
+        first = self._save([self._line(pay)])
         self._cancel(first)
 
-        second = self._save([self._wo_line(pay)])
+        second = self._save([self._line(pay)])
         state = self._payment(pay)
         self.assertEqual(state.cheque, second)
         self.assertEqual(state.cheque_no, frappe.db.get_value("Cheques", second, "cheque_no"))
 
-    # -- conversion -----------------------------------------------------------------------------
-    def test_a_linked_online_payment_becomes_a_cheque_payment(self):
-        pay = self._plant("Requested")
+    # -- what the save does to the payments -------------------------------------------------------
+    def test_a_linked_online_payment_becomes_a_cheque_payment_at_its_step(self):
+        pay = self._plant("CEO Pending", amount=60000)
         date = "2026-11-02"
-        name = self._save([self._wo_line(pay)], cheque_date=date)
+        name = self._save([self._line(pay)], cheque_date=date, amount=60000)
 
         state = self._payment(pay)
         self.assertEqual(state.mode_of_payment, "Cheque")
         self.assertEqual(state.cheque, name)
         self.assertEqual(state.cheque_no, frappe.db.get_value("Cheques", name, "cheque_no"))
         self.assertEqual(str(state.cheque_date), date)
-        self.assertEqual(state.status, "Requested")
+        self.assertEqual(state.status, "CEO Pending")
+        self.assertEqual(self._cheque(name), ("Pending", None))
 
-    def test_requested_waits_then_moves_on_the_single_l1_approve(self):
+    def test_approved_payments_issue_the_cheque_at_once_on_their_approval_date(self):
+        first = self._plant("Approved", approved_on=add_days(nowdate(), -3))
+        second = self._plant("Approved", po=self.other_po, approved_on=add_days(nowdate(), -2))
+        result = save_cheque(
+            bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(), amount=40000,
+            vendor=self.vendor, attachment=PHOTO, lines=[self._line(first), self._line(second, po=self.other_po)],
+        )
+        name = self.cheques.track(result["cheque"])
+
+        self.assertEqual((self._status(first), self._status(second)), (RECON, RECON))
+        self.assertEqual(self._cheque(name), ("Issued", add_days(nowdate(), -2)))  # the last approval's day
+        self.assertEqual(result["status"], "Issued")
+        history = [(h.from_status, h.to_status) for h in frappe.get_doc("Cheques", name).status_history]
+        self.assertEqual(history, [(None, "Pending"), ("Pending", "Issued")])
+
+    def test_requested_waits_then_the_single_l1_approve_issues_the_cheque(self):
         pay = self._plant("Requested")
-        self._save([self._wo_line(pay)])
-        self.assertEqual(self._status(pay), "Requested")
+        name = self._save([self._line(pay)])
+        self.assertEqual((self._status(pay), self._cheque(name)), ("Requested", ("Pending", None)))
 
         # The browser's single L1 approve: `updateDoc`, then the move endpoint.
         doc = frappe.get_doc(PAYMENT, pay)
@@ -234,95 +266,83 @@ class TestChequeLines(FrappeTestCase):
         frappe.db.commit()
         self.assertEqual(move_cheque_payment_to_reconciliation(pay), {"moved": True})
         self.assertEqual(self._status(pay), RECON)
-
-    def test_requested_moves_on_bulk_approve(self):
-        pay = self._plant("Requested")
-        self._save([self._wo_line(pay)])
-        with patch.object(bulk_actions, "_emit_approve_summary"):
-            res = bulk_actions.bulk_lead_approve_payments([pay], "approve")["data"]
-        self.assertEqual(res["succeeded"], [pay])
-        self.assertEqual(self._status(pay), RECON)
+        self.assertEqual(self._cheque(name), ("Issued", nowdate()))
 
     def test_ceo_pending_moves_on_ceo_approval(self):
         pay = self._plant("CEO Pending", amount=60000)
-        self._save([self._wo_line(pay)], amount=60000)
-        self.assertEqual(self._status(pay), "CEO Pending")
+        name = self._save([self._line(pay)], amount=60000)
 
         self._as_ceo(ceo_approve_payment, pay)
         self.assertEqual(self._status(pay), RECON)
-
-    def test_approved_not_on_hold_moves_at_once(self):
-        wo_pay = self._plant("Approved")
-        po_pay = self._plant("Approved", parent=(PO, self.po))
-        self._save([self._wo_line(wo_pay), self._po_line(po_pay)])
-        self.assertEqual(self._status(wo_pay), RECON)
-        self.assertEqual(self._status(po_pay), RECON)
-
-    def test_approved_on_hold_stays_until_the_hold_is_released(self):
-        pay = self._plant("Approved", on_hold=True)
-        self._save([self._wo_line(pay)])
-        self.assertEqual((self._payment(pay).status, self._payment(pay).mode_of_payment), ("Approved", "Cheque"))
-
-        set_payment_hold(pay, False)
-        self.assertEqual(self._status(pay), RECON)
-
-    def test_reconciliation_pending_and_paid_stay(self):
-        recon = self._plant(RECON)
-        paid = self._plant("Paid")
-        self._save([self._wo_line(recon), self._wo_line(paid)])
-        self.assertEqual((self._status(recon), self._status(paid)), (RECON, "Paid"))
-        self.assertEqual(self._payment(paid).mode_of_payment, "Cheque")
-
-    def test_a_cheque_payment_goes_back_to_online_once_its_cheque_is_cancelled(self):
-        pay = self._plant("Requested")
-        cheque = self._save([self._wo_line(pay)])
-        self._cancel(cheque)
-
-        doc = frappe.get_doc(PAYMENT, pay)
-        doc.mode_of_payment = "Online"
-        doc.save()
-        self.assertEqual((self._payment(pay).mode_of_payment, self._payment(pay).status), ("Online", "Requested"))
+        self.assertEqual(self._cheque(name)[0], "Issued")
 
     # -- the pickers ----------------------------------------------------------------------------
-    def test_the_payment_picker_hides_live_cheque_and_rejected_payments_and_counts_them(self):
-        free = self._plant("Requested", amount=11000)
-        on_live = self._plant("Requested", amount=12000)
-        on_cancelled = self._plant("Approved", amount=13000, on_hold=True)
-        rejected = self._plant("Rejected", amount=14000)
-        live = self._save([self._wo_line(on_live)])
-        dead = self._save([self._wo_line(on_cancelled)])
-        self._cancel(dead)
+    def test_the_payment_picker_offers_the_pickable_steps_and_counts_what_it_hid(self):
+        requested = self._plant("Requested", amount=11000)
+        ceo = self._plant("CEO Pending", amount=60000)
+        approved = self._plant("Approved", amount=12000)
+        held = self._plant("Approved", amount=13000, on_hold=True)
+        on_live = self._plant("Requested", amount=14000)
+        on_cancelled = self._plant("Requested", amount=15000)
+        self._plant("Rejected")
+        self._plant(RECON)
+        self._plant("Paid")
+        self._plant("Paid")
+        live = self._save([self._line(on_live)])
+        self._cancel(self._save([self._line(on_cancelled)]))
 
-        out = get_eligible_payments(SR, self.sr)
-        self.assertEqual(sorted(p["name"] for p in out["payments"]), sorted([free, on_cancelled]))
-        offered = {p["name"]: p for p in out["payments"]}
-        self.assertEqual(
-            (offered[free]["amount"], offered[free]["status"], offered[free]["mode_of_payment"], offered[free]["on_hold"]),
-            (11000.0, "Requested", "Online", 0),
-        )
-        self.assertEqual(
-            out["hidden"],
-            {
-                "on_cheque": [{
-                    "payment": on_live,
-                    "cheque": live,
-                    "cheque_no": frappe.db.get_value("Cheques", live, "cheque_no"),
-                    "status": "Issued",
-                }],
-                "rejected": 1,
-            },
-        )
-        self.assertNotIn(rejected, offered)
+        out = get_eligible_payments(PO, self.po)
 
-    def test_the_record_picker_lists_the_vendors_pos_and_work_orders_by_project(self):
-        merged = self._po(self.project, self.vendor, status="Merged")
-        frappe.db.commit()
+        self.assertEqual(
+            sorted((p["name"], p["status"], p["amount"], p["mode_of_payment"]) for p in out["payments"]),
+            sorted([(requested, "Requested", 11000.0, "Online"), (ceo, "CEO Pending", 60000.0, "Online"),
+                    (approved, "Approved", 12000.0, "Online"), (on_cancelled, "Requested", 15000.0, "Cheque")]),
+        )
+        self.assertIsNone(out["step"])
+        self.assertEqual(out["hidden"], {
+            "on_cheque": [{"payment": on_live, "cheque": live,
+                           "cheque_no": frappe.db.get_value("Cheques", live, "cheque_no"), "status": "Pending"}],
+            "rejected": 1,
+            "other_step": 0,
+            "on_hold": 1,
+            "moved_on": {RECON: 1, "Paid": 2},
+        })
+        self.assertNotIn(held, [p["name"] for p in out["payments"]])
+
+    def test_the_payment_picker_offers_only_the_other_lines_step(self):
+        picked = self._plant("Requested", po=self.other_po)
+        requested = self._plant("Requested")
+        self._plant("CEO Pending", amount=60000)
+        self._plant("Approved")
+
+        out = get_eligible_payments(PO, self.po, other_payments=f'["{picked}"]')
+
+        self.assertEqual([p["name"] for p in out["payments"]], [requested])
+        self.assertEqual((out["step"], out["hidden"]["other_step"]), ("Requested", 2))
+
+    def test_the_payment_picker_keeps_the_edited_cheques_own_payments_but_not_the_other_lines(self):
+        pay = self._plant("Requested")
+        other = self._plant("Requested")
+        cheque = self._save([self._line(pay)])
+
+        offered = [p["name"] for p in get_eligible_payments(PO, self.po, cheque=cheque)["payments"]]
+        self.assertEqual(sorted(offered), sorted([pay, other]))
+        offered = [p["name"] for p in get_eligible_payments(PO, self.po, cheque=cheque, other_payments=[pay])["payments"]]
+        self.assertEqual(offered, [other])
+
+    def test_the_payment_picker_takes_pos_only(self):
+        with self.assertRaisesRegex(frappe.ValidationError, "Pick a PO"):
+            get_eligible_payments(SR, self.sr)
+
+    def test_the_record_picker_lists_the_vendors_open_pos_by_project(self):
+        merged = self._po(self.project, status="Merged")
         records = get_vendor_records(self.vendor)
         self.assertEqual(
             sorted((r["doctype"], r["name"], r["project"]) for r in records),
-            sorted([(SR, self.sr, self.project), (PO, self.po, self.other_project)]),
+            sorted([(PO, self.po, self.project), (PO, self.other_po, self.other_project)]),
         )
         self.assertNotIn(merged, [r["name"] for r in records])
+        self.assertNotIn(self.sr, [r["name"] for r in records])  # Work Orders are paid Online
 
     # -- who ------------------------------------------------------------------------------------
     def test_a_project_manager_cannot_use_the_pickers(self):
@@ -334,6 +354,6 @@ class TestChequeLines(FrappeTestCase):
             with self.assertRaises(frappe.PermissionError):
                 get_vendor_records(self.vendor)
             with self.assertRaises(frappe.PermissionError):
-                get_eligible_payments(SR, self.sr)
+                get_eligible_payments(PO, self.po)
         finally:
             frappe.set_user(U)

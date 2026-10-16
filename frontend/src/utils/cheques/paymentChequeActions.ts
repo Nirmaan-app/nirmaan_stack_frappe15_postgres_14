@@ -3,7 +3,6 @@ import { PAYMENT_STATUS } from "@/constants/paymentStatus";
 import { isChequePayment } from "@/pages/ProjectPayments/paymentMode";
 import { CHEQUE_STATUS } from "@/types/NirmaanStack/Cheques";
 
-import { conversionHint } from "./chequeLines";
 import type { ExistingCheque } from "./existingCheque";
 
 /**
@@ -56,8 +55,20 @@ export const paymentChequeButtons = (p: PaymentChequeFacts, role: string): Payme
  * The Convert / Link a new cheque dialog's line on what happens to the payment's status: Approved moves
  * to Reconciliation Pending now (after release when on hold), a waiting one once approved, a settled one stays.
  */
-export const newChequeStatusHint = (p: { status: string; mode_of_payment?: string | null; on_hold?: number | null }): string =>
-    conversionHint({ status: p.status, mode_of_payment: p.mode_of_payment ?? "", on_hold: p.on_hold ?? 0 });
+export const newChequeStatusHint = (p: { status: string; mode_of_payment?: string | null; on_hold?: number | null }): string => {
+    const lead = p.mode_of_payment === "Cheque" ? "Goes on this cheque" : "Switches to Cheque";
+    switch (p.status) {
+        case PAYMENT_STATUS.APPROVED:
+            return p.on_hold
+                ? `${lead}; stays Approved while on hold and moves to Reconciliation Pending once released.`
+                : `${lead} and moves to Reconciliation Pending now.`;
+        case PAYMENT_STATUS.REQUESTED:
+        case PAYMENT_STATUS.CEO_PENDING:
+            return `${lead}; moves to Reconciliation Pending once approved.`;
+        default:
+            return `${lead}; stays ${p.status}.`;
+    }
+};
 
 /**
  * Is the Work Order's TDS still to be withheld from this payment? Only while it waits for approval: the

@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFrappeFileUpload, useFrappePostCall } from "frappe-react-sdk";
-import { AlertTriangle, Loader2 } from "lucide-react";
+import { AlertTriangle, Info, Loader2 } from "lucide-react";
 
 import { ChequePhotoLink } from "@/components/cheques/ChequePhotoLink";
 import { FROM_PHOTO_INPUT, FromPhotoTag } from "@/components/cheques/FromPhotoTag";
@@ -14,14 +14,14 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radiogroup";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
-import { CHEQUE_BANK } from "@/types/NirmaanStack/Cheques";
+import { CHEQUE_BANK, CHEQUE_TYPE, type ChequeType } from "@/types/NirmaanStack/Cheques";
 import {
     chequeEditMode,
     chequeFormFromDetail,
+    chequeFormRules,
     editChequeArgs,
     editLockHint,
     isHeaderLocked,
@@ -34,7 +34,7 @@ import {
     type ChequeFormInput,
     type ChequeFormValues,
 } from "@/utils/cheques/chequeForm";
-import { withoutPoWoLines } from "@/utils/cheques/chequeLines";
+import { chequeSaveNote, withoutPoWoLines, type ChequeLineDraft } from "@/utils/cheques/chequeLines";
 import { isFromPhoto, type ChequePhotoField } from "@/utils/cheques/chequePhoto";
 import { getFrappeError } from "@/utils/frappeErrors";
 import { cn } from "@/lib/utils";
@@ -54,73 +54,134 @@ interface AddChequeDialogProps {
 
 const Required = () => <span className="ml-0.5 text-red-500">*</span>;
 
+/** What the photo fills. A Payment cheque is made out to a Vendor: the payee read off it only helps check one. */
+const PHOTO_FIELDS: readonly ChequePhotoField[] = ["bank", "cheque_no", "cheque_date", "amount"];
+
+/** The two kinds of cheque Add Cheque asks for first (spec #1477, ADR-0035). */
+const TYPE_CHOICES: { type: ChequeType; label: string; hint: string }[] = [
+    { type: CHEQUE_TYPE.PAYMENT, label: "Payment cheque", hint: "The bank will cash it. Pays PO payments." },
+    { type: CHEQUE_TYPE.SECURITY_DEPOSIT, label: "Security Deposit cheque", hint: "Held as a guarantee. Never cashed." },
+];
+
 /**
- * Cheque Tracker > All Cheques > Add Cheque (spec #1407): photo first, then the bank, number,
- * date, amount, the payee (a Vendor or a typed name), the lines and a description. A Vendor cheque
- * takes PO/WO payment lines (#1410) and expense lines (#1411); a typed-payee cheque expense lines
- * only (`ChequeLinesTable`). With no lines it is an Ad-hoc cheque and needs the description.
+ * Cheque Tracker > Add Cheque (spec #1407; #1482, spec #1477). It asks for the kind of cheque first:
  *
- * With `cheque` it is the row's Edit (#1418): the same form, filled with the Cheque, with the boxes
- * its status and origin lock turned off (`utils/cheques/chequeEdit`). A replaced photo is not read:
- * the Cheque's fields are already recorded.
+ * - a **Payment cheque**: photo first, then the bank, number, date, amount, the Vendor it is made out to,
+ *   and the PO payments it pays (`ChequeLinesTable`). It saves Pending; picked Approved payments issue it.
+ * - a **Security Deposit cheque**: not built yet (#1486 builds its form in `SecurityDepositChequeForm`'s place).
  *
- * The photo is uploaded as soon as it is picked, so the form holds its file URL (and #1409 can read
- * it). The server re-checks every rule.
+ * With `cheque` it is the row's Edit (#1418): the same form, filled with the Cheque, with the boxes its
+ * status and origin lock turned off (`utils/cheques/chequeEdit`). A replaced photo is not read: the
+ * Cheque's fields are already recorded.
+ *
+ * The photo is uploaded as soon as it is picked, so the form holds its file URL (and #1409 can read it).
+ * The server re-checks every rule.
  */
 export const AddChequeDialog = ({ open, onOpenChange, onSaved, cheque }: AddChequeDialogProps) => {
     const editing = Boolean(cheque);
     const { cheque: detail, error } = useChequeDetail(open && cheque ? cheque : null);
+    const [type, setType] = useState<ChequeType | null>(null);
     const done = (name: string) => {
         onOpenChange(false);
         onSaved(name);
     };
+    const changeOpen = (next: boolean) => {
+        if (!next) setType(null); // every opening asks for the type again
+        onOpenChange(next);
+    };
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <Dialog open={open} onOpenChange={changeOpen}>
             <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-6xl">
                 <DialogHeader>
                     <DialogTitle>{editing ? `Edit Cheque ${detail?.cheque_no ?? ""}` : "Add Cheque"}</DialogTitle>
                     <DialogDescription>
                         {editing
                             ? "Change what was recorded wrongly. What can change depends on the cheque's status and where it was made."
-                            : `Upload the cheque's photo first: what can be read off it is filled in and tagged "From photo". Check those fields.`}
+                            : "Choose the kind of cheque, upload its photo, then add the PO payments it pays."}
                     </DialogDescription>
                 </DialogHeader>
-                {!editing ? (
-                    <ChequeForm onDone={done} onCancel={() => onOpenChange(false)} />
-                ) : detail ? (
-                    <ChequeForm key={detail.name} edit={detail} onDone={done} onCancel={() => onOpenChange(false)} />
-                ) : error ? (
-                    <p className="text-sm text-destructive">{getFrappeError(error)}</p>
+                {editing ? (
+                    detail ? (
+                        <ChequeForm key={detail.name} edit={detail} onDone={done} onCancel={() => changeOpen(false)} />
+                    ) : error ? (
+                        <p className="text-sm text-destructive">{getFrappeError(error)}</p>
+                    ) : (
+                        <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
+                    )
                 ) : (
-                    <Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" />
+                    <>
+                        <ChequeTypeStep value={type} onChange={setType} />
+                        {type === CHEQUE_TYPE.PAYMENT && <ChequeForm onDone={done} onCancel={() => changeOpen(false)} />}
+                        {type === CHEQUE_TYPE.SECURITY_DEPOSIT && <SecurityDepositChequeForm onCancel={() => changeOpen(false)} />}
+                    </>
                 )}
             </DialogContent>
         </Dialog>
     );
 };
 
+/** Add Cheque's first question: which kind of cheque. */
+const ChequeTypeStep = ({ value, onChange }: { value: ChequeType | null; onChange: (type: ChequeType) => void }) => (
+    <div role="radiogroup" aria-label="Cheque type" className="grid gap-2 sm:grid-cols-2">
+        {TYPE_CHOICES.map((choice) => {
+            const checked = value === choice.type;
+            return (
+                <button
+                    key={choice.type}
+                    type="button"
+                    role="radio"
+                    aria-checked={checked}
+                    onClick={() => onChange(choice.type)}
+                    className={cn(
+                        "flex flex-col items-start gap-0.5 rounded-md border px-4 py-3 text-left transition-colors",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        checked ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-muted",
+                    )}
+                >
+                    <span className="text-sm font-medium">{choice.label}</span>
+                    <span className="text-xs text-muted-foreground">{choice.hint}</span>
+                </button>
+            );
+        })}
+    </div>
+);
+
+/** ⚠️ Stub: the Security Deposit cheque's form is #1486's (spec #1477). */
+const SecurityDepositChequeForm = ({ onCancel }: { onCancel: () => void }) => (
+    <div className="space-y-4">
+        <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+            Security Deposit cheques can't be recorded here yet.
+        </p>
+        <DialogFooter>
+            <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
+        </DialogFooter>
+    </div>
+);
+
 interface ChequeFormProps {
-    /** The Cheque being edited, as recorded; absent for a new one. */
+    /** The Cheque being edited, as recorded; absent for a new Payment cheque. */
     edit?: ChequeDetail;
     onDone: (cheque: string) => void;
     onCancel: () => void;
 }
 
-/** The dialog's form. Mounted with the dialog's content, so every opening starts fresh. */
+/** A Payment cheque's form. Mounted with the dialog's content, so every opening starts fresh. */
 const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
     const mode = edit ? chequeEditMode(edit) : "all";
     const locked = (field: string) => isHeaderLocked(mode, field);
     const recordedPayments = edit ? paymentsOnCheque(edit) : [];
-    const lockHint = edit ? editLockHint(mode, edit.status) : undefined;
+    const lockHint = edit ? editLockHint(mode, edit) : undefined;
     const [initial] = useState(() => (edit ? chequeFormFromDetail(edit) : EMPTY_CHEQUE_FORM));
     const form = useForm<ChequeFormInput, unknown, ChequeFormValues>({
-        // A backfilled Cheque has no photo; editing it does not force one (the server asks only a new Cheque).
-        resolver: zodResolver(makeChequeFormSchema({ photoRequired: !edit || Boolean(edit.attachment) })),
+        resolver: zodResolver(makeChequeFormSchema(edit ? chequeFormRules(edit) : { photoRequired: true, paymentCheque: true })),
         defaultValues: initial,
     });
     const { upload, loading: uploading } = useFrappeFileUpload();
-    const { call: saveCheque, loading: saving } = useFrappePostCall<{ message: { cheque: string } }>(SAVE_CHEQUE_API);
+    const { call: saveCheque, loading: saving } = useFrappePostCall<{ message: { cheque: string; status: string } }>(
+        SAVE_CHEQUE_API,
+    );
     const [photo, setPhoto] = useState<File | null>(null);
+    const [vendorName, setVendorName] = useState(edit?.vendor_name ?? "");
     // A photo replaced while the first is still uploading must not land the first one's URL.
     const uploadSession = useRef(0);
 
@@ -131,18 +192,17 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
                 shouldValidate: form.formState.isSubmitted,
             });
         }
-    });
+    }, PHOTO_FIELDS);
 
     const values = form.watch();
     const bank = values.bank;
-    const payeeKind = values.payee_kind;
     const vendor = values.vendor;
-    const lineCount = values.lines?.length ?? 0;
+    const lines = (values.lines ?? []) as ChequeLineDraft[];
     const fromPhoto = (field: ChequePhotoField) => isFromPhoto(field, values, reader.photo);
     const photoPayee = reader.photo?.payee_name;
-    // A new payee drops the PO/WO lines; on an edit, each recorded payment dropped goes back to Online.
     const payeeLocked = locked("vendor");
-    const payeeMismatch = usePayeeVendorMismatch(payeeKind === "vendor" ? photoPayee : undefined, values.vendor);
+    const payeeMismatch = usePayeeVendorMismatch(photoPayee, values.vendor);
+    const saveNote = mode === "photo_only" ? undefined : chequeSaveNote(values.amount as number | string, lines);
 
     const handlePhoto = async (file: File | null) => {
         const session = ++uploadSession.current;
@@ -171,13 +231,11 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
     const onSubmit = async (values: ChequeFormValues) => {
         try {
             const res = await saveCheque(edit ? editChequeArgs(edit.name, values) : saveChequeArgs(values));
-            const paid = values.lines.filter((l) => l.line_type === "PO/WO Payment" && l.payment_name).length;
-            const onIt = paid ? ` ${paid} payment${paid > 1 ? "s are" : " is"} now on it.` : "";
+            const paid = values.lines.filter((l) => l.payment_name).length;
+            const onIt = paid ? ` ${paid} payment${paid > 1 ? "s are" : " is"} on it.` : "";
             toast({
                 title: "Cheque saved",
-                description: edit
-                    ? `Cheque ${values.cheque_no.trim()} is saved.${onIt}`
-                    : `Cheque ${values.cheque_no.trim()} is Issued.${onIt}`,
+                description: `Cheque ${values.cheque_no.trim()} is ${res.message.status}.${onIt}`,
                 variant: "success",
             });
             onDone(res.message.cheque);
@@ -200,7 +258,7 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
                     render={() => (
                         <FormItem>
                             <FormLabel>Cheque photo{(!edit || edit.attachment) && <Required />}</FormLabel>
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                                 {edit && (
                                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                                         {edit.attachment ? "Recorded:" : "No photo yet."}
@@ -316,41 +374,20 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
                         )}
                     />
                 </div>
-                <FormField
-                    control={form.control}
-                    name="payee_kind"
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Made out to<Required /></FormLabel>
-                            <RadioGroup
-                                value={field.value}
-                                disabled={payeeLocked}
-                                onValueChange={(value) => {
-                                    field.onChange(value);
-                                    // PO/WO lines belong to a Vendor cheque only; expense lines to any.
-                                    form.setValue("lines", withoutPoWoLines(form.getValues("lines") ?? []));
-                                }}
-                                className="flex gap-6"
-                            >
-                                <label className="flex items-center gap-2 text-sm">
-                                    <RadioGroupItem value="vendor" /> A Vendor
-                                </label>
-                                <label className="flex items-center gap-2 text-sm">
-                                    <RadioGroupItem value="typed" /> Someone else (type the name)
-                                </label>
-                            </RadioGroup>
-                        </FormItem>
-                    )}
-                />
-                {payeeKind === "vendor" ? (
-                    // Keyed: the two payee boxes share this spot, and a reused Controller would keep
-                    // showing the Vendor box's value in the typed-name box (a photo's payee missing).
+                {values.payee_kind === "typed" ? (
+                    // Only an Old-type cheque has a typed payee, and it is shown as recorded (photo-only edit).
+                    <FormItem>
+                        <FormLabel>Made out to</FormLabel>
+                        <Input value={values.payee_name ?? ""} disabled readOnly />
+                        <p className="text-xs text-muted-foreground">A typed payee, recorded before cheque types.</p>
+                    </FormItem>
+                ) : (
                     <FormField
-                        key="vendor"
                         control={form.control}
                         name="vendor"
                         render={({ field }) => (
                             <FormItem>
+                                <FormLabel>Made out to (Vendor)<Required /></FormLabel>
                                 <FormControl>
                                     <VendorSelect
                                         withOthers={false}
@@ -359,15 +396,19 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
                                         value={field.value || null}
                                         onChange={(option) => {
                                             const next = option?.value ?? "";
-                                            // Each PO/WO line is the Vendor's: a new Vendor drops them.
+                                            // Each PO line is the Vendor's: a new Vendor drops them.
                                             if (next !== field.value) {
                                                 form.setValue("lines", withoutPoWoLines(form.getValues("lines") ?? []));
                                             }
+                                            setVendorName(option?.label ?? "");
                                             field.onChange(next);
                                         }}
                                         placeholder="Pick the Vendor"
                                     />
                                 </FormControl>
+                                <p className="text-xs text-muted-foreground">
+                                    A Payment cheque is always made out to a Vendor.
+                                </p>
                                 {photoPayee && (
                                     <p className="text-xs text-muted-foreground">
                                         Payee on the photo: <span className="font-medium text-foreground">{photoPayee}</span>
@@ -385,30 +426,10 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
                             </FormItem>
                         )}
                     />
-                ) : (
-                    <FormField
-                        key="payee_name"
-                        control={form.control}
-                        name="payee_name"
-                        render={({ field }) => (
-                            <FormItem>
-                                {fromPhoto("payee_name") && <FromPhotoTag />}
-                                <FormControl>
-                                    <Input
-                                        placeholder="e.g. Tata Power"
-                                        disabled={locked("payee_name")}
-                                        className={cn(fromPhoto("payee_name") && FROM_PHOTO_INPUT)}
-                                        {...field}
-                                    />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
                 )}
                 <ChequeLinesTable
-                    vendorPayee={payeeKind === "vendor"}
                     vendor={vendor || undefined}
+                    vendorName={vendorName}
                     disabled={saving || locked("lines")}
                     cheque={edit?.name}
                     recordedPayments={recordedPayments}
@@ -418,18 +439,20 @@ const ChequeForm = ({ edit, onDone, onCancel }: ChequeFormProps) => {
                     name="description"
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Description{lineCount === 0 && <Required />}</FormLabel>
+                            <FormLabel>Note</FormLabel>
                             <FormControl>
-                                <Textarea
-                                    placeholder="What this cheque pays for (rent, a deposit, ...)"
-                                    disabled={locked("description")}
-                                    {...field}
-                                />
+                                <Textarea placeholder="Anything else to know about this cheque" disabled={locked("description")} {...field} />
                             </FormControl>
                             <FormMessage />
                         </FormItem>
                     )}
                 />
+                {saveNote && (
+                    <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                        <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                        <p>{saveNote}</p>
+                    </div>
+                )}
                 <DialogFooter>
                     <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
                     {/* While a save is in flight (validation included) the form cannot be sent again: a second
