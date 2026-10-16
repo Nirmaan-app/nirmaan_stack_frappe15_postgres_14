@@ -84,7 +84,6 @@ const fig = (values: Partial<Record<string, number>> | undefined): [number | und
 const attached = (v: ItemListView, at = 0): SectionBlockView => v.items[at].sections![0];
 const secBlock = (sv: SectionBlockView): ItemBlockView => sv.view.items[0];
 const working = (b: ItemBlockView): string[] => b.working.map((w) => w.trim());
-const allWorking = (v: ItemListView): string[] => v.items.flatMap((b) => [...working(b), ...(b.sections ?? []).flatMap((sv) => sv.view.items.flatMap(working))]);
 
 /** BOTH PATHS for one insulation answer: the Insulation row (per metre) and the same answer as the section of an MS pipe. */
 function both(ins: Answer, pipe: Answer = { pipe_type: "MS", pipe_type_as_written: "MS", size_mm: "50", insulated: "Yes" }, desc = "", headings: string[] = [], ownNotes: string[] = []) {
