@@ -133,10 +133,11 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
    (`api/hod/page_frame.FRAMED`). The wrapper keeps the sheet classes only because the type sizes below
    key on them; this takes the box's height back off -- a min-height here would push a short list onto a
    second, empty page. */
-/* The 0.5mm on the right: the stamped frame's right rule prints at 284.5mm -- wkhtmltopdf draws it to whole
+/* The margin on the right: the stamped frame's right rule prints at 284.5mm -- wkhtmltopdf draws it to whole
    pixels -- while the content runs to 285mm, so every row rule poked through the box's side (measured
-   2026-10-15). The content stops where the frame does. */
-.hd-sheet.hd-sheet-land { min-height: 0; margin-right: 0.5mm; }
+   2026-10-15). 0.5mm still left them 1pt past it (808pt against the frame's 807pt, measured 2026-10-16);
+   anything from 0.75mm to 1mm ends them exactly on its outer edge, and 0.8mm sits inside that range. */
+.hd-sheet.hd-sheet-land { min-height: 0; margin-right: 0.8mm; }
 .hd-inv tr { page-break-inside: avoid; }
 /* The cell carrying the last row + TOTAL table: no padding and no rule of its own -- the inner table's
    cells draw every line, overlapping the row above by the `.hd-table` -1px. */
@@ -152,6 +153,16 @@ html, body { font-family: 'Inter', Helvetica, Arial, sans-serif; font-size: 10px
    double line down the edge of every page (measured 2026-10-15: frame 284.5mm, table 285.0mm). */
 .print-format .hd-sheet-land .hd-table tr > :first-child { border-left: 0; }
 .print-format .hd-sheet-land .hd-table tr > :last-child { border-right: 0; }
+/* And its TOP. The title row's top rule printed right under the frame's (57-58pt against 56.25-57pt), and on
+   every later page the repeated header row's did the same, so the box opened on a line twice as thick as
+   the rest (measured 2026-10-16). */
+.print-format .hd-sheet-land .hd-head tr:first-child td { border-top: 0; }
+.print-format .hd-sheet-land .hd-inv thead th { border-top: 0; }
+/* With the header row's own top rule gone, page 1 draws that line with the spacer row's bottom rule -- so the
+   grid must not ride up the usual `.hd-table` 1px over it: the header row's grey fill painted straight over
+   the line and page 1's header row printed with no top (2026-10-16). The OUTER grid only: the table inside
+   `td.hd-inv-end` keeps its -1px, which is what lays the last area's top onto the row above. */
+.print-format .hd-sheet-land > table.hd-inv { margin-top: 0; }
 /* The band, ONCE, under the TOTAL (owner 2026-10-15: "in last page only"). It sits in the same outer row
    as the last area and the TOTAL (`td.hd-inv-end`), so the three can never be parted -- no page ever opens
    on the signatures alone. A smaller seal than the portrait sheets carry: landscape has 176mm of height

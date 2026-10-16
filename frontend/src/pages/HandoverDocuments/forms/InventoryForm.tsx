@@ -265,17 +265,18 @@ const LocationCard: React.FC<LocationCardProps> = ({
             />
           </div>
         ) : (
-          // Folded, the card still says what the name IS -- the same label the open card carries.
+          // Folded, the card still says what the name IS -- the same label the open card carries, in a
+          // light grey so the name beside it reads first (owner 2026-10-16).
           <button
             type="button"
             className="flex min-w-0 flex-1 items-baseline gap-2 text-left"
             onClick={onToggle}
           >
-            <span className="shrink-0 text-xs font-semibold text-gray-600">
+            <span className="shrink-0 text-xs font-normal text-gray-500">
               Location
             </span>
             <span
-              className={`truncate text-sm font-medium ${repeated ? "text-red-600" : ""}`}
+              className={`truncate text-sm font-semibold ${repeated ? "text-red-600" : "text-gray-900"}`}
             >
               {entry.name.trim() || (
                 <span className="font-normal italic text-gray-400">
