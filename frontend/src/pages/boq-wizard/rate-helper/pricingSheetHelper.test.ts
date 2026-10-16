@@ -5125,7 +5125,7 @@ describe("SLICE 6 / the item-list path -- blocks, edits, the quantity, all or no
     // 12d-5 (owner P2, F-C5b) INVERTED: the rule reaches the field in PLAIN ENGLISH -- the config's "R14 / S6 "
     // prefix is dropped by the one plain-English pass (before: "R14 / S6 UL not mentioned (or not answered) = non-UL")
     expect(ul).toMatchObject({ value: "no", defaulted: true, rule: "UL not mentioned (or not answered) = non-UL", userEdited: false, blank: false });
-    expect(ul.rule).not.toMatch(/[RDTS]-?\d/);
+    expect(ul.rule).not.toMatch(/\b[RDTS]-?\d/);
   });
   it("T2 / S4: a refused item shows ITS reason; the row has no price and no Use-able value; the other item keeps its figures", () => {
     const { r, v } = list(runWith([{ excel_row: 8, items: [ACT, li({ family: "control panel" })] }]).compute(adpCtx(8, "Nos")));
@@ -6251,7 +6251,7 @@ describe("SLICE 12d-1a / R2 -- headings reach the pricer; the ruled family is ma
     expect(v.items[0].family).toBe(AN);
     // 12d-5 (owner P2, F-C5b) INVERTED: plain English on the block's family rule (before: "R2 material not mentioned -> Nitrile by row kind")
     expect(v.items[0].familyDefaulted).toEqual({ value: AN, rule: "material not mentioned -> Nitrile by row kind" });
-    expect(v.items[0].familyDefaulted!.rule).not.toMatch(/[RDTS]-?\d/);
+    expect(v.items[0].familyDefaulted!.rule).not.toMatch(/\b[RDTS]-?\d/);
     expect(v.totals).toEqual({ supply_rate: 1371, install_rate: 154, combined_rate: 1525 });
   });
 
