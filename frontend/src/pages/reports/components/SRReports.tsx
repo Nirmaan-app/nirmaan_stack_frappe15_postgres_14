@@ -34,6 +34,7 @@ import { Info } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PENDING_UPLOAD_CREATION_FROM } from "../constants";
 import { applyPendingUploadCutoff } from "../utils/pendingUploadCutoff";
+import { SR_REPORT_DELTA, srReportIncludes } from "../utils/srReportInclusion";
 
 interface SelectOption {
   label: string;
@@ -79,7 +80,7 @@ export default function SRReports({ pendingUploadMode = false }: SRReportsProps 
     (state) => state.selectedReportType as SROption | null
   );
   const tableColumnsToDisplay = useMemo(() => srColumns, []); // srColumns are static for now
-  const delta = 100;
+  const delta = SR_REPORT_DELTA;
 
   const reportConditionDescription = useMemo(() => {
     switch (selectedReportType) {
@@ -122,39 +123,18 @@ export default function SRReports({ pendingUploadMode = false }: SRReportsProps 
       return [];
     }
 
-    let filtered: SRReportRowData[];
-    switch (selectedReportType) {
-      case "Pending Invoices":
-        filtered = allSRsForReports.filter((row) => {
-          const srDoc = row.originalDoc; // SRReportRowData.originalDoc is ServiceRequests
-          // Assuming 'Approved' SRs are candidates for invoicing.
-          if (srDoc.status === "Approved") {
-            // Using pre-calculated fields from SRReportRowData
-            return (
-              parseNumber(row.amountPaid) - parseNumber(row.invoiceAmount) >
-              delta
-            );
-          }
-          return false;
-        });
-        break;
-      case "PO with Excess Payments": // This value represents "Excess Payments for SRs"
-        filtered = allSRsForReports.filter((row) => {
-          const srDoc = row.originalDoc;
-          if (srDoc.status === "Approved") {
-            // Using pre-calculated fields from SRReportRowData
-            return (
-              parseNumber(row.amountPaid) > parseNumber((row as any).totalAmount) + delta
-            );
-          }
-          return false;
-        });
-        break;
-      default:
-        filtered = [];
-    }
+    // "PO with Excess Payments" is the WO tab's Excess Payments report. The rule: `srReportIncludes`.
+    const report = selectedReportType as "Pending Invoices" | "PO with Excess Payments";
+    const filtered: SRReportRowData[] = allSRsForReports.filter((row) =>
+      srReportIncludes(report, {
+        status: row.originalDoc.status,
+        totalAmount: parseNumber(row.totalAmount),
+        invoiceAmount: parseNumber(row.invoiceAmount),
+        amountPaid: parseNumber(row.amountPaid),
+      })
+    );
     return applyPendingUploadCutoff(filtered, pendingUploadMode);
-  }, [allSRsForReports, selectedReportType, delta, pendingUploadMode]);
+  }, [allSRsForReports, selectedReportType, pendingUploadMode]);
 
   // 3. Initialize useServerDataTable in clientData mode
   const {

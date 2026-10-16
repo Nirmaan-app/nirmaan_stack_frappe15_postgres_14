@@ -1,4 +1,5 @@
 import { useFrappeGetCall, useFrappePostCall } from "frappe-react-sdk";
+import { useState } from "react";
 
 /** The two order doctypes that store an Amount Paid. */
 export type OrderDoctype = "Procurement Orders" | "Service Requests";
@@ -34,12 +35,18 @@ const API = "nirmaan_stack.api.reports.amount_paid_mismatch";
  * The Amount Paid Mismatch report's data: every mismatched order of `doctype`, worked out on the
  * server each time it is fetched, and `recount(name)`, which sets one order from source and then
  * refetches the list. Both endpoints refuse anyone outside Admin and Accountant Lead.
+ *
+ * ⚠️ EVERY OPENING FETCHES AFRESH (spec #1451: "worked out when I open it, never out of date"). The
+ * SWR key carries the moment this report was opened, so reopening it in the same session starts on
+ * an empty cache: it shows the loader and asks the server, never the list from the last opening.
+ * Within one opening, Refresh and a Recount refetch the same key.
  */
 export const useAmountPaidMismatch = (doctype: OrderDoctype) => {
+  const [openedAt] = useState(() => Date.now());
   const { data, isLoading, isValidating, error, mutate } = useFrappeGetCall<{ message: AmountPaidMismatchRow[] }>(
     `${API}.get_amount_paid_mismatches`,
     { doctype },
-    `amount-paid-mismatch-${doctype}`,
+    `amount-paid-mismatch-${doctype}-${openedAt}`,
     { revalidateOnFocus: false },
   );
   const { call } = useFrappePostCall<{ message: RecountReply }>(`${API}.recount_amount_paid`);
