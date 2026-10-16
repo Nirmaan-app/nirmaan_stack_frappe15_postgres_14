@@ -239,7 +239,7 @@ class TestChequeRequest(FrappeTestCase):
         self.assertIn(
             f"Cheque {number} (ICICI Bank) already exists. A payment made here gets its own new cheque. "
             f"To put this payment on {number}, request it as Online, then add it to the cheque in "
-            "Reports, Cheque Payments.",
+            "the Cheque Tracker.",
             str(refused.exception),
         )
         self.assertEqual(self._payments_of(SR, self.sr), [])

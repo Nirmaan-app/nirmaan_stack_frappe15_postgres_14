@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Nirmaan (Stratos Infra Technologies Pvt. Ltd.) and contributors
 # For license information, please see license.txt
 
-"""The Cheque Payments report's list: one row per Cheque (spec #1407).
+"""The Cheque Tracker's list: one row per Cheque (spec #1407; its own page since #1483).
 
 Matches the data-table contract (`useServerDataTable`'s `apiEndpoint`): it takes the hook's
 `filters`, `order_by`, paging and search arguments and returns
@@ -15,8 +15,11 @@ from the Cheque's history).
 Each row also carries its `lines` (kind, project and its name, PO/WO, payment, amount), oldest first,
 so the table can expand a row and show "+N" without a second read.
 
-The summary strip (`aggregates`: count and amount for All, Pending, Issued, Cleared, Cancelled), the rows and
-the facets (`get_cheque_facets`) all read the same WHERE, so they always agree. The project and PO/WO
+The summary strip (`aggregates`: count and amount for All, Pending, Issued, Cleared, Cancelled, and the stale
+Issued ones), the rows and the facets (`get_cheque_facets`) all read the same WHERE, so they always agree.
+
+The tracker's tabs are filters on this list, sent by the page (`frontend/src/utils/cheques/chequeTabs.ts`):
+Cheque Issued - Reconciliation Pending is `status = Issued` and `cheque_type = Payment`. The project and PO/WO
 filters match a Cheque when ANY of its lines matches (EXISTS on `Cheque Line`), and the Cheque is
 still counted once, at its full amount (#1417).
 
@@ -27,7 +30,7 @@ import json
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import add_days, cint, flt, nowdate
 
 from nirmaan_stack.services.cheques.rules import CANCELLED, CLEARED, ISSUED, PENDING
 from nirmaan_stack.services.role_profiles import assert_cheque_access
@@ -75,6 +78,11 @@ _LINES = """
 
 #: The strip's per-status buckets: `<key>_count` and `<key>_amount` in `aggregates`.
 SUMMARY_STATUSES = {"pending": PENDING, "issued": ISSUED, "cleared": CLEARED, "cancelled": CANCELLED}
+
+#: An Issued cheque issued longer ago than this is stale (`stale_count` / `stale_amount`): a cheque is good for
+#: 3 months. A cheque from before issue dates counts from its cheque date. The frontend's `CHEQUE_STALE_DAYS`
+#: (`pages/cheque-tracker/config/chequePaymentTable.config.ts`) flags rows on the same line.
+STALE_AFTER_DAYS = 90
 
 #: Filters on the Cheque's lines, by Cheque Line column: a Cheque matches when ANY of its lines does.
 LINE_FILTERS = {"project", "record_name"}
@@ -202,17 +210,22 @@ def _where(filters, search_term, current_search_fields):
 
 
 def _summary(where, params) -> dict:
-    """Count and amount of the filtered Cheques, all and per status. A Cheque counts once, at its full
-    amount, however many of its lines matched a project or PO/WO filter."""
+    """Count and amount of the filtered Cheques, all, per status, and the stale Issued ones. A Cheque counts
+    once, at its full amount, however many of its lines matched a project or PO/WO filter."""
     columns, status_params = ["COUNT(*)", "COALESCE(SUM(q.amount), 0)"], []
     for status in SUMMARY_STATUSES.values():
         columns += ["COUNT(*) FILTER (WHERE q.status = %s)", "COALESCE(SUM(q.amount) FILTER (WHERE q.status = %s), 0)"]
         status_params += [status, status]
+    # The cutoff is the site's date, not the database's CURRENT_DATE (UTC), which lags the site's for part
+    # of each day.
+    stale = "q.status = %s AND COALESCE(q.issue_date, q.cheque_date) < %s"
+    columns += [f"COUNT(*) FILTER (WHERE {stale})", f"COALESCE(SUM(q.amount) FILTER (WHERE {stale}), 0)"]
+    status_params += [ISSUED, add_days(nowdate(), -STALE_AFTER_DAYS)] * 2
     values = frappe.db.sql(
         f"SELECT {', '.join(columns)} FROM ({_BASE}) q {where}", tuple(status_params) + tuple(params)
     )[0]
     out = {"count": cint(values[0]), "total_amount": flt(values[1])}
-    for i, key in enumerate(SUMMARY_STATUSES):
+    for i, key in enumerate([*SUMMARY_STATUSES, "stale"]):
         out[f"{key}_count"] = cint(values[2 + 2 * i])
         out[f"{key}_amount"] = flt(values[3 + 2 * i])
     return out
@@ -231,11 +244,11 @@ def get_cheques(
     for_export=False,
     **kwargs,
 ):
-    """One page of Cheques for the Cheque Payments report.
+    """One page of Cheques for the Cheque Tracker.
 
     `doctype`, `fields` and the hook's other arguments are accepted and ignored: the row shape is
     fixed here. `aggregates` is the summary strip over the whole filtered set: `count`,
-    `total_amount`, and `<pending|issued|cleared|cancelled>_count` / `_amount`.
+    `total_amount`, and `<pending|issued|cleared|cancelled|stale>_count` / `_amount`.
     """
     assert_cheque_access(frappe.session.user)
 

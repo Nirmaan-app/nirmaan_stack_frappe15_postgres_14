@@ -30,7 +30,7 @@ const WOPaymentVoucherReport = React.lazy(() => import('./components/WOPaymentVo
 // Tax Deducted at Source. The page lives outside ./components because it predates this tab --
 // it was a sidebar route of its own until the ledger moved in here.
 const PaymentTDSDeductions = React.lazy(() => import('@/pages/PaymentTDSDeductions/PaymentTDSDeductions'));
-const ChequePaymentReport = React.lazy(() => import('./components/ChequePaymentReport'));
+// The Cheque Payment report is the Cheque Tracker now, its own page (#1483); `ReportsIndex` redirects old links.
 
 // Define options for the selector
 const projectReportOptions: { label: string; value: ProjectReportType }[] = [
@@ -78,7 +78,6 @@ const dcmirReportOptions: { label: string; value: DCMIRReportType }[] = [
 
 const paymentTdsReportOptions: { label: string; value: PaymentTDSReportType }[] = [
     { label: 'TDS Deduction', value: 'TDS Deduction' },
-    { label: 'Cheque Payment', value: 'Cheque Payment' },
 ];
 
 export default function ReportsContainer() {
@@ -198,10 +197,9 @@ export default function ReportsContainer() {
             availableTabs.push({ label: "DCs & MIRs", value: REPORTS_TABS.DCS_MIRS });
         }
         // ⚠️ READS THE SHARED HELPER rather than listing profiles inline, unlike its
-        // neighbours above. Each of the tab's reports has its own gate (TDS Deduction:
-        // `PAYMENT_TDS_ACCESS`; Cheque Payment: `CHEQUE_ACCESS_PROFILES`), and the same helper
-        // drives the report list and the default -- an inline second copy drifts the day one of
-        // them is edited, and it fails quietly: a visible tab that cannot load.
+        // neighbours above. The helper gates each of the tab's reports (TDS Deduction:
+        // `PAYMENT_TDS_ACCESS`) and drives the report list and the default -- an inline second copy
+        // drifts the day one of them is edited, and it fails quietly: a visible tab that cannot load.
         if (paymentTabReports(role).length > 0) {
             availableTabs.push({ label: "Payment", value: REPORTS_TABS.PAYMENT_TDS });
         }
@@ -391,7 +389,6 @@ export default function ReportsContainer() {
             return <SRReports />;
         }
         if (activeTab === REPORTS_TABS.PAYMENT_TDS) {
-            if (selectedReportType === 'Cheque Payment') return <ChequePaymentReport />;
             return <PaymentTDSDeductions />;
         }
         if (activeTab === REPORTS_TABS.DCS_MIRS) {
