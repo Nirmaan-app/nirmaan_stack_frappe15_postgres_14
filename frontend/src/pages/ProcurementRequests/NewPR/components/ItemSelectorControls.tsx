@@ -22,6 +22,7 @@ import { FuzzySearchSelect, TokenSearchConfig } from "@/components/ui/fuzzy-sear
 import { useMakeOptions } from "@/hooks/useMakeOptions";
 import { ProjectWPCategoryMake } from "@/types/NirmaanStack/Projects";
 import { derivePRPackages } from "@/utils/prPackages";
+import { newItemRequestReason } from "@/utils/prNewItem";
 
 // Custom MenuList for Make Select
 export const CustomMakeMenuList = (props: MenuListProps<MakeOption, false>) => {
@@ -144,12 +145,7 @@ export const ItemSelectorControls: React.FC<ItemSelectorControlsProps> = ({
     const categoryDetails = categoryList.find(
       (c) => c.name === curItem.category
     );
-    // PMO no longer bypasses the per-category `new_items` gate; treated like a Project
-    // Manager (2026-07-04 PMO access review) — request-only in locked categories.
-    return (
-      categoryDetails?.new_items === "false" &&
-      userData?.role !== "Nirmaan Admin Profile"
-    );
+    return newItemRequestReason(userData?.role, categoryDetails?.new_items) !== null;
   }, [curItem, categoryList, userData?.role]);
 
   // --- Handlers ---
