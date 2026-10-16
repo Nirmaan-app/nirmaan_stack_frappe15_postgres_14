@@ -287,9 +287,7 @@ class TestSlice12e1AssetV34(FrappeTestCase):
         self.assertNotEqual(max(ns), 41, "12e-5c: v41 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 42)
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
-        # BEFORE: self.assertEqual(max(ns), 43)
-        self.assertNotEqual(max(ns), 43, "12e-6 option 2: v43 is no longer the newest")
-        self.assertEqual(max(ns), 44)
+        self.assertEqual(max(ns), 43)
         self.assertTrue(os.path.exists(_asset_path(V35)), "v35 stays on disk as the 12e-1b record")
         self.assertTrue(os.path.exists(_asset_path(V34)), "v34 stays on disk as the 12e-1 record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -718,9 +716,7 @@ class TestSlice12e2AssetV36(FrappeTestCase):
         self.assertNotEqual(max(ns), 41, "12e-5c: v41 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 42)
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
-        # BEFORE: self.assertEqual(max(ns), 43)
-        self.assertNotEqual(max(ns), 43, "12e-6 option 2: v43 is no longer the newest")
-        self.assertEqual(max(ns), 44)
+        self.assertEqual(max(ns), 43)
         self.assertTrue(os.path.exists(_asset_path(V36)))
         self.assertTrue(os.path.exists(_asset_path(V35)))
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -853,9 +849,7 @@ class TestSlice12e3aSectionsV37(FrappeTestCase):
         self.assertNotEqual(max(ns), 41, "12e-5c: v41 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 42)
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
-        # BEFORE: self.assertEqual(max(ns), 43)
-        self.assertNotEqual(max(ns), 43, "12e-6 option 2: v43 is no longer the newest")
-        self.assertEqual(max(ns), 44)
+        self.assertEqual(max(ns), 43)
         self.assertTrue(os.path.exists(_asset_path(V37)))
         self.assertTrue(os.path.exists(_asset_path(V36)), "v36 stays on disk as the 12e-2 record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
@@ -1469,9 +1463,7 @@ class TestSlice12e4bAssetV38(FrappeTestCase):
         self.assertNotEqual(max(ns), 41, "12e-5c: v41 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 42)
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
-        # BEFORE: self.assertEqual(max(ns), 43)
-        self.assertNotEqual(max(ns), 43, "12e-6 option 2: v43 is no longer the newest")
-        self.assertEqual(max(ns), 44)
+        self.assertEqual(max(ns), 43)
         self.assertTrue(os.path.exists(_asset_path(V37)), "v37 stays on disk as the 12e-3a record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
 
@@ -1744,9 +1736,7 @@ class TestSlice12e5bAssetV39(FrappeTestCase):
         self.assertNotEqual(max(ns), 41, "12e-5c: v41 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 42)
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
-        # BEFORE: self.assertEqual(max(ns), 43)
-        self.assertNotEqual(max(ns), 43, "12e-6 option 2: v43 is no longer the newest")
-        self.assertEqual(max(ns), 44)
+        self.assertEqual(max(ns), 43)
         self.assertTrue(os.path.exists(_asset_path(V38)), "v38 stays on disk as the 12e-4b record")
         self.assertFalse(os.path.exists(_asset_path("rate_master_hvac_all_v%d.json" % (max(ns) + 1))))
 
@@ -1870,9 +1860,7 @@ class TestSlice12e5bAssetV40(FrappeTestCase):
         self.assertNotEqual(max(ns), 41, "12e-5c: v41 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 42)
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
-        # BEFORE: self.assertEqual(max(ns), 43)
-        self.assertNotEqual(max(ns), 43, "12e-6 option 2: v43 is no longer the newest")
-        self.assertEqual(max(ns), 44)
+        self.assertEqual(max(ns), 43)
         self.assertTrue(os.path.exists(_asset_path(V39)), "v39 stays on disk as the 12e-5b record")
 
 
@@ -1926,9 +1914,7 @@ class TestSlice12e5b2AssetV41(FrappeTestCase):
         self.assertNotEqual(max(ns), 41, "12e-5c: v41 is no longer the newest")
         # BEFORE: self.assertEqual(max(ns), 42)
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
-        # BEFORE: self.assertEqual(max(ns), 43)
-        self.assertNotEqual(max(ns), 43, "12e-6 option 2: v43 is no longer the newest")
-        self.assertEqual(max(ns), 44)
+        self.assertEqual(max(ns), 43)
         self.assertTrue(os.path.exists(_asset_path(V40)), "v40 stays on disk as the 12e-5b record")
 
 
@@ -1978,9 +1964,7 @@ class TestSlice12e5cAssetV42(FrappeTestCase):
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
         # BEFORE: self.assertEqual(max(ns), 42)
         self.assertNotEqual(max(ns), 42, "12e-6: v42 is no longer the newest")
-        # BEFORE: self.assertEqual(max(ns), 43)
-        self.assertNotEqual(max(ns), 43, "12e-6 option 2: v43 is no longer the newest")
-        self.assertEqual(max(ns), 44)
+        self.assertEqual(max(ns), 43)
         self.assertTrue(os.path.exists(_asset_path(V41)), "v41 stays on disk as the 12e-5b2 record")
 
 
@@ -2052,63 +2036,5 @@ class TestSlice12e6AssetV43(FrappeTestCase):
         self.assertEqual(sec["cladding"], self._notes(self.v43)["cladding"])
         d = os.path.dirname(_asset_path(V43))
         ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
-        # BEFORE: self.assertEqual(max(ns), 43)
-        self.assertNotEqual(max(ns), 43, "12e-6 option 2: v43 is no longer the newest")
-        self.assertEqual(max(ns), 44)
+        self.assertEqual(max(ns), 43)
         self.assertTrue(os.path.exists(_asset_path(V42)), "v42 stays on disk as the 12e-5c record")
-
-
-V44 = "rate_master_hvac_all_v44.json"   # 12e-6 (AC17 stop, owner option A): v43 + the conditional-COATING sentence on two notes
-
-
-class TestSlice12e6AssetV44(FrappeTestCase):
-    """SLICE 12e-6 (AC17 STOP; owner 2026-10-16 17:5x, "option A") -- HVAC v44 = v43 + the conditional-COATING sentence on
-    Insulation's `cladding` and `cladding_as_written` notes (the Piping section asks them): a coating a heading gives only on a
-    condition is copied only for a row that meets it (BOQ-26-00197 / HVAC BOQ 370 / 374 / 378); a conditional glass cloth,
-    aluminium or GI cladding is answered as before; "between indoor & outdoor units" is no condition.
-
-      test_42  THE DIFF: every item, every other config, key and note byte-equal; the two notes each gain the sentence once;
-               with it taken out the config IS v43's; the standing conditional rule of the `cladding` note is unchanged.
-      test_43  the Piping section asks both new notes; v44 is the newest HVAC asset; v43 stays on disk.
-    """
-    SENTENCE = ("Copy a COATING into 'as written' only when it applies to THIS row: where a heading gives a coating (a polyshield, UV, "
-                "protective or fire retardant coating, a paint) only on a condition (exposed, outdoor, terrace, pipes exposed to sun) and the "
-                "row does not say it meets that condition, leave both cladding and cladding-as-written out. This is for coatings only: a "
-                "glass cloth, aluminium or GI cladding a heading gives on such a condition is answered exactly as before. 'Between indoor & "
-                "outdoor units' is not a condition.")
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.v43, cls.v44 = _read(V43), _read(V44)
-
-    def test_42_v44_is_v43_plus_the_owner_sentence_on_two_notes_and_nothing_else(self):
-        self.assertEqual(json.dumps(self.v44["items"]), json.dumps(self.v43["items"]))
-        self.assertEqual({k: v for k, v in self.v44.items() if k != "category_configs"}, {k: v for k, v in self.v43.items() if k != "category_configs"})
-        changed = [a["category_id"] for a, b in zip(self.v44["category_configs"], self.v43["category_configs"]) if a != b]
-        self.assertEqual(changed, [INSULATION])
-        a = next(c for c in self.v44["category_configs"] if c["category_id"] == INSULATION)
-        b = next(c for c in self.v43["category_configs"] if c["category_id"] == INSULATION)
-        back = copy.deepcopy(a)
-        touched = []
-        for d in back["list_spec"]["attribute_definitions"]:
-            if self.SENTENCE in d.get("note", ""):
-                self.assertEqual(d["note"].count(self.SENTENCE), 1, d["id"])
-                d["note"] = d["note"].replace(" " + self.SENTENCE, "", 1)
-                touched.append(d["id"])
-        self.assertEqual(sorted(touched), ["cladding", "cladding_as_written"])
-        self.assertEqual(json.dumps(back), json.dumps(b), "with the sentence taken out the config IS v43's")
-        clad = next(d for d in a["list_spec"]["attribute_definitions"] if d["id"] == "cladding")["note"]
-        self.assertIn("applies only to a row that meets that condition. " + self.SENTENCE, clad)
-
-    def test_43_the_section_asks_the_new_notes_and_v44_is_the_newest(self):
-        stored = [dict(c, discipline=self.v44["discipline"]) for c in self.v44["category_configs"]]
-        cfgs = {(self.v44["discipline"], c["category_id"]): c for c in stored}
-        spec = extraction.build_items_spec(cfgs[(self.v44["discipline"], CATEGORY)], cfgs, self.v44["discipline"])
-        sec = {d["id"]: d.get("note", "") for d in spec["sections"][0]["items_spec"]["attribute_definitions"]}
-        self.assertIn(self.SENTENCE, sec["cladding_as_written"])
-        self.assertIn(self.SENTENCE, sec["cladding"])
-        d = os.path.dirname(_asset_path(V44))
-        ns = [int(m.group(1)) for f in os.listdir(d) for m in [re.match(r"rate_master_hvac_all_v(\d+)\.json$", f)] if m]
-        self.assertEqual(max(ns), 44)
-        self.assertTrue(os.path.exists(_asset_path(V43)), "v43 stays on disk as the 12e-6 AC11 record")
