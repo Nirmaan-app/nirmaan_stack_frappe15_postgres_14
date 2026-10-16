@@ -4,7 +4,10 @@ import { useDeleteMaterialDeliveryPlan } from "@/pages/projects/data/material-pl
 import { format, addDays, startOfDay, parseISO } from "date-fns";
 import { safeFormatDateDD_MMM_YYYY } from "@/lib/utils";
 import { Loader2, ChevronDown, Trash2, Download, Edit2, PlusCircle } from "lucide-react";
-import { SevenDayPlanningHeader } from "./SevenDayPlanningHeader";
+import { PlanningDurationFilter } from "./PlanningDurationFilter";
+import { SimpleFacetedFilter } from "@/pages/projects/components/SimpleFacetedFilter";
+import { DELIVERY_STATUSES, filterPlansByDeliveryStatus } from "@/utils/materialPlan/deliveryStatusFilter";
+import { parseStatusParam, statusParamOf } from "@/utils/statusFilterParam";
 import { DateRange } from "react-day-picker";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { urlStateManager } from "@/utils/urlStateManager";
@@ -30,6 +33,9 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+
+/** The Material Plan Status filter's options. */
+const STATUS_OPTIONS = DELIVERY_STATUSES.map((status) => ({ label: status, value: status }));
 
 interface SevenDaysMaterialPlanProps {
     projectId: string;
@@ -175,6 +181,8 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                 startDate: startDate ? format(startDate, "yyyy-MM-dd") : undefined,
                 endDate: endDate ? format(endDate, "yyyy-MM-dd") : undefined,
                 filePrefix: "MaterialPlan",
+                // The Status filter, read by the print format; nothing picked sends nothing (every status).
+                extraParams: { delivery_status: statusParamOf(selectedStatuses, DELIVERY_STATUSES) ?? "" },
             });
         } catch (error) {
             console.error("Download failed:", error);
@@ -208,6 +216,23 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
     // 2. Fetch Existing Material Delivery Plans
     const { data: existingPlans, isLoading: isLoadingPlans, mutate: refreshPlans } = useMaterialDeliveryPlans(projectId, docListFilters);
 
+    // --- Delivery Status Filter (nothing picked = every status) ---
+    const materialStatusParam = useUrlParam("materialStatus");
+    const selectedStatuses = useMemo(
+        () => new Set<string>(parseStatusParam(materialStatusParam, DELIVERY_STATUSES)),
+        [materialStatusParam]
+    );
+    const handleStatusChange = (statuses: Set<string>) => {
+        urlStateManager.updateParam("materialStatus", statusParamOf(statuses, DELIVERY_STATUSES));
+    };
+    const statusFilterActive = selectedStatuses.size > 0;
+
+    // What the list shows: the fetched plans narrowed by the status filter. The counts read this too.
+    const visiblePlans = useMemo(
+        () => filterPlansByDeliveryStatus(existingPlans, selectedStatuses),
+        [existingPlans, selectedStatuses]
+    );
+
     // console.log("existingPlans",existingPlans)
     // Extract unique packages from child table for Options
     const projectPackages = useMemo(() => {
@@ -220,33 +245,41 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
         return Array.from(pkgs).sort();
     }, [projectDoc]);
 
+    // The date + status filters: on the "Saved Material Plans" row (the list they narrow); Overview has no such
+    // row, so there they sit in its title row.
+    const planFilters = (
+        <>
+            <PlanningDurationFilter
+                dateRange={dateRange}
+                activeDuration={activeDuration}
+                setDaysRange={setDaysRange}
+            />
+            <SimpleFacetedFilter
+                title="Status"
+                triggerLabel="Status"
+                options={STATUS_OPTIONS}
+                selectedValues={selectedStatuses}
+                onSelectedValuesChange={handleStatusChange}
+            />
+        </>
+    );
+
     return (
         <div className="space-y-6">
             {/* Material Plan Intro / Actions Header */}
 
             {!isOverview ? (
                 <div className="bg-white shadow-sm">
-                    {/* Header Section */}
-                    {setDaysRange && activeDuration && (
-                        <div className="mb-6">
-                            <SevenDayPlanningHeader
-                                isOverview={isOverview}
-                                dateRange={dateRange}
-                                activeDuration={activeDuration}
-                                setDaysRange={setDaysRange}
-                            />
-                        </div>
-                    )}
-                    <div className="flex justify-between items-start mb-2 gap-3">
+                    <div className="flex flex-wrap justify-between items-start mb-2 gap-3">
                         <div className="flex items-center gap-2">
                             <h3 className="text-xl font-bold text-gray-900">Material Plan</h3>
-                            {existingPlans && existingPlans.length > 0 && (
+                            {visiblePlans && visiblePlans.length > 0 && (
                                 <Badge variant="secondary" className="bg-blue-700 text-white hover:bg-blue-800 h-6 w-6 p-0 flex items-center justify-center rounded-full text-[12px]">
-                                    {existingPlans.length}
+                                    {visiblePlans.length}
                                 </Badge>
                             )}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center justify-end gap-2">
                             <Button
                                 variant="outline"
                                 size="sm"
@@ -281,25 +314,17 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                 </div>
             ) : (
                 <>
-                    {setDaysRange && activeDuration && (
-                        <div className="mb-6">
-                            <SevenDayPlanningHeader
-                                isOverview={isOverview}
-                                dateRange={dateRange}
-                                activeDuration={activeDuration}
-                                setDaysRange={setDaysRange}
-                            />
-                        </div>
-                    )}
-                    <div className="flex items-center justify-between mb-4 mt-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-4 mt-4">
                         <div className="flex items-center gap-2">
                             <h3 className="text-xl font-bold text-gray-900">Material Plan</h3>
-                            {existingPlans && existingPlans.length > 0 && (
+                            {visiblePlans && visiblePlans.length > 0 && (
                                 <Badge variant="secondary" className="bg-blue-700 text-white hover:bg-blue-800 h-6 w-6 p-0 flex items-center justify-center rounded-full text-[12px]">
-                                    {existingPlans.length}
+                                    {visiblePlans.length}
                                 </Badge>
                             )}
                         </div>
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                        {planFilters}
                         <Button
                             variant="outline"
                             size="sm"
@@ -314,6 +339,7 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                             )}
                             {isDownloading ? "Downloading..." : "Download"}
                         </Button>
+                        </div>
                     </div>
                 </>
             )}
@@ -348,16 +374,20 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                 />
             )}
 
-            {/* Section Divider — separates Drafts (above) from Saved Plans (below) */}
-            {!isOverview && existingPlans && existingPlans.length > 0 && (
-                <div className="flex items-center gap-3 pt-2">
+            {/* Section Divider — separates Drafts (above) from Saved Plans (below), with the list's date + status
+                filters. Always shown: a filter that matches nothing must not hide the filters that undo it. */}
+            {!isOverview && (
+                <div className="flex flex-wrap items-center gap-3 pt-2">
                     <div className="flex items-center gap-2 shrink-0">
                         <h4 className="text-sm font-semibold text-gray-700">Saved Material Plans</h4>
                         <Badge variant="secondary" className="bg-gray-200 text-gray-700 hover:bg-gray-200 rounded-full px-2 py-0 text-[10px] font-semibold">
-                            {existingPlans.length}
+                            {visiblePlans?.length ?? 0}
                         </Badge>
                     </div>
-                    <div className="flex-1 h-px bg-gray-200" />
+                    <div className="hidden sm:block flex-1 h-px bg-gray-200" />
+                    <div className="flex flex-wrap items-center gap-2">
+                        {planFilters}
+                    </div>
                     <span className="text-[10px] text-gray-400 uppercase tracking-wider shrink-0">
                         Sorted by latest
                     </span>
@@ -371,11 +401,15 @@ export const SevenDaysMaterialPlan = ({ projectId, isOverview, projectName }: Se
                     <div className="text-gray-500 text-sm">Loading plans...</div>
                 )}
 
-                {!isLoadingPlans && (!existingPlans || existingPlans.length === 0) && (
-                    <div className="text-gray-500 text-sm italic">No material delivery plans found.</div>
+                {!isLoadingPlans && (!visiblePlans || visiblePlans.length === 0) && (
+                    <div className="text-gray-500 text-sm italic">
+                        {statusFilterActive
+                            ? "No material delivery plans match the selected status."
+                            : "No material delivery plans found."}
+                    </div>
                 )}
 
-                {existingPlans?.map((plan: any, index: number) => {
+                {visiblePlans?.map((plan: any, index: number) => {
                     const itemsList = getMaterialItems(plan);
                     const itemsCount = itemsList.length;
                     const planNum = index + 1;
