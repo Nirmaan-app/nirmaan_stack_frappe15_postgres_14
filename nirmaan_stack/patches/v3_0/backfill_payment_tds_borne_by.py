@@ -3,6 +3,16 @@
 
 """Fill `Payment TDS Deduction.borne_by` on every row written before the field existed (#1451).
 
+⚠️ RUN ONCE ONLY: the patch log is its only guard, so never delete its Patch Log row to re-run it, and
+never call `backfill()` with no names on a live site. A re-run would re-infer EVERY row, including
+those `record_deduction` wrote after the field went live, and the inference reads the payment as it
+stands NOW: a kept-whole payment since cut by a part settlement to below gross-minus-tax would flip
+from Company to Vendor, and one on a Work Order whose categories later gained Electrical would too.
+Those rows' stored answer is the truth and the inference would overwrite it. It cannot be limited to
+the old rows simply: adding the column filled every existing row with its default "Vendor", so an old
+row and a new one look alike, and the moment the column was added on a given site is recorded nowhere
+(the doctype's `modified` is the code's date, not the deploy's).
+
 From here on `payment_tds.record_deduction` stores who bears each deduction's tax when it creates the
 row. The rows already there are read ONCE off their own payment, the only record of what the approval
 did:

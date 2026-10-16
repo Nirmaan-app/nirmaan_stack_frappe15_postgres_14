@@ -153,7 +153,8 @@ DEDUCTIBLE_PARENTS = frozenset({SERVICE_REQUEST_DOCTYPE})
 #: is taxed the ordinary way. A Work Order with no categories at all is ordinary too.
 #:
 #: ⚠️ THE RULE DECIDES ONLY WHEN A DEDUCTION IS CREATED. `record_deduction` stores its answer on the
-#: row as `borne_by` (#1451), and every reader after that reads the row, never the categories: an
+#: row as `borne_by` (#1451; a stored field by owner ruling 2026-10-16, overriding the 2026-09-17
+#: "no new field" ruling), and every reader after that reads the row, never the categories: an
 #: amount edit, the Amount Due, the mismatch judge, the request cap, the Work Order page. So a Work
 #: Order whose categories change later keeps every deduction it already took as it was taken, and the
 #: Misc / Transport Work Orders paid before this rule (their tax withheld from the vendor, owner
@@ -181,6 +182,8 @@ __all__ = [
 	"categories_are_company_borne",
 	"company_borne_tds_sql",
 	"company_borne_tds_by_order",
+	"borne_kind",
+	"work_order_tds_borne",
 	"is_deductible",
 	"is_gst_payment",
 	"existing_deduction",
@@ -328,6 +331,56 @@ def company_borne_tds_by_order(document_type: str, names, exclude_payment: str |
 		as_dict=True,
 	)
 	return {row.document_name: flt(row.company_borne_tds, 2) for row in rows}
+
+
+#: Who bore a Work Order's paid TDS, as its page labels it (`borne_kind`).
+BORNE_KIND_WITHHELD = "withheld"
+BORNE_KIND_COMPANY = "company"
+BORNE_KIND_PART = "part"
+
+
+def borne_kind(withheld, company) -> str | None:
+	"""`withheld` / `company` / `part` for a Work Order's paid TDS split; None when it has none. Pure."""
+	withheld, company = flt(withheld, 2), flt(company, 2)
+	if withheld > 0 and company > 0:
+		return BORNE_KIND_PART
+	if company > 0:
+		return BORNE_KIND_COMPANY
+	if withheld > 0:
+		return BORNE_KIND_WITHHELD
+	return None
+
+
+def work_order_tds_borne(work_order: str) -> dict:
+	"""`{withheld, company, kind}` for one Work Order: the tax on its PAID payments' deductions, split
+	by `borne_by`, and the label kind (`borne_kind`). Feeds the Work Order page's label beside
+	`total_tds` (`api/payments/work_order_tds`).
+
+	⚠️ `Paid` ONLY, LIKE `total_tds_of`: the label sits beside `total_tds`, so it must describe the same
+	deductions. With none paid yet, the category rule (`is_company_borne`) says who would bear the next
+	one. No permission check: the endpoint checks read on the Work Order.
+	"""
+	row = frappe.db.sql(
+		f"""
+		SELECT
+			COALESCE(SUM(CASE WHEN d.borne_by = %(company)s THEN 0 ELSE d.tds_amount END), 0) AS withheld,
+			COALESCE(SUM(CASE WHEN d.borne_by = %(company)s THEN d.tds_amount ELSE 0 END), 0) AS company
+		FROM "tab{TDS_DOCTYPE}" d
+		INNER JOIN "tab{PAYMENT_DOCTYPE}" p ON p.name = d.project_payment
+		WHERE p.document_type = %(doctype)s AND p.document_name = %(name)s AND p.status = %(paid)s
+		""",
+		{"company": BORNE_BY_COMPANY, "doctype": SERVICE_REQUEST_DOCTYPE, "name": work_order, "paid": PAID},
+		as_dict=True,
+	)[0]
+	withheld, company = flt(row.withheld, 2), flt(row.company, 2)
+	kind = borne_kind(withheld, company)
+	if kind is None:
+		kind = (
+			BORNE_KIND_COMPANY
+			if is_company_borne(SERVICE_REQUEST_DOCTYPE, work_order)
+			else BORNE_KIND_WITHHELD
+		)
+	return {"withheld": withheld, "company": company, "kind": kind}
 
 
 def existing_deduction(payment_name: str) -> str | None:

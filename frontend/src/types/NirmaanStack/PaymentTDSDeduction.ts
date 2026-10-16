@@ -29,7 +29,8 @@ export interface PaymentTDSDeduction {
 	tds_amount: number;
 	/** Who bears this tax, set once when the deduction is created (#1451). "Vendor": withheld, the
 	 *  payment cut to the net. "Company": paid on top, the payment kept whole. Read this, never the
-	 *  Work Order's categories (`tdsForecast.taxWithheld`, `workOrderTdsBorneBy`). */
+	 *  Work Order's categories. Readable by the accountants only, so the Work Order page asks the
+	 *  server instead (`get_work_order_tds`, `get_payment_summary`). */
 	borne_by?: "Vendor" | "Company";
 	/** The day the payment reached `Approved` and the tax was withheld. Renamed from
 	 *  `deducted_on` — same data, truer name. */

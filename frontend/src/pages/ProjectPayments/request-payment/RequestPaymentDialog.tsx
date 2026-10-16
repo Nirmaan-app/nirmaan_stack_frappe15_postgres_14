@@ -79,14 +79,18 @@ export default function RequestPaymentDialog(p:Props){
 
   const payable = gstWO ? (cap?.max ?? 0) : p.totalIncGST;
 
-  // ⚠️ ONE BALANCE: once the summary has loaded, "Due", the cap warning and the block's
-  // "Left after this payment" all read the server's figures. They count payments gross of TDS as
-  // this dialog always has, and also count a Rejected payment not yet deleted -- as the server's
-  // cap does, so a request the server would refuse is refused here first. On a GST-off WO or a PO,
-  // until the summary loads (or if it fails) the local figure stands, exactly as before.
+  // ⚠️ ONE BALANCE: on a Work Order, "Due", the cap warning and the block's "Left after this
+  // payment" all read the server's figures, and nothing can be confirmed until they have loaded.
+  // They count each payment gross of the TDS withheld from it (read off each deduction's
+  // `borne_by`) and a Rejected payment not yet deleted -- as the server's cap does, so a request the
+  // server would refuse is refused here first. There is no local Work Order figure to fall back on:
+  // the page cannot add the withheld tax back itself, because `Payment TDS Deduction` is refused to
+  // everyone but the accountants (#1451). `p.paid` / `p.pending` (net) only say whether payments
+  // exist; the local balance below is the PO path's.
   const localMax = payable - p.paid - p.pending;
+  const balanceLoaded = !isWO || !!summary;
   const max = useMemo(
-    ()=> (gstWO ? (cap?.max ?? 0) : isWO && summary ? summary.left : localMax),
+    ()=> (gstWO ? (cap?.max ?? 0) : isWO ? (summary?.left ?? 0) : localMax),
     [gstWO, cap?.max, isWO, summary, localMax]
   );
   const amount = useMemo(()=>{
@@ -102,10 +106,10 @@ export default function RequestPaymentDialog(p:Props){
   useMemo(()=>{
     if(cap && amount>max+1e-6)
       setWarn(`Request exceeds ${cap.capLabel} ${formatToIndianRupee(max)}`);
-    else if(!gstWO && amount>max+1e-6)
+    else if(!gstWO && balanceLoaded && amount>max+1e-6)
       setWarn(`Request exceeds balance ${formatToIndianRupee(max)}`);
     else setWarn("");
-  },[amount,max,cap,gstWO]);
+  },[amount,max,cap,gstWO,balanceLoaded]);
 
   /* A cheque is written for the figure AFTER TDS, so the dialog says what that is. Fetched only
      while a cheque is being requested: the dialog is mounted on every PO / WO page. */
@@ -161,7 +165,7 @@ export default function RequestPaymentDialog(p:Props){
 
       {gstWO && limit && <PayForChoice limit={limit} value={payFor} onChange={setPayFor}/>}
 
-      {gstWO && !limit && !summaryLoading && summaryError &&
+      {isWO && !summary && !summaryLoading && summaryError &&
         <p className="text-xs text-red-600 text-center">Couldn't load this Work Order's payment limit. Close and try again.</p>}
 
       <RadioGroup value={mode} onValueChange={v=>setMode(v as any)} className="space-y-3">
@@ -199,7 +203,7 @@ export default function RequestPaymentDialog(p:Props){
 
         {/* On a GST Work Order with nothing left of the chosen part, hide "Due" -- there is
             nothing to request. */}
-        {p.paid>0 && (!gstWO || max>0) &&
+        {p.paid>0 && balanceLoaded && (!gstWO || max>0) &&
           <div className="flex items-center gap-2">
             <RadioGroupItem value="due" id="due"/>
             <Label htmlFor="due">Due {formatToIndianRupee(max)}</Label>
@@ -226,7 +230,7 @@ export default function RequestPaymentDialog(p:Props){
           : <>
               <AlertDialogCancel className="flex-1">Cancel</AlertDialogCancel>
               <Button className="flex-1"
-                      disabled={amount===0 || !!warn || !isPaymentModeComplete(payMode, duplicateOf) || (gstWO && !cap)}
+                      disabled={amount===0 || !!warn || !isPaymentModeComplete(payMode, duplicateOf) || !balanceLoaded || (gstWO && !cap)}
                       onClick={submit}>Confirm</Button>
             </>}
       </div>

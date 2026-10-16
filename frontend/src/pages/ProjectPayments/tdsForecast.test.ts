@@ -5,9 +5,8 @@ import {
 	forecastTdsTotals,
 	isCompanyBorneWorkOrder,
 	isDeductible,
-	taxWithheld,
 	withholdsOnApproval,
-	workOrderTdsBorneBy,
+	workOrderTdsLabel,
 } from "./tdsForecast";
 
 const SR = "Service Requests";
@@ -201,27 +200,16 @@ describe("withholdsOnApproval", () => {
 	});
 });
 
-describe("who bore a deduction already taken (Payment TDS Deduction.borne_by, #1451)", () => {
-	const misc = JSON.stringify({ list: [{ name: "Miscellaneous Services" }] });
-	const ordinary = JSON.stringify({ list: [{ name: "Electrical Services" }] });
-
-	it("counts as withheld only the tax the vendor bore", () => {
-		expect(taxWithheld({ tds_amount: 120, borne_by: "Vendor" })).toBe(120);
-		expect(taxWithheld({ tds_amount: 282.4, borne_by: "Company" })).toBe(0);
-		expect(taxWithheld(undefined)).toBe(0);
+describe("the Work Order page's TDS label (server answer `get_work_order_tds`, #1451)", () => {
+	it("names who bore the paid tax", () => {
+		// SR-00105-000908: Misc-only, its tax withheld from the vendor before the 2026-09-17 rule.
+		expect(workOrderTdsLabel({ withheld: 248, company: 0, kind: "withheld" })).toBe("TDS withheld");
+		expect(workOrderTdsLabel({ withheld: 0, company: 200, kind: "company" })).toBe("TDS (paid by company)");
+		// SR-00107-001055: 120 withheld, 282.40 paid on top.
+		expect(workOrderTdsLabel({ withheld: 120, company: 282.4, kind: "part" })).toBe("TDS (part paid by company)");
 	});
 
-	it("reads a Work Order's deductions, never its categories, once it has any", () => {
-		// SR-00107-001055: one withheld, one kept whole, on a Misc-only Work Order.
-		expect(workOrderTdsBorneBy([{ borne_by: "Vendor" }, { borne_by: "Company" }], misc)).toBe("Mixed");
-		// Paid before the rule: Misc-only, but the tax came out of the vendor's payment.
-		expect(workOrderTdsBorneBy([{ borne_by: "Vendor" }], misc)).toBe("Vendor");
-		// Kept whole, then Electrical was added: still the company's.
-		expect(workOrderTdsBorneBy([{ borne_by: "Company" }], ordinary)).toBe("Company");
-	});
-
-	it("falls back to the category rule while a Work Order has no deduction yet", () => {
-		expect(workOrderTdsBorneBy([], misc)).toBe("Company");
-		expect(workOrderTdsBorneBy(undefined, ordinary)).toBe("Vendor");
+	it("claims no side until the server has answered", () => {
+		expect(workOrderTdsLabel(undefined)).toBe("TDS");
 	});
 });

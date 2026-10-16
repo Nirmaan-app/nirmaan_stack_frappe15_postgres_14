@@ -5,22 +5,16 @@ import { Separator } from "@/components/ui/separator";
 import { Projects } from "@/types/NirmaanStack/Projects";
 import { ServiceRequests } from "@/types/NirmaanStack/ServiceRequests";
 import { Vendors } from "@/types/NirmaanStack/Vendors";
-import type { TdsBorneBy } from "@/pages/ProjectPayments/tdsForecast";
+import { workOrderTdsLabel, type WorkOrderTds } from "@/pages/ProjectPayments/tdsForecast";
 import { formatDate } from "@/utils/FormatDate";
 import formatToIndianRupee, { formatToIndianRupeeOrZero } from "@/utils/FormatPrice";
 import { parseNumber } from "@/utils/parseNumber";
 import { Eye, FileText, Lock, PencilRuler, Trash2, Unlock } from "lucide-react";
 
-const TDS_LABEL: Record<TdsBorneBy | "Mixed", string> = {
-  Vendor: "TDS withheld",
-  Company: "TDS (paid by company)",
-  Mixed: "TDS (part paid by company)",
-};
-
 interface SRDetailsCardProps {
   orderData: ServiceRequests | undefined;
-  /** Who bore the WO's TDS, read off its deductions (`tdsForecast.workOrderTdsBorneBy`). */
-  tdsBorneBy?: TdsBorneBy | "Mixed";
+  /** Who bore the WO's paid TDS, as the server answers it (`get_work_order_tds`); undefined while loading. */
+  workOrderTds?: WorkOrderTds;
   project: Projects | undefined;
   vendor: Vendors | undefined;
   gstEnabled: boolean;
@@ -66,7 +60,7 @@ interface SRDetailsCardProps {
  */
 export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   orderData,
-  tdsBorneBy = "Vendor",
+  workOrderTds,
   project,
   vendor,
   gstEnabled,
@@ -118,8 +112,9 @@ export const SRDetailsCard: React.FC<SRDetailsCardProps> = ({
   const amountPaid = parseNumber(orderData?.amount_paid);
   const tdsWithheld = parseNumber(orderData?.total_tds);
   const amountDue = parseNumber(orderData?.amount_due);
-  // Who bore the tax is read off the WO's deductions (`borne_by`), never its categories (#1451).
-  const tdsLabel = TDS_LABEL[tdsBorneBy];
+  // Who bore the tax is the server's answer off the WO's deductions (`borne_by`), never its categories
+  // and never the page's own deduction read, which a Procurement user is refused (#1451).
+  const tdsLabel = workOrderTdsLabel(workOrderTds);
 
   return (
     <Card className="rounded-sm shadow-md overflow-x-auto">

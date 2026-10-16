@@ -45,7 +45,7 @@ export const COMPANY_BORNE_CATEGORIES: ReadonlySet<string> = new Set([
  * `payment_tds.is_company_borne` gives.
  *
  * ⚠️ IT ANSWERS FOR A NEW DEDUCTION ONLY (the approval forecasts). One already taken carries its own
- * answer in `borne_by`: `taxWithheld`, `workOrderTdsBorneBy`.
+ * answer in `borne_by`, which the server reads (`WorkOrderTds`, the request cap's payment summary).
  */
 export const isCompanyBorneWorkOrder = (serviceCategoryList: unknown): boolean => {
 	const parsed = safeJsonParse<{ list?: unknown } | null>(
@@ -61,36 +61,33 @@ export const isCompanyBorneWorkOrder = (serviceCategoryList: unknown): boolean =
 };
 
 /**
- * Who bore a deduction already taken: `Payment TDS Deduction.borne_by`, stored when it was created
- * (#1451). "Vendor": withheld, the payment cut to the net. "Company": paid on top, the payment kept
- * whole. A deduction is read by this field, NEVER by `isCompanyBorneWorkOrder`: a Work Order's
- * categories decide only a NEW deduction, and they can change after one is taken.
+ * Who bore a Work Order's PAID tax, as the server answers it (`api/payments/work_order_tds.get_work_order_tds`,
+ * #1451): read off each deduction's `Payment TDS Deduction.borne_by`, over the Paid payments only (the
+ * same population as `total_tds`, the figure the label sits beside). With nothing paid yet the server
+ * answers by the category rule.
+ *
+ * ⚠️ ASKED OF THE SERVER, NEVER READ OFF THE DEDUCTIONS HERE: that doctype is readable only by the
+ * accountants, so a Procurement user's list read is refused and the page would guess.
  */
-export type TdsBorneBy = "Vendor" | "Company";
+export type TdsBorneKind = "withheld" | "company" | "part";
 
-interface BorneDeduction {
-	tds_amount?: number | string;
-	borne_by?: TdsBorneBy | string;
+export interface WorkOrderTds {
+	/** Paid tax withheld from the vendor (`borne_by` Vendor). */
+	withheld: number;
+	/** Paid tax the company paid on top (`borne_by` Company). */
+	company: number;
+	kind: TdsBorneKind;
 }
 
-/** The tax withheld from a payment by its deduction: none when the company bore it. */
-export const taxWithheld = (deduction: BorneDeduction | undefined): number =>
-	deduction && deduction.borne_by !== "Company" ? parseNumber(deduction.tds_amount) : 0;
-
-/**
- * Who bears a Work Order's TDS, for its page: its deductions say, and "Mixed" when they disagree (a
- * Misc-only Work Order paid net before 2026-09-17 and kept whole after). With no deduction yet, the
- * category rule says who would bear the next one.
- */
-export const workOrderTdsBorneBy = (
-	deductions: BorneDeduction[] | undefined,
-	serviceCategoryList: unknown
-): TdsBorneBy | "Mixed" => {
-	if (!deductions?.length) return isCompanyBorneWorkOrder(serviceCategoryList) ? "Company" : "Vendor";
-	const company = deductions.filter((d) => d.borne_by === "Company").length;
-	if (company === 0) return "Vendor";
-	return company === deductions.length ? "Company" : "Mixed";
+const TDS_LABEL: Record<TdsBorneKind, string> = {
+	withheld: "TDS withheld",
+	company: "TDS (paid by company)",
+	part: "TDS (part paid by company)",
 };
+
+/** The Work Order page's label for its TDS figure; a plain "TDS" until the server has answered. */
+export const workOrderTdsLabel = (answer: WorkOrderTds | undefined): string =>
+	answer ? TDS_LABEL[answer.kind] : "TDS";
 
 export interface TdsForecast {
 	/** The rate applied, as a percentage. */

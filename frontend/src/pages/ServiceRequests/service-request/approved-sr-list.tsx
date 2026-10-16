@@ -607,7 +607,7 @@ export const ApprovedSRList: React.FC<ApprovedSRListProps> = ({
           <Alert className="bg-blue-50 border-blue-200 mb-2">
             <Info className="h-4 w-4 text-blue-600" />
             <AlertDescription className="text-blue-800 text-sm">
-              <strong>Note:</strong> Amount Due = Total WO Value − Amt Paid
+              <strong>Note:</strong> Amount Due = Total WO Value − Amt Paid − TDS withheld from the vendor (TDS the company pays on top is not taken off)
             </AlertDescription>
           </Alert>
           <DataTable<ServiceRequests>
