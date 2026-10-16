@@ -67,12 +67,10 @@ class PaidPaymentFixture(OrdersFixture):
         frappe.db.commit()
 
     def _credit_entries(self, entry_type):
-        """This test's own entries only: the vendor is a real one, so other entries of it may exist."""
-        return frappe.get_all(
-            LEDGER,
-            filters={"parent": self.vendor, "entry_type": entry_type, "po_id": ["like", f"{self.PREFIX}%"]},
-            pluck="po_id",
-        )
+        """Entries added since `setUp` only: the vendor is a real one, so it may already have entries."""
+        before = self.credit[self.vendor][1]
+        rows = frappe.get_all(LEDGER, filters={"parent": self.vendor, "entry_type": entry_type}, fields=["name", "po_id"])
+        return [row.po_id for row in rows if row.name not in before]
 
 
 class EditingAPaidPayment(PaidPaymentFixture):
