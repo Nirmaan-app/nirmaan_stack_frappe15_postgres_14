@@ -22,7 +22,6 @@ from nirmaan_stack.api.approvals.get_approval_queue import get_approval_queue, g
 from nirmaan_stack.api.cheques.cheque_chips import get_cheque_chips
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.cheques.cheque_status import change_cheque_status
-from nirmaan_stack.api.cheques.save_cheque import save_cheque
 from nirmaan_stack.api.payments.taxed_work_order_fixture import TaxedWorkOrderFixture
 
 U = "Administrator"
@@ -51,7 +50,7 @@ class TestTheQueueCarriesTheCheque(FrappeTestCase):
 		)
 
 	def _cheque(self, payment, cheque_no):
-		result = save_cheque(
+		return self.cheques.plant_cheque(
 			bank="ICICI Bank",
 			cheque_no=cheque_no,
 			cheque_date=nowdate(),
@@ -63,7 +62,6 @@ class TestTheQueueCarriesTheCheque(FrappeTestCase):
 				 "record_name": self.sr, "payment_name": payment},
 			]),
 		)
-		return self.cheques.track(result["cheque"])
 
 	def _row(self, name):
 		rows = [
@@ -140,16 +138,15 @@ class TestReconciliationPendingLeavesIssuedChequesOut(FrappeTestCase):
 									   document=(SR, self.sr), amount=10000)
 			for _ in range(count)
 		]
-		result = save_cheque(
+		cheque = self.cheques.plant_cheque(
 			bank="ICICI Bank", cheque_no=self.cheques.number(), cheque_date=nowdate(),
 			amount=10000 * len(payments), vendor=self.vendor, attachment=PHOTO,
-			lines=json.dumps([
+			lines=[
 				{"line_type": "PO/WO Payment", "project": self.project, "record_doctype": SR,
 				 "record_name": self.sr, "payment_name": p, "amount": 10000}
 				for p in payments
-			]),
+			],
 		)
-		cheque = self.cheques.track(result["cheque"])
 		frappe.db.set_value("Cheques", cheque, "status", cheque_status, update_modified=False)
 		for p in payments:
 			frappe.db.set_value("Project Payments", p, "status", self.RP, update_modified=False)

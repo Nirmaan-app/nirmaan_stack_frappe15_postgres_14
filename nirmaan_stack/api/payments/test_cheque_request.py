@@ -23,7 +23,6 @@ from frappe.utils import flt, nowdate
 
 from nirmaan_stack.api.cheques.cheque_fixture import ChequeFixture
 from nirmaan_stack.api.cheques.find_cheque import find_cheque
-from nirmaan_stack.api.cheques.save_cheque import save_cheque
 from nirmaan_stack.api.payments.project_payments import (
     ceo_approve_payment,
     create_payment_request_for_service,
@@ -264,12 +263,11 @@ class TestChequeRequest(FrappeTestCase):
         self.assertEqual(frappe.db.get_value(TERMS, term, "term_status"), "Created")
 
     def _record_cheque(self, number, *, bank="ICICI Bank", bank_name=None):
-        """An Ad-hoc cheque already recorded from the report."""
-        out = save_cheque(
+        """An Ad-hoc cheque already recorded (before #1482, the report took one)."""
+        return self.cheques.plant_cheque(
             bank=bank, bank_name=bank_name, cheque_no=number, cheque_date=nowdate(), amount=5000,
             vendor=self.vendor, description="Advance", attachment=PHOTO,
         )
-        return self.cheques.track(out["cheque"])
 
     def test_a_recorded_bank_and_number_refuses_the_wo_request(self):
         number = self.cheques.number()

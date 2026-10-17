@@ -84,9 +84,8 @@ def cheque_of(payment_name: str) -> str | None:
     whose lines name it. Keyed on the lines, not on the payment's `cheque` link. None for an Online
     payment, an Old-type cheque's payment, a payment whose line has come off, and a cheque past Pending.
 
-    ⚠️ PENDING ONLY. A Payment cheque's payments wait for approval only while it is Pending, except on a
-    cheque the report's Add Cheque made, which still starts Issued (`writer._STARTS_AT`) until #1482
-    makes it Pending: its payments are still approved one by one, as before #1480."""
+    ⚠️ PENDING ONLY. A Payment cheque's payments wait for approval only while it is Pending (every new
+    cheque starts Pending since #1482)."""
     return _payment_cheque_of(payment_name, (PENDING,))
 
 

@@ -40,9 +40,10 @@ describe("chequeRowActions for Procurement", () => {
         }
     });
 
-    it("offers Edit on a cheque it made, as the edit rule allows", () => {
-        expect(chequeRowActions(cheque("Issued"), PROCUREMENT)).toContain("edit");
-        expect(chequeRowActions(cheque("Issued", "Payment", "someone@else"), PROCUREMENT)).not.toContain("edit");
+    it("offers Edit on a Pending cheque it made, as the edit rule allows (#1482)", () => {
+        expect(chequeRowActions(cheque("Pending"), PROCUREMENT)).toContain("edit");
+        expect(chequeRowActions(cheque("Issued"), PROCUREMENT)).not.toContain("edit");
+        expect(chequeRowActions(cheque("Pending", "Payment", "someone@else"), PROCUREMENT)).not.toContain("edit");
     });
 });
 

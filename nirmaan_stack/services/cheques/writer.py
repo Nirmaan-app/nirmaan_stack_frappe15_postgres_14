@@ -9,10 +9,10 @@ Request Payment endpoints and the backfill patch do).
 
 Built so far:
 
-* `create_cheque` -- a new Cheque with its "created" history row. The one-line Cheque for a payment
-  (#1414, #1416) starts Pending and is Issued by its payment's approval (#1479, spec #1477; at once
-  when the payment has already moved on). The report's Add Cheque (`MADE_FROM_REPORT`) still starts at
-  Issued (`_STARTS_AT`).
+* `create_cheque` -- a new Payment cheque with its "created" history row. It starts Pending and is
+  Issued by its payments' approval (#1479, spec #1477; at once when they have already moved on).
+* `add_payment_cheque` -- the Cheque Tracker's Add Cheque (#1482): a Vendor payee, PO lines, payments
+  picked at one step (Requested, CEO Pending or Approved), then `create_cheque`.
 * `backfill_cheque` -- the backfill patch's Cheque for old cheque payments (#1419): no photo, made
   from the PO/WO page, straight at its status, created by the earliest payment's requester.
 * `existing_cheque` -- the Cheque already recorded for a bank + cheque number, if any. The `validate`
@@ -25,10 +25,10 @@ Built so far:
   from the PO/WO page (#1414 Request Payment). Ask the first BEFORE the
   payment is inserted: a Project Payment's `after_insert` commits, so a refusal after it is too late.
 
-* `edit_cheque` -- the report's Edit (#1418): what may change depends on the status, where the
-  Cheque was made and who made it (`rules.edit_access_problem`, `rules.edit_problem`). A payment
-  added on edit is put on the Cheque exactly as on create; one taken off goes back to Online
-  (`take_payment_off`), with a history note.
+* `edit_cheque` -- the Tracker's Edit (#1418, #1482): lines change only while Pending; what else may
+  change depends on where the Cheque was made and who made it (`rules.edit_access_problem`,
+  `rules.edit_problem`). A payment added on edit is put on the Cheque exactly as on create; one taken
+  off goes back to Online at its own step (`take_payment_off`), with a history note.
 * `take_payment_off` -- a payment back to Online, off its Cheque, status unchanged. The edit uses it.
 * `reshape_old_cheque` -- the cheque-types patch's write (#1478, spec #1477): an existing Cheque made a
   Payment cheque, Old-type or not, at the status and dates worked out from its payments.
@@ -53,7 +53,6 @@ from nirmaan_stack.services.cheque_payments import MODE_CHEQUE, MODE_ONLINE
 from nirmaan_stack.services.cheques.rules import (
     CHEQUE_TYPE_PAYMENT,
     EDITABLE_STATUSES,
-    ISSUED,
     LINE_PO_WO_PAYMENT,
     MADE_FROM,
     MADE_FROM_PO_WO_PAGE,
@@ -63,29 +62,25 @@ from nirmaan_stack.services.cheques.rules import (
     PENDING,
     ChequeHeader,
     ChequeLineInput,
+    TrackerLine,
     bank_key,
     edit_access_problem,
     edit_problem,
     header_problem,
+    line_identity,
     normalise_cheque_no,
     parse_header,
     parse_line,
     payment_duplicate_problem,
     payments_taken_off,
     taken_off_note,
+    tracker_payment_cheque_problem,
 )
 
 CHEQUES = "Cheques"
 
 #: Published by every endpoint after a Cheque write commits; the Cheque Payments report refetches on it.
 CHEQUES_CHANGED_EVENT = "cheques:changed"
-
-#: The status a new Cheque starts at, by where it was made. A Payment cheque made for a payment starts
-#: Pending and only `status.issue` makes it Issued (#1479, spec #1477). ⚠️ The report's Add Cheque still
-#: makes Ad-hoc and expense cheques, which no payment approval can issue, so it starts at Issued until
-#: the Cheque Tracker's Add (#1482) replaces it with Pending + `status.issue`.
-_STARTS_AT = {MADE_FROM_PO_WO_PAGE: PENDING, MADE_FROM_REPORT: ISSUED}
-
 
 class DuplicateChequeError(frappe.ValidationError):
     """A one-line Cheque for a payment names a bank + cheque number already recorded (#1414).
@@ -119,11 +114,12 @@ def existing_cheque(bank: str, bank_name: str | None, cheque_no: str, *, exclude
 
 
 def create_cheque(header: ChequeHeader, *, user: str, made_from: str, lines: list[ChequeLineInput] = ()):
-    """Insert a new Cheque from `header` and `lines`, at its starting status (`_STARTS_AT`), with one
-    "created" history row, and put each line's payment on it (`link_payments`). Returns it.
+    """Insert a new Payment cheque from `header` and `lines`, at Pending, with one "created" history row,
+    and put each line's payment on it (`link_payments`). Returns it.
 
-    A Cheque that starts Pending is issued at once (`status.issue`) when its payments have already moved
-    on to Reconciliation Pending; otherwise the approval route's move issues it later.
+    It is issued at once (`status.issue`) when its payments have already moved on to Reconciliation
+    Pending; otherwise the approval route's move (or, for Approved ones, the caller's move after its
+    commit) issues it.
 
     Every rule on the header and lines (the photo, one payee, the description of an Ad-hoc cheque,
     the bank + number uniqueness, a payment on one live Cheque only) is enforced by the `validate`
@@ -136,16 +132,50 @@ def create_cheque(header: ChequeHeader, *, user: str, made_from: str, lines: lis
     """
     if made_from not in MADE_FROM:
         raise ValueError(f"unknown made_from {made_from!r}")
-    status = _STARTS_AT[made_from]
-    doc = _new_cheque(header, made_from=made_from, lines=lines, status=status, history=history_row(None, status, user))
+    doc = _new_cheque(header, made_from=made_from, lines=lines, status=PENDING, history=history_row(None, PENDING, user))
     doc.insert(ignore_permissions=True)
     link_payments(doc)
-    if status == PENDING:
-        # Local: `status` imports this module.
-        from nirmaan_stack.services.cheques.status import issue
+    # Local: `status` imports this module.
+    from nirmaan_stack.services.cheques.status import issue
 
-        doc = issue(doc.name, user=user) or doc
-    return doc
+    return issue(doc.name, user=user) or doc
+
+
+def add_payment_cheque(header: ChequeHeader, lines: list[ChequeLineInput], *, user: str):
+    """The Cheque Tracker's Add Cheque (#1482, spec #1477): a Payment cheque made out to a Vendor, with PO
+    lines whose payments are all at Requested, CEO Pending or Approved, at one step
+    (`rules.tracker_payment_cheque_problem`). Saves it Pending through `create_cheque`. Returns it.
+
+    ⚠️ THE CALLER COMMITS, THEN MOVES THE PAYMENTS ON: an Approved payment's move to Reconciliation
+    Pending issues the cheque, its issue date the payments' approval date (`status.issue`).
+    """
+    problem = tracker_payment_cheque_problem(header, _tracker_lines(lines, kept=()))
+    if problem:
+        frappe.throw(_(problem))
+    return create_cheque(header, user=user, made_from=MADE_FROM_REPORT, lines=lines)
+
+
+def _tracker_lines(lines: list[ChequeLineInput], *, kept) -> list[TrackerLine]:
+    """`lines` with what the Tracker's rules read: whether each is new (its identity not in `kept`), and
+    its payment's status and hold."""
+    kept = {line_identity(line) for line in kept}
+    names = [line.payment_name for line in lines if line.payment_doctype == PAYMENT_DOCTYPE and line.payment_name]
+    facts = {
+        r.name: r
+        for r in frappe.get_all(
+            PAYMENT_DOCTYPE, filters={"name": ["in", names]}, fields=["name", "status", "on_hold"]
+        )
+    } if names else {}
+    out = []
+    for line in lines:
+        fact = facts.get(line.payment_name) if line.payment_name else None
+        out.append(TrackerLine(
+            line=line,
+            added=line_identity(line) not in kept,
+            payment_status=fact.status if fact else None,
+            on_hold=bool(fact.on_hold) if fact else False,
+        ))
+    return out
 
 
 def backfill_cheque(
@@ -181,14 +211,16 @@ def backfill_cheque(
 
 
 def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | None, *, user: str, any_cheque: bool):
-    """Save the report's Edit of Cheque `name`: its new `header`, and its `lines` (None keeps them).
-    Returns it.
+    """Save the Cheque Tracker's Edit of Cheque `name`: its new `header`, and its `lines` (None keeps
+    them). Returns it.
 
     Re-reads the Cheque under its row lock, then refuses with `frappe.PermissionError` a user who may
-    not edit it (`any_cheque` is False for Procurement: only their own Pending or Issued Cheques), and with a
-    validation error an edit the rules forbid (`rules.edit_problem`; an Old-type cheque changes only
-    its photo, spec #1477). The `validate` controller still
-    runs every header and line rule.
+    not edit it (`any_cheque` is False for Procurement: only their own Pending Cheques), and with a
+    validation error an edit the rules forbid (`rules.edit_problem`: lines change only while Pending,
+    and an Old-type cheque changes only its photo). A Payment cheque that is not Old-type also keeps to
+    what the Tracker's Add takes (`rules.tracker_payment_cheque_problem`): a Vendor payee, at least one
+    line, and each added line a PO payment at the step of the payments already on it. The `validate`
+    controller still runs every header and line rule.
 
     A payment added on edit is put on the Cheque as on create (`link_payments`), and a new number or
     date is copied onto the payments already on it. A payment whose line came off goes back to Online
@@ -213,6 +245,10 @@ def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | 
     )
     if problem:
         frappe.throw(_(problem))
+    if doc.cheque_type == CHEQUE_TYPE_PAYMENT and not doc.get("old_type") and doc.status in EDITABLE_STATUSES:
+        problem = tracker_payment_cheque_problem(header, _tracker_lines(lines_after, kept=lines_before))
+        if problem:
+            frappe.throw(_(problem))
 
     taken_off = payments_taken_off(lines_before, lines_after)
     _lock_payments([line.payment_name for line in lines_after if line.payment_doctype == PAYMENT_DOCTYPE] + taken_off)
@@ -232,8 +268,8 @@ def edit_cheque(name: str, header: ChequeHeader, lines: list[ChequeLineInput] | 
     for payment in taken_off:
         doc.append("status_history", history_row(doc.status, doc.status, user, taken_off_note(payment)))
     doc.save(ignore_permissions=True)
-    # Lines and the number change only while Pending or Issued; a Cleared or Cancelled Cheque's payments
-    # may have moved on and must not be pulled back.
+    # Lines and the number change only while Pending; an Issued, Cleared or Cancelled Cheque's payments
+    # have moved on with it and must not be pulled back.
     if doc.status in EDITABLE_STATUSES:
         # After the save: the payment's mode rule lets it go Online once its line is off the Cheque.
         for payment in taken_off:

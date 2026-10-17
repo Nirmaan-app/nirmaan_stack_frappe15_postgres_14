@@ -1,11 +1,10 @@
-import { useFrappeGetCall, useFrappeGetDocList } from "frappe-react-sdk";
+import { useFrappeGetCall } from "frappe-react-sdk";
 
-import type { ChequeLineType } from "@/types/NirmaanStack/Cheques";
-import type { EligibleExpenses, EligiblePayments, VendorRecord } from "@/utils/cheques/chequeLines";
+import { PO_DOCTYPE, type EligiblePayments, type VendorRecord } from "@/utils/cheques/chequeLines";
 
 const PICKERS = "nirmaan_stack.api.cheques.pickers";
 
-/** The Vendor's POs and Work Orders, each with its project (the Add Cheque line pickers, #1410). */
+/** The Vendor's open POs, each with its project (the Add Cheque line pickers, #1410, #1482). */
 export const useVendorRecords = (vendor: string | undefined) => {
     const { data, error, isLoading } = useFrappeGetCall<{ message: VendorRecord[] }>(
         `${PICKERS}.get_vendor_records`,
@@ -16,41 +15,16 @@ export const useVendorRecords = (vendor: string | undefined) => {
 };
 
 /**
- * The expenses an expense line may name, and what was hidden (#1411). A Project Expense line asks
- * only once its project is picked; a Non-project Expense line at once. `cheque` is the Cheque being
- * edited (#1418): its own expenses stay offered.
+ * A PO's payments that may go on a Payment cheque, and what was hidden (#1482). `cheque` is the Cheque being
+ * edited: its own payments stay offered. `otherPayments` are the payments on the cheque's other lines: only
+ * their step is offered, and they are not offered again.
  */
-export const useEligibleExpenses = (lineType: ChequeLineType, project: string, cheque?: string) => {
-    const ready = lineType === "Non-project Expense" || (lineType === "Project Expense" && Boolean(project));
-    const { data, error, isLoading } = useFrappeGetCall<{ message: EligibleExpenses }>(
-        `${PICKERS}.get_eligible_expenses`,
-        { line_type: lineType, project: project || undefined, cheque },
-        ready ? `cheque-eligible-expenses-${lineType}-${project}-${cheque ?? ""}` : null
-    );
-    return { eligible: data?.message, error, isLoading };
-};
-
-/** Every project by name, for a Project Expense line (any project's expense may go on a cheque). */
-export const useAllProjects = () => {
-    const { data, isLoading } = useFrappeGetDocList<{ name: string; project_name: string }>(
-        "Projects",
-        { fields: ["name", "project_name"], limit: 0, orderBy: { field: "project_name", order: "asc" } },
-        "cheque-line-all-projects"
-    );
-    const options = (data ?? []).map((p) => ({ value: p.name, label: p.project_name || p.name }));
-    return { options, isLoading };
-};
-
-/**
- * A PO's or Work Order's payments that may go on a Cheque, and what was hidden. `cheque` is the
- * Cheque being edited (#1418): its own payments stay offered.
- */
-export const useEligiblePayments = (recordDoctype: string, recordName: string, cheque?: string) => {
-    const ready = Boolean(recordDoctype && recordName);
+export const useEligiblePayments = (recordName: string, cheque: string | undefined, otherPayments: string[]) => {
+    const others = otherPayments.join(",");
     const { data, error, isLoading } = useFrappeGetCall<{ message: EligiblePayments }>(
         `${PICKERS}.get_eligible_payments`,
-        { record_doctype: recordDoctype, record_name: recordName, cheque },
-        ready ? `cheque-eligible-payments-${recordDoctype}-${recordName}-${cheque ?? ""}` : null
+        { record_doctype: PO_DOCTYPE, record_name: recordName, cheque, other_payments: JSON.stringify(otherPayments) },
+        recordName ? `cheque-eligible-payments-${recordName}-${cheque ?? ""}-${others}` : null
     );
     return { eligible: data?.message, error, isLoading };
 };

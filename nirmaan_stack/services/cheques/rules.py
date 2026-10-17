@@ -348,18 +348,18 @@ EDITABLE_HEADER_FIELDS = (
 #: while a Project Payment is still on it (`edit_problem`).
 LOCKED_ON_PO_WO_PAGE = {"cheque_no": "number", "cheque_date": "date", "amount": "amount"}
 #: The statuses at which a Cheque's fields and lines may still be edited; any other status is photo only.
-#: Pending joined Issued with #1479, so a Request Payment cheque waiting for approval stays editable.
-#: ⚠️ Spec #1477 makes a Payment cheque photo-only once Issued: #1482 drops ISSUED from here.
-EDITABLE_STATUSES = (PENDING, ISSUED)
+#: A Payment cheque's lines change only while Pending (#1482, spec #1477): once its payments are approved
+#: it is Issued, and its payments and the bank line follow it as it is.
+EDITABLE_STATUSES = (PENDING,)
 
 
 def edit_access_problem(*, status: str, owner: str, user: str, any_cheque: bool) -> str | None:
     """Why `user` may not edit this Cheque, or None. `any_cheque` is True for Admin, Accountant and
-    Accountant Lead; anyone else who may use cheques (Procurement) edits only the Pending or Issued
-    Cheques they created (`EDITABLE_STATUSES`)."""
+    Accountant Lead; anyone else who may use cheques (Procurement) edits only the Pending Cheques they
+    created (`EDITABLE_STATUSES`, C6)."""
     if any_cheque or (status in EDITABLE_STATUSES and owner == user):
         return None
-    return "You can edit only the Pending or Issued cheques you created."
+    return "You can edit only the Pending cheques you created."
 
 
 def _join(words: list[str]) -> str:
@@ -380,15 +380,16 @@ def edit_problem(
 
     * the photo can be replaced, never removed;
     * an Old-type cheque (spec #1477) can change only its photo, whatever its status;
-    * a Cleared or Cancelled Cheque can change only its photo; a Pending one edits like an Issued one
-      (`EDITABLE_STATUSES`);
-    * an Issued Cheque made from the PO/WO page keeps its number, date and amount while it still has a
+    * an Issued, Cleared or Cancelled Cheque can change only its photo (`EDITABLE_STATUSES`);
+    * a Pending Cheque made from the PO/WO page keeps its number, date and amount while it still has a
       Project Payment line (they stay in step with the payment), but its other fields and its lines can
-      change. With no Project Payment line left (removed, swapped out, or dropped by a payee change) it
-      edits like a report-made Cheque;
-    * an Issued Cheque made on the report can change everything;
-    * any line can come off an Issued Cheque. A Project Payment taken off switches back to Online
-      (`payments_taken_off`), whatever its status, and its status stays as it is.
+      change. With no Project Payment line left (removed or swapped out) it edits like a Tracker-made
+      Cheque;
+    * a Pending Cheque made in the Tracker can change everything;
+    * any line can come off a Pending Cheque. A Project Payment taken off switches back to Online
+      (`payments_taken_off`), and its status stays as it is.
+
+    What a Payment cheque's header and lines may hold is `tracker_payment_cheque_problem`.
 
     The header and line rules every save runs (one payee, a live Cheque per payment, ...) are the
     `validate` controller's, not repeated here.
@@ -414,7 +415,7 @@ def edit_problem(
 
 def payments_taken_off(lines_before: list[ChequeLineInput], lines_after: list[ChequeLineInput]) -> list[str]:
     """The Project Payments `lines_before` hold and `lines_after` do not, in line order. A payment taken
-    off an Issued Cheque switches back to Online (owner ruling, spec #1407 story 82)."""
+    off a Pending Cheque switches back to Online at its own step (owner ruling, spec #1407 story 82)."""
     kept = {line.payment_name for line in lines_after if line.payment_doctype == PAYMENT_DOCTYPE}
     return [
         line.payment_name
@@ -455,6 +456,74 @@ def mode_change_problem(
         return None if cheque else "An Online payment becomes a Cheque payment by putting it on a Cheque."
     if old_cheque_status not in _RELEASED_CHEQUE_STATUSES and on_old_cheque_lines:
         return "A Cheque payment goes back to Online only once its Cheque is Cancelled."
+    return None
+
+
+# -- a Payment cheque made or edited in the Cheque Tracker (#1482, spec #1477) ------------------
+#: The steps a payment may be at to be put on a Payment cheque: waiting for approval, or approved and
+#: not yet moved on (the cheque is then Issued at once). A cheque's payments are approved together, so
+#: they are all at one step.
+PICKABLE_STEPS = (STATUS_REQUESTED, STATUS_CEO_PENDING, STATUS_APPROVED)
+
+
+@dataclass(frozen=True)
+class TrackerLine:
+    """One line of a Payment cheque the Tracker saves, with what its rules need to know."""
+
+    line: ChequeLineInput
+    #: New on this save: every line of a new cheque; on an edit, a line the cheque did not hold.
+    added: bool
+    #: The status of the payment the line names; None while it names none.
+    payment_status: str | None = None
+    on_hold: bool = False
+
+
+def line_identity(line: ChequeLineInput) -> tuple:
+    """What a line pays, to tell an edit's added lines from the ones it kept: its kind, record and
+    payment. The same line with another amount typed is not added."""
+    return (line.line_type, line.record_doctype, line.record_name, line.payment_name)
+
+
+def tracker_payment_cheque_problem(header: ChequeHeader, lines: Sequence[TrackerLine]) -> str | None:
+    """Why the Cheque Tracker cannot save this Payment cheque, new or edited, or None. Pure.
+
+    * It is made out to a Vendor: no typed payee (spec #1477 Q17).
+    * It has at least one line: no Ad-hoc Payment cheque.
+    * Each added line is a PO payment: no Work Order line (Work Order payments are paid Online) and no
+      expense line (Q11). A Work Order line already on a cheque from before stays.
+    * Each added payment is at Requested, CEO Pending or Approved (`PICKABLE_STEPS`) and not on hold.
+    * When a payment is added, every payment on the cheque is at the same step, since they are
+      approved together (C1). Otherwise the payments already on it are not judged again.
+
+    The rules every save runs (the Vendor's PO in the line's project, one live cheque per payment, ...)
+    are the `validate` controller's (`lines.lines_problem`).
+    """
+    if not header.vendor:
+        return "A Payment cheque is made out to a Vendor: pick the Vendor, not a typed payee."
+    if not lines:
+        return "Add at least one PO payment: a Payment cheque pays the PO payments on its lines."
+    for n, tracker in enumerate(lines, 1):
+        line = tracker.line
+        if tracker.added and (line.line_type != LINE_PO_WO_PAYMENT or line.record_doctype != PO_DOCTYPE):
+            return (
+                f"Line {n}: a Payment cheque pays PO payments only. Work Order payments are paid Online, "
+                "and expenses are not paid by cheque."
+            )
+    picked = [(n, t) for n, t in enumerate(lines, 1) if t.added and t.line.payment_name]
+    for n, tracker in picked:
+        status = (tracker.payment_status or "").strip()
+        if status not in PICKABLE_STEPS:
+            return (
+                f"Line {n}: payment {tracker.line.payment_name} is {status or 'not found'}: only a Requested, "
+                "CEO Pending or Approved payment can be put on a cheque."
+            )
+        if tracker.on_hold:
+            return f"Line {n}: payment {tracker.line.payment_name} is on hold: release the hold first."
+    if picked:
+        named = [t for t in lines if t.line.payment_name]
+        if len({(t.payment_status or "").strip() for t in named}) > 1:
+            steps = ", ".join(f"{t.line.payment_name} is {t.payment_status}" for t in named)
+            return f"A cheque's payments are approved together, so they must be at the same step: {steps}."
     return None
 
 
