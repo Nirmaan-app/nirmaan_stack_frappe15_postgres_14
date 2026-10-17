@@ -1197,6 +1197,15 @@ CPVC named with PVC or uPVC prices as CPVC ("BoQ allows CPVC or uPVC -> priced a
 LOWER cost for the row's size. The person switches it with the family control; a PICK is never second-guessed, and a word typed
 naming two types reads exactly as the same word read off the BoQ ("You typed ..."). A row with two pipes stays two items.
 
+**A DRAIN PIPE WHOSE BoQ NAMES NO MATERIAL PRICES AS CPVC (owner R1, 2026-10-16 23:43: "for drain pipes consider CPVC if no
+material is mentioned"; slice 12e-6b).** A pipe the BoQ calls a drain (drain pipe, condensate drain, drain piping; in the row or a
+heading) with NO pipe material named anywhere in its payload is priced as CPVC, with the amber line "drain pipe, no material stated
+-> priced as CPVC"; the person can change the dropdown. A drain that names a material keeps the rules above (uPVC / HDPE -> PVC,
+GI -> MS, CPVC with PVC -> CPVC). Code: `itemListPricing.drainPipeDefault`, reached only where the pipe type was neither answered
+nor picked -- an answered type is never overridden, and the text it reads is the panel's (the row, its headings' descriptions, its
+own notes). The calculator has no row text, so it never fires there. HVAC v45's Piping `pipe_type` note tells the model to leave
+such a pipe's type out (do not guess); the code prices it as CPVC.
+
 **A THICKNESS RANGE TAKES THE HIGHER (owner R10, 2026-10-16: "ok"; slice 12e-6 AC8).** "25-50 mm" (hyphen or en dash) on a
 thickness reader (`several: "highest"`) reads "'25-50mm' states a range - the higher, 50, is taken"; a pipe size range keeps
 its own line.

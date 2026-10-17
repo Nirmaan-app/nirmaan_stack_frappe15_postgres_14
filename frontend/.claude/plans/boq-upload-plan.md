@@ -48015,3 +48015,97 @@ run docs 348 (199 active), BoQ AI Run Log 1, no write during the cert. U9: the t
 - 00191 / Sheet1 37-44: an unconditional coating not copied (priced with no cladding); 00281 / 66: "DRAIN PIPE" answered PVC.
 - 00133: "XLPE ... tubular insulation/with ... nitrile rubber tubular sleeves" -- alternatives or both? (owner question).
 - residence_check: F5 120 / 117 and F2 221 / 217 were already over baseline at `ff1ec608b` (no 12e-6 file changes either count).
+
+## Slice 12e-6b - Piping: the drain-pipe default (R1), one tiny declared re-read, the green-light data pack - as built 2026-10-17
+
+**Commits (unpushed at the time of writing):**
+- `d4c63be2b` fix(rate-helper): R1 - `itemListPricing.drainPipeDefault` (with `DRAIN_RE`, `DRAIN_MATERIAL_WORDS`,
+  `namesNoPipeMaterial`), called from `priceOneItem` after the as-written step; one add-only Derivation-tab line in
+  `itemListRuleOrder.ts` ("A drain pipe whose material the BoQ does not name prices as CPVC"); `slice12e6b.test.ts` (15); pins
+  moved by mechanical authority (`ruleReachability` Piping titles 23 -> 24, `slice12e4b` ADDED_12E6 + the R1 title).
+- `147fe769e` feat(rate-master): HVAC v45 = v43 + one Piping `pipe_type` note ("A drain pipe whose material the BoQ does not name:
+  leave the pipe type out (do not guess); the code prices it as CPVC."). **v44: reverted in 12e-6, kept on disk for the version
+  series** (owner option B: restored byte-equal to `79f320204`, never loaded, never current; v45 is the highest and the one loaded).
+- The docs commit that carries this entry.
+
+Start tip `0d6716c58` (= origin). Live on dev: HVAC v45 (items `93bbac8f3c13d86c`, configs `077bbe331f87aa19`; snapshot
+BRMS-26-01173, batch `rmbulk-c7b9569bd0e8`), Electrical v66 unchanged. Report on the Desktop: `2026-10-16_12e6b_Report.md` (ledger
+first), `_Rows_full.xlsx`, `_Piping_State.xlsx`, `_AC4_Declaration.md`, screens in `2026-10-16_12e6b_screens\`.
+
+### 1. R1 and the free recheck
+
+- Owner R1 (2026-10-16 23:43): "for drain pipes consider CPVC if no material is mentioned". A pipe the BoQ calls a drain, with no
+  pipe material named anywhere in its payload, prices as CPVC, amber. A drain naming a material keeps today's rules. R2 (00133
+  "XLPE ... /with ... nitrile rubber sleeves" = nitrile) and R3 (glass cloth on Thermal Nitrile sheet) change nothing.
+- Premise found: an ANSWERED type is never overridden, so the code alone moves only an untold type. The panel's text is the
+  row, its headings' descriptions and its own notes (ancestor notes do not reach the pricer).
+- AC3 replay (17,883 rows, both harnesses): exactly 1 row moved - 00185 / HVAC / 66 refused ("no SKU in the catalogue for
+  'DRAIN'") -> 478 / 42. 0 Electrical, 0 ADP. v45 moves 0 rows. Vacuity: 3 runs red, restored sha-equal.
+
+### 2. The re-read (AC4 / AC5)
+
+- Search (real builder, stub client, rolled back): 1,349 Piping blocks, 401 with a drain word, 2 naming no material - 00185 / 66
+  (fixed by the code) and **00281 / 66** (the model guessed PVC: the target).
+- Declared and run on the owner's "go" (2026-10-17 09:33-09:35 IST): 4 sheets / 6 rows / **4 calls** (cap 9), 0 second opinion,
+  37,204 tokens in (declared ~38,650) / 1,606 out. Superseded BRSR-26-00718 / 00548 / 00884 / 00861 -> 00924 / 00925 / 00926 / 00927.
+- AC5: 00281 / 66 FIXED - the model left the type out (the v45 note followed), CPVC 478 / 42 with the R1 line (was PVC 358 / 42).
+  Controls: 00162 / Water Side 75, 76 and 00003 / 371 and 00188 / 61 replay byte-equal; **00188 / 60** moved in the section-aware
+  harness only by its insulation thickness wording ("6mm thick" -> "6mm") - the slice STOPPED, the owner ruled it NEUTRAL. Stored
+  wording-only changes with no replay move: 00003 / 371 (material as written "nitrile foam" -> blank, pipe size -> "25mm dia"),
+  00188 / 61 (pipe size -> "32mm Dia"). The other 163 rows of the 4 sheets are byte-equal.
+- AC6 payload integrity: 6 / 6 blocks byte-equal to the payload logged; EA-7 6 / 6 PASS; 6 / 6 replied, 0 exceptions.
+- AC7 new baseline: **17,883 rows; plain `85869b59717d1b2a2787bbcd8a382e4a811bee601d773bd6ed008a97420d16f7`; section-aware
+  `5c824dd331a0b9d53c0250685e864bb82c9c7976d9691fcbbccae73221e4c5a5`**; run docs 352 (199 active); BoQ AI Run Log 1.
+
+### 3. The green-light data pack (AC8 / AC9, read-only)
+
+- Piping: 1,349 rows read, 1,148 priced, 201 refused (coating 53, XLPE / jacket 33, no size 27, above 53.98 27, above another
+  top 17, no items 13, unit 11, no type 8, thickness above the top 6, no SKU named 6). Insulation-category rows: 363 read, 280
+  priced, 83 refused (above 53.98 39, ...), + 12 rows on run sheets never read.
+- 172 current sheets carry Piping or Insulation rows: 110 have a run at today's version; 62 do not (32 never run with the gate
+  open, 20 formulas incomplete, 17 rows still need a category, 2 owner-excluded).
+- Amber defaults on priced Piping rows: cladding No 684, class / gauge -> the one rate 565, pipe size laddered 434, Insulated No
+  187, 9 -> 13 mm 176, R1 2.
+- Parity (the 12e-5c AC13 method, every Piping row): 1,039 outright, 188 typed, 59 both refuse, 52 the panel refusing by the
+  material as written (named shape), 11 a pipe below its smallest size (named shape; the same 11 rows as 12e-5c).
+- Go-live checklist: v45 live = the committed file; second opinion off (Piping, Insulation, ADP); Piping eligible and listed;
+  Derivation lines Piping 24 / Insulation 33 / ADP 18; the four Piping accessories inputs; 40 / 40 Piping SKUs priced; the
+  empty-database load is `test_rate_master.TestFormulaRoundTripSlice12a` (v45 into a fresh discipline, non-replace).
+  Expected loads: v45 over production's v33 -> items_total 379 (insulation 233, adp 95, piping 40, pricing_input 11),
+  configs_loaded 10, items_deactivated 335, configs_deactivated 9, no retirements; Electrical v66 over v66 -> 1,402 / 13 loaded,
+  1,402 / 13 deactivated, the six retirements `existing`, 0 retired rows deactivated (no item content changes).
+  Content hashes (item_uid-keyed, final_state method): v33 `95e1a29545a942e6` / `bba3cd801eebc7ce`; v45 `93bbac8f3c13d86c` /
+  `077bbe331f87aa19`; Electrical v66 `784d1dbe8024d5f8` / `aa8d0a49ef645120` (export text sha256 `76811ae7...746f` = the
+  restore-time snapshot BRMS-26-00033). No doctype, column, index or patch change in this slice; package.json / yarn.lock
+  unchanged since `26ee3ec0c`.
+
+### 4. Suites, cert
+
+Suites, all at `147fe769e` (logs on the Desktop: `2026-10-16_12e6b_python_full.log`, `_frontend_full.log`, `_tsc_full.log`):
+Python full suite Ran 8,459, failures=6, errors=2 (the identical known set; +3 = the new v45 loader tests); vitest 186 files /
+6,988 tests, 1 failed (the known `writeOffControl.test.ts` 5 s timeout); tsc 3,170 errors, the identical set. The capture log was
+copied to `Desktop\Capture log backup\` before the re-read and before the Python suite, every copy sha-equal; the suite's 89 added
+lines are mocked clients (test BoQ 00762, no usage), 0 real calls. The replay after the suite is byte-equal to the AC7 baseline.
+
+Cert (:8080, own tab, de-staled first: bench / honcho / vite killed by PID, ports free, pycache and .vite purged, ping after
+199 s, vite after; service worker unregistered, site storage cleared, a new tab, hard refresh, the session kept; PROOF 1 the served
+modules carry `drainPipeDefault`, `DRAIN_MATERIAL_WORDS`, "drain pipe, no material stated -> priced as " and the Derivation line;
+PROOF 2 the in-page import exports `drainPipeDefault` and 18 drain material words; screenshots `Desktop\2026-10-16_12e6b_screens\`):
+C1 00281 / HVAC 66: CPVC with the amber R1 line, pipe 240 / 28 + insulation, combined 520 (= the pure pricer's 478 / 42; the pipe
+type dropdown reads "- select -", as for every untold type, e.g. 00003 / 371 in 12e-6). C2 00192 / Sheet1 105 (uPVC in a drain
+heading's note): PVC "BoQ says uPVC -> priced as PVC", 601 (545 / 56). C3: the Derivation tab, Piping line 8 of 24 is R1. AC10:
+00064 / HVAC 71 copper + 26G cladding 2,614 / 444; 00164 / CHW UNITS 33 MS + 50 mm as 25 + 25, 1,425 / 378; 00281 / 66 (C1);
+00086 / High side 104 alternatives (closed cell elastomeric nitrile rubber / XLPE -> Nitrile) 1,595 / 304; 00086 / 91 insulation
+refused, pipe size 80 above 53.98; 00336 / HVAC 207 refused, polyshield coating; 00122 / HVAC BOQ 341 (Insulation category) 643 /
+224; the Piping Derivation tab. C5 smoke: 00162 / Water Side 17 2,123 / 588; calculator ADP fire damper UL yes 600 x 600 7,830 /
+692; Electrical 00174 / 309 1,884. C6: HVAC v45 `93bbac8f3c13d86c` / `077bbe331f87aa19`, Electrical v66 `784d1dbe8024d5f8` /
+`aa8d0a49ef645120`, run docs 352 (199 active), BoQ AI Run Log 1, 0 writes during the cert. No override used. One mis-click toggled
+"Freeze columns" on 00192 (a view setting); toggled back at once. Fast render back on with every load.
+
+### 5. Findings for the next slice
+
+- The conditional-coating rows (00197 / 370, 374, 378; 00336 / 266-269), 00191 / Sheet1 37-44 and the 00162 / 17 smoke figure are
+  accepted as known behaviour (owner 2026-10-16 23:40); glass cloth on Thermal Nitrile sheet: nothing to do for now (R3).
+- 62 sheets with Piping / Insulation rows have no run at today's version (Piping_State.xlsx (b)); 12 Insulation rows on run sheets
+  were never read.
+- residence_check: unchanged pre-existing F5 / F2 counts (no 12e-6b file changes either).
